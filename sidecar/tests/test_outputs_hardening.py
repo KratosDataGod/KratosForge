@@ -7,7 +7,7 @@ import json
 import pyarrow as pa
 import pytest
 
-from fabric_desktop import wrangler
+from fabric_desktop import widgets, wrangler
 from fabric_desktop.notebook import Kernel
 from fabric_desktop.server import _reply_text
 
@@ -88,3 +88,120 @@ def test_jslink_keeps_two_controls_in_step_in_the_kernel():
     assert [x["value"] for x in ev["view"]["children"]] == [7, 7, 7]
     ev = k.ipywidget_event(c, {"value": 2}, out["outputs"][0]["model"])
     assert [x["value"] for x in ev["view"]["children"]] == [7, 7, 2]
+
+
+def test_links_stop_instead_of_recursing_and_a_broken_one_says_so():
+    k = Kernel()
+    # Transforms that aren't each other's inverse: one update each way, as traitlets does, no recursion.
+    out = k.run("import ipywidgets as w\na, b = w.IntSlider(), w.IntSlider(max=1000)\n"
+                "w.link((a, 'value'), (b, 'value'), transform=(lambda v: v * 2, lambda v: v * 3))\n"
+                "a.value = 5\nprint(a.value, b.value)")
+    assert out["status"] == "ok", out
+    assert out["outputs"][0]["text"] == "5 10\n"
+    # Transforms that undo each other keep both sides in step.
+    out = k.run("c, d = w.IntSlider(), w.IntSlider(max=1000)\n"
+                "w.link((c, 'value'), (d, 'value'), transform=(lambda v: v * 10, lambda v: v // 10))\n"
+                "c.value = 4\nprint(d.value)\nd.value = 70\nprint(c.value)")
+    assert out["outputs"][0]["text"] == "40\n7\n"
+    # Something that changes the source while the link updates the target breaks the link.
+    out = k.run("e, f = w.IntSlider(), w.IntSlider()\nw.link((e, 'value'), (f, 'value'))\n"
+                "f.observe(lambda ch: setattr(e, 'value', 99), names='value')\ne.value = 3")
+    assert out["status"] == "error" and out["outputs"][-1]["ename"] == "TraitError"
+    assert out["outputs"][-1]["evalue"].startswith("Broken link")
+
+
+def test_new_bounds_clamp_the_value_and_min_above_max_is_refused():
+    s = widgets.IntSlider(value=50)
+    s.max = 10
+    assert s.value == 10
+    s.max, s.min = 30, 20
+    assert s.value == 20
+    r = widgets.IntRangeSlider(value=(20, 80))
+    r.max = 10
+    assert r.value == (10, 10)
+    with pytest.raises(widgets.TraitError, match="min > max"):
+        widgets.FloatSlider(min=5.0, max=1.0)
+    with pytest.raises(widgets.TraitError, match="min > max"):
+        s.min = 99
+    assert (s.min, s.value) == (20, 20)  # a refused bound changes nothing
+    with pytest.raises(widgets.TraitError, match="max < min"):
+        s.max = 1
+    assert widgets.IntText(value=500).value == 500  # unbounded boxes never clamp
+
+
+def test_new_options_select_the_first_and_keep_value_label_and_index_together():
+    d = widgets.Dropdown(options=[("One", 1), ("Two", 2)], value=2)
+    seen = []
+    d.observe(lambda c: seen.append(c.new), names="value")
+    d.options = ["a", "b"]
+    assert (d.value, d.label, d.index) == ("a", "a", 0)
+    assert seen == ["a"]
+    d.options = []
+    assert (d.value, d.label, d.index) == (None, None, None)
+
+
+def test_select_multiple_takes_index_and_label_like_ipywidgets():
+    m = widgets.SelectMultiple(options=[("A", 1), ("B", 2), ("C", 3)], index=(0, 2))
+    assert (m.value, m.label, m.index) == ((1, 3), ("A", "C"), (0, 2))
+    m.label = ("B",)
+    assert m.value == (2,)
+    m.options = ["x", "y"]
+    assert (m.value, m.index) == ((), ())
+    with pytest.raises(ValueError):
+        m.index = (5,)
+
+
+def test_tab_and_accordion_titles():
+    t = widgets.Tab(children=[widgets.Label("a"), widgets.Label("b")])
+    t.set_title(1, "Second")
+    assert t.titles == ("", "Second")
+    assert (t.get_title(1), t.get_title(0), t.get_title(9)) == ("Second", "", "")
+    a = widgets.Accordion(children=[widgets.Label("a")], titles=("Only",), selected_index=0)
+    assert (a.get_title(0), a.selected_index) == ("Only", 0)
+
+
+def test_wrangler_keeps_decimal_digits_and_reads_times_in_the_columns_zone():
+    import datetime as dt
+    import decimal
+
+    import polars as pl
+    df = pl.DataFrame({
+        "price": pl.Series([decimal.Decimal("1.50"), None], dtype=pl.Decimal(10, 2)),
+        "at": pl.Series([dt.datetime(2024, 1, 1), None]).dt.replace_time_zone("UTC"),
+        "ns": pl.Series([dt.datetime(2024, 1, 1), None], dtype=pl.Datetime("ns")),
+        "clock": [dt.time(9), dt.time(13)],
+        "took": [dt.timedelta(1), None],
+    })
+    t = df.to_arrow()
+    filled = wrangler.run(t, df, [{"op": "fill", "columns": ["price"], "value": "0.10"}])
+    assert filled["error"] is None and filled["types"][0].startswith("decimal")
+    assert [r[0] for r in filled["rows"]] == ["1.50", "0.10"]
+    later = wrangler.run(t, df, [{"op": "filter", "column": "at", "test": "ge", "value": "2023-12-31"}])
+    assert later["error"] is None and later["rows_after"] == 1
+    assert wrangler.run(t, df, [{"op": "fill", "columns": ["at"], "value": "2024-02-01"}])["error"] is None
+    assert wrangler.run(t, df, [{"op": "fill", "columns": ["ns"], "value": "2024-02-01"}])["error"] is None
+    assert wrangler.run(t, df, [{"op": "filter", "column": "clock", "test": "gt", "value": "12:00"}])["rows_after"] == 1
+    took = wrangler.run(t, df, [{"op": "filter", "column": "took", "test": "gt", "value": "1"}])
+    assert "duration" in took["error"]["message"]
+
+
+def test_an_interact_function_that_raises_keeps_its_controls_and_shows_the_error_inside():
+    k = Kernel()
+    out = k.run("import ipywidgets as w\ndef f(x):\n    return 10 / x\nw.interact(f, x=(0, 1))\n"
+                "o = w.interactive_output(f, {'x': w.IntSlider(value=0)})\nprint('after')")
+    assert out["status"] == "ok"
+    box = out["outputs"][0]["view"]
+    error = box["children"][-1]["outputs"][0]
+    assert error["ename"] == "ZeroDivisionError" and "widgets.py" not in error["traceback"]
+    assert out["outputs"][-1]["text"] == "after\n"
+    assert k.run("o.outputs[0]['ename']")["outputs"][0]["text"] == "'ZeroDivisionError'"
+
+
+def test_older_ipython_core_display_imports_and_raw_bundles_work():
+    k = Kernel()
+    out = k.run("from IPython.core.display import HTML, display\ndisplay(HTML('<b>x</b>'))\n"
+                "import IPython.core.display as d\nimport IPython\nprint(d is IPython.display)")
+    assert out["outputs"][0] == {"type": "html", "html": "<b>x</b>"}
+    assert out["outputs"][1]["text"] == "True\n"
+    raw = k.run("display({'text/plain': 'plain'}, {'text/html': '<i>h</i>', 'text/plain': 'h'}, raw=True)")["outputs"]
+    assert raw == [{"type": "text", "text": "plain"}, {"type": "html", "html": "<i>h</i>"}]

@@ -119,10 +119,13 @@ class KernelSessions:
 
     def rename(self, old: str, new: str) -> None:
         with self._lock:
-            if self.in_process and old in self._sessions and new not in self._sessions:
-                session = self._sessions.pop(old)
-                session.notebook = new
-                self._sessions[new] = session
+            if self.in_process and new not in self._sessions:
+                # An idle session reap_idle has out moves too, so a lookup by the new name gets it back.
+                for sessions in (self._sessions, self._reaping):
+                    if old in sessions and new not in sessions:
+                        session = sessions.pop(old)
+                        session.notebook = new
+                        sessions[new] = session
             if self.active == old:
                 self.active = new
 
@@ -148,7 +151,8 @@ class KernelSessions:
     def _make_room(self) -> None:
         cap = max(1, int(self._max() or DEFAULT_MAX_SESSIONS))
         live = [s for s in self._sessions.values() if s.alive()]
-        idle = sorted((s for s in live if not s.running()), key=lambda s: s.last_used)
+        # Never the open notebook's: a proof or replay of another notebook mustn't clear its variables.
+        idle = sorted((s for s in live if not s.running() and s.notebook != self.active), key=lambda s: s.last_used)
         while len(live) >= cap and idle:
             oldest = idle.pop(0)
             oldest.kernel.close()

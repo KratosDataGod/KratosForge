@@ -201,3 +201,65 @@ def test_secrets_list_stays_on_the_vault_host(monkeypatch):
     out = Kernel(token=lambda audience: "tok").run("dbutils.secrets.list('kv')")
     assert out["status"] == "error" and "another host" in out["outputs"][-1]["evalue"]
     assert sent == ["https://kv.vault.azure.net/secrets"]
+
+
+@pytest.mark.parametrize("vault", ["https://evil.example", "evil.example/x#", "https://kv.vault.azure.net.evil.example",
+                                   "https://kv.vault.azure.net@evil.example", "http://kv.vault.azure.net",
+                                   "https://kv.vault.azure.net:8443", "https://kv.vault.azure.net/other", "kv?x=1"])
+def test_the_key_vault_token_only_goes_to_a_key_vault(monkeypatch, vault):
+    import types
+
+    from fabric_desktop import http_session
+    sent = []
+    monkeypatch.setattr(http_session, "session", lambda: types.SimpleNamespace(
+        get=lambda url, **kw: sent.append(url)))
+    k = Kernel(token=lambda audience: "tok")
+    k.namespace["vault"] = vault
+    for code in ("notebookutils.credentials.getSecret(vault, 'pw')", "dbutils.secrets.get(vault, 'pw')",
+                 "dbutils.secrets.list(vault)"):
+        out = k.run(code)
+        assert out["outputs"][-1]["ename"] == "ValueError" and "isn't a Key Vault" in out["outputs"][-1]["evalue"], out
+    assert sent == []
+
+
+def test_a_secret_name_cant_reach_another_path(monkeypatch):
+    import types
+
+    from fabric_desktop import http_session
+    sent = []
+    monkeypatch.setattr(http_session, "session", lambda: types.SimpleNamespace(get=lambda url, **kw: sent.append(url)))
+    out = Kernel(token=lambda audience: "tok").run("notebookutils.credentials.getSecret('kv', '../keys/k')")
+    assert out["outputs"][-1]["ename"] == "ValueError" and sent == []
+    from fabric_desktop.notebookutils_local import vault_url
+    assert vault_url("https://KV.vault.azure.net/") == "https://kv.vault.azure.net" == vault_url(" kv ")
+
+
+def test_secrets_list_follows_key_vaults_own_next_page_link(monkeypatch):
+    import types
+
+    from fabric_desktop import http_session
+    sent = []
+    pages = {"https://kv.vault.azure.net/secrets": {"value": [{"id": "https://kv.vault.azure.net/secrets/a"}],
+                                                    "nextLink": "https://kv.vault.azure.net:443/secrets?api-version=7.4&$skiptoken=x"},
+             "https://kv.vault.azure.net:443/secrets?api-version=7.4&$skiptoken=x":
+                 {"value": [{"id": "https://kv.vault.azure.net:443/secrets/b"}]}}
+    monkeypatch.setattr(http_session, "session", lambda: types.SimpleNamespace(get=lambda url, **kw: (
+        sent.append(url), types.SimpleNamespace(status_code=200, json=lambda: pages[url], raise_for_status=lambda: None))[1]))
+    out = Kernel(token=lambda audience: "tok").run("[s.key for s in dbutils.secrets.list('KV')]")
+    assert _last(out) == "['a', 'b']", out
+    assert len(sent) == 2
+
+
+@pytest.mark.parametrize("link", ["https://kv.vault.azure.net:8443/secrets", "http://kv.vault.azure.net/secrets",
+                                  "https://kv.vault.azure.net@evil.example/secrets", "https://kv.vault.azure.net:x/secrets",
+                                  "https://other.vault.azure.net/secrets"])
+def test_secrets_list_refuses_a_next_page_off_the_vault(link):
+    from fabric_desktop.notebookutils_local import on_vault
+    assert not on_vault(link, "https://kv.vault.azure.net")
+
+
+def test_a_secret_name_with_a_trailing_newline_is_refused():
+    out = Kernel(token=lambda audience: "tok").run("notebookutils.credentials.getSecret('kv', 'pw\\n')")
+    assert out["outputs"][-1]["ename"] == "ValueError", out
+    from fabric_desktop.notebookutils_local import vault_url
+    assert vault_url("MyVault") == "https://myvault.vault.azure.net"

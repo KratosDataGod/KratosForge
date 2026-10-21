@@ -587,7 +587,8 @@ function splitCell(cell) {
   const pos = view ? view.state.selection.main.head : cell.source.length;
   const before = cell.source.slice(0, pos).replace(/\n$/, "");
   let after = cell.source.slice(pos).replace(/^\n/, "");
-  const magic = MAGIC[cellLang(cell)];
+  // The second half keeps the cell's magic as the cell writes it: Fabric's %%sql or Databricks' %sql.
+  const magic = MAGIC[cellLang(cell)] && cell.source.trimStart().split(/\s/, 1)[0];
   if (magic && !after.trimStart().startsWith(magic)) after = `${magic}\n${after}`;
   setSource(cell, before);
   const cells = state.notebook.cells;
@@ -1382,6 +1383,7 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
   let last = null;
   try {
     const watches = await dbgWatches(nb);  // debugging.js
+    await nbInputsSaved();  // nbinputs.js: a value just changed in the bar is the one that runs
     let snap = await rpc("start_cell", { code: cell.source + nbInputSuffix(cell), lakehouse_ref: nbLakehouse(nb), notebook: nb.name,
       ...(timeLimit ? {} : { time_limit: false }), ...(watches.length ? { watches } : {}), ...(code != null ? { code } : dbgStartArgs(cell, debug)) });
     for (;;) {

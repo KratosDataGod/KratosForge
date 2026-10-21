@@ -3355,6 +3355,8 @@ test("Ctrl+Shift+Enter runs the selection or the cursor's line, dedented, with t
   const sql = { lang: "sql" };
   assert.strictEqual(ctx.f(sql, "%%sql\nSELECT 1;\nSELECT 2", 16, 24), "%%sql\nSELECT 2");
   assert.strictEqual(ctx.f(sql, "%%sql\nSELECT 1", 2, 2), null);  // the magic line alone
+  assert.strictEqual(ctx.f(sql, "%sql\nSELECT 1;\nSELECT 2", 15, 23), "%sql\nSELECT 2");  // Databricks' %sql stays %sql
+  assert.strictEqual(ctx.f(sql, "%sql\nSELECT 1", 2, 2), null);
 });
 
 test("several selected cells: the notebook hooks are in place", () => {

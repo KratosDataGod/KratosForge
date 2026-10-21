@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from test_prove import call  # noqa: F401
 
-from fabric_desktop.environments import Environments, check_packages
+from fabric_desktop.environments import Environments, check_name, check_packages
 from fabric_desktop.service import Service
 
 # Stands in for "python -m pip install --target T ... demo-pkg==1.0": writes the package and its
@@ -68,6 +68,30 @@ def test_only_package_names_are_accepted():
                 "pandas-2.0-py3-none-any.whl", "mylib.tar.gz", "mylib.ZIP"]:
         with pytest.raises(ValueError):
             check_packages([bad])
+
+
+def test_windows_device_names_are_refused():
+    for bad in ["CON", "nul", "Com1", "lpt9.env", "aux.txt", "con .txt", "prn  .x"]:
+        with pytest.raises(ValueError, match="Windows keeps for a device"):
+            check_name(bad)
+    assert check_name("Console tools") == "Console tools" and check_name("com10") == "com10"
+
+
+def test_an_environment_whose_folder_cant_be_made_isnt_listed(tmp_path):
+    env = Environments(tmp_path)
+    env.folder.write_text("not a folder")  # anything that stops the folder being made
+    with pytest.raises(OSError):
+        env.create("Data science")
+    assert env.list() == []
+
+
+def test_delete_clears_folders_an_earlier_delete_left(tmp_path):
+    env = Environments(tmp_path)
+    env.create("Old")
+    stuck = env.folder / ".deleting-0000aaaa"  # a delete Windows couldn't finish (a file still open)
+    (stuck / "site-packages").mkdir(parents=True)
+    env.delete("Old")
+    assert sorted(p.name for p in env.folder.iterdir()) == []
 
 
 def test_install_list_and_remove(tmp_path, fake_python):

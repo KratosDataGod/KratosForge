@@ -4,6 +4,7 @@ request is sent, and mv keeps its source until the copy is there."""
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import pytest
@@ -262,3 +263,80 @@ def test_ls_gives_modify_time_in_milliseconds(tmp_path):
     assert info.modifyTime == 1_700_000_000_000 and info.modificationTime == info.modifyTime
     assert notebookutils_local._millis("2026-10-20T12:00:00+00:00") == 1_792_497_600_000
     assert notebookutils_local._millis("") == 0 and notebookutils_local._millis("junk") == 0
+
+
+@pytest.mark.parametrize("dest", ["Files/one.txt", "/lakehouse/default/Files/one.txt", "Files/raw/sub", "Files/raw/"])
+def test_mv_and_cp_refuse_a_path_onto_or_into_itself(store, fs, dest):
+    src = "Files/raw" if dest.startswith("Files/raw") else "Files/one.txt"
+    before = dict(store.files)
+    with pytest.raises(ValueError, match="inside it"):
+        fs.mv(src, dest, overwrite=True)
+    with pytest.raises(ValueError, match="inside it"):
+        fs.cp(src, dest, recurse=True)
+    assert store.files == before and store.mutations() == []
+
+
+def test_local_mv_into_itself_keeps_the_folder(tmp_path, fs):
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "a.txt").write_text("hi")
+    with pytest.raises(ValueError, match="inside it"):
+        fs.mv(f"file:{tmp_path}/data", f"file:{tmp_path}/data/../data/sub")
+    assert (tmp_path / "data" / "a.txt").read_text() == "hi"
+    fs.cp(f"file:{tmp_path}/data", f"file:{tmp_path}/data2", recurse=True)  # a sibling with the same prefix is fine
+    assert (tmp_path / "data2" / "a.txt").read_text() == "hi"
+
+
+def test_a_windows_file_uri_names_the_drive(monkeypatch):
+    monkeypatch.setattr(notebookutils_local.os, "name", "nt")
+    assert notebookutils_local._split("file:///C:/data/a.csv") == ("local", "C:/data/a.csv")
+    assert notebookutils_local._split("file:/D:\\x") == ("local", "D:\\x")
+    assert notebookutils_local._split("file:C:/data") == ("local", "C:/data")
+    monkeypatch.setattr(notebookutils_local.os, "name", "posix")
+    assert notebookutils_local._split("file:///C:/data") == ("local", "/C:/data")
+
+
+def test_a_link_to_the_source_counts_as_the_source(tmp_path, fs):
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "a.txt").write_text("only copy")
+    try:
+        (tmp_path / "alias.txt").symlink_to(tmp_path / "data" / "a.txt")
+        (tmp_path / "linked").symlink_to(tmp_path / "data", target_is_directory=True)
+    except OSError:
+        pytest.skip("this account can't create symlinks")
+    with pytest.raises(ValueError, match="inside it"):
+        fs.mv(f"file:{tmp_path}/data/a.txt", f"file:{tmp_path}/alias.txt", overwrite=True)
+    with pytest.raises(ValueError, match="inside it"):
+        fs.mv(f"file:{tmp_path}/data", f"file:{tmp_path}/linked/sub")
+    assert (tmp_path / "data" / "a.txt").read_text() == "only copy"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="junctions are Windows folders links")
+def test_a_junction_to_the_source_counts_as_the_source(tmp_path, fs):
+    import subprocess
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "a.txt").write_text("only copy")
+    subprocess.run(["cmd", "/c", "mklink", "/J", str(tmp_path / "junction"), str(tmp_path / "data")],
+                   check=True, capture_output=True)
+    with pytest.raises(ValueError, match="inside it"):
+        fs.mv(f"file:{tmp_path}/data/a.txt", f"file:{tmp_path}/junction/a.txt", overwrite=True)
+    assert (tmp_path / "data" / "a.txt").read_text() == "only copy"
+
+
+def test_doubled_slashes_dont_hide_the_source(store, fs):
+    with pytest.raises(ValueError, match="inside it"):
+        fs.mv("Files/raw", "Files//raw/./sub")
+    assert store.mutations() == []
+
+
+@pytest.mark.parametrize("dest", ["Files/one%2Etxt", "Files/%72aw/sub", "Files\\raw\\sub"])
+def test_an_encoded_onelake_path_is_the_path_it_decodes_to(store, fs, dest):
+    src = "Files/one.txt" if "one" in dest else "Files/raw"
+    with pytest.raises(ValueError, match="inside it"):
+        fs.mv(src, dest, overwrite=True)
+    assert store.mutations() == []
+
+
+def test_an_encoded_local_name_is_its_own_file(tmp_path, fs):
+    (tmp_path / "a b.txt").write_text("spaced")
+    fs.mv(f"file:{tmp_path}/a b.txt", f"file:{tmp_path}/a%20b.txt")
+    assert (tmp_path / "a%20b.txt").read_text() == "spaced" and not (tmp_path / "a b.txt").exists()

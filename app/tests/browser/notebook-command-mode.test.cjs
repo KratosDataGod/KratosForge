@@ -141,6 +141,30 @@ test("while editing: Ctrl+/ comments the line and Ctrl+Shift+- splits the cell a
   assert.strictEqual(await selectedIndex(), 1);
 });
 
+test("splitting a Databricks %sql cell keeps %sql on the second half", { skip }, async () => {
+  await page().evaluate((cells) => { loadIntoState({ name: "Keys", cells }); go("notebook"); },
+    [{ type: "code", cell_id: "q1", source: "%sql\nselect 1\nselect 2", meta: {} }]);
+  await page().locator(".cell .cm-content").first().click();
+  await page().keyboard.press("Control+End");
+  await page().keyboard.press("Home");
+  await page().keyboard.press("Control+Shift+Minus");
+  assert.deepStrictEqual(await sources(), ["code:%sql\nselect 1", "code:%sql\nselect 2"]);
+});
+
+test("merging Databricks %sql cells keeps one %sql line", { skip }, async () => {
+  await page().evaluate((cells) => { loadIntoState({ name: "Keys", cells }); go("notebook"); mergeBelow(state.notebook.cells[0]); },
+    [{ type: "code", cell_id: "q1", source: "%sql\nselect 1", meta: {} }, { type: "code", cell_id: "q2", source: "%sql\nselect 2", meta: {} }]);
+  assert.deepStrictEqual(await sources(), ["code:%sql\nselect 1\nselect 2"]);
+});
+
+test("merging a Python cell with a %%pyspark or %python cell keeps no magic line in the middle", { skip }, async () => {
+  for (const magic of ["%%pyspark", "%python"]) {
+    await page().evaluate((cells) => { loadIntoState({ name: "Keys", cells }); go("notebook"); mergeBelow(state.notebook.cells[0]); },
+      [{ type: "code", cell_id: "p1", source: "x = 1", meta: {} }, { type: "code", cell_id: "p2", source: `${magic}\ny = 2`, meta: {} }]);
+    assert.deepStrictEqual(await sources(), ["code:x = 1\ny = 2"], magic);
+  }
+});
+
 test("Alt+Enter runs the cell and adds a code cell below; Shift+Enter runs and moves on", { skip }, async () => {
   await page().evaluate((cells) => { loadIntoState({ name: "Keys", cells }); go("notebook"); },
     [{ type: "code", cell_id: "r1", source: "print('ran')", meta: {} }]);

@@ -169,7 +169,7 @@ test("merging Databricks %sql cells keeps one %sql line", { skip }, async () => 
 });
 
 test("merging a Python cell with a %%pyspark or %python cell keeps no magic line in the middle", { skip }, async () => {
-  for (const magic of ["%%pyspark", "%python"]) {
+  for (const magic of ["%%pyspark", "%python", "%%python -q"]) {
     await page().evaluate((cells) => { loadIntoState({ name: "Keys", cells }); go("notebook"); mergeBelow(state.notebook.cells[0]); },
       [{ type: "code", cell_id: "p1", source: "x = 1", meta: {} }, { type: "code", cell_id: "p2", source: `${magic}\ny = 2`, meta: {} }]);
     assert.deepStrictEqual(await sources(), ["code:x = 1\ny = 2"], magic);

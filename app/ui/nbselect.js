@@ -213,11 +213,8 @@ function mergeSelected() {
   const all = state.notebook.cells;
   const undo = { merge: { head, before: head.source }, group: rest.map((c) => ({
     cell: { type: c.type, source: c.source, meta: structuredClone(c.meta || {}), cell_id: c.cell_id }, index: all.indexOf(c) })) };
-  const magic = MAGIC[cellLang(head)];
-  const tails = rest.map((c) => {
-    const t = c.source;
-    return magic && t.trimStart().startsWith(magic) ? t.trimStart().slice(magic.length).replace(/^\n/, "") : t;
-  });
+  // A SQL or HTML cell's first line is its magic (%%sql, Databricks' %sql, %%html): only the first cell keeps it.
+  const tails = rest.map((c) => (MAGIC[cellLang(c)] ? c.source.trimStart().replace(/^[^\n]*\n?/, "") : c.source));
   setSource(head, [head.source.replace(/\n$/, ""), ...tails.map((t) => t.replace(/\n$/, ""))].join("\n"));
   undo.merge.after = head.source;
   for (const c of rest) { all.splice(all.indexOf(c), 1); dropEditor(c); }
@@ -245,7 +242,8 @@ function selectionCode(cell, source, from, to) {
     const end = source.indexOf("\n", from);
     text = source.slice(start, end < 0 ? source.length : end);
   }
-  const magic = MAGIC[cellLang(cell)];
+  // The magic as the cell writes it: Fabric's %%sql or Databricks' %sql.
+  const magic = MAGIC[cellLang(cell)] && source.trimStart().split(/\s/, 1)[0];
   if (!text.trim() || (magic && text.trim() === magic)) return null;
   if (!magic) {
     // Lines taken from inside a block keep their indent: dedent them so they run on their own.

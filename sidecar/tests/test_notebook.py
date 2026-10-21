@@ -30,8 +30,10 @@ def test_kernel_keeps_state_and_shows_last_expression():
 
 def test_kernel_shows_data_frames_as_tables():
     out = Kernel().run("import polars as pl\npl.DataFrame({'region': ['East', 'West'], 'total': [960, 1350]})")
-    assert out["outputs"] == [{"type": "table", "columns": ["region", "total"],
-                               "rows": [["East", 960], ["West", 1350]], "total_rows": 2}]
+    (table,) = out["outputs"]
+    assert len(table.pop("frame")) == 12  # the whole result, for the result viewer (frames.py)
+    assert table == {"type": "table", "columns": ["region", "total"], "types": ["string", "integer"],
+                     "rows": [["East", 960], ["West", 1350]], "total_rows": 2}
 
 
 def test_kernel_reports_errors_and_survives():

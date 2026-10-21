@@ -93,6 +93,7 @@ class LocalNotebooks:
         self._lakes: dict[str, dict[str, Any]] = {}
         self._ran = 0
         self._after: list[str] = []
+        self._finished = False
 
     # ---- before the run
 
@@ -260,7 +261,11 @@ class LocalNotebooks:
         """Delete the run's folder in each lakehouse a step used, unless it is kept. Every one, not
         only those with writes on record: a step that was cancelled or timed out had its kernel
         stopped before it could say what it wrote. A folder that isn't there is fine. What couldn't
-        be deleted goes in the run's notes."""
+        be deleted goes in the run's notes. Only the first call deletes anything."""
+        with self._lock:
+            if self._finished:
+                return
+            self._finished = True
         for lake in list(self._lakes.values()):
             if self.keep_outputs:
                 continue

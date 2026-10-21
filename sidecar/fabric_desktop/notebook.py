@@ -353,6 +353,8 @@ class Kernel:
                  variable_libraries: Callable[[str], dict[str, str] | None] | None = None):
         self.token = token
         self.load_notebook = load_notebook
+        # Asks the engine for something (name, *args), when the kernel runs in its own process: %pip.
+        self.engine_call: Callable[..., Any] | None = None
         self.variable_libraries = variable_libraries
         self.notebook_name = ""
         # The Widgets bar's values for the open notebook; each cell run starts with them (start).
@@ -787,7 +789,7 @@ class Kernel:
 
     def _line_magic_help(self) -> str:
         return ("Line magics: %sql, %run, %fs, %sh, !command, %time, %timeit, %pwd, %env, %who, %whos, %reset -f, "
-                "%lsmagic, %matplotlib (charts are always inline), %pip and %conda (skipped), "
+                "%lsmagic, %matplotlib (charts are always inline), %pip (in the notebook's environment), "
                 "%load_ext, %autoreload and %config (skipped)\n"
                 "Cell magics: %%sql, %%pyspark, %%python, %%html, %%markdown, %%configure, %%sh, %%bash, %%cmd, "
                 "%%powershell, %%time, %%timeit, %%capture, %%writefile\n"
@@ -856,10 +858,13 @@ class Kernel:
             return lines if name == "sx" else None
         if name == "fs":
             return _fs_magic(self.namespace["notebookutils"].fs, line)
-        if name in ("pip", "conda"):
-            print(f"Note: %{name} installs packages in Fabric's session. On this PC the engine's packages "
-                  f"are fixed, so this line was skipped.")
+        if name == "pip":
+            from . import pip_magic
+            pip_magic.run(line, self.engine_call, lambda path: pip_magic.read_text(path, self.resources_dir))
             return None
+        if name == "conda":
+            raise ValueError("%conda isn't on this PC. Use %pip install, which installs into the notebook's "
+                             "own environment.")
         if name == "time":
             started = time.monotonic()
             try:

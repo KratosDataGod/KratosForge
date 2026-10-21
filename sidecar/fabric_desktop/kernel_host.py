@@ -74,6 +74,7 @@ class Host:
         self.kernel = Kernel(token=lambda audience: channel.call("token", audience),
                              load_notebook=lambda name: channel.call("load_notebook", name),
                              variable_libraries=lambda name: channel.call("variable_libraries", name))
+        self.kernel.engine_call = lambda name, *args: channel.call(name, *args)  # %pip install
         self.proof: Any = None
 
     # ---- requests

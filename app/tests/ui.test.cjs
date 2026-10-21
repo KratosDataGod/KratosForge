@@ -3877,3 +3877,10 @@ test("variables filter on name or type and sort by name, type or memory with unk
   assert.strictEqual(rows[0].name, "sales");  // the kernel's rows aren't reordered
   assert.doesNotMatch(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /function variableTable/);
 });
+
+// Notebook %pip: the magics page says installs go to the notebook's own environment.
+test("the magics page documents %pip installing into the notebook's environment", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /## Installing packages with %pip/);
+  assert.match(doc, /\(notebooks\.md#notebook-environments-preview\)/);
+});

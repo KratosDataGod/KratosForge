@@ -156,3 +156,57 @@ def test_an_environment_in_use_isnt_half_deleted(tmp_path, monkeypatch, fake_pyt
     monkeypatch.setattr(Path, "rename", real)
     assert env.delete("Data science") == {"deleted": "Data science", "detached": ["NB"]}
     assert env.list() == [] and not any(env.folder.iterdir())
+
+
+def test_percent_pip_in_a_cell_installs_waits_and_says_when_to_restart(tmp_path, monkeypatch, fake_python):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
+    monkeypatch.setattr("fabric_desktop.pip_magic.POLL_SECONDS", 0.05)
+    s = Service(root=tmp_path / "app")
+    s.environments.python = fake_python
+    call(s, "save_app_settings", changes={"kernel_process": True})
+
+    def cell(code, notebook="NB"):
+        out = call(s, "run_cell", code=code, notebook=notebook)
+        return out["status"], "".join(o.get("text", "") + str(o.get("evalue", "")) for o in out["outputs"])
+    try:
+        # No environment yet: one is made and attached; this session started without it.
+        status, text = cell("%pip install -q demo-pkg==3.0")
+        assert status == "ok" and "Installed demo-pkg==3.0 in environment NB" in text and "Restart the session" in text
+        assert s.environments.of("NB") == "NB"
+        # A new session has it; a further install is visible at once.
+        for k in s.sessions.kernels():
+            k.close()
+        status, text = cell("import demo_pkg\nprint(demo_pkg.VERSION)")
+        assert status == "ok" and "3.0" in text
+        status, text = cell("%pip install other-pkg==1.0\nimport other_pkg\nprint(other_pkg.VERSION)")
+        assert status == "ok" and "Restart the session" not in text and text.strip().endswith("1.0")
+        status, text = cell("%pip install broken==1.0")
+        assert status == "error" and "No matching distribution" in text
+        status, text = cell("%pip install https://example.com/x.whl")
+        assert status == "error"
+        status, text = cell("%pip install --index-url https://evil/ x")
+        assert status == "error" and "isn't supported" in text
+    finally:
+        for k in s.sessions.kernels():
+            k.close()
+
+
+def test_percent_pip_without_a_process_kernel_is_skipped_with_a_note():
+    from fabric_desktop.notebook import Kernel
+    out = Kernel().run("%pip install x==1")
+    assert out["status"] == "ok" and "own process" in out["outputs"][0]["text"]
+    out = Kernel().run("%conda install x")
+    assert out["status"] == "error" and "%pip install" in out["outputs"][-1]["evalue"]
+
+
+def test_percent_pip_reads_a_requirements_file_from_the_resources(tmp_path):
+    from fabric_desktop import pip_magic
+    res = tmp_path / "N.resources" / "builtin"
+    res.mkdir(parents=True)
+    (res / "requirements.txt").write_text("# pins\nopenpyxl==3.1.5\n\nrich>=13  # pretty\n")
+    read = lambda p: pip_magic.read_text(p, str(tmp_path / "N.resources"))  # noqa: E731
+    assert pip_magic.specs(["-q", "-r", "builtin/requirements.txt", "x"], read) == ["openpyxl==3.1.5", "rich>=13", "x"]
+    (res / "bad.txt").write_text("--extra-index-url https://evil/\nx\n")
+    with pytest.raises(ValueError, match="isn't supported"):
+        pip_magic.specs(["-r", "builtin/bad.txt"], read)

@@ -207,7 +207,32 @@ Those engines are in Fabric, so on this PC the cell is checked instead of run:
 | `%%capture`, `%%writefile`, `%env`, `%who`, `%whos`, `%pwd`, `%reset -f`, `%lsmagic` | As in IPython; see above |
 | `%%pyspark`, `%%python`, `%python` | A Python cell |
 | `%md`, `%%markdown` | A Markdown cell's text, shown under the cell |
-| `%pip`, `%conda` | Skipped with a note: the engine's packages are fixed |
+| `%pip install`, `%pip list`/`freeze`/`show` | Installs into the notebook's own environment (needs Run notebooks in their own process); see [Installing packages](#installing-packages-with-pip) |
+| `%conda` | Not on this PC; use `%pip install` |
 | `%%tsql` | Checked against the Warehouse, endpoint or SQL database rules; runs in Fabric |
 | `%%configure` | Checks the JSON as Fabric would and says what each setting does there; changes nothing here |
 | `%%spark`, `%%sparkr`, `%%csharp`, `%scala`, `%r` | Need Fabric's Spark; switch **Runs on** to Fabric |
+
+## Installing packages with %pip
+
+`%pip install` in a cell installs packages into the notebook's own
+[environment](notebooks.md#notebook-environments-preview), never into the app's own Python, and the cell waits
+until pip finishes:
+
+```python
+%pip install openpyxl==3.1.5 rich
+%pip install -r builtin/requirements.txt    # a file in the notebook's resources
+```
+
+- It needs **Run notebooks in their own process** (Settings > Preview features). Without it the
+  line is skipped with a note.
+- A notebook without an environment gets one named after it, attached to it. That session started
+  without it, so the cell says to restart the session before importing. Later installs import
+  at once; a package the session already imported needs a restart for the new version.
+- Packages come from PyPI by name, with versions as pip writes them. Paths, URLs, wheels,
+  `--index-url` and `-e` are refused, and so is a requirements file that uses them. The engine's
+  own packages (polars, DuckDB...) keep their versions.
+- Your organization can turn installs off; `%pip install` then says so.
+- `%pip list`, `freeze` and `show` read what this session can import. `%pip uninstall` is on the
+  notebook's Environment page.
+

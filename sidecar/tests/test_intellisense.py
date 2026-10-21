@@ -78,13 +78,16 @@ def test_syntax_problems_point_at_the_line_and_ignore_other_languages_and_magics
     "where = \"WHERE a=%(a)s\" % {'a': 1}",
     'ok = x != 1',
     'msg = "a=!b"; n = 1',
+    'd["x=%s"] = 1',
+    'print(d["k"], "=%d" % 3)',
 ])
 def test_equals_percent_or_bang_inside_a_string_is_valid_python(code):
     # Quality repro r354: the IPython `x = %magic` rewrite used to fire inside strings.
     assert syntax_problems(code) == []
 
 
-@pytest.mark.parametrize("code", ["x = %sql select 1", "files = !ls", "%time y = 1", "a, b = %who_ls", "self.out = !dir"])
+@pytest.mark.parametrize("code", ["x = %sql select 1", "files = !ls", "%time y = 1", "a, b = %who_ls", "self.out = !dir",
+                                  'd["k"] = %sql SELECT 1', "rows[0].files = !ls", "m[a][b], n = !dir"])
 def test_ipython_assignment_forms_still_pass(code):
     assert syntax_problems(code) == []
 

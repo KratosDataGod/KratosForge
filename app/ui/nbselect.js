@@ -45,9 +45,10 @@ function clearSelection() {
 }
 
 // The range from the anchor to `cell`, which becomes the current cell.
+// Ranges cover only the cells on screen: cells in a folded section aren't selected (nbcells.js).
 function selectRange(cell) {
-  const cells = state.notebook.cells;
-  const anchor = cells.find((c) => c.id === nbSel.anchor) || selectedCell();
+  const cells = visibleCells(state.notebook.cells);
+  const anchor = cells.find((c) => c.id === nbSel.anchor) || cells.find((c) => c.id === state.selected) || cell;
   nbSel.anchor = anchor.id;
   const [a, b] = [cells.indexOf(anchor), cells.indexOf(cell)].sort((x, y) => x - y);
   nbSel.ids = new Set(cells.slice(a, b + 1).map((c) => c.id));
@@ -85,15 +86,16 @@ function selectionClick(cell, e) {
 }
 
 function extendSelection(delta) {
-  const cells = state.notebook.cells;
-  const next = cells[cells.indexOf(selectedCell()) + delta];
+  const cells = visibleCells(state.notebook.cells);
+  const i = cells.indexOf(selectedCell());
+  const next = i < 0 ? null : cells[i + delta];
   if (!next) return;
   if (!nbSel.anchor) nbSel.anchor = selectedCell().id;
   selectRange(next);
 }
 
 function selectAllCells() {
-  const cells = state.notebook.cells;
+  const cells = visibleCells(state.notebook.cells);
   nbSel.anchor = cells[0].id;
   selectRange(cells[cells.length - 1]);
 }

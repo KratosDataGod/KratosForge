@@ -3298,7 +3298,10 @@ test("dropping a table or file inserts its load code on an empty line, else its 
   assert.strictEqual(dataItemDropText(table, "python", { inString: true }), "dbo.sales");
   assert.strictEqual(dataItemDropText(table, "sql", { blankLine: true }), "dbo.sales");
   assert.strictEqual(dataItemDropText(table, "markdown"), "`dbo.sales`");
-  assert.deepStrictEqual([...dataItemLoads(table).map((l) => l[0])], ["Load with Polars", "Load with Spark", "Query with SQL"]);
+  assert.deepStrictEqual([...dataItemLoads(table).map((l) => l[0])], ["Load with Polars", "Load with Spark", "Query with SQL", "Load with pandas"]);
+  assert.strictEqual(dataItemLoads(table)[3][1], 'df = lakehouse.read_table("dbo.sales").to_pandas()\ndf');
+  assert.deepStrictEqual([...dataItemLoads({ kind: "file", path: "Files/a.parquet" }).map((l) => l[0])], ["Load with Polars", "Load with Spark", "Load with pandas"]);
+  assert.match(dataItemLoads({ kind: "file", path: "Files/a.csv" })[2][1], /^import pandas as pd\ndf = pd\.read_csv\(lakehouse\.local_path\("Files\/a\.csv"\)\)\ndf$/);
   const odd = { kind: "file", path: "Files/notes/readme.txt" };
   assert.deepStrictEqual([...dataItemLoads(odd).map((l) => l[0])], ["Load with Polars", "Read the file's text"]);
   assert.strictEqual(dataItemDropText({ kind: "file", path: 'Files/a "b".csv' }, "python"), '"Files/a \\"b\\".csv"');

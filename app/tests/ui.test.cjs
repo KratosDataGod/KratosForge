@@ -3165,3 +3165,72 @@ test("Inspect profiles every row of a held result, and says so when the kernel n
   assert.match(box2.querySelector(".more").textContent, /Run the cell again to profile every row\.$/);
   assert.match(nb, /\} else if \(o\.frame && !o\.profileGone\) \{\n    wrap\.append\(renderFrameProfile\(o, numeric, count\)\);/);
 });
+
+// The chart builder (charts.js): the engine aggregates every row; the cell keeps its chart by column name.
+function chartsHarness(answer) {
+  const src = fs.readFileSync(path.join(ui, "charts.js"), "utf8");
+  const node = (tag, attrs = {}, ...kids) => ({ tag, attrs: { ...attrs }, kids: kids.flat(Infinity).filter((k) => k !== null && k !== undefined),
+    textContent: "", listeners: {}, setAttribute(k, v) { this.attrs[k] = v; }, append(...k) { this.kids.push(...k.flat(Infinity).filter(Boolean)); },
+    replaceChildren(...k) { this.kids = k.flat(Infinity).filter(Boolean); }, replaceWith(n) { this.replaced = n; },
+    addEventListener(t, fn) { this.listeners[t] = fn; } });
+  const calls = [];
+  let dirty = 0;
+  const ctx = { h: node, btn: (label, _i, onclick) => node("button", { onclick }, label), friendlyError: String, markDirty: () => { dirty += 1; },
+    document: { createElementNS: (_ns, tag) => node(tag) },
+    rpc: async (m, a) => { calls.push([m, a]); return typeof answer === "function" ? answer(a) : answer; } };
+  vm.createContext(ctx);
+  vm.runInContext(src + "\nthis.api = { chartConfig, renderChartBuilder, chartSvg };", ctx);
+  return { ctx, calls, dirty: () => dirty, node };
+}
+const allNodes = (n, out = []) => { if (n && typeof n === "object") { out.push(n); (n.kids || []).forEach((k) => allNodes(k, out)); } return out; };
+
+test("the chart builder asks the engine for every row and keeps the cell's chart by column name", async () => {
+  const d = { kind: "stacked", rows: 3000, truncated: false, categories: ["East", "West"],
+    series: [{ name: "p1", values: [1, 2] }, { name: "Other", values: [3, null] }] };
+  const { ctx, calls, dirty } = chartsHarness(d);
+  const o = { frame: "f", columns: ["region", "product", "amount"], rows: [["East", "p1", 1]] };
+  const cell = { meta: {} };
+  const cfg = ctx.api.chartConfig(o, [false, false, true], cell);
+  assert.deepStrictEqual(plain(cfg), { kind: "bar", x: "region", y: "amount", agg: "sum", series: null, title: "" });
+  const box = ctx.api.renderChartBuilder(o, [false, false, true], cell);
+  assert.deepStrictEqual(plain(calls[0]), ["notebook_frame_chart", { frame: "f", kind: "bar", x: 0, y: 2, agg: "sum", series: null }]);
+  const kind = allNodes(box).find((n) => n.tag === "select" && n.attrs["aria-label"] === "Chart");
+  kind.attrs.onchange({ target: { value: "stacked" } });
+  const series = allNodes(box.replaced).find((n) => n.tag === "select" && n.attrs["aria-label"] === "Series");
+  series.attrs.onchange({ target: { value: "product" } });
+  assert.deepStrictEqual(plain(cell.meta.chart), { kind: "stacked", x: "region", y: "amount", agg: "sum", series: "product", title: "" });
+  assert.strictEqual(dirty(), 2);
+  assert.deepStrictEqual(plain(calls.at(-1)[1]), { frame: "f", kind: "stacked", x: 0, y: 2, agg: "sum", series: 1 });
+  await new Promise((r) => setImmediate(r));
+  // A rerun keeps the saved chart; a renamed column falls back to the default.
+  assert.strictEqual(ctx.api.chartConfig({ columns: ["region", "product", "amount"] }, [false, false, true], cell).series, "product");
+  assert.strictEqual(ctx.api.chartConfig({ columns: ["area", "amount"] }, [false, true], cell).kind, "bar");
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /o\.view \|\|= o\.summary \? "inspect" : o\.frame && cell\?\.meta\?\.chart \? "chart" : "table";/);
+  assert.match(nb, /previewMarked\("chartBuilder"/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="notebook\.js"><\/script>\n  <script src="charts\.js"><\/script>/);
+});
+
+test("every chart kind draws marks with a tooltip, and an empty result says so", () => {
+  const { ctx } = chartsHarness(null);
+  const kinds = {
+    bar: { kind: "bar", rows: 2, categories: ["a", "b"], series: [{ name: null, values: [1, -2] }] },
+    stacked: { kind: "stacked", rows: 2, categories: ["a"], series: [{ name: "x", values: [1] }, { name: "y", values: [2] }] },
+    line: { kind: "line", rows: 2, categories: [1, 2], series: [{ name: null, values: [1, null] }] },
+    area: { kind: "area", rows: 2, categories: [1, 2], series: [{ name: "x", values: [1, 2] }, { name: "y", values: [2, 1] }] },
+    pie: { kind: "pie", rows: 2, categories: ["a", "b"], series: [{ name: null, values: [1, 3] }] },
+    scatter: { kind: "scatter", rows: 2, points: [[1, 2, "x"], [2, 3, "y"]], sampled: false, total: 2 },
+    histogram: { kind: "histogram", rows: 2, min: 0, max: 10, counts: [1, 0, 1] },
+    box: { kind: "box", rows: 2, boxes: [{ x: "a", min: 0, q1: 1, median: 2, q3: 3, max: 4, n: 5 }] },
+  };
+  for (const [k, d] of Object.entries(kinds)) {
+    const svg = ctx.api.chartSvg(d, { kind: k, x: "x", y: "v", title: "" });
+    const titled = allNodes(svg).filter((n) => n.tag === "title");
+    assert.ok(titled.length > 0, `${k} has tooltips`);
+    assert.strictEqual(svg.attrs.role, "img");
+  }
+  const empty = ctx.api.chartSvg({ kind: "bar", rows: 0, categories: [], series: [] }, { kind: "bar" });
+  assert.ok(allNodes(empty).some((n) => n.textContent === "Nothing to chart"));
+  const pie = ctx.api.chartSvg({ kind: "pie", rows: 9, categories: [1, 2, 3, 4, 5, 6, 7, 8, 9], series: [{ name: null, values: [1, 1, 1, 1, 1, 1, 1, 1, 1] }] }, { kind: "pie" });
+  assert.strictEqual(allNodes(pie).filter((n) => n.tag === "path").length, 7, "a pie folds past six slices into Other");
+});

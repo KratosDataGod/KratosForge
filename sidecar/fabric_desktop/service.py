@@ -470,6 +470,16 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
                 return {"frame": frame, "gone": True, "message": GONE}
             raise
 
+    def notebook_frame_chart(self, frame: str, kind: str = "bar", x: int | None = None, y: int | None = None,
+                             agg: str = "sum", series: int | None = None, bins: int = 20) -> dict[str, Any]:
+        """The Chart view's numbers, aggregated over every row of a cell's result."""
+        try:
+            return self.kernel.frame_chart(frame=frame, kind=kind, x=x, y=y, agg=agg, series=series, bins=bins)
+        except (FrameGone, RuntimeError) as exc:
+            if isinstance(exc, FrameGone) or str(exc) == GONE:
+                return {"frame": frame, "gone": True, "message": GONE}
+            raise
+
     def notebook_frame_profile(self, frame: str) -> dict[str, Any]:
         """Inspect: a profile of every row of a cell's result (display(df, summary=True))."""
         try:

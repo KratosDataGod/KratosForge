@@ -367,6 +367,11 @@ class ProcessKernel:
         return self._request("frame_page", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame, offset=offset,
                              limit=limit, sort=sort, desc=desc, q=q)
 
+    def frame_chart(self, frame: str, **spec: Any) -> dict[str, Any]:
+        if not self.alive():
+            raise FrameGone(GONE)
+        return self._request("frame_chart", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame, **spec)
+
     def frame_profile(self, frame: str) -> dict[str, Any]:
         if not self.alive():
             raise FrameGone(GONE)

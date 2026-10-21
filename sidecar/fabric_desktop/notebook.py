@@ -281,6 +281,9 @@ class Kernel:
                    desc: bool = False, q: str = "") -> dict[str, Any]:
         return self.frames.page(frame, offset, limit, sort, desc, q)
 
+    def frame_chart(self, frame: str, **spec: Any) -> dict[str, Any]:
+        return self.frames.chart(frame, **spec)
+
     def frame_profile(self, frame: str) -> dict[str, Any]:
         return self.frames.profile(frame)
 
@@ -1103,7 +1106,21 @@ def _cell_metadata(meta: dict[str, Any]) -> dict[str, Any]:
         md["jupyter"] = hidden
     if meta.get("frozen"):
         md.update(editable=False, deletable=False, run_control={"frozen": True})
+    chart = _chart_meta(meta.get("chart"))
+    if chart:
+        md["fabric_desktop"] = {"chart": chart}
     return md
+
+
+_CHART_KEYS = ("kind", "x", "y", "agg", "series", "title")
+
+
+def _chart_meta(chart: Any) -> dict[str, Any] | None:
+    """The chart a cell's table output shows (charts.js), by column name: plain short strings only."""
+    if not isinstance(chart, dict):
+        return None
+    out = {k: chart[k][:200] for k in _CHART_KEYS if isinstance(chart.get(k), str)}
+    return out if out.get("kind") else None
 
 
 def _cell_meta(md: dict[str, Any]) -> dict[str, Any]:
@@ -1115,6 +1132,9 @@ def _cell_meta(md: dict[str, Any]) -> dict[str, Any]:
             meta[k] = True
     if (md.get("run_control") or {}).get("frozen"):
         meta["frozen"] = True
+    chart = _chart_meta((md.get("fabric_desktop") or {}).get("chart") if isinstance(md.get("fabric_desktop"), dict) else None)
+    if chart:
+        meta["chart"] = chart
     return meta
 
 
@@ -1164,7 +1184,9 @@ def _merge_cell_metadata(ours: dict[str, Any], before: dict[str, Any]) -> dict[s
         keep["jupyter"] = rest
     if isinstance(keep.get("run_control"), dict):
         keep["run_control"] = {k: v for k, v in keep["run_control"].items() if k != "frozen"}
-    for k in ("jupyter", "run_control"):
+    if isinstance(keep.get("fabric_desktop"), dict):
+        keep["fabric_desktop"] = {k: v for k, v in keep["fabric_desktop"].items() if k != "chart"}
+    for k in ("jupyter", "run_control", "fabric_desktop"):
         if k in keep and not keep[k]:
             del keep[k]
     for k, v in ours.items():

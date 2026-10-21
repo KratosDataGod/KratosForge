@@ -883,7 +883,7 @@ function renderOutput(o, cell) {
     return h("div", { class: "output error" }, h("div", { class: "ename" }, `${o.ename}: ${o.evalue}`),
       o.traceback ? h("details", {}, h("summary", {}, "Traceback"), h("pre", {}, o.traceback)) : null);
   }
-  if (o.type === "table") return renderTableOutput(o);
+  if (o.type === "table") return renderTableOutput(o, cell);
   if (o.type === "image") {
     return h("div", { class: "output" }, h("img", { class: "out-img", alt: "Chart from this cell", src: `data:${o.mime};base64,${o.data}` }));
   }
@@ -932,10 +932,10 @@ function numericColumns(o) {
 }
 
 // A table result with Fabric's views: Table (search, sort), Chart, and Inspect (a summary per column).
-function renderTableOutput(o) {
-  o.view ||= o.summary ? "inspect" : "table";
+function renderTableOutput(o, cell) {
+  o.view ||= o.summary ? "inspect" : o.frame && cell?.meta?.chart ? "chart" : "table";
   const wrap = h("div", { class: "output table-output" });
-  const redraw = () => wrap.replaceWith(renderTableOutput(o));
+  const redraw = () => wrap.replaceWith(renderTableOutput(o, cell));
   const seg = (id, label) => h("button", { class: `seg${o.view === id ? " on" : ""}`, "aria-pressed": String(o.view === id),
     onclick: () => { o.view = id; redraw(); } }, label);
   const bar = h("div", { class: "out-bar" }, h("div", { class: "segs", role: "group", "aria-label": "View" },
@@ -966,6 +966,9 @@ function renderTableOutput(o) {
     search.addEventListener("input", () => { o.q = search.value; draw(); });
     wrap.append(body, h("div", { class: "more" }, count));
     draw();
+  } else if (o.view === "chart" && o.frame) {
+    bar.append(h("span", { class: "spacer" }), previewMarked("chartBuilder", h("span", { class: "muted-text" }, "Chart of every row")));
+    wrap.append(renderChartBuilder(o, numeric, cell));
   } else if (o.view === "chart") {
     wrap.append(renderChart(o, numeric), h("div", { class: "more" }, `Chart of ${count.toLowerCase()}`));
   } else if (o.frame && !o.profileGone) {

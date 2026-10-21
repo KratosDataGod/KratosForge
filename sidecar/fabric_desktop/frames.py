@@ -42,6 +42,12 @@ MAX_PAGE_ROWS = 1000
 EXCEL_MAX_ROWS = 1_048_575  # a sheet's 1,048,576 rows less the header
 DOWNLOAD_FORMATS = ("csv", "xlsx", "parquet")
 PROFILE_COLUMNS = 200
+CHART_KINDS = ("bar", "stacked", "line", "area", "scatter", "pie", "histogram", "box")
+CHART_AGGS = ("sum", "avg", "count", "min", "max")
+CHART_CATEGORIES = 60
+CHART_SERIES = 7  # the categorical palette's slots; the rest fold into Other
+CHART_POINTS = 5000
+OTHER = "Other"
 PROFILE_ROWS = 250_000  # above this, a random sample: about 5 s for 50 columns on a laptop
 HISTOGRAM_BINS = 12
 class FrameGone(LookupError):
@@ -97,6 +103,11 @@ def type_name(t: pa.DataType) -> str:
     if pa.types.is_map(t):
         return "map"
     return str(t)
+
+
+def _finite(c: str) -> str:
+    """Rows a number column can be charted from: not null, and not NaN or infinite."""
+    return f"({c} IS NOT NULL AND isfinite(TRY_CAST({c} AS DOUBLE)))"
 
 
 def _kind(t: pa.DataType) -> str:
@@ -235,6 +246,107 @@ class Frames:
             con.close()
         return {"frame": fid, "rows": whole.num_rows, "profiled_rows": n, "sampled": sampled, "columns": out,
                 "more_columns": max(0, table.num_columns - PROFILE_COLUMNS)}
+    # ---- the chart builder (Chart view): aggregates over every row
+
+    def chart(self, fid: str, kind: str = "bar", x: int | None = None, y: int | None = None, agg: str = "sum",
+              series: int | None = None, bins: int = 20) -> dict[str, Any]:
+        """What a chart of the whole result draws. ``x``, ``y`` and ``series`` are column positions.
+
+        bar, line, area and pie: ``agg`` of ``y`` (or a row count) per ``x`` value, one list of
+        values per ``series`` value; at most ``CHART_CATEGORIES`` x values (bar and pie keep the
+        largest; line and area keep the first in x order) and ``CHART_SERIES`` series, the rest
+        folded into "Other". scatter: up to ``CHART_POINTS`` (x, y, series) rows, sampled evenly.
+        histogram: ``bins`` equal-width counts of ``y``. box: min, quartiles and max of ``y`` per x."""
+        import duckdb
+        if kind not in CHART_KINDS:
+            raise ValueError(f"Chart kinds are {', '.join(CHART_KINDS)}.")
+        if agg not in CHART_AGGS:
+            raise ValueError(f"Aggregates are {', '.join(CHART_AGGS)}.")
+        table = self.table(fid)
+        cols = [f"c{i}" for i in range(table.num_columns)]
+
+        def col(i: int | None, what: str) -> str | None:
+            if i is None:
+                return None
+            if not 0 <= int(i) < len(cols):
+                raise ValueError(f"The chart's {what} column isn't in this result.")
+            return cols[int(i)]
+        cx, cy, cs = col(x, "X axis"), col(y, "Values"), col(series, "Series")
+        con = duckdb.connect()
+        try:
+            con.register("t", table.rename_columns(cols))
+            out: dict[str, Any] = {"frame": fid, "kind": kind, "rows": table.num_rows}
+            if kind == "histogram":
+                if cy is None:
+                    raise ValueError("Pick a number column for Values.")
+                lo, hi = con.execute(f"SELECT min({cy})::DOUBLE, max({cy})::DOUBLE FROM t WHERE {_finite(cy)}").fetchone()
+                n = max(1, min(int(bins), 100))
+                counts = [0] * n
+                if lo is not None:
+                    span = (hi - lo) or 1.0
+                    for b, k in con.execute(f"SELECT least({n - 1}, floor(({cy}::DOUBLE - ?) / ? * {n}))::INT AS b, count(*) "
+                                            f"FROM t WHERE {_finite(cy)} GROUP BY b", [lo, span]).fetchall():
+                        counts[int(b)] = k
+                out.update(min=lo, max=hi, counts=counts)
+                return out
+            if cx is None:
+                raise ValueError("Pick a column for the X axis.")
+            if kind == "scatter":
+                if cy is None:
+                    raise ValueError("Pick a number column for Values.")
+                total = con.execute(f"SELECT count(*) FROM t WHERE {_finite(cx)} AND {_finite(cy)}").fetchone()[0]
+                every = max(1, -(-total // CHART_POINTS))
+                pts = con.execute(
+                    f"SELECT {cx}::DOUBLE, {cy}::DOUBLE, {('CAST(' + cs + ' AS VARCHAR)') if cs else 'NULL'} FROM "
+                    f"(SELECT *, row_number() OVER () AS rn FROM t WHERE {_finite(cx)} AND {_finite(cy)}) WHERE rn % {every} = 0 "
+                    f"LIMIT {CHART_POINTS}").fetchall()
+                out.update(points=[[a, b, c] for a, b, c in pts], sampled=every > 1, total=total)
+                return out
+            if kind == "box":
+                if cy is None:
+                    raise ValueError("Pick a number column for Values.")
+                got = con.execute(
+                    f"SELECT CAST({cx} AS VARCHAR) AS k, min({cy})::DOUBLE, quantile_cont({cy}, 0.25), median({cy})::DOUBLE, "
+                    f"quantile_cont({cy}, 0.75), max({cy})::DOUBLE, count(*) AS n FROM t WHERE {_finite(cy)} "
+                    f"GROUP BY k ORDER BY n DESC LIMIT {CHART_CATEGORIES}").fetchall()
+                out.update(boxes=[{"x": k, "min": a, "q1": b, "median": c, "q3": d, "max": e, "n": n} for k, a, b, c, d, e, n in got])
+                return out
+            value = "count(*)" if agg == "count" or cy is None else f"{agg}({cy})::DOUBLE"
+            where = f"WHERE {_finite(cy)}" if cy is not None and agg != "count" else ""
+            skey = f"CAST({cs} AS VARCHAR)" if cs else "NULL"
+            ordered = kind in ("line", "area")
+            # The x values to keep: line and area in x order, bar and pie the largest.
+            keep_order = f"min({cx})" if ordered else f"{value} DESC"
+            cats = _rows(con.execute(f"SELECT {cx}, {value} AS v FROM t {where} GROUP BY {cx} ORDER BY {keep_order} NULLS LAST "
+                                     f"LIMIT {CHART_CATEGORIES + 1}"))
+            truncated = len(cats) > CHART_CATEGORIES
+            cats = cats[:CHART_CATEGORIES]
+            if ordered:
+                cats.sort(key=lambda r: (r[0] is None, r[0]))
+            keys = [r[0] for r in cats]
+            names: list[str | None] = [None]
+            if cs:
+                top = con.execute(f"SELECT {skey} AS s, {value} AS v FROM t {where} GROUP BY s ORDER BY v DESC NULLS LAST "
+                                  f"LIMIT {CHART_SERIES + 1}").fetchall()
+                names = [r[0] for r in top[:CHART_SERIES]]
+                if len(top) > CHART_SERIES:
+                    names.append(OTHER)
+            index = {k: i for i, k in enumerate(keys)}
+            values = {n: [None] * len(keys) for n in names}
+            fold = (f"CASE WHEN {skey} IN (SELECT unnest(?)) THEN {skey} ELSE '{OTHER}' END" if cs and OTHER in names else skey)
+            params = [[n for n in names if n not in (OTHER, None)]] if cs and OTHER in names else []
+            # A join, not IN: it matches NULL keys too, and DuckDB needs pytz for IN over time zone timestamps.
+            keep = f"(SELECT {cx} AS k FROM t {where} GROUP BY {cx} ORDER BY {keep_order} NULLS LAST LIMIT {CHART_CATEGORIES}) AS keep"
+            for k, sname, v in _rows(con.execute(
+                    f"SELECT t.{cx}, {fold} AS s, {value} FROM t JOIN {keep} ON t.{cx} IS NOT DISTINCT FROM keep.k {where} "
+                    f"GROUP BY t.{cx}, s", params)):
+                if sname in values and k in index:
+                    values[sname][index[k]] = _num(v)
+            out.update(categories=[_cell(k) for k in keys], series=[{"name": n, "values": values[n]} for n in names],
+                       truncated=truncated)
+            return out
+        finally:
+            con.close()
 
     @staticmethod
     def _profile_column(con: Any, c: str, f: pa.Field, n: int) -> dict[str, Any]:

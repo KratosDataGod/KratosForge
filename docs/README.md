@@ -151,6 +151,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Run as | Monitor > Operations > Run as |
 | External AI tools | Settings > Integrations |
 | Release records | Data mesh > Deploy, each environment's Last release card |
+| Chart builder | Notebook > a table output > Chart ([notebooks.md](notebooks.md)) |
 | Result downloads | Notebook > a table output > Download ([notebooks.md](notebooks.md)) |
 | Column lineage | Entity page, Columns |
 | Roll back a release | Data mesh > Deploy, Roll back... on a Test or Prod Last release card |

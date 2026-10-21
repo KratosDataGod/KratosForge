@@ -73,3 +73,26 @@ def test_shortcut_readers_say_when_they_are_incomplete(svc, monkeypatch):  # noq
     monkeypatch.setattr(type(svc), "_sc_assignments", lambda self, ws, cache: ASSIGNMENTS)
     out = svc._sc_readers(s, svc.api, {})
     assert out["partial"] and out["text"].startswith("Not complete:") and "429" in out["problem"]
+
+
+def test_access_roles_arent_saved_over_someone_elses_change(svc, monkeypatch):  # noqa: F811
+    store = {"roles": list(BEN_READS), "etag": '"v1"'}
+    puts = []
+
+    def put(ws, item, roles, etag=None):
+        if etag != store["etag"]:
+            raise FabricError("412", "PreconditionFailed", 412)
+        puts.append(roles)
+    monkeypatch.setattr(svc.api, "list_data_access_roles_tagged", lambda ws, item: (list(store["roles"]), '"v1"'),
+                        raising=False)
+    monkeypatch.setattr(svc.api, "put_data_access_roles", put, raising=False)
+    monkeypatch.setattr(type(svc), "access_lakehouse", lambda self, ws, item: {}, raising=False)
+    monkeypatch.setattr(svc.auth, "signed_in_tenant", lambda: "t", raising=False)
+    svc.access_delete_role("ws-dev", "lh-1", "Readers")
+    assert puts == [[]]
+    store["etag"] = '"v2"'  # someone saved a change after this read
+    with pytest.raises(PermissionError, match="changed this lakehouse's roles"):
+        svc.access_delete_role("ws-dev", "lh-1", "Readers")
+    with pytest.raises(PermissionError, match="changed this lakehouse's roles"):
+        svc.access_save_role("ws-dev", "lh-1", "Readers", ["*"], ["u3"], original_name="Readers")
+    assert len(puts) == 1

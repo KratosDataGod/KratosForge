@@ -108,3 +108,18 @@ def test_create_lakehouse_refuses_a_name_fabric_would_reject_before_calling_fabr
     with pytest.raises(ValueError, match="For example LH_2024_sales"):
         c.create_lakehouse("ws1", "2024 sales")
     assert s.calls == []
+
+
+def test_roles_are_replaced_only_if_unchanged_since_they_were_read():
+    c, s = client([Resp(200, {"value": [{"name": "DefaultReader"}]}, headers={"ETag": '"v1"'}),
+                   Resp(200, {}), Resp(412, {"errorCode": "PreconditionFailed"})])
+    headers = []
+    request = s.request
+    s.request = lambda method, url, **kw: headers.append(kw["headers"]) or request(method, url, **kw)
+    roles, etag = c.list_data_access_roles_tagged("ws1", "lh1")
+    assert roles == [{"name": "DefaultReader"}] and etag == '"v1"'
+    c.put_data_access_roles("ws1", "lh1", roles, etag=etag)
+    assert headers[1]["If-Match"] == '"v1"' and headers[1]["Authorization"] == "Bearer tok"
+    with pytest.raises(FabricError) as exc:
+        c.put_data_access_roles("ws1", "lh1", roles, etag='"v0"')
+    assert exc.value.code == "PreconditionFailed" and len(s.calls) == 3  # a refused write isn't retried

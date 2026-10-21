@@ -191,11 +191,13 @@ function renderExplorer() {
   const fromLocations = nbData(state.notebook).from === "locations";
   const tab = (id, label) => h("button", { class: `tab${state.explorerTab === id ? " active" : ""}`,
     onclick: () => { state.explorerTab = id; renderNotebook(); } }, label);
-  const tabs = h("div", { class: "explorer-tabs" }, tab("data", "Data items"), tab("outline", "Outline"), tab("resources", "Resources"));
+  const tabs = h("div", { class: "explorer-tabs" }, tab("data", "Data items"), tab("outline", "Outline"), tab("resources", "Resources"), tab("notebooks", "Notebooks"));
   const content = h("div", { class: "explorer-content" });
 
   if (state.explorerTab === "outline") {
     content.append(renderOutline());
+  } else if (state.explorerTab === "notebooks") {
+    content.append(nbExplorerNotebooks());  // grouped by folder (notebook-files.js)
   } else if (state.explorerTab === "resources") {
     content.append(nbResourcesSection(state.notebook), h("div", { class: "nb-res-head" }, h("b", {}, "Code snippets")),
       h("div", { class: "muted-text", style: "padding:4px 4px 10px" }, "Click a snippet to add it as a new cell."),
@@ -793,7 +795,7 @@ function editorFor(cell) {
     state: CM.EditorState.create({
       doc: cell.source,
       extensions: [
-        gutterComp.of(gutters(cell)),
+        gutterComp.of(gutters(cell)), cmStyleNonce(),
         dbgEditorMarks(cell),  // debugging.js: breakpoints and the paused line
         CM.highlightSpecialChars(), CM.history(), CM.drawSelection(), CM.dropCursor(), CM.indentOnInput(),
         CM.bracketMatching(), CM.closeBrackets(), CM.highlightActiveLine(), CM.highlightSelectionMatches(),
@@ -895,6 +897,31 @@ document.addEventListener("keydown", (e) => {
   if (handled) e.preventDefault();
 });
 
+// The keys above and the editor's own (editorKeys), listed in the Keyboard shortcuts dialog while a
+// notebook is open. The select (nbselect.js) and find (nbfind.js) keys are listed beside their handlers.
+{
+  const inNotebook = () => state.view === "notebook";
+  registerShortcuts("Notebook", [
+    { keys: ["Shift+Enter"], label: "Run the cell and select the next one", when: inNotebook },
+    { keys: ["Ctrl+Enter"], label: "Run the cell", when: inNotebook },
+    { keys: ["Alt+Enter"], label: "Run the cell and add a code cell below", when: inNotebook },
+    { keys: ["Esc"], label: "While editing: leave the cell for command mode, where the single-letter keys below work", when: inNotebook },
+    { keys: ["Enter"], label: "In command mode: edit the selected cell", when: inNotebook },
+    { keys: ["Up", "Down", "K", "J"], label: "In command mode: select the cell above or below", when: inNotebook },
+    { keys: ["A", "B"], label: "In command mode: add a code cell above or below", when: inNotebook },
+    { keys: ["DD"], label: "In command mode: delete the cell", when: inNotebook },
+    { keys: ["Z"], label: "In command mode: put the last deleted cell back", when: inNotebook },
+    { keys: ["M", "Y"], label: "In command mode: make the cell Markdown or code", when: inNotebook },
+    { keys: ["C", "X"], label: "In command mode: copy or cut the cell", when: inNotebook },
+    { keys: ["V", "Shift+V"], label: "In command mode: paste below or above", when: inNotebook },
+    { keys: ["O"], label: "In command mode: show or hide the cell's output", when: inNotebook },
+    { keys: ["Shift+L"], label: "In command mode: show or hide line numbers", when: inNotebook },
+    { keys: ["Ctrl+Space"], label: "While editing: suggest names, attributes and table names", when: inNotebook },
+    { keys: ["Ctrl+/"], label: "While editing: comment or uncomment the selected lines", when: inNotebook },
+    { keys: ["Ctrl+Shift+-"], label: "While editing: split the cell at the cursor", when: inNotebook },
+  ]);
+}
+
 // ---------- outputs ----------
 
 function renderOutput(o, cell) {
@@ -949,11 +976,16 @@ function limitOutput(o, cell) {
       btn("Open Settings", "settings", () => go("settings"), "tool outline small")));
 }
 
-// HTML output runs in a sandboxed frame with no access to the app, sized to its content.
+// HTML output is untrusted (anyone can write a notebook), so it never runs in the app's origin.
+// The frame loads a small page from the shell's nbout: scheme (main.rs, OUTPUT_FRAME): another
+// origin, sandboxed without allow-same-origin, with its own policy that allows no network. The
+// HTML goes in by postMessage once that page loads, and again if the frame reloads; the page
+// writes it into itself and reports its height for sizing.
 function htmlFrame(html) {
-  const sizer = "<script>(function(){function s(){parent.postMessage({fdFrameHeight:document.documentElement.scrollHeight},'*')}" +
-    "addEventListener('load',s);new ResizeObserver(s).observe(document.documentElement);})();<\/script>";
-  return h("iframe", { class: "out-html", sandbox: "allow-scripts", title: "HTML output", srcdoc: `${html}${sizer}` });
+  const frame = h("iframe", { class: "out-html", sandbox: "allow-scripts", title: "HTML output",
+    src: window.__TAURI__.core.convertFileSrc("frame", "nbout") });
+  frame.addEventListener("load", () => frame.contentWindow?.postMessage({ fdHtml: html }, "*"));
+  return frame;
 }
 
 window.addEventListener("message", (e) => {

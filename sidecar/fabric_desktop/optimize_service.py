@@ -10,13 +10,16 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from . import app_settings, redact
-from .optimize import local_runs, schema, setup
+from .auth import ONELAKE_SCOPES
+from .fabric_api import FabricError
+from .optimize import local_runs, roles, schema, setup
 from .optimize.installation import Installation, now
 from .optimize.lakehouse import OneLakeLakehouse
 from .optimize.registry import Registry
 from .optimize.shared import Shared
 
 DEFAULT_NAME = "FabricDesktop_Central"
+CHANGED_SINCE = "The central lakehouse's roles changed since you looked. Check again before confirming."
 METHODS = {"optimize_status", "optimize_discover", "optimize_inspect", "optimize_create", "optimize_connect",
            "optimize_switch", "optimize_disconnect", "optimize_new_installation_id", "optimize_set_label",
            "optimize_findings", "optimize_recommendations", "optimize_set_recommendation",
@@ -180,6 +183,63 @@ class OptimizeMixin:
                 raise PermissionError(f"{state['message']} Confirm to continue.")
             setup.initialize(lake, self.optimize_installation, approve=True, family=fam)
         return lake, self.optimize_installation
+
+    def central_restrict(self, family: schema.Family, role_name: str, members: list[str],
+                         approve: bool = False, shown: list[str] | None = None) -> dict[str, Any]:
+        """Keep ``family``'s tables from everyone who reads the central lakehouse through DefaultReader,
+        and let ``members`` (Entra object ids) read them through ``role_name`` (roles.restrict_plan).
+        Without ``approve`` it changes nothing and raises with what it would change. With it, the
+        roles are read again; if ``shown`` (the changes the person confirmed) no longer matches, it
+        refuses, otherwise the change is made, refused by Fabric if the roles changed after that
+        read, and fdopt_audit records it. Needs a lakehouse with
+        schemas, OneLake security turned on, and the family's tables set up (central_family). Untested
+        on a live tenant: the ETag and If-Match handling follow Fabric's docs only."""
+        conn = self.optimize_registry.active()
+        if conn and not conn.get("schemas", True):
+            raise ValueError("The central lakehouse has no schemas, so its tables can't be kept from DefaultReader "
+                             "without listing every other table, which would hide tables added later. Use a central "
+                             "lakehouse with schemas for tables only some people may read.")
+        lake, installation = self.central_family(family)
+        api = self._scoped(ONELAKE_SCOPES)  # type: ignore[attr-defined]
+        ws, item = conn["workspace_id"], conn["lakehouse_id"]
+        tenant = self.auth.signed_in_tenant() or ""
+
+        def plan() -> dict[str, Any]:
+            try:
+                current, etag = api.list_data_access_roles_tagged(ws, item)
+            except Exception as exc:  # noqa: BLE001 - OneLake security off, or no rights to its roles
+                raise PermissionError("Couldn't read the central lakehouse's OneLake security roles. Turn on OneLake "
+                                      "security for it, or ask its workspace Admin. " + redact.secrets(str(exc))[:200]) from exc
+            return roles.restrict_plan(current, family, role_name, members, tenant, lake.schema_names()) | {"etag": etag}
+
+        found = plan()
+        summary = {"family": family.prefix, "role": role_name, "changes": found["changes"],
+                   "default_reader_paths": found["default_reader_paths"], "family_path": found["family_path"]}
+        if not found["changes"]:
+            return summary | {"changed": False}
+        if not approve:
+            ask = PermissionError("; ".join(found["changes"]) + ". Confirm to continue.")
+            ask.changes = found["changes"]  # type: ignore[attr-defined]  # pass back as shown=
+            raise ask
+        if shown is None:
+            raise ValueError("Pass the changes the person confirmed as shown= (the error's changes).")
+        found = plan()  # read again just before writing: the roles may have changed since the person looked
+        if not found["changes"]:
+            return summary | {"changes": [], "changed": False}
+        if list(shown) != found["changes"]:
+            raise PermissionError(CHANGED_SINCE)
+        try:
+            api.put_data_access_roles(ws, item, found["roles"], etag=found["etag"])
+        except FabricError as exc:
+            if exc.code == "PreconditionFailed" or exc.status == 412:
+                raise PermissionError(CHANGED_SINCE) from exc
+            raise
+        setup.write(lake, installation, "audit", [{
+            "record_id": f"{installation.id}:restrict:{family.prefix}:{now()}", "at": now(), "action": "restrict",
+            "target": f"{found['family_path']} role {role_name}", "outcome": "ok",
+            "message": "; ".join(found["changes"])}])
+        return summary | {"changes": found["changes"], "default_reader_paths": found["default_reader_paths"],
+                          "changed": True}
 
     def _optimize_workspaces(self) -> set[str]:
         """The workspaces the signed-in person can open in Fabric: results about items anywhere

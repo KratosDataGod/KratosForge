@@ -9,6 +9,7 @@ The app's **Learn more** links open the sections of this page. Two areas have th
 - **[Notebook resources](notebook-resources.md):** files kept beside a notebook and read in its cells as `builtin/<file>`, like Fabric's built-in resources.
 - **[Validate a notebook](validate-notebook.md):** checking a notebook works from the top with a clean run, and cleaning up its code.
 - **[Notebook files](notebook-files.md):** finding, opening, copying, deleting and restoring notebooks, and editing a Fabric notebook on this PC.
+- **[Notebook folders](notebook-folders.md):** grouping notebooks into folders, moving a notebook into one, renaming and deleting folders.
 - **[Fabric and Databricks notebook formats](notebook-import-export.md):** bringing in Fabric and Databricks source and .dbc archives (and .ipynb), and saving a notebook in those formats or as a web page.
 - **[Notebook version history](notebook-versions.md):** earlier versions of a notebook, checkpoints, Compare and Restore.
 - **[Profile](profile.md):** a private record of work KratosForge verified, and a review-ready report.
@@ -66,7 +67,7 @@ Press **?** when you aren't typing in a box to see every shortcut. The list also
 | **Up**, **Down**, **Home**, **End** | Move through an open menu |
 | **Left**, **Right**, **Home**, **End** | Move between tabs |
 
-Some pages add their own keys to the list while you're on them: **Ctrl+S** saves the notebook, and on an entity page saves the entity file (where **Tab** types four spaces instead of moving on); **Ctrl+Enter** in the commit message commits on Source control. The notebook editor has more keys (run a cell, add, delete or move cells, command mode); they're in the [notebook guide](notebooks.md#editing).
+Some pages add their own keys to the list while you're on them: **Ctrl+S** saves the notebook, and on an entity page saves the entity file (where **Tab** types four spaces instead of moving on); **Ctrl+Enter** in the commit message commits on Source control. While a notebook is open the list also shows its own keys (run a cell, command mode, working on several selected cells, find and replace); the [notebook guide](notebooks.md#editing) explains them.
 
 ### The bell: activity
 
@@ -124,6 +125,10 @@ From the top:
 ### All notebooks
 
 **All notebooks**, under **Recent notebooks**, lists every notebook on this PC and in your notebooks repositories, with search inside them. The [notebook files guide](notebook-files.md#all-notebooks) has the details.
+
+### Notebook folders
+
+On **All notebooks**, **New folder** makes a folder, and a notebook's **⋯** menu has **Move to folder…**. Notebooks are grouped by folder, with counts, and each folder's menu can rename it or delete it when it's empty. A folder is part of the notebook's name (Sales/Daily load), so its resources, versions and this PC's schedules follow it. Publishing names the Fabric item without the folder (Preview). See [Notebook folders](notebook-folders.md).
 
 ### Ready to work
 
@@ -280,7 +285,7 @@ Who can reach each environment's workspace, and who can read which tables. Chang
 
 - **Workspace roles** is a grid: one row per person, group or app, one column per environment's workspace, with their role in each (No access, Viewer, Contributor, Member, Admin). Change a role with its drop-down; the app asks before it changes anything. The **Worth a look** column flags entries that deserve a check. **Add a workspace** adds any other workspace to the grid. Listing roles needs Member or Admin on the workspace.
 - **Give access** adds a person, group or app to a workspace with a role. Finding someone by email asks you once to let the app read your directory's names.
-- **Table access in a lakehouse** lists the lakehouse's OneLake data access roles. These decide which tables Viewers, and people outside the workspace, can read; Admins, Members and Contributors read everything. **New role** and **Edit** choose what the role can read (everything, or some tables) and its members. **DefaultReader** is the role that lets everyone with read permission see every table.
+- **Table access in a lakehouse** lists the lakehouse's OneLake data access roles. These decide which tables Viewers, and people outside the workspace, can read; Admins, Members and Contributors read everything. **New role** and **Edit** choose what the role can read (everything, or some tables) and its members. **DefaultReader** is the role that lets everyone with read permission see every table. Saving or deleting a role rewrites the lakehouse's whole role list, so if someone else changed a role since you opened the page, nothing is saved and you're asked to open it again.
 - **Who can read a table** answers that question for one table.
 - If OneLake security isn't turned on for the lakehouse, the tab says so and offers **Open the lakehouse in Fabric** to turn it on (**Manage OneLake security**).
 
@@ -354,7 +359,7 @@ Monitor has two halves.
 **From KratosForge** (top) has three tabs:
 
 - **Runs:** everything this app ran or started, in every environment, on this PC and in Fabric: metadata runs, notebook table writes, notebook runs in Fabric, scheduled runs on this PC, and table maintenance jobs. Filter by environment (All, Dev, Test, Prod) and by where it ran (Anywhere, This PC, Fabric). **Problems first** puts failures at the top. Each failed row says why. When a failed scheduled run on this PC couldn't post its Teams alert, the row says that too, and so does the schedule's last result in **Schedules**. The alert isn't lost: it waits on this PC (in `schedule_alerts.sqlite3`) and is posted, marked **Delayed**, after the next scheduled run here, oldest first; one still waiting after three days is dropped. If the metadata project can't be read (a broken `layers.toml`, say), Runs says so above the list instead of showing no metadata runs, Home says it couldn't check the metadata project, and the bell says freshness wasn't checked. Each metadata run says where it ran: **This PC**, **Agent** with the agent's name and server, or **Fabric**. Click a row for its details: a metadata run shows each step with rows and time, each check with how many rows failed, and the job it belongs to (the agent's job id, or the request id of a run in Fabric, which names its result file in `LH_Meta/Files/_fabric_desktop/results/`) and which try it was. Test and Prod runs show once you're signed in.
-- **Schedules** (Preview): every schedule, on this PC and in Fabric, in one list, with how its last run went, when it runs next, and **Run now**, **On/Off**, **Open** and **Remove**. **Remove** asks first and says what stops: on this PC it deletes the Windows task, in Fabric it deletes the schedule there, and past runs stay. To stop a schedule for a while, turn it Off instead. Schedules on this PC are started by Windows Task Scheduler even when the app is closed, as long as the PC is on and you are signed in to it. Fabric schedules run on capacity even when your PC is off. If this PC's schedules file is ever damaged (a crash mid-save, say), it is moved aside to `schedules.json.corrupt-<time>` in the app's folder, and a warning above the list says when and where. Schedules saved before then aren't listed, but Task Scheduler may still have tasks for them under **FabricDesktop**. Their runs fail and don't show here. The moved-aside file has the old schedules if you want to add them again. The warning goes away once that file is moved out of the folder or deleted.
+- **Schedules** (Preview): every schedule, on this PC and in Fabric, in one list, with how its last run went, when it runs next, and **Run now**, **On/Off**, **Open** and **Remove**. **Remove** asks first and says what stops: on this PC it deletes the Windows task, in Fabric it deletes the schedule there, and past runs stay. To stop a schedule for a while, turn it Off instead. Schedules on this PC are started by Windows Task Scheduler even when the app is closed, as long as the PC is on and you are signed in to it. Fabric schedules run on capacity even when your PC is off. If this PC's schedules file is ever damaged (a crash mid-save, say), it is moved aside to `schedules.json.corrupt-<time>` in the app's folder, and a warning above the list says when and where. Schedules saved before then aren't listed, but Task Scheduler may still have tasks for them under the `FabricDesktop` folder. Their runs fail and don't show here. The moved-aside file has the old schedules if you want to add them again. The warning goes away once that file is moved out of the folder or deleted.
 - **Operations** (Preview): the views for running workloads day to day. **Show** picks one, and Operations opens on the last one you used:
   - **Workloads**: everything you build and run, with its health, owner and what you can do with it. See [Workloads](#workloads-preview) below.
   - **Queue**: what is running, queued and next, on this PC, on agents and in Fabric, with who owns each item. See [Queue](#queue-preview) below.
@@ -498,11 +503,23 @@ Open Settings from the gear at the bottom of the left rail, or from the account 
 | **Platform** (Preview) | A link to **Platform > Settings**, where each environment's [platform](platform.md) is created, joined or repaired. See [Platform settings](#platform-settings). |
 | **Optimize lakehouses** (Preview) | The optimization lakehouse this PC shares results through: **Switch to**, **Check** (your access and its schema) and **Disconnect...** (its data stays). **Advanced** has this installation's random ID, **New installation ID**, and an optional name everyone on the lakehouse sees. See [Optimize](optimize/README.md). |
 | **Usage data** (Preview) | Off unless you turn it on. Once a day it sends how often each action ran, failed and took, never your data or names. **See what's sent** shows the exact text. See [Usage data](telemetry.md). |
-| **Notifications** | **Teams alerts**: post new incidents (late and failed tables, missed objectives, agents that stopped) to a Teams channel, unless an agent already checks that environment. See [Freshness promises](metadata-guide.md#freshness-promises). |
+| **Notifications** | **Teams alerts**: post new incidents (late and failed tables, missed objectives, agents that stopped) to a Teams channel, unless an agent already checks that environment. See [Freshness promises](metadata-guide.md#freshness-promises). **Platform notices** (Preview): Teams channels for platform requests and broken shortcuts. See [Platform notices](#platform-notices-preview). |
 | **Help and about** | This guide, **Report a problem**, the **Guide for IT admins**, the build, the engine's Python version and where the organization settings file is. |
 | **Advanced** | Folded until you open it: the App (client) ID, the notebook process and its limits, and the SQL query limits. See [Advanced settings](#advanced-settings). |
 
 Anything your organization has set shows "Set by your organization's policy" and can't be changed there.
+
+### Platform notices (Preview)
+
+**Settings > Notifications > Platform notices** sends platform requests waiting on someone, their decisions and withdrawals, and shortcuts that break or are fixed to Teams channels ([Notices to Teams](platform.md#notices-to-teams-preview)). Each change is posted once.
+
+- **Add a route** names a channel, takes its Teams webhook, and optionally picks which kinds of notice and which domains it posts. A route named `default` gets everything no other route takes. **Test and save** posts one test message first and saves only if Teams takes it. A route's webhook is shown only as its host. Leave the box empty when editing to keep the address it has. **Remove route** asks first.
+- **Quiet hours** (this PC's clock, like `22:00-07:00`) hold notices until they end. **Send during quiet hours anyway** lets warnings, or everything else, through.
+- When notices haven't reached Teams, because quiet hours hold them or Teams didn't answer, the section says how many. They wait on this PC for up to three days.
+
+The bell's **Platform** filter lists the requests still waiting and shortcuts still broken that this PC's notices know about, each with **Open in Platform > Requests** or **Open in Shortcuts > Health**, plus a line for notices that haven't reached Teams. Another PC or Fabric may already have settled some. A request's reason never shows there or in Teams. The filter appears once a route is set or a notice is open.
+
+The requests and shortcut pages don't send notices yet, so routes set now start posting when they do.
 
 ### Advanced settings
 
@@ -544,7 +561,7 @@ When a tool asks for something that needs you, a prompt opens over whatever page
 | Part of the tab | What it's for |
 | --- | --- |
 | **How tools connect** | The MCP command tools start, and the **Local HTTP API** switch for tools that call `http://127.0.0.1:47615` instead (this PC only, with a token per tool). |
-| **Connected tools** | Each tool with what it may do and when it last asked. **Edit** changes its permissions, limits it to some workspaces (it then can't run code) or makes a new HTTP token. **Revoke** stops it at once. |
+| **Connected tools** | Each tool with what it may do and when it last asked. **Edit** changes its permissions, limits it to some workspaces (it then can't run code or check a run's risk, and sees only the notebooks, proofs, receipts and runs in those workspaces) or makes a new HTTP token. **Revoke** stops it at once. |
 | **Extensions** (Preview) | Extra capabilities tools can use, each off until you turn it on. The built-in **Notebook outline** lets a tool read a notebook's headings, functions and classes without its code. A tool still needs the permission an extension asks for, and anything that runs code still asks you. Tools that are connected see the change within a few seconds. Your organization can limit which extensions can be turned on. |
 | **Recent activity** | Every request each tool made, refused ones included: what it asked for, what was decided (allowed, approved by you, refused, denied by you, not answered) and how it ended. Code, queries and table data aren't kept. **Check the trail** confirms no line was changed or removed. The full trail, for your IT team, is in `%LOCALAPPDATA%\FabricDesktop\integrations\audit`. |
 

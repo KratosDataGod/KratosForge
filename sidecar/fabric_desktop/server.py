@@ -49,7 +49,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_drift", "meta_drift_apply",
            "meta_table_history", "meta_restore", "cost_report", "set_cost_settings", "capacity_health",
            "usage_preview", "usage_import", "usage_imports", "usage_import_delete", "usage_reconciliation",
-           "risk_check", "meta_risk_gate", "risk_settings", "set_risk_settings", "risk_acknowledge", "risk_acknowledgements",
+           "risk_check", "meta_risk_gate", "placement_advice", "risk_settings", "set_risk_settings", "risk_acknowledge", "risk_acknowledgements",
            "list_shortcuts", "all_shortcuts", "create_shortcut", "delete_shortcut", "shortcut_connections",
            "shortcut_center", "shortcut_check", "shortcut_readers", "shortcut_access", "shortcut_rules",
            "shortcut_save_rules", "shortcut_preflight", "shortcut_changes", "shortcut_repoint", "shortcut_undo",
@@ -132,6 +132,11 @@ METHODS |= NOTEBOOK_VERSIONS_METHODS
 from .notebook_files_service import METHODS as NOTEBOOK_FILES_METHODS  # noqa: E402
 
 METHODS |= NOTEBOOK_FILES_METHODS
+
+# Folders for notebooks (notebook_folders_service.py): new, rename, delete when empty, move into one.
+from .notebook_folders_service import METHODS as NOTEBOOK_FOLDERS_METHODS  # noqa: E402
+
+METHODS |= NOTEBOOK_FOLDERS_METHODS
 
 # Notebook export and import in Fabric, Databricks and Jupyter formats (notebook_formats_service.py).
 from .notebook_formats_service import METHODS as NOTEBOOK_FORMATS_METHODS  # noqa: E402

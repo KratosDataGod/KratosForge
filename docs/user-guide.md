@@ -453,6 +453,10 @@ The banner at the top lists what to look at: a certificate that has expired or e
 
 **Source control**, at the bottom of the left rail, is Git in the app: clone a repository from GitHub, Azure DevOps or any Git server, see what changed (inline, side by side, or cell by cell for notebooks), stage and commit, make and switch branches, fetch, pull and push, and read the history. The top bar shows the branch you're on, how many commits are ahead or behind, and a dot when there are uncommitted changes. Commits are checked for secrets first, and nothing that discards your work happens without asking. It uses the Git installed on your PC and its sign-in (Git Credential Manager or your SSH agent). Pushing never changes a Fabric workspace. Notebooks, data mesh projects, platform definitions and capacity definitions each get their own kind of repository, and the list is grouped by kind. Notebooks can be saved in a notebooks repository, where they find their lakehouse for each environment from that repository's locations. A platform repository holds the platform's definitions as files: compare them with what each environment has deployed, export the platform into them, and deploy committed changes after one confirm. The whole page is described in [Source control](source-control.md).
 
+## Profile (Preview)
+
+**Profile**, in the account menu (top right), is a private record of work KratosForge verified: notebooks that passed Validate with a clean run. It shows your level and achievements (for fun, not a skill rating), skills as evidence coverage, and a **Professional report** you can save as Markdown for a review. Recording is on from the start and stays on this PC; turn it off in **Profile > Settings**. The whole page is described in [Profile](profile.md).
+
 ## Settings
 
 Open Settings from the gear at the bottom of the left rail, or from the account menu. Settings has two tabs: **General**, below, and **Integrations** (Preview), which connects [external AI tools](#external-ai-tools).

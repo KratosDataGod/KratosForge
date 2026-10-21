@@ -38,7 +38,7 @@ async function renderProfile() {
       h("div", { class: "profile-avatar", "aria-hidden": "true" }, (who.display_name || state.user || "?")[0].toUpperCase()),
       h("div", {}, previewMarked("profile", h("h1", {}, who.display_name || "Your profile")),
         h("p", { class: "sub" }, [who.role, who.technologies, state.user ? `Signed in as ${state.user}` : "Not signed in: this profile is kept for this PC"]
-          .filter(Boolean).join(" · ")))),
+          .filter(Boolean).join(" · "), " ", learnMore("profile-preview")))),
     btn("Edit profile", "person", editProfileIdentity, "tool outline"));
   const body = { overview: profileOverview, report: profileReport, settings: profileSettings }[profilePage.tab](p);
   const notice = p.notice ? h("div", { class: "callout git-warn", role: "alert" }, h("span", { class: "grow" }, p.notice),

@@ -3884,3 +3884,103 @@ test("the magics page documents %pip installing into the notebook's environment"
   assert.match(doc, /## Installing packages with %pip/);
   assert.match(doc, /\(notebooks\.md#notebook-environments-preview\)/);
 });
+
+// Notebook %autoreload: the magics page documents autoreload and %aimport.
+test("the magics page documents %autoreload and %aimport", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /### Editing your own modules: %autoreload/);
+  assert.match(doc, /`%load_ext autoreload`, `%autoreload 2`, `%aimport name`/);
+});
+
+// Notebook %run -b: the magics and resources pages say how to run a file from Built-in resources.
+test("the magics page documents %run -b and the resources page links to it", () => {
+  const root = path.join(__dirname, "..", "..");
+  const magicsDoc = fs.readFileSync(path.join(root, "docs", "notebook-magics.md"), "utf8");
+  assert.match(magicsDoc, /### Running a file from the notebook's resources: %run -b/);
+  assert.match(fs.readFileSync(path.join(root, "docs", "notebook-resources.md"), "utf8"), /notebook-magics\.md#running-a-file-from-the-notebooks-resources-run--b/);
+});
+
+test("a workload page says whether its actions reached the platform's audit", () => {
+  const src = fs.readFileSync(path.join(ui, "workloads.js"), "utf8");
+  const fn = /function platformAuditNote\([\s\S]*?\n}\n/.exec(src)[0];
+  const ctx = { h: (tag, attrs, ...kids) => kids.join("") };
+  vm.runInNewContext(`${fn}this.f = platformAuditNote;`, ctx);
+  assert.strictEqual(ctx.f(null), null);
+  assert.strictEqual(ctx.f({ platform: "this_pc", waiting: 0 }), "Each one is also on Platform > Audit.");
+  assert.match(ctx.f({ platform: "fabric", waiting: 2, error: "Signed out." }),
+    /^2 actions or changes haven't reached Platform > Audit yet: Signed out\. This PC keeps them/);
+  assert.match(ctx.f({ platform: "fabric", waiting: 1, error: "" }), /^1 action or change hasn't reached Platform > Audit yet\. /);
+  assert.match(ctx.f({ platform: "none", waiting: 3 }), /^Kept on this PC only: there's no platform yet\. 3 actions/);
+  assert.strictEqual(ctx.f({ platform: "none", waiting: 0 }), "Kept on this PC only: there's no platform yet.");
+});
+
+// ipywidgets (ipywidgets.js): the kernel holds the state; a change goes to notebook_ipywidget_event and the answer is drawn.
+function widgetsHarness(answer) {
+  const src = fs.readFileSync(path.join(ui, "ipywidgets.js"), "utf8");
+  const { node } = chartsHarness(null);
+  const calls = [];
+  const ctx = { state: { notebook: { name: "Sales" } }, h: node, friendlyError: String, previewMarked: (_id, n) => n, htmlFrame: (html) => node("iframe", { srcdoc: html }),
+    renderOutput: (o) => node("pre", {}, o.text || o.type),
+    rpc: async (m, a) => { calls.push([m, JSON.parse(JSON.stringify(a))]); return typeof answer === "function" ? answer(a) : answer; } };
+  vm.createContext(ctx);
+  vm.runInContext(src + "\nthis.api = { renderWidgetOutput, drawWidget };", ctx);
+  return { ctx, calls };
+}
+
+test("ipywidgets controls send their change to the kernel and draw its answer", async () => {
+  const view = { id: "w5", kind: "vbox", description: "", disabled: false, children: [
+    { id: "w1", kind: "slider", description: "n", disabled: false, value: 5, min: 1, max: 10, step: 1 },
+    { id: "w2", kind: "dropdown", description: "name", disabled: false, options: ["a", "b"], index: 0 },
+    { id: "w3", kind: "checkbox", description: "flag", disabled: false, value: true },
+    { id: "w6", kind: "button", description: "Go", disabled: false },
+    { id: "w7", kind: "html", description: "", disabled: false, value: "<b>x</b>" },
+    { id: "w4", kind: "output", description: "", disabled: false, outputs: [{ type: "stream", text: "5 a True\n" }] }] };
+  const answer = { status: "ok", outputs: [{ type: "stream", text: "clicked\n" }], view: { ...view, children: [{ ...view.children[0], value: 9 }] } };
+  const { ctx, calls } = widgetsHarness(answer);
+  const o = { type: "widget", model: "w5", view };
+  const wrap = ctx.api.renderWidgetOutput(o, { id: "c" });
+  const nodes = allNodes(wrap);
+  const range = nodes.find((n) => n.tag === "input" && n.attrs.type === "range");
+  assert.deepStrictEqual([range.attrs.min, range.attrs.max, range.attrs.value], [1, 10, 5]);
+  range.attrs.onchange({ target: { value: "9" } });
+  assert.deepStrictEqual(calls[0], ["notebook_ipywidget_event", { model: "w1", event: { value: 9 }, root: "w5", notebook: "Sales" }]);
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(o.view.children[0].value, 9);
+  assert.strictEqual(o.events[0].text, "clicked\n");
+  assert.ok(wrap.replaced, "redrawn with the kernel's answer");
+  const tick = () => new Promise((r) => setImmediate(r));
+  nodes.find((n) => n.tag === "select").attrs.onchange({ target: { value: "1" } });
+  // While the kernel answers, changes wait and only the latest is sent next.
+  nodes.find((n) => n.tag === "input" && n.attrs.type === "checkbox").attrs.onchange({ target: { checked: false } });
+  nodes.find((n) => n.tag === "button").attrs.onclick();
+  assert.strictEqual(calls.length, 2);
+  await tick();
+  await tick();
+  assert.deepStrictEqual(calls.slice(1).map(([, a]) => a.event), [{ index: 1 }, { click: true }]);
+  // The HTML widget goes to the sandboxed frame; nothing in this file writes HTML itself.
+  assert.ok(nodes.some((n) => n.tag === "iframe" && n.attrs.srcdoc === "<b>x</b>"));
+  const src = fs.readFileSync(path.join(ui, "ipywidgets.js"), "utf8");
+  assert.doesNotMatch(src, /innerHTML|insertAdjacentHTML|outerHTML|srcdoc/);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /if \(o\.type === "widget"\) return renderWidgetOutput\(o, cell\);/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="wrangler\.js"><\/script>\n  <script src="ipywidgets\.js"><\/script>/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /ipywidgets: "Notebook widgets"/);
+});
+
+test("a widget after a restart asks for its cell again, and a busy kernel's refusal shows under it", async () => {
+  const gone = widgetsHarness({ gone: true, message: "This control is no longer held by the kernel (it restarted). Run the cell again." });
+  const o = { type: "widget", model: "w1", view: { id: "w1", kind: "button", description: "Go", disabled: false } };
+  const wrap = gone.ctx.api.renderWidgetOutput(o, null);
+  allNodes(wrap).find((n) => n.tag === "button").attrs.onclick();
+  await new Promise((r) => setImmediate(r));
+  assert.match(o.gone, /Run the cell again/);
+  const busy = widgetsHarness(() => Promise.reject(new Error("A cell is running. The control works again when it finishes.")));
+  const o2 = { type: "widget", model: "w1", view: { id: "w1", kind: "text", description: "q", disabled: false, value: "" } };
+  const wrap2 = busy.ctx.api.renderWidgetOutput(o2, null);
+  allNodes(wrap2).find((n) => n.tag === "input").listeners.change();
+  await new Promise((r) => setImmediate(r));
+  assert.ok(allNodes(wrap2.replaced).some((n) => n.attrs?.role === "alert"));
+  // Disabled controls are drawn disabled.
+  const d = busy.ctx.api.drawWidget({ id: "w9", kind: "slider", description: "", disabled: true, value: 1, min: 0, max: 2, step: 1 }, () => {}, null, 0);
+  assert.strictEqual(allNodes(d).find((n) => n.tag === "input").attrs.disabled, true);
+});

@@ -215,6 +215,14 @@ def audit(sqlDB: fn.FabricSqlConnection, limit: int) -> list:
     return _run(sqlDB, "audit", limit=limit)
 
 
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def log_workload_action(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, workload: str, action: str,
+                        status: str, entry: dict = None) -> dict:
+    return _run(sqlDB, "log_workload_action", ctx, workload=workload, action=action, status=status, entry=entry)
+
+
 # ---- who may change what, key tables, sources and requests
 
 @udf.connection(argName="sqlDB", alias="platform")

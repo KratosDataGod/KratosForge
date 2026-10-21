@@ -33,7 +33,7 @@ import traceback
 import types
 import warnings
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 import pyarrow as pa
 
@@ -299,6 +299,26 @@ class _Run:
             return snap
 
 
+class _OutputSink:
+    """Where a block inside ``with out:`` writes: the Output widget (widgets.py), not the cell."""
+
+    def __init__(self, out: Any):
+        self.out = out
+
+    def write(self, text: str) -> None:
+        self.out._write(text)
+
+    def add(self, output: dict[str, Any]) -> None:
+        self.out._add(output)
+
+    def clear(self, wait: bool = False) -> None:
+        self.out.clear_output(wait)
+
+
+WIDGET_SECONDS = 60
+WIDGET_GONE = "This control is no longer held by the kernel (it restarted). Run the cell again."
+
+
 class _Router(io.TextIOBase):
     """sys.stdout / sys.stderr: what a running cell's thread writes goes to that cell's output."""
 
@@ -361,6 +381,8 @@ class Kernel:
         self.widget_values: dict[str, str] = {}
         self.resources_dir = ""  # the running notebook's resources folder, "" for none (notebook_resources)
         self._current: _Run | None = None
+        self._widget_lock = threading.Lock()
+        self._widget_thread: threading.Thread | None = None  # a handler stuck in native code outlives its event
         self._local = threading.local()
         self._secrets: set[str] = set()
         self._tasks: list[str] = []
@@ -376,6 +398,8 @@ class Kernel:
                               "displayHTML": self._display_html}
         from . import ipython_display
         ipython_display.install(ipython_display.build(self._display, self._clear_output))
+        from . import widgets as ipywidgets_local
+        ipywidgets_local.install(self._display, self._capture_output)
         host = notebookutils_local.Host(
             token=self.token, run_notebook=self.run_notebook, notebook_name=lambda: self.notebook_name,
             variables=self.variable_libraries, display=self._display, tasks=self._tasks,
@@ -411,7 +435,11 @@ class Kernel:
     def restart(self) -> None:
         if self._current is not None and not self._current.done.is_set():
             self.interrupt()
+        self._widget_thread = None  # a stuck handler keeps the old namespace; the new one is free
         self._reset()
+
+    def _handler_alive(self) -> bool:
+        return self._widget_thread is not None and self._widget_thread.is_alive()
 
     def _reset(self) -> None:
         """A fresh namespace and spark session; restart() once nothing is running."""
@@ -427,10 +455,88 @@ class Kernel:
 
     def _show(self, value: Any) -> dict[str, Any]:
         """``display(value)``; a table also keeps its whole result for the result viewer (frames.py)."""
+        from . import widgets
+        if isinstance(value, widgets.Widget):
+            return {"type": "widget", "model": value.model_id, "view": widgets.view(value)}
         out = display(value)
         if out["type"] == "table":
             out["frame"] = self.frames.keep(value)
         return out
+
+    # ---- ipywidgets (widgets.py): a control changed in the app
+
+    @contextlib.contextmanager
+    def _capture_output(self, out: Any) -> Iterator[None]:
+        """``with out:`` for an Output widget: this thread's prints, displays and figures go to it."""
+        stdout, stderr = _routers()
+        ident = threading.get_ident()
+        sink = _OutputSink(out)
+        saved = (stdout.targets.get(ident), stderr.targets.get(ident), getattr(self._local, "run", None))
+        stdout.targets[ident] = stderr.targets[ident] = sink  # type: ignore[assignment]
+        self._local.run = sink
+        try:
+            yield
+        finally:
+            self._flush_figures(sink)  # type: ignore[arg-type]
+            for router, before in ((stdout, saved[0]), (stderr, saved[1])):
+                if before is None:
+                    router.targets.pop(ident, None)
+                else:
+                    router.targets[ident] = before
+            self._local.run = saved[2]
+
+    def ipywidget_event(self, model: str, event: dict[str, Any], root: str | None = None) -> dict[str, Any]:
+        """Apply a control's change and run its handlers, as a cell runs: on its own thread, with
+        what they print and display coming back as ``outputs``, for at most ``WIDGET_SECONDS``."""
+        from . import widgets
+        if self._current is not None and not self._current.done.is_set():
+            raise RuntimeError("A cell is running. The control works again when it finishes.")
+        if self._handler_alive() or not self._widget_lock.acquire(blocking=False):
+            raise RuntimeError("The last change is still running. Try again when it finishes, or restart the kernel.")
+        try:
+            run = _Run(0)
+            status = {"value": "ok"}
+
+            def work() -> None:
+                stdout, stderr = _routers()
+                ident = threading.get_ident()
+                stdout.targets[ident] = stderr.targets[ident] = run
+                self._local.run = run
+                try:
+                    self._patch_pyplot(run)
+                    widgets.handle(model, event)
+                    self._flush_figures(run)
+                except LookupError:
+                    status["value"] = "gone"
+                except KeyboardInterrupt:
+                    status["value"] = "cancelled"
+                    run.add({"type": "text", "text": f"Stopped: the handler ran longer than {WIDGET_SECONDS} seconds."})
+                except Exception as exc:  # noqa: BLE001 - the handler's error shows under the control
+                    status["value"] = "error"
+                    run.add(self._error(exc))
+                finally:
+                    stdout.targets.pop(ident, None)
+                    stderr.targets.pop(ident, None)
+                    self._local.run = None
+            thread = threading.Thread(target=work, daemon=True, name="widget-event")
+            self._widget_thread = thread
+            thread.start()
+            thread.join(WIDGET_SECONDS)
+            if thread.is_alive():
+                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(thread.ident), ctypes.py_object(KeyboardInterrupt))
+                thread.join(2.0)
+                if thread.is_alive():  # stuck in native code (a sleep, a query): stop waiting for it
+                    status["value"] = "cancelled"
+                    run.add({"type": "text", "text": f"Stopped waiting: the handler ran longer than {WIDGET_SECONDS} "
+                             "seconds. It ends when the native call it's in returns; until then cells and controls "
+                             "wait, or restart the kernel."})
+            if status["value"] == "gone":
+                return {"gone": True, "message": WIDGET_GONE}
+            w = widgets.registry.get(root or model)
+            return {"status": status["value"], "outputs": run.snapshot()["outputs"],
+                    "view": widgets.view(w) if w is not None else None}
+        finally:
+            self._widget_lock.release()
 
     def frame_page(self, frame: str, offset: int = 0, limit: int = 100, sort: int | None = None,
                    desc: bool = False, q: str = "") -> dict[str, Any]:
@@ -480,6 +586,8 @@ class Kernel:
         cell under the debugger (debugger.py): ``poll`` reports ``paused`` and ``debug`` resumes."""
         if self._current is not None and not self._current.done.is_set():
             raise RuntimeError("A cell is already running. Wait for it, or Cancel it.")
+        if self._widget_lock.locked() or self._handler_alive():
+            raise RuntimeError("A widget's handler is still running. Run the cell when it finishes, or restart the kernel.")
         widgets = getattr(self.namespace.get("dbutils"), "widgets", None)
         if widgets is not None:
             widgets.set_in_app = dict(self.widget_values)
@@ -634,6 +742,8 @@ class Kernel:
             return "error"
         code = magics.rewrite(cell.body)
         namespace.setdefault(magics.CALL, self._magic)
+        if getattr(self, "_autoreload", None) is not None:
+            self._autoreload.check(namespace)  # %autoreload: your edited modules, before the cell runs
         self._patch_pyplot(run)
         if cell.header == "%%time":
             started = time.monotonic()
@@ -788,9 +898,9 @@ class Kernel:
         return None
 
     def _line_magic_help(self) -> str:
-        return ("Line magics: %sql, %run, %fs, %sh, !command, %time, %timeit, %pwd, %env, %who, %whos, %reset -f, "
+        return ("Line magics: %sql, %run (-b for a resources file), %fs, %sh, !command, %time, %timeit, %pwd, %env, %who, %whos, %reset -f, "
                 "%lsmagic, %matplotlib (charts are always inline), %pip (in the notebook's environment), "
-                "%load_ext, %autoreload and %config (skipped)\n"
+                "%autoreload and %aimport (with %load_ext autoreload), %config (skipped)\n"
                 "Cell magics: %%sql, %%pyspark, %%python, %%html, %%markdown, %%configure, %%sh, %%bash, %%cmd, "
                 "%%powershell, %%time, %%timeit, %%capture, %%writefile\n"
                 "Databricks cells: %sql, %python, %md, %sh, %fs, %run (%scala and %r run in Fabric)")
@@ -846,6 +956,8 @@ class Kernel:
 
     def _magic(self, name: str, line: str) -> Any:
         if name == "run":
+            if m := _RUN_SCRIPT.match(line):
+                return self._run_builtin(m["flags"], m["rest"])
             target, args = _run_target(line)
             return self._run_notebook_in(target, self.namespace, args)
         if name == "sql":
@@ -903,10 +1015,29 @@ class Kernel:
             return None
         if name in ("matplotlib",):
             return None  # charts are always shown in the cell
-        if name in ("load_ext", "reload_ext", "autoreload", "config", "aimport"):
-            print(f"Note: %{name} changes IPython itself, which this kernel isn't, so this line was skipped.")
+        if name in ("load_ext", "reload_ext") and line.strip() == "autoreload":
+            self._reloader()  # %autoreload and %aimport work with or without this, as a convenience
+            return None
+        if name == "autoreload":
+            self._reloader().command(line)
+            return None
+        if name == "aimport":
+            listed = self._reloader().aimport(line, self.namespace)
+            if listed:
+                print(listed)
+            return None
+        if name in ("load_ext", "reload_ext", "unload_ext", "config"):
+            what = f"the {line.strip()} extension" if name.endswith("_ext") and line.strip() else f"%{name}"
+            print(f"Note: {what} needs IPython's own shell, which this kernel isn't, so this line was skipped. "
+                  "%load_ext autoreload works.")
             return None
         raise ValueError(f"%{name} isn't supported on this PC. %lsmagic lists the magics that are.")
+
+    def _reloader(self) -> Any:
+        from .autoreload import Reloader
+        if getattr(self, "_autoreload", None) is None:
+            self._autoreload = Reloader()
+        return self._autoreload
 
     def _run_script(self, cell: Any, run: _Run | None) -> str:
         """A %sh, %%sh, %%bash, %%cmd or %%powershell cell: the cell runs as a script on this PC.
@@ -941,6 +1072,37 @@ class Kernel:
         ns[magics.CALL] = self._magic
         with _deadline(timeout_seconds, f"Notebook {name!r} didn't finish within {timeout_seconds} seconds."):
             return self._run_notebook_in(name, ns, arguments or {}, cell_timeout)
+
+    def _run_builtin(self, flags: str, rest: str) -> Any:
+        """Fabric's ``%run -b script.py`` (or ``.sql``): runs a file from the notebook's Built-in
+        resources in this session. A ``.py`` file runs in the notebook's variables, after any
+        ``{"name": value}`` arguments are set; a ``.sql`` file runs as a %%sql cell would."""
+        from . import notebook_resources
+        if "-c" in flags.split() or "--current" in flags.split():
+            if getattr(self._local, "depth", 0):
+                raise NotImplementedError("%run -c inside a notebook that another one runs isn't supported on "
+                                          "this PC yet: it would need that notebook's own resources. Use -b, "
+                                          "which reads the resources of the notebook you run.")
+        file, args = _run_target(rest, keep_path=True)
+        if not self.resources_dir:
+            raise FileNotFoundError(f"%run -b {file}: this notebook has no resources folder yet. Add the file "
+                                    "under Resources (Built-in) first.")
+        path = notebook_resources.resolve(f"builtin/{file}", self.resources_dir)
+        if path is None or not os.path.isfile(path):
+            raise FileNotFoundError(f"%run -b: {file} isn't in this notebook's Built-in resources.")
+        text = Path(path).read_text(encoding="utf-8")
+        kind = Path(path).suffix.lower()
+        if kind == ".sql":
+            if args:
+                raise ValueError("%run -b with a .sql file takes no arguments.")
+            if self._run_sql(text, getattr(self._local, "run", None), self.namespace) != "ok":
+                raise RuntimeError(f"{file} failed; its error is shown above.")
+            return None
+        if kind != ".py":
+            raise ValueError(f"%run -b runs .py and .sql files; {file} is neither.")
+        self.namespace.update(args)
+        exec(compile(text, f"builtin/{file}", "exec"), self.namespace)  # noqa: S102 - the notebook's own file
+        return None
 
     def _run_notebook_in(self, name: str, namespace: dict[str, Any], arguments: dict[str, Any],
                          cell_timeout: float | None = None) -> Any:
@@ -1322,7 +1484,10 @@ class _BuiltinPaths(ast.NodeTransformer):
         return node
 
 
-def _run_target(line: str) -> tuple[str, dict[str, Any]]:
+_RUN_SCRIPT = re.compile(r"^\s*(?P<flags>(?:(?:-b|--builtin|-c|--current)\s+)+)(?P<rest>.*)$", re.S)
+
+
+def _run_target(line: str, keep_path: bool = False) -> tuple[str, dict[str, Any]]:
     """The notebook and arguments of a ``%run`` line, in Fabric's or Databricks' form:
     ``%run Load sales {"day": "2026-01-01", "full": true}`` (JSON or a Python dict) or
     ``%run ./Load sales $day="2026-01-01" $full=true`` (Databricks widgets, always text).
@@ -1335,7 +1500,9 @@ def _run_target(line: str) -> tuple[str, dict[str, Any]]:
         name, rest = (text[:m.start()], text[m.end():]) if m else (text, "")
     if not name:
         raise ValueError("%run needs a notebook name, like: %run Load sales")
-    name = name.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1].removesuffix(".ipynb")
+    name = name.replace("\\", "/").rstrip("/")
+    if not keep_path:  # a notebook is found by its name; a resources file keeps its folder
+        name = name.rsplit("/", 1)[-1].removesuffix(".ipynb")
     rest = rest.strip()
     if not rest:
         return name, {}

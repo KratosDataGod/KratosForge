@@ -65,7 +65,7 @@ from .comments_service import CommentsMixin
 from .kernel_proc import ProcessKernel
 from .kernel_sessions import KernelSessions
 from .debugger import check_breakpoints
-from .notebook import Kernel, NotebookShelf, check_watches
+from .notebook import WIDGET_GONE, Kernel, NotebookShelf, check_watches
 from .onelake import FileStore, TableCatalog
 from .publish import run_job
 
@@ -559,6 +559,18 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
             if isinstance(exc, FrameGone) or str(exc) == GONE:
                 return {"frame": frame, "gone": True, "message": GONE}
             raise
+
+    def notebook_ipywidget_event(self, model: str, event: dict[str, Any] | None = None, root: str | None = None,
+                                 notebook: str | None = None) -> dict[str, Any]:
+        """An ipywidgets control changed in a cell's output: set it and run its handlers in that notebook's
+        kernel. Handlers are user code, so they wait for a proof and a replay as a cell does."""
+        if self.proof_busy():
+            raise RuntimeError("A proof is running this notebook's kernel. Wait for it, or cancel it.")
+        self._replay_guard(notebook)
+        session = self.sessions.session(notebook, create=False)  # a stopped session's widgets are gone
+        if session is None:
+            return {"gone": True, "message": WIDGET_GONE}
+        return session.kernel.ipywidget_event(model=str(model), event=dict(event or {}), root=root)
 
     def notebook_frame_download(self, frame: str, format: str = "csv", name: str = "") -> dict[str, Any]:
         """Write a cell's whole result to a new file in Downloads (CSV, Excel or Parquet); never replaces a file."""

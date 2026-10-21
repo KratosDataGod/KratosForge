@@ -2210,6 +2210,54 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
 
+// UX-006: Advanced settings fold closed by default, and a value policy or the environment sets is read-only.
+test("a fold can start closed, and the choice made on this PC wins after that", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const store = new Map();
+  const localStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
+  const h = (tag, attrs = {}, ...kids) => ({ tag, attrs, kids, classes: new Set(String(attrs.class || "").split(" ").filter(Boolean)),
+    append(...k) { this.kids.push(...k); }, setAttribute(k, v) { this.attrs[k] = v; },
+    get classList() { const c = this.classes; return { toggle: (n, on) => (on ? c.add(n) : c.delete(n)) }; } });
+  const ctx = { h, localStorage };
+  vm.runInNewContext(`${src.match(/function foldable\([\s\S]*?\n}\n/)[0]}; this.f = foldable;`, ctx);
+  assert.ok(!ctx.f("x", "Head", []).classes.has("folded"), "folds open unless asked");
+  const box = ctx.f("settings.advanced", "Advanced", [], { start: true });
+  assert.ok(box.classes.has("folded"));
+  const toggle = box.kids[0].kids[0];
+  assert.strictEqual(toggle.attrs["aria-expanded"], "false");
+  toggle.attrs.onclick();
+  assert.strictEqual(store.get("fd.fold.settings.advanced"), "0");
+  assert.ok(!ctx.f("settings.advanced", "Advanced", [], { start: true }).classes.has("folded"), "opened once, it opens next time");
+});
+
+test("Settings keeps App ID and engine limits in a folded Advanced section, read-only when policy or the environment sets them", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/const SOURCE_TEXT = \{[\s\S]*?\n};\n/)[0]}; ${src.match(/function fixedBy\([\s\S]*?\n}\n/)[0]}; this.f = fixedBy; this.T = SOURCE_TEXT;`, ctx);
+  assert.strictEqual(ctx.f({ client_id: { source: "environment" } }, "client_id"), "environment");
+  assert.strictEqual(ctx.f({ sql_page_rows: { source: "policy" } }, "sql_page_rows"), "policy");
+  for (const source of ["user", "default", "built_in"]) assert.strictEqual(ctx.f({ k: { source } }, "k"), null);
+  assert.strictEqual(ctx.f({}, "kernel_process"), null);
+  assert.strictEqual(ctx.T.policy, "Set by your organization's policy");
+  assert.strictEqual(ctx.T.environment, "Set by the FABRIC_DESKTOP_CLIENT_ID environment variable");
+  const render = src.slice(src.indexOf("async function renderSettings"), src.indexOf("// \"policy\" or \"environment\""));
+  const account = render.slice(render.indexOf("// Account"), render.indexOf("// Updates"));
+  assert.ok(!account.includes("App (client) ID"), "the App ID left Account");
+  assert.ok(!render.includes("Cell time limit") && !render.includes("sqlSettingsSection("), "limits left the main page");
+  assert.match(render, /\[account, updates, display, previews, usage, platform, notify, about, advanced\]/);
+  const adv = src.match(/function advancedSection\([\s\S]*?\n}\n/)[0];
+  for (const text of ["App (client) ID", "Cell time limit", "Notebook memory limit", "Run notebooks in their own process", "sqlSettingsSection("]) assert.ok(adv.includes(text), text);
+  assert.match(adv, /foldable\("settings\.advanced", h\("h2", \{\}, "Advanced"\)[\s\S]*\{ start: true/);
+  assert.match(adv, /readonly: idFixed \? true : null/);
+  assert.match(adv, /idFixed \? null : btn\("Save"/, "no Save for an ID that wouldn't apply");
+  const sql = src.match(/function sqlSettingsSection\([\s\S]*?\n}\n/)[0];
+  assert.match(sql, /readonly: locked\(key\)/);
+  assert.match(sql, /readonly: locked\("sql_temp_dir"\)/);
+  assert.match(sql, /fixedBy\(s, "sql_temp_dir"\)/);
+  assert.match(src, /learnMore\("settings"\)/, "the page keeps its guide link");
+  assert.match(fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8"), /^### Advanced settings$/m);
+});
+
 // UX-019: the Preview list in the docs is the app's own list, once.
 test("the documentation's Preview list matches PREVIEW_FEATURES", () => {
   const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");

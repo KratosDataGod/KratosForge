@@ -891,6 +891,9 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .setting-text { flex: 1 1 320px; display: flex; flex-direction: column; gap: 2px; }
 .setting-control input:not([type]) { min-height: 32px; width: 300px; padding: 0 8px; border: 1px solid var(--border-input); border-radius: 4px; font-family: var(--mono); font-size: 12px; }
 .setting-source { font-size: 12px; color: #a35400; }
+.advanced-group { padding-top: 12px; border-top: 1px solid var(--border-soft); }
+.advanced-group h3 { margin: 0 0 4px; font-size: 14px; }
+.setting-control input[readonly] { background: var(--surface-2, #f5f5f5); color: #424242; }
 .choices { display: flex; flex-direction: column; gap: 8px; }
 .choice-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--border-input); border-radius: 6px; cursor: pointer; }
 .choice-row > span { display: flex; flex-direction: column; gap: 2px; }

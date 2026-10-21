@@ -575,53 +575,6 @@ def _pivot(self: GroupedData, pivot_col: str, values: list[Any] | None = None) -
 
 # ---- spark.conf
 
-# Settings Fabric notebooks commonly read back. Anything set is kept and read back as text, as in
-# Spark; only the session time zone changes what DuckDB does.
-_CONF_DEFAULTS = {"spark.sql.session.timeZone": "UTC", "spark.sql.shuffle.partitions": "200",
-                  "spark.sql.parquet.vorder.enabled": "true", "spark.sql.ansi.enabled": "false",
-                  "spark.app.name": "KratosForge"}
-
-
-def _conf_set(self: Any, key: str, value: Any) -> None:
-    text = str(value).lower() if isinstance(value, bool) else str(value)
-    if key.lower() == "spark.sql.sources.partitionoverwritemode" and text.strip().lower() == "dynamic":
-        # Fabric then overwrites only the partitions written; this PC's tables have none, so an
-        # overwrite would replace the whole table. Refused here and again at write time.
-        raise NotImplementedError("partitionOverwriteMode=dynamic isn't supported on this PC: tables here have "
-                                  "no partitions, so an overwrite would replace the whole table. Run the cell "
-                                  "in Fabric, or filter, union and overwrite the table yourself.")
-    if key == "spark.sql.session.timeZone":
-        _session_sql(f"SET TimeZone = {exp.convert(text).sql('duckdb')}")
-    _conf_values(self)[key] = text
-
-
-def _conf_get(self: Any, key: str, default: Any = ...) -> Any:
-    values = _conf_values(self)
-    if key in values:
-        return values[key]
-    if default is not ...:
-        return default
-    if key in _CONF_DEFAULTS:
-        return _CONF_DEFAULTS[key]
-    raise KeyError(f"{key} isn't set. Pass a default: spark.conf.get({key!r}, None)")
-
-
-def _conf_unset(self: Any, key: str) -> None:
-    if key == "spark.sql.session.timeZone":
-        _session_sql("SET TimeZone = 'UTC'")
-    _conf_values(self).pop(key, None)
-
-
-def _session_sql(sql: str) -> None:
-    from . import spark_local  # spark_local imports this module
-    spark_local.session().conn.execute(sql)
-
-
-def _conf_values(conf: Any) -> dict[str, str]:
-    if not hasattr(conf, "_fd_values"):
-        conf._fd_values = {}
-    return conf._fd_values
-
 
 # ---- install
 
@@ -660,10 +613,5 @@ def install() -> None:
         if not hasattr(DataFrame, name):
             setattr(DataFrame, name, _same)
     GroupedData.pivot = _pivot  # type: ignore[attr-defined]
-    from duckdb.experimental.spark.sql.conf import RuntimeConfig
-    RuntimeConfig.set = _conf_set  # type: ignore[method-assign]
-    RuntimeConfig.get = _conf_get  # type: ignore[method-assign]
-    RuntimeConfig.unset = _conf_unset  # type: ignore[method-assign]
-    RuntimeConfig.isModifiable = lambda self, key: True  # type: ignore[method-assign]
-    RuntimeConfig.getAll = property(lambda self: {**_CONF_DEFAULTS, **_conf_values(self)})  # type: ignore[attr-defined]
+    # spark.conf is spark_api.LocalRuntimeConfig, set on each session (spark_local).
     DataFrame._fd_compat = True  # type: ignore[attr-defined]

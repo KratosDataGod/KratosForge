@@ -62,8 +62,7 @@ def test_dynamic_partition_overwrite_set_on_the_session_is_refused(lake, setter)
 
 def test_an_overwrite_is_refused_when_the_session_conf_says_dynamic(lake):
     # Whatever stores spark.conf, the writer reads it before an overwrite.
-    status, text = run("from fabric_desktop import spark_compat\n"
-                       "spark_compat._conf_values(spark.conf)['spark.sql.sources.partitionOverwriteMode'] = 'dynamic'\n"
+    status, text = run("spark.conf._set['spark.sql.sources.partitionOverwriteMode'] = 'dynamic'\n"
                        "df.write.mode('overwrite').saveAsTable('dbo.sales')")
     assert status == "error" and "spark.conf.unset" in text
     assert rows(lake) == ORIGINAL

@@ -3974,3 +3974,10 @@ test("a widget after a restart asks for its cell again, and a busy kernel's refu
   const d = busy.ctx.api.drawWidget({ id: "w9", kind: "slider", description: "", disabled: true, value: 1, min: 0, max: 2, step: 1 }, () => {}, null, 0);
   assert.strictEqual(allNodes(d).find((n) => n.tag === "input").attrs.disabled, true);
 });
+
+// notebookutils.udf.getFunctions lists a User data functions item; calls run in Fabric.
+test("notebook docs describe udf.getFunctions as read only, Preview", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /\| `udf` \(Preview\) \| `getFunctions\(name, workspaceId\)` reads a User data functions item as you/);
+  assert.match(doc, /Calling a function runs it in Fabric on its workspace's capacity, so on this PC the call says so instead/);
+});

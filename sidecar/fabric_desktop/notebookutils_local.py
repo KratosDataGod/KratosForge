@@ -20,6 +20,7 @@ What only Fabric has (mounting other storage, session settings) raises an error 
 
 from __future__ import annotations
 
+import ast
 import base64
 import datetime as dt
 import json
@@ -616,6 +617,79 @@ def _make_lakehouse(host: Host) -> types.SimpleNamespace:
                                                         "list, listTables (create, update, delete run in Fabric)"))
 
 
+def _udf_functions(parts: dict[str, str]) -> list[dict[str, Any]]:
+    """The functions a User data functions item publishes: each ``@udf.function()`` in its Python
+    files, with its parameters, return type and docstring, read from the code (nothing runs)."""
+    found = []
+    for path, text in sorted(parts.items()):
+        if not path.endswith(".py"):
+            continue
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            marks = [d.func if isinstance(d, ast.Call) else d for d in node.decorator_list]
+            if not any(isinstance(m, ast.Attribute) and m.attr == "function" for m in marks):
+                continue
+            found.append({"name": node.name, "description": ast.get_docstring(node) or "",
+                          "parameters": [{"name": a.arg, "type": ast.unparse(a.annotation) if a.annotation else ""}
+                                         for a in node.args.args],
+                          "returnType": ast.unparse(node.returns) if node.returns else ""})
+    return found
+
+
+class UdfFunctions:
+    """``notebookutils.udf.getFunctions(...)``: the item's details and its functions. On this PC a
+    function is listed with its signature; calling it runs it in Fabric, so it is refused here."""
+
+    def __init__(self, item: dict[str, Any], functions: list[dict[str, Any]]):
+        object.__setattr__(self, "itemDetails", Item(item))
+        object.__setattr__(self, "functionDetails", [Item(f) for f in functions])
+
+    def __getattr__(self, name: str) -> Any:
+        details = object.__getattribute__(self, "functionDetails")
+        if not any(f["name"] == name for f in details):
+            raise AttributeError(f"{object.__getattribute__(self, 'itemDetails').get('displayName')} has no function {name}")
+        item = object.__getattribute__(self, "itemDetails")
+
+        def call(*_a: Any, **_kw: Any) -> Any:
+            raise NotImplementedError(
+                f"{name} is a User data function: calling it runs it in Fabric, on its workspace's capacity. "
+                f"On this PC its signature is in functionDetails; run the notebook in Fabric to call it, "
+                f"or open {item.get('displayName')} in Fabric to test it.")
+        call.__name__ = name
+        return call
+
+    def __dir__(self) -> list[str]:
+        return ["itemDetails", "functionDetails", *(f["name"] for f in object.__getattribute__(self, "functionDetails"))]
+
+    def __repr__(self) -> str:
+        names = ", ".join(f["name"] for f in object.__getattribute__(self, "functionDetails")) or "none"
+        return f"UdfFunctions({object.__getattribute__(self, 'itemDetails').get('displayName')}: {names})"
+
+
+def _make_udf(host: Host) -> types.SimpleNamespace:
+    def getFunctions(udf: str, workspaceId: str = "") -> UdfFunctions:  # noqa: N802, N803
+        ws = _workspace(workspaceId)
+        client = _client(host)
+        item = next((i for i in client.list_items(ws)
+                     if i.get("type") == "UserDataFunction" and i.get("displayName") == udf), None)
+        if item is None:
+            raise LookupError(f"No User data functions item named {udf} in workspace {ws}.")
+        got = client.get_item_definition(ws, item["id"])
+        parts = {p["path"]: base64.b64decode(p.get("payload") or "").decode("utf-8", "replace")
+                 for p in (got.get("definition") or {}).get("parts", []) if p.get("path")}
+        return UdfFunctions(item, _udf_functions(parts))
+
+    return types.SimpleNamespace(
+        getFunctions=getFunctions,
+        help=lambda *_a: print("notebookutils.udf on this PC: getFunctions lists a User data functions item's "
+                               "functions (calling one runs in Fabric)"))
+
+
 class VariableLibrary:
     """A variable library's values, read as attributes: ``lib.CRM_server_host``."""
 
@@ -675,9 +749,10 @@ def build(host: Host) -> types.ModuleType:
     mod.notebook = _make_notebook(host)
     mod.runtime = _make_runtime(host)
     mod.lakehouse = _make_lakehouse(host)
+    mod.udf = _make_udf(host)
     mod.variableLibrary = _make_variable_library(host)
     mod.mssparkutils = mod  # ``from notebookutils import mssparkutils`` still works
-    mod.help = lambda *_a: print("notebookutils on this PC: fs, notebook, credentials, runtime, lakehouse, "
+    mod.help = lambda *_a: print("notebookutils on this PC: fs, notebook, credentials, runtime, lakehouse, udf, "
                                  "variableLibrary, nbResPath")
 
     def attribute(name: str) -> Any:

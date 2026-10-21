@@ -69,6 +69,7 @@ Formerly Fabric Desktop: [what changed with the new name, and what didn't](krato
 | [notebook-comments.md](notebook-comments.md) | Engineers, analysts | Comments on notebook cells: threads, replies, resolve, and where they are kept |
 | [notebook-editor/find-and-replace.md](notebook-editor/find-and-replace.md) | Engineers, analysts | Find and replace across every cell of a notebook, with Replace all and undo |
 | [notebook-editor/load-data-items.md](notebook-editor/load-data-items.md) | Engineers, analysts | Drag tables and files into cells; Load with Polars, Spark or SQL |
+| [notebook-editor/variables.md](notebook-editor/variables.md) | Engineers, analysts | The Variables pane: filter, sort, memory, open data frames and containers |
 | [prove/how-proofs-work.md](prove/how-proofs-work.md) | Engineers, analysts | Proving a notebook: pinned inputs, sandboxed outputs, how results are verified, the scorecard and receipts (Preview) |
 | [metadata-guide.md](metadata-guide.md) | Engineers | The metadata framework step by step, from a new project to Prod, and a reference for every setting |
 | [platform.md](platform.md) | Platform owners | The central platform: one key system, one landing zone, the catalog; platform admins, requests, the Platform page; creating, joining, moving keys |
@@ -128,6 +129,7 @@ KratosForge is new, and it's honest about what has been proven.
 
 | Preview feature | Where |
 | --- | --- |
+| Breakpoints, variable history and watches | Notebook line numbers (breakpoints, F5/F10/F11 stepping), Variables pane, View tab (with hidden-state warnings) |
 | Run in Fabric | Notebook ribbon, Data mesh > Environments (notebooks and environments) |
 | Schedules | Notebook ribbon, Data mesh, Monitor (on this PC and in Fabric) |
 | Side by side | Notebook ribbon (this PC vs Fabric, and the TPC-H benchmark) |
@@ -139,7 +141,6 @@ KratosForge is new, and it's honest about what has been proven.
 | New notebook wizard | Create > Notebook from a template |
 | Notebook import and export formats | Home > Import from Fabric or Databricks; a notebook's Home tab > Export ([notebook-import-export.md](notebook-import-export.md)) |
 | Cell dependencies | Notebook ribbon, View and Run tabs (with Run stale cells) |
-| Variable history and watches | Notebook Variables pane, View tab (with hidden-state warnings) |
 | Failure replay bundles | Under a cell that failed on this PC; Create > Open replay bundle |
 | Cost | Monitor |
 | Capacity status | Optimize > Cost and savings, Data mesh > Environments |

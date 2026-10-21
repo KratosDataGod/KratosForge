@@ -60,6 +60,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/notebook-editor/find-and-replace.md](docs/notebook-editor/find-and-replace.md) | Find and replace across every cell of a notebook: match case, whole word, regular expressions, Replace all with undo |
 | [docs/engines.md](docs/engines.md) | Execution engines with honest capability levels, remote compute approval, and connection profiles for Fabric, Databricks or both (Preview) |
 | [docs/notebook-comments.md](docs/notebook-comments.md) | Comments on notebook cells: threads on a cell or lines of its code, replies, resolve, and the Comments panel, kept in the notebook file |
+| [docs/notebook-editor/format-code.md](docs/notebook-editor/format-code.md) | Format a notebook cell or the whole notebook: Python in Black's style with ruff, %%sql cells as Format SQL lays them out |
 | [docs/notebook-editor/intellisense.md](docs/notebook-editor/intellisense.md) | Notebook IntelliSense: hover docs, signature help, docs in autocomplete and syntax errors as you type, all from the local kernel |
 | [docs/notebook-editor/variables.md](docs/notebook-editor/variables.md) | The notebook Variables pane: filter, sort by memory, open data frames, lists and dicts |
 | [docs/side-by-side.md](docs/side-by-side.md) | Running a notebook on this PC and in Fabric side by side: time, cost and a check that both wrote the same results, plus the TPC-H benchmark ([examples/benchmark](examples/benchmark)) |

@@ -55,6 +55,7 @@ nav = [
     { "Notebook find and replace" = "notebook-editor/find-and-replace.md" },
     { "Drag tables and files into a notebook" = "notebook-editor/load-data-items.md" },
     { "IntelliSense in notebook cells" = "notebook-editor/intellisense.md" },
+    { "Format code in a notebook" = "notebook-editor/format-code.md" },
     { "How a proof works" = "prove/how-proofs-work.md" },
     { "Capacity and cost evidence" = "finops/cost-evidence.md" },
     { "Capacity of each environment" = "finops/capacity.md" },

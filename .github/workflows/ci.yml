@@ -159,6 +159,9 @@ jobs:
           if ($LASTEXITCODE) { exit 1 }
           & "$env:ENGINE_DIR\python.exe" -c "import site, sys; assert site.getusersitepackages() not in sys.path, sys.path"
           if ($LASTEXITCODE) { exit 1 }
+          # Format cell runs ruff's own program, which --target puts in Lib\site-packages\bin.
+          & "$env:ENGINE_DIR\python.exe" -c "from fabric_desktop.code_format import format_cells; r = format_cells(['x=1']); assert r[0]['source'] == 'x = 1', r"
+          if ($LASTEXITCODE) { exit 1 }
       - name: Sign the engine's packages
         # Only builds of main are signed: pull request code never runs next to the signing secrets.
         if: vars.TRUSTED_SIGNING_ACCOUNT != '' && github.event_name == 'push' && github.ref == 'refs/heads/main'

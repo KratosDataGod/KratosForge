@@ -195,9 +195,9 @@ The ribbon has four tabs:
 
 | Tab | What's on it |
 | --- | --- |
-| **Home** | Run all, Cancel, **Runs on**, Add data items, Save, Schedule (Preview), **Publish to OneLake** |
+| **Home** | Run all, Cancel, **Runs on**, Add data items, Save, Schedule (Preview), Recent runs (Preview), **Publish to OneLake** |
 | **Edit** | Add Code or Markdown cells, Move up or down, Split cell, Merge with below, Delete cell, Undo delete, **Parameter cell**, **Freeze**, Find and replace, Clear all outputs |
-| **Run** | Run all, Run cell, Run all above, Run cell and below, Cancel, Runs on, Restart kernel, Restart and run all, Schedule |
+| **Run** | Run all, Run cell, Run all above, Run cell and below, Cancel, Runs on, Restart kernel, Restart and run all, Schedule, Recent runs |
 | **View** | Explorer, **Outline** (Markdown headings; click to jump), **Variables** (name, type, size and value of each variable, secrets hidden; click one to display it), collapse or expand all inputs and outputs, line numbers |
 
 A **Parameter cell** is the cell that pipelines and `notebookutils.notebook.run` pass values into, as in Fabric. A **frozen** cell can't be edited, run or deleted until you unfreeze it.
@@ -243,6 +243,17 @@ The note has a button to switch when the other place would work.
 - **In Fabric:** publishes what's on screen and adds a Fabric schedule. It runs on capacity even when your PC is off.
 
 For either, choose **Repeat** (Every day, Some days of the week, or Every few minutes), the **Times of day** (24-hour, comma between, for example `06:00, 18:00`), the **Days**, or **Minutes between runs**, and the **Time zone**. The same dialog lists the notebook's schedules and removes them. All schedules are also in **Monitor > Schedules**.
+
+### Recent runs (Preview)
+
+**Recent runs** (Home or Run tab, or **Show this notebook's runs** in the command bar) opens a panel beside the cells with this notebook's last 50 runs, newest first, like Fabric's Recent runs. It lists:
+
+- **This PC:** runs of the notebook's schedules on this PC, both on schedule and from **Run now**, including runs of a schedule you've since removed. **Details** shows when the run started and ended, how many cells ran, the result (for a failed run, which cell failed and why), and whether a failure's Teams alert couldn't be sent.
+- **Fabric:** runs this app started in Fabric for the notebook: **Run in Fabric**, **Prove this notebook**, **Side by side**, and **Run now** on its Fabric schedule in Monitor > Schedules. Once the app has published the notebook, its runs are matched by the Fabric item it was published to, so they stay listed after a rename and a same-named notebook in another workspace isn't mixed in; before that, by name in the notebook's publish workspace. Each says which workspace it ran in. **Open in Fabric** opens the notebook's page in Fabric, where its run history is.
+
+Each row says when it ran, where, what started it, its status and how long it took. Opening the panel and **Refresh** read only the two run logs on this PC that Monitor > Runs reads (`schedule_runs.jsonl` and `fabric_runs.jsonl` in the app's folder) and ask Fabric nothing, so a Fabric run's status is as last checked. While a Fabric run is still going, **Refresh status** asks Fabric for the status of this notebook's runs still going (no others), as Monitor does, and saves the answer in `fabric_runs.jsonl`. It starts no job. Nothing else is written.
+
+Not listed: cells you run in the notebook window, and runs a Fabric schedule starts on its own. Those are in Fabric's Monitoring hub, under **Monitor**. With no runs yet, the panel says how to add a schedule or run the notebook in Fabric.
 
 ## Side by side (Preview)
 

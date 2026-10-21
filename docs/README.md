@@ -127,6 +127,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Side by side | Notebook ribbon (this PC vs Fabric, and the TPC-H benchmark) |
 | Prove this notebook | Notebook ribbon (isolated PC vs Fabric runs, verification, receipts) |
 | Validate notebook | Notebook ribbon |
+| Notebook runs | Notebook ribbon > Recent runs ([notebooks.md](notebooks.md#recent-runs-preview)) |
 | Profile | Account menu (private record of verified work, levels, achievements and the professional report) |
 | Edit Fabric notebooks on this PC | Workspaces, an item's preview: Edit on this PC ([notebook-files.md](notebook-files.md)) |
 | New notebook wizard | Create > Notebook from a template |

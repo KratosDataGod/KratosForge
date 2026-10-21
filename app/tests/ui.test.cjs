@@ -3130,6 +3130,44 @@ test("the profile report preview renders headings, bullets and source tags witho
   assert.strictEqual(escaped.filter((k) => typeof k !== "string").length, 1, "an escaped name became emphasis");
 });
 
+// Notebook parity L3: a notebook's Runs panel lists this PC's scheduled runs and its Fabric runs.
+test("the notebook Runs panel labels each run and offers Refresh status only for Fabric runs still going", () => {
+  const src = fs.readFileSync(path.join(ui, "runs.js"), "utf8");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${app.match(/function fabricStatus\([\s\S]*?\n}\n/)[0]}
+    ${src.slice(0, src.indexOf("// ---------- state"))}
+    Object.assign(this, { NB_RUN_TRIGGERS, nbRunStatus, nbRunWhere, nbRunsUnfinished, nbRunsSummary, nbRunKey });`, ctx);
+  const pcOk = { source: "pc", status: "ok", trigger: "schedule", started: "2026-10-20T06:00:00+00:00", schedule_id: "s1" };
+  const pcBad = { source: "pc", status: "failed", trigger: "manual" };
+  const going = { source: "fabric", status: "InProgress", trigger: "fabric", workspace_name: "Sales", job_id: "j1" };
+  const done = { source: "fabric", status: "Completed", trigger: "run_now" };
+  assert.deepStrictEqual([pcOk, pcBad, going, done, { source: "pc", status: "skipped" }].map(ctx.nbRunStatus),
+    ["ok", "failed", "running", "ok", "skipped"]);
+  assert.deepStrictEqual([pcOk, going, done].map(ctx.nbRunWhere), ["This PC", "Fabric: Sales", "Fabric"]);
+  assert.strictEqual(ctx.nbRunsUnfinished([pcOk, going, done]), 1);
+  assert.strictEqual(ctx.nbRunsUnfinished([pcOk, done]), 0, "nothing to ask Fabric about");
+  assert.strictEqual(ctx.nbRunsSummary([pcOk, pcBad, going, done]), "4 runs, 1 failed, 1 still going");
+  assert.strictEqual(ctx.nbRunsSummary([pcOk]), "1 run");
+  assert.strictEqual(ctx.nbRunsSummary([]), "No runs yet");
+  assert.strictEqual(ctx.nbRunKey(pcOk), "pc:2026-10-20T06:00:00+00:00:s1");
+  for (const t of ["schedule", "manual", "fabric", "run_now", "prove", "side_by_side"]) assert.ok(ctx.NB_RUN_TRIGGERS[t], t);
+  // Wired into the ribbon and the notebook body, tagged Preview, and the engine call is read-only.
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.strictEqual(nb.match(/runsToggle\(nb\)/g).length, 2, "Home and Run tabs");
+  assert.match(nb, /runsPanel\(nb\), provePanel\(nb\)/);
+  assert.match(src, /preview\("notebookRuns", btn\("Recent runs"/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /\n  notebookRuns: "Notebook runs",/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="runs.js"><\/script>/);
+  assert.match(src, /rpc\("notebook_runs", \{ name: nb\.name, limit: NB_RUNS_LIMIT, refresh \}\)/);
+  const audit = fs.readFileSync(path.join(__dirname, "..", "..", "sidecar", "fabric_desktop", "audit.py"), "utf8");
+  assert.match(audit, /\bnotebook_runs\b/);
+  // How this works names the one write, and no other panel stays open beside it.
+  assert.match(src, /saves the answer in fabric_runs\.jsonl on this PC/);
+  assert.match(src, /anchor: "notebook-runs-preview"/);
+  for (const f of ["prove.js", "validate.js"]) assert.match(fs.readFileSync(path.join(ui, f), "utf8"), /if \(nb\.runs\?\.open\) nb\.runs\.open = false;/);
+});
+
 // Notebook parity L5: export and import formats (notebook-formats.js, notebook_formats.py).
 test("notebook export sends the cells with their outputs, and says where the file goes", () => {
   const src = fs.readFileSync(path.join(ui, "notebook-formats.js"), "utf8");

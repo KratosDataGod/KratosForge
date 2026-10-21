@@ -33,6 +33,8 @@ class DisplayObject:
     _binary = False
 
     def __repr__(self) -> str:
+        if self.data is None and self.url:  # IPython fetches the URL; the engine doesn't, so name it
+            return f"{type(self).__name__}: {self.url}"
         return f"<{type(self).__module__}.{type(self).__name__} object>"
 
 

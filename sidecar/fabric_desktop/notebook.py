@@ -24,6 +24,7 @@ import itertools
 import json
 import keyword
 import logging
+import math
 import os
 import re
 import sys
@@ -64,8 +65,11 @@ def _no_input(*_args, **_kwargs):
 
 
 def _json_value(value: Any) -> Any:
-    if value is None or isinstance(value, (bool, int, float, str)):
+    """A preview cell: JSON (and the shell) has no NaN or infinity, so those show as text, as SQL results do."""
+    if value is None or isinstance(value, (bool, int, str)):
         return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else str(value)
     return str(value)
 
 
@@ -569,8 +573,10 @@ class Kernel:
     def frame_download(self, frame: str, format: str, path: str) -> dict[str, Any]:  # noqa: A002 - RPC name
         return self.frames.download(frame, format, path)
 
-    def _display_html(self, html: str) -> None:
+    def _display_html(self, html: str | bytes) -> None:
         """displayHTML(html), as Fabric and Databricks have: shown in the cell's sandboxed frame."""
+        if isinstance(html, (bytes, bytearray)):  # read from a file in binary, as open(..., 'rb')
+            html = bytes(html).decode("utf-8", errors="replace")
         self._display(_Html(str(html)))
 
     def _clear_output(self, wait: bool = False) -> None:

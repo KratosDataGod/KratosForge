@@ -14,6 +14,7 @@ ever produce the Polars call it names. Each line runs with no builtins.
 from __future__ import annotations
 
 import keyword
+import math
 from typing import Any
 
 import pyarrow as pa
@@ -100,10 +101,17 @@ def _literal(dtype: Any, text: Any) -> str:
     """A typed-in value as a Polars literal for a column of ``dtype``."""
     kind = _kind(dtype)
     if kind == "number":
+        if dtype.is_integer():
+            try:  # as written: through float, 9007199254740993 would become ...992 and match another row
+                return repr(int(str(text).strip()))
+            except ValueError:
+                pass
         try:
             number = float(text)
         except (TypeError, ValueError):
             raise ValueError(f"{text!r} isn't a number.") from None
+        if not math.isfinite(number):
+            raise ValueError(f"Type a number such as 3 or 2.5, not {text!r}.")
         if dtype.is_integer():
             if not number.is_integer():
                 raise ValueError(f"{text!r} isn't a whole number.")

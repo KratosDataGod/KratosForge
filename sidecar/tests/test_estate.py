@@ -377,6 +377,25 @@ def test_any_variable_library_reads_its_active_value_set():
     assert "batch_size is Integer" in str(err.value) and "secret-ish" not in str(err.value)
 
 
+@pytest.mark.parametrize("name, value", [("batch_size", 1.5), ("batch_size", True), ("full_load", "yes"),
+                                         ("full_load", "1")])
+def test_a_variable_value_of_the_wrong_kind_isnt_rounded_or_read_as_false(name, value):
+    bad = _vl_parts() | {"valueSets/Prod.json": json.dumps({"name": "Prod", "variableOverrides": [
+        {"name": name, "value": value}]})}
+    with pytest.raises(ValueError, match=f"{name} is"):
+        varlib.read(bad, "Prod")
+    good = _vl_parts() | {"valueSets/Prod.json": json.dumps({"name": "Prod", "variableOverrides": [
+        {"name": "batch_size", "value": 3.0}, {"name": "full_load", "value": " TRUE "}]})}
+    assert varlib.read(good, "Prod")["batch_size"] == 3 and varlib.read(good, "Prod")["full_load"] is True
+
+
+def test_a_broken_library_file_is_named():
+    with pytest.raises(ValueError, match="valueSets/Prod.json isn't valid JSON"):
+        varlib.read(_vl_parts() | {"valueSets/Prod.json": "{nope"}, "Prod")
+    with pytest.raises(ValueError, match="variables.json isn't a JSON object"):
+        varlib.read(_vl_parts() | {"variables.json": "[]"}, None)
+
+
 def test_other_variable_libraries_come_from_the_attached_lakehouse_workspace(svc, monkeypatch, capsys):
     from fabric_desktop import lakehouse
     calls = []

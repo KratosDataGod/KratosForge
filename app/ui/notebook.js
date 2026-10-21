@@ -107,6 +107,8 @@ function renderNotebook() {
     run: [runAllBtn, btn("Run cell", "play", () => runCell(selectedCell()), "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
       btn("Run all above", "up", runAbove, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
       btn("Run cell and below", "down", runBelow, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
+      btn("Run selected cells", "play", runSelectedCells, "tool", localOnlyAttrs({ disabled: busy, "data-run": true,
+        title: "Run the cells you selected with Shift+click or Shift+Up/Down, in order" })),
       depsRunButton(nb, localOnlyAttrs({ disabled: busy, "data-run": true })), cancelBtn, computeBtn, sbsToggle(nb), validateToggle(nb), proveToggle(nb), h("div", { class: "sep" }),
       btn("Restart kernel", "restart", restartKernel), btn("Restart and run all", "restart", async () => { await restartKernel(); runAll(); }, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
       h("div", { class: "sep" }), preview("schedules", btn("Schedule", "history", scheduleNotebook)), runsToggle(nb)],
@@ -130,7 +132,7 @@ function renderNotebook() {
   const cells = h("section", { class: "cells", "aria-label": "Notebook cells", onmousedown: (e) => {
     if (e.target === e.currentTarget || e.target.classList.contains("cells-inner")) enterCommandMode();
   } },
-  nbFindBar(), h("div", { class: "cells-inner" }, replayBanner(nb), sbsPanel(nb), computeNote(nb), visibleCells(nb.cells).map(renderCell),
+  nbFindBar(), h("div", { class: "cells-inner" }, selectionBar(), replayBanner(nb), sbsPanel(nb), computeNote(nb), visibleCells(nb.cells).map(renderCell),
     h("div", { class: "add-cell" }, btn("Code", "add", () => addCell("code", true), "tool outline"),
       btn("Markdown", "add", () => addCell("markdown", true), "tool outline"))));
 
@@ -144,6 +146,7 @@ function renderNotebook() {
       h("span", {}, h("span", { class: `dot ${state.kernel}` }), kernelLabel()),
       h("span", { class: "mode-hint" }, modeHint()),
       h("span", {}, `Attached: ${lh ? lh.name : "none"}`),
+      h("span", { class: "last-run" }, nbLastRunText(nb.lastRun)),
       h("span", {}, fabricMode ? `Compute: Fabric capacity in ${publishWorkspaceName(nb)}`
         : `Compute: Python ${state.python || "3"} on this PC, no Fabric job`),
       nb.fabricRun ? h("span", {}, `Last Fabric run: ${nb.fabricRun.status === "NotStarted" ? "starting" : nb.fabricRun.status}`) : null));
@@ -158,7 +161,7 @@ function kernelLabel() {
 
 function modeHint() {
   return state.mode === "edit" ? "Edit mode: Esc for command mode, Shift+Enter to run"
-    : "Command mode: Enter to edit, A above, B below, DD delete, M markdown, Y code, Z undo";
+    : "Command mode: Enter to edit, A above, B below, DD delete, M markdown, Y code, Z undo, Shift+Down select more";
 }
 
 function setMode(mode) {
@@ -309,9 +312,12 @@ function renderCell(cell) {
   const selected = cell.id === state.selected;
   const meta = cell.meta || (cell.meta = {});
   const node = h("div", {
-    class: `cell ${cell.type}${selected ? " selected" : ""}${meta.frozen ? " frozen" : ""}`, "data-cell": cell.id, tabindex: "-1",
+    class: `cell ${cell.type}${selected ? " selected" : ""}${meta.frozen ? " frozen" : ""}${multiSelected() && nbSel.ids.has(cell.id) ? " multi" : ""}`,
+    "data-cell": cell.id, tabindex: "-1",
     onmousedown: (e) => {
+      if (selectionClick(cell, e)) return;  // nbselect.js: Shift or Ctrl+click
       if (state.selected !== cell.id) selectCell(cell);
+      else if (multiSelected()) clearSelection();
       if (!e.target.closest(".cm-editor, input, select, textarea, button")) {
         setMode("command");
         setTimeout(() => { if (!document.activeElement?.closest?.(".cm-editor, input, select")) node.focus({ preventScroll: true }); });
@@ -421,7 +427,7 @@ function statusLine(cell) {
     error: ["bad", "Failed"], stopped: ["bad", "Stopped"], cancelled: ["bad", "Cancelled"] }[s];
   return h("div", { class: "cell-status", "data-s": s }, h("span", { class: label[0] }, label[1]),
     s === "running" && cell.seconds != null ? h("span", {}, `${cell.seconds.toFixed(1)} s`) : null,
-    s === "ok" || s === "error" || s === "cancelled" ? h("span", {}, "Ran on this PC") : null,
+    s === "ok" || s === "error" || s === "cancelled" ? h("span", {}, cell.partial ? "Ran the selection on this PC" : "Ran on this PC") : null,
     cell.seconds != null && s !== "running" && s !== "queued" ? h("span", {}, `${cell.seconds.toFixed(1)} s`) : null,
     cell.finishedAt && s !== "running" ? h("span", {}, cell.finishedAt) : null);
 }
@@ -436,6 +442,7 @@ function updateCell(cell, focus = false) {
 }
 
 function selectCell(cell) {
+  if (nbSel.ids.size) clearSelection();  // nbselect.js: a plain move ends a multi-cell selection
   const prev = state.selected;
   state.selected = cell.id;
   document.querySelector(`[data-cell="${prev}"]`)?.classList.remove("selected");
@@ -540,6 +547,7 @@ function deleteCell(cell) {
 function undoDelete() {
   const last = deletedCells.pop();
   if (!last) return;
+  if (last.group) return undoDeleteGroup(last);  // nbselect.js
   const cell = cellFrom(last.cell);
   if (cell.type === "markdown") cell.editing = false;
   state.notebook.cells.splice(Math.min(last.index, state.notebook.cells.length), 0, cell);
@@ -557,10 +565,14 @@ function copyCell(cell) {
 function pasteCell(cell, offset) {
   if (!cellClipboard) return;
   const cells = state.notebook.cells;
-  const copy = cellFrom({ ...cellClipboard, meta: structuredClone(cellClipboard.meta) });
-  if (copy.type === "markdown") copy.editing = false;
-  delete copy.meta.tags;
-  cells.splice(cells.indexOf(cell) + (offset > 0 ? 1 : 0), 0, copy);
+  const copies = [cellClipboard].flat().map((c) => {  // several cells after a multi-cell copy (nbselect.js)
+    const copy = cellFrom({ ...c, meta: structuredClone(c.meta) });
+    if (copy.type === "markdown") copy.editing = false;
+    delete copy.meta.tags;
+    return copy;
+  });
+  cells.splice(cells.indexOf(cell) + (offset > 0 ? 1 : 0), 0, ...copies);
+  const copy = copies[0];
   state.selected = copy.id;
   markDirty();
   renderNotebook();
@@ -586,18 +598,10 @@ function splitCell(cell) {
   enterEditMode(fresh);
 }
 
+// Same as Shift+M on one cell (nbselect.js): refuses cells in different languages, and Z undoes it.
 function mergeBelow(cell) {
-  const cells = state.notebook.cells;
-  const next = cells[cells.indexOf(cell) + 1];
-  if (!next || cell.meta?.frozen || next.meta?.frozen) return;
-  let tail = next.source;
-  const magic = MAGIC[cellLang(cell)];
-  if (magic && tail.trimStart().startsWith(magic)) tail = tail.trimStart().slice(magic.length).replace(/^\n/, "");
-  setSource(cell, `${cell.source.replace(/\n$/, "")}\n${tail}`);
-  cells.splice(cells.indexOf(next), 1);
-  dropEditor(next);
-  markDirty();
-  renderNotebook();
+  if (state.selected !== cell.id) selectCell(cell);
+  mergeSelected();
 }
 
 function setLanguage(cell, lang) {
@@ -1250,7 +1254,9 @@ function renderInspect(o, numeric) {
 
 // ---------- running cells ----------
 
-async function runCell(cell, { timeLimit = true } = {}) {
+// `code` runs part of the cell (Ctrl+Shift+Enter, nbselect.js): its output replaces the cell's, and
+// the cell isn't marked as run for dependencies, since the rest of it didn't run.
+async function runCell(cell, { timeLimit = true, code = null } = {}) {
   if (cell.type !== "code") return true;
   if (nbWhere(state.notebook).fabric) {
     toast("This notebook runs in Fabric, which runs the whole notebook. Use Run all, or switch Runs on to This PC to run one cell.");
@@ -1274,7 +1280,7 @@ async function runCell(cell, { timeLimit = true } = {}) {
   try {
     const watches = await dbgWatches(state.notebook);  // debugging.js
     let snap = await rpc("start_cell", { code: cell.source, lakehouse_ref: nbLakehouse(state.notebook), notebook: state.notebook.name,
-      ...(timeLimit ? {} : { time_limit: false }), ...(watches.length ? { watches } : {}) });
+      ...(timeLimit ? {} : { time_limit: false }), ...(watches.length ? { watches } : {}), ...(code != null ? { code } : {}) });
     for (;;) {
       if (snap.outputs) cell.outputs = snap.outputs;
       cell.count = snap.execution_count;
@@ -1301,8 +1307,9 @@ async function runCell(cell, { timeLimit = true } = {}) {
     cell.seconds = (performance.now() - started) / 1000;
   }
   cell.finishedAt = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  cell.partial = code != null;
   setKernel(stopRequested ? "stopped" : "idle");
-  depsRan(cell, ok);
+  if (code == null) depsRan(cell, ok);
   if (state.notebook?.cells.includes(cell)) updateResults(cell);
   // A failed cell inside a collapsed section: open the section so the error can be seen.
   if (cell.status === "error" && state.notebook?.cells.includes(cell) && revealCell(cell)) {
@@ -1331,6 +1338,13 @@ function cellFx(cell) {
 async function runCells(cells) {
   const code = cells.filter((c) => c.type === "code" && c.source.trim() && !c.meta?.frozen);
   cancelRequested = false;
+  const started = performance.now();
+  const done = (ran) => {
+    if (code.length < 2 || !state.notebook) return;
+    state.notebook.lastRun = { ran, of: code.length, seconds: (performance.now() - started) / 1000 };
+    const el = document.querySelector(".statusbar .last-run");
+    if (el) el.textContent = nbLastRunText(state.notebook.lastRun);
+  };
   code.forEach((c) => { c.status = "queued"; c.outputs = []; });
   setKernel("busy");
   renderNotebook();
@@ -1347,6 +1361,7 @@ async function runCells(cells) {
         code.slice(i + 1).forEach((c) => { c.status = null; updateResults(c); });
         setKernel(stopRequested ? "stopped" : "idle");
         announce(cell.status === "error" ? `Run stopped: cell ${state.notebook.cells.indexOf(cell) + 1} failed` : "Run stopped");
+        done(ok ? i + 1 : i);
         return;
       }
       track?.set(i + 1, code.length);
@@ -1358,6 +1373,11 @@ async function runCells(cells) {
   } finally {
     runningAll = false;
   }
+  done(code.length);
+}
+
+function nbLastRunText(r) {
+  return r ? `Last run: ${r.ran === r.of ? `${r.of} cells` : `${r.ran} of ${r.of} cells`} in ${r.seconds.toFixed(1)} s` : "";
 }
 
 function runAll() {

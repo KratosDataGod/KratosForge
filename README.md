@@ -53,6 +53,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/notebook-versions.md](docs/notebook-versions.md) | Notebook version history: a version per save, checkpoints, Compare and Restore |
 | [docs/forge-animations.md](docs/forge-animations.md) | Motion and effects: the four visual intensity levels, every spark, wolf and ember effect, and how to turn them down or off |
 | [docs/profile.md](docs/profile.md) | Profile: a private record of verified work, levels and achievements, and a review-ready professional report (Preview) |
+| [docs/notebook-editor/select-and-run-parts.md](docs/notebook-editor/select-and-run-parts.md) | Select several notebook cells to run, copy, merge, freeze or delete together; run selected text with Ctrl+Shift+Enter |
 | [docs/notebook-editor/organise-cells.md](docs/notebook-editor/organise-cells.md) | Organise notebook cells: collapse heading sections, cell titles and tags, duplicate, drag to move |
 | [docs/notebook-editor/load-data-items.md](docs/notebook-editor/load-data-items.md) | Drag lakehouse tables and files into notebook cells, or right-click them to load with Polars, Spark or SQL |
 | [docs/notebook-editor/find-and-replace.md](docs/notebook-editor/find-and-replace.md) | Find and replace across every cell of a notebook: match case, whole word, regular expressions, Replace all with undo |

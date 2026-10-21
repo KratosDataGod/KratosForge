@@ -216,6 +216,14 @@ jobs:
           # Builds of main carry their commit, so the app can tell when a newer release exists.
           FABRIC_RELEASE_COMMIT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha || '' }}
           FABRIC_CLIENT_ID: ${{ vars.FABRIC_CLIENT_ID }}
+      # The shell's unit tests (update checksums, update policy, sign-in cookies, engine time
+      # limits), before the exe is signed or published. Same profile and environment as the build
+      # above, so the build script doesn't rerun and the compiled crates are reused.
+      - name: Run the shell's tests
+        run: cargo test --release --locked
+        env:
+          FABRIC_RELEASE_COMMIT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha || '' }}
+          FABRIC_CLIENT_ID: ${{ vars.FABRIC_CLIENT_ID }}
       - name: Sign the exe
         # Only builds of main are signed: pull request code never runs next to the signing secrets.
         if: vars.TRUSTED_SIGNING_ACCOUNT != '' && github.event_name == 'push' && github.ref == 'refs/heads/main'

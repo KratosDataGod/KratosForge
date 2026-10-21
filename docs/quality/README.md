@@ -31,7 +31,7 @@ Where a finding here overlaps theirs, it cites their ID and adds only what is ne
 | Engine (`sidecar/`, `python -m pytest`) | **Ran: 1,405 passed, 2 skipped, 0 failed** in 503 s | Python 3.13.16 on Linux; CI uses 3.12. Skips: DuckDB's TPC-H extension can't install offline. 87% line coverage (25,597 statements). 369 `ResourceWarning`s |
 | UI (`node --test app/tests/ui.test.cjs`) | **Ran: 51 passed, 0 failed** | 39 tests execute extracted functions; 12 only match source text (QA-018) |
 | Browser tests (`app/tests/browser/`) | Not run | Not in CI either (UI-8 / HD-052) |
-| Rust tests (`cargo test`) | Not run | Not in CI either (SH-6 / HD-011) |
+| Rust tests (`cargo test`) | Not run | Not run in this assessment. CI's `shell` job runs them on Windows since HD-011 (SH-6) |
 | Live tenant (`fabric-desktop live-test`) | Not run | Never run anywhere automatically (TS-2 / HD-054) |
 | Defect reproductions | **Ran: 3 reproduced** | QA-001, QA-006, QA-016 |
 

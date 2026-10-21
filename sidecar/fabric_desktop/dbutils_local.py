@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from . import http_session
-from .notebookutils_local import Host, NotebookExit, vault_url
+from .notebookutils_local import Host, NotebookExit, on_vault, vault_url
 from .retrying import send_with_retry
 
 
@@ -192,7 +192,7 @@ def _make_secrets(get_secret: Callable[..., str], token: Callable[[str], str]) -
             body = resp.json()
             names += [SecretMetadata(item["id"].rstrip("/").rsplit("/", 1)[-1]) for item in body.get("value", [])]
             url, params = body.get("nextLink"), None
-            if url and not url.startswith(f"{vault(scope).rstrip('/')}/"):
+            if url and not on_vault(url, vault(scope)):
                 raise ValueError(f"Key Vault {vault(scope)} answered with a next page on another host; stopped listing.")
         return names
 

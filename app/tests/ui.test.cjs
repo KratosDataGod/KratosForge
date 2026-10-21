@@ -3705,6 +3705,13 @@ test("notebookutils docs mark the live Fabric reads Preview", () => {
   assert.match(docs, /Rows marked Preview read Fabric live as you and haven't been run on a tenant yet\./);
 });
 
+// notebookutils.variableLibrary reads any library from the attached lakehouse's workspace, read only.
+test("notebook docs say any variable library is read from the lakehouse's workspace", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /Any other library, and VL_Sources when there is no metadata project, is read from the attached lakehouse's workspace/);
+  assert.match(doc, /Read only \(Preview, not yet run on a tenant\)/);
+});
+
 // Notebook utilities: Databricks dbutils works on this PC; the snippets and docs say how.
 test("Databricks dbutils snippets and docs", () => {
   const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");

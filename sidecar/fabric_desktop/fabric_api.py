@@ -400,6 +400,17 @@ class FabricClient:
         self._wait(self._request("POST", url, json={"definition": definition}))
         return existing | {"created": False}
 
+    def read_variable_library(self, workspace_id: str, name: str) -> tuple[dict[str, str], str | None] | None:
+        """The library's definition files (decoded) and active value set, or None if the workspace
+        has no library with this name. Read only: getDefinition is a POST but changes nothing."""
+        item = next((v for v in self.list_variable_libraries(workspace_id) if v["displayName"] == name), None)
+        if item is None:
+            return None
+        got = self.get_item_definition(workspace_id, item["id"])
+        parts = {p["path"]: base64.b64decode(p["payload"]).decode("utf-8-sig")
+                 for p in (got.get("definition") or {}).get("parts", [])}
+        return parts, (item.get("properties") or {}).get("activeValueSetName")
+
     def set_active_value_set(self, workspace_id: str, library_id: str, value_set: str) -> None:
         self._request("PATCH", f"/workspaces/{workspace_id}/variableLibraries/{library_id}",
                       json={"properties": {"activeValueSetName": value_set}})

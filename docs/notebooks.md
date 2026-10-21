@@ -112,7 +112,7 @@ from pyspark.sql import functions as F
 | `session` | `restartPython()` (and `stop()`) stop the cell and restart Python, clearing variables, as `dbutils.library.restartPython()` does |
 | `lakehouse` (Preview) | `get`, `getWithProperties`, `list` and `listTables`, read from Fabric as you; the workspace defaults to the attached lakehouse's, and `get()` with no name returns the attached lakehouse. `create`, `update`, `delete` and `loadTable` run in Fabric only: on this PC, create lakehouses in Workspaces or Platform setup, where the change is confirmed first. As in Fabric, `listTables` doesn't list lakehouses with schemas |
 | `nbResPath` | The notebook's resources folder on this PC; cells read its files as `builtin/<file>` ([notebook resources](notebook-resources.md)) |
-| `variableLibrary` | `getLibrary("VL_Sources")` reads the metadata project's source system values ([variable library](metadata-guide.md#9-source-systems-and-the-variable-library)) |
+| `variableLibrary` | `getLibrary("VL_Sources")` reads the metadata project's source system values ([variable library](metadata-guide.md#9-source-systems-and-the-variable-library)). Any other library, and VL_Sources when there is no metadata project, is read from the attached lakehouse's workspace with its active value set, and the cell says which workspace that was (Fabric reads the notebook's own workspace, so attach a lakehouse there to read the same values); Integer, Number and Boolean variables keep their type. Read only (Preview, not yet run on a tenant) |
 
 **Databricks `dbutils`** is there too, so notebooks written for Databricks run here unchanged where the same thing exists on this PC. It is a global in every cell, and `from databricks.sdk.runtime import dbutils` works.
 

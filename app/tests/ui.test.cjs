@@ -3157,6 +3157,47 @@ test("the profile report preview renders headings, bullets and source tags witho
   assert.strictEqual(escaped.filter((k) => typeof k !== "string").length, 1, "an escaped name became emphasis");
 });
 
+// Notebook find and replace (nbfind.js): matches across cells with the bar's flags, regex groups in
+// the replacement, and edits applied from the end of a cell.
+test("notebook find matches every cell with case, whole word and regex, and replaces with groups", () => {
+  const src = fs.readFileSync(path.join(ui, "nbfind.js"), "utf8");
+  const ctx = { CM: { StateEffect: { define: () => ({}) } }, document: { addEventListener() {} } };
+  vm.createContext(ctx);
+  vm.runInContext(`${src}\nthis.f = { findMatches, findReplacement, findApply };`, ctx);
+  const { findMatches, findReplacement, findApply } = ctx.f;
+  const cells = [{ type: "markdown", source: "# Sales" }, { type: "code", source: "sales = 1\nsales_count = sales" }];
+  assert.strictEqual(findMatches(cells, "sales").matches.length, 4);
+  assert.strictEqual(findMatches(cells, "sales", { matchCase: true }).matches.length, 3);
+  assert.strictEqual(findMatches(cells, "sales", { word: true }).matches.length, 3);
+  assert.strictEqual(findMatches(cells, "sales", { markdown: false }).matches.length, 3);
+  assert.strictEqual(findMatches(cells, "a.e").matches.length, 0);  // not a regex unless asked
+  assert.strictEqual(findMatches(cells, "x*", { regex: true }).matches.length, 0);  // empty matches skipped
+  assert.match(findMatches(cells, "(", { regex: true }).error, /isn't a valid regular expression/);
+  const [m] = findMatches(cells, "(s)ales", { regex: true, matchCase: true }).matches;
+  assert.strictEqual(findReplacement(m, "(s)ales", "$1old", { regex: true, matchCase: true }), "sold");
+  assert.strictEqual(findReplacement(m, "x", "$1", {}), "$1");  // plain text replacement is literal
+  // Lookarounds and anchors see the whole cell, as when they matched.
+  const xa = [{ type: "code", source: "xa ya xa" }];
+  const found = findMatches(xa, "(?<=x)a", { regex: true }).matches;
+  assert.strictEqual(found.length, 2);
+  assert.deepStrictEqual([...found.map((f) => findReplacement(f, "(?<=x)a", "B", { regex: true }))], ["B", "B"]);
+  assert.strictEqual(findApply(xa[0].source, found.map((f) => ({ from: f.from, to: f.to, insert: "B" }))), "xB ya xB");
+  const lines = [{ type: "code", source: "a1\nb2" }];
+  assert.strictEqual(findMatches(lines, "^b(\\d)", { regex: true }).matches.length, 0);  // ^ is the start of the cell
+  const [start] = findMatches(lines, "^(a)(\\d)", { regex: true }).matches;
+  assert.strictEqual(findReplacement(start, "^(a)(\\d)", "$2$1", { regex: true }), "1a");
+  assert.strictEqual(findApply("ab ab", [{ from: 0, to: 2, insert: "xyz" }, { from: 3, to: 5, insert: "q" }]), "xyz q");
+});
+
+test("the notebook keeps its matches marked and the bar over the cells", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /nbFindBar\(\), h\("div", \{ class: "cells-inner" \}/);
+  assert.match(nb, /findHighlighter\(cell\),/);
+  assert.match(nb, /findCellChanged\(\);/);
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="nbfind.js"') > html.indexOf('src="notebook.js"'));
+});
+
 // Notebook cell comments (notebook-comments.js): mentions only highlight, line ranges follow the
 // selection, and the panel lists threads in cell order with deleted cells' threads last.
 test("cell comments: mentions, selected lines and the panel's rows", () => {

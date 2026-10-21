@@ -188,7 +188,8 @@ A bundle also lists what it can't promise: cells that hadn't run, ran in a diffe
 
 ## Editing
 
-- Cells have line numbers, bracket matching, folding, find and replace (**Ctrl+F**), **Ctrl+/** to comment, and autocomplete (**Ctrl+Space**) from the running kernel's variables, Python names, and the attached lakehouse's table names inside strings and `%%sql` cells.
+- Cells have line numbers, bracket matching, folding, find in the cell (**Ctrl+F**), **Ctrl+/** to comment, and autocomplete (**Ctrl+Space**) from the running kernel's variables, Python names, and the attached lakehouse's table names inside strings and `%%sql` cells.
+- **Ctrl+H** finds and replaces across every cell. See [Find and replace in a notebook](notebook-editor/find-and-replace.md).
 - Each cell has a language picker (Python, Spark SQL, HTML, Markdown) and **...** for more actions.
 - **Command mode** (press **Esc**): **A** and **B** add a cell above or below, **DD** deletes, **Z** undoes a delete, **M** and **Y** switch between Markdown and code, **C**, **X** and **V** copy, cut and paste cells, **O** hides output, **Shift+L** toggles line numbers, and **Enter** goes back to editing.
 
@@ -197,7 +198,7 @@ The ribbon has four tabs:
 | Tab | What's on it |
 | --- | --- |
 | **Home** | Run all, Cancel, **Runs on**, Add data items, Save, Schedule (Preview), Recent runs (Preview), **Publish to OneLake** |
-| **Edit** | Add Code or Markdown cells, Move up or down, Split cell, Merge with below, Delete cell, Undo delete, **Parameter cell**, **Freeze**, Find and replace, Clear all outputs |
+| **Edit** | Add Code or Markdown cells, Move up or down, Split cell, Merge with below, Delete cell, Undo delete, **Parameter cell**, **Freeze**, Find and replace (every cell), Clear all outputs |
 | **Run** | Run all, Run cell, Run all above, Run cell and below, Cancel, Runs on, Restart kernel, Restart and run all, Schedule, Recent runs |
 | **View** | Explorer, **Outline** (Markdown headings; click to jump), **Variables** (name, type, size and value of each variable, secrets hidden; click one to display it), collapse or expand all inputs and outputs, line numbers |
 

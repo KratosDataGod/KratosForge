@@ -164,3 +164,18 @@ def test_service_wrangle_after_restart_asks_to_run_again():
     assert svc.notebook_frame_wrangle(fid, [{"op": "dedupe"}])["rows_after"] == 1
     svc.kernel.restart()
     assert svc.notebook_frame_wrangle(fid, [])["gone"]
+
+
+def test_a_column_name_with_a_newline_does_not_become_code(tmp_path):
+    # Quality's #427 probe: a name from the data must never end the step's "# ..." comment.
+    marker = tmp_path / "pwned"
+    evil = f"x\n    open({str(marker)!r}, 'w').write('1')"
+    table = pa.table({evil: [1, 2], "y": [3, 4]})
+    for step in ({"op": "drop", "columns": [evil]}, {"op": "rename", "column": evil, "to": "z"},
+                 {"op": "sort", "column": evil}, {"op": "filter", "column": evil, "test": "gt", "value": "1"}):
+        out = wrangler.run(table, pl.from_arrow(table), [step], "df")
+        code = out["code"]
+        exec(compile(code, "<cell>", "exec"), {"df": pl.from_arrow(table), "display": lambda v: None})  # noqa: S102
+        assert not marker.exists(), "column name ran as code when the generated cell ran:\n" + code
+        assert all(not ln.startswith("    open(") for ln in code.splitlines())
+    assert wrangler.describe_step({"op": "drop", "columns": ["a\nb"]}) == "Drop columns: 'a\\nb'"

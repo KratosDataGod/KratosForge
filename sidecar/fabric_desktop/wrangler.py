@@ -123,9 +123,12 @@ def _literal(dtype: Any, text: Any) -> str:
 def describe_step(step: dict[str, Any]) -> str:
     """The step's line in the Steps list and its comment in the code."""
     op = step.get("op")
-    label = OPS.get(str(op), str(op))
+    label = OPS.get(str(op), "Unknown step")
     cols = step.get("columns") or ([step["column"]] if step.get("column") else [])
-    return f"{label}: {', '.join(map(str, cols))}" if cols else label
+    if isinstance(cols, str):
+        cols = [cols]
+    # Names come from the data: repr() keeps a newline in one from ending the code's # comment.
+    return f"{label}: {', '.join(repr(str(c)) for c in cols)}" if cols else label
 
 
 def code_for(df: Any, step: dict[str, Any]) -> tuple[str, list[str]]:
@@ -264,7 +267,8 @@ def run(table: pa.Table, value: Any, steps: list[dict[str, Any]], name: str = "d
         except Exception as exc:  # noqa: BLE001 - a step's error goes back to the person, with its number
             error = {"step": i, "message": _message(exc)}
             break
-        lines.append(f"    # {describe_step(step)}\n    {line}")
+        comment = "".join(ch if ch.isprintable() else " " for ch in describe_step(step))
+        lines.append(f"    # {comment}\n    {line}")
         touched = [c for c in touched if c in df.columns] + [c for c in changed if c not in touched]
     body = "\n".join(lines) or "    pass"
     code = (f"import polars as pl\n\n\ndef clean_data(df):\n{body}\n    return df\n\n\n"

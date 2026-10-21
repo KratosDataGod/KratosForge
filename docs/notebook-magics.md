@@ -130,6 +130,9 @@ before running them again, and Prove warns that it can't contain what a shell co
 
 The everyday IPython magics that Fabric's and Databricks' notebooks inherit work here too.
 `%lsmagic` lists every magic this PC runs.
+Put a path with spaces in quotes, like `%%writefile "C:\Users\Chris Smith\helpers.py"`; backslashes in
+Windows paths are kept as they are. Cells and files saved with Windows line endings or a byte order mark
+(Notepad's UTF-8) read the same as any other.
 
 | Magic | Does |
 | --- | --- |

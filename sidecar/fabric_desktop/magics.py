@@ -43,11 +43,12 @@ def _lines(code: str) -> list[tuple[str, tuple[str, str, str, str | None] | None
     out = []
     quote, depth, joined = "", 0, False
     for text in code.split("\n"):
-        m = None if quote or depth or joined else _match(text)
+        bare = text.removesuffix("\r")  # a cell saved on Windows: the magic's argument doesn't end in \r
+        m = None if quote or depth or joined else _match(bare)
         out.append((text, m))
         if m is None:
-            quote, depth = _scan(text, quote, depth)
-            joined = not quote and text.endswith("\\") and not text.endswith("\\\\")
+            quote, depth = _scan(bare, quote, depth)
+            joined = not quote and bare.endswith("\\") and not bare.endswith("\\\\")
         else:
             joined = False
     return out
@@ -87,6 +88,17 @@ def _scan(text: str, quote: str, depth: int) -> tuple[str, int]:
             depth = max(depth - 1, 0)
         i += 1
     return quote, depth
+
+
+def words(line: str) -> list[str]:
+    """A magic's arguments split as a shell would, with quotes for names that have spaces, but a
+    backslash kept as it is, so a Windows path such as C:\\Users\\me\\req.txt arrives whole."""
+    import shlex
+    lexer = shlex.shlex(line, posix=True)
+    lexer.whitespace_split = True
+    lexer.escape = ""
+    lexer.commenters = ""
+    return list(lexer)
 
 
 def find(code: str) -> list[Magic]:

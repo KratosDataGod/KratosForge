@@ -21,7 +21,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from . import proof_runtime
+from . import magics, proof_runtime
 from .fabric_run import compute_check, uses_local_module, uses_spark
 
 RUNTIME_SOURCE = Path(proof_runtime.__file__).read_text(encoding="utf-8")
@@ -92,14 +92,23 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None) -> dict
         source = c.get("source") or ""
         if c.get("type") == "markdown" or not source.strip():
             continue
-        if source.lstrip().startswith("%%sql"):
+        language = magics.cell(source).language
+        if language == "sql":
             if m := _SQL_CHANGE.search(source):
                 add(blockers, n, c, "is SQL that creates or changes tables; in a proof, write with lakehouse.write_table",
                     source, m.start())
             continue
+        if language == "shell" or any(m.name in ("system", "sx", "sh") for m in magics.find(source)):
+            add(warnings, n, c, "runs shell commands; the proof can't contain or compare what they change")
+        if language != "python":
+            continue
         for rx, text in _BLOCKERS:
             if m := rx.search(source):
                 add(blockers, n, c, text, source, m.start())
+        for magic in magics.find(source):
+            if magic.name == "sql" and _SQL_CHANGE.search(magic.rest):
+                add(blockers, n, c, "is SQL that creates or changes tables; in a proof, write with lakehouse.write_table",
+                    source, sum(len(ln) + 1 for ln in source.split("\n")[:magic.line - 1]))
         for rx, text in _WARNINGS:
             if m := rx.search(source):
                 add(warnings, n, c, text, source, m.start())

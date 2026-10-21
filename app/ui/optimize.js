@@ -4,7 +4,7 @@
 
 const optimizePage = { tab: "overview", closed: false };
 
-const OPTIMIZE_TABS = [["overview", "Overview"], ["opportunities", "Opportunities"], ["cost", "Cost and savings"]];
+const OPTIMIZE_TABS = [["overview", "Overview"], ["opportunities", "Opportunities"], ["cost", "Cost and savings"], ["settings", "Settings history"]];
 
 // A recommendation's state as people say it, and the moves offered from it (shared.TRANSITIONS).
 const REC_STATE = { open: "Open", accepted: "Accepted", applied: "Applied", dismissed: "Dismissed", verified: "Verified", superseded: "Superseded" };
@@ -33,10 +33,12 @@ async function renderOptimize() {
     body));
   // Cost and savings doesn't need the shared lakehouse: it reads this PC's runs.
   if (optimizePage.tab === "cost") body.append(costPanel());
+  // Settings history reads the central lakehouse's fdcap_ and fdten_ tables itself.
+  if (optimizePage.tab === "settings") body.append(settingsHistoryPanel());
   const status = await rpc("optimize_status").catch(() => null);
   if (state.view !== "optimize" || !band.isConnected) return;
   band.replaceWith(optimizeBand(status));
-  if (optimizePage.tab === "cost") return;
+  if (optimizePage.tab === "cost" || optimizePage.tab === "settings") return;
   if (!status?.active) {
     fill(body, h("p", { class: "muted-text" }, status && !status.allowed
       ? "Your organization has turned off shared optimization lakehouses."
@@ -264,3 +266,120 @@ registerFeature({
     { label: "Connect to an optimization lakehouse", icon: "onelake", keywords: "optimize shared lakehouse set up", preview: true, run: () => optimizeConnectFlow() },
   ],
 });
+
+// ---------- Settings history (item 30) ----------
+// What tenant and capacity settings were at each read, and what changed between two reads, from the
+// central lakehouse's fdten_ (Enterprise readiness) and fdcap_ (FinOps) tables. The page only reads;
+// the buttons each read Fabric once and add rows. Who changed a setting, and exactly when, aren't known.
+
+const settingsHistoryPage = { scope: "all" };
+
+function settingsHistoryPanel() {
+  const panel = h("div", { class: "settings-history" }, h("p", { class: "muted-text" }, "Reading the settings history..."));
+  rpc("tenant_settings_history", {})
+    .then((hist) => { if (panel.isConnected) fill(panel, ...settingsHistoryBody(hist)); })
+    .catch((err) => { if (panel.isConnected) fill(panel, h("p", { class: "muted-text" }, friendlyError(err).text)); });
+  return panel;
+}
+
+// Capacity names, from the latest displayName each capacity was seen with. A capacity is named by
+// its id until one is known.
+function settingsHistoryNames(changes) {
+  const names = {};
+  for (const c of [...(changes || [])].reverse()) {  // oldest first, so the newest name wins
+    if (c.scope_type !== "capacity" || c.setting !== "displayName" || c.new_json === null || c.new_json === undefined) continue;
+    try { names[c.scope_id] = JSON.parse(c.new_json); } catch { /* not JSON: keep the id */ }
+  }
+  return names;
+}
+
+// Failed reads since the last good one, newest first, one line per kind of scope: pressing a read
+// button again without access adds a row each time, and the warning shouldn't grow with it.
+function settingsHistoryGaps(gaps) {
+  const out = {};
+  for (const g of gaps || []) {  // newest first, as tenant_settings_history returns them
+    if (out[g.scope_type]) out[g.scope_type].count += 1;
+    else out[g.scope_type] = { ...g, count: 1 };
+  }
+  return Object.values(out);
+}
+
+// The table's rows, filtered: "all", "tenant", "capacity" or one capacity's id.
+function settingsHistoryRows(changes, names, scope) {
+  return (changes || []).filter((c) => scope === "all" || c.scope_type === scope || c.scope_id === scope).map((c) => ({
+    after: c.changed_after,
+    by: c.changed_by_time,
+    scope: c.scope_type === "tenant" ? "Tenant" : `Capacity ${names[c.scope_id] || c.scope_id}`,
+    setting: String(c.setting || "").startsWith("override:") ? `Override: ${c.setting.slice(9)}` : c.setting,
+    was: c.old_json ?? null,
+    now: c.new_json ?? null,
+  }));
+}
+
+function settingsHistoryBody(hist) {
+  if (!hist?.connected) {
+    return [h("p", { class: "muted-text" }, "Connect this PC to a central lakehouse (Settings > Optimize lakehouses) to keep a settings history.")];
+  }
+  const names = settingsHistoryNames(hist.changes);
+  const last = hist.last_read || {};
+  const lastRead = (label, iso, note) => h("div", { class: "sh-last" }, h("span", { class: "muted-text small" }, label),
+    h("b", {}, iso ? when(iso) : "Never read"), h("span", { class: "muted-text small" }, note));
+  const reads = h("section", { class: "card pad" },
+    h("div", { class: "row wrap" },
+      lastRead("Capacities last read", last.capacity, "The capacities you can see"),
+      lastRead("Tenant settings last read", last.tenant, "Fabric administrators only")),
+    h("div", { class: "row wrap" },
+      btn("Read capacities now", "sync", () => settingsHistoryRead("capacity_settings_read", "Capacities"), "tool primary"),
+      btn("Read tenant settings (administrators)", null, () => settingsHistoryRead("tenant_settings_read", "Tenant settings"), "tool outline")),
+    h("p", { class: "muted-text small" }, "Anyone who can read the central lakehouse sees this history, including the tenant settings an administrator read."));
+  const failed = settingsHistoryGaps(hist.gaps);
+  const gaps = failed.length ? h("div", { class: "card pad sh-gap", role: "status" },
+    h("b", {}, (hist.gaps || []).length === 1 ? "One read couldn't be completed" : `${hist.gaps.length} reads couldn't be completed`),
+    ...failed.map((g) => h("p", { class: "small" }, `${g.scope_type === "tenant" ? "Tenant settings" : "Capacities"}, `,
+      g.count > 1 ? [`${g.count} reads since the last good one, the latest `, when(g.read_at)] : when(g.read_at),
+      `: ${g.outcome}. ${g.reason || ""}`)),
+    h("p", { class: "small" }, "Changes made while reads fail aren't seen, so this period is a gap, not a quiet one.")) : null;
+  const ids = [...new Set((hist.changes || []).filter((c) => c.scope_type === "capacity").map((c) => c.scope_id))];
+  const choices = [["all", "Everything"], ["tenant", "Tenant"], ["capacity", "All capacities"], ...ids.map((id) => [id, names[id] || id])];
+  if (!choices.some(([v]) => v === settingsHistoryPage.scope)) settingsHistoryPage.scope = "all";
+  const rows = settingsHistoryRows(hist.changes, names, settingsHistoryPage.scope);
+  const json = (v, none) => (v === null ? h("span", { class: "muted-text" }, none) : h("code", {}, v));
+  const table = rows.length ? h("div", { class: "sh-scroll" }, h("table", { class: "list" },
+    h("thead", {}, h("tr", {}, ["Changed between", "Scope", "Setting", "Was", "Now"].map((x) => h("th", {}, x)))),
+    h("tbody", {}, rows.map((r) => h("tr", {},
+      h("td", {}, r.after ? [when(r.after), " and ", when(r.by)] : ["First seen ", when(r.by)]),
+      h("td", {}, r.scope), h("td", { class: "mono" }, r.setting),
+      h("td", {}, json(r.was, "Not seen before")), h("td", {}, json(r.now, "No longer returned")))))))
+    : h("p", { class: "muted-text" }, (hist.changes || []).length ? "No changes for this scope." : "No reads yet. Read capacities to start the history.");
+  const changes = h("section", { class: "card pad" },
+    h("div", { class: "row wrap" }, h("h2", {}, "Changes"), h("span", { class: "spacer" }),
+      h("label", { class: "row" }, "Show ", h("select", { class: "sh-scope",  onchange: (e) => { settingsHistoryPage.scope = e.target.value; render(); } },
+        choices.map(([v, label]) => h("option", { value: v, selected: v === settingsHistoryPage.scope ? true : null }, label))))),
+    table,
+    h("p", { class: "muted-text small" }, "A change was seen between two reads: exactly when it happened, and who made it, aren't known. A capacity you can't see isn't compared, so it's never shown as changed or deleted."));
+  return [withHowItWorks(h("div", { class: "sh-stack" }, reads, gaps, changes), howItWorks("optimize.settings", {
+    reads: "The settings history tables in your central lakehouse. Read capacities calls Fabric's GET /v1/capacities (Capacity.Read.All); Read tenant settings calls GET /v1/admin/tenantsettings, which only a Fabric administrator can.",
+    changes: "Nothing in Fabric: no tenant or capacity setting is ever changed. Each read adds rows to FabricDesktop_Central: fdcap_snapshot, fdcap_change and fdcap_read for capacities, fdten_snapshot, fdten_change and fdten_read for the tenant. A snapshot row is added only when a value differs from the last one; a read row is added every time, failed reads included. The first read asks before it creates the tables. Writing to OneLake uses capacity; no Fabric job is started.",
+    results: "This tab, for everyone who can read the central lakehouse: once an administrator reads the tenant settings, everyone with read access to it sees them. Nothing reads on a schedule.",
+    anchor: "optimize-preview",
+  }))];
+}
+
+// One read: the first time, the engine says which tables it would create and this asks before
+// passing approve.
+async function settingsHistoryRead(method, label) {
+  let res;
+  try {
+    res = await rpc(method, {});
+  } catch (err) {
+    const raw = String(err?.message || err);
+    if (!/Confirm to continue\.$/.test(raw)) { attempt(() => Promise.reject(err), `${label} not read`); return; }
+    const text = friendlyError(err).text.replace(/ Confirm to continue\.$/, "");
+    if (!(await confirmDialog("Create the settings history tables?", text, "Create and read"))) return;
+    res = await attempt(() => rpc(method, { approve: true }), `${label} not read`);
+  }
+  if (!res) return;
+  if (res.outcome !== "read") toast(`${label}: ${res.reason || res.outcome}`, true);
+  else toast(res.changes.length ? `${label} read: ${res.changes.length} change${res.changes.length === 1 ? "" : "s"}` : `${label} read: nothing changed`);
+  render();
+}

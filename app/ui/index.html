@@ -14,6 +14,10 @@
       <img src="wolf-forge-emblem.png" width="28" height="28" alt="">
       <img class="brand-name" src="kratosforge-lettering.png" width="130" height="19" alt="KratosForge">
     </div>
+    <div class="nav-buttons">
+      <button id="nav-back" class="nav-btn back" title="Back (Alt+Left)" aria-label="Back" aria-keyshortcuts="Alt+ArrowLeft" disabled><span data-icon="chevronRight" data-size="16"></span></button>
+      <button id="nav-forward" class="nav-btn" title="Forward (Alt+Right)" aria-label="Forward" aria-keyshortcuts="Alt+ArrowRight" disabled><span data-icon="chevronRight" data-size="16"></span></button>
+    </div>
     <nav id="breadcrumb" class="breadcrumb" aria-label="Breadcrumb"></nav>
     <div class="search-wrap">
       <label class="search">
@@ -46,8 +50,10 @@
   <div id="tray-root"></div>
   <div id="dialog-root"></div>
   <div id="toast" class="toast" role="status" hidden></div>
+  <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
 
   <script src="icons.js"></script>
+  <script src="motion.js"></script>
   <script src="features.js"></script>
   <script src="activity.js"></script>
   <script src="vendor/codemirror/codemirror.js"></script>
@@ -57,13 +63,29 @@
   <script src="app.js"></script>
   <script src="item-preview.js"></script>
   <script src="notebook.js"></script>
+  <script src="charts.js"></script>
+  <script src="wrangler.js"></script>
+  <script src="notebook-formats.js"></script>
+  <script src="nbfind.js"></script>
+  <script src="nbdrag.js"></script>
+  <script src="nbcells.js"></script>
+  <script src="nbselect.js"></script>
+  <script src="nbinputs.js"></script>
+  <script src="nbintel.js"></script>
+  <script src="nbvars.js"></script>
   <script src="sidebyside.js"></script>
   <script src="prove.js"></script>
   <script src="validate.js"></script>
+  <script src="notebook-files.js"></script>
+  <script src="notebook-versions.js"></script>
+  <script src="runs.js"></script>
+  <script src="profile.js"></script>
+  <script src="notebook-comments.js"></script>
   <script src="wizard.js"></script>
   <script src="deps.js"></script>
   <script src="debugging.js"></script>
   <script src="replay.js"></script>
+  <script src="nbresources.js"></script>
   <script src="meta.js"></script>
   <script src="mesh.js"></script>
   <script src="platform.js"></script>

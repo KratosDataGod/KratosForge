@@ -579,6 +579,35 @@ def _make_runtime(host: Host) -> types.SimpleNamespace:
             self.refresh()
             return super().get(key, default)
 
+        # Every read refreshes, so `in`, len, loops and keys/items/values see the values too.
+        def __contains__(self, key: object) -> bool:
+            self.refresh()
+            return super().__contains__(key)
+
+        def __iter__(self) -> Any:
+            self.refresh()
+            return super().__iter__()
+
+        def __len__(self) -> int:
+            self.refresh()
+            return super().__len__()
+
+        def keys(self) -> Any:
+            self.refresh()
+            return super().keys()
+
+        def items(self) -> Any:
+            self.refresh()
+            return super().items()
+
+        def values(self) -> Any:
+            self.refresh()
+            return super().values()
+
+        def copy(self) -> dict[str, Any]:
+            self.refresh()
+            return dict(super().items())
+
         def refresh(self) -> None:
             lh = lakehouse._attached
             self.update({
@@ -599,7 +628,9 @@ def _make_runtime(host: Host) -> types.SimpleNamespace:
                 "userName": os.environ.get("USERNAME") or os.environ.get("USER") or "",
             })
 
-    return types.SimpleNamespace(context=_Context())
+    context = _Context()
+    context.refresh()  # json.dumps reads the dict directly, without calling any of the above
+    return types.SimpleNamespace(context=context)
 
 
 class Item(dict):

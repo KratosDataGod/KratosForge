@@ -83,6 +83,13 @@ def test_runtime_context_has_fabric_keys(k):
     assert out["outputs"][-1]["text"] == "(True, None, 'KratosForge')"
 
 
+def test_runtime_context_reads_like_a_dict(k):
+    out = k.run("import json\nc = notebookutils.runtime.context\n"
+                "('isLocal' in c, len(c) > 5, 'productType' in list(c), dict(c.items())['isLocal'], "
+                "c.copy()['productType'], json.loads(json.dumps(c))['isLocal'], dict(c)['isForInteractive'])")
+    assert out["outputs"][-1]["text"] == "(True, True, True, True, 'KratosForge', True, True)", out
+
+
 def test_where_it_runs_knows_reads_from_changes():
     from fabric_desktop.fabric_run import compute_check
     reads = compute_check([{"type": "code", "source": "notebookutils.lakehouse.list()"}], {"id": "lh"})

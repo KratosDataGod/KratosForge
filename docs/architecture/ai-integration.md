@@ -1,6 +1,6 @@
 # AI integration architecture
 
-Fabric Desktop by KratosBI is **AI-ready, not AI-dependent**. It contains no AI model, no chat, no AI provider SDK and asks for no AI API key. Instead it exposes its own capabilities through standard interfaces (the Model Context Protocol and a documented local API) so a developer can point whichever AI tool they already use at it: Claude, Codex, GitHub Copilot, Cursor, or tools that don't exist yet.
+KratosForge is **AI-ready, not AI-dependent**. It contains no AI model, no chat, no AI provider SDK and asks for no AI API key. Instead it exposes its own capabilities through standard interfaces (the Model Context Protocol and a documented local API) so a developer can point whichever AI tool they already use at it: Claude, Codex, GitHub Copilot, Cursor, or tools that don't exist yet.
 
 The app works exactly the same with every integration switched off, which is the default.
 
@@ -18,7 +18,7 @@ This page is the architecture. The backlog and status of each pull request are i
 | Execution boundaries | Notebook cells run in the engine or in a process of their own (`kernel_proc.py`, Preview), with interrupt and stop. SQL runs in an in-memory DuckDB with each named table registered as an Arrow dataset. Prove runs in a fresh kernel with outputs redirected. | |
 | Local network APIs | **None.** The engine is stdio only and the headless agent has no HTTP endpoint (`agent.py`, `agent_status.py` write files). | |
 | MCP | **None.** No MCP code, experiment or dependency anywhere in the repository. | |
-| Extension mechanism | **None yet** at discovery. Extensions (manifest, permissions, own process) are Phase 4 of the Git-native development program ([git-integration-plan.md](https://github.com/KratosDataGod/fabric-desktop/blob/claude/git-foundation-rmrdsg/docs/git-integration-plan.md)), not built. | |
+| Extension mechanism | **None yet** at discovery. Extensions (manifest, permissions, own process) are Phase 4 of the Git-native development program ([git-integration-plan.md](https://github.com/KratosDataGod/KratosForge/blob/claude/git-foundation-rmrdsg/docs/git-integration-plan.md)), not built. | |
 | Audit, redaction, IT policy | In review, owned by the enterprise readiness program: hash-chained audit trail (PR #89, `audit.py`), secret redaction (PR #84, `redact.py`), policy keys `auto_update`, `allow_fabric_runs`, `allowed_tenants` (PR #90). The policy file itself (`%ProgramData%\FabricDesktop\policy.json`) already exists in `app_settings.py`. | |
 | Tests | About 40 pytest modules in `sidecar/tests`, all run without Fabric; UI tests in `app/tests/ui.test.cjs`. | |
 
@@ -33,7 +33,7 @@ External tools: Claude, Codex, Copilot, Cursor, any MCP client, any HTTP client
    (fabric-desktop mcp)  (127.0.0.1, token)            (127.0.0.1, token)
         \_______________________|__________________________/
                                 |
-              Fabric Desktop integration layer  (fabric_desktop/integrations/)
+              KratosForge integration layer  (fabric_desktop/integrations/)
               - capability registry: every operation, its schemas and permissions
               - invoke(): validate -> authorize -> approve -> run -> shape result
               - permissions and approvals (integrations.sqlite, decided in the app)
@@ -71,7 +71,7 @@ Until **Settings > Integrations** writes the configuration for you, a developer 
 fabric-desktop mcp --client my-laptop
 ```
 
-`fabric-desktop capabilities` prints every capability with its schemas as JSON. The server signs in with your existing Fabric Desktop sign-in and never opens a sign-in window; sign in in the app first. On a release install the engine's folder changes with every update, so the Integrations page will write a launcher with a fixed path rather than asking you to copy one.
+`fabric-desktop capabilities` prints every capability with its schemas as JSON. The server signs in with your existing KratosForge sign-in and never opens a sign-in window; sign in in the app first. On a release install the engine's folder changes with every update, so the Integrations page will write a launcher with a fixed path rather than asking you to copy one.
 
 ### The local HTTP API
 
@@ -224,7 +224,7 @@ The full threat model is in [ai-integration-security.md](../product/ai-integrati
 - External clients and everything they send are untrusted, and so is everything they read (notebook text, data, metadata). Nothing read is ever treated as an instruction or as authorization.
 - No capability returns a token, secret, connection string or credential. Results and errors pass through secret redaction.
 - The HTTP listener binds to `127.0.0.1`, requires a per-client bearer token, checks `Host` and `Origin` (DNS rebinding), limits request size, rate and concurrency, and stops with the app.
-- **What this boundary is not:** it protects against an AI tool that only has Fabric Desktop's interfaces, including one misled by a prompt injection. It does not protect against a tool that already runs arbitrary commands as you on the PC: that tool can read your files and the sign-in cache directly. Approvals for `EXECUTE_LOCAL_CODE` exist because running code is equivalent to that level of access.
+- **What this boundary is not:** it protects against an AI tool that only has KratosForge's interfaces, including one misled by a prompt injection. It does not protect against a tool that already runs arbitrary commands as you on the PC: that tool can read your files and the sign-in cache directly. Approvals for `EXECUTE_LOCAL_CODE` exist because running code is equivalent to that level of access.
 
 ## 10. Compatibility and limits
 

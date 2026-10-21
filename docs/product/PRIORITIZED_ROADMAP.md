@@ -1,6 +1,6 @@
 # Prioritized roadmap
 
-The order in which Fabric Desktop by KratosBI should build the items in
+The order in which KratosForge should build the items in
 [the product backlog](PRODUCT_BACKLOG.md), and why. Every number on this page is computed from
 [PRODUCT_BACKLOG.json](PRODUCT_BACKLOG.json) by `docs/product/tools/product_data.py`, so changing a
 score or a weight and running `product_data.py all` re-ranks everything the same way each time.
@@ -263,3 +263,4 @@ are sequenced by those programs; the order here is what the master product view 
 | 2026-10-18 | PB-104 Optimize central lakehouse program (PR-OPT-001..009) added from Chris's Optimize brief; P1 by Chris's override (its score alone gives P3) | Chris |
 | 2026-10-18 | Direction changes from Chris's unit testing: one landing workspace shared by Dev, Test and Prod, split by domain with secure zones (item 24); keys in a Fabric SQL database in a dedicated workspace, per environment or shared still open (item 25); glossary from Purview, Collibra or another catalog instead of our own (item 27); Monitor > Cost becomes Optimize > Cost and savings (item 36). Recorded on FEAT-MESH-02..04, FEAT-ADM-01 and PB-030, PB-050, PB-052, PB-060, PB-068 | Chris |
 | 2026-10-18 | PB-105 Simplified incident management added (unit testing item 33); best-practice actions, in-app guidance and a docs page per area noted as a theme on PB-077 and PB-102 | Master product thread |
+| 2026-10-20 | Business keys: one keys database in a dedicated workspace for all environments (unit testing item 25). Reverses the 2026-10-16 decision to keep keys per environment, so Dev and Test issue the same key numbers as Prod. Recorded on FEAT-MESH-02 and PB-068 | Chris |

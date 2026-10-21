@@ -33,13 +33,15 @@ from .project import (
     run_order,
     validate,
 )
-from .store import LANDING_LAKEHOUSE, Store, lazy, open_table, read_table_uri
+from .store import LANDING_LAKEHOUSE, META_LAKEHOUSE, Store, lazy, open_table, read_table_uri
 
 # A write that loses a Delta commit race re-reads the table and merges again, this many times.
 WRITE_ATTEMPTS = 3
 # Tries for a meta write after the table commit (watermark, run log, quarantine). It never makes the
 # table be written again: the rows are already in.
 AFTER_COMMIT_ATTEMPTS = 3
+# Commit metadata naming one after-commit append, so a retry can tell the append already committed.
+APPEND_KEY = "fabric_desktop_append"
 
 # Columns the quarantine adds to each held row: why, which run, when, and the row's own id.
 QUARANTINE_COLUMNS = ["_check", "_run_id", "_loaded_at", "_qid"]
@@ -361,15 +363,30 @@ class Engine:
         # The run's records, after its commit: if they can't be saved the run's result still stands
         # (raising here would lose it, and a caller retrying would write the table again).
         for table, rows in (("run_log", log), ("dq_results", self._dq), ("schema_history", self._schema_changes)):
-            self._after_commit(res, f"the {table.replace('_', ' ')}", lambda t=table, r=rows: self.store.meta_append(t, r))
+            if rows:
+                self._after_commit(res, f"the {table.replace('_', ' ')}", (META_LAKEHOUSE, "meta", table),
+                                   lambda m, t=table, r=rows: self.store.meta_append(t, r, metadata=m))
         return res
 
-    def _after_commit(self, res: RunResult, what: str, write: Callable[[], None]) -> bool:
-        """A meta write that follows the table commit: tried a few times, and on failure noted on the
-        run instead of raised. Never a reason to write the table again."""
+    def _after_commit(self, res: RunResult, what: str, where: tuple[str, str, str],
+                      write: Callable[[dict[str, str]], None]) -> bool:
+        """An append that follows the table commit: tried a few times, and on failure noted on the
+        run instead of raised. Never a reason to write the table again.
+
+        ``write`` appends to the table at ``where`` (lakehouse, schema, table) with the commit
+        metadata it is given. That metadata names this one append, so before trying again it looks
+        for a commit carrying it: an attempt that committed and then failed (a lost response, a read
+        after the commit that failed) is not appended a second time."""
+        token = f"{self.run_id}:{uuid.uuid4().hex[:8]}"
+        try:
+            since = self.store.version(*where)
+        except Exception:  # noqa: BLE001  unknown: the check below then reads the whole history
+            since = None
         for attempt in range(1, AFTER_COMMIT_ATTEMPTS + 1):
             try:
-                write()
+                if attempt > 1 and self.store.has_commit(*where, APPEND_KEY, token, since):
+                    return True  # the last attempt committed before it failed
+                write({APPEND_KEY: token})
                 return True
             except Exception as exc:  # noqa: BLE001  the table is committed whatever happens here
                 if attempt == AFTER_COMMIT_ATTEMPTS:
@@ -383,8 +400,9 @@ class Engine:
     def _flush_quarantine(self, res: RunResult) -> None:
         pending, self._pending_quarantine = self._pending_quarantine, []
         for e, rows in pending:
-            self._after_commit(res, f"{plural(rows.height, 'quarantined row')}", lambda e=e, rows=rows: self.store.write(
-                self.lakehouse(e), "quarantine", f"{e.schema}_{e.table}", rows, mode="append"))
+            where = (self.lakehouse(e), "quarantine", f"{e.schema}_{e.table}")
+            self._after_commit(res, f"{plural(rows.height, 'quarantined row')}", where,
+                               lambda m, w=where, rows=rows: self.store.write(*w, rows, mode="append", metadata=m))
 
     def _step(self, res: RunResult, name: str, t0: float, rows: int, detail: str = "") -> None:
         res.steps.append(Step(name, rows, round(time.perf_counter() - t0, 3), detail))
@@ -1195,8 +1213,8 @@ class Engine:
     def _advance_watermark(self, e: Entity, df: pl.DataFrame, backfill: str | None, res: RunResult) -> None:
         mark = self._new_watermark(e, df, backfill)
         if mark is not None:
-            self._after_commit(res, "the watermark", lambda: self.store.meta_append(
-                "watermarks", [{"entity": e.name, "value": mark, "run_id": self.run_id}]))
+            self._after_commit(res, "the watermark", (META_LAKEHOUSE, "meta", "watermarks"), lambda m: self.store.meta_append(
+                "watermarks", [{"entity": e.name, "value": mark, "run_id": self.run_id}], metadata=m))
 
     def _migrate(self, e: Entity, res: RunResult) -> None:
         t0 = time.perf_counter()

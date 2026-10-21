@@ -34,7 +34,7 @@ ARGUMENT = "argument"
 FILTERED = "filtered"
 UNKNOWN = "unknown"
 KINDS = (NONE, ARGUMENT, FILTERED, UNKNOWN)
-WHERE = "Fabric Desktop by KratosBI > Settings > Integrations"
+WHERE = "KratosForge > Settings > Integrations"
 _LOCATED = ("workspace_name", "lakehouse_id", "lakehouse_name")  # a dict naming a place in Fabric
 _MAX_DEPTH = 12
 _MAX_PARENTS = 3
@@ -101,7 +101,7 @@ def enforce_on(ctx: CallContext, reached: set[str] | None) -> None:
 
 
 def unconfined_reason(cap: Any) -> str:
-    return (f"This tool is limited to some workspaces, and Fabric Desktop by KratosBI can't tell which workspace "
+    return (f"This tool is limited to some workspaces, and KratosForge can't tell which workspace "
             f"{cap.title.lower()} would reach, so it isn't allowed.")
 
 
@@ -116,7 +116,7 @@ def keep(ctx: CallContext, rows: Iterable[Any], of: Callable[[Any], set[str] | N
     for row in rows:
         try:
             found = of(row)
-        except Exception:  # noqa: BLE001 - a row that can't be read can't be checked: leave it out
+        except Exception:  # noqa: BLE001  # silent-ok: a row that can't be read can't be checked, so it is left out
             continue
         if found is not None and found <= limit:
             out.append(row)

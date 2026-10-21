@@ -63,6 +63,7 @@ import requests
 from .leases import LocalBackend, OneLakeBackend, Stored
 from .logs import fields
 from .onelake import DFS_HOST
+from .redact import describe
 from .retrying import send_with_retry
 
 CONTRACT = 1
@@ -237,7 +238,8 @@ class Mailbox:
             return ""
         try:
             status, _ = self._read(env, f"status/{source.split(':', 1)[1]}.json")
-        except Exception:  # can't tell: carry on; the table lease keeps two writers apart
+        except Exception as exc:  # can't tell: carry on; the table lease keeps two writers apart
+            self.log.warning("Couldn't read the pipeline job's status; carrying on: %s", describe(exc))
             return ""
         owner = str((status or {}).get("agent") or "")
         return owner if owner and owner != self.agent.config.name else ""
@@ -250,7 +252,8 @@ class Mailbox:
             return False
         try:
             return self.control(env).read(f"cancel/{source.split(':', 1)[1]}.json") is not None
-        except Exception:  # can't tell: run it, as the request asked
+        except Exception as exc:  # can't tell: run it, as the request asked
+            self.log.warning("Couldn't check for a cancel request; running the job: %s", describe(exc))
             return False
 
     # ---- one request

@@ -1,6 +1,6 @@
 # Hardening backlog
 
-PR-sized work items from the enterprise hardening audit of Fabric Desktop by KratosBI, in dependency order inside each priority. Each item fixes findings in the [findings register](findings.md). Reviewed at `main` **1248ccd**.
+PR-sized work items from the enterprise hardening audit of KratosForge, in dependency order inside each priority. Each item fixes findings in the [findings register](findings.md). Reviewed at `main` **1248ccd**.
 
 Priority:
 
@@ -104,13 +104,13 @@ Complexity is S (under a day, one module), M (a few modules, new tests), L (cros
 | HD-017 | EP-3: audit chain safe across processes; head checkpoint | Hardening | open stack (`audit.py`) | S |
 | HD-020 | SH-1, UI-1: Content Security Policy; notebook output on its own origin | Hardening | a manual Windows check before merge | L |
 | HD-021 | SH-2: fail unsigned releases; verify signatures in CI and on the client | Hardening | **Chris: Trusted Signing account (D-C3)** | M |
-| HD-022 | SH-5: no downgrades; keep the previous exe until the new one starts | Hardening | open stack (`app.js`) | M |
-| HD-023 | SH-7: promote a named commit, re-check hashes, protected environment | Hardening | #132 (`promote.yml`) | S |
+| HD-022 | SH-5: no downgrades; keep the previous exe until the new one starts. Must still let a Stable PC follow a deliberate rollback (an earlier build promoted to Stable, HD-028) | Hardening | open stack (`app.js`) | M |
+| HD-023 | SH-7: promote a named commit, re-check hashes, protected environment. Named commit and hash re-check come with HD-028's `build` input; the protected environment and copying the SBOMs remain | Hardening | #132 (`promote.yml`) | S |
 | HD-024 | SH-8: pin actions in `codex-review.yml` and `docs.yml`; scope permissions | Hardening | Chris's review (workflow) | S |
 | HD-025 | SH-9: agent installers use constraints; ProgramData ACL | Hardening | a Windows host to verify the ACL | S |
 | HD-026 | SH-10: no bare `python` fallback in release builds | Hardening | none | S |
 | HD-027 | SH-12: navigation filter for the Fabric view | Hardening | manual Windows check | S |
-| HD-028 | Per-build release assets, so a build can be pinned and rolled back (known gap in release-readiness.md) | Hardening | Chris's review (workflow) | M |
+| HD-028 | Per-build release assets, so a build can be pinned and rolled back (known gap in release-readiness.md). **Partly done:** CI keeps each published build as a `build-<sha>` release (newest 20, plus every Stable build); Promote to stable takes a `build` input, so Stable rolls back by promoting an earlier build. Remaining: the app can't name a build for its engine download, and rollback hasn't been run end to end | Hardening | Chris's review (workflow); a first rollback drill on `main` | M |
 | HD-029 | Live verification (gate G1): run the existing harness on a designated non-production workspace | Chris | **Chris: workspace and OK** | S |
 | HD-030 | EP-5: separation of duties by Entra id; switch from policy or versioned files | Staged roadmap | open stack (`meta_service.py`) | M |
 | HD-031 | EP-6: label "Block" as not enforced until GOV-002 | Governance | none | S |
@@ -118,6 +118,7 @@ Complexity is S (under a day, one module), M (a few modules, new tests), L (cros
 | HD-033 | DI-5: bounded previews | Staged roadmap (FD-114) | SQL-003 #134 covers desktop SQL | S |
 | HD-034 | DI-6: fresh token before long writes (done: storage tokens have at least 30 minutes left) | Local data engine | none | S |
 | HD-035 | UI-2: bounded status polling | Prove | none | S |
+| HD-058 | EN-12: followed URLs keep the token on Fabric, OneLake and Power BI hosts (done) | Hardening | none | S |
 
 Acceptance for each P1 item is the fix and tests named in its finding. The ones that change what admins or users see:
 
@@ -134,23 +135,23 @@ Acceptance for each P1 item is the fix and tests named in its finding. The ones 
 | --- | --- | --- | --- |
 | HD-036 | EP-8, EP-9: refuse one workspace in two environments; guard `run_job` | Staged roadmap | S |
 | HD-037 | EN-8: Stop ends the kernel's whole process tree | Prove | M |
-| HD-038 | EN-11: sanitize the CSV export name; receipts never overwrite | Hardening | S |
-| HD-039 | DI-7: `Retry-After` parsing and cap; retry 5xx on reads | Hardening | S |
+| HD-038 | EN-11: sanitize the CSV export name; receipts never overwrite (done: `service.file_stem` cleans the name; CSV exports and receipts open with mode `"x"`) | Hardening | S |
+| HD-039 | DI-7: `Retry-After` parsing and cap; retry 5xx on reads (done: `retrying.retry_after` reads seconds or an HTTP date, capped at 60 s; `retrying.send_with_retry` retries 5xx and dropped connections on reads only, used by the Fabric client and OneLake, lease, mailbox, Graph and Key Vault reads) | Hardening | S |
 | HD-040 | DI-8: overwrite refuses a schema change without `overwriteSchema` | Prove | S |
 | HD-041 | SH-11: reply ids checked; long calls off the shared pipe | Hardening | M |
-| HD-042 | UI-4: every dialog close settles its prompt | Hardening | S |
-| HD-043 | UI-5: parsed name-clash test; remove duplicate test | Hardening | S |
-| HD-044 | UI-6: `aria-current`, modal palette | Hardening | S |
-| HD-051 | AR-3: one HTTP session with a shared retry policy | Hardening | M |
+| HD-042 | UI-4: every dialog close settles its prompt (done: `showDialog`'s `onClose` settles `askText`, `pickWorkspace` and `confirmDialog` on overlay, X and Escape) | Hardening | S |
+| HD-043 | UI-5: parsed name-clash test; remove duplicate test (done: V8 finds each script's top-level names; duplicate test removed) | Hardening | S |
+| HD-044 | UI-6: `aria-current`, modal palette (done: the rail sets `aria-current="page"`; the command bar is a modal dialog that keeps and returns focus and doesn't open over another dialog) | Hardening | S |
+| HD-051 | AR-3: one HTTP session with a shared retry policy (done: `http_session.session()` shared by the Fabric, OneLake, Power BI and platform clients) | Hardening | M |
 | HD-052 | UI-8: browser tests in CI; ban new raw HTML sinks | Hardening | S |
-| HD-053 | TS-1: contract tests for OneLake writes and deletes and the Fabric client's 429/5xx/LRO paths | Hardening | M |
+| HD-053 | TS-1: contract tests for OneLake writes and deletes and the Fabric client's 429/5xx/LRO paths; refuse `..` and empty OneLake file paths | Hardening | M |
 | HD-054 | TS-2: T-SQL contract harness; scheduled live job once a test workspace exists | Hardening | M |
 
 ## P3
 
 | Id | What | Cx |
 | --- | --- | --- |
-| HD-050 | AR-2: replace the 18-mixin `Service` with small injected services; narrow `server.METHODS` to what the UI calls | L |
+| HD-050 | AR-2: replace the 18-mixin `Service` with small injected services; narrow `server.METHODS` to what the UI calls. First slice: METHODS guard test with listed exceptions (no behaviour change; `sidecar/tests/test_rpc_surface.py`). | L |
 | HD-055 | AR-4: lint rule against new silent `except Exception`; clear the 53 existing ones | M |
 | HD-056 | Split `app.js` along `registerFeature` boundaries | L |
 | HD-057 | Registry (ADMX) policy alongside `policy.json` | M |

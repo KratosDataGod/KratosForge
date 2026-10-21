@@ -38,7 +38,7 @@ from .store import IntegrationStore, args_hash
 OFFERED = ("READ_METADATA", "READ_DATA", "WRITE_LOCAL_FILES", "EXECUTE_LOCAL_CODE")
 NEVER = ("MANAGE_CONNECTIONS",)  # credentials never leave the app
 APPROVAL_WAIT_SECONDS = 60.0
-WHERE = "Fabric Desktop by KratosBI > Settings > Integrations"
+WHERE = "KratosForge > Settings > Integrations"
 _TARGET_KEYS = ("workspace_id", "lakehouse_id", "item_id", "name", "notebook", "table", "id", "execution_id")
 _CONTENT_KEYS = ("code", "query", "cells", "source")
 MAX_CONTENT = 20_000  # characters of code the approval can show; longer is refused, never cut
@@ -59,7 +59,7 @@ def summary(cap: Capability, client: dict[str, Any], arguments: dict[str, Any]) 
                 # Never cut: code past the cut would run without being shown.
                 what = "notebook" if key == "cells" else "query" if key == "query" else "code"
                 raise IntegrationError("too_large", f"This {what} is too long to show for approval ({len(text):,} characters, "
-                                       f"limit {MAX_CONTENT:,}). Run it in Fabric Desktop by KratosBI instead.",
+                                       f"limit {MAX_CONTENT:,}). Run it in KratosForge instead.",
                                        details={"characters": len(text), "limit": MAX_CONTENT})
             out["content"] = {"kind": key, "text": text}
             break
@@ -84,7 +84,7 @@ class PermissionAuthorizer:
 
     def _category(self, cap: Capability, client: dict[str, Any] | None) -> tuple[bool, str]:
         if cap.permission in NEVER:
-            return False, "Fabric Desktop by KratosBI never gives connections or credentials to external tools."
+            return False, "KratosForge never gives connections or credentials to external tools."
         if cap.permission not in OFFERED:
             return False, f"{cap.permission} isn't offered to external tools in this release."
         if cap.permission not in policy.current()["max_permissions"]:
@@ -131,8 +131,8 @@ class PermissionAuthorizer:
         client = self._client(ctx)
         if client is None:
             known = self.store.client(ctx.caller.client_id)
-            message = ("This tool was disconnected in Fabric Desktop by KratosBI." if known else
-                       "This tool isn't connected to Fabric Desktop by KratosBI.")
+            message = ("This tool was disconnected in KratosForge." if known else
+                       "This tool isn't connected to KratosForge.")
             raise IntegrationError("permission_denied", message,
                                    hint=f"Ask the person to add it in {WHERE} and update your MCP or API configuration.")
         ok, why = self._category(cap, client)
@@ -161,7 +161,7 @@ class PermissionAuthorizer:
         digest = args_hash(cap.id, arguments)
         request = self.store.request_approval(client, cap.id, cap.title, cap.permission, summary(cap, client, arguments), arguments)
         give_up = time.monotonic() + min(self.wait_seconds, max(ctx.remaining(), 0.0) or self.wait_seconds)
-        ctx.report(0, None, "Waiting for approval in Fabric Desktop by KratosBI")
+        ctx.report(0, None, "Waiting for approval in KratosForge")
         while True:
             current = self.store.approval(request["id"]) or request
             state = current["state"]
@@ -180,7 +180,7 @@ class PermissionAuthorizer:
                 raise IntegrationError("cancelled", "Cancelled by the caller while waiting for approval.")
             if time.monotonic() >= give_up:
                 raise IntegrationError(
-                    "approval_required", f"Waiting for the person to approve {cap.title.lower()} in Fabric Desktop by KratosBI.",
+                    "approval_required", f"Waiting for the person to approve {cap.title.lower()} in KratosForge.",
                     retryable=True, details={"approval_id": current["id"], "expires_at": current["expires_at"]},
                     hint="Tell the person what you asked for. Once they approve it, make the same call again with the same arguments.")
             time.sleep(self.poll)

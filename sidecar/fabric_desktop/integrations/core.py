@@ -18,33 +18,36 @@ Nothing here knows about MCP or HTTP; the transports in this package all go thro
 
 from __future__ import annotations
 
+import logging
 import re
 import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from ..redact import secret_key
+from ..redact import describe, secret_key
 from ..redact import secrets as redact_secrets
 from ..retrying import TRANSIENT_STATUS, status_of
+
+_log = logging.getLogger(__name__)
 
 # The codes a caller can rely on. Messages change; codes don't.
 CODES = {
     "invalid_input": "The arguments don't match what the capability takes.",
     "not_found": "The thing named doesn't exist, or you can't see it.",
     "permission_denied": "This client, your account or your organization doesn't allow it.",
-    "approval_required": "The person at the PC has to approve this in Fabric Desktop by KratosBI.",
+    "approval_required": "The person at the PC has to approve this in KratosForge.",
     "approval_denied": "The person at the PC said no.",
     "conflict": "Something else is using what this needs; try again when it has finished.",
     "timeout": "It took longer than allowed.",
     "cancelled": "The caller cancelled it.",
     "unavailable": "This capability isn't available here.",
-    "integrations_disabled": "External AI tools are turned off in Fabric Desktop by KratosBI.",
+    "integrations_disabled": "External AI tools are turned off in KratosForge.",
     "too_large": "The request or the result is bigger than allowed.",
     "rate_limited": "Too many requests; slow down.",
     "upstream": "Microsoft Fabric or OneLake returned an error.",
     "failed": "The operation ran and failed.",
-    "internal": "Fabric Desktop by KratosBI hit an unexpected problem.",
+    "internal": "KratosForge hit an unexpected problem.",
 }
 
 
@@ -248,8 +251,8 @@ class CallContext:
         if self.progress is not None:
             try:
                 self.progress(done, total, message)
-            except Exception:  # noqa: BLE001 - a progress message must never fail the work
-                pass
+            except Exception as exc:  # noqa: BLE001 - a progress message must never fail the work
+                _log.info("Progress callback failed: %s", describe(exc))
 
 
 def run_call(handler: Callable[[], Any], ctx: CallContext) -> Any:

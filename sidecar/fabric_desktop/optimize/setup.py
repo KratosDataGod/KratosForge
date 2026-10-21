@@ -40,8 +40,8 @@ MESSAGES = {
     UNRELATED: "This lakehouse has other tables. Optimize can add its own beside them without touching them.",
     INCOMPLETE: "An earlier setup didn't finish. Finishing it adds only what is missing and keeps every row.",
     UPGRADE: "This lakehouse uses an older Optimize schema. Upgrading adds tables and columns and keeps every row.",
-    NEWER: "Another installation upgraded this lakehouse to a newer Optimize schema. Update Fabric Desktop by "
-           "KratosBI to write to it; until then you can read it.",
+    NEWER: "Another installation upgraded this lakehouse to a newer Optimize schema. Update KratosForge "
+           "to write to it; until then you can read it.",
     CONFLICT: "Some tables named fdopt_ here aren't Optimize's, so Optimize won't write to this lakehouse. "
               "Pick another lakehouse, or create a new one.",
 }

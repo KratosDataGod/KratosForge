@@ -118,7 +118,7 @@ async function loadWorkloads(box, refresh) {
   const empty = {
     attention: "Nothing needs attention. Failing, late and stuck workloads show here.",
     mine: data.user ? `Nothing is owned by ${data.user}. Owners come from project files or are assigned on a workload's page.`
-      : "Sign in so Fabric Desktop by KratosBI knows who you are.",
+      : "Sign in so KratosForge knows who you are.",
     unowned: "Every workload has an owner.",
   }[wlPage.view] || (state.query ? "No workloads match your search." : "No workloads yet. Notebooks, metadata entities and Fabric items in your workspaces show here.");
   box.replaceChildren(
@@ -163,7 +163,7 @@ function workloadRow(r) {
 
 async function renderWorkload() {
   if (!wlPage.id) return go("monitor");
-  setView(h("div", { class: "page wl-page" }, h("p", { class: "muted-text" }, "Loading...")));
+  setView(h("div", { class: "page wl-page" }, loading()));
   const w = wlPage.detail?.id === wlPage.id ? wlPage.detail : await attempt(() => rpc("workload_detail", { id: wlPage.id }), "Couldn't open the workload");
   if (state.view !== "workload") return;
   if (!w) {
@@ -181,7 +181,7 @@ async function renderWorkload() {
     h("div", { class: "row wrap wl-head" },
       h("div", { class: "grow" },
         h("h1", {}, w.name, " ", healthPill(w.health, w.health_label), preview("workloads", h("span", {}))),
-        h("p", { class: "sub" }, workloadSubtitle(w)),
+        h("p", { class: "sub" }, workloadSubtitle(w), " ", learnMore("workloads-preview")),
         capabilityChips(w.capabilities)),
       h("div", { class: "row" },
         primary ? btn(`Retry${primary.env ? ` in ${ENV_LABEL[primary.env] || primary.env}` : ""}`,
@@ -194,12 +194,41 @@ async function renderWorkload() {
       h("section", { class: "card pad" }, h("div", { class: "row" }, h("h2", { class: "grow" }, "Ownership"),
         btn("Edit", "person", () => ownershipDialog(w), "tool link small")), ownershipTable(w))),
     workloadIncidentsCard(w),
+    workloadCapacityCard(w),
     h("section", { class: "card pad" }, h("h2", {}, "Deployments"), deploymentsTable(w)),
     h("div", { class: "wl-grid" },
       h("section", { class: "card pad" }, h("h2", {}, "What changed"), timeline(w)),
       h("section", { class: "card pad" }, h("h2", {}, "Who is affected"), affected(w))),
     h("section", { class: "card pad" }, h("h2", {}, "Recent runs"), runsTable(w)),
-    (w.actions || []).length ? h("section", { class: "card pad" }, h("h2", {}, "Actions from Fabric Desktop by KratosBI"), actionsTable(w)) : null));
+    (w.actions || []).length ? h("section", { class: "card pad" }, h("h2", {}, "Actions from KratosForge"), actionsTable(w)) : null));
+}
+
+// Capacity use of the runs this app started or scheduled on this PC in the last 30 days
+// (workload_capacity_use; not Fabric's own job history, which Recent runs reads): measured where an imported
+// usage row matched the run, else the app's estimate; a run with neither is left out, not counted as 0.
+function workloadCapacityCard(w) {
+  const head = () => h("h2", {}, "Capacity use ", h("span", { class: "muted-text small" }, "runs from this app, last 30 days"), preview("workloads", h("span", {})));
+  const box = h("section", { class: "card pad wl-capacity" }, head(), h("p", { class: "muted-text" }, "Adding up its runs..."));
+  rpc("workload_capacity_use", { id: w.id, days: 30 }).then((u) => {
+    if (!box.isConnected) return;
+    const toCost = btn("Optimize > Cost and savings", null, () => { optimizePage.tab = "cost"; go("optimize"); }, "tool link small");
+    const plural = (n, one) => `${n} ${one}${n === 1 ? "" : "s"}`;
+    const lines = [];
+    if (u.fabric_runs) {
+      lines.push(h("p", {}, `${plural(u.fabric_runs, "run")} this app started in Fabric used `, measureFigure("Capacity use of its Fabric runs", u.total)));
+      lines.push(u.measured_runs
+        ? h("p", { class: "small" }, `${u.measured_runs} of ${u.fabric_runs} matched imported usage: `, measureFigure("Measured capacity use", u.measured),
+          h("div", { class: "muted-text" }, "The rest count with the app's estimate, and a run with neither is left out, not counted as 0."))
+        : h("p", { class: "small" }, "None matched imported usage, so the figure is the app's estimate. Import a Capacity Metrics export in ", toCost, " to measure it."));
+    }
+    if (u.pc_runs) lines.push(h("p", { class: "small" }, `${plural(u.pc_runs, "run")} on this PC started no Fabric job. Their OneLake reads and writes still use some capacity, which isn't counted here.`));
+    if (!lines.length) lines.push(h("p", { class: "muted-text" }, "No runs started from this app in the last 30 days."));
+    lines.push(h("p", { class: "muted-text small" }, "Runs Fabric started on its own schedule, or that someone started in Fabric, aren't counted here; Optimize > Cost and savings shows the capacity's imported usage."));
+    if (u.problem) lines.push(h("p", { class: "reason small" }, u.problem));
+    if (u.measured_runs) lines.push(h("p", { class: "muted-text small" }, "A match is likely, not proven: usage exports have names and times, not job ids."));
+    box.replaceChildren(head(), ...lines);
+  }).catch((err) => box.replaceChildren(head(), h("p", { class: "muted-text" }, `Couldn't add up its capacity use: ${friendlyError(err).text}`)));
+  return box;
 }
 
 function backToWorkloads() {
@@ -383,7 +412,7 @@ function affected(w) {
 
 function runsTable(w) {
   const runs = w.runs || [];
-  if (!runs.length) return h("p", { class: "muted-text" }, "No runs recorded where Fabric Desktop by KratosBI can read them.");
+  if (!runs.length) return h("p", { class: "muted-text" }, "No runs recorded where KratosForge can read them.");
   return h("table", { class: "mini" },
     h("thead", {}, h("tr", {}, ["Status", "When", "Environment", "Ran on", "Took", "Rows", ""].map((c) => h("th", {}, c)))),
     h("tbody", {}, runs.slice(0, 20).map((r) => h("tr", r.open || w.definition?.url ? { class: "click", onclick: () => openRun(r.open, w) } : {},
@@ -462,7 +491,7 @@ function confirmLink(w) {
   const link = w.link;
   if (!link) return;
   showDialog(`Link ${w.name} to its Fabric item?`, h("div", {},
-    h("p", { class: "text" }, `Fabric Desktop by KratosBI found a notebook named ${w.name} in ${link.workspace_name || "a workspace"} and matched it by name. `,
+    h("p", { class: "text" }, `KratosForge found a notebook named ${w.name} in ${link.workspace_name || "a workspace"} and matched it by name. `,
       "Linking keeps it by its id, so renaming either one won't break the link."),
     h("p", { class: "muted-text small" }, "Nothing changes in Fabric. The link is kept on this PC.")),
   [btn("Cancel", null, closeDialog, "tool outline"), btn("Link", null, async () => {
@@ -509,7 +538,7 @@ function yourWorkloadsCard() {
     const next = h("div", {},
       h("p", { class: "muted-text small" }, data.user
         ? `You own ${data.total}: declared in project files or assigned on this PC.`
-        : "Sign in so Fabric Desktop by KratosBI knows which workloads are yours."),
+        : "Sign in so KratosForge knows which workloads are yours."),
       rows.length ? h("div", { class: "row wrap wl-counts" }, order.filter((k) => counts[k]).map((k) =>
         h("button", { class: "chip", onclick: () => { wlPage.view = k === "unknown" || k === "healthy" || k === "idle" ? "mine" : "attention"; wlPage.offset = 0; backToWorkloads(); } },
           `${counts[k]} ${labels[k]}`))) : null,

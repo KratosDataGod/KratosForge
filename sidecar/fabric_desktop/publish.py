@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import json
 import time
+from contextlib import AbstractContextManager
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import pyarrow as pa
 from deltalake import DeltaTable, write_deltalake
@@ -20,6 +21,7 @@ from deltalake import DeltaTable, write_deltalake
 from . import delta_profile
 from .fabric_api import FabricClient
 from .jobs import Job, run_local
+from .leases import LocalBackend, onelake_table_lease, table_lease
 from .onelake import TableRef, storage_options
 
 
@@ -67,11 +69,29 @@ def publish(data: pa.Table, ref: TableRef, mode: str, storage_token: str, schema
     always have); None refuses a different schema, as Spark does without overwriteSchema; "merge"
     adds new columns."""
     opts = storage_options(storage_token)
+    how = resolve_schema_mode(mode, schema_mode)
     delta_profile.check_target(ref.uri, opts)
-    write_deltalake(ref.uri, data, mode=mode, storage_options=opts, schema_mode=resolve_schema_mode(mode, schema_mode))
-    table = DeltaTable(ref.uri, storage_options=opts)
+    with _lease(ref, storage_token):
+        write_deltalake(ref.uri, data, mode=mode, storage_options=opts, schema_mode=how)
+        table = DeltaTable(ref.uri, storage_options=opts)
     delta_profile.note_after_write(table)
     return table
+
+
+WRITER = "KratosForge"
+
+
+def _lease(ref: TableRef, storage_token: str) -> AbstractContextManager[Any]:
+    """The table's write lease (leases.table_lease): waits for another writer, then raises LeaseBusy."""
+    if ref.uri.startswith("abfss://"):
+        return onelake_table_lease(ref.workspace_id, ref.lakehouse_id, ref.schema, ref.table,
+                                   lambda: storage_token, owner=WRITER)
+    return table_lease(LocalBackend(_local_leases(ref)), ref.schema, ref.table, owner=WRITER)
+
+
+def _local_leases(ref: TableRef) -> Path:
+    """A table on disk (tests point TableRef there) keeps its lease files beside it."""
+    return Path(ref.uri).parent / "_leases"
 
 
 def run_job(job: Job, fabric: FabricClient, storage_token: Callable[[], str],

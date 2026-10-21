@@ -57,6 +57,7 @@ from .validate_service import ValidateMixin
 from .environment_service import EnvironmentMixin
 from .notebook_resources_service import NotebookResourcesMixin
 from .notebook_files_service import NotebookFilesMixin
+from .notebook_folders_service import NotebookFoldersMixin
 from .notebook_formats_service import NotebookFormatsMixin
 from .notebook_versions_service import NotebookVersionsMixin
 from . import notebook_versions
@@ -65,7 +66,7 @@ from .comments_service import CommentsMixin
 from .kernel_proc import ProcessKernel
 from .kernel_sessions import KernelSessions
 from .debugger import check_breakpoints
-from .notebook import Kernel, NotebookShelf, check_watches
+from .notebook import WIDGET_GONE, Kernel, NotebookShelf, check_watches
 from .onelake import FileStore, TableCatalog
 from .publish import run_job
 
@@ -80,7 +81,7 @@ def data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
-class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin):
+class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -560,6 +561,18 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
                 return {"frame": frame, "gone": True, "message": GONE}
             raise
 
+    def notebook_ipywidget_event(self, model: str, event: dict[str, Any] | None = None, root: str | None = None,
+                                 notebook: str | None = None) -> dict[str, Any]:
+        """An ipywidgets control changed in a cell's output: set it and run its handlers in that notebook's
+        kernel. Handlers are user code, so they wait for a proof and a replay as a cell does."""
+        if self.proof_busy():
+            raise RuntimeError("A proof is running this notebook's kernel. Wait for it, or cancel it.")
+        self._replay_guard(notebook)
+        session = self.sessions.session(notebook, create=False)  # a stopped session's widgets are gone
+        if session is None:
+            return {"gone": True, "message": WIDGET_GONE}
+        return session.kernel.ipywidget_event(model=str(model), event=dict(event or {}), root=root)
+
     def notebook_frame_download(self, frame: str, format: str = "csv", name: str = "") -> dict[str, Any]:
         """Write a cell's whole result to a new file in Downloads (CSV, Excel or Parquet); never replaces a file."""
         if format not in DOWNLOAD_FORMATS:
@@ -789,9 +802,10 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
     def list_notebooks(self) -> list[dict[str, Any]]:
         return self.notebooks.list()
 
-    def new_notebook(self, place: str | None = None) -> dict[str, Any]:
-        """A new notebook in the app's own folder, or in the notebooks repository at ``place``."""
-        nb = self.notebooks.new(place=place)
+    def new_notebook(self, place: str | None = None, folder: str = "") -> dict[str, Any]:
+        """A new notebook in the app's own folder, or in the notebooks repository at ``place``;
+        inside ``folder`` ("Sales") when given (notebook_folders)."""
+        nb = self.notebooks.new(place=place, folder_name=folder or "")
         self.sessions.active = nb["name"]
         return self._with_place(nb)
 
@@ -864,13 +878,26 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
 
     def rename_notebook(self, name: str, new_name: str) -> dict[str, Any]:
         out = self.notebooks.rename(name, new_name)
-        self.sessions.rename(name, new_name)  # its session (and variables) go with it
-        self.environments.rename_notebook(name, new_name)
-        self.workload_store.rename_link(name, new_name)  # its Fabric item stays linked
-        try:
-            notebook_versions.rename(self._versions_root, name, new_name)  # its versions follow it
-        except OSError as exc:
-            _log.warning("Couldn't move the versions of %r: %s", name, exc)
+        return out | self._notebook_renamed(name, new_name)
+
+    def _notebook_renamed(self, name: str, new_name: str) -> dict[str, Any]:
+        """After a notebook's file was renamed (or moved into a folder, notebook_folders): what is kept
+        by its name follows it. Every step runs even when another fails, since the file has already
+        moved: returns {"schedules_moved": [ids], "problems": [{"notebook", "step", "error"}]}."""
+        out: dict[str, Any] = {"schedules_moved": [], "problems": []}
+        steps = [
+            ("session", lambda: self.sessions.rename(name, new_name)),  # its session (and variables) go with it
+            ("environment", lambda: self.environments.rename_notebook(name, new_name)),
+            ("Fabric link", lambda: self.workload_store.rename_link(name, new_name)),  # its Fabric item stays linked
+            ("versions", lambda: notebook_versions.rename(self._versions_root, name, new_name)),
+            ("schedules", lambda: out.__setitem__("schedules_moved", self.pc_schedules.rename_notebook(name, new_name))),
+        ]
+        for step, run in steps:
+            try:
+                run()
+            except Exception as exc:  # noqa: BLE001 - logged and reported; the other steps still run
+                _log.warning("Couldn't move the %s of %r to %r: %s", step, name, new_name, describe(exc))
+                out["problems"].append({"notebook": new_name, "was": name, "step": step, "error": describe(exc)})
         return out
 
     def delete_notebook(self, name: str) -> dict[str, Any]:
@@ -888,6 +915,15 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
         item in Fabric since it was last published from here, it stops unless ``replace_fabric_changes``."""
         return self._publish(name, cells, lakehouse_ref, compute, workspace, location_ref=location_ref,
                              replace_fabric_changes=replace_fabric_changes)
+
+
+def sql_result(result: pa.Table, limit: int, started: float) -> dict[str, Any]:
+    """A query result as run_sql returns it: the first ``limit`` rows, and the seconds since ``started``
+    (time.monotonic)."""
+    columns = [c.to_pylist() for c in result.slice(0, limit).columns]  # by position: names can repeat
+    return {"columns": [{"name": f.name, "type": str(f.type)} for f in result.schema],
+            "rows": [[_json_value(v) for v in row] for row in zip(*columns)],
+            "row_count": result.num_rows, "seconds": round(time.monotonic() - started, 2)}
 
 
 def _json_value(value: Any) -> Any:

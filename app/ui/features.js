@@ -63,6 +63,7 @@ const PREVIEW_FEATURES = {
   resultViewer: "Result downloads",
   chartBuilder: "Chart builder",
   dataWrangler: "Data Wrangler",
+  ipywidgets: "Notebook widgets",
   mesh: "Data mesh",
   platform: "Platform",
   sourceControl: "Source control",
@@ -84,6 +85,7 @@ const PREVIEW_FEATURES = {
   environments: "Notebook environments",
   nbFormats: "Notebook import and export formats",
   profile: "Profile",
+  notebookFolderPublish: "Publishing notebooks from folders",
 };
 
 function previewShown() {

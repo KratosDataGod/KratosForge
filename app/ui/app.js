@@ -1833,11 +1833,12 @@ async function openNotebook(name) {
   go("notebook");
 }
 
-async function newNotebook(lakehouse) {
+// ``into`` ({folder, place}): a new notebook in that folder of that place (All notebooks > a folder).
+async function newNotebook(lakehouse, into = null) {
   if (state.notebook?.dirty && !(await saveNotebook())) return;
-  const place = await nbChoosePlace();  // only asks when there are notebooks repositories
+  const place = into ? into.place : await nbChoosePlace();  // only asks when there are notebooks repositories
   if (place === undefined) return;
-  const nb = await attempt(() => rpc("new_notebook", { place }), "Could not create a notebook");
+  const nb = await attempt(() => rpc("new_notebook", into?.folder ? { place, folder: into.folder } : { place }), "Could not create a notebook");
   if (!nb) return;
   closeDialog();
   loadIntoState(nb);

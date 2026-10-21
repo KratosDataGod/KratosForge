@@ -77,8 +77,10 @@ def test_notebook_store_names_and_renames(tmp_path):
     assert store.new()["name"] == "Notebook 2"
     store.rename("Notebook 1", "Sales by region")
     assert {n["name"] for n in store.list()} == {"Notebook 2", "Sales by region"}
-    with pytest.raises(ValueError):
-        store.path("bad/name")
+    for bad in ("bad\\name", "../name", "a/b/c/d/name", "/name", "Sales/"):  # "/" only separates folders
+        with pytest.raises(ValueError):
+            store.path(bad)
+    assert store.path("Sales/Daily load") == tmp_path / "Sales" / "Daily load.ipynb"
 
 
 def test_notebook_reads_local_files_and_writes_tables(tmp_path, monkeypatch):

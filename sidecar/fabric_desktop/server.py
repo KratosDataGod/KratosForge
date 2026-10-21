@@ -2,6 +2,8 @@
 
 Request:  {"id": 1, "method": "list_workspaces", "params": {}}
 Response: {"id": 1, "result": [...]}  or  {"id": 1, "error": "message"}
+
+Replies can arrive in a different order from the requests (see QUICK); the shell matches them by id.
 """
 
 from __future__ import annotations
@@ -9,10 +11,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+import queue
 import sys
 import threading
 import time
-from typing import IO
+from typing import IO, Callable
 
 from . import audit
 from .redact import secrets
@@ -21,7 +24,7 @@ from .service import Service
 METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", "sign_out", "app_settings", "save_app_settings", "list_workspaces", "list_capacities", "list_lakehouses", "create_lakehouse",
            "catalog", "catalog_tables", "endorsements", "set_favorite", "list_items", "workspace_marks", "set_workspace_mark",
            "list_tables", "list_files", "preview_job", "run_job", "history",
-           "run_cell", "start_cell", "poll_cell", "interrupt_cell", "debug_cell", "kernel_variables", "kernel_variable_detail", "kernel_complete", "kernel_inspect", "notebook_syntax", "notebook_frame_page", "notebook_frame_profile", "notebook_frame_chart", "notebook_frame_wrangle", "notebook_frame_download", "restart_kernel", "run_sql", "save_sql", "export_sql_csv", "table_columns", "sql_dialects", "sql_format", "sql_analyze", "sql_compat_profiles", "sql_compat_export", "sql_start", "sql_status", "sql_executions", "sql_page", "sql_cancel", "sql_export", "sql_export_status", "sql_export_cancel", "list_notebooks", "new_notebook", "open_notebook",
+           "run_cell", "start_cell", "poll_cell", "interrupt_cell", "debug_cell", "kernel_variables", "kernel_variable_detail", "kernel_complete", "kernel_inspect", "notebook_syntax", "notebook_frame_page", "notebook_frame_profile", "notebook_frame_chart", "notebook_frame_wrangle", "notebook_ipywidget_event", "notebook_frame_download", "restart_kernel", "run_sql", "save_sql", "export_sql_csv", "table_columns", "sql_dialects", "sql_format", "sql_analyze", "sql_compat_profiles", "sql_compat_export", "sql_start", "sql_status", "sql_executions", "sql_page", "sql_cancel", "sql_export", "sql_export_status", "sql_export_cancel", "list_notebooks", "new_notebook", "open_notebook",
            "save_notebook", "notebook_inputs", "notebook_inputs_set", "rename_notebook", "delete_notebook", "publish_notebook",
            "platform_status", "platform_setup", "platform_join", "platform_forget", "platform_keys_setup", "platform_keys_join", "platform_share_keys", "platform_cancel_share_keys", "platform_domains",
            "platform_save_domain", "platform_delete_domain", "platform_import_fabric_domains", "mesh_workspace_domains", "mesh_map", "platform_glossary", "platform_save_term", "platform_audit",
@@ -49,7 +52,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_drift", "meta_drift_apply",
            "meta_table_history", "meta_restore", "cost_report", "set_cost_settings", "capacity_health",
            "usage_preview", "usage_import", "usage_imports", "usage_import_delete", "usage_reconciliation",
-           "risk_check", "meta_risk_gate", "risk_settings", "set_risk_settings", "risk_acknowledge", "risk_acknowledgements",
+           "risk_check", "meta_risk_gate", "placement_advice", "risk_settings", "set_risk_settings", "risk_acknowledge", "risk_acknowledgements",
            "list_shortcuts", "all_shortcuts", "create_shortcut", "delete_shortcut", "shortcut_connections",
            "shortcut_center", "shortcut_check", "shortcut_readers", "shortcut_access", "shortcut_rules",
            "shortcut_save_rules", "shortcut_preflight", "shortcut_changes", "shortcut_repoint", "shortcut_undo",
@@ -133,6 +136,11 @@ from .notebook_files_service import METHODS as NOTEBOOK_FILES_METHODS  # noqa: E
 
 METHODS |= NOTEBOOK_FILES_METHODS
 
+# Folders for notebooks (notebook_folders_service.py): new, rename, delete when empty, move into one.
+from .notebook_folders_service import METHODS as NOTEBOOK_FOLDERS_METHODS  # noqa: E402
+
+METHODS |= NOTEBOOK_FOLDERS_METHODS
+
 # Notebook export and import in Fabric, Databricks and Jupyter formats (notebook_formats_service.py).
 from .notebook_formats_service import METHODS as NOTEBOOK_FORMATS_METHODS  # noqa: E402
 
@@ -146,6 +154,24 @@ METHODS |= PROFILE_METHODS
 from .comments_service import METHODS as COMMENT_METHODS  # noqa: E402
 
 METHODS |= COMMENT_METHODS
+
+
+# The calls the shell gives a short time limit (QUICK in app/src-tauri/src/watchdog.rs): they read
+# local state or the kernel and answer at once. They run in their own lane, so a long run, publish
+# or sign-in can't hold them up (and the shell's time limit can't end the engine because one waited
+# behind it). Everything else runs one at a time in the order it arrives, as before. Notebook writes
+# (new, save, rename) stay ordered with publish and delete, which save too: a publish queued behind a
+# long call must not write its older cells over an autosave that overtook it.
+QUICK = frozenset({
+    "app_settings", "debug_cell", "interrupt_cell", "kernel_complete", "kernel_info", "kernel_variables",
+    "list_notebooks", "notebook_debug_get", "notebook_dependencies", "notebook_environment",
+    "open_notebook", "poll_cell", "prove_list", "prove_rules_get", "prove_status",
+    "receipt_get", "receipts_list", "side_by_side_list",
+    "side_by_side_status", "side_by_side_writes", "sql_analyze", "sql_cancel",
+    "sql_compat_profiles", "sql_executions", "sql_export", "sql_export_cancel", "sql_export_status",
+    "sql_page", "sql_start", "sql_status",
+    "wizard_preview", "wizard_templates",
+})
 
 
 def handle(service: Service, line: str) -> dict:
@@ -200,11 +226,49 @@ def _count(service: Service, method: str, reply: dict, seconds: float) -> None:
 
 
 def serve(service: Service | None = None, stdin: IO[str] = sys.stdin, stdout: IO[str] = sys.stdout) -> None:
+    """Hands each request to its lane (QUICK, or everything else in order). Replies can come back
+    in a different order from the requests: each carries its request's id, which the shell matches."""
     service = service or Service()
+    write = threading.Lock()  # one whole reply line at a time
+
+    def answer(line: str) -> None:
+        reply = handle(service, line)
+        try:
+            text = json.dumps(reply, default=str)
+        except Exception as exc:  # noqa: BLE001 - the caller still gets an answer
+            text = json.dumps({"id": reply.get("id"), "error": f"Could not send the result: {type(exc).__name__}"})
+        with write:
+            stdout.write(text + "\n")
+            stdout.flush()
+
+    lanes: dict[str, queue.Queue] = {"quick": queue.Queue(), "ordered": queue.Queue()}
+    workers = [threading.Thread(target=_lane, args=(q, answer), daemon=True, name=f"rpc-{name}")
+               for name, q in lanes.items()]
+    for worker in workers:
+        worker.start()
     for line in stdin:
         if line.strip():
-            stdout.write(json.dumps(handle(service, line), default=str) + "\n")
-            stdout.flush()
+            lanes["quick" if _method(line) in QUICK else "ordered"].put(line)
+    for q in lanes.values():
+        q.put(None)  # finish what was asked, then stop
+    for worker in workers:
+        worker.join()
+
+
+def _method(line: str) -> object:
+    try:
+        req = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    return req.get("method") if isinstance(req, dict) else None
+
+
+def _lane(requests: queue.Queue, answer: Callable[[str], None]) -> None:
+    while (line := requests.get()) is not None:
+        try:
+            answer(line)
+        except Exception as exc:  # noqa: BLE001 - e.g. a broken pipe: the shell is gone; keep draining
+            print(f"rpc: could not answer: {type(exc).__name__}: {exc}", file=sys.stderr)
 
 
 def _log_file() -> IO[str]:

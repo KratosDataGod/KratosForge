@@ -168,7 +168,10 @@ def rename(root: Path, name: str, new_name: str) -> None:
     src, dest = _folder(root, name), _folder(root, new_name)
     if not src.is_dir():
         return
-    if dest.exists():
+    # A notebook "Sales" and a folder "Sales" (notebook_folders) share this folder: the versions of
+    # the notebooks in it (subfolders here) stay, and only this notebook's own files move.
+    if dest.exists() or dest.is_relative_to(src) or any(p.is_dir() for p in src.iterdir()):
+        dest.mkdir(parents=True, exist_ok=True)
         for p in src.glob("*.json"):
             target = dest / p.name
             if not target.exists():

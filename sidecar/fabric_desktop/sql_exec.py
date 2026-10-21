@@ -71,6 +71,18 @@ TARGET_ALLOWS = {"lakehouse": ("read_only", "local_mutation"),
 LOCAL_DIALECTS = ("duckdb", "spark", "tsql")
 
 
+def memory_mb(percent: int) -> int:
+    """``percent`` of this PC's memory in MB (8 GB assumed when it can't be read), at least 256."""
+    from .side_by_side import _memory_gb
+    total = _memory_gb()
+    return max(256, int((total or 8) * 1024 * percent / 100))
+
+
+def run_threads(limits: dict[str, Any]) -> int:
+    """DuckDB threads for one run: this PC's cores shared by the runs allowed at once."""
+    return max(1, (os.cpu_count() or 2) // max(1, int(limits["sql_max_concurrent"])))
+
+
 class RerunNeeded(Exception):
     """The run's snapshot is gone; the query has to run again."""
 
@@ -170,9 +182,7 @@ class SqlExecutions:
         return Path(configured) if configured else self.root / "sql-runs"
 
     def _memory_mb(self, percent: int) -> int:
-        from .side_by_side import _memory_gb
-        total = _memory_gb()
-        return max(256, int((total or 8) * 1024 * percent / 100))
+        return memory_mb(percent)
 
     # ---- starting and stopping
 
@@ -300,7 +310,7 @@ class SqlExecutions:
                "lakehouse": {k: lh[k] for k in ("workspace_id", "lakehouse_id", "name", "workspace_name") if k in lh},
                "work_dir": str(self.root), "out": str(run.snapshot), "temp_dir": str(run.folder / "spill"),
                "memory_mb": self._memory_mb(int(limits["sql_memory_limit_percent"])),
-               "threads": max(1, (os.cpu_count() or 2) // max(1, int(limits["sql_max_concurrent"])))}
+               "threads": run_threads(limits)}
         if self.test_lake:  # tests only: local Delta folders instead of OneLake
             job["lakehouse"]["schemas_enabled"] = False
             job["local_root"] = str(self.test_lake)

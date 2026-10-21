@@ -34,10 +34,50 @@ from . import lakehouse
 from .frames import GONE, FrameGone
 
 DOWNLOAD_SECONDS = 1800.0  # writing a whole result to Downloads, or a first page of a large query
+WIDGET_REQUEST_SECONDS = 75.0  # a widget handler runs for at most notebook.WIDGET_SECONDS (60), plus the answer
 ANSWER_SECONDS = 15.0  # a request that isn't a long poll; a kernel that misses this is stuck
 STOPPED_TEXT = "Stopped. The notebook's Python process was ended, so variables were cleared."
 WATCH_SECONDS = 1.0
 TIME_GRACE_SECONDS = 30.0
+
+# The environment of a kernel that runs code for an external AI tool (HD-012): nothing from the
+# engine's environment but these, so a token or secret someone put in an environment variable
+# (an agent's client secret, a CI token) never reaches the tool's code. This is not a sandbox:
+# the code still runs as the person and can read their files, the token cache included (HD-013).
+# Matched without regard to case, as Windows does. Each one is here because Python or the
+# libraries a cell uses need it:
+EXTERNAL_ENV_ALLOW = (
+    "PATH",          # finding programs and the DLLs native packages load
+    "PATHEXT",       # Windows: which extensions are programs (shutil.which, subprocess)
+    "SYSTEMROOT",    # Windows: Python's sockets, random numbers and DLL loading fail without it
+    "WINDIR",        # Windows: same folder as SYSTEMROOT; some native libraries read this name
+    "COMSPEC",       # Windows: the shell for subprocess(shell=True) and os.system
+    "TEMP", "TMP",   # tempfile, DuckDB and Arrow spill files; otherwise they fall back to the current folder
+    "TMPDIR",        # the same on Linux and macOS
+    "USERPROFILE",   # Windows: the home folder (Path.home(), "~"); DuckDB keeps its extensions there
+    "HOME",          # the same on Linux and macOS
+    "LANG", "LANGUAGE", "LC_ALL",  # locale: text encoding and formatting; LC_* below
+    # Networks that set their proxy or TLS-inspection certificate only here: without them OneLake
+    # reads fail. A proxy address can carry the proxy's own password; that is the network's, not Fabric's.
+    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+    "REQUESTS_CA_BUNDLE", "SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE",
+)
+EXTERNAL_ENV_PREFIXES = ("LC_",)
+# Set by the engine itself, never copied from its environment (the library paths at each start).
+EXTERNAL_ENV_SET = ("PYTHONUNBUFFERED", "PYTHONPATH", "FABRIC_DESKTOP_LIBRARY_PATHS")
+
+
+def external_environment(parent: dict[str, str] | None = None) -> dict[str, str]:
+    """The environment for a kernel that runs an external tool's code: only the allowlisted
+    variables of ``parent`` (the engine's environment), plus what the engine sets itself."""
+    parent = dict(os.environ if parent is None else parent)
+    allow = {name.upper() for name in EXTERNAL_ENV_ALLOW}
+    env = {k: v for k, v in parent.items() if k.upper() in allow or k.upper().startswith(EXTERNAL_ENV_PREFIXES)}
+    # The kernel imports the engine's own code from where this engine runs it (a source checkout in
+    # development; the embeddable Python's own ._pth ignores PYTHONPATH in release builds).
+    env["PYTHONPATH"] = str(Path(__file__).resolve().parent.parent)
+    env["PYTHONUNBUFFERED"] = "1"
+    return env
 
 
 class KernelGone(RuntimeError):
@@ -49,7 +89,7 @@ class ProcessKernel:
                  load_notebook: Callable[[str], list[dict[str, Any]]] | None = None,
                  variable_libraries: Callable[[str], dict[str, str] | None] | None = None,
                  proof_options: Callable[[], dict[str, str]] | None = None,
-                 command: list[str] | None = None):
+                 command: list[str] | None = None, env: Callable[[], dict[str, str]] | None = None):
         self.calls: dict[str, Callable[..., Any]] = {
             "token": token or _no("tokens"),
             "load_notebook": load_notebook or _no("other notebooks"),
@@ -59,6 +99,9 @@ class ProcessKernel:
         }
         self._proof_options = proof_options
         self.command = command or [sys.executable, "-m", "fabric_desktop.kernel_host"]
+        # The child's environment, made at each start. The person's own kernels get theirs, as
+        # they expect; an external tool's kernel passes external_environment (HD-012).
+        self.env = env or (lambda: dict(os.environ, PYTHONUNBUFFERED="1"))
         self.notebook_name = ""
         self.widget_values: dict[str, str] = {}
         self.resources_dir = ""  # passed with each cell (notebook.Kernel.resources_dir)
@@ -91,7 +134,7 @@ class ProcessKernel:
             proc = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=None,
                                     text=True, encoding="utf-8", bufsize=1, creationflags=flags,
                                     start_new_session=sys.platform != "win32",
-                                    env=dict(os.environ, PYTHONUNBUFFERED="1",
+                                    env=dict(self.env(),
                                              FABRIC_DESKTOP_LIBRARY_PATHS=os.pathsep.join(self.library_paths)))
             if self._tree is not None:
                 self._tree.release()  # processes a crashed kernel left behind
@@ -402,6 +445,13 @@ class ProcessKernel:
         if not self.alive():
             raise FrameGone(GONE)
         return self._request("frame_profile", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame)
+
+    def ipywidget_event(self, model: str, event: dict[str, Any], root: str | None = None) -> dict[str, Any]:
+        """A control changed in the app; its handlers run in the cell process (widgets.py)."""
+        if not self.alive():
+            from .notebook import WIDGET_GONE
+            return {"gone": True, "message": WIDGET_GONE}
+        return self._request("ipywidget_event", timeout=WIDGET_REQUEST_SECONDS, spawn=False, model=model, event=event, root=root)
 
     def frame_wrangle(self, frame: str, steps: list[dict[str, Any]], name: str = "df") -> dict[str, Any]:
         if not self.alive():

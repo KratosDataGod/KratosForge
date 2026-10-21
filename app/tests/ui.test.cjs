@@ -1447,6 +1447,32 @@ test("a failed shortcut rules check isn't swallowed and an incomplete reader lis
   assert.match(estate, /res\.partial \?/);
 });
 
+// HD-020 (SH-1, UI-1): the page has a Content Security Policy, and notebook HTML output runs on
+// its own origin, never in the app's, where the Tauri API is.
+test("the app has a strict CSP and notebook HTML output stays off the app's origin", () => {
+  const conf = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "src-tauri", "tauri.conf.json"), "utf8"));
+  const csp = conf.app.security.csp;
+  assert.ok(csp, "tauri.conf.json must set app.security.csp");
+  const text = typeof csp === "string" ? csp : Object.entries(csp).map(([k, v]) => `${k} ${[].concat(v).join(" ")}`).join("; ");
+  const directives = Object.fromEntries(text.split(";").map((d) => d.trim().split(/\s+/)).filter((d) => d[0]).map(([k, ...v]) => [k, v]));
+  assert.ok(!/unsafe-eval|wasm-unsafe-eval/.test(text), text);
+  const scripts = directives["script-src"] || directives["default-src"] || [];
+  assert.ok(scripts.length && !scripts.some((s) => /unsafe-inline|\*|^https?:$|^data:$|^blob:$/.test(s)), `script-src: ${scripts}`);
+  assert.deepStrictEqual(directives["object-src"], ["'none'"]);
+  assert.ok(!(directives["frame-src"] || []).includes("'self'"), "notebook output must not be framed from the app's origin");
+
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(!/<script(?![^>]*\bsrc=)[^>]*>/.test(html), "index.html has an inline script");
+  assert.ok(!/\son[a-z]+\s*=/i.test(html), "index.html has an inline event handler");
+
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const frame = /function htmlFrame\([\s\S]*?\n}\n/.exec(nb)[0];
+  assert.match(frame, /sandbox: "allow-scripts"/);
+  assert.ok(!/allow-same-origin|srcdoc/.test(frame), frame);
+  assert.match(frame, /convertFileSrc\("frame", "nbout"\)/);
+  assert.ok(directives["frame-src"].includes("nbout:"), "frame-src must allow the nbout: output frame");
+});
+
 // The Wolf Forge emblem is the app's logo: header, favicon and the Windows icon set.
 test("the header and favicon use the Wolf Forge emblem and the icon set covers small sizes", () => {
   const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
@@ -2186,7 +2212,8 @@ test("Notebook files: commands, Home link, ribbon, Fabric preview and the Publis
   assert.deepStrictEqual([...registered.map((f) => f.id)], ["notebookFiles"]);
   assert.ok(registered[0].views.notebooks);
   assert.deepStrictEqual([...registered[0].commands.map((c) => c.label)],
-    ["All notebooks", "Search inside notebooks", "Open a notebook file", "Save a copy of this notebook"]);
+    ["All notebooks", "Search inside notebooks", "Open a notebook file", "Save a copy of this notebook", "New notebook folder",
+      "Move this notebook to a folder"]);
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   assert.match(app, /also: \["notebooks"\]/);
   assert.match(app, /btn\("All notebooks", "notebook", \(\) => go\("notebooks"\)/);
@@ -3250,7 +3277,7 @@ test("the profile report preview renders headings, bullets and source tags witho
 // cell's language.
 test("Ctrl+Shift+Enter runs the selection or the cursor's line, dedented, with the cell's magic", () => {
   const src = fs.readFileSync(path.join(ui, "nbselect.js"), "utf8");
-  const ctx = { document: { addEventListener() {} }, MAGIC: { sql: "%%sql", html: "%%html" } };
+  const ctx = { document: { addEventListener() {} }, registerShortcuts() {}, MAGIC: { sql: "%%sql", html: "%%html" } };
   vm.createContext(ctx);
   vm.runInContext(`${src}\nthis.f = selectionCode;`, ctx);
   ctx.cellLang = (c) => c.lang;
@@ -3339,7 +3366,7 @@ test("dropping a table or file inserts its load code on an empty line, else its 
 // the replacement, and edits applied from the end of a cell.
 test("notebook find matches every cell with case, whole word and regex, and replaces with groups", () => {
   const src = fs.readFileSync(path.join(ui, "nbfind.js"), "utf8");
-  const ctx = { CM: { StateEffect: { define: () => ({}) } }, document: { addEventListener() {} } };
+  const ctx = { CM: { StateEffect: { define: () => ({}) } }, document: { addEventListener() {} }, registerShortcuts() {} };
   vm.createContext(ctx);
   vm.runInContext(`${src}\nthis.f = { findMatches, findReplacement, findApply };`, ctx);
   const { findMatches, findReplacement, findApply } = ctx.f;
@@ -3876,4 +3903,151 @@ test("variables filter on name or type and sort by name, type or memory with unk
   assert.deepStrictEqual(names({ sort: "name", desc: true }), ["sdf", "sales", "Count", "cfg"]);
   assert.strictEqual(rows[0].name, "sales");  // the kernel's rows aren't reordered
   assert.doesNotMatch(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /function variableTable/);
+});
+
+test("the notebook, several-cells and find keys are listed in the Keyboard shortcuts dialog", () => {
+  for (const [file, group, key] of [["notebook.js", "Notebook", "Shift+Enter"], ["nbselect.js", "Notebook: several cells", "Shift+M"], ["nbfind.js", "Notebook: find and replace", "Ctrl+H"]]) {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    const at = src.indexOf(`registerShortcuts(${JSON.stringify(group)}`);
+    assert.ok(at > 0, `${file} registers ${group}`);
+    assert.ok(src.slice(at, src.indexOf("]);", at)).includes(`"${key}"`), `${group} lists ${key}`);
+  }
+});
+
+// ipywidgets (ipywidgets.js): the kernel holds the state; a change goes to notebook_ipywidget_event and the answer is drawn.
+function widgetsHarness(answer) {
+  const src = fs.readFileSync(path.join(ui, "ipywidgets.js"), "utf8");
+  const { node } = chartsHarness(null);
+  const calls = [];
+  const ctx = { state: { notebook: { name: "Sales" } }, h: node, friendlyError: String, previewMarked: (_id, n) => n, htmlFrame: (html) => node("iframe", { srcdoc: html }),
+    renderOutput: (o) => node("pre", {}, o.text || o.type),
+    rpc: async (m, a) => { calls.push([m, JSON.parse(JSON.stringify(a))]); return typeof answer === "function" ? answer(a) : answer; } };
+  vm.createContext(ctx);
+  vm.runInContext(src + "\nthis.api = { renderWidgetOutput, drawWidget };", ctx);
+  return { ctx, calls };
+}
+
+test("ipywidgets controls send their change to the kernel and draw its answer", async () => {
+  const view = { id: "w5", kind: "vbox", description: "", disabled: false, children: [
+    { id: "w1", kind: "slider", description: "n", disabled: false, value: 5, min: 1, max: 10, step: 1 },
+    { id: "w2", kind: "dropdown", description: "name", disabled: false, options: ["a", "b"], index: 0 },
+    { id: "w3", kind: "checkbox", description: "flag", disabled: false, value: true },
+    { id: "w6", kind: "button", description: "Go", disabled: false },
+    { id: "w7", kind: "html", description: "", disabled: false, value: "<b>x</b>" },
+    { id: "w4", kind: "output", description: "", disabled: false, outputs: [{ type: "stream", text: "5 a True\n" }] }] };
+  const answer = { status: "ok", outputs: [{ type: "stream", text: "clicked\n" }], view: { ...view, children: [{ ...view.children[0], value: 9 }] } };
+  const { ctx, calls } = widgetsHarness(answer);
+  const o = { type: "widget", model: "w5", view };
+  const wrap = ctx.api.renderWidgetOutput(o, { id: "c" });
+  const nodes = allNodes(wrap);
+  const range = nodes.find((n) => n.tag === "input" && n.attrs.type === "range");
+  assert.deepStrictEqual([range.attrs.min, range.attrs.max, range.attrs.value], [1, 10, 5]);
+  range.attrs.onchange({ target: { value: "9" } });
+  assert.deepStrictEqual(calls[0], ["notebook_ipywidget_event", { model: "w1", event: { value: 9 }, root: "w5", notebook: "Sales" }]);
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(o.view.children[0].value, 9);
+  assert.strictEqual(o.events[0].text, "clicked\n");
+  assert.ok(wrap.replaced, "redrawn with the kernel's answer");
+  const tick = () => new Promise((r) => setImmediate(r));
+  nodes.find((n) => n.tag === "select").attrs.onchange({ target: { value: "1" } });
+  // While the kernel answers, changes wait and only the latest is sent next.
+  nodes.find((n) => n.tag === "input" && n.attrs.type === "checkbox").attrs.onchange({ target: { checked: false } });
+  nodes.find((n) => n.tag === "button").attrs.onclick();
+  assert.strictEqual(calls.length, 2);
+  await tick();
+  await tick();
+  assert.deepStrictEqual(calls.slice(1).map(([, a]) => a.event), [{ index: 1 }, { click: true }]);
+  // The HTML widget goes to the sandboxed frame; nothing in this file writes HTML itself.
+  assert.ok(nodes.some((n) => n.tag === "iframe" && n.attrs.srcdoc === "<b>x</b>"));
+  const src = fs.readFileSync(path.join(ui, "ipywidgets.js"), "utf8");
+  assert.doesNotMatch(src, /innerHTML|insertAdjacentHTML|outerHTML|srcdoc/);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /if \(o\.type === "widget"\) return renderWidgetOutput\(o, cell\);/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="wrangler\.js"><\/script>\n  <script src="ipywidgets\.js"><\/script>/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /ipywidgets: "Notebook widgets"/);
+});
+
+test("a widget after a restart asks for its cell again, and a busy kernel's refusal shows under it", async () => {
+  const gone = widgetsHarness({ gone: true, message: "This control is no longer held by the kernel (it restarted). Run the cell again." });
+  const o = { type: "widget", model: "w1", view: { id: "w1", kind: "button", description: "Go", disabled: false } };
+  const wrap = gone.ctx.api.renderWidgetOutput(o, null);
+  allNodes(wrap).find((n) => n.tag === "button").attrs.onclick();
+  await new Promise((r) => setImmediate(r));
+  assert.match(o.gone, /Run the cell again/);
+  const busy = widgetsHarness(() => Promise.reject(new Error("A cell is running. The control works again when it finishes.")));
+  const o2 = { type: "widget", model: "w1", view: { id: "w1", kind: "text", description: "q", disabled: false, value: "" } };
+  const wrap2 = busy.ctx.api.renderWidgetOutput(o2, null);
+  allNodes(wrap2).find((n) => n.tag === "input").listeners.change();
+  await new Promise((r) => setImmediate(r));
+  assert.ok(allNodes(wrap2.replaced).some((n) => n.attrs?.role === "alert"));
+  // Disabled controls are drawn disabled.
+  const d = busy.ctx.api.drawWidget({ id: "w9", kind: "slider", description: "", disabled: true, value: 1, min: 0, max: 2, step: 1 }, () => {}, null, 0);
+  assert.strictEqual(allNodes(d).find((n) => n.tag === "input").attrs.disabled, true);
+});
+
+// Folders for notebooks (notebook-files.js, notebook_folders_service.py): the grouped tree, where a
+// notebook can move, and the folder actions' wiring.
+function notebookFolderHelpers() {
+  const src = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
+  const ctx = { registerFeature() {} };
+  vm.runInNewContext(`${src}; Object.assign(this, { nbFolderTree, nbFolderChoices, nbNameInFolder, nbLeaf, nbFolderOf, nbFolderDepth, nbRenameProblemLines });`, ctx);
+  return ctx;
+}
+
+test("notebooks group into a folder tree per place, with counts that include subfolders and empty folders", () => {
+  const { nbFolderTree } = notebookFolderHelpers();
+  const repo = { root: "C:/r", label: "repo" };
+  const list = [{ name: "Sales/Daily load" }, { name: "Sales/Archive/Q1" }, { name: "Top" }, { name: "Silver/Orders", place: repo }];
+  const folders = [{ path: "Sales", place: null }, { path: "Sales/Archive", place: null }, { path: "Scratch", place: null }, { path: "Silver", place: repo }];
+  const tree = nbFolderTree(list, folders);
+  const plain = (f) => ({ name: f.name, count: f.count, books: f.notebooks.map((n) => n.name), sub: f.folders.map(plain) });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(tree.folders.map(plain))), [
+    { name: "Sales", count: 2, books: ["Sales/Daily load"], sub: [{ name: "Archive", count: 1, books: ["Sales/Archive/Q1"], sub: [] }] },
+    { name: "Scratch", count: 0, books: [], sub: [] },
+    { name: "Silver", count: 1, books: ["Silver/Orders"], sub: [] },
+  ]);
+  assert.deepStrictEqual([...tree.loose.map((n) => n.name)], ["Top"]);
+  // A notebook in a folder the folder listing hasn't caught up with still gets its folder.
+  assert.strictEqual(nbFolderTree([{ name: "New/X" }], []).folders[0].count, 1);
+});
+
+test("a notebook moves to folders of its own place, keeping its own name", () => {
+  const { nbFolderChoices, nbNameInFolder, nbLeaf, nbFolderOf, nbFolderDepth } = notebookFolderHelpers();
+  const repo = { root: "C:/r", label: "repo" };
+  const folders = [{ path: "Sales" }, { path: "Finance", place: null }, { path: "Silver", place: repo }];
+  assert.deepStrictEqual([...nbFolderChoices(folders, null)], ["", "Finance", "Sales"]);
+  assert.deepStrictEqual([...nbFolderChoices(folders, repo)], ["", "Silver"]);
+  assert.strictEqual(nbNameInFolder("Explore orders", "Sales"), "Sales/Explore orders");
+  assert.strictEqual(nbNameInFolder("Sales/Archive/Q1", ""), "Q1");
+  assert.deepStrictEqual([nbLeaf("A/B/C"), nbFolderOf("A/B/C"), nbFolderOf("C"), nbFolderDepth("A/B"), nbFolderDepth("")], ["C", "A/B", "", 2, 0]);
+});
+
+test("folder actions are wired: a menu entry, New folder, the empty-only delete in red, Preview on publish, docs", () => {
+  const files = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
+  assert.match(files, /label: "Move to folder…", icon: "folder", action: \(\) => nbMoveToFolderDialog\(n, folders\)/);
+  assert.match(files, /btn\("New folder", "folder", \(\) => nbNewFolderDialog\(null/);
+  assert.match(files, /confirmDialog\(`Delete folder \$\{f\.path\}\?`, .*"Delete", \{ danger: true \}\)/);
+  // A folder with notebooks in it is refused before anything is asked or sent.
+  assert.match(files, /if \(f\.count\) \{\n\s+nbFolderRefusal\(f, /);
+  assert.match(files, /previewMarked\("notebookFolderPublish", /);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /notebookFolderPublish: "Publishing notebooks from folders"/);
+  for (const m of ["notebook_folders", "notebook_folder_create", "notebook_folder_rename", "notebook_folder_delete", "notebook_move_to_folder"]) {
+    assert.ok(files.includes(`"${m}"`), `the UI calls ${m}`);
+  }
+  assert.match(files, /function nbFoldersHowItWorks\(\)/);
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /tab\("notebooks", "Notebooks"\)/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /rpc\("new_notebook", into\?\.folder \? \{ place, folder: into\.folder \} : \{ place \}\)/);
+  const root = path.join(__dirname, "..", "..");
+  for (const f of ["README.md", "docs/README.md", "docs/user-guide.md", "zensical.toml"]) {
+    assert.match(fs.readFileSync(path.join(root, f), "utf8"), /notebook-folders\.md/, `${f} links the folders page`);
+  }
+});
+
+test("a move that leaves something behind names it and says what to do", () => {
+  const { nbRenameProblemLines } = notebookFolderHelpers();
+  const lines = nbRenameProblemLines([{ notebook: "EMEA/B", was: "Sales/B", step: "schedules", error: "OSError: disk full" }]);
+  assert.deepStrictEqual([...lines], ["EMEA/B (was Sales/B): its schedules didn't follow (OSError: disk full). Open Monitor > Schedules and point its schedule on this PC at the new name."]);
+  assert.deepStrictEqual([...nbRenameProblemLines([])], []);
+  const files = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
+  assert.strictEqual(files.match(/nbRenameWarning\((out|ok)\.problems\)/g).length, 3);
 });

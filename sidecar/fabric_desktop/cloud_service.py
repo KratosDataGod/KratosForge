@@ -29,6 +29,7 @@ from .meta.engine import Engine, RunResult, apply_clean
 from .meta.project import ENVIRONMENTS, GateError, validate
 from .meta import keys as keys_mod
 from .meta_service import NoMetadataProject
+from .notebook import leaf_name
 from .meta.store import META_LAKEHOUSE, META_SCHEMAS, LocalStore, OneLakeStore
 from .onelake import FileStore
 from .redact import describe
@@ -182,15 +183,17 @@ class CloudMixin:
         schemas = (self._schemas_enabled(lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"])  # type: ignore[attr-defined]
                    if lakehouse_ref else True)
         doc = fabric_ipynb(fabric_cells or cells, lakehouse_ref, schemas)
+        item_name = leaf_name(name)  # a notebook in a folder (notebook_folders) is named without it in Fabric
+        self._fabric_name_free(name, ws)
         if not replace_fabric_changes:
             change = self._fabric_change(name, ws["workspace_id"], doc)
             if change and change["changed"]:
                 raise FabricChanged(f"{name} changed in Fabric after it was last published from here, so it wasn't "
                                     "published. Publish it from the notebook to see the changes and choose.")
-        item = self.fabric.save_notebook(ws["workspace_id"], name, json.dumps(doc).encode())  # type: ignore[attr-defined]
+        item = self.fabric.save_notebook(ws["workspace_id"], item_name, json.dumps(doc).encode())  # type: ignore[attr-defined]
         if not item.get("id"):  # a create can come back without the item; look it up
             item = next((n for n in self.fabric.list_notebooks(ws["workspace_id"])  # type: ignore[attr-defined]
-                         if n["displayName"] == name), item)
+                         if n["displayName"] == item_name), item)
         if item.get("id") and hasattr(self, "_record_notebook_item"):  # the workload keeps the item by id
             self._record_notebook_item(name, ws["workspace_id"], item["id"], ws["workspace_name"])  # type: ignore[attr-defined]
         if item.get("id"):
@@ -264,8 +267,23 @@ class CloudMixin:
                                      "item_id": item["id"], "job_id": job_id, "url": item["url"]})
 
     def _notebook_item(self, name: str, workspace_id: str) -> dict[str, Any] | None:
+        """The notebook item Publish writes: the one named after the notebook, without its folders."""
+        item_name = leaf_name(name)
         return next((n for n in self.fabric.list_notebooks(workspace_id)  # type: ignore[attr-defined]
-                     if n["displayName"] == name), None)
+                     if n["displayName"] == item_name), None)
+
+    def _fabric_name_free(self, name: str, ws: dict[str, str]) -> None:
+        """Refuses to publish when another notebook here already publishes to the item of the same
+        name in that workspace: "Sales/Daily load" and "Ops/Daily load" would both be "Daily load"."""
+        if not hasattr(self, "workload_store"):
+            return
+        item_name = leaf_name(name)
+        for other, link in self.workload_store.links().items():  # type: ignore[attr-defined]
+            if (other != name and leaf_name(other) == item_name and link.get("workspace_id") == ws["workspace_id"]
+                    and self.notebooks._taken(other)):  # type: ignore[attr-defined]  # noqa: SLF001
+                raise ValueError(f"{other} already publishes to the Fabric notebook {item_name} in "
+                                 f"{ws.get('workspace_name') or 'that workspace'}, and Fabric names it without its folder. "
+                                 f"Rename one of them, then publish again. Nothing was published.")
 
     def notebook_schedules(self, name: str, lakehouse_ref: dict[str, str] | None = None,
                            workspace: dict[str, str] | None = None) -> dict[str, Any]:

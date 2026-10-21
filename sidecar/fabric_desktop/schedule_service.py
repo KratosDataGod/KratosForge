@@ -212,6 +212,7 @@ class ScheduleMixin:
     def _run_notebook_here(self, name: str) -> dict[str, Any]:
         nb = self.notebooks.load(name)  # type: ignore[attr-defined]
         self._attach(nb["lakehouse"])  # type: ignore[attr-defined]
+        self.kernel.resources_dir = self._resources_dir(name)  # type: ignore[attr-defined]  # builtin/ paths
         # As Run all: code cells with something in them, and never a frozen one.
         code = [c for c in nb["cells"] if c.get("type") != "markdown" and c.get("source", "").strip()]
         frozen = sum(1 for c in code if (c.get("meta") or {}).get("frozen"))

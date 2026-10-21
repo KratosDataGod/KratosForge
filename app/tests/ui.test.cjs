@@ -2895,6 +2895,33 @@ test("Home draws at once while the component check runs, and calls nothing until
   assert.ok(boot.indexOf("state.starting = false") < boot.indexOf("render();"), "the check's end must clear starting before Home draws");
 });
 
+// L4: notebook resources. Names are checked before the engine sees them, a delete asks first in
+// red, and the Resources tab keeps its snippets under the files.
+test("notebook resource names, sizes and the Resources tab", () => {
+  const src = fs.readFileSync(path.join(ui, "nbresources.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/const NB_RES_RESERVED = [^\n]+\n/)[0]}
+${src.match(/function nbResNameProblem\([\s\S]*?\n}\n/)[0]}
+${src.match(/function nbResSize\([\s\S]*?\n}\n/)[0]}
+this.problem = nbResNameProblem; this.size = nbResSize;`, ctx);
+  for (const ok of ["regions.csv", "helpers.py", ".env", "a b (2).json"]) assert.strictEqual(ctx.problem(ok), "", ok);
+  for (const bad of ["", "..", "../x.csv", "a/b", "a\\b", "CON", "nul.txt", "Com3.csv", "x.", "a:b", "a?b", "x".repeat(121)]) {
+    assert.notStrictEqual(ctx.problem(bad), "", bad);
+  }
+  assert.strictEqual(ctx.size(17), "17 B");
+  assert.strictEqual(ctx.size(2048), "2.0 KB");
+  assert.strictEqual(ctx.size(5 * 1024 * 1024), "5.0 MB");
+  assert.match(src, /confirmDialog\(`Delete \$\{file\.name\}\?`,[\s\S]*?"Delete", \{ danger: true \}\)/);
+  assert.match(src, /copyText\(`builtin\/\$\{file\.name\}`, "Path"\)/);
+  assert.match(src, /const NB_RES_MAX_FILES = 100;/);
+  assert.match(src, /const NB_RES_MAX_BYTES = 50 \* 1024 \* 1024;/);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /content\.append\(nbResourcesSection\(state\.notebook\), h\("div", \{ class: "nb-res-head" \}, h\("b", \{\}, "Code snippets"\)\)/);
+  assert.ok(nb.includes("...SNIPPETS.map("), "the snippets stay");
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="nbresources.js"') > html.indexOf('src="replay.js"'), "replayBase64 loads first");
+});
+
 // Once keys come from the platform, the entity's keys card names the database instead of a MERGE.
 test("the keys card says where keys come from instead of an LH_Keys MERGE", () => {
   const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");

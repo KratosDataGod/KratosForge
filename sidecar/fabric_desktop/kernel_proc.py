@@ -60,6 +60,7 @@ class ProcessKernel:
         self._proof_options = proof_options
         self.command = command or [sys.executable, "-m", "fabric_desktop.kernel_host"]
         self.notebook_name = ""
+        self.resources_dir = ""  # passed with each cell (notebook.Kernel.resources_dir)
         self._lock = threading.Lock()  # one process at a time: starting, stopping
         self._proc: subprocess.Popen[str] | None = None
         self._tree: _Tree | None = None  # the process and everything its cells start
@@ -259,7 +260,8 @@ class ProcessKernel:
         if time_limit:
             self._started_at = time.monotonic()
         try:
-            snap = self._request("start", code=code, notebook_name=self.notebook_name, watches=list(watches or []))
+            snap = self._request("start", code=code, notebook_name=self.notebook_name,
+                                 resources_dir=self.resources_dir, watches=list(watches or []))
         except KernelGone:
             # The cell ended its process before the start was even answered (os._exit, a crash).
             deadline = time.monotonic() + 5

@@ -45,6 +45,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/sql-compatibility.md](docs/sql-compatibility.md) | The SQL compatibility check: what each Fabric SQL engine supports, findings, export, rules |
 | [docs/sql-execution.md](docs/sql-execution.md) | Running SQL page queries on this PC: states, Stop, limits, paging, export, what a query may do |
 | [docs/local-data.md](docs/local-data.md) | Local data projects (Preview): folders of CSV, JSON and Parquet files as SQL tables on your PC, kept between sessions, starting no Fabric job |
+| [docs/notebook-resources.md](docs/notebook-resources.md) | Notebook resources: files kept beside a notebook and read as `builtin/<file>`, like Fabric's built-in resources |
 | [docs/notebook-magics.md](docs/notebook-magics.md) | Notebook magics and cell languages: `%%sql` results in `_sqldf`, `%sql` inside Python, and which magics run on this PC |
 | [docs/notebook-files.md](docs/notebook-files.md) | Notebook files: search inside notebooks, open a notebook file, save a copy, delete and restore, and edit a Fabric notebook on this PC (Preview) |
 | [docs/validate-notebook.md](docs/validate-notebook.md) | Validate a notebook: code checks, a clean run from the top with sandboxed writes, and Clean up for imports, spacing and suggestions (Preview) |

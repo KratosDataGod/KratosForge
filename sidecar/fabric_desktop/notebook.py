@@ -34,6 +34,7 @@ from typing import Any, Callable
 
 import pyarrow as pa
 
+from . import notebook_resources
 from . import magics
 from .frames import Frames, type_name
 
@@ -227,6 +228,7 @@ class Kernel:
         self.load_notebook = load_notebook
         self.variable_libraries = variable_libraries
         self.notebook_name = ""
+        self.resources_dir = ""  # the running notebook's resources folder, "" for none (notebook_resources)
         self._current: _Run | None = None
         self._local = threading.local()
         self._secrets: set[str] = set()
@@ -240,7 +242,7 @@ class Kernel:
         ns: dict[str, Any] = {"__name__": "__main__", "input": _no_input, "display": self._display}
         utils = notebookutils_local.build(notebookutils_local.Host(
             token=self.token, run_notebook=self.run_notebook, notebook_name=lambda: self.notebook_name,
-            variables=self.variable_libraries))
+            variables=self.variable_libraries, resources=lambda: self.resources_dir))
         get_secret = utils.credentials.getSecret
 
         def remembered_secret(*args: Any, **kwargs: Any) -> str:
@@ -451,6 +453,8 @@ class Kernel:
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", message=".*non-interactive.*")
                 tree = ast.parse(code, _CELL_FILE)
+                if self.resources_dir and os.path.isdir(self.resources_dir):  # a notebook with resources
+                    tree = ast.fix_missing_locations(_BuiltinPaths(self.resources_dir).visit(tree))
                 last = tree.body.pop() if tree.body and isinstance(tree.body[-1], ast.Expr) else None
                 exec(compile(tree, _CELL_FILE, "exec"), namespace)
                 value = None
@@ -864,6 +868,83 @@ class Kernel:
 
 
 _MISSING = object()
+
+
+class _BuiltinPaths(ast.NodeTransformer):
+    """``"builtin/x.csv"`` in a cell's code becomes the path of x.csv in the notebook's resources
+    folder, as Fabric's working folder makes it. Rewriting the cell's string literals, rather than
+    changing the working folder, keeps the engine's own folder (and other notebooks, when cells run
+    inside the engine) as they were, and works the same for open(), pandas, polars and DuckDB.
+
+    An allowlist: a string (or f-string) that starts with ``builtin/`` (or ``./builtin/``) changes
+    only when it is the leftmost piece of the whole value it sits in, found by walking up through
+    ``+``, ``/`` and f-strings, and that value is used on its own, as a call argument, or as the
+    first argument of a join. Anything else stays as written: text after another base (which may
+    be a OneLake path), ``%`` formatting, ``.format(...)``, ``str.join`` and later join arguments,
+    and dict keys. The expressions inside an f-string's braces are code and are visited as such."""
+
+    _JOINS = ("join", "joinpath")
+
+    def __init__(self, folder: str):
+        self.folder = folder
+        self._parents: dict[int, ast.AST] | None = None
+
+    def visit(self, node: ast.AST) -> Any:
+        if self._parents is None:  # the tree being rewritten: where each node sits
+            self._parents = {id(c): n for n in ast.walk(node) for c in ast.iter_child_nodes(n)}
+        return super().visit(node)
+
+    def _parent(self, node: ast.AST) -> ast.AST | None:
+        return (self._parents or {}).get(id(node))
+
+    @staticmethod
+    def _call_name(node: ast.AST) -> str:
+        if not isinstance(node, ast.Call):
+            return ""
+        return node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
+
+    def _starts_a_path(self, node: ast.AST) -> bool:
+        """``node`` is the leftmost leaf of its whole value, and that value is a path on its own."""
+        cur, up = node, self._parent(node)
+        while isinstance(up, ast.BinOp):
+            if not isinstance(up.op, (ast.Add, ast.Div)) or up.left is not cur:
+                return False  # % formatting, or something comes before it
+            cur, up = up, self._parent(up)
+        if isinstance(up, ast.Dict):
+            return all(k is not cur for k in up.keys)
+        if isinstance(up, ast.Attribute):
+            return up.attr != "format"  # "builtin/{}".format(...)
+        if isinstance(up, ast.Call):
+            name = self._call_name(up)
+            if name == "format":
+                return False
+            if name in self._JOINS:
+                return bool(up.args) and up.args[0] is cur
+            return True
+        if isinstance(up, (ast.List, ast.Tuple, ast.Set)):
+            outer = self._parent(up)
+            if isinstance(outer, ast.BinOp) and isinstance(outer.op, ast.Mod):
+                return False
+            return self._call_name(outer) not in self._JOINS + ("format",)
+        return True
+
+    def visit_Constant(self, node: ast.Constant) -> ast.AST:  # noqa: N802 - ast's name
+        if isinstance(node.value, str):
+            path = notebook_resources.resolve(node.value, self.folder)
+            if path is not None and self._starts_a_path(node):
+                return ast.copy_location(ast.Constant(path), node)
+        return node
+
+    def visit_JoinedStr(self, node: ast.JoinedStr) -> ast.AST:  # noqa: N802 - ast's name
+        for part in node.values:
+            if isinstance(part, ast.FormattedValue):
+                part.value = self.visit(part.value)  # the code in the braces; not its format spec
+        first = node.values[0] if node.values else None
+        if isinstance(first, ast.Constant) and isinstance(first.value, str) and self._starts_a_path(node):
+            path = notebook_resources.resolve(first.value, self.folder)
+            if path is not None:
+                node.values[0] = ast.copy_location(ast.Constant(path), first)
+        return node
 
 
 def _run_target(line: str) -> tuple[str, dict[str, Any]]:
@@ -1351,15 +1432,23 @@ class NotebookStore:
         self.save(name, [{"type": "code", "source": ""}])
         return self.load(name)
 
+    def resources(self, name: str) -> Path:
+        """The notebook's resources folder, ``<name>.resources`` beside it (notebook_resources)."""
+        return notebook_resources.folder_for(self.path(name))
+
     def rename(self, name: str, new_name: str) -> dict[str, Any]:
         target = self.path(new_name)
         if target.exists():
             raise ValueError(f"A notebook named {new_name!r} already exists.")
-        self.path(name).rename(target)
-        return {"name": new_name}
+        return _rename_with_resources(self.path(name), target, new_name)
 
-    def delete(self, name: str) -> None:
-        self.path(name).unlink(missing_ok=True)
+    def delete(self, name: str) -> dict[str, Any]:
+        """Deletes the notebook's file. Its resources folder is never deleted here: it stays where it
+        is (named in ``resources_kept``), and a new notebook of the same name picks it up again."""
+        path = self.path(name)
+        folder = notebook_resources.folder_for(path)
+        path.unlink(missing_ok=True)
+        return {"resources_kept": str(folder) if folder.is_dir() else None}
 
 
 class NotebookShelf(NotebookStore):
@@ -1443,13 +1532,12 @@ class NotebookShelf(NotebookStore):
         if self._taken(new_name):
             raise ValueError(f"A notebook named {new_name!r} already exists.")
         src = self.path(name)
-        src.rename(src.with_name(f"{check_notebook_name(new_name)}.ipynb"))
-        return {"name": new_name}
+        return _rename_with_resources(src, src.with_name(f"{check_notebook_name(new_name)}.ipynb"), new_name)
 
     def move(self, name: str, place: str | None) -> dict[str, Any]:
-        """Moves the notebook's file to another place (a repository root, or None for the app's
-        own folder). The copy is written and checked before the original is removed, and a
-        notebook already there is never replaced."""
+        """Moves the notebook's file, and its resources folder, to another place (a repository root,
+        or None for the app's own folder). The copies are written and checked before the originals
+        are removed, and a notebook or folder already there is never replaced."""
         src = self.path(name)
         if not src.is_file():
             raise ValueError(f"There's no notebook named {name!r}.")
@@ -1460,6 +1548,9 @@ class NotebookShelf(NotebookStore):
         data = src.read_bytes()
         folder.mkdir(parents=True, exist_ok=True)
         where = target_place["label"] if target_place else "the app's notebooks folder"
+        res_src, res_dest = notebook_resources.folder_for(src), notebook_resources.folder_for(dest)
+        if res_src.is_dir() and res_dest.exists():
+            raise ValueError(f"A folder named {res_dest.name!r} is already in {where}. Nothing was moved.")
         try:
             out = open(dest, "xb")  # refuses when a file of that name is already there
         except FileExistsError:
@@ -1472,8 +1563,32 @@ class NotebookShelf(NotebookStore):
         except OSError as e:
             dest.unlink(missing_ok=True)  # never leave a partial copy that blocks a retry
             raise OSError(f"Couldn't copy {name} to {where} ({e}). The notebook is still where it was.") from None
+        try:
+            notebook_resources.copy_folder(res_src, res_dest)
+        except (OSError, ValueError) as e:
+            dest.unlink(missing_ok=True)
+            raise OSError(f"Couldn't copy {name}'s resources to {where} ({e}). The notebook is still where it was.") from None
         src.unlink()
-        return {"name": name, "place": self.place_of(name), "moved": True}
+        out = {"name": name, "place": self.place_of(name), "moved": True}
+        try:
+            notebook_resources.remove_folder(res_src)
+        except OSError as e:  # a file held open: the moved copy is whole, the old folder stays
+            out["note"] = f"The resources were copied, but the old folder {res_src} couldn't be removed ({e}). Delete it by hand."
+        return out
+
+
+def _rename_with_resources(src: Path, dest: Path, new_name: str) -> dict[str, Any]:
+    """Renames the notebook's file and its resources folder together; a failed file rename puts the
+    folder back."""
+    res_src, res_dest = notebook_resources.folder_for(src), notebook_resources.folder_for(dest)
+    moved = notebook_resources.rename_folder(res_src, res_dest)
+    try:
+        src.rename(dest)
+    except OSError:
+        if moved:
+            res_dest.rename(res_src)
+        raise
+    return {"name": new_name}
 
 
 def _resolved(p: Path) -> str:

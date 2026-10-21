@@ -38,6 +38,7 @@ nav = [
     { "SQL compatibility check" = "sql-compatibility.md" },
     { "Running SQL queries" = "sql-execution.md" },
     { "Side by side: PC vs Fabric" = "side-by-side.md" },
+    { "Notebook resources" = "notebook-resources.md" },
     { "Notebook magics" = "notebook-magics.md" },
     { "Validate a notebook" = "validate-notebook.md" },
     { "Motion and effects" = "forge-animations.md" },

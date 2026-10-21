@@ -6,6 +6,7 @@ The app's **Learn more** links open the sections of this page. Two areas have th
 
 - **[Notebooks and SQL](notebooks.md):** writing and running notebooks on your PC, Fabric code that works here, publishing, Run in Fabric and schedules, and the SQL query tab.
 - **[Side by side](side-by-side.md):** running a notebook on this PC and in Fabric one after the other, comparing time and results, and the TPC-H benchmark.
+- **[Notebook resources](notebook-resources.md):** files kept beside a notebook and read in its cells as `builtin/<file>`, like Fabric's built-in resources.
 - **[Validate a notebook](validate-notebook.md):** checking a notebook works from the top with a clean run, and cleaning up its code.
 - **[Notebook files](notebook-files.md):** finding, opening, copying, deleting and restoring notebooks, and editing a Fabric notebook on this PC.
 - **[Fabric and Databricks notebook formats](notebook-import-export.md):** bringing in Fabric and Databricks source and .dbc archives (and .ipynb), and saving a notebook in those formats or as a web page.
@@ -162,6 +163,10 @@ New items:
 - **Notebook:** a new Python notebook, saved on this PC. See [Notebooks](notebooks.md).
 - **Notebook from a template** (Preview): a notebook written from a fixed template (clean a table, join and aggregate, load a file) with key checks and the columns a proof matches rows by. See [Notebooks](notebooks.md#your-first-notebook).
 - **Lakehouse:** asks for a workspace and a name, then creates a schema-enabled lakehouse in Fabric (tables live under schemas, `dbo` by default) and opens it. Needs a workspace on a capacity, and Contributor or higher on it.
+
+## Notebook resources
+
+In a notebook, the explorer's **Resources** tab lists the notebook's **Built-in files** above the code snippets. **Add files** copies files from this PC into a folder beside the notebook (`<name>.resources/builtin/`), never over a file of the same name; each file's menu has Copy path, Show in folder, Rename and Delete. Cells read the files as `builtin/<file>`, as in Fabric, and `notebookutils.nbResPath` is the folder. Up to 100 files of up to 50 MB each. The files move with the notebook into a notebooks repository and Git; publishing to Fabric doesn't upload them yet. See [Notebook resources](notebook-resources.md).
 
 ## Fabric and Databricks notebook formats (Preview)
 

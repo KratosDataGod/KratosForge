@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from . import access as access_mod
+from . import governance_notices as notices
 from . import shortcut_center as center
 from . import shortcuts as shortcuts_mod
 from .auth import ONELAKE_SCOPES
@@ -151,6 +152,9 @@ class ShortcutMixin:
             results = list(pool.map(check, items))
         problems: list[str] = []
         changes = self._sc_call("record_shortcut_health", problems, [], results=results)
+        problem = self._governance_notify(lambda: notices.shortcut_events(changes))  # type: ignore[attr-defined]
+        if problem:
+            problems.append(problem)
         return {"results": results, "changes": changes, "problems": problems}
 
     # ---- who can read it

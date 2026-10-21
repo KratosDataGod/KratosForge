@@ -10,15 +10,19 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlparse
 
 from .dataops_service import post_teams
+from .redact import secrets
 from .workloads.notify import Outbox, transaction
 from .workloads.platform_notify import OPENS, VIEWS, Ledger, PlatformRouting, recipients, send, validate
 
 METHODS = {"platform_notify", "platform_notify_settings", "platform_notify_save", "platform_notify_open"}
 SETTING = "platform_notify"
+_log = logging.getLogger(__name__)
 # What the bell shows for each notice still open, beside the ledger in platform_outbox.sqlite.
 _NOTICE = ("CREATE TABLE IF NOT EXISTS notice (key TEXT PRIMARY KEY, kind TEXT, title TEXT, whom TEXT, "
            "domain TEXT, env TEXT, detail TEXT, open TEXT)")
@@ -65,6 +69,21 @@ class PlatformNotifyMixin:
                     db.execute("INSERT OR REPLACE INTO notice VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                                (e["dedupe"], e["kind"], e["title"], recipients(e["to"]), e["domain"], e["env"],
                                 e["detail"] if e["kind"].startswith("shortcut.") else "", json.dumps(e["open"])))
+
+    def _governance_notify(self, build: Callable[[], list[dict[str, Any]]]) -> str | None:
+        """Build and send governance's events (governance_notices.py) after the change they report
+        is made. A notice never undoes or fails that change, building it included: a problem is
+        logged, without any webhook address, and returned as one line; messages Teams didn't take
+        wait in the outbox."""
+        try:
+            events = build()
+            if events:
+                self.platform_notify(events)
+        except Exception as exc:  # noqa: BLE001 - the change is already made; say the notice wasn't sent
+            problem = secrets(f"The Teams notice wasn't sent: {exc}")
+            _log.warning(problem)
+            return problem
+        return None
 
     def platform_notify_settings(self) -> dict[str, Any]:
         """The routes without their webhook addresses: whether one is set, and its host."""

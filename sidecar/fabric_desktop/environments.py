@@ -55,7 +55,8 @@ def check_packages(specs: list[str]) -> list[str]:
         spec = str(spec).strip()
         if not spec:
             continue
-        if spec.startswith("-") or "://" in spec or "@" in spec or "/" in spec or "\\" in spec:
+        if (spec.startswith("-") or "://" in spec or "@" in spec or "/" in spec or "\\" in spec
+                or re.search(r"\.(whl|zip|tgz|tar|tar\.(gz|bz2|xz))$", spec, re.I)):  # pip reads a local file
             raise ValueError(f"{spec!r} isn't a package name. Give names and versions, like scikit-learn==1.5.2; "
                              "pip options, URLs and paths aren't accepted.")
         try:
@@ -152,10 +153,19 @@ class Environments:
             if self._busy(name):
                 raise RuntimeError(f"{name} is installing packages. Wait for it to finish.")
             detached = sorted(nb for nb, env in data["notebooks"].items() if env == name)
+            # Moved aside first: on Windows that fails while a notebook's process has its files open,
+            # so nothing is half deleted and the environment stays as it was.
+            gone = self.folder / f".deleting-{uuid.uuid4().hex[:8]}"
+            try:
+                if (self.folder / name).exists():
+                    (self.folder / name).rename(gone)
+            except OSError:
+                raise RuntimeError(f"A running notebook is using {name}'s packages. Stop its session (Sessions in "
+                                   "the notebook status bar), then delete the environment.") from None
             data["environments"].pop(name)
             data["notebooks"] = {nb: env for nb, env in data["notebooks"].items() if env != name}
             self._write(data)
-        shutil.rmtree(self.folder / name, ignore_errors=True)
+        shutil.rmtree(gone, ignore_errors=True)
         return {"deleted": name, "detached": detached}
 
     def attach(self, notebook: str, name: str | None) -> dict[str, Any]:

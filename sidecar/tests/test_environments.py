@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import sys
 import time
+from pathlib import Path
 
 import pytest
 from test_prove import call  # noqa: F401
@@ -58,7 +59,8 @@ def wait(env: Environments, job: dict, timeout: float = 30) -> dict:
 def test_only_package_names_are_accepted():
     assert check_packages(["scikit-learn==1.5.2", " polars-ds ", "great_expectations[spark]>=1"]) == \
         ["scikit-learn==1.5.2", "polars-ds", "great_expectations[spark]>=1"]
-    for bad in ["pyspark==3.5.1", "databricks_connect", "--index-url=http://evil", "-r req.txt", "https://x/y.whl", "./local", "pkg @ file:///c", "not a pkg!"]:
+    for bad in ["pyspark==3.5.1", "databricks_connect", "--index-url=http://evil", "-r req.txt", "https://x/y.whl", "./local", "pkg @ file:///c", "not a pkg!",
+                "pandas-2.0-py3-none-any.whl", "mylib.tar.gz", "mylib.ZIP"]:
         with pytest.raises(ValueError):
             check_packages([bad])
 
@@ -129,3 +131,23 @@ def test_percent_pip_from_a_cell_installs_into_the_notebooks_environment(tmp_pat
     finally:
         for k in s.sessions.kernels():
             k.close()
+
+
+def test_an_environment_in_use_isnt_half_deleted(tmp_path, monkeypatch, fake_python):
+    env = Environments(tmp_path, python=fake_python)
+    env.create("Data science")
+    env.attach("NB", "Data science")
+    real = Path.rename
+
+    def in_use(self, target):  # as on Windows, while a notebook's process has its files open
+        if self.name == "Data science":
+            raise PermissionError("in use")
+        return real(self, target)
+    monkeypatch.setattr(Path, "rename", in_use)
+    with pytest.raises(RuntimeError, match="Stop its session"):
+        env.delete("Data science")
+    assert [e["name"] for e in env.list()] == ["Data science"] and env.of("NB") == "Data science"
+    assert env.site_packages("Data science").is_dir()
+    monkeypatch.setattr(Path, "rename", real)
+    assert env.delete("Data science") == {"deleted": "Data science", "detached": ["NB"]}
+    assert env.list() == [] and not any(env.folder.iterdir())

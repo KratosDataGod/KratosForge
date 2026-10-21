@@ -134,3 +134,11 @@ def test_what_runs_only_in_fabric_says_so(lake):
         assert out["status"] == "error" and words in str(out["outputs"]), (code, out)
     text = run(k, STREAM.replace("trigger(availableNow=True)", "trigger(processingTime='10 seconds')"))
     assert "runs as availableNow on this PC" in text
+
+
+def test_a_source_with_deletion_vectors_is_refused(lake):
+    write_deltalake(str(lake / "dbo" / "dv"), pa.table({"id": [1], "amount": [1.0]}),
+                    configuration={"delta.enableDeletionVectors": "true"})
+    out = Kernel().run(STREAM.replace("dbo.bronze", "dbo.dv"))
+    assert out["status"] == "error" and "deletion vectors" in str(out["outputs"])
+    assert not (lake / "dbo" / "silver").exists()

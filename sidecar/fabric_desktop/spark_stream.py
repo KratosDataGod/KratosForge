@@ -65,9 +65,15 @@ class _Source:
 
     def _delta(self) -> Any:
         if self.kind == "table":
-            return lakehouse.open_table(self.target)
-        from deltalake import DeltaTable
-        return DeltaTable(self.target)
+            dt = lakehouse.open_table(self.target)
+        else:
+            from deltalake import DeltaTable
+            dt = DeltaTable(self.target)
+        if "deletionVectors" in (dt.protocol().reader_features or []):
+            # Files are read by path, which would bring back rows a deletion vector marks deleted.
+            raise ValueError(f"{self.target} uses deletion vectors, which a stream on this PC can't read: it would "
+                             "bring back deleted rows. Run the stream in Fabric.")
+        return dt
 
     def _delta_batch(self, state: dict[str, Any]) -> tuple[pa.Table | None, dict[str, Any], str]:
         dt = self._delta()

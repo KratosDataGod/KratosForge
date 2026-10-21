@@ -88,6 +88,7 @@ class Service(AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineR
         self._client_id = client_id  # given by the agent; otherwise from app settings
         self.root = root or data_dir()
         self._auth: Authenticator | None = None
+        self._auth_lock = threading.Lock()
         self.sessions = KernelSessions(self._new_kernel, lambda: bool(app_settings.value("kernel_process")),
                                        max_sessions=lambda: int(app_settings.value("kernel_max_sessions") or 0),
                                        idle_minutes=lambda: float(app_settings.value("kernel_idle_minutes") or 0),
@@ -101,9 +102,12 @@ class Service(AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineR
     def auth(self) -> Authenticator:
         # The app ID can change on the Settings page; a new one needs a new sign-in.
         client_id = self._client_id or app_settings.value("client_id")
-        if self._auth is None or getattr(self._auth, "client_id", client_id) != client_id:
-            self._auth = Authenticator(client_id, interactive=not self.headless)
-        return self._auth
+        # Built once: building it asks Microsoft for its sign-in endpoints (and on Windows starts the
+        # sign-in broker), so calls arriving together, as a tool's do, must not each build one.
+        with self._auth_lock:
+            if self._auth is None or getattr(self._auth, "client_id", client_id) != client_id:
+                self._auth = Authenticator(client_id, interactive=not self.headless)
+            return self._auth
 
     @property
     def audit(self) -> AuditLog:

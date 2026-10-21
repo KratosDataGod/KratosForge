@@ -1,5 +1,7 @@
 """SQL-001: the SQL query page's dialects and Format SQL (the editor itself is checked in app/tests)."""
 
+import datetime as dt
+
 import pytest
 
 from fabric_desktop import server, sql, sql_dialects
@@ -78,6 +80,45 @@ def test_format_t_sql_keeps_brackets_variables_and_top():
     assert not out["warning"]
     for part in ("TOP 5", "[Order Id]", "@cutoff", "dbo.Sales -- c", "ISNULL(x, 0)", "DATEADD(DAY, 1, d)", "GETDATE()"):
         assert part in out["sql"]
+
+
+def test_format_t_sql_keeps_datename_and_limit():
+    # sqlglot reads DATENAME as FORMAT(..., 'MMMM') and prints LIMIT as TOP; formatting only changes layout.
+    out = format_sql("select datename(month, cast('2024-08-15' as date)) as x", "warehouse")
+    assert out["sql"] == "SELECT\n  DATENAME(month, CAST('2024-08-15' AS DATE)) AS x" and not out["warning"]
+    out = format_sql("select n from t order by n limit 1", "warehouse")
+    assert out["sql"].endswith("ORDER BY\n  n\nLIMIT 1") and "TOP" not in out["sql"]
+    mixed = "select top 1 n from (select n from t limit 2) x"
+    assert format_sql(mixed, "warehouse")["sql"] == mixed  # can't print both back, so it's left alone
+
+
+def test_format_names_a_changed_identifier_without_crashing(monkeypatch):
+    import fabric_desktop.sql_format as sql_format
+    real = sql_format._parts
+
+    def drop_identifier(query, dialect):
+        parts = real(query, dialect)
+        if "\n" in query:
+            parts["identifier"].pop((False, "n"), None)
+        return parts
+    monkeypatch.setattr(sql_format, "_parts", drop_identifier)
+    assert format_sql("select n from t")["warning"] == ("Format SQL left the query as it was, because formatting "
+                                                        "would remove the identifier 'n'.")
+
+
+@pytest.mark.parametrize("query, want", [
+    ("SELECT date_add(DATE'2024-02-25', 7) AS x", dt.date(2024, 3, 3)),       # a date, as in Spark, not a timestamp
+    ("SELECT date_sub(DATE'2024-03-01', 1) AS x", dt.date(2024, 2, 29)),
+    ("SELECT trunc(DATE'2024-08-15', 'MM') AS x", dt.date(2024, 8, 1)),       # DuckDB doesn't know 'MM'
+    ("SELECT trunc(DATE'2024-08-15', 'yyyy') AS x", dt.date(2024, 1, 1)),
+    ("SELECT date_trunc('MM', TIMESTAMP'2024-08-15 10:30:00') AS x", None),
+])
+def test_spark_date_functions_give_spark_results(query, want):
+    got = sql.run(query).column("x").to_pylist()[0]
+    if want is None:
+        assert (got.year, got.month, got.day, got.hour) == (2024, 8, 1, 0)
+    else:
+        assert got == want and type(got) is dt.date
 
 
 def test_format_duckdb():

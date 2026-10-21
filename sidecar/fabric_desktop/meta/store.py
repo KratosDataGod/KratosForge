@@ -344,6 +344,19 @@ class Store:
         except TableNotFoundError:
             return []
 
+    def has_commit(self, lakehouse: str, schema: str, table: str, key: str, value: str,
+                   since: int | None = None) -> bool:
+        """Whether a commit after version ``since`` (None: any commit) carries ``key`` = ``value`` in
+        its commit metadata. Reads only the commits made since then, however many other writers made."""
+        try:
+            t = DeltaTable(self.uri(lakehouse, schema, table), storage_options=self.options())
+        except TableNotFoundError:
+            return False
+        if since is not None and t.version() <= since:
+            return False
+        limit = None if since is None else t.version() - since
+        return any(commit.get(key) == value for commit in t.history(limit))
+
     # ---- files
 
     def read_files(self, lakehouse: str, pattern: str,
@@ -367,14 +380,14 @@ class Store:
 
     # ---- run metadata
 
-    def meta_append(self, table: str, rows: list[dict[str, Any]]) -> None:
+    def meta_append(self, table: str, rows: list[dict[str, Any]], metadata: dict[str, str] | None = None) -> None:
         if not rows:
             return
         schema = META_SCHEMAS[table]
         now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
         df = pl.DataFrame([{k: r.get(k) for k in schema} | ({"at": r.get("at") or now} if "at" in schema else {})
                            for r in rows], schema=schema)
-        self.write(META_LAKEHOUSE, "meta", table, df, mode="append")
+        self.write(META_LAKEHOUSE, "meta", table, df, mode="append", metadata=metadata)
 
     def meta(self, table: str) -> pl.DataFrame:
         df = self.read(META_LAKEHOUSE, "meta", table)

@@ -4,14 +4,14 @@
 # Merges to main publish it to GitHub Pages (.github/workflows/docs.yml).
 
 [project]
-site_name = "Fabric Desktop by KratosBI"
-site_url = "https://kratosdatagod.github.io/fabric-desktop/"
+site_name = "KratosForge"
+site_url = "https://kratosdatagod.github.io/kratosforge/"
 site_description = "Do your Microsoft Fabric data engineering on your own PC and write the results straight into OneLake."
 site_author = "KratosBI"
 copyright = "Copyright &copy; KratosBI"
 
-repo_url = "https://github.com/KratosDataGod/fabric-desktop"
-repo_name = "KratosDataGod/fabric-desktop"
+repo_url = "https://github.com/KratosDataGod/KratosForge"
+repo_name = "KratosDataGod/KratosForge"
 edit_uri = "edit/main/docs/"
 
 docs_dir = "docs"
@@ -33,10 +33,27 @@ nav = [
   { "Use the app" = [
     { "User guide" = "user-guide.md" },
     { "Notebooks and SQL" = "notebooks.md" },
+    { "Spark on this PC" = "notebook-spark-on-this-pc.md" },
     { "Local data projects" = "local-data.md" },
     { "SQL compatibility check" = "sql-compatibility.md" },
     { "Running SQL queries" = "sql-execution.md" },
     { "Side by side: PC vs Fabric" = "side-by-side.md" },
+    { "Notebook resources" = "notebook-resources.md" },
+    { "Notebook magics" = "notebook-magics.md" },
+    { "Validate a notebook" = "validate-notebook.md" },
+    { "Motion and effects" = "forge-animations.md" },
+    { "Organise notebook cells" = "notebook-editor/organise-cells.md" },
+    { "Notebook variables" = "notebook-editor/variables.md" },
+    { "Notebook files" = "notebook-files.md" },
+    { "Fabric and Databricks notebook formats" = "notebook-import-export.md" },
+    { "Notebook version history" = "notebook-versions.md" },
+    { "Profile" = "profile.md" },
+    { "Select cells and run part of a notebook" = "notebook-editor/select-and-run-parts.md" },
+    { "Engines and connection profiles" = "engines.md" },
+    { "Notebook comments" = "notebook-comments.md" },
+    { "Notebook find and replace" = "notebook-editor/find-and-replace.md" },
+    { "Drag tables and files into a notebook" = "notebook-editor/load-data-items.md" },
+    { "IntelliSense in notebook cells" = "notebook-editor/intellisense.md" },
     { "How a proof works" = "prove/how-proofs-work.md" },
     { "Capacity and cost evidence" = "finops/cost-evidence.md" },
     { "Capacity of each environment" = "finops/capacity.md" },
@@ -48,6 +65,7 @@ nav = [
     { "Working across teams" = "teams.md" },
     { "The platform" = "platform.md" },
     { "Governance policies" = "governance.md" },
+    { "Governance guide" = "governance-guide.md" },
     { "Data mesh" = "data-mesh.md" },
     { "Shortcuts" = "shortcuts.md" },
     { "Pipeline definitions" = "orchestration/pipeline-definitions.md" },
@@ -67,7 +85,8 @@ nav = [
     { "Incidents and your service desk" = "incidents.md" },
   ] },
   { "Project" = [
-    { "Why Fabric Desktop by KratosBI" = "why-fabric-desktop.md" },
+    { "Why KratosForge" = "why-fabric-desktop.md" },
+    { "Fabric Desktop is now KratosForge" = "kratosforge.md" },
     { "Submitting ideas" = "ideas.md" },
     { "Enterprise roadmap" = "enterprise-roadmap.md" },
     { "Local data engine plan" = "local-data-engine-plan.md" },
@@ -142,8 +161,8 @@ extra_css = ["stylesheets/extra.css"]
 
 [project.theme]
 language = "en"
-logo = "brand/kratosbi-mark.svg"
-favicon = "brand/kratosbi-mark.svg"
+logo = "brand/wolf-forge-emblem.png"
+favicon = "brand/wolf-forge-emblem-32.png"
 features = [
   "content.action.edit",
   "content.action.view",
@@ -191,7 +210,7 @@ toggle.name = "Switch to system preference"
 
 [[project.extra.social]]
 icon = "fontawesome/brands/github"
-link = "https://github.com/KratosDataGod/fabric-desktop"
+link = "https://github.com/KratosDataGod/KratosForge"
 
 [project.markdown_extensions]
 abbr = {}

@@ -82,7 +82,7 @@ def create(out_dir: Path, data_dir: Path | None = None, agent_home: Path | None 
             missing.append(name)
         else:
             files[name] = text
-    contents = ["Fabric Desktop by KratosBI support bundle", "",
+    contents = ["KratosForge support bundle", "",
                 *[f"{name}" for name in files], *[f"{name} (not found on this PC)" for name in missing], "",
                 "Taken out of every file: tokens, keys, passwords, email addresses, user names in paths,",
                 "and tenant, workspace and item ids. No table data, notebook contents or sign-in cache is included.",

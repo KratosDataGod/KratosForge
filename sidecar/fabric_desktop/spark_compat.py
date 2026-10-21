@@ -14,7 +14,7 @@ import itertools
 import re
 import sys
 import types
-from typing import Any
+from typing import Any, Callable
 
 import duckdb
 import sqlglot
@@ -353,9 +353,17 @@ def _over(self: Column, window: WindowSpec) -> Column:
 
 # ---- DataFrame
 
-def _named(df: DataFrame, sql: str) -> DataFrame:
-    """A DataFrame from SQL over this one, which the SQL calls ``t``."""
-    return DataFrame(df.relation.query("t", sql), df.session)
+_view_ids = itertools.count(1)
+
+
+def _named(df: DataFrame, sql: Callable[[str], str]) -> DataFrame:
+    """A DataFrame from SQL over this one; ``sql(name)`` is the query, reading this one as ``name``.
+
+    DuckDB keeps the name as a view on the session, and a later query under the same name would
+    change what this DataFrame returns (or hide a temp view the notebook named the same), so each
+    gets a name of its own."""
+    name = f"__fd_df_{next(_view_ids)}"
+    return DataFrame(df.relation.query(name, sql(name)), df.session)
 
 
 def _agg(self: DataFrame, *exprs: Any) -> DataFrame:
@@ -435,7 +443,7 @@ def _dropna(self: DataFrame, how: str = "any", thresh: int | None = None, subset
         return self
     present = " + ".join(f"CAST({_col_sql(c)} IS NOT NULL AS INT)" for c in cols)
     need = thresh if thresh is not None else (len(cols) if how == "any" else 1)
-    return _named(self, f"SELECT * FROM t WHERE ({present}) >= {int(need)}")
+    return _named(self, lambda t: f"SELECT * FROM {t} WHERE ({present}) >= {int(need)}")
 
 
 def _replace(self: DataFrame, to_replace: Any, value: Any = None, subset: Any = None) -> DataFrame:
@@ -484,8 +492,8 @@ def _describe(self: DataFrame, *cols: str) -> DataFrame:
             sql = {"count": f"count({q})", "mean": f"avg({q})" if numeric else "NULL",
                    "stddev": f"stddev_samp({q})" if numeric else "NULL", "min": f"min({q})", "max": f"max({q})"}[stat]
             parts.append(f"CAST({sql} AS VARCHAR) AS {q}")
-        rows.append(f"SELECT '{stat}' AS summary, {', '.join(parts)} FROM t")
-    return _named(self, " UNION ALL ".join(rows))
+        rows.append(f"SELECT '{stat}' AS summary, {', '.join(parts)}")
+    return _named(self, lambda t: " UNION ALL ".join(f"{row} FROM {t}" for row in rows))
 
 
 def _sample(self: DataFrame, withReplacement: Any = None, fraction: float | None = None,  # noqa: N803
@@ -496,7 +504,7 @@ def _sample(self: DataFrame, withReplacement: Any = None, fraction: float | None
         raise NotImplementedError("sample(withReplacement=True) isn't supported on this PC. Leave it out to sample without replacement.")
     pct = max(0.0, min(100.0, float(fraction or 0) * 100))
     repeat = f", {int(seed)}" if seed is not None else ""
-    return _named(self, f"SELECT * FROM t USING SAMPLE {pct}% (bernoulli{repeat})")
+    return _named(self, lambda t: f"SELECT * FROM {t} USING SAMPLE {pct}% (bernoulli{repeat})")
 
 
 def _subtract(self: DataFrame, other: DataFrame) -> DataFrame:
@@ -506,9 +514,9 @@ def _subtract(self: DataFrame, other: DataFrame) -> DataFrame:
 def _unpivot(self: DataFrame, ids: Any, values: Any, variableColumnName: str, valueColumnName: str) -> DataFrame:  # noqa: N803
     ids = [ids] if isinstance(ids, (str, Column)) else list(ids)
     values = [values] if isinstance(values, (str, Column)) else list(values or [c for c in self.columns if c not in ids])
-    return _named(self, f"SELECT {', '.join(_col_sql(c) for c in ids)}, {_col_sql(variableColumnName)}, "
-                        f"{_col_sql(valueColumnName)} FROM (UNPIVOT t ON {', '.join(_col_sql(c) for c in values)} "
-                        f"INTO NAME {_col_sql(variableColumnName)} VALUE {_col_sql(valueColumnName)})")
+    return _named(self, lambda t: f"SELECT {', '.join(_col_sql(c) for c in ids)}, {_col_sql(variableColumnName)}, "
+                                  f"{_col_sql(valueColumnName)} FROM (UNPIVOT {t} ON {', '.join(_col_sql(c) for c in values)} "
+                                  f"INTO NAME {_col_sql(variableColumnName)} VALUE {_col_sql(valueColumnName)})")
 
 
 def _same_self(fn: Any) -> Any:

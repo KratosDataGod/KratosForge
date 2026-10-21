@@ -4200,3 +4200,9 @@ test("the magics page documents In, Out and %history", () => {
   assert.match(doc, /\| `In`, `Out`, `_`, `__`, `___`/);
   assert.match(doc, /\| `%history`, `%history -n 4-6`/);
 });
+
+// Spark on this PC: createDataFrame takes a DDL schema string.
+test("the Spark on this PC page says createDataFrame reads a DDL schema string", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`spark.createDataFrame` takes a list of column names, a `StructType` or a DDL string/);
+});

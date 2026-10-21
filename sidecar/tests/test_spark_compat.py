@@ -154,3 +154,39 @@ def test_spark_conf_keeps_settings_and_the_time_zone_changes_duckdb():
         spark.conf.unset("spark.sql.session.timeZone")
     assert spark.sql("SELECT current_setting('TimeZone') AS tz").first()[0] == "UTC"
     assert spark.conf.get("spark.sql.session.timeZone") == "UTC"
+
+
+@pytest.fixture
+def live():
+    """The session as it is now: a test above resets it, which closes the module's one."""
+    spark_local._alias_pyspark()
+    return spark_local.session()
+
+
+def test_na_drop_describe_sample_and_unpivot_leave_a_temp_view_called_t_alone(live):
+    live.createDataFrame([(1, "a", 2.5), (2, None, None)], ["id", "v", "x"]).createOrReplaceTempView("t")
+    view = live.table("t")
+    assert view.na.drop().count() == 1
+    assert len(view.describe().collect()) == 5
+    assert view.sample(1.0, 1).count() == 2
+    assert rows(view.unpivot("id", ["x"], "k", "val")) == [(1, "x", 2.5)]
+    assert live.table("t").count() == 2  # the view still reads its own rows
+
+
+def test_two_na_drop_frames_keep_their_own_rows(live):
+    a = live.createDataFrame([(1, "a"), (2, None)], ["id", "v"]).na.drop()
+    b = live.createDataFrame([(9, "z")], ["id", "v"]).na.drop()
+    assert (rows(a), rows(b)) == ([(1, "a")], [(9, "z")])
+
+
+def test_create_dataframe_reads_a_ddl_schema_string(live):
+    import datetime
+    import decimal
+    df = live.createDataFrame([(1, "x", decimal.Decimal("1.5"), [1, 2], datetime.date(2026, 1, 2))],
+                               "id int, name string, amount decimal(10,2), tags array<int>, day date")
+    assert df.dtypes == [("id", "integer"), ("name", "string"), ("amount", "decimal(10,2)"),
+                         ("tags", "array<integer>"), ("day", "date")]
+    assert live.createDataFrame([(5,)], "n: bigint").dtypes == [("n", "bigint")]
+    assert live.createDataFrame([(5,)], "`my col` long").columns == ["my col"]
+    with pytest.raises(ValueError, match="isn't supported on this PC"):
+        live.createDataFrame([(1,)], "s struct<x:int>")

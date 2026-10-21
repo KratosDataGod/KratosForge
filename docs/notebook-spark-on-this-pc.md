@@ -19,6 +19,9 @@ In a notebook on this PC, `spark` is DuckDB's PySpark-compatible API wired to th
 
 Calls that only change how Spark spreads or keeps work across a cluster (`repartition`, `coalesce`, `persist`, `cache`, `checkpoint`, `hint`) are accepted and do nothing, since everything runs in one process here. `spark.catalog.tableExists` checks temp views and the attached lakehouse. The tables below are generated from the code (`spark_api.coverage_markdown()`), and a test fails if they fall out of step.
 
+`spark.createDataFrame` takes a list of column names, a `StructType` or a DDL string such as
+`"id int, name string, tags array<int>"`; a `struct<...>` type in a DDL string isn't read, so use a `StructType` for nested rows.
+
 ### DataFrame: 79 of 102
 
 | Method | On this PC |

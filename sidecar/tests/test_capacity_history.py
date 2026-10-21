@@ -75,12 +75,13 @@ def test_a_capacity_the_reader_cant_see_isnt_called_changed(caps):
     assert c["setting"] == "state" and json.loads(c["new_json"]) == "Paused"
 
 
-def test_a_setting_a_listed_capacity_stops_returning_has_no_new_value(caps):
+def test_a_field_missing_from_one_response_isnt_recorded_as_removed(caps):
     caps.capacity_settings_read(approve=True)
     caps.capacities = [{k: v for k, v in cap().items() if k != "region"}, cap("cap-2", "F8", name="Dev")]
-    [gone] = caps.capacity_settings_read()["changes"]
-    assert gone["setting"] == "region" and gone["new_json"] is None
     assert caps.capacity_settings_read()["changes"] == []
+    caps.capacities = [cap(region="North Europe"), cap("cap-2", "F8", name="Dev")]
+    [moved] = caps.capacity_settings_read()["changes"]
+    assert moved["setting"] == "region" and json.loads(moved["old_json"]) == "West Europe"
 
 
 def test_no_capacities_is_a_read_not_a_gap(caps):
@@ -107,3 +108,77 @@ def test_a_read_that_fails_is_recorded_redacted_and_shown_as_a_gap(caps, monkeyp
     [gap] = caps.tenant_settings_history()["gaps"]
     assert gap["scope_type"] == "capacity" and gap["outcome"] == outcome
     assert len(caps.lake.rows("fdcap_snapshot")) == 8  # nothing looks changed
+
+
+def override(cid, *settings):
+    return {"id": cid, "tenantSettings": [{"settingName": n, "title": n, "enabled": e, "tenantSettingGroup": "G"}
+                                          for n, e in settings]}
+
+
+@pytest.fixture
+def admin(caps, monkeypatch):
+    caps.overrides = [override("CAP-1", ("ExportToExcel", False))]
+    monkeypatch.setattr("fabric_desktop.fabric_api.FabricClient.list_capacity_tenant_setting_overrides",
+                        lambda client: caps.overrides)
+    return caps
+
+
+def test_overrides_are_read_only_when_asked(admin, monkeypatch):
+    def never(client):
+        raise AssertionError("asked for Tenant.Read.All without admin=True")
+    monkeypatch.setattr("fabric_desktop.fabric_api.FabricClient.list_capacity_tenant_setting_overrides", never)
+    out = admin.capacity_settings_read(approve=True)
+    assert out["overrides"] is None and not any(c["setting"].startswith("override:") for c in out["changes"])
+
+
+def test_an_admin_records_each_capacitys_overrides_and_their_removal(admin):
+    first = admin.capacity_settings_read(approve=True, admin=True)
+    assert first["overrides"] == "read"
+    [o] = [c for c in first["changes"] if c["setting"].startswith("override:")]
+    assert (o["scope_id"], o["setting"]) == ("cap-1", "override:ExportToExcel")
+    assert json.loads(o["new_json"]) == {"enabled": False}
+    snap = [r for r in admin.lake.rows("fdcap_snapshot").to_dicts() if r["setting"] == "override:ExportToExcel"]
+    assert snap[0]["source"].endswith("(admin)")
+    admin.overrides = [override("cap-1", ("ExportToExcel", True)), override("cap-2", ("Publish", True))]
+    changed = admin.capacity_settings_read(admin=True)["changes"]
+    assert {(c["scope_id"], c["setting"]) for c in changed} == {("cap-1", "override:ExportToExcel"),
+                                                                ("cap-2", "override:Publish")}
+    assert admin.capacity_settings_read(admin=True)["changes"] == []
+    admin.overrides = [override("cap-2", ("Publish", True))]  # the admin read covers every capacity
+    [gone] = admin.capacity_settings_read(admin=True)["changes"]
+    assert gone["setting"] == "override:ExportToExcel" and gone["new_json"] is None
+    # A read without admin doesn't touch overrides.
+    assert admin.capacity_settings_read()["changes"] == []
+
+
+def test_not_an_admin_is_recorded_and_the_capacities_are_still_read(admin, monkeypatch):
+    def denied(client):
+        raise FabricError("GET failed with 403: Forbidden Bearer abcdefghijkl", status=403)
+    monkeypatch.setattr("fabric_desktop.fabric_api.FabricClient.list_capacity_tenant_setting_overrides", denied)
+    out = admin.capacity_settings_read(approve=True, admin=True)
+    assert out["outcome"] == "read" and out["overrides"] == "unreadable" and len(out["changes"]) == 8
+    row = next(r for r in admin.lake.rows("fdcap_read").to_dicts() if r["source"].endswith("(admin)"))
+    assert row["outcome"] == "unreadable" and "Fabric administrator" in row["reason"]
+
+
+# Fabric's documented response for GET /v1/admin/capacities/delegatedTenantSettingOverrides puts
+# the list under "value" (quality's #351 probe): fed through the real client, not a mocked method.
+OVERRIDES_SAMPLE = {"value": [{"id": "f51b705f-a409-4d40-9197-c5d5f349e2ef", "tenantSettings": [
+    {"settingName": "TenantSettingForCapacityDelegatedSwitch", "title": "t", "enabled": True,
+     "tenantSettingGroup": "g", "delegatedFrom": "Tenant"}]}]}
+
+
+def test_overrides_come_from_the_documented_value_list(monkeypatch):
+    from fabric_desktop.fabric_api import FabricClient
+
+    class Resp:
+        def json(self):
+            return OVERRIDES_SAMPLE
+
+    client = FabricClient(lambda: "token")
+    monkeypatch.setattr(client, "_request", lambda method, url, **kw: Resp())
+    got = client.list_capacity_tenant_setting_overrides()
+    assert [o["id"] for o in got] == ["f51b705f-a409-4d40-9197-c5d5f349e2ef"]
+    snaps, changes = ch.compare_overrides(got, [], ME, "2026-10-21T08:00:00+00:00")
+    assert [c["setting"] for c in changes] == ["override:TenantSettingForCapacityDelegatedSwitch"]
+    assert snaps[0]["scope_id"] == "f51b705f-a409-4d40-9197-c5d5f349e2ef"

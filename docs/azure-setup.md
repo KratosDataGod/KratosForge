@@ -61,12 +61,18 @@ A policy file that sets everything an organization usually wants:
 | --- | --- | --- |
 | `allow_fabric_runs` | `true` (default) or `false` | `false` keeps work off Fabric capacity: Run in Fabric, Fabric schedules, Optimize and the Fabric side of a proof are refused with a message, and turning a Fabric schedule off still works. Runs on the PC are not affected |
 | `allow_optimize_lakehouse` | `true` (default) or `false` | `false` stops the app creating, connecting to or writing to shared optimization lakehouses ([Optimize](optimize/README.md)) |
+| `allow_notebook_packages` | `true` (default) or `false` | `false` stops people installing Python packages into notebook environments ([notebooks](notebooks.md#notebook-environments-preview)); notebooks use the app's packages only |
 | `allow_replay_samples` | `true` (default) or `false` | `false` takes "A sample of the input data" out of the Save replay bundle dialog, so a replay bundle never holds lakehouse rows. Code, input versions and the error with secrets removed are still saved |
 | `allowed_tenants` | A list of tenant (directory) IDs | People can only sign in with accounts from these tenants. Any other account is signed out again with a message. Leave it out to allow any |
 | `auto_update` | `true` (default) or `false` | `false` stops the app updating itself, so you roll out builds yourself ([Enterprise install](enterprise-install.md)) |
 | `cell_time_limit_minutes` | A number, `0` for none | With `kernel_process`: minutes a notebook cell may run before it's interrupted (Preview; none by default) |
 | `channel` | `stable` or `preview` | Fixes the update channel |
 | `client_id` | Your own app's Application (client) ID | Only with step 3. Leave it out to keep Microsoft's sign-in |
+| `motion_level` | `0` to `3` (default `2`) | Visual intensity: 0 Off, 1 Minimal, 2 Refined, 3 Expressive ([Motion and effects](forge-animations.md)). Progress and results show the same at every level |
+| `motion_wolf`, `motion_sparks`, `motion_ambient` | `true` (default) or `false` | `false` turns that family of effects off |
+| `motion_achievements` | `true` or `false` (default) | `true` turns on achievement celebrations from the developer profile |
+| `motion_follow_system` | `true` (default) or `false` | `true`: Windows' reduced-motion setting turns motion off whatever the level. People can untick it to keep motion under reduced motion; set it to `true` here to stop that |
+| `forge_animations` | `true` or `false` | Kept from the first version: `false` locks `motion_level` at 0 unless the policy file also sets `motion_level` |
 | `incident_sla` | Minutes per priority: `{"P1": {"acknowledge_minutes": 15, "resolve_minutes": 240}, ...}`, `0` for no target | Your own targets for acknowledging and resolving incidents; priorities left out keep the defaults ([Incidents](incidents.md#slas)) |
 | `kernel_memory_limit_gb` | A number, `0` for none | With `kernel_process`: gigabytes a notebook's process may use before it's ended (Preview; none by default) |
 | `kernel_process` | `true` or `false` | Runs notebook cells in a Python process of their own, so Stop and crashes end only that process (Preview; off by default) |

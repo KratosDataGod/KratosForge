@@ -2235,6 +2235,18 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
 
+// Cost allocation: the workload page shows its runs' capacity use from workload_capacity_use, with
+// each figure's classification, and says runs on this PC aren't counted (QA-008 wording).
+test("the workload page shows its capacity use, classified, and never a figure for this PC", () => {
+  const src = fs.readFileSync(path.join(ui, "workloads.js"), "utf8");
+  assert.match(src, /workloadIncidentsCard\(w\),\n    workloadCapacityCard\(w\),/);
+  const card = /function workloadCapacityCard\(w\) \{[\s\S]*?\n\}\n/.exec(src)[0];
+  assert.match(card, /rpc\("workload_capacity_use", \{ id: w\.id, days: 30 \}\)/);
+  assert.match(card, /measureFigure\("Capacity use of its Fabric runs", u\.total\)/);
+  assert.match(card, /OneLake reads and writes still use some capacity/);
+  assert.doesNotMatch(card, /no Fabric capacity|saved|savings of/i);
+});
+
 test("a replay notebook offers to delete what its replays wrote, with a danger confirm", () => {
   const src = fs.readFileSync(path.join(ui, "replay.js"), "utf8");
   const fn = src.match(/function replayDeleteOutputs\([\s\S]*?\n}\n/)[0];

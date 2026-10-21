@@ -87,8 +87,8 @@ nav = [
     { "Incidents and your service desk" = "incidents.md" },
   ] },
   { "Project" = [
-    { "Why KratosForge" = "why-fabric-desktop.md" },
-    { "Fabric Desktop is now KratosForge" = "kratosforge.md" },
+    { "Why KratosForge" = "why-kratosforge.md" },
+    { "Legacy names" = "kratosforge.md" },
     { "Submitting ideas" = "ideas.md" },
     { "Enterprise roadmap" = "enterprise-roadmap.md" },
     { "Local data engine plan" = "local-data-engine-plan.md" },

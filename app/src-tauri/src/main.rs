@@ -226,8 +226,8 @@ fn engine_python() -> Option<PathBuf> {
 /// look for a `python` on PATH, which could run whichever one comes first (SH-10).
 // Published builds install their engine before starting it, so this is a build with no engine to
 // download (one not built from a published commit).
-const NO_ENGINE: &str = "The Fabric Desktop engine isn't installed, and this build has none to download. \
-    Install a published build of Fabric Desktop, or set FABRIC_DESKTOP_PYTHON to the full path \
+const NO_ENGINE: &str = "The KratosForge engine isn't installed, and this build has none to download. \
+    Install a published build of KratosForge, or set FABRIC_DESKTOP_PYTHON to the full path \
     of a Python with the sidecar installed.";
 
 /// Picks the interpreter that runs the sidecar and the startup check, from

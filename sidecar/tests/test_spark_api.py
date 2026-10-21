@@ -81,3 +81,13 @@ def test_the_coverage_page_matches_the_api():
     assert all(r["why"] for r in rows if r["state"] == "Fabric")
     assert spark_api.coverage_markdown() in DOC.read_text(encoding="utf-8"), \
         "docs/notebook-spark-on-this-pc.md is out of date: paste spark_api.coverage_markdown() into it."
+
+
+@pytest.mark.parametrize("setter", [
+    "spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'dynamic')",
+    "from pyspark.sql import SparkSession\nSparkSession.builder.config('spark.sql.sources.partitionOverwriteMode', 'DYNAMIC')",
+])
+def test_dynamic_partition_overwrite_from_the_session_is_refused(setter):
+    out = Kernel().run(setter)
+    assert out["status"] == "error" and "would replace the whole table" in str(out["outputs"])
+    assert Kernel().run("spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'static')")["status"] == "ok"

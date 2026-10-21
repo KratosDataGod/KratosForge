@@ -58,6 +58,11 @@ class LocalRuntimeConfig:
 
     def set(self, key: str, value: Any) -> None:
         text = str(value).lower() if isinstance(value, bool) else str(value)
+        if key.lower() == "spark.sql.sources.partitionoverwritemode" and text.strip().lower() == "dynamic":
+            # Kept and ignored, an overwrite with partitionBy would replace the whole table, where
+            # Fabric replaces only the partitions it writes.
+            raise ValueError("Dynamic partition overwrite isn't supported on this PC, and ignoring it would replace "
+                             "the whole table. Run the cell in Fabric.")
         if key == "spark.sql.session.timeZone":
             self._session.conn.execute("SET TimeZone = ?", [text])  # fails, with DuckDB's reason, for an unknown zone
         self._set[key] = text
@@ -310,11 +315,15 @@ PYSPARK_SESSION = (
 # Why a method isn't here, when it isn't.
 NOT_HERE = {
     "rdd": "RDDs run in Fabric", "foreach": "row-by-row Python runs in Fabric", "foreachPartition": "runs in Fabric",
-    "mapInPandas": "runs in Fabric", "mapInArrow": "runs in Fabric", "writeStream": "streaming runs in Fabric",
+    "mapInPandas": "runs in Fabric", "mapInArrow": "runs in Fabric",
     "withWatermark": "streaming runs in Fabric", "dropDuplicatesWithinWatermark": "streaming runs in Fabric",
-    "isStreaming": "streaming runs in Fabric", "readStream": "streaming runs in Fabric", "streams": "streaming runs in Fabric",
+    "streams": "streaming runs in Fabric",
     "udf": "Python UDFs run in Fabric", "udtf": "Python UDTFs run in Fabric", "pandas_api": "pandas-on-Spark runs in Fabric; use toPandas()",
 }
+
+# Fabric-only until this PC's streaming (spark_stream.py) adds them; then they're counted as they work.
+# (DuckDB has a readStream of its own that reads nothing.)
+STREAMING = {"readStream", "writeStream", "isStreaming"}
 
 NO_OP = {"repartition", "repartitionByRange", "coalesce", "persist", "unpersist", "checkpoint", "localCheckpoint",
          "hint", "cache"}
@@ -335,7 +344,9 @@ def coverage() -> list[dict[str, str]]:
                 if name in klass.__dict__:
                     attr = klass.__dict__[name]
                     break
-            if name in NOT_HERE:
+            ours = getattr(attr.fget if isinstance(attr, property) else attr, "__module__", "") == "fabric_desktop.spark_stream"
+            why = NOT_HERE.get(name) or ("streaming runs in Fabric" if name in STREAMING and not ours else "")
+            if why:
                 state = "Fabric"
             elif attr is None or _not_implemented(attr, ContributionsAcceptedError):
                 state = "missing"
@@ -343,7 +354,7 @@ def coverage() -> list[dict[str, str]]:
                 state = "no-op"
             else:
                 state = "works"
-            rows.append({"area": area, "name": name, "state": state, "why": NOT_HERE.get(name, "")})
+            rows.append({"area": area, "name": name, "state": state, "why": why})
     return rows
 
 

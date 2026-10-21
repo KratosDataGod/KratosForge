@@ -99,15 +99,15 @@ Each PR is independent, tested without Fabric, and reported before the next star
 
 1. and 2. **This plan, with local projects, engine and file discovery** (LDE-001, LDE-002), in one pull request. Engine calls only; no UI. *Built.*
 3. **Excel workbooks** (LDE-002 remainder): add a pinned Excel reader in its own PR (candidates: `openpyxl`, MIT; or `fastexcel`, MIT, via Polars), sheets imported into the project database and re-imported when the file changes.
-4. **T-SQL compatibility** (LDE-004) on SQL-002's profiles, once #120 merges.
+4. **T-SQL compatibility** (LDE-004) on SQL-002's profiles. *Built:* T-SQL translated to DuckDB SQL with T-SQL's integer division and averages, `LEN`, `DATEPART`, `+` on text, UTC `GETDATE()`, `#temp` tables and `GO`; variables and control flow refused; each result carries SQL-002's Warehouse check. Not yet: variables and control flow, `STRING_SPLIT` as a table, and `MERGE` in T-SQL (after LDE-011).
 5. **Local Delta** (LDE-005): `CREATE TABLE ... AS` to a local Delta folder through delta-rs, append and overwrite, time travel, protocol checks before every write. *Built:* `CREATE TABLE ... USING DELTA AS`, `INSERT INTO`, `INSERT OVERWRITE`, `VERSION AS OF` / `AT (VERSION => n)`, history, dry run and confirmed drop, in the Fabric-safe profile. `MERGE`, `UPDATE` and `DELETE` come with LDE-011.
-6. **Transformations** (LDE-006): SQL scripts with parameters and dependency order, each step's output kept as a table for inspection.
+6. **Transformations** (LDE-006): SQL scripts with parameters and dependency order, each step's output kept as a table for inspection. *Built:* one query per file in `transforms/<schema>/<name>.sql`, order from the tables each reads plus `depends_on`, bound parameters with defaults, table or Delta output, dry run, kept runs. Not yet: incremental steps (with LDE-011), tests on a step's output, and a screen.
 7. **OneLake destinations and Files transfer** (LDE-007, LDE-008).
 8. **Delta publish with validation** (LDE-009, LDE-010): dry run, preview, confirm, commit, check the committed snapshot.
 9. **Incremental and MERGE** (LDE-011). *Built for the project's own Delta tables:* `MERGE INTO` (every WHEN clause, including NOT MATCHED BY SOURCE), `UPDATE` and `DELETE` in both dialects through `delta_dml.py` and delta-rs, with an exact dry run on a linked copy, confirm for every-row changes and Spark's one-match rule. Still to come: notebook `spark.sql` and a `DeltaTable` builder (with the Notebook runtime thread), OneLake targets (Preview, with the per-table lease, after the tenant commit test), watermarks and idempotent job ids.
 10. **Local TDS endpoint** (LDE-012): needs Chris's go first.
 11. **Power BI Desktop** (LDE-013).
-12. **Quality, diagnostics and publish history** (LDE-016, 017, 018).
+12. **Quality, diagnostics and publish history** (LDE-016, 017, 018). *Built (LDE-017, first part):* `local_explain`, the plan and the plan as it ran, with per-operator rows and time, peak memory, spill and bytes read. Not yet: diagnostics for publishes and the CU classes from FINOPS-001.
 13. **Large datasets and developer tool interfaces** (LDE-019, 020).
 
 UI for the Local Data Explorer, Delta browser, destination picker, publish preview, progress and history comes from a mockup Chris approves first. The likely home is the OneLake page (a "This PC" section beside the OneLake catalog) and the SQL page's target picker, since the rail is full.

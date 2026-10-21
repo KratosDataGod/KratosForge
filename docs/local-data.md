@@ -8,7 +8,7 @@ This is the first part of the [local data engine program](local-data-engine-plan
 
 - Create several projects, each with its own database. A project kept **on disk** (the default) keeps its tables between sessions; a **memory** project keeps only its list of folders.
 - Register folders. Files are found in the folder and in sub-folders (4 levels by default), and each becomes a table.
-- Query with DuckDB SQL, or Spark SQL (translated with sqlglot, as on the SQL page): joins, `GROUP BY`, CTEs, window functions, `CREATE TABLE ... AS SELECT`, `INSERT`, `UPDATE`, `DELETE`, views, and temporary tables that last until the project is closed.
+- Query with DuckDB SQL, Spark SQL or [T-SQL](#t-sql) (translated with sqlglot, as on the SQL page): joins, `GROUP BY`, CTEs, window functions, `CREATE TABLE ... AS SELECT`, `INSERT`, `UPDATE`, `DELETE`, views, and temporary tables that last until the project is closed.
 - Set a memory limit, a thread count, a time limit for queries, and how much may spill to disk. With a memory limit, DuckDB writes to the project's `tmp` folder instead of running out of memory, so a query can work through more data than fits in RAM.
 - Cancel a running query.
 - Write [Delta tables](#delta-tables) from SQL, add to them, replace them, and read earlier versions.
@@ -74,6 +74,8 @@ Times are UTC. A time picks the last version committed at or before it. To resto
 
 **Nothing half-written.** A write that fails, is cancelled or runs out of time commits nothing, and a table that was being created leaves no folder behind. A dry run (`local_write_delta` with `dry_run = true`) runs the query and reports the rows, columns and schema change, and writes nothing.
 
+**One query.** The rows to write come from one query. DuckDB runs a `PIVOT` that finds its own columns (`PIVOT sales ON region USING sum(amount)`) as two statements, so list the values instead: `PIVOT sales ON region IN ('EU', 'US') USING sum(amount)`.
+
 **What stays read-only.** Delta tables in registered folders are never written: copy one into the project with `CREATE TABLE mine USING DELTA AS SELECT * FROM theirs`. Deleting a project table deletes its folder and every version, so it isn't done in SQL (`DROP TABLE` on one is refused) but with `local_drop_delta`, which only says what it would delete until it is called again with `confirm`.
 
 **Changing rows: MERGE, UPDATE and DELETE.** The project's Delta tables take the statements Fabric and Databricks notebooks use, in either dialect, each in one commit:
@@ -98,6 +100,70 @@ DELETE FROM customers WHERE last_order < '2020-01-01';
 
 A Delta write isn't part of a DuckDB transaction: `ROLLBACK` doesn't undo it. Only one program should write a project's Delta tables at a time, as with its database.
 
+## T-SQL
+
+With `dialect = "tsql"`, a project runs the T-SQL you'd write for a Fabric Warehouse: `TOP`, `[brackets]`, `ISNULL`, `IIF`, `DATEADD`, `DATEDIFF`, `CONVERT`, `CROSS APPLY` and `OUTER APPLY`, `OFFSET ... FETCH`, `SELECT ... INTO`, `#temp` tables, and `GO` between batches. It is translated to DuckDB SQL first, and where the two give different answers it follows T-SQL:
+
+| T-SQL | Gives here, as in Fabric |
+| --- | --- |
+| `7 / 2`, `qty / boxes` on integer columns | `3`: integers divide as integers, truncated toward zero |
+| `AVG(qty)` on an integer column | An integer |
+| `LEN('ab  ')` | `2`: trailing spaces aren't counted |
+| `DATEPART(weekday, d)` | `1` for Sunday to `7` for Saturday (DATEFIRST 7) |
+| `DATEPART(week, d)` | Week 1 is the week of 1 January; weeks start on Sunday |
+| `name + '!'` on text columns | The two strings joined |
+| `'1' + 1`, `qty + '7'` | `2`, `qty + 7`: with a number, text is converted to a number (and `'x' + 1` is an error) |
+| `CAST('abcdef' AS VARCHAR(3))`, `CAST('ab' AS CHAR(4))` | `'abc'`, `'ab  '`: text is cut to the length, and `CHAR` is padded. With no length, `CAST` and `CONVERT` make 30 characters. A number too long for the length is an error |
+| `CONVERT(VARCHAR(10), day, 120)` | `'2026-10-18'`: the style, then the length. `CONVERT(INT, 'x')` is an error and `TRY_CONVERT` gives `NULL` |
+| `GETDATE()`, `SYSDATETIME()`, `GETUTCDATE()` | The time in UTC, without a time zone (a warehouse's clock is UTC) |
+| `#t` | A temporary table kept apart from an ordinary table `t` |
+
+The column types come from the project, so the integer rules hold for its tables, views and temporary tables. When a division's or a `+`'s types can't be told (for example, columns of a table the query creates in the same script), it divides as DuckDB does and the result's `translation.notes` says so.
+
+**Refused, not half-translated:** variables (`DECLARE`, `@x`, `@@ROWCOUNT`), `IF`, `WHILE`, `BEGIN ... END`, `EXEC`, `PRINT`, transactions, procedures and functions, `USE`, `FOR JSON` and `OPTION (...)`. Each says so and what to do instead. `SET NOCOUNT ON` and similar options are skipped, since they don't change a result.
+
+**What Fabric would say.** Every T-SQL result has `translation.fabric_check`: the [SQL compatibility check](sql-compatibility.md) of the same SQL against a Fabric Warehouse, with its outcome and up to 20 errors and warnings. A query that runs here can still be one a warehouse refuses; that check is how you find out before publishing.
+
+**Differences that stay.** Dividing by zero gives `NULL` here and an error in T-SQL. Strings compare by code point, as with a warehouse's default `Latin1_General_100_BIN2_UTF8` collation, not case-insensitively as in a Fabric SQL database. `CREATE TABLE` and `SELECT ... INTO` make a database table, not a Delta table; write a Delta table with `CREATE TABLE ... USING DELTA AS` in DuckDB or Spark SQL, or add rows to one with `INSERT INTO` in T-SQL.
+
+## Why is a query slow
+
+`local_explain` shows how DuckDB runs one query that reads, in any of the project's dialects, as a tree of operators (`plan`) and as indented text (`text`).
+
+- Without `analyze`, it gives the plan with DuckDB's row estimates and runs nothing.
+- With `analyze = true`, it runs the query and reports each operator's rows, rows scanned and time, the three slowest operators with their share of the time, and the query's totals: seconds, CPU seconds, rows, rows scanned, peak memory, bytes spilled to the project's `tmp` folder and bytes read. A query that spilled says so, with what to change.
+
+Only a single `SELECT`, `WITH ... SELECT`, `FROM` or `VALUES` query is explained, because `analyze` runs it: statements that change data, and scripts of several statements, are refused before anything runs. Profiling is switched off again afterwards, so later queries aren't slowed by it.
+
+## Transformations: SQL steps in order
+
+A project's transformations are SQL files in `transforms\<schema>\<name>.sql`, one query each (`SELECT ...` or `WITH ... SELECT`). Running them makes the table `<schema>.<name>` from each query's rows, replacing the one the last run made, so every step's output stays in the project to query, compare or write on.
+
+**Order.** A step that reads another step's table runs after it. The order comes from the tables each query reads, plus any `-- depends_on:` line; a cycle, or a `depends_on` naming no step, is refused before anything runs.
+
+**Settings** are comment lines at the top of a file:
+
+```sql
+-- dialect: spark
+-- materialize: delta
+-- depends_on: dbo.calendar
+-- default: region = "EU"
+SELECT region, sum(amount) AS amount FROM dbo.orders WHERE region = :region GROUP BY region
+```
+
+| Line | Means |
+| --- | --- |
+| `-- dialect: spark` | The query is Spark SQL (DuckDB SQL otherwise) |
+| `-- materialize: delta` | Make a Fabric-safe Delta table under `Tables\` instead of a database table |
+| `-- depends_on: a.b, c.d` | Run after these steps even if the query doesn't name them |
+| `-- default: name = <JSON>` | A parameter's value when the run doesn't give one |
+
+**Parameters** are `$name` in DuckDB SQL and `:name` or `${name}` in Spark SQL. They are bound as values, never pasted into the SQL, so a value can't change what a query does. A parameter with no value and no default stops the step and names it.
+
+**What a step replaces.** Only a table an earlier transformation made. A table or view with the same name that someone made another way, a registered folder's table, or a Delta table written another way is left alone, and the step fails saying so. Deleting a step's file leaves its table as it is.
+
+**Runs.** `local_transform_run` runs every step, or with `steps` only those and the steps that read their tables. It stops at the first failing step: later steps are reported as skipped, and the tables from earlier steps are kept. A dry run (`dry_run = true`) checks that each query compiles against the current tables and makes nothing; a step reading a table an earlier step hasn't made yet is reported as not checked. The last 50 runs are kept in `transforms\.runs\`, each step with its status, rows, time and error.
+
 ## Where it is kept
 
 Each project is a folder under `%LOCALAPPDATA%\FabricDesktop\local-data\` (or one you choose, for example inside a Git repository):
@@ -107,6 +173,7 @@ Each project is a folder under `%LOCALAPPDATA%\FabricDesktop\local-data\` (or on
 | `project.json` | Name, settings, registered folders, type overrides and the list of discovered tables |
 | `data.duckdb` | The database: your tables and views, and views over the discovered files |
 | `tmp\` | Data DuckDB spills to disk under a memory limit |
+| `transforms\<schema>\<name>.sql` | Transformation steps, and `transforms\.runs\` their last 50 runs |
 | `Tables\<schema>\<table>\` | The project's Delta tables. Tables copied in here are picked up when the project opens or is refreshed. |
 
 Only one program can write to a project's database at a time. If another KratosForge window or a notebook has it open, the project says so instead of risking the file; close it there (or close the project) and try again.
@@ -122,12 +189,16 @@ Only one program can write to a project's database at a time. If another KratosF
 | `local_refresh(project, path)` / `local_remove_source(project, path)` | Look again / stop reading a folder |
 | `list_local_tables(project)` | Schemas, tables, views, temporary tables and columns, with each file's format, size and status |
 | `local_set_types(project, table, columns)` | Read a discovered table's columns as these types |
-| `local_query(project, query, dialect, limit, timeout)` | Run SQL and return columns, up to `limit` rows, the row count, whether rows were left out, and timings per statement |
+| `local_query(project, query, dialect, limit, timeout)` | Run SQL (`dialect`: `duckdb`, `spark` or `tsql`) and return columns, up to `limit` rows, the row count, whether rows were left out, and timings per statement |
+| `local_explain(project, query, dialect, analyze, timeout)` | How the engine runs one query that reads: its plan, or with `analyze` the plan as it ran (see [Why is a query slow](#why-is-a-query-slow)) |
 | `local_query_start` / `local_query_status` / `local_query_cancel` | The same, in the background, for long queries |
 | `local_write_delta(project, table, query, mode, partition_by, schema_mode, dry_run)` | Write a query's rows to a Delta table in the project (`mode`: `create`, `append` or `overwrite`) |
 | `local_change_delta(project, query, dialect, dry_run, confirm)` | Run one `MERGE INTO`, `UPDATE` or `DELETE` on a Delta table in the project; returns rows inserted, updated and deleted. `dry_run` changes nothing; `confirm` is needed for every row |
 | `local_delta_history(project, table, limit)` | A Delta table's versions: time, operation, rows and files added |
 | `local_drop_delta(project, table, confirm)` | Delete one of the project's Delta tables with every version (only with `confirm`) |
+| `local_transform_plan(project)` | The project's transformation steps in run order, with what each reads, its settings and parameters, and any problems |
+| `local_transform_run(project, params, steps, dry_run)` | Run the steps in order, each making its table |
+| `local_transform_runs(project, limit)` | Earlier runs, newest first |
 | `local_close_project` / `local_forget_project` | Close the database / take the project off the list (its folder stays) |
 
 In Python, `LocalEngine.execute_reader(sql)` streams a query's whole result in Arrow batches with no row limit; the SQL page's managed execution reads results that way. Read the stream to the end or close it (`with engine.execute_reader(sql) as stream:`), because the project answers one request at a time until then.
@@ -136,4 +207,4 @@ Each query and change is recorded in the [audit trail](user-guide.md#audit-trail
 
 ## Not yet
 
-Excel, T-SQL, `MERGE` in notebook cells (`spark.sql` on this PC still refuses it), publishing to OneLake, a SQL Server-compatible endpoint, Power BI Desktop and the screens are later steps in the [plan](local-data-engine-plan.md#4-pr-plan). Delta tables are untested against a Fabric lakehouse until a publish exists; their profile is the one the app's other writes to OneLake already use.
+Excel, T-SQL batches with variables and control flow, `MERGE` in notebook cells (`spark.sql` on this PC still refuses it), publishing to OneLake, a SQL Server-compatible endpoint, Power BI Desktop and the screens are later steps in the [plan](local-data-engine-plan.md#4-pr-plan). Delta tables are untested against a Fabric lakehouse until a publish exists; their profile is the one the app's other writes to OneLake already use.

@@ -41,6 +41,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/hardening/README.md](docs/hardening/README.md) | The enterprise hardening audit: evidence-based scorecard, [findings](docs/hardening/findings.md), [backlog](docs/hardening/backlog.md) and [release gates](docs/hardening/readiness-checklist.md) |
 | [docs/user-guide.md](docs/user-guide.md) | Every page of the app and how to use it |
 | [docs/notebooks.md](docs/notebooks.md) | Notebooks and SQL on your PC, Fabric code that works here, publishing, Run in Fabric and schedules |
+| [docs/notebook-spark-on-this-pc.md](docs/notebook-spark-on-this-pc.md) | Which PySpark methods and Spark settings work in a notebook on this PC |
 | [docs/sql-compatibility.md](docs/sql-compatibility.md) | The SQL compatibility check: what each Fabric SQL engine supports, findings, export, rules |
 | [docs/sql-execution.md](docs/sql-execution.md) | Running SQL page queries on this PC: states, Stop, limits, paging, export, what a query may do |
 | [docs/local-data.md](docs/local-data.md) | Local data projects (Preview): folders of CSV, JSON and Parquet files as SQL tables on your PC, kept between sessions, starting no Fabric job |

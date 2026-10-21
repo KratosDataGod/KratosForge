@@ -367,6 +367,21 @@ class ProcessKernel:
         return self._request("frame_page", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame, offset=offset,
                              limit=limit, sort=sort, desc=desc, q=q)
 
+    def frame_chart(self, frame: str, **spec: Any) -> dict[str, Any]:
+        if not self.alive():
+            raise FrameGone(GONE)
+        return self._request("frame_chart", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame, **spec)
+
+    def frame_profile(self, frame: str) -> dict[str, Any]:
+        if not self.alive():
+            raise FrameGone(GONE)
+        return self._request("frame_profile", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame)
+
+    def frame_wrangle(self, frame: str, steps: list[dict[str, Any]], name: str = "df") -> dict[str, Any]:
+        if not self.alive():
+            raise FrameGone(GONE)
+        return self._request("frame_wrangle", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame, steps=steps, name=name)
+
     def frame_download(self, frame: str, format: str, path: str) -> dict[str, Any]:  # noqa: A002 - RPC name
         if not self.alive():
             raise FrameGone(GONE)

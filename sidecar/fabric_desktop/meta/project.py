@@ -32,6 +32,7 @@ from . import freshness as freshness_mod
 from . import objectives as objectives_mod
 from . import keys as keys_mod
 from . import mesh as mesh_mod
+from ..jsonfile import write_text
 
 MAX_LAYERS = 10
 # Fabric's table maintenance won't VACUUM with less than 7 days' retention.
@@ -226,7 +227,7 @@ def write_layers_file(root: Path, layers: list[Layer], rules: dict[str, Any]) ->
         if l.workspace:
             lines.append(f"workspace = {json.dumps(l.workspace)}")
         lines.append("")
-    (Path(root) / "layers.toml").write_text("\n".join(lines), encoding="utf-8")
+    write_text(Path(root) / "layers.toml", "\n".join(lines))
 
 
 class Project:
@@ -342,7 +343,7 @@ class Project:
         self.reload()
         errors = [e for e in validate(self) if "layer" in e or "reads" in e]
         if errors:
-            (self.root / "layers.toml").write_text(old, encoding="utf-8")
+            write_text(self.root / "layers.toml", old)
             self.reload()
             raise GateError("save", errors)
 

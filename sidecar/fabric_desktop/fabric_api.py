@@ -135,6 +135,10 @@ class FabricClient:
         """Every item in the workspace: lakehouses, warehouses, notebooks, semantic models, ..."""
         return self._paged(f"/workspaces/{workspace_id}/items")
 
+    def list_tables(self, workspace_id: str, lakehouse_id: str) -> list[dict[str, Any]]:
+        """A lakehouse's tables, as Fabric lists them (lakehouses with schemas aren't listed by this API)."""
+        return self._paged(f"/workspaces/{workspace_id}/lakehouses/{lakehouse_id}/tables", key="data")
+
     def get_lakehouse(self, workspace_id: str, lakehouse_id: str) -> dict[str, Any]:
         return self._request("GET", f"/workspaces/{workspace_id}/lakehouses/{lakehouse_id}").json()
 

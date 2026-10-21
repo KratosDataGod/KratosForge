@@ -3684,6 +3684,20 @@ test("a Data Wrangler step that can't run is marked with its reason and blocks a
   assert.ok(allNodes(box2).some((n) => /Run the cell again to clean this result/.test(n.textContent)));
 });
 
+// Notebook utilities: notebookutils.lakehouse reads on this PC; changes stay in Fabric.
+test("notebookutils.lakehouse and isValidToken are documented", () => {
+  const docs = fs.readFileSync(path.join(ui, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(docs, /\| `lakehouse` \(Preview\) \| `get`, `getWithProperties`, `list` and `listTables`, read from Fabric as you/);
+  assert.match(docs, /`create`, `update`, `delete` and `loadTable` run in Fabric only/);
+  assert.match(docs, /`isValidToken` says whether a token hasn't expired yet/);
+});
+
+// notebookutils rows that read Fabric live are marked Preview until they run on a tenant.
+test("notebookutils docs mark the live Fabric reads Preview", () => {
+  const docs = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(docs, /Rows marked Preview read Fabric live as you and haven't been run on a tenant yet\./);
+});
+
 // Notebook utilities: Databricks dbutils works on this PC; the snippets and docs say how.
 test("Databricks dbutils snippets and docs", () => {
   const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");

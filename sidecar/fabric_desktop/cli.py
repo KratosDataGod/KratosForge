@@ -53,6 +53,13 @@ def main(argv: list[str] | None = None) -> None:
     live.add_argument("--out", default="live-test-results", help="folder for results (default: live-test-results)")
     live.add_argument("--agent-config", help="sign in as this agent.toml's identity instead of as you")
     live.add_argument("--cleanup", metavar="LEDGER", help="delete what an earlier run's ledger.json lists, then exit")
+    live.add_argument("--all", action="store_true", help="also run the opt-in checks (concurrent Delta writers, "
+                      "notebook publish, pipeline definition); they create items and use capacity")
+    live.add_argument("--check", action="append", default=[], metavar="ID",
+                      choices=["delta.concurrent", "notebook.publish", "pipeline.definition"],
+                      help="also run this opt-in check (repeat for more)")
+    live.add_argument("--run-in-fabric", action="store_true",
+                      help="also run the published test notebook in Fabric; spends Spark capacity")
     bundle = sub.add_parser("support-bundle", help="save a zip of versions, settings sources and recent logs, "
                                                    "with secrets and personal details taken out")
     bundle.add_argument("--out", default=".", help="folder to save it in (default: here)")
@@ -222,9 +229,11 @@ def _live_test(args: argparse.Namespace) -> int:
     if not args.workspace and not args.cleanup:
         print("Name the test workspace with --workspace <id>.")
         return 2
+    extra = set(args.check) | (set(livetest.ALL_CHECKS) if args.all else set())
     if args.dry_run:
         print("The live test will:")
-        for step in livetest.LiveTest(args.workspace, None, None, None, Path(args.out), bad_token_files=object()).plan():
+        for step in livetest.LiveTest(args.workspace, None, None, None, Path(args.out), bad_token_files=object(),
+                                      extra=extra, run_in_fabric=args.run_in_fabric).plan():
             print(f"  - {step}")
         print("Dry run: nothing was signed in to, created or written.")
         return 0
@@ -241,7 +250,8 @@ def _live_test(args: argparse.Namespace) -> int:
         print(json.dumps(result, indent=2))
         return 1 if result["left_behind"] else 0
     test = livetest.LiveTest(args.workspace, fabric, FileStore(credential.storage_token), credential, Path(args.out),
-                             protected_ids=livetest.policy_workspace_ids())
+                             protected_ids=livetest.policy_workspace_ids(), extra=extra,
+                             run_in_fabric=args.run_in_fabric)
     print("The live test will:")
     for step in test.plan():
         print(f"  - {step}")

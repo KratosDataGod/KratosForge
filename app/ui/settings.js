@@ -3,8 +3,8 @@
 // what their organization fixed in its policy file.
 
 const SOURCE_TEXT = {
-  policy: "Set by your organization",
-  environment: "Set on this PC (FABRIC_DESKTOP_CLIENT_ID)",
+  policy: "Set by your organization's policy",
+  environment: "Set by the FABRIC_DESKTOP_CLIENT_ID environment variable",
   user: "Set by you",
   built_in: "Comes with KratosForge",
   default: "Default",
@@ -24,12 +24,14 @@ const MICROSOFT_SIGN_IN = "Microsoft's Fabric sign-in (no app registration)";
 
 async function loadSettings() {
   state.settings = await rpc("app_settings").catch(() => state.settings || null);
+  applyMotion();  // motion.js
   return state.settings;
 }
 
 async function saveSettings(changes, label = "Not saved") {
   const res = await attempt(() => rpc("save_app_settings", { changes }), label);
   if (res) state.settings = res;
+  applyMotion();
   return res;
 }
 
@@ -76,6 +78,7 @@ function accountMenu(anchor) {
     ? [{ info: `Signed in as ${state.user}` }]
     : [{ label: "Sign in", icon: "person", action: () => signIn().then((ok) => ok && render()) }];
   items.push(
+    previewShown() ? { label: "Profile (Preview)", icon: "person", action: () => { profilePage.tab = "overview"; go("profile"); } } : null,
     { label: "Settings", icon: "settings", action: () => go("settings") },
     { label: "Help and user guide", icon: "help", action: () => invoke("open_doc", { page: "user-guide.md" }).catch(() => {}) },
     { label: "Report a problem", icon: "bug", action: reportProblem },
@@ -83,7 +86,7 @@ function accountMenu(anchor) {
     { info: `KratosForge build ${state.build || "unknown"} · ${channelLabel()}` },
   );
   if (state.user) items.push({ label: "Sign out", icon: "signOut", action: signOut });
-  showMenu(anchor, items);
+  showMenu(anchor, items.filter(Boolean));
 }
 
 function channelLabel() {
@@ -317,6 +320,124 @@ function whatsNewItems(notes, history) {
 
 // ---------- Settings page ----------
 
+const MOTION_LEVEL_HELP = ["No animation at all. Progress, results and errors still show.",
+  "Quick page and panel transitions only. No branded effects.",
+  "Subtle sparks, embers and the wolf on real progress. Recommended.",
+  "The same moments with more character: extra sparks, halftone and offset rings."];
+// Achievement celebrations (motion_achievements, off by default) gets its row when the developer
+// profile (#327) can award something to celebrate; a switch that does nothing would only confuse.
+const MOTION_FAMILIES = [["motion_wolf", "Wolf animations", "The wolf on run progress, its arrival and the Wolf Run after long work."],
+  ["motion_sparks", "Forge sparks", "Sparks when work succeeds, the anvil strike after a deployment, the ember when something fails."],
+  ["motion_ambient", "Running indicators", "The glow on a running cell, the flow into a running pipeline step, the ring when work starts."]];
+
+function motionSettingsCard(s, locked) {
+  const level = s.motion_level.value;
+  const source = (key) => (s[key]?.source === "policy" ? "policy" : null);
+  const save = async (changes) => { if (await saveSettings(changes)) render(); };
+  const levelRow = (n) => h("label", { class: `choice-row${level === n ? " selected" : ""}` },
+    h("input", { type: "radio", name: "motion_level", value: String(n), checked: level === n ? true : null,
+      disabled: locked("motion_level") ? true : null, onchange: () => save({ motion_level: n }) }),
+    h("span", {}, h("b", {}, `${n} ${MOTION_LEVELS[n]}`), h("span", { class: "muted-text small" }, MOTION_LEVEL_HELP[n])));
+  const toggle = (key, label, on, disabled) => h("label", { class: "switch" },
+    h("input", { type: "checkbox", checked: on ? true : null, disabled: disabled || locked(key) ? true : null, "aria-label": label,
+      onchange: (e) => save({ [key]: e.target.checked }) }),
+    h("span", {}, on ? "On" : "Off"));
+  const reduced = reducedMotion() && s.motion_follow_system?.value !== false;
+  return h("section", { class: "card pad motion-settings" }, h("h2", {}, "Appearance"),
+    h("h3", {}, "Motion & effects"),
+    h("p", { class: "muted-text small" }, "Effects only follow real work as it finishes; they never delay a run, take focus or cover your code. ",
+      reduced ? h("b", {}, "Off now: Windows asks apps to reduce motion. ") : null, learnMore("motion-and-effects")),
+    h("div", { class: "choices motion-levels", role: "radiogroup", "aria-label": "Visual intensity" }, [0, 1, 2, 3].map(levelRow)),
+    source("motion_level") ? h("div", { class: "setting-source" }, SOURCE_TEXT.policy) : null,
+    MOTION_FAMILIES.map(([key, label, help]) => settingRow(label, level < 2 ? `${help} Plays at Refined and Expressive.` : help,
+      toggle(key, label, s[key]?.value !== false, level < 2), source(key))),
+    settingRow("Respect Windows' reduced-motion setting",
+      "When Windows' Animation effects are off, KratosForge shows no motion. Untick to keep the level you chose anyway.",
+      toggle("motion_follow_system", "Respect Windows' reduced-motion setting", s.motion_follow_system?.value !== false), source("motion_follow_system")),
+    h("div", { class: "row" }, btn("Preview effects", "play", showMotionGallery, "tool outline")));
+}
+
+// Settings > Motion & effects > Preview effects: each effect on a sample, at the level and switches
+// in force now, and Energy Flow on a real three-step pipeline run on this PC.
+function showMotionGallery() {
+  const stats = h("p", { class: "muted-text small", "aria-live": "polite" });
+  const showStats = () => {
+    const d = motionDiagnostics();
+    const played = Object.values(d.played).reduce((a, b) => a + b, 0);
+    stats.textContent = `Level now: ${d.level} ${MOTION_LEVELS[d.level]}${d.level !== d.chosen ? ` (you chose ${d.chosen})` : ""}. `
+      + `${played} ${played === 1 ? "effect" : "effects"} played.`;
+  };
+  const sample = (label, cls = "ok") => h("span", { class: `motion-sample ${cls}` }, label);
+  const row = (name, help, target, play) => h("div", { class: "motion-demo" },
+    h("div", {}, h("b", {}, name), h("div", { class: "muted-text small" }, help)), h("div", { class: "motion-target" }, target),
+    btn("Play", "play", () => { play(); setTimeout(showStats, 50); }, "tool small"));
+  const spark = sample("Succeeded");
+  const failed = sample("Failed", "bad");
+  const run = h("button", { class: "tool outline small", tabindex: "-1", "aria-hidden": "true" }, "Run all");
+  const deployed = sample("Deployed 4 steps.");
+  const lane = h("span", { class: "motion-lane" }, "Kernel idle");
+  const trackHost = h("span", { class: "motion-track" });
+  const flowHost = h("div", { class: "motion-flow" });
+  const flowNote = h("span", { class: "muted-text small" });
+  let flowing = false;
+  const runPipeline = async () => {
+    if (flowing) return;
+    flowing = true;
+    flowHost.replaceChildren();
+    const flow = pipelineFlow(flowHost);
+    const started = await attempt(() => rpc("pipeline_run_start", { text: MOTION_SAMPLE_PIPELINE }), "Sample pipeline didn't start");
+    if (!started?.ok) { flowing = false; flowNote.textContent = started?.problems?.[0]?.message || ""; return; }
+    forgeEvent("pipeline.started", flowHost.closest(".motion-demo")?.querySelector("button"));
+    for (;;) {
+      const st = await rpc("pipeline_run_status", { run_id: started.run_id, values: false }).catch(() => null);
+      if (!st || !flowHost.isConnected) break;
+      flow.update(st);
+      const ok = st.counts?.succeeded || 0;
+      flowNote.textContent = st.state === "running" || st.state === "pending" ? `Running on this PC: ${ok} succeeded so far`
+        : `${st.state[0].toUpperCase()}${st.state.slice(1)}: ${ok} of ${st.activities?.length || 0} activities succeeded`;
+      if (st.state !== "running" && st.state !== "pending") {
+        forgeEvent(st.state === "succeeded" ? "pipeline.succeeded" : "pipeline.failed", flowNote);
+        announce(`Sample pipeline ${st.state}`);
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    flowing = false;
+    showStats();
+  };
+  const body = h("div", { class: "motion-gallery" },
+    h("p", { class: "muted-text small" }, "Each effect plays on a sample at the level and switches set now. The samples are not real work, except the pipeline, "
+      + "which runs a three-step sample (two short waits and a variable) on this PC and is kept in this PC's local pipeline run history. Nothing goes to Fabric."),
+    row("Forge Spark", "A cell, query or check succeeded.", spark, () => forgeEvent("notebook.cell.succeeded", spark)),
+    row("Controlled Failure", "Something failed. The red label is there from the first frame.", failed, () => forgeEvent("notebook.cell.failed", failed)),
+    row("Pulse", "Run all started.", run, () => forgeEvent("notebook.run.started", run)),
+    row("Wolf track and arrival", "Run all: the wolf sits at the share of cells done (sample: 4 steps).", trackHost, () => {
+      if (trackHost.childElementCount) return;
+      const t = wolfTrack(() => trackHost, "Sample run", "Step", "on this PC");
+      let i = 0;
+      t.set(0, 4);
+      const tick = setInterval(() => { i += 1; if (i < 4) t.set(i, 4); else { clearInterval(tick); t.set(4, 4); t.arrive(); } }, 450);
+    }),
+    row("Wolf Run", "A cell that ran 10 s or more succeeded.", lane, () => forgeEvent("notebook.long.succeeded", lane)),
+    row("Anvil Strike", "A deployment succeeded.", deployed, () => forgeEvent("deploy.succeeded", deployed)),
+    h("div", { class: "motion-demo" }, h("div", {}, h("b", {}, "Energy Flow"),
+      h("div", { class: "muted-text small" }, "A pipeline's activities as they really run: the link into the running step flows, a finished step settles.")),
+    h("div", { class: "motion-target" }, flowNote), btn("Run sample on this PC", "play", runPipeline, "tool small")),
+    flowHost, stats);
+  showStats();
+  showDialog("Motion & effects", body, [btn("Done", null, closeDialog, "primary")]);
+}
+
+// Three activities that only wait and set a variable: nothing is read, written or sent.
+const MOTION_SAMPLE_PIPELINE = JSON.stringify({ name: "Motion sample", properties: {
+  variables: { shaped: { type: "String" } },
+  activities: [
+    { name: "Land files", type: "Wait", dependsOn: [], typeProperties: { waitTimeInSeconds: 1 } },
+    { name: "Shape", type: "SetVariable", dependsOn: [{ activity: "Land files", dependencyConditions: ["Succeeded"] }],
+      typeProperties: { variableName: "shaped", value: "yes" } },
+    { name: "Publish", type: "Wait", dependsOn: [{ activity: "Shape", dependencyConditions: ["Succeeded"] }], typeProperties: { waitTimeInSeconds: 1 } },
+  ] } });
+
 function settingRow(title, help, control, source) {
   return h("div", { class: "setting" },
     h("div", { class: "setting-text" }, h("b", {}, title), help ? h("div", { class: "muted-text small" }, help) : null,
@@ -333,27 +454,15 @@ async function renderSettings() {
       h("p", { class: "muted-text" }, "Settings load once the local engine is running.")));
     return;
   }
-  const locked = (key) => s[key].source === "policy";
+  // Policy or an environment variable sets it: the field shows the value, read-only, and says which.
+  const locked = (key) => fixedBy(s, key) !== null;
 
   // Account
-  const idInput = h("input", { value: s.client_id.source === "user" ? s.client_id.value : "", spellcheck: "false",
-    placeholder: s.client_id.source === "default" ? "Empty: Microsoft's Fabric sign-in" : s.client_id.value, disabled: locked("client_id") ? true : null });
   const account = h("section", { class: "card pad" }, h("h2", {}, "Account"),
     settingRow(state.user ? `Signed in as ${state.user}` : "Not signed in",
       state.user ? (state.tenant ? `Directory ${state.tenant}` : "") : "Sign in to see your Fabric workspaces and lakehouses.",
       state.user ? btn("Sign out", "signOut", signOut, "tool outline")
         : btn("Sign in", "person", async () => { if (await signIn()) render(); }, "tool primary")),
-    settingRow("App (client) ID", "Leave it empty: KratosForge signs in through Microsoft's own Fabric sign-in, so nobody has to register an app. Only paste an ID if your organization gave you its own app.",
-      h("div", { class: "row" }, idInput,
-        locked("client_id") ? null : btn("Save", null, async () => {
-          if (await saveSettings({ client_id: idInput.value.trim() })) { toast("Saved. Sign in again to use it."); render(); }
-        }, "tool outline")),
-      s.client_id.source === "default" ? MICROSOFT_SIGN_IN : s.client_id.source),
-    clientIdNote(s.client_id.source) ? h("div", { class: "callout git-warn small", role: "note" },
-      h("span", { class: "grow" }, clientIdNote(s.client_id.source)),
-      s.client_id.source === "user" ? btn("Use Microsoft's sign-in", null, async () => {
-        if (await saveSettings({ client_id: "" })) { toast("Saved. Sign in again to use it."); render(); }
-      }, "tool outline small") : null) : null,
     s.client_id.source !== "default" ? settingRow("Admin approval",
       "If sign-in says your organization needs to approve KratosForge, send this link to a Microsoft Entra admin. They open it once for everyone.",
       btn("Copy the link", "copyArrowRight", async () => {
@@ -383,6 +492,9 @@ async function renderSettings() {
     h("div", { class: "row" }, btn("What's new in this build", "rocket", () => showWhatsNew(true), "tool link small"),
       btn("Show the update splash", "rocket", () => showUpdateSplash(true), "tool link small")));
 
+  // Appearance > Motion & effects (motion.js, docs/forge-animations.md)
+  const display = s.motion_level ? motionSettingsCard(s, locked) : null;
+
   // Preview features
   const previews = h("section", { class: "card pad" }, h("h2", {}, "Preview features"),
     settingRow("Show features in preview",
@@ -390,19 +502,7 @@ async function renderSettings() {
         + `${PREVIEW_ALWAYS_SHOWN.map((id) => PREVIEW_FEATURES[id]).join(", ")} are core steps: they stay visible, tagged Preview, either way.`,
       h("label", { class: "switch" }, h("input", { type: "checkbox", checked: previewShown() ? true : null, disabled: locked("show_preview") ? true : null,
         onchange: async (e) => { if (await saveSettings({ show_preview: e.target.checked })) render(); } }), h("span", {}, previewShown() ? "On" : "Off")),
-      s.show_preview.source === "policy" ? "policy" : null),
-    s.kernel_process ? settingRow("Run notebooks in their own process (Preview)",
-      "Cells run in a Python process of their own instead of inside the app's engine. Stop and a crash then end only that process, and the rest of the app keeps working. Variables are cleared when you switch.",
-      h("label", { class: "switch" }, h("input", { type: "checkbox", checked: s.kernel_process.value ? true : null, disabled: locked("kernel_process") ? true : null,
-        onchange: async (e) => { await saveSettings({ kernel_process: e.target.checked }); render(); } }),
-      h("span", {}, s.kernel_process.value ? "On" : "Off")),
-      s.kernel_process.source === "policy" ? "policy" : null) : null,
-    s.kernel_process?.value && s.cell_time_limit_minutes ? limitRow("cell_time_limit_minutes", "Cell time limit",
-      "A cell that runs longer is interrupted. Variables are kept. If it doesn't stop within 30 seconds, its process is ended and variables are cleared. Proofs and side by side use the same limit.",
-      [[0, "Off"], [15, "15 minutes"], [60, "1 hour"], [240, "4 hours"], [720, "12 hours"]]) : null,
-    s.kernel_process?.value && s.kernel_memory_limit_gb ? limitRow("kernel_memory_limit_gb", "Notebook memory limit",
-      "The notebook's process is ended if it uses more, so one notebook can't slow the whole PC. Variables are cleared.",
-      [[0, "Off"], [4, "4 GB"], [8, "8 GB"], [16, "16 GB"], [32, "32 GB"]]) : null);
+      s.show_preview.source === "policy" ? "policy" : null));
 
   // A limit from Settings: a fixed list, plus the current value when the policy file set another.
   function limitRow(key, title, help, options) {
@@ -412,11 +512,11 @@ async function renderSettings() {
       h("select", { "aria-label": title, disabled: locked(key) ? true : null,
         onchange: async (e) => { if (await saveSettings({ [key]: Number(e.target.value) })) render(); } },
         options.map(([v, label]) => h("option", { value: v, selected: v === current ? true : null }, label))),
-      s[key].source === "policy" ? "policy" : null);
+      fixedBy(s, key));
   }
 
-  // SQL queries (SQL-003): the limits every SQL page query runs with on this PC.
-  const sql = s.sql_page_rows ? sqlSettingsSection(s, locked) : null;
+  // Advanced (UX-006): what most people never change, folded until opened once.
+  const advanced = advancedSection(s, locked, limitRow);
 
   // Usage data (FD-137): off unless this person turns it on; telemetry.py in the engine.
   const usage = await usageSection(s);
@@ -430,6 +530,7 @@ async function renderSettings() {
   const about = h("section", { class: "card pad" }, h("h2", {}, "Help and about"),
     h("div", { class: "row wrap" },
       btn("User guide", "help", () => invoke("open_doc", { page: "user-guide.md" }).catch(() => {}), "tool outline"),
+      btn("Keyboard shortcuts", "help", shortcutsDialog, "tool outline"),
       btn("Report a problem", "bug", reportProblem, "tool outline"),
       btn("Guide for IT admins", "shield", () => invoke("open_doc", { page: "permissions.md" }).catch(() => {}), "tool outline")),
     h("dl", { class: "about" },
@@ -460,13 +561,59 @@ async function renderSettings() {
   setView(h("div", { class: "page settings" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
       h("p", { class: "sub" }, "How KratosForge signs in, updates and talks to you. ", learnMore("settings")))),
-    tabs, tab === "integrations" ? integrations : [account, updates, previews, sql, usage, platform, notify, about].filter(Boolean)));
+    tabs, tab === "integrations" ? integrations : [account, updates, display, previews, usage, platform, notify, about, advanced].filter(Boolean)));
   if (tab === "integrations") {
     renderIntegrationsTab(integrations);
     return;
   }
   const optimize = previewShown() ? await optimizeSettingsSection() : null;
   if (state.view === "settings" && optimize) notify.before(optimize);
+}
+
+// "policy" or "environment" when that sets the value, so Settings shows it read-only and says which
+// (SOURCE_TEXT); null when this person can change it.
+function fixedBy(s, key) {
+  const source = s?.[key]?.source;
+  return source === "policy" || source === "environment" ? source : null;
+}
+
+// The App (client) ID, notebook process limits and SQL limits: one fold, closed by default (UX-006).
+function advancedSection(s, locked, limitRow) {
+  const idFixed = locked("client_id");
+  const idInput = h("input", { value: idFixed || s.client_id.source === "user" ? s.client_id.value : "", spellcheck: "false",
+    "aria-label": "App (client) ID", placeholder: s.client_id.source === "default" ? "Empty: Microsoft's Fabric sign-in" : s.client_id.value,
+    readonly: idFixed ? true : null, "aria-readonly": idFixed ? "true" : null });
+  const signInGroup = h("div", { class: "advanced-group" }, h("h3", {}, "Sign-in"),
+    settingRow("App (client) ID", "Leave it empty: KratosForge signs in through Microsoft's own Fabric sign-in, so nobody has to register an app. Only paste an ID if your organization gave you its own app.",
+      h("div", { class: "row" }, idInput,
+        idFixed ? null : btn("Save", null, async () => {
+          if (await saveSettings({ client_id: idInput.value.trim() })) { toast("Saved. Sign in again to use it."); render(); }
+        }, "tool outline")),
+      s.client_id.source === "default" ? MICROSOFT_SIGN_IN : s.client_id.source),
+    clientIdNote(s.client_id.source) ? h("div", { class: "callout git-warn small", role: "note" },
+      h("span", { class: "grow" }, clientIdNote(s.client_id.source)),
+      s.client_id.source === "user" ? btn("Use Microsoft's sign-in", null, async () => {
+        if (await saveSettings({ client_id: "" })) { toast("Saved. Sign in again to use it."); render(); }
+      }, "tool outline small") : null) : null);
+  const kernel = s.kernel_process ? h("div", { class: "advanced-group" }, h("h3", {}, "Notebooks"),
+    settingRow("Run notebooks in their own process (Preview)",
+      "Cells run in a Python process of their own instead of inside the app's engine. Stop and a crash then end only that process, and the rest of the app keeps working. Variables are cleared when you switch.",
+      h("label", { class: "switch" }, h("input", { type: "checkbox", checked: s.kernel_process.value ? true : null, disabled: locked("kernel_process") ? true : null,
+        onchange: async (e) => { await saveSettings({ kernel_process: e.target.checked }); render(); } }),
+      h("span", {}, s.kernel_process.value ? "On" : "Off")),
+      fixedBy(s, "kernel_process")),
+    s.kernel_process.value && s.cell_time_limit_minutes ? limitRow("cell_time_limit_minutes", "Cell time limit",
+      "A cell that runs longer is interrupted. Variables are kept. If it doesn't stop within 30 seconds, its process is ended and variables are cleared. Proofs and side by side use the same limit.",
+      [[0, "Off"], [15, "15 minutes"], [60, "1 hour"], [240, "4 hours"], [720, "12 hours"]]) : null,
+    s.kernel_process.value && s.kernel_memory_limit_gb ? limitRow("kernel_memory_limit_gb", "Notebook memory limit",
+      "The notebook's process is ended if it uses more, so one notebook can't slow the whole PC. Variables are cleared.",
+      [[0, "Off"], [4, "4 GB"], [8, "8 GB"], [16, "16 GB"], [32, "32 GB"]]) : null) : null;
+  // SQL queries (SQL-003): the limits every SQL page query runs with on this PC.
+  const sql = s.sql_page_rows ? sqlSettingsSection(s, locked) : null;
+  return foldable("settings.advanced", h("h2", {}, "Advanced"), [
+    h("p", { class: "muted-text small" }, "Most people never need these: your own app registration, and the limits notebooks and SQL queries run with on this PC. ",
+      learnMore("advanced-settings")),
+    signInGroup, kernel, sql].filter(Boolean), { start: true, cls: "card pad advanced" });
 }
 
 // The SQL page's limits. Each is checked by the engine (app_settings.SQL_RANGES); a value set by the
@@ -483,14 +630,14 @@ function sqlSettingsSection(s, locked) {
   const inputs = {};
   const rows = SQL_SETTINGS.map(([key, title, help, min, max, unit]) => {
     inputs[key] = h("input", { type: "number", min: String(min), max: String(max), step: "1", value: String(s[key].value),
-      class: "num", "aria-label": title, disabled: locked(key) ? true : null });
+      class: "num", "aria-label": title, readonly: locked(key) ? true : null, "aria-readonly": locked(key) ? "true" : null });
     return settingRow(title, help, h("div", { class: "row" }, inputs[key], unit ? h("span", { class: "muted-text small" }, unit) : null),
-      s[key].source === "policy" ? "policy" : null);
+      fixedBy(s, key));
   });
   const temp = h("input", { value: s.sql_temp_dir.value || "", spellcheck: "false", "aria-label": "Temp folder",
-    placeholder: "Empty: the app's data folder", disabled: locked("sql_temp_dir") ? true : null });
+    placeholder: "Empty: the app's data folder", readonly: locked("sql_temp_dir") ? true : null, "aria-readonly": locked("sql_temp_dir") ? "true" : null });
   rows.push(settingRow("Temp folder", "Where spilled data and results are kept while you page and export. A fast local drive with free space works best.",
-    temp, s.sql_temp_dir.source === "policy" ? "policy" : null));
+    temp, fixedBy(s, "sql_temp_dir")));
   const save = async () => {
     const changes = {};
     for (const [key] of SQL_SETTINGS) {
@@ -500,13 +647,14 @@ function sqlSettingsSection(s, locked) {
     if (!Object.keys(changes).length) return;
     if (await saveSettings(changes)) { toast("Saved. New SQL queries use these limits."); render(); }
   };
-  return h("section", { class: "card pad" }, h("h2", {}, "SQL queries"),
+  const all = [...SQL_SETTINGS.map(([key]) => key), "sql_temp_dir"].every(locked);
+  return h("div", { class: "advanced-group" }, h("h3", {}, "SQL queries"),
     h("p", { class: "muted-text small" }, "Each query on the SQL page runs on this PC in a process of its own with these limits, so Stop ends only that query. ",
       h("a", { href: "#", class: "learn-more", onclick: (e) => {
         e.preventDefault();
         attempt(() => invoke("open_doc", { page: "sql-execution.md" }), "Could not open the guide");
       } }, "Learn more")),
-    ...rows, h("div", { class: "row" }, btn("Save", null, save, "tool outline")));
+    ...rows, all ? null : h("div", { class: "row" }, btn("Save", null, save, "tool outline")));
 }
 
 // ---------- Usage data ----------
@@ -733,5 +881,6 @@ registerFeature({
     { label: "About the new name: KratosForge", icon: "rocket", keywords: "rename fabric desktop kratosforge brand splash", run: () => showRenameSplash(() => {}, true) },
     { label: "Show the update splash", icon: "rocket", keywords: "what's new release notes update forge splash", run: () => showUpdateSplash(true) },
     { label: "Open the user guide", icon: "help", keywords: "help docs documentation", run: () => invoke("open_doc", { page: "user-guide.md" }).catch(() => {}) },
+    { label: "Keyboard shortcuts", icon: "help", keywords: "keys hotkeys help accessibility", run: shortcutsDialog },
   ],
 });

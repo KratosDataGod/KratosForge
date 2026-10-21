@@ -41,7 +41,18 @@ function currentInputValues() {
   return v;
 }
 
-async function setInputValues(nb, values) {
+// Saves go one after another, and each change is worked out from the values the save before it
+// returned: two quick changes (one box, then another) can't drop the first. A run waits for them
+// (nbInputsSaved, runCell) so it uses the values the bar shows.
+let inputsSaving = Promise.resolve();
+const nbInputsSaved = () => inputsSaving;
+
+function queueInputs(nb, valuesFrom) {
+  inputsSaving = inputsSaving.then(() => (state.notebook === nb ? saveInputValues(nb, valuesFrom()) : null));
+  return inputsSaving;
+}
+
+async function saveInputValues(nb, values) {
   const got = await attempt(() => rpc("notebook_inputs_set", { name: nb.name, cells: nbInputCells(nb), values }),
     "Could not keep the value");
   if (!got || state.notebook !== nb) return;
@@ -50,9 +61,11 @@ async function setInputValues(nb, values) {
 }
 
 function setInput(nb, group, name, value) {
-  const values = currentInputValues();
-  values[group][name] = value;
-  setInputValues(nb, values);
+  return queueInputs(nb, () => {
+    const values = currentInputValues();
+    values[group][name] = value;
+    return values;
+  });
 }
 
 function inputField(nb, group, row) {
@@ -97,7 +110,7 @@ function renderInputs(nb) {
     previewMarked("inputs", h("b", {}, got.parameters.length && got.widgets.length ? "Parameters and widgets"
       : got.parameters.length ? "Parameters" : "Widgets")),
     h("span", { class: "muted-text grow" }, `${where}. Runs on this PC use these values; the notebook's code doesn't change.`),
-    btn("Reset to code", "restart", () => setInputValues(nb, { parameters: {}, widgets: {} }), "tool small",
+    btn("Reset to code", "restart", () => queueInputs(nb, () => ({ parameters: {}, widgets: {} })), "tool small",
       { disabled: !changed.length && !got.parameters.concat(got.widgets).some((r) => r.error) }),
     h("button", { class: "tool small", "aria-expanded": String(!state.nbInputsCollapsed),
       "aria-label": state.nbInputsCollapsed ? "Show parameters" : "Hide parameters",

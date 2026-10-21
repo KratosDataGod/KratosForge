@@ -86,6 +86,17 @@ test("M makes a code cell Markdown and Y makes it code again", { skip }, async (
   assert.deepStrictEqual((await sources())[0], "code:a = 1");
 });
 
+test("M on a Databricks %md cell keeps its text and drops %md", { skip }, async () => {
+  for (const magic of ["%md", "%%markdown"]) {
+    await page().evaluate((cells) => {
+      loadIntoState({ name: "Keys", cells }); go("notebook");
+      selectCell(state.notebook.cells[0]); enterCommandMode(state.notebook.cells[0]);
+    }, [{ type: "code", cell_id: "d1", source: `${magic}\n# Title`, meta: {} }]);
+    await page().keyboard.press("m");
+    assert.deepStrictEqual(await sources(), ["markdown:# Title"], magic);
+  }
+});
+
 test("C then V pastes a copy below; X then Shift+V moves a cell above", { skip }, async () => {
   await reset(0);
   await page().keyboard.press("c");

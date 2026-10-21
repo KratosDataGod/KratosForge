@@ -917,7 +917,8 @@ function numericColumns(o) {
   return o.columns.map((_, i) => o.rows.length > 0 && o.rows.every((r) => r[i] === null || isNumber(r[i])) && o.rows.some((r) => isNumber(r[i])));
 }
 
-// A table result with Fabric's views: Table (search, sort), Chart, and Inspect (a summary per column).
+// A table result with Fabric's views: Table (search, sort), Chart, Inspect (a summary per column), and
+// Clean (Data Wrangler, wrangler.js) when the kernel holds the whole result.
 function renderTableOutput(o, cell) {
   o.view ||= o.summary ? "inspect" : o.frame && cell?.meta?.chart ? "chart" : "table";
   const wrap = h("div", { class: "output table-output" });
@@ -925,7 +926,7 @@ function renderTableOutput(o, cell) {
   const seg = (id, label) => h("button", { class: `seg${o.view === id ? " on" : ""}`, "aria-pressed": String(o.view === id),
     onclick: () => { o.view = id; redraw(); } }, label);
   const bar = h("div", { class: "out-bar" }, h("div", { class: "segs", role: "group", "aria-label": "View" },
-    seg("table", "Table"), seg("chart", "Chart"), seg("inspect", "Inspect")));
+    seg("table", "Table"), seg("chart", "Chart"), seg("inspect", "Inspect"), o.frame ? seg("clean", "Clean") : null));
   wrap.append(bar);
   const numeric = numericColumns(o);
   const count = typeof o.total_rows === "number"
@@ -957,6 +958,9 @@ function renderTableOutput(o, cell) {
     wrap.append(renderChartBuilder(o, numeric, cell));
   } else if (o.view === "chart") {
     wrap.append(renderChart(o, numeric), h("div", { class: "more" }, `Chart of ${count.toLowerCase()}`));
+  } else if (o.view === "clean" && o.frame) {
+    bar.append(h("span", { class: "spacer" }), previewMarked("dataWrangler", h("span", { class: "muted-text" }, "Data Wrangler")));
+    wrap.append(renderWrangler(o, cell));
   } else if (o.frame && !o.profileGone) {
     wrap.append(renderProfile(o, numeric, count));
   } else {

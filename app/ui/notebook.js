@@ -1383,6 +1383,7 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
   let last = null;
   try {
     const watches = await dbgWatches(nb);  // debugging.js
+    await nbInputsSaved();  // nbinputs.js: a value just changed in the bar is the one that runs
     let snap = await rpc("start_cell", { code: cell.source + nbInputSuffix(cell), lakehouse_ref: nbLakehouse(nb), notebook: nb.name,
       ...(timeLimit ? {} : { time_limit: false }), ...(watches.length ? { watches } : {}), ...(code != null ? { code } : dbgStartArgs(cell, debug)) });
     for (;;) {

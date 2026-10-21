@@ -704,9 +704,9 @@ function readOnly(cell) {
 function languageFor(cell) {
   const lang = cellLang(cell);
   if (lang === "markdown" || mdMagic(cell)) return [CM.markdown(), CM.autocompletion()];
-  if (shellMagic(cell)) return [];
+  if (shellMagic(cell)) return [];  // plain text: no Python highlighting or completions in a script
   // %%tsql (Fabric Python notebooks): T-SQL for a Warehouse; it runs in Fabric (notebook.py _tsql).
-  if (/^\s*%%tsql(\s|$)/.test(cell.source)) return [CM.sql({ dialect: CM.StandardSQL, upperCaseKeywords: true })];  // plain text: no Python highlighting or completions in a script
+  if (/^\s*%%tsql(\s|$)/.test(cell.source)) return [CM.sql({ dialect: CM.StandardSQL, upperCaseKeywords: true })];
   if (lang === "html") return [CM.html(), CM.autocompletion()];
   if (lang === "sql") {
     const schema = Object.fromEntries(currentTables().map((t) => [t, []]));

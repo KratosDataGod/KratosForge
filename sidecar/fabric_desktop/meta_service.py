@@ -236,6 +236,13 @@ class MetaMixin:
         return OneLakeStore(env, ws, existing, lambda: self.auth.storage_token(),  # type: ignore[attr-defined]
                             self.root / "onelake-cache")
 
+    def _keys_database(self, project: Project, env: str) -> str:
+        """The SQL database an environment's keys come from once they're in the platform, else "".
+        A Spark MERGE into LH_Keys would issue keys that database never sees, so there's none then."""
+        if not self._keys_in_platform(project, env):
+            return ""
+        return "SQL_Keys" if self._keys_config().get("shared") else "SQL_Platform"  # type: ignore[attr-defined]
+
     def _keys_in_platform(self, project: Project, env: str) -> bool:
         """One key system for everything: once an environment's platform is in Fabric, its keys come
         from SQL_Platform, unless the project already issues keys in LH_Keys (those move first, with
@@ -335,11 +342,12 @@ class MetaMixin:
         except Exception as exc:  # the config is still useful when the environment can't be read
             runs = [{"status": "unavailable", "message": str(exc)}]
         errors = [x for x in project.summary()["errors"] if x.startswith(name + ":")]
-        keys_sql = None
-        if keys_mod.entity_keys(e) and not errors and "entity" in e.spec.get("source", {}):
+        keys_sql, keys_from = None, self._keys_database(project, env)
+        if keys_mod.entity_keys(e) and not errors and "entity" in e.spec.get("source", {}) and not keys_from:
             keys_sql = keys_mod.merge_sql(project, e, project.environments.get(env, {}).get("keys_workspace_name", ""))
         return e.summary() | {"text": e.path.read_text(encoding="utf-8"), "impact": impact(project, name),
-                              "runs": runs, "preview": preview, "errors": errors, "keys_sql": keys_sql}
+                              "runs": runs, "preview": preview, "errors": errors, "keys_sql": keys_sql,
+                              "keys_from": keys_from}
 
     def meta_save_entity(self, name: str, text: str) -> dict[str, Any]:
         """Save an entity file. TOML that doesn't parse is refused; other problems are listed."""
@@ -731,7 +739,7 @@ class MetaMixin:
                 problem = problem or str(exc)
         return {"env": env, "local": local, "path": str(project.local_data / f"keys-{env}") if local else None,
                 "workspace_id": cfg.get("keys_workspace_id", ""), "workspace_name": cfg.get("keys_workspace_name", ""),
-                "lakehouse": "SQL_Platform" if self._keys_in_platform(project, env) else keys_mod.KEYS_LAKEHOUSE,
+                "lakehouse": self._keys_database(project, env) or keys_mod.KEYS_LAKEHOUSE,
                 "platform": self._keys_in_platform(project, env), "moved_at": cfg.get("keys_moved_at", ""),
                 "platform_available": self._keys_in_fabric(env),  # type: ignore[attr-defined]
                 "shared": bool(self._keys_config().get("shared")),  # type: ignore[attr-defined]
@@ -881,6 +889,10 @@ class MetaMixin:
             raise GateError("save", errors)
         if not keys_mod.entity_keys(e):
             raise ValueError(f"{name} has no [[keys]] block, so there is no key MERGE to start its notebook with")
+        if db := self._keys_database(project, env):
+            raise GateError("save", [f"{env.title()}'s keys come from {db}, so a notebook that merges into LH_Keys "
+                                     "would give rows keys the rest of the platform doesn't have. Run "
+                                     f"{name} from Data mesh instead: its run takes the keys from {db}."])
         src = project.entities[e.spec["source"]["entity"]]
         nb_name = f"nb_{src.layer}_to_{e.layer}_{e.table}"
         cells = keys_mod.template_cells(project, e, project.environments.get(env, {}).get("keys_workspace_name", ""))

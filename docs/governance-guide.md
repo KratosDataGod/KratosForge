@@ -104,3 +104,18 @@ When a standard genuinely doesn't fit, an exception records why, who approved it
 ## When the platform can't be reached
 
 Checks that depend on the platform fail closed. When a rule can't be read, KratosForge stops the step and says why instead of acting as if there were no rule (see [Governance policies](governance.md)).
+
+## Teams notices for requests and shortcuts
+
+With a platform Teams route set (**Settings > Notifications**), KratosForge posts:
+
+| When | Kind | For |
+| --- | --- | --- |
+| A request is made (a key table, a source, access to a data product, a shortcut) | `request.waiting` | Platform admins, and the data product's owners when it names one |
+| It is approved or declined | `request.decided` | Whoever asked |
+| It is withdrawn | `request.withdrawn` | Platform admins and the product's owners |
+| A health check on **Shortcuts > Health** finds a shortcut broken, or fixed again | `shortcut.broken`, `shortcut.fixed` | Platform admins |
+
+- **Only what the channel may read.** A message names the request or shortcut and where to open it in the app. A request's reason and detail stay in the app. People are named by UPN. Anything that looks like a secret, a webhook address among them, is masked before it's stored or posted.
+- **Once each.** A request waiting, or a shortcut that stays broken, is posted once. A fix is posted only after its break was.
+- **Never in the way.** The request or check is made first. If the notice can't be sent, the change still stands and the app says the notice wasn't sent. Messages Teams doesn't take wait in the outbox and go out later.

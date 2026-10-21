@@ -255,6 +255,42 @@ def test_cancel_ends_a_running_command():
     assert snap["status"] == "cancelled" and time.monotonic() - started < 6
 
 
+@pytest.mark.skipif(os.name == "nt", reason="checks the child's pid with os.kill(pid, 0)")
+def test_cancel_ends_the_commands_child_processes(tmp_path):
+    pidfile = tmp_path / "child.pid"
+    child = tmp_path / "child.py"
+    child.write_text(f"import os, time\nopen({str(pidfile)!r}, 'w').write(str(os.getpid()))\ntime.sleep(60)\n")
+    parent = tmp_path / "parent.py"
+    parent.write_text(f"import subprocess, sys\nsubprocess.Popen([sys.executable, {str(child)!r}]).wait()\n")
+    k = Kernel()
+    k.start(f"!{PY} \"{parent}\"")
+    deadline = time.monotonic() + 10
+    while not (pidfile.exists() and pidfile.read_text()):
+        assert time.monotonic() < deadline
+        time.sleep(0.1)
+    pid = int(pidfile.read_text())
+    k.interrupt()
+    assert k.poll(-1, wait=5)["status"] == "cancelled"
+    deadline = time.monotonic() + 5
+    while True:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        assert time.monotonic() < deadline, "the command's child process is still running"
+        time.sleep(0.1)
+
+
+def test_magic_lines_inside_strings_and_brackets_are_left_alone():
+    code = 's = """\n!ls\n%time x\n"""\nt = (1,\n%who\n)\n!echo hi\nx = %sql SELECT 1'
+    out = magics.rewrite(code)
+    assert out.split("\n")[:7] == code.split("\n")[:7]
+    assert out.split("\n")[7:] == ["__fd_magic__('system', 'echo hi')", "x = __fd_magic__('sql', 'SELECT 1')"]
+    assert [m.name for m in magics.find(code)] == ["system", "sql"]
+    out = Kernel().run('s = """\n!ls\n%time 1\n"""\ns')
+    assert out["outputs"] == [{"type": "text", "text": repr("\n!ls\n%time 1\n")}]
+
+
 def test_fs_magic_maps_onto_notebookutils_fs(tmp_path):
     k = Kernel()
     root = tmp_path.as_posix()

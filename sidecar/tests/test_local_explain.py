@@ -83,3 +83,9 @@ def test_the_rpc_call_reads_only_and_isnt_noted_as_a_change(tmp_path):
     r = call("local_explain", project=pid, query="SELECT 42 AS answer", analyze=True)
     assert r["totals"]["rows"] == 1
     assert not svc.audit.recent(10, "local_explain")
+
+
+def test_tsql_can_be_explained(engine):
+    r = engine.explain("SELECT TOP 3 shop, COUNT(*) AS n FROM dbo.orders GROUP BY shop ORDER BY shop", dialect="tsql",
+                       analyze=True)
+    assert r["totals"]["rows"] == 3 and r["dialect"] == "tsql"

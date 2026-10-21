@@ -198,6 +198,20 @@ class Shared:
             "error": run.get("error")}])
         return {"run_id": run_key, "artifacts": len(arts), "findings": len(found), "recommendations": len(recs)}
 
+    def record_local_executions(self, rows: Iterable[dict[str, Any]]) -> int:
+        """Add runs on this PC (optimize/local_runs.py rows); each ``execution_id`` is added once,
+        however often the same runs are shared again. Returns how many rows were sent."""
+        self._check_writable()
+        rows = [r | {"record_id": r["execution_id"]} for r in rows]
+        return self._write("local_execution", rows) if rows else 0
+
+    def local_execution_ids(self) -> set[str]:
+        """This installation's runs already in the lakehouse."""
+        df = self.rows("local_execution")
+        if not len(df):
+            return set()
+        return set(df.filter(pl.col("installation_id") == self.installation.id)["execution_id"].to_list())
+
     def set_recommendation_state(self, recommendation_id_: str, state: str, reason: str = "",
                                  workspaces: Iterable[str] | None = None) -> dict[str, Any]:
         """Move a recommendation to ``state`` (accepted, applied, dismissed, verified, superseded, or

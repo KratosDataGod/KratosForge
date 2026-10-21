@@ -13,9 +13,11 @@ import json
 import logging
 from typing import Any
 
+from . import advisor
 from . import app_settings
 from . import capacity as capacity_mod
 from . import costs as costs_mod
+from . import receipts as receipts_mod
 from . import risk
 from .auth import CAPACITY_SCOPES, FABRIC_SCOPES
 from .fabric_run import compute_check
@@ -253,3 +255,18 @@ class RiskMixin:
         except OSError:
             return []
         return [json.loads(x) for x in lines[-int(limit):] if x.strip()][::-1]
+
+    def placement_advice(self, name: str) -> dict[str, Any]:
+        """Where to run notebook ``name``, on this PC or in Fabric, with the evidence (FINOPS-005, advisor.py).
+
+        Reads the notebook, its Prove receipts and side-by-side runs on this PC. Changes nothing."""
+        nb = self.notebooks.load(name)  # type: ignore[attr-defined]
+        cells = nb["cells"]
+        proofs = []
+        for row in self.receipts_list(name, 20):  # type: ignore[attr-defined]
+            if row.get("valid") and row.get("kind") == "proof":
+                proofs.append(self.receipt_get(row["id"]))  # type: ignore[attr-defined]
+        done = [c for c in self.side_by_side_list(name, 10) if c.get("state") == "done"]  # type: ignore[attr-defined]
+        return advisor.advise(name, receipts_mod.code_revision(cells)["revision"], compute_check(cells, nb.get("lakehouse")),
+                              proofs, done)
+

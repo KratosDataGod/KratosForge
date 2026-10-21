@@ -37,6 +37,7 @@ _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-0
 # Dropping a name from METHODS? Also drop it from the timeout list in app/src-tauri/src/watchdog.rs.
 NO_UI_CALLER: dict[str, str] = {
     # MCP / local HTTP API tools (in-process).
+    "placement_advice": _MCP + "; Prove shows it later (docs/finops/placement-advice.md)",
     "notebook_environment": _MCP,
     "pipeline_activity_registry": _MCP,
     "pipeline_compatibility": _MCP,

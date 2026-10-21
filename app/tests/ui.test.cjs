@@ -2933,6 +2933,13 @@ test("notebook magics page lists the IPython magics", () => {
   }
 });
 
+// %run with parameters: the magics page shows Fabric's JSON form and Databricks' $name form.
+test("notebook magics page shows both %run parameter forms", () => {
+  const page = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.ok(page.includes('%run Load sales {"day": "2026-01-01", "full": true}'));
+  assert.ok(page.includes('%run ./etl/Load sales $day="2026-01-01"'));
+});
+
 // Plan step 4: a domain's admins in Fabric show as owners marked From Fabric, never in place of the platform's own.
 test("domain owners from Fabric show only until the platform sets its own", () => {
   const src = fs.readFileSync(path.join(ui, "mesh.js"), "utf8");

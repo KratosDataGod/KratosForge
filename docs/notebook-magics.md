@@ -150,6 +150,23 @@ with the app, and `%%javascript`, because cell output shows in a sandboxed frame
 Dependencies treat a `%%writefile` cell as writing that file and a `%%capture name` cell as
 defining `name`.
 
+## Running another notebook with %run
+
+`%run` runs another notebook in this one, so its functions and variables are yours afterwards.
+Both products' ways of passing values work:
+
+```python
+%run Load sales {"day": "2026-01-01", "full": true}
+%run ./etl/Load sales $day="2026-01-01" $full="true"
+```
+
+- Fabric's form takes a JSON object (or a Python dict). Databricks' form takes `$name=value`
+  pairs, whose values are always text, as Databricks widgets are.
+- The values replace those in the other notebook's **parameter cell**; without one, they are set
+  as variables before it runs.
+- A name can have spaces, and can be quoted. A folder path in front (`./`, `../shared/`) and an
+  `.ipynb` ending are dropped: notebooks are found by name.
+
 ## Supported magics
 
 | Magic | On this PC |
@@ -157,7 +174,7 @@ defining `name`.
 | `%%sql` | Spark SQL through the notebook's `spark` session; the result is shown and kept in `_sqldf` |
 | `%sql` | One Spark SQL query inside Python; returns a DataFrame |
 | `%%html` | Shows the HTML in a sandboxed frame |
-| `%run Other notebook` | Runs another notebook in this one's namespace |
+| `%run Other notebook {"x": 1}`, `%run ./Other $x="1"` | Runs another notebook in this one's namespace, with parameters |
 | `!command`, `x = !command` | Runs in this PC's shell; the assigned form keeps the output lines |
 | `%sh`, `%%sh`, `%%bash`, `%%cmd`, `%%powershell` | Runs the cell as a script on this PC |
 | `%fs command` | One `notebookutils.fs` command: ls, head, cp, mv, rm, mkdirs, put |

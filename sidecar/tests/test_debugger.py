@@ -201,3 +201,17 @@ def test_the_engine_passes_breakpoints_and_commands(tmp_path, monkeypatch):
     send("debug_cell", action="continue")
     assert paused(s.kernel)["status"] == "ok"
     assert "error" in send("start_cell", code="1", breakpoints=["x"])
+
+
+def test_a_debugger_command_never_starts_a_kernel(tmp_path, monkeypatch):
+    """debug_cell runs in the quick lane: for a notebook with no kernel it answers at once, with no
+    new session (and in its own process, no new process) made just to say nothing is paused."""
+    import json
+    from fabric_desktop.server import handle
+    from fabric_desktop.service import Service
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
+    s = Service(root=tmp_path / "app")
+    reply = handle(s, json.dumps({"id": 1, "method": "debug_cell", "params": {"action": "continue", "notebook": "nb"}}))
+    assert "No cell is running under the debugger" in json.dumps(reply), reply
+    assert s.sessions.session("nb", create=False) is None

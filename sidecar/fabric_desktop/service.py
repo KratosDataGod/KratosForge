@@ -499,8 +499,12 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
         return self.sessions.kernel(notebook).interrupt()
 
     def debug_cell(self, action: str, expression: str | None = None, notebook: str | None = None) -> dict[str, Any]:
-        """A cell paused under the debugger: continue, step, next, out, or eval ``expression`` where it is."""
-        return self.sessions.kernel(notebook).debug(action, expression)
+        """A cell paused under the debugger: continue, step, next, out, or eval ``expression`` where it is.
+        Runs in the quick lane, so it never starts a kernel: a notebook with none has nothing paused."""
+        session = self.sessions.session(notebook, create=False)
+        if session is None:
+            raise RuntimeError("No cell is running under the debugger.")
+        return session.kernel.debug(action, expression)
 
     def kernel_variables(self, notebook: str | None = None) -> list[dict[str, Any]]:
         return self.sessions.kernel(notebook).variables()

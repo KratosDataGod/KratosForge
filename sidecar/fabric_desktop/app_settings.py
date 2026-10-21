@@ -3,7 +3,7 @@
 Three places, strongest first:
 
     policy    %ProgramData%\\FabricDesktop\\policy.json, pushed by IT (Intune, Group Policy files).
-              Anything set here wins and shows as "Set by your organization".
+              Anything set here wins and shows as "Set by your organization's policy".
     user      %LOCALAPPDATA%\\FabricDesktop\\app-settings.json, written by the Settings page (the
               sidecar's settings.json, beside it, holds other things).
     built in  engine.json next to the engine's python.exe (written by CI), or
@@ -20,8 +20,14 @@ Keys:
                      organization that wants its own app registration
     channel          "stable" (default) or "preview": which release the app updates to
     show_preview     true to show features still in preview (default true)
-    forge_animations  true (default) to show the small wolf, forge and spark animations on notebook
-                     runs; Windows' reduced-motion setting turns them off either way
+    forge_animations  the first motion switch, kept so older settings and policy files still work:
+                     false means motion_level 0 unless motion_level itself is set
+    motion_level     visual intensity (docs/forge-animations.md): 0 Off, 1 Minimal (functional
+                     transitions only), 2 Refined (default), 3 Expressive
+    motion_wolf, motion_sparks, motion_ambient  true (default) to show that family of effects at
+                     levels 2 and 3; motion_achievements the same, but false by default
+    motion_follow_system  true (default): Windows' reduced-motion setting turns decorative motion
+                     off whatever the level; false lets the chosen level apply anyway
     kernel_process   true to run each notebook's cells in a Python process of its own, so Stop
                      and crashes end only that process (default false while in preview)
     cell_time_limit_minutes  with kernel_process: minutes a cell may run before it's interrupted;
@@ -116,6 +122,8 @@ USER_KEYS = ("client_id", "channel", "show_preview", "kernel_process", "telemetr
 LIMITS = {"cell_time_limit_minutes": 7 * 24 * 60, "kernel_memory_limit_gb": 1024,
           "kernel_max_sessions": 20, "kernel_idle_minutes": 7 * 24 * 60}  # the largest each accepts
 GUID_CHARS = set("0123456789abcdefABCDEF-")
+# Settings an environment variable can set, between policy and user (load() reads them).
+ENV_VARS = {"client_id": "FABRIC_DESKTOP_CLIENT_ID"}
 
 
 # The SQL page's run limits (SQL-003, sql_exec.py): the smallest and largest each accepts.
@@ -126,6 +134,14 @@ DEFAULTS.update({"sql_page_rows": 1000, "sql_time_limit_minutes": 10, "sql_memor
                  "sql_max_concurrent": 2, "sql_temp_dir": "", "sql_result_retention_hours": 24})
 TYPES.update({key: int for key in SQL_RANGES} | {"sql_temp_dir": str})
 USER_KEYS += (*SQL_RANGES, "sql_temp_dir")
+
+# Motion and effects (app/ui/motion.js): the visual intensity level and one switch per family.
+MOTION_LEVELS = (0, 3)
+MOTION_SWITCHES = ("motion_wolf", "motion_sparks", "motion_achievements", "motion_ambient", "motion_follow_system")
+# Achievement celebrations are something people turn on (UX review, #361); the rest start on.
+DEFAULTS.update({"motion_level": 2} | {key: key != "motion_achievements" for key in MOTION_SWITCHES})
+TYPES.update({"motion_level": int} | {key: bool for key in MOTION_SWITCHES})
+USER_KEYS += ("motion_level", *MOTION_SWITCHES)
 
 # Incident SLA targets (workloads/sla.py checks the shape and says what it ignored).
 DEFAULTS["incident_sla"] = {}
@@ -272,6 +288,8 @@ def policy_problems() -> list[str]:
                             + (", so it takes its most restrictive value" if key in RESTRICTED else ""))
         elif key == "channel" and value not in CHANNELS:
             problems.append(f"channel must be one of {', '.join(CHANNELS)}")
+        elif key == "motion_level" and not MOTION_LEVELS[0] <= value <= MOTION_LEVELS[1]:
+            problems.append(f"motion_level must be between {MOTION_LEVELS[0]} and {MOTION_LEVELS[1]}")
         elif key in SQL_RANGES and not SQL_RANGES[key][0] <= value <= SQL_RANGES[key][1]:
             problems.append(f"{key} must be between {SQL_RANGES[key][0]} and {SQL_RANGES[key][1]}")
         elif key == "client_id" and value and not valid_client_id(value):
@@ -357,6 +375,8 @@ def _in_range(key: str, value: Any) -> bool:
         return value >= 0
     if key in LIMITS:
         return 0 <= value <= LIMITS[key]
+    if key == "motion_level":
+        return MOTION_LEVELS[0] <= value <= MOTION_LEVELS[1]
     return True
 
 
@@ -386,8 +406,8 @@ def load() -> dict[str, Any]:
             out[key] = {"value": RESTRICTED[key], "source": "policy"}
             continue
         candidates = [("policy", policy.get(key))]
-        if key == "client_id":
-            candidates.append(("environment", os.environ.get("FABRIC_DESKTOP_CLIENT_ID")))
+        if key in ENV_VARS:
+            candidates.append(("environment", os.environ.get(ENV_VARS[key])))
         if key in USER_KEYS:
             candidates.append(("user", user.get(key)))
         if key == "client_id":
@@ -400,6 +420,13 @@ def load() -> dict[str, Any]:
         if key == "channel" and value not in CHANNELS:
             value, source = default, "default"
         out[key] = {"value": value, "source": source}
+    # The first motion switch turned off means Off: from the organization's policy always (unless it
+    # sets motion_level itself), from the person's own choice unless they chose a level since.
+    legacy, level = out["forge_animations"], out["motion_level"]
+    if legacy["value"] is False and (
+            (legacy["source"] == "policy" and level["source"] != "policy")
+            or (legacy["source"] == "user" and level["source"] == "default")):
+        out["motion_level"] = {"value": 0, "source": legacy["source"]}
     return out
 
 
@@ -416,6 +443,10 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"{key} is not a setting you can change")
         if current[key]["source"] == "policy":
             raise ValueError(f"Your organization sets {key}, so it can't be changed here")
+        if current[key]["source"] == "environment":
+            # Saving would say Saved for a value that never applies: the variable wins over this file.
+            raise ValueError(f"The {ENV_VARS[key]} environment variable sets {key} on this PC, so a value saved "
+                             f"here wouldn't be used. Remove the variable and restart KratosForge to set it here")
         if key == "channel" and new not in CHANNELS:
             raise ValueError(f"channel must be one of {', '.join(CHANNELS)}")
         if key in SQL_RANGES:
@@ -426,8 +457,11 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
             new = str(new or "").strip()
             if new and not valid_client_id(new):
                 raise ValueError("That isn't an app (client) ID. It looks like 00000000-0000-0000-0000-000000000000.")
-        if key in ("show_preview", "kernel_process", "telemetry", "forge_animations"):
+        if key in ("show_preview", "kernel_process", "telemetry", "forge_animations", *MOTION_SWITCHES):
             new = bool(new)
+        if key == "motion_level" and new is not None and (
+                isinstance(new, bool) or not isinstance(new, int) or not MOTION_LEVELS[0] <= new <= MOTION_LEVELS[1]):
+            raise ValueError(f"motion_level must be a whole number from {MOTION_LEVELS[0]} to {MOTION_LEVELS[1]}")
         if key in LIMITS:
             new = _limit(key, new)
         if new in (None, ""):

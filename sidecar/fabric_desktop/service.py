@@ -23,6 +23,7 @@ from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, Authenticator
 from .fabric_api import FabricClient
 from . import app_settings, jsonfile, lakehouse, sql, sql_dialects, sql_exec, sql_format, sqlcompat
 from .filenames import file_stem
+from .frames import DOWNLOAD_FORMATS, GONE, FrameGone
 from .jobs import Job, run_local
 from .cloud_service import CloudMixin
 from .fabric_run import compute_check
@@ -55,6 +56,7 @@ from .capacity_history_service import CapacityHistoryMixin
 from .validate_service import ValidateMixin
 from .environment_service import EnvironmentMixin
 from .notebook_files_service import NotebookFilesMixin
+from .progress_service import ProgressMixin
 from .kernel_proc import ProcessKernel
 from .kernel_sessions import KernelSessions
 from .notebook import Kernel, NotebookShelf, check_watches
@@ -72,7 +74,7 @@ def data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
-class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, EnvironmentMixin):
+class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, ProgressMixin, EnvironmentMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -486,6 +488,34 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
 
     def kernel_complete(self, code: str, cursor: int | None = None, notebook: str | None = None) -> dict[str, Any]:
         return self.sessions.kernel(notebook).complete(code, cursor)
+
+    # ---- the result viewer behind a cell's table output (frames.py)
+
+    def notebook_frame_page(self, frame: str, offset: int = 0, limit: int = 100, sort: int | None = None,
+                            desc: bool = False, q: str = "") -> dict[str, Any]:
+        """A page of a cell's whole result, searched and sorted over every row."""
+        try:
+            return self.kernel.frame_page(frame=frame, offset=offset, limit=limit, sort=sort, desc=desc, q=q)
+        except (FrameGone, RuntimeError) as exc:
+            if isinstance(exc, FrameGone) or str(exc) == GONE:
+                return {"frame": frame, "gone": True, "message": GONE}
+            raise
+
+    def notebook_frame_download(self, frame: str, format: str = "csv", name: str = "") -> dict[str, Any]:
+        """Write a cell's whole result to a new file in Downloads (CSV, Excel or Parquet); never replaces a file."""
+        if format not in DOWNLOAD_FORMATS:
+            raise ValueError(f"Download as {', '.join(DOWNLOAD_FORMATS)}.")
+        folder = Path.home() / "Downloads"
+        folder.mkdir(parents=True, exist_ok=True)
+        base = f"{file_stem(name or 'notebook')} result {time.strftime('%Y-%m-%d %H%M%S')}"
+        path = sql_exec._reserve(folder, base, "." + format)
+        try:
+            return self.kernel.frame_download(frame=frame, format=format, path=str(path))
+        except BaseException as exc:
+            sql_exec._discard(path.with_name(path.name + ".partial"), path)
+            if isinstance(exc, FrameGone) or str(exc) == GONE:
+                return {"frame": frame, "gone": True, "message": GONE}
+            raise
 
     def _token_for(self, audience: str) -> str:
         """notebookutils.credentials.getToken on this PC: a token for you, from your sign-in."""

@@ -133,7 +133,7 @@ _LONG = {"tsql": "NVARCHAR(MAX)", "sqlite": "TEXT"}
 
 _CATALOG: dict[str, list[tuple[str, str]]] = {
     "domain": [("id", "key"), ("name", "text"), ("parent_id", "text"), ("description", "long"), ("owners", "text"),
-               ("fabric_domain", "text"), ("updated_at", "text"), ("updated_by", "text")],
+               ("fabric_domain", "text"), ("updated_at", "text"), ("updated_by", "text"), ("fabric_owners", "long")],
     "project": [("name", "key"), ("domain_id", "text"), ("subdomain_id", "text"), ("team", "text"),
                 ("description", "long"), ("updated_at", "text"), ("updated_by", "text")],
     "product": [("id", "key"), ("project", "text"), ("name", "text"), ("domain_id", "text"), ("description", "long"),
@@ -198,6 +198,7 @@ def ensure_schema(db: Db) -> dict[str, Any]:
                f"action {_TEXT[db.dialect]}, target {_TEXT[db.dialect]}, detail {_LONG[db.dialect]})")
         created.append("catalog.audit")
     created += ensure_source_ids(db)
+    created += ensure_domain_columns(db)
     for hook in SCHEMA_HOOKS:
         created += hook(db)
     _upsert(db, "config", "setting", "name", {"name": "schema_version", "value": str(SCHEMA_VERSION)})
@@ -528,15 +529,35 @@ def _slug(name: str, taken: set[str]) -> str:
     return did
 
 
+def _fabric_admins(d: dict[str, Any]) -> str | None:
+    """A Fabric domain's admins as stored: a JSON list of {name, type}, names only (no email), sorted."""
+    people = sorted({(str(a.get("name") or "").strip(), str(a.get("type") or "User"))
+                     for a in d.get("admins") or [] if str(a.get("name") or "").strip()})
+    return json.dumps([{"name": n, "type": t} for n, t in people]) if people else None
+
+
+def ensure_domain_columns(db: Db) -> list[str]:
+    """Give catalog.domain the columns added after it was made (fabric_owners). Safe to run again."""
+    added = []
+    if "fabric_owners" not in _columns(db, "domain"):
+        db.run(f"ALTER TABLE {db.t('catalog', 'domain')} ADD {'' if db.tsql else 'COLUMN '}{_column(db, 'fabric_owners', 'long')}")
+        added.append("catalog.domain.fabric_owners")
+    return added
+
+
 def import_fabric_domains(db: Db, domains: list[dict[str, Any]], by: str = "") -> dict[str, Any]:
     """Make the catalog's domains follow Fabric's domains and subdomains (``GET /v1/admin/domains``).
 
     A Fabric domain matches the catalog domain already linked to it (``fabric_domain``), else one
     with the same name that isn't linked yet, else it's added. Linked domains take Fabric's name and
-    parent; their owners and description stay as the platform set them. Domains that are no longer
+    parent; their owners and description stay as the platform set them. A Fabric domain that carries
+    ``admins`` (its Fabric domain admins, read during the import) stores their names and kinds in
+    ``fabric_owners``: shown as "From Fabric", never used to grant anything. One without ``admins``
+    keeps what an earlier import read. Domains that are no longer
     in Fabric are reported, never deleted: projects may still use them. Platform admins only.
     """
     require_admin(db, by, "import domains from Fabric")
+    ensure_domain_columns(db)  # a platform made before fabric_owners
     existing = list_domains(db)
     by_fabric = {d["fabric_domain"]: d for d in existing if d.get("fabric_domain")}
     by_name = {str(d["name"] or "").strip().lower(): d for d in existing if not d.get("fabric_domain")}
@@ -564,11 +585,15 @@ def import_fabric_domains(db: Db, domains: list[dict[str, Any]], by: str = "") -
             row = {"id": did, "description": str(d.get("description") or ""), "owners": ""}
         elif kind == "updated" and row["name"] == name and (row.get("parent_id") or None) == parent:
             kind = "unchanged"
+        admins = _fabric_admins(d) if "admins" in d else row.get("fabric_owners")
+        if kind == "unchanged" and (admins or None) != (row.get("fabric_owners") or None):
+            kind = "updated"
         ids[fid] = row["id"]
         if kind != "unchanged":
             new = {"id": row["id"], "name": name, "parent_id": parent,
                    "description": str(row.get("description") or d.get("description") or ""),
-                   "owners": str(row.get("owners") or ""), "fabric_domain": fid, "updated_at": _now(), "updated_by": by}
+                   "owners": str(row.get("owners") or ""), "fabric_domain": fid, "fabric_owners": admins or None,
+                   "updated_at": _now(), "updated_by": by}
             _upsert(db, "catalog", "domain", "id", new)
         out[kind].append(row["id"])
     out["gone"] = [d["id"] for f, d in by_fabric.items() if f not in fabric]
@@ -863,17 +888,17 @@ def list_key_tables(db: Db) -> list[dict[str, Any]]:
 _SOURCE_ADDED = ("source_id", "code", "system_type", "active")
 
 
-def _source_columns(db: Db) -> set[str]:
+def _columns(db: Db, table: str) -> set[str]:
     if db.tsql:
-        return {r["name"] for r in db.rows("SELECT name FROM sys.columns WHERE object_id = OBJECT_ID('catalog.source')")}
-    return {r["name"] for r in db.rows(f"PRAGMA table_info({db.t('catalog', 'source')})")}
+        return {r["name"] for r in db.rows(f"SELECT name FROM sys.columns WHERE object_id = OBJECT_ID('catalog.{table}')")}
+    return {r["name"] for r in db.rows(f"PRAGMA table_info({db.t('catalog', table)})")}
 
 
 def ensure_source_ids(db: Db) -> list[str]:
     """Give catalog.source the columns of schema 5 and every source an id. A platform made before
     keeps its sources: each gets the next free id, in name order, and a code from its name."""
     added = []
-    have = _source_columns(db)
+    have = _columns(db, "source")
     for col in _SOURCE_ADDED:
         if col not in have:
             db.run(f"ALTER TABLE {db.t('catalog', 'source')} ADD {'' if db.tsql else 'COLUMN '}{_column(db, col, 'text')}")

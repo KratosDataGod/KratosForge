@@ -31,7 +31,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import lakehouse
+from .frames import GONE, FrameGone
 
+DOWNLOAD_SECONDS = 1800.0  # writing a whole result to Downloads, or a first page of a large query
 ANSWER_SECONDS = 15.0  # a request that isn't a long poll; a kernel that misses this is stuck
 STOPPED_TEXT = "Stopped. The notebook's Python process was ended, so variables were cleared."
 WATCH_SECONDS = 1.0
@@ -357,6 +359,20 @@ class ProcessKernel:
         if self._proc is None or self._proc.poll() is not None:
             return {"tables": {}, "files": {}}
         return self._request("reads")
+
+    # ---- the result viewer (frames.py): results live where the cells ran
+
+    def frame_page(self, frame: str, offset: int = 0, limit: int = 100, sort: int | None = None,
+                   desc: bool = False, q: str = "") -> dict[str, Any]:
+        if not self.alive():
+            raise FrameGone(GONE)
+        return self._request("frame_page", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame, offset=offset,
+                             limit=limit, sort=sort, desc=desc, q=q)
+
+    def frame_download(self, frame: str, format: str, path: str) -> dict[str, Any]:  # noqa: A002 - RPC name
+        if not self.alive():
+            raise FrameGone(GONE)
+        return self._request("frame_download", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame, format=format, path=path)
 
     # ---- proofs (prove_service): the proof runtime lives where the cells run
 

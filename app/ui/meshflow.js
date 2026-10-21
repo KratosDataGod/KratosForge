@@ -3,7 +3,49 @@
 // PC to see where each table comes from and what reads it (testing feedback item 21).
 // Read only: domains are edited on Platform, a project's tables and products on its own tabs.
 
-const meshFlow = { domain: null, sub: null, layer: null, table: null };
+const meshFlow = { domain: null, sub: null, layer: null, table: null, dir: "both" };
+
+// A table's whole lineage, hop by hop (pure, so it is tested on its own). entities: the open
+// project's tables with their reads and source; ports: [productName, entity] pairs of its data
+// products; readers: productName -> other projects reading it. dir: "both", "up" or "down".
+// Returns the columns left to right: { label, items: [{ kind, name, note }] }.
+function mfLineage(entities, ports, readers, name, dir = "both") {
+  const byName = new Map(entities.map((e) => [e.name, e]));
+  const readersOf = (n) => entities.filter((e) => (e.reads || []).includes(n)).map((e) => e.name);
+  const walk = (start, next) => {
+    const seen = new Set([start]);
+    const hops = [];
+    for (let level = [start]; level.length;) {
+      level = [...new Set(level.flatMap(next))].filter((n) => !seen.has(n)).sort();
+      level.forEach((n) => seen.add(n));
+      if (level.length) hops.push(level);
+    }
+    return { hops, seen };
+  };
+  const cols = [];
+  if (dir !== "down") {
+    const { hops, seen } = walk(name, (n) => (byName.get(n)?.reads || []).filter((r) => byName.has(r)));
+    const roots = [...seen].map((n) => byName.get(n)).filter((e) => e && e.source && !(e.reads || []).some((r) => byName.has(r)))
+      .map((e) => e.source);
+    const sources = [...new Set(roots)].sort().map((x) => ({ kind: "source", name: x }));
+    const outside = [...seen].flatMap((n) => (byName.get(n)?.reads || []).filter((r) => !byName.has(r)));
+    sources.push(...[...new Set(outside)].sort().map((x) => ({ kind: "source", name: x })));
+    if (sources.length) cols.push({ label: "Source", items: sources });
+    hops.reverse().forEach((level, i) => cols.push({ label: i === hops.length - 1 ? "It reads" : "Before that",
+      items: level.map((n) => ({ kind: "table", name: n })) }));
+  }
+  cols.push({ label: "This table", items: [{ kind: "this", name }] });
+  if (dir !== "up") {
+    const { hops, seen } = walk(name, readersOf);
+    hops.forEach((level, i) => cols.push({ label: i ? "Then" : "Reads it", items: level.map((n) => ({ kind: "table", name: n })) }));
+    const products = [...new Set(ports.filter(([, entity]) => seen.has(entity)).map(([product]) => product))].sort();
+    if (products.length) cols.push({ label: "Data products", items: products.map((x) => ({ kind: "product", name: x })) });
+    const others = products.flatMap((x) => (readers[x] || []).map((proj) => ({ kind: "project", name: proj, note: x })));
+    if (others.length) cols.push({ label: "Other projects", items: others });
+  }
+  return cols;
+}
+
 
 async function renderMeshOverviewTab(body, p) {
   body.replaceChildren(h("p", { class: "muted-text" }, "Reading the platform's catalog..."));
@@ -40,9 +82,9 @@ function mfCrumbs(m, draw) {
 function mfDomains(m, draw) {
   if (m.problem && !m.domains.length) return h("p", { class: "muted-text" }, "The platform's catalog couldn't be read: ", m.problem);
   if (!m.domains.length && !m.projects.length) {
-    return h("div", { class: "empty" }, h("span", { class: "title" }, "No domains yet"),
-      h("span", { class: "text" }, "Start from the domains your organization already has in Fabric: a platform admin who is a Fabric administrator imports them on Platform > Domains."),
-      btn("Open Platform > Domains", "building", () => goPlatform("domains"), "tool outline small"));
+    return emptyState({ title: "No domains yet",
+      text: "Start from the domains your organization already has in Fabric: a platform admin who is a Fabric administrator imports them on Platform > Domains.",
+      action: btn("Open Platform > Domains", "building", () => goPlatform("domains"), "tool outline small") });
   }
   const open = (id) => { Object.assign(meshFlow, { domain: id, sub: null, layer: null, table: null }); draw(); };
   const mine = mfDomainOf(m, m.me);
@@ -119,17 +161,11 @@ function mfLayer(m, p, draw) {
   const column = (items, none) => (items.length ? h("div", { class: "mf-col" }, items) : h("span", { class: "muted-text" }, none));
   let detail = h("p", { class: "muted-text" }, "Pick a table to see where it comes from and what reads it.");
   if (e) {
-    const up = (e.reads || []).filter((n) => names.has(n));
-    const down = all.filter((x) => (x.reads || []).includes(e.name));
-    const products = (p?.products || []).filter((pr) => (pr.ports || []).some((port) => port.entity === e.name));
     detail = h("div", { class: "card pad mf-table" },
       h("div", { class: "row" }, h("h2", { class: "grow mono" }, e.name), layerChip(e.layer),
+        preview("lineage", btn("Columns", "flow", () => columnLineage(e.name), "tool outline small")),
         btn("Open in Design", "table", () => openEntity(e.name), "tool outline small")),
-      h("div", { class: "mf-lineage" },
-        h("div", {}, h("b", {}, "Comes from"), column(up.length ? up.map(ref) : e.source ? [h("span", { class: "mono small" }, e.source)] : [], "Not set")),
-        h("span", { class: "arrow", "aria-hidden": "true" }, "→"),
-        h("div", {}, h("b", {}, "Read by"), column([...down.map((x) => ref(x.name)),
-          ...products.map((pr) => h("span", { class: "small" }, icon("cube", 14), ` Product ${pr.title || pr.name}`))], "Nothing in this project reads it"))),
+      mfLineageView(m, p, e.name, ref, draw),
       h("p", { class: "muted-text small" }, `${e.checks} check${e.checks === 1 ? "" : "s"}${e.owner ? ` · owner ${e.owner}` : ""}. Runs, tests and promotion are on the project's Runs, Quality and Deploy tabs.`));
   }
   return h("div", { class: "mf" },
@@ -139,4 +175,30 @@ function mfLayer(m, p, draw) {
         entities.length ? h("div", { class: "mf-col" }, entities.map((x) => h("button", { class: `tool ${x.name === meshFlow.table ? "primary" : "outline"} small mono`, onclick: () => pick(x.name) }, x.name)))
           : h("p", { class: "muted-text" }, "No tables in this layer yet.")),
       detail));
+}
+
+// The whole chain both ways, one column per hop; a table in this project re-centres on it.
+function mfLineageView(m, p, name, ref, draw) {
+  const ports = (p?.products || []).flatMap((pr) => (pr.ports || []).map((port) => [pr.title || pr.name, port.entity]));
+  const ids = new Map((m.products || []).filter((x) => x.project === m.me).map((x) => [x.id, x.name]));
+  const title = new Map((p?.products || []).map((pr) => [pr.name, pr.title || pr.name]));
+  const readers = {};
+  for (const l of m.links || []) {
+    const product = title.get(ids.get(l.product)) || ids.get(l.product);
+    if (l.to === m.me && product && l.from !== m.me) (readers[product] ||= []).push(l.from);
+  }
+  const cols = mfLineage(p?.entities || [], ports, readers, name, meshFlow.dir);
+  const item = (x) => x.kind === "table" ? ref(x.name)
+    : x.kind === "this" ? h("b", { class: "mono small mf-this" }, x.name)
+    : x.kind === "product" ? h("span", { class: "small" }, icon("cube", 14), ` Product ${x.name}`)
+    : x.kind === "project" ? h("span", { class: "small" }, `${x.name} reads ${x.note}`)
+    : h("span", { class: "mono small muted-text" }, x.name);
+  const pick = (dir, label) => h("button", { class: `tool ${meshFlow.dir === dir ? "primary" : "outline"} small`,
+    "aria-pressed": String(meshFlow.dir === dir), onclick: () => { meshFlow.dir = dir; draw(); } }, label);
+  return h("div", {},
+    h("div", { class: "row tight", role: "group", "aria-label": "Show" },
+      pick("both", "Whole lineage"), pick("up", "Only what it reads"), pick("down", "Only what reads it")),
+    h("div", { class: "mf-lineage", style: `grid-template-columns: repeat(${cols.length}, minmax(140px, 1fr))` },
+      cols.map((c) => h("div", {}, h("b", { class: "small" }, c.label), h("div", { class: "mf-col" }, c.items.map(item))))),
+    cols.length === 1 ? h("p", { class: "muted-text small" }, "Nothing in this project reads it, and it reads nothing here.") : null);
 }

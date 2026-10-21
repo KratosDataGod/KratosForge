@@ -1447,6 +1447,37 @@ test("a failed shortcut rules check isn't swallowed and an incomplete reader lis
   assert.match(estate, /res\.partial \?/);
 });
 
+// HD-052 (UI-8): pages are built with h(), which only makes text nodes, so data can't become markup.
+// A new raw HTML (or code) sink in app/ui fails here unless it is reviewed and added below with why
+// it is safe. Keys are the file and the exact trimmed line, so editing an allowed line needs a new review.
+test("no raw HTML sinks in app/ui outside the reviewed list", () => {
+  const sink = /\.(?:innerHTML|outerHTML)\b|\binsertAdjacentHTML\b|\bdocument\.write(?:ln)?\b|\bcreateContextualFragment\b|\bDOMParser\b|\b(?:set|parse)HTMLUnsafe\b|\bsrcdoc\b|\beval\s*\(|\bnew Function\b|\bFunction\s*\(/;
+  const allowed = new Set([
+    // markdown(): a fixed placeholder string, no data.
+    `app.js: wrap.innerHTML = '<p class="placeholder">Empty Markdown cell. Double-click to edit.</p>';`,
+    // markdown(): every piece of cell text goes through inlineMd(), which esc()apes &<>"' before adding
+    // <code>, <strong>, <em> and <u title>; headings and lists add only fixed tags. See the two
+    // Markdown tests at the top of this file.
+    `app.js: wrap.innerHTML = html.join("");`,
+    // Data mesh map links: path coordinates are numbers from getBoundingClientRect, and the only data
+    // (project and product ids in <title>) goes through esc().
+    `meshmap.js: svg.innerHTML = \`<defs><marker id="mesh-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z"/></marker></defs>\${paths.join("")}\`;`
+  ]);
+  const found = [];
+  const walk = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) { if (e.name !== "vendor") walk(p); continue; }
+      if (!/\.(js|html)$/.test(e.name)) continue;
+      const rel = path.relative(ui, p).split(path.sep).join("/");
+      for (const line of fs.readFileSync(p, "utf8").split("\n")) if (sink.test(line)) found.push(`${rel}: ${line.trim()}`);
+    }
+  };
+  walk(ui);
+  assert.deepStrictEqual(found.filter((f) => !allowed.has(f)), [], "a new raw HTML sink: build it with h(), or review it and add it to the list");
+  assert.deepStrictEqual([...allowed].filter((a) => !found.includes(a)), [], "an allowed sink is gone from the code: remove it from the list");
+});
+
 // HD-020 (SH-1, UI-1): the page has a Content Security Policy, and notebook HTML output runs on
 // its own origin, never in the app's, where the Tauri API is.
 test("the app has a strict CSP and notebook HTML output stays off the app's origin", () => {

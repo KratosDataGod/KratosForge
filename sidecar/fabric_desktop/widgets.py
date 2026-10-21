@@ -759,21 +759,46 @@ def interactive_output(f: Callable[..., Any], controls: dict[str, Widget]) -> Ou
 
 
 
+class TraitError(Exception):
+    """As traitlets' TraitError: a link whose two transforms don't undo each other."""
+
+
 class _Link:
-    """What ``link`` and ``dlink`` return, as traitlets does: ``unlink()`` stops it."""
+    """What ``link`` and ``dlink`` return, as traitlets does: ``unlink()`` stops it. While one side is
+    being set, a change coming back from the other is ignored; if that leaves the two sides out of
+    step (transforms that aren't each other's inverse), it's a broken link, as in traitlets."""
 
     def __init__(self, source: tuple[Widget, str], target: tuple[Widget, str],
                  forward: Callable[[Any], Any] | None, backward: Callable[[Any], Any] | None, both: bool):
         self.source, self.target = source, target
         (sw, sn), (tw, tn) = source, target
         to = forward or (lambda v: v)
+        back = backward or (lambda v: v)
+        self._updating = False
+
+        def update(src: Widget, sname: str, dst: Widget, dname: str, fn: Callable[[Any], Any]) -> Callable[[Any], None]:
+            def handler(change: Any) -> None:
+                if self._updating:
+                    return
+                self._updating = True
+                try:
+                    setattr(dst, dname, fn(change["new"]))
+                    if both and getattr(src, sname) != change["new"]:
+                        raise TraitError(f"Broken link {self}: the source value changed while updating the target.")
+                finally:
+                    self._updating = False
+            return handler
+
         setattr(tw, tn, to(getattr(sw, sn)))
-        self._handlers = [(sw, lambda c: setattr(tw, tn, to(c["new"])), sn)]
+        self._handlers = [(sw, update(sw, sn, tw, tn, to), sn)]
         if both:
-            back = backward or (lambda v: v)
-            self._handlers.append((tw, lambda c: setattr(sw, sn, back(c["new"])), tn))
+            self._handlers.append((tw, update(tw, tn, sw, sn, back), tn))
         for w, handler, name in self._handlers:
             w.observe(handler, names=name)
+
+    def __repr__(self) -> str:
+        (sw, sn), (tw, tn) = self.source, self.target
+        return f"<link {type(sw).__name__}.{sn} -> {type(tw).__name__}.{tn}>"
 
     def unlink(self) -> None:
         for w, handler, name in self._handlers:
@@ -841,7 +866,7 @@ def build() -> types.ModuleType:
     mod = types.ModuleType("ipywidgets", "ipywidgets isn't drawn by Jupyter here; KratosForge provides these widgets.")
     for name, value in list(globals().items()):
         if isinstance(value, type) and issubclass(value, (Widget, Layout)) or name in (
-                "interact", "interactive", "interact_manual", "interactive_output", "fixed", "link", "dlink", "jslink", "jsdlink", "Layout",
+                "interact", "interactive", "interact_manual", "interactive_output", "fixed", "link", "dlink", "jslink", "jsdlink", "TraitError", "Layout",
                 "Style", "Change"):
             setattr(mod, name, value)
     mod.__version__ = __version__  # type: ignore[attr-defined]

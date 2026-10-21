@@ -2235,6 +2235,23 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
 
+// Item 18 follow-up: Queue, Incidents and Run as each have How this works beside the list, like
+// Workloads and Agents, linked to their own section of the guide.
+test("Queue, Incidents and Run as say how they work beside the list", () => {
+  const guide = fs.readFileSync(path.join(ui, "..", "..", "docs", "user-guide.md"), "utf8");
+  for (const [file, fn, id, anchor] of [["queue.js", "queuePanel", "monitor.queue", "queue-preview"],
+    ["incidents.js", "incidentsPanel", "monitor.incidents", "incidents-preview"], ["runas.js", "runAsPanel", "monitor.runas", "run-as-preview"]]) {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    const body = new RegExp(`function ${fn}\\(\\) \\{[\\s\\S]*?\\n\\}\\n`).exec(src)[0];
+    assert.match(body, new RegExp(`withHowItWorks\\(box, howItWorks\\("${id.replace(".", "\\.")}"`), file);
+    for (const part of ["reads:", "changes:", "results:", `anchor: "${anchor}"`]) assert.ok(body.includes(part), `${file} ${part}`);
+    const heading = { "queue-preview": "### Queue (Preview)", "incidents-preview": "### Incidents (Preview)", "run-as-preview": "### Run as (Preview)" }[anchor];
+    assert.ok(guide.includes(heading), heading);
+  }
+  const inc = fs.readFileSync(path.join(ui, "incidents.js"), "utf8");
+  assert.match(inc, /Check now never posts/);
+});
+
 // Cost allocation: the workload page shows its runs' capacity use from workload_capacity_use, with
 // each figure's classification, and says runs on this PC aren't counted (QA-008 wording).
 test("the workload page shows its capacity use, classified, and never a figure for this PC", () => {
@@ -2883,6 +2900,14 @@ test("the keys card says where keys come from instead of an LH_Keys MERGE", () =
   assert.match(card, /Keys come from \$\{e\.keys_from\}/);
 });
 
+// PySpark on this PC: the notebooks page lists what KratosForge adds to DuckDB's Spark API.
+test("notebooks docs list the PySpark calls added on this PC", () => {
+  const page = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  for (const call of ["Window.partitionBy(...).orderBy(...)", "df.agg(...)", "selectExpr", "fillna", "pivot", "explode", "date_format"]) {
+    assert.ok(page.includes(call), call);
+  }
+});
+
 // Notebook magics: a snippet shows %sql inside Python, and the magics page is linked everywhere docs are.
 test("notebook snippets include a %sql query into a DataFrame, and the magics page is linked", () => {
   const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
@@ -2892,6 +2917,65 @@ test("notebook snippets include a %sql query into a DataFrame, and the magics pa
     ["zensical.toml", '"notebook-magics.md"'], ["docs/notebooks.md", "(notebook-magics.md)"]]) {
     assert.ok(fs.readFileSync(path.join(root, file), "utf8").includes(link), file);
   }
+});
+
+// Notebook cell languages: Databricks' %sql alone on the first line is a SQL cell, %md shows Markdown.
+test("notebook cells read Databricks %sql and %md headers", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(/function cellLang\([\s\S]*?\n}\n/.exec(nb)[0] + /const mdMagic = [^\n]*\n/.exec(nb)[0]
+    + "\nthis.lang = cellLang; this.md = mdMagic;", ctx);
+  const code = (source) => ({ type: "code", source });
+  assert.strictEqual(ctx.lang(code("%sql\nSELECT 1")), "sql");
+  assert.strictEqual(ctx.lang(code("  %%sql\nSELECT 1")), "sql");
+  assert.strictEqual(ctx.lang(code("%sql SELECT 1")), "python");
+  assert.strictEqual(ctx.lang(code("%python\nx = 1")), "python");
+  assert.strictEqual(ctx.md(code("%md # Title")), true);
+  assert.strictEqual(ctx.md(code("%%markdown\n# Title")), true);
+  assert.strictEqual(ctx.md(code("%mdx")), false);
+  assert.strictEqual(ctx.md({ type: "markdown", source: "%md" }), false);
+  assert.match(nb, /if \(o\.type === "markdown"\) return h\("div", \{ class: "output md-view" \}, markdown\(o\.text\)\);/);
+});
+
+// Notebook shell cells: %sh, %%sh, %%bash, %%cmd and %%powershell are plain text in the editor.
+test("notebook shell cells are recognised for the editor", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(/const shellMagic = [^\n]*\n/.exec(nb)[0] + "\nthis.sh = shellMagic;", ctx);
+  const code = (source) => ({ type: "code", source });
+  for (const s of ["%sh ls", "%%sh\nls", "%%bash\nls", "  %%cmd\ndir", "%%powershell\nGet-Date"]) assert.strictEqual(ctx.sh(code(s)), true, s);
+  for (const s of ["%shx", "!ls", "x = 1", "%%sql\nSELECT 1"]) assert.strictEqual(ctx.sh(code(s)), false, s);
+  assert.match(nb, /if \(shellMagic\(cell\)\) return \[\];/);
+});
+
+// IPython magics in notebooks: the magics page lists what runs and why %cd and %%javascript don't.
+test("notebook magics page lists the IPython magics", () => {
+  const page = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  for (const m of ["`%lsmagic`", "`%%capture name`", "`%%writefile path`", "`%timeit expression`", "`%cd`", "`%%javascript`"]) {
+    assert.ok(page.includes(m), m);
+  }
+});
+
+// %run with parameters: the magics page shows Fabric's JSON form and Databricks' $name form.
+test("notebook magics page shows both %run parameter forms", () => {
+  const page = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.ok(page.includes('%run Load sales {"day": "2026-01-01", "full": true}'));
+  assert.ok(page.includes('%run ./etl/Load sales $day="2026-01-01"'));
+});
+
+// %%configure on this PC: the notebooks page links to the section that explains it.
+test("notebooks page links %%configure to its section on the magics page", () => {
+  const root = path.join(__dirname, "..", "..", "docs");
+  assert.ok(fs.readFileSync(path.join(root, "notebooks.md"), "utf8").includes("(notebook-magics.md#configure)"));
+  assert.ok(fs.readFileSync(path.join(root, "notebook-magics.md"), "utf8").includes("\n## %%configure\n"));
+});
+
+// %%tsql cells are highlighted as SQL in the notebook editor.
+test("notebook %%tsql cells get SQL highlighting", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /if \(\/\^\\s\*%%tsql\(\\s\|\$\)\/\.test\(cell\.source\)\) return \[CM\.sql\(/);
 });
 
 // Plan step 4: a domain's admins in Fabric show as owners marked From Fabric, never in place of the platform's own.
@@ -3099,4 +3183,178 @@ test("Settings history names capacities, filters by scope and asks before creati
   for (const t of ["fdcap_snapshot", "fdcap_change", "fdcap_read", "fdten_snapshot", "fdten_change", "fdten_read", "no tenant or capacity setting is ever changed", "asks before it creates the tables"]) {
     assert.ok(how.includes(t), t);
   }
+});
+
+// Inspect over every row: a table output with a `frame` shows the engine's profile of the whole result.
+test("Inspect profiles every row of a held result, and says so when the kernel no longer holds it", async () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const grab = (name) => new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`).exec(nb)[0];
+  const el = (tag, attrs = {}, ...kids) => ({ tag, attrs, kids: kids.flat(Infinity).filter((k) => k !== null && k !== undefined), textContent: "",
+    append(...k) { this.kids.push(...k.flat(Infinity).filter(Boolean)); }, replaceChildren(...k) { this.kids = k.flat(Infinity).filter(Boolean); },
+    querySelector(sel) { return findAll(this, (n) => n.attrs?.class === sel.slice(1))[0]; } });
+  const answers = [{ frame: "f", rows: 10000, more_columns: 0, columns: [
+    { name: "n", type: "integer", kind: "number", missing: 0, distinct: 9990, min: 0, max: 9999, mean: 4999.5, std: 2886.9, q1: 2499.75, median: 4999.5, q3: 7499.25, histogram: [5, 10] },
+    { name: "s", type: "string", kind: "text", missing: 1, distinct: 2, top: [["a", 6000], [null, 3]] },
+    { name: "bad", type: "double", kind: "number", error: "Couldn't profile this column: Out of Range" }] },
+    { frame: "h", rows: 5000000, profiled_rows: 1000000, sampled: true, more_columns: 0, columns: [{ name: "v", type: "double", kind: "number", missing: 0, distinct: 2, infinite: 3, min: 1, max: 2, mean: 1.5, std: 0.5, q1: 1, median: 1.5, q3: 2, histogram: [1, 1] }] },
+    { frame: "f", gone: true }];
+  const ctx = { h: el, isNumber: (v) => typeof v === "number", friendlyError: String, rpc: async () => answers.shift() };
+  vm.createContext(ctx);
+  vm.runInContext(grab("renderFrameProfile") + grab("renderInspect") + "this.p = renderFrameProfile;", ctx);
+  const o = { frame: "f", columns: ["n", "s"], rows: [[1, "a"]] };
+  const box = ctx.p(o, [true, false], "Showing the first 1000 of 10000 rows");
+  assert.match(texts(box), /Profiling every row\.\.\.$/);
+  await new Promise((r) => setImmediate(r));
+  const t = texts(box);
+  assert.match(t, /Profile of all 10,000 rows$/);
+  assert.match(t, /Distinct≈ 9,990/);
+  assert.match(t, /Median4999\.5/);
+  assert.match(t, /null3/);
+  assert.match(t, /baddoubleCouldn't profile this column: Out of Range/);
+  const big = ctx.p({ frame: "h", columns: ["v"], rows: [[1]] }, [true], "x");
+  await new Promise((r) => setImmediate(r));
+  assert.match(texts(big), /Infinite3/);
+  assert.match(texts(big), /Profile of a random sample of 1,000,000 of 5,000,000 rows$/);
+  assert.ok(o.profile && ctx.p(o, [true, false], "x") !== box, "a held profile redraws without asking again");
+  const o2 = { frame: "g", columns: ["n"], rows: [[1]] };
+  const box2 = ctx.p(o2, [true], "1 row");
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(o2.profileGone, true);
+  assert.match(box2.querySelector(".more").textContent, /Run the cell again to profile every row\.$/);
+  assert.match(nb, /\} else if \(o\.frame && !o\.profileGone\) \{\n    wrap\.append\(renderFrameProfile\(o, numeric, count\)\);/);
+});
+
+// The chart builder (charts.js): the engine aggregates every row; the cell keeps its chart by column name.
+function chartsHarness(answer) {
+  const src = fs.readFileSync(path.join(ui, "charts.js"), "utf8");
+  const node = (tag, attrs = {}, ...kids) => ({ tag, attrs: { ...attrs }, kids: kids.flat(Infinity).filter((k) => k !== null && k !== undefined),
+    textContent: "", listeners: {}, setAttribute(k, v) { this.attrs[k] = v; }, append(...k) { this.kids.push(...k.flat(Infinity).filter(Boolean)); },
+    replaceChildren(...k) { this.kids = k.flat(Infinity).filter(Boolean); }, replaceWith(n) { this.replaced = n; },
+    addEventListener(t, fn) { this.listeners[t] = fn; } });
+  const calls = [];
+  let dirty = 0;
+  const ctx = { h: node, btn: (label, _i, onclick) => node("button", { onclick }, label), friendlyError: String, markDirty: () => { dirty += 1; },
+    document: { createElementNS: (_ns, tag) => node(tag) },
+    rpc: async (m, a) => { calls.push([m, a]); return typeof answer === "function" ? answer(a) : answer; } };
+  vm.createContext(ctx);
+  vm.runInContext(src + "\nthis.api = { chartConfig, renderChartBuilder, chartSvg };", ctx);
+  return { ctx, calls, dirty: () => dirty, node };
+}
+const allNodes = (n, out = []) => { if (n && typeof n === "object") { out.push(n); (n.kids || []).forEach((k) => allNodes(k, out)); } return out; };
+
+test("the chart builder asks the engine for every row and keeps the cell's chart by column name", async () => {
+  const d = { kind: "stacked", rows: 3000, truncated: false, categories: ["East", "West"],
+    series: [{ name: "p1", values: [1, 2] }, { name: "Other", values: [3, null] }] };
+  const { ctx, calls, dirty } = chartsHarness(d);
+  const o = { frame: "f", columns: ["region", "product", "amount"], rows: [["East", "p1", 1]] };
+  const cell = { meta: {} };
+  const cfg = ctx.api.chartConfig(o, [false, false, true], cell);
+  assert.deepStrictEqual(plain(cfg), { kind: "bar", x: "region", y: "amount", agg: "sum", series: null, title: "" });
+  const box = ctx.api.renderChartBuilder(o, [false, false, true], cell);
+  assert.deepStrictEqual(plain(calls[0]), ["notebook_frame_chart", { frame: "f", kind: "bar", x: 0, y: 2, agg: "sum", series: null }]);
+  const kind = allNodes(box).find((n) => n.tag === "select" && n.attrs["aria-label"] === "Chart");
+  kind.attrs.onchange({ target: { value: "stacked" } });
+  const series = allNodes(box.replaced).find((n) => n.tag === "select" && n.attrs["aria-label"] === "Series");
+  series.attrs.onchange({ target: { value: "product" } });
+  assert.deepStrictEqual(plain(cell.meta.chart), { kind: "stacked", x: "region", y: "amount", agg: "sum", series: "product", title: "" });
+  assert.strictEqual(dirty(), 2);
+  assert.deepStrictEqual(plain(calls.at(-1)[1]), { frame: "f", kind: "stacked", x: 0, y: 2, agg: "sum", series: 1 });
+  await new Promise((r) => setImmediate(r));
+  // A rerun keeps the saved chart; a renamed column falls back to the default.
+  assert.strictEqual(ctx.api.chartConfig({ columns: ["region", "product", "amount"] }, [false, false, true], cell).series, "product");
+  assert.strictEqual(ctx.api.chartConfig({ columns: ["area", "amount"] }, [false, true], cell).kind, "bar");
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /o\.view \|\|= o\.summary \? "inspect" : o\.frame && cell\?\.meta\?\.chart \? "chart" : "table";/);
+  assert.match(nb, /previewMarked\("chartBuilder"/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="notebook\.js"><\/script>\n  <script src="charts\.js"><\/script>/);
+});
+
+test("every chart kind draws marks with a tooltip, and an empty result says so", () => {
+  const { ctx } = chartsHarness(null);
+  const kinds = {
+    bar: { kind: "bar", rows: 2, categories: ["a", "b"], series: [{ name: null, values: [1, -2] }] },
+    stacked: { kind: "stacked", rows: 2, categories: ["a"], series: [{ name: "x", values: [1] }, { name: "y", values: [2] }] },
+    line: { kind: "line", rows: 2, categories: [1, 2], series: [{ name: null, values: [1, null] }] },
+    area: { kind: "area", rows: 2, categories: [1, 2], series: [{ name: "x", values: [1, 2] }, { name: "y", values: [2, 1] }] },
+    pie: { kind: "pie", rows: 2, categories: ["a", "b"], series: [{ name: null, values: [1, 3] }] },
+    scatter: { kind: "scatter", rows: 2, points: [[1, 2, "x"], [2, 3, "y"]], sampled: false, total: 2 },
+    histogram: { kind: "histogram", rows: 2, min: 0, max: 10, counts: [1, 0, 1] },
+    box: { kind: "box", rows: 2, boxes: [{ x: "a", min: 0, q1: 1, median: 2, q3: 3, max: 4, n: 5 }] },
+  };
+  for (const [k, d] of Object.entries(kinds)) {
+    const svg = ctx.api.chartSvg(d, { kind: k, x: "x", y: "v", title: "" });
+    const titled = allNodes(svg).filter((n) => n.tag === "title");
+    assert.ok(titled.length > 0, `${k} has tooltips`);
+    assert.strictEqual(svg.attrs.role, "img");
+  }
+  const empty = ctx.api.chartSvg({ kind: "bar", rows: 0, categories: [], series: [] }, { kind: "bar" });
+  assert.ok(allNodes(empty).some((n) => n.textContent === "Nothing to chart"));
+  const pie = ctx.api.chartSvg({ kind: "pie", rows: 9, categories: [1, 2, 3, 4, 5, 6, 7, 8, 9], series: [{ name: null, values: [1, 1, 1, 1, 1, 1, 1, 1, 1] }] }, { kind: "pie" });
+  assert.strictEqual(allNodes(pie).filter((n) => n.tag === "path").length, 7, "a pie folds past six slices into Other");
+});
+
+// Data Wrangler (wrangler.js): steps go to the engine, which writes the Polars code and previews it on every row.
+function wranglerHarness(answer) {
+  const src = fs.readFileSync(path.join(ui, "wrangler.js"), "utf8");
+  const { node } = chartsHarness(null);
+  const calls = [];
+  const inserted = [];
+  const ctx = { h: node, btn: (label, _i, onclick, _c, attrs = {}) => node("button", { onclick, ...attrs }, label), friendlyError: String,
+    resultTable: (columns) => ({ ...node("table", {}), columns, querySelectorAll: () => [] }), state: { selected: null },
+    insertCell: (code) => inserted.push(code), toast: () => {}, attempt: (fn) => fn(), navigator: { clipboard: { writeText: async () => {} } },
+    rpc: async (m, a) => { calls.push([m, JSON.parse(JSON.stringify(a))]); return typeof answer === "function" ? answer(a) : answer; } };
+  vm.createContext(ctx);
+  vm.runInContext(src + "\nthis.api = { wrangleName, renderWrangler, renderWrangleAdd, addWrangleCell };", ctx);
+  return { ctx, calls, inserted };
+}
+
+test("Data Wrangler sends its steps to the engine and adds the code as a new cell under the output", async () => {
+  const d = { code: "import polars as pl\n...", columns: ["id", "name"], types: ["integer", "string"], rows: [[1, "Ann"]],
+    rows_before: 4, rows_after: 3, changed: ["name"], sampled: false, error: null, steps: ["Remove duplicate rows"] };
+  const { ctx, calls, inserted } = wranglerHarness(d);
+  assert.strictEqual(ctx.api.wrangleName({ source: "orders = spark.sql('x')\ndisplay(orders)" }), "orders");
+  assert.strictEqual(ctx.api.wrangleName({ source: "df2" }), "df2");
+  assert.strictEqual(ctx.api.wrangleName({ source: "display(spark.sql('x'))" }), "df");
+  const o = { frame: "f", columns: ["id", "name"], rows: [] };
+  const cell = { id: "c1", source: "display(orders)" };
+  ctx.api.renderWrangler(o, cell);
+  assert.deepStrictEqual(calls[0], ["notebook_frame_wrangle", { frame: "f", steps: [], name: "orders" }]);
+  // Adding a step: pick the operation, then its columns, then Add step.
+  o.wrangle.adding = "dedupe";
+  const form = ctx.api.renderWrangleAdd(o, o.wrangle, () => {});
+  const cols = allNodes(form).find((n) => n.tag === "select" && n.attrs.multiple);
+  cols.selectedOptions = [{ value: "id" }];
+  allNodes(form).find((n) => n.tag === "button" && n.kids.includes("Add step")).attrs.onclick();
+  assert.deepStrictEqual(plain(o.wrangle.steps), [{ op: "dedupe", columns: ["id"] }]);
+  ctx.api.renderWrangler(o, cell);
+  assert.deepStrictEqual(calls[1][1].steps, [{ op: "dedupe", columns: ["id"] }]);
+  await new Promise((r) => setImmediate(r));
+  ctx.api.addWrangleCell(cell, d.code);
+  assert.strictEqual(ctx.state.selected, "c1");
+  assert.deepStrictEqual(inserted, [d.code]);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /o\.frame \? seg\("clean", "Clean"\) : null/);
+  assert.match(nb, /previewMarked\("dataWrangler"/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /dataWrangler: "Data Wrangler"/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="charts\.js"><\/script>\n  <script src="wrangler\.js"><\/script>/);
+  // The code is shown as text, never as HTML.
+  assert.doesNotMatch(fs.readFileSync(path.join(ui, "wrangler.js"), "utf8"), /innerHTML|insertAdjacentHTML|outerHTML/);
+});
+
+test("a Data Wrangler step that can't run is marked with its reason and blocks adding the code", async () => {
+  const d = { code: "x", columns: ["id"], types: ["integer"], rows: [], rows_before: 1, rows_after: 1, changed: [], sampled: false,
+    error: { step: 0, message: "'lots' isn't a number." }, steps: ["Fill missing values: id"] };
+  const { ctx } = wranglerHarness(d);
+  const o = { frame: "f", columns: ["id"], rows: [], wrangle: { steps: [{ op: "fill", columns: ["id"], value: "lots" }], name: "df", data: null, adding: "" } };
+  const box = ctx.api.renderWrangler(o, { id: "c" });
+  await new Promise((r) => setImmediate(r));
+  const alert = allNodes(box).find((n) => n.attrs?.role === "alert");
+  assert.ok(alert.kids.includes("'lots' isn't a number."));
+  const add = allNodes(box).find((n) => n.tag === "button" && n.kids.includes("Add code to notebook"));
+  assert.strictEqual(add.attrs.disabled, true);
+  // After a restart the kernel no longer holds the result.
+  const gone = wranglerHarness({ gone: true });
+  const box2 = gone.ctx.api.renderWrangler({ frame: "f", columns: [], rows: [] }, null);
+  await new Promise((r) => setImmediate(r));
+  assert.ok(allNodes(box2).some((n) => /Run the cell again to clean this result/.test(n.textContent)));
 });

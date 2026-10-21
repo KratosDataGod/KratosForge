@@ -385,6 +385,8 @@ Ownership, criticality, tags, links and the action log are kept on this PC in `w
 
 An incident is one record per problem in an environment: a table whose last run failed, a run waiting for a decision, a late table, a missed [reliability objective](metadata-guide.md#reliability-objectives-preview), an agent that stopped reporting, or an environment that couldn't be read. The list lives in the environment's `LH_Meta`, so everyone who can read the environment, and every agent that serves it, sees the same incidents. Two people or agents seeing the same failure open one incident, not two.
 
+**How this works**, beside the list, says what the page reads, which of its actions write to the shared list, when the app posts to Teams, and that an environment that can't be read is never counted as a failing workload. It folds to its title, and the app remembers that.
+
 **The list.** Pick the environment (each chip shows its active count, or why it can't be read) and **Active**, **Mine** (incidents assigned to you) or **Resolved**. Each row shows the state (**Open**, **Acknowledged**, **Recovered**, **Cleared** or **Resolved**), the problem with its evidence and a **Likely** category for failed runs, when it opened and who opened it, how often it was seen, its owner, and whether it was escalated.
 
 **Who keeps it current.** The line above the list names the agents that check the environment on a timer (from their status records) and whether they are live. When no running agent checks it, it says so: the app checks it itself every 10 minutes while it's open, and posts new incidents to its own Teams webhook if one is set (**Settings > Notifications**). **Check *environment* now** checks at once and never posts to Teams. Agents post to the routes their admin set ([agent guide](agent.md#incidents-preview)).
@@ -431,7 +433,7 @@ It also lists its last jobs. When the agent has stopped reporting or is older th
 
 ### Queue (Preview)
 
-Each place work runs has its own scheduler and queue: Windows Task Scheduler on this PC, each agent's own queue, and Fabric's scheduler. Monitor > Operations > Queue puts them in one list and says, on every row, which one owns it. It never starts, stops or reorders anything.
+Each place work runs has its own scheduler and queue: Windows Task Scheduler on this PC, each agent's own queue, and Fabric's scheduler. Monitor > Operations > Queue puts them in one list and says, on every row, which one owns it. It never starts, stops or reorders anything. **How this works**, beside the list, says what it reads, that it changes and stores nothing, and what **Unknown** and **Missed** mean.
 
 The line at the top says how each source was read. **This PC** is its schedules. **Agents** come from their status records. **Fabric** is the jobs this app started, as last checked, and the Fabric schedules that Monitor > Schedules last read. The Queue page makes no Fabric call of its own. Until Schedules has read Fabric's schedules, the line says so, with a link.
 
@@ -444,7 +446,7 @@ A run Windows Task Scheduler started on this PC isn't listed while it runs; it s
 
 ### Run as (Preview)
 
-Monitor > Operations > Run as lists each place your workloads run and says which identity runs them there, the credential it uses, and where data and credentials go. It only reads: nothing here signs in, renews a certificate or changes access. Renewing a certificate or fixing an identity happens in Microsoft Entra and on the agent's server.
+Monitor > Operations > Run as lists each place your workloads run and says which identity runs them there, the credential it uses, and where data and credentials go. It only reads: nothing here signs in, renews a certificate or changes access. Renewing a certificate or fixing an identity happens in Microsoft Entra and on the agent's server. **How this works**, beside the list, says what it reads, that it changes and stores nothing, and what **Unknown** and **Not visible** mean.
 
 - **This PC** and **Fabric jobs from this app** run as you. If you are signed out, they say so. Your organization's policy is shown where it applies: how long local run results are kept, which tenants you may sign in to, and whether this app may start jobs on Fabric capacity.
 - **Each agent** runs as the identity in its `agent.toml`: a service principal, a managed identity or a user sign-in. The app never sees its ids. Agents report facts about their credential in their [status record](agent.md#status-records): a certificate's end date, and when their last token request worked or failed. An agent never publishes the credential, its path or its thumbprint. A secret's or a managed identity's expiry isn't visible to the agent, so it isn't shown. An older agent that doesn't report these facts shows **Unknown**.

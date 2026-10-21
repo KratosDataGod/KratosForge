@@ -320,6 +320,124 @@ function whatsNewItems(notes, history) {
 
 // ---------- Settings page ----------
 
+const MOTION_LEVEL_HELP = ["No animation at all. Progress, results and errors still show.",
+  "Quick page and panel transitions only. No branded effects.",
+  "Subtle sparks, embers and the wolf on real progress. Recommended.",
+  "The same moments with more character: extra sparks, halftone and offset rings."];
+// Achievement celebrations (motion_achievements, off by default) gets its row when the developer
+// profile (#327) can award something to celebrate; a switch that does nothing would only confuse.
+const MOTION_FAMILIES = [["motion_wolf", "Wolf animations", "The wolf on run progress, its arrival and the Wolf Run after long work."],
+  ["motion_sparks", "Forge sparks", "Sparks when work succeeds, the anvil strike after a deployment, the ember when something fails."],
+  ["motion_ambient", "Running indicators", "The glow on a running cell, the flow into a running pipeline step, the ring when work starts."]];
+
+function motionSettingsCard(s, locked) {
+  const level = s.motion_level.value;
+  const source = (key) => (s[key]?.source === "policy" ? "policy" : null);
+  const save = async (changes) => { if (await saveSettings(changes)) render(); };
+  const levelRow = (n) => h("label", { class: `choice-row${level === n ? " selected" : ""}` },
+    h("input", { type: "radio", name: "motion_level", value: String(n), checked: level === n ? true : null,
+      disabled: locked("motion_level") ? true : null, onchange: () => save({ motion_level: n }) }),
+    h("span", {}, h("b", {}, `${n} ${MOTION_LEVELS[n]}`), h("span", { class: "muted-text small" }, MOTION_LEVEL_HELP[n])));
+  const toggle = (key, label, on, disabled) => h("label", { class: "switch" },
+    h("input", { type: "checkbox", checked: on ? true : null, disabled: disabled || locked(key) ? true : null, "aria-label": label,
+      onchange: (e) => save({ [key]: e.target.checked }) }),
+    h("span", {}, on ? "On" : "Off"));
+  const reduced = reducedMotion() && s.motion_follow_system?.value !== false;
+  return h("section", { class: "card pad motion-settings" }, h("h2", {}, "Appearance"),
+    h("h3", {}, "Motion & effects"),
+    h("p", { class: "muted-text small" }, "Effects only follow real work as it finishes; they never delay a run, take focus or cover your code. ",
+      reduced ? h("b", {}, "Off now: Windows asks apps to reduce motion. ") : null, learnMore("motion-and-effects")),
+    h("div", { class: "choices motion-levels", role: "radiogroup", "aria-label": "Visual intensity" }, [0, 1, 2, 3].map(levelRow)),
+    source("motion_level") ? h("div", { class: "setting-source" }, SOURCE_TEXT.policy) : null,
+    MOTION_FAMILIES.map(([key, label, help]) => settingRow(label, level < 2 ? `${help} Plays at Refined and Expressive.` : help,
+      toggle(key, label, s[key]?.value !== false, level < 2), source(key))),
+    settingRow("Respect Windows' reduced-motion setting",
+      "When Windows' Animation effects are off, KratosForge shows no motion. Untick to keep the level you chose anyway.",
+      toggle("motion_follow_system", "Respect Windows' reduced-motion setting", s.motion_follow_system?.value !== false), source("motion_follow_system")),
+    h("div", { class: "row" }, btn("Preview effects", "play", showMotionGallery, "tool outline")));
+}
+
+// Settings > Motion & effects > Preview effects: each effect on a sample, at the level and switches
+// in force now, and Energy Flow on a real three-step pipeline run on this PC.
+function showMotionGallery() {
+  const stats = h("p", { class: "muted-text small", "aria-live": "polite" });
+  const showStats = () => {
+    const d = motionDiagnostics();
+    const played = Object.values(d.played).reduce((a, b) => a + b, 0);
+    stats.textContent = `Level now: ${d.level} ${MOTION_LEVELS[d.level]}${d.level !== d.chosen ? ` (you chose ${d.chosen})` : ""}. `
+      + `${played} ${played === 1 ? "effect" : "effects"} played.`;
+  };
+  const sample = (label, cls = "ok") => h("span", { class: `motion-sample ${cls}` }, label);
+  const row = (name, help, target, play) => h("div", { class: "motion-demo" },
+    h("div", {}, h("b", {}, name), h("div", { class: "muted-text small" }, help)), h("div", { class: "motion-target" }, target),
+    btn("Play", "play", () => { play(); setTimeout(showStats, 50); }, "tool small"));
+  const spark = sample("Succeeded");
+  const failed = sample("Failed", "bad");
+  const run = h("button", { class: "tool outline small", tabindex: "-1", "aria-hidden": "true" }, "Run all");
+  const deployed = sample("Deployed 4 steps.");
+  const lane = h("span", { class: "motion-lane" }, "Kernel idle");
+  const trackHost = h("span", { class: "motion-track" });
+  const flowHost = h("div", { class: "motion-flow" });
+  const flowNote = h("span", { class: "muted-text small" });
+  let flowing = false;
+  const runPipeline = async () => {
+    if (flowing) return;
+    flowing = true;
+    flowHost.replaceChildren();
+    const flow = pipelineFlow(flowHost);
+    const started = await attempt(() => rpc("pipeline_run_start", { text: MOTION_SAMPLE_PIPELINE }), "Sample pipeline didn't start");
+    if (!started?.ok) { flowing = false; flowNote.textContent = started?.problems?.[0]?.message || ""; return; }
+    forgeEvent("pipeline.started", flowHost.closest(".motion-demo")?.querySelector("button"));
+    for (;;) {
+      const st = await rpc("pipeline_run_status", { run_id: started.run_id, values: false }).catch(() => null);
+      if (!st || !flowHost.isConnected) break;
+      flow.update(st);
+      const ok = st.counts?.succeeded || 0;
+      flowNote.textContent = st.state === "running" || st.state === "pending" ? `Running on this PC: ${ok} succeeded so far`
+        : `${st.state[0].toUpperCase()}${st.state.slice(1)}: ${ok} of ${st.activities?.length || 0} activities succeeded`;
+      if (st.state !== "running" && st.state !== "pending") {
+        forgeEvent(st.state === "succeeded" ? "pipeline.succeeded" : "pipeline.failed", flowNote);
+        announce(`Sample pipeline ${st.state}`);
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    flowing = false;
+    showStats();
+  };
+  const body = h("div", { class: "motion-gallery" },
+    h("p", { class: "muted-text small" }, "Each effect plays on a sample at the level and switches set now. The samples are not real work, except the pipeline, "
+      + "which runs a three-step sample (two short waits and a variable) on this PC and is kept in this PC's local pipeline run history. Nothing goes to Fabric."),
+    row("Forge Spark", "A cell, query or check succeeded.", spark, () => forgeEvent("notebook.cell.succeeded", spark)),
+    row("Controlled Failure", "Something failed. The red label is there from the first frame.", failed, () => forgeEvent("notebook.cell.failed", failed)),
+    row("Pulse", "Run all started.", run, () => forgeEvent("notebook.run.started", run)),
+    row("Wolf track and arrival", "Run all: the wolf sits at the share of cells done (sample: 4 steps).", trackHost, () => {
+      if (trackHost.childElementCount) return;
+      const t = wolfTrack(() => trackHost, "Sample run", "Step", "on this PC");
+      let i = 0;
+      t.set(0, 4);
+      const tick = setInterval(() => { i += 1; if (i < 4) t.set(i, 4); else { clearInterval(tick); t.set(4, 4); t.arrive(); } }, 450);
+    }),
+    row("Wolf Run", "A cell that ran 10 s or more succeeded.", lane, () => forgeEvent("notebook.long.succeeded", lane)),
+    row("Anvil Strike", "A deployment succeeded.", deployed, () => forgeEvent("deploy.succeeded", deployed)),
+    h("div", { class: "motion-demo" }, h("div", {}, h("b", {}, "Energy Flow"),
+      h("div", { class: "muted-text small" }, "A pipeline's activities as they really run: the link into the running step flows, a finished step settles.")),
+    h("div", { class: "motion-target" }, flowNote), btn("Run sample on this PC", "play", runPipeline, "tool small")),
+    flowHost, stats);
+  showStats();
+  showDialog("Motion & effects", body, [btn("Done", null, closeDialog, "primary")]);
+}
+
+// Three activities that only wait and set a variable: nothing is read, written or sent.
+const MOTION_SAMPLE_PIPELINE = JSON.stringify({ name: "Motion sample", properties: {
+  variables: { shaped: { type: "String" } },
+  activities: [
+    { name: "Land files", type: "Wait", dependsOn: [], typeProperties: { waitTimeInSeconds: 1 } },
+    { name: "Shape", type: "SetVariable", dependsOn: [{ activity: "Land files", dependencyConditions: ["Succeeded"] }],
+      typeProperties: { variableName: "shaped", value: "yes" } },
+    { name: "Publish", type: "Wait", dependsOn: [{ activity: "Shape", dependencyConditions: ["Succeeded"] }], typeProperties: { waitTimeInSeconds: 1 } },
+  ] } });
+
 function settingRow(title, help, control, source) {
   return h("div", { class: "setting" },
     h("div", { class: "setting-text" }, h("b", {}, title), help ? h("div", { class: "muted-text small" }, help) : null,
@@ -374,16 +492,8 @@ async function renderSettings() {
     h("div", { class: "row" }, btn("What's new in this build", "rocket", () => showWhatsNew(true), "tool link small"),
       btn("Show the update splash", "rocket", () => showUpdateSplash(true), "tool link small")));
 
-  // Display
-  const motionValue = s.forge_animations?.value !== false;
-  const display = s.forge_animations ? h("section", { class: "card pad" }, h("h2", {}, "Display"),
-    settingRow("Forge animations",
-      "Show subtle wolf, forge and spark animations during application activities. Progress, results and errors show the same either way. "
-        + "Windows' \"Show animations\" setting turns these off too.",
-      h("label", { class: "switch" }, h("input", { type: "checkbox", checked: motionValue ? true : null, disabled: locked("forge_animations") ? true : null,
-        "aria-label": "Forge animations", onchange: async (e) => { await saveSettings({ forge_animations: e.target.checked }); render(); } }),
-      h("span", {}, reducedMotion() ? "Off while Windows reduces motion" : motionValue ? "On" : "Off")),
-      s.forge_animations.source === "policy" ? "policy" : null)) : null;
+  // Appearance > Motion & effects (motion.js, docs/forge-animations.md)
+  const display = s.motion_level ? motionSettingsCard(s, locked) : null;
 
   // Preview features
   const previews = h("section", { class: "card pad" }, h("h2", {}, "Preview features"),

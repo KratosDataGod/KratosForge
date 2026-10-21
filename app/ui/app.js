@@ -572,7 +572,9 @@ function render() {
 }
 
 function setView(...children) {
-  document.getElementById("view").replaceChildren(...children);
+  const view = document.getElementById("view");
+  view.replaceChildren(...children);
+  viewTransition(view);  // motion.js: only when the page itself changed
 }
 
 // The shared look for a part of a page that is still being read (UX-020): a small spinner and the

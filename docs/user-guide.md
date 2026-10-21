@@ -46,7 +46,7 @@ Use the arrow keys and **Enter**, or click. **Esc** closes it. Actions for previ
 - In a row of tabs, **Left** and **Right** move to the next tab, and **Home** and **End** to the first and last. Some pages' tabs don't support this yet.
 - **Alt+Left** goes back to the page before, and **Alt+Right** forward again, like the arrows at the top left. They don't while you're typing in a box or an editor, or while a dialog is open. **Go back** and **Go forward** are in the command bar too.
 - While you're working inside the embedded Fabric page (**Workspaces > Fabric portal**), **Alt+Left** and **Alt+Right** may move within that page instead. Use the **Back** and **Forward** buttons at the top left to leave it.
-- If Windows is set to show fewer animations (**Settings > Accessibility > Visual effects > Animation effects** off), the app doesn't animate either.
+- If Windows is set to show fewer animations (**Settings > Accessibility > Visual effects > Animation effects** off), the app doesn't animate either, unless you untick **Respect Windows' reduced-motion setting** in [Motion and effects](#motion-and-effects).
 
 ### Keyboard shortcuts
 
@@ -487,6 +487,17 @@ At the bottom of **Settings > General**, folded. Click **Advanced** to open it; 
 | **SQL queries** | Rows per page, time limit, memory, queries at once, how long results are kept, and the **Temp folder**. See [Running SQL queries on this PC](sql-execution.md#limits). |
 
 When your organization's policy file sets one of these, or the `FABRIC_DESKTOP_CLIENT_ID` environment variable sets the App ID, the field shows the value it uses, can't be edited and says which: "Set by your organization's policy" or "Set by the FABRIC_DESKTOP_CLIENT_ID environment variable". To change an ID the variable sets, remove the variable (`setx FABRIC_DESKTOP_CLIENT_ID ""`) and restart KratosForge.
+
+### Motion and effects
+
+**Settings > Appearance > Motion & effects** sets how much the app moves. **Visual intensity** is
+**0 Off** (nothing moves), **1 Minimal** (quick page and panel transitions only), **2 Refined**
+(the default: small sparks, embers and the wolf on real progress) or **3 Expressive** (the same
+moments with more character). Switches turn off one family of effects at a time: wolf
+animations, forge sparks and running indicators. Changes apply
+at once and are kept. **Preview effects** plays each effect on a sample, and runs a three-step sample
+pipeline on this PC to show the pipeline flow. Progress, results and errors look the same at every
+level. See [Motion and effects](forge-animations.md) for every effect and when it plays.
 
 ### Platform settings
 

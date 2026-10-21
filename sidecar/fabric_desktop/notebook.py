@@ -7,8 +7,9 @@ statement is an expression its value is shown: data frames as a table, charts as
 with an HTML view as HTML, anything else as its repr. ``display(...)`` shows values mid-cell.
 
 Every cell has what a Fabric notebook has: ``spark`` (see spark_local), ``notebookutils`` and
-``mssparkutils`` (see notebookutils_local) and ``display``. ``%%sql`` cells run Spark SQL,
-``%%html`` shows HTML, and ``%run`` runs another notebook in this one's namespace.
+``mssparkutils`` (see notebookutils_local) and ``display``. ``%%sql`` cells run Spark SQL and keep
+a query's result in ``_sqldf``, ``df = %sql SELECT ...`` runs one query inside Python, ``%%html``
+shows HTML, and ``%run`` runs another notebook in this one's namespace (line magics: magics.py).
 """
 
 from __future__ import annotations
@@ -34,6 +35,8 @@ from typing import Any, Callable
 import pyarrow as pa
 
 from . import notebook_resources
+from . import magics
+from .frames import Frames, type_name
 
 # Charts are drawn off screen and shown as images in the cell.
 os.environ.setdefault("MPLBACKEND", "Agg")
@@ -42,6 +45,7 @@ PREVIEW_ROWS = 1000
 _CELL_FILE = "<cell>"
 _SECRET_NAME = re.compile(r"(pass(word)?|pwd|secret|token|key|credential)", re.I)
 _SPARK_ONLY = re.compile(r"^\s*%%(spark|sparkr|csharp)\b")
+_SQL_IN_PLACE = re.compile(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.IGNORECASE)
 
 
 def _no_input(*_args, **_kwargs):
@@ -103,7 +107,7 @@ def display(value: Any) -> dict[str, Any]:
     if table is not None:
         rows = [[_json_value(v) for v in row.values()] for row in table.slice(0, PREVIEW_ROWS).to_pylist()]
         total = _total_rows(value, table)
-        return {"type": "table", "columns": table.schema.names, "rows": rows,
+        return {"type": "table", "columns": table.schema.names, "types": [type_name(f.type) for f in table.schema], "rows": rows,
                 "total_rows": total if total is not None else f"more than {PREVIEW_ROWS}"}
     module = type(value).__module__
     if module.startswith("matplotlib"):
@@ -226,6 +230,7 @@ class Kernel:
         self._current: _Run | None = None
         self._local = threading.local()
         self._secrets: set[str] = set()
+        self.frames = Frames()
         self.restart()
 
     # ---- namespace
@@ -263,11 +268,26 @@ class Kernel:
         lakehouse.reads_reset()
         self.namespace: dict[str, Any] = self._base_namespace()
         self.count = 0
+        self.frames.clear()
+
+    def _show(self, value: Any) -> dict[str, Any]:
+        """``display(value)``; a table also keeps its whole result for the result viewer (frames.py)."""
+        out = display(value)
+        if out["type"] == "table":
+            out["frame"] = self.frames.keep(value)
+        return out
+
+    def frame_page(self, frame: str, offset: int = 0, limit: int = 100, sort: int | None = None,
+                   desc: bool = False, q: str = "") -> dict[str, Any]:
+        return self.frames.page(frame, offset, limit, sort, desc, q)
+
+    def frame_download(self, frame: str, format: str, path: str) -> dict[str, Any]:  # noqa: A002 - RPC name
+        return self.frames.download(frame, format, path)
 
     def _display(self, *values: Any, summary: bool = False, **_kw: Any) -> None:
         run = getattr(self._local, "run", None)
         for value in values:
-            out = display(value)
+            out = self._show(value)
             if summary and out["type"] == "table":
                 out["summary"] = True
             if run is not None:
@@ -377,7 +397,7 @@ class Kernel:
         from .notebookutils_local import NotebookExit
         head = code.lstrip()
         if head.startswith("%%sql"):
-            return self._run_sql(head[len("%%sql"):], run)
+            return self._run_sql(head[len("%%sql"):], run, namespace)
         if head.startswith("%%html"):
             self._emit(run, {"type": "html", "html": head[len("%%html"):]})
             return "ok"
@@ -391,8 +411,8 @@ class Kernel:
             return "error"
         if re.match(r"%%(pyspark|python)\b", head):
             code = head.split("\n", 1)[1] if "\n" in head else ""
-        code = _line_magics(code)
-        namespace.setdefault("__fd_magic__", self._magic)
+        code = magics.rewrite(code)
+        namespace.setdefault(magics.CALL, self._magic)
         self._patch_pyplot(run)
         try:
             with warnings.catch_warnings():
@@ -407,7 +427,7 @@ class Kernel:
                     value = eval(compile(ast.Expression(last.value), _CELL_FILE, "eval"), namespace)
                 if value is not None:
                     namespace["_"] = value
-                    self._emit(run, display(value))
+                    self._emit(run, self._show(value))
         except NotebookExit as done:
             print(f"Notebook exited with value: {done.value}")
             namespace["__fd_exit__"] = done.value
@@ -441,12 +461,13 @@ class Kernel:
                 run.add(_png(plt.figure(num)))
         plt.close("all")
 
-    def _run_sql(self, query: str, run: _Run | None) -> str:
+    def _run_sql(self, query: str, run: _Run | None, namespace: dict[str, Any]) -> str:
         """A %%sql cell: Spark SQL on this PC, through the notebook's spark session.
 
         It reads lakehouse tables and the session's temp views; CREATE TABLE AS and INSERT INTO
-        write lakehouse tables. MERGE, UPDATE and DELETE run in Fabric."""
-        if re.search(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", query, re.IGNORECASE):
+        write lakehouse tables. MERGE, UPDATE and DELETE run in Fabric. A query's result stays in
+        ``_sqldf`` as a spark DataFrame, as in Databricks, so the next Python cell can use it."""
+        if _SQL_IN_PLACE.search(query):
             text = ("This cell changes tables, so it runs in Fabric once the notebook is published. "
                     "On this PC, a Data mesh run does the same surrogate key MERGE.\n")
             self._emit(run, {"type": "stream", "text": text})
@@ -455,7 +476,9 @@ class Kernel:
             from . import spark_local
             result = spark_local.session().sql(query)
             if result is not None and result.columns:
-                self._emit(run, display(result))
+                if magics.returns_rows(query):  # DDL comes back as an empty frame; that isn't a result
+                    namespace["_sqldf"] = result
+                self._emit(run, self._show(result))
             return "ok"
         except Exception as exc:  # noqa: BLE001
             self._emit(run, self._error(exc))
@@ -468,6 +491,8 @@ class Kernel:
             target, _, rest = line.strip().partition(" ")
             args = ast.literal_eval(rest.strip()) if rest.strip() else {}
             return self._run_notebook_in(target.strip("\"'"), self.namespace, args)
+        if name == "sql":
+            return self._sql_value(line)
         if name in ("pip", "conda"):
             print(f"Note: %{name} installs packages in Fabric's session. On this PC the engine's packages "
                   f"are fixed, so this line was skipped.")
@@ -477,12 +502,23 @@ class Kernel:
             value = eval(compile(line, _CELL_FILE, "eval"), self.namespace) if line.strip() else None
             print(f"Wall time: {time.monotonic() - started:.3f} s")
             return value
-        raise ValueError(f"%{name} isn't supported on this PC. Supported: %run, %pip (skipped), %time.")
+        raise ValueError(f"%{name} isn't supported on this PC. Supported: %run, %sql, %pip (skipped), %time.")
+
+    @staticmethod
+    def _sql_value(query: str) -> Any:
+        """``%sql SELECT ...`` inside Python: the query's result as a spark DataFrame."""
+        if not query.strip():
+            raise ValueError("%sql needs a query after it, like: df = %sql SELECT * FROM sales")
+        if _SQL_IN_PLACE.search(query):
+            raise ValueError("MERGE, UPDATE and DELETE change rows in place, which runs in Fabric only. "
+                             "Put the statement in a %%sql cell; it runs once the notebook is published.")
+        from . import spark_local
+        return spark_local.session().sql(query)
 
     def run_notebook(self, name: str, timeout_seconds: int = 90, arguments: dict[str, Any] | None = None) -> Any:
         """notebookutils.notebook.run: the other notebook runs in a fresh namespace; returns its exit value."""
         ns = self._base_namespace()
-        ns["__fd_magic__"] = self._magic
+        ns[magics.CALL] = self._magic
         return self._run_notebook_in(name, ns, arguments or {})
 
     def _run_notebook_in(self, name: str, namespace: dict[str, Any], arguments: dict[str, Any]) -> Any:
@@ -541,7 +577,7 @@ class Kernel:
         skip = set(self._base_namespace_keys())
         rows = []
         for name, value in list(self.namespace.items()):
-            if name.startswith("_") or name in skip or inspect.ismodule(value) or inspect.isclass(value) \
+            if (name.startswith("_") and name != "_sqldf") or name in skip or inspect.ismodule(value) or inspect.isclass(value) \
                     or inspect.isroutine(value):
                 continue
             rows.append({"name": name, "type": type(value).__name__, "size": _size(value),
@@ -701,19 +737,6 @@ class _BuiltinPaths(ast.NodeTransformer):
             if path is not None:
                 node.values[0] = ast.copy_location(ast.Constant(path), first)
         return node
-
-
-def _line_magics(code: str) -> str:
-    """``%run nb`` and other line magics become calls the kernel answers."""
-    out = []
-    for line in code.split("\n"):
-        m = re.match(r"^(\s*)%(?!%)(\w+)\s?(.*)$", line)
-        if m:
-            indent, name, rest = m.groups()
-            out.append(f"{indent}__fd_magic__({name!r}, {rest!r})")
-        else:
-            out.append(line)
-    return "\n".join(out)
 
 
 def _size(value: Any) -> str:

@@ -74,6 +74,8 @@ Times are UTC. A time picks the last version committed at or before it. To resto
 
 **Nothing half-written.** A write that fails, is cancelled or runs out of time commits nothing, and a table that was being created leaves no folder behind. A dry run (`local_write_delta` with `dry_run = true`) runs the query and reports the rows, columns and schema change, and writes nothing.
 
+**One query.** The rows to write come from one query. DuckDB runs a `PIVOT` that finds its own columns (`PIVOT sales ON region USING sum(amount)`) as two statements, so list the values instead: `PIVOT sales ON region IN ('EU', 'US') USING sum(amount)`.
+
 **What stays read-only.** Delta tables in registered folders are never written: copy one into the project with `CREATE TABLE mine USING DELTA AS SELECT * FROM theirs`. Deleting a project table deletes its folder and every version, so it isn't done in SQL (`DROP TABLE` on one is refused) but with `local_drop_delta`, which only says what it would delete until it is called again with `confirm`.
 
 A Delta write isn't part of a DuckDB transaction: `ROLLBACK` doesn't undo it. Only one program should write a project's Delta tables at a time, as with its database.

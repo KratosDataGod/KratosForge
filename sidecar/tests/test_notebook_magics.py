@@ -377,6 +377,10 @@ def test_small_ipython_magics():
     k.run("%env KF_TEST_TOKEN=s3cret")
     assert "s3cret" not in json.dumps(k.run("%env")["outputs"])
     assert "can't be changed" in k.run("%env FABRIC_DESKTOP_X=1")["outputs"][-1]["evalue"]
+    for name in ("HTTPS_PROXY", "http_proxy", "REQUESTS_CA_BUNDLE", "SSL_CERT_FILE"):
+        before = os.environ.get(name)
+        assert "can't set it" in k.run(f"%env {name}=http://evil:8080")["outputs"][-1]["evalue"]
+        assert os.environ.get(name) == before
     k.run("alpha = 1\nbeta = [1, 2]")
     assert k.run("%who")["outputs"][0]["text"].split() == ["alpha", "beta"]
     assert "list" in k.run("%whos")["outputs"][0]["text"]

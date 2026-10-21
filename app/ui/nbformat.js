@@ -18,7 +18,7 @@ async function formatCells(cells, { notebook = false } = {}) {
   const problems = [];
   todo.forEach((c, i) => {
     const r = out[i];
-    if (!r) return;
+    if (!r || !nb.cells.includes(c)) return;  // deleted while the engine formatted
     if (r.error) problems.push({ cell: c, error: r.error });
     // A cell typed in while the engine formatted keeps what was typed.
     else if (r.changed && c.source === sent[i]) { setSource(c, r.source); changed++; }

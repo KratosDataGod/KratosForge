@@ -21,6 +21,9 @@ from . import sql_format
 
 # A first line that makes the cell another language. %%sql and a bare %sql are formatted as SQL.
 _SQL = re.compile(r"^\s*(%%sql\b[^\n]*|%sql[ \t]*)(\n|$)")
+# A Python cell that names its language (Fabric's %%pyspark, Databricks' %python): the code under it is
+# formatted and the magic line stays.
+_PY = re.compile(r"^\s*(%%pyspark|%%python|%python)[ \t]*(\n|$)")
 _OTHER = re.compile(r"^\s*(%%(?!sql\b)\w+|%(md|sh|fs|scala|r|sql|python)\b)")
 # ruff: "error: Failed to parse cell.ipynb:cell 1:2:8: Expected ..." (the cell part varies by version).
 _PARSE = re.compile(r"(\d+):(\d+): (.+)$")
@@ -71,7 +74,18 @@ def format_cells(sources: list[str]) -> list[dict[str, Any]]:
         pass
 
     def one(source: str) -> dict[str, Any]:
-        source = str(source)
+        # A notebook saved on Windows can hold \r\n line ends; ruff would leave a stray \r behind.
+        source = str(source).replace("\r\n", "\n")
+        if (m := _PY.match(source)):
+            head, body = source[:m.end(1)], source[m.end():]
+            if not body.strip() or ruff is None:
+                return {"source": source, "changed": False,
+                        "error": "" if not body.strip() else "The code formatter (ruff) isn't installed in this engine."}
+            out = _python(body, ruff)
+            text = f"{head}\n{out['source']}" if out["changed"] else source
+            # Line numbers count from the cell's first line, the magic line included.
+            why = re.sub(r"\(line (\d+):", lambda n: f"(line {int(n.group(1)) + 1}:", out["error"])
+            return {"source": text, "changed": text != source, "error": why}
         if not source.strip() or _OTHER.match(source) and not _SQL.match(source):
             return {"source": source, "changed": False, "error": ""}
         if (m := _SQL.match(source)):

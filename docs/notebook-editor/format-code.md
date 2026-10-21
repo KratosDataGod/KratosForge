@@ -18,6 +18,7 @@ PC: nothing runs, and nothing is written to OneLake.
 | Cell | What happens |
 | --- | --- |
 | Python | Laid out in [Black](https://black.readthedocs.io/)'s style by [ruff](https://docs.astral.sh/ruff/formatter/), with lines up to 88 characters and double quotes. The style is the same on every PC: a `pyproject.toml` or `ruff.toml` file doesn't change it. |
+| `%%pyspark` or `%python` | Formatted as Python. The magic line stays. |
 | Line magics and shell lines in Python (`%time`, `%run`, `!pip`) | Kept exactly as written; the Python around them is formatted. |
 | `%%sql` or `%sql` | The SQL is laid out as **Format SQL** does on the SQL query page, in Spark SQL: one clause per line, keywords in capitals. The magic line stays. When the formatter can't show that the result means the same, the cell is left as written and the message says why. |
 | Markdown, `%%html`, `%md`, `%sh` and other languages, and cells that start with another cell magic such as `%%time` | Left as written. |

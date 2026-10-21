@@ -76,3 +76,23 @@ test("Format notebook formats every code cell it can and points at the one it co
   assert.strictEqual(await page().evaluate(() => state.notebook.cells.find((c) => c.id === state.selected).cell_id), "bad");
   assert.deepStrictEqual(app.errors, []);
 });
+
+test("a cell deleted while the notebook formats isn't named or shown", { skip }, async () => {
+  await page().evaluate(() => {
+    window.__fdCallFast = window.__fdCall;  // harness.cjs: every engine call goes through it
+    window.__fdCall = async (method, params) => {
+      if (method === "notebook_format") await new Promise((r) => setTimeout(r, 400));
+      return window.__fdCallFast(method, params);
+    };
+  });
+  try {
+    await page().evaluate(() => { state.notebook.cells[0].source = "import os,sys"; formatNotebook(); });
+    // While the engine formats, the cell Python can't read is deleted.
+    await page().evaluate(() => { state.notebook.cells = state.notebook.cells.filter((c) => c.cell_id !== "bad"); renderNotebook(); });
+    await page().locator("#toast", { hasText: "Formatted 1 cell." }).waitFor();
+    assert.doesNotMatch(await toastText(), /left as written/);
+    assert.strictEqual(await source("py"), "import os, sys");
+  } finally {
+    await page().evaluate(() => { window.__fdCall = window.__fdCallFast; });
+  }
+});

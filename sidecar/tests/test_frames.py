@@ -117,9 +117,11 @@ def test_a_failed_download_leaves_no_partial_file(tmp_path, monkeypatch):
 
 
 def test_service_download_never_replaces_a_file(tmp_path, monkeypatch):
+    from fabric_desktop.kernel_sessions import KernelSessions
     from fabric_desktop.service import Service
     monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
     svc = Service.__new__(Service)
+    svc.sessions = KernelSessions(lambda _process: Kernel(), lambda: False)
     svc.kernel = Kernel()
     (out,) = _run(svc.kernel, "import polars as pl\npl.DataFrame({'a': [1, 2]})")
     a = svc.notebook_frame_download(out["frame"], "csv", "Sales")

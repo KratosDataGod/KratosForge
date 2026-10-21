@@ -780,6 +780,30 @@ def audit(db: Db, limit: int = 100) -> list[dict[str, Any]]:
     return db.rows(f"SELECT {top}* FROM {db.t('catalog', 'audit')} ORDER BY id DESC{tail}")
 
 
+WORKLOAD_ACTIONS = ("run", "run_in_fabric", "run_item", "run_schedule", "cancel", "assign", "link", "unlink")
+WORKLOAD_STATES = ("submitted", "succeeded", "failed", "cancelled", "changed")
+_WORKLOAD_FIELDS = ("id", "name", "env", "where", "target", "identity", "before", "after", "detail", "at")
+
+
+def log_workload_action(db: Db, workload: str, action: str, status: str, entry: dict[str, Any] | None = None,
+                        by: str = "") -> dict[str, Any]:
+    """What someone did from a workload page in the app, and how it ended, on the platform's audit.
+    Who did it is the caller (in Fabric, Fabric's own context); the rest is what the app reports,
+    each value cut to 500 characters. ``entry.id`` is the app's own record, so a line the app sent
+    twice can be told apart."""
+    if action not in WORKLOAD_ACTIONS:
+        raise PlatformError(f"action is one of {', '.join(WORKLOAD_ACTIONS)}")
+    if status not in WORKLOAD_STATES:
+        raise PlatformError(f"status is one of {', '.join(WORKLOAD_STATES)}")
+    workload = str(workload or "").strip()
+    if not workload:
+        raise PlatformError("say which workload")
+    detail = {k: str(v)[:500] for k, v in (entry or {}).items() if k in _WORKLOAD_FIELDS and v not in (None, "")}
+    _audit(db, by, f"workload {action} {status}", f"workload:{workload[:300]}", detail or None)
+    db.commit()
+    return {"recorded": True}
+
+
 # --------------------------------------------------------------------------- who may change what
 
 
@@ -1399,7 +1423,7 @@ OPERATIONS = {
     "register_project": register_project, "list_projects": list_projects, "register_product": register_product,
     "list_products": list_products, "resolve_port": resolve_port, "register_link": register_link,
     "save_enrichment": save_enrichment, "enrichment": enrichment, "list_glossary": list_glossary,
-    "save_term": save_term, "audit": audit,
+    "save_term": save_term, "audit": audit, "log_workload_action": log_workload_action,
     "whoami": whoami, "list_admins": list_admins, "claim_admin": claim_admin, "add_admin": add_admin,
     "remove_admin": remove_admin, "list_key_tables": list_key_tables, "list_sources": list_sources,
     "save_source": save_source, "delete_source": delete_source, "adopt_sources": adopt_sources, "request": request, "list_requests": list_requests,

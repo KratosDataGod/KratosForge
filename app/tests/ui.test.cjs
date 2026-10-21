@@ -3816,3 +3816,17 @@ test("variables filter on name or type and sort by name, type or memory with unk
   assert.strictEqual(rows[0].name, "sales");  // the kernel's rows aren't reordered
   assert.doesNotMatch(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /function variableTable/);
 });
+
+test("a workload page says whether its actions reached the platform's audit", () => {
+  const src = fs.readFileSync(path.join(ui, "workloads.js"), "utf8");
+  const fn = /function platformAuditNote\([\s\S]*?\n}\n/.exec(src)[0];
+  const ctx = { h: (tag, attrs, ...kids) => kids.join("") };
+  vm.runInNewContext(`${fn}this.f = platformAuditNote;`, ctx);
+  assert.strictEqual(ctx.f(null), null);
+  assert.strictEqual(ctx.f({ platform: "this_pc", waiting: 0 }), "Each one is also on Platform > Audit.");
+  assert.match(ctx.f({ platform: "fabric", waiting: 2, error: "Signed out." }),
+    /^2 actions or changes haven't reached Platform > Audit yet: Signed out\. This PC keeps them/);
+  assert.match(ctx.f({ platform: "fabric", waiting: 1, error: "" }), /^1 action or change hasn't reached Platform > Audit yet\. /);
+  assert.match(ctx.f({ platform: "none", waiting: 3 }), /^Kept on this PC only: there's no platform yet\. 3 actions/);
+  assert.strictEqual(ctx.f({ platform: "none", waiting: 0 }), "Kept on this PC only: there's no platform yet.");
+});

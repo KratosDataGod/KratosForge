@@ -246,6 +246,18 @@ class Frames:
             con.close()
         return {"frame": fid, "rows": whole.num_rows, "profiled_rows": n, "sampled": sampled, "columns": out,
                 "more_columns": max(0, table.num_columns - PROFILE_COLUMNS)}
+    # ---- Data Wrangler (Clean view): steps written as Polars code, previewed on every row
+
+    def wrangle(self, fid: str, steps: list[dict[str, Any]], name: str = "df") -> dict[str, Any]:
+        """The Polars code for ``steps`` and a preview of what it does to the result (wrangler.py)."""
+        from . import wrangler
+        table = self.table(fid)
+        with self._lock:
+            value = self._values.get(fid)
+        out = wrangler.run(table, value, list(steps or []), name)
+        out["frame"] = fid
+        return out
+
     # ---- the chart builder (Chart view): aggregates over every row
 
     def chart(self, fid: str, kind: str = "bar", x: int | None = None, y: int | None = None, agg: str = "sum",

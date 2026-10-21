@@ -3234,3 +3234,69 @@ test("every chart kind draws marks with a tooltip, and an empty result says so",
   const pie = ctx.api.chartSvg({ kind: "pie", rows: 9, categories: [1, 2, 3, 4, 5, 6, 7, 8, 9], series: [{ name: null, values: [1, 1, 1, 1, 1, 1, 1, 1, 1] }] }, { kind: "pie" });
   assert.strictEqual(allNodes(pie).filter((n) => n.tag === "path").length, 7, "a pie folds past six slices into Other");
 });
+
+// Data Wrangler (wrangler.js): steps go to the engine, which writes the Polars code and previews it on every row.
+function wranglerHarness(answer) {
+  const src = fs.readFileSync(path.join(ui, "wrangler.js"), "utf8");
+  const { node } = chartsHarness(null);
+  const calls = [];
+  const inserted = [];
+  const ctx = { h: node, btn: (label, _i, onclick, _c, attrs = {}) => node("button", { onclick, ...attrs }, label), friendlyError: String,
+    resultTable: (columns) => ({ ...node("table", {}), columns, querySelectorAll: () => [] }), state: { selected: null },
+    insertCell: (code) => inserted.push(code), toast: () => {}, attempt: (fn) => fn(), navigator: { clipboard: { writeText: async () => {} } },
+    rpc: async (m, a) => { calls.push([m, JSON.parse(JSON.stringify(a))]); return typeof answer === "function" ? answer(a) : answer; } };
+  vm.createContext(ctx);
+  vm.runInContext(src + "\nthis.api = { wrangleName, renderWrangler, renderWrangleAdd, addWrangleCell };", ctx);
+  return { ctx, calls, inserted };
+}
+
+test("Data Wrangler sends its steps to the engine and adds the code as a new cell under the output", async () => {
+  const d = { code: "import polars as pl\n...", columns: ["id", "name"], types: ["integer", "string"], rows: [[1, "Ann"]],
+    rows_before: 4, rows_after: 3, changed: ["name"], sampled: false, error: null, steps: ["Remove duplicate rows"] };
+  const { ctx, calls, inserted } = wranglerHarness(d);
+  assert.strictEqual(ctx.api.wrangleName({ source: "orders = spark.sql('x')\ndisplay(orders)" }), "orders");
+  assert.strictEqual(ctx.api.wrangleName({ source: "df2" }), "df2");
+  assert.strictEqual(ctx.api.wrangleName({ source: "display(spark.sql('x'))" }), "df");
+  const o = { frame: "f", columns: ["id", "name"], rows: [] };
+  const cell = { id: "c1", source: "display(orders)" };
+  ctx.api.renderWrangler(o, cell);
+  assert.deepStrictEqual(calls[0], ["notebook_frame_wrangle", { frame: "f", steps: [], name: "orders" }]);
+  // Adding a step: pick the operation, then its columns, then Add step.
+  o.wrangle.adding = "dedupe";
+  const form = ctx.api.renderWrangleAdd(o, o.wrangle, () => {});
+  const cols = allNodes(form).find((n) => n.tag === "select" && n.attrs.multiple);
+  cols.selectedOptions = [{ value: "id" }];
+  allNodes(form).find((n) => n.tag === "button" && n.kids.includes("Add step")).attrs.onclick();
+  assert.deepStrictEqual(plain(o.wrangle.steps), [{ op: "dedupe", columns: ["id"] }]);
+  ctx.api.renderWrangler(o, cell);
+  assert.deepStrictEqual(calls[1][1].steps, [{ op: "dedupe", columns: ["id"] }]);
+  await new Promise((r) => setImmediate(r));
+  ctx.api.addWrangleCell(cell, d.code);
+  assert.strictEqual(ctx.state.selected, "c1");
+  assert.deepStrictEqual(inserted, [d.code]);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /o\.frame \? seg\("clean", "Clean"\) : null/);
+  assert.match(nb, /previewMarked\("dataWrangler"/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /dataWrangler: "Data Wrangler"/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="charts\.js"><\/script>\n  <script src="wrangler\.js"><\/script>/);
+  // The code is shown as text, never as HTML.
+  assert.doesNotMatch(fs.readFileSync(path.join(ui, "wrangler.js"), "utf8"), /innerHTML|insertAdjacentHTML|outerHTML/);
+});
+
+test("a Data Wrangler step that can't run is marked with its reason and blocks adding the code", async () => {
+  const d = { code: "x", columns: ["id"], types: ["integer"], rows: [], rows_before: 1, rows_after: 1, changed: [], sampled: false,
+    error: { step: 0, message: "'lots' isn't a number." }, steps: ["Fill missing values: id"] };
+  const { ctx } = wranglerHarness(d);
+  const o = { frame: "f", columns: ["id"], rows: [], wrangle: { steps: [{ op: "fill", columns: ["id"], value: "lots" }], name: "df", data: null, adding: "" } };
+  const box = ctx.api.renderWrangler(o, { id: "c" });
+  await new Promise((r) => setImmediate(r));
+  const alert = allNodes(box).find((n) => n.attrs?.role === "alert");
+  assert.ok(alert.kids.includes("'lots' isn't a number."));
+  const add = allNodes(box).find((n) => n.tag === "button" && n.kids.includes("Add code to notebook"));
+  assert.strictEqual(add.attrs.disabled, true);
+  // After a restart the kernel no longer holds the result.
+  const gone = wranglerHarness({ gone: true });
+  const box2 = gone.ctx.api.renderWrangler({ frame: "f", columns: [], rows: [] }, null);
+  await new Promise((r) => setImmediate(r));
+  assert.ok(allNodes(box2).some((n) => /Run the cell again to clean this result/.test(n.textContent)));
+});

@@ -32,7 +32,7 @@ A run on this PC starts no Fabric job. What that job would have used in Fabric i
 - **Never from time on this PC.** How long a run took here says nothing about what it uses in Fabric, so a run whose time wasn't recorded can still be estimated.
 - **Otherwise Not known.** A run with no such Fabric run (for example a table that only ever ran on this PC, or a notebook write) is **Unknown**: it is left out of the total, never counted as 0, and the panel says how many runs were left out. A run of the same table in Fabric gives later runs here something to compare with.
 
-The result is always **Estimated**: nothing was charged or saved for certain, and OneLake reads and writes from this PC still use capacity and aren't counted. The older rough figure (time on this PC as a Python notebook) is still in the report as `scenario_cu` and `scenario_cost`, and in the plain `saved_cu_hours` and `saved` numbers, as a **Scenario**; it is never added to the estimate.
+The result is always **Estimated**: nothing was charged or saved for certain, and OneLake reads and writes from this PC still use capacity and aren't counted. The older rough figure (time on this PC as a Python notebook) is still in the report as `scenario_cu` and `scenario_cost`, and in the plain `scenario_cu_hours` and `scenario_saved` numbers (called `saved_cu_hours` and `saved` before KF-DE-043), as a **Scenario**; it is never added to the estimate.
 
 ## Units
 
@@ -40,7 +40,7 @@ CU-seconds and CU-hours are the same thing at different scales (3,600 CU-seconds
 
 ## For developers
 
-The schema, validation and unit rules are in `sidecar/fabric_desktop/measurement.py`. `costs.report` returns the plain numbers it always did (`cu_hours`, `cost`, `saved_cu_hours`, `saved`) plus an `evidence` dict on every total with the classified measurements (`avoided_cu` and `avoided_cost` from `calibration.py`, the rough `scenario_cu` and `scenario_cost` apart), `unknown_runs`, `uncalibrated_runs` (runs on this PC with nothing to compare with), and `capacity_share_evidence` per environment. A measurement looks like this:
+The schema, validation and unit rules are in `sidecar/fabric_desktop/measurement.py`. `costs.report` returns the plain numbers `cu_hours`, `cost`, `scenario_cu_hours` and `scenario_saved` (items are ranked by Fabric cost plus calibrated avoided cost, never by the scenario) plus an `evidence` dict on every total with the classified measurements (`avoided_cu` and `avoided_cost` from `calibration.py`, the rough `scenario_cu` and `scenario_cost` apart), `unknown_runs`, `uncalibrated_runs` (runs on this PC with nothing to compare with), and `capacity_share_evidence` per environment. A measurement looks like this:
 
 ```json
 {"id": "m-…", "classification": "estimated", "metric": "fabric_job_cu", "unit": "cu_seconds", "value": 1800.0,

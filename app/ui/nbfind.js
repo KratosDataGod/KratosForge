@@ -158,6 +158,7 @@ function findShow(i) {
   if (!m) return;
   nbFind.current = i;
   const cell = m.cell;
+  revealCell(cell);  // nbcells.js: open a folded section that hides the match
   selectCell(cell);
   if (cell.meta?.source_hidden) setMeta(cell, "source_hidden", false);
   if (cell.type === "markdown" && !cell.editing && !cell.meta?.frozen) { cell.editing = true; updateCell(cell); }

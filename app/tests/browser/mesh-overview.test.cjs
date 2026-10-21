@@ -57,16 +57,20 @@ test("a domain lists its projects, their layers, products and readers", { skip }
   assert.ok(await page().$('.mf-projects:has-text("Orders")'));
 });
 
-test("a layer's table shows where it comes from and what reads it", { skip }, async () => {
+test("a layer's table shows its whole lineage, both ways, out to the projects reading its products", { skip }, async () => {
   await page().click('.mf-layers .layer-chip:has-text("silver")');
   await page().click('.mf-layer button:has-text("orders")');
-  const lineage = await page().textContent(".mf-lineage");
-  assert.match(lineage, /Comes from\s*erp_orders/);
-  assert.match(lineage, /Read by\s*fact_orders/);
+  const cols = await page().$$eval(".mf-lineage > div", (d) => d.map((x) => x.innerText.replace(/\s+/g, " ").trim()));
+  assert.deepStrictEqual(cols, ["Source landing erp/orders", "It reads erp_orders", "This table orders", "Reads it fact_orders",
+    "Data products Product Orders", "Other projects Month-end close reads Orders"]);
+  await page().click('button[aria-pressed="false"]:has-text("Only what it reads")');
+  assert.deepStrictEqual(await page().$$eval(".mf-lineage > div > b", (b) => b.map((x) => x.textContent)), ["Source", "It reads", "This table"]);
+  await page().click('button:has-text("Whole lineage")');
   await page().click('.mf-lineage button:has-text("fact_orders")');
   assert.match(await page().textContent(".mf-table h2"), /fact_orders/);
   assert.match(await page().textContent(".mf-layer h2"), /gold tables/);
-  assert.match(await page().textContent(".mf-lineage"), /Product Orders/);
+  assert.match(await page().textContent(".mf-lineage"), /Before that\s*erp_orders/);
+  assert.ok(await page().$('.mf-table button:has-text("Columns")'));
   await page().click('.mf-crumbs button:has-text("Domains")');
   assert.ok(await page().$(".mf-domains"));
   assert.deepStrictEqual(app.errors, []);

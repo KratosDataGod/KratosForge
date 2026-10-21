@@ -210,7 +210,7 @@ async function loadAgents(box) {
 // ---------- one agent ----------
 
 async function renderAgent() {
-  setView(h("div", { class: "page wl-page" }, h("p", { class: "muted-text" }, "Loading...")));
+  setView(h("div", { class: "page wl-page" }, loading()));
   const out = await attempt(() => rpc("agents_list", {}), "Couldn't read the agent");
   if (state.view !== "agent") return;
   const a = (out?.agents || []).find((x) => x.agent === agPage.name);

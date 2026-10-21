@@ -191,11 +191,13 @@ function renderExplorer() {
   const fromLocations = nbData(state.notebook).from === "locations";
   const tab = (id, label) => h("button", { class: `tab${state.explorerTab === id ? " active" : ""}`,
     onclick: () => { state.explorerTab = id; renderNotebook(); } }, label);
-  const tabs = h("div", { class: "explorer-tabs" }, tab("data", "Data items"), tab("outline", "Outline"), tab("resources", "Resources"));
+  const tabs = h("div", { class: "explorer-tabs" }, tab("data", "Data items"), tab("outline", "Outline"), tab("resources", "Resources"), tab("notebooks", "Notebooks"));
   const content = h("div", { class: "explorer-content" });
 
   if (state.explorerTab === "outline") {
     content.append(renderOutline());
+  } else if (state.explorerTab === "notebooks") {
+    content.append(nbExplorerNotebooks());  // grouped by folder (notebook-files.js)
   } else if (state.explorerTab === "resources") {
     content.append(nbResourcesSection(state.notebook), h("div", { class: "nb-res-head" }, h("b", {}, "Code snippets")),
       h("div", { class: "muted-text", style: "padding:4px 4px 10px" }, "Click a snippet to add it as a new cell."),

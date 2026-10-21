@@ -2212,7 +2212,8 @@ test("Notebook files: commands, Home link, ribbon, Fabric preview and the Publis
   assert.deepStrictEqual([...registered.map((f) => f.id)], ["notebookFiles"]);
   assert.ok(registered[0].views.notebooks);
   assert.deepStrictEqual([...registered[0].commands.map((c) => c.label)],
-    ["All notebooks", "Search inside notebooks", "Open a notebook file", "Save a copy of this notebook"]);
+    ["All notebooks", "Search inside notebooks", "Open a notebook file", "Save a copy of this notebook", "New notebook folder",
+      "Move this notebook to a folder"]);
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   assert.match(app, /also: \["notebooks"\]/);
   assert.match(app, /btn\("All notebooks", "notebook", \(\) => go\("notebooks"\)/);
@@ -3973,4 +3974,71 @@ test("a widget after a restart asks for its cell again, and a busy kernel's refu
   // Disabled controls are drawn disabled.
   const d = busy.ctx.api.drawWidget({ id: "w9", kind: "slider", description: "", disabled: true, value: 1, min: 0, max: 2, step: 1 }, () => {}, null, 0);
   assert.strictEqual(allNodes(d).find((n) => n.tag === "input").attrs.disabled, true);
+});
+
+// Folders for notebooks (notebook-files.js, notebook_folders_service.py): the grouped tree, where a
+// notebook can move, and the folder actions' wiring.
+function notebookFolderHelpers() {
+  const src = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
+  const ctx = { registerFeature() {} };
+  vm.runInNewContext(`${src}; Object.assign(this, { nbFolderTree, nbFolderChoices, nbNameInFolder, nbLeaf, nbFolderOf, nbFolderDepth, nbRenameProblemLines });`, ctx);
+  return ctx;
+}
+
+test("notebooks group into a folder tree per place, with counts that include subfolders and empty folders", () => {
+  const { nbFolderTree } = notebookFolderHelpers();
+  const repo = { root: "C:/r", label: "repo" };
+  const list = [{ name: "Sales/Daily load" }, { name: "Sales/Archive/Q1" }, { name: "Top" }, { name: "Silver/Orders", place: repo }];
+  const folders = [{ path: "Sales", place: null }, { path: "Sales/Archive", place: null }, { path: "Scratch", place: null }, { path: "Silver", place: repo }];
+  const tree = nbFolderTree(list, folders);
+  const plain = (f) => ({ name: f.name, count: f.count, books: f.notebooks.map((n) => n.name), sub: f.folders.map(plain) });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(tree.folders.map(plain))), [
+    { name: "Sales", count: 2, books: ["Sales/Daily load"], sub: [{ name: "Archive", count: 1, books: ["Sales/Archive/Q1"], sub: [] }] },
+    { name: "Scratch", count: 0, books: [], sub: [] },
+    { name: "Silver", count: 1, books: ["Silver/Orders"], sub: [] },
+  ]);
+  assert.deepStrictEqual([...tree.loose.map((n) => n.name)], ["Top"]);
+  // A notebook in a folder the folder listing hasn't caught up with still gets its folder.
+  assert.strictEqual(nbFolderTree([{ name: "New/X" }], []).folders[0].count, 1);
+});
+
+test("a notebook moves to folders of its own place, keeping its own name", () => {
+  const { nbFolderChoices, nbNameInFolder, nbLeaf, nbFolderOf, nbFolderDepth } = notebookFolderHelpers();
+  const repo = { root: "C:/r", label: "repo" };
+  const folders = [{ path: "Sales" }, { path: "Finance", place: null }, { path: "Silver", place: repo }];
+  assert.deepStrictEqual([...nbFolderChoices(folders, null)], ["", "Finance", "Sales"]);
+  assert.deepStrictEqual([...nbFolderChoices(folders, repo)], ["", "Silver"]);
+  assert.strictEqual(nbNameInFolder("Explore orders", "Sales"), "Sales/Explore orders");
+  assert.strictEqual(nbNameInFolder("Sales/Archive/Q1", ""), "Q1");
+  assert.deepStrictEqual([nbLeaf("A/B/C"), nbFolderOf("A/B/C"), nbFolderOf("C"), nbFolderDepth("A/B"), nbFolderDepth("")], ["C", "A/B", "", 2, 0]);
+});
+
+test("folder actions are wired: a menu entry, New folder, the empty-only delete in red, Preview on publish, docs", () => {
+  const files = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
+  assert.match(files, /label: "Move to folder…", icon: "folder", action: \(\) => nbMoveToFolderDialog\(n, folders\)/);
+  assert.match(files, /btn\("New folder", "folder", \(\) => nbNewFolderDialog\(null/);
+  assert.match(files, /confirmDialog\(`Delete folder \$\{f\.path\}\?`, .*"Delete", \{ danger: true \}\)/);
+  // A folder with notebooks in it is refused before anything is asked or sent.
+  assert.match(files, /if \(f\.count\) \{\n\s+nbFolderRefusal\(f, /);
+  assert.match(files, /previewMarked\("notebookFolderPublish", /);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /notebookFolderPublish: "Publishing notebooks from folders"/);
+  for (const m of ["notebook_folders", "notebook_folder_create", "notebook_folder_rename", "notebook_folder_delete", "notebook_move_to_folder"]) {
+    assert.ok(files.includes(`"${m}"`), `the UI calls ${m}`);
+  }
+  assert.match(files, /function nbFoldersHowItWorks\(\)/);
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /tab\("notebooks", "Notebooks"\)/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /rpc\("new_notebook", into\?\.folder \? \{ place, folder: into\.folder \} : \{ place \}\)/);
+  const root = path.join(__dirname, "..", "..");
+  for (const f of ["README.md", "docs/README.md", "docs/user-guide.md", "zensical.toml"]) {
+    assert.match(fs.readFileSync(path.join(root, f), "utf8"), /notebook-folders\.md/, `${f} links the folders page`);
+  }
+});
+
+test("a move that leaves something behind names it and says what to do", () => {
+  const { nbRenameProblemLines } = notebookFolderHelpers();
+  const lines = nbRenameProblemLines([{ notebook: "EMEA/B", was: "Sales/B", step: "schedules", error: "OSError: disk full" }]);
+  assert.deepStrictEqual([...lines], ["EMEA/B (was Sales/B): its schedules didn't follow (OSError: disk full). Open Monitor > Schedules and point its schedule on this PC at the new name."]);
+  assert.deepStrictEqual([...nbRenameProblemLines([])], []);
+  const files = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
+  assert.strictEqual(files.match(/nbRenameWarning\((out|ok)\.problems\)/g).length, 3);
 });

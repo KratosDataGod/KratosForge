@@ -236,6 +236,18 @@ class LocalSchedules:
                 return s
         raise LookupError(f"There is no schedule {schedule_id} on this PC")
 
+    def rename_notebook(self, old: str, new: str) -> list[str]:
+        """Points this PC's schedules that run notebook ``old`` at ``new`` (renamed or moved into a
+        folder). Task Scheduler runs them by id, so their tasks stay as they are. Returns their ids."""
+        data = self._load()
+        moved = [s["id"] for s in data["schedules"] if s["target"].get("kind") == "notebook" and s["target"].get("name") == old]
+        if moved:
+            for s in data["schedules"]:
+                if s["id"] in moved:
+                    s["target"] = {**s["target"], "name": new}
+            self._save(data)
+        return moved
+
     def delete(self, schedule_id: str) -> None:
         data = self._load()
         data["schedules"] = [s for s in data["schedules"] if s["id"] != schedule_id]

@@ -493,18 +493,29 @@ class Service(AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineR
             self.attach_lock.release()
 
     # ``notebook`` names whose kernel to ask; without it, the open notebook's.
+    # Looking at a notebook's session never makes one: a new session can stop another notebook's
+    # idle one to make room (Settings cap), clearing its variables just because a notebook opened.
+
     def poll_cell(self, version: int = -1, wait: float = 0.0, notebook: str | None = None) -> dict[str, Any]:
-        return self.sessions.kernel(notebook).poll(version, wait)
+        session = self.sessions.session(notebook, create=False)
+        if session is None:
+            return {"status": "idle", "execution_count": 0, "version": 0, "seconds": 0, "outputs": []}
+        return session.kernel.poll(version, wait)
 
     def interrupt_cell(self, notebook: str | None = None) -> dict[str, Any]:
-        return self.sessions.kernel(notebook).interrupt()
+        session = self.sessions.session(notebook, create=False)
+        return session.kernel.interrupt() if session is not None else {"interrupted": False}
 
     def debug_cell(self, action: str, expression: str | None = None, notebook: str | None = None) -> dict[str, Any]:
         """A cell paused under the debugger: continue, step, next, out, or eval ``expression`` where it is."""
-        return self.sessions.kernel(notebook).debug(action, expression)
+        session = self.sessions.session(notebook, create=False)
+        if session is None:
+            raise RuntimeError("No cell is running under the debugger.")
+        return session.kernel.debug(action, expression)
 
     def kernel_variables(self, notebook: str | None = None) -> list[dict[str, Any]]:
-        return self.sessions.kernel(notebook).variables()
+        session = self.sessions.session(notebook, create=False)
+        return session.kernel.variables() if session is not None else []
 
     def kernel_complete(self, code: str, cursor: int | None = None, notebook: str | None = None) -> dict[str, Any]:
         return self.sessions.kernel(notebook).complete(code, cursor)

@@ -34,6 +34,7 @@ from . import lakehouse
 from .frames import GONE, FrameGone
 
 DOWNLOAD_SECONDS = 1800.0  # writing a whole result to Downloads, or a first page of a large query
+WIDGET_REQUEST_SECONDS = 75.0  # a widget handler runs for at most notebook.WIDGET_SECONDS (60), plus the answer
 ANSWER_SECONDS = 15.0  # a request that isn't a long poll; a kernel that misses this is stuck
 STOPPED_TEXT = "Stopped. The notebook's Python process was ended, so variables were cleared."
 WATCH_SECONDS = 1.0
@@ -400,6 +401,13 @@ class ProcessKernel:
         if not self.alive():
             raise FrameGone(GONE)
         return self._request("frame_profile", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame)
+
+    def ipywidget_event(self, model: str, event: dict[str, Any], root: str | None = None) -> dict[str, Any]:
+        """A control changed in the app; its handlers run in the cell process (widgets.py)."""
+        if not self.alive():
+            from .notebook import WIDGET_GONE
+            return {"gone": True, "message": WIDGET_GONE}
+        return self._request("ipywidget_event", timeout=WIDGET_REQUEST_SECONDS, spawn=False, model=model, event=event, root=root)
 
     def frame_wrangle(self, frame: str, steps: list[dict[str, Any]], name: str = "df") -> dict[str, Any]:
         if not self.alive():

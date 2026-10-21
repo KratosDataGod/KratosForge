@@ -1477,7 +1477,7 @@ test("a notebook's data: its own lakehouse first, then its repository's location
 test("the location's lakehouse is used to run and publish but never saved into the notebook", () => {
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const nbjs = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
-  assert.match(nbjs, /rpc\("start_cell", \{ code: cell\.source \+ nbInputSuffix\(cell\), lakehouse_ref: nbLakehouse\(state\.notebook\)/);
+  assert.match(nbjs, /rpc\("start_cell", \{ code: cell\.source \+ nbInputSuffix\(cell\), lakehouse_ref: nbLakehouse\(nb\)/);
   assert.match(app.match(/function notebookPayload\(\)[\s\S]*?\n}\n/)[0], /lakehouse_ref: state\.notebook\.lakehouse,/);
   for (const call of ["publish_notebook", "run_notebook_in_fabric", "add_notebook_schedule"]) {
     assert.match(app, new RegExp(`rpc\\("${call}", (\\{ \\.\\.\\.)?publishPayload\\(\\)`));
@@ -2070,7 +2070,7 @@ function cellFxHarness(runningAll) {
   const calls = [];
   const cells = [{ id: "a" }, { id: "b" }, { id: "c" }];
   const ctx = {
-    runningAll, state: { notebook: { cells } }, calls, cells,
+    state: { notebook: { cells, runningAll } }, calls, cells,
     document: { querySelector: (sel) => ({ sel }) },
     LONG_RUN_SECONDS: 10,
     forgeEvent: (name, anchor) => { calls.push(["fx", name, anchor.sel]); return {}; },
@@ -2112,13 +2112,13 @@ test("Forge animations in the notebook: spark on success, ember on failure, noth
 test("Forge animations in the notebook: runs of several cells use the wolf track and one announcement", () => {
   const src = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
   const run = src.match(/async function runCells\([\s\S]*?\n}\n/)[0];
+  assert.match(run, /if \(!ok \|\| nb\.cancelRequested\) \{\n\s+track\?\.stop\(\);/, "a failed or cancelled run keeps its track");
   assert.match(run, /code\.length > 1 \? wolfTrack\(\(\) => document\.querySelector\("\.statusbar"\), "Notebook run", "Cell", "on this PC"\) : null/);
   assert.match(run, /if \(code\.length > 1\) forgeEvent\("notebook\.run\.started", document\.querySelector\("button\[data-run\]"\)\);/);
-  assert.match(run, /if \(!ok \|\| cancelRequested\) \{\n\s+track\?\.stop\(\);/, "a failed or cancelled run keeps its track");
   assert.match(run, /announce\(cell\.status === "error" \? `Run stopped: cell \$\{[^}]+\} failed` : "Run stopped"\);/, "a stopped run says nothing");
   assert.match(run, /track\?\.set\(i \+ 1, code\.length\);/);
   assert.match(run, /track\?\.arrive\(\);\n\s+if \(code\.length\) announce\(`Run finished/);
-  assert.match(run, /\} finally \{\n\s+runningAll = false;/);
+  assert.match(run, /\} finally \{\n\s+nb\.runningAll = false;/);
   assert.match(src, /refreshVariables\(\);\n  cellFx\(cell\);  \/\/ after dbgAfterRun, which draws the results again\n  return ok;/);
 });
 
@@ -2236,6 +2236,48 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true)[1], /Fabric deletes the schedule/);
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
+});
+
+// Notebook sessions: each open notebook keeps its own kernel state, a running notebook keeps
+// running when another is opened, and reopening shows its outputs (kernel_sessions.py).
+test("each notebook has its own kernel state, and in-engine notebooks share one busy kernel", () => {
+  const a = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const n = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const grab = (src, name) => new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`).exec(src)[0];
+  const ctx = { ownProcess: false };
+  vm.createContext(ctx);
+  vm.runInContext(`const state = {}; const openNotebooks = new Map(); const KEPT_NOTEBOOKS = 2;
+    function kernelInOwnProcess() { return ownProcess; }
+    ${/Object\.defineProperty\(state, "kernel", \{[\s\S]*?\n\}\);\n/.exec(a)[0]}
+    ${grab(n, "kernelBusy")}${grab(a, "nbRunning")}${grab(a, "keepOutputs")}${grab(a, "rememberNotebook")}
+    this.state = state; this.open = openNotebooks; this.keepOutputs = keepOutputs; this.remember = rememberNotebook;`, ctx);
+  const nb = (name, cells = []) => ({ name, cells, kernelStatus: "idle" });
+  const A = nb("A", [{ cell_id: "c1", source: "x = 1", outputs: [{ text: "1" }], count: 3, status: "ok" }]);
+  const B = nb("B");
+  ctx.state.notebook = A; ctx.remember(A);
+  ctx.state.notebook = B; ctx.remember(B);
+  A.kernelStatus = "busy";
+  assert.strictEqual(ctx.state.kernel, "busy");  // inside the engine, one shared kernel
+  ctx.ownProcess = true;
+  assert.strictEqual(ctx.state.kernel, "idle");  // B's own session is free
+  ctx.state.kernel = "stopped";
+  assert.strictEqual(B.kernelStatus, "stopped");
+  assert.strictEqual(A.kernelStatus, "busy");
+  // Reopened from disk: unchanged cells keep their outputs; changed ones don't.
+  const again = nb("A", [{ cell_id: "c1", source: "x = 1", outputs: [] }, { cell_id: "c2", source: "y", outputs: [] }]);
+  ctx.keepOutputs(A, again);
+  assert.strictEqual(again.cells[0].count, 3);
+  assert.deepStrictEqual(again.cells[1].outputs, []);
+  // Only idle notebooks are forgotten past the limit.
+  ctx.state.notebook = nb("C"); ctx.remember(ctx.state.notebook);
+  assert.deepStrictEqual([...ctx.open.keys()], ["A", "C"]);
+  // A cell keeps polling its own notebook's session after another notebook is opened.
+  assert.match(n, /async function runCell\(cell, \{ timeLimit = true, code = null, debug = false, nb = state\.notebook \} = \{\}\)/);
+  assert.match(n, /rpc\("poll_cell", \{ version: snap\.version, wait: 0\.4, notebook: nb\.name \}\)/);
+  assert.match(n, /rpc\("interrupt_cell", \{ notebook: nb\?\.name \}\)/);
+  assert.match(n, /rpc\("stop_kernel_process", \{ notebook: nb\?\.name \}\)/);
+  assert.match(n, /sessionsButton\(\),/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="sessions\.js"><\/script>/);
 });
 
 test("breakpoints follow their lines, and the debugger keys match VS Code", () => {
@@ -3823,4 +3865,89 @@ test("the magics page documents %run -b and the resources page links to it", () 
   const magicsDoc = fs.readFileSync(path.join(root, "docs", "notebook-magics.md"), "utf8");
   assert.match(magicsDoc, /### Running a file from the notebook's resources: %run -b/);
   assert.match(fs.readFileSync(path.join(root, "docs", "notebook-resources.md"), "utf8"), /notebook-magics\.md#running-a-file-from-the-notebooks-resources-run--b/);
+});
+
+test("a workload page says whether its actions reached the platform's audit", () => {
+  const src = fs.readFileSync(path.join(ui, "workloads.js"), "utf8");
+  const fn = /function platformAuditNote\([\s\S]*?\n}\n/.exec(src)[0];
+  const ctx = { h: (tag, attrs, ...kids) => kids.join("") };
+  vm.runInNewContext(`${fn}this.f = platformAuditNote;`, ctx);
+  assert.strictEqual(ctx.f(null), null);
+  assert.strictEqual(ctx.f({ platform: "this_pc", waiting: 0 }), "Each one is also on Platform > Audit.");
+  assert.match(ctx.f({ platform: "fabric", waiting: 2, error: "Signed out." }),
+    /^2 actions or changes haven't reached Platform > Audit yet: Signed out\. This PC keeps them/);
+  assert.match(ctx.f({ platform: "fabric", waiting: 1, error: "" }), /^1 action or change hasn't reached Platform > Audit yet\. /);
+  assert.match(ctx.f({ platform: "none", waiting: 3 }), /^Kept on this PC only: there's no platform yet\. 3 actions/);
+  assert.strictEqual(ctx.f({ platform: "none", waiting: 0 }), "Kept on this PC only: there's no platform yet.");
+});
+
+// ipywidgets (ipywidgets.js): the kernel holds the state; a change goes to notebook_ipywidget_event and the answer is drawn.
+function widgetsHarness(answer) {
+  const src = fs.readFileSync(path.join(ui, "ipywidgets.js"), "utf8");
+  const { node } = chartsHarness(null);
+  const calls = [];
+  const ctx = { state: { notebook: { name: "Sales" } }, h: node, friendlyError: String, previewMarked: (_id, n) => n, htmlFrame: (html) => node("iframe", { srcdoc: html }),
+    renderOutput: (o) => node("pre", {}, o.text || o.type),
+    rpc: async (m, a) => { calls.push([m, JSON.parse(JSON.stringify(a))]); return typeof answer === "function" ? answer(a) : answer; } };
+  vm.createContext(ctx);
+  vm.runInContext(src + "\nthis.api = { renderWidgetOutput, drawWidget };", ctx);
+  return { ctx, calls };
+}
+
+test("ipywidgets controls send their change to the kernel and draw its answer", async () => {
+  const view = { id: "w5", kind: "vbox", description: "", disabled: false, children: [
+    { id: "w1", kind: "slider", description: "n", disabled: false, value: 5, min: 1, max: 10, step: 1 },
+    { id: "w2", kind: "dropdown", description: "name", disabled: false, options: ["a", "b"], index: 0 },
+    { id: "w3", kind: "checkbox", description: "flag", disabled: false, value: true },
+    { id: "w6", kind: "button", description: "Go", disabled: false },
+    { id: "w7", kind: "html", description: "", disabled: false, value: "<b>x</b>" },
+    { id: "w4", kind: "output", description: "", disabled: false, outputs: [{ type: "stream", text: "5 a True\n" }] }] };
+  const answer = { status: "ok", outputs: [{ type: "stream", text: "clicked\n" }], view: { ...view, children: [{ ...view.children[0], value: 9 }] } };
+  const { ctx, calls } = widgetsHarness(answer);
+  const o = { type: "widget", model: "w5", view };
+  const wrap = ctx.api.renderWidgetOutput(o, { id: "c" });
+  const nodes = allNodes(wrap);
+  const range = nodes.find((n) => n.tag === "input" && n.attrs.type === "range");
+  assert.deepStrictEqual([range.attrs.min, range.attrs.max, range.attrs.value], [1, 10, 5]);
+  range.attrs.onchange({ target: { value: "9" } });
+  assert.deepStrictEqual(calls[0], ["notebook_ipywidget_event", { model: "w1", event: { value: 9 }, root: "w5", notebook: "Sales" }]);
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(o.view.children[0].value, 9);
+  assert.strictEqual(o.events[0].text, "clicked\n");
+  assert.ok(wrap.replaced, "redrawn with the kernel's answer");
+  const tick = () => new Promise((r) => setImmediate(r));
+  nodes.find((n) => n.tag === "select").attrs.onchange({ target: { value: "1" } });
+  // While the kernel answers, changes wait and only the latest is sent next.
+  nodes.find((n) => n.tag === "input" && n.attrs.type === "checkbox").attrs.onchange({ target: { checked: false } });
+  nodes.find((n) => n.tag === "button").attrs.onclick();
+  assert.strictEqual(calls.length, 2);
+  await tick();
+  await tick();
+  assert.deepStrictEqual(calls.slice(1).map(([, a]) => a.event), [{ index: 1 }, { click: true }]);
+  // The HTML widget goes to the sandboxed frame; nothing in this file writes HTML itself.
+  assert.ok(nodes.some((n) => n.tag === "iframe" && n.attrs.srcdoc === "<b>x</b>"));
+  const src = fs.readFileSync(path.join(ui, "ipywidgets.js"), "utf8");
+  assert.doesNotMatch(src, /innerHTML|insertAdjacentHTML|outerHTML|srcdoc/);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /if \(o\.type === "widget"\) return renderWidgetOutput\(o, cell\);/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="wrangler\.js"><\/script>\n  <script src="ipywidgets\.js"><\/script>/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /ipywidgets: "Notebook widgets"/);
+});
+
+test("a widget after a restart asks for its cell again, and a busy kernel's refusal shows under it", async () => {
+  const gone = widgetsHarness({ gone: true, message: "This control is no longer held by the kernel (it restarted). Run the cell again." });
+  const o = { type: "widget", model: "w1", view: { id: "w1", kind: "button", description: "Go", disabled: false } };
+  const wrap = gone.ctx.api.renderWidgetOutput(o, null);
+  allNodes(wrap).find((n) => n.tag === "button").attrs.onclick();
+  await new Promise((r) => setImmediate(r));
+  assert.match(o.gone, /Run the cell again/);
+  const busy = widgetsHarness(() => Promise.reject(new Error("A cell is running. The control works again when it finishes.")));
+  const o2 = { type: "widget", model: "w1", view: { id: "w1", kind: "text", description: "q", disabled: false, value: "" } };
+  const wrap2 = busy.ctx.api.renderWidgetOutput(o2, null);
+  allNodes(wrap2).find((n) => n.tag === "input").listeners.change();
+  await new Promise((r) => setImmediate(r));
+  assert.ok(allNodes(wrap2.replaced).some((n) => n.attrs?.role === "alert"));
+  // Disabled controls are drawn disabled.
+  const d = busy.ctx.api.drawWidget({ id: "w9", kind: "slider", description: "", disabled: true, value: 1, min: 0, max: 2, step: 1 }, () => {}, null, 0);
+  assert.strictEqual(allNodes(d).find((n) => n.tag === "input").attrs.disabled, true);
 });

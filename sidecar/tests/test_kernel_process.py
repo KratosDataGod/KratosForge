@@ -198,7 +198,8 @@ def test_the_setting_switches_the_kernel_and_stop_uses_it(tmp_path, monkeypatch)
 def test_a_proof_runs_the_pc_side_in_the_kernel_process(svc):  # noqa: F811
     svc.fake = FakeFabric(svc)
     tz_before = os.environ.get("TZ")
-    svc.kernel = ProcessKernel(token=svc._token_for, command=[sys.executable, BOOTSTRAP, str(svc.lh_root)])
+    kernel = ProcessKernel(token=svc._token_for, command=[sys.executable, BOOTSTRAP, str(svc.lh_root)])
+    svc.sessions.put(payload()["name"], kernel)  # the proved notebook's own session
     try:
         before = shared_version(svc)
         out = wait(svc, call(svc, "prove_start", **payload())["id"])
@@ -211,7 +212,7 @@ def test_a_proof_runs_the_pc_side_in_the_kernel_process(svc):  # noqa: F811
         # The time zone was fixed in the kernel's process only; the engine's is as it was.
         assert os.environ.get("TZ") == tz_before
     finally:
-        svc.kernel.close()
+        kernel.close()
 
 
 @pytest.fixture

@@ -141,8 +141,9 @@ def test_fabric_runs_are_estimated_and_runs_on_this_pc_without_a_fabric_baseline
     assert ev["scenario_cost"]["classification"] == "scenario"
     nb = next(i for i in out["by_item"] if i["name"] == "nb")
     assert nb["evidence"]["fabric_job_cu"]["sources"] == ["Fabric job API"]
-    # The plain numbers older callers read are unchanged.
-    assert out["total"]["cu_hours"] == 0.5 and out["total"]["saved_cu_hours"] == 1.0 and out["total"]["saved"] == 0.2
+    # The plain numbers older callers read are unchanged; the scenario's are named as a scenario.
+    assert out["total"]["cu_hours"] == 0.5 and out["total"]["scenario_cu_hours"] == 1.0 and out["total"]["scenario_saved"] == 0.2
+    assert "saved" not in out["total"] and "saved_cu_hours" not in out["total"]
     json.dumps(out)  # goes over the engine's JSON channel as is
 
 
@@ -279,3 +280,11 @@ def test_tables_of_one_fabric_engine_run_are_each_estimated_from_their_own_time(
     local = {r["name"]: r["avoided_cu"] for r in costs.activities(meta, [], [], CFG, now=NOW) if r["where"] == "local"}
     assert (local["a"]["value"], local["b"]["value"]) == (600, 1200)
     assert all("estimated" in m["method"] for m in local.values())
+
+
+def test_items_are_ranked_by_fabric_cost_and_calibrated_avoidance_not_by_the_scenario():
+    # "big" ran 10 h here (a large scenario) but never in Fabric; "nb" cost real (estimated) Fabric CU.
+    out = _report(meta=[_meta("big", "dev", "local", "2026-10-14T10:00:00+00:00", seconds=36000)],
+                  fabric=[{"kind": "Notebook run", "name": "nb", "engine": "python", "workspace_id": "w", "item_id": "i",
+                           "job_id": "j", "started_at": "2026-10-14T13:00:00Z", "finished_at": "2026-10-14T13:30:00Z"}])
+    assert [i["name"] for i in out["by_item"]] == ["nb", "big"]

@@ -124,6 +124,8 @@ def test_new_bounds_clamp_the_value_and_min_above_max_is_refused():
     with pytest.raises(widgets.TraitError, match="min > max"):
         s.min = 99
     assert (s.min, s.value) == (20, 20)  # a refused bound changes nothing
+    with pytest.raises(widgets.TraitError, match="max < min"):
+        s.max = 1
     assert widgets.IntText(value=500).value == 500  # unbounded boxes never clamp
 
 
@@ -181,3 +183,25 @@ def test_wrangler_keeps_decimal_digits_and_reads_times_in_the_columns_zone():
     assert wrangler.run(t, df, [{"op": "filter", "column": "clock", "test": "gt", "value": "12:00"}])["rows_after"] == 1
     took = wrangler.run(t, df, [{"op": "filter", "column": "took", "test": "gt", "value": "1"}])
     assert "duration" in took["error"]["message"]
+
+
+def test_an_interact_function_that_raises_keeps_its_controls_and_shows_the_error_inside():
+    k = Kernel()
+    out = k.run("import ipywidgets as w\ndef f(x):\n    return 10 / x\nw.interact(f, x=(0, 1))\n"
+                "o = w.interactive_output(f, {'x': w.IntSlider(value=0)})\nprint('after')")
+    assert out["status"] == "ok"
+    box = out["outputs"][0]["view"]
+    error = box["children"][-1]["outputs"][0]
+    assert error["ename"] == "ZeroDivisionError" and "widgets.py" not in error["traceback"]
+    assert out["outputs"][-1]["text"] == "after\n"
+    assert k.run("o.outputs[0]['ename']")["outputs"][0]["text"] == "'ZeroDivisionError'"
+
+
+def test_older_ipython_core_display_imports_and_raw_bundles_work():
+    k = Kernel()
+    out = k.run("from IPython.core.display import HTML, display\ndisplay(HTML('<b>x</b>'))\n"
+                "import IPython.core.display as d\nimport IPython\nprint(d is IPython.display)")
+    assert out["outputs"][0] == {"type": "html", "html": "<b>x</b>"}
+    assert out["outputs"][1]["text"] == "True\n"
+    raw = k.run("display({'text/plain': 'plain'}, {'text/html': '<i>h</i>', 'text/plain': 'h'}, raw=True)")["outputs"]
+    assert raw == [{"type": "text", "text": "plain"}, {"type": "html", "html": "<i>h</i>"}]

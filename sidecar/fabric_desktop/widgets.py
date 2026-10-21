@@ -590,6 +590,7 @@ class Output(DOMWidget):
         with self._lock:
             object.__setattr__(self, "_outputs", list(value))
             object.__setattr__(self, "_tail", [])
+        self._recount()  # the caps count from here, as after clear_output()
 
     def _join(self) -> None:
         """Join the printed text kept in pieces; one join instead of copying the text on every print."""
@@ -619,7 +620,6 @@ class Output(DOMWidget):
 
     def clear_output(self, wait: bool = False) -> None:
         self.outputs = []
-        self._recount()
 
     def append_stdout(self, text: str) -> None:
         self._write(text)

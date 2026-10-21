@@ -259,3 +259,15 @@ def test_an_output_widget_joins_printed_text_in_order():
     out.outputs = ()
     out.append_stdout("f")
     assert out.outputs == [{"type": "stream", "text": "f"}]
+
+
+def test_setting_an_output_widgets_outputs_starts_the_caps_again(monkeypatch):
+    from fabric_desktop import notebook
+    monkeypatch.setattr(notebook, "STREAM_CHARS", 5)
+    out = widgets.Output()
+    out.append_stdout("abcdefgh")
+    out.append_stdout("dropped")
+    assert out.outputs[0] == {"type": "stream", "text": "abcde"}
+    out.outputs = ()
+    out.append_stdout("new")
+    assert out.outputs == [{"type": "stream", "text": "new"}]

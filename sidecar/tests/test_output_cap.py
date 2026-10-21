@@ -111,3 +111,18 @@ def test_the_engine_sweeps_files_left_by_closed_sessions(monkeypatch, tmp_path):
     os.utime(other, (time.time() - 7200, time.time() - 7200))
     notebook.sweep_spills()
     assert not old.exists() and new.exists() and other.exists()
+
+
+def test_the_sweep_empties_old_kernel_folders(monkeypatch, tmp_path):
+    monkeypatch.setattr(notebook.tempfile, "tempdir", str(tmp_path))
+    folder = tmp_path / "kratosforge-kernel-abc"
+    folder.mkdir()
+    left = folder / "kratosforge-output-x.txt"
+    left.write_text("x")
+    hour_ago = time.time() - 7200
+    os.utime(left, (hour_ago, hour_ago))
+    notebook.sweep_spills()
+    assert not left.exists()
+    os.utime(folder, (hour_ago, hour_ago))  # deleting the file touched the folder
+    notebook.sweep_spills()
+    assert not folder.exists()

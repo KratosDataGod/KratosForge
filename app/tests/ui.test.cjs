@@ -2293,6 +2293,23 @@ test("notebook environments confirm installs and close their dialog before askin
   assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="sessions\.js"><\/script>\s*<script src="nbenv\.js"><\/script>/);
 });
 
+// Item 18 follow-up: Queue, Incidents and Run as each have How this works beside the list, like
+// Workloads and Agents, linked to their own section of the guide.
+test("Queue, Incidents and Run as say how they work beside the list", () => {
+  const guide = fs.readFileSync(path.join(ui, "..", "..", "docs", "user-guide.md"), "utf8");
+  for (const [file, fn, id, anchor] of [["queue.js", "queuePanel", "monitor.queue", "queue-preview"],
+    ["incidents.js", "incidentsPanel", "monitor.incidents", "incidents-preview"], ["runas.js", "runAsPanel", "monitor.runas", "run-as-preview"]]) {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    const body = new RegExp(`function ${fn}\\(\\) \\{[\\s\\S]*?\\n\\}\\n`).exec(src)[0];
+    assert.match(body, new RegExp(`withHowItWorks\\(box, howItWorks\\("${id.replace(".", "\\.")}"`), file);
+    for (const part of ["reads:", "changes:", "results:", `anchor: "${anchor}"`]) assert.ok(body.includes(part), `${file} ${part}`);
+    const heading = { "queue-preview": "### Queue (Preview)", "incidents-preview": "### Incidents (Preview)", "run-as-preview": "### Run as (Preview)" }[anchor];
+    assert.ok(guide.includes(heading), heading);
+  }
+  const inc = fs.readFileSync(path.join(ui, "incidents.js"), "utf8");
+  assert.match(inc, /Check now never posts/);
+});
+
 // Cost allocation: the workload page shows its runs' capacity use from workload_capacity_use, with
 // each figure's classification, and says runs on this PC aren't counted (QA-008 wording).
 test("the workload page shows its capacity use, classified, and never a figure for this PC", () => {
@@ -2941,6 +2958,14 @@ test("the keys card says where keys come from instead of an LH_Keys MERGE", () =
   assert.match(card, /Keys come from \$\{e\.keys_from\}/);
 });
 
+// PySpark on this PC: the notebooks page lists what KratosForge adds to DuckDB's Spark API.
+test("notebooks docs list the PySpark calls added on this PC", () => {
+  const page = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  for (const call of ["Window.partitionBy(...).orderBy(...)", "df.agg(...)", "selectExpr", "fillna", "pivot", "explode", "date_format"]) {
+    assert.ok(page.includes(call), call);
+  }
+});
+
 // Notebook magics: a snippet shows %sql inside Python, and the magics page is linked everywhere docs are.
 test("notebook snippets include a %sql query into a DataFrame, and the magics page is linked", () => {
   const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
@@ -2950,6 +2975,65 @@ test("notebook snippets include a %sql query into a DataFrame, and the magics pa
     ["zensical.toml", '"notebook-magics.md"'], ["docs/notebooks.md", "(notebook-magics.md)"]]) {
     assert.ok(fs.readFileSync(path.join(root, file), "utf8").includes(link), file);
   }
+});
+
+// Notebook cell languages: Databricks' %sql alone on the first line is a SQL cell, %md shows Markdown.
+test("notebook cells read Databricks %sql and %md headers", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(/function cellLang\([\s\S]*?\n}\n/.exec(nb)[0] + /const mdMagic = [^\n]*\n/.exec(nb)[0]
+    + "\nthis.lang = cellLang; this.md = mdMagic;", ctx);
+  const code = (source) => ({ type: "code", source });
+  assert.strictEqual(ctx.lang(code("%sql\nSELECT 1")), "sql");
+  assert.strictEqual(ctx.lang(code("  %%sql\nSELECT 1")), "sql");
+  assert.strictEqual(ctx.lang(code("%sql SELECT 1")), "python");
+  assert.strictEqual(ctx.lang(code("%python\nx = 1")), "python");
+  assert.strictEqual(ctx.md(code("%md # Title")), true);
+  assert.strictEqual(ctx.md(code("%%markdown\n# Title")), true);
+  assert.strictEqual(ctx.md(code("%mdx")), false);
+  assert.strictEqual(ctx.md({ type: "markdown", source: "%md" }), false);
+  assert.match(nb, /if \(o\.type === "markdown"\) return h\("div", \{ class: "output md-view" \}, markdown\(o\.text\)\);/);
+});
+
+// Notebook shell cells: %sh, %%sh, %%bash, %%cmd and %%powershell are plain text in the editor.
+test("notebook shell cells are recognised for the editor", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(/const shellMagic = [^\n]*\n/.exec(nb)[0] + "\nthis.sh = shellMagic;", ctx);
+  const code = (source) => ({ type: "code", source });
+  for (const s of ["%sh ls", "%%sh\nls", "%%bash\nls", "  %%cmd\ndir", "%%powershell\nGet-Date"]) assert.strictEqual(ctx.sh(code(s)), true, s);
+  for (const s of ["%shx", "!ls", "x = 1", "%%sql\nSELECT 1"]) assert.strictEqual(ctx.sh(code(s)), false, s);
+  assert.match(nb, /if \(shellMagic\(cell\)\) return \[\];/);
+});
+
+// IPython magics in notebooks: the magics page lists what runs and why %cd and %%javascript don't.
+test("notebook magics page lists the IPython magics", () => {
+  const page = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  for (const m of ["`%lsmagic`", "`%%capture name`", "`%%writefile path`", "`%timeit expression`", "`%cd`", "`%%javascript`"]) {
+    assert.ok(page.includes(m), m);
+  }
+});
+
+// %run with parameters: the magics page shows Fabric's JSON form and Databricks' $name form.
+test("notebook magics page shows both %run parameter forms", () => {
+  const page = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.ok(page.includes('%run Load sales {"day": "2026-01-01", "full": true}'));
+  assert.ok(page.includes('%run ./etl/Load sales $day="2026-01-01"'));
+});
+
+// %%configure on this PC: the notebooks page links to the section that explains it.
+test("notebooks page links %%configure to its section on the magics page", () => {
+  const root = path.join(__dirname, "..", "..", "docs");
+  assert.ok(fs.readFileSync(path.join(root, "notebooks.md"), "utf8").includes("(notebook-magics.md#configure)"));
+  assert.ok(fs.readFileSync(path.join(root, "notebook-magics.md"), "utf8").includes("\n## %%configure\n"));
+});
+
+// %%tsql cells are highlighted as SQL in the notebook editor.
+test("notebook %%tsql cells get SQL highlighting", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /if \(\/\^\\s\*%%tsql\(\\s\|\$\)\/\.test\(cell\.source\)\) return \[CM\.sql\(/);
 });
 
 // Plan step 4: a domain's admins in Fabric show as owners marked From Fabric, never in place of the platform's own.

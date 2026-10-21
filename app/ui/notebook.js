@@ -25,13 +25,21 @@ function selectedCell() {
   return state.notebook.cells.find((c) => c.id === state.selected) || state.notebook.cells[0];
 }
 
+// A code cell's language from its first line: Fabric's %%sql, or Databricks' %sql alone on the line
+// (magics.py reads it the same way in the engine).
 function cellLang(cell) {
   if (cell.type === "markdown") return "markdown";
   const first = cell.source.trimStart().split("\n", 1)[0].trim();
-  if (first.startsWith("%%sql")) return "sql";
+  if (first.startsWith("%%sql") || first === "%sql") return "sql";
   if (first.startsWith("%%html")) return "html";
   return "python";
 }
+
+// A code cell that shows Markdown when run: Databricks' %md, or %%markdown.
+const mdMagic = (cell) => cell.type === "code" && /^\s*(%md|%%md|%%markdown)(\s|$)/.test(cell.source);
+
+// A code cell that runs as a shell script on this PC (shell.py): %sh, %%sh, %%bash, %%cmd, %%powershell.
+const shellMagic = (cell) => cell.type === "code" && /^\s*(%sh|%%sh|%%bash|%%cmd|%%powershell)(\s|$)/.test(cell.source);
 
 const isParams = (cell) => (cell.meta?.tags || []).includes("parameters");
 
@@ -582,7 +590,7 @@ function mergeBelow(cell) {
 }
 
 function setLanguage(cell, lang) {
-  const body = cell.source.replace(/^\s*%%(sql|html|pyspark|python)[^\n]*\n?/, "");
+  const body = cell.source.replace(/^\s*(%%(sql|html|pyspark|python)[^\n]*|%(sql|python)[ \t]*(?=\n|$))\n?/, "");
   const wasMarkdown = cell.type === "markdown";
   if (lang === "markdown") {
     cell.type = "markdown";
@@ -694,7 +702,10 @@ function readOnly(cell) {
 
 function languageFor(cell) {
   const lang = cellLang(cell);
-  if (lang === "markdown") return [CM.markdown(), CM.autocompletion()];
+  if (lang === "markdown" || mdMagic(cell)) return [CM.markdown(), CM.autocompletion()];
+  if (shellMagic(cell)) return [];  // plain text: no Python highlighting or completions in a script
+  // %%tsql (Fabric Python notebooks): T-SQL for a Warehouse; it runs in Fabric (notebook.py _tsql).
+  if (/^\s*%%tsql(\s|$)/.test(cell.source)) return [CM.sql({ dialect: CM.StandardSQL, upperCaseKeywords: true })];
   if (lang === "html") return [CM.html(), CM.autocompletion()];
   if (lang === "sql") {
     const schema = Object.fromEntries(currentTables().map((t) => [t, []]));
@@ -778,9 +789,9 @@ function editorFor(cell) {
           : "Write Python or PySpark. Press Shift+Enter to run, Ctrl+Space for suggestions."),
         CM.EditorView.updateListener.of((u) => {
           if (u.docChanged) {
-            const before = cellLang(cell);
+            const before = `${cellLang(cell)} ${mdMagic(cell)} ${shellMagic(cell)}`;
             cell.source = u.state.doc.toString();
-            if (cellLang(cell) !== before && cell.type === "code") {
+            if (`${cellLang(cell)} ${mdMagic(cell)} ${shellMagic(cell)}` !== before && cell.type === "code") {
               u.view.dispatch({ effects: langComp.reconfigure(languageFor(cell)) });
               const select = document.querySelector(`[data-cell="${cell.id}"] select.lang`);
               if (select) select.value = cellLang(cell);
@@ -876,6 +887,7 @@ function renderOutput(o, cell) {
     return h("div", { class: "output" }, h("img", { class: "out-img", alt: "Chart from this cell", src: `data:${o.mime};base64,${o.data}` }));
   }
   if (o.type === "html") return h("div", { class: "output" }, htmlFrame(o.html));
+  if (o.type === "markdown") return h("div", { class: "output md-view" }, markdown(o.text));
   return h("div", { class: "output" }, h("pre", {}, JSON.stringify(o)));
 }
 

@@ -90,7 +90,7 @@ from pyspark.sql import functions as F
 
 | Area | What works here |
 | --- | --- |
-| `fs` | `ls`, `head`, `put`, `append`, `cp`, `mv`, `rm`, `mkdirs`, `exists`, over the attached lakehouse and local `file:` paths |
+| `fs` | `ls`, `head`, `put`, `append`, `cp`, `mv`, `rm`, `mkdirs`, `exists`, over the attached lakehouse and local `file:` paths. Each `ls` entry has `name`, `path`, `size`, `isDir`, `isFile` and `modifyTime` (milliseconds since 1970, UTC; Databricks' `modificationTime` works too) |
 | `notebook` | `run`, `exit` and `runMultiple`, against the notebooks on this PC. `runMultiple` runs one notebook at a time, passes each activity's `args`, runs it after its `dependencies`, honors `retry`, and skips an activity whose dependency failed; when any activity fails it raises after all have run, with every result on the error's `results`. Timeouts and `concurrency` aren't enforced here (a note says so). |
 | `credentials` | `getToken`, and `getSecret` from Azure Key Vault as you (needs the Key Vault Secrets User role and the Azure Key Vault permission) |
 | `runtime.context` | Works; `isLocal` is true here |

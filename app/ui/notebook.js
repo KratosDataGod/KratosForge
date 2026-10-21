@@ -402,7 +402,7 @@ function statusLine(cell) {
   const s = cell.status;
   const label = { queued: ["busy", "Queued"], running: ["busy", "Running"], ok: ["ok", "Succeeded"],
     error: ["bad", "Failed"], stopped: ["bad", "Stopped"], cancelled: ["bad", "Cancelled"] }[s];
-  return h("div", { class: "cell-status" }, h("span", { class: label[0] }, label[1]),
+  return h("div", { class: "cell-status", "data-s": s }, h("span", { class: label[0] }, label[1]),
     s === "running" && cell.seconds != null ? h("span", {}, `${cell.seconds.toFixed(1)} s`) : null,
     s === "ok" || s === "error" || s === "cancelled" ? h("span", {}, "Ran on this PC") : null,
     cell.seconds != null && s !== "running" && s !== "queued" ? h("span", {}, `${cell.seconds.toFixed(1)} s`) : null,
@@ -959,7 +959,7 @@ function renderTableOutput(o, cell) {
   } else if (o.view === "chart") {
     wrap.append(renderChart(o, numeric), h("div", { class: "more" }, `Chart of ${count.toLowerCase()}`));
   } else if (o.frame && !o.profileGone) {
-    wrap.append(renderProfile(o, numeric, count));
+    wrap.append(renderFrameProfile(o, numeric, count));
   } else {
     wrap.append(renderInspect(o, numeric), h("div", { class: "more" }, `Summary of ${count.toLowerCase()}`));
   }
@@ -1152,7 +1152,7 @@ function svgChart(points, cfg) {
 // Inspect over every row (frames.py profile), as display(df, summary=True) and Databricks' data
 // profile show it. Until the profile arrives, the preview's summary shows; after a kernel restart
 // the preview's summary stays, with a note.
-function renderProfile(o, numeric, count) {
+function renderFrameProfile(o, numeric, count) {
   const box = h("div", { class: "profile" });
   const show = (p) => {
     const fmt = (v) => (v === null || v === undefined ? "" : typeof v === "number" ? (Number.isInteger(v) ? v.toLocaleString() : +v.toPrecision(6)) : String(v));
@@ -1280,15 +1280,18 @@ async function runCell(cell, { timeLimit = true } = {}) {
   return ok;
 }
 
-// Forge animations (motion.js): a spark when a cell succeeds on its own, an ember going out when
-// it fails, and one announcement for screen readers. Run all shows its progress track instead of
-// a spark per cell; Stop and Cancel show nothing.
+// Forge animations (motion.js): a spark when a cell succeeds on its own (the Wolf Run in the status
+// bar instead when it took LONG_RUN_SECONDS or more), an ember going out when it fails, and one
+// announcement for screen readers. Run all shows its progress track instead of a spark per cell;
+// Stop and Cancel show nothing.
 function cellFx(cell) {
   if (cell.status !== "ok" && cell.status !== "error") return;
   const n = (state.notebook?.cells.indexOf(cell) ?? -1) + 1;
   if (!runningAll) announce(cell.status === "ok" ? `Cell ${n} succeeded` : `Cell ${n} failed`);
   if (cell.status === "ok" && runningAll) return;
-  fx(document.querySelector(`[data-cell="${cell.id}"] .cell-status > span`), cell.status === "ok" ? "spark" : "fail");
+  if (cell.status === "ok" && cell.seconds >= LONG_RUN_SECONDS && forgeEvent("notebook.long.succeeded", document.querySelector(".statusbar"))) return;
+  forgeEvent(cell.status === "ok" ? "notebook.cell.succeeded" : "notebook.cell.failed",
+    document.querySelector(`[data-cell="${cell.id}"] .cell-status > span`));
 }
 
 async function runCells(cells) {
@@ -1298,8 +1301,9 @@ async function runCells(cells) {
   setKernel("busy");
   renderNotebook();
   // Cells done of cells to run, in the status bar, with the wolf on it (motion.js).
-  const track = code.length > 1 ? wolfTrack(() => document.querySelector(".statusbar"), "Notebook run", "Cell") : null;
+  const track = code.length > 1 ? wolfTrack(() => document.querySelector(".statusbar"), "Notebook run", "Cell", "on this PC") : null;
   track?.set(0, code.length);
+  if (code.length > 1) forgeEvent("notebook.run.started", document.querySelector("button[data-run]"));
   runningAll = true;
   try {
     for (const [i, cell] of code.entries()) {

@@ -305,7 +305,7 @@ test("dialogs are modal for keyboard users and focus shows", () => {
   assert.match(app, /dialogFocus\.opener/);
   const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
   assert.match(css, /^:focus-visible \{ outline: 2px/m);
-  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\n {2}\*, \*::before, \*::after/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{[^\n]*\n {2}html:not\(\[data-motion-override\]\) \*, html:not\(\[data-motion-override\]\) \*::before/);
 });
 
 test("a lakehouse name Fabric would refuse is caught before it's sent", () => {
@@ -1397,6 +1397,10 @@ test("Estate X-ray and the Fabric portal tab have How this works panels that nam
   for (const write of ["Optimize", "Vacuum", "Adopt"]) assert.match(how, new RegExp(`${write} `));
   assert.match(how, /only when you confirm/);
   assert.match(how, /each asks first/);
+  assert.match(how, /adds its lakehouse and table findings there as new rows, never "\n\s*\+ "the names of people or cost/);
+  assert.match(xray, /function xrayShared\(shared\)/);
+  assert.match(how, /anyone who can read that lakehouse can read them/);
+  assert.match(how, /a courtesy, not security/);
   assert.ok((xray.match(/xrayHow\(\)/g) || []).length >= 3, "the panel shows before and after a scan");
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const fabric = app.slice(app.indexOf("function renderFabric()"), app.indexOf("function openWorkspace("));
@@ -1916,7 +1920,7 @@ test("A scheduled run whose Teams alert didn't go out says so in Runs and Schedu
 });
 
 // motion.js with a small stand-in DOM and clock: what Forge animations make, and when they don't.
-function motionHarness({ setting = true, reduced = false, hidden = false } = {}) {
+function motionHarness({ setting = true, reduced = false, hidden = false, settings = null } = {}) {
   let clock = 0;
   let timers = [];
   const node = (cls = "") => {
@@ -1937,8 +1941,12 @@ function motionHarness({ setting = true, reduced = false, hidden = false } = {})
   };
   const live = node();
   const ctx = {
-    state: { settings: { forge_animations: { value: setting } } },
-    document: { hidden, documentElement: { dataset: {} }, createElementNS: () => node(), getElementById: (id) => (id === "announce" ? live : null) },
+    state: { settings: settings || { forge_animations: { value: setting } } },
+    document: { hidden, documentElement: { dataset: {} }, createElementNS: () => node(), getElementById: (id) => (id === "announce" ? live : null),
+      addEventListener() {}, hasFocus: () => true },
+    addEventListener() {},
+    getComputedStyle: () => ({ position: "static" }),
+    innerHeight: 900,
     matchMedia: () => ({ matches: reduced, addEventListener() {} }),
     setTimeout: (fn, ms) => { const t = { at: clock + ms, fn }; timers.push(t); return t; },
     clearTimeout: (t) => { timers = timers.filter((x) => x !== t); },
@@ -1956,7 +1964,8 @@ function motionHarness({ setting = true, reduced = false, hidden = false } = {})
     clock += ms;
     for (let due; (due = timers.filter((t) => t.at <= clock).sort((a, b) => a.at - b.at)[0]);) { timers = timers.filter((t) => t !== due); due.fn(); }
   };
-  ctx.node = node;
+  const page = node();  // anchors the tests make sit on the page, as real ones do
+  ctx.node = (cls) => { const n = node(cls); page.append(n); return n; };
   ctx.live = live;
   return ctx;
 }
@@ -2060,7 +2069,8 @@ function cellFxHarness(runningAll) {
   const ctx = {
     runningAll, state: { notebook: { cells } }, calls, cells,
     document: { querySelector: (sel) => ({ sel }) },
-    fx: (anchor, kind) => calls.push(["fx", kind, anchor.sel]),
+    LONG_RUN_SECONDS: 10,
+    forgeEvent: (name, anchor) => { calls.push(["fx", name, anchor.sel]); return {}; },
     announce: (text) => calls.push(["say", text]),
   };
   vm.runInNewContext(`${code}; this.cellFx = cellFx;`, ctx);
@@ -2071,11 +2081,16 @@ test("Forge animations in the notebook: spark on success, ember on failure, noth
   const one = cellFxHarness(false);
   one.cells[1].status = "ok";
   one.cellFx(one.cells[1]);
-  assert.deepStrictEqual(one.calls, [["say", "Cell 2 succeeded"], ["fx", "spark", '[data-cell="b"] .cell-status > span']]);
+  assert.deepStrictEqual(one.calls, [["say", "Cell 2 succeeded"], ["fx", "notebook.cell.succeeded", '[data-cell="b"] .cell-status > span']]);
   one.calls.length = 0;
   one.cells[2].status = "error";
   one.cellFx(one.cells[2]);
-  assert.deepStrictEqual(one.calls, [["say", "Cell 3 failed"], ["fx", "fail", '[data-cell="c"] .cell-status > span']]);
+  assert.deepStrictEqual(one.calls, [["say", "Cell 3 failed"], ["fx", "notebook.cell.failed", '[data-cell="c"] .cell-status > span']]);
+  // A cell that ran 10 s or more gets the Wolf Run in the status bar instead of a spark.
+  one.calls.length = 0;
+  Object.assign(one.cells[1], { status: "ok", seconds: 12 });
+  one.cellFx(one.cells[1]);
+  assert.deepStrictEqual(one.calls, [["say", "Cell 2 succeeded"], ["fx", "notebook.long.succeeded", ".statusbar"]]);
   for (const status of ["stopped", "cancelled", "running", null]) {
     one.calls.length = 0;
     one.cells[0].status = status;
@@ -2088,13 +2103,14 @@ test("Forge animations in the notebook: spark on success, ember on failure, noth
   assert.deepStrictEqual(all.calls, [], "Run all sparked or spoke for each cell");
   all.cells[1].status = "error";
   all.cellFx(all.cells[1]);
-  assert.deepStrictEqual(all.calls, [["fx", "fail", '[data-cell="b"] .cell-status > span']]);
+  assert.deepStrictEqual(all.calls, [["fx", "notebook.cell.failed", '[data-cell="b"] .cell-status > span']]);
 });
 
 test("Forge animations in the notebook: runs of several cells use the wolf track and one announcement", () => {
   const src = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
   const run = src.match(/async function runCells\([\s\S]*?\n}\n/)[0];
-  assert.match(run, /code\.length > 1 \? wolfTrack\(\(\) => document\.querySelector\("\.statusbar"\), "Notebook run", "Cell"\) : null/);
+  assert.match(run, /code\.length > 1 \? wolfTrack\(\(\) => document\.querySelector\("\.statusbar"\), "Notebook run", "Cell", "on this PC"\) : null/);
+  assert.match(run, /if \(code\.length > 1\) forgeEvent\("notebook\.run\.started", document\.querySelector\("button\[data-run\]"\)\);/);
   assert.match(run, /if \(!ok \|\| cancelRequested\) \{\n\s+track\?\.stop\(\);/, "a failed or cancelled run keeps its track");
   assert.match(run, /announce\(cell\.status === "error" \? `Run stopped: cell \$\{[^}]+\} failed` : "Run stopped"\);/, "a stopped run says nothing");
   assert.match(run, /track\?\.set\(i \+ 1, code\.length\);/);
@@ -2103,18 +2119,27 @@ test("Forge animations in the notebook: runs of several cells use the wolf track
   assert.match(src, /refreshVariables\(\);\n  cellFx\(cell\);  \/\/ after dbgAfterRun, which draws the results again\n  return ok;/);
 });
 
-test("Forge animations setting: Settings > Display, lockable by policy, applied at once; CSS honours it", () => {
+test("Motion & effects settings: four levels, family switches, reduced-motion choice, lockable, applied at once; CSS honours them", () => {
   const s = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
-  assert.match(s, /settingRow\("Forge animations",\n\s+"Show subtle wolf, forge and spark animations during application activities\./);
-  assert.match(s, /disabled: locked\("forge_animations"\) \? true : null/);
-  assert.match(s, /saveSettings\(\{ forge_animations: e\.target\.checked \}\)/);
-  assert.match(s, /reducedMotion\(\) \? "Off while Windows reduces motion"/);
+  const card = s.match(/function motionSettingsCard\([\s\S]*?\n}\n/)[0];
+  assert.match(card, /h\("h2", \{\}, "Appearance"\),\n\s+h\("h3", \{\}, "Motion & effects"\)/);
+  assert.match(card, /type: "radio", name: "motion_level"/);
+  assert.match(card, /disabled: locked\("motion_level"\) \? true : null, onchange: \(\) => save\(\{ motion_level: n \}\)/);
+  assert.match(card, /\[0, 1, 2, 3\]\.map\(levelRow\)/);
+  assert.match(card, /toggle\(key, label, s\[key\]\?\.value !== false, level < 2\)/, "family switches don't grey out below Refined");
+  assert.match(card, /disabled: disabled \|\| locked\(key\) \? true : null/);
+  assert.match(card, /"Respect Windows' reduced-motion setting"/);
+  for (const key of ["motion_wolf", "motion_sparks", "motion_ambient"]) assert.match(s, new RegExp(`\\["${key}", "`));
+  assert.doesNotMatch(s, /\["motion_achievements", "/, "the achievements switch shows before the profile can award anything");
+  assert.match(s, /\["motion_ambient", "Running indicators",/);
+  assert.match(s, /const display = s\.motion_level \? motionSettingsCard\(s, locked\) : null;/);
   assert.match(s, /\[account, updates, display, previews,/);
   assert.match(s, /if \(res\) state\.settings = res;\n  applyMotion\(\);/);
   assert.match(s, /state\.settings = await rpc\("app_settings"\)[^\n]*\n  applyMotion\(\);/);
   const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
   assert.match(css, /html\[data-motion="off"\] \.fx, html\[data-motion="off"\] \.wolf \{ display: none; \}/);
-  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{ \.fx, \.wolf \{ display: none; \}/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{ html:not\(\[data-motion-override\]\) :is\(\.fx, \.wolf\) \{ display: none; \}/);
+  assert.match(css, /html\[data-fx-wolf="off"\] \.wolf, html\[data-fx-sparks="off"\] :is\(\.fx-spark, \.fx-fail, \.fx-strike\),/);
   // Effects animate only transform and opacity, so they never move the layout.
   const keyframes = [...css.matchAll(/@keyframes fx-[\w-]+ \{([^\n]*)\}\n/g)].map((m) => m[1]);
   assert.ok(keyframes.length >= 6, "fx keyframes not found");
@@ -2208,6 +2233,177 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true)[1], /Fabric deletes the schedule/);
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
+});
+
+// Motion & effects levels (motion.js): what each level, family switch and the reduced-motion choice let play.
+test("Motion levels: Minimal plays no branded effects, Refined and Expressive do, and <html> says which", () => {
+  const at = (level, extra = {}) => motionHarness({ settings: { motion_level: { value: level }, ...extra } });
+  const minimal = at(1);
+  assert.strictEqual(minimal.fx(minimal.node(), "spark"), null);
+  assert.strictEqual(minimal.motionDiagnostics().skipped.level, 1);
+  minimal.applyMotion();
+  assert.strictEqual(minimal.document.documentElement.dataset.motionLevel, "1");
+  assert.strictEqual(minimal.document.documentElement.dataset.motion, "off");
+  for (const level of [2, 3]) {
+    const ctx = at(level);
+    assert.ok(ctx.fx(ctx.node(), "spark"), `level ${level} played no spark`);
+    ctx.applyMotion();
+    assert.strictEqual(ctx.document.documentElement.dataset.motionLevel, String(level));
+  }
+  const off = at(0);
+  assert.strictEqual(off.motionLevel(), 0);
+  assert.strictEqual(motionHarness({ setting: false }).motionLevel(), 0, "the first switch turned off no longer means Off");
+  assert.strictEqual(motionHarness({ setting: true }).motionLevel(), 2, "Refined is not the default");
+});
+
+test("Motion families: each switch silences only its own effects", () => {
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 }, motion_sparks: { value: false } } });
+  assert.strictEqual(ctx.fx(ctx.node(), "spark"), null);
+  assert.strictEqual(ctx.fx(ctx.node(), "strike"), null, "the anvil strike is a spark effect");
+  assert.strictEqual(ctx.motionDiagnostics().skipped.family, 2);
+  assert.ok(ctx.fx(ctx.node(), "wolfrun"), "turning sparks off stopped the wolf");
+  ctx.applyMotion();
+  assert.strictEqual(ctx.document.documentElement.dataset.fxSparks, "off");
+  assert.strictEqual(ctx.document.documentElement.dataset.fxWolf, "on");
+  const noWolf = motionHarness({ settings: { motion_level: { value: 3 }, motion_wolf: { value: false } } });
+  const track = noWolf.wolfTrack(() => noWolf.bar ||= noWolf.node(), "Notebook run", "Cell", "on this PC");
+  track.set(1, 4);
+  noWolf.advance(700);
+  assert.strictEqual(noWolf.bar.querySelector(".wolf"), null, "a wolf ran with wolf animations off");
+  assert.strictEqual(noWolf.bar.querySelector(".wolf-text").textContent, "Cell 2 of 4 on this PC", "the progress lost its words or where it runs");
+});
+
+test("Motion and Windows' reduced motion: Off unless the person opted out, and then the stylesheet steps aside", () => {
+  const follow = motionHarness({ reduced: true, settings: { motion_level: { value: 3 } } });
+  assert.strictEqual(follow.motionLevel(), 0);
+  follow.applyMotion();
+  assert.strictEqual(follow.document.documentElement.dataset.motionOverride, undefined);
+  const opted = motionHarness({ reduced: true, settings: { motion_level: { value: 3 }, motion_follow_system: { value: false } } });
+  assert.strictEqual(opted.motionLevel(), 3);
+  assert.ok(opted.fx(opted.node(), "spark"));
+  opted.applyMotion();
+  assert.strictEqual(opted.document.documentElement.dataset.motionOverride, "on");
+});
+
+test("Motion budget: at most three effects at once, each removed on time, the count goes back to zero", () => {
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  const kinds = ["arrive", "settle", "strike", "wolfrun"];
+  const made = kinds.map((k) => ctx.fx(ctx.node(), k));
+  assert.ok(made.slice(0, 3).every(Boolean));
+  assert.strictEqual(made[3], null, "a fourth effect played at once");
+  assert.strictEqual(ctx.motionDiagnostics().skipped.budget, 1);
+  assert.strictEqual(ctx.motionDiagnostics().live, 3);
+  ctx.advance(1100);
+  assert.strictEqual(ctx.motionDiagnostics().live, 0, "an effect was never cleaned up");
+  assert.ok(made.slice(0, 3).every((el) => !el.isConnected), "an effect element stayed on the page");
+  const strike = ctx.fx(ctx.node(), "wolfrun");
+  assert.ok(strike && strike.kids.length >= 2, "the Wolf Run has no runner or trail");
+});
+
+test("Forge events: every event names a real effect, unknown ones play nothing, and each is counted", () => {
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  const events = vm.runInContext("FORGE_EVENTS", ctx);
+  const kinds = vm.runInContext("MOTION", ctx);
+  for (const [name, kind] of Object.entries(events)) assert.ok(kinds[kind], `${name} plays ${kind}, which isn't an effect`);
+  for (const [kind, m] of Object.entries(kinds)) {
+    assert.ok(m.ms > 0 && m.ms <= 900, `${kind} is longer than a signature moment`);
+    assert.ok(["wolf", "sparks", "achievements", "ambient"].includes(m.family), `${kind} has no family switch`);
+    assert.ok(m.level >= 2, `${kind} plays at Minimal`);
+  }
+  assert.ok(ctx.forgeEvent("deploy.succeeded", ctx.node()), "a deployment struck no anvil");
+  assert.strictEqual(ctx.forgeEvent("cell.typed", ctx.node()), null);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(ctx.motionDiagnostics().events)), { "deploy.succeeded": 1, "cell.typed": 1 });
+  const src = fs.readFileSync(path.join(ui, "git.js"), "utf8");
+  assert.match(src, /toast\(`Deployed \$\{out\.done\.length\}[^\n]*\n\s+forgeEvent\("deploy\.succeeded", document\.getElementById\("toast"\)\);/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /view\.replaceChildren\(\.\.\.children\);\n  viewTransition\(view\);/);
+});
+
+// Item 21: a table's whole lineage, hop by hop, both ways, out to the projects reading its products.
+function lineageHelper() {
+  const src = fs.readFileSync(path.join(ui, "meshflow.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function mfLineage\([\s\S]*?\n}\n/)[0]}; this.mfLineage = mfLineage;`, ctx);
+  return ctx.mfLineage;
+}
+
+test("lineage walks every hop both ways, to the products and the projects that read them", () => {
+  const mfLineage = lineageHelper();
+  const entities = [
+    { name: "bronze.customers", source: "landing crm/customers", reads: [] },
+    { name: "bronze.orders", source: "files orders/*.csv", reads: [] },
+    { name: "silver.customers", source: "bronze.customers", reads: ["bronze.customers"] },
+    { name: "silver.orders", reads: ["bronze.orders", "silver.customers"] },
+    { name: "gold.dim_customer", reads: ["silver.customers"] },
+    { name: "gold.fact_sales", reads: ["silver.orders", "gold.dim_customer", "sales.link_rates"] },
+  ];
+  const ports = [["Customer 360", "gold.dim_customer"], ["Orders", "bronze.orders"]];
+  const readers = { "Customer 360": ["finance", "marketing"] };
+  const cols = JSON.parse(JSON.stringify(mfLineage(entities, ports, readers, "silver.customers")));
+  assert.deepStrictEqual(cols.map((c) => c.label), ["Source", "It reads", "This table", "Reads it", "Then", "Data products", "Other projects"]);
+  assert.deepStrictEqual(cols[0].items.map((x) => x.name), ["landing crm/customers"]);
+  assert.deepStrictEqual(cols[3].items.map((x) => x.name), ["gold.dim_customer", "silver.orders"]);
+  assert.deepStrictEqual(cols[4].items.map((x) => x.name), ["gold.fact_sales"]);
+  assert.deepStrictEqual(cols[5].items.map((x) => x.name), ["Customer 360"], "Orders is upstream, not something it ends up in");
+  assert.deepStrictEqual(cols[6].items.map((x) => `${x.name}:${x.note}`), ["finance:Customer 360", "marketing:Customer 360"]);
+  // Upstream of the fact: two hops, both roots, and the link it reads from another project.
+  const up = JSON.parse(JSON.stringify(mfLineage(entities, ports, readers, "gold.fact_sales", "up")));
+  assert.deepStrictEqual(up.map((c) => c.label), ["Source", "Before that", "Before that", "It reads", "This table"]);
+  assert.deepStrictEqual(up[0].items.map((x) => x.name), ["files orders/*.csv", "landing crm/customers", "sales.link_rates"]);
+  assert.deepStrictEqual(up[3].items.map((x) => x.name), ["gold.dim_customer", "silver.orders"]);
+  // A cycle in hand-edited configs never loops.
+  const loop = [{ name: "a", reads: ["b"] }, { name: "b", reads: ["a"] }];
+  assert.strictEqual(mfLineage(loop, [], {}, "a").length, 3);
+  const flow = fs.readFileSync(path.join(ui, "meshflow.js"), "utf8");
+  assert.match(flow, /pick\("both", "Whole lineage"\), pick\("up", "Only what it reads"\), pick\("down", "Only what reads it"\)/);
+  assert.match(flow, /preview\("lineage", btn\("Columns", "flow", \(\) => columnLineage\(e\.name\)/);
+});
+
+// UX-006: Advanced settings fold closed by default, and a value policy or the environment sets is read-only.
+test("a fold can start closed, and the choice made on this PC wins after that", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const store = new Map();
+  const localStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
+  const h = (tag, attrs = {}, ...kids) => ({ tag, attrs, kids, classes: new Set(String(attrs.class || "").split(" ").filter(Boolean)),
+    append(...k) { this.kids.push(...k); }, setAttribute(k, v) { this.attrs[k] = v; },
+    get classList() { const c = this.classes; return { toggle: (n, on) => (on ? c.add(n) : c.delete(n)) }; } });
+  const ctx = { h, localStorage };
+  vm.runInNewContext(`${src.match(/function foldable\([\s\S]*?\n}\n/)[0]}; this.f = foldable;`, ctx);
+  assert.ok(!ctx.f("x", "Head", []).classes.has("folded"), "folds open unless asked");
+  const box = ctx.f("settings.advanced", "Advanced", [], { start: true });
+  assert.ok(box.classes.has("folded"));
+  const toggle = box.kids[0].kids[0];
+  assert.strictEqual(toggle.attrs["aria-expanded"], "false");
+  toggle.attrs.onclick();
+  assert.strictEqual(store.get("fd.fold.settings.advanced"), "0");
+  assert.ok(!ctx.f("settings.advanced", "Advanced", [], { start: true }).classes.has("folded"), "opened once, it opens next time");
+});
+
+test("Settings keeps App ID and engine limits in a folded Advanced section, read-only when policy or the environment sets them", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/const SOURCE_TEXT = \{[\s\S]*?\n};\n/)[0]}; ${src.match(/function fixedBy\([\s\S]*?\n}\n/)[0]}; this.f = fixedBy; this.T = SOURCE_TEXT;`, ctx);
+  assert.strictEqual(ctx.f({ client_id: { source: "environment" } }, "client_id"), "environment");
+  assert.strictEqual(ctx.f({ sql_page_rows: { source: "policy" } }, "sql_page_rows"), "policy");
+  for (const source of ["user", "default", "built_in"]) assert.strictEqual(ctx.f({ k: { source } }, "k"), null);
+  assert.strictEqual(ctx.f({}, "kernel_process"), null);
+  assert.strictEqual(ctx.T.policy, "Set by your organization's policy");
+  assert.strictEqual(ctx.T.environment, "Set by the FABRIC_DESKTOP_CLIENT_ID environment variable");
+  const render = src.slice(src.indexOf("async function renderSettings"), src.indexOf("// \"policy\" or \"environment\""));
+  const account = render.slice(render.indexOf("// Account"), render.indexOf("// Updates"));
+  assert.ok(!account.includes("App (client) ID"), "the App ID left Account");
+  assert.ok(!render.includes("Cell time limit") && !render.includes("sqlSettingsSection("), "limits left the main page");
+  assert.match(render, /\[account, updates, display, previews, usage, platform, notify, about, advanced\]/);
+  const adv = src.match(/function advancedSection\([\s\S]*?\n}\n/)[0];
+  for (const text of ["App (client) ID", "Cell time limit", "Notebook memory limit", "Run notebooks in their own process", "sqlSettingsSection("]) assert.ok(adv.includes(text), text);
+  assert.match(adv, /foldable\("settings\.advanced", h\("h2", \{\}, "Advanced"\)[\s\S]*\{ start: true/);
+  assert.match(adv, /readonly: idFixed \? true : null/);
+  assert.match(adv, /idFixed \? null : btn\("Save"/, "no Save for an ID that wouldn't apply");
+  const sql = src.match(/function sqlSettingsSection\([\s\S]*?\n}\n/)[0];
+  assert.match(sql, /readonly: locked\(key\)/);
+  assert.match(sql, /readonly: locked\("sql_temp_dir"\)/);
+  assert.match(sql, /fixedBy\(s, "sql_temp_dir"\)/);
+  assert.match(src, /learnMore\("settings"\)/, "the page keeps its guide link");
+  assert.match(fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8"), /^### Advanced settings$/m);
 });
 
 // UX-019: the Preview list in the docs is the app's own list, once.
@@ -2756,6 +2952,47 @@ test("a slow search answer that arrives after a newer one is dropped", async () 
   assert.strictEqual(findAll(wrap, (n) => n.attrs?.role === "status")[0].textContent, "Rows 1 to 1 of 1 matching");
 });
 
+// notebookutils.fs.ls entries carry modifyTime, as in Fabric.
+test("notebook docs list the fs.ls entry fields with modifyTime", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /`isFile` and `modifyTime` \(milliseconds since 1970, UTC; Databricks' `modificationTime` works too\)/);
+});
+
+test("Profile opens from the account menu and the command bar, and Validate passes on what it earned (KF-DX-001)", () => {
+  const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
+  assert.match(p, /registerFeature\(\{\s*id: "profile", preview: true,\s*views: \{ profile: renderProfile \}/);
+  assert.doesNotMatch(p, /rail:/, "Profile must not take a rail slot");
+  for (const m of ["profile_get", "profile_save", "profile_exclude", "profile_backfill", "profile_report", "profile_report_save", "profile_export", "profile_delete"]) {
+    assert.ok(p.includes(`"${m}"`), `${m} has no caller`);
+  }
+  assert.match(p, /confirmDialog\("Delete your profile data\?"[\s\S]*?\{ danger: true, typeToConfirm: "DELETE" \}/);
+  assert.match(p, /aria-valuenow/, "the XP bar has no progressbar values");
+  assert.match(p, /const RECORDING_ON = "Recording is on: [^"]*Turn it off in Profile > Settings\."/);
+  assert.match(p, /a\.id === "first-flame"\) \? ` \$\{RECORDING_ON\}`/, "the first achievement toast doesn't say recording is on");
+  const s = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  assert.match(s, /previewShown\(\) \? \{ label: "Profile \(Preview\)"/);
+  assert.match(s, /showMenu\(anchor, items\.filter\(Boolean\)\)/);
+  const v = fs.readFileSync(path.join(ui, "validate.js"), "utf8");
+  assert.match(v, /toast\(`\$\{nb\.name\}: \$\{r\.summary \|\| r\.state\}`, r\.state === "failed"\);\n  profileEarned\(r\.earned\);/);
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="profile.js"') > html.indexOf('src="features.js"'), "profile.js must load after features.js");
+});
+
+test("the profile report preview renders headings, bullets and source tags without HTML from the text (KF-DX-001)", () => {
+  const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
+  const src = p.slice(p.indexOf("function markdownBlocks"), p.indexOf("// ---------- Settings"));
+  const ctx = { h: (tag, attrs, ...kids) => ({ tag, kids: kids.flat(), append(k) { this.kids.push(k); } }) };
+  vm.createContext(ctx);
+  vm.runInContext(`${src}; this.markdownBlocks = markdownBlocks;`, ctx);
+  const out = ctx.markdownBlocks("# Title\n\n## Key contributions\n\n- Validated <b>x</b> *(Verified, E1)*\n- Two\n\nText");
+  assert.strictEqual(out.map((b) => b.tag).join(","), "h2,h3,ul,p");
+  assert.strictEqual(out[2].kids.length, 2);
+  assert.strictEqual(JSON.stringify(out[2].kids[0].kids.map((k) => (typeof k === "string" ? k : k.tag))), JSON.stringify(["Validated <b>x</b> ", "em"]));
+  const escaped = ctx.markdownBlocks("- Validated notebook \\*x\\* \\[a\\]\\(b\\) *(Verified, E1)*")[0].kids[0].kids;
+  assert.strictEqual(escaped.filter((k) => typeof k === "string").join(""), "Validated notebook *x* [a](b) ");
+  assert.strictEqual(escaped.filter((k) => typeof k !== "string").length, 1, "an escaped name became emphasis");
+});
+
 // Inspect over every row: a table output with a `frame` shows the engine's profile of the whole result.
 test("Inspect profiles every row of a held result, and says so when the kernel no longer holds it", async () => {
   const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
@@ -2771,7 +3008,7 @@ test("Inspect profiles every row of a held result, and says so when the kernel n
     { frame: "f", gone: true }];
   const ctx = { h: el, isNumber: (v) => typeof v === "number", friendlyError: String, rpc: async () => answers.shift() };
   vm.createContext(ctx);
-  vm.runInContext(grab("renderProfile") + grab("renderInspect") + "this.p = renderProfile;", ctx);
+  vm.runInContext(grab("renderFrameProfile") + grab("renderInspect") + "this.p = renderFrameProfile;", ctx);
   const o = { frame: "f", columns: ["n", "s"], rows: [[1, "a"]] };
   const box = ctx.p(o, [true, false], "Showing the first 1000 of 10000 rows");
   assert.match(texts(box), /Profiling every row\.\.\.$/);
@@ -2792,7 +3029,7 @@ test("Inspect profiles every row of a held result, and says so when the kernel n
   await new Promise((r) => setImmediate(r));
   assert.strictEqual(o2.profileGone, true);
   assert.match(box2.querySelector(".more").textContent, /Run the cell again to profile every row\.$/);
-  assert.match(nb, /\} else if \(o\.frame && !o\.profileGone\) \{\n    wrap\.append\(renderProfile\(o, numeric, count\)\);/);
+  assert.match(nb, /\} else if \(o\.frame && !o\.profileGone\) \{\n    wrap\.append\(renderFrameProfile\(o, numeric, count\)\);/);
 });
 
 // The chart builder (charts.js): the engine aggregates every row; the cell keeps its chart by column name.

@@ -25,6 +25,7 @@ All of it happens on the **Platform** page (central team, and requests from ever
 1. **Domains.** Every domain, its subdomains, and how many projects and products it has. **How domains feed each other** lists, for each pair of domains, the products one domain's projects read from the other's.
 2. **A domain.** Its projects, filtered by subdomain, each with its products, who reads them and what it reads. The project open on this PC also shows its layers with a table count; other projects' tables show when their folder is opened on this PC.
 3. **A layer.** The layer's tables. Pick one to see what it comes from, which tables and products read it, and **Open in Design** to edit it.
+4. **A table's lineage.** Every hop both ways, one column per hop. Upstream it starts at the files, landing source or link the chain begins with. Downstream it ends at the data products it feeds and the other projects that read them. **Only what it reads** and **Only what reads it** narrow it. Pick any table in a column to put it in the middle, and choose **Columns** to see where each column comes from. Tables come from the project open on this PC, and other projects come from the catalog's links. It reads only and changes nothing.
 
 ## The pieces
 

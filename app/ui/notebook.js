@@ -942,6 +942,7 @@ function renderOutput(o, cell) {
     return h("div", { class: "output" }, h("img", { class: "out-img", alt: "Chart from this cell", src: `data:${o.mime};base64,${o.data}` }));
   }
   if (o.type === "html") return h("div", { class: "output" }, htmlFrame(o.html));
+  if (o.type === "vegalite") return renderVegaLite(o);
   // Markdown from %%md, IPython.display.Markdown or _repr_markdown_: the Markdown cell's escaping renderer.
   if (o.type === "markdown") return h("div", { class: "output md-view" }, markdown(o.text));
   if (o.type === "json") return h("div", { class: "output json-output" }, jsonTree(o.data, null, 0));
@@ -991,6 +992,36 @@ function htmlFrame(html) {
     src: window.__TAURI__.core.convertFileSrc("frame", "nbout") });
   frame.addEventListener("load", () => frame.contentWindow?.postMessage({ fdHtml: html }, "*"));
   return frame;
+}
+
+// Altair charts (chart_output.py): the Vega-Lite spec, drawn by the Vega libraries (vendor/vega) inside a
+// sandboxed output frame, inline, since the frame can't load scripts; the app's page never runs them.
+// The libraries load once, when the first chart shows.
+let vegaSource = null;
+function loadVega() {
+  vegaSource ||= new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "vendor/vega/vega-frame.js";
+    script.onload = () => resolve(window.fdVegaSource);
+    script.onerror = () => { vegaSource = null; reject(new Error("Could not load the chart libraries. Reload the app and run the cell again.")); };
+    document.head.append(script);
+  });
+  return vegaSource;
+}
+
+function vegaPage(source, spec) {
+  // JSON is a JS expression; with every < escaped, nothing in the spec can end the script tag.
+  const data = JSON.stringify(spec).replace(/</g, "\\u003c");
+  return `<!doctype html><meta charset="utf-8"><style>body{margin:0;font:13px "Segoe UI",system-ui,sans-serif}</style>` +
+    `<div id="chart"></div><script>${source}<\/script><script>vegaEmbed("#chart", ${data}, { actions: false, renderer: "svg" })` +
+    `.catch(function (e) { document.getElementById("chart").textContent = "This chart can't draw: " + (e && e.message || e); });<\/script>`;
+}
+
+function renderVegaLite(o) {
+  const wrap = h("div", { class: "output" }, h("div", { class: "out-bar" }, previewMarked("altair", h("span", { class: "muted-text" }, "Altair chart"))));
+  loadVega().then((source) => wrap.append(htmlFrame(vegaPage(source, o.spec))),
+    (err) => wrap.append(h("div", { class: "more", role: "alert" }, friendlyError(err))));
+  return wrap;
 }
 
 window.addEventListener("message", (e) => {

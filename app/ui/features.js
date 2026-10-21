@@ -64,6 +64,7 @@ const PREVIEW_FEATURES = {
   chartBuilder: "Chart builder",
   dataWrangler: "Data Wrangler",
   ipywidgets: "Notebook widgets",
+  altair: "Altair charts in notebooks",
   mesh: "Data mesh",
   platform: "Platform",
   sourceControl: "Source control",

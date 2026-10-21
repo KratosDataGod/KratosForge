@@ -4093,6 +4093,26 @@ test("notebook docs describe udf.getFunctions as read only, Preview", () => {
   assert.match(doc, /Calling a function runs it in Fabric on its workspace's capacity, so on this PC the call says so instead/);
 });
 
+// Altair charts (renderVegaLite): the spec goes into the frame's script with every < escaped, so text in
+// the data can't end the script tag, and the Vega libraries are the vendored build, not a CDN.
+test("an Altair chart's spec can't break out of the frame's script", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(/function vegaPage\([\s\S]*?\n}\n/.exec(nb)[0] + "\nthis.vegaPage = vegaPage;", ctx);
+  const evil = "</script><script>parent.postMessage('x','*')</script><!--";
+  const page = ctx.vegaPage("/* vega */", { data: { values: [{ name: evil }] }, mark: "bar" });
+  assert.strictEqual(page.match(/<\/script>/g).length, 2, "only the page's own two scripts end");
+  assert.ok(!page.includes(evil) && !page.includes("<!--"));
+  const json = /vegaEmbed\("#chart", ([\s\S]*?), \{ actions/.exec(page)[1];
+  assert.strictEqual(JSON.parse(json).data.values[0].name, evil, "the spec arrives unchanged");
+  const loader = /function loadVega\([\s\S]*?\n}\n/.exec(nb)[0];
+  assert.match(loader, /script\.src = "vendor\/vega\/vega-frame\.js"/);
+  const built = fs.readFileSync(path.join(ui, "vendor", "vega", "vega-frame.js"), "utf8");
+  assert.match(built.split("\n")[0], /vega 6\.4\.0, vega-lite 6\.4\.3, vega-embed 7\.3\.0/);
+  assert.ok(!/<\/script|<!--/i.test(built));
+});
+
 // Folders for notebooks (notebook-files.js, notebook_folders_service.py): the grouped tree, where a
 // notebook can move, and the folder actions' wiring.
 function notebookFolderHelpers() {

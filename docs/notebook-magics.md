@@ -93,6 +93,10 @@ print(len(files))
 - `!` uses `cmd.exe` on Windows. Fabric runs on Linux, so a notebook you publish needs Linux
   commands there.
 
+**A notebook's `!` lines and shell cells run on your PC, as you.** Running a notebook someone
+else wrote runs their shell commands here, with your files and your sign-in, the same as running
+a script they sent you. Read it first. See [Security](security.md), item 6.
+
 A whole cell can be a script:
 
 | First line | Runs in |

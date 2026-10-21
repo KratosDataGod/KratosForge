@@ -125,6 +125,11 @@ from .notebook_files_service import METHODS as NOTEBOOK_FILES_METHODS  # noqa: E
 
 METHODS |= NOTEBOOK_FILES_METHODS
 
+# Profile (progress_service.py): the person's private record of verified work and its report.
+from .progress_service import METHODS as PROFILE_METHODS  # noqa: E402
+
+METHODS |= PROFILE_METHODS
+
 
 def handle(service: Service, line: str) -> dict:
     try:

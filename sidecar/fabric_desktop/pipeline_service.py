@@ -235,7 +235,8 @@ class PipelineRunMixin:
                 pass
             finally:
                 if run.notebooks is not None:
-                    run.notebooks.finish()
+                    run.notebooks.stop()
+                    run.notebooks.finish()  # already done unless the run raised; then it cleans up here
                 store.save(run.to_json())
                 store.trim()
                 for rid in [k for k, r in live.items() if r.state not in ("pending", "running")][:-MAX_RUNS]:

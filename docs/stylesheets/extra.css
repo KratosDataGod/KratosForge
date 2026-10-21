@@ -6,12 +6,9 @@
   --md-accent-fg-color: #2f6fd6;
 }
 
-/* The brand mark is navy on white, so give it a white tile on the header. */
+/* The emblem is a white disc with a navy ring, so it needs no tile on the navy header. */
 .md-header__button.md-logo img,
 .md-header__button.md-logo svg {
-  background: #ffffff;
-  border-radius: 4px;
-  padding: 2px;
   height: 1.6rem;
   width: auto;
 }

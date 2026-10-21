@@ -1,5 +1,6 @@
 """Organization policy fails closed: a policy.json that exists but can't be read, or a restrictive key
-of the wrong type, gives each restriction its most restrictive value, not the default (HD-010)."""
+of the wrong type, gives each restriction its most restrictive value, not the default (HD-010). An
+unreadable file still lets people sign in and work on their PC (Chris, 2026-10-18)."""
 
 import json
 
@@ -13,6 +14,7 @@ from fabric_desktop.receipts import REDACTIONS
 
 HOME = "11111111-2222-3333-4444-555555555555"
 AWAY = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+USER_CAN_CHANGE = app_settings.user_can_change  # before conftest replaces it for each test
 
 
 @pytest.fixture
@@ -36,8 +38,7 @@ def assert_everything_restricted():
     s = app_settings.load()
     for key, value in (("allow_fabric_runs", False), ("show_preview", False), ("telemetry", False)):
         assert s[key] == {"value": value, "source": "policy"}, key
-    assert not app_settings.tenant_allowed(HOME) and not app_settings.tenant_allowed(AWAY)
-    assert not app_settings.tenant_allowed(None)
+    assert app_settings.tenant_allowed(HOME) and app_settings.tenant_allowed(AWAY)  # sign-in still works
     rules = integrations_policy.current()
     assert rules["enabled"] is False and rules["http"] is False
     assert rules["max_permissions"] == [] and rules["extensions"] == []
@@ -118,6 +119,43 @@ def test_integration_and_receipt_keys_are_known_settings(files):
     assert "receipt_redactions" in app_settings.policy_problems()[0]  # the list of settings includes it
 
 
+def test_a_policy_file_people_can_change_is_reported(files, monkeypatch):
+    files({"allow_fabric_runs": False})
+    monkeypatch.setattr(app_settings, "user_can_change", lambda path: path == files.path)
+    [problem] = app_settings.policy_problems()
+    assert "can be changed by the account you're signed in" in problem and "only administrators" in problem
+    assert app_settings.load()["allow_fabric_runs"] == {"value": False, "source": "policy"}  # still applies
+
+
+def test_user_can_change_checks_write_access(files, monkeypatch, tmp_path):
+    monkeypatch.setattr(app_settings, "user_can_change", USER_CAN_CHANGE)  # the real check, not conftest's
+    monkeypatch.setattr(app_settings.sys, "platform", "linux")
+    monkeypatch.setattr(app_settings.os, "geteuid", lambda: 1000, raising=False)
+    files({})
+    assert USER_CAN_CHANGE(files.path)  # the test account wrote it
+    assert not USER_CAN_CHANGE(tmp_path / "missing.json")
+    monkeypatch.setattr(app_settings.os, "geteuid", lambda: 0, raising=False)
+    assert not USER_CAN_CHANGE(files.path)  # an administrator can change it anyway
+
+
+@pytest.mark.skipif(not hasattr(__import__("os"), "chown"), reason="file owners are POSIX here")
+def test_owning_the_folder_counts_even_when_the_file_is_read_only(files, monkeypatch):
+    """Someone who made the folder before IT pushed the file can delete and replace that file."""
+    import os
+    if os.geteuid() != 0:
+        pytest.skip("needs root to hand the folder to another account")
+    files({})
+    os.chmod(files.path, 0o444)
+    os.chown(files.path.parent, 1000, 1000)
+    os.chmod(files.path.parent, 0o755)
+    monkeypatch.setattr(app_settings.sys, "platform", "linux")
+    monkeypatch.setattr(app_settings.os, "geteuid", lambda: 1000)
+    monkeypatch.setattr(app_settings.os, "access", lambda path, mode: False)  # root can open anything
+    assert USER_CAN_CHANGE(files.path)
+    os.chown(files.path.parent, 0, 0)
+    assert not USER_CAN_CHANGE(files.path)  # IT's folder and file: nothing to change
+
+
 def test_missing_file_keeps_the_defaults(files):
     s = app_settings.load()
     assert s["allow_fabric_runs"] == {"value": True, "source": "default"}
@@ -141,7 +179,7 @@ def test_valid_values_still_apply(files):
     assert app_settings.load()["allow_fabric_runs"]["value"] is True
 
 
-def test_sign_in_blocked_by_a_broken_file_says_so(files):
+def test_a_broken_file_still_lets_people_sign_in(files):
     from fabric_desktop.auth import Authenticator
 
     class Signed:
@@ -154,9 +192,11 @@ def test_sign_in_blocked_by_a_broken_file_says_so(files):
             return HOME
     me = Signed()
     files("{not json")
-    with pytest.raises(RuntimeError, match="settings file .* can't be read"):
-        Authenticator._check_tenant(me, {"id_token_claims": {"tid": HOME}})
-    assert me.signed_out
+    Authenticator._check_tenant(me, {"id_token_claims": {"tid": HOME}})
+    assert not me.signed_out
+    assert app_settings.load()["allowed_tenants"]["source"] != "policy"
+    [problem] = app_settings.policy_problems()
+    assert "Sign-in still works" in problem and "no sign-in" not in problem
     files({"allowed_tenants": [AWAY]})
     with pytest.raises(RuntimeError, match="belongs to another organization"):
         Authenticator._check_tenant(Signed(), {"id_token_claims": {"tid": HOME}})
@@ -195,3 +235,9 @@ def test_a_damaged_copy_fails_closed(files):
     app_settings.saved_policy_path().write_text("{damaged")
     files("{broken")
     assert_everything_restricted()
+
+
+@pytest.mark.skipif(__import__("sys").platform != "win32", reason="Windows access check")
+def test_the_windows_check_runs(files):
+    files({})
+    assert USER_CAN_CHANGE(files.path) in (True, False)  # CI's account is an administrator, so usually False

@@ -61,7 +61,7 @@ def test_a_requests_reason_never_reaches_teams_but_a_shortcuts_break_does():
     assert title == "Waiting on you: Access to LH_Sales"
     assert not any("Q3" in line for line in lines)
     assert lines[0] == "For ana@contoso.com, owners of domain sales."
-    assert lines[-1] == "Open it in Fabric Desktop by KratosBI > Platform > Requests."
+    assert lines[-1] == "Open it in KratosForge > Platform > Requests."
     title, lines = message(event("shortcut.broken", "s1"))
     assert title.startswith("Shortcut broken") and "Its target table was deleted" in lines
 
@@ -147,7 +147,7 @@ def raw(**extra):
 def test_the_service_keeps_webhooks_out_of_the_ui_and_backups(svc):
     assert svc.platform_notify([raw()])["skipped"] == "no platform Teams route set" and svc.posts == []
     svc.platform_notify_save([{"name": "default", "url": HOOK, "kinds": []}], quiet="22:00-07:00", test="default")
-    assert svc.posts[0][1] == "Fabric Desktop by KratosBI platform notices are on"
+    assert svc.posts[0][1] == "KratosForge platform notices are on"
     shown = svc.platform_notify_settings()
     assert HOOK not in str(shown) and shown["routes"][0] == {"name": "default", "kinds": [], "domains": [],
                                                              "url_set": True, "host": "contoso.webhook.office.com"}

@@ -133,7 +133,7 @@ _LONG = {"tsql": "NVARCHAR(MAX)", "sqlite": "TEXT"}
 
 _CATALOG: dict[str, list[tuple[str, str]]] = {
     "domain": [("id", "key"), ("name", "text"), ("parent_id", "text"), ("description", "long"), ("owners", "text"),
-               ("fabric_domain", "text"), ("updated_at", "text"), ("updated_by", "text")],
+               ("fabric_domain", "text"), ("updated_at", "text"), ("updated_by", "text"), ("fabric_owners", "long")],
     "project": [("name", "key"), ("domain_id", "text"), ("subdomain_id", "text"), ("team", "text"),
                 ("description", "long"), ("updated_at", "text"), ("updated_by", "text")],
     "product": [("id", "key"), ("project", "text"), ("name", "text"), ("domain_id", "text"), ("description", "long"),
@@ -198,6 +198,7 @@ def ensure_schema(db: Db) -> dict[str, Any]:
                f"action {_TEXT[db.dialect]}, target {_TEXT[db.dialect]}, detail {_LONG[db.dialect]})")
         created.append("catalog.audit")
     created += ensure_source_ids(db)
+    created += ensure_domain_columns(db)
     for hook in SCHEMA_HOOKS:
         created += hook(db)
     _upsert(db, "config", "setting", "name", {"name": "schema_version", "value": str(SCHEMA_VERSION)})
@@ -290,6 +291,72 @@ def _clean_bks(business_keys: list[Any]) -> list[str]:
     return sorted(out)
 
 
+# A keys database that has stopped issuing (keys moving to, or moved to, the one keys database
+# for every environment) keeps the reason here; every run that asks for keys is told it.
+KEYS_CLOSED = "keys_closed"
+# Set on the shared keys database while a move fills it and nothing uses it yet.
+KEYS_STAGING = "keys_staging"
+# Set on the shared keys database once every environment uses it: from then on it's never staged or cleared.
+KEYS_LIVE = "keys_live"
+
+
+def _setting(db: Db, name: str) -> str:
+    if not db.exists("config", "setting"):
+        return ""
+    found = db.rows(f"SELECT value FROM {db.t('config', 'setting')} WHERE name = ?", (name,))
+    return str(found[0]["value"] or "") if found else ""
+
+
+def _require_open(db: Db) -> None:
+    if why := _setting(db, KEYS_CLOSED):
+        raise PlatformError(why)
+
+
+def close_keys(db: Db, reason: str = "", by: str = "") -> dict[str, Any]:
+    """Stop issuing and importing keys here, telling every run ``reason``; an empty reason opens them again."""
+    require_admin(db, by, "close or reopen key issuing")
+    _upsert(db, "config", "setting", "name", {"name": KEYS_CLOSED, "value": str(reason or "")})
+    _audit(db, by, "close keys" if reason else "reopen keys", "keys", {"reason": reason})
+    db.commit()
+    return {"closed": str(reason or "")}
+
+
+def keys_state(db: Db) -> dict[str, Any]:
+    """Whether this keys database is live (Dev, Test and Prod use it), being filled by a move, or closed."""
+    return {"live": _setting(db, KEYS_LIVE) == "1", "staging": _setting(db, KEYS_STAGING) == "1",
+            "closed": _setting(db, KEYS_CLOSED)}
+
+
+def stage_keys(db: Db, staging: bool, live: bool = False, by: str = "") -> dict[str, Any]:
+    """Mark the shared keys database as being filled by a move (only then can clear_keys empty it),
+    or, with ``live``, as the one every environment uses now. A live database is never staged again."""
+    require_admin(db, by, "move keys")
+    if _setting(db, KEYS_LIVE) == "1" and (staging or not live):
+        raise PlatformError("This keys database is already in use by Dev, Test and Prod. Join it instead of moving keys into it.")
+    _upsert(db, "config", "setting", "name", {"name": KEYS_STAGING, "value": "1" if staging and not live else ""})
+    if live:
+        _upsert(db, "config", "setting", "name", {"name": KEYS_LIVE, "value": "1"})
+        _audit(db, by, "keys live", "keys")
+    db.commit()
+    return keys_state(db)
+
+
+def clear_keys(db: Db, by: str = "") -> dict[str, Any]:
+    """Drop every key table a move put here before it switched, so the move can start again.
+    Refused on a keys database that isn't being filled by a move: those keys are in use."""
+    require_admin(db, by, "clear the keys a move copied")
+    if _setting(db, KEYS_LIVE) == "1" or _setting(db, KEYS_STAGING) != "1":
+        raise PlatformError("Only a keys database a move is still filling can be cleared: these keys are in use.")
+    names = [t["name"] for t in list_key_tables(db)]
+    for name in names:
+        if db.exists("keys", name):
+            db.run(f"DROP TABLE {db.t('keys', name)}")
+        db.run(f"DELETE FROM {db.t('catalog', 'key_table')} WHERE name = ?", (name,))
+    _audit(db, by, "clear moved keys", "keys", {"tables": names})
+    db.commit()
+    return {"cleared": names}
+
+
 def issue_keys(db: Db, name: str, business_keys: list[Any]) -> dict[str, Any]:
     """The surrogate key of every business key given, issuing the next keys for new ones.
 
@@ -298,6 +365,7 @@ def issue_keys(db: Db, name: str, business_keys: list[Any]) -> dict[str, Any]:
     business key. Returns {"keys": {bk: sk}, "inserted": n}."""
     name = key_name(name)
     bks = _clean_bks(business_keys)
+    _require_open(db)
     if not db.exists("keys", name):
         raise _missing_key_table(name)
     if not bks:
@@ -348,6 +416,7 @@ def import_keys(db: Db, name: str, rows: list[list[Any]], by: str = "") -> dict[
     migration never renumbers a key. The identity continues after the highest key. A key table
     that isn't there yet is created, which only a platform admin may do."""
     name = key_name(name)
+    _require_open(db)
     ensure_key_table(db, name, by)
     t = db.t("keys", name)
     have = {r["bk"]: int(r["sk"]) for r in db.rows(f"SELECT {name}_bk AS bk, {name}_sk AS sk FROM {t}")}
@@ -460,15 +529,35 @@ def _slug(name: str, taken: set[str]) -> str:
     return did
 
 
+def _fabric_admins(d: dict[str, Any]) -> str | None:
+    """A Fabric domain's admins as stored: a JSON list of {name, type}, names only (no email), sorted."""
+    people = sorted({(str(a.get("name") or "").strip(), str(a.get("type") or "User"))
+                     for a in d.get("admins") or [] if str(a.get("name") or "").strip()})
+    return json.dumps([{"name": n, "type": t} for n, t in people]) if people else None
+
+
+def ensure_domain_columns(db: Db) -> list[str]:
+    """Give catalog.domain the columns added after it was made (fabric_owners). Safe to run again."""
+    added = []
+    if "fabric_owners" not in _columns(db, "domain"):
+        db.run(f"ALTER TABLE {db.t('catalog', 'domain')} ADD {'' if db.tsql else 'COLUMN '}{_column(db, 'fabric_owners', 'long')}")
+        added.append("catalog.domain.fabric_owners")
+    return added
+
+
 def import_fabric_domains(db: Db, domains: list[dict[str, Any]], by: str = "") -> dict[str, Any]:
     """Make the catalog's domains follow Fabric's domains and subdomains (``GET /v1/admin/domains``).
 
     A Fabric domain matches the catalog domain already linked to it (``fabric_domain``), else one
     with the same name that isn't linked yet, else it's added. Linked domains take Fabric's name and
-    parent; their owners and description stay as the platform set them. Domains that are no longer
+    parent; their owners and description stay as the platform set them. A Fabric domain that carries
+    ``admins`` (its Fabric domain admins, read during the import) stores their names and kinds in
+    ``fabric_owners``: shown as "From Fabric", never used to grant anything. One without ``admins``
+    keeps what an earlier import read. Domains that are no longer
     in Fabric are reported, never deleted: projects may still use them. Platform admins only.
     """
     require_admin(db, by, "import domains from Fabric")
+    ensure_domain_columns(db)  # a platform made before fabric_owners
     existing = list_domains(db)
     by_fabric = {d["fabric_domain"]: d for d in existing if d.get("fabric_domain")}
     by_name = {str(d["name"] or "").strip().lower(): d for d in existing if not d.get("fabric_domain")}
@@ -496,11 +585,15 @@ def import_fabric_domains(db: Db, domains: list[dict[str, Any]], by: str = "") -
             row = {"id": did, "description": str(d.get("description") or ""), "owners": ""}
         elif kind == "updated" and row["name"] == name and (row.get("parent_id") or None) == parent:
             kind = "unchanged"
+        admins = _fabric_admins(d) if "admins" in d else row.get("fabric_owners")
+        if kind == "unchanged" and (admins or None) != (row.get("fabric_owners") or None):
+            kind = "updated"
         ids[fid] = row["id"]
         if kind != "unchanged":
             new = {"id": row["id"], "name": name, "parent_id": parent,
                    "description": str(row.get("description") or d.get("description") or ""),
-                   "owners": str(row.get("owners") or ""), "fabric_domain": fid, "updated_at": _now(), "updated_by": by}
+                   "owners": str(row.get("owners") or ""), "fabric_domain": fid, "fabric_owners": admins or None,
+                   "updated_at": _now(), "updated_by": by}
             _upsert(db, "catalog", "domain", "id", new)
         out[kind].append(row["id"])
     out["gone"] = [d["id"] for f, d in by_fabric.items() if f not in fabric]
@@ -795,17 +888,17 @@ def list_key_tables(db: Db) -> list[dict[str, Any]]:
 _SOURCE_ADDED = ("source_id", "code", "system_type", "active")
 
 
-def _source_columns(db: Db) -> set[str]:
+def _columns(db: Db, table: str) -> set[str]:
     if db.tsql:
-        return {r["name"] for r in db.rows("SELECT name FROM sys.columns WHERE object_id = OBJECT_ID('catalog.source')")}
-    return {r["name"] for r in db.rows(f"PRAGMA table_info({db.t('catalog', 'source')})")}
+        return {r["name"] for r in db.rows(f"SELECT name FROM sys.columns WHERE object_id = OBJECT_ID('catalog.{table}')")}
+    return {r["name"] for r in db.rows(f"PRAGMA table_info({db.t('catalog', table)})")}
 
 
 def ensure_source_ids(db: Db) -> list[str]:
     """Give catalog.source the columns of schema 5 and every source an id. A platform made before
     keeps its sources: each gets the next free id, in name order, and a code from its name."""
     added = []
-    have = _source_columns(db)
+    have = _columns(db, "source")
     for col in _SOURCE_ADDED:
         if col not in have:
             db.run(f"ALTER TABLE {db.t('catalog', 'source')} ADD {'' if db.tsql else 'COLUMN '}{_column(db, col, 'text')}")
@@ -825,9 +918,23 @@ def ensure_source_ids(db: Db) -> list[str]:
     return added
 
 
+def _with_source_ids(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The schema 5 fields as ensure_source_ids would set them, worked out without writing: a read
+    never migrates the catalog (that's Finish or repair, or the next change to a source)."""
+    used = [int(s["source_id"]) for s in sources if str(s.get("source_id") or "").isdigit()]
+    nxt = max(used, default=0) + 1
+    for s in sorted(sources, key=lambda s: s["name"]):
+        if not str(s.get("source_id") or "").isdigit():
+            s["source_id"], nxt = str(nxt), nxt + 1
+        s["code"] = s.get("code") or s["name"].upper()
+        s["system_type"] = s.get("system_type") or ""
+        if s.get("active") in (None, ""):
+            s["active"] = "1"
+    return sources
+
+
 def list_sources(db: Db) -> list[dict[str, Any]]:
-    ensure_source_ids(db)
-    sources = db.rows(f"SELECT * FROM {db.t('catalog', 'source')}")
+    sources = _with_source_ids(db.rows(f"SELECT * FROM {db.t('catalog', 'source')}"))
     readers = db.rows(f"SELECT * FROM {db.t('catalog', 'reader')}")
     for src in sources:
         src["connections"] = json.loads(src["connections"] or "{}")
@@ -1284,7 +1391,9 @@ def save_shortcut_rules(db: Db, rules: dict[str, Any], by: str = "") -> dict[str
 # Everything a caller (the app, a notebook, a report button) may ask the platform to do.
 OPERATIONS = {
     "ensure_schema": ensure_schema, "ensure_key_table": ensure_key_table, "issue_keys": issue_keys,
-    "import_keys": import_keys, "key_stats": key_stats, "lookup_key": lookup_key, "export_keys": export_keys,
+    "import_keys": import_keys, "close_keys": close_keys, "stage_keys": stage_keys, "clear_keys": clear_keys,
+    "keys_state": keys_state,
+    "key_stats": key_stats, "lookup_key": lookup_key, "export_keys": export_keys,
     "list_domains": list_domains, "save_domain": save_domain, "delete_domain": delete_domain,
     "import_fabric_domains": import_fabric_domains,
     "register_project": register_project, "list_projects": list_projects, "register_product": register_product,

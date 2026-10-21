@@ -1,4 +1,4 @@
-"""What Fabric Desktop by KratosBI can do with each Fabric pipeline activity type (ORCH-002).
+"""What KratosForge can do with each Fabric pipeline activity type (ORCH-002).
 
 One ``ActivitySupport`` entry per activity type says, honestly:
 
@@ -13,8 +13,8 @@ One ``ActivitySupport`` entry per activity type says, honestly:
 
 Rules the registry enforces, so a wrong claim can't be registered:
 
-- ``local`` or ``simulated`` needs an adapter that can execute and evidence of tests. ORCH-003
-  adds the first ones; until then nothing is labelled locally executable.
+- ``local`` or ``simulated`` needs an adapter that can execute and evidence of tests (ORCH-003's
+  control-flow adapters are the first).
 - ``cloud`` activities always need Fabric capacity to run.
 - Every type the registry doesn't know is ``unsupported`` and kept in the report, never dropped.
 
@@ -31,7 +31,7 @@ from typing import Any, Callable, Protocol
 from .definition import Activity, ImportedPipeline
 from .validate import Diagnostic, summary, validate
 
-REGISTRY_VERSION = "1"
+REGISTRY_VERSION = "4"
 
 CLASSIFICATIONS = {
     "local": "Runs on this PC with a tested adapter.",
@@ -143,8 +143,8 @@ class ActivitySupport:
 
 UNKNOWN = ActivitySupport(
     "(unknown)", "Activity type this version doesn't know", "unsupported", "none", "metered_in_fabric",
-    limitations=("Kept exactly as it is in the definition, but not checked or run. A newer Fabric Desktop "
-                 "by KratosBI may know it; otherwise it has to run in Fabric.",))
+    limitations=("Kept exactly as it is in the definition, but not checked or run. A newer KratosForge "
+                 "may know it; otherwise it has to run in Fabric.",))
 
 
 class ActivityRegistry:

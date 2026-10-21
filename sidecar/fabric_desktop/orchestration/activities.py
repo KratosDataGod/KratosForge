@@ -1,8 +1,9 @@
-"""The activity types Fabric Desktop by KratosBI knows (ORCH-002), as ``default_registry()``.
+"""The activity types KratosForge knows (ORCH-002), as ``default_registry()``.
 
-Nothing is ``local`` or ``simulated`` yet: no adapter can run an activity until ORCH-003. Every
-entry today is ``static`` (checked here: required properties and a few documented limits) or
-``cloud`` (only Fabric can run it). Data Factory type names are in Microsoft's documentation;
+Control-flow activities and child pipelines are ``local`` (ORCH-003): adapters.py runs them, with
+tests in tests/test_pipeline_runs.py. Data and compute activities are ``static`` (checked here:
+required properties and a few documented limits; a local run needs a mock for them), and Fabric
+items are ``cloud`` (only Fabric can run them). Data Factory type names are in Microsoft's documentation;
 names seen only in Fabric are marked ``type_name_verified=False`` until a pipeline exported from
 a tenant confirms them. Change ``REGISTRY_VERSION`` and the changelog in
 docs/orchestration/activity-registry.md with every change here.
@@ -14,12 +15,12 @@ import re
 from functools import lru_cache
 from typing import Any
 
+from . import adapters as A
 from .definition import Activity
 from .registry import (ActivityRegistry, ActivitySupport, CheckContext, Planned, PropertySupport as P,
                        StaticAdapter)
 from .validate import Diagnostic
 
-ORCH_003 = "ORCH-003"
 LATER = "later (not scheduled)"
 
 CHECKED = P("checked", "Checked on this PC.")
@@ -107,7 +108,7 @@ def _variable(a: Activity, ctx: CheckContext) -> list[Diagnostic]:
 
 def _delete(a: Activity, ctx: CheckContext) -> list[Diagnostic]:
     return [_diag(a, "deletes_data", "info", f"{a.name} deletes files when it runs in Fabric.",
-                  "datasetSettings", "Fabric Desktop by KratosBI will never run it outside an isolated test location.")]
+                  "datasetSettings", "KratosForge will never run it outside an isolated test location.")]
 
 
 # ---- entries
@@ -118,6 +119,20 @@ def _static(type_: str, title: str, required: tuple[str, ...] = (), check=None, 
                            properties=props, **kw)
 
 
+def _local(type_: str, title: str, adapter: type, required: tuple[str, ...] = (), check=None,
+           **kw: Any) -> ActivitySupport:
+    props = {k: CHECKED for k in required} | kw.pop("properties", {})
+    kw.setdefault("fabric_capacity", "metered_in_fabric")
+    kw.setdefault("side_effects", ("pipeline_state",))
+    return ActivitySupport(type_, title, "local", "unit_tests", adapter=adapter(required, check), properties=props,
+                           **kw)
+
+
+CHILD_LIMIT = ("In Fabric this starts the child pipeline's own run, which uses capacity. On this PC it runs the "
+               "child's definition when the run is given it (by referenceName or pipelineId), and waits for it "
+               "even when waitOnCompletion is false.")
+
+
 def _cloud(type_: str, title: str, required: tuple[str, ...] = (), **kw: Any) -> ActivitySupport:
     props = {k: CHECKED for k in required} | kw.pop("properties", {})
     return ActivitySupport(type_, title, "cloud", "unit_tests", "fabric_only", adapter=StaticAdapter(required),
@@ -125,38 +140,30 @@ def _cloud(type_: str, title: str, required: tuple[str, ...] = (), **kw: Any) ->
 
 
 CONTROL = P("checked", "Its child activities are checked like any other.")
-NO_ACTIVITY_POLICY = ("Activity policy (timeout, retry, secureInput, secureOutput) is read but not applied here.",)
 
 ENTRIES: tuple[ActivitySupport, ...] = (
-    # Control flow: no connection, no side effect outside the pipeline run. ORCH-003 runs these.
-    _static("SetVariable", "Set Variable", ("variableName",), _variable, fabric_capacity="metered_in_fabric",
-            side_effects=("pipeline_state",),
-            planned=Planned("local", ORCH_003, "Sets the variable in the local run record."),
-            properties={"value": CHECKED, "setSystemVariable": P("checked", "Pipeline return value; checked as a "
-                        "variable name (ORCH-001).")}),
-    _static("AppendVariable", "Append Variable", ("variableName",), _variable, fabric_capacity="metered_in_fabric",
-            side_effects=("pipeline_state",), planned=Planned("local", ORCH_003), properties={"value": CHECKED}),
-    _static("IfCondition", "If Condition", ("expression",), _if, fabric_capacity="metered_in_fabric", container=True,
-            side_effects=("pipeline_state",), planned=Planned("local", ORCH_003),
-            properties={"ifTrueActivities": CONTROL, "ifFalseActivities": CONTROL},
-            limitations=("ORCH-003 needs an expression evaluator for the condition; until then only references "
-                         "in it are checked.",)),
-    _static("Switch", "Switch", ("on",), _switch, fabric_capacity="metered_in_fabric", container=True,
-            side_effects=("pipeline_state",), planned=Planned("local", ORCH_003),
-            properties={"cases": CHECKED, "defaultActivities": CONTROL}),
-    _static("ForEach", "ForEach", ("items", "activities"), _foreach, fabric_capacity="metered_in_fabric", container=True,
-            side_effects=("pipeline_state",), planned=Planned("local", ORCH_003, "Parallel up to batchCount."),
-            properties={"activities": CONTROL, "batchCount": CHECKED, "isSequential": CHECKED}),
-    _static("Until", "Until", ("expression", "activities"), _until, fabric_capacity="metered_in_fabric", container=True,
-            side_effects=("pipeline_state",), planned=Planned("local", ORCH_003),
-            properties={"activities": CONTROL, "timeout": CHECKED}),
-    _static("Wait", "Wait", ("waitTimeInSeconds",), _wait, fabric_capacity="metered_in_fabric",
-            planned=Planned("local", ORCH_003, "Can be shortened in a local run so tests don't wait.")),
-    _static("Fail", "Fail", ("message", "errorCode"), fabric_capacity="metered_in_fabric",
-            side_effects=("pipeline_state",), planned=Planned("local", ORCH_003)),
-    _static("Filter", "Filter", ("items", "condition"), fabric_capacity="metered_in_fabric",
-            side_effects=("pipeline_state",), planned=Planned("local", ORCH_003)),
-
+    # Control flow: no connection, no side effect outside the pipeline run. ORCH-003 runs these here.
+    _local("SetVariable", "Set Variable", A.SetVariable, ("variableName",), _variable,
+           properties={"value": CHECKED, "setSystemVariable": P("checked", "Sets the pipeline return value.")}),
+    _local("AppendVariable", "Append Variable", A.AppendVariable, ("variableName",), _variable,
+           properties={"value": CHECKED}),
+    _local("IfCondition", "If Condition", A.IfCondition, ("expression",), _if, container=True,
+           properties={"ifTrueActivities": CONTROL, "ifFalseActivities": CONTROL}),
+    _local("Switch", "Switch", A.Switch, ("on",), _switch, container=True,
+           properties={"cases": CHECKED, "defaultActivities": CONTROL},
+           limitations=("Case values are compared exactly, including upper and lower case; not compared with "
+                        "Fabric.",)),
+    _local("ForEach", "ForEach", A.ForEach, ("items", "activities"), _foreach, container=True,
+           properties={"activities": CONTROL, "batchCount": CHECKED, "isSequential": CHECKED},
+           limitations=("Iterations run in parallel up to batchCount (20 when it is left out), as Data Factory "
+                        "documents.",)),
+    _local("Until", "Until", A.Until, ("expression", "activities"), _until, container=True,
+           properties={"activities": CONTROL, "timeout": CHECKED},
+           limitations=("Stops after 10,000 iterations as well as at its timeout (7 days when left out).",)),
+    _local("Wait", "Wait", A.Wait, ("waitTimeInSeconds",), _wait, side_effects=("none",),
+           limitations=("A local run can shorten every wait with wait_scale, so tests don't wait.",)),
+    _local("Fail", "Fail", A.Fail, ("message", "errorCode")),
+    _local("Filter", "Filter", A.Filter, ("items", "condition")),
     # Data movement and compute: read or write data through connections.
     _static("Copy", "Copy data", ("source", "sink"), fabric_capacity="metered_in_fabric", auth=("fabric", "connection"),
             side_effects=("reads_external", "reads_onelake", "writes_onelake", "writes_external"),
@@ -168,18 +175,20 @@ ENTRIES: tuple[ActivitySupport, ...] = (
                         "stagingSettings": P("unsupported_locally", "Staging is a Fabric or Azure service feature."),
                         "dataIntegrationUnits": P("unsupported_locally", "Fabric compute sizing; no meaning here."),
                         "enableSkipIncompatibleRow": CARRIED, "logSettings": CARRIED},
-            limitations=("Source and sink settings are carried, not checked against each connector's schema.",)
-            + NO_ACTIVITY_POLICY),
-    _static("TridentNotebook", "Notebook", ("notebookId",), aliases=("Notebook",), type_name_verified=False,
-            fabric_capacity="metered_in_fabric", auth=("fabric", "workspace_role"),
-            side_effects=("runs_code", "reads_onelake", "writes_onelake"),
-            external_dependencies=("the notebook item", "its default lakehouse"),
-            planned=Planned("local", ORCH_003, "Runs a local copy through Prove's notebook execution path."),
-            properties={"workspaceId": CARRIED, "parameters": CARRIED,
-                        "sessionTag": P("unsupported_locally", "High-concurrency session sharing is a Fabric Spark "
-                                        "feature."),
-                        "configuration": P("unsupported_locally", "Spark pool settings apply to Fabric only.")},
-            limitations=("Running on this PC uses a local Python kernel, not Fabric Spark; results can differ.",)),
+            limitations=("Source and sink settings are carried, not checked against each connector's schema.",)),
+    _local("TridentNotebook", "Notebook", A.Notebook, ("notebookId",), aliases=("Notebook",), type_name_verified=False,
+           auth=("fabric",), side_effects=("runs_code", "reads_onelake", "writes_onelake"),
+           external_dependencies=("a copy of the notebook on this PC", "its default lakehouse"),
+           properties={"workspaceId": CARRIED, "parameters": CHECKED,
+                       "sessionTag": P("unsupported_locally", "High-concurrency session sharing is a Fabric Spark "
+                                       "feature."),
+                       "configuration": P("unsupported_locally", "Spark pool settings apply to Fabric only.")},
+           limitations=("Runs the notebook's copy on this PC in a fresh Python kernel, not Fabric Spark; results can "
+                        "differ. Spark notebooks still need a mock.",
+                        "Tables are read at the version they had when the step started and written to the run's own "
+                        "folder in the lakehouse (Files/_fabric_desktop/proofs/pipeline-<run>/), never to its tables. "
+                        "Reading and writing OneLake uses some capacity; no Fabric job is started.",
+                        "The output's result.exitValue is the value given to notebookutils.notebook.exit, as text.")),
     _cloud("SparkJobDefinition", "Spark job definition", ("sparkJobDefinitionId",), type_name_verified=False,
            auth=("fabric", "workspace_role"), side_effects=("runs_code", "starts_fabric_job", "writes_onelake"),
            external_dependencies=("the Spark job definition item",),
@@ -203,22 +212,20 @@ ENTRIES: tuple[ActivitySupport, ...] = (
             auth=("connection",), side_effects=("runs_code", "writes_external"),
             external_dependencies=("database connection", "the stored procedure"),
             properties={"storedProcedureParameters": CARRIED},
-            limitations=("Runs in the target database; Fabric Desktop by KratosBI has no local stand-in planned.",)),
+            limitations=("Runs in the target database; KratosForge has no local stand-in planned.",)),
     _static("Delete", "Delete data", ("datasetSettings",), _delete, fabric_capacity="metered_in_fabric",
             auth=("fabric", "connection"), side_effects=("deletes_data",), external_dependencies=("dataset connection",),
             planned=Planned("simulated", LATER, "Lists what would be deleted; deletes only in an isolated test "
                             "location."),
             properties={"storeSettings": CARRIED, "enableLogging": CARRIED, "logStorageSettings": CARRIED}),
-    _static("InvokePipeline", "Invoke pipeline", ("pipelineId",), type_name_verified=False, fabric_capacity="metered_in_fabric",
-            auth=("fabric", "workspace_role"), side_effects=("starts_fabric_job",),
-            external_dependencies=("the child pipeline item",),
-            planned=Planned("local", ORCH_003, "Runs the child pipeline locally when its definition is on this PC."),
-            properties={"workspaceId": CARRIED, "parameters": CARRIED, "waitOnCompletion": CARRIED,
-                        "operationType": CARRIED}),
-    _static("ExecutePipeline", "Execute pipeline (Data Factory)", ("pipeline",), fabric_capacity="metered_in_fabric",
-            side_effects=("starts_fabric_job",), external_dependencies=("the child pipeline",),
-            planned=Planned("local", ORCH_003, "Runs the child pipeline locally when its definition is on this PC."),
-            properties={"parameters": CARRIED, "waitOnCompletion": CARRIED}),
+    _local("InvokePipeline", "Invoke pipeline", A.ExecutePipeline, ("pipelineId",), type_name_verified=False,
+           fabric_capacity="metered_in_fabric", external_dependencies=("the child pipeline's definition",), container=True,
+           properties={"workspaceId": CARRIED, "parameters": CHECKED, "waitOnCompletion": CARRIED,
+                       "operationType": CARRIED},
+           limitations=(CHILD_LIMIT,)),
+    _local("ExecutePipeline", "Execute pipeline (Data Factory)", A.ExecutePipeline, ("pipeline",),
+           fabric_capacity="metered_in_fabric", external_dependencies=("the child pipeline's definition",), container=True,
+           properties={"parameters": CHECKED, "waitOnCompletion": CARRIED}, limitations=(CHILD_LIMIT,)),
     _static("WebActivity", "Web", ("method",), fabric_capacity="metered_in_fabric", auth=("connection",),
             side_effects=("calls_http",), external_dependencies=("the web endpoint",),
             planned=Planned("simulated", LATER, "Returns a recorded response; calls a real URL only when allowed."),

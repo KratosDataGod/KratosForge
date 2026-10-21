@@ -1,6 +1,6 @@
 # Git integration plan
 
-Fabric Desktop by KratosBI becomes a Git-native place to build Fabric solutions: build locally, version with Git, validate before deployment, run and consume in Fabric. This page is the assessment that came first and the plan the four phases follow. Phase 1 (Git foundation) is built; the rest is planned.
+KratosForge becomes a Git-native place to build Fabric solutions: build locally, version with Git, validate before deployment, run and consume in Fabric. This page is the assessment that came first and the plan the four phases follow. Phase 1 (Git foundation) is built; the rest is planned.
 
 ## What exists today
 
@@ -50,7 +50,7 @@ Acceptance: clone a repository, change a project, see the differences, create a 
 
 ## Phase 2: Fabric Git awareness
 
-Fabric's own Git integration connects a workspace to a branch and folder in Azure DevOps or GitHub; Fabric Desktop shows that relationship and drives it, but never treats a push as a workspace update.
+Fabric's own Git integration connects a workspace to a branch and folder in Azure DevOps or GitHub; KratosForge shows that relationship and drives it, but never treats a push as a workspace update.
 
 Fabric REST API (Core > Git, checked 2026-10-17 on Microsoft Learn):
 
@@ -72,6 +72,17 @@ Environment profiles on `environments.toml` plus custom environments; a Validate
 ## Phase 4: extensions
 
 Extension manifest (id, version, engine range, entry points, permissions), validators and templates first, declarative and in-process only for signed or built-in extensions; third-party code runs in its own process with only the permissions its manifest names, and can be turned off or removed. One example extension and a contributor guide.
+
+## Repositories by scope
+
+Each kind of definition has its own repository: notebooks (one per team or project), data mesh projects (one per domain or project), platform (one per tenant) and capacity. A `fabric-desktop.repo.toml` marker at the root says the kind. For platform definitions, Git is the source of truth and the catalog (SQL_Platform and LH_Meta) is the deployed state; drift is reported, never silently overwritten.
+
+1. **Built:** the marker and the four kinds, starting files for each, the list grouped by kind, choosing a kind for an existing repository (marker only, confirm to change), and a warning when a notebook sits in a repository of another kind.
+2. **Built:** notebooks repositories are places to save notebooks (Save in, Move), and a notebook there takes its lakehouse for the current environment from `locations.toml` unless it has its own. Prove and Side by side don't read locations yet.
+3. **Built:** platform repository: export the catalog as files to review, compare Git with each environment's platform, and deploy the committed files with a plan and one confirm (admins only, audited, no renumbering, removals ticked one by one, policies published as new versions). File shapes and deploy rules agreed with the Enterprise governance owners; see [Platform repository](source-control.md#platform-repository).
+4. Capacity repository: read-only, with a drift report against Fabric. No writes to capacities.
+
+Stages 1 to 3 need no new Entra scope (stage 3 uses the platform's functions as the Platform page does). Any new scope for stage 4 goes in [permissions](permissions.md) first.
 
 ## Known gaps after Phase 1
 

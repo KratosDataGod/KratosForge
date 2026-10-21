@@ -284,7 +284,10 @@ def free_port():
 
 @pytest.fixture
 def live(store):
-    port = free_port()
+    # Bind here and hand the socket to uvicorn, so no other test can take the port before it serves.
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
     reg = registry(store)
     seen = []
     original = reg.invoke
@@ -293,15 +296,17 @@ def live(store):
         seen.append(ctx)
         return original(service, cap_id, args, ctx)
     reg.invoke = recording  # type: ignore[method-assign]
-    server = uvicorn.Server(uvicorn.Config(build_app(reg, store, port), host="127.0.0.1", port=port, log_level="warning"))
-    thread = threading.Thread(target=server.run, daemon=True)
+    server = uvicorn.Server(uvicorn.Config(build_app(reg, store, port), log_level="warning"))
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
     thread.start()
-    deadline = time.monotonic() + 10
-    while not server.started and time.monotonic() < deadline:
+    deadline = time.monotonic() + 30
+    while not server.started and thread.is_alive() and time.monotonic() < deadline:
         time.sleep(0.05)
+    assert server.started, "the local API server didn't start"
     yield port, seen
     server.should_exit = True
     thread.join(10)
+    sock.close()
 
 
 def test_client_disconnect_cancels_call(store, live):

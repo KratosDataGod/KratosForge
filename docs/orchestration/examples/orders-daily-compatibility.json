@@ -1,6 +1,6 @@
 {
   "ok": true,
-  "registry_version": "1",
+  "registry_version": "4",
   "pipeline": "pl_orders_daily",
   "schema": {
     "parser_version": 1,
@@ -130,9 +130,9 @@
   "summary": {
     "activities": 18,
     "by_classification": {
-      "local": 0,
+      "local": 12,
       "simulated": 0,
-      "static": 17,
+      "static": 5,
       "cloud": 0,
       "unsupported": 1
     },
@@ -141,21 +141,9 @@
     "needs_fabric_capacity": [
       "Get watermark",
       "List new files",
-      "Any files",
-      "Each file",
       "Copy file to bronze",
-      "Count files",
-      "Nothing to load",
-      "Bronze to silver",
-      "Pick region job",
-      "Unknown region",
-      "Refresh EMEA",
       "Run AMER script",
-      "Wait for silver",
       "Check silver",
-      "Pause",
-      "Record success",
-      "Return files",
       "Alert on failure"
     ],
     "fabric_only": [],
@@ -174,49 +162,9 @@
         "stage": "later (not scheduled)"
       },
       {
-        "name": "Any files",
-        "classification": "local",
-        "stage": "ORCH-003"
-      },
-      {
-        "name": "Each file",
-        "classification": "local",
-        "stage": "ORCH-003"
-      },
-      {
         "name": "Copy file to bronze",
         "classification": "simulated",
         "stage": "later (not scheduled)"
-      },
-      {
-        "name": "Count files",
-        "classification": "local",
-        "stage": "ORCH-003"
-      },
-      {
-        "name": "Nothing to load",
-        "classification": "local",
-        "stage": "ORCH-003"
-      },
-      {
-        "name": "Bronze to silver",
-        "classification": "local",
-        "stage": "ORCH-003"
-      },
-      {
-        "name": "Pick region job",
-        "classification": "local",
-        "stage": "ORCH-003"
-      },
-      {
-        "name": "Unknown region",
-        "classification": "local",
-        "stage": "ORCH-003"
-      },
-      {
-        "name": "Refresh EMEA",
-        "classification": "local",
-        "stage": "ORCH-003"
       },
       {
         "name": "Run AMER script",
@@ -224,29 +172,9 @@
         "stage": "later (not scheduled)"
       },
       {
-        "name": "Wait for silver",
-        "classification": "local",
-        "stage": "ORCH-003"
-      },
-      {
         "name": "Check silver",
         "classification": "simulated",
         "stage": "later (not scheduled)"
-      },
-      {
-        "name": "Pause",
-        "classification": "local",
-        "stage": "ORCH-003"
-      },
-      {
-        "name": "Record success",
-        "classification": "local",
-        "stage": "ORCH-003"
-      },
-      {
-        "name": "Return files",
-        "classification": "local",
-        "stage": "ORCH-003"
       }
     ],
     "verified_against_fabric": []
@@ -331,14 +259,10 @@
       "container": null,
       "known": true,
       "title": "If Condition",
-      "classification": "static",
+      "classification": "local",
       "evidence": "unit_tests",
       "verified": false,
-      "planned": {
-        "classification": "local",
-        "stage": "ORCH-003",
-        "note": ""
-      },
+      "planned": null,
       "fabric_capacity": "metered_in_fabric",
       "auth": [],
       "side_effects": [
@@ -352,9 +276,7 @@
         "ifTrueActivities",
         "ifFalseActivities"
       ],
-      "limitations": [
-        "ORCH-003 needs an expression evaluator for the condition; until then only references in it are checked."
-      ],
+      "limitations": [],
       "problems": []
     },
     {
@@ -364,14 +286,10 @@
       "container": "Any files",
       "known": true,
       "title": "ForEach",
-      "classification": "static",
+      "classification": "local",
       "evidence": "unit_tests",
       "verified": false,
-      "planned": {
-        "classification": "local",
-        "stage": "ORCH-003",
-        "note": "Parallel up to batchCount."
-      },
+      "planned": null,
       "fabric_capacity": "metered_in_fabric",
       "auth": [],
       "side_effects": [
@@ -386,7 +304,9 @@
         "batchCount",
         "activities"
       ],
-      "limitations": [],
+      "limitations": [
+        "Iterations run in parallel up to batchCount (20 when it is left out), as Data Factory documents."
+      ],
       "problems": []
     },
     {
@@ -431,8 +351,7 @@
         "sink"
       ],
       "limitations": [
-        "Source and sink settings are carried, not checked against each connector's schema.",
-        "Activity policy (timeout, retry, secureInput, secureOutput) is read but not applied here."
+        "Source and sink settings are carried, not checked against each connector's schema."
       ],
       "problems": []
     },
@@ -443,14 +362,10 @@
       "container": "Each file",
       "known": true,
       "title": "Append Variable",
-      "classification": "static",
+      "classification": "local",
       "evidence": "unit_tests",
       "verified": false,
-      "planned": {
-        "classification": "local",
-        "stage": "ORCH-003",
-        "note": ""
-      },
+      "planned": null,
       "fabric_capacity": "metered_in_fabric",
       "auth": [],
       "side_effects": [
@@ -473,14 +388,10 @@
       "container": "Any files",
       "known": true,
       "title": "Wait",
-      "classification": "static",
+      "classification": "local",
       "evidence": "unit_tests",
       "verified": false,
-      "planned": {
-        "classification": "local",
-        "stage": "ORCH-003",
-        "note": "Can be shortened in a local run so tests don't wait."
-      },
+      "planned": null,
       "fabric_capacity": "metered_in_fabric",
       "auth": [],
       "side_effects": [
@@ -492,7 +403,9 @@
       "checked_properties": [
         "waitTimeInSeconds"
       ],
-      "limitations": [],
+      "limitations": [
+        "A local run can shorten every wait with wait_scale, so tests don't wait."
+      ],
       "problems": []
     },
     {
@@ -502,18 +415,13 @@
       "container": null,
       "known": true,
       "title": "Notebook",
-      "classification": "static",
+      "classification": "local",
       "evidence": "unit_tests",
       "verified": false,
-      "planned": {
-        "classification": "local",
-        "stage": "ORCH-003",
-        "note": "Runs a local copy through Prove's notebook execution path."
-      },
+      "planned": null,
       "fabric_capacity": "metered_in_fabric",
       "auth": [
-        "fabric",
-        "workspace_role"
+        "fabric"
       ],
       "side_effects": [
         "runs_code",
@@ -521,7 +429,7 @@
         "writes_onelake"
       ],
       "external_dependencies": [
-        "the notebook item",
+        "a copy of the notebook on this PC",
         "its default lakehouse"
       ],
       "inactive": false,
@@ -533,10 +441,13 @@
         }
       ],
       "checked_properties": [
-        "notebookId"
+        "notebookId",
+        "parameters"
       ],
       "limitations": [
-        "Running on this PC uses a local Python kernel, not Fabric Spark; results can differ."
+        "Runs the notebook's copy on this PC in a fresh Python kernel, not Fabric Spark; results can differ. Spark notebooks still need a mock.",
+        "Tables are read at the version they had when the step started and written to the run's own folder in the lakehouse (Files/_fabric_desktop/proofs/pipeline-<run>/), never to its tables. Reading and writing OneLake uses some capacity; no Fabric job is started.",
+        "The output's result.exitValue is the value given to notebookutils.notebook.exit, as text."
       ],
       "problems": []
     },
@@ -547,14 +458,10 @@
       "container": null,
       "known": true,
       "title": "Switch",
-      "classification": "static",
+      "classification": "local",
       "evidence": "unit_tests",
       "verified": false,
-      "planned": {
-        "classification": "local",
-        "stage": "ORCH-003",
-        "note": ""
-      },
+      "planned": null,
       "fabric_capacity": "metered_in_fabric",
       "auth": [],
       "side_effects": [
@@ -568,7 +475,9 @@
         "cases",
         "defaultActivities"
       ],
-      "limitations": [],
+      "limitations": [
+        "Case values are compared exactly, including upper and lower case; not compared with Fabric."
+      ],
       "problems": []
     },
     {
@@ -578,14 +487,10 @@
       "container": "Pick region job",
       "known": true,
       "title": "Fail",
-      "classification": "static",
+      "classification": "local",
       "evidence": "unit_tests",
       "verified": false,
-      "planned": {
-        "classification": "local",
-        "stage": "ORCH-003",
-        "note": ""
-      },
+      "planned": null,
       "fabric_capacity": "metered_in_fabric",
       "auth": [],
       "side_effects": [
@@ -608,31 +513,27 @@
       "container": "Pick region job",
       "known": true,
       "title": "Invoke pipeline",
-      "classification": "static",
+      "classification": "local",
       "evidence": "unit_tests",
       "verified": false,
-      "planned": {
-        "classification": "local",
-        "stage": "ORCH-003",
-        "note": "Runs the child pipeline locally when its definition is on this PC."
-      },
+      "planned": null,
       "fabric_capacity": "metered_in_fabric",
-      "auth": [
-        "fabric",
-        "workspace_role"
-      ],
+      "auth": [],
       "side_effects": [
-        "starts_fabric_job"
+        "pipeline_state"
       ],
       "external_dependencies": [
-        "the child pipeline item"
+        "the child pipeline's definition"
       ],
       "inactive": false,
       "properties": [],
       "checked_properties": [
-        "pipelineId"
+        "pipelineId",
+        "parameters"
       ],
-      "limitations": [],
+      "limitations": [
+        "In Fabric this starts the child pipeline's own run, which uses capacity. On this PC it runs the child's definition when the run is given it (by referenceName or pipelineId), and waits for it even when waitOnCompletion is false."
+      ],
       "problems": []
     },
     {
@@ -679,14 +580,10 @@
       "container": null,
       "known": true,
       "title": "Until",
-      "classification": "static",
+      "classification": "local",
       "evidence": "unit_tests",
       "verified": false,
-      "planned": {
-        "classification": "local",
-        "stage": "ORCH-003",
-        "note": ""
-      },
+      "planned": null,
       "fabric_capacity": "metered_in_fabric",
       "auth": [],
       "side_effects": [
@@ -700,7 +597,9 @@
         "timeout",
         "activities"
       ],
-      "limitations": [],
+      "limitations": [
+        "Stops after 10,000 iterations as well as at its timeout (7 days when left out)."
+      ],
       "problems": []
     },
     {
@@ -745,14 +644,10 @@
       "container": "Wait for silver",
       "known": true,
       "title": "Wait",
-      "classification": "static",
+      "classification": "local",
       "evidence": "unit_tests",
       "verified": false,
-      "planned": {
-        "classification": "local",
-        "stage": "ORCH-003",
-        "note": "Can be shortened in a local run so tests don't wait."
-      },
+      "planned": null,
       "fabric_capacity": "metered_in_fabric",
       "auth": [],
       "side_effects": [
@@ -764,7 +659,9 @@
       "checked_properties": [
         "waitTimeInSeconds"
       ],
-      "limitations": [],
+      "limitations": [
+        "A local run can shorten every wait with wait_scale, so tests don't wait."
+      ],
       "problems": []
     },
     {
@@ -774,14 +671,10 @@
       "container": null,
       "known": true,
       "title": "Set Variable",
-      "classification": "static",
+      "classification": "local",
       "evidence": "unit_tests",
       "verified": false,
-      "planned": {
-        "classification": "local",
-        "stage": "ORCH-003",
-        "note": "Sets the variable in the local run record."
-      },
+      "planned": null,
       "fabric_capacity": "metered_in_fabric",
       "auth": [],
       "side_effects": [
@@ -804,14 +697,10 @@
       "container": null,
       "known": true,
       "title": "Set Variable",
-      "classification": "static",
+      "classification": "local",
       "evidence": "unit_tests",
       "verified": false,
-      "planned": {
-        "classification": "local",
-        "stage": "ORCH-003",
-        "note": "Sets the variable in the local run record."
-      },
+      "planned": null,
       "fabric_capacity": "metered_in_fabric",
       "auth": [],
       "side_effects": [
@@ -860,7 +749,7 @@
       ],
       "checked_properties": [],
       "limitations": [
-        "Kept exactly as it is in the definition, but not checked or run. A newer Fabric Desktop by KratosBI may know it; otherwise it has to run in Fabric."
+        "Kept exactly as it is in the definition, but not checked or run. A newer KratosForge may know it; otherwise it has to run in Fabric."
       ],
       "problems": [
         "unknown_activity_type"

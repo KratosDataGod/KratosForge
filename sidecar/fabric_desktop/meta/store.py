@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import polars as pl
+import pyarrow as pa
 from deltalake import CommitProperties, DeltaTable, write_deltalake
 from deltalake.exceptions import TableNotFoundError
 
@@ -174,11 +175,18 @@ class Store:
             return None
 
     def count(self, lakehouse: str, schema: str, table: str) -> int:
-        """Rows in the table, from the Delta log's file statistics: no data is read."""
+        """Rows in the table, from the Delta log's file statistics: no data is read. A file written
+        without them (CONVERT TO DELTA, some other writers) would be left out of that sum, so then
+        the rows are counted from the files themselves."""
+        uri = self.uri(lakehouse, schema, table)
         try:
-            return DeltaTable(self.uri(lakehouse, schema, table), storage_options=self.options()).count()
+            dt_ = DeltaTable(uri, storage_options=self.options())
         except TableNotFoundError:
             return 0
+        actions = pa.table(dt_.get_add_actions(flatten=True))
+        if "num_records" in actions.column_names and actions.column("num_records").null_count == 0:
+            return dt_.count()
+        return int(lazy(dt_, uri, self.options()).select(pl.len()).collect().item())
 
     def write(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, mode: str = "overwrite",
               metadata: dict[str, str] | None = None, read_version: int | None | bool = False) -> int:
@@ -336,6 +344,19 @@ class Store:
         except TableNotFoundError:
             return []
 
+    def has_commit(self, lakehouse: str, schema: str, table: str, key: str, value: str,
+                   since: int | None = None) -> bool:
+        """Whether a commit after version ``since`` (None: any commit) carries ``key`` = ``value`` in
+        its commit metadata. Reads only the commits made since then, however many other writers made."""
+        try:
+            t = DeltaTable(self.uri(lakehouse, schema, table), storage_options=self.options())
+        except TableNotFoundError:
+            return False
+        if since is not None and t.version() <= since:
+            return False
+        limit = None if since is None else t.version() - since
+        return any(commit.get(key) == value for commit in t.history(limit))
+
     # ---- files
 
     def read_files(self, lakehouse: str, pattern: str,
@@ -359,14 +380,14 @@ class Store:
 
     # ---- run metadata
 
-    def meta_append(self, table: str, rows: list[dict[str, Any]]) -> None:
+    def meta_append(self, table: str, rows: list[dict[str, Any]], metadata: dict[str, str] | None = None) -> None:
         if not rows:
             return
         schema = META_SCHEMAS[table]
         now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
         df = pl.DataFrame([{k: r.get(k) for k in schema} | ({"at": r.get("at") or now} if "at" in schema else {})
                            for r in rows], schema=schema)
-        self.write(META_LAKEHOUSE, "meta", table, df, mode="append")
+        self.write(META_LAKEHOUSE, "meta", table, df, mode="append", metadata=metadata)
 
     def meta(self, table: str) -> pl.DataFrame:
         df = self.read(META_LAKEHOUSE, "meta", table)

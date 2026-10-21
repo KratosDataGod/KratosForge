@@ -1,16 +1,16 @@
 # Pipeline activity compatibility (Preview)
 
-Fabric Desktop by KratosBI keeps a versioned registry of Fabric Data Factory pipeline activity types. For each type it says what this version can do with it on your PC, what is only planned, which properties it can't use, what running it needs and changes, and whether it can only ever run in Fabric. Fabric meters every activity run, control flow included, so any activity that can't run on your PC uses capacity when the pipeline runs in Fabric. A compatibility report applies the registry to one pipeline. Producing the registry or a report reads the definition only: nothing runs, no Fabric call is made and no capacity is used.
+KratosForge keeps a versioned registry of Fabric Data Factory pipeline activity types. For each type it says what this version can do with it on your PC, what is only planned, which properties it can't use, what running it needs and changes, and whether it can only ever run in Fabric. Fabric meters every activity run, control flow included, so any activity that can't run on your PC uses capacity when the pipeline runs in Fabric. A compatibility report applies the registry to one pipeline. Producing the registry or a report reads the definition only: nothing runs, no Fabric call is made and no capacity is used.
 
-This is Preview. Nothing in the registry has been compared against a run in Fabric yet, and no activity runs on your PC yet. Running activities locally starts with [ORCH-003](plan.md).
+This is Preview. Nothing in the registry has been compared against a run in Fabric yet. Control-flow activities and child pipelines run on your PC in a [local run](local-runs.md); data and compute activities need a mock there.
 
 ## Classifications
 
 | Classification | Meaning | Activities today |
 | --- | --- | --- |
-| `local` | Runs on this PC with a tested adapter. | None yet |
+| `local` | Runs on this PC with a tested adapter. | Set Variable, Append Variable, If Condition, Switch, ForEach, Until, Wait, Fail, Filter, Execute and Invoke pipeline (with the child's definition) |
 | `simulated` | Runs on this PC against fixtures or a stand-in, with no real side effects. | None yet |
-| `static` | Checked on this PC (structure, references, required properties, documented limits) but not run here. | Control flow, Copy, Notebook, Lookup, Get Metadata, Script, Stored procedure, Delete, Invoke and Execute pipeline, Web, Webhook |
+| `static` | Checked on this PC (structure, references, required properties, documented limits) but not run here. | Copy, Notebook, Lookup, Get Metadata, Script, Stored procedure, Delete, Web, Webhook |
 | `cloud` | Only runs in Fabric or the Azure service it calls. Always uses Fabric capacity. | Dataflow Gen2, Spark job definition, Semantic model refresh, Outlook, Teams, KQL, Azure Databricks notebook, Azure Function |
 | `unsupported` | A type this version doesn't know. It is kept exactly as it is and listed, but not checked or run. | Every unknown type |
 
@@ -42,11 +42,11 @@ The [example report](examples/orders-daily-compatibility.json) is for the `order
 | | |
 | --- | --- |
 | Overall | `unsupported` (the unknown `ContosoPagerNotify` activity) |
-| By classification | 17 static, 1 unsupported |
-| Runs on this PC | No |
-| Needs Fabric capacity | All 18: none can run on this PC yet, and Fabric meters every activity run |
+| By classification | 11 local, 6 static, 1 unsupported |
+| Runs on this PC | No: six activities need mocks and one is unknown |
+| Needs Fabric capacity | 7: the activities that can't run on this PC yet. Fabric meters every activity run, so running the whole pipeline in Fabric meters all 18 |
 | Fabric only | None |
-| Planned to run on this PC | 17, of which 12 in ORCH-003 and 5 in a later, unscheduled stage |
+| Planned to run on this PC | 6 more, in a later, unscheduled stage |
 | Properties it can't use | `enableStaging` on the Copy activity, `sessionTag` on the Notebook, two unknown properties on the unknown activity |
 
 ## Using it
@@ -71,3 +71,6 @@ Entries are in `sidecar/fabric_desktop/orchestration/activities.py`; the rules a
 | Version | Change |
 | --- | --- |
 | 1 | First registry (ORCH-002): 28 types, all `static` or `cloud`. Unknown types are `unsupported`. |
+| 2 | ORCH-003: Set Variable, Append Variable, If Condition, Switch, ForEach, Until, Wait, Fail, Filter, Execute Pipeline and Invoke Pipeline are `local`, with adapters and tests. Notebook's planned local support moved to a later stage. |
+| 3 | Wording only: the product is now called KratosForge in limitations and notes. No classification changed. |
+| 4 | ORCH-004: Notebook (`TridentNotebook`) is `local`. It runs a Python notebook saved in KratosForge, with its parameters, writing to the run's own folder; Spark notebooks still need a mock. Its `parameters` are checked. |

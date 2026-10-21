@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 
 import pytest
@@ -26,6 +27,12 @@ class FakeFabric:
 
     def list_notebooks(self, ws):
         return [v for (w, _), v in self.items.items() if w == ws]
+
+    def get_item_definition(self, ws, item_id, fmt=None):
+        # What Publish checks first: the item as last saved (nobody edits it in Fabric here).
+        nb = next(n for w, name, n in reversed(self.saved) if w == ws and self.items[(w, name)]["id"] == item_id)
+        return {"definition": {"parts": [{"path": "notebook-content.ipynb",
+                                          "payload": base64.b64encode(json.dumps(nb).encode()).decode()}]}}
 
     def get_lakehouse(self, ws, lh):
         return {"properties": {"defaultSchema": "dbo"}}

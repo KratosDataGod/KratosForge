@@ -1,16 +1,17 @@
 # Risk check before a run
 
-Before a workload starts, Fabric Desktop by KratosBI checks what could stop the run or make it costly, and shows the evidence. The check only reads. Nothing is started, published, paused or changed to work it out.
+Before a workload starts, KratosForge checks what could stop the run or make it costly, and shows the evidence. The check only reads. Nothing is started, published, paused or changed to work it out.
 
 It runs for actions that start work on a notebook, a metadata entity or a Fabric item: **Run**, **Run in Fabric**, **Run now** and running a schedule now. Cancel isn't checked. It's a Preview feature: its panel carries the Preview tag, and it still shows when **Settings > Preview features** is off, because hiding a warning would hide the reason a run may fail.
 
 ## Where you see it
 
 - **Workloads.** The run dialog shows the result under what the run will do. A pass folds its checks away under **Show checks**. Warnings and blocks are shown with their evidence, and the other checks fold away below them.
-- **Notebook > Run in Fabric** and **Data mesh > Run.** These have no dialog of their own, so the check stays quiet when it passes or can't be checked, and the run starts as before. With warnings or a block, a dialog shows them first. **Run all** in Data mesh checks each entity and shows them in one dialog. If you go ahead with some entities blocked, they still start and are refused or fail when they run.
+- **Notebook > Run in Fabric** and **Data mesh > Run.** These have no dialog of their own, so the check stays quiet when it passes or can't be checked, and the run starts as before. With warnings or a block, a dialog shows them first. **Run all** in Data mesh checks every entity in one batch (each workspace's capacity and the run history are read once) and shows them in one dialog. If some are blocked, going ahead starts only the others: a blocked entity doesn't start, and neither does any entity that reads from it, so nothing runs on top of a table that wasn't refreshed. The dialog names the entities that wait and what they read. If none can start, the dialog only offers Close.
+- **Estate X-ray > Optimize.** Its confirm always shows the check, for the policy, your sign-in and the workspace's capacity (a table has no run history, so nothing about past runs or their CU). Going ahead past warnings there isn't recorded, because a table isn't a workload.
 - **Check again** reads the capacity again instead of using the last reading.
 - **Blocked** has no way to run anyway. In a notebook whose cells don't need Fabric, **Run on this PC** runs it here instead. The run still reads and writes OneLake, which uses some capacity.
-- **Warning** lets you go ahead. Going ahead is recorded (see below). When the settings ask for it, you tick **I've looked at these and want to run anyway** first.
+- **Warning** lets you go ahead. Going ahead is recorded (see below) (except Estate X-ray > Optimize, above). When the settings ask for it, you tick **I've looked at these and want to run anyway** first.
 
 A notebook not yet linked to its Fabric item isn't checked, and its first Run in Fabric starts as before.
 
@@ -62,7 +63,7 @@ The assessment is checked again first:
 - A blocked result can't be acknowledged.
 - If the findings changed since you looked, the acknowledgement is refused and you need to look again.
 
-Checking is never audited, because it only reads.
+Checking is never audited, because it only reads. That includes `meta_risk_gate`, the batch check behind Data mesh **Run all**, which returns each entity's assessment, the blocked entities, the ones waiting on them, and the ones that can start.
 
 ## For AI tools
 

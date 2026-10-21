@@ -45,6 +45,33 @@ def test_an_option_that_isnt_honored_is_refused_and_the_table_is_untouched(lake,
     assert rows(lake) == ORIGINAL
 
 
+@pytest.mark.parametrize("setter", [
+    "spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'dynamic')",
+    "spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'DYNAMIC')",
+    "spark.sql(\"SET spark.sql.sources.partitionOverwriteMode=dynamic\")",
+    "from pyspark.sql import SparkSession\n"
+    "SparkSession.builder.config('spark.sql.sources.partitionOverwriteMode', 'dynamic').getOrCreate()",
+])
+def test_dynamic_partition_overwrite_set_on_the_session_is_refused(lake, setter):
+    # Fabric would overwrite only region EU; here the whole table would go, so the cell must stop.
+    status, text = run(setter + "\ndf.write.mode('overwrite').partitionBy('region').saveAsTable('dbo.sales')")
+    assert status == "error" and "partitionoverwritemode" in text.lower().replace(" ", "")
+    assert rows(lake) == ORIGINAL
+    assert run("spark.conf.get('spark.sql.sources.partitionOverwriteMode', 'static')")[1] == "'static'"
+
+
+def test_an_overwrite_is_refused_when_the_session_conf_says_dynamic(lake):
+    # Whatever stores spark.conf, the writer reads it before an overwrite.
+    status, text = run("spark.conf._set['spark.sql.sources.partitionOverwriteMode'] = 'dynamic'\n"
+                       "df.write.mode('overwrite').saveAsTable('dbo.sales')")
+    assert status == "error" and "spark.conf.unset" in text
+    assert rows(lake) == ORIGINAL
+    status, _ = run("spark.conf.unset('spark.sql.sources.partitionOverwriteMode')\n"
+                    "spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'static')\n"
+                    "df.write.mode('append').saveAsTable('dbo.sales')")
+    assert status == "ok" and len(rows(lake)) == 4
+
+
 def test_options_given_as_keywords_are_checked_too(lake):
     status, _ = run("df.write.saveAsTable('dbo.sales', mode='overwrite', replaceWhere=\"region = 'EU'\")")
     assert status == "error" and rows(lake) == ORIGINAL
@@ -60,6 +87,33 @@ def test_overwrite_keeps_the_schema_unless_overwriteSchema(lake):
     status, text = run(f"{new}.option('overwriteSchema', 'true').saveAsTable('dbo.sales')")
     assert status == "ok", text
     assert rows(lake) == [{"id": 1, "amount": 2.5}]
+
+
+@pytest.mark.parametrize("data, mode, kind", [
+    ("[(1.7, 'EU')], ['id', 'region']", "overwrite", "id is a floating-point number here but a whole number"),
+    ("[(1, 5)], ['id', 'region']", "overwrite", "region is a whole number here but text"),
+    ("[(1.7, 'EU')], ['id', 'region']", "append", "id is a floating-point number here but a whole number"),
+])
+def test_a_column_type_change_is_refused_unless_overwriteSchema(lake, data, mode, kind):
+    """HD-040 (DI-8): Delta in Fabric refuses a changed column type; writing it here would cast
+    silently, and 1.7 would land in the table as 1."""
+    write = f"spark.createDataFrame({data}).write.mode({mode!r})"
+    status, text = run(f"{write}.saveAsTable('dbo.sales')")
+    assert status == "error" and kind in text and "Nothing was written" in text
+    assert rows(lake) == ORIGINAL
+    status, text = run(f"{write}.option('mergeSchema', 'true').saveAsTable('dbo.sales')")
+    assert status == "error" and kind in text and rows(lake) == ORIGINAL  # mergeSchema only adds columns
+    if mode == "overwrite":
+        status, text = run(f"{write}.option('overwriteSchema', 'true').saveAsTable('dbo.sales')")
+        assert status == "ok", text
+        assert len(rows(lake)) == 1
+
+
+def test_a_narrower_type_of_the_same_kind_still_writes(lake):
+    status, text = run("spark.sql('SELECT CAST(4 AS INT) AS id, \\'US\\' AS region')"
+                       ".write.mode('append').saveAsTable('dbo.sales')")
+    assert status == "ok", text
+    assert rows(lake)[-1] == {"id": 4, "region": "US"}
 
 
 def test_same_columns_overwrite_as_before(lake):

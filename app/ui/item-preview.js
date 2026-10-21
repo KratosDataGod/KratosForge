@@ -110,7 +110,8 @@ async function drawPreview(panel) {
   const actions = t.kind === "table" ? [
     btn("SQL query", null, () => { openSqlQuery(t.ref); }, "tool small outline"),
     btn("Open in notebook", null, () => newNotebook(t.ref), "tool small outline")]
-    : t.kind === "item" ? [btn("Open in Fabric", "open", () => openInFabric(fabricItemLink(t.item)), "tool small outline")] : [];
+    : t.kind === "item" ? [preview("fabricEdit", btn("Edit on this PC", "desktop", () => nbEditFromFabric(t.item), "tool small primary")),
+      btn("Open in Fabric", "open", () => openInFabric(fabricItemLink(t.item)), "tool small outline")] : [];
   panel.replaceChildren(previewHead(title, type, t.kind === "item" ? t.item.workspace_name : t.kind === "file" ? formatSize(t.size) : "", actions), body);
 
   const result = await loadPreview(t);

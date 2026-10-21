@@ -77,15 +77,54 @@ def full_table(value: Any) -> pa.Table:
     raise TypeError(f"{type(value).__name__} isn't a table.")
 
 
-def keeps_index(df: Any) -> bool:
-    """A named index (a groupby or set_index result) is data, shown as leading columns as Jupyter shows
-    it. An unnamed one is row numbers and is left out."""
+def pandas_plan(df: Any) -> tuple[list[str] | None, list[str] | None]:
+    """How a pandas frame shows as a table: (names for its index columns, or None to leave the index
+    out; flat column names, or None to keep them).
+
+    A named index (a groupby or set_index result) is data and shows as leading columns, as Jupyter
+    shows it; an unnamed one is row numbers and is left out. An index name that a column already has
+    gets "_index" added, so both show. Multi-level columns (``agg({'v': ['sum', 'max']})``) join their
+    levels with "_" (``v_sum``)."""
+    cols = None
+    if getattr(df.columns, "nlevels", 1) > 1:
+        cols = ["_".join(str(p) for p in c if str(p) != "") for c in df.columns]
     names = list(getattr(df.index, "names", []) or [])
-    return any(n is not None for n in names) and not any(n in df.columns for n in names if n is not None)
+    if not any(n is not None for n in names):
+        return None, cols
+    taken = {str(c) for c in (cols if cols is not None else df.columns)}
+    index = []
+    for i, n in enumerate(names):
+        base = str(n) if n is not None else f"level_{i}"
+        name, k = base, 1
+        while name in taken:
+            name = f"{base}_index" if k == 1 else f"{base}_index_{k}"
+            k += 1
+        taken.add(name)
+        index.append(name)
+    return index, cols
+
+
+def pandas_frame(df: Any) -> Any:
+    """``df`` as ``pandas_plan`` shows it."""
+    index, cols = pandas_plan(df)
+    if cols is not None:
+        df = df.set_axis(cols, axis=1)
+    return df.reset_index(names=index) if index is not None else df
+
+
+def pandas_reader(df: Any, name: str) -> str:
+    """The pandas code that turns the variable ``name`` into what ``pandas_frame`` gives."""
+    index, cols = pandas_plan(df)
+    code = name
+    if cols is not None:
+        code += f".set_axis({cols!r}, axis=1)"
+    if index is not None:
+        code += f".reset_index(names={index!r})"
+    return code
 
 
 def pandas_table(df: Any) -> pa.Table:
-    return pa.Table.from_pandas(df.reset_index() if keeps_index(df) else df, preserve_index=False)
+    return pa.Table.from_pandas(pandas_frame(df), preserve_index=False)
 
 
 def type_name(t: pa.DataType) -> str:

@@ -53,8 +53,11 @@ Formerly Fabric Desktop: [what changed with the new name, and what didn't](krato
 | [finops/usage-import.md](finops/usage-import.md) | Engineers, capacity admins, FinOps | Import a Capacity Metrics app export as measured CU and compare it with this app's estimates; import an Azure Cost Management export for what each capacity was billed |
 | [optimize/README.md](optimize/README.md) | Engineers, platform owners, admins | The central lakehouse (Preview): setting it up, permissions, what each installation writes, who can see what, the policy key |
 | [finops/cost-evidence.md](finops/cost-evidence.md) | Engineers, platform owners | Optimize > Cost and savings figures: measured, estimated, scenario and unknown, what is counted, units, and the measurement schema |
+| [notebook-magics.md](notebook-magics.md) | Engineers, analysts | Notebook magics and cell languages: SQL results in `_sqldf`, `%sql` inside Python, what runs on this PC |
 | [notebook-files.md](notebook-files.md) | Engineers, analysts | All notebooks and search inside them, open a notebook file, save a copy, delete and restore, and edit a Fabric notebook on this PC (Preview) |
 | [validate-notebook.md](validate-notebook.md) | Engineers, analysts | Validate a notebook: code checks, a clean run from the top with sandboxed writes, and Clean up (Preview) |
+| [forge-animations.md](forge-animations.md) | Engineers, analysts, IT | Motion and effects: intensity levels, every effect, performance, and the motion engine for developers |
+| [profile.md](profile.md) | Engineers, analysts | Profile: a private record of verified work, levels and achievements, and a professional report (Preview) |
 | [notebook-comments.md](notebook-comments.md) | Engineers, analysts | Comments on notebook cells: threads, replies, resolve, and where they are kept |
 | [prove/how-proofs-work.md](prove/how-proofs-work.md) | Engineers, analysts | Proving a notebook: pinned inputs, sandboxed outputs, how results are verified, the scorecard and receipts (Preview) |
 | [metadata-guide.md](metadata-guide.md) | Engineers | The metadata framework step by step, from a new project to Prod, and a reference for every setting |
@@ -111,36 +114,53 @@ KratosForge is new, and it's honest about what has been proven.
 
 **Used on the maintainer's own Fabric tenant (with an own app registration):** sign-in and admin consent, listing workspaces and items, the OneLake catalog, the embedded Fabric pages (Fabric and the Monitoring hub) and their saved sign-in, and writing tables to OneLake from the PC. That is one tenant; yours may differ in settings and permissions.
 
-**Built to Fabric's documented APIs but not yet tried on a live tenant.** These are tagged **Preview** in the app and can be hidden in **Settings > Preview features**:
+**Preview features.** Every feature tagged **Preview** in the app is in this table, which a test keeps the same as the app's own list. Most are built to Fabric's documented APIs but not yet tried on a live tenant. **Settings > Preview features** hides them, except the ones marked "always shown": those are core steps, so they stay visible with their Preview tag.
 
 | Preview feature | Where |
 | --- | --- |
-| Run in Fabric (notebooks and environments) | Notebook ribbon, Data mesh > Environments |
-| Schedules (on this PC and in Fabric) | Notebook ribbon, Data mesh, Monitor |
-| Side by side (this PC vs Fabric) and the TPC-H benchmark | Notebook ribbon |
-| Prove this notebook (isolated PC vs Fabric runs, verification, receipts) | Notebook ribbon |
-| New notebook from a template | Create |
-| Run notebooks in their own process | Settings > Preview features |
-| Cell dependencies and Run stale cells | Notebook ribbon (View and Run tabs) |
-| Variable history, watches and hidden-state warnings | Notebook Variables pane (View tab) |
-| Failure replay bundles (save, open and replay) | Under a cell that failed on this PC; Create > Open replay bundle |
-| Notebook cell time and memory limits | Settings > Preview features (with Run notebooks in their own process on) |
+| Run in Fabric | Notebook ribbon, Data mesh > Environments (notebooks and environments) |
+| Schedules | Notebook ribbon, Data mesh, Monitor (on this PC and in Fabric) |
+| Side by side | Notebook ribbon (this PC vs Fabric, and the TPC-H benchmark) |
+| Prove this notebook | Notebook ribbon (isolated PC vs Fabric runs, verification, receipts) |
+| Validate notebook | Notebook ribbon |
+| Profile | Account menu (private record of verified work, levels, achievements and the professional report) |
+| Edit Fabric notebooks on this PC | Workspaces, an item's preview: Edit on this PC ([notebook-files.md](notebook-files.md)) |
+| New notebook wizard | Create > Notebook from a template |
+| Cell dependencies | Notebook ribbon, View and Run tabs (with Run stale cells) |
+| Variable history and watches | Notebook Variables pane, View tab (with hidden-state warnings) |
+| Failure replay bundles | Under a cell that failed on this PC; Create > Open replay bundle |
 | Cost | Monitor |
 | Capacity status | Optimize > Cost and savings, Data mesh > Environments |
 | Measured usage import | Optimize > Cost and savings |
-| OneLake shortcuts | OneLake |
-| OneLake access | OneLake |
+| OneLake shortcuts | OneLake > Shortcuts |
+| OneLake access | OneLake > Access |
 | Table history and restore | Entity page |
-| Table health and Optimize | Data mesh > Quality |
+| Table health | Data mesh > Quality (with Optimize) |
 | Semantic model | Data mesh > Deploy |
 | Tests | Data mesh > Quality |
 | Estate X-ray | Home |
+| Optimize | Optimize |
 | Item preview | Workspaces |
-| Platform (admins, landing zone, business keys, requests) | Platform, Settings, Data mesh > Surrogate keys |
-| Data products for everyone | OneLake > Data products |
-| Data mesh (domains from Fabric, products, links, glossary, About, the map on Home) | Data mesh > Domains, Platform > Domains, Home, entity page |
-| Workloads (inventory, health, ownership, the workload page, Your workloads) | Monitor > Operations > Workloads, Home |
-| Incidents (numbers, priorities, SLAs, reported incidents, your service desk) | Monitor > Operations > Incidents ([incidents.md](incidents.md)) |
+| Data mesh | Data mesh > Domains, Platform > Domains, OneLake > Data products, Home, entity page (domains from Fabric, products, links, glossary, About, the map on Home, data products for everyone) |
+| Platform | Platform, Settings, Data mesh > Surrogate keys (admins, landing zone, business keys, requests) |
+| Source control | Source control |
+| Workloads | Monitor > Operations > Workloads, Home (inventory, health, ownership, the workload page, Your workloads) |
+| Incidents | Monitor > Operations > Incidents (numbers, priorities, SLAs, reported incidents, your service desk; [incidents.md](incidents.md)) |
+| Agents | Monitor > Operations > Agents |
+| Queue | Monitor > Operations > Queue |
+| Run as | Monitor > Operations > Run as |
+| External AI tools | Settings > Integrations |
+| Release records | Data mesh > Deploy, each environment's Last release card |
+| Result downloads | Notebook > a table output > Download ([notebooks.md](notebooks.md)) |
+| Column lineage | Entity page, Columns |
+| Roll back a release | Data mesh > Deploy, Roll back... on a Test or Prod Last release card |
+| Promote | Data mesh > Deploy (always shown) |
+| Sync keys | Data mesh > Surrogate keys, Sync to LH_Keys (always shown) |
+| Variable library | Data mesh > Source systems (always shown) |
+| Quarantine replay | Entity page, quarantined rows (always shown) |
+| Risk check before a run | Before a run in Workloads, Notebook > Run in Fabric and Data mesh ([risk-check.md](finops/risk-check.md); always shown) |
+
+Two notebook settings are also in Preview: **Run notebooks in their own process**, and the **notebook cell time and memory limits** that need it (both in Settings > Preview features).
 
 **Local data projects** (Preview) run on your PC and don't call Fabric. Their tests use real files, DuckDB and Delta tables on every build; there are no screens for them yet ([local-data.md](local-data.md)).
 

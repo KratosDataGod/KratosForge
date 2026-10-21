@@ -135,8 +135,8 @@ async function renderMeshDomainsTab(body) {
     o.domains.length ? h("table", { class: "list" },
       h("thead", {}, h("tr", {}, ["Domain", "Description", "Owners", "Projects"].map((c) => h("th", {}, c)))),
       h("tbody", {}, domainRows))
-      : h("div", { class: "empty" }, h("span", { class: "title" }, "No domains yet"),
-        h("span", { class: "text" }, "A domain is an area of the business that owns its data, like Sales or Finance. Platform admins create them on Platform > Domains.")));
+      : emptyState({ title: "No domains yet",
+        text: "A domain is an area of the business that owns its data, like Sales or Finance. Platform admins create them on Platform > Domains." }));
   body.replaceChildren(...[meshProblems(o), projectCard, workspacesCard, domainsCard].filter(Boolean));
 }
 
@@ -261,9 +261,9 @@ async function renderMeshProductsTab(body, p) {
       mine.length ? h("table", { class: "list" },
         h("thead", {}, h("tr", {}, ["Product", "Ports", "Open to", "Status", "In the catalog", "Teams reading it", "Owner"].map((c) => h("th", {}, c)))),
         h("tbody", {}, mine))
-        : h("div", { class: "empty" }, h("span", { class: "title" }, "No data products yet"),
-          h("span", { class: "text" }, "Make one from your Gold tables so other teams can link to them instead of copying."),
-          btn("New data product", "add", () => productDialog(p, null, rerender), "tool primary"))),
+        : emptyState({ title: "No data products yet",
+          text: "Make one from your Gold tables so other teams can link to them instead of copying.",
+          action: btn("New data product", "add", () => productDialog(p, null, rerender), "tool primary") })),
     h("div", { class: "card pad" },
       h("b", {}, "Other teams' products"),
       platformNote(o),
@@ -344,8 +344,8 @@ async function renderMeshLinksTab(body) {
         "The catalog checks the product is open to you."),
       rows.length ? h("table", { class: "list" },
         h("thead", {}, h("tr", {}, ["Link", "Product · port", "Reads", "Used by", `Table in ${ENV_LABEL[env]}`, ""].map((c) => h("th", {}, c)))),
-        h("tbody", {}, rows.map((r) => r.row))) : h("div", { class: "empty" }, h("span", { class: "title" }, "No links yet"),
-        h("span", { class: "text" }, "Find a product on the Data products tab and choose Link, or add one here.")),
+        h("tbody", {}, rows.map((r) => r.row))) : emptyState({ title: "No links yet",
+        text: "Find a product on the Data products tab and choose Link, or add one here." }),
       rows.length ? status : null)].filter(Boolean));
   if (!rows.length) return;
   const resolved = await attempt(() => rpc("mesh_resolve_links", { env })) || [];
@@ -442,7 +442,7 @@ function fillAbout(card, e, a) {
 // ---------- Platform > Settings ----------
 
 async function platformSection() {
-  const section = h("section", { class: "card pad" }, h("h2", {}, "Platform"), h("p", { class: "muted-text" }, "Loading..."));
+  const section = h("section", { class: "card pad" }, h("h2", {}, "Platform"), loading());
   const s = await attempt(() => rpc("platform_status"));
   if (!s) { section.replaceChildren(h("h2", {}, "Platform"), h("p", { class: "muted-text" }, "The platform shows once the local engine is running.")); return section; }
   const policy = s.source === "policy";

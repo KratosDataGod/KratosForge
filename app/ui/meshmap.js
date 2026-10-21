@@ -3,7 +3,7 @@
 // platform's catalog (mesh_map), so it shows the whole organization, not only the open project.
 
 function meshMapCard() {
-  const body = h("div", { class: "muted-text" }, "Loading the mesh...");
+  const body = loading("Loading the mesh...");
   const head = preview("mesh", h("h2", {}, "Data mesh"));
   if (!head) return null;
   const card = foldable("home.mesh", head, body);
@@ -23,9 +23,9 @@ function drawMeshMap(m) {
     return h("p", { class: "muted-text" }, "The platform's catalog couldn't be read: ", m.problem);
   }
   if (!m.domains.length && !m.projects.length) {
-    return h("div", { class: "empty" }, h("span", { class: "title" }, "No domains yet"),
-      h("span", { class: "text" }, "Start from the domains your organization already has in Fabric: a platform admin who is a Fabric administrator imports them on Platform > Domains."),
-      btn("Open Platform > Domains", "building", () => goPlatform("domains"), "tool outline small"));
+    return emptyState({ title: "No domains yet",
+      text: "Start from the domains your organization already has in Fabric: a platform admin who is a Fabric administrator imports them on Platform > Domains.",
+      action: btn("Open Platform > Domains", "building", () => goPlatform("domains"), "tool outline small") });
   }
   const products = (project) => m.products.filter((p) => p.project === project);
   const readers = (pid) => m.links.filter((l) => l.product === pid).length;

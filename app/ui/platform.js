@@ -165,8 +165,8 @@ async function platformLandingTab(body) {
         h("td", {}, s.late ? h("span", { class: "pill-s fail" }, s.newest ? `late, ${relTime(s.newest)}` : "nothing yet") : s.newest ? when(s.newest) : h("span", { class: "muted-text" }, "nothing yet")),
         h("td", {}, s.expected_hours ? `every ${s.expected_hours} h` : h("span", { class: "muted-text" }, "not set")),
         h("td", {}, s.readers.length || h("span", { class: "muted-text" }, "none"))))))
-      : h("div", { class: "empty" }, h("span", { class: "title" }, "The landing zone is empty"),
-        h("span", { class: "text" }, "Add a source, then land its files in Files/<source>/<entity>/.")));
+      : emptyState({ title: "The landing zone is empty",
+        text: "Add a source, then land its files in Files/<source>/<entity>/." }));
   body.replaceChildren(h("div", { class: "keys-grid" }, list, sel ? sourceDetail(sel, l, rerender) : null));
 }
 
@@ -486,7 +486,7 @@ const productsPage = { query: "", domain: "all", open: null };
 
 async function renderDataProducts() {
   const pp = productsPage;
-  const list = h("div", {}, h("p", { class: "muted-text" }, "Loading data products..."));
+  const list = h("div", {}, loading("Loading data products..."));
   const search = h("input", { class: "catalog-search", placeholder: "Search products, ports and owners", value: pp.query, "aria-label": "Search data products" });
   setView(h("div", { class: "page monitor onelake" }, onelakeTabs(), withHowItWorks(
     h("section", { class: "card pad" },

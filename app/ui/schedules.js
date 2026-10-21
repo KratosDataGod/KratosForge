@@ -101,7 +101,7 @@ async function openScheduleDialog(o) {
     intro.textContent = mode === "pc" ? `${o.pc.intro} ${PC_SCHEDULE_NOTE}` : o.fabric.intro;
     form.sync();
     hideZone();
-    list.replaceChildren(h("p", { class: "muted-text" }, "Loading schedules..."));
+    list.replaceChildren(loading("Loading schedules..."));
     if (mode === "pc") {
       showPc(await attempt(() => rpc("pc_schedules_for", o.pc.query), "Could not read schedules"));
     } else {
@@ -137,7 +137,7 @@ async function openScheduleDialog(o) {
 const schedulesPage = { allWorkspaces: false, data: null, timer: null };
 
 function schedulesPanel() {
-  const box = h("div", { class: "monitor-scroll schedules-panel" }, h("p", { class: "muted-text monitor-empty" }, "Loading schedules..."));
+  const box = h("div", { class: "monitor-scroll schedules-panel" }, loading("Loading schedules...", "monitor-empty"));
   loadSchedules(box, false);
   return box;
 }

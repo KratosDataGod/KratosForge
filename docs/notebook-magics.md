@@ -141,7 +141,7 @@ The everyday IPython magics that Fabric's and Databricks' notebooks inherit work
 | `%who`, `%whos` | Lists the notebook's variables (the same ones as the **Variables** pane) |
 | `%pwd` | The kernel's working folder |
 | `%reset -f` | Clears every variable and `Out`; `spark`, `notebookutils` and `display` stay |
-| `In`, `Out`, `_`, `__`, `___`, `_3`, `_i`, `_i3` | The notebook's history, as in IPython: `In[3]` and `_i3` are cell 3's code, `Out[3]` and `_3` its result, `_` the last result. `_i` is the cell before this one. A notebook run with `%run` isn't recorded, `Out` keeps the last 100 results, and Restart starts again from 1 |
+| `In`, `Out`, `_`, `__`, `___`, `_3`, `_i`, `_i3` | The notebook's history, as in IPython: `In[3]` and `_i3` are cell 3's code, `Out[3]` and `_3` its result, `_` the last result. `_i` is the cell before this one. A notebook run with `%run` isn't recorded, `Out` keeps the last 20 results (as many tables as the result viewer keeps), and Restart starts again from 1 |
 | `%history`, `%history -n 4-6`, `%history -l 3 -o` | Prints earlier cells' code, oldest first. `-n` numbers them, `-o` adds each result, `-l N` keeps the last N; ranges are cell numbers |
 | `%matplotlib inline` | Accepted: charts always show in the cell |
 | `%load_ext autoreload`, `%autoreload 2`, `%aimport name` | Reloads your own modules when you edit their files, before the next cell runs; see below |

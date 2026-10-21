@@ -81,3 +81,23 @@ def test_history_and_variables_pane_dont_mix():
     k.run("x = 1")
     k.run("x")
     assert [v["name"] for v in k.variables()] == ["x"]
+
+
+def test_out_keeps_no_more_results_than_the_result_viewer():
+    from fabric_desktop.frames import MAX_FRAMES
+    assert history.OUT_KEEP <= MAX_FRAMES
+    k = Kernel()
+    for n in range(MAX_FRAMES + 5):
+        k.run(f"[{n}] * 3")
+    assert _text(k.run("(len(Out), min(Out), '_1' in globals())")) == f"({MAX_FRAMES}, 6, False)"
+
+
+def test_a_underscore_the_notebook_set_itself_is_left_alone():
+    k = Kernel()
+    k.run("'shown'")
+    k.run("_ = 'mine'")
+    k.run("'later'")
+    assert _text(k.run("(_, Out[3])")) == "('mine', 'later')"
+    k.run("del _")
+    k.run("'again'")
+    assert _text(k.run("_")) == "'again'"

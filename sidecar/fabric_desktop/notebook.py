@@ -788,7 +788,7 @@ class Kernel:
                     if namespace is self.namespace and not getattr(self._local, "depth", 0):
                         history.record_output(namespace, self.count, value)
                     else:
-                        namespace["_"] = value
+                        namespace["_"] = namespace[history.LAST] = value
         except NotebookExit as done:
             if not isinstance(done, RestartPython):
                 print(f"Notebook exited with value: {done.value}")

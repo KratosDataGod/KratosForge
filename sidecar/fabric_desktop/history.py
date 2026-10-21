@@ -3,13 +3,16 @@
 
 Only the notebook's own cells are recorded, not the cells of a notebook it runs with ``%run``.
 ``Out`` keeps the last OUT_KEEP results, so a notebook that shows many large tables doesn't hold
-every one of them in memory."""
+every one of them in memory: no more than the result viewer keeps (frames.MAX_FRAMES)."""
 from __future__ import annotations
 
 import re
 from typing import Any
 
-OUT_KEEP = 100
+from .frames import MAX_FRAMES
+
+OUT_KEEP = MAX_FRAMES  # a result in Out stays in memory; the result viewer keeps no more tables than this
+LAST = "__fd_last__"  # what _ was last set to here, so a _ the notebook assigned itself is left alone
 
 
 def record_input(ns: dict[str, Any], n: int, code: str) -> None:
@@ -26,7 +29,8 @@ def record_input(ns: dict[str, Any], n: int, code: str) -> None:
 
 
 def record_output(ns: dict[str, Any], n: int, value: Any) -> None:
-    """Cell ``n``'s result, the value its last line showed; ``_`` moves to ``__`` and ``___``."""
+    """Cell ``n``'s result, the value its last line showed; ``_`` moves to ``__`` and ``___``
+    unless the notebook assigned ``_`` itself."""
     outputs = ns.get("Out")
     if not isinstance(outputs, dict):
         outputs = ns["Out"] = {}
@@ -35,7 +39,10 @@ def record_output(ns: dict[str, Any], n: int, value: Any) -> None:
     for old in sorted(outputs)[:-OUT_KEEP]:
         del outputs[old]
         ns.pop(f"_{old}", None)
+    if "_" in ns and ns["_"] is not ns.get(LAST):
+        return  # the notebook set _ itself; IPython leaves _, __ and ___ alone then too
     ns["___"], ns["__"], ns["_"] = ns.get("__", ""), ns.get("_", ""), value
+    ns[LAST] = value
 
 
 def clear_output(ns: dict[str, Any]) -> None:
@@ -43,7 +50,7 @@ def clear_output(ns: dict[str, Any]) -> None:
     for n in list(ns.get("Out") or {}):
         ns.pop(f"_{n}", None)
     ns["Out"] = {}
-    for name in ("_", "__", "___"):
+    for name in ("_", "__", "___", LAST):
         ns.pop(name, None)
 
 

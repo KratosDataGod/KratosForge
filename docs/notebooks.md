@@ -132,6 +132,10 @@ Fabric has no `dbutils`, so **Where a notebook runs** says a notebook that uses 
 
 **`fs` changes follow Fabric's rules:** `rm` removes a folder that isn't empty only with `recurse=True`; `Tables/` can be read but not changed through `fs` (write tables with `write_table` or `saveAsTable`); `mv` keeps the source until the copy has every file at its size; and a run that can't write the lakehouse (an external AI tool's run, or a proof) can't change files either.
 
+**pandas** is there as in Fabric: `import pandas as pd`, `df.toPandas()`, and pandas data frames show as tables and can be written with `lakehouse.write_table`. It's pandas 2, like Fabric's runtimes.
+
+**Chart libraries** plotly, bokeh, seaborn and altair ship with the app too, next to matplotlib, so chart code from Fabric and Databricks notebooks imports here. plotly, seaborn and matplotlib charts draw in the cell. bokeh's `show(p)` draws in the cell too, with bokeh's JavaScript included so nothing is fetched, instead of writing a file and opening your browser. Altair charts don't draw in a cell yet: they need JavaScript from the internet, so `chart.save('chart.html')` saves one to open in a browser.
+
 **Magics:** a `%%sql` cell keeps a query's result in `_sqldf`, and `df = %sql SELECT ...` runs one query inside Python (see [Notebook magics](notebook-magics.md)). `%run Other notebook` runs another notebook in this one's namespace. `%pip` lines are skipped with a note, because the engine's packages are fixed. `%%configure` is checked and explained, not applied (see [Notebook magics](notebook-magics.md#configure)).
 
 ## Running cells

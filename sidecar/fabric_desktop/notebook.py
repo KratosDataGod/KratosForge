@@ -36,6 +36,7 @@ from typing import Any, Callable
 
 import pyarrow as pa
 
+from . import chart_output
 from . import notebook_resources
 from . import magics
 from .frames import Frames, type_name
@@ -122,6 +123,10 @@ def display(value: Any) -> dict[str, Any]:
                 import matplotlib.pyplot as plt
                 plt.close(fig)
             return out
+    if chart_output.is_bokeh(value):
+        return chart_output.bokeh_html(value)
+    if chart_output.is_altair(value):
+        return {"type": "text", "text": chart_output.ALTAIR_NOTE}
     if module.startswith("plotly") and hasattr(value, "to_html"):
         return {"type": "html", "html": value.to_html(include_plotlyjs=True, full_html=True)}
     for method, make in (("_repr_html_", lambda r: {"type": "html", "html": r}),
@@ -229,6 +234,18 @@ def _routers() -> tuple[_Router, _Router]:
     if not isinstance(sys.stderr, _Router):
         sys.stderr = _Router(sys.stderr)
     return sys.stdout, sys.stderr  # type: ignore[return-value]
+
+
+def _to_running_cell(output: dict[str, Any]) -> bool:
+    """Adds an output to the cell running on this thread; False when none is."""
+    run = _routers()[0].targets.get(threading.get_ident())
+    if run is None:
+        return False
+    run.add(output)
+    return True
+
+
+chart_output.install(_to_running_cell)  # bokeh's show() draws in the cell
 
 
 class Kernel:

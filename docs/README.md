@@ -125,6 +125,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Edit Fabric notebooks on this PC | Workspaces, an item's preview: Edit on this PC ([notebook-files.md](notebook-files.md)) |
 | New notebook wizard | Create > Notebook from a template |
 | Cell dependencies | Notebook ribbon, View and Run tabs (with Run stale cells) |
+| Parameters and widgets bar | Notebook, above the cells (parameter cell values and Databricks widgets) |
 | Variable history and watches | Notebook Variables pane, View tab (with hidden-state warnings) |
 | Failure replay bundles | Under a cell that failed on this PC; Create > Open replay bundle |
 | Cost | Monitor |

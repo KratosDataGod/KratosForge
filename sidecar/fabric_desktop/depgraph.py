@@ -18,6 +18,8 @@ import builtins
 import re
 from typing import Any
 
+from . import magics
+
 _BUILTINS = set(dir(builtins)) | {"display", "spark", "notebookutils", "mssparkutils", "dbutils", "sc", "sqlContext",
                                   "__name__", "__file__", "get_ipython"}
 _READ_TABLE = {"read_table", "open_table", "table"}
@@ -194,32 +196,40 @@ class _Cell(ast.NodeVisitor):
 
 
 def _python(source: str) -> tuple[str | None, list[int]]:
-    """The cell's Python (magics blanked, keeping line numbers), or None for a %%sql cell."""
+    """The cell's Python (magics blanked, keeping line numbers, ``x = %sql ...`` kept as
+    ``x = None``), or None for a %%sql cell."""
     head = source.lstrip()
     if head.startswith("%%sql"):
         return None, []
-    magics = []
+    found = []
     lines = source.split("\n")
     for i, ln in enumerate(lines):
         if re.match(r"^\s*%%", ln) and i == 0:
             lines[i] = ""
-        elif re.match(r"^\s*[%!]", ln):
-            magics.append(i + 1)
+        elif re.match(r"^\s*(!|%%)", ln):
+            found.append(i + 1)
             lines[i] = ""
-    return "\n".join(lines), magics
+    found += [m.line for m in magics.find("\n".join(lines))]
+    return magics.blank("\n".join(lines)), sorted(found)
 
 
 def analyze(source: str) -> dict[str, Any]:
     """What one cell defines, uses, reads, writes and changes, read from its code."""
     out: dict[str, Any] = {"parsed": True, "defines": [], "uses": [], "deferred": [], "reads": [], "writes": [],
                            "effects": [], "dynamic": []}
-    code, magics = _python(source)
+    code, lines = _python(source)
     if code is None:
-        _sql(source.lstrip()[5:], out, 1)
+        query = source.lstrip()[5:]
+        _sql(query, out, 1)
+        if magics.returns_rows(query):
+            out["defines"].append("_sqldf")
     else:
-        for line in magics:
+        for line in lines:
             text = source.split("\n")[line - 1].strip()
-            if text.startswith("%run"):
+            sql = next((m.rest for m in magics.find(text) if m.name == "sql"), None)
+            if sql is not None:
+                _sql(sql, out, line)
+            elif text.startswith("%run"):
                 out["dynamic"].append({"line": line, "text": f"{text} runs another notebook, which can define any name"})
             elif text.startswith(("%pip", "!pip", "%conda")):
                 out["effects"].append({"line": line, "text": "installs packages"})

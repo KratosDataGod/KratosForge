@@ -20,7 +20,7 @@ from typing import Any
 
 from . import magics
 
-_BUILTINS = set(dir(builtins)) | {"display", "spark", "notebookutils", "mssparkutils", "sc", "sqlContext",
+_BUILTINS = set(dir(builtins)) | {"display", "spark", "notebookutils", "mssparkutils", "dbutils", "sc", "sqlContext",
                                   "__name__", "__file__", "get_ipython"}
 _READ_TABLE = {"read_table", "open_table", "table"}
 _READ_FILE = {"read_csv", "read_parquet", "read_json", "path", "local_path"}

@@ -323,3 +323,11 @@ def test_hover_and_signature_help_come_from_the_notebook_process(kernel):
     assert hover["signature"] == "(w, h=1)" and hover["doc"] == "Width times height."
     sig = kernel.inspect("area(2, ", call=True)
     assert sig["params"] == ["w", "h=1"] and sig["active"] == 1
+
+
+def test_variable_detail_comes_from_the_kernel_process(kernel):
+    assert kernel.variable_detail("x") == {"name": "x", "missing": True}  # no process yet
+    out = kernel.run("import polars as pl\nframe = pl.DataFrame({'a': [1]})\nitems = [1, 'two']")
+    assert out["status"] == "ok", out
+    assert kernel.variable_detail("frame")["columns"] == [{"name": "a", "type": "Int64"}]
+    assert [i["value"] for i in kernel.variable_detail("items")["items"]] == ["1", "'two'"]

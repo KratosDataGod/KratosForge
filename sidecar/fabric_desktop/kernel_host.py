@@ -79,10 +79,13 @@ class Host:
     # ---- requests
 
     def start(self, code: str, notebook_name: str = "", watches: list[str] | None = None,
-              resources_dir: str = "") -> dict[str, Any]:
+              resources_dir: str = "", breakpoints: list[int] | None = None, step: bool = False) -> dict[str, Any]:
         self.kernel.notebook_name = notebook_name
         self.kernel.resources_dir = resources_dir
-        return self.kernel.start(code, watches)
+        return self.kernel.start(code, watches, breakpoints, step)
+
+    def debug(self, action: str, expression: str | None = None) -> dict[str, Any]:
+        return self.kernel.debug(action, expression)
 
     def poll(self, version: int = -1, wait: float = 0.0) -> dict[str, Any]:
         return self.kernel.poll(version, wait)
@@ -98,6 +101,9 @@ class Host:
 
     def inspect(self, code: str, cursor: int | None = None, call: bool = False) -> dict[str, Any] | None:
         return self.kernel.inspect(code, cursor, call)
+
+    def variable_detail(self, name: str) -> dict[str, Any]:
+        return self.kernel.variable_detail(name)
 
     def attach(self, context: dict[str, Any] | None, guard: bool = False) -> bool:
         """The engine's attached lakehouse, with tokens and the managed-table check asked of the engine."""
@@ -158,7 +164,7 @@ class Host:
     def ping(self) -> dict[str, Any]:
         return {"pid": os.getpid(), "python": sys.version.split()[0]}
 
-    OPS = ("start", "poll", "interrupt", "variables", "complete", "inspect", "attach", "bind_proof", "unbind_proof",
+    OPS = ("start", "poll", "interrupt", "debug", "variables", "variable_detail", "complete", "inspect", "attach", "bind_proof", "unbind_proof",
            "finish_proof", "proof_log", "reads", "frame_page", "frame_profile", "frame_chart", "frame_wrangle", "frame_download", "ping")
 
     def handle(self, message: dict[str, Any]) -> None:

@@ -39,6 +39,8 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,})\b"), REMOVED),
     (re.compile(r"(?<![A-Za-z0-9_~.\-])[A-Za-z0-9_~.\-]{3}\dQ~[A-Za-z0-9_~.\-]{31,34}(?![A-Za-z0-9_~.\-])"), REMOVED),
     (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), REMOVED),
+    # A Databricks personal access token (dapi + 32 hex, sometimes with a -N suffix).
+    (re.compile(r"\bdapi[0-9a-f]{32}(?:-\d+)?\b"), REMOVED),
     (re.compile(r"\bxox[abposr]-[A-Za-z0-9\-]{10,}\b"), REMOVED),
     # name=value or "name": "value" for names that hold secrets.
     # Any *_token or *-token name, and a bare token= (access_token, sas_token, x-auth-token, token).

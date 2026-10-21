@@ -427,6 +427,8 @@ function statusLine(cell) {
     error: ["bad", "Failed"], stopped: ["bad", "Stopped"], cancelled: ["bad", "Cancelled"] }[s];
   return h("div", { class: "cell-status", "data-s": s }, h("span", { class: label[0] }, label[1]),
     s === "running" && cell.seconds != null ? h("span", {}, `${cell.seconds.toFixed(1)} s`) : null,
+    s === "running" && cell.progress != null ? h("span", { class: "cell-progress", title: "How far the running query is" },
+      h("progress", { max: 100, value: cell.progress, "aria-label": "Query progress" }), `Query ${Math.floor(cell.progress)}%`) : null,
     s === "ok" || s === "error" || s === "cancelled" ? h("span", {}, cell.partial ? "Ran the selection on this PC" : "Ran on this PC") : null,
     cell.seconds != null && s !== "running" && s !== "queued" ? h("span", {}, `${cell.seconds.toFixed(1)} s`) : null,
     cell.finishedAt && s !== "running" ? h("span", {}, cell.finishedAt) : null);
@@ -1345,6 +1347,7 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
       cell.count = snap.execution_count;
       cell.seconds = snap.seconds;
       const pauseMoved = dbgSnapshot(cell, snap);  // debugging.js
+      cell.progress = snap.status === "running" ? snap.progress ?? null : null;  // a DuckDB query's %, while one runs
       if (snap.status !== "running") break;
       // While paused, redraw only when the pause changes, so the debugger's input keeps what's typed.
       if (state.notebook?.cells.includes(cell) && (!cell.paused || pauseMoved || snap.outputs)) updateResults(cell);

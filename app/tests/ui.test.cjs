@@ -3102,6 +3102,15 @@ test("the keys card says where keys come from instead of an LH_Keys MERGE", () =
   assert.match(card, /Keys come from \$\{e\.keys_from\}/);
 });
 
+// A running cell shows how far its spark query is when the engine can tell (spark_local.progress).
+test("a running cell shows its query's progress and drops it when the cell ends", () => {
+  const n = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(n, /cell\.progress = snap\.status === "running" \? snap\.progress \?\? null : null;/);
+  const line = /function statusLine\(cell\) \{[\s\S]*?\n\}\n/.exec(n)[0];
+  assert.match(line, /s === "running" && cell\.progress != null \? h\("span", \{ class: "cell-progress"/);
+  assert.match(line, /h\("progress", \{ max: 100, value: cell\.progress, "aria-label": "Query progress" \}\)/);
+});
+
 // PySpark on this PC: the notebooks page lists what KratosForge adds to DuckDB's Spark API.
 test("notebooks docs list the PySpark calls added on this PC", () => {
   const page = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");

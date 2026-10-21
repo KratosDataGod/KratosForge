@@ -20,6 +20,7 @@ from __future__ import annotations
 import datetime as dt
 import decimal
 import logging
+import math
 import os
 import random
 import threading
@@ -139,8 +140,11 @@ def _rows(result: Any) -> list[list[Any]]:
 
 
 def _cell(value: Any) -> Any:
-    if value is None or isinstance(value, (bool, int, float, str)):
+    """A result cell: JSON (and the shell) has no NaN or infinity, so those show as text."""
+    if value is None or isinstance(value, (bool, int, str)):
         return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else str(value)
     return str(value)
 
 

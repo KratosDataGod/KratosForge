@@ -757,19 +757,48 @@ def interactive_output(f: Callable[..., Any], controls: dict[str, Widget]) -> Ou
     return out
 
 
-def jslink(*_a: Any, **_kw: Any) -> None:
-    raise NotImplementedError("jslink needs a browser-side link; use observe() to keep two widgets in step.")
 
 
-def link(source: tuple[Widget, str], target: tuple[Widget, str]) -> None:
-    """Keep ``target``'s trait equal to ``source``'s (one way, then back)."""
-    (sw, sn), (tw, tn) = source, target
-    setattr(tw, tn, getattr(sw, sn))
-    sw.observe(lambda c: setattr(tw, tn, c["new"]), names=sn)
-    tw.observe(lambda c: setattr(sw, sn, c["new"]), names=tn)
+class _Link:
+    """What ``link`` and ``dlink`` return, as traitlets does: ``unlink()`` stops it."""
+
+    def __init__(self, source: tuple[Widget, str], target: tuple[Widget, str],
+                 forward: Callable[[Any], Any] | None, backward: Callable[[Any], Any] | None, both: bool):
+        self.source, self.target = source, target
+        (sw, sn), (tw, tn) = source, target
+        to = forward or (lambda v: v)
+        setattr(tw, tn, to(getattr(sw, sn)))
+        self._handlers = [(sw, lambda c: setattr(tw, tn, to(c["new"])), sn)]
+        if both:
+            back = backward or (lambda v: v)
+            self._handlers.append((tw, lambda c: setattr(sw, sn, back(c["new"])), tn))
+        for w, handler, name in self._handlers:
+            w.observe(handler, names=name)
+
+    def unlink(self) -> None:
+        for w, handler, name in self._handlers:
+            w.unobserve(handler, names=name)
+        self._handlers = []
 
 
-dlink = link
+def link(source: tuple[Widget, str], target: tuple[Widget, str], transform: Any = None) -> _Link:
+    """Keep two traits equal both ways; ``transform`` is a (forward, backward) pair of functions."""
+    forward, backward = transform if transform else (None, None)
+    return _Link(source, target, forward, backward, both=True)
+
+
+def dlink(source: tuple[Widget, str], target: tuple[Widget, str], transform: Callable[[Any], Any] | None = None) -> _Link:
+    """Copy ``source``'s trait to ``target``'s whenever it changes, one way, through ``transform``."""
+    return _Link(source, target, transform, None, both=False)
+
+
+def jslink(source: tuple[Widget, str], target: tuple[Widget, str]) -> _Link:
+    """In Jupyter the browser keeps the two in step; here the kernel holds every widget, so it does."""
+    return link(source, target)
+
+
+def jsdlink(source: tuple[Widget, str], target: tuple[Widget, str]) -> _Link:
+    return dlink(source, target)
 
 
 # ---- helpers
@@ -812,7 +841,7 @@ def build() -> types.ModuleType:
     mod = types.ModuleType("ipywidgets", "ipywidgets isn't drawn by Jupyter here; KratosForge provides these widgets.")
     for name, value in list(globals().items()):
         if isinstance(value, type) and issubclass(value, (Widget, Layout)) or name in (
-                "interact", "interactive", "interact_manual", "interactive_output", "fixed", "link", "dlink", "jslink", "Layout",
+                "interact", "interactive", "interact_manual", "interactive_output", "fixed", "link", "dlink", "jslink", "jsdlink", "Layout",
                 "Style", "Change"):
             setattr(mod, name, value)
     mod.__version__ = __version__  # type: ignore[attr-defined]

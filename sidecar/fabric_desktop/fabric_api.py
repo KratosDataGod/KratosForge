@@ -111,10 +111,11 @@ class FabricClient:
         self._sleep = sleep
         self._poll_timeout = poll_timeout
 
-    def _request(self, method: str, url: str, **kwargs) -> requests.Response:
+    def _request(self, method: str, url: str, headers: dict[str, str] | None = None,
+                 **kwargs) -> requests.Response:
         if not url.startswith("http"):
             url = f"{API}{url}"
-        headers = {"Authorization": f"Bearer {self._token()}"}
+        headers = {**(headers or {}), "Authorization": f"Bearer {self._token()}"}
         resp = send_with_retry(lambda: self._http.request(method, url, headers=headers, timeout=60, **kwargs),
                                method, sleep=self._sleep, attempts=5, default_wait=5)
         if resp.status_code >= 400:
@@ -402,9 +403,26 @@ class FabricClient:
     def list_data_access_roles(self, workspace_id: str, item_id: str) -> list[dict[str, Any]]:
         return self._paged(f"/workspaces/{workspace_id}/items/{item_id}/dataAccessRoles")
 
-    def put_data_access_roles(self, workspace_id: str, item_id: str, roles: list[dict[str, Any]]) -> None:
-        """Replace every data access role on the item with ``roles``."""
-        self._request("PUT", f"/workspaces/{workspace_id}/items/{item_id}/dataAccessRoles", json={"value": roles})
+    def list_data_access_roles_tagged(self, workspace_id: str, item_id: str) -> tuple[list[dict[str, Any]], str | None]:
+        """The roles and the ETag Fabric gave the list, for put_data_access_roles(etag=) to refuse
+        the write if someone changed the roles in between."""
+        url: str | None = f"/workspaces/{workspace_id}/items/{item_id}/dataAccessRoles"
+        items: list[dict[str, Any]] = []
+        etag = None
+        while url:
+            resp = self._request("GET", url)
+            etag = etag or resp.headers.get("ETag")
+            body = resp.json()
+            items.extend(body.get("value", []))
+            url = body.get("continuationUri")
+        return items, etag
+
+    def put_data_access_roles(self, workspace_id: str, item_id: str, roles: list[dict[str, Any]],
+                              etag: str | None = None) -> None:
+        """Replace every data access role on the item with ``roles``. With ``etag`` Fabric refuses
+        (PreconditionFailed) if the roles changed since that list was read."""
+        self._request("PUT", f"/workspaces/{workspace_id}/items/{item_id}/dataAccessRoles", json={"value": roles},
+                      headers={"If-Match": etag} if etag else None)
 
     # ---- OneLake shortcuts
 

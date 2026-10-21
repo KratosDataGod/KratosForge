@@ -60,6 +60,7 @@ nav = [
     { "Capacity of each environment" = "finops/capacity.md" },
     { "Measured usage" = "finops/usage-import.md" },
     { "Risk check before a run" = "finops/risk-check.md" },
+    { "Where to run a notebook" = "finops/placement-advice.md" },
     { "Optimize lakehouse" = "optimize/README.md" },
     { "Metadata framework" = "metadata-guide.md" },
     { "Source control" = "source-control.md" },

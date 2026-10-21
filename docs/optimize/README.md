@@ -114,6 +114,16 @@ The central lakehouse holds more than Optimize's tables. Each feature that keeps
 
 Every family follows the same rules: insert-only rows with a `record_id`, provenance on every row, upgrades that only add, and a newer schema opening that family read-only (the others keep working). A family never writes to or migrates another family's tables; reading them, for example a view that combines two families, is fine. Each family has one owner, so two features that store rows of the same shape still use two families (and can share the column definitions). The first time a feature writes to a connected central lakehouse, it asks you, then adds its own tables beside the others; nothing that is already there changes. Tables that name people, such as the access cache, also get their own OneLake security role at table level, set up by the feature that adds them.
 
+### Tables only some people may read
+
+A family whose tables name people keeps them in a schema of its own (for example `access` instead of `dbo`). When its owner sets up who may read them, the app asks first, then:
+
+- changes **DefaultReader**, the role that lets everyone with read permission see every table, so it no longer reads that schema. It keeps DefaultReader's members and every path an admin gave it. "Everything" becomes every schema that isn't a family's own, plus Files, so tables added to `dbo` later stay readable without another change. Every family's own schema is left out, not just this one, so another family can be kept from DefaultReader later too;
+- adds one role, or updates it, that reads only that schema, for the people chosen. Running it again with the same people changes nothing;
+- leaves every other role as it is, and records the change in `fdopt_audit`.
+
+It reads the roles again just before it writes, and refuses if what it would change is no longer what you confirmed; Fabric also refuses the write if someone changes the roles in between. It refuses, and changes nothing, when the central lakehouse has no schemas (hiding the tables would mean listing every other table, which would hide tables added later), when OneLake security is off or there is no DefaultReader, when DefaultReader has more than one rule or was given part of that schema on purpose, or when the role name is already used for something else. A schema created later stays hidden from DefaultReader until someone adds it in OneLake > Access; the confirmation says so. It uses the `OneLake.ReadWrite.All` permission that OneLake > Access already uses ([Permissions](../permissions.md)), and the right in Fabric to manage the lakehouse's roles.
+
 ### Tenant settings history
 
 A Fabric administrator's read of Fabric's tenant settings (`GET /v1/admin/tenantsettings`) is kept in three `fdten_` tables, in the same row shape as FinOps' capacity settings (`fdcap_`), so one view reads both:
@@ -160,7 +170,7 @@ A read of the capacities you can see (`GET /v1/capacities`, `Capacity.Read.All`,
 - **Changes** lists each change as "between" two reads, with the scope (Tenant, or the capacity's latest name), the setting and its old and new values. **Show** filters to the tenant, all capacities or one capacity.
 - Nothing reads on a schedule.
 
-For developers: a family is a `schema.Family` registered with `schema.register` at import of the module that owns it. Its prefix is `fd`, 2 to 8 lowercase letters and `_`; its migrations are numbered from 1, and the first creates `schema_version`. `OptimizeMixin.central_family(family, approve=...)` returns the connected lakehouse with the family's tables in place; it creates or upgrades tables only with `approve=True`, passed after the person confirmed, and otherwise raises with what it would do. Write with `setup.write(..., family=family)`. A family's `default_config` keys are stored in `fdopt_config` with the family's prefix.
+For developers: a family is a `schema.Family` registered with `schema.register` at import of the module that owns it. Its prefix is `fd`, 2 to 8 lowercase letters and `_`; its migrations are numbered from 1, and the first creates `schema_version`. `OptimizeMixin.central_family(family, approve=...)` returns the connected lakehouse with the family's tables in place; it creates or upgrades tables only with `approve=True`, passed after the person confirmed, and otherwise raises with what it would do. Write with `setup.write(..., family=family)`. A family's `default_config` keys are stored in `fdopt_config` with the family's prefix. `Family(..., schema="access")` puts its tables in a schema of its own (lowercase, not another family's); then `OptimizeMixin.central_restrict(family, role_name, members, approve=...)` keeps them from DefaultReader as above, raising with what it would change (as a sentence, and as a list in the error's `changes`) unless `approve=True`; pass that list back as `shown=`, which `approve=True` requires, so it refuses if they no longer match. It is untested on a live tenant: its ETag and If-Match handling follow Fabric's documentation only. Families never PUT data access roles themselves.
 
 ## For IT admins
 

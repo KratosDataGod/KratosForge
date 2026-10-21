@@ -4,8 +4,9 @@ Fabric Desktop keeps one central lakehouse per organization (default ``FabricDes
 Its tables come in families, each with its own prefix, migrations and schema version: Optimize's
 ``fdopt_`` tables (which also hold the installations, audit and config every family shares), and
 any family another feature registers with ``register`` (for example ``fdacc_`` for the access cache).
-A family may read another family's tables but never writes to or migrates them. Every table sits in ``dbo`` (or directly
-under Tables in a lakehouse without schemas). The rules that let many installations write to the
+A family may read another family's tables but never writes to or migrates them. Tables sit in ``dbo``
+unless their family has a schema of its own (so a OneLake security role can leave it out; see
+roles.py), and directly under Tables in a lakehouse without schemas. The rules that let many installations write to the
 same tables at once:
 
 - **Insert only.** No client updates or deletes a row. A change of state (a recommendation
@@ -129,6 +130,8 @@ def expected(version: int | None = None) -> dict[str, dict[str, pl.DataType]]:
 
 # fd + 2 to 8 lowercase letters + underscore: fdopt_, fdacc_, fdcap_ ...
 PREFIX_RULE = re.compile(r"^fd[a-z]{2,8}_$")
+# A family's own schema: lowercase letters, digits and _, starting with a letter.
+SCHEMA_RULE = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 
 
 class Family:
@@ -137,11 +140,14 @@ class Family:
 
     ``title`` names the owner as people see it ("Optimize", "Access cache"). ``migrations`` is the
     list, or a function returning it. ``default_config`` rows go to fdopt_config on initialize, their
-    keys prefixed with the family's prefix (Optimize's aren't)."""
+    keys prefixed with the family's prefix (Optimize's aren't). ``schema`` is where its tables sit in
+    a lakehouse with schemas: dbo, or one of its own for tables only some people may read. Choose it
+    before the family's first release: tables already written elsewhere aren't moved."""
 
     def __init__(self, prefix: str, title: str, migrations: list[Migration] | Callable[[], list[Migration]],
-                 default_config: tuple[tuple[str, str], ...] = ()):
+                 default_config: tuple[tuple[str, str], ...] = (), schema: str = SCHEMA):
         self.prefix, self.title, self._migrations, self.default_config = prefix, title, migrations, default_config
+        self.schema = schema
 
     @property
     def migrations(self) -> tuple[Migration, ...]:
@@ -173,9 +179,14 @@ def register(family: Family) -> Family:
     """Add a feature's table family to the central lakehouse. Call once, at import of the module
     that owns the tables. The prefix follows PREFIX_RULE and is unique; versions start at 1 with no
     gaps; the first migration creates ``schema_version`` like every family's; a later migration
-    only adds tables or nullable columns."""
+    only adds tables or nullable columns. A schema of its own is not dbo and not another family's."""
     if not PREFIX_RULE.match(family.prefix):
         raise ValueError(f"A table family prefix is fd, 2 to 8 lowercase letters and _ (not {family.prefix!r}).")
+    if not SCHEMA_RULE.match(family.schema):
+        raise ValueError(f"A family's schema is lowercase letters, digits and _ (not {family.schema!r}).")
+    owner = next((f for f in FAMILIES.values() if f.schema == family.schema and f.prefix != family.prefix), None)
+    if family.schema != SCHEMA and owner:
+        raise ValueError(f"The {family.schema} schema already belongs to {owner.title}.")
     if family.prefix in FAMILIES and FAMILIES[family.prefix] is not family:
         raise ValueError(f"The {family.prefix} tables already belong to {FAMILIES[family.prefix].title}.")
     versions = [m.version for m in family.migrations]
@@ -191,3 +202,14 @@ def register(family: Family) -> Family:
 def family_of(table_name: str) -> Family | None:
     """The registered family a table belongs to, by its prefix."""
     return next((f for p, f in FAMILIES.items() if table_name.startswith(p)), None)
+
+
+def schema_of(table_name: str) -> str:
+    """The schema a table sits in (in a lakehouse with schemas): its family's, else dbo."""
+    family = family_of(table_name)
+    return family.schema if family else SCHEMA
+
+
+def schemas() -> list[str]:
+    """Every schema a registered family uses, dbo first."""
+    return [SCHEMA] + sorted({f.schema for f in FAMILIES.values()} - {SCHEMA})

@@ -52,6 +52,7 @@ Formerly Fabric Desktop: [what changed with the new name, and what didn't](krato
 | [side-by-side.md](side-by-side.md) | Engineers, analysts | Running a notebook on this PC and in Fabric side by side, how results are checked, and the TPC-H benchmark |
 | [finops/capacity.md](finops/capacity.md) | Engineers, platform owners | The capacity each environment is on, whether it is running, and what to do when it can't be read |
 | [finops/risk-check.md](finops/risk-check.md) | Engineers, FinOps, IT | What the risk check before a run looks at, its results, settings and acknowledgements |
+| [finops/placement-advice.md](finops/placement-advice.md) | Engineers, FinOps | Where to run a notebook, on this PC or in Fabric, and the evidence the advice uses |
 | [finops/usage-import.md](finops/usage-import.md) | Engineers, capacity admins, FinOps | Import a Capacity Metrics app export as measured CU and compare it with this app's estimates; import an Azure Cost Management export for what each capacity was billed |
 | [optimize/README.md](optimize/README.md) | Engineers, platform owners, admins | The central lakehouse (Preview): setting it up, permissions, what each installation writes, who can see what, the policy key |
 | [finops/cost-evidence.md](finops/cost-evidence.md) | Engineers, platform owners | Optimize > Cost and savings figures: measured, estimated, scenario and unknown, what is counted, units, and the measurement schema |
@@ -172,6 +173,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Release records | Data mesh > Deploy, each environment's Last release card |
 | Chart builder | Notebook > a table output > Chart ([notebooks.md](notebooks.md)) |
 | Data Wrangler | Notebook > a table output > Clean ([notebooks.md](notebooks.md)) |
+| Notebook widgets | Notebook > a cell that shows ipywidgets controls ([notebooks.md](notebooks.md)) |
 | Result downloads | Notebook > a table output > Download ([notebooks.md](notebooks.md)) |
 | Column lineage | Entity page, Columns |
 | Roll back a release | Data mesh > Deploy, Roll back... on a Test or Prod Last release card |

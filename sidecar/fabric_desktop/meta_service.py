@@ -6,8 +6,9 @@ import datetime as dt
 import json
 import logging
 import tomllib
+from contextlib import AbstractContextManager, ExitStack, contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterator
 
 import polars as pl
 
@@ -17,7 +18,9 @@ from .meta import lineage, release
 from .meta import mesh
 from .meta import Engine, GateError, Layer, LocalStore, OneLakeStore, Project, impact, promote
 from .meta.engine import RunResult
+from .leases import Backend, Leases, LocalBackend, OneLakeBackend, lease_timeout, onelake_table_lease, table_key
 from .onelake import storage_options
+from .publish import WRITER
 from .meta.project import DEFAULT_RETENTION_DAYS, ENVIRONMENTS, validate
 from .meta import diff as diff_mod
 from .meta import snapshot
@@ -455,6 +458,39 @@ class MetaMixin:
         except LookupError:
             return project  # Engine.check_deployed says the folder isn't on the release
 
+    def lease_backend(self, project: Project, env: str, store: Store, ttl: float = 120) -> Backend:
+        """Where an environment's per-table leases live: its LH_Meta, or a local folder (leases.py)."""
+        if isinstance(store, OneLakeStore):
+            meta_id = store.lakehouse_ids.get(META_LAKEHOUSE)
+            if not meta_id:
+                raise LookupError(f"{META_LAKEHOUSE} doesn't exist in the {env} workspace yet; promote to {env} first")
+            return OneLakeBackend(store.workspace_id, meta_id, self.auth.storage_token,  # type: ignore[attr-defined]
+                                  timeout=lease_timeout(ttl))
+        if isinstance(store, LocalStore):
+            return LocalBackend(store.root / "_leases")
+        raise TypeError(f"no lease backend for {type(store).__name__}")
+
+    def _table_lock(self, project: Project, env: str, store: Store, owner: str = WRITER, seconds: float = 120,
+                    guard: Callable[[], None] | None = None) -> Callable[[Any], AbstractContextManager[None]]:
+        """The Engine's ``table_lock``: each table is written under the environment's lease on it and,
+        in OneLake, the lease in the table's own lakehouse that notebooks and jobs hold too.
+        ``guard`` runs once both are held, before anything is written."""
+        leases = Leases(self.lease_backend(project, env, store, ttl=seconds), owner=owner, ttl=seconds, wait=seconds)
+
+        @contextmanager
+        def table_lock(e: Any) -> Iterator[None]:
+            lakehouse = project.layer(e.layer).lakehouse
+            with ExitStack() as held:
+                held.enter_context(leases.hold(table_key(lakehouse, e.schema, e.table)))
+                if isinstance(store, OneLakeStore) and (lakehouse_id := store.lakehouse_ids.get(lakehouse)):
+                    held.enter_context(onelake_table_lease(
+                        store.workspace_of(lakehouse), lakehouse_id, e.schema, e.table,
+                        self.auth.storage_token, owner=owner, ttl=seconds, wait=seconds))  # type: ignore[attr-defined]
+                if guard:
+                    guard()
+                yield
+        return table_lock
+
     def _run_here(self, project: Project, env: str, names: list[str] | None = None, backfill: str | None = None,
                   cascade: bool = False) -> list[dict[str, Any]]:
         """Run on this PC, whatever the environment's compute (schedules on this PC use it)."""
@@ -462,7 +498,8 @@ class MetaMixin:
         project = self._released(project, env, store)
         keys_store = self._keys_store(project, env, create=env == "dev") if self._uses_keys(project, names) else None
         engine = Engine(project, store, keys_store=keys_store, source_options=self._source_options,
-                        link_table=self._link_table(project, env))  # type: ignore[attr-defined]
+                        link_table=self._link_table(project, env),  # type: ignore[attr-defined]
+                        table_lock=self._table_lock(project, env, store))
         if cascade and names and len(names) == 1:
             results: list[RunResult] = engine.backfill(names[0])
         else:

@@ -1447,6 +1447,32 @@ test("a failed shortcut rules check isn't swallowed and an incomplete reader lis
   assert.match(estate, /res\.partial \?/);
 });
 
+// HD-020 (SH-1, UI-1): the page has a Content Security Policy, and notebook HTML output runs on
+// its own origin, never in the app's, where the Tauri API is.
+test("the app has a strict CSP and notebook HTML output stays off the app's origin", () => {
+  const conf = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "src-tauri", "tauri.conf.json"), "utf8"));
+  const csp = conf.app.security.csp;
+  assert.ok(csp, "tauri.conf.json must set app.security.csp");
+  const text = typeof csp === "string" ? csp : Object.entries(csp).map(([k, v]) => `${k} ${[].concat(v).join(" ")}`).join("; ");
+  const directives = Object.fromEntries(text.split(";").map((d) => d.trim().split(/\s+/)).filter((d) => d[0]).map(([k, ...v]) => [k, v]));
+  assert.ok(!/unsafe-eval|wasm-unsafe-eval/.test(text), text);
+  const scripts = directives["script-src"] || directives["default-src"] || [];
+  assert.ok(scripts.length && !scripts.some((s) => /unsafe-inline|\*|^https?:$|^data:$|^blob:$/.test(s)), `script-src: ${scripts}`);
+  assert.deepStrictEqual(directives["object-src"], ["'none'"]);
+  assert.ok(!(directives["frame-src"] || []).includes("'self'"), "notebook output must not be framed from the app's origin");
+
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(!/<script(?![^>]*\bsrc=)[^>]*>/.test(html), "index.html has an inline script");
+  assert.ok(!/\son[a-z]+\s*=/i.test(html), "index.html has an inline event handler");
+
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const frame = /function htmlFrame\([\s\S]*?\n}\n/.exec(nb)[0];
+  assert.match(frame, /sandbox: "allow-scripts"/);
+  assert.ok(!/allow-same-origin|srcdoc/.test(frame), frame);
+  assert.match(frame, /convertFileSrc\("frame", "nbout"\)/);
+  assert.ok(directives["frame-src"].includes("nbout:"), "frame-src must allow the nbout: output frame");
+});
+
 // The Wolf Forge emblem is the app's logo: header, favicon and the Windows icon set.
 test("the header and favicon use the Wolf Forge emblem and the icon set covers small sizes", () => {
   const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
@@ -3877,6 +3903,77 @@ test("variables filter on name or type and sort by name, type or memory with unk
   assert.deepStrictEqual(names({ sort: "name", desc: true }), ["sdf", "sales", "Count", "cfg"]);
   assert.strictEqual(rows[0].name, "sales");  // the kernel's rows aren't reordered
   assert.doesNotMatch(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /function variableTable/);
+});
+
+// ipywidgets (ipywidgets.js): the kernel holds the state; a change goes to notebook_ipywidget_event and the answer is drawn.
+function widgetsHarness(answer) {
+  const src = fs.readFileSync(path.join(ui, "ipywidgets.js"), "utf8");
+  const { node } = chartsHarness(null);
+  const calls = [];
+  const ctx = { state: { notebook: { name: "Sales" } }, h: node, friendlyError: String, previewMarked: (_id, n) => n, htmlFrame: (html) => node("iframe", { srcdoc: html }),
+    renderOutput: (o) => node("pre", {}, o.text || o.type),
+    rpc: async (m, a) => { calls.push([m, JSON.parse(JSON.stringify(a))]); return typeof answer === "function" ? answer(a) : answer; } };
+  vm.createContext(ctx);
+  vm.runInContext(src + "\nthis.api = { renderWidgetOutput, drawWidget };", ctx);
+  return { ctx, calls };
+}
+
+test("ipywidgets controls send their change to the kernel and draw its answer", async () => {
+  const view = { id: "w5", kind: "vbox", description: "", disabled: false, children: [
+    { id: "w1", kind: "slider", description: "n", disabled: false, value: 5, min: 1, max: 10, step: 1 },
+    { id: "w2", kind: "dropdown", description: "name", disabled: false, options: ["a", "b"], index: 0 },
+    { id: "w3", kind: "checkbox", description: "flag", disabled: false, value: true },
+    { id: "w6", kind: "button", description: "Go", disabled: false },
+    { id: "w7", kind: "html", description: "", disabled: false, value: "<b>x</b>" },
+    { id: "w4", kind: "output", description: "", disabled: false, outputs: [{ type: "stream", text: "5 a True\n" }] }] };
+  const answer = { status: "ok", outputs: [{ type: "stream", text: "clicked\n" }], view: { ...view, children: [{ ...view.children[0], value: 9 }] } };
+  const { ctx, calls } = widgetsHarness(answer);
+  const o = { type: "widget", model: "w5", view };
+  const wrap = ctx.api.renderWidgetOutput(o, { id: "c" });
+  const nodes = allNodes(wrap);
+  const range = nodes.find((n) => n.tag === "input" && n.attrs.type === "range");
+  assert.deepStrictEqual([range.attrs.min, range.attrs.max, range.attrs.value], [1, 10, 5]);
+  range.attrs.onchange({ target: { value: "9" } });
+  assert.deepStrictEqual(calls[0], ["notebook_ipywidget_event", { model: "w1", event: { value: 9 }, root: "w5", notebook: "Sales" }]);
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(o.view.children[0].value, 9);
+  assert.strictEqual(o.events[0].text, "clicked\n");
+  assert.ok(wrap.replaced, "redrawn with the kernel's answer");
+  const tick = () => new Promise((r) => setImmediate(r));
+  nodes.find((n) => n.tag === "select").attrs.onchange({ target: { value: "1" } });
+  // While the kernel answers, changes wait and only the latest is sent next.
+  nodes.find((n) => n.tag === "input" && n.attrs.type === "checkbox").attrs.onchange({ target: { checked: false } });
+  nodes.find((n) => n.tag === "button").attrs.onclick();
+  assert.strictEqual(calls.length, 2);
+  await tick();
+  await tick();
+  assert.deepStrictEqual(calls.slice(1).map(([, a]) => a.event), [{ index: 1 }, { click: true }]);
+  // The HTML widget goes to the sandboxed frame; nothing in this file writes HTML itself.
+  assert.ok(nodes.some((n) => n.tag === "iframe" && n.attrs.srcdoc === "<b>x</b>"));
+  const src = fs.readFileSync(path.join(ui, "ipywidgets.js"), "utf8");
+  assert.doesNotMatch(src, /innerHTML|insertAdjacentHTML|outerHTML|srcdoc/);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /if \(o\.type === "widget"\) return renderWidgetOutput\(o, cell\);/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="wrangler\.js"><\/script>\n  <script src="ipywidgets\.js"><\/script>/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /ipywidgets: "Notebook widgets"/);
+});
+
+test("a widget after a restart asks for its cell again, and a busy kernel's refusal shows under it", async () => {
+  const gone = widgetsHarness({ gone: true, message: "This control is no longer held by the kernel (it restarted). Run the cell again." });
+  const o = { type: "widget", model: "w1", view: { id: "w1", kind: "button", description: "Go", disabled: false } };
+  const wrap = gone.ctx.api.renderWidgetOutput(o, null);
+  allNodes(wrap).find((n) => n.tag === "button").attrs.onclick();
+  await new Promise((r) => setImmediate(r));
+  assert.match(o.gone, /Run the cell again/);
+  const busy = widgetsHarness(() => Promise.reject(new Error("A cell is running. The control works again when it finishes.")));
+  const o2 = { type: "widget", model: "w1", view: { id: "w1", kind: "text", description: "q", disabled: false, value: "" } };
+  const wrap2 = busy.ctx.api.renderWidgetOutput(o2, null);
+  allNodes(wrap2).find((n) => n.tag === "input").listeners.change();
+  await new Promise((r) => setImmediate(r));
+  assert.ok(allNodes(wrap2.replaced).some((n) => n.attrs?.role === "alert"));
+  // Disabled controls are drawn disabled.
+  const d = busy.ctx.api.drawWidget({ id: "w9", kind: "slider", description: "", disabled: true, value: 1, min: 0, max: 2, step: 1 }, () => {}, null, 0);
+  assert.strictEqual(allNodes(d).find((n) => n.tag === "input").attrs.disabled, true);
 });
 
 // Folders for notebooks (notebook-files.js, notebook_folders_service.py): the grouped tree, where a

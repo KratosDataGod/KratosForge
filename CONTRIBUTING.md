@@ -30,11 +30,13 @@ cd app\src-tauri
 cargo run
 ```
 
+`FABRIC_DESKTOP_PYTHON` must be the full path to `python.exe`. A debug build (`cargo run`) without it falls back to `python` on `PATH`; a release build (`cargo build --release`, `cargo tauri build` or CI) never does, and refuses a bare name such as `python`, so set the full path to test one with your own Python. The browser tests read `FABRIC_DESKTOP_PYTHON` themselves to start the sidecar and don't go through the shell.
+
 The UI is plain HTML and JavaScript in `app/ui/` with no build step; reload the window to see a change. How the pieces fit is in [docs/architecture.md](docs/architecture.md).
 
 ## Rules for changes
 
-- **Tests pass.** `python -m pytest -q` in `sidecar/` and `node --test app/tests/ui.test.cjs` before you push. CI also builds the exe and the engine on Windows. Pages with browser tests (`app/tests/browser/`, for example the SQL query page) open the real UI in Chromium with the shell stubbed: install Playwright (`npm install -g playwright`, then `npx playwright install chromium`) and run `node --test app/tests/browser/sql-editor.test.cjs app/tests/browser/sql-compat.test.cjs` with `NODE_PATH` set to `npm root -g`. They don't run in CI yet.
+- **Tests pass.** `python -m pytest -q` in `sidecar/` and `node --test app/tests/ui.test.cjs` before you push. CI also builds the exe and the engine on Windows, and runs the shell's Rust tests there (`cargo test --release --locked` in `app/src-tauri`; on Linux they need the GTK and WebKitGTK development packages). Pages with browser tests (`app/tests/browser/`, for example the SQL query page) open the real UI in Chromium with the shell stubbed: install Playwright (`npm install -g playwright`, then `npx playwright install chromium`) and run `node --test app/tests/browser/sql-editor.test.cjs app/tests/browser/sql-compat.test.cjs` with `NODE_PATH` set to `npm root -g`. They don't run in CI yet.
 - **Package versions are pinned.** The engine ships the versions in `sidecar/constraints.txt`. To move a package, change it there in its own pull request so CI tests it first. Install with `python -m pip install -e ".[dev]" -c constraints.txt` to test what users get.
 - **New UI goes where people already look.** Read [docs/ui-guidelines.md](docs/ui-guidelines.md): register pages and commands in `features.js`, keep the left rail at 8 items or fewer, put new features in an existing page.
 - **Untested on a tenant means Preview.** A feature that hasn't run against a live Fabric tenant is added to `PREVIEW_FEATURES` and shows a Preview tag.

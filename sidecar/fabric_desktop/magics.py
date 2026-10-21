@@ -37,20 +37,67 @@ def _match(text: str) -> tuple[str, str, str, str | None] | None:
     return None
 
 
+def _lines(code: str) -> list[tuple[str, tuple[str, str, str, str | None] | None]]:
+    """Each line with its magic, if it is one. As in IPython, only a line that starts a statement can
+    be a magic: one inside a triple-quoted string, brackets or after a backslash is left alone."""
+    out = []
+    quote, depth, joined = "", 0, False
+    for text in code.split("\n"):
+        m = None if quote or depth or joined else _match(text)
+        out.append((text, m))
+        if m is None:
+            quote, depth = _scan(text, quote, depth)
+            joined = not quote and text.endswith("\\") and not text.endswith("\\\\")
+        else:
+            joined = False
+    return out
+
+
+def _scan(text: str, quote: str, depth: int) -> tuple[str, int]:
+    """The open triple quote and bracket depth after a line of Python, given those before it.
+    Single-quoted strings and comments end with the line."""
+    i, n = 0, len(text)
+    while i < n:
+        if quote:
+            if text[i] == "\\":
+                i += 2
+                continue
+            if text.startswith(quote, i):
+                i += len(quote)
+                quote = ""
+                continue
+            i += 1
+            continue
+        c = text[i]
+        if c == "#":
+            break
+        if c in "\"'":
+            q = text[i:i + 3] if text[i:i + 3] in ('"""', "'''") else c
+            if len(q) == 3:
+                quote, i = q, i + 3
+                continue
+            j = i + 1
+            while j < n and text[j] != c:
+                j += 2 if text[j] == "\\" else 1
+            i = j + 1
+            continue
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth = max(depth - 1, 0)
+        i += 1
+    return quote, depth
+
+
 def find(code: str) -> list[Magic]:
     """The line magics (and ``!`` lines) in a cell's code, in order."""
-    found = []
-    for i, text in enumerate(code.split("\n"), 1):
-        if m := _match(text):
-            found.append(Magic(i, m[1], m[2], m[3]))
-    return found
+    return [Magic(i, m[1], m[2], m[3]) for i, (_, m) in enumerate(_lines(code), 1) if m]
 
 
 def rewrite(code: str) -> str:
     """The cell's code with each line magic replaced by a call the kernel answers."""
     out = []
-    for text in code.split("\n"):
-        m = _match(text)
+    for text, m in _lines(code):
         if m is None:
             out.append(text)
             continue
@@ -63,8 +110,7 @@ def blank(code: str) -> str:
     """The cell's code as reading tools see it: magic lines blanked, keeping line numbers, and
     ``x = %magic ...`` kept as ``x = None`` so ``x`` is still defined there."""
     out = []
-    for text in code.split("\n"):
-        m = _match(text)
+    for text, m in _lines(code):
         if m is None:
             out.append(text)
         else:

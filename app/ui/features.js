@@ -63,6 +63,7 @@ const PREVIEW_FEATURES = {
   resultViewer: "Result downloads",
   chartBuilder: "Chart builder",
   dataWrangler: "Data Wrangler",
+  ipywidgets: "Notebook widgets",
   mesh: "Data mesh",
   platform: "Platform",
   sourceControl: "Source control",

@@ -529,6 +529,10 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
                 return {"frame": frame, "gone": True, "message": GONE}
             raise
 
+    def notebook_ipywidget_event(self, model: str, event: dict[str, Any] | None = None, root: str | None = None) -> dict[str, Any]:
+        """An ipywidgets control changed in a cell's output: set it and run its handlers in the kernel."""
+        return self.kernel.ipywidget_event(model=str(model), event=dict(event or {}), root=root)
+
     def notebook_frame_download(self, frame: str, format: str = "csv", name: str = "") -> dict[str, Any]:
         """Write a cell's whole result to a new file in Downloads (CSV, Excel or Parquet); never replaces a file."""
         if format not in DOWNLOAD_FORMATS:

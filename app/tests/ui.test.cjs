@@ -1447,6 +1447,31 @@ test("a failed shortcut rules check isn't swallowed and an incomplete reader lis
   assert.match(estate, /res\.partial \?/);
 });
 
+// Plan step 7: OneLake > Access > All workspaces reads the access cache and flags what's worth a look.
+test("the access cache view flags what's worth a look and asks before setting anything up", () => {
+  const src = fs.readFileSync(path.join(ui, "access-cache.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src}\nthis.flags = accessCacheFlags; this.filters = ACCESS_CACHE_FILTERS;`, ctx);
+  const w = {
+    people: [{ name: "Ann", type: "User", role: "Admin", guest: false }, { name: "Readers", type: "Group", role: "Viewer", guest: false },
+      { name: "Bo", type: "User", role: "Viewer", guest: true }, { name: "Loader", type: "ServicePrincipal", role: "Admin", guest: false }],
+    lakehouses: [{ item_name: "LH_Gold", known: true, roles: [] }, { item_name: "LH_Unread", known: false, roles: [] }],
+    summary: { guests: 1 }, stale: false,
+  };
+  const flags = ctx.flags(w);
+  assert.strictEqual(flags.map((f) => f.kind).join(), "byname,guests,apps,nosecurity");
+  assert.strictEqual(flags[3].lakehouse.item_name, "LH_Gold");  // a lakehouse never read isn't flagged as having no roles
+  const keep = Object.fromEntries(ctx.filters.map(([id, , fn]) => [id, fn]));
+  assert.ok(keep.byname(w, flags) && keep.guests(w, flags) && !keep.stale(w, flags));
+  assert.ok(keep.stale({ ...w, lakehouses: [{ stale: true }] }, []));
+  // The first refresh and the role change only happen after the person confirms the sidecar's plan.
+  assert.match(src, /includes\("Confirm to continue"\)[\s\S]*confirmDialog[\s\S]*approve: true/);
+  const estate = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
+  const panel = estate.match(/howItWorks\("onelake\.access-all", \{[\s\S]*?\n    \}\)/)?.[0] || "";
+  assert.match(panel, /changes: "Refresh changes adds rows to the access cache in the central lakehouse/);
+  assert.match(panel, /OneLake security roles/);
+});
+
 // HD-052 (UI-8): pages are built with h(), which only makes text nodes, so data can't become markup.
 // A new raw HTML (or code) sink in app/ui fails here unless it is reviewed and added below with why
 // it is safe. Keys are the file and the exact trimmed line, so editing an allowed line needs a new review.

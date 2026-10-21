@@ -118,6 +118,11 @@ from .platform_notify_service import METHODS as PLATFORM_NOTIFY_METHODS  # noqa:
 
 METHODS |= PLATFORM_NOTIFY_METHODS
 
+# OneLake > Access across every workspace: the access cache (access_cache_service.py).
+from .access_cache_service import METHODS as ACCESS_CACHE_METHODS  # noqa: E402
+
+METHODS |= ACCESS_CACHE_METHODS
+
 # A notebook's resources folder (notebook_resources_service.py).
 from .notebook_resources_service import METHODS as NOTEBOOK_RESOURCE_METHODS  # noqa: E402
 

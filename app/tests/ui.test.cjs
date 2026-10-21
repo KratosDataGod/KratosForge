@@ -2785,7 +2785,7 @@ test("Inspect profiles every row of a held result, and says so when the kernel n
   const big = ctx.p({ frame: "h", columns: ["v"], rows: [[1]] }, [true], "x");
   await new Promise((r) => setImmediate(r));
   assert.match(texts(big), /Infinite3/);
-  assert.match(texts(big), /Profile of an even sample of 1,000,000 of 5,000,000 rows$/);
+  assert.match(texts(big), /Profile of a random sample of 1,000,000 of 5,000,000 rows$/);
   assert.ok(o.profile && ctx.p(o, [true, false], "x") !== box, "a held profile redraws without asking again");
   const o2 = { frame: "g", columns: ["n"], rows: [[1]] };
   const box2 = ctx.p(o2, [true], "1 row");

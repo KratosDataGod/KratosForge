@@ -1174,7 +1174,7 @@ function renderProfile(o, numeric, count) {
       }
       return h("div", { class: "inspect-col" }, h("div", { class: "inspect-name" }, c.name, h("span", {}, c.type)),
         picture, h("dl", {}, stats.map(([k, v]) => [h("dt", {}, k), h("dd", {}, v)])));
-    })), h("div", { class: "more" }, (p.sampled ? `Profile of an even sample of ${p.profiled_rows.toLocaleString()} of ${p.rows.toLocaleString()} rows`
+    })), h("div", { class: "more" }, (p.sampled ? `Profile of a random sample of ${p.profiled_rows.toLocaleString()} of ${p.rows.toLocaleString()} rows`
       : `Profile of all ${p.rows.toLocaleString()} row${p.rows === 1 ? "" : "s"}`) +
       (p.more_columns ? `. ${p.more_columns} more column${p.more_columns === 1 ? " isn't" : "s aren't"} profiled; select fewer columns to see them.` : "")));
   };

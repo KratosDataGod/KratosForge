@@ -21,6 +21,7 @@ import datetime as dt
 import decimal
 import logging
 import os
+import random
 import threading
 import uuid
 import zipfile
@@ -41,7 +42,7 @@ MAX_PAGE_ROWS = 1000
 EXCEL_MAX_ROWS = 1_048_575  # a sheet's 1,048,576 rows less the header
 DOWNLOAD_FORMATS = ("csv", "xlsx", "parquet")
 PROFILE_COLUMNS = 200
-PROFILE_ROWS = 250_000  # above this, an even sample: about 5 s for 50 columns on a laptop
+PROFILE_ROWS = 250_000  # above this, a random sample: about 5 s for 50 columns on a laptop
 HISTOGRAM_BINS = 12
 class FrameGone(LookupError):
     """The result an output points at isn't held any more."""
@@ -205,7 +206,7 @@ class Frames:
         everything else the most common values. NaN counts as missing, as in Fabric's summary;
         infinite values are counted but left out of the number statistics.
 
-        A result over ``PROFILE_ROWS`` rows is profiled from an even sample of that many rows (the
+        A result over ``PROFILE_ROWS`` rows is profiled from a random sample of that many rows (the
         answer says so), so Inspect stays quick on a large result. A column that can't be
         profiled says why and the others still are."""
         import duckdb
@@ -213,8 +214,9 @@ class Frames:
         table = whole
         sampled = whole.num_rows > PROFILE_ROWS
         if sampled:
-            step = whole.num_rows / PROFILE_ROWS
-            table = whole.take(pa.array([int(i * step) for i in range(PROFILE_ROWS)]))
+            # A random sample (the same one each time): an every-nth-row sample skews data that repeats.
+            picks = sorted(random.Random(0).sample(range(whole.num_rows), PROFILE_ROWS))
+            table = whole.take(pa.array(picks))
         fields = list(table.schema)[:PROFILE_COLUMNS]
         cols = [f"c{i}" for i in range(table.num_columns)]
         con = duckdb.connect()

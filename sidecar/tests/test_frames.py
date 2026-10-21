@@ -228,10 +228,14 @@ def test_one_column_that_cant_be_profiled_doesnt_hide_the_others(monkeypatch):
     assert "Out of Range" in p["columns"][0]["error"] and p["columns"][1]["max"] == 2
 
 
-def test_a_large_result_is_profiled_from_an_even_sample(monkeypatch):
+def test_a_large_result_is_profiled_from_a_random_sample(monkeypatch):
     monkeypatch.setattr(frames, "PROFILE_ROWS", 100)
     store = Frames()
     p = store.profile(store.keep(pa.table({"n": list(range(1000))})))
     assert p["sampled"] and (p["rows"], p["profiled_rows"]) == (1000, 100)
     (n,) = p["columns"]
-    assert n["min"] == 0 and n["max"] == 990
+    assert n["min"] < 50 and n["max"] > 950
+    # Data that repeats every 4 rows: an every-10th-row sample would only ever see 0 and 2.
+    p = store.profile(store.keep(pa.table({"k": ["abcd"[i % 4] for i in range(1000)]})))
+    assert p["columns"][0]["distinct"] == 4
+    assert store.profile(store.keep(pa.table({"n": list(range(1000))})))["columns"][0]["min"] == n["min"], "the same sample each time"

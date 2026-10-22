@@ -169,10 +169,12 @@ from helpers import clean_names    # after you edit helpers.py, clean_names is t
   `%autoreload 1` (`explicit`) only those named with `%aimport helpers`; `%autoreload 0` (`off`)
   stops. `%autoreload` alone reloads changed modules now. `%aimport -name` leaves one out, and
   `%aimport` lists both.
-- Only your own files reload: Python's own modules, installed packages and KratosForge's engine
-  never do.
-- Names taken with `from helpers import f` follow the new code. Objects made before the edit keep
-  their old class, so make them again if their class changed.
+- Only your own files reload: Python's own modules, installed packages (also `pip install --user`
+  ones) and KratosForge's engine never do.
+- Names taken with `from helpers import f` follow the new code. A number or string follows only
+  under its own name (`from helpers import LIMIT`), so your own `n = 10` stays 10 when the module's
+  value changes. Objects made before the edit keep their old class, so make them again if their
+  class changed.
 - A file that fails to reload (a syntax error) is reported above the cell's output, and the cell
   runs with the module as it was.
 

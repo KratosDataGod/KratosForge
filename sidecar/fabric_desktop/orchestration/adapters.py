@@ -45,7 +45,7 @@ class ActivityContext(Protocol):
 
     def set_return_value(self, key: str, value: Any) -> None: ...
 
-    def run_child(self, activity: Activity, key: str, parameters: dict[str, Any]) -> dict[str, Any]: ...
+    def run_child(self, activity: Activity, key: str, parameters: dict[str, Any], wait: bool = True) -> dict[str, Any]: ...
 
     def run_notebook(self, activity: Activity, parameters: dict[str, Any]) -> dict[str, Any]: ...
 
@@ -293,9 +293,10 @@ class ExecutePipeline(LocalAdapter):
         params = _eval(activity.type_properties.get("parameters") or {}, ctx.scope, "parameters")
         if not isinstance(params, dict):
             raise ActivityFailed("parameters must be an object.", "LocalExpressionError")
-        if activity.type_properties.get("waitOnCompletion") is False:
+        wait = activity.type_properties.get("waitOnCompletion") is not False
+        if not wait:
             ctx.note(wait_on_completion=False)
-        return ctx.run_child(activity, child_key(activity), params)
+        return ctx.run_child(activity, child_key(activity), params, wait)
 
 
 def _timespan(text: str) -> float:

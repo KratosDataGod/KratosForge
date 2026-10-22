@@ -36,6 +36,8 @@ _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-0
 # calling it or when it leaves METHODS; the test below fails until you do.
 # Dropping a name from METHODS? Also drop it from the timeout list in app/src-tauri/src/watchdog.rs.
 NO_UI_CALLER: dict[str, str] = {
+    # Engine first; the cell's "Query profile" link waits on Chris's mockup review (runtime parity PR 7).
+    "notebook_frame_query_profile": "UI after the mockup is approved",
     # MCP / local HTTP API tools (in-process).
     "placement_advice": _MCP + "; Prove shows it later (docs/finops/placement-advice.md)",
     "notebook_environment": _MCP,

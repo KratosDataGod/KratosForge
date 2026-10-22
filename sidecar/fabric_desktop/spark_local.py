@@ -14,8 +14,12 @@ resolve to the DuckDB versions, unless real PySpark is installed.
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
 import re
 import sys
+import tempfile
+import threading
 import weakref
 from typing import Any
 
@@ -853,6 +857,67 @@ def progress() -> float | None:
     except Exception:  # noqa: BLE001  # silent-ok: progress is a hint; a closed connection has none
         return None
     return round(p, 1) if p is not None and 0 < p <= 100 else None
+
+
+PROFILE_NODES = 200  # operators a query profile lists; a bigger plan says how many it left out
+_profile_lock = threading.Lock()
+
+
+def query_profile(df: Any) -> dict[str, Any]:
+    """Run a ``spark`` DataFrame's query again under DuckDB's profiler (EXPLAIN ANALYZE): each step
+    of the plan with the rows it produced, its time and its share of the total, the closest local
+    view to a Spark UI's query details. Reads only, like the query itself; it costs one more run."""
+    rel = getattr(df, "relation", None)
+    if _session is None or rel is None or not type(df).__module__.startswith("duckdb.experimental.spark"):
+        raise ValueError("A query profile is for a result of spark or %%sql. Show one as the cell's result, "
+                         "then ask for its profile.")
+    conn = _session.conn
+    fd, out = tempfile.mkstemp(prefix="kratosforge-profile-", suffix=".json")
+    os.close(fd)
+    with _profile_lock:  # the profiler is the connection's own setting; one profile at a time
+        try:
+            conn.execute("PRAGMA enable_profiling='json'")
+            conn.execute("SET profiling_output='" + out.replace("'", "''") + "'")  # SET takes no parameters
+            text = rel.explain(type="analyze")
+        finally:
+            for statement in ("PRAGMA disable_profiling", "RESET profiling_output"):
+                try:
+                    conn.execute(statement)
+                except duckdb.Error:  # silent-ok: a closed connection keeps no setting to undo
+                    pass
+            try:
+                os.unlink(out)
+            except OSError:  # silent-ok: an empty temp file
+                pass
+    root = json.loads(text)
+    steps: list[dict[str, Any]] = []
+    total = 0.0
+
+    def walk(node: dict[str, Any], depth: int) -> None:
+        nonlocal total
+        name = node.get("operator_name") or node.get("operator_type") or ""
+        if name == "EXPLAIN_ANALYZE":  # the profiler's own step
+            depth -= 1
+        elif name:
+            seconds = float(node.get("operator_timing") or 0)
+            total += seconds
+            if len(steps) < PROFILE_NODES:
+                details = {k: str(v) for k, v in (node.get("extra_info") or {}).items() if v not in ("", None)}
+                steps.append({"depth": depth, "name": name, "rows": int(node.get("operator_cardinality") or 0),
+                              "seconds": round(seconds, 6), "details": details})
+            else:
+                steps.append({})  # counted, not listed
+        for child in node.get("children") or []:
+            walk(child, depth + 1)
+    walk(root, -1)
+    listed = [st for st in steps if st]
+    for st in listed:
+        st["share"] = round(st["seconds"] / total, 4) if total else 0.0
+    return {"seconds": round(float(root.get("latency") or 0), 6),
+            "rows": listed[0]["rows"] if listed else 0,
+            "rows_scanned": int(root.get("cumulative_rows_scanned") or 0),
+            "peak_memory": int(root.get("system_peak_buffer_memory") or 0),
+            "steps": listed, "more_steps": len(steps) - len(listed)}
 
 
 def interrupt() -> None:

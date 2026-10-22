@@ -574,6 +574,16 @@ class Service(AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineR
                 return {"frame": frame, "gone": True, "message": GONE}
             raise
 
+    def notebook_frame_query_profile(self, frame: str) -> dict[str, Any]:
+        """Query profile: the query behind a cell's spark or %%sql result, run again under DuckDB's
+        profiler, step by step (rows, time, share of the total). Reads only."""
+        try:
+            return self.kernel.frame_query_profile(frame=frame)
+        except (FrameGone, RuntimeError) as exc:
+            if isinstance(exc, FrameGone) or str(exc) == GONE:
+                return {"frame": frame, "gone": True, "message": GONE}
+            raise
+
     def notebook_frame_wrangle(self, frame: str, steps: list[dict[str, Any]] | None = None, name: str = "df") -> dict[str, Any]:
         """Data Wrangler: Polars code for the cleaning steps and a preview of it on a cell's result.
         Reads only; the notebook changes when the person adds the code as a cell and runs it."""

@@ -1927,3 +1927,9 @@ html[data-fx-ambient="on"] .flow-node[data-state="running"] .flow-link::after { 
 .pn-route .note-box { padding: 10px 12px; background: var(--hover); border-radius: 6px; font-size: 13px; }
 .pn-route .note-box p { margin: 4px 0 0; }
 .pn-waiting-line .pill-s { white-space: nowrap; }
+
+/* Shared notebook sessions (sessions.js). */
+.share-session { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 12px; }
+.share-session .row { gap: 8px; }
+.share-session select { flex-grow: 1; }
+.status-link.shared-session { color: var(--accent); background: var(--accent-soft); border-radius: 3px; padding: 0 6px; font-weight: 600; }

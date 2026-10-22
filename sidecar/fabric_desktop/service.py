@@ -229,6 +229,7 @@ class Service(AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineR
     def kernel_sessions(self) -> dict[str, Any]:
         """The Sessions list: each notebook's session, and sessions stopped since the last look."""
         return {"process": self.sessions.in_process, "sessions": self.sessions.describe(),
+                "shared": self.sessions.joined(),
                 "notes": self.sessions.take_notes(), "max_sessions": int(app_settings.value("kernel_max_sessions") or 0),
                 "idle_minutes": float(app_settings.value("kernel_idle_minutes") or 0)}
 
@@ -238,6 +239,35 @@ class Service(AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineR
         if self.proof_busy() and (notebook is None or notebook == self.sessions.active):
             raise RuntimeError("A proof is using the kernel. Cancel the proof first.")
         return self.sessions.stop(self.sessions.active if notebook is None else notebook)
+
+    def kernel_session_share(self, notebook: str, host: str) -> dict[str, Any]:
+        """``notebook`` joins ``host``'s session, as Fabric's high-concurrency sessions do: same
+        ``spark``, temp views and settings, one cell at a time, variables of its own. Like Fabric,
+        both need the same default lakehouse and environment. ``notebook``'s own session ends."""
+        if self.proof_busy():
+            raise RuntimeError("A proof is using a notebook's kernel. Share sessions when it has finished.")
+        host = self.sessions.host_of(host) or host
+
+        def lakehouse_of(name: str) -> Any:
+            try:
+                ref = self.notebooks.load(name).get("lakehouse")
+            except (OSError, KeyError, ValueError):
+                return None  # a notebook that isn't saved yet has none
+            if isinstance(ref, dict):
+                return ref.get("lakehouse_id") or ref.get("name") or None
+            return ref or None
+
+        if lakehouse_of(notebook) != lakehouse_of(host):
+            raise RuntimeError(f"{notebook} and {host} have different default lakehouses. Notebooks in a shared "
+                               "session use the same one, as in Fabric; change one of them first.")
+        if self.environments.of(notebook) != self.environments.of(host):
+            raise RuntimeError(f"{notebook} and {host} use different environments. Notebooks in a shared session "
+                               "use the same one, as in Fabric; change one of them first.")
+        return self.sessions.share(notebook, host)
+
+    def kernel_session_leave(self, notebook: str) -> dict[str, Any]:
+        """``notebook`` leaves its shared session; its next cell starts a session of its own."""
+        return self.sessions.leave(notebook)
 
     def app_settings(self) -> dict[str, Any]:
         return {**app_settings.load(), "policy_file": str(app_settings.policy_path()),

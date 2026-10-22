@@ -176,6 +176,16 @@ With the setting off, cells run inside the app's engine, which has one attached 
 - **Notebooks with a session** (default 5). Running one more notebook stops the least recently used idle session and says so. A running session is never stopped to make room.
 - **Stop idle sessions after** (default never). A session you haven't used for this long, in a notebook you don't have open, is stopped to give back memory, like Fabric's session timeout.
 
+**Shared sessions** (Preview) work like Fabric's high-concurrency sessions. In **Sessions**, **Share this notebook's session with** picks another notebook, which then runs in this notebook's process. Its own session ends first, so its variables are cleared. Notebooks in a shared session share `spark`, its temp views and `spark.conf` settings, so a temp view one notebook makes is there for the other. They run one cell at a time: running a cell while another notebook in the session runs one says which notebook is busy. Variables stay each notebook's own.
+
+- **Same lakehouse and environment.** As in Fabric, both notebooks need the same default lakehouse and the same environment.
+- **Restart** in a notebook that joined a session clears only its own variables, and so does restarting Python in one of its cells (`dbutils.library.restartPython()`). In the notebook whose session it is, Restart starts the session over for every notebook in it, as Stop does.
+- **Environments** can't be changed for a notebook that joined a session; it uses the session's. `%pip install` in it installs into that environment.
+- **Stop** ends the shared session for every notebook in it.
+- **Leave** gives a notebook a session of its own again, starting with its next cell.
+- **Proofs and replays** need the notebook's own session, so leave the shared session first.
+- The status bar says **Shared session · 2 notebooks** while the open notebook is in one. Execution counts are the session's, so they go up across its notebooks.
+
 ### Notebook environments (Preview)
 
 An environment adds Python packages to a notebook, like a Fabric Environment item or Databricks notebook-scoped libraries. It needs **Run notebooks in their own process**. **Environment** in the notebook's status bar picks the notebook's environment or makes a new one, lists its packages, and installs or removes them. Several notebooks can share one environment.

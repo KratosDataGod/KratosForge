@@ -64,6 +64,7 @@ const PREVIEW_FEATURES = {
   chartBuilder: "Chart builder",
   severalCharts: "Several charts per result",
   dataWrangler: "Data Wrangler",
+  sharedSessions: "Shared notebook sessions",
   ipywidgets: "Notebook widgets",
   altair: "Altair charts in notebooks",
   mesh: "Data mesh",

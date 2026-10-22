@@ -4441,3 +4441,49 @@ test("pop-out windows load popout.js after app.js and get no more than the main 
   const shell = fs.readFileSync(path.join(__dirname, "..", "src-tauri", "src", "main.rs"), "utf8");
   assert.match(shell, /const POP_OUTS: \[\(&str, &str\); 2\] = \[\("runs", [^)]*\), \("fabric", [^)]*\)\];/);
 });
+
+// Shared sessions (sessions.js): Share sends the picked notebook to join this one's session; a guest can Leave.
+test("Share adds another notebook to this session, and a notebook that shares one can leave it", async () => {
+  const src = fs.readFileSync(path.join(ui, "sessions.js"), "utf8");
+  const { node } = chartsHarness(null);
+  const calls = [];
+  const dialogs = [];
+  const toasts = [];
+  let data = { process: true, notes: [], shared: {}, max_sessions: 5, idle_minutes: 0, sessions: [
+    { notebook: "Sales cleanup", process: true, status: "idle", pid: 10, memory_bytes: 1, cells_run: 3, last_used: 1, active: true, shared_with: [] },
+    { notebook: "Customer churn", process: true, status: "idle", pid: 11, memory_bytes: 1, cells_run: 1, last_used: 1, active: false, shared_with: [] }] };
+  const ctx = { h: node, btn: (label, _i, onclick, _c, attrs = {}) => node("button", { onclick, ...attrs }, label),
+    preview: (_id, n) => n, previewMarked: (_id, n) => n, toast: (t) => toasts.push(t), attempt: (fn) => fn(),
+    when: String, formatBytes: String, go: () => {}, openNotebook: () => {}, renderNotebook: () => {},
+    closeDialog: () => {}, showDialog: (title, body) => dialogs.push(body),
+    openNotebooks: new Map([["Sales cleanup", {}], ["Sales report", {}]]), state: { notebook: { name: "Sales cleanup" }, view: "notebook" },
+    rpc: async (m, a) => { calls.push([m, a]); return m === "kernel_sessions" ? data : m === "kernel_session_share" ? { host: a.host } : { left: "Sales cleanup" }; } };
+  vm.createContext(ctx);
+  vm.runInContext(src + "\nthis.api = { sessionsDialog, sessionsButton, sharedCount: (n) => sharedCount(n) };", ctx);
+  await ctx.api.sessionsDialog();
+  const text = (n) => allNodes(n).flatMap((x) => x.kids.filter((k) => typeof k === "string")).join(" ");
+  const select = allNodes(dialogs[0]).find((n) => n.tag === "select");
+  assert.deepStrictEqual(select.kids.map((o) => o.attrs.value), ["Customer churn", "Sales report"]);
+  assert.match(text(dialogs[0]), /Share this notebook's session with/);
+  assert.match(text(dialogs[0]), /same default lakehouse and environment/);
+  select.value = "Sales report";
+  allNodes(dialogs[0]).find((n) => n.tag === "button" && n.kids.includes("Share")).attrs.onclick();
+  await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(plain(calls.find(([m]) => m === "kernel_session_share")[1]), { notebook: "Sales report", host: "Sales cleanup" });
+  assert.match(toasts.join(" "), /Sales report now shares Sales cleanup's session. Its variables were cleared/);
+  // The host's row names its guests, and the status bar says the session is shared.
+  data = { ...data, shared: { "Sales report": "Sales cleanup" }, sessions: [{ ...data.sessions[0], shared_with: ["Sales report"] }] };
+  await ctx.api.sessionsDialog();
+  assert.match(text(dialogs[dialogs.length - 1]), /Shared with Sales report/);
+  assert.strictEqual(ctx.api.sharedCount("Sales report"), 2);
+  assert.ok(ctx.api.sessionsButton().kids.includes("Shared session · 2 notebooks"));
+  // A notebook that shares one says whose, and leaves it.
+  ctx.state.notebook = { name: "Sales report" };
+  await ctx.api.sessionsDialog();
+  const last = dialogs[dialogs.length - 1];
+  assert.match(text(last), /Sales report shares Sales cleanup's session/);
+  allNodes(last).find((n) => n.tag === "button" && n.kids.includes("Leave")).attrs.onclick();
+  await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(plain(calls.find(([m]) => m === "kernel_session_leave")[1]), { notebook: "Sales report" });
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /sharedSessions: "Shared notebook sessions"/);
+});

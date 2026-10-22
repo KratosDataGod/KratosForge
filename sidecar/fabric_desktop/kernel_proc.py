@@ -31,7 +31,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from . import lakehouse, notebook
 from .frames import GONE, FrameGone
@@ -155,6 +155,30 @@ class ProcessKernel:
         self.limit_hit = ""  # "time" or "memory" when a limit stopped the last cell
         self.library_paths: list[str] = []  # a notebook environment's folders, after the engine's (environments.py)
         self.output_dir: Path | None = None  # where the process puts output past the cap (notebook.SPILL_DIR_ENV)
+        # A shared session (kernel_sessions.share): requests made under as_guest carry the guest
+        # notebook's name, and the child answers with that notebook's variables and cells.
+        self._guest = threading.local()
+        self._owner: str | None = None  # the notebook whose cell is running (or ran last)
+        self._owner_name = ""
+
+    @contextlib.contextmanager
+    def as_guest(self, notebook: str | None) -> Iterator[None]:
+        before = getattr(self._guest, "name", None)
+        self._guest.name = notebook or None
+        try:
+            yield
+        finally:
+            self._guest.name = before
+
+    def _guest_name(self) -> str | None:
+        return getattr(self._guest, "name", None)
+
+    def forget_guest(self, notebook: str) -> dict[str, Any]:
+        """A guest left or restarted: its variables go; the process and the other notebooks' stay."""
+        if self._proc is None or self._proc.poll() is not None:
+            return {"forgotten": False}
+        with self.as_guest(None):
+            return self._request("forget_guest", spawn=False, notebook=notebook)
 
     # ---- the process
 
@@ -294,6 +318,8 @@ class ProcessKernel:
         proc = self._ensure() if spawn else self._proc
         if proc is None or proc.poll() is not None:
             raise KernelGone("The notebook's Python process stopped.")
+        if guest := self._guest_name():
+            args["guest"] = guest
         rid = f"p{next(self._ids)}"
         slot: dict[str, Any] = {"done": threading.Event()}
         self._waiting[rid] = slot
@@ -337,6 +363,10 @@ class ProcessKernel:
             snap = self.poll()
             if snap["status"] == "running":
                 raise RuntimeError("A cell is already running. Wait for it, or Cancel it.")
+            if snap.get("session_running"):
+                raise RuntimeError(f"{self._owner_name or 'Another notebook'} is running a cell in this shared session. "
+                                   "Its notebooks run one cell at a time; wait for it, or Cancel it there.")
+        self._owner, self._owner_name = self._guest_name(), self.notebook_name
         self._ended = ""
         self.limit_hit = ""
         self._interrupted_at = None
@@ -362,6 +392,15 @@ class ProcessKernel:
         return snap
 
     def poll(self, known_version: int = -1, wait: float = 0.0) -> dict[str, Any]:
+        if self._guest_name() != self._owner:
+            # Another notebook's cell in a shared session: this notebook sees the session busy, not its cell.
+            idle = {"status": "idle", "execution_count": self.count, "version": 0, "seconds": 0, "outputs": []}
+            if self._proc is None or self._proc.poll() is not None:
+                return idle
+            try:
+                return self._request("poll", timeout=min(wait, 2.0) + ANSWER_SECONDS, spawn=False, version=known_version, wait=wait)
+            except KernelGone:
+                return idle
         if self._proc is None or self._proc.poll() is not None:
             if self._last is None:
                 return {"status": "idle", "execution_count": self.count, "version": 0, "seconds": 0, "outputs": []}

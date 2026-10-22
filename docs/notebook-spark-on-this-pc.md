@@ -38,7 +38,8 @@ which DuckDB can't hold. `drop` also takes `F.col("ID")` for `id`. `summary` tak
 adds the quartiles (`25%`, `50%`, `75%`) as Spark does; describe a few columns with `describe`.
 `substring` counts position 0 as 1 and `concat` is NULL when any input is NULL, as in Spark, in
 `F.substring`, `F.concat`, `selectExpr` and `spark.sql` alike. `initcap` lower-cases the rest of each word, as Spark does
-(`hELLO` becomes `Hello`). An empty `struct<>` isn't supported here,
+(`hELLO` becomes `Hello`). `unix_timestamp` takes a date or timestamp as well as text, reads it in the session
+time zone, and is NULL for text that doesn't match the format, as in Spark. An empty `struct<>` isn't supported here,
 since DuckDB can't store a struct with no fields; give it at least one.
 
 ### DataFrame: 79 of 102

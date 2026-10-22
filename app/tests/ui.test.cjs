@@ -4333,3 +4333,9 @@ test("the Spark on this PC page says initcap lower-cases the rest of each word",
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
   assert.match(doc, /`initcap` lower-cases the rest of each word, as Spark does/);
 });
+
+// Spark on this PC: unix_timestamp takes dates and timestamps.
+test("the Spark on this PC page says unix_timestamp takes a date or timestamp", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`unix_timestamp` takes a date or timestamp as well as text, reads it in the session\ntime zone/);
+});

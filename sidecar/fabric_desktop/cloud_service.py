@@ -8,6 +8,7 @@ here too: it runs locally and turns what it finds into cleaning rules and checks
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
 import json
 import logging
@@ -565,10 +566,27 @@ class CloudMixin:
             raise ValueError(f"{layer} is not a layer")
         return layer
 
+    def _kept_table_names(self, project: Any, layer: str, workspace_id: str, model: dict[str, Any],
+                          fresh: bool = True) -> dict[str, str]:
+        """The names the layer's tables have in the existing model, so updating it keeps them.
+
+        getDefinition is a long-running operation, so the plan (``fresh=False``) reuses the definition read
+        last for this model; building always reads it again, since that is what decides the names."""
+        cache = self.__dict__.setdefault("_model_definitions", {})
+        key = (workspace_id, model["id"])
+        if fresh or key not in cache:
+            try:
+                got = self.fabric.get_item_definition(workspace_id, model["id"], "TMDL")  # type: ignore[attr-defined]
+                cache[key] = {p["path"]: base64.b64decode(p.get("payload") or "").decode("utf-8")
+                              for p in (got.get("definition") or {}).get("parts", []) if p.get("path", "").endswith(".tmdl")}
+            except Exception as exc:  # guessing would rename tables that reports use
+                raise RuntimeError(f"Couldn't read {model.get('displayName') or 'the model'}'s definition "
+                                   f"({type(exc).__name__}: {exc}), so its table names aren't known. Try again.") from exc
+        return semantic.table_names(cache[key], [e.name for e in project.entities.values() if e.layer == layer])
+
     def meta_model_plan(self, env: str = "test", layer: str | None = None) -> dict[str, Any]:
         project = self._project()  # type: ignore[attr-defined]
         layer = self._model_layer(project, layer)
-        tables, rels = semantic.plan(project, layer)
         cfg = self._env_cfg(project, env)
         local = cfg.get("target", "onelake" if env != "dev" else "local") == "local"
         existing = None
@@ -580,6 +598,8 @@ class CloudMixin:
             except Exception as exc:  # "none found" here would offer Create over a model that exists
                 raise RuntimeError(f"Couldn't list the semantic models in {cfg.get('workspace_name') or 'the workspace'} "
                                    f"({type(exc).__name__}: {exc}), so whether {name} exists isn't known. Try again.") from exc
+        kept = self._kept_table_names(project, layer, cfg["workspace_id"], existing, fresh=False) if existing else None
+        tables, rels = semantic.plan(project, layer, kept)
         return {"env": env, "layer": layer, "layers": project.layer_names(), "name": name, "local": local,
                 "workspace_id": cfg.get("workspace_id", ""), "workspace_name": cfg.get("workspace_name", ""),
                 "lakehouse": project.layer(layer).lakehouse,
@@ -607,7 +627,13 @@ class CloudMixin:
         lakehouse = project.layer(layer).lakehouse
         if lakehouse not in store.lakehouse_ids:
             raise LookupError(f"{lakehouse} doesn't exist in the {env} workspace yet; promote and run first")
-        tables, rels = semantic.plan(project, layer)
+        fabric: FabricClient = self.fabric  # type: ignore[attr-defined]
+        name = (name or f"SM_{layer.title()}").strip()
+        kept = None
+        if replace:  # without it an existing model only asks to confirm, so its names aren't needed yet
+            existing = next((m for m in fabric.list_semantic_models(store.workspace_id) if m["displayName"] == name), None)
+            kept = self._kept_table_names(project, layer, store.workspace_id, existing) if existing else None
+        tables, rels = semantic.plan(project, layer, kept)
         skipped, unreadable = [], []
         for t in tables:
             try:
@@ -629,13 +655,12 @@ class CloudMixin:
         names = {t.name for t in tables}
         columns_left_out = [c for t in tables for c in semantic.left_out(t)]
         usable = {t.name: {c for c, typ in t.columns if semantic.tmdl_type(typ)} for t in tables}
-        kept = [r for r in rels if r.from_table in names and r.to_table in names
-                and r.from_column in usable[r.from_table] and r.to_column in usable[r.to_table]]
+        kept_rels = [r for r in rels if r.from_table in names and r.to_table in names
+                     and r.from_column in usable[r.from_table] and r.to_column in usable[r.to_table]]
         # Only those whose tables are both in the model but whose columns aren't: a missing table is already reported.
         relationships_left_out = [f"{r.from_table}.{r.from_column} to {r.to_table}.{r.to_column}" for r in rels
-                                  if r not in kept and r.from_table in names and r.to_table in names]
-        rels = kept
-        fabric: FabricClient = self.fabric  # type: ignore[attr-defined]
+                                  if r not in kept_rels and r.from_table in names and r.to_table in names]
+        rels = kept_rels
         props = (fabric.get_lakehouse(store.workspace_of(lakehouse), store.lakehouse_ids[lakehouse]).get("properties") or {})
         endpoint = props.get("sqlEndpointProperties") or {}
         if not endpoint.get("connectionString") or not endpoint.get("id"):
@@ -646,7 +671,6 @@ class CloudMixin:
         except Exception:
             refreshed = False
         parts = semantic.build(tables, rels, endpoint["connectionString"], endpoint["id"])
-        name = (name or f"SM_{layer.title()}").strip()
         try:
             model = fabric.save_semantic_model(store.workspace_id, name, parts,
                                                f"Direct Lake over {lakehouse}, built by KratosForge from the metadata project",

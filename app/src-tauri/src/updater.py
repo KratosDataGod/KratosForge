@@ -257,8 +257,13 @@ def latest_release() -> dict:
         commit = info.get("commit") or ""
         if not SHA.fullmatch(commit):
             return {"commit": None, "error": f"the release names {commit!r}, not a commit", "channel": name, "notes": "", "note": note}
+        # The shell checks these against what this PC last accepted from the channel (HD-022):
+        # the release it came from, when it was published, and the exe's checksum.
+        published = info.get("published")
         return {"commit": commit, "error": None, "channel": name, "notes": str(info.get("notes") or ""),
-                "history": release_history(info.get("history")), "note": note}
+                "history": release_history(info.get("history")), "note": note, "tag": tag,
+                "published": published if isinstance(published, int) and not isinstance(published, bool) else None,
+                "exe_sha256": str(info.get("exe_sha256") or "")}
     return {"commit": None, "error": "No release was found.", "channel": name, "notes": "", "note": note}
 
 
@@ -310,7 +315,7 @@ def install_sidecar(commit: str) -> int:
 
 def release_sha256(tag: str, commit: str) -> str | None:
     """The exe's SHA-256 that a release's version.json gives for this build; "" when it names this
-    build but gives no checksum (published before checksums); None when it can't be read or names
+    build but gives no valid checksum, which is refused; None when it can't be read or names
     another build (one is being published), so the download can't be checked yet."""
     try:
         with _get(f"{release_url(tag)}/version.json?nocache={int(time.time())}", timeout=10) as resp:
@@ -358,7 +363,11 @@ def download_app(dest: str, commit: str = "") -> int:
         if expected is None:
             print(f"Could not read build {commit[:7]}'s checksum from its release; trying again", flush=True)
             continue
-        if expected and digest.hexdigest() != expected:
+        if not expected:
+            # Every release CI publishes gives one; without it the download can't be checked (HD-022).
+            print(f"Build {commit[:7]}'s release gives no checksum for the app, so it wasn't installed.", flush=True)
+            return 1
+        if digest.hexdigest() != expected:
             print(f"The download does not match build {commit[:7]}'s checksum; trying again", flush=True)
             continue
         with open(dest, "rb") as f:

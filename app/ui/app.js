@@ -2513,6 +2513,8 @@ async function checkComponents(afterInstall = false) {
       ? `Build ${short(app.commit)}. Build ${short(latest.commit)} is out; your organization rolls out updates`
       : `Build ${short(app.commit)}. Your organization rolls out updates`);
   } else if (!latest.commit) set("app", "warn", `Build ${short(app.commit)} (${latest.channel || "stable"} channel). Could not check for a newer build: ${latest.error}`);
+  // The shell refused the channel's version.json: out of date, or no checksum (HD-022).
+  else if (latest.refused) set("app", "warn", `Build ${short(app.commit)}. ${latest.refused}`);
   else if (latest.commit === app.commit) set("app", "ok", `Up to date (build ${short(app.commit)})`);
   else {
     // A newer build is installed straight away, so nobody keeps running an old one.

@@ -309,7 +309,8 @@ jobs:
           jq -n --arg commit "$GITHUB_SHA" --arg notes "$NOTES" --slurpfile history history.json \
             --arg exe "$(sha256sum fabric-desktop.exe | cut -d' ' -f1)" \
             --arg engine "$(sha256sum fabric-desktop-engine.zip | cut -d' ' -f1)" \
-            '{commit: $commit, notes: $notes, history: $history[0], exe_sha256: $exe, engine_sha256: $engine}' > version.json
+            --argjson published "$(date -u +%s)" \
+            '{commit: $commit, notes: $notes, history: $history[0], exe_sha256: $exe, engine_sha256: $engine, published: $published}' > version.json
           # Every published build also gets a release of its own that never changes, so it can be
           # pinned, or promoted to Stable again to roll back, after Preview has moved on. It goes
           # first, so the build Preview names always has one. version.json last, as for latest.

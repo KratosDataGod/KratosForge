@@ -83,9 +83,12 @@ def table_names(parts: dict[str, str], entities: list[str]) -> dict[str, str]:
     for path, text in parts.items():
         if not path.startswith("definition/tables/"):
             continue
-        head = re.match(r"table (.+)\n\tlineageTag: (\S+)", text.replace("\r\n", "\n"))
-        if head:
-            by_tag[head.group(2)] = _unquote(head.group(1).strip())
+        # The table line can follow /// description lines, and other properties can come before its lineage
+        # tag; the table's own properties are indented once, its columns' and measures' twice.
+        head = re.search(r"^table (.+)$", text.replace("\r\n", "\n"), re.M)
+        own = head and re.search(r"^\tlineageTag: (\S+)", text.replace("\r\n", "\n")[head.end():], re.M)
+        if head and own:
+            by_tag[own.group(1)] = _unquote(head.group(1).strip())
     return {e: by_tag[tag("table", e)] for e in entities if tag("table", e) in by_tag}
 
 

@@ -566,16 +566,23 @@ class CloudMixin:
             raise ValueError(f"{layer} is not a layer")
         return layer
 
-    def _kept_table_names(self, project: Any, layer: str, workspace_id: str, model: dict[str, Any]) -> dict[str, str]:
-        """The names the layer's tables have in the existing model, so updating it keeps them."""
-        try:
-            got = self.fabric.get_item_definition(workspace_id, model["id"], "TMDL")  # type: ignore[attr-defined]
-            parts = {p["path"]: base64.b64decode(p.get("payload") or "").decode("utf-8")
-                     for p in (got.get("definition") or {}).get("parts", []) if p.get("path", "").endswith(".tmdl")}
-        except Exception as exc:  # guessing would rename tables that reports use
-            raise RuntimeError(f"Couldn't read {model.get('displayName') or 'the model'}'s definition "
-                               f"({type(exc).__name__}: {exc}), so its table names aren't known. Try again.") from exc
-        return semantic.table_names(parts, [e.name for e in project.entities.values() if e.layer == layer])
+    def _kept_table_names(self, project: Any, layer: str, workspace_id: str, model: dict[str, Any],
+                          fresh: bool = True) -> dict[str, str]:
+        """The names the layer's tables have in the existing model, so updating it keeps them.
+
+        getDefinition is a long-running operation, so the plan (``fresh=False``) reuses the definition read
+        last for this model; building always reads it again, since that is what decides the names."""
+        cache = self.__dict__.setdefault("_model_definitions", {})
+        key = (workspace_id, model["id"])
+        if fresh or key not in cache:
+            try:
+                got = self.fabric.get_item_definition(workspace_id, model["id"], "TMDL")  # type: ignore[attr-defined]
+                cache[key] = {p["path"]: base64.b64decode(p.get("payload") or "").decode("utf-8")
+                              for p in (got.get("definition") or {}).get("parts", []) if p.get("path", "").endswith(".tmdl")}
+            except Exception as exc:  # guessing would rename tables that reports use
+                raise RuntimeError(f"Couldn't read {model.get('displayName') or 'the model'}'s definition "
+                                   f"({type(exc).__name__}: {exc}), so its table names aren't known. Try again.") from exc
+        return semantic.table_names(cache[key], [e.name for e in project.entities.values() if e.layer == layer])
 
     def meta_model_plan(self, env: str = "test", layer: str | None = None) -> dict[str, Any]:
         project = self._project()  # type: ignore[attr-defined]
@@ -591,7 +598,7 @@ class CloudMixin:
             except Exception as exc:  # "none found" here would offer Create over a model that exists
                 raise RuntimeError(f"Couldn't list the semantic models in {cfg.get('workspace_name') or 'the workspace'} "
                                    f"({type(exc).__name__}: {exc}), so whether {name} exists isn't known. Try again.") from exc
-        kept = self._kept_table_names(project, layer, cfg["workspace_id"], existing) if existing else None
+        kept = self._kept_table_names(project, layer, cfg["workspace_id"], existing, fresh=False) if existing else None
         tables, rels = semantic.plan(project, layer, kept)
         return {"env": env, "layer": layer, "layers": project.layer_names(), "name": name, "local": local,
                 "workspace_id": cfg.get("workspace_id", ""), "workspace_name": cfg.get("workspace_name", ""),

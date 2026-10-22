@@ -306,7 +306,13 @@ def test_onelake_run_queues_maintenance_and_builds_the_model(svc, tmp_path, monk
     assert svc.meta_build_model("test")["confirm"]["name"] == "SM_Gold"
     assert len([c for c in svc.fake.calls if c[0] == "model"]) == 1
     svc.meta_build_model("test", replace=True)
-    assert ("definition", "m1", "TMDL") in svc.fake.calls  # updating reads the model's table names first
+    reads = [c for c in svc.fake.calls if c[0] == "definition"]
+    assert reads == [("definition", "m1", "TMDL")]  # updating reads the model's table names first
+    model = {"id": "m1", "displayName": "SM_Gold"}
+    assert svc._kept_table_names(project, "gold", store.workspace_id, model, fresh=False)["gold.fact_sales"] == "fact_sales"
+    assert len([c for c in svc.fake.calls if c[0] == "definition"]) == 1  # the plan reuses that read
+    svc._kept_table_names(project, "gold", store.workspace_id, model)
+    assert len([c for c in svc.fake.calls if c[0] == "definition"]) == 2  # building reads it again
     again = [c for c in svc.fake.calls if c[0] == "model"][-1][2]
     assert again == parts
 
@@ -398,6 +404,14 @@ def test_semantic_model_keeps_table_names_when_a_same_named_table_arrives():
     # Quoted names round-trip, and a name two entities claim is not kept for either.
     quoted = semantic.build([semantic.ModelTable("it's", "gold.x", "dbo", "x", columns=[("a", "long")])], [], "s", "e")
     assert semantic.table_names(quoted, ["gold.x"]) == {"gold.x": "it's"}
+    # Fabric may write a /// description above the table line and other properties before its lineage tag.
+    tagged = parts["definition/tables/orders.tmdl"]
+    head, rest = tagged.split("\n", 1)
+    described = f"/// Orders placed\r\n{head}\r\n\tdataCategory: Uncategorized\r\n" + rest.replace("\n", "\r\n")
+    assert semantic.table_names({"definition/tables/orders.tmdl": described}, ["gold.orders"]) == {"gold.orders": "orders"}
+    # Only the table's own lineage tag counts, not a column's or measure's (indented twice).
+    untagged = "table orders\n\n\tcolumn amount\n\t\tlineageTag: " + semantic.tag("table", "gold.orders") + "\n"
+    assert semantic.table_names({"definition/tables/orders.tmdl": untagged}, ["gold.orders"]) == {}
     clash = semantic.plan(project, "gold", {"gold.orders": "orders", "gold.returns_orders": "orders"})[0]
     assert [t.name for t in clash] == ["sales_orders", "returns_orders"]
 

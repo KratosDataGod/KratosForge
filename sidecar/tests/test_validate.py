@@ -163,7 +163,7 @@ def svc(tmp_path, monkeypatch):
     lh = tmp_path / "lake"
     write_deltalake(str(lh / "Tables" / "dbo" / "orders"), pa.table({"id": [1, 2, 3], "amount": [10.0, 20.0, 5.0]}))
     s = Service(client_id="x", root=tmp_path / "app")
-    s._auth = type("Auth", (), {"storage_token": lambda self: "tok"})()
+    s._auth = type("Auth", (), {"storage_token": lambda self: "tok", "signed_in_user": lambda self: "a@b.c", "signed_in_tenant": lambda self: "t1"})()
     s._schema_cache = {"lh1": True}
     monkeypatch.setattr(s, "_proof_location", lambda ref: (str(lh), lambda: {}))
     monkeypatch.setattr(s, "_proof_tables", lambda ref: LocalTables(lh / "Tables"))
@@ -251,6 +251,49 @@ def test_a_spark_notebook_gets_a_clean_run_with_its_writes_in_the_sandbox(svc):
     assert not (svc.lh / "Tables" / "dbo" / "copy").exists()  # never the lakehouse's own tables
     assert DeltaTable(str(svc.lh / "Tables" / "dbo" / "orders")).version() == before
     assert any(f["code"] == "spark_local" for f in st["findings"])
+
+
+def _lakehouse_files(root: Path) -> dict[str, str]:
+    """Every file under the lakehouse folder and a hash of its bytes."""
+    import hashlib
+    return {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob("*") if p.is_file()}
+
+
+# Every way a Spark cell writes a table (#436), with the table it lands in and the rows a later
+# cell then reads from it, in the sandbox: dbo.orders has 3 rows.
+SPARK_TABLE_WRITES = [
+    ("df.write.mode('overwrite').saveAsTable('dbo.orders')", "dbo.orders", 3),
+    ("df.write.mode('append').saveAsTable('dbo.orders')", "dbo.orders", 6),
+    ("df.write.insertInto('dbo.orders')", "dbo.orders", 6),
+    ("df.write.format('delta').mode('overwrite').save('Tables/dbo/orders')", "dbo.orders", 3),
+    ("spark.sql('INSERT INTO dbo.orders SELECT * FROM dbo.orders')", "dbo.orders", 6),
+    ("spark.sql('CREATE TABLE dbo.ctas AS SELECT * FROM dbo.orders WHERE amount > 5')", "dbo.ctas", 2),
+    ("spark.sql(\"INSERT INTO dbo.orders VALUES (4, 1.0)\")", "dbo.orders", 4),
+]
+
+
+@pytest.mark.parametrize("write, table, rows", SPARK_TABLE_WRITES, ids=[w for w, _, _ in SPARK_TABLE_WRITES])
+def test_every_spark_table_write_in_a_clean_run_lands_in_the_sandbox(svc, write, table, rows):
+    before = _lakehouse_files(svc.lh)
+    cells = [code("df = spark.read.table('dbo.orders')"), code(write),
+             code(f"assert spark.table({table!r}).count() == {rows}, spark.table({table!r}).count()")]
+    st = done(svc, call(svc, "notebook_validate_start", name="Writes", cells=cells, lakehouse_ref=LH, runs_on="pc")["id"])
+    assert [c["status"] for c in st["cells"]] == ["ok", "ok", "ok"], st["findings"]
+    assert st["run"]["sandbox_tables"] == [table]
+    # Byte for byte, the lakehouse is as it was: no table, log entry or leftover sandbox file.
+    assert _lakehouse_files(svc.lh) == before
+
+
+@pytest.mark.parametrize("write", ["df.write.mode('overwrite').parquet('Files/out/p')",
+                                   "df.write.mode('overwrite').csv('Files/out/c')"])
+def test_a_spark_file_write_in_a_clean_run_stops_and_writes_nothing(svc, write):
+    before = _lakehouse_files(svc.lh)
+    cells = [code("df = spark.read.table('dbo.orders')"), code(write)]
+    st = done(svc, call(svc, "notebook_validate_start", name="Files", cells=cells, lakehouse_ref=LH, runs_on="pc")["id"])
+    assert st["run"]["failed_cell"] == 2 and [c["status"] for c in st["cells"]] == ["ok", "error"]
+    [f] = [f for f in st["findings"] if f["code"] == "run_failed"]
+    assert "Writing files to Files/out/" in f["text"] and "runs in Fabric" in f["text"]
+    assert _lakehouse_files(svc.lh) == before
 
 
 def test_one_validation_at_a_time_and_cancel_ends_it(svc):

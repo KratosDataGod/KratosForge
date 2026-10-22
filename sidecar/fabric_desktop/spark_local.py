@@ -448,8 +448,8 @@ class LocalSparkSession(SparkSession):
     def _statement(self, statement: Any) -> DataFrame | None:
         from sqlglot import exp
         statement = _sql.history_query(statement, self.conn, self._bound())  # DESCRIBE HISTORY t
-        # CREATE TABLE ... AS SELECT and INSERT INTO ... SELECT write a lakehouse table.
-        if isinstance(statement, (exp.Create, exp.Insert)) and isinstance(statement.expression, (exp.Query, exp.Select)):
+        # CREATE TABLE ... AS SELECT and INSERT INTO ... SELECT (or VALUES) write a lakehouse table.
+        if isinstance(statement, (exp.Create, exp.Insert)) and isinstance(statement.expression, (exp.Query, exp.Select, exp.Values)):
             target = statement.this
             while not isinstance(target, exp.Table) and target is not None:
                 target = target.this

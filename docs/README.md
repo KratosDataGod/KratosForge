@@ -178,6 +178,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Chart builder | Notebook > a table output > Chart ([notebooks.md](notebooks.md)) |
 | Several charts per result | Notebook > a table output > + Chart ([notebooks.md](notebooks.md)) |
 | Data Wrangler | Notebook > a table output > Clean ([notebooks.md](notebooks.md)) |
+| Query profile | Notebook > a spark or %%sql table output > Query profile ([notebooks.md](notebooks.md)) |
 | Notebook widgets | Notebook > a cell that shows ipywidgets controls ([notebooks.md](notebooks.md)) |
 | Altair charts in notebooks | Notebook > a cell that shows an Altair chart ([notebooks.md](notebooks.md)) |
 | Result downloads | Notebook > a table output > Download ([notebooks.md](notebooks.md)) |

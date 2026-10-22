@@ -1066,7 +1066,8 @@ function renderTableOutput(o, cell) {
   const add = many && charts < MAX_CHARTS ? previewMarked("severalCharts", h("button", { class: "seg seg-add", "aria-label": "Add a chart of this result",
     onclick: () => { o.view = `chart-${addChart(o, numericColumns(o), cell) + 1}`; redraw(); } }, "+ Chart")) : null;
   const bar = h("div", { class: "out-bar" }, h("div", { class: "segs", role: "group", "aria-label": "View" },
-    seg("table", "Table"), chartSegs, add, seg("inspect", "Inspect"), o.frame ? seg("clean", "Clean") : null));
+    seg("table", "Table"), chartSegs, add, seg("inspect", "Inspect"), o.frame ? seg("clean", "Clean") : null,
+    o.frame && o.spark ? seg("qprofile", "Query profile") : null));
   wrap.append(bar);
   const numeric = numericColumns(o);
   const count = typeof o.total_rows === "number"
@@ -1102,6 +1103,9 @@ function renderTableOutput(o, cell) {
   } else if (o.view === "clean" && o.frame) {
     bar.append(h("span", { class: "spacer" }), previewMarked("dataWrangler", h("span", { class: "muted-text" }, "Data Wrangler")));
     wrap.append(renderWrangler(o, cell));
+  } else if (o.view === "qprofile" && o.frame) {
+    bar.append(h("span", { class: "spacer" }), previewMarked("queryProfile", h("span", { class: "muted-text" }, "Query profile")));
+    wrap.append(renderQueryProfile(o));
   } else if (o.frame && !o.profileGone) {
     wrap.append(renderFrameProfile(o, numeric, count));
   } else {

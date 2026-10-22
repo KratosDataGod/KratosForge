@@ -23,6 +23,7 @@ from duckdb.experimental.spark.sql.column import Column
 from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.group import GroupedData
 from sqlglot import exp
+from . import sql as spark_sql
 
 _ids = itertools.count()
 
@@ -42,7 +43,7 @@ def _col_sql(c: Any) -> str:
 
 def spark_expr(text: str) -> str:
     """One Spark SQL expression as DuckDB SQL."""
-    return sqlglot.transpile(text, read="spark", write="duckdb")[0]
+    return spark_sql.spark_substring(sqlglot.parse_one(text, read="spark")).sql("duckdb")
 
 
 def _call(spark_sql: str, *cols: Any) -> Column:
@@ -248,9 +249,20 @@ def to_json(col: Any, options: Any = None) -> Column:
     return _call("to_json({0})", col)
 
 
+def substring(str: Any, pos: int, len: int) -> Column:  # noqa: A002
+    """Position 0 counts as 1, as in Spark."""
+    return _call(f"substring({{0}}, {int(pos)}, {int(len)})", str).alias(f"substring({_name_of(str)}, {int(pos)}, {int(len)})")
+
+
+def concat(*cols: Any) -> Column:
+    """NULL when any input is NULL, as in Spark (DuckDB's concat skips NULLs)."""
+    return _call(f"concat({', '.join('{%d}' % i for i in range(len(cols)))})", *cols).alias(
+        f"concat({', '.join(_name_of(c) for c in cols)})")
+
+
 def expr(text: str) -> Column:
     """A Spark SQL expression. ``AS name`` names the column, as in Spark."""
-    parsed = sqlglot.parse_one(text, read="spark")
+    parsed = spark_sql.spark_substring(sqlglot.parse_one(text, read="spark"))
     if isinstance(parsed, exp.Alias):
         return _sql(parsed.this.sql("duckdb")).alias(parsed.alias)
     return _sql(parsed.sql("duckdb"))
@@ -734,7 +746,7 @@ def install() -> None:
     if getattr(DataFrame, "_fd_compat", False):
         return
     for name, fn in FUNCTIONS.items():
-        if name == "count" or not hasattr(F, name):
+        if name in ("count", "substring", "concat") or not hasattr(F, name):
             setattr(F, name, fn)
     F.expr = expr  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
     Column.over = _over  # type: ignore[attr-defined]

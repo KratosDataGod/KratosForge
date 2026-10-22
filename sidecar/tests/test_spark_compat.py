@@ -357,3 +357,16 @@ def test_summary_takes_statistics_and_adds_quartiles_as_spark_does(live):
     with pytest.raises(ValueError, match="id is not a recognised statistic"):
         df.summary("id")  # summary takes statistics; describe takes columns
     assert len(df.select("x").summary("min").columns) == 2
+
+
+def test_substring_counts_position_zero_as_one_and_concat_is_null_with_a_null(live):
+    import pyspark.sql.functions as F
+    df = live.createDataFrame([("hello", "a", None, 0)], "s string, a string, n string, p int")
+    out = df.select(F.substring("s", 0, 2), F.substring("s", -3, 2), F.concat("a", "n"), F.concat("a", "s"))
+    assert rows(out) == [("he", "ll", None, "ahello")]
+    assert out.columns == ["substring(s, 0, 2)", "substring(s, -3, 2)", "concat(a, n)", "concat(a, s)"]
+    assert rows(df.selectExpr("substring(s, 0, 2)", "substr(s, p, 3)", "concat(a, n)")) == [("he", "hel", None)]
+    assert rows(df.select(F.expr("substring(s, 0, 3)"))) == [("hel",)]
+    assert rows(live.sql("SELECT substring('hello', 0, 2) a, substr('hello', -3) b")) == [("he", "llo")]
+    arrays = live.createDataFrame([([1, 2], [3], None)], "a array<int>, b array<int>, c array<int>")
+    assert rows(arrays.select(F.concat("a", "b"), F.concat("a", "c"))) == [([1, 2, 3], None)]

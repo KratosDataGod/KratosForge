@@ -4321,3 +4321,9 @@ test("the Spark on this PC page says summary takes statistics and adds quartiles
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
   assert.match(doc, /`summary` takes statistics, not columns, and\nadds the quartiles/);
 });
+
+// Spark on this PC: substring position 0 and concat with a NULL match Spark.
+test("the Spark on this PC page says substring counts position 0 as 1 and concat keeps NULL", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`substring` counts position 0 as 1 and `concat` is NULL when any input is NULL/);
+});

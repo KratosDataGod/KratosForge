@@ -32,7 +32,7 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
     try:
         statements = sqlglot.parse(query, read=chosen["sqlglot"])
         if chosen["id"] == "spark":
-            statements = [_spark_dates(s) for s in statements if s is not None]
+            statements = [spark_substring(_spark_dates(s)) for s in statements if s is not None]
     except ParseError as first_error:
         if chosen["id"] != "spark":
             raise ValueError(f"Could not read the query: {first_error}") from None
@@ -65,6 +65,22 @@ def _spark_dates(statement: exp.Expression) -> exp.Expression:
                 continue
         node.replace(exp.cast(node.copy(), exp.DataType.Type.DATE))
     return statement
+
+
+def spark_substring(node: exp.Expression) -> exp.Expression:
+    """Spark's substring counts position 0 as 1 (substring('hello', 0, 2) is 'he'); DuckDB starts
+    before the first character and returns 'h'."""
+    for sub in list(node.find_all(exp.Substring)):
+        start = sub.args.get("start")
+        if start is None:
+            continue
+        if isinstance(start, exp.Literal) and not start.is_string:
+            if start.this == "0":
+                sub.set("start", exp.Literal.number(1))
+        elif not isinstance(start, (exp.Literal, exp.Neg)):  # -3 counts from the end in both
+            sub.set("start", exp.Case(ifs=[exp.If(this=exp.EQ(this=start.copy(), expression=exp.Literal.number(0)),
+                                                  true=exp.Literal.number(1))], default=start.copy()))
+    return node
 
 
 def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views: dict[str, str],

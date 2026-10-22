@@ -378,3 +378,34 @@ def test_initcap_lowers_the_rest_and_concat_names_a_literal_by_its_text(live):
     out = df.select(F.initcap("s"), F.concat("a", F.lit("!")), F.concat(F.lit("it's"), "a"))
     assert rows(out) == [("Hello World-x Y_z", "a!", "it'sa")]
     assert out.columns == ["initcap(s)", "concat(a, !)", "concat(it's, a)"]
+
+
+def test_unix_timestamp_takes_dates_and_timestamps_and_reads_the_session_time_zone(live):
+    import datetime as dt
+    import pyspark.sql.functions as F
+    df = live.createDataFrame([(dt.date(2024, 3, 10), dt.datetime(2024, 3, 10, 13, 5, 7), "10/03/2024", "junk")],
+                              ["d", "ts", "e", "j"])
+    out = df.select(F.unix_timestamp("d"), F.unix_timestamp("ts"), F.unix_timestamp("e", "dd/MM/yyyy"), F.unix_timestamp("j"))
+    assert rows(out) == [(1710028800, 1710075907, 1710028800, None)]
+    assert out.columns[1] == "unix_timestamp(ts, yyyy-MM-dd HH:mm:ss)"
+    assert rows(df.selectExpr("unix_timestamp(ts)", "to_unix_timestamp(ts)")) == [(1710075907, 1710075907)]
+    query = "SELECT unix_timestamp(timestamp'2024-03-10 13:05:07') a, unix_timestamp('2024-03-10 13:05:07') b"
+    assert rows(live.sql(query)) == [(1710075907, 1710075907)]
+    live.conf.set("spark.sql.session.timeZone", "America/New_York")
+    try:
+        assert rows(live.sql(query)) == [(1710090307, 1710090307)]  # 13:05:07 EDT
+    finally:
+        live.conf.set("spark.sql.session.timeZone", "UTC")
+
+
+def test_unix_timestamp_reads_fractions_and_quoted_text_and_refuses_what_it_cant_read(live):
+    import pyspark.sql.functions as F
+    df = live.createDataFrame([("2024-03-10 13:05:07.250", "2024-03-10T13:05:07", "Mar 10, 2024")], ["a", "b", "c"])
+    out = df.select(F.unix_timestamp("a", "yyyy-MM-dd HH:mm:ss.SSS"), F.unix_timestamp("b", "yyyy-MM-dd'T'HH:mm:ss"),
+                    F.unix_timestamp("c", "MMM d, yyyy"))
+    assert rows(out) == [(1710075907, 1710075907, 1710028800)]
+    assert rows(live.sql("SELECT unix_timestamp('2024-03-10 13:05:07.250', 'yyyy-MM-dd HH:mm:ss.SSS')")) == [(1710075907,)]
+    with pytest.raises(ValueError, match="can't read part of its format"):
+        df.select(F.unix_timestamp("a", "yyyy-MM-dd Q"))
+    with pytest.raises(ValueError, match="quoted text that holds pattern letters"):
+        df.select(F.unix_timestamp("a", "'at' HH"))

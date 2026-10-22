@@ -144,9 +144,10 @@ def from_unixtime(timestamp: Any, format: str = "yyyy-MM-dd HH:mm:ss") -> Column
 
 
 def unix_timestamp(timestamp: Any = None, format: str = "yyyy-MM-dd HH:mm:ss") -> Column:  # noqa: A002
+    """Seconds since 1970 of a date, a timestamp or text in ``format``, as Spark names it."""
     if timestamp is None:
-        return _sql("CAST(epoch(current_timestamp) AS BIGINT)")
-    return _sql(f"CAST(({_call(f'unix_timestamp({{0}}, {_lit(format)})', timestamp).expr}) AS BIGINT)")
+        return _sql("CAST(epoch(current_timestamp) AS BIGINT)").alias(f"unix_timestamp(current_timestamp(), {format})")
+    return _call(f"unix_timestamp({{0}}, {_lit(format)})", timestamp).alias(f"unix_timestamp({_name_of(timestamp)}, {format})")
 
 
 def size(col: Any) -> Column:

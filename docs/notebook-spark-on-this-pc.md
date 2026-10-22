@@ -24,7 +24,10 @@ Calls that only change how Spark spreads or keeps work across a cluster (`repart
 refuses a row with a null there, as Spark does (also inside structs, and for array elements or map values a `StructType` declares
 non-nullable, with PySpark's
 `[FIELD_NOT_NULLABLE_WITH_NAME]` error; `verifySchema=False` skips the check); a column `COMMENT` is accepted and left out, since it belongs to a
-table's catalog. `df.schema` shows every field as nullable on this PC. An empty `struct<>` isn't supported here,
+table's catalog. `df.schema` shows every field as nullable on this PC.
+
+`sample`, `dropna` and `unpivot` check their arguments as Spark does: a fraction outside 0 to 1, a `how`
+other than `any` or `all`, and an empty list of value columns are errors rather than quietly clamped or widened. An empty `struct<>` isn't supported here,
 since DuckDB can't store a struct with no fields; give it at least one.
 
 ### DataFrame: 79 of 102

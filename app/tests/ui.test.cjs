@@ -4285,3 +4285,9 @@ test("the magics page says WITH ... INSERT is a write and covers %env 1BAD x", (
   assert.match(doc, /`WITH x AS \(\.\.\.\) INSERT INTO \.\.\.` is a write, not a query/);
   assert.match(doc, /and so does `%env 1BAD x`/);
 });
+
+// Spark on this PC: sample, dropna and unpivot check their arguments.
+test("the Spark on this PC page says sample, dropna and unpivot check arguments as Spark does", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`sample`, `dropna` and `unpivot` check their arguments as Spark does/);
+});

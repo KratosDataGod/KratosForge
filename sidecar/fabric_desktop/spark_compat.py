@@ -439,7 +439,9 @@ def _types(df: DataFrame) -> list[tuple[str, str]]:
     return [(name, str(t)) for name, t in zip(df.relation.columns, df.relation.types)]
 
 
-def _dropna(self: DataFrame, how: str = "any", thresh: int | None = None, subset: Any = None) -> DataFrame:
+def _dropna(self: DataFrame, how: str | None = "any", thresh: int | None = None, subset: Any = None) -> DataFrame:
+    if how is not None and how not in ("any", "all"):  # None counts as "all", as in PySpark
+        raise ValueError(f"how ({how!r}) should be 'any' or 'all'")  # PySpark's own check
     cols = [subset] if isinstance(subset, str) else list(subset or self.columns)
     if not cols:
         return self
@@ -507,7 +509,11 @@ def _sample(self: DataFrame, withReplacement: Any = None, fraction: float | None
         withReplacement, fraction, seed = None, withReplacement, fraction  # noqa: N806
     if withReplacement:
         raise NotImplementedError("sample(withReplacement=True) isn't supported on this PC. Leave it out to sample without replacement.")
-    keep = max(0.0, min(1.0, float(fraction or 0)))
+    if fraction is None:
+        raise TypeError("sample() needs a fraction, like df.sample(0.1).")
+    if not 0.0 <= float(fraction) <= 1.0:  # Spark refuses this too: the fraction is a probability per row
+        raise ValueError(f"Sampling fraction ({fraction}) must be on interval [0, 1] without replacement.")
+    keep = float(fraction)
     if seed is None:
         return _frame(self, self.relation.filter(f"random() < {keep!r}"))
     # A seed picks the same rows each time: each row's place, hashed with the seed, against the fraction.
@@ -523,9 +529,12 @@ def _subtract(self: DataFrame, other: DataFrame) -> DataFrame:
 
 def _unpivot(self: DataFrame, ids: Any, values: Any, variableColumnName: str, valueColumnName: str) -> DataFrame:  # noqa: N803
     ids = [ids] if isinstance(ids, (str, Column)) else list(ids)
-    values = [values] if isinstance(values, (str, Column)) else list(values or [c for c in self.columns if c not in ids])
+    # values=None is every column that isn't an id, as in Spark; an empty list names none, which Spark refuses.
+    values = [values] if isinstance(values, (str, Column)) else list(
+        [c for c in self.columns if c not in ids] if values is None else values)
     if not values:
-        raise ValueError("unpivot needs at least one value column.")
+        raise ValueError("[UNPIVOT_REQUIRES_VALUE_COLUMNS] At least one value column needs to be specified for "
+                         "UNPIVOT, all columns specified as ids.")
     # One projection per value column, stacked, then put back in row order (each row's values together),
     # as Spark's DataFrame.unpivot returns them. Unlike SQL's UNPIVOT, it keeps a null value.
     id_cols = ", ".join(_col_sql(c) for c in ids)

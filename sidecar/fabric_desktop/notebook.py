@@ -35,6 +35,7 @@ import traceback
 import types
 import uuid
 import warnings
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -418,6 +419,19 @@ class _Run:
                 self._append(output)
             self.version += 1
 
+    def replace(self, display_id: str, output: dict[str, Any]) -> None:
+        """update_display: every output shown with ``display_id`` becomes ``output``, in place. An
+        update that would take the cell past RICH_CHARS shows a line saying so instead."""
+        with self.lock:
+            self._join()
+            hits = [i for i, o in enumerate(self._outputs) if o.get("display_id") == display_id]
+            if not hits:
+                return
+            self.rich_chars, output = _replace_capped(self._outputs, hits, output, self.rich_chars)
+            for i in hits:
+                self._outputs[i] = output
+            self.version += 1
+
     def clear(self, wait: bool = False) -> None:
         """IPython's clear_output: now, or (``wait``) when the next output arrives, so a loop that
         redraws doesn't flicker."""
@@ -470,11 +484,29 @@ class _OutputSink:
     def add(self, output: dict[str, Any]) -> None:
         self.out._add(output)
 
+    def replace(self, display_id: str, output: dict[str, Any]) -> None:
+        self.out._replace(display_id, output)
+
     def clear(self, wait: bool = False) -> None:
         self.out.clear_output(wait)
 
 
+def _replace_capped(outputs: list[dict[str, Any]], hits: list[int], output: dict[str, Any],
+                    rich: int) -> tuple[int, dict[str, Any]]:
+    """The rich count after outputs[hits] become ``output``, and what they become: ``output``, or a
+    line saying the update passed RICH_CHARS (it keeps the id, so a smaller update still lands)."""
+    old = sum(len(json.dumps(outputs[i], default=str)) for i in hits)
+    size = len(json.dumps(output, default=str))
+    if rich - old + size * len(hits) > RICH_CHARS:
+        output = {"type": "text", "display_id": output.get("display_id"),
+                  "text": f"Output truncated: this update would take the output's tables, charts and HTML past "
+                          f"{RICH_CHARS // 1_000_000} MB, so it isn't shown."}
+        size = len(json.dumps(output, default=str))
+    return rich - old + size * len(hits), output
+
+
 WIDGET_SECONDS = 60
+MAX_DISPLAY_IDS = 100  # display ids whose outputs an update can still reach
 WIDGET_GONE = "This control is no longer held by the kernel (it restarted). Run the cell again."
 
 
@@ -565,6 +597,7 @@ class Kernel:
         self._widget_lock = threading.Lock()
         self._widget_thread: threading.Thread | None = None  # a handler stuck in native code outlives its event
         self._local = threading.local()
+        self._display_sinks: OrderedDict[str, list[Any]] = OrderedDict()  # display id -> where it was shown
         self._secrets: set[str] = set()
         self._tasks: list[str] = []
         self.task_values: dict[str, dict[str, Any]] = {}
@@ -748,7 +781,27 @@ class Kernel:
         if run is not None:
             run.clear(wait)
 
-    def _display(self, *values: Any, summary: bool = False, raw: bool = False, **_kw: Any) -> None:
+    def _keep_display_sink(self, did: str, sink: Any) -> None:
+        """Where a display id was shown, so an update from elsewhere (outside ``with out:``) finds it."""
+        # A finished cell's outputs are what the app already has: only live places are kept.
+        sinks = [x for x in self._display_sinks.get(did, []) if getattr(x, "status", "running") == "running"]
+        if all(x is not sink for x in sinks):
+            sinks.append(sink)
+        self._display_sinks[did] = sinks
+        self._display_sinks.move_to_end(did)
+        while len(self._display_sinks) > MAX_DISPLAY_IDS:
+            self._display_sinks.popitem(last=False)
+
+    def _display(self, *values: Any, summary: bool = False, raw: bool = False, display_id: Any = None,
+                 update: bool = False, **_kw: Any) -> Any:
+        """display(), as IPython's: with ``display_id`` it returns a handle, and ``update=True``
+        (update_display, handle.update) redraws the outputs shown with that id in place, wherever
+        they were shown in this cell or in an Output widget. A display a finished cell showed keeps
+        what it showed."""
+        from .ipython_display import DisplayHandle
+        did = uuid.uuid4().hex if display_id is True else (None if display_id in (None, False) else str(display_id))
+        if update and did is None:
+            raise TypeError("update_display needs a display_id.")
         run = getattr(self._local, "run", None)
         for value in values:
             if raw and isinstance(value, dict):  # display(bundle, raw=True): a mime bundle, as IPython reads it
@@ -757,10 +810,18 @@ class Kernel:
                 out = self._show(value)
             if summary and out["type"] == "table":
                 out["summary"] = True
-            if run is not None:
-                run.add(out)
-            else:
+            if did is not None:
+                out = {**out, "display_id": did}
+            if run is None:
                 print(out.get("text", out))
+            elif update:
+                for sink in {id(x): x for x in [run, *self._display_sinks.get(did, [])]}.values():
+                    sink.replace(did, out)
+            else:
+                run.add(out)
+                if did is not None:
+                    self._keep_display_sink(did, run)
+        return DisplayHandle(did, self._display) if did is not None and not update else None
 
     # ---- running a cell
 

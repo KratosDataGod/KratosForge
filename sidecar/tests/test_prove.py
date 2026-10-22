@@ -481,6 +481,36 @@ def test_with_no_tolerance_decimals_are_compared_exactly_not_as_doubles(keys):
     assert verify.compare(whole, off, {"keys": keys, "rel": 0})["result"] == "differs"
 
 
+def test_keys_of_different_types_are_matched_as_text_instead_of_failing():
+    # DuckDB refused to COALESCE a text key with a number key, so the comparison failed outright.
+    out = verify.compare(pa.table({"k": ["1", "2"], "v": [1, 2]}), pa.table({"k": [1, 3], "v": [1, 2]}), {"keys": ["k"]})
+    assert out["result"] == "differs" and out["columns"]["types"] == ["k (string vs integer)"]
+    assert out["counts"] == {"only_pc": 1, "only_fabric": 1, "changed": 0}
+    assert [e["key"] for e in out["examples"]] == [{"k": "2"}, {"k": "3"}]
+
+
+@pytest.mark.parametrize("given, says", [
+    ({"examples": -1}, "examples is a whole number"), ({"limit_rows": "abc"}, "limit_rows is a whole number"),
+    ({"limit_rows": True}, "limit_rows is a whole number"), ({"abs": "abc"}, "abs is a number"),
+    ({"rel": float("nan")}, "rel is a number 0 or more"), ({"rel": -1}, "rel is a number 0 or more"),
+    ({"keys": [1]}, "keys is a list of column names"), ({"ignore": {"a": 1}}, "ignore is a list of column names"),
+    ({"columns": [1]}, "columns gives tolerances per column"), ({"columns": {"a": {"tol": 1}}}, "The tolerance for a is abs"),
+    ({"columns": {"a": {"abs": -1}}}, "abs for a is a number 0 or more"), (["k"], "Comparison rules are a set"),
+])
+def test_bad_rules_are_refused_with_a_message_not_a_database_error(given, says):
+    with pytest.raises(ValueError, match=says):
+        verify.rules(given)
+    with pytest.raises(ValueError, match="offset is a whole number"):
+        verify.compare(pa.table({"k": [1]}), pa.table({"k": [1]}), None, offset=-1)
+
+
+def test_rules_given_as_text_or_one_name_are_read_as_meant():
+    r = verify.rules({"keys": "id", "ignore": " loaded_at ", "examples": "10", "limit_rows": 1e6, "abs": "0.01",
+                      "columns": {"amount": {"rel": "1e-6"}}})
+    assert (r["keys"], r["ignore"], r["examples"], r["limit_rows"], r["abs"]) == (["id"], ["loaded_at"], 10, 1_000_000, 0.01)
+    assert r["columns"] == {"amount": {"rel": 1e-6}} and verify.DEFAULTS["columns"] == {}
+
+
 NAN, INF = float("nan"), float("inf")
 
 

@@ -47,9 +47,10 @@ class FakeStore:
                     if p.startswith(d + "/") and (recursive or "/" not in p[len(d) + 1:])]
         return entries[:max_results] if max_results else entries
 
-    def read_bytes(self, ws, lh, path):
-        self.calls.append(("read_bytes", path))
-        return self.files.get(path)
+    def read_bytes(self, ws, lh, path, length=None):
+        self.calls.append(("read_bytes", path) if length is None else ("read_bytes", path, length))
+        data = self.files.get(path)
+        return data if data is None or length is None else data[:length]
 
     def upload(self, ws, lh, path, data):
         self.calls.append(("upload", path))
@@ -365,3 +366,12 @@ def test_ls_lists_a_link_whose_target_is_gone(tmp_path, fs):
     except OSError:
         pytest.skip("this account can't create symlinks")
     assert sorted(i.name for i in fs.ls(f"file:{tmp_path}/d")) == ["dangling", "ok.txt"]
+
+
+def test_head_reads_only_the_bytes_it_shows(store, fs, tmp_path):
+    store.files["Files/big.csv"] = b"x" * 1_000_000
+    assert fs.head("Files/big.csv", 10) == "x" * 10
+    assert ("read_bytes", "Files/big.csv", 10) in store.calls
+    assert fs.head("Files/big.csv", 0) == ""
+    (tmp_path / "big.txt").write_bytes(b"y" * 1_000_000)
+    assert fs.head(f"file:{tmp_path}/big.txt", 5) == "yyyyy"

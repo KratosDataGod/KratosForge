@@ -176,6 +176,14 @@ def test_list_with_max_results_reads_one_page_only():
     assert len(t.sent) == 1 and t.sent[0].query["maxResults"] == "10"
 
 
+def test_a_partial_read_asks_for_only_those_bytes():
+    fs, t = store([Reply(206, b"hello"), Reply(416, b""), Reply(200, b"whole file")])
+    assert fs.read_bytes(WS, LH, "Files/big.csv", length=5) == b"hello"
+    assert t.sent[0].headers["Range"] == "bytes=0-4" and t.sent[0].method == "GET"
+    assert fs.read_bytes(WS, LH, "Files/empty.csv", length=5) == b""  # 416: an empty file
+    assert fs.read_bytes(WS, LH, "Files/a.csv") == b"whole file" and "Range" not in t.sent[2].headers
+
+
 def test_the_live_test_plan_sends_nothing(tmp_path):
     from fabric_desktop import livetest
     from fabric_desktop.fabric_api import FabricClient

@@ -250,3 +250,39 @@ def test_percent_pip_reads_combined_flags_attached_requirement_files_and_pips_li
             pip_magic.specs(["-r", bad], read)
     with pytest.raises(ValueError, match="-qx isn't supported"):
         pip_magic.specs(["-qx", "y"], read)
+
+
+def test_removing_a_package_leaves_nothing_that_imports(tmp_path, fake_python):
+    env = Environments(tmp_path, python=fake_python)
+    env.create("Removal")
+    assert wait(env, env.start("Removal", ["demo-pkg==1.0"]))["state"] == "done"
+    target = env.site_packages("Removal")
+    cache = target / "demo_pkg" / "__pycache__"  # what importing it leaves, not listed in its RECORD
+    cache.mkdir()
+    (cache / "__init__.cpython-311.pyc").write_bytes(b"")
+    (target / "other").mkdir()  # another package's folder stays
+    assert wait(env, env.start("Removal", ["demo-pkg"], remove=True))["state"] == "done"
+    assert not (target / "demo_pkg").exists() and (target / "other").is_dir()
+
+
+def test_an_install_cant_bring_back_an_environment_deleted_as_it_starts(tmp_path, fake_python):
+    import threading
+    env = Environments(tmp_path, python=fake_python)
+    env.create("Racy")
+    result = {}
+
+    def start():
+        try:
+            result["job"] = env.start("Racy", ["demo-pkg==1.0"])
+        except ValueError as exc:
+            result["error"] = str(exc)
+    with env._lock:  # a delete is under way: start waits for it
+        t = threading.Thread(target=start)
+        t.start()
+        time.sleep(0.2)
+        data = env._read()
+        data["environments"].pop("Racy")
+        env._write(data)
+    t.join(10)
+    assert "no environment called Racy" in result.get("error", ""), result
+    assert env.list() == []

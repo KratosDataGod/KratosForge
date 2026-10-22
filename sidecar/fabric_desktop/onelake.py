@@ -117,9 +117,9 @@ class FileStore:
         self._http = session or http_session.session()
         self._sleep = sleep
 
-    def _read(self, url: str, **kwargs: Any) -> requests.Response:
-        return send_with_retry(lambda: self._http.get(url, headers=self._headers(), **kwargs), "GET",
-                               sleep=self._sleep)
+    def _read(self, url: str, extra_headers: dict[str, str] | None = None, **kwargs: Any) -> requests.Response:
+        return send_with_retry(lambda: self._http.get(url, headers={**self._headers(), **(extra_headers or {})},
+                                                      **kwargs), "GET", sleep=self._sleep)
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._token()}", "x-ms-version": "2023-11-03"}
@@ -178,14 +178,18 @@ class FileStore:
                     f.write(chunk)
         return dest
 
-    def read_bytes(self, workspace_id: str, lakehouse_id: str, path: str) -> bytes | None:
-        """A small file's content, or None when it doesn't exist."""
+    def read_bytes(self, workspace_id: str, lakehouse_id: str, path: str, length: int | None = None) -> bytes | None:
+        """A small file's content, or None when it doesn't exist. With ``length``, only its first
+        ``length`` bytes are asked for (a Range request), so peeking at a large file is cheap."""
         url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{item_path(path)}"
-        resp = self._read(url, timeout=60)
+        ranged = {"Range": f"bytes=0-{length - 1}"} if length else None
+        resp = self._read(url, extra_headers=ranged, timeout=60)
         if resp.status_code == 404:
             return None
+        if ranged and resp.status_code == 416:  # an empty file has no byte 0
+            return b""
         resp.raise_for_status()
-        return resp.content
+        return resp.content[:length] if length else resp.content
 
     def upload(self, workspace_id: str, lakehouse_id: str, path: str, data: bytes) -> None:
         """Create or replace a file: create, append, then flush (the ADLS Gen2 way)."""

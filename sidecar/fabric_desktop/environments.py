@@ -202,9 +202,9 @@ class Environments:
         """Install (or, with ``remove``, uninstall) packages in the background; ``job`` follows it."""
         name = check_name(name)
         specs = check_packages(specs)
-        if name not in self._read()["environments"]:
-            raise ValueError(f"There's no environment called {name}.")
-        with self._lock:
+        with self._lock:  # with the check, so a delete can't land between them and the install bring it back
+            if name not in self._read()["environments"]:
+                raise ValueError(f"There's no environment called {name}.")
             if self._busy(name):
                 raise RuntimeError(f"{name} is already installing packages. Wait for it to finish.")
             jid = uuid.uuid4().hex[:12]
@@ -260,11 +260,21 @@ class Environments:
         for dist in importlib.metadata.distributions(path=[str(target)]):
             if re.sub(r"[-_.]+", "-", dist.metadata.get("Name") or "").lower() != wanted:
                 continue
+            root = target.resolve()
+            folders = set()
             for f in dist.files or []:
                 p = (target / f).resolve()
-                if p.is_relative_to(target.resolve()) and p.is_file():
+                if p.is_relative_to(root) and p.is_file():
                     p.unlink()
+                    folders.update(q for q in p.parents if q != root and q.is_relative_to(root))
             info = Path(str(dist._path))  # type: ignore[attr-defined]  # the .dist-info folder
             shutil.rmtree(info, ignore_errors=True)
+            # The package's folders, once empty: a folder left behind still imports, as an empty
+            # namespace package, so the package would seem installed with nothing in it. Their
+            # __pycache__ goes too (only caches; Python writes ones the RECORD doesn't list).
+            for folder in sorted(folders, key=lambda q: len(q.parts), reverse=True):
+                shutil.rmtree(folder / "__pycache__", ignore_errors=True)
+                if folder.is_dir() and not any(folder.iterdir()):
+                    folder.rmdir()
             return True
         return False

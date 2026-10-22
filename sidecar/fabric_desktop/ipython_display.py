@@ -144,7 +144,27 @@ class Javascript(TextDisplayObject):
         return str(self.data or "")
 
 
-def build(display: Callable[..., None], clear_output: Callable[..., None]) -> types.ModuleType:
+class DisplayHandle:
+    """What ``display(..., display_id=True)`` returns, as IPython's: ``update`` redraws that output."""
+
+    def __init__(self, display_id: str | None = None, display: Callable[..., Any] | None = None):
+        import uuid
+        self.display_id = display_id or uuid.uuid4().hex
+        self._display = display
+
+    def __repr__(self) -> str:
+        return f"<DisplayHandle display_id={self.display_id}>"
+
+    def display(self, obj: Any, **kwargs: Any) -> None:
+        if self._display is not None:
+            self._display(obj, display_id=self.display_id, **kwargs)
+
+    def update(self, obj: Any, **kwargs: Any) -> None:
+        if self._display is not None:
+            self._display(obj, display_id=self.display_id, update=True, **kwargs)
+
+
+def build(display: Callable[..., Any], clear_output: Callable[..., None]) -> types.ModuleType:
     """The ``IPython`` package and its ``IPython.display`` module, bound to one kernel."""
     mod = types.ModuleType("IPython.display", __doc__)
     for name, value in (("DisplayObject", DisplayObject), ("TextDisplayObject", TextDisplayObject), ("HTML", HTML),
@@ -153,6 +173,16 @@ def build(display: Callable[..., None], clear_output: Callable[..., None]) -> ty
         setattr(mod, name, value)
     mod.display = display
     mod.clear_output = clear_output
+
+    def update_display(obj: Any, *, display_id: Any, **kwargs: Any) -> None:
+        display(obj, display_id=display_id, update=True, **kwargs)
+    mod.update_display = update_display
+
+    class BoundHandle(DisplayHandle):
+        def __init__(self, display_id: str | None = None):
+            super().__init__(display_id, display)
+    BoundHandle.__name__ = BoundHandle.__qualname__ = "DisplayHandle"
+    mod.DisplayHandle = BoundHandle
 
     def display_kind(cls: type) -> Callable[..., None]:
         return lambda *objs, raw=False, **_kw: display(*(cls(o) if not raw or isinstance(o, str) else o for o in objs))

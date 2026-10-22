@@ -370,18 +370,36 @@ def _frame(df: DataFrame, relation: Any) -> DataFrame:
 
 def _agg(self: DataFrame, *exprs: Any) -> DataFrame:
     if len(exprs) == 1 and isinstance(exprs[0], dict):
-        exprs = tuple(_dict_agg(exprs[0]))
+        exprs = tuple(_dict_agg(self, exprs[0]))
     return DataFrame(self.relation.aggregate([c.expr for c in exprs]), self.session)
 
 
-def _dict_agg(spec: dict[str, str]) -> list[Column]:
+def _grouped_agg(fn: Any) -> Any:
+    """``df.groupBy("k").agg({"x": "avg"})``: DuckDB's GroupedData takes only columns."""
+    def agg(self: GroupedData, *exprs: Any) -> DataFrame:
+        if len(exprs) == 1 and isinstance(exprs[0], dict):
+            exprs = tuple(_dict_agg(self._df, exprs[0]))
+        return fn(self, *exprs)
+    agg.__doc__ = fn.__doc__
+    return agg
+
+
+def _dict_agg(df: DataFrame, spec: dict[str, str]) -> list[Column]:
+    """Spark's {column: function} form, its columns named as Spark names them (``avg(x)``, also for
+    "mean"; ``count(1)`` for {"*": "count"}), the column in the frame's own spelling."""
     names = {"avg": "avg", "mean": "avg", "sum": "sum", "min": "min", "max": "max", "count": "count", "first": "first",
              "last": "last", "stddev": "stddev_samp", "variance": "var_samp"}
+    shown = {"mean": "avg"}
     out = []
     for column, fn in spec.items():
         if fn.lower() not in names:
             raise ValueError(f"agg doesn't know {fn!r}. Use one of: {', '.join(sorted(names))}.")
-        out.append(_sql(f"{names[fn.lower()]}({_col_sql(column)})").alias(f"{fn.lower()}({column})"))
+        label = shown.get(fn.lower(), fn.lower())
+        if column == "*" and fn.lower() == "count":
+            out.append(_sql("count(*)").alias("count(1)"))
+            continue
+        column = _known(df, column)[0]
+        out.append(_sql(f"{names[fn.lower()]}({_col_sql(column)})").alias(f"{label}({column})"))
     return out
 
 
@@ -597,6 +615,8 @@ class PivotedData:
 
     def agg(self, *exprs: Column) -> DataFrame:
         df = self._grouped._df
+        if len(exprs) == 1 and isinstance(exprs[0], dict):
+            exprs = tuple(_dict_agg(df, exprs[0]))
         values = self._values
         if values is None:  # Spark finds them, sorted
             values = sorted(r[0] for r in df.select(self._column).distinct().collect() if r[0] is not None)
@@ -673,5 +693,6 @@ def install() -> None:
         if not hasattr(DataFrame, name):
             setattr(DataFrame, name, _same)
     GroupedData.pivot = _pivot  # type: ignore[attr-defined]
+    GroupedData.agg = _grouped_agg(GroupedData.agg)  # type: ignore[method-assign]
     # spark.conf is spark_api.LocalRuntimeConfig, set on each session (spark_local).
     DataFrame._fd_compat = True  # type: ignore[attr-defined]

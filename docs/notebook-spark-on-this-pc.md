@@ -29,7 +29,9 @@ table's catalog. `df.schema` shows every field as nullable on this PC.
 `sample`, `dropna` and `unpivot` check their arguments as Spark does: a fraction outside 0 to 1, a `how`
 other than `any` or `all`, and an empty list of value columns are errors rather than quietly clamped or widened.
 `na.fill`, `na.drop`, `na.replace` and `describe` name a column that isn't there with Spark's
-`[UNRESOLVED_COLUMN]` error instead of skipping it, and `replace` refuses lists of different lengths. An empty `struct<>` isn't supported here,
+`[UNRESOLVED_COLUMN]` error instead of skipping it, and `replace` refuses lists of different lengths.
+`agg` takes Spark's `{column: function}` form after `groupBy` and `pivot` too, and names the result as Spark does
+(`avg(x)` for `"mean"`, `count(1)` for `{"*": "count"}`). An empty `struct<>` isn't supported here,
 since DuckDB can't store a struct with no fields; give it at least one.
 
 ### DataFrame: 79 of 102

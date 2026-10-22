@@ -3393,6 +3393,8 @@ test("a collapsed heading hides the cells up to the next heading of the same or 
   assert.strictEqual(headingLevel(md(1, "Some text\n\n---\n")), 0);
   assert.strictEqual(headingLevel(md(1, "- item\n---")), 0);
   assert.strictEqual(headingLevel(md(1, "    indented code\n---")), 0);  // an indented code line isn't heading text
+  assert.strictEqual(headingLevel(md(1, "- item\ncontinues here\n---")), 0);  // nor a list item's next line
+  assert.strictEqual(headingLevel(md(1, "- item\n\nAfter the list\n---")), 2);
   assert.deepStrictEqual(JSON.parse(JSON.stringify(ctx.markdownHeadings("A long\ntitle\n===\n\n## Next"))),
     [{ level: 1, text: "A long title" }, { level: 2, text: "Next" }]);
   const cells = [md(1, "# A", true), code(2), md(3, "## A.1", true), code(4), md(5, "# B"), code(6), md(7, "### C", true), code(8)];

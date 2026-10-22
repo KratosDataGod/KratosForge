@@ -479,3 +479,26 @@ def test_tsql_cell_is_checked_and_listed_as_fabric_only():
     assert reasons[0]["text"].startswith("runs T-SQL")
     assert depgraph.analyze("%%tsql -artifact WH\nSELECT 1")["parsed"]
     assert envprofile.imports("%%tsql\nSELECT 1")["modules"] == []
+
+
+def test_a_backslash_ending_a_comment_doesnt_swallow_the_next_magic():
+    code = "# the files are in C:\\temp\\\n%who\nx = 1 + \\\n%who"
+    assert [(m.line, m.name) for m in magics.find(code)] == [(2, "who")]  # line 4 continues x = 1 + ...
+    out = Kernel().run("# the files are in C:\\temp\\\n!echo hi")
+    assert out["status"] == "ok" and "hi" in "".join(o.get("text", "") for o in out["outputs"])
+
+
+def test_returns_rows_skips_block_comments_and_quoted_semicolons():
+    assert magics.returns_rows("/* daily load */ SELECT 1")
+    assert magics.returns_rows("-- a\n/* b;\nc */\nSELECT 1;\r\n")
+    assert magics.returns_rows("SELECT ';\n-- not a comment' AS x")
+    assert magics.returns_rows("SELECT 1 AS `a;b`")
+    assert not magics.returns_rows("SELECT 1; -- then\nDROP TABLE t")
+    assert not magics.returns_rows("/* only a comment */")
+    k = Kernel()
+    _view(k)
+    k.run("%%sql\n/* header */\nSELECT id FROM t")
+    assert k.run("_sqldf.count()")["outputs"] == [{"type": "text", "text": "3"}]
+    cells = [{"type": "code", "source": "%%sql\n/* header */ SELECT * FROM sales"},
+             {"type": "code", "source": "_sqldf.show()"}]
+    assert fabric_sql_magics(cells, spark=True)[0]["source"].startswith("_sqldf = spark.sql(")

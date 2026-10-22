@@ -21,7 +21,8 @@ Calls that only change how Spark spreads or keeps work across a cluster (`repart
 
 `spark.createDataFrame` takes a list of column names, a `StructType` or a DDL string such as
 `"id int NOT NULL, name string, tags array<int>, address struct<city:string, zip:string>"`. A `NOT NULL` field
-refuses a row with a null there, as Spark does (also inside structs in arrays and maps, with PySpark's
+refuses a row with a null there, as Spark does (also inside structs, and for array elements or map values a `StructType` declares
+non-nullable, with PySpark's
 `[FIELD_NOT_NULLABLE_WITH_NAME]` error; `verifySchema=False` skips the check); a column `COMMENT` is accepted and left out, since it belongs to a
 table's catalog. `df.schema` shows every field as nullable on this PC.
 

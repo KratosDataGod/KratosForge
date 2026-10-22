@@ -246,3 +246,20 @@ def test_not_null_follows_pyspark_errors_verify_schema_and_arrays_of_structs(liv
         live.createDataFrame([([("a", 1), (None, 2)],)], schema)
     with pytest.raises(PySparkValueError, match=r"field m.value.x"):
         live.createDataFrame([({"k": (None,)},)], "m map<string, struct<x: int NOT NULL>>")
+
+
+def test_not_null_covers_array_elements_and_map_values_and_skips_schemas_without_one(live, monkeypatch):
+    from duckdb.experimental.spark.errors import PySparkValueError
+    from pyspark.sql.types import ArrayType, IntegerType, MapType, StringType, StructField, StructType
+    tags = StructType([StructField("tags", ArrayType(StringType(), containsNull=False))])
+    assert live.createDataFrame([(["a", "b"],), (None,)], tags).count() == 2  # the array itself may be null
+    with pytest.raises(PySparkValueError, match=r"field tags.element: This field is not nullable"):
+        live.createDataFrame([(["a", None],)], tags)
+    scores = StructType([StructField("m", MapType(StringType(), IntegerType(), valueContainsNull=False))])
+    with pytest.raises(PySparkValueError, match=r"field m.value:"):
+        live.createDataFrame([({"k": None},)], scores)
+    walked = []
+    monkeypatch.setattr(spark_local, "_not_nullable", lambda where: walked.append(where) or ValueError(where))
+    plain = StructType([StructField("id", IntegerType()), StructField("tags", ArrayType(StringType()))])
+    assert not spark_local._refuses_null(plain)
+    assert live.createDataFrame([(None, [None])], plain).count() == 1 and walked == []

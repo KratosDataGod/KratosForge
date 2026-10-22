@@ -4272,3 +4272,9 @@ test("the magics page says %run and %%writefile refuse leftover words", () => {
   assert.match(doc, /Anything else on the line is an\n  error rather than being dropped/);
   assert.match(doc, /A name with spaces needs quotes, or the cell says so instead of writing to the first word/);
 });
+
+// Magics: %env says when a name can't be set.
+test("the magics page says %env refuses a name it can't set", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /`%env 1BAD=x` says so instead of doing nothing/);
+});

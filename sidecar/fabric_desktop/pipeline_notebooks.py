@@ -42,9 +42,10 @@ _EXIT_CELL = (f"print({_EXIT_MARK!r} + __import__('json').dumps("
 
 
 def code_cells(cells: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The cells a run runs: code that isn't empty or frozen (Fabric skips frozen cells too)."""
+    """The cells a run runs: code that isn't empty or frozen (Fabric skips frozen cells too), and
+    not the Fabric step, which runs on Fabric Spark only when started from the notebook."""
     return [c for c in cells if c.get("type", "code") != "markdown" and (c.get("source") or "").strip()
-            and not (c.get("meta") or {}).get("frozen")]
+            and not (c.get("meta") or {}).get("frozen") and not (c.get("meta") or {}).get("fabric_step")]
 
 
 def _problem(code: str, message: str, a: Activity) -> dict[str, Any]:

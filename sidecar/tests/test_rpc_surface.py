@@ -102,7 +102,6 @@ NO_UI_CALLER: dict[str, str] = {
     # Reused in-process by another method.
     "all_shortcuts": _INTERNAL,  # shortcut_service
     "list_shortcuts": _NO_SCREEN,  # removal candidate: estate/shortcut services call api.list_shortcuts, not this
-    "cancel_fabric_run": _INTERNAL,  # workload_service; no button in Activity
     "meta_preflight": _INTERNAL,  # risk_service
     "git_path_info": _INTERNAL,  # git_service
     "git_repos": _INTERNAL,  # git_service

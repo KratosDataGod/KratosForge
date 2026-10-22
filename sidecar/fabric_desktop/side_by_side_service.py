@@ -17,6 +17,7 @@ from deltalake import DeltaTable
 from . import depgraph, jsonfile, receipts
 from . import side_by_side as sbs
 from .fabric_run import TERMINAL, compute_check, uses_local_module, uses_spark
+from .fabric_step import STEP_REFUSED, is_step
 from .onelake import DFS_HOST, FileStore, storage_options
 
 _log = logging.getLogger(__name__)
@@ -163,6 +164,9 @@ class SideBySideMixin:
             raise RuntimeError("A replay is using the kernel. End it first.")
         if not lakehouse_ref:
             raise ValueError("Attach a lakehouse first. Both runs read and write it, so their results can be compared.")
+        step = next((n for n, c in enumerate(cells, 1) if is_step(c)), None)
+        if step:
+            raise ValueError(f"This notebook can't run side by side: Cell {step} {STEP_REFUSED}")
         check = compute_check(cells, lakehouse_ref)
         for where, label in (("local", "on this PC"), ("fabric", "in Fabric")):
             if not check[where]["ok"]:

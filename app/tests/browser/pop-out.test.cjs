@@ -44,7 +44,7 @@ test("popping out the runs list leaves a band and gives Fabric's hub the page", 
   await p.click(".monitor-local .monitor-band button:has-text('Pop out')");
   await p.waitForSelector(".monitor-local.popped-out");
   assert.deepStrictEqual(await shellCalls(p, "pop_out_open"), [{ section: "runs", onTop: false }]);
-  assert.match(await p.textContent(".monitor-local.popped-out"), /From KratosForge.*Open in its own window.*Show window.*Dock back/);
+  assert.match(await p.textContent(".monitor-local.popped-out"), /From KratosForge.*In a window of its own.*Show window.*Dock back/);
   assert.strictEqual(await p.$(".monitor-scroll"), null, "the list is only in its window");
   const [local, hub] = await p.$$eval(".page.monitor > .card", (els) => els.map((e) => e.getBoundingClientRect().height));
   assert.ok(hub > local * 5, `Fabric's hub gets the room (${local} vs ${hub})`);

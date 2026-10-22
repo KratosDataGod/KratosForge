@@ -4352,3 +4352,9 @@ test("the Spark on this PC page covers quoted 'yyyy', groupBy() and first/last i
   assert.match(doc, /Quoted text that repeats a pattern letter \(`'yyyy'`\)/);
   assert.match(doc, /`groupBy\(\)` with no columns aggregates the whole frame/);
 });
+
+// Spark on this PC: slice takes a length and add_months returns a date.
+test("the Spark on this PC page says slice takes a length and add_months returns a date", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`slice\(arr, start, length\)` takes a length and counts a\nnegative start from the end, and `add_months` returns a date/);
+});

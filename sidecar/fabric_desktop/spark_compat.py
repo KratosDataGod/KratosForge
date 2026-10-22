@@ -266,6 +266,15 @@ def concat(*cols: Any) -> Column:
         f"concat({', '.join(_name_of(c) for c in cols)})")
 
 
+def slice(x: Any, start: Any, length: Any) -> Column:  # noqa: A001
+    """``length`` elements from ``start`` (1-based; negative counts from the end), as in Spark."""
+    cols = [x] + [v for v in (start, length) if not isinstance(v, int)]
+    holes = iter(f"{{{i}}}" for i in range(1, len(cols)))
+    args = ", ".join(str(v) if isinstance(v, int) else next(holes) for v in (start, length))
+    return _call(f"slice({{0}}, {args})", *cols).alias(
+        f"slice({_name_of(x)}, {', '.join(str(v) if isinstance(v, int) else _name_of(v) for v in (start, length))})")
+
+
 def initcap(col: Any) -> Column:
     """Each word's first letter upper case and the rest lower case, as in Spark (DuckDB's initcap
     only upper-cases first letters)."""
@@ -783,7 +792,7 @@ def install() -> None:
     if getattr(DataFrame, "_fd_compat", False):
         return
     for name, fn in FUNCTIONS.items():
-        if name in ("count", "substring", "concat", "initcap", "first", "last") or not hasattr(F, name):
+        if name in ("count", "substring", "concat", "initcap", "first", "last", "slice") or not hasattr(F, name):
             setattr(F, name, fn)
     F.expr = expr  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
     Column.over = _over  # type: ignore[attr-defined]

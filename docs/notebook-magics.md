@@ -142,7 +142,7 @@ the same as any other.
 | `%time statement`, `%%time` | Runs it and prints the wall time |
 | `%timeit expression`, `%%timeit` | Runs it many times and prints the mean and spread per loop, as IPython does. `-n 100` sets loops per run and `-r 5` runs; by default it picks enough loops for 0.2 seconds and does 7 runs. Other IPython options such as `-o` and `-q` say they aren't supported |
 | `%%capture name` | Keeps the cell's printed output, tables and charts in `name` instead of showing them. `name.stdout` is the text; `name.show()` shows it all. An error still shows |
-| `%%writefile path` | Writes the cell's text to a file on this PC, replacing a file that's there without asking; `-a` appends. A relative path lands in the engine's working folder (`%pwd`), not the notebook's; give a full path to choose where |
+| `%%writefile path` | Writes the cell's text to a file on this PC, replacing a file that's there without asking; `-a` appends. A name with spaces needs quotes, or the cell says so instead of writing to the first word. A relative path lands in the engine's working folder (`%pwd`), not the notebook's; give a full path to choose where |
 | `%env`, `%env NAME`, `%env NAME=value` | Lists, reads or sets environment variables. Values of names that look secret (token, key, password...) show as hidden. `FABRIC_DESKTOP_*` and the proxy and certificate settings (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `REQUESTS_CA_BUNDLE`, `SSL_CERT_FILE` and similar) can't be set here, because the engine's signed-in Fabric calls use them |
 | `%who`, `%whos` | Lists the notebook's variables (the same ones as the **Variables** pane); `%who str int` lists only those types |
 | `%pwd` | The kernel's working folder |
@@ -195,7 +195,8 @@ Both products' ways of passing values work:
 ```
 
 - Fabric's form takes a JSON object (or a Python dict). Databricks' form takes `$name=value`
-  pairs, whose values are always text, as Databricks widgets are.
+  pairs, whose values are always text, as Databricks widgets are. Anything else on the line is an
+  error rather than being dropped.
 - The values replace those in the other notebook's **parameter cell**; without one, they are set
   as variables before it runs.
 - A name can have spaces, and can be quoted. A folder path in front (`./`, `../shared/`) and an

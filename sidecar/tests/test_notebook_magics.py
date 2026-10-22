@@ -1,6 +1,9 @@
 """Line magics and SQL results in notebook cells (magics.py and the kernel)."""
 
 import json
+import re
+
+import pytest
 
 from fabric_desktop import depgraph, envprofile, magics, proof
 from fabric_desktop.fabric_run import compute_check, fabric_ipynb, fabric_sql_magics
@@ -515,3 +518,18 @@ def test_timeit_refuses_options_it_cant_honour_and_who_filters_by_type():
     assert k.run("%who str")["outputs"][0]["text"].split() == ["b"]
     assert k.run("%who int list")["outputs"][0]["text"].split() == ["a", "c"]
     assert k.run("%who")["outputs"][0]["text"].split() == ["a", "b", "c"]
+
+
+def test_writefile_and_run_refuse_what_they_would_drop(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    k = Kernel()
+    out = k.run("%%writefile my helpers.py\nx = 1")
+    assert out["status"] == "error" and 'quote a name with spaces, like: %%writefile "my helpers.py"' in out["outputs"][0]["evalue"]
+    assert not (tmp_path / "my").exists()
+    assert "-x isn't supported" in k.run("%%writefile -x a.py\nx = 1")["outputs"][0]["evalue"]
+    assert k.run('%%writefile "my helpers.py"\nx = 1')["status"] == "ok" and (tmp_path / "my helpers.py").exists()
+    from fabric_desktop.notebook import _run_target
+    assert _run_target('./Load $a=1 $b="x y"') == ("Load", {"a": "1", "b": "x y"})
+    for line, left in (("Load $a=1 $full", "$full"), ("Load $a=1 junk", "junk")):
+        with pytest.raises(ValueError, match=re.escape(repr(left))):
+            _run_target(line)

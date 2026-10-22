@@ -1056,7 +1056,8 @@ function renderTableOutput(o, cell) {
   const seg = (id, label) => h("button", { class: `seg${o.view === id ? " on" : ""}`, "aria-pressed": String(o.view === id),
     onclick: () => { o.view = id; redraw(); } }, label);
   const bar = h("div", { class: "out-bar" }, h("div", { class: "segs", role: "group", "aria-label": "View" },
-    seg("table", "Table"), seg("chart", "Chart"), seg("inspect", "Inspect"), o.frame ? seg("clean", "Clean") : null));
+    seg("table", "Table"), seg("chart", "Chart"), seg("inspect", "Inspect"), o.frame ? seg("clean", "Clean") : null,
+    o.frame && o.spark ? seg("qprofile", "Query profile") : null));
   wrap.append(bar);
   const numeric = numericColumns(o);
   const count = typeof o.total_rows === "number"
@@ -1091,6 +1092,9 @@ function renderTableOutput(o, cell) {
   } else if (o.view === "clean" && o.frame) {
     bar.append(h("span", { class: "spacer" }), previewMarked("dataWrangler", h("span", { class: "muted-text" }, "Data Wrangler")));
     wrap.append(renderWrangler(o, cell));
+  } else if (o.view === "qprofile" && o.frame) {
+    bar.append(h("span", { class: "spacer" }), previewMarked("queryProfile", h("span", { class: "muted-text" }, "Query profile")));
+    wrap.append(renderQueryProfile(o));
   } else if (o.frame && !o.profileGone) {
     wrap.append(renderFrameProfile(o, numeric, count));
   } else {

@@ -4352,3 +4352,59 @@ test("the Spark on this PC page covers quoted 'yyyy', groupBy() and first/last i
   assert.match(doc, /Quoted text that repeats a pattern letter \(`'yyyy'`\)/);
   assert.match(doc, /`groupBy\(\)` with no columns aggregates the whole frame/);
 });
+
+// Query profile (qprofile.js): runs only when asked, says it reads OneLake again, and lists each step.
+test("the query profile runs only when asked, warns about capacity and lists each step with its share", async () => {
+  const src = fs.readFileSync(path.join(ui, "qprofile.js"), "utf8");
+  const { node } = chartsHarness(null);
+  const calls = [];
+  let copied = null;
+  let answer = { seconds: 1.38, rows: 6, rows_scanned: 12480113, peak_memory: 212 * 1024 * 1024, more_steps: 0, steps: [
+    { depth: 0, name: "ORDER_BY", rows: 6, seconds: 0.001, share: 0.001, details: { "Order By": "revenue DESC" } },
+    { depth: 1, name: "HASH_GROUP_BY", rows: 6, seconds: 0.29, share: 0.21, details: { Groups: "region" } },
+    { depth: 2, name: "SEQ_SCAN", rows: 12480113, seconds: 0.97, share: 0.71, details: { Table: "silver.orders", Filters: "status='shipped'" } }] };
+  const ctx = { h: node, friendlyError: (e) => `failed: ${e.message}`, toast: () => {}, attempt: (fn) => fn(),
+    btn: (label, _i, onclick, _c, attrs = {}) => node("button", { onclick, ...attrs }, label),
+    navigator: { clipboard: { writeText: async (t) => { copied = t; } } },
+    rpc: async (m, a) => { calls.push([m, a]); if (answer instanceof Error) throw answer; return answer; } };
+  vm.createContext(ctx);
+  vm.runInContext(src + "\nthis.api = { renderQueryProfile, qprofileText, qprofileBytes };", ctx);
+  const o = { frame: "f", spark: true };
+  const box = ctx.api.renderQueryProfile(o);
+  assert.strictEqual(calls.length, 0, "nothing runs until asked");
+  const text = (n) => allNodes(n).flatMap((x) => x.kids.filter((k) => typeof k === "string")).join(" ");
+  assert.match(text(box), /read from OneLake again, which uses capacity/);
+  allNodes(box).find((n) => n.tag === "button" && n.kids.includes("Profile the query")).attrs.onclick();
+  await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(plain(calls[0]), ["notebook_frame_query_profile", { frame: "f" }]);
+  const t = text(box);
+  assert.match(t, /Read table/);
+  assert.match(t, /silver\.orders/);
+  assert.match(t, /Slowest step/);
+  assert.match(t, /12,480,113/);
+  assert.match(t, /212 MB/);
+  const slow = allNodes(box).filter((n) => n.tag === "tr" && n.attrs.class === "slowest");
+  assert.strictEqual(slow.length, 1);
+  assert.match(text(slow[0]), /Read table/);
+  allNodes(box).find((n) => n.tag === "button" && n.kids.includes("Copy as text")).attrs.onclick();
+  await new Promise((r) => setImmediate(r));
+  assert.match(copied, /^Query profile: 1\.38 s/);
+  assert.match(copied, /\n    Read table \(silver\.orders\): 12,480,113 rows, 0\.97 s, 71%/);
+  // A restart since the result says to run the cell again; an error keeps the last profile.
+  answer = new Error("boom");
+  allNodes(box).find((n) => n.tag === "button" && n.kids.includes("Run again")).attrs.onclick();
+  await new Promise((r) => setImmediate(r));
+  assert.match(text(box), /failed: boom/);
+  assert.match(text(box), /Read table/);
+  answer = { gone: true };
+  allNodes(box).find((n) => n.tag === "button" && n.kids.includes("Run again")).attrs.onclick();
+  await new Promise((r) => setImmediate(r));
+  assert.match(text(box), /Run the cell again/);
+  assert.strictEqual(ctx.api.qprofileBytes(1.1 * 1024 ** 3), "1.1 GB");
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /o\.frame && o\.spark \? seg\("qprofile", "Query profile"\) : null/);
+  assert.match(nb, /previewMarked\("queryProfile"/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /queryProfile: "Query profile"/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="ipywidgets\.js"><\/script>\n  <script src="qprofile\.js"><\/script>/);
+  assert.doesNotMatch(src, /innerHTML|insertAdjacentHTML|outerHTML/);
+});

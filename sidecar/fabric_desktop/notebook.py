@@ -644,6 +644,8 @@ class Kernel:
         out = display(value)
         if out["type"] == "table":
             out["frame"] = self.frames.keep(value)
+            if type(value).__module__.startswith("duckdb.experimental.spark"):
+                out["spark"] = True  # it has a query to profile (spark_local.query_profile)
         return out
 
     # ---- ipywidgets (widgets.py): a control changed in the app

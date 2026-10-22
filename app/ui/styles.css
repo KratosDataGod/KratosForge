@@ -1914,3 +1914,14 @@ html[data-fx-ambient="on"] .flow-node[data-state="running"] .flow-link::after { 
 .pn-route .note-box { padding: 10px 12px; background: var(--hover); border-radius: 6px; font-size: 13px; }
 .pn-route .note-box p { margin: 4px 0 0; }
 .pn-waiting-line .pill-s { white-space: nowrap; }
+
+/* Query profile (qprofile.js): a cell result's query, step by step. */
+.qprofile { display: flex; flex-direction: column; gap: 10px; }
+.qprofile-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.qprofile-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.qprofile-stat { display: flex; flex-direction: column; gap: 2px; }
+.qprofile-stat span { font-size: 12px; color: var(--muted); }
+.qprofile-stat b { font-size: 18px; }
+.qprofile-bar { display: inline-block; height: 10px; vertical-align: middle; background: var(--accent); }
+.qprofile tr.slowest td { background: var(--accent-soft); }
+.qprofile-flag { margin-left: 8px; font-size: 11px; font-weight: 600; padding: 1px 6px; border: 1px solid var(--brand-orange); border-radius: 3px; }

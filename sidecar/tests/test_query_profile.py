@@ -43,6 +43,14 @@ def test_profiling_leaves_the_session_as_it_was(capfd):
     assert "EXPLAIN_ANALYZE" not in capfd.readouterr().out
 
 
+def test_only_spark_results_offer_a_profile():
+    k = Kernel()
+    spark = next(o for o in k.run("spark.range(3)")["outputs"] if o["type"] == "table")
+    sql = next(o for o in k.run("%%sql\nSELECT 1 AS a")["outputs"] if o["type"] == "table")
+    other = next(o for o in k.run("import polars as pl\npl.DataFrame({'a': [1]})")["outputs"] if o["type"] == "table")
+    assert spark.get("spark") is True and sql.get("spark") is True and "spark" not in other
+
+
 def test_other_results_say_what_a_profile_is_for():
     k = Kernel()
     fid = _frame(k.run("import polars as pl\npl.DataFrame({'a': [1]})"))

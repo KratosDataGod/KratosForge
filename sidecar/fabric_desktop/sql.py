@@ -104,6 +104,16 @@ def _strptime_format(node: exp.Expression) -> tuple[str, bool]:
     return exp.Literal.string(fmt).sql("duckdb"), bool(re.search(r"%-?[Yy]", fmt.replace("%%", "")))
 
 
+def _as_timestamp(value: exp.Expression) -> str:
+    """A date, timestamp or text as a timestamp, as Spark reads one (text that isn't one is NULL)."""
+    return f"TRY_CAST({value.sql('duckdb')} AS TIMESTAMP)"
+
+
+_SLICE_INDEX_0 = ("The index 0 is invalid. An index shall be either < 0 or > 0 "
+                  "(the first element has index 1).")
+_SLICE_LENGTH = "Unexpected value for length in function slice: length must be greater than or equal to 0."
+
+
 def spark_substring(node: exp.Expression) -> exp.Expression:
     """Spark's substring counts position 0 as 1 (substring('hello', 0, 2) is 'he'); DuckDB starts
     before the first character and returns 'h'.
@@ -111,6 +121,12 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
     unix_timestamp also takes a date or timestamp (DuckDB's strptime takes only text), reads its
     value in the session time zone, is NULL for text that doesn't match the format, and is a whole
     number of seconds, as in Spark.
+
+    add_months is a date, as in Spark, also for text or a timestamp (text that isn't a date is NULL).
+
+    slice refuses index 0 and a negative length, and element_at an array's index 0, as in Spark.
+
+    months_between counts the time of day and rounds to 8 digits, as in Spark.
 
     first(x, true) and last(x, true) skip NULLs as aggregates too (DuckDB takes IGNORE NULLS only
     in a window)."""
@@ -129,6 +145,54 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
             text, target = f"{name}({value}) FILTER (WHERE {value} IS NOT NULL)", ignore
         swapped = target.replace(sqlglot.parse_one(text, read="duckdb"))
         node = swapped if target is node else node
+    for months in list(node.find_all(exp.AddMonths)):  # Spark's add_months is a date, whatever it's given
+        months.set("this", exp.TryCast(this=exp.TryCast(this=months.this, to=exp.DataType.build("TIMESTAMP")),
+                                       to=exp.DataType.build("DATE")))
+        swapped = months.replace(exp.cast(months.copy(), exp.DataType.Type.DATE))
+        node = swapped if months is node else node
+    for part in list(node.find_all(exp.ArraySlice)):  # Spark refuses index 0 and a negative length
+        if not part.args.get("is_length"):
+            continue
+        for key, refused, message in (("start", lambda n: n == 0, _SLICE_INDEX_0),
+                                      ("end", lambda n: n < 0, _SLICE_LENGTH)):
+            value = part.args.get(key)
+            if value is None:
+                continue
+            v = value.sql("duckdb")
+            try:
+                if not refused(int(v)):
+                    continue  # a whole number Spark takes
+            except ValueError:
+                pass
+            test = "= 0" if key == "start" else "< 0"
+            part.set(key, sqlglot.parse_one(
+                f"CASE WHEN {v} {test} THEN error({exp.Literal.string(message).sql('duckdb')}) ELSE {v} END",
+                read="duckdb"))
+    for item in list(node.find_all(exp.Bracket)):  # element_at: an array's index 0 is refused
+        if item.args.get("offset") != 1 or item.args.get("safe") or len(item.expressions) != 1:
+            continue
+        v = item.expressions[0].sql("duckdb")
+        try:
+            if int(v) != 0:
+                continue
+        except ValueError:
+            pass
+        item.set("expressions", [sqlglot.parse_one(
+            f"CASE WHEN {v} = 0 AND typeof({item.this.sql('duckdb')}) LIKE '%[]' "
+            f"THEN error({exp.Literal.string(_SLICE_INDEX_0).sql('duckdb')}) ELSE {v} END", read="duckdb")])
+    for between in list(node.find_all(exp.MonthsBetween)):
+        later, earlier = (_as_timestamp(between.this), _as_timestamp(between.expression))
+        months = (f"((year({later}) * 12 + month({later})) - (year({earlier}) * 12 + month({earlier})))")
+        same = (f"day({later}) = day({earlier}) OR (day({later}) = day(last_day({later})) "
+                f"AND day({earlier}) = day(last_day({earlier})))")
+        seconds = f"(epoch({later}) - epoch(date_trunc('day', {later})) - epoch({earlier}) + epoch(date_trunc('day', {earlier})))"
+        value = (f"CASE WHEN {same} THEN CAST({months} AS DOUBLE) ELSE {months} + "
+                 f"((day({later}) - day({earlier})) * 86400 + {seconds}) / 2678400.0 END")
+        roundoff = between.args.get("roundoff")
+        if not (isinstance(roundoff, exp.Boolean) and roundoff.this is False):
+            value = f"round({value}, 8)"
+        swapped = between.replace(sqlglot.parse_one(value, read="duckdb"))
+        node = swapped if between is node else node
     for unix in list(node.find_all(exp.StrToUnix)):
         value = unix.this.sql("duckdb")
         fmt, has_year = _strptime_format(unix) if unix.args.get("format") else ("'%Y-%m-%d %H:%M:%S'", True)

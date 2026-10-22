@@ -2,6 +2,7 @@
 // Databricks' visualizations and Fabric's chart customization. The engine aggregates every row
 // (frames.py chart, over notebook_frame_chart); this file only draws. The chart a cell shows is
 // kept in its metadata (cell.meta.chart, by column name), so it comes back after a reload or a rerun.
+// More charts of the same result (Databricks' "+ Visualization") are kept in cell.meta.charts, after it.
 
 const CHART_KINDS = [["bar", "Bar"], ["stacked", "Stacked bar"], ["line", "Line"], ["area", "Area"], ["scatter", "Scatter"],
   ["pie", "Pie"], ["histogram", "Histogram"], ["box", "Box"]];
@@ -12,32 +13,81 @@ const CHART_OTHER = "#8a8986";
 
 function chartColor(name, i) { return name === "Other" ? CHART_OTHER : CHART_COLORS[i % CHART_COLORS.length]; }
 
+const MAX_CHARTS = 10; // charts per cell: the first in meta.chart, the rest in meta.charts
+
+// The saved chart number ``i`` of a cell (0 is meta.chart), and how many the cell has.
+function savedChart(cell, i) { return i ? cell?.meta?.charts?.[i - 1] : cell?.meta?.chart; }
+function chartCount(cell) { return 1 + (Array.isArray(cell?.meta?.charts) ? cell.meta.charts.length : 0); }
+
+// A chart's view name: its title, else Chart, Chart 2, Chart 3... A title an earlier chart
+// already has gets the chart's number too, so no two views read the same.
+function chartName(cell, i) {
+  const t = savedChart(cell, i)?.title;
+  if (!t) return i ? `Chart ${i + 1}` : "Chart";
+  const short = t.length > 24 ? `${t.slice(0, 23)}…` : t;
+  const taken = Array.from({ length: i }, (_, j) => savedChart(cell, j)?.title).includes(t);
+  return taken ? `${short} (${i + 1})` : short;
+}
+
+// "+ Chart": a new chart after the others, starting from the default for this result.
+function addChart(o, numeric, cell) {
+  cell.meta = cell.meta || {};
+  cell.meta.charts = Array.isArray(cell.meta.charts) ? cell.meta.charts : [];
+  if (!cell.meta.chart) cell.meta.chart = { ...chartConfig(o, numeric, cell, 0) };
+  cell.meta.charts.push({ ...defaultChart(o, numeric) });
+  if (typeof markDirty === "function") markDirty();
+  return chartCount(cell) - 1;
+}
+
+function removeChart(o, cell, i) {
+  if (!i || !Array.isArray(cell?.meta?.charts)) return;
+  cell.meta.charts.splice(i - 1, 1);
+  if (!cell.meta.charts.length) delete cell.meta.charts;
+  if (o.charts) o.charts.splice(i, 1);
+  if (typeof markDirty === "function") markDirty();
+}
+
 // The chart a table output starts with: the cell's saved chart if its columns still exist, else
 // the first text column by the first number column.
-function chartConfig(o, numeric, cell) {
-  if (o.chartCfg) return o.chartCfg;
-  const saved = cell?.meta?.chart;
+function chartConfig(o, numeric, cell, i = 0) {
+  const held = chartState(o, i);
+  if (held.cfg) return held.cfg;
+  const saved = savedChart(cell, i);
   const has = (c) => c === null || c === undefined || o.columns.includes(c);
-  if (saved && has(saved.x) && has(saved.y) && has(saved.series)) return (o.chartCfg = { ...saved });
+  if (saved && has(saved.x) && has(saved.y) && has(saved.series)) return (held.cfg = { ...saved });
+  return (held.cfg = defaultChart(o, numeric));
+}
+
+// What an output holds for its chart ``i``: the settings in use and the engine's last answer.
+function chartState(o, i) {
+  o.charts ||= [];
+  return (o.charts[i] ||= {});
+}
+
+function defaultChart(o, numeric) {
   const nums = o.columns.filter((_, i) => numeric[i]);
   const cats = o.columns.filter((_, i) => !numeric[i]);
   const x = cats[0] || o.columns[0];
-  return (o.chartCfg = { kind: "bar", x, y: nums.find((c) => c !== x) || null, agg: nums.length ? "sum" : "count", series: null, title: "" });
+  return { kind: "bar", x, y: nums.find((c) => c !== x) || null, agg: nums.length ? "sum" : "count", series: null, title: "" };
 }
 
-function renderChartBuilder(o, numeric, cell) {
-  const cfg = chartConfig(o, numeric, cell);
+// onRemove: called after chart ``i`` (not the first) is removed, so the output can show another view.
+function renderChartBuilder(o, numeric, cell, i = 0, onRemove = null) {
+  const cfg = chartConfig(o, numeric, cell, i);
+  const held = chartState(o, i);
   const box = h("div", { class: "chart-box" });
-  const redraw = () => box.replaceWith(renderChartBuilder(o, numeric, cell));
+  const redraw = () => box.replaceWith(renderChartBuilder(o, numeric, cell, i, onRemove));
   const change = (key, value) => {
     cfg[key] = value === "" ? null : value;
-    delete o.chartData;
+    delete held.data;
     if (cell) {
       cell.meta = cell.meta || {};
-      cell.meta.chart = { ...cfg };
+      if (i) cell.meta.charts[i - 1] = { ...cfg };
+      else cell.meta.chart = { ...cfg };
       if (typeof markDirty === "function") markDirty();
     }
-    redraw();
+    if (key === "title" && onRemove) onRemove(i, "renamed");
+    else redraw();
   };
   const select = (label, key, options, none) => h("label", { class: "chart-opt" }, label, h("select", {
     onchange: (e) => change(key, e.target.value), "aria-label": label },
@@ -57,19 +107,20 @@ function renderChartBuilder(o, numeric, cell) {
     usesAgg && cfg.y ? select("Aggregate", "agg", CHART_AGGS) : null,
     usesSeries ? select("Series", "series", cols.filter(([c]) => c !== cfg.x), "None") : null,
     title,
-    cell?.meta?.chart ? btn("Reset", "undo", () => { delete cell.meta.chart; delete o.chartCfg; delete o.chartData; if (typeof markDirty === "function") markDirty(); redraw(); }, "tool outline small") : null));
+    !i && cell?.meta?.chart ? btn("Reset", "undo", () => { delete cell.meta.chart; delete held.cfg; delete held.data; if (typeof markDirty === "function") markDirty(); redraw(); }, "tool outline small") : null,
+    i ? btn("Remove chart", "delete", () => { removeChart(o, cell, i); if (onRemove) onRemove(i, "removed"); }, "tool outline small") : null));
   const area = h("div", { class: "chart-area", role: "status" }, "Charting every row...");
   box.append(area);
   const draw = (d) => {
     if (d.gone) { area.textContent = "Run the cell again to chart this result: the kernel no longer holds it."; return; }
     area.replaceChildren(cfg.title ? h("div", { class: "chart-title" }, cfg.title) : null, chartSvg(d, cfg), chartLegend(d), chartNote(d));
   };
-  if (o.chartData) draw(o.chartData);
+  if (held.data) draw(held.data);
   else {
     const idx = (c) => (c === null || c === undefined ? null : o.columns.indexOf(c));
     rpc("notebook_frame_chart", { frame: o.frame, kind: cfg.kind, x: needsX ? idx(cfg.x) : null, y: idx(cfg.y),
       agg: cfg.y ? cfg.agg : "count", series: usesSeries ? idx(cfg.series) : null })
-      .then((d) => { if (!d.gone) o.chartData = d; draw(d); }, (err) => { area.textContent = `Could not draw the chart: ${friendlyError(err)}`; });
+      .then((d) => { if (!d.gone) held.data = d; draw(d); }, (err) => { area.textContent = `Could not draw the chart: ${friendlyError(err)}`; });
   }
   return box;
 }

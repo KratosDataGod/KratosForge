@@ -8,9 +8,11 @@ here too: it runs locally and turns what it finds into cleaning rules and checks
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
 import json
 import logging
+import re
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -20,7 +22,7 @@ from typing import Any
 import polars as pl
 from deltalake.exceptions import TableNotFoundError
 
-from . import maintenance, notebook_files, profiling, semantic
+from . import fabric_step, maintenance, notebook_files, profiling, semantic
 from .auth import FABRIC_SCOPES, STORAGE_SCOPES
 from .fabric_api import FabricClient, FabricError
 from .fabric_compute import BUNDLE_DIR, RESULTS_DIR, RUNNER, bundle_files, bundle_hash, run_parameters, runner_ipynb
@@ -31,7 +33,7 @@ from .meta import keys as keys_mod
 from .meta_service import NoMetadataProject
 from .notebook import leaf_name
 from .meta.store import META_LAKEHOUSE, META_SCHEMAS, LocalStore, OneLakeStore
-from .onelake import FileStore
+from .onelake import FileStore, TableRef, storage_options
 from .redact import describe
 
 _log = logging.getLogger(__name__)
@@ -42,6 +44,8 @@ class FabricChanged(RuntimeError):
 
 NOTEBOOK_JOB = "RunNotebook"
 FABRIC_APP = "https://app.fabric.microsoft.com"
+# A OneLake lakehouse is addressed by GUIDs; anything else is one Fabric can't reach.
+_GUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
 
 def _now() -> str:
@@ -265,6 +269,90 @@ class CloudMixin:
         return self._log_fabric_run({"kind": "Notebook run", "name": name, "workspace_id": item["workspace_id"],
                                      "workspace_name": item["workspace_name"], "engine": engine,
                                      "item_id": item["id"], "job_id": job_id, "url": item["url"]})
+
+    # ---- the Fabric step: a notebook's last cell, run on Fabric Spark (fabric_step.py)
+
+    def _step_where(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None) -> dict[str, Any]:
+        index = fabric_step.step_index(cells)
+        if index is None:
+            raise ValueError(f"No cell in {name} is marked Run on Fabric.")
+        if not lakehouse_ref or not all(_GUID.match(str(lakehouse_ref.get(k) or "")) for k in ("workspace_id", "lakehouse_id")):
+            raise ValueError("Fabric can't reach this notebook's lakehouse. Attach a OneLake lakehouse to run "
+                             "the last cell on Fabric. Nothing was sent.")
+        return {"index": index, "item_name": fabric_step.step_name(name),
+                "workspace_id": lakehouse_ref["workspace_id"], "workspace_name": lakehouse_ref.get("workspace_name", ""),
+                "lakehouse": lakehouse_ref.get("name", ""),
+                "tables": fabric_step.optimized_tables(cells[index].get("source", ""))}
+
+    def notebook_vorder_cell(self, cells: list[dict[str, Any]], tables: list[str], picked: list[str] | None = None,
+                             rewrite_all: bool = False) -> dict[str, Any]:
+        """For "Insert V-Order cell": which of the lakehouse's ``tables`` the notebook's code names
+        (ticked first), and, once tables are ``picked``, the cell's code. Reads only."""
+        return {"candidates": fabric_step.vorder_candidates(cells, tables),
+                "source": fabric_step.vorder_source(picked, rewrite_all) if picked else None}
+
+    def notebook_fabric_step_check(self, name: str, cells: list[dict[str, Any]],
+                                   lakehouse_ref: dict[str, str] | None = None) -> dict[str, Any]:
+        """Before Run all or running the marked cell: where the Fabric step would run and which tables
+        it V-Orders, or why it can't (``problem``). Reads only."""
+        try:
+            where = self._step_where(name, cells, lakehouse_ref)
+            fabric_step.step_ipynb(name, cells[where["index"]], lakehouse_ref or {}, "check")  # code Spark can run
+        except ValueError as exc:
+            return {"ok": False, "problem": str(exc)}
+        return {"ok": True} | where
+
+    def run_notebook_fabric_step(self, name: str, cells: list[dict[str, Any]],
+                                 lakehouse_ref: dict[str, str] | None) -> dict[str, Any]:
+        """Publish the marked last cell as the "<name> (Fabric step)" Spark notebook in the lakehouse's
+        workspace, replacing the one there, and start it on that workspace's Fabric capacity."""
+        self._replay_refuse(name, "running its last cell on Fabric")  # type: ignore[attr-defined]
+        where = self._step_where(name, cells, lakehouse_ref)
+        lakehouse_ref = lakehouse_ref or {}  # _step_where refused a missing one
+        request_id = f"fds-{dt.datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:6]}"
+        doc = fabric_step.step_ipynb(name, cells[where["index"]], lakehouse_ref, request_id)
+        ws = where["workspace_id"]
+        item = self.fabric.save_notebook(ws, where["item_name"], json.dumps(doc).encode())  # type: ignore[attr-defined]
+        item_id = item.get("id") or (self._notebook_item(where["item_name"], ws) or {}).get("id")
+        if not item_id:
+            raise LookupError(f"{where['item_name']} was published but Fabric didn't return its id; try again")
+        job_id = self.fabric_jobs.run_item_job(ws, item_id, NOTEBOOK_JOB)  # type: ignore[attr-defined]
+        return self._log_fabric_run({
+            "kind": "Fabric step", "name": name, "workspace_id": ws, "workspace_name": where["workspace_name"],
+            "engine": "spark", "item_id": item_id, "job_id": job_id, "request_id": request_id,
+            "lakehouse_id": lakehouse_ref["lakehouse_id"], "tables": where["tables"],
+            "url": f"{FABRIC_APP}/groups/{ws}/synapsenotebooks/{item_id}?experience=fabric-developer"})
+
+    def notebook_fabric_step_result(self, request_id: str) -> dict[str, Any]:
+        """A Fabric step's status; once it ended, what the cell printed and, for each table it
+        OPTIMIZEd, whether the Delta log now shows V-Order since the last write."""
+        run = next((r for r in self.fabric_runs(200) if r.get("request_id") == request_id), None)
+        if run is None:
+            raise KeyError(f"no Fabric step {request_id}")
+        out: dict[str, Any] = {k: run.get(k) for k in ("status", "message", "url", "job_id", "workspace_id",
+                                                         "item_id", "started_at", "finished_at")}
+        out |= {"output": None, "tables": []}
+        if run["status"] not in TERMINAL:
+            return out
+        token = self.auth.storage_token()  # type: ignore[attr-defined]
+        try:
+            data = FileStore(lambda: token).read_bytes(run["workspace_id"], run["lakehouse_id"],
+                                                        fabric_step.result_path(request_id))
+            out["output"] = json.loads(data) if data else None
+        except Exception as exc:  # the run's status still shows; the output is in Fabric
+            _log.warning("Couldn't read the Fabric step's output: %s", describe(exc))
+        if run["status"] == "Completed" and run.get("tables"):
+            flat = not self._schemas_enabled(run["workspace_id"], run["lakehouse_id"])  # type: ignore[attr-defined]
+            for table in run["tables"]:
+                schema, _, name = table.rpartition(".")
+                try:
+                    uri = TableRef(run["workspace_id"], run["lakehouse_id"], schema or "dbo", name, flat=flat).uri
+                    h = maintenance.health(uri, storage_options(token))
+                    out["tables"].append({"table": table, "v_ordered": h.get("v_ordered", False) if h["exists"] else None,
+                                          "files": h.get("files"), "last_optimize": h.get("last_optimize")})
+                except Exception as exc:  # one table not readable doesn't hide the others
+                    out["tables"].append({"table": table, "v_ordered": None, "message": describe(exc)})
+        return out
 
     def _notebook_item(self, name: str, workspace_id: str) -> dict[str, Any] | None:
         """The notebook item Publish writes: the one named after the notebook, without its folders."""
@@ -565,10 +653,27 @@ class CloudMixin:
             raise ValueError(f"{layer} is not a layer")
         return layer
 
+    def _kept_table_names(self, project: Any, layer: str, workspace_id: str, model: dict[str, Any],
+                          fresh: bool = True) -> dict[str, str]:
+        """The names the layer's tables have in the existing model, so updating it keeps them.
+
+        getDefinition is a long-running operation, so the plan (``fresh=False``) reuses the definition read
+        last for this model; building always reads it again, since that is what decides the names."""
+        cache = self.__dict__.setdefault("_model_definitions", {})
+        key = (workspace_id, model["id"])
+        if fresh or key not in cache:
+            try:
+                got = self.fabric.get_item_definition(workspace_id, model["id"], "TMDL")  # type: ignore[attr-defined]
+                cache[key] = {p["path"]: base64.b64decode(p.get("payload") or "").decode("utf-8")
+                              for p in (got.get("definition") or {}).get("parts", []) if p.get("path", "").endswith(".tmdl")}
+            except Exception as exc:  # guessing would rename tables that reports use
+                raise RuntimeError(f"Couldn't read {model.get('displayName') or 'the model'}'s definition "
+                                   f"({type(exc).__name__}: {exc}), so its table names aren't known. Try again.") from exc
+        return semantic.table_names(cache[key], [e.name for e in project.entities.values() if e.layer == layer])
+
     def meta_model_plan(self, env: str = "test", layer: str | None = None) -> dict[str, Any]:
         project = self._project()  # type: ignore[attr-defined]
         layer = self._model_layer(project, layer)
-        tables, rels = semantic.plan(project, layer)
         cfg = self._env_cfg(project, env)
         local = cfg.get("target", "onelake" if env != "dev" else "local") == "local"
         existing = None
@@ -580,6 +685,8 @@ class CloudMixin:
             except Exception as exc:  # "none found" here would offer Create over a model that exists
                 raise RuntimeError(f"Couldn't list the semantic models in {cfg.get('workspace_name') or 'the workspace'} "
                                    f"({type(exc).__name__}: {exc}), so whether {name} exists isn't known. Try again.") from exc
+        kept = self._kept_table_names(project, layer, cfg["workspace_id"], existing, fresh=False) if existing else None
+        tables, rels = semantic.plan(project, layer, kept)
         return {"env": env, "layer": layer, "layers": project.layer_names(), "name": name, "local": local,
                 "workspace_id": cfg.get("workspace_id", ""), "workspace_name": cfg.get("workspace_name", ""),
                 "lakehouse": project.layer(layer).lakehouse,
@@ -607,7 +714,13 @@ class CloudMixin:
         lakehouse = project.layer(layer).lakehouse
         if lakehouse not in store.lakehouse_ids:
             raise LookupError(f"{lakehouse} doesn't exist in the {env} workspace yet; promote and run first")
-        tables, rels = semantic.plan(project, layer)
+        fabric: FabricClient = self.fabric  # type: ignore[attr-defined]
+        name = (name or f"SM_{layer.title()}").strip()
+        kept = None
+        if replace:  # without it an existing model only asks to confirm, so its names aren't needed yet
+            existing = next((m for m in fabric.list_semantic_models(store.workspace_id) if m["displayName"] == name), None)
+            kept = self._kept_table_names(project, layer, store.workspace_id, existing) if existing else None
+        tables, rels = semantic.plan(project, layer, kept)
         skipped, unreadable = [], []
         for t in tables:
             try:
@@ -629,13 +742,12 @@ class CloudMixin:
         names = {t.name for t in tables}
         columns_left_out = [c for t in tables for c in semantic.left_out(t)]
         usable = {t.name: {c for c, typ in t.columns if semantic.tmdl_type(typ)} for t in tables}
-        kept = [r for r in rels if r.from_table in names and r.to_table in names
-                and r.from_column in usable[r.from_table] and r.to_column in usable[r.to_table]]
+        kept_rels = [r for r in rels if r.from_table in names and r.to_table in names
+                     and r.from_column in usable[r.from_table] and r.to_column in usable[r.to_table]]
         # Only those whose tables are both in the model but whose columns aren't: a missing table is already reported.
         relationships_left_out = [f"{r.from_table}.{r.from_column} to {r.to_table}.{r.to_column}" for r in rels
-                                  if r not in kept and r.from_table in names and r.to_table in names]
-        rels = kept
-        fabric: FabricClient = self.fabric  # type: ignore[attr-defined]
+                                  if r not in kept_rels and r.from_table in names and r.to_table in names]
+        rels = kept_rels
         props = (fabric.get_lakehouse(store.workspace_of(lakehouse), store.lakehouse_ids[lakehouse]).get("properties") or {})
         endpoint = props.get("sqlEndpointProperties") or {}
         if not endpoint.get("connectionString") or not endpoint.get("id"):
@@ -646,7 +758,6 @@ class CloudMixin:
         except Exception:
             refreshed = False
         parts = semantic.build(tables, rels, endpoint["connectionString"], endpoint["id"])
-        name = (name or f"SM_{layer.title()}").strip()
         try:
             model = fabric.save_semantic_model(store.workspace_id, name, parts,
                                                f"Direct Lake over {lakehouse}, built by KratosForge from the metadata project",

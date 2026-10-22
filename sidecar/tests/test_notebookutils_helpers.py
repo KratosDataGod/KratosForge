@@ -88,6 +88,10 @@ def test_runtime_context_reads_like_a_dict(k):
                 "('isLocal' in c, len(c) > 5, 'productType' in list(c), dict(c.items())['isLocal'], "
                 "c.copy()['productType'], json.loads(json.dumps(c))['isLocal'], dict(c)['isForInteractive'])")
     assert out["outputs"][-1]["text"] == "(True, True, True, True, 'KratosForge', True, True)", out
+    fresh = k.run("from fabric_desktop.notebookutils_local import _make_runtime, Host\n"
+                  "c2 = _make_runtime(Host()).context\nc2.clear()\n"
+                  "(c2 != {}, c2.setdefault('isLocal'), c2.pop('isLocal'))")
+    assert fresh["outputs"][-1]["text"] == "(True, True, True)", fresh
 
 
 def test_where_it_runs_knows_reads_from_changes():

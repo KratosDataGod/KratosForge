@@ -326,6 +326,7 @@ function renderCell(cell) {
     LANGS.map(([v, label]) => h("option", { value: v, selected: cellLang(cell) === v || null }, label))),
     isParams(cell) ? h("span", { class: "tag" }, "Parameters") : null,
     meta.frozen ? h("span", { class: "tag frozen-tag" }, icon("shield", 12), "Frozen") : null,
+    fabricStepBadge(cell),  // fabricstep.js
     cell.type === "code" ? depsHead(cell) : null,
     ...cellHeadExtras(cell),
     commentBadge(cell),  // notebook-comments.js
@@ -412,6 +413,7 @@ function cellMenu(cell) {
       items.push({ label: "Debug cell (pause at the first line)", icon: "play", action: () => debugCell(cell) });
     }
   }
+  items.push(...fabricStepMenuItems(cell));  // fabricstep.js
   items.push({ label: cell.meta.frozen ? "Unfreeze cell" : "Freeze cell", icon: "shield", action: () => toggleFreeze(cell) });
   items.push({ label: "Split cell at cursor", icon: "code", action: () => splitCell(cell) });
   items.push({ label: "Merge with cell below", icon: "down", action: () => mergeBelow(cell) });
@@ -430,7 +432,7 @@ function statusLine(cell) {
     s === "running" && cell.seconds != null ? h("span", {}, `${cell.seconds.toFixed(1)} s`) : null,
     s === "running" && cell.progress != null ? h("span", { class: "cell-progress", title: "How far the running query is" },
       h("progress", { max: 100, value: cell.progress, "aria-label": "Query progress" }), `Query ${Math.floor(cell.progress)}%`) : null,
-    s === "ok" || s === "error" || s === "cancelled" ? h("span", {}, cell.partial ? "Ran the selection on this PC" : "Ran on this PC") : null,
+    s === "ok" || s === "error" || s === "cancelled" ? h("span", {}, isFabricStep(cell) ? "Fabric step" : cell.partial ? "Ran the selection on this PC" : "Ran on this PC") : null,
     cell.seconds != null && s !== "running" && s !== "queued" ? h("span", {}, `${cell.seconds.toFixed(1)} s`) : null,
     cell.finishedAt && s !== "running" ? h("span", {}, cell.finishedAt) : null);
 }
@@ -941,6 +943,7 @@ document.addEventListener("keydown", (e) => {
 function renderOutput(o, cell) {
   if (o.type === "stream" || o.type === "text") return h("div", { class: "output" }, h("pre", {}, o.text));
   if (o.type === "widget") return renderWidgetOutput(o, cell);  // ipywidgets.js
+  if (o.type === "fabric_step") return fabricStepOutput(o, cell);  // fabricstep.js
   if (o.type === "error" && cell && limitStop(o)) return limitOutput(o, cell);
   if (o.type === "error") {
     return h("div", { class: "output error" }, h("div", { class: "ename" }, `${o.ename}: ${o.evalue}`),
@@ -1055,8 +1058,15 @@ function renderTableOutput(o, cell) {
   const redraw = () => wrap.replaceWith(renderTableOutput(o, cell));
   const seg = (id, label) => h("button", { class: `seg${o.view === id ? " on" : ""}`, "aria-pressed": String(o.view === id),
     onclick: () => { o.view = id; redraw(); } }, label);
+  // Several charts of one result (Databricks' "+ Visualization"): "chart" is the first, "chart-2" the second...
+  const many = o.frame && cell && typeof chartCount === "function";
+  const charts = many ? chartCount(cell) : 1;
+  if (/^chart-\d+$/.test(o.view) && +o.view.slice(6) > charts) o.view = "chart";
+  const chartSegs = Array.from({ length: charts }, (_, i) => seg(i ? `chart-${i + 1}` : "chart", many ? chartName(cell, i) : "Chart"));
+  const add = many && charts < MAX_CHARTS ? previewMarked("severalCharts", h("button", { class: "seg seg-add", "aria-label": "Add a chart of this result",
+    onclick: () => { o.view = `chart-${addChart(o, numericColumns(o), cell) + 1}`; redraw(); } }, "+ Chart")) : null;
   const bar = h("div", { class: "out-bar" }, h("div", { class: "segs", role: "group", "aria-label": "View" },
-    seg("table", "Table"), seg("chart", "Chart"), seg("inspect", "Inspect"), o.frame ? seg("clean", "Clean") : null,
+    seg("table", "Table"), chartSegs, add, seg("inspect", "Inspect"), o.frame ? seg("clean", "Clean") : null,
     o.frame && o.spark ? seg("qprofile", "Query profile") : null));
   wrap.append(bar);
   const numeric = numericColumns(o);
@@ -1084,9 +1094,10 @@ function renderTableOutput(o, cell) {
     search.addEventListener("input", () => { o.q = search.value; draw(); });
     wrap.append(body, h("div", { class: "more" }, count));
     draw();
-  } else if (o.view === "chart" && o.frame) {
+  } else if ((o.view === "chart" || /^chart-\d+$/.test(o.view)) && o.frame) {
     bar.append(h("span", { class: "spacer" }), previewMarked("chartBuilder", h("span", { class: "muted-text" }, "Chart of every row")));
-    wrap.append(renderChartBuilder(o, numeric, cell));
+    const i = o.view === "chart" ? 0 : +o.view.slice(6) - 1;
+    wrap.append(renderChartBuilder(o, numeric, cell, i, (n, what) => { if (what === "removed") o.view = n > 1 ? `chart-${n}` : "chart"; redraw(); }));
   } else if (o.view === "chart") {
     wrap.append(renderChart(o, numeric), h("div", { class: "more" }, `Chart of ${count.toLowerCase()}`));
   } else if (o.view === "clean" && o.frame) {
@@ -1370,6 +1381,7 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
     toast("This cell is frozen, so it doesn't run. Unfreeze it on the Edit tab.");
     return true;
   }
+  if (isFabricStep(cell)) return runFabricStep(cell, nb);  // fabricstep.js: on Fabric Spark, not this PC
   if (kernelBusy(nb) && cell.status !== "queued") {
     const other = nb.kernelStatus !== "busy" && [...openNotebooks.values()].find((o) => o.kernelStatus === "busy");
     if (other) toast(`A cell is running in ${other.name}. Notebooks share one kernel unless Run notebooks in their own process is on in Settings.`);
@@ -1453,6 +1465,7 @@ function cellFx(cell) {
 async function runCells(cells) {
   const nb = state.notebook;
   const code = cells.filter((c) => c.type === "code" && c.source.trim() && !c.meta?.frozen);
+  if (!(await fabricStepPrecheck(nb, code))) return;  // fabricstep.js: before any cell runs
   nb.cancelRequested = false;
   const started = performance.now();
   const done = (ran) => {

@@ -134,6 +134,9 @@ jobs:
           python-version: "3.12"
       - name: Build the engine folder
         shell: pwsh
+        env:
+          # Part of the runtime key: signing changes the packages' files. Same test as "Sign the engine's packages".
+          SIGNED: ${{ vars.TRUSTED_SIGNING_ACCOUNT != '' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
           $ErrorActionPreference = "Stop"
           $dir = "$env:RUNNER_TEMP\engine"
@@ -150,7 +153,10 @@ jobs:
           python -m pip install --only-binary=:all: -c sidecar\constraints.txt --target "$dir\Lib\site-packages" pip (Get-ChildItem "$env:RUNNER_TEMP\wheels\*.whl").FullName
           # client_id: an own app registration for a fork built for one organization (repository variable). Empty means Microsoft's Fabric sign-in.
           # telemetry_connection_string: KratosBI's Application Insights for opt-in usage data (docs/telemetry.md); unset means builds never send any.
-          @{ commit = "$env:GITHUB_SHA"; python = "$env:PYTHON_VERSION"; client_id = "${{ vars.FABRIC_CLIENT_ID }}"; telemetry_connection_string = "${{ vars.TELEMETRY_CONNECTION_STRING }}" } | ConvertTo-Json | Set-Content "$dir\engine.json" -Encoding ascii
+          # runtime names Python and the packages, so the app can update an engine with the same ones from the update zip.
+          $runtime = & "$dir\python.exe" .github\scripts\engine_runtime.py
+          if ($LASTEXITCODE -or $runtime -notmatch '^[0-9a-f]{64}$') { throw "Could not work out the engine's runtime key ($runtime)" }
+          @{ commit = "$env:GITHUB_SHA"; python = "$env:PYTHON_VERSION"; runtime = "$runtime"; client_id = "${{ vars.FABRIC_CLIENT_ID }}"; telemetry_connection_string = "${{ vars.TELEMETRY_CONNECTION_STRING }}" } | ConvertTo-Json | Set-Content "$dir\engine.json" -Encoding ascii
           "ENGINE_DIR=$dir" >> $env:GITHUB_ENV
       - name: Check the engine starts on its own
         shell: pwsh
@@ -192,11 +198,28 @@ jobs:
           if-no-files-found: error
       - name: Zip the engine
         shell: pwsh
-        run: 7z a -tzip -mx=5 fabric-desktop-engine.zip "$env:ENGINE_DIR\*"
+        run: |
+          $ErrorActionPreference = "Stop"
+          7z a -tzip -mx=5 fabric-desktop-engine.zip "$env:ENGINE_DIR\*"
+          if ($LASTEXITCODE) { exit 1 }
+          # The update zip: only the engine's own files, the ones engine_patch.rs's sidecar_owned names
+          # (engine.json, and in Lib\site-packages fabric_desktop, its dist-info and bin\fabric-desktop*).
+          # An installed engine with the same runtime key plus these files is this engine.
+          $out = "$PWD\fabric-desktop-engine-update.zip"
+          Push-Location $env:ENGINE_DIR
+          $items = @("engine.json", "Lib\site-packages\fabric_desktop") +
+            @(Get-ChildItem "Lib\site-packages" -Directory -Filter "fabric_desktop-*.dist-info" | ForEach-Object { "Lib\site-packages\$($_.Name)" }) +
+            @(Get-ChildItem "Lib\site-packages\bin" -Filter "fabric-desktop*" -ErrorAction SilentlyContinue | ForEach-Object { "Lib\site-packages\bin\$($_.Name)" })
+          7z a -tzip -mx=5 $out @items
+          if ($LASTEXITCODE) { exit 1 }
+          Pop-Location
+          "Engine $((Get-Item fabric-desktop-engine.zip).Length) bytes, update $((Get-Item $out).Length) bytes"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fabric-desktop-engine
-          path: fabric-desktop-engine.zip
+          path: |
+            fabric-desktop-engine.zip
+            fabric-desktop-engine-update.zip
           if-no-files-found: error
 
   shell:
@@ -291,6 +314,7 @@ jobs:
           subject-path: |
             fabric-desktop.exe
             fabric-desktop-engine.zip
+            fabric-desktop-engine-update.zip
       - env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -306,15 +330,23 @@ jobs:
           # Checksums let the app refuse a cut-off or mixed-up download before installing it.
           # Everything that reached main in the last 30 days, which What's new lists under the notes.
           python3 .github/scripts/whats_new.py "$GITHUB_SHA" > history.json
+          # The engine's runtime key (engine.json) lets the app update an engine with the same Python
+          # and packages from the small update zip (engine_patch.rs).
+          RUNTIME=$(unzip -p fabric-desktop-engine.zip engine.json | tr -d '\r' | jq -r '.runtime // ""')
+          [[ "$RUNTIME" =~ ^[0-9a-f]{64}$ ]] || { echo "The engine's engine.json has no runtime key"; exit 1; }
           jq -n --arg commit "$GITHUB_SHA" --arg notes "$NOTES" --slurpfile history history.json \
             --arg exe "$(sha256sum fabric-desktop.exe | cut -d' ' -f1)" \
             --arg engine "$(sha256sum fabric-desktop-engine.zip | cut -d' ' -f1)" \
-            '{commit: $commit, notes: $notes, history: $history[0], exe_sha256: $exe, engine_sha256: $engine}' > version.json
+            --arg update "$(sha256sum fabric-desktop-engine-update.zip | cut -d' ' -f1)" \
+            --arg runtime "$RUNTIME" \
+            --argjson published "$(date -u +%s)" \
+            '{commit: $commit, notes: $notes, history: $history[0], exe_sha256: $exe, engine_sha256: $engine,
+              engine_runtime: $runtime, engine_update_sha256: $update, published: $published}' > version.json
           # Every published build also gets a release of its own that never changes, so it can be
           # pinned, or promoted to Stable again to roll back, after Preview has moved on. It goes
           # first, so the build Preview names always has one. version.json last, as for latest.
           BUILD_TAG="build-${GITHUB_SHA::12}"
-          BUILD_FILES=(fabric-desktop.exe fabric-desktop-engine.zip sbom-engine.cdx.json sbom-app.cdx.json)
+          BUILD_FILES=(fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json)
           if gh release view "$BUILD_TAG" > /dev/null 2>&1; then
             ASSETS=$(gh release view "$BUILD_TAG" --json assets --jq '.assets[].name')
             if grep -qx version.json <<< "$ASSETS"; then
@@ -342,12 +374,12 @@ jobs:
           if gh release view latest > /dev/null 2>&1; then
             # Replace the files in place rather than deleting the release, so PCs checking for an
             # update never find it missing. version.json goes last: it names the new build.
-            gh release upload latest fabric-desktop.exe fabric-desktop-engine.zip sbom-engine.cdx.json sbom-app.cdx.json --clobber
+            gh release upload latest fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json --clobber
             gh release upload latest version.json --clobber
             gh api -X PATCH "repos/$GH_REPO/git/refs/tags/latest" -f sha="$GITHUB_SHA" -F force=true
             gh release edit latest --notes "$BODY"
           else
-            gh release create latest fabric-desktop.exe fabric-desktop-engine.zip sbom-engine.cdx.json sbom-app.cdx.json version.json \
+            gh release create latest fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json version.json \
               --title "KratosForge (latest build)" --notes "$BODY" --target "$GITHUB_SHA" --prerelease
           fi
           # Delete per-build releases (and their tags) beyond the newest KEEP_BUILDS. A build that was

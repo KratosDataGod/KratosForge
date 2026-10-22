@@ -15,6 +15,7 @@ Rules (all optional):
 ``keys``        columns that identify a row (matched case-insensitively)
 ``ignore``      columns left out of the comparison
 ``abs`` ``rel`` the default numeric tolerance: equal when |a-b| <= abs or |a-b| <= rel*max(|a|,|b|)
+                (both 0: integers and decimals are compared exactly, digit for digit, not as DOUBLEs)
 ``columns``     per-column overrides: {"amount": {"abs": 0.01}}
 ``timestamps``  compare timestamps to "us" (default), "ms" or "s"
 ``limit_rows``  above this many rows on either side, compare fingerprints only (default 5,000,000)
@@ -36,18 +37,44 @@ _NUMERIC = {"integer", "number"}
 
 
 def rules(given: dict[str, Any] | None) -> dict[str, Any]:
+    if given is not None and not isinstance(given, dict):
+        raise ValueError('Comparison rules are a set of named rules, like {"keys": ["id"], "rel": 1e-9}.')
     r = dict(DEFAULTS) | {k: v for k, v in (given or {}).items() if v is not None}
+    r["columns"] = dict(r["columns"]) if isinstance(r["columns"], dict) else r["columns"]  # never DEFAULTS' own dict
     unknown = set(r) - set(DEFAULTS)
     if unknown:
         raise ValueError(f"Unknown comparison rule {', '.join(sorted(unknown))}. Rules: {', '.join(DEFAULTS)}.")
     if r["timestamps"] not in _TS_UNITS:
         raise ValueError("timestamps is us, ms or s")
     for k in ("abs", "rel"):
-        if float(r[k]) < 0:
-            raise ValueError(f"{k} can't be negative")
-    r["keys"] = [str(k) for k in r["keys"]]
-    r["ignore"] = [str(k) for k in r["ignore"]]
+        r[k] = _tolerance_value(k, r[k])
+    for k in ("limit_rows", "examples"):
+        v = int(r[k]) if isinstance(r[k], float) and r[k].is_integer() else r[k]
+        if isinstance(v, bool) or not (isinstance(v, int) or (isinstance(v, str) and v.strip().isdigit())) or int(v) < 0:
+            raise ValueError(f"{k} is a whole number of rows, 0 or more, not {r[k]!r}.")
+        r[k] = int(v)
+    for k in ("keys", "ignore"):  # one column name, or a list of them; "id" is not ["i", "d"]
+        names = [r[k]] if isinstance(r[k], str) else r[k]
+        if not isinstance(names, (list, tuple)) or not all(isinstance(n, str) and n.strip() for n in names):
+            raise ValueError(f"{k} is a list of column names.")
+        r[k] = [n.strip() for n in names]
+    if not isinstance(r["columns"], dict):
+        raise ValueError('columns gives tolerances per column, like {"amount": {"abs": 0.01}}.')
+    for column, over in r["columns"].items():
+        if not isinstance(over, dict) or set(over) - {"abs", "rel"}:
+            raise ValueError(f'The tolerance for {column} is abs and/or rel, like {{"abs": 0.01}}.')
+        r["columns"][column] = {k: _tolerance_value(f"{k} for {column}", v) for k, v in over.items() if v is not None}
     return r
+
+
+def _tolerance_value(name: str, value: Any) -> float:
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} is a number, like 0.01 or 1e-9, not {value!r}.") from None
+    if isinstance(value, bool) or not math.isfinite(v) or v < 0:
+        raise ValueError(f"{name} is a number 0 or more, like 0.01 or 1e-9, not {value!r}.")
+    return v
 
 
 def _q(name: str) -> str:
@@ -66,15 +93,23 @@ def _sig_digits(rel: float) -> int:
     return max(1, min(15, int(math.floor(-math.log10(rel)))))
 
 
-def _norm(expr: str, kind: str, r: dict[str, Any], digits: int | None = None) -> str:
-    """A column expression both engines' values normalize to before whole-row matching."""
+def _exact(expr: str) -> str:
+    """An integer or decimal as text with no trailing zeros, so 1.50 (decimal(10,2)), 1.5000 and 15
+    vs 15.0 compare exactly at any precision, without DOUBLE's 15-17 digits or a common decimal type."""
+    s = f"CAST({expr} AS VARCHAR)"
+    return f"CASE WHEN contains({s}, '.') THEN rtrim(rtrim({s}, '0'), '.') ELSE {s} END"
+
+
+def _norm(expr: str, kind: str, r: dict[str, Any], digits: int | None = None, exact: bool = False) -> str:
+    """A column expression both engines' values normalize to before whole-row matching. ``exact``:
+    both sides are integers or decimals, compared exactly when no tolerance is allowed."""
     if kind == "integer":
         return f"CAST({expr} AS HUGEINT)"
     if kind == "number":
         x = f"CAST({expr} AS DOUBLE)"
         d = digits if digits is not None else _sig_digits(float(r["rel"]))
         if d >= 17:
-            return x
+            return _exact(expr) if exact else x
         return (f"CASE WHEN {x} IS NULL OR {x} = 0 OR NOT isfinite({x}) THEN {x} "
                 f"ELSE round({x}, {d - 1} - CAST(floor(log10(abs({x}))) AS INTEGER)) END")
     if kind == "timestamp":
@@ -100,7 +135,10 @@ def _columns(schema_a: pa.Schema, schema_b: pa.Schema, r: dict[str, Any]) -> dic
             "types": sorted(f"{a[n].name} ({kinds[n][0]} vs {kinds[n][1]})" for n in common
                             if kinds[n][0] != kinds[n][1] and n not in widened),
             "widened": sorted(f"{a[n].name} ({kinds[n][0]} vs {kinds[n][1]})" for n in widened),
-            "numbers": frozenset(widened)}
+            "numbers": frozenset(widened),
+            # Both sides integers or decimals: no tolerance means exactly equal, not equal as DOUBLEs.
+            "exact": frozenset(n for n in common if all(pa.types.is_integer(t) or pa.types.is_decimal(t)
+                                                        for t in (a[n].type, b[n].type)))}
 
 
 def _tolerance(r: dict[str, Any], column: str) -> tuple[float, float]:
@@ -118,6 +156,8 @@ def compare(pc: Any, fabric: Any, given_rules: dict[str, Any] | None = None, off
 
     from .side_by_side import fingerprint
     r = rules(given_rules)
+    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+        raise ValueError(f"offset is a whole number of rows to skip, 0 or more, not {offset!r}.")
     cols = _columns(pc.schema, fabric.schema, r)
     con = duckdb.connect()
     try:
@@ -157,7 +197,10 @@ def compare(pc: Any, fabric: Any, given_rules: dict[str, Any] | None = None, off
                     f"The key ({', '.join(keys)}) isn't unique: {dup_a:,} repeated keys on this PC, {dup_b:,} in Fabric. "
                     "Rows were matched as whole rows instead.")
             else:
-                out |= _keyed(con, cols, kq, r, offset)
+                # Keys of different types (text on one side, numbers on the other) are matched as text;
+                # the type difference already makes the table differ.
+                text = [lower[k.lower()][2] != lower[k.lower()][3] for k in keys]
+                out |= _keyed(con, cols, kq, r, offset, text)
                 out["result"] = "match" if schema_same and not (out["counts"]["only_pc"] or out["counts"]["only_fabric"]
                                                                or out["counts"]["changed"]) else "differs"
                 return out
@@ -168,9 +211,12 @@ def compare(pc: Any, fabric: Any, given_rules: dict[str, Any] | None = None, off
         con.close()
 
 
-def _keyed(con: Any, cols: dict[str, Any], kq: list[tuple[str, str]], r: dict[str, Any], offset: int) -> dict[str, Any]:
+def _keyed(con: Any, cols: dict[str, Any], kq: list[tuple[str, str]], r: dict[str, Any], offset: int,
+           text: list[bool]) -> dict[str, Any]:
     key_names = {x for x, _ in kq}
-    on = " AND ".join(f"a.{x} IS NOT DISTINCT FROM b.{y}" for x, y in kq)
+    keys = [(f"CAST(a.{x} AS VARCHAR)", f"CAST(b.{y} AS VARCHAR)") if t else (f"a.{x}", f"b.{y}")
+            for (x, y), t in zip(kq, text)]
+    on = " AND ".join(f"{x} IS NOT DISTINCT FROM {y}" for x, y in keys)
     checks, metrics = [], []
     for name_a, name_b, ka, kb in cols["common"]:
         qa, qb = _q(name_a), _q(name_b)
@@ -179,10 +225,13 @@ def _keyed(con: Any, cols: dict[str, Any], kq: list[tuple[str, str]], r: dict[st
         if ka == kb == "number":  # widened integer/decimal pairs arrive as number
             ab, rl = _tolerance(r, name_a)
             x, y = f"CAST(a.{qa} AS DOUBLE)", f"CAST(b.{qb} AS DOUBLE)"
-            same = (f"(({x} IS NULL AND {y} IS NULL) OR ({x} IS NOT NULL AND {y} IS NOT NULL AND "
-                    f"((isfinite({x}) AND isfinite({y}) AND (abs({x} - {y}) <= {ab!r} OR "
-                    f"abs({x} - {y}) <= {rl!r} * greatest(abs({x}), abs({y})))) "
-                    f"OR (isnan({x}) AND isnan({y})) OR {x} = {y})))")  # the tolerance holds between finite numbers
+            if ab == rl == 0 and name_a.lower() in cols["exact"]:
+                same = f"({_exact('a.' + qa)} IS NOT DISTINCT FROM {_exact('b.' + qb)})"
+            else:
+                same = (f"(({x} IS NULL AND {y} IS NULL) OR ({x} IS NOT NULL AND {y} IS NOT NULL AND "
+                        f"((isfinite({x}) AND isfinite({y}) AND (abs({x} - {y}) <= {ab!r} OR "
+                        f"abs({x} - {y}) <= {rl!r} * greatest(abs({x}), abs({y})))) "
+                        f"OR (isnan({x}) AND isnan({y})) OR {x} = {y})))")  # the tolerance holds between finite numbers
             metrics.append((name_a, f"max(abs({x} - {y})) FILTER (WHERE NOT {same})",
                             f"max(abs({x} - {y}) / nullif(greatest(abs({x}), abs({y})), 0)) FILTER (WHERE NOT {same})"))
         elif ka == kb == "timestamp":
@@ -197,7 +246,7 @@ def _keyed(con: Any, cols: dict[str, Any], kq: list[tuple[str, str]], r: dict[st
         checks.append((name_a, qa, qb, same))
     con.execute(f"""CREATE TEMP TABLE j AS SELECT
         a."__fd_a_row" IS NULL AS no_a, b."__fd_b_row" IS NULL AS no_b,
-        {', '.join(f'a.{x} AS "k_a{i}", b.{y} AS "k_b{i}"' for i, (x, y) in enumerate(kq))}
+        {', '.join(f'{x} AS "k_a{i}", {y} AS "k_b{i}"' for i, (x, y) in enumerate(keys))}
         {''.join(f', {same} AS "s{i}", a.{qa} AS "a{i}", b.{qb} AS "b{i}"' for i, (_n, qa, qb, same) in enumerate(checks))}
         FROM (SELECT *, 1 AS "__fd_a_row" FROM a) a FULL OUTER JOIN (SELECT *, 1 AS "__fd_b_row" FROM b) b ON {on}""")
     only_pc = _count(con, "SELECT count(*) FROM j WHERE no_b")
@@ -214,7 +263,8 @@ def _keyed(con: Any, cols: dict[str, Any], kq: list[tuple[str, str]], r: dict[st
                              f'max(abs(CAST("a{i}" AS DOUBLE) - CAST("b{i}" AS DOUBLE)) / '
                              f'nullif(greatest(abs(CAST("a{i}" AS DOUBLE)), abs(CAST("b{i}" AS DOUBLE))), 0)) '
                              f'FROM j WHERE NOT no_a AND NOT no_b AND NOT "s{i}"').fetchone()
-            entry |= {"max_abs": _finite(mx[0]), "max_rel": _finite(mx[1])}
+            if not (mx[0] == 0 and name.lower() in cols["exact"]):  # a decimal difference DOUBLE can't show
+                entry |= {"max_abs": _finite(mx[0]), "max_rel": _finite(mx[1])}
         per_column[name] = entry
     limit = int(r["examples"])
     key_cols = ", ".join(f'coalesce("k_a{i}", "k_b{i}") AS "key{i}"' for i in range(len(kq)))
@@ -250,8 +300,10 @@ def _whole_rows(con: Any, cols: dict[str, Any], r: dict[str, Any], offset: int) 
         return {"level": "complete", "method": "whole rows", "counts": {"only_pc": max(na - nb, 0), "only_fabric": max(nb - na, 0)},
                 "examples": [], "offset": int(offset)}
     # A tolerance per column can't apply to whole rows: the default relative tolerance sets the digits.
-    ea = ", ".join(f"{_norm(_q(x), ka if ka == kb else 'other', r)} AS c{i}" for i, (x, _y, ka, kb) in enumerate(pairs))
-    eb = ", ".join(f"{_norm(_q(y), kb if ka == kb else 'other', r)} AS c{i}" for i, (_x, y, ka, kb) in enumerate(pairs))
+    ea = ", ".join(f"{_norm(_q(x), ka if ka == kb else 'other', r, exact=x.lower() in cols['exact'])} AS c{i}"
+                   for i, (x, _y, ka, kb) in enumerate(pairs))
+    eb = ", ".join(f"{_norm(_q(y), kb if ka == kb else 'other', r, exact=x.lower() in cols['exact'])} AS c{i}"
+                   for i, (x, y, ka, kb) in enumerate(pairs))
     names = ", ".join(f"c{i}" for i in range(len(pairs)))
     on = " AND ".join(f"ga.c{i} IS NOT DISTINCT FROM gb.c{i}" for i in range(len(pairs)))
     con.execute(f"""CREATE TEMP TABLE w AS

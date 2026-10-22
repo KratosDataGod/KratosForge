@@ -72,6 +72,19 @@ body.replaceChildren(withHowItWorks(content, howItWorks("platform.overview", {
 - The panel folds to its title and remembers that on the PC, so people who know the page can put it away.
 - It sits on the right, and moves under the content in a narrow window.
 
+## Pop-out windows
+
+A section people watch while they work elsewhere (a run list, a monitoring hub) can open in a window of its own, to keep on another screen. Monitor's two sections are the first ([user guide](user-guide.md#pop-out-windows-preview)); a new one uses the same pattern, in the same words:
+
+- **Pop out** (`popOutButton(section)`, icon `open`, Preview) goes on the section's own band, last before **Hide** when there is one. It shows only in the main window.
+- While the section is out, the main window keeps a band in its place (`poppedOutBand`): the section's title, "In a window of its own", **Show window** and **Dock back**. The rest of the page takes the room.
+- The window shows only that section: no rail, no search, no bell. Its top bar has **Keep on top** and **Dock back**, plus Back and Forward when the section opens other pages. Closing the window docks it back.
+- A pop-out window starts nothing: no component check, no update, no splash, and it never changes the page the main window reopens on. A list in it refreshes itself in place, keeping the scroll position, and never while a dialog is open or the window is minimized.
+- Links that belong to the main window (the Fabric portal) open there, not in the pop-out.
+- The window's title is "KratosForge · *section title*", so it can be told apart on the taskbar.
+
+Adding a section today means listing it in three places: `POP_OUTS` in `main.rs` (its window title), `POP_OUT` in `app.js` and the section check in `listenForPopOuts` (`popout.js`). `startPopOut` opens Monitor; a section on another page moves that into a small registry (section, page, render) first, in its own pull request.
+
 ## Words and help
 
 - Plain words people use, not internal names. "Run in Fabric", not "submit job".

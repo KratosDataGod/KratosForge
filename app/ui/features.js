@@ -62,6 +62,7 @@ const PREVIEW_FEATURES = {
   itemPreview: "Item preview",
   resultViewer: "Result downloads",
   chartBuilder: "Chart builder",
+  severalCharts: "Several charts per result",
   dataWrangler: "Data Wrangler",
   queryProfile: "Query profile",
   ipywidgets: "Notebook widgets",
@@ -88,6 +89,8 @@ const PREVIEW_FEATURES = {
   nbFormats: "Notebook import and export formats",
   profile: "Profile",
   notebookFolderPublish: "Publishing notebooks from folders",
+  fabricStep: "Run the last cell on Fabric",
+  popOut: "Pop-out windows",
 };
 
 function previewShown() {

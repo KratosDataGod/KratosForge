@@ -7,16 +7,33 @@
 
 const CELL_MIME = "application/x-kratosforge-cell";
 
-// A Markdown cell's heading lines: [{ level, text }]. A "# comment" inside a fenced code block
-// (``` or ~~~) isn't a heading.
+// A Markdown cell's heading lines: [{ level, text }], "# Title" and a line underlined with === or ---.
+// A "# comment" inside a fenced code block (``` or ~~~) isn't a heading; as in CommonMark, only a
+// bare fence of the same kind, at least as long, closes it (```python doesn't).
 function markdownHeadings(source) {
   const out = [];
   let fence = null;
+  let para = [];  // the paragraph lines so far, which an underline makes a heading
+  let inList = false;  // in a list item, whose continuation lines aren't heading text
   for (const line of source.split("\n")) {
-    const f = line.match(/^ {0,3}(`{3,}|~{3,})/);
-    if (f && (!fence || f[1][0] === fence[0] && f[1].length >= fence.length)) { fence = fence ? null : f[1]; continue; }
-    const m = !fence && line.match(/^(#{1,6})\s+(\S.*)$/);
+    if (fence) {
+      const close = line.match(/^ {0,3}(`{3,}|~{3,})\s*$/);
+      if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
+      continue;
+    }
+    const open = line.match(/^ {0,3}(`{3,}|~{3,})/);
+    if (open) { fence = open[1]; para = []; inList = false; continue; }
+    const m = line.match(/^(#{1,6})\s+(\S.*)$/);
+    const under = para.length && line.match(/^ {0,3}(=+|-+)\s*$/);
     if (m) out.push({ level: m[1].length, text: m[2].trim() });
+    else if (under) out.push({ level: under[1][0] === "=" ? 1 : 2, text: para.map((l) => l.trim()).join(" ") });
+    // Paragraph text: not blank, not a heading, list item or quote, and not an indented code line
+    // (four spaces or a tab, outside a paragraph).
+    if (!line.trim()) inList = false;
+    else if (/^\s*([-*+]|\d+[.)])\s/.test(line)) inList = true;
+    const text = !m && !under && !inList && line.trim() && !/^ {0,3}>/.test(line)
+      && (para.length || !/^( {4}|\t)/.test(line));
+    para = text ? [...para, line] : [];
   }
   return out;
 }
@@ -179,6 +196,7 @@ function duplicateCell(cell) {
   if (meta.tags) meta.tags = meta.tags.filter((t) => t !== "parameters");  // one parameter cell
   if (meta.tags && !meta.tags.length) delete meta.tags;
   delete meta.heading_collapsed;
+  delete meta.fabric_step;  // one Fabric step, the last cell (fabricstep.js)
   const copy = cellFrom({ type: cell.type, source: cell.source, meta });
   if (copy.type === "markdown") copy.editing = false;
   cells.splice(cells.indexOf(cell) + 1, 0, copy);

@@ -744,6 +744,8 @@ class ProveMixin:
                         break
                     pc["cell"] = n
                     kernel.start(cells[i]["source"])
+                    if record["_cancel"]:  # Cancel landed while the cell was starting: its interrupt may have missed it
+                        kernel.interrupt()
                     snap = kernel.poll(-1, 0.0)
                     outputs = snap.get("outputs") or []
                     while snap["status"] == "running":

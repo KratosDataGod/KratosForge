@@ -256,3 +256,61 @@ def test_repeated_column_names_show_with_a_suffix_and_wrangler_code_matches():
     assert met["status"] == "ok" and met["outputs"][0]["columns"] == ["a_b", "a_b_2"]
     w = k.frame_wrangle(met["outputs"][0]["frame"], [{"op": "sort", "column": "a_b_2"}], "m")
     assert k.run(w["code"])["outputs"][0]["columns"] == ["a_b", "a_b_2"]
+
+
+def test_charts_keep_nan_and_list_categories_and_refuse_non_number_values_plainly():
+    import datetime as dt
+
+    from fabric_desktop.frames import Frames
+    frames = Frames()
+    fid = frames.keep(pa.table({
+        "x": [1.0, float("nan"), 1.0, float("nan")],
+        "v": [1, 2, 3, 4],
+        "tags": [[1], [2], [1], None],
+        "ok": [True, False, True, True],
+        "k": ["a", "a", "b", "b"],
+        "took": pa.array([dt.timedelta(1)] * 4, pa.duration("us")),
+    }))
+    nan = frames.chart(fid, "bar", x=0, y=1)
+    assert dict(zip(nan["categories"], nan["series"][0]["values"])) == {1.0: 4.0, "nan": 6.0}
+    tags = frames.chart(fid, "bar", x=2, y=1)
+    assert dict(zip(tags["categories"], tags["series"][0]["values"])) == {"[1]": 4.0, "[2]": 2.0, None: 4.0}
+    share = frames.chart(fid, "bar", x=4, y=3, agg="avg")
+    assert dict(zip(share["categories"], share["series"][0]["values"])) == {"a": 0.5, "b": 1.0}
+    for kind, agg in (("bar", "sum"), ("histogram", "sum"), ("box", "sum")):
+        with pytest.raises(ValueError, match="'took' isn't a number column"):
+            frames.chart(fid, kind, x=4, y=5, agg=agg)
+    with pytest.raises(ValueError, match="'k' isn't a number column"):
+        frames.chart(fid, "scatter", x=4, y=1)
+    assert frames.chart(fid, "bar", x=4, y=5, agg="count")["series"][0]["values"] == [2, 2]
+
+
+def test_downloads_keep_nested_columns_long_numbers_and_early_dates(tmp_path):
+    import csv
+    import datetime as dt
+    import decimal
+    import zipfile
+
+    from fabric_desktop.frames import Frames
+    frames = Frames()
+    fid = frames.keep(pa.table({
+        "tags": [[1, 2], None],
+        "meta": pa.array([{"a": 1}, None]),
+        "id": [1234567890123456789, 7],
+        "amount": pa.array([decimal.Decimal("12345678901234567.50"), decimal.Decimal("1.25")], pa.decimal128(20, 2)),
+        "day": [dt.date(1900, 2, 28), dt.date(1899, 12, 31)],
+    }))
+    out = tmp_path / "r.csv"
+    out.touch()
+    frames.download(fid, "csv", str(out))  # Arrow's CSV writer refuses lists and structs
+    rows = list(csv.reader(out.open(newline="")))
+    assert rows[1][:2] == ["[1, 2]", '{"a": 1}'] and rows[2][:2] == ["", ""]
+    book = tmp_path / "r.xlsx"
+    book.touch()
+    frames.download(fid, "xlsx", str(book))
+    sheet = zipfile.ZipFile(book).read("xl/worksheets/sheet1.xml").decode()
+    # Past 15 digits Excel would round: the ID and amount go out as text, exactly.
+    assert "<t xml:space=\"preserve\">1234567890123456789</t>" in sheet and "<v>7</v>" in sheet
+    assert "12345678901234567.50</t>" in sheet and "<v>1.25</v>" in sheet
+    # Excel counts a 29 February 1900 that never was, and has nothing before 1900.
+    assert '<c r="E2" s="3"><v>59</v></c>' in sheet and "1899-12-31</t>" in sheet

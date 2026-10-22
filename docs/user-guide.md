@@ -382,6 +382,15 @@ Monitor has two halves.
 
 **In Fabric** (bottom, on Runs) is Fabric's own Monitoring hub, for everything else in your workspaces, with **Back**, **Home**, **Reload** and **Open in browser**. It shows under **Runs** only. **Hide** gives Runs the whole page; the app remembers it. Every other panel always uses the whole page.
 
+### Pop-out windows (Preview)
+
+**Pop out**, on the band of **From KratosForge** and of **In Fabric**, opens that section in a window of its own, to keep on another screen while you build a notebook or work elsewhere in the app. Monitor then shows a band for it, with **Show window** (brings the window forward) and **Dock back**, and the other section gets the room.
+
+- **From KratosForge** in its window has Runs, Schedules and Operations with their filters and **How this works** panels. Runs reads the list again every 15 seconds, keeping your place in it (not while another panel or a dialog is open, or the window is minimized). **Details** on a run on this PC opens in the window, and a page opened from it (a workload, say) has **Back** at the top; a run in Fabric opens in the main window's Fabric portal.
+- **In Fabric** in its window is the Monitoring hub with **Back**, **Home**, **Reload** and **Open in browser**. It is signed in as the docked view is (they share one sign-in on this PC), and it follows the same rule: only Fabric and Microsoft sign-in pages open in it, other links open in your browser (see [security](security.md), SH-12). **Sign out** closes it.
+
+Each window has **Keep on top** and **Dock back**. Closing the window docks the section back too, and closing the main window closes them all. The app remembers each window's size and place on this PC (`pop-out-windows.json` in the app's folder) and whether it stays on top; a window last left on a screen that is no longer there opens in the middle of the main screen. A pop-out window starts nothing of its own: it uses the engine the main window started, and checks for no updates.
+
 ### Workloads (Preview)
 
 A workload is something you build and run: a metadata entity (one per table, in each environment it is configured for), a notebook on this PC (with its Fabric item when it has one), or a pipeline, notebook or Spark job definition in the workspaces the app works in (the ones you pinned, your environments' workspaces and the ones your notebooks publish to). KratosForge never reads your whole tenant.

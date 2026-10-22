@@ -692,6 +692,17 @@ h2.flush { margin: 0; }
 .lineage3 .node.plain { color: var(--muted); cursor: default; }
 .page.monitor.no-fabric .monitor-local { flex: 1; max-height: none; }
 .page.monitor.no-fabric .monitor-fabric { flex: none; min-height: 0; }
+/* A Monitor section in a window of its own (popout.js) leaves a band; the other section gets the room. */
+.page.monitor .card.popped-out { flex: none; min-height: 0; max-height: none; }
+.page.monitor .card.popped-out .monitor-band { border-bottom: 0; }
+.page.monitor.runs-out .monitor-fabric { flex: 1; }
+/* The band's description wraps before its buttons do. */
+.page.monitor .monitor-local > .monitor-band > .muted-text { flex: 1 1 260px; }
+/* A pop-out window: just the section, with Back, Forward, the trail, Keep on top and Dock back on top. */
+body.pop-out .rail, body.pop-out .brand, body.pop-out .search-wrap, body.pop-out .topbar-right { display: none; }
+body.pop-out-fabric .nav-buttons, body.pop-out-fabric .breadcrumb { display: none; }
+body.pop-out .page.monitor { padding: 12px; }
+.pop-out-controls { margin-left: auto; display: flex; align-items: center; gap: 12px; }
 .page.home { display: flex; flex-direction: column; gap: 18px; max-width: 1200px; }
 .page.home h2 { margin: 0 0 8px; font-size: 16px; }
 .page.home .sub { margin-top: -10px; }
@@ -767,6 +778,8 @@ h2.flush { margin: 0; }
 .seg { min-height: 26px; padding: 0 12px; border: 0; border-right: 1px solid var(--border-input); background: var(--surface); color: var(--text-2); font-size: 12px; cursor: pointer; }
 .seg:last-child { border-right: 0; }
 .seg.on { background: var(--accent); color: #fff; }
+.seg.seg-add { color: var(--accent); }
+.out-bar .segs { flex-wrap: wrap; }
 .out-search { height: 26px; width: 200px; padding: 0 8px; border: 1px solid var(--border-input); border-radius: 4px; font-size: 12px; }
 .out-table-scroll { max-height: 380px; overflow: auto; }
 .out-table-scroll thead th { position: sticky; top: 0; background: var(--surface); }
@@ -1925,3 +1938,15 @@ html[data-fx-ambient="on"] .flow-node[data-state="running"] .flow-link::after { 
 .qprofile-bar { display: inline-block; height: 10px; vertical-align: middle; background: var(--accent); }
 .qprofile tr.slowest td { background: var(--accent-soft); }
 .qprofile-flag { margin-left: 8px; font-size: 11px; font-weight: 600; padding: 1px 6px; border: 1px solid var(--brand-orange); border-radius: 3px; }
+
+/* The Fabric step (fabricstep.js): the last cell, run on Fabric Spark for V-Order */
+.cell-head .fabric-step-tag { background: var(--accent); color: #ffffff; }
+.fabric-step-output { display: flex; flex-direction: column; gap: 8px; }
+.fabric-step-line { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; font-size: 13px; }
+.vorder-chips { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.vorder-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 10px; border: 1px solid var(--border-input); border-radius: 10px; font-size: 12px; color: var(--text-2); }
+.vorder-chip.ok { border-color: #1b6e3a; color: #1b6e3a; }
+.vorder-chip.warn { border-color: #a35200; color: #8a4500; }
+.kv-grid { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 6px 12px; margin: 12px 0; font-size: 13px; }
+.check-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 12px; max-height: 260px; overflow: auto; margin-top: 8px; }
+.check-row { display: flex; align-items: center; gap: 6px; font-size: 13px; }

@@ -148,7 +148,8 @@ test("proof rules from the form keep only what was filled in", () => {
   const { proveRulesFrom } = proveHelpers();
   assert.deepStrictEqual(JSON.parse(JSON.stringify(proveRulesFrom({ keys: " id, region ,", ignore: "", abs: "", rel: "1e-6", timestamps: "us" }))),
     { keys: ["id", "region"], rel: 1e-6 });
-  assert.ok(Number.isNaN(proveRulesFrom({ abs: "abc" }).abs), "a bad number goes to the engine, which refuses it");
+  // A bad number reaches the engine, which refuses it; NaN would arrive as null and mean "the default".
+  assert.strictEqual(JSON.parse(JSON.stringify(proveRulesFrom({ abs: "abc" }))).abs, "abc");
 });
 
 test("a scorecard never shows an estimate or a missing number as measured", () => {
@@ -3374,7 +3375,7 @@ test("a collapsed heading hides the cells up to the next heading of the same or 
   const src = fs.readFileSync(path.join(ui, "nbcells.js"), "utf8");
   const ctx = { document: { addEventListener() {} } };
   vm.createContext(ctx);
-  vm.runInContext(`${src}\nthis.f = { collapsedCells, headingLevel, visibleCells };`, ctx);
+  vm.runInContext(`${src}\nthis.f = { collapsedCells, headingLevel, visibleCells };\nthis.markdownHeadings = markdownHeadings;`, ctx);
   const { collapsedCells, headingLevel, visibleCells } = ctx.f;
   const md = (id, source, collapsed) => ({ id, type: "markdown", source, meta: collapsed ? { heading_collapsed: true } : {} });
   const code = (id) => ({ id, type: "code", source: "# not a heading", meta: { heading_collapsed: true } });
@@ -3385,6 +3386,18 @@ test("a collapsed heading hides the cells up to the next heading of the same or 
   assert.strictEqual(headingLevel(md(1, "Example:\n```python\n# load the table\n```")), 0);
   assert.strictEqual(headingLevel(md(1, "~~~\n# x\n~~~\n### After")), 3);
   assert.strictEqual(headingLevel(md(1, "````\n```\n# x\n````\n## Out")), 2);
+  // A fence with an info string doesn't close one (CommonMark).
+  assert.strictEqual(headingLevel(md(1, "```\n```python\n# x\n```\n### After")), 3);
+  // Setext headings: a line underlined with === is level 1, with --- level 2; a --- after a blank line or a list isn't.
+  assert.strictEqual(headingLevel(md(1, "Title\n=====")), 1);
+  assert.strictEqual(headingLevel(md(1, "Intro text\n\nSection\n---")), 2);
+  assert.strictEqual(headingLevel(md(1, "Some text\n\n---\n")), 0);
+  assert.strictEqual(headingLevel(md(1, "- item\n---")), 0);
+  assert.strictEqual(headingLevel(md(1, "    indented code\n---")), 0);  // an indented code line isn't heading text
+  assert.strictEqual(headingLevel(md(1, "- item\ncontinues here\n---")), 0);  // nor a list item's next line
+  assert.strictEqual(headingLevel(md(1, "- item\n\nAfter the list\n---")), 2);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(ctx.markdownHeadings("A long\ntitle\n===\n\n## Next"))),
+    [{ level: 1, text: "A long title" }, { level: 2, text: "Next" }]);
   const cells = [md(1, "# A", true), code(2), md(3, "## A.1", true), code(4), md(5, "# B"), code(6), md(7, "### C", true), code(8)];
   const { hidden, counts } = collapsedCells(cells);
   assert.deepStrictEqual([...hidden].sort(), [2, 3, 4, 8]);
@@ -4357,4 +4370,11 @@ test("the Spark on this PC page covers quoted 'yyyy', groupBy() and first/last i
 test("the Spark on this PC page says slice takes a length and add_months returns a date", () => {
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
   assert.match(doc, /`slice\(arr, start, length\)` takes a length and counts a\nnegative start from the end, and `add_months` returns a date/);
+});
+
+// Spark on this PC: slice refuses index 0 and add_months reads text.
+test("the Spark on this PC page says slice refuses index 0 and add_months reads text as a date", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`slice` refuses index 0 and a negative\nlength with Spark's error/);
+  assert.match(doc, /`add_months` reads text as a date \(text that isn't a date gives NULL\)/);
 });

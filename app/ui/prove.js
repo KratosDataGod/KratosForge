@@ -13,10 +13,13 @@ function proveNames(text) {
   return String(text || "").split(",").map((s) => s.trim()).filter(Boolean);
 }
 
-// A number from a form field, or undefined when it's empty. NaN stays NaN so the engine refuses it.
+// A number from a form field, or undefined when it's empty. Text that isn't a number goes to the
+// engine as typed so it refuses it (NaN would be sent as null and read as "use the default").
 function proveNumber(text) {
   const t = String(text ?? "").trim();
-  return t === "" ? undefined : Number(t);
+  if (t === "") return undefined;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : t;
 }
 
 // Rules for one table from the rules form's values; only what was filled in.

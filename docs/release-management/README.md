@@ -26,7 +26,7 @@ The headless agent's Linux image (`deploy/linux/Dockerfile`) is built and starte
 | **Preview** | `latest` (prerelease) | Every merge to `main` whose CI is green and is still `main`'s newest commit when the release job runs | Automatic (`ci.yml` `release` job) |
 | **Stable** (the default) | `stable` | Someone runs **Promote to stable**, which copies the exe, engine and `version.json` from `latest`, or from a named build | The product owner (Chris), by hand, or the release manager on his explicit go for that promotion |
 
-The app reads the commit from the channel's `version.json`, not from the release's target commit (that field goes stale after a promote). Both channels publish with one shared concurrency group, `release-assets`, so a promote never copies a half-replaced Preview.
+The app reads the commit from the channel's `version.json`, not from the release's target commit (that field goes stale after a promote). `version.json` carries `published`, the Unix time CI or Promote wrote it. The app installs whatever build the channel names, older or newer than the one running, but refuses a `version.json` published before the newest one it has already accepted from that channel, and one without the exe's checksum (HD-022). So anything that republishes a channel by hand must write a new `published` stamp, or PCs that saw the newer one will refuse it. Both channels publish with one shared concurrency group, `release-assets`, so a promote never copies a half-replaced Preview.
 
 ### Per-build releases
 
@@ -115,7 +115,13 @@ A Stable promotion is the production release. Before asking Chris for it:
 
 ## Rollback
 
-`fabric-desktop.exe.old` is deleted at startup and is not a rollback. A rollback is a promotion of an earlier build. In order of preference:
+A rollback is a promotion of an earlier build.
+
+**How PCs follow a channel rollback.** The app doesn't refuse a build because it is older than the one running; it refuses a `version.json` that is older than the newest one it has seen on that channel. A rollback republishes the earlier build's exe, engine and `version.json` (same `commit` and checksums) with a new `published` stamp, which Promote writes on every run. PCs then accept it as the channel's newest release and install the earlier build at their next start. A cached copy of the release it replaced is refused, because its stamp is earlier. A `version.json` uploaded by hand (see **Older builds** below) must set `published` to the current time.
+
+**On one PC,** an update ends the running build's local engine (a run still in progress is stopped, not waited for), then keeps the previous exe as `fabric-desktop.exe.old` until the new build has opened its window; if the new build exits before that, the previous exe is put back, restarts its engine and keeps running. Builds from before HD-022 never confirm their start, so a rollback to one of them is left running after 90 seconds rather than undone. After a successful start `.old` is removed, so it is not a way to go back to an earlier build later.
+
+In order of preference:
 
 1. **Fix forward.** Revert the offending PR on `main` (a revert PR, merged by Chris), let Preview publish, then promote. This is the normal path.
 2. **Promote an earlier build to Stable.** Find the previous Stable commit in [release history](release-history.md). Run **Actions > Promote to stable** with **build** set to that commit (or its `build-*` tag) and notes that say what was rolled back and why. Promote checks the files against that build's `version.json` before it copies them. Self-updating Stable PCs move to it at their next start. This replaces production files and needs Chris's explicit go.
@@ -123,7 +129,7 @@ A Stable promotion is the production release. Before asking Chris for it:
 
 Two limits today:
 
-- **Older builds.** A build published before per-build releases began has no `build-*` release, so it can't be promoted again. For one of those, rebuild it: re-run that commit's `main` CI run if its artifacts are still retained (GitHub keeps workflow artifacts 90 days by default), verify against the build's provenance attestation, and upload to `stable` with a matching `version.json`.
+- **Older builds.** A build published before per-build releases began has no `build-*` release, so it can't be promoted again. For one of those, rebuild it: re-run that commit's `main` CI run if its artifacts are still retained (GitHub keeps workflow artifacts 90 days by default), verify against the build's provenance attestation, and upload to `stable` with a matching `version.json` stamped with a new `published` time.
 - **Preview can't be rolled back by promotion.** `latest` always follows `main`. Fix forward instead.
 
 ### Pinning a build

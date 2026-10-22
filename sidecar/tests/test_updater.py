@@ -113,9 +113,21 @@ def test_channel_defaults_to_stable_and_policy_wins(settings_dirs):
 
 def test_latest_release_reads_the_channels_version_json(monkeypatch, settings_dirs):
     seen = serve(monkeypatch, {"/stable/version.json": json.dumps({"commit": SHA, "notes": "Settings page"}).encode()})
-    assert updater.latest_release() == {"commit": SHA, "error": None, "channel": "stable", "notes": "Settings page", "history": [], "note": ""}
+    assert updater.latest_release() == {"commit": SHA, "error": None, "channel": "stable", "notes": "Settings page", "history": [],
+                                        "note": "", "tag": "stable", "published": None, "exe_sha256": ""}
     assert "nocache=" in seen[0][0] and seen[0][1] == "no-cache"
     assert not any("api.github.com" in url for url, _ in seen)
+
+
+def test_latest_release_passes_on_what_the_shell_checks(monkeypatch, settings_dirs):
+    # The shell refuses a version.json older than one it already accepted (HD-022, update_guard.rs).
+    info = {"commit": SHA, "published": 1760800000, "exe_sha256": "ab" * 32}
+    serve(monkeypatch, {"/stable/version.json": json.dumps(info).encode()})
+    result = updater.latest_release()
+    assert (result["tag"], result["published"], result["exe_sha256"]) == ("stable", 1760800000, "ab" * 32)
+    for bad in ("2026-10-18", True, 1.5):
+        serve(monkeypatch, {"/stable/version.json": json.dumps({**info, "published": bad}).encode()})
+        assert updater.latest_release()["published"] is None
 
 
 def test_latest_release_passes_on_the_months_history(monkeypatch, settings_dirs):
@@ -151,10 +163,12 @@ def test_no_stable_release_yet_follows_preview(monkeypatch, settings_dirs):
 
 
 def test_download_app_follows_preview_without_a_stable_release(monkeypatch, settings_dirs, tmp_path):
+    import hashlib
     import urllib.error
+    exe = b"MZ..." + SHA.encode()
     seen = serve(monkeypatch, {"/stable/": urllib.error.HTTPError("u", 404, "Not Found", {}, None),
-                               "/latest/fabric-desktop.exe": b"MZ..." + SHA.encode(),
-                               "/latest/version.json": json.dumps({"commit": SHA}).encode()})
+                               "/latest/fabric-desktop.exe": exe,
+                               "/latest/version.json": json.dumps({"commit": SHA, "exe_sha256": hashlib.sha256(exe).hexdigest()}).encode()})
     assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 0
     assert all("/latest/" in url for url, _ in seen[1:])
 
@@ -166,10 +180,12 @@ def test_preview_channel_does_not_fall_back(monkeypatch, settings_dirs):
     assert updater.latest_release()["commit"] is None
 
 
-def test_download_app_checks_the_build(monkeypatch, tmp_path):
-    # A release from before checksums: its version.json names the build but gives no checksum.
-    serve(monkeypatch, {"fabric-desktop.exe": b"MZ..." + SHA.encode() + b"...", "version.json": json.dumps({"commit": SHA}).encode()})
-    assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 0
+def test_download_app_refuses_a_release_without_a_checksum(monkeypatch, tmp_path, capsys):
+    # A version.json that names the build but gives no checksum: the download can't be checked (HD-022).
+    for info in ({"commit": SHA}, {"commit": SHA, "exe_sha256": "not-a-checksum"}):
+        serve(monkeypatch, {"fabric-desktop.exe": b"MZ..." + SHA.encode() + b"...", "version.json": json.dumps(info).encode()})
+        assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 1
+        assert "gives no checksum" in capsys.readouterr().out
 
 
 def test_download_app_refuses_when_the_checksum_cant_be_read(monkeypatch, tmp_path, capsys):
@@ -185,7 +201,11 @@ def test_download_app_waits_while_the_release_names_another_build(monkeypatch, t
 
 
 def test_download_app_refuses_a_stale_copy(monkeypatch, tmp_path, capsys):
-    seen = serve(monkeypatch, {"fabric-desktop.exe": b"MZ...old build...", "version.json": json.dumps({"commit": SHA}).encode()})
+    import hashlib
+    stale = b"MZ...old build..."
+    # Even with a matching checksum, the file must carry the build's commit.
+    info = {"commit": SHA, "exe_sha256": hashlib.sha256(stale).hexdigest()}
+    seen = serve(monkeypatch, {"fabric-desktop.exe": stale, "version.json": json.dumps(info).encode()})
     assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 1
     exe = [url for url, _ in seen if "fabric-desktop.exe" in url]
     assert len(exe) == 2 and "nocache=" in exe[1]

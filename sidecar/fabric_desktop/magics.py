@@ -166,7 +166,30 @@ _QUERY = re.compile(r"^\s*(\(\s*)*(SELECT|WITH|SHOW|DESCRIBE|DESC|EXPLAIN|VALUES
 def returns_rows(sql: str) -> bool:
     """Whether the last statement of some Spark SQL returns rows (a query, not a write or DDL)."""
     statements = [s for s in _statements(sql) if s.strip()]
-    return bool(statements) and bool(_QUERY.match(statements[-1]))
+    if not statements or not _QUERY.match(statements[-1]):
+        return False
+    last = statements[-1]
+    return not re.match(r"\s*WITH\b", last, re.I) or _after_ctes(last) not in _WRITES  # WITH x AS (...) INSERT ...
+
+
+_WRITES = {"INSERT", "MERGE", "UPDATE", "DELETE"}
+_VERBS = _WRITES | {"SELECT", "VALUES", "FROM", "TABLE"}
+
+
+def _after_ctes(statement: str) -> str | None:
+    """The first verb outside brackets and quotes: past a WITH's definitions, what the statement does."""
+    depth, quote = 0, ""
+    for m in re.finditer(r"\\.|['\"`()]|[A-Za-z_]\w*", statement):
+        token = m.group()
+        if quote:
+            quote = "" if token == quote else quote
+        elif token in ("'", '"', "`"):
+            quote = token
+        elif token in "()":
+            depth += 1 if token == "(" else -1
+        elif depth == 0 and token.upper() in _VERBS:
+            return token.upper()
+    return None
 
 
 def _statements(sql: str) -> list[str]:

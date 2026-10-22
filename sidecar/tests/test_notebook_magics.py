@@ -538,7 +538,17 @@ def test_writefile_and_run_refuse_what_they_would_drop(tmp_path, monkeypatch):
 def test_env_says_when_it_cant_set_a_name_and_reads_windows_style_names(monkeypatch):
     monkeypatch.setenv("ProgramFiles(x86)", r"C:\Program Files (x86)")
     k = Kernel()
-    for line, name in (("%env 1BAD=x", "1BAD"), ("%env =x", "a variable with no name")):
+    for line, name in (("%env 1BAD=x", "1BAD"), ("%env =x", "a variable with no name"), ("%env 1BAD x", "1BAD")):
         out = k.run(line)
         assert out["status"] == "error" and f"%env can't set {name}" in out["outputs"][0]["evalue"]
     assert k.run("%env ProgramFiles(x86)")["outputs"] == [{"type": "text", "text": repr(r"C:\Program Files (x86)")}]
+
+
+def test_a_cte_that_writes_isnt_a_query():
+    assert not magics.returns_rows("WITH x AS (SELECT 1 AS id) INSERT INTO t SELECT * FROM x")
+    assert not magics.returns_rows("with x as (select 1) merge into t using x on true when matched then delete")
+    assert magics.returns_rows("WITH a(c) AS (SELECT 'insert'), b AS (SELECT 2) SELECT * FROM a")
+    assert magics.returns_rows("EXPLAIN INSERT INTO t SELECT 1")  # the plan is rows
+    cells = [{"type": "code", "source": "%%sql\nWITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x"},
+             {"type": "code", "source": "_sqldf.show()"}]
+    assert fabric_sql_magics(cells, spark=True)[0]["source"].startswith("%%sql")

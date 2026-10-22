@@ -1092,8 +1092,9 @@ class Kernel:
             return {k: "hidden" if _SECRET_NAME.search(k) else v for k, v in sorted(os.environ.items())}
         m = re.match(r"([A-Za-z_]\w*)(?:\s*=\s*|\s+)(.*)$", line)
         if m is None:
-            if "=" in line:  # 1BAD=x would read a variable called "1BAD=x" and show nothing
-                raise ValueError(f"%env can't set {line.split('=', 1)[0].strip() or 'a variable with no name'}: "
+            if "=" in line or re.search(r"\s", line):  # 1BAD=x or 1BAD x would read "1BAD=x" and show nothing
+                bad = re.split(r"[=\s]", line, maxsplit=1)[0] or "a variable with no name"
+                raise ValueError(f"%env can't set {bad}: "
                                  "a name to set starts with a letter or _ and has letters, digits and _.")
             return os.environ.get(line)  # reading takes any name, like ProgramFiles(x86) on Windows
         name, value = m.groups()

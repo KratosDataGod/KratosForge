@@ -1093,7 +1093,8 @@ class Kernel:
         m = re.match(r"([A-Za-z_]\w*)(?:\s*=\s*|\s+)(.*)$", line)
         if m is None:
             if "=" in line or re.search(r"\s", line):  # 1BAD=x or 1BAD x would read "1BAD=x" and show nothing
-                raise ValueError(f"%env can't set {re.split(r'[=\s]', line, maxsplit=1)[0] or 'a variable with no name'}: "
+                bad = re.split(r"[=\s]", line, maxsplit=1)[0] or "a variable with no name"
+                raise ValueError(f"%env can't set {bad}: "
                                  "a name to set starts with a letter or _ and has letters, digits and _.")
             return os.environ.get(line)  # reading takes any name, like ProgramFiles(x86) on Windows
         name, value = m.groups()

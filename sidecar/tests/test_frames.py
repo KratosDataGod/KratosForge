@@ -276,9 +276,13 @@ def test_a_cells_chart_is_saved_by_column_name_and_read_back():
     assert merged["cells"][0]["metadata"]["fabric_desktop"] == {"other": 1}
 
 
-
 def test_a_cells_further_charts_are_saved_after_the_first_and_capped():
-    from fabric_desktop.notebook import MAX_EXTRA_CHARTS, from_ipynb, merge_saved, to_ipynb
+    from fabric_desktop.notebook import (
+        MAX_EXTRA_CHARTS,
+        from_ipynb,
+        merge_saved,
+        to_ipynb,
+    )
     first = {"kind": "bar", "x": "region", "y": "amount", "agg": "sum"}
     more = [{"kind": "line", "x": "month", "y": "orders", "agg": "avg", "title": "Orders"}, "junk", {"x": "no kind"}]
     cells = [{"type": "code", "source": "df", "cell_id": "c1", "meta": {"chart": first, "charts": more}}]
@@ -296,6 +300,7 @@ def test_a_cells_further_charts_are_saved_after_the_first_and_capped():
     assert merged["cells"][0]["metadata"]["fabric_desktop"] == {"chart": first, "other": 1}
     # A notebook from a build that only knew one chart opens with just that one.
     assert "charts" not in from_ipynb(to_ipynb([{"type": "code", "source": "", "meta": {"chart": first}}], None))["cells"][0]["meta"]
+
 
 def json_roundtrip(v):
     import json

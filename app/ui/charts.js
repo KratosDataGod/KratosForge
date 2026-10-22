@@ -19,10 +19,14 @@ const MAX_CHARTS = 10; // charts per cell: the first in meta.chart, the rest in 
 function savedChart(cell, i) { return i ? cell?.meta?.charts?.[i - 1] : cell?.meta?.chart; }
 function chartCount(cell) { return 1 + (Array.isArray(cell?.meta?.charts) ? cell.meta.charts.length : 0); }
 
-// A chart's view name: its title, else Chart, Chart 2, Chart 3...
+// A chart's view name: its title, else Chart, Chart 2, Chart 3... A title an earlier chart
+// already has gets the chart's number too, so no two views read the same.
 function chartName(cell, i) {
   const t = savedChart(cell, i)?.title;
-  return t ? (t.length > 24 ? `${t.slice(0, 23)}…` : t) : i ? `Chart ${i + 1}` : "Chart";
+  if (!t) return i ? `Chart ${i + 1}` : "Chart";
+  const short = t.length > 24 ? `${t.slice(0, 23)}…` : t;
+  const taken = Array.from({ length: i }, (_, j) => savedChart(cell, j)?.title).includes(t);
+  return taken ? `${short} (${i + 1})` : short;
 }
 
 // "+ Chart": a new chart after the others, starting from the default for this result.

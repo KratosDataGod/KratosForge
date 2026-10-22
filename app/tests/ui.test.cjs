@@ -3778,6 +3778,8 @@ test("one result keeps several charts, each with its own settings in the cell", 
   title.listeners.change();
   assert.deepStrictEqual(removed, [1, "renamed"]);
   assert.strictEqual(ctx.api.chartName(cell, 1), "Amount by month, all re…");
+  const twins = { meta: { chart: { title: "Sales" }, charts: [{ title: "Sales" }, { title: "Sales" }] } };
+  assert.deepStrictEqual([0, 1, 2].map((n) => ctx.api.chartName(twins, n)), ["Sales", "Sales (2)", "Sales (3)"]);
   assert.ok(dirty() >= 3);
   assert.ok(!allNodes(ctx.api.renderChartBuilder(o, numeric, cell, 0)).some((n) => n.tag === "button" && n.kids.includes("Remove chart")));
   const rm = allNodes(box.replaced).find((n) => n.tag === "button" && n.kids.includes("Remove chart"));

@@ -3375,7 +3375,7 @@ test("a collapsed heading hides the cells up to the next heading of the same or 
   const src = fs.readFileSync(path.join(ui, "nbcells.js"), "utf8");
   const ctx = { document: { addEventListener() {} } };
   vm.createContext(ctx);
-  vm.runInContext(`${src}\nthis.f = { collapsedCells, headingLevel, visibleCells };`, ctx);
+  vm.runInContext(`${src}\nthis.f = { collapsedCells, headingLevel, visibleCells };\nthis.markdownHeadings = markdownHeadings;`, ctx);
   const { collapsedCells, headingLevel, visibleCells } = ctx.f;
   const md = (id, source, collapsed) => ({ id, type: "markdown", source, meta: collapsed ? { heading_collapsed: true } : {} });
   const code = (id) => ({ id, type: "code", source: "# not a heading", meta: { heading_collapsed: true } });
@@ -3393,6 +3393,9 @@ test("a collapsed heading hides the cells up to the next heading of the same or 
   assert.strictEqual(headingLevel(md(1, "Intro text\n\nSection\n---")), 2);
   assert.strictEqual(headingLevel(md(1, "Some text\n\n---\n")), 0);
   assert.strictEqual(headingLevel(md(1, "- item\n---")), 0);
+  assert.strictEqual(headingLevel(md(1, "    indented code\n---")), 0);  // an indented code line isn't heading text
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(ctx.markdownHeadings("A long\ntitle\n===\n\n## Next"))),
+    [{ level: 1, text: "A long title" }, { level: 2, text: "Next" }]);
   const cells = [md(1, "# A", true), code(2), md(3, "## A.1", true), code(4), md(5, "# B"), code(6), md(7, "### C", true), code(8)];
   const { hidden, counts } = collapsedCells(cells);
   assert.deepStrictEqual([...hidden].sort(), [2, 3, 4, 8]);

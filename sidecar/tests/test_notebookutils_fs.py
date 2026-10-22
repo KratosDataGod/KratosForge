@@ -47,9 +47,10 @@ class FakeStore:
                     if p.startswith(d + "/") and (recursive or "/" not in p[len(d) + 1:])]
         return entries[:max_results] if max_results else entries
 
-    def read_bytes(self, ws, lh, path):
-        self.calls.append(("read_bytes", path))
-        return self.files.get(path)
+    def read_bytes(self, ws, lh, path, length=None):
+        self.calls.append(("read_bytes", path) if length is None else ("read_bytes", path, length))
+        data = self.files.get(path)
+        return data if data is None or length is None else data[:length]
 
     def upload(self, ws, lh, path, data):
         self.calls.append(("upload", path))
@@ -340,3 +341,12 @@ def test_an_encoded_local_name_is_its_own_file(tmp_path, fs):
     (tmp_path / "a b.txt").write_text("spaced")
     fs.mv(f"file:{tmp_path}/a b.txt", f"file:{tmp_path}/a%20b.txt")
     assert (tmp_path / "a%20b.txt").read_text() == "spaced" and not (tmp_path / "a b.txt").exists()
+
+
+def test_head_reads_only_the_bytes_it_shows(store, fs, tmp_path):
+    store.files["Files/big.csv"] = b"x" * 1_000_000
+    assert fs.head("Files/big.csv", 10) == "x" * 10
+    assert ("read_bytes", "Files/big.csv", 10) in store.calls
+    assert fs.head("Files/big.csv", 0) == ""
+    (tmp_path / "big.txt").write_bytes(b"y" * 1_000_000)
+    assert fs.head(f"file:{tmp_path}/big.txt", 5) == "yyyyy"

@@ -33,7 +33,8 @@ other than `any` or `all`, and an empty list of value columns are errors rather 
 `agg` takes Spark's `{column: function}` form after `groupBy` and `pivot` too, and names the result as Spark does
 (`avg(x)` for `"mean"`, `count(1)` for `{"*": "count"}`).
 `drop` and `withColumnRenamed` match names ignoring case and skip a column that isn't there, as Spark does, and
-`dropDuplicates` names a missing column with `[UNRESOLVED_COLUMN]`. An empty `struct<>` isn't supported here,
+`dropDuplicates` names a missing column with `[UNRESOLVED_COLUMN]`. Dropping every column is an error here: Spark keeps a frame with no columns,
+which DuckDB can't hold. An empty `struct<>` isn't supported here,
 since DuckDB can't store a struct with no fields; give it at least one.
 
 ### DataFrame: 79 of 102

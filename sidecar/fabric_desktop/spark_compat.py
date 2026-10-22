@@ -543,10 +543,16 @@ def _describe(self: DataFrame, *cols: str) -> DataFrame:
 
 
 def _drop_cols(fn: Any) -> Any:
-    """``df.drop("ID")`` drops ``id``: Spark resolves names ignoring case (a name that isn't there is skipped)."""
+    """``df.drop("ID")`` drops ``id``: Spark resolves names ignoring case (a name that isn't there is skipped).
+    Dropping every column is refused: Spark keeps a frame with no columns, which DuckDB can't hold."""
     def drop(self: DataFrame, *cols: Any) -> DataFrame:
         by_lower = {c.lower(): c for c in self.columns}
-        return fn(self, *[by_lower.get(c.lower(), c) if isinstance(c, str) else c for c in cols])
+        cols = tuple(by_lower.get(c.lower(), c) if isinstance(c, str) else c for c in cols)
+        gone = {c if isinstance(c, str) else c.expr.get_name() for c in cols if isinstance(c, (str, Column))}
+        if self.columns and not set(self.columns) - gone:
+            raise ValueError(f"drop would leave no columns ({', '.join(self.columns)}). Spark keeps an empty "
+                             "frame here, but this PC's engine can't hold one; keep at least one column.")
+        return fn(self, *cols)
     drop.__doc__ = fn.__doc__
     return drop
 

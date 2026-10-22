@@ -328,3 +328,11 @@ def test_drop_rename_and_drop_duplicates_resolve_names_as_spark_does(live):
     for call in (lambda: df.dropDuplicates(["nope"]), lambda: df.drop_duplicates(["nope"])):
         with pytest.raises(AnalysisException, match="UNRESOLVED_COLUMN.*`nope`"):
             call()
+
+
+def test_dropping_every_column_says_so_instead_of_duckdbs_binder_error(live):
+    df = live.createDataFrame([(1, "a")], ["id", "v"])
+    for call in (lambda: df.drop("id", "V"), lambda: df.drop(*df.columns), lambda: df.drop("id", df.v)):
+        with pytest.raises(ValueError, match=r"drop would leave no columns \(id, v\)"):
+            call()
+    assert df.drop("id", "nope").columns == ["v"]

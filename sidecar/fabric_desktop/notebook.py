@@ -1353,6 +1353,8 @@ class Kernel:
         for cell in cells:
             if cell.get("type") == "markdown" or not cell.get("source", "").strip():
                 continue
+            if (cell.get("meta") or {}).get("fabric_step"):
+                continue  # runs on Fabric Spark only when started from its own notebook (fabric_step.py)
             try:
                 late = f"A cell of {name!r} didn't finish within {cell_timeout or 0:g} seconds."
                 with _deadline(cell_timeout, late) as fired:

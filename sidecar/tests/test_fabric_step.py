@@ -273,3 +273,12 @@ def test_a_scheduled_run_skips_the_step_and_says_so(svc):
     finally:
         del type(svc).kernel
     assert ran == ["a = 1"] and out == {"status": "ok", "message": "1 cell ran, the Fabric step skipped", "cells": 1}
+
+
+def test_prove_refuses_a_notebook_with_the_step_and_says_how_to_clear_it():
+    from fabric_desktop import proof
+    c = cells("from fabric_desktop import lakehouse\nx = 1", "y = 2")
+    out = proof.check(c, LAKEHOUSE)
+    assert not out["ok"]
+    assert out["blockers"][0]["cell"] == 2 and out["blockers"][0]["text"] == fabric_step.STEP_REFUSED
+    assert proof.check(cells("from fabric_desktop import lakehouse\nx = 1", step=False), LAKEHOUSE)["ok"]

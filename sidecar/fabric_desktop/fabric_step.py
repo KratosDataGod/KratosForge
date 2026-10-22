@@ -27,6 +27,11 @@ STEP_SUFFIX = " (Fabric step)"
 REWRITE_ALL_MIN_FILE_SIZE = 1 << 40
 
 
+# Prove and Side by side run every cell on this PC too, which can't run the step.
+STEP_REFUSED = ("is marked Run on Fabric, which runs only on Fabric Spark, so the run on this PC can't run it. "
+                "Clear the mark (cell ⋯ menu > Run on this PC, not Fabric) to compare this notebook.")
+
+
 def is_step(cell: dict[str, Any]) -> bool:
     return bool((cell.get("meta") or {}).get("fabric_step"))
 

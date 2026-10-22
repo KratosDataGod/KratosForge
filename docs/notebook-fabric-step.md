@@ -35,7 +35,7 @@ You can write any Spark code in the cell instead. V-Order is turned on for the s
 4. The cell shows Queued, then Running, with a link to the run in Fabric and **Cancel**. The run is in **Monitor > Runs** too.
 5. When it ends, the cell shows what it printed, or its error, and each table it OPTIMIZEd: **V-Ordered** when the Delta log shows a Fabric OPTIMIZE since the last write.
 
-Scheduled runs on this PC and local pipeline runs skip the marked cell, and say so. They don't start a Fabric job.
+Scheduled runs on this PC, local pipeline runs, `%run` and `notebookutils.notebook.run` skip the marked cell; a schedule says so in its run. None of them starts a Fabric job. **Prove** and **Side by side** refuse a notebook with the mark, since their run on this PC can't run it: clear the mark to compare the notebook.
 
 ## If a table isn't V-Ordered
 

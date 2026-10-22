@@ -19,6 +19,7 @@ let app;
 const page = () => app.page;
 const started = [];
 let result = null;
+let risk = { result: "pass" };
 
 before(async () => {
   if (skip) return;
@@ -27,7 +28,7 @@ before(async () => {
     engine: ["save_notebook", "start_cell", "poll_cell", "kernel_variables", "notebook_fabric_step_check", "notebook_vorder_cell"],
     mocks: {
       list_tables: () => ({ gold: ["fact_sales", "dim_customer", "other"] }),
-      risk_check: () => ({ result: "pass" }),
+      risk_check: () => risk,
       fabric_runs: () => [],
       run_notebook_fabric_step: (p) => {
         started.push(p);
@@ -103,6 +104,24 @@ test("Run all runs cell 1 here, confirms, sends only the last cell to Fabric and
   await page().waitForFunction(() => state.notebook.cells[1].source.includes("minFileSize"));
   assert.match(await page().evaluate(() => state.notebook.cells[1].source), /OPTIMIZE `gold`\.`dim_customer` VORDER/);
   assert.deepStrictEqual(app.errors, []);
+});
+
+test("Stop here, or a blocked risk check, sends nothing to Fabric", { skip }, async () => {
+  const before = started.length;
+  const run = page().evaluate(() => runCell(state.notebook.cells[1]));
+  const dialog = page().locator(".dialog, [role=dialog]").last();
+  await dialog.getByRole("button", { name: "Stop here" }).click();
+  assert.strictEqual(await run, false);
+  await cell(1).getByText("Not sent to Fabric.").waitFor();
+  risk = { result: "blocked", label: "Blocked", summary: "Sales Dev's capacity is throttling",
+    findings: [{ check: "throttling", outcome: "blocked", title: "Capacity is throttling" }] };
+  const blocked = page().evaluate(() => runCell(state.notebook.cells[1]));
+  await dialog.getByText("Sales Dev's capacity is throttling").waitFor();
+  await dialog.getByRole("button", { name: "Close" }).last().click();
+  assert.strictEqual(await blocked, false);
+  await cell(1).getByText("Not sent to Fabric: the risk check stopped it.").waitFor();
+  assert.strictEqual(started.length, before);
+  risk = { result: "pass" };
 });
 
 test("a code cell below the mark stops Run all before any cell runs", { skip }, async () => {

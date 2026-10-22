@@ -129,8 +129,9 @@ def _local(type_: str, title: str, adapter: type, required: tuple[str, ...] = ()
 
 
 CHILD_LIMIT = ("In Fabric this starts the child pipeline's own run, which uses capacity. On this PC it runs the "
-               "child's definition when the run is given it (by referenceName or pipelineId), and waits for it "
-               "even when waitOnCompletion is false.")
+               "child's definition when the run is given it (by referenceName or pipelineId). With waitOnCompletion "
+               "false the activity succeeds once the child starts; the local run's record still waits for the "
+               "child to end, so its result is in the record.")
 
 
 def _cloud(type_: str, title: str, required: tuple[str, ...] = (), **kw: Any) -> ActivitySupport:

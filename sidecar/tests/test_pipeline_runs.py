@@ -435,6 +435,43 @@ def test_invoke_pipeline_by_id_and_child_failure():
     assert r.state == "failed" and row["error"]["errorCode"] == "LocalChildFailed"
 
 
+def test_wait_on_completion_false_moves_on_without_the_child():
+    # Plan P0 (B8): Fabric starts the child and the activity succeeds; the next step doesn't wait for it.
+    slow = pipeline(wait("Slow", 2), name="slow")
+    text = pipeline(act("Call", "ExecutePipeline", pipeline={"referenceName": "slow"}, waitOnCompletion=False),
+                    setvar("Next", "v", "go", ["Call"]), variables={"v": {"type": "String"}})
+    r = run(text, children={"slow": loads(slow)}, wait_scale=1)
+    rows = {a["name"]: a for a in r.to_json()["activities"] if not a["label"]}
+    call, nxt = rows["Call"], rows["Next"]
+    assert r.state == "succeeded" and call["output"] == {"pipelineRunId": call["child_run"]["run_id"]}
+    assert call["wait_on_completion"] is False and call["seconds"] < 1.5
+    # The run's record waits for the child, so the child's whole run is in it.
+    assert call["child_run"]["state"] == "succeeded" and nxt["ended"] < call["child_run"]["ended"]
+
+
+def test_a_child_nothing_waits_on_doesnt_fail_the_run():
+    failing = pipeline(fail("Nope"), name="bad")
+    r = run(pipeline(act("Inv", "InvokePipeline", pipelineId="abc", workspaceId="w", waitOnCompletion=False)),
+            children={"abc": loads(failing)})
+    row = r.to_json()["activities"][0]
+    assert r.state == "succeeded" and row["state"] == "succeeded" and row["child_run"]["state"] == "failed"
+
+
+def test_cancel_stops_a_child_nothing_waits_on():
+    slow = pipeline(wait("Slow", 60), name="slow")
+    r = PipelineRun(loads(pipeline(act("Call", "ExecutePipeline", pipeline={"referenceName": "slow"},
+                                       waitOnCompletion=False))), children={"slow": loads(slow)})
+    t = threading.Thread(target=r.run)
+    t.start()
+    end = time.monotonic() + 10
+    while not (r.records and r.records[0]["state"] == "succeeded") and time.monotonic() < end:
+        time.sleep(0.02)
+    r.cancel()
+    t.join(10)
+    assert not t.is_alive() and r.state == "cancelled"
+    assert r.to_json()["activities"][0]["child_run"]["state"] == "cancelled"
+
+
 def test_child_needing_fabric_refuses_the_parent():
     child = pipeline(act("C", "Copy", source={}, sink={}), name="c")
     with pytest.raises(RunRefused, match="In child pipeline c"):

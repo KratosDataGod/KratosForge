@@ -285,3 +285,20 @@ def test_sample_dropna_and_unpivot_refuse_what_spark_refuses(live):
     with pytest.raises(ValueError, match="UNPIVOT_REQUIRES_VALUE_COLUMNS"):
         df.unpivot("id", [], "k", "val")
     assert df.unpivot("id", None, "k", "val").count() == 4  # None: every column that isn't an id
+
+
+def test_na_functions_and_describe_refuse_unknown_columns_and_uneven_replace_lists(live):
+    from duckdb.experimental.spark.errors import AnalysisException
+    df = live.createDataFrame([(1, None, 1.5), (2, "b", None)], ["id", "v", "x"])
+    for call in (lambda: df.na.fill({"nope": 1}), lambda: df.na.fill(0, ["nope"]), lambda: df.dropna(subset=["nope"]),
+                 lambda: df.na.replace("b", "B", ["nope"]), lambda: df.describe("nope")):
+        with pytest.raises(AnalysisException, match="UNRESOLVED_COLUMN.*`nope`"):
+            call()
+    with pytest.raises(ValueError, match="should be of the same length. Got 2 and 1"):
+        df.na.replace(["b", "c"], ["B"])
+    assert rows(df.na.replace(["b"], ["B"], "v")) == [(1, None, 1.5), (2, "B", None)]
+    assert rows(df.na.fill(0, "x")) == [(1, None, 1.5), (2, "b", 0.0)] and df.dropna(subset="v").count() == 1
+    # Spark resolves names ignoring case
+    assert df.dropna(subset=["V"]).count() == 1 and rows(df.na.fill({"X": 0})) == [(1, None, 1.5), (2, "b", 0.0)]
+    assert rows(df.na.fill("z", "V"))[0][1] == "z" and rows(df.na.replace("b", "B", "V"))[1][1] == "B"
+    assert df.describe("ID").columns == ["summary", "id"]

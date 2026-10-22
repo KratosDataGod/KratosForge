@@ -416,13 +416,31 @@ def _fillable(dtype: str, value: Any) -> bool:
     return False
 
 
+def _known(df: DataFrame, names: Any) -> list[str]:
+    """Column names as Spark resolves them, ignoring case, in the frame's own spelling; one that
+    isn't there is an error, as in Spark, not skipped."""
+    from duckdb.experimental.spark.errors import AnalysisException
+    by_lower = {c.lower(): c for c in df.columns}
+    out = []
+    for name in [names] if isinstance(names, str) else list(names):
+        if name in df.columns:
+            out.append(name)
+        elif (found := by_lower.get(str(name).lower())) is not None:
+            out.append(found)
+        else:
+            raise AnalysisException(message=f"[UNRESOLVED_COLUMN.WITH_SUGGESTION] A column or function parameter "
+                                    f"with name `{name}` cannot be resolved. Did you mean one of the following? "
+                                    f"{df.columns}.")
+    return out
+
+
 def _fillna(self: DataFrame, value: Any, subset: Any = None) -> DataFrame:
     if isinstance(value, dict):
-        fills = value
+        fills = dict(zip(_known(self, value), value.values()))
     else:
         if not isinstance(value, (bool, int, float, str)):
             raise TypeError("fillna takes a number, text, a boolean or a dict of column to value.")
-        wanted = [subset] if isinstance(subset, str) else list(subset or [c for c, _ in _types(self)])
+        wanted = _known(self, subset) if subset else [c for c, _ in _types(self)]
         fills = {c: value for c, t in _types(self) if c in wanted and _fillable(t, value)}
     cols = []
     for c, t in _types(self):
@@ -442,7 +460,7 @@ def _types(df: DataFrame) -> list[tuple[str, str]]:
 def _dropna(self: DataFrame, how: str | None = "any", thresh: int | None = None, subset: Any = None) -> DataFrame:
     if how is not None and how not in ("any", "all"):  # None counts as "all", as in PySpark
         raise ValueError(f"how ({how!r}) should be 'any' or 'all'")  # PySpark's own check
-    cols = [subset] if isinstance(subset, str) else list(subset or self.columns)
+    cols = _known(self, subset) if subset else self.columns
     if not cols:
         return self
     present = " + ".join(f"CAST({_col_sql(c)} IS NOT NULL AS INT)" for c in cols)
@@ -451,10 +469,13 @@ def _dropna(self: DataFrame, how: str | None = "any", thresh: int | None = None,
 
 
 def _replace(self: DataFrame, to_replace: Any, value: Any = None, subset: Any = None) -> DataFrame:
+    if isinstance(to_replace, (list, tuple)) and isinstance(value, (list, tuple)) and len(to_replace) != len(value):
+        raise ValueError("to_replace and value lists should be of the same length. "
+                         f"Got {len(to_replace)} and {len(value)}")  # PySpark's own check
     mapping = to_replace if isinstance(to_replace, dict) else (
         dict(zip(to_replace, value if isinstance(value, (list, tuple)) else [value] * len(to_replace)))
         if isinstance(to_replace, (list, tuple)) else {to_replace: value})
-    wanted = [subset] if isinstance(subset, str) else list(subset or self.columns)
+    wanted = _known(self, subset) if subset else self.columns
     sample = next(iter(mapping))
     cols = []
     for c, t in _types(self):
@@ -485,7 +506,7 @@ class DataFrameNaFunctions:
 
 def _describe(self: DataFrame, *cols: str) -> DataFrame:
     """count, mean, stddev, min and max of each column, as text, as Spark's describe() shows them."""
-    names = list(_flat(cols)) or [c for c, t in _types(self) if _NUMERIC.match(t) or t.upper() == "VARCHAR"]
+    names = _known(self, list(_flat(cols))) or [c for c, t in _types(self) if _NUMERIC.match(t) or t.upper() == "VARCHAR"]
     types_ = dict(_types(self))
     rows = []
     for stat in ("count", "mean", "stddev", "min", "max"):

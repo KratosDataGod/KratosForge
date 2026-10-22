@@ -4291,3 +4291,9 @@ test("the Spark on this PC page says sample, dropna and unpivot check arguments 
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
   assert.match(doc, /`sample`, `dropna` and `unpivot` check their arguments as Spark does/);
 });
+
+// Spark on this PC: na functions and describe refuse unknown columns.
+test("the Spark on this PC page says na functions name a missing column", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`\[UNRESOLVED_COLUMN\]` error instead of skipping it, and `replace` refuses lists of different lengths/);
+});

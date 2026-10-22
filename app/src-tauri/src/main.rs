@@ -2,7 +2,7 @@
 // which does all data work on this machine.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
@@ -987,6 +987,18 @@ async fn update_app(app: tauri::AppHandle, state: tauri::State<'_, SidecarState>
 // browser of its own. Both pages share this one view, so they share one Fabric sign-in.
 
 const FABRIC_VIEW: &str = "fabric";
+/// The Fabric view in the Monitoring hub's own window (pop-out window "fabric"). It is a second
+/// view on the same WebView2 profile, so it shares the sign-in, and it has the same filter.
+const FABRIC_POP_OUT_VIEW: &str = "fabric-pop-out";
+
+/// The Fabric view a window of the app shows: the main window's, or the Fabric pop-out's.
+fn fabric_view_label(window: &str) -> Result<&'static str, String> {
+    match window {
+        "main" => Ok(FABRIC_VIEW),
+        w if w == pop_out_label("fabric") => Ok(FABRIC_POP_OUT_VIEW),
+        other => Err(format!("The {other} window has no Fabric view")),
+    }
+}
 const FABRIC_MONITOR: &str = "https://app.fabric.microsoft.com/monitoringhub?experience=fabric-developer";
 const FABRIC_CATALOG: &str = "https://app.fabric.microsoft.com/onelake/explore?experience=fabric-developer";
 
@@ -1094,15 +1106,16 @@ fn fabric_page(page: &str, tenant: Option<&str>) -> Result<Url, String> {
     Ok(url)
 }
 
-/// Which page the Fabric view was last sent to, so switching between Monitor and OneLake
+/// Which page each Fabric view was last sent to, so switching between Monitor and OneLake
 /// navigates only when the page changes.
-static FABRIC_SHOWN: Mutex<String> = Mutex::new(String::new());
+static FABRIC_SHOWN: Mutex<BTreeMap<&'static str, String>> = Mutex::new(BTreeMap::new());
 
-/// Shows the Fabric view over the page's placeholder, creating it the first time.
+/// Shows the calling window's Fabric view over the page's placeholder, creating it the first time.
 /// Coordinates are CSS pixels inside the window, which are Tauri's logical pixels.
 #[tauri::command]
 async fn fabric_view_show(
     app: tauri::AppHandle,
+    window: tauri::Window,
     x: f64,
     y: f64,
     width: f64,
@@ -1115,24 +1128,24 @@ async fn fabric_view_show(
     let target = fabric_page(&page, tenant.as_deref())?;
     let position = LogicalPosition::new(x, y);
     let size = LogicalSize::new(width.max(1.0), height.max(1.0));
-    if let Some(view) = app.get_webview(FABRIC_VIEW) {
+    let label = fabric_view_label(window.label())?;
+    if let Some(view) = app.get_webview(label) {
         view.set_position(position).map_err(|e| e.to_string())?;
         view.set_size(size).map_err(|e| e.to_string())?;
         // force: someone clicked a link, so go there even if it is the page last sent; they may
         // have moved around inside Fabric since.
-        let changed = { let mut shown = FABRIC_SHOWN.lock().unwrap(); std::mem::replace(&mut *shown, page.clone()) != page };
+        let changed = FABRIC_SHOWN.lock().unwrap().insert(label, page.clone()).as_ref() != Some(&page);
         if changed || force.unwrap_or(false) {
             view.navigate(target).map_err(|e| e.to_string())?;
         }
         return view.show().map_err(|e| e.to_string());
     }
-    let window = app.get_window("main").ok_or("The main window is not open")?;
     // Start blank: the saved sign-in goes in before the first Fabric request.
     let blank = Url::parse("about:blank").map_err(|e| e.to_string())?;
     // The organization's identity provider hosts, read once for this view.
     let sign_in_hosts = Arc::new(fabric_view_sign_in_hosts());
     let (app_, for_pop_ups) = (app.clone(), sign_in_hosts.clone());
-    let builder = WebviewBuilder::new(FABRIC_VIEW, WebviewUrl::External(blank))
+    let builder = WebviewBuilder::new(label, WebviewUrl::External(blank))
         .on_navigation(move |url| fabric_nav_allows(url, false, &sign_in_hosts))
         .on_new_window(move |url, features| fabric_pop_up(&app_, &for_pop_ups, url, features));
     #[cfg(windows)]
@@ -1147,7 +1160,7 @@ async fn fabric_view_show(
     for cookie in signin::load() {
         let _ = view.set_cookie(cookie);
     }
-    *FABRIC_SHOWN.lock().unwrap() = page;
+    FABRIC_SHOWN.lock().unwrap().insert(label, page);
     view.navigate(target).map_err(|e| e.to_string())?;
     signin::keep_saving(app.clone());
     Ok(())
@@ -1259,6 +1272,10 @@ mod signin {
     pub fn forget(app: &tauri::AppHandle) {
         let _ = std::fs::remove_file(file());
         *LAST.lock().unwrap() = Vec::new();
+        // The pop-out's view shares the profile, so this signs it out too; its window closes.
+        if let Some(window) = app.get_window(&super::pop_out_label("fabric")) {
+            let _ = window.close();
+        }
         if let Some(view) = app.get_webview(super::FABRIC_VIEW) {
             for cookie in view.cookies().unwrap_or_default() {
                 if cookie.domain().is_some_and(super::fabric_host) {
@@ -1310,7 +1327,9 @@ mod signin {
         *started = true;
         std::thread::spawn(move || loop {
             std::thread::sleep(Duration::from_secs(5));
-            if let Some(view) = app.get_webview(super::FABRIC_VIEW) {
+            // Either view will do: they share one profile.
+            let view = app.get_webview(super::FABRIC_VIEW).or_else(|| app.get_webview(super::FABRIC_POP_OUT_VIEW));
+            if let Some(view) = view {
                 if let Ok(cookies) = view.cookies() {
                     save(&cookies);
                 }
@@ -1442,8 +1461,8 @@ mod sso {
 }
 
 #[tauri::command]
-async fn fabric_view_hide(app: tauri::AppHandle) -> Result<(), String> {
-    match app.get_webview(FABRIC_VIEW) {
+async fn fabric_view_hide(app: tauri::AppHandle, window: tauri::Window) -> Result<(), String> {
+    match app.get_webview(fabric_view_label(window.label())?) {
         Some(view) => view.hide().map_err(|e| e.to_string()),
         None => Ok(()),
     }
@@ -1452,15 +1471,16 @@ async fn fabric_view_hide(app: tauri::AppHandle) -> Result<(), String> {
 /// back, reload, home (the page's own start: page is "monitor" or "catalog"),
 /// or browser (open the current page in the default browser).
 #[tauri::command]
-async fn fabric_view_action(app: tauri::AppHandle, action: String, page: Option<String>) -> Result<(), String> {
-    let view = app.get_webview(FABRIC_VIEW).ok_or("The Fabric view is not open")?;
+async fn fabric_view_action(app: tauri::AppHandle, window: tauri::Window, action: String, page: Option<String>) -> Result<(), String> {
+    let label = fabric_view_label(window.label())?;
+    let view = app.get_webview(label).ok_or("The Fabric view is not open")?;
     match action.as_str() {
         "back" => view.eval("history.back()").map_err(|e| e.to_string()),
         "reload" => view.reload().map_err(|e| e.to_string()),
         "home" => {
             let page = page.unwrap_or_else(|| "monitor".into());
             let url = fabric_page(&page, None)?;
-            *FABRIC_SHOWN.lock().unwrap() = page;
+            FABRIC_SHOWN.lock().unwrap().insert(label, page);
             view.navigate(url).map_err(|e| e.to_string())
         }
         "browser" => open_in_browser(&view.url().map_err(|e| e.to_string())?),
@@ -1473,6 +1493,172 @@ async fn fabric_view_action(app: tauri::AppHandle, action: String, page: Option<
 async fn fabric_view_sign_out(app: tauri::AppHandle) -> Result<(), String> {
     signin::forget(&app);
     Ok(())
+}
+
+// ---- Pop-out windows (Preview): a section of a page in a window of its own, to keep on another
+// screen. Each is the app's own page (index.html?popout=<section>) in a second window, with the same
+// policy as the main window; the UI draws only that section there. The Fabric one shows its own
+// Fabric view (FABRIC_POP_OUT_VIEW). A window closes with the main window. docs/user-guide.md#pop-out-windows-preview
+
+/// The sections that pop out, with their window titles: Monitor's From KratosForge list and
+/// Fabric's Monitoring hub.
+const POP_OUTS: [(&str, &str); 2] = [("runs", "From KratosForge"), ("fabric", "Fabric Monitoring hub")];
+const POP_OUT_PREFIX: &str = "pop-out-";
+
+fn pop_out_label(section: &str) -> String {
+    format!("{POP_OUT_PREFIX}{section}")
+}
+
+fn pop_out_title(section: &str) -> Result<&'static str, String> {
+    POP_OUTS.iter().find(|(s, _)| *s == section).map(|(_, t)| *t).ok_or_else(|| format!("Not a section that pops out: {section}"))
+}
+
+/// Where each pop-out window was when it last closed, in logical pixels, kept on this PC.
+fn pop_out_places_file() -> PathBuf {
+    data_dir().join("pop-out-windows.json")
+}
+
+fn pop_out_places() -> Value {
+    std::fs::read_to_string(pop_out_places_file()).ok().and_then(|t| serde_json::from_str(t.trim_start_matches('\u{feff}')).ok()).unwrap_or(json!({}))
+}
+
+/// A saved place, if it is a sensible size: [x, y, width, height].
+fn saved_place(places: &Value, section: &str) -> Option<[f64; 4]> {
+    let p = places.get(section)?;
+    let n = |k: &str| p.get(k).and_then(Value::as_f64).filter(|v| v.is_finite());
+    let place = [n("x")?, n("y")?, n("width")?, n("height")?];
+    (place[2] >= 200.0 && place[3] >= 150.0 && place[2] <= 20000.0 && place[3] <= 20000.0).then_some(place)
+}
+
+/// True when the window's top-left corner, plus a bit of its title bar, is on one of the screens,
+/// so a window last left on a screen that has since been unplugged opens centered instead.
+fn place_on_screen(place: [f64; 4], screens: &[(f64, f64, f64, f64, f64)]) -> bool {
+    screens.iter().any(|&(x, y, w, h, scale)| {
+        let (px, py) = ((place[0] + 40.0) * scale, (place[1] + 10.0) * scale);
+        px >= x && py >= y && px < x + w && py < y + h
+    })
+}
+
+fn save_pop_out_place(window: &tauri::Window) {
+    let Some(section) = window.label().strip_prefix(POP_OUT_PREFIX) else { return };
+    let (Ok(scale), Ok(pos), Ok(size)) = (window.scale_factor(), window.outer_position(), window.inner_size()) else { return };
+    if window.is_minimized().unwrap_or(false) || window.is_maximized().unwrap_or(false) {
+        return;
+    }
+    let (pos, size) = (pos.to_logical::<f64>(scale), size.to_logical::<f64>(scale));
+    let mut places = pop_out_places();
+    if !places.is_object() {
+        places = json!({});
+    }
+    places[section] = json!({"x": pos.x, "y": pos.y, "width": size.width, "height": size.height});
+    let file = pop_out_places_file();
+    let tmp = file.with_extension("tmp");
+    if std::fs::write(&tmp, places.to_string()).and_then(|_| std::fs::rename(&tmp, &file)).is_err() {
+        eprintln!("Pop-out window: could not remember where {section} was");
+    }
+}
+
+/// The app's own pages, which are all a pop-out window shows (tauri://localhost elsewhere,
+/// http://tauri.localhost on Windows).
+fn is_app_page(url: &Url) -> bool {
+    url.username().is_empty() && url.password().is_none() && url.port().is_none()
+        && matches!((url.scheme(), url.host_str()), ("tauri", Some("localhost")) | ("http" | "https", Some("tauri.localhost")))
+}
+
+/// A pop-out window stays on the app's own pages; a web link opens in the default browser.
+fn app_page(url: &Url) -> bool {
+    if is_app_page(url) {
+        return true;
+    }
+    if matches!(url.scheme(), "https" | "http") {
+        let _ = open_in_browser(url);
+    }
+    false
+}
+
+/// Opens a section in its own window, or brings its window forward if it is open already.
+#[tauri::command]
+async fn pop_out_open(app: tauri::AppHandle, section: String, on_top: Option<bool>) -> Result<(), String> {
+    let title = pop_out_title(&section)?;
+    let label = pop_out_label(&section);
+    if let Some(window) = app.get_window(&label) {
+        let _ = window.unminimize();
+        window.show().map_err(|e| e.to_string())?;
+        return window.set_focus().map_err(|e| e.to_string());
+    }
+    let url = WebviewUrl::App(format!("index.html?popout={section}").into());
+    let builder = tauri::WebviewWindowBuilder::new(&app, &label, url)
+        .title(format!("KratosForge · {title}"))
+        .min_inner_size(360.0, 260.0)
+        .always_on_top(on_top.unwrap_or(false))
+        .on_navigation(app_page);
+    let screens: Vec<_> = app.available_monitors().unwrap_or_default().iter()
+        .map(|m| (m.position().x as f64, m.position().y as f64, m.size().width as f64, m.size().height as f64, m.scale_factor()))
+        .collect();
+    let builder = match saved_place(&pop_out_places(), &section).filter(|p| place_on_screen(*p, &screens)) {
+        Some([x, y, w, h]) => builder.position(x, y).inner_size(w, h),
+        None => builder.inner_size(if section == "fabric" { 1100.0 } else { 720.0 }, 640.0).center(),
+    };
+    builder.build().map_err(|e| e.to_string())?;
+    let _ = app.emit("pop-out", json!({"section": section, "open": true}));
+    Ok(())
+}
+
+/// Closes a section's window, which puts the section back in the main window (Dock back).
+#[tauri::command]
+async fn pop_out_close(app: tauri::AppHandle, section: String) -> Result<(), String> {
+    pop_out_title(&section)?;
+    match app.get_window(&pop_out_label(&section)) {
+        Some(window) => window.close().map_err(|e| e.to_string()),
+        None => Ok(()),
+    }
+}
+
+/// Keep on top, for the window that asks.
+#[tauri::command]
+async fn pop_out_on_top(window: tauri::Window, on: bool) -> Result<(), String> {
+    if !window.label().starts_with(POP_OUT_PREFIX) {
+        return Err("Only a pop-out window stays on top".into());
+    }
+    window.set_always_on_top(on).map_err(|e| e.to_string())
+}
+
+/// The sections open in their own windows right now.
+#[tauri::command]
+fn pop_out_list(app: tauri::AppHandle) -> Vec<String> {
+    POP_OUTS.iter().filter(|(s, _)| app.get_window(&pop_out_label(s)).is_some()).map(|(s, _)| s.to_string()).collect()
+}
+
+/// A Fabric link clicked in a pop-out window opens in the main window's Fabric view, which brings
+/// the main window forward. Only Fabric pages (fabric_page) are passed on.
+#[tauri::command]
+async fn pop_out_open_in_fabric(app: tauri::AppHandle, page: String) -> Result<(), String> {
+    fabric_page(&page, None)?;
+    let main = app.get_webview_window("main").ok_or("The main window is not open")?;
+    main.emit_to("main", "pop-out-open-in-fabric", page).map_err(|e| e.to_string())?;
+    let _ = main.unminimize();
+    main.set_focus().map_err(|e| e.to_string())
+}
+
+fn on_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
+    match event {
+        tauri::WindowEvent::CloseRequested { .. } => save_pop_out_place(window),
+        tauri::WindowEvent::Destroyed => {
+            let app = window.app_handle();
+            if let Some(section) = window.label().strip_prefix(POP_OUT_PREFIX) {
+                let _ = app.emit("pop-out", json!({"section": section, "open": false}));
+            } else if window.label() == "main" {
+                // Pop-out windows don't outlive the app: closing the main window closes them.
+                for (label, other) in app.windows() {
+                    if label.starts_with(POP_OUT_PREFIX) {
+                        save_pop_out_place(&other);
+                        let _ = other.destroy();
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Opens a link from Settings or Help in the default browser: https only, or a mailto: address
@@ -1557,9 +1743,11 @@ fn main() {
     tauri::Builder::default()
         .manage(SidecarState { sidecar: Mutex::new(None), child: Mutex::new(None), updating: Default::default() })
         .register_uri_scheme_protocol(OUTPUT_SCHEME, |ctx, _| output_frame(ctx.webview_label()))
+        .on_window_event(on_window_event)
         .invoke_handler(tauri::generate_handler![
             rpc, stop_kernel, check_components, update_sidecar, update_app,
-            fabric_view_show, fabric_view_hide, fabric_view_action, open_doc, fabric_view_sign_out, open_link
+            fabric_view_show, fabric_view_hide, fabric_view_action, open_doc, fabric_view_sign_out, open_link,
+            pop_out_open, pop_out_close, pop_out_on_top, pop_out_list, pop_out_open_in_fabric
         ])
         .run(tauri::generate_context!())
         .expect("error while running KratosForge");
@@ -1791,6 +1979,55 @@ mod fabric_nav_tests {
         // allowed pop-ups must be Create with fabric_pop_up's filtered window instead.
         let allow = ["NewWindowResponse", "::Allow"].concat();
         assert!(!include_str!("main.rs").contains(&allow));
+    }
+
+    #[test]
+    fn each_window_has_its_own_fabric_view() {
+        assert_eq!(fabric_view_label("main"), Ok(FABRIC_VIEW));
+        assert_eq!(fabric_view_label("pop-out-fabric"), Ok(FABRIC_POP_OUT_VIEW));
+        assert!(fabric_view_label("pop-out-runs").is_err());
+        assert!(fabric_view_label(FABRIC_VIEW).is_err());
+        // The pop-out's view is not one of the Fabric view's pop-up windows, nor a pop-out window.
+        assert!(!FABRIC_POP_OUT_VIEW.starts_with(&format!("{FABRIC_VIEW}-popup-")));
+        assert!(!FABRIC_POP_OUT_VIEW.starts_with(POP_OUT_PREFIX));
+    }
+
+    #[test]
+    fn only_listed_sections_pop_out() {
+        assert_eq!(pop_out_title("runs"), Ok("From KratosForge"));
+        assert_eq!(pop_out_title("fabric"), Ok("Fabric Monitoring hub"));
+        for bad in ["", "main", "../runs", "runs?x=1", "Fabric"] {
+            assert!(pop_out_title(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn pop_out_windows_stay_on_the_apps_own_pages() {
+        let page = |u: &str| is_app_page(&Url::parse(u).unwrap());
+        assert!(page("tauri://localhost/index.html?popout=runs"));
+        assert!(page("http://tauri.localhost/index.html?popout=fabric"));
+        assert!(page("https://tauri.localhost/index.html"));
+        for other in ["https://app.fabric.microsoft.com/", "http://tauri.localhost.evil.com/", "https://x@tauri.localhost/",
+                      "http://tauri.localhost:8080/", "file:///C:/index.html", "javascript:alert(1)", "about:blank"] {
+            assert!(!page(other), "{other}");
+        }
+    }
+
+    #[test]
+    fn pop_out_windows_reopen_where_they_were_if_that_is_on_a_screen() {
+        let places = json!({"runs": {"x": 100.0, "y": 50.0, "width": 700.0, "height": 600.0},
+                            "fabric": {"x": 1.0, "y": 1.0, "width": 10.0, "height": 600.0},
+                            "odd": {"x": "1", "y": 1, "width": 700, "height": 600}});
+        assert_eq!(saved_place(&places, "runs"), Some([100.0, 50.0, 700.0, 600.0]));
+        assert_eq!(saved_place(&places, "fabric"), None); // too small to use
+        assert_eq!(saved_place(&places, "odd"), None);
+        assert_eq!(saved_place(&json!([]), "runs"), None);
+        let one_screen = [(0.0, 0.0, 1920.0, 1080.0, 1.0)];
+        assert!(place_on_screen([100.0, 50.0, 700.0, 600.0], &one_screen));
+        assert!(!place_on_screen([2500.0, 50.0, 700.0, 600.0], &one_screen)); // a screen since unplugged
+        // A second screen to the right at 150%: logical 1400 is physical 2100.
+        let two = [(0.0, 0.0, 1920.0, 1080.0, 1.0), (1920.0, 0.0, 2880.0, 1620.0, 1.5)];
+        assert!(place_on_screen([1400.0, 100.0, 700.0, 600.0], &two));
     }
 
     #[test]

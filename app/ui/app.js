@@ -495,6 +495,8 @@ function renderNavButtons() {
 }
 
 function go(view) {
+  // A pop-out window has no Fabric view of its own for the portal: Fabric links open in the main window.
+  if (POP_OUT && view === "fabric") { popOutOpenInFabric(fabricPage.page); return; }
   closeMenu();
   navPush(view);
   state.view = view;
@@ -863,7 +865,12 @@ function renderCreate() {
 }
 
 // Filters on Monitor, kept for the session; showFabric is remembered on this PC.
-const monitorPage = { env: "all", where: "any", problemsFirst: true, showFabric: true, panel: "runs", opsView: "workloads" };
+const monitorPage = { env: "all", where: "any", problemsFirst: true, showFabric: true, panel: "runs", opsView: "workloads",
+  refreshing: false };
+// Pop-out windows (Preview, popout.js). In a pop-out window, POP_OUT is the one section it shows ("runs"
+// or "fabric"); in the main window it is null and popOuts holds the sections open in windows of their own.
+const POP_OUT = ["runs", "fabric"].find((s) => new URLSearchParams(location.search).get("popout") === s) || null;
+const popOuts = new Set();
 // Monitor > Operations holds the workload views (UX-010). Each keeps its own panel id, so links to it still work.
 const MONITOR_OPS = [
   { panel: "workloads", feature: "workloads", label: "Workloads", anchor: "workloads-preview",
@@ -883,10 +890,14 @@ async function renderMonitor() {
   // Cost moved to Optimize > Cost and savings (testing item 36); an old link to it lands there.
   if (monitorPage.panel === "cost") { monitorPage.panel = "runs"; optimizePage.tab = "cost"; go("optimize"); return; }
   if (!previewShown()) monitorPage.panel = "runs";
-  const local = loading("Loading runs...", "monitor-empty");
+  if (POP_OUT === "fabric") { renderFabricPopOut(); return; }
+  // A pop-out window's refresh keeps the list it has, and your place in it, until the new one is read.
+  const kept = monitorPage.refreshing ? document.querySelector(".page.monitor .monitor-scroll") : null;
+  const keptTop = kept?.scrollTop || 0;
+  monitorPage.refreshing = false;
+  const local = kept || loading("Loading runs...", "monitor-empty");
   const slot = h("div", { class: "fabric-slot" },
     h("p", { class: "muted-text" }, "Opening the Fabric Monitoring hub. Sign in once and the app remembers it."));
-  const action = (name) => attempt(() => invoke("fabric_view_action", { action: name, page: "monitor" }), "Fabric view");
   const chip = (key, value, label) => h("button", { class: `chip${monitorPage[key] === value ? " on" : ""}`,
     onclick: () => { monitorPage[key] = value; render(); } }, label);
   const toggleFabric = () => {
@@ -901,10 +912,14 @@ async function renderMonitor() {
   const segment = (on, label, onclick) => h("button", { class: on ? "on" : null, onclick }, label);
   const show = (panel) => () => { monitorPage.panel = panel; render(); };
   // Only Runs shares the page with Fabric's hub; a list under it gets too little room (#190).
-  const wide = monitorPage.panel !== "runs";
-  const fabricShown = monitorPage.showFabric && !wide;
-  setView(h("div", { class: `page monitor${fabricShown ? "" : " no-fabric"}` },
-    h("section", { class: "card monitor-local" },
+  // A section in a window of its own leaves a band here, and the other one gets the room.
+  const runsOut = popOuts.has("runs");
+  const fabricOut = popOuts.has("fabric");
+  const wide = !runsOut && monitorPage.panel !== "runs";
+  const fabricHere = !POP_OUT && !wide;
+  const fabricShown = fabricHere && monitorPage.showFabric && !fabricOut;
+  setView(h("div", { class: `page monitor${fabricShown ? "" : " no-fabric"}${runsOut ? " runs-out" : ""}` },
+    runsOut ? poppedOutBand("runs", "From KratosForge", "monitor-local") : h("section", { class: "card monitor-local" },
       h("div", { class: "monitor-band" },
         h("h2", {}, "From KratosForge"),
         h("div", { class: "seg", role: "group", "aria-label": "Show" },
@@ -916,7 +931,8 @@ async function renderMonitor() {
           : monitorPage.panel === "schedules" ? "Every schedule, on this PC and in Fabric, with how its last run went"
           : "Everything this app ran or started, in every environment, on this PC and in Fabric", " ", learnMore(op ? op.anchor : "monitor")),
         h("span", { class: "spacer" }),
-        op ? null : btn("Refresh", "sync", () => render(), "tool outline")),
+        op ? null : btn("Refresh", "sync", () => render(), "tool outline"),
+        popOutButton("runs")),
       op ? h("div", { class: "monitor-filters", role: "group", "aria-label": "Operations" },
         h("span", { class: "muted-text small" }, "Show"),
         ops.map((o) => h("button", { class: `chip${o === op ? " on" : ""}`, "aria-pressed": String(o === op), onclick: show(o.panel) }, o.label))) : null,
@@ -929,20 +945,17 @@ async function renderMonitor() {
           onchange: (e) => { monitorPage.problemsFirst = e.target.checked; render(); } }), "Problems first"),
         note),
       local),
-    wide ? null : h("section", { class: "card monitor-fabric" },
+    !fabricHere ? null : fabricOut ? poppedOutBand("fabric", "In Fabric", "monitor-fabric") : h("section", { class: "card monitor-fabric" },
       h("div", { class: "monitor-band" },
         h("h2", {}, "In Fabric"),
         h("span", { class: "muted-text" }, "Fabric's own Monitoring hub, for everything else in your workspaces"),
         h("span", { class: "spacer" }),
-        monitorPage.showFabric ? [
-          btn("Back", null, () => action("back"), "tool outline"),
-          btn("Home", "home", () => action("home"), "tool outline"),
-          btn("Reload", "restart", () => action("reload"), "tool outline"),
-          btn("Open in browser", "publish", () => action("browser"), "tool outline")] : null,
+        monitorPage.showFabric ? [monitorHubButtons(), popOutButton("fabric")] : null,
         btn(monitorPage.showFabric ? "Hide" : "Show", null, toggleFabric, "tool outline")),
       monitorPage.showFabric ? slot : null)));
   if (fabricShown) dockFabricView(slot, "monitor", "monitor");
-  else invoke("fabric_view_hide").catch(() => {});
+  else if (!POP_OUT) invoke("fabric_view_hide").catch(() => {});
+  if (runsOut) return;
   if (monitorPage.panel === "schedules") { local.replaceWith(schedulesPanel()); return; }
   if (monitorPage.panel === "workloads") { local.replaceWith(workloadsPanel()); return; }
   if (monitorPage.panel === "incidents") { local.replaceWith(incidentsPanel()); return; }
@@ -992,7 +1005,7 @@ async function renderMonitor() {
     .sort((a, b) => String(b.at).localeCompare(String(a.at)));
   const bad = (r) => (r.status === "failed" || r.status === "needs_decision" ? 0 : r.status === "running" ? 1 : 2);
   if (monitorPage.problemsFirst) rows.sort((a, b) => bad(a) - bad(b));  // stable: newest first within each group
-  local.replaceWith(rows.length ? h("div", { class: "monitor-scroll" }, h("table", { class: "list" },
+  const list = rows.length ? h("div", { class: "monitor-scroll" }, h("table", { class: "list" },
     h("thead", {}, h("tr", {}, ["Status", "Activity", "Env", "Ran on", "When", "Took", "Rows", ""].map((c) => h("th", ["Took", "Rows"].includes(c) ? { class: "n" } : {}, c)))),
     h("tbody", {}, rows.map((r) => h("tr", r.open ? { class: "click", onclick: r.open } : {},
       h("td", {}, statusPill(r.status)),
@@ -1002,7 +1015,19 @@ async function renderMonitor() {
       h("td", {}, when(r.at)), h("td", { class: "n" }, took(r.seconds)), h("td", { class: "n" }, r.rows ?? ""),
       h("td", { class: "n" }, r.open ? h("span", { class: "link-text" }, "Details") : null)))))) :
     h("p", { class: "muted-text monitor-empty" }, monitorPage.env !== "all" || monitorPage.where !== "any"
-      ? "Nothing matches these filters." : "Nothing has run yet. Run a metadata entity or write a table from a notebook."));
+      ? "Nothing matches these filters." : "Nothing has run yet. Run a metadata entity or write a table from a notebook.");
+  local.replaceWith(list);
+  list.scrollTop = keptTop;
+}
+
+// Back, Home, Reload and Open in browser for the Monitoring hub, on Monitor and in its pop-out window.
+function monitorHubButtons() {
+  const action = (name) => attempt(() => invoke("fabric_view_action", { action: name, page: "monitor" }), "Fabric view");
+  return [
+    btn("Back", null, () => action("back"), "tool outline"),
+    btn("Home", "home", () => action("home"), "tool outline"),
+    btn("Reload", "restart", () => action("reload"), "tool outline"),
+    btn("Open in browser", "publish", () => action("browser"), "tool outline")];
 }
 
 // Runs > Env for a row with no environment, saying why there isn't one (testing item 32).
@@ -2605,28 +2630,35 @@ async function checkComponents(afterInstall = false) {
 
 hydrateIcons();
 renderChrome();
-// Nothing may start the sidecar until the check is done: pip cannot replace files it has open.
-// Home draws at once with placeholders while the check runs (UX-020), then fills in when it returns.
-state.starting = true;
-if (state.view === "home") renderHome();
-checkComponents().finally(() => {
-  state.starting = false;
-  navRestore();  // the page you were on last time, or Home
-  render();
-  attempt(async () => {
-    const env = await rpc("environment");
-    state.python = env.python;
-    state.user = env.user;
-    state.tenant = env.tenant;
-    await loadSettings();
-    if (!navShown(state.view)) state.view = "home";  // a preview page reopened while preview features are now hidden
-    showRenameSplash(() => showWhatsNew()) || showUpdateSplash();
-    // The environment pill needs the metadata project; there may not be one yet.
-    state.meta.project = await rpc("meta_project").catch(() => state.meta.project);
+// A pop-out window starts from the engine the main window checked and started (popout.js).
+if (POP_OUT) addEventListener("DOMContentLoaded", () => startPopOut());
+else startMain();
+
+function startMain() {
+  // Nothing may start the sidecar until the check is done: pip cannot replace files it has open.
+  // Home draws at once with placeholders while the check runs (UX-020), then fills in when it returns.
+  state.starting = true;
+  if (state.view === "home") renderHome();
+  checkComponents().finally(() => {
+    state.starting = false;
+    listenForPopOuts();  // popout.js
+    navRestore();  // the page you were on last time, or Home
     render();
-    trackFabricJobs();
-    checkFreshness();
-    // After an update the engine lives in a new folder: point this PC's scheduled runs at it.
-    rpc("sync_pc_schedules").then((r) => r.error && toast(`Scheduled runs on this PC: ${friendlyError(r.error).text}`, true)).catch(() => {});
-  }, "Could not start the Python sidecar");
-});
+    attempt(async () => {
+      const env = await rpc("environment");
+      state.python = env.python;
+      state.user = env.user;
+      state.tenant = env.tenant;
+      await loadSettings();
+      if (!navShown(state.view)) state.view = "home";  // a preview page reopened while preview features are now hidden
+      showRenameSplash(() => showWhatsNew()) || showUpdateSplash();
+      // The environment pill needs the metadata project; there may not be one yet.
+      state.meta.project = await rpc("meta_project").catch(() => state.meta.project);
+      render();
+      trackFabricJobs();
+      checkFreshness();
+      // After an update the engine lives in a new folder: point this PC's scheduled runs at it.
+      rpc("sync_pc_schedules").then((r) => r.error && toast(`Scheduled runs on this PC: ${friendlyError(r.error).text}`, true)).catch(() => {});
+    }, "Could not start the Python sidecar");
+  });
+}

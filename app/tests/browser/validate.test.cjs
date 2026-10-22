@@ -79,8 +79,16 @@ test("Clean up applies the ticked tidy-ups, and Undo puts the cells back", { ski
 
 test("Undo isn't offered after a later edit, so it can't lose that edit", { skip }, async () => {
   const pane = page().locator(".validatepane");
+  await page().evaluate(() => { window.planBeforeApply = state.notebook.validate.plan; });
   await pane.getByRole("button", { name: /^Apply 3 tidy-ups/ }).click();
   await page().waitForFunction(() => state.notebook.cells.length === 3);
+  // Apply then re-checks the cells and re-plans the clean-up, and each redraws the pane when it
+  // returns. Edit only once both are back: a redraw after the edit would drop Undo before the click.
+  await page().waitForFunction(() => {
+    const v = state.notebook.validate;
+    return v.plan !== window.planBeforeApply
+      && JSON.stringify(v.checkSnapshot) === JSON.stringify(validateSnapshot(state.notebook.cells));
+  });
   const undo = pane.getByRole("button", { name: "Undo" });
   await undo.waitFor();
   await page().evaluate(() => { setSource(state.notebook.cells[1], "import json\ntotal = 2"); markDirty(); });

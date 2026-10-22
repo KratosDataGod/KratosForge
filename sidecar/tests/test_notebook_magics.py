@@ -533,3 +533,12 @@ def test_writefile_and_run_refuse_what_they_would_drop(tmp_path, monkeypatch):
     for line, left in (("Load $a=1 $full", "$full"), ("Load $a=1 junk", "junk")):
         with pytest.raises(ValueError, match=re.escape(repr(left))):
             _run_target(line)
+
+
+def test_env_says_when_it_cant_set_a_name_and_reads_windows_style_names(monkeypatch):
+    monkeypatch.setenv("ProgramFiles(x86)", r"C:\Program Files (x86)")
+    k = Kernel()
+    for line, name in (("%env 1BAD=x", "1BAD"), ("%env =x", "a variable with no name")):
+        out = k.run(line)
+        assert out["status"] == "error" and f"%env can't set {name}" in out["outputs"][0]["evalue"]
+    assert k.run("%env ProgramFiles(x86)")["outputs"] == [{"type": "text", "text": repr(r"C:\Program Files (x86)")}]

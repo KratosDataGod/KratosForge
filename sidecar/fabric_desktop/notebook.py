@@ -1092,7 +1092,10 @@ class Kernel:
             return {k: "hidden" if _SECRET_NAME.search(k) else v for k, v in sorted(os.environ.items())}
         m = re.match(r"([A-Za-z_]\w*)(?:\s*=\s*|\s+)(.*)$", line)
         if m is None:
-            return os.environ.get(line)
+            if "=" in line:  # 1BAD=x would read a variable called "1BAD=x" and show nothing
+                raise ValueError(f"%env can't set {line.split('=', 1)[0].strip() or 'a variable with no name'}: "
+                                 "a name to set starts with a letter or _ and has letters, digits and _.")
+            return os.environ.get(line)  # reading takes any name, like ProgramFiles(x86) on Windows
         name, value = m.groups()
         if name.upper().startswith("FABRIC_DESKTOP_"):
             raise ValueError(f"{name} is KratosForge's own setting and can't be changed from a notebook.")

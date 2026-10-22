@@ -70,26 +70,34 @@ def _spark_dates(statement: exp.Expression) -> exp.Expression:
 _TIME_TYPES = "'DATE', 'TIMESTAMP', 'TIMESTAMP WITH TIME ZONE', 'TIMESTAMP_S', 'TIMESTAMP_MS', 'TIMESTAMP_NS'"
 
 
-def _strptime_format(node: exp.Expression) -> str:
-    """The DuckDB strptime format, as SQL, for a Spark datetime pattern sqlglot has read into ``node``.
-    S, SS and SSS (fractions of a second) become %g and a quoted 'T' stays literal; anything else
-    sqlglot leaves untranslated is refused, since strptime would quietly match nothing."""
+def _strptime_format(node: exp.Expression) -> tuple[str, bool]:
+    """The DuckDB strptime format, as SQL, for a Spark datetime pattern sqlglot has read into ``node``,
+    and whether the pattern has a year. S, SS and SSS (fractions of a second) become %g, and quoted
+    text ('T', 'Z') stays literal; anything else sqlglot leaves untranslated is refused, since
+    strptime would quietly match nothing."""
     from sqlglot.dialects.duckdb import DuckDB
-    value = sqlglot.parse_one(DuckDB().generator().format_time(node), read="duckdb").name
-    value = re.sub(r"(?<![%S])S{1,3}(?!S)", "%g", value)
+    from sqlglot.dialects.spark import Spark
+    # sqlglot has already turned pattern letters into its own %-codes, inside quotes too: turn
+    # those back into the letters they came from (the shortest spelling of each).
+    letters: dict[str, str] = {}
+    for spark, code in sorted(Spark.TIME_MAPPING.items(), key=lambda kv: -len(kv[0])):
+        letters[code] = spark
+    codes = re.compile("|".join(re.escape(c) for c in sorted(letters, key=len, reverse=True)))
+    generator = DuckDB().generator()
     out = []
-    for i, piece in enumerate(re.split(r"('[^']*')", value)):
-        if i % 2:  # 'quoted text', as Spark writes a literal
-            if "%" in piece:
-                raise ValueError("unix_timestamp can't read quoted text that holds pattern letters (such as 'at') "
-                                 "in its format on this PC; a quoted 'T' works.")
-            out.append(piece[1:-1])
-        elif re.search(r"[A-Za-z']", re.sub(r"%-?[A-Za-z%]", "", piece)):
-            raise ValueError(f"unix_timestamp can't read part of its format ({value}) on this PC. Use pattern "
+    for i, piece in enumerate(re.split(r"('(?:[^']|'')*')", node.args["format"].name)):
+        if i % 2:  # 'quoted text', as Spark writes a literal ('' is a quote)
+            text = "'" if piece == "''" else codes.sub(lambda m: letters[m.group()], piece[1:-1]).replace("''", "'")
+            out.append(text.replace("%", "%%"))
+            continue
+        piece = generator.format_time(exp.StrToUnix(format=exp.Literal.string(piece))) or "''"
+        piece = re.sub(r"(?<![%S])S{1,3}(?!S)", "%g", sqlglot.parse_one(piece, read="duckdb").name)
+        if re.search(r"[A-Za-z']", re.sub(r"%-?[A-Za-z%]", "", piece)):
+            raise ValueError(f"unix_timestamp can't read part of its format ({piece}) on this PC. Use pattern "
                              "letters such as yyyy, MM, dd, HH, mm, ss and SSS.")
-        else:
-            out.append(piece)
-    return exp.Literal.string("".join(out)).sql("duckdb")
+        out.append(piece)
+    fmt = "".join(out)
+    return exp.Literal.string(fmt).sql("duckdb"), bool(re.search(r"%-?[Yy]", fmt.replace("%%", "")))
 
 
 def spark_substring(node: exp.Expression) -> exp.Expression:
@@ -101,10 +109,12 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
     number of seconds, as in Spark."""
     for unix in list(node.find_all(exp.StrToUnix)):
         value = unix.this.sql("duckdb")
-        fmt = _strptime_format(unix) if unix.args.get("format") else "'%Y-%m-%d %H:%M:%S'"
+        fmt, has_year = _strptime_format(unix) if unix.args.get("format") else ("'%Y-%m-%d %H:%M:%S'", True)
+        # Without a year Spark reads the date as 1970-01-01; strptime starts from 1900-01-01.
+        parsed = f"try_strptime(CAST({value} AS VARCHAR), {fmt})" + ("" if has_year else " + INTERVAL 70 YEAR")
         swapped = unix.replace(sqlglot.parse_one(
             f"CAST(floor(epoch(CASE WHEN typeof({value}) IN ({_TIME_TYPES}) THEN TRY_CAST({value} AS TIMESTAMPTZ) "
-            f"ELSE CAST(try_strptime(CAST({value} AS VARCHAR), {fmt}) AS TIMESTAMPTZ) END)) AS BIGINT)", read="duckdb"))
+            f"ELSE CAST({parsed} AS TIMESTAMPTZ) END)) AS BIGINT)", read="duckdb"))
         node = swapped if unix is node else node
     for sub in list(node.find_all(exp.Substring)):
         start = sub.args.get("start")

@@ -407,5 +407,12 @@ def test_unix_timestamp_reads_fractions_and_quoted_text_and_refuses_what_it_cant
     assert rows(live.sql("SELECT unix_timestamp('2024-03-10 13:05:07.250', 'yyyy-MM-dd HH:mm:ss.SSS')")) == [(1710075907,)]
     with pytest.raises(ValueError, match="can't read part of its format"):
         df.select(F.unix_timestamp("a", "yyyy-MM-dd Q"))
-    with pytest.raises(ValueError, match="quoted text that holds pattern letters"):
-        df.select(F.unix_timestamp("a", "'at' HH"))
+
+
+def test_unix_timestamp_reads_quoted_letters_and_dates_a_time_only_pattern_to_1970(live):
+    import pyspark.sql.functions as F
+    df = live.createDataFrame([("2024-03-10T13:05:07.250Z", "1:05 PM", "at 13", "03-10", "it's 13")],
+                              ["iso", "t", "at", "md", "q"])
+    out = df.select(F.unix_timestamp("iso", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"), F.unix_timestamp("t", "h:mm a"),
+                    F.unix_timestamp("at", "'at' HH"), F.unix_timestamp("md", "MM-dd"), F.unix_timestamp("q", "'it''s' HH"))
+    assert rows(out) == [(1710075907, 47100, 46800, 5875200, 46800)]  # no year: 1970-01-01, as in Spark

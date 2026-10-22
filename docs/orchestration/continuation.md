@@ -11,7 +11,7 @@ Last updated: 2026-10-20.
 | ORCH-001 Pipeline definition engine | `claude/orch-001-pipeline-definitions-b6ql2h` | #130 | Merged 2026-10-17 |
 | ORCH-002 Activity compatibility registry | `claude/orch-001-pipeline-definitions-b6ql2h` (restarted from main) | #150 | Merged 2026-10-18 |
 | ORCH-003 Local pipeline execution engine | `claude/orch-003-local-runs-b6ql2h` | #218 | Merged 2026-10-18 |
-| ORCH-004 Notebook steps | `claude/orch-001-pipeline-definitions-b6ql2h` (restarted from main) | | In review |
+| ORCH-004 Notebook steps | `claude/orch-001-pipeline-definitions-b6ql2h` (restarted from main) | #319 | Merged 2026-10-20 |
 
 Chris authorized ORCH-002 on 2026-10-18 and ORCH-003 the same day ("Good idea. Do this", answering the recommended next PR). He picked ORCH-004 on 2026-10-20 ("Notebook steps"). The next stage needs his go. Release management merges PRs.
 

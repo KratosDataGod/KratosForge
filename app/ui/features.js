@@ -89,6 +89,7 @@ const PREVIEW_FEATURES = {
   nbFormats: "Notebook import and export formats",
   profile: "Profile",
   notebookFolderPublish: "Publishing notebooks from folders",
+  fabricStep: "Run the last cell on Fabric",
   popOut: "Pop-out windows",
 };
 

@@ -9,7 +9,7 @@ This is Preview. The behaviour follows Microsoft's Data Factory documentation an
 | Activities | In a local run |
 | --- | --- |
 | Set Variable, Append Variable, If Condition, Switch, ForEach, Until, Wait, Fail, Filter | Run on this PC (classification `local` in the [activity registry](activity-registry.md)). |
-| Execute Pipeline and Invoke Pipeline | Run the child pipeline on this PC when you give its definition, by `referenceName` or `pipelineId`. |
+| Execute Pipeline and Invoke Pipeline | Run the child pipeline on this PC when you give its definition, by `referenceName` or `pipelineId`. With `waitOnCompletion` false the activity succeeds as soon as the child starts and the pipeline moves on; the child's result doesn't change the run's. The run itself ends only after the child does, so the child's whole run is in the record. |
 | Notebook | Runs a Python notebook saved in KratosForge when you say which one (see [Notebook steps](#notebook-steps)). Spark notebooks need a mock. |
 | Copy, Lookup, Get Metadata, Script, Stored procedure, Delete, Web, Webhook | Don't run. Give a mock for each one the run reaches. |
 | Dataflow Gen2, Spark job definition, semantic model refresh, Outlook, Teams, KQL and other Fabric-only activities, and unknown types | Don't run. Give a mock, or run the pipeline in Fabric. |

@@ -127,7 +127,7 @@ class PipelineRun:
                  now: Callable[[], datetime] | None = None,
                  on_change: Callable[["PipelineRun"], None] | None = None,
                  depth: int = 0, cancel: threading.Event | None = None,
-                 notebooks: NotebookRunner | None = None):
+                 notebooks: NotebookRunner | None = None, detached: list[threading.Thread] | None = None):
         self.imp, self.pipeline = imp, imp.pipeline
         self.given = dict(parameters or {})
         self.mocks = {k: v for k, v in (mocks or {}).items() if isinstance(v, dict)}
@@ -141,6 +141,9 @@ class PipelineRun:
         self.on_change = on_change
         self.depth = depth
         self._cancel = cancel or threading.Event()
+        # Child pipelines started with waitOnCompletion false, shared with every child run so the
+        # top-level run waits for them all before it cleans up and ends.
+        self._detached = detached if detached is not None else []
         self._lock = threading.RLock()
         self._cond = threading.Condition(self._lock)
         self._slots = threading.BoundedSemaphore(self.max_parallel)
@@ -278,6 +281,8 @@ class PipelineRun:
         self._changed()
         try:
             outcome = self._run_list(self.pipeline.activities, self.scope, "", None)
+            if self.depth == 0:
+                self._join_detached()
         finally:
             if timer:
                 timer.cancel()
@@ -296,6 +301,11 @@ class PipelineRun:
             self.ended, self.seconds = _now(), round(time.monotonic() - self._t0, 3)
         self._changed()
         return self
+
+    def _join_detached(self) -> None:
+        """Wait for the child runs that nothing waited on (a detached child may start more)."""
+        while self._detached:
+            self._detached.pop(0).join()
 
     def cancel(self, reason: str = "cancelled") -> None:
         with self._lock:
@@ -599,15 +609,17 @@ class _Context:
         with self.run._lock:
             self.run.return_value[key] = value
 
-    def run_child(self, activity: Activity, key: str, parameters: dict[str, Any]) -> dict[str, Any]:
+    def run_child(self, activity: Activity, key: str, parameters: dict[str, Any], wait: bool = True) -> dict[str, Any]:
         child_imp = self.run._child_definition(key)
         if child_imp is None:
             raise ActivityFailed(f"No definition was given for child pipeline {key!r}.", "LocalChildMissing")
         child = PipelineRun(child_imp, parameters=parameters, mocks=self.run.mocks, children=self.run.children,
                             max_parallel=self.run.max_parallel, wait_scale=self.run.wait_scale,
                             registry=self.run.registry, now=self.run.scope.now, depth=self.run.depth + 1,
-                            cancel=self.run._cancel, notebooks=self.run.notebooks,
+                            cancel=self.run._cancel, notebooks=self.run.notebooks, detached=self.run._detached,
                             run_id=str(uuid.uuid5(self.run._ns, f"child|{self.rec['id']}")))
+        if not wait:
+            return self._start_child(child, key)
         try:
             child.run()
         except RunRefused as exc:
@@ -620,6 +632,28 @@ class _Context:
         if child.state != "succeeded":
             raise ActivityFailed(f"Child pipeline {key} failed.", "LocalChildFailed", output)
         return output
+
+    def _start_child(self, child: PipelineRun, key: str) -> dict[str, Any]:
+        """waitOnCompletion false: start the child and succeed at once, as Fabric does. The child's
+        result goes in this activity's record when it ends and doesn't change this run's result."""
+        problems = child.check()
+        if problems:
+            raise ActivityFailed(f"Child pipeline {key} can't run: {RunRefused(problems)}", "LocalChildRefused")
+
+        def go() -> None:
+            try:
+                child.run()
+            except Exception as exc:  # noqa: BLE001 - nothing waits on this child; its record says what happened
+                _log.warning("Child pipeline %s stopped: %s", key, describe(exc))
+            finally:
+                self.note(child_run=child.to_json())
+                self.run._changed()
+
+        t = threading.Thread(target=go, name=f"pipeline-child-{child.id[:8]}", daemon=True)
+        t.start()
+        self.run._detached.append(t)
+        self.note(child_run=child.to_json())
+        return {"pipelineRunId": child.id}
 
     def run_notebook(self, activity: Activity, parameters: dict[str, Any]) -> dict[str, Any]:
         if self.run.notebooks is None:

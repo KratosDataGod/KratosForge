@@ -1488,6 +1488,8 @@ class Kernel:
         for cell in cells:
             if cell.get("type") == "markdown" or not cell.get("source", "").strip():
                 continue
+            if (cell.get("meta") or {}).get("fabric_step"):
+                continue  # runs on Fabric Spark only when started from its own notebook (fabric_step.py)
             try:
                 late = f"A cell of {name!r} didn't finish within {cell_timeout or 0:g} seconds."
                 with _deadline(cell_timeout, late) as fired:
@@ -2241,6 +2243,8 @@ def _cell_metadata(meta: dict[str, Any]) -> dict[str, Any]:
         md["fabric_desktop"] = {"chart": chart} if chart else {}
         if charts:
             md["fabric_desktop"]["charts"] = charts
+    if meta.get("fabric_step"):  # the last cell runs on Fabric Spark (fabric_step.py)
+        md.setdefault("fabric_desktop", {})["run_on"] = "fabric"
     return md
 
 
@@ -2283,12 +2287,15 @@ def _cell_meta(md: dict[str, Any]) -> dict[str, Any]:
     title = (md.get(_DATABRICKS_CELL) or {}).get("title") if isinstance(md.get(_DATABRICKS_CELL), dict) else None
     if isinstance(title, str) and title.strip():
         meta["title"] = title.strip()
-    chart = _chart_meta((md.get("fabric_desktop") or {}).get("chart") if isinstance(md.get("fabric_desktop"), dict) else None)
+    own = md.get("fabric_desktop") if isinstance(md.get("fabric_desktop"), dict) else {}
+    chart = _chart_meta(own.get("chart"))
     if chart:
         meta["chart"] = chart
-    charts = _charts_meta((md.get("fabric_desktop") or {}).get("charts") if isinstance(md.get("fabric_desktop"), dict) else None)
+    charts = _charts_meta(own.get("charts"))
     if charts:
         meta["charts"] = charts
+    if own.get("run_on") == "fabric":
+        meta["fabric_step"] = True
     return meta
 
 
@@ -2341,7 +2348,7 @@ def _merge_cell_metadata(ours: dict[str, Any], before: dict[str, Any]) -> dict[s
     if isinstance(keep.get("run_control"), dict):
         keep["run_control"] = {k: v for k, v in keep["run_control"].items() if k != "frozen"}
     if isinstance(keep.get("fabric_desktop"), dict):
-        keep["fabric_desktop"] = {k: v for k, v in keep["fabric_desktop"].items() if k not in ("chart", "charts")}
+        keep["fabric_desktop"] = {k: v for k, v in keep["fabric_desktop"].items() if k not in ("chart", "charts", "run_on")}
     for k in ("jupyter", "run_control", _DATABRICKS_CELL, "fabric_desktop"):
         if k in keep and not keep[k]:
             del keep[k]

@@ -18,7 +18,7 @@ KratosForge's program for importing, checking and, later, running Microsoft Fabr
 | ORCH-001 | Pipeline definition engine: import, validate, inspect, export | Merged | #130 | none |
 | ORCH-002 | Activity compatibility registry | Merged | #150 | ORCH-001 |
 | ORCH-003 | Local pipeline execution engine (DAG, states, cancel, timeouts, run records) | Merged | #218 | ORCH-001, ORCH-002 |
-| ORCH-004 | Notebook steps: a Notebook activity runs a notebook saved on this PC | In review | | ORCH-003, Validate notebook (#282) |
+| ORCH-004 | Notebook steps: a Notebook activity runs a notebook saved on this PC | Merged | #319 | ORCH-003, Validate notebook (#282) |
 | ORCH-005 to ORCH-010 | Later stages (breakpoints, step and replay, more adapters, Fabric hand-off) | Not defined yet | | ORCH-003 |
 
 ## ORCH-001: pipeline definition engine
@@ -77,7 +77,7 @@ KratosForge's program for importing, checking and, later, running Microsoft Fabr
 **Known limitations.**
 
 - Data and compute activities (Copy, Notebook, Lookup and the rest) need mocks; nothing reads or writes data.
-- Execute and Invoke pipeline wait for the child even when `waitOnCompletion` is false.
+- Execute and Invoke pipeline waited for the child even when `waitOnCompletion` was false (fixed in registry version 5: the activity succeeds once the child starts).
 - Timeouts can't stop an adapter mid-step; they end waits and mocks, which are the only steps that take time today.
 - Runs live in the engine process: at most two at once, and an app restart interrupts them.
 - No UI; Monitor doesn't list local pipeline runs. Both need a mockup first.

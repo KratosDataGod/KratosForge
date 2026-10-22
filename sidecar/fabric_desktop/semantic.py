@@ -5,7 +5,9 @@ lakehouse's SQL analytics endpoint (Direct Lake, no import or refresh schedule).
 Relationships come from the metadata: a fact's ``[[lookup]]`` names the dimension and
 the key column, and any other column named like a dimension's surrogate key joins
 to it. Surrogate keys and the framework's own columns (``_run_id``, ``_loaded_at``) are
-hidden. Lineage tags are derived from names, so updating the model keeps them stable.
+hidden. No column summarizes on its own (``summarizeBy: none``); each fact's visible numeric columns that
+aren't keys get a total measure instead, which is what Best Practice Analyzer's rules ask for. Lineage tags are
+derived from names, so updating the model keeps them stable.
 """
 
 from __future__ import annotations
@@ -111,9 +113,20 @@ def _hidden(t: ModelTable, col: str) -> bool:
     return col.startswith("_") or col.endswith("_sk") or col == t.surrogate_key
 
 
-def _summarize(t: ModelTable, col: str, dtype: str) -> str:
-    keyish = col in t.keys or col.endswith(("_sk", "_id", "_key")) or col == t.surrogate_key
-    return "sum" if dtype in _NUMERIC and not keyish else "none"
+def _summed(t: ModelTable) -> list[tuple[str, str]]:
+    """A fact's visible numeric columns that aren't keys: each gets an explicit total measure, since every
+    column has ``summarizeBy: none`` (Best Practice Analyzer's NUMERIC_COLUMN_SUMMARIZE_BY, an error-level rule).
+    The measure is named after its table and column, like the row count measure, so the name stays the same as the
+    model grows: reports bind measures by name, and a name can't clash with another table's."""
+    if t.is_dimension:
+        return []
+    out = []
+    for col, delta_type in t.columns:
+        dtype = tmdl_type(delta_type)
+        keyish = col in t.keys or col.endswith(("_sk", "_id", "_key")) or col == t.surrogate_key
+        if dtype in _NUMERIC and not keyish and not _hidden(t, col):
+            out.append((col, dtype))
+    return out
 
 
 def _table_tmdl(t: ModelTable, expression: str) -> str:
@@ -121,6 +134,10 @@ def _table_tmdl(t: ModelTable, expression: str) -> str:
     if not t.is_dimension:
         lines += [f"\tmeasure {quote(t.name + ' rows')} = COUNTROWS({quote(t.name)})",
                   "\t\tformatString: #,0", f"\t\tlineageTag: {tag('measure', t.entity)}", ""]
+    for col, dtype in _summed(t):
+        lines += [f"\tmeasure {quote(f'{t.name} total {col}')} = SUM({quote(t.name)}[{col.replace(']', ']]')}])",
+                  f"\t\tformatString: {'#,0' if dtype == 'int64' else '#,0.00'}",
+                  f"\t\tlineageTag: {tag('measure', t.entity, col)}", ""]
     for col, delta_type in t.columns:
         dtype = tmdl_type(delta_type)
         if dtype is None:
@@ -131,7 +148,7 @@ def _table_tmdl(t: ModelTable, expression: str) -> str:
             lines.append("\t\tisHidden")
         if dtype == "dateTime" and delta_type.lower() == "date":
             lines.append("\t\tformatString: Short Date")
-        lines += [f"\t\tlineageTag: {tag('column', t.entity, col)}", f"\t\tsummarizeBy: {_summarize(t, col, dtype)}",
+        lines += [f"\t\tlineageTag: {tag('column', t.entity, col)}", "\t\tsummarizeBy: none",
                   f"\t\tsourceColumn: {col}", ""]
     lines += [f"\tpartition {quote(t.name)} = entity", "\t\tmode: directLake", "\t\tsource",
               f"\t\t\tentityName: {t.table}", f"\t\t\tschemaName: {t.schema}", f"\t\t\texpressionSource: {expression}", ""]

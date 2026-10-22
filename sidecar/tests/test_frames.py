@@ -276,6 +276,27 @@ def test_a_cells_chart_is_saved_by_column_name_and_read_back():
     assert merged["cells"][0]["metadata"]["fabric_desktop"] == {"other": 1}
 
 
+
+def test_a_cells_further_charts_are_saved_after_the_first_and_capped():
+    from fabric_desktop.notebook import MAX_EXTRA_CHARTS, from_ipynb, merge_saved, to_ipynb
+    first = {"kind": "bar", "x": "region", "y": "amount", "agg": "sum"}
+    more = [{"kind": "line", "x": "month", "y": "orders", "agg": "avg", "title": "Orders"}, "junk", {"x": "no kind"}]
+    cells = [{"type": "code", "source": "df", "cell_id": "c1", "meta": {"chart": first, "charts": more}}]
+    nb = to_ipynb(cells, None)
+    fd = nb["cells"][0]["metadata"]["fabric_desktop"]
+    assert fd["chart"] == first and fd["charts"] == [more[0]]
+    assert from_ipynb(nb)["cells"][0]["meta"]["charts"] == [more[0]]
+    cells[0]["meta"] = {"chart": first, "charts": [first] * 20}
+    assert len(to_ipynb(cells, None)["cells"][0]["metadata"]["fabric_desktop"]["charts"]) == MAX_EXTRA_CHARTS
+    # Removing them all drops the key; other tools' keys stay.
+    before = json_roundtrip(nb)
+    before["cells"][0]["metadata"]["fabric_desktop"]["other"] = 1
+    cells[0]["meta"] = {"chart": first}
+    merged = merge_saved(to_ipynb(cells, None), before)
+    assert merged["cells"][0]["metadata"]["fabric_desktop"] == {"chart": first, "other": 1}
+    # A notebook from a build that only knew one chart opens with just that one.
+    assert "charts" not in from_ipynb(to_ipynb([{"type": "code", "source": "", "meta": {"chart": first}}], None))["cells"][0]["meta"]
+
 def json_roundtrip(v):
     import json
     return json.loads(json.dumps(v))

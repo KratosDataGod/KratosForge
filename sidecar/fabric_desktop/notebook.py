@@ -2101,8 +2101,11 @@ def _cell_metadata(meta: dict[str, Any]) -> dict[str, Any]:
     if isinstance(title, str) and title.strip():
         md[_DATABRICKS_CELL] = {"title": title.strip()[:200]}
     chart = _chart_meta(meta.get("chart"))
-    if chart:
-        md["fabric_desktop"] = {"chart": chart}
+    charts = _charts_meta(meta.get("charts"))
+    if chart or charts:
+        md["fabric_desktop"] = {"chart": chart} if chart else {}
+        if charts:
+            md["fabric_desktop"]["charts"] = charts
     return md
 
 
@@ -2119,6 +2122,16 @@ def _chart_meta(chart: Any) -> dict[str, Any] | None:
         return None
     out = {k: chart[k][:200] for k in _CHART_KEYS if isinstance(chart.get(k), str)}
     return out if out.get("kind") else None
+
+
+MAX_EXTRA_CHARTS = 9  # charts.js MAX_CHARTS less the first, which stays in "chart" for older builds
+
+
+def _charts_meta(charts: Any) -> list[dict[str, Any]]:
+    """The charts after the first, in order. One that isn't a chart is dropped with the rest kept."""
+    if not isinstance(charts, list):
+        return []
+    return [c for c in map(_chart_meta, charts) if c][:MAX_EXTRA_CHARTS]
 
 
 def _cell_meta(md: dict[str, Any]) -> dict[str, Any]:
@@ -2138,6 +2151,9 @@ def _cell_meta(md: dict[str, Any]) -> dict[str, Any]:
     chart = _chart_meta((md.get("fabric_desktop") or {}).get("chart") if isinstance(md.get("fabric_desktop"), dict) else None)
     if chart:
         meta["chart"] = chart
+    charts = _charts_meta((md.get("fabric_desktop") or {}).get("charts") if isinstance(md.get("fabric_desktop"), dict) else None)
+    if charts:
+        meta["charts"] = charts
     return meta
 
 
@@ -2190,7 +2206,7 @@ def _merge_cell_metadata(ours: dict[str, Any], before: dict[str, Any]) -> dict[s
     if isinstance(keep.get("run_control"), dict):
         keep["run_control"] = {k: v for k, v in keep["run_control"].items() if k != "frozen"}
     if isinstance(keep.get("fabric_desktop"), dict):
-        keep["fabric_desktop"] = {k: v for k, v in keep["fabric_desktop"].items() if k != "chart"}
+        keep["fabric_desktop"] = {k: v for k, v in keep["fabric_desktop"].items() if k not in ("chart", "charts")}
     for k in ("jupyter", "run_control", _DATABRICKS_CELL, "fabric_desktop"):
         if k in keep and not keep[k]:
             del keep[k]

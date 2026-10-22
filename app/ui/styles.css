@@ -767,6 +767,8 @@ h2.flush { margin: 0; }
 .seg { min-height: 26px; padding: 0 12px; border: 0; border-right: 1px solid var(--border-input); background: var(--surface); color: var(--text-2); font-size: 12px; cursor: pointer; }
 .seg:last-child { border-right: 0; }
 .seg.on { background: var(--accent); color: #fff; }
+.seg.seg-add { color: var(--accent); }
+.out-bar .segs { flex-wrap: wrap; }
 .out-search { height: 26px; width: 200px; padding: 0 8px; border: 1px solid var(--border-input); border-radius: 4px; font-size: 12px; }
 .out-table-scroll { max-height: 380px; overflow: auto; }
 .out-table-scroll thead th { position: sticky; top: 0; background: var(--surface); }

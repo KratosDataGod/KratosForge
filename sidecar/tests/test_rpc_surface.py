@@ -30,6 +30,7 @@ _QA017 = "kept for API compatibility, no screen yet (QA-017)"
 _LOCAL_RUNS = "sharing this PC's notebook runs with Optimize: engine only, the button waits on a mockup (docs/optimize/README.md)"
 _SUPERSEDED = "superseded on screen but kept for API compatibility (QA-017)"
 _INTERNAL = "used in-process by another Service method; RPC name kept, no screen (QA-017)"
+_BPA = "best practices check of a semantic model: engine first, screens wait on the mockup (docs/semantic-model-best-practices.md)"
 _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-017)"
 
 # Allowlisted methods with no UI caller, each with why it stays. Remove a name when the UI starts
@@ -50,6 +51,10 @@ NO_UI_CALLER: dict[str, str] = {
     "receipt_export": _MCP,
     "receipts_list": _MCP,
     "run_sql": _MCP,
+    # Best practices check (semantic-link-labs in Fabric).
+    "model_bpa_status": _BPA,
+    "model_bpa_risk": _BPA,
+    "model_bpa_check": _BPA,
     # CLI and headless agent (in-process).
     "preview_job": _CLI,
     "run_job": _CLI,

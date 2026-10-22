@@ -466,3 +466,22 @@ def test_slice_refuses_index_0_and_add_months_reads_text_as_in_spark(live):
     named = df.select(F.add_months("t", 1), F.add_months(F.col("t"), F.lit(2)))
     assert named.columns[0] == "add_months(t, 1)"
     assert rows(named) == [(dt.date(2024, 2, 29), dt.date(2024, 3, 31))]
+
+
+def test_months_between_counts_time_and_rounds_and_element_at_refuses_index_0_as_in_spark(live):
+    import pyspark.sql.functions as F
+    df = live.createDataFrame([("2024-03-01 10:00:00", "2024-01-31", [1, 2], 0)],
+                              "a string, b string, arr array<int>, z int")
+    out = df.select(F.months_between("a", "b"), F.months_between("a", "b", False))
+    assert out.columns == ["months_between(a, b, true)", "months_between(a, b, false)"]
+    assert rows(out)[0][0] == 1.04569892
+    assert abs(rows(out)[0][1] - (2 - 30 / 31 + 10 / 24 / 31)) < 1e-12
+    query = ("SELECT months_between('2024-03-31', '2024-02-29') a, months_between('2024-03-15', '2024-01-31') b, "
+             "months_between(date'2024-01-01', date'2024-03-15') c, months_between('bad', '2024-01-31') d")
+    assert rows(live.sql(query)) == [(1.0, 1.48387097, -2.4516129, None)]
+    assert rows(df.select(F.element_at("arr", -1), F.element_at("arr", 2))) == [(2, 2)]
+    assert rows(live.sql("SELECT element_at(map(0, 'z'), 0), array(1, 2)[0]")) == [("z", 1)]
+    for frame in (df.select(F.element_at("arr", 0)), df.select(F.element_at("arr", F.col("z"))),
+                  live.sql("SELECT element_at(array(1, 2), 0)")):
+        with pytest.raises(Exception, match="index 0 is invalid"):
+            rows(frame)

@@ -4365,3 +4365,9 @@ test("the Spark on this PC page says slice refuses index 0 and add_months reads 
   assert.match(doc, /`slice` refuses index 0 and a negative\nlength with Spark's error/);
   assert.match(doc, /`add_months` reads text as a date \(text that isn't a date gives NULL\)/);
 });
+
+// Spark on this PC: element_at index 0 and months_between rounding.
+test("the Spark on this PC page says element_at refuses index 0 and months_between rounds to 8 digits", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`element_at` refuses an array's index 0, and `months_between` counts the time of day and rounds to 8 digits/);
+});

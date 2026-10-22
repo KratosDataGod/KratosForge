@@ -9,6 +9,7 @@ is ``lakehouse.write_table``.
 
 from __future__ import annotations
 
+import itertools
 import re
 from typing import Any, Callable, Iterator
 
@@ -19,6 +20,9 @@ from sqlglot import exp
 from sqlglot.errors import ParseError
 
 from . import lakehouse, sql_dialects
+
+# View names stay unique on a connection even after superseded ones are dropped (superseded).
+_VIEW_NAMES = itertools.count()
 
 
 def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
@@ -177,12 +181,27 @@ def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views
         else:
             key = f"{name.lower()}@{point}"
         if key not in views:
-            views[key] = f"__lakehouse_table_{len(views)}"
+            views[key] = f"__lakehouse_table_{next(_VIEW_NAMES)}"
             opened = opened or lakehouse.open_table(name, **point_args(point))
             con.register(views[key], opened.to_pyarrow_dataset())
         # Keep the name the query used as the alias, so sales.Country still resolves.
         alias = table.args.get("alias") or exp.TableAlias(this=exp.to_identifier(table.name))
         table.replace(exp.Table(this=exp.to_identifier(views[key]), alias=alias))
+
+
+def superseded(views: dict[str, str]) -> list[str]:
+    """Keys in ``views`` (from bind_tables) for a table's latest version that a newer version of the
+    same table, registered later, replaced. A time travel point is never superseded."""
+    newest: dict[str, str] = {}
+    old = []
+    for key in views:  # in the order they were registered
+        if "#" not in key:
+            continue
+        table = key.rpartition("#")[0]
+        if table in newest:
+            old.append(newest[table])
+        newest[table] = key
+    return old
 
 
 def _time_travel(table: exp.Table) -> str | None:

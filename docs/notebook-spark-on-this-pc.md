@@ -40,7 +40,8 @@ adds the quartiles (`25%`, `50%`, `75%`) as Spark does; describe a few columns w
 `F.substring`, `F.concat`, `selectExpr` and `spark.sql` alike. `initcap` lower-cases the rest of each word, as Spark does
 (`hELLO` becomes `Hello`). `unix_timestamp` takes a date or timestamp as well as text, reads it in the session
 time zone, and is NULL for text that doesn't match the format, as in Spark. Its format reads fractions of a second (`SSS`)
-and a quoted `'T'`; a pattern letter this PC can't read is an error rather than a NULL. An empty `struct<>` isn't supported here,
+and quoted text such as `'T'` and `'Z'`; a pattern letter this PC can't read is an error rather than a NULL.
+A pattern without a year reads its date from 1970-01-01, as Spark does. An empty `struct<>` isn't supported here,
 since DuckDB can't store a struct with no fields; give it at least one.
 
 ### DataFrame: 79 of 102

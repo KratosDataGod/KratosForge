@@ -4339,3 +4339,9 @@ test("the Spark on this PC page says unix_timestamp takes a date or timestamp", 
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
   assert.match(doc, /`unix_timestamp` takes a date or timestamp as well as text, reads it in the session\ntime zone/);
 });
+
+// Spark on this PC: unix_timestamp without a year starts from 1970, as Spark does.
+test("the Spark on this PC page says a pattern without a year reads from 1970-01-01", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /A pattern without a year reads its date from 1970-01-01, as Spark does/);
+});

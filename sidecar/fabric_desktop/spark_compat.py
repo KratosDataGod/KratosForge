@@ -56,8 +56,13 @@ def _call(spark_sql: str, *cols: Any) -> Column:
 
 
 def _name_of(c: Any) -> str:
-    """A column's name, given its name or a plain column."""
-    return c if isinstance(c, str) else str(c.expr).strip('"').replace('""', '"')
+    """A column's name, given its name or a plain column; a string literal is named by its text, as in Spark."""
+    if isinstance(c, str):
+        return c
+    text = str(c.expr)
+    if len(text) > 1 and text[0] == text[-1] == "'":
+        return text[1:-1].replace("''", "'")
+    return text.strip('"').replace('""', '"')
 
 
 def _lit(value: Any) -> str:
@@ -258,6 +263,12 @@ def concat(*cols: Any) -> Column:
     """NULL when any input is NULL, as in Spark (DuckDB's concat skips NULLs)."""
     return _call(f"concat({', '.join('{%d}' % i for i in range(len(cols)))})", *cols).alias(
         f"concat({', '.join(_name_of(c) for c in cols)})")
+
+
+def initcap(col: Any) -> Column:
+    """Each word's first letter upper case and the rest lower case, as in Spark (DuckDB's initcap
+    only upper-cases first letters)."""
+    return _call("initcap({0})", col).alias(f"initcap({_name_of(col)})")
 
 
 def expr(text: str) -> Column:
@@ -746,7 +757,7 @@ def install() -> None:
     if getattr(DataFrame, "_fd_compat", False):
         return
     for name, fn in FUNCTIONS.items():
-        if name in ("count", "substring", "concat") or not hasattr(F, name):
+        if name in ("count", "substring", "concat", "initcap") or not hasattr(F, name):
             setattr(F, name, fn)
     F.expr = expr  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
     Column.over = _over  # type: ignore[attr-defined]

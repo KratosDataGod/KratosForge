@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import importlib
 import os
+import site
 import sys
 import sysconfig
 import time
@@ -31,6 +32,10 @@ def _system_roots() -> tuple[str, ...]:
     paths = sysconfig.get_paths()
     roots = {sys.prefix, sys.base_prefix, sys.exec_prefix, paths.get("stdlib", ""), paths.get("purelib", ""),
              paths.get("platlib", ""), os.path.dirname(os.path.abspath(__file__))}
+    try:
+        roots.add(site.getusersitepackages())  # pip install --user: a library, not your code
+    except Exception:  # noqa: BLE001  # silent-ok: an embedded Python may have no user site
+        pass
     return tuple(os.path.normcase(os.path.abspath(r)) + os.sep for r in roots if r)
 
 
@@ -128,10 +133,20 @@ class Reloader:
         return reloaded
 
 
+# Values Python shares between unrelated names (False, 10, "x"): the same object in the module and in
+# the notebook doesn't mean the notebook took it from the module.
+_SHARED = (bool, int, float, complex, str, bytes, tuple, frozenset, type(None))
+
+
 def _repoint(namespace: dict[str, Any], module: ModuleType, old: dict[str, Any]) -> None:
-    """``from m import f`` names bound to m's old objects now name its new ones."""
+    """``from m import f`` names bound to m's old objects now name its new ones. A plain value such
+    as a number or string is repointed only under its own name (``from m import LIMIT``), so a
+    notebook's ``flag = False`` doesn't follow the module's ``DEBUG``."""
     by_id = {id(v): k for k, v in old.items() if not k.startswith("__")}
     for key, value in list(namespace.items()):
-        attr = by_id.get(id(value))
+        if isinstance(value, _SHARED):
+            attr = key if key in old and old[key] is value else None
+        else:
+            attr = by_id.get(id(value))
         if attr is not None and hasattr(module, attr):
             namespace[key] = getattr(module, attr)

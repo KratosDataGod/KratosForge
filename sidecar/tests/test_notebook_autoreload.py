@@ -75,3 +75,20 @@ def test_other_extensions_and_bad_modes_say_why():
     assert "needs IPython's own shell" in out_text(k.run("%load_ext sql"))
     out = k.run("%autoreload 7")
     assert out["status"] == "error" and "0, 1, 2 or 3" in out["outputs"][-1]["evalue"]
+
+
+def test_a_reload_leaves_notebook_values_that_only_equal_a_module_constant_alone(mod):
+    (mod / "fd_helpers.py").write_text("DEBUG = False\nVERBOSE = False\nLIMIT = 10\nNAME = 'x'\n")
+    k = Kernel()
+    out_text(k.run("%autoreload 2\nfrom fd_helpers import LIMIT, VERBOSE\nflag = False\nn = 10\nname = 'x'\n"
+                   "limit_copy = LIMIT"))
+    write(mod / "fd_helpers.py", "DEBUG = True\nVERBOSE = True\nLIMIT = 20\nNAME = 'y'\n")
+    # from-imports follow the module (VERBOSE even though DEBUG had the same old value); copies don't
+    assert out_text(k.run("print(LIMIT, VERBOSE, flag, n, name, limit_copy)")) == "20 True False 10 x 10"
+
+
+def test_user_site_packages_arent_reloaded():
+    import site
+
+    from fabric_desktop import autoreload
+    assert os.path.normcase(os.path.abspath(site.getusersitepackages())) + os.sep in autoreload._system_roots()

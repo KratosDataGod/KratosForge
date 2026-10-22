@@ -4258,3 +4258,10 @@ test("the magics page says %pip takes -qU and refuses options after a package", 
   assert.match(doc, /even after a\n  package on the same line/);
   assert.match(doc, /\(also combined, like `-qU`\) and `-rfile.txt` work as\n  in pip/);
 });
+
+// Magics: autoreload repoints a number or string only under its own name.
+test("the magics page says autoreload leaves your own values alone", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /A number or string follows only\n  under its own name/);
+  assert.match(doc, /also `pip install --user`\n  ones/);
+});

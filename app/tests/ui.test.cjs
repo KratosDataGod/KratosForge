@@ -148,7 +148,8 @@ test("proof rules from the form keep only what was filled in", () => {
   const { proveRulesFrom } = proveHelpers();
   assert.deepStrictEqual(JSON.parse(JSON.stringify(proveRulesFrom({ keys: " id, region ,", ignore: "", abs: "", rel: "1e-6", timestamps: "us" }))),
     { keys: ["id", "region"], rel: 1e-6 });
-  assert.ok(Number.isNaN(proveRulesFrom({ abs: "abc" }).abs), "a bad number goes to the engine, which refuses it");
+  // A bad number reaches the engine, which refuses it; NaN would arrive as null and mean "the default".
+  assert.strictEqual(JSON.parse(JSON.stringify(proveRulesFrom({ abs: "abc" }))).abs, "abc");
 });
 
 test("a scorecard never shows an estimate or a missing number as measured", () => {
@@ -873,7 +874,8 @@ test("the risk gate passes quietly, never runs a blocked item and needs the tick
 
 test("only Monitor > Runs shares the page with Fabric's hub, so Schedules and Cost get the whole page (#190)", () => {
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  assert.match(src, /const wide = monitorPage\.panel !== "runs";/);
+  // With From KratosForge in its own window (Pop out), Monitor here is the hub's band and the hub.
+  assert.match(src, /const wide = !runsOut && monitorPage\.panel !== "runs";/);
 });
 
 // The pure helpers at the top of replay.js.
@@ -2720,7 +2722,7 @@ function navHarness({ stored = null, preview = true } = {}) {
   const store = new Map(stored ? [["fd.nav.last", JSON.stringify(stored)]] : []);
   const dialogRoot = { childElementCount: 0 };
   const ctx = {
-    console, h: () => ({}), icon: () => ({}), renders: 0,
+    console, h: () => ({}), icon: () => ({}), renders: 0, POP_OUT: null,
     state: { view: "home", meta: { tab: "overview", entity: null }, notebook: null, openWorkspace: null, lakehouseView: null, settingsTab: "general" },
     monitorPage: { panel: "runs" }, catalogPage: { tab: "catalog" }, optimizePage: { tab: "overview" },
     platformPage: { tab: "overview" }, gitPage: { tab: "changes" }, wlPage: { id: null }, incPage: { id: null, env_of: null },
@@ -3374,7 +3376,7 @@ test("a collapsed heading hides the cells up to the next heading of the same or 
   const src = fs.readFileSync(path.join(ui, "nbcells.js"), "utf8");
   const ctx = { document: { addEventListener() {} } };
   vm.createContext(ctx);
-  vm.runInContext(`${src}\nthis.f = { collapsedCells, headingLevel, visibleCells };`, ctx);
+  vm.runInContext(`${src}\nthis.f = { collapsedCells, headingLevel, visibleCells };\nthis.markdownHeadings = markdownHeadings;`, ctx);
   const { collapsedCells, headingLevel, visibleCells } = ctx.f;
   const md = (id, source, collapsed) => ({ id, type: "markdown", source, meta: collapsed ? { heading_collapsed: true } : {} });
   const code = (id) => ({ id, type: "code", source: "# not a heading", meta: { heading_collapsed: true } });
@@ -3385,6 +3387,18 @@ test("a collapsed heading hides the cells up to the next heading of the same or 
   assert.strictEqual(headingLevel(md(1, "Example:\n```python\n# load the table\n```")), 0);
   assert.strictEqual(headingLevel(md(1, "~~~\n# x\n~~~\n### After")), 3);
   assert.strictEqual(headingLevel(md(1, "````\n```\n# x\n````\n## Out")), 2);
+  // A fence with an info string doesn't close one (CommonMark).
+  assert.strictEqual(headingLevel(md(1, "```\n```python\n# x\n```\n### After")), 3);
+  // Setext headings: a line underlined with === is level 1, with --- level 2; a --- after a blank line or a list isn't.
+  assert.strictEqual(headingLevel(md(1, "Title\n=====")), 1);
+  assert.strictEqual(headingLevel(md(1, "Intro text\n\nSection\n---")), 2);
+  assert.strictEqual(headingLevel(md(1, "Some text\n\n---\n")), 0);
+  assert.strictEqual(headingLevel(md(1, "- item\n---")), 0);
+  assert.strictEqual(headingLevel(md(1, "    indented code\n---")), 0);  // an indented code line isn't heading text
+  assert.strictEqual(headingLevel(md(1, "- item\ncontinues here\n---")), 0);  // nor a list item's next line
+  assert.strictEqual(headingLevel(md(1, "- item\n\nAfter the list\n---")), 2);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(ctx.markdownHeadings("A long\ntitle\n===\n\n## Next"))),
+    [{ level: 1, text: "A long title" }, { level: 2, text: "Next" }]);
   const cells = [md(1, "# A", true), code(2), md(3, "## A.1", true), code(4), md(5, "# B"), code(6), md(7, "### C", true), code(8)];
   const { hidden, counts } = collapsedCells(cells);
   assert.deepStrictEqual([...hidden].sort(), [2, 3, 4, 8]);
@@ -3722,7 +3736,7 @@ function chartsHarness(answer) {
     document: { createElementNS: (_ns, tag) => node(tag) },
     rpc: async (m, a) => { calls.push([m, a]); return typeof answer === "function" ? answer(a) : answer; } };
   vm.createContext(ctx);
-  vm.runInContext(src + "\nthis.api = { chartConfig, renderChartBuilder, chartSvg };", ctx);
+  vm.runInContext(src + "\nthis.api = { chartConfig, renderChartBuilder, chartSvg, addChart, removeChart, chartName, chartCount };", ctx);
   return { ctx, calls, dirty: () => dirty, node };
 }
 const allNodes = (n, out = []) => { if (n && typeof n === "object") { out.push(n); (n.kids || []).forEach((k) => allNodes(k, out)); } return out; };
@@ -3752,6 +3766,47 @@ test("the chart builder asks the engine for every row and keeps the cell's chart
   assert.match(nb, /o\.view \|\|= o\.summary \? "inspect" : o\.frame && cell\?\.meta\?\.chart \? "chart" : "table";/);
   assert.match(nb, /previewMarked\("chartBuilder"/);
   assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="notebook\.js"><\/script>\n  <script src="charts\.js"><\/script>/);
+});
+
+test("one result keeps several charts, each with its own settings in the cell", async () => {
+  const d = { kind: "bar", rows: 2, truncated: false, categories: ["East"], series: [{ name: null, values: [1] }] };
+  const { ctx, calls, dirty } = chartsHarness(d);
+  const o = { frame: "f", columns: ["region", "month", "amount"], rows: [["East", "Jan", 1]] };
+  const cell = { meta: {} };
+  const numeric = [false, false, true];
+  assert.strictEqual(ctx.api.chartCount(cell), 1);
+  assert.strictEqual(ctx.api.chartName(cell, 0), "Chart");
+  assert.strictEqual(ctx.api.addChart(o, numeric, cell), 1);
+  assert.strictEqual(ctx.api.chartCount(cell), 2);
+  assert.ok(cell.meta.chart, "adding a chart saves the first one too, where older builds read it");
+  assert.strictEqual(ctx.api.chartName(cell, 1), "Chart 2");
+  let removed = null;
+  const box = ctx.api.renderChartBuilder(o, numeric, cell, 1, (n, what) => { removed = [n, what]; });
+  const x = allNodes(box).find((n) => n.tag === "select" && n.attrs["aria-label"] === "X axis");
+  x.attrs.onchange({ target: { value: "month" } });
+  assert.strictEqual(cell.meta.charts[0].x, "month");
+  assert.strictEqual(cell.meta.chart.x, "region", "a second chart's settings stay its own");
+  assert.strictEqual(ctx.api.chartConfig(o, numeric, cell, 0).x, "region");
+  const title = allNodes(box.replaced).find((n) => n.tag === "input");
+  title.value = "Amount by month, all regions in one chart";
+  title.listeners.change();
+  assert.deepStrictEqual(removed, [1, "renamed"]);
+  assert.strictEqual(ctx.api.chartName(cell, 1), "Amount by month, all re…");
+  const twins = { meta: { chart: { title: "Sales" }, charts: [{ title: "Sales" }, { title: "Sales" }] } };
+  assert.deepStrictEqual([0, 1, 2].map((n) => ctx.api.chartName(twins, n)), ["Sales", "Sales (2)", "Sales (3)"]);
+  assert.ok(dirty() >= 3);
+  assert.ok(!allNodes(ctx.api.renderChartBuilder(o, numeric, cell, 0)).some((n) => n.tag === "button" && n.kids.includes("Remove chart")));
+  const rm = allNodes(box.replaced).find((n) => n.tag === "button" && n.kids.includes("Remove chart"));
+  rm.attrs.onclick();
+  assert.deepStrictEqual(removed, [1, "removed"]);
+  assert.strictEqual(cell.meta.charts, undefined);
+  assert.strictEqual(ctx.api.chartCount(cell), 1);
+  await new Promise((r) => setImmediate(r));
+  assert.ok(calls.length >= 2);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /previewMarked\("severalCharts"/);
+  assert.match(nb, /charts < MAX_CHARTS/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /severalCharts: "Several charts per result"/);
 });
 
 test("every chart kind draws marks with a tooltip, and an empty result says so", () => {
@@ -4351,4 +4406,38 @@ test("the Spark on this PC page covers quoted 'yyyy', groupBy() and first/last i
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
   assert.match(doc, /Quoted text that repeats a pattern letter \(`'yyyy'`\)/);
   assert.match(doc, /`groupBy\(\)` with no columns aggregates the whole frame/);
+});
+
+// Spark on this PC: slice takes a length and add_months returns a date.
+test("the Spark on this PC page says slice takes a length and add_months returns a date", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`slice\(arr, start, length\)` takes a length and counts a\nnegative start from the end, and `add_months` returns a date/);
+});
+
+// Spark on this PC: slice refuses index 0 and add_months reads text.
+test("the Spark on this PC page says slice refuses index 0 and add_months reads text as a date", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`slice` refuses index 0 and a negative\nlength with Spark's error/);
+  assert.match(doc, /`add_months` reads text as a date \(text that isn't a date gives NULL\)/);
+});
+
+// Spark on this PC: element_at index 0 and months_between rounding.
+test("the Spark on this PC page says element_at refuses index 0 and months_between rounds to 8 digits", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`element_at` refuses an array's index 0, and `months_between` counts the time of day and rounds to 8 digits/);
+});
+
+// Pop-out windows (Preview): the shell opens only these sections, and the app's own page in their
+// windows is the only part that gets the app's permissions; their Fabric views get none.
+test("pop-out windows load popout.js after app.js and get no more than the main window", () => {
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="app.js"') < html.indexOf('src="popout.js"'), "popout.js uses app.js's helpers");
+  const cap = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "src-tauri", "capabilities", "default.json"), "utf8"));
+  assert.deepStrictEqual(cap.windows, ["main"]);
+  assert.deepStrictEqual(cap.webviews, ["pop-out-runs", "pop-out-fabric"]);
+  assert.deepStrictEqual(cap.permissions, ["core:default"]);
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /const POP_OUT = \["runs", "fabric"\]\.find/);
+  const shell = fs.readFileSync(path.join(__dirname, "..", "src-tauri", "src", "main.rs"), "utf8");
+  assert.match(shell, /const POP_OUTS: \[\(&str, &str\); 2\] = \[\("runs", [^)]*\), \("fabric", [^)]*\)\];/);
 });

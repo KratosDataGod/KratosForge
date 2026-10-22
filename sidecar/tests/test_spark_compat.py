@@ -432,3 +432,56 @@ def test_group_by_nothing_aggregates_the_frame_and_first_last_skip_nulls(live):
     assert rows(live.sql(query)) == [(1, "a", "a", "a")]
     query = ("SELECT o, last(v, true) OVER (ORDER BY o) l FROM VALUES (1, NULL), (2, 'a'), (3, NULL) t(o, v) ORDER BY o")
     assert rows(live.sql(query)) == [(1, None), (2, "a"), (3, "a")]
+
+
+def test_slice_takes_a_length_and_add_months_is_a_date_as_in_spark(live):
+    import datetime as dt
+    import pyspark.sql.functions as F
+    df = live.createDataFrame([([3, 1, None, 2], 2, dt.date(2024, 1, 31))], "arr array<int>, n int, d date")
+    out = df.select(F.slice("arr", 2, 2), F.slice("arr", -2, 2), F.slice("arr", "n", 1), F.slice("arr", 1, 10))
+    assert rows(out) == [([1, None], [None, 2], [1], [3, 1, None, 2])]
+    assert out.columns[0] == "slice(arr, 2, 2)"
+    query = ("SELECT add_months(date'2024-01-31', 1) a, add_months('2024-01-31', 1) b, "
+             "add_months(timestamp'2024-01-31 10:00:00', 1) c")
+    assert rows(live.sql(query)) == [(dt.date(2024, 2, 29),) * 3]
+    assert rows(df.selectExpr("add_months(d, 1)")) == [(dt.date(2024, 2, 29),)]
+
+
+def test_slice_refuses_index_0_and_add_months_reads_text_as_in_spark(live):
+    import datetime as dt
+    import pyspark.sql.functions as F
+    df = live.createDataFrame([([3, 1, 2], 0, -1, "2024-01-31", "2024-03-31 10:00:00", "bad")],
+                              "arr array<int>, z int, neg int, t string, ts string, junk string")
+    for col in (F.slice("arr", 0, 2), F.slice("arr", "z", 1)):
+        with pytest.raises(Exception, match="index 0 is invalid"):
+            rows(df.select(col))
+    with pytest.raises(Exception, match="length must be greater than or equal to 0"):
+        rows(df.select(F.slice("arr", 1, "neg")))
+    with pytest.raises(Exception, match="index 0 is invalid"):
+        rows(live.sql("SELECT slice(array(1, 2), 0, 1)"))
+    assert rows(df.select(F.slice("arr", -1, 1))) == [([2],)]
+    out = df.select(F.add_months("t", 1), F.add_months("ts", 1), F.add_months("junk", 1))
+    assert rows(out) == [(dt.date(2024, 2, 29), dt.date(2024, 4, 30), None)]
+    assert rows(df.selectExpr("add_months(t, -1)")) == [(dt.date(2023, 12, 31),)]
+    named = df.select(F.add_months("t", 1), F.add_months(F.col("t"), F.lit(2)))
+    assert named.columns[0] == "add_months(t, 1)"
+    assert rows(named) == [(dt.date(2024, 2, 29), dt.date(2024, 3, 31))]
+
+
+def test_months_between_counts_time_and_rounds_and_element_at_refuses_index_0_as_in_spark(live):
+    import pyspark.sql.functions as F
+    df = live.createDataFrame([("2024-03-01 10:00:00", "2024-01-31", [1, 2], 0)],
+                              "a string, b string, arr array<int>, z int")
+    out = df.select(F.months_between("a", "b"), F.months_between("a", "b", False))
+    assert out.columns == ["months_between(a, b, true)", "months_between(a, b, false)"]
+    assert rows(out)[0][0] == 1.04569892
+    assert abs(rows(out)[0][1] - (2 - 30 / 31 + 10 / 24 / 31)) < 1e-12
+    query = ("SELECT months_between('2024-03-31', '2024-02-29') a, months_between('2024-03-15', '2024-01-31') b, "
+             "months_between(date'2024-01-01', date'2024-03-15') c, months_between('bad', '2024-01-31') d")
+    assert rows(live.sql(query)) == [(1.0, 1.48387097, -2.4516129, None)]
+    assert rows(df.select(F.element_at("arr", -1), F.element_at("arr", 2))) == [(2, 2)]
+    assert rows(live.sql("SELECT element_at(map(0, 'z'), 0), array(1, 2)[0]")) == [("z", 1)]
+    for frame in (df.select(F.element_at("arr", 0)), df.select(F.element_at("arr", F.col("z"))),
+                  live.sql("SELECT element_at(array(1, 2), 0)")):
+        with pytest.raises(Exception, match="index 0 is invalid"):
+            rows(frame)

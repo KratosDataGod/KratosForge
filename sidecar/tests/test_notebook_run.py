@@ -94,3 +94,9 @@ def test_a_retry_after_the_dag_ran_out_of_time_doesnt_run_unlimited(tmp_path):
                 "res['s']['exception']")
     assert time.monotonic() - started < 6, out
     assert "timeoutInSeconds (1) ran out" in out["outputs"][-1]["text"], out
+
+
+def test_run_multiple_refuses_a_notebook_listed_twice():
+    k = Kernel()
+    out = k.run("notebookutils.notebook.runMultiple(['a', 'a'])")
+    assert out["outputs"][-1]["ename"] == "ValueError" and "listed twice" in out["outputs"][-1]["evalue"], out

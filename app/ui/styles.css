@@ -692,6 +692,17 @@ h2.flush { margin: 0; }
 .lineage3 .node.plain { color: var(--muted); cursor: default; }
 .page.monitor.no-fabric .monitor-local { flex: 1; max-height: none; }
 .page.monitor.no-fabric .monitor-fabric { flex: none; min-height: 0; }
+/* A Monitor section in a window of its own (popout.js) leaves a band; the other section gets the room. */
+.page.monitor .card.popped-out { flex: none; min-height: 0; max-height: none; }
+.page.monitor .card.popped-out .monitor-band { border-bottom: 0; }
+.page.monitor.runs-out .monitor-fabric { flex: 1; }
+/* The band's description wraps before its buttons do. */
+.page.monitor .monitor-local > .monitor-band > .muted-text { flex: 1 1 260px; }
+/* A pop-out window: just the section, with Back, Forward, the trail, Keep on top and Dock back on top. */
+body.pop-out .rail, body.pop-out .brand, body.pop-out .search-wrap, body.pop-out .topbar-right { display: none; }
+body.pop-out-fabric .nav-buttons, body.pop-out-fabric .breadcrumb { display: none; }
+body.pop-out .page.monitor { padding: 12px; }
+.pop-out-controls { margin-left: auto; display: flex; align-items: center; gap: 12px; }
 .page.home { display: flex; flex-direction: column; gap: 18px; max-width: 1200px; }
 .page.home h2 { margin: 0 0 8px; font-size: 16px; }
 .page.home .sub { margin-top: -10px; }
@@ -767,6 +778,8 @@ h2.flush { margin: 0; }
 .seg { min-height: 26px; padding: 0 12px; border: 0; border-right: 1px solid var(--border-input); background: var(--surface); color: var(--text-2); font-size: 12px; cursor: pointer; }
 .seg:last-child { border-right: 0; }
 .seg.on { background: var(--accent); color: #fff; }
+.seg.seg-add { color: var(--accent); }
+.out-bar .segs { flex-wrap: wrap; }
 .out-search { height: 26px; width: 200px; padding: 0 8px; border: 1px solid var(--border-input); border-radius: 4px; font-size: 12px; }
 .out-table-scroll { max-height: 380px; overflow: auto; }
 .out-table-scroll thead th { position: sticky; top: 0; background: var(--surface); }

@@ -13,7 +13,7 @@ import requests
 from fabric_desktop import lakehouse, notebookutils_local
 from fabric_desktop.onelake import FileStore
 
-MUTATIONS = {"upload", "delete"}
+MUTATIONS = {"upload", "delete", "mkdir"}
 
 
 class FakeStore:
@@ -47,14 +47,20 @@ class FakeStore:
                     if p.startswith(d + "/") and (recursive or "/" not in p[len(d) + 1:])]
         return entries[:max_results] if max_results else entries
 
-    def read_bytes(self, ws, lh, path):
-        self.calls.append(("read_bytes", path))
-        return self.files.get(path)
+    def read_bytes(self, ws, lh, path, length=None):
+        self.calls.append(("read_bytes", path) if length is None else ("read_bytes", path, length))
+        data = self.files.get(path)
+        return data if data is None or length is None else data[:length]
 
     def upload(self, ws, lh, path, data):
         self.calls.append(("upload", path))
         if not self.lose_uploads:
             self.files[path] = data
+
+    def mkdir(self, ws, lh, path):
+        self.calls.append(("mkdir", path))
+        parts = path.strip("/").split("/")
+        self.folders.update("/".join(parts[:i]) for i in range(1, len(parts) + 1))  # parents too, as OneLake does
 
     def delete(self, ws, lh, path, recursive=True):
         self.calls.append(("delete", (path, recursive)))
@@ -340,3 +346,51 @@ def test_an_encoded_local_name_is_its_own_file(tmp_path, fs):
     (tmp_path / "a b.txt").write_text("spaced")
     fs.mv(f"file:{tmp_path}/a b.txt", f"file:{tmp_path}/a%20b.txt")
     assert (tmp_path / "a%20b.txt").read_text() == "spaced" and not (tmp_path / "a b.txt").exists()
+
+
+def test_mkdirs_creates_a_lakehouse_folder_through_the_guards(store, fs, monkeypatch):
+    assert fs.mkdirs("Files/new/deep") and fs.exists("Files/new/deep") and fs.ls("Files/new/deep") == []
+    assert ("mkdir", "Files/new/deep") in store.calls
+    for bad in ("Tables/x", "Files"):
+        with pytest.raises((PermissionError, ValueError)):
+            fs.mkdirs(bad)
+    store.calls.clear()
+    monkeypatch.setattr(lakehouse, "proof", object())
+    monkeypatch.setattr(lakehouse, "proof_exempt_thread", None)
+    with pytest.raises(PermissionError, match="proof"):
+        fs.mkdirs("Files/during-proof")
+    assert store.mutations() == []
+
+
+def test_the_files_and_tables_roots_exist(store, fs):
+    assert fs.exists("Files") and fs.exists("Files/") and fs.exists("/lakehouse/default/Files") and fs.exists("Tables")
+    assert not fs.exists("Files/nope.txt")
+
+
+def test_ls_of_a_file_lists_that_file(store, fs, tmp_path):
+    [info] = fs.ls("Files/one.txt")
+    assert (info.name, info.path, info.size, info.isFile) == ("one.txt", "Files/one.txt", 5, True)
+    with pytest.raises(requests.HTTPError):
+        fs.ls("Files/missing")
+    (tmp_path / "f.txt").write_text("abc")
+    [local] = fs.ls(f"file:{tmp_path}/f.txt")
+    assert (local.name, local.size) == ("f.txt", 3)
+
+
+def test_ls_lists_a_link_whose_target_is_gone(tmp_path, fs):
+    (tmp_path / "d").mkdir()
+    (tmp_path / "d" / "ok.txt").write_text("x")
+    try:
+        (tmp_path / "d" / "dangling").symlink_to(tmp_path / "nope")
+    except OSError:
+        pytest.skip("this account can't create symlinks")
+    assert sorted(i.name for i in fs.ls(f"file:{tmp_path}/d")) == ["dangling", "ok.txt"]
+
+
+def test_head_reads_only_the_bytes_it_shows(store, fs, tmp_path):
+    store.files["Files/big.csv"] = b"x" * 1_000_000
+    assert fs.head("Files/big.csv", 10) == "x" * 10
+    assert ("read_bytes", "Files/big.csv", 10) in store.calls
+    assert fs.head("Files/big.csv", 0) == ""
+    (tmp_path / "big.txt").write_bytes(b"y" * 1_000_000)
+    assert fs.head(f"file:{tmp_path}/big.txt", 5) == "yyyyy"

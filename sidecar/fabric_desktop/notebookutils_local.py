@@ -160,23 +160,46 @@ def _millis(iso: str | None) -> int:
 
 
 def _make_fs() -> types.SimpleNamespace:
+    def _local_info(e: Path) -> FileInfo:
+        try:
+            st = e.stat()
+        except OSError:  # a link whose target is gone is listed, as the folder holds it
+            st = e.lstat()
+        is_dir = e.is_dir()
+        return FileInfo(e.name, "file:" + str(e), 0 if is_dir else st.st_size, is_dir, int(st.st_mtime * 1000))
+
     def ls(path: str) -> list[FileInfo]:
+        """A folder's entries; for a file, as in Fabric and Databricks, a list of just that file."""
         where, p = _split(path)
         if where == "local":
             base = Path(p)
-            return [FileInfo(e.name, "file:" + str(e), 0 if e.is_dir() else e.stat().st_size, e.is_dir(),
-                             int(e.stat().st_mtime * 1000))
-                    for e in sorted(base.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower()))]
+            if base.is_file():
+                return [_local_info(base)]
+            return [_local_info(e) for e in sorted(base.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower()))]
         lh = lakehouse._current()
-        return [FileInfo(e["name"], e["path"], e["size"], e["is_dir"], _millis(e.get("modified")))
-                for e in _store().list(lh.workspace_id, lh.lakehouse_id, p)]
+        try:
+            listed = _store().list(lh.workspace_id, lh.lakehouse_id, p)
+        except requests.HTTPError as exc:
+            if exc.response is None or exc.response.status_code not in (400, 404):
+                raise
+            entry = _entry(path)
+            if entry is None or entry["is_dir"]:
+                raise
+            listed = [entry]
+        return [FileInfo(e["name"], e["path"], e["size"], e["is_dir"], _millis(e.get("modified"))) for e in listed]
 
-    def _read(path: str) -> bytes:
+    def _read(path: str, limit: int | None = None) -> bytes:
+        """The file's bytes; with ``limit``, only its first ``limit`` bytes are read."""
         where, p = _split(path)
         if where == "local":
-            return Path(p).read_bytes()
+            if limit is None:
+                return Path(p).read_bytes()
+            with open(p, "rb") as f:
+                return f.read(limit)
         lh = lakehouse._current()
-        data = _store().read_bytes(lh.workspace_id, lh.lakehouse_id, p)
+        store = _store()
+        data = (store.read_bytes(lh.workspace_id, lh.lakehouse_id, p) if limit is None
+                else store.read_bytes(lh.workspace_id, lh.lakehouse_id, p, length=limit))
         if data is None:
             raise FileNotFoundError(path)
         return data
@@ -206,6 +229,8 @@ def _make_fs() -> types.SimpleNamespace:
             return {"is_dir": t.is_dir(), "size": 0 if t.is_dir() else t.stat().st_size}
         lh = lakehouse._current()
         parent, _, name = p.rstrip("/").rpartition("/")
+        if not parent and name in ("Files", "Tables"):
+            return {"is_dir": True, "size": 0}  # every lakehouse has them; their parent can't be listed
         try:
             listed = _store().list(lh.workspace_id, lh.lakehouse_id, parent or "Files")
         except requests.HTTPError as exc:
@@ -230,7 +255,10 @@ def _make_fs() -> types.SimpleNamespace:
         return _entry(path) is not None
 
     def head(path: str, maxBytes: int = 65536) -> str:  # noqa: N803
-        return _read(path)[:maxBytes].decode("utf-8", errors="replace")
+        if maxBytes <= 0:
+            return ""
+        # Only the first maxBytes are read, as in Fabric: head of a large file doesn't download it all.
+        return _read(path, limit=maxBytes)[:maxBytes].decode("utf-8", errors="replace")
 
     def put(path: str, content: str, overwrite: bool = False) -> bool:
         _check_writable(path)
@@ -313,7 +341,11 @@ def _make_fs() -> types.SimpleNamespace:
         where, p = _split(path)
         if where == "local":
             Path(p).mkdir(parents=True, exist_ok=True)
-        # OneLake folders appear when a file is written into them.
+            return True
+        # As in Fabric the folder is created now, so exists() and ls() find it before any file is
+        # written into it. The write guard and a proof are asked first, as for every other change.
+        lh = _writable(path, p)
+        _store().mkdir(lh.workspace_id, lh.lakehouse_id, p)
         return True
 
     def append(path: str, content: str, createFileIfNotExists: bool = False) -> bool:  # noqa: N803
@@ -426,6 +458,9 @@ def _activities(dag: Any) -> list[dict[str, Any]]:
     """runMultiple's activities in an order that runs each after its dependencies. Anything the
     PC can't honor (an unknown key, a missing or circular dependency) is an error before any run."""
     if isinstance(dag, (list, tuple)):
+        if len(set(dag)) != len(dag):
+            # Results are keyed by name, so a repeat would keep only its last run's result.
+            raise ValueError("runMultiple: a notebook is listed twice; use a DAG with a unique name for each run.")
         return [{"name": p, "path": p, "args": {}, "dependencies": [], "retry": 0, "retry_interval": 0,
              "cell_timeout": None} for p in dag]
     if not isinstance(dag, dict) or not isinstance(dag.get("activities"), list):
@@ -607,6 +642,24 @@ def _make_runtime(host: Host) -> types.SimpleNamespace:
         def copy(self) -> dict[str, Any]:
             self.refresh()
             return dict(super().items())
+
+        def __eq__(self, other: object) -> bool:
+            self.refresh()
+            return super().__eq__(other)
+
+        def __ne__(self, other: object) -> bool:
+            self.refresh()
+            return super().__ne__(other)
+
+        __hash__ = None  # type: ignore[assignment] - a dict, so unhashable
+
+        def pop(self, key: str, *default: Any) -> Any:
+            self.refresh()
+            return super().pop(key, *default)
+
+        def setdefault(self, key: str, default: Any = None) -> Any:
+            self.refresh()
+            return super().setdefault(key, default)
 
         def refresh(self) -> None:
             lh = lakehouse._attached

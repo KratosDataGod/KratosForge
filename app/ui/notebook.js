@@ -1058,8 +1058,15 @@ function renderTableOutput(o, cell) {
   const redraw = () => wrap.replaceWith(renderTableOutput(o, cell));
   const seg = (id, label) => h("button", { class: `seg${o.view === id ? " on" : ""}`, "aria-pressed": String(o.view === id),
     onclick: () => { o.view = id; redraw(); } }, label);
+  // Several charts of one result (Databricks' "+ Visualization"): "chart" is the first, "chart-2" the second...
+  const many = o.frame && cell && typeof chartCount === "function";
+  const charts = many ? chartCount(cell) : 1;
+  if (/^chart-\d+$/.test(o.view) && +o.view.slice(6) > charts) o.view = "chart";
+  const chartSegs = Array.from({ length: charts }, (_, i) => seg(i ? `chart-${i + 1}` : "chart", many ? chartName(cell, i) : "Chart"));
+  const add = many && charts < MAX_CHARTS ? previewMarked("severalCharts", h("button", { class: "seg seg-add", "aria-label": "Add a chart of this result",
+    onclick: () => { o.view = `chart-${addChart(o, numericColumns(o), cell) + 1}`; redraw(); } }, "+ Chart")) : null;
   const bar = h("div", { class: "out-bar" }, h("div", { class: "segs", role: "group", "aria-label": "View" },
-    seg("table", "Table"), seg("chart", "Chart"), seg("inspect", "Inspect"), o.frame ? seg("clean", "Clean") : null));
+    seg("table", "Table"), chartSegs, add, seg("inspect", "Inspect"), o.frame ? seg("clean", "Clean") : null));
   wrap.append(bar);
   const numeric = numericColumns(o);
   const count = typeof o.total_rows === "number"
@@ -1086,9 +1093,10 @@ function renderTableOutput(o, cell) {
     search.addEventListener("input", () => { o.q = search.value; draw(); });
     wrap.append(body, h("div", { class: "more" }, count));
     draw();
-  } else if (o.view === "chart" && o.frame) {
+  } else if ((o.view === "chart" || /^chart-\d+$/.test(o.view)) && o.frame) {
     bar.append(h("span", { class: "spacer" }), previewMarked("chartBuilder", h("span", { class: "muted-text" }, "Chart of every row")));
-    wrap.append(renderChartBuilder(o, numeric, cell));
+    const i = o.view === "chart" ? 0 : +o.view.slice(6) - 1;
+    wrap.append(renderChartBuilder(o, numeric, cell, i, (n, what) => { if (what === "removed") o.view = n > 1 ? `chart-${n}` : "chart"; redraw(); }));
   } else if (o.view === "chart") {
     wrap.append(renderChart(o, numeric), h("div", { class: "more" }, `Chart of ${count.toLowerCase()}`));
   } else if (o.view === "clean" && o.frame) {

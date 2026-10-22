@@ -135,8 +135,12 @@ def datediff(end: Any, start: Any) -> Column:
     return _call("datediff({0}, {1})", end, start)
 
 
-def months_between(date1: Any, date2: Any, roundOff: bool = True) -> Column:  # noqa: N803, ARG001
-    return _call("months_between({0}, {1})", date1, date2)
+def months_between(date1: Any, date2: Any, roundOff: bool = True) -> Column:  # noqa: N803
+    """Months from ``date2`` to ``date1``, counting the time of day and rounded to 8 digits unless
+    ``roundOff`` is False, as in Spark."""
+    flag = "true" if roundOff else "false"
+    return _call(f"months_between({{0}}, {{1}}, {flag})", date1, date2).alias(
+        f"months_between({_name_of(date1)}, {_name_of(date2)}, {flag})")
 
 
 def from_unixtime(timestamp: Any, format: str = "yyyy-MM-dd HH:mm:ss") -> Column:  # noqa: A002
@@ -155,7 +159,11 @@ def size(col: Any) -> Column:
 
 
 def element_at(col: Any, extraction: Any) -> Column:
-    return _call(f"element_at({{0}}, {_lit(extraction)})", col)
+    """An array's element (1-based; index 0 is refused) or a map's value, as in Spark."""
+    if isinstance(extraction, Column):
+        return _call("element_at({0}, {1})", col, extraction).alias(
+            f"element_at({_name_of(col)}, {_name_of(extraction)})")
+    return _call(f"element_at({{0}}, {_lit(extraction)})", col).alias(f"element_at({_name_of(col)}, {extraction})")
 
 
 def get_json_object(col: Any, path: str) -> Column:
@@ -264,6 +272,23 @@ def concat(*cols: Any) -> Column:
     """NULL when any input is NULL, as in Spark (DuckDB's concat skips NULLs)."""
     return _call(f"concat({', '.join('{%d}' % i for i in range(len(cols)))})", *cols).alias(
         f"concat({', '.join(_name_of(c) for c in cols)})")
+
+
+def slice(x: Any, start: Any, length: Any) -> Column:  # noqa: A001
+    """``length`` elements from ``start`` (1-based; negative counts from the end), as in Spark."""
+    cols = [x] + [v for v in (start, length) if not isinstance(v, int)]
+    holes = iter(f"{{{i}}}" for i in range(1, len(cols)))
+    args = ", ".join(str(v) if isinstance(v, int) else next(holes) for v in (start, length))
+    return _call(f"slice({{0}}, {args})", *cols).alias(
+        f"slice({_name_of(x)}, {', '.join(str(v) if isinstance(v, int) else _name_of(v) for v in (start, length))})")
+
+
+def add_months(start: Any, months: Any) -> Column:
+    """A date ``months`` months after ``start``, also for text or a timestamp, as in Spark."""
+    if isinstance(months, int):
+        return _call(f"add_months({{0}}, {months})", start).alias(f"add_months({_name_of(start)}, {months})")
+    return _call("add_months({0}, {1})", start, months).alias(
+        f"add_months({_name_of(start)}, {_name_of(months)})")
 
 
 def initcap(col: Any) -> Column:
@@ -783,7 +808,8 @@ def install() -> None:
     if getattr(DataFrame, "_fd_compat", False):
         return
     for name, fn in FUNCTIONS.items():
-        if name in ("count", "substring", "concat", "initcap", "first", "last") or not hasattr(F, name):
+        if name in ("count", "substring", "concat", "initcap", "first", "last", "slice",
+                    "add_months", "months_between", "element_at") or not hasattr(F, name):
             setattr(F, name, fn)
     F.expr = expr  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
     Column.over = _over  # type: ignore[attr-defined]

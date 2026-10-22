@@ -340,3 +340,28 @@ def test_an_encoded_local_name_is_its_own_file(tmp_path, fs):
     (tmp_path / "a b.txt").write_text("spaced")
     fs.mv(f"file:{tmp_path}/a b.txt", f"file:{tmp_path}/a%20b.txt")
     assert (tmp_path / "a%20b.txt").read_text() == "spaced" and not (tmp_path / "a b.txt").exists()
+
+
+def test_the_files_and_tables_roots_exist(store, fs):
+    assert fs.exists("Files") and fs.exists("Files/") and fs.exists("/lakehouse/default/Files") and fs.exists("Tables")
+    assert not fs.exists("Files/nope.txt")
+
+
+def test_ls_of_a_file_lists_that_file(store, fs, tmp_path):
+    [info] = fs.ls("Files/one.txt")
+    assert (info.name, info.path, info.size, info.isFile) == ("one.txt", "Files/one.txt", 5, True)
+    with pytest.raises(requests.HTTPError):
+        fs.ls("Files/missing")
+    (tmp_path / "f.txt").write_text("abc")
+    [local] = fs.ls(f"file:{tmp_path}/f.txt")
+    assert (local.name, local.size) == ("f.txt", 3)
+
+
+def test_ls_lists_a_link_whose_target_is_gone(tmp_path, fs):
+    (tmp_path / "d").mkdir()
+    (tmp_path / "d" / "ok.txt").write_text("x")
+    try:
+        (tmp_path / "d" / "dangling").symlink_to(tmp_path / "nope")
+    except OSError:
+        pytest.skip("this account can't create symlinks")
+    assert sorted(i.name for i in fs.ls(f"file:{tmp_path}/d")) == ["dangling", "ok.txt"]

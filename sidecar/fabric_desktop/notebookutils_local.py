@@ -160,16 +160,33 @@ def _millis(iso: str | None) -> int:
 
 
 def _make_fs() -> types.SimpleNamespace:
+    def _local_info(e: Path) -> FileInfo:
+        try:
+            st = e.stat()
+        except OSError:  # a link whose target is gone is listed, as the folder holds it
+            st = e.lstat()
+        is_dir = e.is_dir()
+        return FileInfo(e.name, "file:" + str(e), 0 if is_dir else st.st_size, is_dir, int(st.st_mtime * 1000))
+
     def ls(path: str) -> list[FileInfo]:
+        """A folder's entries; for a file, as in Fabric and Databricks, a list of just that file."""
         where, p = _split(path)
         if where == "local":
             base = Path(p)
-            return [FileInfo(e.name, "file:" + str(e), 0 if e.is_dir() else e.stat().st_size, e.is_dir(),
-                             int(e.stat().st_mtime * 1000))
-                    for e in sorted(base.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower()))]
+            if base.is_file():
+                return [_local_info(base)]
+            return [_local_info(e) for e in sorted(base.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower()))]
         lh = lakehouse._current()
-        return [FileInfo(e["name"], e["path"], e["size"], e["is_dir"], _millis(e.get("modified")))
-                for e in _store().list(lh.workspace_id, lh.lakehouse_id, p)]
+        try:
+            listed = _store().list(lh.workspace_id, lh.lakehouse_id, p)
+        except requests.HTTPError as exc:
+            if exc.response is None or exc.response.status_code not in (400, 404):
+                raise
+            entry = _entry(path)
+            if entry is None or entry["is_dir"]:
+                raise
+            listed = [entry]
+        return [FileInfo(e["name"], e["path"], e["size"], e["is_dir"], _millis(e.get("modified"))) for e in listed]
 
     def _read(path: str) -> bytes:
         where, p = _split(path)
@@ -206,6 +223,8 @@ def _make_fs() -> types.SimpleNamespace:
             return {"is_dir": t.is_dir(), "size": 0 if t.is_dir() else t.stat().st_size}
         lh = lakehouse._current()
         parent, _, name = p.rstrip("/").rpartition("/")
+        if not parent and name in ("Files", "Tables"):
+            return {"is_dir": True, "size": 0}  # every lakehouse has them; their parent can't be listed
         try:
             listed = _store().list(lh.workspace_id, lh.lakehouse_id, parent or "Files")
         except requests.HTTPError as exc:

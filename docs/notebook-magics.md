@@ -22,7 +22,8 @@ display(top)
 
 - `_sqldf` is a `spark` DataFrame. It shows in the **Variables** pane.
 - Only a query sets it (`SELECT`, `WITH`, `SHOW`, `DESCRIBE`...). A cell that creates a view or
-  writes a table leaves the previous `_sqldf` as it was.
+  writes a table leaves the previous `_sqldf` as it was. What counts is the cell's last statement,
+  with `--` and `/* */` comments skipped.
 - To run one query inside a Python cell, put `%sql` in front of it. Assign it to keep the result,
   or put it on the cell's last line to show it:
 

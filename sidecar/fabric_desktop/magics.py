@@ -47,17 +47,17 @@ def _lines(code: str) -> list[tuple[str, tuple[str, str, str, str | None] | None
         m = None if quote or depth or joined else _match(bare)
         out.append((text, m))
         if m is None:
-            quote, depth = _scan(bare, quote, depth)
-            joined = not quote and bare.endswith("\\") and not bare.endswith("\\\\")
+            quote, depth, joined = _scan(bare, quote, depth)
         else:
             joined = False
     return out
 
 
-def _scan(text: str, quote: str, depth: int) -> tuple[str, int]:
-    """The open triple quote and bracket depth after a line of Python, given those before it.
-    Single-quoted strings and comments end with the line."""
-    i, n = 0, len(text)
+def _scan(text: str, quote: str, depth: int) -> tuple[str, int, bool]:
+    """The open triple quote and bracket depth after a line of Python, given those before it, and
+    whether the line goes on to the next with a backslash. Single-quoted strings and comments end
+    with the line; a backslash at the end of a comment (# in C:\\temp\\) doesn't join lines."""
+    i, n, end = 0, len(text), len(text)
     while i < n:
         if quote:
             if text[i] == "\\":
@@ -71,6 +71,7 @@ def _scan(text: str, quote: str, depth: int) -> tuple[str, int]:
             continue
         c = text[i]
         if c == "#":
+            end = i
             break
         if c in "\"'":
             q = text[i:i + 3] if text[i:i + 3] in ('"""', "'''") else c
@@ -87,7 +88,7 @@ def _scan(text: str, quote: str, depth: int) -> tuple[str, int]:
         elif c in ")]}":
             depth = max(depth - 1, 0)
         i += 1
-    return quote, depth
+    return quote, depth, not quote and text[:end].endswith("\\")
 
 
 def words(line: str) -> list[str]:
@@ -164,12 +165,44 @@ _QUERY = re.compile(r"^\s*(\(\s*)*(SELECT|WITH|SHOW|DESCRIBE|DESC|EXPLAIN|VALUES
 
 def returns_rows(sql: str) -> bool:
     """Whether the last statement of some Spark SQL returns rows (a query, not a write or DDL)."""
-    statements = [s for s in (_strip_comments(p) for p in re.split(r";\s*(?:\n|$)", sql)) if s.strip()]
+    statements = [s for s in _statements(sql) if s.strip()]
     return bool(statements) and bool(_QUERY.match(statements[-1]))
 
 
-def _strip_comments(sql: str) -> str:
-    return re.sub(r"^(\s*--[^\n]*(\n|$))+", "", sql)
+def _statements(sql: str) -> list[str]:
+    """Spark SQL split at its semicolons, with -- and /* */ comments taken out; a semicolon or
+    comment marker inside a quoted string or `name` stays where it is."""
+    out, part, quote, i, n = [], [], "", 0, len(sql)
+    while i < n:
+        c = sql[i]
+        if quote:
+            part.append(c)
+            if c == "\\" and quote != "`" and i + 1 < n:
+                part.append(sql[i + 1])
+                i += 1
+            elif c == quote:
+                quote = ""
+        elif c in "'\"`":
+            quote = c
+            part.append(c)
+        elif sql.startswith("--", i):
+            i = sql.find("\n", i)
+            if i < 0:
+                break
+            continue
+        elif sql.startswith("/*", i):
+            end = sql.find("*/", i + 2)
+            i = n if end < 0 else end + 2
+            part.append(" ")
+            continue
+        elif c == ";":
+            out.append("".join(part))
+            part = []
+        else:
+            part.append(c)
+        i += 1
+    out.append("".join(part))
+    return out
 
 
 # ---- cell languages

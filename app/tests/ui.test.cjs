@@ -4238,3 +4238,9 @@ test("the Spark on this PC page says an empty struct<> isn't supported", () => {
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
   assert.match(doc, /An empty `struct<>` isn't supported here/);
 });
+
+// Magics: _sqldf follows the last statement with -- and /* */ comments skipped.
+test("the magics page says _sqldf reads the last statement past comments", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /What counts is the cell's last statement,\n  with `--` and `\/\* \*\/` comments skipped/);
+});

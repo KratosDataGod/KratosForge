@@ -439,8 +439,8 @@ def _types(df: DataFrame) -> list[tuple[str, str]]:
     return [(name, str(t)) for name, t in zip(df.relation.columns, df.relation.types)]
 
 
-def _dropna(self: DataFrame, how: str = "any", thresh: int | None = None, subset: Any = None) -> DataFrame:
-    if how not in ("any", "all"):
+def _dropna(self: DataFrame, how: str | None = "any", thresh: int | None = None, subset: Any = None) -> DataFrame:
+    if how is not None and how not in ("any", "all"):  # None counts as "all", as in PySpark
         raise ValueError(f"how ({how!r}) should be 'any' or 'all'")  # PySpark's own check
     cols = [subset] if isinstance(subset, str) else list(subset or self.columns)
     if not cols:

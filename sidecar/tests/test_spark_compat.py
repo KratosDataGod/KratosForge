@@ -281,6 +281,7 @@ def test_sample_dropna_and_unpivot_refuse_what_spark_refuses(live):
     assert df.sample(False, 1.0, 3).count() == 2 and df.sample(0.0).count() == 0
     with pytest.raises(ValueError, match=r"how \('some'\) should be 'any' or 'all'"):
         df.dropna(how="some")
+    assert df.dropna(how=None).count() == df.dropna(how="all").count() == 2  # PySpark reads None as "all"
     with pytest.raises(ValueError, match="UNPIVOT_REQUIRES_VALUE_COLUMNS"):
         df.unpivot("id", [], "k", "val")
     assert df.unpivot("id", None, "k", "val").count() == 4  # None: every column that isn't an id

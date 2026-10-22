@@ -12,12 +12,12 @@ from __future__ import annotations
 import datetime as dt
 import json
 import re
+import threading
 import uuid
 from pathlib import Path
 from typing import Any
 
 from . import model_bpa, risk
-from .risk_service import _ACKS
 from .fabric_compute import RESULTS_DIR
 from .fabric_run import TERMINAL
 from .jsonfile import read_json, write_json
@@ -26,6 +26,8 @@ from .onelake import FileStore
 
 KIND = "Best practices check"
 FABRIC_APP = "https://app.fabric.microsoft.com"
+# One check starts at a time, so two quick clicks can't both pass the "already being checked" test.
+_STARTING = threading.Lock()
 
 
 def _now() -> str:
@@ -131,6 +133,14 @@ class ModelBpaMixin:
             if current.get("id") != risk_id:
                 raise ValueError("The risk check's findings changed since you looked. Check them again before you go ahead.")
             self._bpa_acknowledge(t, current)
+        if not _STARTING.acquire(blocking=False):
+            raise RuntimeError("A best practices check is already starting; wait for it, then try again.")
+        try:
+            return self._bpa_start(t, env)
+        finally:
+            _STARTING.release()
+
+    def _bpa_start(self, t: dict[str, Any], env: str) -> dict[str, Any]:
         newest = self._bpa_newest(t["model_id"])
         if newest and newest.get("status") not in TERMINAL:
             raise RuntimeError(f"{t['name']} is already being checked; wait for that check to finish.")
@@ -152,10 +162,7 @@ class ModelBpaMixin:
                   "workload": current.get("workload") or t["name"], "action": "run_in_fabric", "env": t["env"],
                   "result": current["result"], "user": self._wl_user(),  # type: ignore[attr-defined]
                   "warnings": [f["title"] for f in current["findings"] if f["outcome"] == risk.WARNING], "note": ""}
-        path = self.root / _ACKS  # type: ignore[attr-defined]
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(record) + "\n")
+        self._risk_ack_write(record)  # type: ignore[attr-defined]
 
     def _bpa_notebook(self, t: dict[str, Any]) -> str:
         """Publish the check notebook to the workspace unless the same one is already there."""

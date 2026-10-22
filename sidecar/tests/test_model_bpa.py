@@ -21,7 +21,9 @@ def test_notebook_pins_semantic_link_labs_and_saves_to_lh_meta():
     assert "/lakehouse/default/Files/_fabric_desktop/results" in code
     compile(code, "check", "exec")  # the cell is valid Python
     assert model_bpa.notebook_hash(nb) == model_bpa.notebook_hash(model_bpa.bpa_ipynb("ws1", "meta1"))
-    assert model_bpa.run_parameters("m1", "ws1", "r1")["parameters"]["dataset"] == {"value": "m1", "type": "string"}
+    params = model_bpa.run_parameters("m1", "ws1", "r1")["parameters"]
+    assert params["dataset"] == {"value": "m1", "type": "string"}
+    assert params["_inlineInstallationEnabled"] == {"value": True, "type": "bool"}  # else a job run skips %pip
 
 
 def test_findings_read_icons_and_sort_worst_first():
@@ -161,3 +163,11 @@ def test_risk_check_is_advice_when_it_cant_be_read(svc, monkeypatch):
     monkeypatch.setattr(svc, "_risk_facts", lambda *a, **k: (_ for _ in ()).throw(OSError("offline")))
     got = svc.model_bpa_risk("test")
     assert got["result"] == risk.UNKNOWN and got["can_proceed"] is True and "offline" in got["summary"]
+
+
+def test_a_second_check_starting_at_the_same_time_is_refused(svc):
+    with model_bpa_service._STARTING:
+        with pytest.raises(RuntimeError, match="already starting"):
+            svc.model_bpa_check("test")
+    assert not [c for c in svc.fake.calls if c[0] == "job"]
+    svc.model_bpa_check("test")

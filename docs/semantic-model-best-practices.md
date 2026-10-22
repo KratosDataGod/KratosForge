@@ -17,7 +17,8 @@ model rows in **Optimize > Opportunities**) come next, once the mockup is approv
    with the others (`risk_acknowledgements`).
 3. It publishes the notebook `nb_fabric_desktop_bpa` to the workspace, unless the same notebook is already
    there. It is a Fabric Python notebook whose default lakehouse is the environment's `LH_Meta`.
-4. It runs that notebook. The notebook installs semantic-link-labs `0.17.1` into its own session, then calls
+4. It runs that notebook, with inline installation turned on for the run (`_inlineInstallationEnabled`), since
+   a notebook run as a job skips `%pip` otherwise. The notebook installs semantic-link-labs `0.17.1` into its own session, then calls
    `run_model_bpa(..., extended=True, return_dataframe=True)`. `extended` collects the model's VertiPaq
    statistics, which some rules need. The model is read through its XMLA endpoint, so the capacity needs
    XMLA read, which is on by default.

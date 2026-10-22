@@ -59,7 +59,7 @@ def bpa_ipynb(workspace_id: str, meta_lakehouse_id: str, meta_lakehouse: str = "
                 "default_lakehouse": meta_lakehouse_id, "default_lakehouse_name": meta_lakehouse,
                 "default_lakehouse_workspace_id": workspace_id}}},
             "cells": [{"cell_type": "markdown", "metadata": {}, "source": [
-                "# Fabric Desktop best practices check\n",
+                "# KratosForge best practices check\n",
                 "Runs Best Practice Analyzer from semantic-link-labs on one semantic model, read only, and saves "
                 "the findings for KratosForge. Start checks from **Data mesh > Deploy > Semantic model** in the app; "
                 "changes here are replaced on the next check.\n"]},
@@ -77,6 +77,8 @@ def run_parameters(dataset_id: str, workspace_id: str, request_id: str) -> dict[
         "dataset": {"value": dataset_id, "type": "string"},
         "workspace": {"value": workspace_id, "type": "string"},
         "request_id": {"value": request_id, "type": "string"},
+        # A notebook run as a job ignores %pip unless the run turns inline installation on.
+        "_inlineInstallationEnabled": {"value": True, "type": "bool"},
     }}
 
 

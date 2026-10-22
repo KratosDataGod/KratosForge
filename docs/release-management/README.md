@@ -14,7 +14,8 @@ There is no installer, store or package feed. The product is two files published
 | --- | --- | --- |
 | `fabric-desktop.exe` | The Tauri 2 shell with the UI (`app/`) | CI `shell` job, `cargo build --release --locked` on Windows |
 | `fabric-desktop-engine.zip` | python.org's embeddable Python 3.12 plus the `fabric_desktop` engine (`sidecar/`) and every pinned package in `sidecar/constraints.txt` | CI `engine` job on Windows |
-| `version.json` | The build's commit, What's new notes, 30 days of history, and the SHA-256 of the exe and engine | CI `release` job |
+| `fabric-desktop-engine-update.zip` | Only the engine's own files (`fabric_desktop`, its dist-info and launcher, and `engine.json`), a few MB. A PC whose installed engine has the same runtime key (the same Python and packages) updates from this instead of the whole engine (`app/src-tauri/src/engine_patch.rs`) | CI `engine` job on Windows |
+| `version.json` | The build's commit, What's new notes, 30 days of history, the SHA-256 of the exe, engine and engine update, and the engine's runtime key (`.github/scripts/engine_runtime.py`) | CI `release` job |
 | SBOMs | `sbom-app.cdx.json`, `sbom-engine.cdx.json` (CycloneDX) | CI `sbom-app` and `engine` jobs |
 
 The headless agent's Linux image (`deploy/linux/Dockerfile`) is built and started in CI but not published anywhere. The docs site is published to GitHub Pages by `docs.yml` on every merge that touches `docs/`.
@@ -70,7 +71,7 @@ Run on every release-management pass. It is safe to repeat: it changes nothing o
 6. **Repair** only what integration broke: a conflict where both sides' intent is clear, resolved so neither change is lost, on the integration branch or as a corrective PR. Anything that changes a feature's behaviour goes back to its owner with a corrective request (format below). Two incompatible designs go to Chris as a decision, never a compromise invented here.
 7. **Ask for the merge round.** One question to Chris naming the PRs, the order and the evidence. Nothing merges without his go for that round.
 8. **Merge** in order, waiting for each merge's `main` CI where the next PR conflicts with it. Watch the Preview publish of `main`'s newest commit.
-9. **Verify Preview.** The `latest` release's `version.json` names `main`'s tip and its `exe_sha256` and `engine_sha256` equal the GitHub digests of the uploaded assets (`curl -s https://api.github.com/repos/KratosDataGod/KratosForge/releases/tags/latest | jq '.assets[] | {name, digest}'`). If the engine zip is missing, re-run the failed release job of `main`'s tip run.
+9. **Verify Preview.** The `latest` release's `version.json` names `main`'s tip and its `exe_sha256`, `engine_sha256` and `engine_update_sha256` equal the GitHub digests of the uploaded assets (`curl -s https://api.github.com/repos/KratosDataGod/KratosForge/releases/tags/latest | jq '.assets[] | {name, digest}'`). If the engine zip is missing, re-run the failed release job of `main`'s tip run.
 10. **Report** in the thread: what was reviewed, merged, fixed, what failed and what is blocked.
 
 ### PR states

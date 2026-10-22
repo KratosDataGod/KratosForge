@@ -47,6 +47,12 @@ jobs:
           fi
           gh release view "$SOURCE" > /dev/null || { echo "There is no $SOURCE release (CI keeps the newest builds and every Stable build)"; exit 1; }
           gh release download "$SOURCE" --pattern fabric-desktop.exe --pattern fabric-desktop-engine.zip --pattern version.json
+          # The engine update zip, when the build has one (built since engine_patch.rs).
+          UPDATE_ZIP=()
+          if jq -e '.engine_update_sha256 // empty' version.json > /dev/null; then
+            gh release download "$SOURCE" --pattern fabric-desktop-engine-update.zip
+            UPDATE_ZIP=(fabric-desktop-engine-update.zip)
+          fi
           COMMIT=$(jq -r .commit version.json)
           echo "$COMMIT" | grep -Eq '^[0-9a-f]{40}$' || { echo "The $SOURCE release has no build commit"; exit 1; }
           if [ "$SOURCE" != latest ] && [ "build-${COMMIT::12}" != "$SOURCE" ]; then
@@ -58,7 +64,9 @@ jobs:
             exit 1
           fi
           # Stable only gets the exact files the build's version.json names.
-          for pair in "fabric-desktop.exe exe_sha256" "fabric-desktop-engine.zip engine_sha256"; do
+          PAIRS=("fabric-desktop.exe exe_sha256" "fabric-desktop-engine.zip engine_sha256")
+          [ ${#UPDATE_ZIP[@]} -eq 0 ] || PAIRS+=("fabric-desktop-engine-update.zip engine_update_sha256")
+          for pair in "${PAIRS[@]}"; do
             read -r file key <<< "$pair"
             expected=$(jq -r --arg k "$key" '.[$k] // ""' version.json)
             actual=$(sha256sum "$file" | cut -d' ' -f1)
@@ -76,12 +84,17 @@ jobs:
           if gh release view stable > /dev/null 2>&1; then
             # Replace the files in place rather than deleting the release: while it was missing,
             # Stable PCs fell back to Preview and could be offered an untested build.
-            gh release upload stable fabric-desktop.exe fabric-desktop-engine.zip --clobber
+            gh release upload stable fabric-desktop.exe fabric-desktop-engine.zip "${UPDATE_ZIP[@]}" --clobber
+            # A build without an update zip mustn't sit next to an earlier build's (the app only uses
+            # one its version.json names, but a stale file there misleads people).
+            if [ ${#UPDATE_ZIP[@]} -eq 0 ]; then
+              gh release delete-asset stable fabric-desktop-engine-update.zip --yes 2> /dev/null || true
+            fi
             gh release upload stable version.json --clobber
             gh api -X PATCH "repos/$GH_REPO/git/refs/tags/stable" -f sha="$COMMIT" -F force=true
             gh release edit stable --notes "$NOTES" --latest
           else
-            gh release create stable fabric-desktop.exe fabric-desktop-engine.zip version.json \
+            gh release create stable fabric-desktop.exe fabric-desktop-engine.zip "${UPDATE_ZIP[@]}" version.json \
               --title "KratosForge (stable)" \
               --notes "$NOTES" \
               --target "$COMMIT" \

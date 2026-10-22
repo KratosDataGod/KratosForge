@@ -13,6 +13,7 @@ use serde_json::{json, Value};
 use tauri::webview::{NewWindowResponse, WebviewBuilder};
 use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
 
+mod engine_patch;
 mod replies;
 mod update_guard;
 mod watchdog;
@@ -674,7 +675,9 @@ fn run_tool(mut cmd: Command, what: &str) -> Result<(), String> {
 }
 
 /// Downloads the latest engine and unpacks it to engine\<its commit>, then removes
-/// other builds' engines. Uses curl.exe and tar.exe, which come with Windows.
+/// other builds' engines. Uses curl.exe and tar.exe, which come with Windows. When an installed
+/// engine already has the release's Python and packages, only the engine's own code is
+/// downloaded (engine_patch.rs); the whole engine is the fallback.
 fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
     let say = |line: &str| {
         let _ = app.emit("component-log", line);
@@ -685,6 +688,15 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
     let release_json = root.join("version.json");
     let staging = root.join(".new");
     let nocache = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+
+    match update_engine_code(&root, nocache, &say) {
+        Ok(Some(commit)) => return Ok(commit),
+        Ok(None) => {}
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(&staging);
+            say(&format!("{e} Downloading the whole engine instead."));
+        }
+    }
 
     say("Downloading the engine (Python and its packages, about 150 MB)…");
     let mut result = Err(String::new());
@@ -771,19 +783,99 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
              A new build may be being published; try again in a few minutes."
             .into());
     }
-    let dest = root.join(&commit);
+    put_engine_in_place(&root, &staging, &commit)?;
+    say(&format!("Installed engine build {}.", &commit[..7]));
+    Ok(commit)
+}
+
+/// Moves a checked engine from `staging` to engine\<commit>, then removes other builds' engines.
+fn put_engine_in_place(root: &std::path::Path, staging: &std::path::Path, commit: &str) -> Result<(), String> {
+    let dest = root.join(commit);
     let _ = std::fs::remove_dir_all(&dest);
-    std::fs::rename(&staging, &dest).map_err(|e| format!("Could not put the engine in place: {e}"))?;
+    std::fs::rename(staging, &dest).map_err(|e| format!("Could not put the engine in place: {e}"))?;
 
     // Engines of other builds are no longer needed; one still in use goes next time.
-    for entry in std::fs::read_dir(&root).into_iter().flatten().flatten() {
+    for entry in std::fs::read_dir(root).into_iter().flatten().flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
         if name != commit && name != BUILD_COMMIT && entry.path().is_dir() {
             let _ = std::fs::remove_dir_all(entry.path());
         }
     }
-    say(&format!("Installed engine build {}.", &commit[..7]));
-    Ok(commit)
+    Ok(())
+}
+
+/// Installs the release's engine from an installed engine with the same Python and packages plus
+/// the release's update zip (a few MB). Ok(None) when that can't apply: the release offers no
+/// update zip, no installed engine has its runtime, or the release's build is already installed
+/// (a repair, which replaces everything). An error means install_engine downloads the whole engine.
+fn update_engine_code(root: &std::path::Path, nocache: u64, say: &dyn Fn(&str)) -> Result<Option<String>, String> {
+    // version.json first here, to learn the runtime before downloading anything big. If a new
+    // build is published in between, the zip won't match its checksum and the whole engine is
+    // downloaded instead.
+    let release_json = root.join("version.json");
+    let mut release = Value::Null;
+    let mut tag_used = "";
+    for tag in engine_tags() {
+        let mut curl = Command::new(system_tool("curl.exe"));
+        curl.args(["-L", "--fail", "-sS", "--connect-timeout", "20", "--max-time", "60", "-H",
+                   "Cache-Control: no-cache", "-o"])
+            .arg(&release_json)
+            .arg(format!("{}?nocache={nocache}", release_file(tag, "version.json")));
+        match run_tool(curl, "read the engine's release") {
+            Ok(()) => {
+                tag_used = tag;
+                release = std::fs::read_to_string(&release_json)
+                    .ok()
+                    .and_then(|text| serde_json::from_str(text.trim_start_matches('\u{feff}')).ok())
+                    .unwrap_or(Value::Null);
+                break;
+            }
+            Err(e) if missing_release_file(&e) => continue,
+            Err(e) => {
+                let _ = std::fs::remove_file(&release_json);
+                return Err(e);
+            }
+        }
+    }
+    let _ = std::fs::remove_file(&release_json);
+    let Some((runtime, update_sha)) = engine_patch::update_of(&release) else { return Ok(None) };
+    let Some(commit) = release["commit"].as_str().filter(|c| update_guard::is_commit(c)).map(str::to_ascii_lowercase) else {
+        return Ok(None);
+    };
+    if root.join(&commit).exists() {
+        return Ok(None);
+    }
+    let Some(source) = engine_patch::find_runtime(root, &runtime) else { return Ok(None) };
+    let state = update_state();
+    let seen = update_guard::check_manifest(&release, update_guard::load_seen(&state, tag_used).as_ref(), unix_now())?;
+
+    say("Python and its packages are unchanged, so only the engine's own code is downloaded (a few MB)…");
+    let zip = root.join("update.zip");
+    let mut curl = Command::new(system_tool("curl.exe"));
+    curl.args(["-L", "--fail", "-sS", "--connect-timeout", "20", "--speed-limit", "1024", "--speed-time", "60",
+               "--retry", "2", "-H", "Cache-Control: no-cache", "-o"])
+        .arg(&zip)
+        .arg(format!("{}?nocache={nocache}", release_file(tag_used, engine_patch::UPDATE_ZIP)));
+    let checked = run_tool(curl, "download the engine update")
+        .and_then(|()| sha256_file(&zip))
+        .and_then(|sha| engine_patch::check_update_zip(&sha, &update_sha));
+    if let Err(e) = checked {
+        let _ = std::fs::remove_file(&zip);
+        return Err(e);
+    }
+
+    let staging = root.join(".new");
+    let staged = engine_patch::stage_runtime(&source, &staging).and_then(|()| {
+        let mut tar = Command::new(system_tool("tar.exe"));
+        tar.arg("-xf").arg(&zip).arg("-C").arg(&staging);
+        run_tool(tar, "unpack the engine update")
+    });
+    let _ = std::fs::remove_file(&zip);
+    staged.and_then(|()| engine_patch::check_patched(&staging, &commit, &runtime))?;
+    let _ = update_guard::remember(&state, tag_used, Some(&seen));
+    put_engine_in_place(root, &staging, &commit)?;
+    say(&format!("Updated the engine to build {}.", &commit[..7]));
+    Ok(Some(commit))
 }
 
 /// How long this exe waits for the new one to say it started (window up, startup check asked for).

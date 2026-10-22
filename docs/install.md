@@ -30,7 +30,7 @@ You do **not** need Python, Spark, Java or admin rights on the PC. The app bring
    | Python | Comes with the engine. Nothing to install. |
    | Local engine | Downloads `fabric-desktop-engine.zip` (Python plus every package) and unpacks it into `%LOCALAPPDATA%\FabricDesktop\engine`. |
 
-   This takes a minute or two the first time. Later starts go straight to Home unless something is updating.
+   This takes a minute or two the first time. Later starts go straight to Home unless something is updating. Most updates change only the engine's own code, so they download a few MB (`fabric-desktop-engine-update.zip`) rather than the whole engine; the whole engine is downloaded again only when Python or a package changes.
 6. **Sign in.** Click **Sign in** on Home (or the **?** circle at the top right). Windows asks which work account to use, or signs you in with the one you use on Windows. There is nothing to paste and no app ID to ask for; KratosForge signs in through Microsoft's own Fabric sign-in, and only ever does what your own Fabric access allows ([Permissions](permissions.md)).
 
 That's it. Home shows a **Get started** list until you set up a metadata project. Go on to the [user guide](user-guide.md).

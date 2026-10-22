@@ -4278,3 +4278,10 @@ test("the magics page says %env refuses a name it can't set", () => {
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
   assert.match(doc, /`%env 1BAD=x` says so instead of doing nothing/);
 });
+
+// Magics: a CTE that inserts isn't a query; %env's space form explains a bad name.
+test("the magics page says WITH ... INSERT is a write and covers %env 1BAD x", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /`WITH x AS \(\.\.\.\) INSERT INTO \.\.\.` is a write, not a query/);
+  assert.match(doc, /and so does `%env 1BAD x`/);
+});

@@ -47,6 +47,16 @@ def test_lakehouse_reads_a_version_or_a_time(lake):
         lakehouse.read_table("dbo.sales", version=1, timestamp=when)
 
 
+def test_a_missing_table_is_named_in_plain_words(lake):
+    (lake / "tpch" / "region" / "_delta_log").mkdir(parents=True)  # an empty folder reads like OneLake's missing one
+    for name in ("tpch.region", "tpch.nation"):
+        with pytest.raises(lakehouse.TableNotFoundError) as e:
+            lakehouse.open_table(name)
+        text = str(e.value)
+        assert text.startswith(f"{name} isn't in Sales: there's no Delta table at Tables/{name.replace('.', '/')}. ")
+        assert "with Sales attached first" in text and "log segment" not in text and "Os {" not in text
+
+
 def test_a_replay_records_the_version_a_time_travel_read_used(lake):
     lakehouse.reads_reset()
     assert run("from fabric_desktop import lakehouse\nlakehouse.read_table('dbo.sales', version=1)")[0] == "ok"

@@ -106,7 +106,25 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
 
     unix_timestamp also takes a date or timestamp (DuckDB's strptime takes only text), reads its
     value in the session time zone, is NULL for text that doesn't match the format, and is a whole
-    number of seconds, as in Spark."""
+    number of seconds, as in Spark.
+
+    first(x, true) and last(x, true) skip NULLs as aggregates too (DuckDB takes IGNORE NULLS only
+    in a window)."""
+    for ignore in list(node.find_all(exp.IgnoreNulls)):
+        agg = ignore.this
+        if not isinstance(agg, (exp.First, exp.Last, exp.FirstValue, exp.LastValue)):
+            continue
+        name = "first" if isinstance(agg, (exp.First, exp.FirstValue)) else "last"
+        value = agg.this.sql("duckdb")
+        if isinstance(ignore.parent, exp.Window):  # sqlglot drops the IGNORE NULLS DuckDB's windows take
+            window = ignore.parent.copy()
+            window.set("this", exp.column("__fd_ignoring__"))
+            text = window.sql("duckdb").replace("__fd_ignoring__", f"{name}_value({value} IGNORE NULLS)", 1)
+            target = ignore.parent
+        else:
+            text, target = f"{name}({value}) FILTER (WHERE {value} IS NOT NULL)", ignore
+        swapped = target.replace(sqlglot.parse_one(text, read="duckdb"))
+        node = swapped if target is node else node
     for unix in list(node.find_all(exp.StrToUnix)):
         value = unix.this.sql("duckdb")
         fmt, has_year = _strptime_format(unix) if unix.args.get("format") else ("'%Y-%m-%d %H:%M:%S'", True)

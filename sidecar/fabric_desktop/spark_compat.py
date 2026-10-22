@@ -281,6 +281,23 @@ def expr(text: str) -> Column:
 
 
 _count = F.count
+_first, _last = F.first, F.last
+
+
+def first(col: Any, ignorenulls: bool = False) -> Column:
+    """``ignorenulls=True`` gives the first value that isn't NULL, as in Spark."""
+    if not ignorenulls:
+        return _first(col)
+    q = _col_sql(col)
+    return _sql(f"first({q}) FILTER (WHERE {q} IS NOT NULL)").alias(f"first({_name_of(col)})")
+
+
+def last(col: Any, ignorenulls: bool = False) -> Column:
+    """``ignorenulls=True`` gives the last value that isn't NULL, as in Spark."""
+    if not ignorenulls:
+        return _last(col)
+    q = _col_sql(col)
+    return _sql(f"last({q}) FILTER (WHERE {q} IS NOT NULL)").alias(f"last({_name_of(col)})")
 
 
 def count(col: Any) -> Column:
@@ -376,8 +393,14 @@ def _ordered(name: str, fn: Any) -> Any:
     return order
 
 
+_IGNORING_NULLS = re.compile(r'^"?(first|last)"?\((.*)\) FILTER \(WHERE \(\2 IS NOT NULL\)\)$', re.S)
+
+
 def _over(self: Column, window: WindowSpec) -> Column:
-    return _sql(f"{self.expr} OVER ({window.sql()})")
+    text = str(self.expr)
+    if m := _IGNORING_NULLS.match(text):  # F.first(x, True).over(w): a window takes IGNORE NULLS, not FILTER
+        text = f"{m.group(1)}_value({m.group(2)} IGNORE NULLS)"
+    return _sql(f"{text} OVER ({window.sql()})")
 
 
 # ---- DataFrame
@@ -403,6 +426,8 @@ def _grouped_agg(fn: Any) -> Any:
     def agg(self: GroupedData, *exprs: Any) -> DataFrame:
         if len(exprs) == 1 and isinstance(exprs[0], dict):
             exprs = tuple(_dict_agg(self._df, exprs[0]))
+        if not self._grouping._cols:  # groupBy() with no columns: one row over the whole frame, as in Spark
+            return _agg(self._df, *exprs)
         return fn(self, *exprs)
     agg.__doc__ = fn.__doc__
     return agg
@@ -758,7 +783,7 @@ def install() -> None:
     if getattr(DataFrame, "_fd_compat", False):
         return
     for name, fn in FUNCTIONS.items():
-        if name in ("count", "substring", "concat", "initcap") or not hasattr(F, name):
+        if name in ("count", "substring", "concat", "initcap", "first", "last") or not hasattr(F, name):
             setattr(F, name, fn)
     F.expr = expr  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
     Column.over = _over  # type: ignore[attr-defined]

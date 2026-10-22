@@ -4345,3 +4345,10 @@ test("the Spark on this PC page says a pattern without a year reads from 1970-01
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
   assert.match(doc, /A pattern without a year reads its date from 1970-01-01, as Spark does/);
 });
+
+// Spark on this PC: quoted repeated pattern letters, groupBy() and ignorenulls.
+test("the Spark on this PC page covers quoted 'yyyy', groupBy() and first/last ignoring NULLs", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /Quoted text that repeats a pattern letter \(`'yyyy'`\)/);
+  assert.match(doc, /`groupBy\(\)` with no columns aggregates the whole frame/);
+});

@@ -315,3 +315,16 @@ def test_dict_agg_names_columns_as_spark_and_works_after_group_by_and_pivot(live
     assert rows(df.groupBy("id").pivot("v").agg({"x": "sum"}).orderBy("id")) == [(1, 2.0, 4.0), (2, 6.0, None)]
     with pytest.raises(AnalysisException, match="UNRESOLVED_COLUMN.*`nope`"):
         df.groupBy("id").agg({"nope": "sum"})
+
+
+def test_drop_rename_and_drop_duplicates_resolve_names_as_spark_does(live):
+    from duckdb.experimental.spark.errors import AnalysisException
+    df = live.createDataFrame([(1, "a"), (1, "a"), (2, "b")], ["id", "v"])
+    assert df.drop("ID").columns == ["v"] and df.drop("nope").columns == ["id", "v"]
+    assert df.drop(df.v).columns == ["id"]
+    assert df.withColumnRenamed("nope", "z").columns == ["id", "v"]  # Spark: a no-op
+    assert df.withColumnRenamed("ID", "key").columns == ["key", "v"]
+    assert df.dropDuplicates(["ID"]).count() == 2 and df.drop_duplicates().count() == 2
+    for call in (lambda: df.dropDuplicates(["nope"]), lambda: df.drop_duplicates(["nope"])):
+        with pytest.raises(AnalysisException, match="UNRESOLVED_COLUMN.*`nope`"):
+            call()

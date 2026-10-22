@@ -542,6 +542,33 @@ def _describe(self: DataFrame, *cols: str) -> DataFrame:
     return _frame(self, out)
 
 
+def _drop_cols(fn: Any) -> Any:
+    """``df.drop("ID")`` drops ``id``: Spark resolves names ignoring case (a name that isn't there is skipped)."""
+    def drop(self: DataFrame, *cols: Any) -> DataFrame:
+        by_lower = {c.lower(): c for c in self.columns}
+        return fn(self, *[by_lower.get(c.lower(), c) if isinstance(c, str) else c for c in cols])
+    drop.__doc__ = fn.__doc__
+    return drop
+
+
+def _with_column_renamed(fn: Any) -> Any:
+    """Spark: "a no-op if the schema doesn't contain the given column name"."""
+    def rename(self: DataFrame, existing: str, new: str) -> DataFrame:
+        if existing.lower() not in (c.lower() for c in self.columns):
+            return self
+        return fn(self, existing, new)
+    rename.__doc__ = fn.__doc__
+    return rename
+
+
+def _drop_duplicates(fn: Any) -> Any:
+    """An unknown column in ``subset`` is Spark's error, not DuckDB's binder error."""
+    def dedupe(self: DataFrame, subset: Any = None) -> DataFrame:
+        return fn(self, _known(self, subset) if subset else subset)
+    dedupe.__doc__ = fn.__doc__
+    return dedupe
+
+
 def _sample(self: DataFrame, withReplacement: Any = None, fraction: float | None = None,  # noqa: N803
             seed: int | None = None) -> DataFrame:
     if withReplacement is not None and not isinstance(withReplacement, bool):  # sample(0.1) and sample(0.1, 42)
@@ -683,6 +710,9 @@ def install() -> None:
     DataFrame.na = property(DataFrameNaFunctions)  # type: ignore[attr-defined]
     DataFrame.describe = _describe  # type: ignore[attr-defined]
     DataFrame.summary = _describe  # type: ignore[attr-defined]
+    DataFrame.drop = _drop_cols(DataFrame.drop)  # type: ignore[method-assign]
+    DataFrame.withColumnRenamed = _with_column_renamed(DataFrame.withColumnRenamed)  # type: ignore[method-assign]
+    DataFrame.dropDuplicates = DataFrame.drop_duplicates = _drop_duplicates(DataFrame.dropDuplicates)  # type: ignore[method-assign]
     DataFrame.sample = _sample  # type: ignore[attr-defined]
     DataFrame.subtract = _subtract  # type: ignore[attr-defined]
     DataFrame.unpivot = DataFrame.melt = _unpivot  # type: ignore[attr-defined]

@@ -13,7 +13,7 @@ import requests
 from fabric_desktop import lakehouse, notebookutils_local
 from fabric_desktop.onelake import FileStore
 
-MUTATIONS = {"upload", "delete"}
+MUTATIONS = {"upload", "delete", "mkdir"}
 
 
 class FakeStore:
@@ -56,6 +56,11 @@ class FakeStore:
         self.calls.append(("upload", path))
         if not self.lose_uploads:
             self.files[path] = data
+
+    def mkdir(self, ws, lh, path):
+        self.calls.append(("mkdir", path))
+        parts = path.strip("/").split("/")
+        self.folders.update("/".join(parts[:i]) for i in range(1, len(parts) + 1))  # parents too, as OneLake does
 
     def delete(self, ws, lh, path, recursive=True):
         self.calls.append(("delete", (path, recursive)))
@@ -341,6 +346,20 @@ def test_an_encoded_local_name_is_its_own_file(tmp_path, fs):
     (tmp_path / "a b.txt").write_text("spaced")
     fs.mv(f"file:{tmp_path}/a b.txt", f"file:{tmp_path}/a%20b.txt")
     assert (tmp_path / "a%20b.txt").read_text() == "spaced" and not (tmp_path / "a b.txt").exists()
+
+
+def test_mkdirs_creates_a_lakehouse_folder_through_the_guards(store, fs, monkeypatch):
+    assert fs.mkdirs("Files/new/deep") and fs.exists("Files/new/deep") and fs.ls("Files/new/deep") == []
+    assert ("mkdir", "Files/new/deep") in store.calls
+    for bad in ("Tables/x", "Files"):
+        with pytest.raises((PermissionError, ValueError)):
+            fs.mkdirs(bad)
+    store.calls.clear()
+    monkeypatch.setattr(lakehouse, "proof", object())
+    monkeypatch.setattr(lakehouse, "proof_exempt_thread", None)
+    with pytest.raises(PermissionError, match="proof"):
+        fs.mkdirs("Files/during-proof")
+    assert store.mutations() == []
 
 
 def test_the_files_and_tables_roots_exist(store, fs):

@@ -341,7 +341,11 @@ def _make_fs() -> types.SimpleNamespace:
         where, p = _split(path)
         if where == "local":
             Path(p).mkdir(parents=True, exist_ok=True)
-        # OneLake folders appear when a file is written into them.
+            return True
+        # As in Fabric the folder is created now, so exists() and ls() find it before any file is
+        # written into it. The write guard and a proof are asked first, as for every other change.
+        lh = _writable(path, p)
+        _store().mkdir(lh.workspace_id, lh.lakehouse_id, p)
         return True
 
     def append(path: str, content: str, createFileIfNotExists: bool = False) -> bool:  # noqa: N803

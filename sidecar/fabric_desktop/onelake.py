@@ -203,6 +203,15 @@ class FileStore:
             resp = self._http.request(method, url, params=params, data=body, headers=self._headers(), timeout=300)
             resp.raise_for_status()
 
+    def mkdir(self, workspace_id: str, lakehouse_id: str, path: str) -> None:
+        """Create a folder (and any missing parents). One that is already there is left as it is:
+        If-None-Match makes OneLake answer 409 instead of touching it."""
+        url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{item_path(path)}"
+        resp = self._http.request("PUT", url, params={"resource": "directory"},
+                                  headers={**self._headers(), "If-None-Match": "*"}, timeout=60)
+        if resp.status_code != 409:
+            resp.raise_for_status()
+
     def delete(self, workspace_id: str, lakehouse_id: str, path: str, recursive: bool = True) -> None:
         """Delete a file or a whole folder; a missing one is fine. Without ``recursive``, OneLake
         refuses (409) a folder that isn't empty."""

@@ -845,7 +845,7 @@ fn update_engine_code(root: &std::path::Path, nocache: u64, say: &dyn Fn(&str)) 
     if root.join(&commit).exists() {
         return Ok(None);
     }
-    let Some(source) = engine_patch::find_runtime(root, &runtime, BUILD_COMMIT) else { return Ok(None) };
+    let Some(source) = engine_patch::find_runtime(root, &runtime) else { return Ok(None) };
     let state = update_state();
     let seen = update_guard::check_manifest(&release, update_guard::load_seen(&state, tag_used).as_ref(), unix_now())?;
 
@@ -864,10 +864,8 @@ fn update_engine_code(root: &std::path::Path, nocache: u64, say: &dyn Fn(&str)) 
         return Err(e);
     }
 
-    // The engine that isn't this exe's is removed after the install anyway, so it can be moved.
     let staging = root.join(".new");
-    let may_move = source.file_name().is_some_and(|n| n.to_string_lossy() != BUILD_COMMIT);
-    let staged = engine_patch::stage_runtime(&source, &staging, may_move).and_then(|()| {
+    let staged = engine_patch::stage_runtime(&source, &staging).and_then(|()| {
         let mut tar = Command::new(system_tool("tar.exe"));
         tar.arg("-xf").arg(&zip).arg("-C").arg(&staging);
         run_tool(tar, "unpack the engine update")

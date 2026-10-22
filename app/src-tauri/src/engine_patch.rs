@@ -2,7 +2,7 @@
 // (the fabric_desktop package, a few MB), not Python or its packages (about 150 MB). CI names the
 // Python-and-packages part with a key, `runtime`, in each engine's engine.json and in version.json,
 // and publishes the engine's own files on their own as fabric-desktop-engine-update.zip. When an
-// installed engine has the release's runtime, the app copies (or moves) that engine, swaps in the
+// installed engine has the release's runtime, the app copies that engine (hard links where it can), swaps in the
 // update zip's files and checks the result; otherwise, or if anything fails, it downloads the
 // whole engine as before. Only std and serde_json, so the rules are tested without a window.
 
@@ -49,20 +49,15 @@ fn engine_info(dir: &Path) -> Option<Value> {
 }
 
 /// An installed engine with this runtime (the same Python and packages), to build the new one from.
-/// One that isn't `keep` comes first: it is about to be removed anyway, so it can be moved rather
-/// than copied.
-pub fn find_runtime(root: &Path, runtime: &str, keep: &str) -> Option<PathBuf> {
-    let mut found: Vec<PathBuf> = std::fs::read_dir(root)
+pub fn find_runtime(root: &Path, runtime: &str) -> Option<PathBuf> {
+    std::fs::read_dir(root)
         .ok()?
         .flatten()
         .filter(|e| !e.file_name().to_string_lossy().starts_with('.') && e.path().join("python.exe").is_file())
         .map(|e| e.path())
-        .filter(|dir| {
+        .find(|dir| {
             engine_info(dir).is_some_and(|info| info["runtime"].as_str().is_some_and(|r| r.eq_ignore_ascii_case(runtime)))
         })
-        .collect();
-    found.sort_by_key(|dir| dir.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(keep)));
-    found.into_iter().next()
 }
 
 /// Checks the downloaded update zip against the checksum its version.json gives.
@@ -73,7 +68,9 @@ pub fn check_update_zip(actual_sha256: &str, expected_sha256: &str) -> Result<()
     Err("The engine update doesn't match the checksum its release gives.".into())
 }
 
-/// Copies an engine folder, leaving out the engine's own files (the update zip brings them).
+/// Copies an engine folder, leaving out the engine's own files (the update zip brings them). Files
+/// are hard-linked where the disk allows, which is instant and takes no space; Python only ever
+/// replaces files (never writes into them), so the two engines never change each other's.
 fn copy_runtime(src: &Path, dst: &Path, rel: &Path) -> Result<(), String> {
     std::fs::create_dir_all(dst.join(rel)).map_err(|e| format!("Could not copy the engine: {e}"))?;
     for entry in std::fs::read_dir(src.join(rel)).map_err(|e| format!("Could not copy the engine: {e}"))? {
@@ -86,41 +83,19 @@ fn copy_runtime(src: &Path, dst: &Path, rel: &Path) -> Result<(), String> {
         if kind.is_dir() {
             copy_runtime(src, dst, &rel)?;
         } else if kind.is_file() {
-            std::fs::copy(src.join(&rel), dst.join(&rel)).map_err(|e| format!("Could not copy the engine: {e}"))?;
-        }
-    }
-    Ok(())
-}
-
-/// Removes the engine's own files from an engine folder, leaving Python and its packages.
-fn strip_sidecar(dir: &Path) -> Result<(), String> {
-    for parent in [PathBuf::new(), PathBuf::from("Lib").join("site-packages"), PathBuf::from("Lib").join("site-packages").join("bin")] {
-        let Ok(entries) = std::fs::read_dir(dir.join(&parent)) else { continue };
-        for entry in entries.flatten() {
-            let rel = parent.join(entry.file_name());
-            if !sidecar_owned(&rel) {
-                continue;
+            if std::fs::hard_link(src.join(&rel), dst.join(&rel)).is_err() {
+                std::fs::copy(src.join(&rel), dst.join(&rel)).map_err(|e| format!("Could not copy the engine: {e}"))?;
             }
-            let path = dir.join(&rel);
-            let removed = if entry.file_type().is_ok_and(|t| t.is_dir()) {
-                std::fs::remove_dir_all(&path)
-            } else {
-                std::fs::remove_file(&path)
-            };
-            removed.map_err(|e| format!("Could not remove the old engine code: {e}"))?;
         }
     }
     Ok(())
 }
 
 /// Puts Python and the packages of the engine `src` into `staging`, without the engine's own
-/// files. With `may_move` the folder is moved, which is instant; while another program holds its
-/// files open Windows refuses, and it is copied instead.
-pub fn stage_runtime(src: &Path, staging: &Path, may_move: bool) -> Result<(), String> {
+/// files. `src` is never changed: after an exe update it is the engine the app falls back to, so a
+/// failed update (and then a failed full download, offline say) must leave it whole.
+pub fn stage_runtime(src: &Path, staging: &Path) -> Result<(), String> {
     let _ = std::fs::remove_dir_all(staging);
-    if may_move && std::fs::rename(src, staging).is_ok() {
-        return strip_sidecar(staging);
-    }
     copy_runtime(src, staging, Path::new("")).inspect_err(|_| {
         let _ = std::fs::remove_dir_all(staging);
     })
@@ -212,20 +187,18 @@ mod tests {
     }
 
     #[test]
-    fn find_runtime_matches_the_key_and_prefers_a_folder_it_may_move() {
+    fn find_runtime_matches_the_key() {
         let root = temp("find");
-        engine(&root.join("keep"), COMMIT, RUNTIME);
-        engine(&root.join("other"), COMMIT, RUNTIME);
+        engine(&root.join("same"), COMMIT, RUNTIME);
         engine(&root.join("different"), COMMIT, &"d".repeat(64));
         engine(&root.join(".new"), COMMIT, RUNTIME);
-        assert_eq!(find_runtime(&root, RUNTIME, "keep"), Some(root.join("other")));
-        std::fs::remove_dir_all(root.join("other")).unwrap();
-        assert_eq!(find_runtime(&root, &RUNTIME.to_uppercase(), "keep"), Some(root.join("keep")));
-        assert_eq!(find_runtime(&root, &"e".repeat(64), "keep"), None);
+        assert_eq!(find_runtime(&root, RUNTIME), Some(root.join("same")));
+        assert_eq!(find_runtime(&root, &RUNTIME.to_uppercase()), Some(root.join("same")));
+        assert_eq!(find_runtime(&root, &"e".repeat(64)), None);
         // Engines installed before runtimes existed never match.
-        write(&root.join("keep").join("engine.json"), &json!({ "commit": COMMIT }).to_string());
-        assert_eq!(find_runtime(&root, RUNTIME, "keep"), None);
-        assert_eq!(find_runtime(&root.join("missing"), RUNTIME, "keep"), None);
+        write(&root.join("same").join("engine.json"), &json!({ "commit": COMMIT }).to_string());
+        assert_eq!(find_runtime(&root, RUNTIME), None);
+        assert_eq!(find_runtime(&root.join("missing"), RUNTIME), None);
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -249,7 +222,7 @@ mod tests {
         engine(&src, COMMIT, RUNTIME);
         let staging = root.join(".new");
         write(&staging.join("leftover"), "from an earlier attempt");
-        stage_runtime(&src, &staging, false).unwrap();
+        stage_runtime(&src, &staging).unwrap();
         check_staged(&staging);
         assert!(!staging.join("leftover").exists());
         // The source is left whole.
@@ -259,14 +232,24 @@ mod tests {
     }
 
     #[test]
-    fn stage_runtime_moves_when_allowed() {
-        let root = temp("move");
+    fn a_failed_update_leaves_the_source_engine_whole() {
+        let root = temp("fail");
         let src = root.join("old");
         engine(&src, COMMIT, RUNTIME);
         let staging = root.join(".new");
-        stage_runtime(&src, &staging, true).unwrap();
-        check_staged(&staging);
-        assert!(!src.exists());
+        stage_runtime(&src, &staging).unwrap();
+        // Python changes an engine only by replacing files, so the copy's never reach the source.
+        let pyd = staging.join("Lib").join("site-packages").join("pyarrow").join("lib.pyd");
+        std::fs::remove_file(&pyd).unwrap();
+        write(&pyd, "replaced in the copy");
+        // The update zip didn't unpack: the new engine fails its check and staging is removed.
+        assert!(check_patched(&staging, COMMIT, RUNTIME).is_err());
+        std::fs::remove_dir_all(&staging).unwrap();
+        assert!(check_patched(&src, COMMIT, RUNTIME).is_ok());
+        let sp = src.join("Lib").join("site-packages");
+        assert_eq!(std::fs::read_to_string(sp.join("pyarrow").join("lib.pyd")).unwrap(), "pyarrow");
+        assert!(sp.join("fabric_desktop").join("old_module.py").is_file());
+        assert!(sp.join("bin").join("fabric-desktop.exe").is_file());
         let _ = std::fs::remove_dir_all(&root);
     }
 

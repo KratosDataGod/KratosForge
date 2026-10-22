@@ -4309,3 +4309,9 @@ test("the Spark on this PC page says drop and withColumnRenamed skip a missing c
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
   assert.match(doc, /`drop` and `withColumnRenamed` match names ignoring case and skip a column that isn't there/);
 });
+
+// Spark on this PC: dropping every column says why it can't.
+test("the Spark on this PC page says dropping every column is an error", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /Dropping every column is an error here: Spark keeps a frame with no columns/);
+});

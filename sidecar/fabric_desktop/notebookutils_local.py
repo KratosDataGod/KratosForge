@@ -171,12 +171,18 @@ def _make_fs() -> types.SimpleNamespace:
         return [FileInfo(e["name"], e["path"], e["size"], e["is_dir"], _millis(e.get("modified")))
                 for e in _store().list(lh.workspace_id, lh.lakehouse_id, p)]
 
-    def _read(path: str) -> bytes:
+    def _read(path: str, limit: int | None = None) -> bytes:
+        """The file's bytes; with ``limit``, only its first ``limit`` bytes are read."""
         where, p = _split(path)
         if where == "local":
-            return Path(p).read_bytes()
+            if limit is None:
+                return Path(p).read_bytes()
+            with open(p, "rb") as f:
+                return f.read(limit)
         lh = lakehouse._current()
-        data = _store().read_bytes(lh.workspace_id, lh.lakehouse_id, p)
+        store = _store()
+        data = (store.read_bytes(lh.workspace_id, lh.lakehouse_id, p) if limit is None
+                else store.read_bytes(lh.workspace_id, lh.lakehouse_id, p, length=limit))
         if data is None:
             raise FileNotFoundError(path)
         return data
@@ -230,7 +236,10 @@ def _make_fs() -> types.SimpleNamespace:
         return _entry(path) is not None
 
     def head(path: str, maxBytes: int = 65536) -> str:  # noqa: N803
-        return _read(path)[:maxBytes].decode("utf-8", errors="replace")
+        if maxBytes <= 0:
+            return ""
+        # Only the first maxBytes are read, as in Fabric: head of a large file doesn't download it all.
+        return _read(path, limit=maxBytes)[:maxBytes].decode("utf-8", errors="replace")
 
     def put(path: str, content: str, overwrite: bool = False) -> bool:
         _check_writable(path)
@@ -426,6 +435,9 @@ def _activities(dag: Any) -> list[dict[str, Any]]:
     """runMultiple's activities in an order that runs each after its dependencies. Anything the
     PC can't honor (an unknown key, a missing or circular dependency) is an error before any run."""
     if isinstance(dag, (list, tuple)):
+        if len(set(dag)) != len(dag):
+            # Results are keyed by name, so a repeat would keep only its last run's result.
+            raise ValueError("runMultiple: a notebook is listed twice; use a DAG with a unique name for each run.")
         return [{"name": p, "path": p, "args": {}, "dependencies": [], "retry": 0, "retry_interval": 0,
              "cell_timeout": None} for p in dag]
     if not isinstance(dag, dict) or not isinstance(dag.get("activities"), list):

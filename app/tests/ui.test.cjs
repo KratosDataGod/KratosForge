@@ -148,7 +148,8 @@ test("proof rules from the form keep only what was filled in", () => {
   const { proveRulesFrom } = proveHelpers();
   assert.deepStrictEqual(JSON.parse(JSON.stringify(proveRulesFrom({ keys: " id, region ,", ignore: "", abs: "", rel: "1e-6", timestamps: "us" }))),
     { keys: ["id", "region"], rel: 1e-6 });
-  assert.ok(Number.isNaN(proveRulesFrom({ abs: "abc" }).abs), "a bad number goes to the engine, which refuses it");
+  // A bad number reaches the engine, which refuses it; NaN would arrive as null and mean "the default".
+  assert.strictEqual(JSON.parse(JSON.stringify(proveRulesFrom({ abs: "abc" }))).abs, "abc");
 });
 
 test("a scorecard never shows an estimate or a missing number as measured", () => {

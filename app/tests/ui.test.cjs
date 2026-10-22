@@ -4297,3 +4297,9 @@ test("the Spark on this PC page says na functions name a missing column", () => 
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
   assert.match(doc, /`\[UNRESOLVED_COLUMN\]` error instead of skipping it, and `replace` refuses lists of different lengths/);
 });
+
+// Spark on this PC: agg's dict form works after groupBy and pivot.
+test("the Spark on this PC page says agg takes a dict after groupBy and pivot", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`agg` takes Spark's `\{column: function\}` form after `groupBy` and `pivot` too/);
+});

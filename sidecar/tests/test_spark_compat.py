@@ -302,3 +302,16 @@ def test_na_functions_and_describe_refuse_unknown_columns_and_uneven_replace_lis
     assert df.dropna(subset=["V"]).count() == 1 and rows(df.na.fill({"X": 0})) == [(1, None, 1.5), (2, "b", 0.0)]
     assert rows(df.na.fill("z", "V"))[0][1] == "z" and rows(df.na.replace("b", "B", "V"))[1][1] == "B"
     assert df.describe("ID").columns == ["summary", "id"]
+
+
+def test_dict_agg_names_columns_as_spark_and_works_after_group_by_and_pivot(live):
+    from duckdb.experimental.spark.errors import AnalysisException
+    df = live.createDataFrame([(1, "a", 2.0), (1, "b", 4.0), (2, "a", 6.0)], ["id", "v", "x"])
+    assert df.agg({"x": "mean"}).columns == ["avg(x)"] and rows(df.agg({"x": "mean"})) == [(4.0,)]
+    assert df.agg({"*": "count"}).columns == ["count(1)"] and rows(df.agg({"*": "count"})) == [(3,)]
+    assert rows(df.groupBy("id").agg({"x": "sum"}).orderBy("id")) == [(1, 6.0), (2, 6.0)]
+    assert df.groupBy("id").agg({"x": "sum"}).columns == ["id", "sum(x)"]
+    assert df.agg({"ID": "max"}).columns == ["max(id)"]  # Spark resolves names ignoring case
+    assert rows(df.groupBy("id").pivot("v").agg({"x": "sum"}).orderBy("id")) == [(1, 2.0, 4.0), (2, 6.0, None)]
+    with pytest.raises(AnalysisException, match="UNRESOLVED_COLUMN.*`nope`"):
+        df.groupBy("id").agg({"nope": "sum"})

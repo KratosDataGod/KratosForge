@@ -21,7 +21,7 @@ Nothing needs admin rights at run time, and nothing is written to the registry. 
 | **Self-updating** (default) | Leave out `auto_update` | A folder the user can write, such as `%LOCALAPPDATA%\Programs\FabricDesktop` | The app, at each start, from the channel's release |
 | **Managed** | `"auto_update": false` | Anywhere, including `C:\Program Files\FabricDesktop` | You, by deploying a new exe |
 
-A self-updating app replaces its own exe, so it must be in a folder the user can write. In `C:\Program Files` the update fails with "Could not replace" and the app keeps running the old build. Use the managed model there.
+A self-updating app replaces its own exe, so it must be in a folder the user can write. In `C:\Program Files` the update fails with "Could not move ... aside" and the app keeps running the old build. Use the managed model there.
 
 With `"auto_update": false` the startup window says "Your organization rolls out updates", and when a newer build is out it names it, so you can see who is behind.
 
@@ -66,7 +66,7 @@ There is no one-click rollback yet.
 
 | What you see | What to do |
 | --- | --- |
-| "Could not replace ..." | The exe's folder isn't writable. Move the exe to a user folder, or set `"auto_update": false` and deploy builds yourself |
+| "Could not move ... aside" or "Could not put the new build in place" | The exe's folder isn't writable, or something kept the exe locked for more than 15 seconds (OneDrive syncing a Desktop or Documents folder, antivirus). Move the exe to a folder that isn't synced, such as `%LOCALAPPDATA%\Programs\KratosForge`, or set `"auto_update": false` and deploy builds yourself |
 | "The update didn't take" | Download `fabric-desktop.exe` again from the release and replace the file |
 | "The engine download doesn't match the checksum its release gives" | The download was changed or cut short on the way, or a new build was being published. Click **Retry**; if it keeps happening, a proxy may be rewriting downloads ([Security](https://github.com/KratosDataGod/KratosForge/blob/main/docs/security.md)) |
 | Any other startup error | **Settings > Help and about > Report a problem** gives a report to send ([Troubleshooting](troubleshooting.md)) |

@@ -343,9 +343,7 @@ function problemsBody(nb) {
   const blocked = !!plan && !plan.ok;
   if (blocked) {
     const b = plan.blockers[0];
-    body.append(h("div", { class: "prove-note bad" }, b.text.startsWith("uses Spark")
-      ? `A clean run doesn't run Spark cells yet (cell ${b.cell} uses Spark), so this notebook gets code checks only for now.`
-      : `A clean run can't contain cell ${b.cell}: it ${b.text}.`));
+    body.append(h("div", { class: "prove-note bad" }, `A clean run can't contain cell ${b.cell}: it ${b.text}.`));
   }
   body.append(h("div", { class: "row wrap" },
     btn(isRun ? "Validate again" : "Run clean check", "play", () => startCleanRun(nb), "tool primary", { disabled: blocked }),

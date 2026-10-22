@@ -154,3 +154,281 @@ def test_spark_conf_keeps_settings_and_the_time_zone_changes_duckdb():
         spark.conf.unset("spark.sql.session.timeZone")
     assert spark.sql("SELECT current_setting('TimeZone') AS tz").first()[0] == "UTC"
     assert spark.conf.get("spark.sql.session.timeZone") == "UTC"
+
+
+@pytest.fixture
+def live():
+    """The session as it is now: a test above resets it, which closes the module's one."""
+    spark_local._alias_pyspark()
+    return spark_local.session()
+
+
+def test_na_drop_describe_sample_and_unpivot_leave_a_temp_view_called_t_alone(live):
+    live.createDataFrame([(1, "a", 2.5), (2, None, None)], ["id", "v", "x"]).createOrReplaceTempView("t")
+    view = live.table("t")
+    assert view.na.drop().count() == 1
+    assert len(view.describe().collect()) == 5
+    assert view.sample(1.0, 1).count() == 2
+    assert rows(view.unpivot("id", ["x"], "k", "val")) == [(1, "x", 2.5), (2, "x", None)]  # Spark keeps nulls
+    assert live.table("t").count() == 2  # the view still reads its own rows
+
+
+def test_two_na_drop_frames_keep_their_own_rows(live):
+    a = live.createDataFrame([(1, "a"), (2, None)], ["id", "v"]).na.drop()
+    b = live.createDataFrame([(9, "z")], ["id", "v"]).na.drop()
+    assert (rows(a), rows(b)) == ([(1, "a")], [(9, "z")])
+
+
+def test_create_dataframe_reads_a_ddl_schema_string(live):
+    import datetime
+    import decimal
+    df = live.createDataFrame([(1, "x", decimal.Decimal("1.5"), [1, 2], datetime.date(2026, 1, 2))],
+                               "id int, name string, amount decimal(10,2), tags array<int>, day date")
+    assert df.dtypes == [("id", "integer"), ("name", "string"), ("amount", "decimal(10,2)"),
+                         ("tags", "array<integer>"), ("day", "date")]
+    assert live.createDataFrame([(5,)], "n: bigint").dtypes == [("n", "bigint")]
+    assert live.createDataFrame([(5,)], "`my col` long").columns == ["my col"]
+    with pytest.raises(ValueError, match="isn't supported on this PC"):
+        live.createDataFrame([(1,)], "s geometry")
+
+
+def test_ddl_schema_reads_structs_comments_and_not_null(live):
+    df = live.createDataFrame([((1, ["x"]), 5)],
+                              "s STRUCT<a: INT, b: ARRAY<STRING>> COMMENT 'nested, kept', id bigint NOT NULL COMMENT \"key\"")
+    assert df.dtypes == [("s", "struct<a:integer,b:array<string>>"), ("id", "bigint")]
+    assert rows(df) == [({"a": 1, "b": ["x"]}, 5)]
+    assert live.createDataFrame([({"k": (1,)},)], "m map<string, struct<x:int>>").dtypes == [("m", "map<string,struct<x:integer>>")]
+    assert live.createDataFrame([(1, None)], "id int NOT NULL, name string").count() == 1
+    with pytest.raises(ValueError, match="field id: This field is not nullable, but got None"):
+        live.createDataFrame([(1, "a"), (None, "b")], "id int NOT NULL, name string")
+    with pytest.raises(ValueError, match="field s.a: This field is not nullable"):
+        live.createDataFrame([((None, "x"),)], "s struct<a int NOT NULL, b string>")
+
+
+def test_an_empty_struct_says_so_instead_of_duckdbs_error(live):
+    for schema in ("s struct<>", "m map<string, struct< >>", "a array<STRUCT<>>"):
+        with pytest.raises(ValueError, match=r"An empty struct<> isn't supported on this PC"):
+            live.createDataFrame([], schema)
+
+
+def test_a_struct_type_with_a_non_nullable_field_is_checked_too(live):
+    from pyspark.sql.types import IntegerType, StructField, StructType
+    schema = StructType([StructField("id", IntegerType(), False)])
+    with pytest.raises(ValueError, match="not nullable"):
+        live.createDataFrame([{"id": None}], schema)
+
+
+def test_these_frames_leave_no_view_behind(live):
+    def views():
+        return live.conn.execute("SELECT count(*) FROM duckdb_views() WHERE NOT internal").fetchone()[0]
+    before = views()
+    for i in range(50):
+        df = live.createDataFrame([(i, None, 1.5), (i + 1, "b", None)], ["id", "v", "x"])
+        df.dropna().count()
+        df.na.drop(how="all").count()
+        df.describe().count()
+        df.sample(0.5, 7).count()
+        df.unpivot("id", ["x"], "k", "val").count()
+    assert views() == before
+
+
+def test_unpivot_keeps_row_order_and_sample_with_a_seed_repeats(live):
+    df = live.createDataFrame([(1, 10, 11), (2, 20, None)], ["id", "a", "b"])
+    assert rows(df.unpivot("id", ["a", "b"], "k", "v")) == [(1, "a", 10), (1, "b", 11), (2, "a", 20), (2, "b", None)]
+    big = live.range(10000)
+    once, again = rows(big.sample(0.1, 42)), rows(big.sample(0.1, 42))
+    assert once == again and 800 < len(once) < 1200
+    assert big.sample(0.0).count() == 0 and big.sample(1.0, 3).count() == 10000
+
+
+def test_not_null_follows_pyspark_errors_verify_schema_and_arrays_of_structs(live):
+    from duckdb.experimental.spark.errors import PySparkValueError
+    with pytest.raises(PySparkValueError, match=r"^\[FIELD_NOT_NULLABLE_WITH_NAME\] field id: This field is not nullable"):
+        live.createDataFrame([(None,)], "id int NOT NULL")
+    assert live.createDataFrame([(None,)], "id int NOT NULL", verifySchema=False).count() == 1
+    schema = "items array<struct<sku: string NOT NULL, qty int>>"
+    assert live.createDataFrame([([("a", 1), None],)], schema).count() == 1
+    with pytest.raises(PySparkValueError, match=r"field items.element.sku"):
+        live.createDataFrame([([("a", 1), (None, 2)],)], schema)
+    with pytest.raises(PySparkValueError, match=r"field m.value.x"):
+        live.createDataFrame([({"k": (None,)},)], "m map<string, struct<x: int NOT NULL>>")
+
+
+def test_not_null_covers_array_elements_and_map_values_and_skips_schemas_without_one(live, monkeypatch):
+    from duckdb.experimental.spark.errors import PySparkValueError
+    from pyspark.sql.types import ArrayType, IntegerType, MapType, StringType, StructField, StructType
+    tags = StructType([StructField("tags", ArrayType(StringType(), containsNull=False))])
+    assert live.createDataFrame([(["a", "b"],), (None,)], tags).count() == 2  # the array itself may be null
+    with pytest.raises(PySparkValueError, match=r"field tags.element: This field is not nullable"):
+        live.createDataFrame([(["a", None],)], tags)
+    scores = StructType([StructField("m", MapType(StringType(), IntegerType(), valueContainsNull=False))])
+    with pytest.raises(PySparkValueError, match=r"field m.value:"):
+        live.createDataFrame([({"k": None},)], scores)
+    walked = []
+    monkeypatch.setattr(spark_local, "_not_nullable", lambda where: walked.append(where) or ValueError(where))
+    plain = StructType([StructField("id", IntegerType()), StructField("tags", ArrayType(StringType()))])
+    assert not spark_local._refuses_null(plain)
+    assert live.createDataFrame([(None, [None])], plain).count() == 1 and walked == []
+
+
+def test_sample_dropna_and_unpivot_refuse_what_spark_refuses(live):
+    df = live.createDataFrame([(1, None, 1.5), (2, "b", None)], ["id", "v", "x"])
+    for fraction in (1.5, -0.1):
+        with pytest.raises(ValueError, match=r"must be on interval \[0, 1\]"):
+            df.sample(fraction)
+    with pytest.raises(TypeError, match="needs a fraction"):
+        df.sample()
+    assert df.sample(False, 1.0, 3).count() == 2 and df.sample(0.0).count() == 0
+    with pytest.raises(ValueError, match=r"how \('some'\) should be 'any' or 'all'"):
+        df.dropna(how="some")
+    assert df.dropna(how=None).count() == df.dropna(how="all").count() == 2  # PySpark reads None as "all"
+    with pytest.raises(ValueError, match="UNPIVOT_REQUIRES_VALUE_COLUMNS"):
+        df.unpivot("id", [], "k", "val")
+    assert df.unpivot("id", None, "k", "val").count() == 4  # None: every column that isn't an id
+
+
+def test_na_functions_and_describe_refuse_unknown_columns_and_uneven_replace_lists(live):
+    from duckdb.experimental.spark.errors import AnalysisException
+    df = live.createDataFrame([(1, None, 1.5), (2, "b", None)], ["id", "v", "x"])
+    for call in (lambda: df.na.fill({"nope": 1}), lambda: df.na.fill(0, ["nope"]), lambda: df.dropna(subset=["nope"]),
+                 lambda: df.na.replace("b", "B", ["nope"]), lambda: df.describe("nope")):
+        with pytest.raises(AnalysisException, match="UNRESOLVED_COLUMN.*`nope`"):
+            call()
+    with pytest.raises(ValueError, match="should be of the same length. Got 2 and 1"):
+        df.na.replace(["b", "c"], ["B"])
+    assert rows(df.na.replace(["b"], ["B"], "v")) == [(1, None, 1.5), (2, "B", None)]
+    assert rows(df.na.fill(0, "x")) == [(1, None, 1.5), (2, "b", 0.0)] and df.dropna(subset="v").count() == 1
+    # Spark resolves names ignoring case
+    assert df.dropna(subset=["V"]).count() == 1 and rows(df.na.fill({"X": 0})) == [(1, None, 1.5), (2, "b", 0.0)]
+    assert rows(df.na.fill("z", "V"))[0][1] == "z" and rows(df.na.replace("b", "B", "V"))[1][1] == "B"
+    assert df.describe("ID").columns == ["summary", "id"]
+
+
+def test_dict_agg_names_columns_as_spark_and_works_after_group_by_and_pivot(live):
+    from duckdb.experimental.spark.errors import AnalysisException
+    df = live.createDataFrame([(1, "a", 2.0), (1, "b", 4.0), (2, "a", 6.0)], ["id", "v", "x"])
+    assert df.agg({"x": "mean"}).columns == ["avg(x)"] and rows(df.agg({"x": "mean"})) == [(4.0,)]
+    assert df.agg({"*": "count"}).columns == ["count(1)"] and rows(df.agg({"*": "count"})) == [(3,)]
+    assert rows(df.groupBy("id").agg({"x": "sum"}).orderBy("id")) == [(1, 6.0), (2, 6.0)]
+    assert df.groupBy("id").agg({"x": "sum"}).columns == ["id", "sum(x)"]
+    assert df.agg({"ID": "max"}).columns == ["max(id)"]  # Spark resolves names ignoring case
+    assert rows(df.groupBy("id").pivot("v").agg({"x": "sum"}).orderBy("id")) == [(1, 2.0, 4.0), (2, 6.0, None)]
+    with pytest.raises(AnalysisException, match="UNRESOLVED_COLUMN.*`nope`"):
+        df.groupBy("id").agg({"nope": "sum"})
+
+
+def test_drop_rename_and_drop_duplicates_resolve_names_as_spark_does(live):
+    from duckdb.experimental.spark.errors import AnalysisException
+    df = live.createDataFrame([(1, "a"), (1, "a"), (2, "b")], ["id", "v"])
+    assert df.drop("ID").columns == ["v"] and df.drop("nope").columns == ["id", "v"]
+    assert df.drop(df.v).columns == ["id"]
+    assert df.withColumnRenamed("nope", "z").columns == ["id", "v"]  # Spark: a no-op
+    assert df.withColumnRenamed("ID", "key").columns == ["key", "v"]
+    assert df.dropDuplicates(["ID"]).count() == 2 and df.drop_duplicates().count() == 2
+    for call in (lambda: df.dropDuplicates(["nope"]), lambda: df.drop_duplicates(["nope"])):
+        with pytest.raises(AnalysisException, match="UNRESOLVED_COLUMN.*`nope`"):
+            call()
+
+
+def test_dropping_every_column_says_so_instead_of_duckdbs_binder_error(live):
+    df = live.createDataFrame([(1, "a")], ["id", "v"])
+    for call in (lambda: df.drop("id", "V"), lambda: df.drop(*df.columns), lambda: df.drop("id", df.v)):
+        with pytest.raises(ValueError, match=r"drop would leave no columns \(id, v\)"):
+            call()
+    assert df.drop("id", "nope").columns == ["v"]
+
+
+def test_drop_takes_a_column_object_in_any_case(live):
+    import pyspark.sql.functions as F
+    df = live.createDataFrame([(1, "a", 2)], ["id", "v", "x"])
+    assert df.drop(F.col("ID")).columns == ["v", "x"] and df.drop(F.col("`id`")).columns == ["v", "x"]
+    assert df.drop(df["V"], "X").columns == ["id"]
+    assert df.drop(F.col("id") + 1).columns == ["id", "v", "x"]  # not a column: nothing to drop
+    with pytest.raises(ValueError, match="drop would leave no columns"):
+        df.drop(F.col("ID"), F.col("V"), "x")
+
+
+def test_summary_takes_statistics_and_adds_quartiles_as_spark_does(live):
+    df = live.createDataFrame([(1, "a", 2.0), (2, "b", None), (3, "b", 5.0), (4, "c", 1.0)], ["id", "v", "x"])
+    out = rows(df.summary())
+    assert [r[0] for r in out] == ["count", "mean", "stddev", "min", "25%", "50%", "75%", "max"]
+    assert out[4:7] == [("25%", "1", None, "1.0"), ("50%", "2", None, "2.0"), ("75%", "3", None, "5.0")]
+    assert rows(df.summary("count", "count_distinct")) == [("count", "4", "4", "3"), ("count_distinct", "4", "3", "3")]
+    with pytest.raises(ValueError, match="id is not a recognised statistic"):
+        df.summary("id")  # summary takes statistics; describe takes columns
+    assert len(df.select("x").summary("min").columns) == 2
+
+
+def test_substring_counts_position_zero_as_one_and_concat_is_null_with_a_null(live):
+    import pyspark.sql.functions as F
+    df = live.createDataFrame([("hello", "a", None, 0)], "s string, a string, n string, p int")
+    out = df.select(F.substring("s", 0, 2), F.substring("s", -3, 2), F.concat("a", "n"), F.concat("a", "s"))
+    assert rows(out) == [("he", "ll", None, "ahello")]
+    assert out.columns == ["substring(s, 0, 2)", "substring(s, -3, 2)", "concat(a, n)", "concat(a, s)"]
+    assert rows(df.selectExpr("substring(s, 0, 2)", "substr(s, p, 3)", "concat(a, n)")) == [("he", "hel", None)]
+    assert rows(df.select(F.expr("substring(s, 0, 3)"))) == [("hel",)]
+    assert rows(live.sql("SELECT substring('hello', 0, 2) a, substr('hello', -3) b")) == [("he", "llo")]
+    arrays = live.createDataFrame([([1, 2], [3], None)], "a array<int>, b array<int>, c array<int>")
+    assert rows(arrays.select(F.concat("a", "b"), F.concat("a", "c"))) == [([1, 2, 3], None)]
+
+
+def test_initcap_lowers_the_rest_and_concat_names_a_literal_by_its_text(live):
+    import pyspark.sql.functions as F
+    df = live.createDataFrame([("hELLO wORLD-x y_z", "a")], ["s", "a"])
+    out = df.select(F.initcap("s"), F.concat("a", F.lit("!")), F.concat(F.lit("it's"), "a"))
+    assert rows(out) == [("Hello World-x Y_z", "a!", "it'sa")]
+    assert out.columns == ["initcap(s)", "concat(a, !)", "concat(it's, a)"]
+
+
+def test_unix_timestamp_takes_dates_and_timestamps_and_reads_the_session_time_zone(live):
+    import datetime as dt
+    import pyspark.sql.functions as F
+    df = live.createDataFrame([(dt.date(2024, 3, 10), dt.datetime(2024, 3, 10, 13, 5, 7), "10/03/2024", "junk")],
+                              ["d", "ts", "e", "j"])
+    out = df.select(F.unix_timestamp("d"), F.unix_timestamp("ts"), F.unix_timestamp("e", "dd/MM/yyyy"), F.unix_timestamp("j"))
+    assert rows(out) == [(1710028800, 1710075907, 1710028800, None)]
+    assert out.columns[1] == "unix_timestamp(ts, yyyy-MM-dd HH:mm:ss)"
+    assert rows(df.selectExpr("unix_timestamp(ts)", "to_unix_timestamp(ts)")) == [(1710075907, 1710075907)]
+    query = "SELECT unix_timestamp(timestamp'2024-03-10 13:05:07') a, unix_timestamp('2024-03-10 13:05:07') b"
+    assert rows(live.sql(query)) == [(1710075907, 1710075907)]
+    live.conf.set("spark.sql.session.timeZone", "America/New_York")
+    try:
+        assert rows(live.sql(query)) == [(1710090307, 1710090307)]  # 13:05:07 EDT
+    finally:
+        live.conf.set("spark.sql.session.timeZone", "UTC")
+
+
+def test_unix_timestamp_reads_fractions_and_quoted_text_and_refuses_what_it_cant_read(live):
+    import pyspark.sql.functions as F
+    df = live.createDataFrame([("2024-03-10 13:05:07.250", "2024-03-10T13:05:07", "Mar 10, 2024")], ["a", "b", "c"])
+    out = df.select(F.unix_timestamp("a", "yyyy-MM-dd HH:mm:ss.SSS"), F.unix_timestamp("b", "yyyy-MM-dd'T'HH:mm:ss"),
+                    F.unix_timestamp("c", "MMM d, yyyy"))
+    assert rows(out) == [(1710075907, 1710075907, 1710028800)]
+    assert rows(live.sql("SELECT unix_timestamp('2024-03-10 13:05:07.250', 'yyyy-MM-dd HH:mm:ss.SSS')")) == [(1710075907,)]
+    with pytest.raises(ValueError, match="can't read part of its format"):
+        df.select(F.unix_timestamp("a", "yyyy-MM-dd Q"))
+
+
+def test_unix_timestamp_reads_quoted_letters_and_dates_a_time_only_pattern_to_1970(live):
+    import pyspark.sql.functions as F
+    df = live.createDataFrame([("2024-03-10T13:05:07.250Z", "1:05 PM", "at 13", "03-10", "it's 13")],
+                              ["iso", "t", "at", "md", "q"])
+    out = df.select(F.unix_timestamp("iso", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"), F.unix_timestamp("t", "h:mm a"),
+                    F.unix_timestamp("at", "'at' HH"), F.unix_timestamp("md", "MM-dd"), F.unix_timestamp("q", "'it''s' HH"))
+    assert rows(out) == [(1710075907, 47100, 46800, 5875200, 46800)]  # no year: 1970-01-01, as in Spark
+
+
+def test_group_by_nothing_aggregates_the_frame_and_first_last_skip_nulls(live):
+    import pyspark.sql.functions as F
+    from pyspark.sql import Window
+    df = live.createDataFrame([(1, None, 1), (1, "a", 2), (2, "b", 3), (2, None, 4)], ["k", "v", "o"])
+    assert rows(df.groupBy().agg(F.sum("k"), F.max("o"))) == [(6, 4)] and rows(df.groupBy().agg({"k": "sum"})) == [(6,)]
+    out = df.groupBy("k").agg(F.first("v", True), F.last("v", ignorenulls=True)).orderBy("k")
+    assert rows(out) == [(1, "a", "a"), (2, "b", "b")] and out.columns == ["k", "first(v)", "last(v)"]
+    window = Window.partitionBy("k").orderBy("o")
+    assert rows(df.select("o", F.last("v", True).over(window)).orderBy("o")) == [(1, None), (2, "a"), (3, "b"), (4, "b")]
+    query = ("SELECT k, last(v, true) l, first(v) IGNORE NULLS f, last_value(v, true) lv "
+             "FROM VALUES (1, 'a'), (1, NULL) t(k, v) GROUP BY k")
+    assert rows(live.sql(query)) == [(1, "a", "a", "a")]
+    query = ("SELECT o, last(v, true) OVER (ORDER BY o) l FROM VALUES (1, NULL), (2, 'a'), (3, NULL) t(o, v) ORDER BY o")
+    assert rows(live.sql(query)) == [(1, None), (2, "a"), (3, "a")]

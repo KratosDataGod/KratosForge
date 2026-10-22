@@ -19,18 +19,21 @@ WATCH_SECONDS, so a sudden spike can go past the limit before it's seen.
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import itertools
 import json
 import os
+import re
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
 
-from . import lakehouse
+from . import lakehouse, notebook
 from .frames import GONE, FrameGone
 
 DOWNLOAD_SECONDS = 1800.0  # writing a whole result to Downloads, or a first page of a large query
@@ -52,19 +55,45 @@ EXTERNAL_ENV_ALLOW = (
     "SYSTEMROOT",    # Windows: Python's sockets, random numbers and DLL loading fail without it
     "WINDIR",        # Windows: same folder as SYSTEMROOT; some native libraries read this name
     "COMSPEC",       # Windows: the shell for subprocess(shell=True) and os.system
+    # Windows: platform.machine() falls back to these when its WMI query fails (as it can on a busy
+    # PC); without them it is "" and Polars' CPU check refuses to import ("unknown feature flag").
+    "PROCESSOR_ARCHITECTURE", "PROCESSOR_ARCHITEW6432", "PROCESSOR_IDENTIFIER", "NUMBER_OF_PROCESSORS",
     "TEMP", "TMP",   # tempfile, DuckDB and Arrow spill files; otherwise they fall back to the current folder
     "TMPDIR",        # the same on Linux and macOS
     "USERPROFILE",   # Windows: the home folder (Path.home(), "~"); DuckDB keeps its extensions there
     "HOME",          # the same on Linux and macOS
     "LANG", "LANGUAGE", "LC_ALL",  # locale: text encoding and formatting; LC_* below
     # Networks that set their proxy or TLS-inspection certificate only here: without them OneLake
-    # reads fail. A proxy address can carry the proxy's own password; that is the network's, not Fabric's.
+    # reads fail. A user name and password in a proxy address are removed (_without_credentials).
     "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
     "REQUESTS_CA_BUNDLE", "SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE",
 )
 EXTERNAL_ENV_PREFIXES = ("LC_",)
 # Set by the engine itself, never copied from its environment (the library paths at each start).
 EXTERNAL_ENV_SET = ("PYTHONUNBUFFERED", "PYTHONPATH", "FABRIC_DESKTOP_LIBRARY_PATHS")
+_PROXY_ENV = {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"}
+_PROXY_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://")
+_HOST_PORT = re.compile(r"(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(:\d+)?")
+
+
+def _without_credentials(proxy: str) -> str:
+    """``http://user:secret@proxy:8080`` as ``http://proxy:8080``: the tool's code gets the proxy's
+    address but not the password for it. A proxy that needs one refuses the tool's requests.
+
+    The user name and password end at the last "@" before the host. A password may hold an
+    unencoded "/" (``u:pa/ss@proxy``), so an "@" after a "/" counts as part of the path only
+    when what comes before that "/" is already a host and port (``proxy:8080/path@x``)."""
+    proxy = proxy.strip()
+    scheme = m.group(0) if (m := _PROXY_SCHEME.match(proxy)) else ""
+    rest = proxy[len(scheme):]
+    if "@" not in rest:
+        return proxy
+    head = rest.split("/", 1)[0]
+    if "@" in head:
+        return scheme + head.rpartition("@")[2] + rest[len(head):]
+    if _HOST_PORT.fullmatch(head):
+        return proxy  # the "@" is in the path
+    return scheme + rest.rpartition("@")[2]
 
 
 def external_environment(parent: dict[str, str] | None = None) -> dict[str, str]:
@@ -73,6 +102,8 @@ def external_environment(parent: dict[str, str] | None = None) -> dict[str, str]
     parent = dict(os.environ if parent is None else parent)
     allow = {name.upper() for name in EXTERNAL_ENV_ALLOW}
     env = {k: v for k, v in parent.items() if k.upper() in allow or k.upper().startswith(EXTERNAL_ENV_PREFIXES)}
+    for name in [k for k in env if k.upper() in _PROXY_ENV]:
+        env[name] = _without_credentials(env[name])
     # The kernel imports the engine's own code from where this engine runs it (a source checkout in
     # development; the embeddable Python's own ._pth ignores PYTHONPATH in release builds).
     env["PYTHONPATH"] = str(Path(__file__).resolve().parent.parent)
@@ -123,6 +154,7 @@ class ProcessKernel:
         self._interrupted_at: float | None = None
         self.limit_hit = ""  # "time" or "memory" when a limit stopped the last cell
         self.library_paths: list[str] = []  # a notebook environment's folders, after the engine's (environments.py)
+        self.output_dir: Path | None = None  # where the process puts output past the cap (notebook.SPILL_DIR_ENV)
 
     # ---- the process
 
@@ -131,11 +163,16 @@ class ProcessKernel:
             if self._proc is not None and self._proc.poll() is None:
                 return self._proc
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            self._clear_output_dir()  # a process that crashed or hit a limit left its files
+            if self.output_dir is None:
+                with contextlib.suppress(OSError):
+                    self.output_dir = Path(tempfile.mkdtemp(prefix=notebook.SPILL_DIR_PREFIX))
+            extra = {notebook.SPILL_DIR_ENV: str(self.output_dir)} if self.output_dir else {}
             proc = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=None,
                                     text=True, encoding="utf-8", bufsize=1, creationflags=flags,
                                     start_new_session=sys.platform != "win32",
                                     env=dict(self.env(),
-                                             FABRIC_DESKTOP_LIBRARY_PATHS=os.pathsep.join(self.library_paths)))
+                                             FABRIC_DESKTOP_LIBRARY_PATHS=os.pathsep.join(self.library_paths), **extra))
             if self._tree is not None:
                 self._tree.release()  # processes a crashed kernel left behind
             self._tree = _Tree(proc)
@@ -374,7 +411,12 @@ class ProcessKernel:
         deadline = time.monotonic() + 5
         while self._proc is proc and time.monotonic() < deadline:  # the reader marks it gone
             time.sleep(0.02)
+        self._clear_output_dir()
         return {"stopped": True}
+
+    def _clear_output_dir(self) -> None:
+        if self.output_dir is not None:
+            notebook.clear_spill_dir(self.output_dir)
 
     def restart(self) -> None:
         """A fresh process, so a restart also gives back the memory the notebook used."""
@@ -487,6 +529,11 @@ class ProcessKernel:
     def close(self) -> None:
         if self._proc is not None and self._proc.poll() is None:
             self.stop()
+        if self.output_dir is not None:
+            self._clear_output_dir()
+            with contextlib.suppress(OSError):
+                self.output_dir.rmdir()
+            self.output_dir = None
 
 
 class _Tree:

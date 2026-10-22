@@ -1,6 +1,9 @@
 """Line magics and SQL results in notebook cells (magics.py and the kernel)."""
 
 import json
+import re
+
+import pytest
 
 from fabric_desktop import depgraph, envprofile, magics, proof
 from fabric_desktop.fabric_run import compute_check, fabric_ipynb, fabric_sql_magics
@@ -371,7 +374,8 @@ def test_small_ipython_magics():
     k = Kernel()
     assert "%%capture" in k.run("%lsmagic")["outputs"][0]["text"]
     assert k.run("%matplotlib inline")["status"] == "ok"
-    assert "skipped" in k.run("%load_ext autoreload")["outputs"][0]["text"]
+    assert "skipped" in k.run("%load_ext sql")["outputs"][0]["text"]
+    assert k.run("%load_ext autoreload")["outputs"] == []  # autoreload works (test_notebook_autoreload)
     k.run("%env KF_TEST_VALUE=abc")
     assert k.run("%env KF_TEST_VALUE")["outputs"] == [{"type": "text", "text": "'abc'"}]
     k.run("%env KF_TEST_TOKEN=s3cret")
@@ -478,3 +482,73 @@ def test_tsql_cell_is_checked_and_listed_as_fabric_only():
     assert reasons[0]["text"].startswith("runs T-SQL")
     assert depgraph.analyze("%%tsql -artifact WH\nSELECT 1")["parsed"]
     assert envprofile.imports("%%tsql\nSELECT 1")["modules"] == []
+
+
+def test_a_backslash_ending_a_comment_doesnt_swallow_the_next_magic():
+    code = "# the files are in C:\\temp\\\n%who\nx = 1 + \\\n%who"
+    assert [(m.line, m.name) for m in magics.find(code)] == [(2, "who")]  # line 4 continues x = 1 + ...
+    out = Kernel().run("# the files are in C:\\temp\\\n!echo hi")
+    assert out["status"] == "ok" and "hi" in "".join(o.get("text", "") for o in out["outputs"])
+
+
+def test_returns_rows_skips_block_comments_and_quoted_semicolons():
+    assert magics.returns_rows("/* daily load */ SELECT 1")
+    assert magics.returns_rows("-- a\n/* b;\nc */\nSELECT 1;\r\n")
+    assert magics.returns_rows("SELECT ';\n-- not a comment' AS x")
+    assert magics.returns_rows("SELECT 1 AS `a;b`")
+    assert not magics.returns_rows("SELECT 1; -- then\nDROP TABLE t")
+    assert not magics.returns_rows("/* only a comment */")
+    k = Kernel()
+    _view(k)
+    k.run("%%sql\n/* header */\nSELECT id FROM t")
+    assert k.run("_sqldf.count()")["outputs"] == [{"type": "text", "text": "3"}]
+    cells = [{"type": "code", "source": "%%sql\n/* header */ SELECT * FROM sales"},
+             {"type": "code", "source": "_sqldf.show()"}]
+    assert fabric_sql_magics(cells, spark=True)[0]["source"].startswith("_sqldf = spark.sql(")
+
+
+def test_timeit_refuses_options_it_cant_honour_and_who_filters_by_type():
+    k = Kernel()
+    k.run("a = 1\nb = 'x'\nc = [1]")
+    for code, message in (("%timeit -n0 1", "1 or more"), ("%timeit -r 0 1", "1 or more"),
+                          ("%timeit -o 1 + 1", "-o isn't supported"), ("%%timeit -n1 -q\n1", "-q isn't supported")):
+        out = k.run(code)
+        assert out["status"] == "error" and message in out["outputs"][-1]["evalue"], code
+    assert "per loop" in k.run("%timeit -n 2 -r 2 -1")["outputs"][0]["text"]  # -1 is code, not an option
+    assert k.run("%who str")["outputs"][0]["text"].split() == ["b"]
+    assert k.run("%who int list")["outputs"][0]["text"].split() == ["a", "c"]
+    assert k.run("%who")["outputs"][0]["text"].split() == ["a", "b", "c"]
+
+
+def test_writefile_and_run_refuse_what_they_would_drop(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    k = Kernel()
+    out = k.run("%%writefile my helpers.py\nx = 1")
+    assert out["status"] == "error" and 'quote a name with spaces, like: %%writefile "my helpers.py"' in out["outputs"][0]["evalue"]
+    assert not (tmp_path / "my").exists()
+    assert "-x isn't supported" in k.run("%%writefile -x a.py\nx = 1")["outputs"][0]["evalue"]
+    assert k.run('%%writefile "my helpers.py"\nx = 1')["status"] == "ok" and (tmp_path / "my helpers.py").exists()
+    from fabric_desktop.notebook import _run_target
+    assert _run_target('./Load $a=1 $b="x y"') == ("Load", {"a": "1", "b": "x y"})
+    for line, left in (("Load $a=1 $full", "$full"), ("Load $a=1 junk", "junk")):
+        with pytest.raises(ValueError, match=re.escape(repr(left))):
+            _run_target(line)
+
+
+def test_env_says_when_it_cant_set_a_name_and_reads_windows_style_names(monkeypatch):
+    monkeypatch.setenv("ProgramFiles(x86)", r"C:\Program Files (x86)")
+    k = Kernel()
+    for line, name in (("%env 1BAD=x", "1BAD"), ("%env =x", "a variable with no name"), ("%env 1BAD x", "1BAD")):
+        out = k.run(line)
+        assert out["status"] == "error" and f"%env can't set {name}" in out["outputs"][0]["evalue"]
+    assert k.run("%env ProgramFiles(x86)")["outputs"] == [{"type": "text", "text": repr(r"C:\Program Files (x86)")}]
+
+
+def test_a_cte_that_writes_isnt_a_query():
+    assert not magics.returns_rows("WITH x AS (SELECT 1 AS id) INSERT INTO t SELECT * FROM x")
+    assert not magics.returns_rows("with x as (select 1) merge into t using x on true when matched then delete")
+    assert magics.returns_rows("WITH a(c) AS (SELECT 'insert'), b AS (SELECT 2) SELECT * FROM a")
+    assert magics.returns_rows("EXPLAIN INSERT INTO t SELECT 1")  # the plan is rows
+    cells = [{"type": "code", "source": "%%sql\nWITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x"},
+             {"type": "code", "source": "_sqldf.show()"}]
+    assert fabric_sql_magics(cells, spark=True)[0]["source"].startswith("%%sql")

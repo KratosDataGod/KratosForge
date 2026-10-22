@@ -20,6 +20,7 @@ from __future__ import annotations
 import datetime as dt
 import decimal
 import logging
+import math
 import os
 import random
 import threading
@@ -72,8 +73,66 @@ def full_table(value: Any) -> pa.Table:
     if module.startswith("duckdb"):
         return (getattr(value, "to_arrow_table", None) or value.arrow)()
     if module.startswith("pandas"):
-        return pa.Table.from_pandas(value, preserve_index=False)
+        return pandas_table(value)
     raise TypeError(f"{type(value).__name__} isn't a table.")
+
+
+def pandas_plan(df: Any) -> tuple[list[str] | None, list[str] | None]:
+    """How a pandas frame shows as a table: (names for its index columns, or None to leave the index
+    out; flat column names, or None to keep them).
+
+    A named index (a groupby or set_index result) is data and shows as leading columns, as Jupyter
+    shows it; an unnamed one is row numbers and is left out. An index name that a column already has
+    gets "_index" added, so both show. Multi-level columns (``agg({'v': ['sum', 'max']})``) join their
+    levels with "_" (``v_sum``). A repeated column name gets "_2", "_3" so every column shows."""
+    multi = getattr(df.columns, "nlevels", 1) > 1
+    names = ["_".join(str(p) for p in c if str(p) != "") if multi else str(c) for c in df.columns]
+    seen: set[str] = set()
+    flat = []
+    for base in names:  # a repeated name (columns=["x", "x"], or joined levels that meet) gets _2, _3
+        name, k = base, 2
+        while name in seen:
+            name, k = f"{base}_{k}", k + 1
+        seen.add(name)
+        flat.append(name)
+    cols = flat if multi or flat != names else None
+    levels = list(getattr(df.index, "names", []) or [])
+    if not any(n is not None for n in levels):
+        return None, cols
+    taken = set(flat)
+    index = []
+    for i, n in enumerate(levels):
+        base = str(n) if n is not None else f"level_{i}"
+        name, k = base, 1
+        while name in taken:
+            name = f"{base}_index" if k == 1 else f"{base}_index_{k}"
+            k += 1
+        taken.add(name)
+        index.append(name)
+    return index, cols
+
+
+def pandas_frame(df: Any) -> Any:
+    """``df`` as ``pandas_plan`` shows it."""
+    index, cols = pandas_plan(df)
+    if cols is not None:
+        df = df.set_axis(cols, axis=1)
+    return df.reset_index(names=index) if index is not None else df
+
+
+def pandas_reader(df: Any, name: str) -> str:
+    """The pandas code that turns the variable ``name`` into what ``pandas_frame`` gives."""
+    index, cols = pandas_plan(df)
+    code = name
+    if cols is not None:
+        code += f".set_axis({cols!r}, axis=1)"
+    if index is not None:
+        code += f".reset_index(names={index!r})"
+    return code
+
+
+def pandas_table(df: Any) -> pa.Table:
+    return pa.Table.from_pandas(pandas_frame(df), preserve_index=False)
 
 
 def type_name(t: pa.DataType) -> str:
@@ -139,8 +198,11 @@ def _rows(result: Any) -> list[list[Any]]:
 
 
 def _cell(value: Any) -> Any:
-    if value is None or isinstance(value, (bool, int, float, str)):
+    """A result cell: JSON (and the shell) has no NaN or infinity, so those show as text."""
+    if value is None or isinstance(value, (bool, int, str)):
         return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else str(value)
     return str(value)
 
 

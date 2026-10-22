@@ -197,3 +197,58 @@ def test_read_schema_is_applied_or_refused(tmp_path):
     assert out["status"] == "error" and "cast the columns after reading" in str(out["outputs"])
     out = k.run(f"spark.read.schema('id INT').csv({str(data)!r})")
     assert out["status"] == "error" and "StructType" in str(out["outputs"])
+
+
+def test_a_table_written_in_one_cell_is_read_as_it_is_now_in_the_next(lake):
+    # spark kept each table as it was when first read, so a later read missed the session's own writes.
+    k = Kernel()
+    count = lambda: k.run("print(spark.table('dbo.sales').count(), spark.sql('SELECT count(*) FROM dbo.sales').first()[0])")
+    assert count()["outputs"][-1]["text"].split() == ["3", "3"]
+    assert k.run("spark.createDataFrame([(9, 'EU')], ['id', 'region']).write.mode('append').saveAsTable('dbo.sales')")["status"] == "ok"
+    assert count()["outputs"][-1]["text"].split() == ["4", "4"]
+    # INSERT ... VALUES writes through the lakehouse too, rather than failing on the registered table.
+    out = k.run("spark.sql(\"INSERT INTO dbo.sales VALUES (10, 'US'), (11, 'EU')\")")
+    assert out["status"] == "ok", out
+    assert count()["outputs"][-1]["text"].split() == ["6", "6"]
+    assert [r["id"] for r in rows(lake)] == [1, 2, 3, 9, 10, 11]
+    # Time travel still reads the version asked for.
+    out = k.run("print(spark.sql('SELECT count(*) FROM dbo.sales VERSION AS OF 0').first()[0])")
+    assert out["outputs"][-1]["text"].strip() == "3", out
+
+
+def test_older_versions_views_are_dropped_unless_a_dataframe_still_reads_them(lake):
+    # Each new version of a table registered another view on the session's connection, and none were dropped.
+    k = Kernel()
+    views = "len(spark._views)"
+    last = lambda out: out["outputs"][-1]["text"].strip().splitlines()[-1].split()
+    out = k.run("before = spark.table('dbo.sales')\nbefore.createOrReplaceTempView('old')\n"
+                "for i in range(5):\n"
+                "    spark.createDataFrame([(100 + i, 'EU')], ['id', 'region']).write.mode('append').saveAsTable('dbo.sales')\n"
+                "    n = spark.table('dbo.sales').count()\n"
+                f"print(n, before.count(), spark.table('old').count(), {views})")
+    assert out["status"] == "ok", out
+    # 8 rows now; `before` and the temp view still read the version they were made from, so its view
+    # stays, with the newest one; the four in between are dropped.
+    assert last(out) == ["8", "3", "3", "2"]
+    out = k.run("del before\nimport gc; gc.collect()\nspark.sql('DROP VIEW old')\n"
+                "spark.createDataFrame([(200, 'US')], ['id', 'region']).write.mode('append').saveAsTable('dbo.sales')\n"
+                f"print(spark.table('dbo.sales').count(), {views})")
+    assert last(out) == ["9", "1"], out
+
+
+def test_drop_and_truncate_of_a_lakehouse_table_stop_with_a_clear_message(lake):
+    k = Kernel()
+    out = k.run("spark.sql('DROP TABLE dbo.sales')")
+    assert out["status"] == "error" and "DROP TABLE removes dbo.sales from the lakehouse, which runs in Fabric" in str(out), out
+    out = k.run("spark.sql('TRUNCATE TABLE sales')")
+    assert out["status"] == "error" and "TRUNCATE TABLE empties sales in place, which runs in Fabric" in str(out), out
+    assert len(rows(lake)) == 3
+    # DROP TABLE IF EXISTS of a table that isn't there changes nothing, and a temp view is still dropped.
+    assert k.run("spark.sql('DROP TABLE IF EXISTS dbo.not_there')")["status"] == "ok"
+    out = k.run("spark.range(2).createOrReplaceTempView('tmp')\nspark.sql('DROP TABLE tmp')\n"
+                "print(spark.catalog.tableExists('tmp'))")
+    assert out["status"] == "ok" and out["outputs"][-1]["text"].strip() == "False", out
+    # The way round the message works: overwrite with no rows.
+    out = k.run("spark.table('dbo.sales').limit(0).write.mode('overwrite').saveAsTable('dbo.sales')\n"
+                "print(spark.table('dbo.sales').count())")
+    assert out["outputs"][-1]["text"].strip().splitlines()[-1] == "0", out

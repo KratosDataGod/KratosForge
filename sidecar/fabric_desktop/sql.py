@@ -9,6 +9,7 @@ is ``lakehouse.write_table``.
 
 from __future__ import annotations
 
+import itertools
 import re
 from typing import Any, Callable, Iterator
 
@@ -19,6 +20,9 @@ from sqlglot import exp
 from sqlglot.errors import ParseError
 
 from . import lakehouse, sql_dialects
+
+# View names stay unique on a connection even after superseded ones are dropped (superseded).
+_VIEW_NAMES = itertools.count()
 
 
 def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
@@ -32,7 +36,7 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
     try:
         statements = sqlglot.parse(query, read=chosen["sqlglot"])
         if chosen["id"] == "spark":
-            statements = [_spark_dates(s) for s in statements if s is not None]
+            statements = [spark_substring(_spark_dates(s)) for s in statements if s is not None]
     except ParseError as first_error:
         if chosen["id"] != "spark":
             raise ValueError(f"Could not read the query: {first_error}") from None
@@ -67,6 +71,86 @@ def _spark_dates(statement: exp.Expression) -> exp.Expression:
     return statement
 
 
+_TIME_TYPES = "'DATE', 'TIMESTAMP', 'TIMESTAMP WITH TIME ZONE', 'TIMESTAMP_S', 'TIMESTAMP_MS', 'TIMESTAMP_NS'"
+
+
+def _strptime_format(node: exp.Expression) -> tuple[str, bool]:
+    """The DuckDB strptime format, as SQL, for a Spark datetime pattern sqlglot has read into ``node``,
+    and whether the pattern has a year. S, SS and SSS (fractions of a second) become %g, and quoted
+    text ('T', 'Z') stays literal; anything else sqlglot leaves untranslated is refused, since
+    strptime would quietly match nothing."""
+    from sqlglot.dialects.duckdb import DuckDB
+    from sqlglot.dialects.spark import Spark
+    # sqlglot has already turned pattern letters into its own %-codes, inside quotes too: turn
+    # those back into the letters they came from (the shortest spelling of each).
+    letters: dict[str, str] = {}
+    for spark, code in sorted(Spark.TIME_MAPPING.items(), key=lambda kv: -len(kv[0])):
+        letters[code] = spark
+    codes = re.compile("|".join(re.escape(c) for c in sorted(letters, key=len, reverse=True)))
+    generator = DuckDB().generator()
+    out = []
+    for i, piece in enumerate(re.split(r"('(?:[^']|'')*')", node.args["format"].name)):
+        if i % 2:  # 'quoted text', as Spark writes a literal ('' is a quote)
+            text = "'" if piece == "''" else codes.sub(lambda m: letters[m.group()], piece[1:-1]).replace("''", "'")
+            out.append(text.replace("%", "%%"))
+            continue
+        piece = generator.format_time(exp.StrToUnix(format=exp.Literal.string(piece))) or "''"
+        piece = re.sub(r"(?<![%S])S{1,3}(?!S)", "%g", sqlglot.parse_one(piece, read="duckdb").name)
+        if re.search(r"[A-Za-z']", re.sub(r"%-?[A-Za-z%]", "", piece)):
+            raise ValueError(f"unix_timestamp can't read part of its format ({piece}) on this PC. Use pattern "
+                             "letters such as yyyy, MM, dd, HH, mm, ss and SSS.")
+        out.append(piece)
+    fmt = "".join(out)
+    return exp.Literal.string(fmt).sql("duckdb"), bool(re.search(r"%-?[Yy]", fmt.replace("%%", "")))
+
+
+def spark_substring(node: exp.Expression) -> exp.Expression:
+    """Spark's substring counts position 0 as 1 (substring('hello', 0, 2) is 'he'); DuckDB starts
+    before the first character and returns 'h'.
+
+    unix_timestamp also takes a date or timestamp (DuckDB's strptime takes only text), reads its
+    value in the session time zone, is NULL for text that doesn't match the format, and is a whole
+    number of seconds, as in Spark.
+
+    first(x, true) and last(x, true) skip NULLs as aggregates too (DuckDB takes IGNORE NULLS only
+    in a window)."""
+    for ignore in list(node.find_all(exp.IgnoreNulls)):
+        agg = ignore.this
+        if not isinstance(agg, (exp.First, exp.Last, exp.FirstValue, exp.LastValue)):
+            continue
+        name = "first" if isinstance(agg, (exp.First, exp.FirstValue)) else "last"
+        value = agg.this.sql("duckdb")
+        if isinstance(ignore.parent, exp.Window):  # sqlglot drops the IGNORE NULLS DuckDB's windows take
+            window = ignore.parent.copy()
+            window.set("this", exp.column("__fd_ignoring__"))
+            text = window.sql("duckdb").replace("__fd_ignoring__", f"{name}_value({value} IGNORE NULLS)", 1)
+            target = ignore.parent
+        else:
+            text, target = f"{name}({value}) FILTER (WHERE {value} IS NOT NULL)", ignore
+        swapped = target.replace(sqlglot.parse_one(text, read="duckdb"))
+        node = swapped if target is node else node
+    for unix in list(node.find_all(exp.StrToUnix)):
+        value = unix.this.sql("duckdb")
+        fmt, has_year = _strptime_format(unix) if unix.args.get("format") else ("'%Y-%m-%d %H:%M:%S'", True)
+        # Without a year Spark reads the date as 1970-01-01; strptime starts from 1900-01-01.
+        parsed = f"try_strptime(CAST({value} AS VARCHAR), {fmt})" + ("" if has_year else " + INTERVAL 70 YEAR")
+        swapped = unix.replace(sqlglot.parse_one(
+            f"CAST(floor(epoch(CASE WHEN typeof({value}) IN ({_TIME_TYPES}) THEN TRY_CAST({value} AS TIMESTAMPTZ) "
+            f"ELSE CAST({parsed} AS TIMESTAMPTZ) END)) AS BIGINT)", read="duckdb"))
+        node = swapped if unix is node else node
+    for sub in list(node.find_all(exp.Substring)):
+        start = sub.args.get("start")
+        if start is None:
+            continue
+        if isinstance(start, exp.Literal) and not start.is_string:
+            if start.this == "0":
+                sub.set("start", exp.Literal.number(1))
+        elif not isinstance(start, (exp.Literal, exp.Neg)):  # -3 counts from the end in both
+            sub.set("start", exp.Case(ifs=[exp.If(this=exp.EQ(this=start.copy(), expression=exp.Literal.number(0)),
+                                                  true=exp.Literal.number(1))], default=start.copy()))
+    return node
+
+
 def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views: dict[str, str],
                 is_local: Callable[[str], bool] = lambda _name: False) -> None:
     """Point every lakehouse table ``statement`` names at a Delta dataset registered on ``con``.
@@ -87,14 +171,37 @@ def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views
         # lakehouse.table_ref checks the parts: a catalog is only allowed as the lakehouse's own name.
         name = ".".join(p for p in (table.catalog, table.db, table.name) if p)
         point = _time_travel(table)  # VERSION AS OF n, TIMESTAMP AS OF '...', or Databricks' sales@v3
-        key = name.lower() if point is None else f"{name.lower()}@{point}"
+        opened = None
+        if point is None:
+            # The latest version is looked up each time, so a table written since an earlier statement
+            # on a long-lived connection (spark on this PC) is read as it is now, as Spark does. Its
+            # location is part of the key: in a proof, a table it wrote is read from the proof's copy.
+            opened = lakehouse.open_table(name)
+            key = f"{name.lower()}@{opened.table_uri}#{opened.version()}"
+        else:
+            key = f"{name.lower()}@{point}"
         if key not in views:
-            views[key] = f"__lakehouse_table_{len(views)}"
-            opened = lakehouse.open_table(name) if point is None else lakehouse.open_table(name, **point_args(point))
+            views[key] = f"__lakehouse_table_{next(_VIEW_NAMES)}"
+            opened = opened or lakehouse.open_table(name, **point_args(point))
             con.register(views[key], opened.to_pyarrow_dataset())
         # Keep the name the query used as the alias, so sales.Country still resolves.
         alias = table.args.get("alias") or exp.TableAlias(this=exp.to_identifier(table.name))
         table.replace(exp.Table(this=exp.to_identifier(views[key]), alias=alias))
+
+
+def superseded(views: dict[str, str]) -> list[str]:
+    """Keys in ``views`` (from bind_tables) for a table's latest version that a newer version of the
+    same table, registered later, replaced. A time travel point is never superseded."""
+    newest: dict[str, str] = {}
+    old = []
+    for key in views:  # in the order they were registered
+        if "#" not in key:
+            continue
+        table = key.rpartition("#")[0]
+        if table in newest:
+            old.append(newest[table])
+        newest[table] = key
+    return old
 
 
 def _time_travel(table: exp.Table) -> str | None:

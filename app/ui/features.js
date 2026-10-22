@@ -64,6 +64,7 @@ const PREVIEW_FEATURES = {
   chartBuilder: "Chart builder",
   dataWrangler: "Data Wrangler",
   ipywidgets: "Notebook widgets",
+  altair: "Altair charts in notebooks",
   mesh: "Data mesh",
   platform: "Platform",
   sourceControl: "Source control",
@@ -150,7 +151,7 @@ function withHowItWorks(main, panel) {
 // keys: what to press, each a combination written with "+" ("Ctrl+K"); several mean "any of these".
 // label: what it does. when (optional): list it only while this returns true.
 // An entry with an id is also matched by isShortcut(e, id): match lists KeyboardEvent.key values and
-// mod means Ctrl (or Cmd) is held. The app-wide handlers in app.js read their keys that way.
+// mod means Ctrl (or Cmd) is held, alt that Alt is. The app-wide handlers in app.js read their keys that way.
 const shortcutRegistry = [];
 
 function registerShortcuts(group, list) {
@@ -170,6 +171,8 @@ registerShortcuts("Moving around", [
     label: "Move to the next control (Shift+Tab: the previous one). In a dialog, it stays inside the dialog" },
   { id: "open", keys: ["Enter", "Space"], match: ["Enter", " "],
     label: "Open the row or card that has focus, such as a notebook, run or workload" },
+  // app.js navKey: not while typing in a box or with a dialog open.
+  { id: "history", keys: ["Alt+Left", "Alt+Right"], match: ["ArrowLeft", "ArrowRight"], alt: true, label: "Go back or forward to the page you were on (not while typing in a box)" },
 ]);
 registerShortcuts("Menus and tabs", [
   { id: "menu", keys: ["Up", "Down", "Home", "End"], match: ["ArrowDown", "ArrowUp", "Home", "End"],
@@ -182,7 +185,7 @@ registerShortcuts("Menus and tabs", [
 // to the handler.
 function isShortcut(e, id) {
   const s = shortcutRegistry.find((x) => x.id === id);
-  if (!s?.match || (s.mod && !(e.ctrlKey || e.metaKey))) return false;
+  if (!s?.match || (s.mod && !(e.ctrlKey || e.metaKey)) || (s.alt && !e.altKey)) return false;
   const key = String(e.key || "");
   return s.match.some((k) => (k.length === 1 ? key.toLowerCase() === k : key === k));
 }

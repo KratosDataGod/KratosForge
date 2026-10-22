@@ -166,14 +166,10 @@ function copySelected(cut = false) {
 }
 
 function moveSelected(delta) {
-  const cells = state.notebook.cells;
-  const block = selectedCells();
-  const first = cells.indexOf(block[0]);
-  const last = cells.indexOf(block[block.length - 1]);
-  if (last - first + 1 !== block.length) { toast("Select cells next to each other to move them together."); return; }
-  if (first + delta < 0 || last + delta >= cells.length) return;
-  cells.splice(first, block.length);
-  cells.splice(first + delta, 0, ...block);
+  // nbcells.js: collapsed headings take their sections along, and a cell that showed stays shown.
+  const moved = moveShown(selectedCells(), delta);
+  if (moved === "apart") { toast("Select cells next to each other to move them together."); return; }
+  if (moved !== "moved") return;
   markDirty();
   renderNotebook();
   selectionPaint();
@@ -217,11 +213,10 @@ function mergeSelected() {
   const all = state.notebook.cells;
   const undo = { merge: { head, before: head.source }, group: rest.map((c) => ({
     cell: { type: c.type, source: c.source, meta: structuredClone(c.meta || {}), cell_id: c.cell_id }, index: all.indexOf(c) })) };
-  const magic = MAGIC[cellLang(head)];
-  const tails = rest.map((c) => {
-    const t = c.source;
-    return magic && t.trimStart().startsWith(magic) ? t.trimStart().slice(magic.length).replace(/^\n/, "") : t;
-  });
+  // A SQL or HTML cell's first line is its magic (%%sql, Databricks' %sql, %%html), and a Python cell can
+  // name its language (%%pyspark, %python): only the first cell keeps that line.
+  const tails = rest.map((c) => (MAGIC[cellLang(c)] ? c.source.trimStart().replace(/^[^\n]*\n?/, "")
+    : c.source.replace(/^\s*(%%pyspark|%%python|%python)\b[^\n]*(\n|$)/, "")));
   setSource(head, [head.source.replace(/\n$/, ""), ...tails.map((t) => t.replace(/\n$/, ""))].join("\n"));
   undo.merge.after = head.source;
   for (const c of rest) { all.splice(all.indexOf(c), 1); dropEditor(c); }
@@ -249,7 +244,8 @@ function selectionCode(cell, source, from, to) {
     const end = source.indexOf("\n", from);
     text = source.slice(start, end < 0 ? source.length : end);
   }
-  const magic = MAGIC[cellLang(cell)];
+  // The magic as the cell writes it: Fabric's %%sql or Databricks' %sql.
+  const magic = MAGIC[cellLang(cell)] && source.trimStart().split(/\s/, 1)[0];
   if (!text.trim() || (magic && text.trim() === magic)) return null;
   if (!magic) {
     // Lines taken from inside a block keep their indent: dedent them so they run on their own.
@@ -285,6 +281,9 @@ function runSelectionText(cell) {
     { keys: ["Shift+M"], label: "Merge the selected cells into the first one (with one cell: merge the cell below)", when: inNotebook },
     { keys: ["DD", "Delete"], label: "With several cells selected: delete them, except frozen ones (Z puts them back)", when: inNotebook },
     { keys: ["Alt+Up", "Alt+Down"], label: "With several cells selected: move them up or down", when: inNotebook },
+  ]);
+  // Works on one cell, so it's listed with the other run keys rather than under several cells.
+  registerShortcuts("Notebook", [
     { keys: ["Ctrl+Shift+Enter"], label: "While editing a code cell: run only the selected text, or the line the cursor is on", when: inNotebook },
   ]);
 }

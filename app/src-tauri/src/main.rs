@@ -910,12 +910,15 @@ fn fabric_host(host: &str) -> bool {
 /// The only hosts the Fabric view itself navigates to (top-level pages and pop-ups), matched
 /// exactly, https only. Images, scripts and frames inside a page aren't filtered by this.
 /// The list and its reasons are in docs/security.md (SH-12).
-const FABRIC_VIEW_HOSTS: [&str; 5] = [
+const FABRIC_VIEW_HOSTS: [&str; 8] = [
     "app.fabric.microsoft.com",  // Fabric's portal: Monitoring hub, OneLake catalog, item pages
     "app.powerbi.com",           // Fabric's former portal host; older item links redirect through it
     "login.microsoftonline.com", // Entra ID sign-in and sign-out
     "login.microsoft.com",       // Entra ID's other sign-in host, used on some sign-in redirects
     "login.windows.net",         // Entra ID's legacy sign-in host; older links and redirects still use it
+    "device.login.microsoftonline.com", // Entra ID's device sign-in step, where Conditional Access checks the PC
+    "autologon.microsoftazuread-sso.com", // Entra ID Seamless SSO: domain-joined PCs sign in without a password
+    "login.live.com",            // a guest who signs in with a personal Microsoft account
 ];
 
 /// What the Fabric view does with a page it is about to open.
@@ -1616,6 +1619,9 @@ mod fabric_nav_tests {
             "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=x",
             "https://login.microsoft.com/common/oauth2/authorize",
             "https://login.windows.net/common/oauth2/authorize",
+            "https://device.login.microsoftonline.com/?request=x",
+            "https://autologon.microsoftazuread-sso.com/contoso.com/winauth/sso?client-request-id=x",
+            "https://login.live.com/oauth20_authorize.srf?client_id=x",
             "about:blank",
         ] {
             assert_eq!(nav(url), FabricNav::Stay, "{url}");
@@ -1637,8 +1643,11 @@ mod fabric_nav_tests {
             "https://learn.microsoft.com/fabric/",
             "https://login.microsoftonline.com.evil.com/",
             "https://login.windows.net.evil.com/",
+            "https://login.live.com.evil.com/",
+            "https://evil-microsoftazuread-sso.com/",
+            "https://x.autologon.microsoftazuread-sso.com/",
             "https://windows.net/",
-            "https://login.live.com/",
+            "https://account.live.com/",  // managing a personal account isn't signing in
             "https://app.fabric.microsoft.com./",
             "https://app.fabric.microsoft.com:8443/",
             "https://\u{0430}pp.fabric.microsoft.com/", // Cyrillic a

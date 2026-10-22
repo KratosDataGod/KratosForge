@@ -142,6 +142,12 @@ class FakeService:
     def risk_check(self, workload_id, action, env=None):
         return {"result": "pass", "findings": []}
 
+    def _wl_record(self, wid):
+        ws = ws_of(wid)
+        return {"id": wid, "name": wid, "kind": "fabric_item", "deployments": [{"env": None, "actions": ["run", "run_item"],
+                "location": {"kind": "fabric", "label": "Fabric", "workspace_id": "" if "named" in wid else ws,
+                             "workspace_name": ws.title()}}]}  # w-named: the workspace's name, not its id
+
 
 def registry(store) -> Registry:
     reg = Registry(PermissionAuthorizer(store, wait_seconds=0.2, poll=0.02))
@@ -168,7 +174,7 @@ def arguments(cap: Capability, inside: bool) -> dict:
     values = {"workspace_id": ws, "lakehouse_id": "lh-" + ws, "item_id": "item-1", "table": "dbo.orders",
               "name": "nb_allowed" if inside else "nb_other", "id": RECEIPT_IN if inside else RECEIPT_OUT,
               "execution_id": EXEC_IN if inside else EXEC_OUT, "query": "select 1", "code": "x = 1",
-              "definition": "{}", "workload_id": "w1", "action": "run"}
+              "definition": "{}", "workload_id": "w-allowed" if inside else "w-other", "action": "run"}
     props = cap.input_schema.get("properties", {})
     out = {}
     optional = [k for k in ("workspace_id", "lakehouse_id") if k in props]  # a lakehouse to attach, say
@@ -281,7 +287,7 @@ def test_refusals_say_why_and_what_to_do(store):
     err = outcome(reg, svc, "fabric_desktop_get_notebook", client["id"], {"name": "nb_other"})
     assert err.code == "permission_denied" and "limited to other workspaces" in err.message
     assert "Settings > Integrations" in err.hint
-    err = outcome(reg, svc, "fabric_desktop_check_run_risk", client["id"], {"workload_id": "w1", "action": "run"})
+    err = outcome(reg, svc, "fabric_desktop_check_run_risk", client["id"], {"workload_id": "w-named", "action": "run"})
     assert err.code == "permission_denied" and "can't tell which workspace" in err.message
     # a missing notebook is reported as missing, not as another workspace
     err = outcome(reg, svc, "fabric_desktop_get_notebook", client["id"], {"name": "nope"})
@@ -345,3 +351,43 @@ def test_registration_checks_the_declaration(store):
     with pytest.raises(ValueError, match="workspaces"):
         reg.register(Capability("ext_b", workspaces="everything", **base))
     reg.register(Capability("ext_c", workspaces=scope.NONE, **base))
+
+
+def test_the_risk_check_reaches_where_the_workload_runs():
+    """FINOPS-004 for a limited tool: the deployment's workspace (its capacity is read), and for a
+    Data mesh entity's run, the environment's workspace (its inputs' Delta log)."""
+    from fabric_desktop.integrations import scope
+    svc = FakeService(meta_ws=IN)
+    pc = {"kind": "this_pc", "label": "This PC"}
+    fabric = {"kind": "fabric", "label": "Fabric", "workspace_id": OUT, "workspace_name": "Other"}
+    notebook = {"kind": "notebook", "deployments": [{"env": None, "location": pc, "actions": ["run"]},
+                                                    {"env": None, "location": fabric, "actions": ["run_in_fabric"]}]}
+    assert scope.workload_of(svc, notebook, "run_in_fabric", "") == {OUT}
+    assert scope.workload_of(svc, notebook, "run", "") == set()  # this PC: no capacity is read
+    entity = {"kind": "meta_entity", "deployments": [{"env": "dev", "location": pc, "actions": ["run", "run_schedule"]},
+                                                     {"env": "prod", "location": fabric, "actions": ["run", "run_schedule"]}]}
+    assert scope.workload_of(svc, entity, "run", "dev") == {IN}  # dev's inputs, not prod's capacity
+    assert scope.workload_of(svc, entity, "run_schedule", "prod") == set()  # schedules run on this PC
+    assert scope.workload_of(svc, entity, "run", "prod") == {OUT}  # prod has no environment entry here
+
+
+def test_a_risk_check_that_cant_be_placed_is_refused():
+    """No deployment for the action, or a Fabric one without its workspace id: None, not an empty set."""
+    from fabric_desktop.integrations import scope
+    svc = FakeService(meta_ws=IN)
+    fabric = {"kind": "fabric", "label": "Fabric", "workspace_id": OUT}
+    item = {"kind": "fabric_item", "deployments": [{"env": None, "location": fabric, "actions": ["run_item"]}]}
+    assert scope.workload_of(svc, {"kind": "fabric_item", "deployments": []}, "run_item", "") is None
+    assert scope.workload_of(svc, item, "refresh", "") is None  # no deployment for that action
+    assert scope.workload_of(svc, item, "run_item", "prod") is None  # nor in that environment
+    for loc in ({"kind": "fabric"}, {"kind": "fabric", "workspace_name": "Other"}):
+        bare = {"kind": "fabric_item", "deployments": [{"env": None, "location": loc, "actions": ["run_item"]}]}
+        assert scope.workload_of(svc, bare, "run_item", "") is None
+
+def test_a_limited_tool_checks_risk_only_in_its_workspaces(store):
+    reg = registry(store)
+    client = limited_client(store)
+    args = {"workload_id": "w-allowed", "action": "run_item"}
+    assert reg.invoke(FakeService(), "fabric_desktop_check_run_risk", args, ctx(client["id"]))["result"] == "pass"
+    got = outcome(reg, FakeService(), "fabric_desktop_check_run_risk", client["id"], args | {"workload_id": "w-other"})
+    assert isinstance(got, IntegrationError) and got.code == "permission_denied"

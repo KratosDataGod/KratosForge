@@ -140,3 +140,20 @@ def test_cells_of_a_notebook_that_isnt_saved_yet_still_run(tmp_path, monkeypatch
         time.sleep(0.05)
     assert snap["status"] == "ok" and snap["outputs"][-1]["text"] == "1", snap
     assert call(s, "notebook_inputs", name="Never saved", cells=[PARAMS])["parameters"][0]["value"] == "2026-01-01"
+
+
+def test_a_float_parameter_can_be_nan_or_infinity():
+    cell = {"cell_id": "p", "type": "code", "meta": {"tags": ["parameters"]}, "source": "ratio = 0.5"}
+    got = inputs([cell], {"parameters": {"ratio": "-inf"}})
+    k = Kernel()
+    assert k.run(cell["source"] + "\n" + got["suffix"]["p"])["status"] == "ok"
+    assert k.namespace["ratio"] == float("-inf")
+    assert inputs([cell], {"parameters": {"ratio": "NaN"}})["suffix"]["p"].endswith("ratio = float('nan')")
+
+
+def test_non_ascii_parameter_names_and_windows_line_endings():
+    cell = {"cell_id": "p", "type": "code", "meta": {"tags": ["parameters"]},
+            "source": "région = 'Ouest'\r\n%pip install x\r\nmax_lignes = 10\r\n"}
+    got = inputs([cell], {"parameters": {"région": "Est"}})
+    assert [p["name"] for p in got["parameters"]] == ["région", "max_lignes"]
+    assert got["suffix"]["p"].endswith("région = 'Est'")

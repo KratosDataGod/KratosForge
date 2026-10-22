@@ -1447,6 +1447,62 @@ test("a failed shortcut rules check isn't swallowed and an incomplete reader lis
   assert.match(estate, /res\.partial \?/);
 });
 
+// Plan step 7: OneLake > Access > All workspaces reads the access cache and flags what's worth a look.
+test("the access cache view flags what's worth a look and asks before setting anything up", () => {
+  const src = fs.readFileSync(path.join(ui, "access-cache.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src}\nthis.flags = accessCacheFlags; this.filters = ACCESS_CACHE_FILTERS;`, ctx);
+  const w = {
+    people: [{ name: "Ann", type: "User", role: "Admin", guest: false }, { name: "Readers", type: "Group", role: "Viewer", guest: false },
+      { name: "Bo", type: "User", role: "Viewer", guest: true }, { name: "Loader", type: "ServicePrincipal", role: "Admin", guest: false }],
+    lakehouses: [{ item_name: "LH_Gold", known: true, roles: [] }, { item_name: "LH_Unread", known: false, roles: [] }],
+    summary: { guests: 1 }, stale: false,
+  };
+  const flags = ctx.flags(w);
+  assert.strictEqual(flags.map((f) => f.kind).join(), "byname,guests,apps,nosecurity");
+  assert.strictEqual(flags[3].lakehouse.item_name, "LH_Gold");  // a lakehouse never read isn't flagged as having no roles
+  const keep = Object.fromEntries(ctx.filters.map(([id, , fn]) => [id, fn]));
+  assert.ok(keep.byname(w, flags) && keep.guests(w, flags) && !keep.stale(w, flags));
+  assert.ok(keep.stale({ ...w, lakehouses: [{ stale: true }] }, []));
+  // The first refresh and the role change only happen after the person confirms the sidecar's plan.
+  assert.match(src, /includes\("Confirm to continue"\)[\s\S]*confirmDialog[\s\S]*approve: true/);
+  const estate = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
+  const panel = estate.match(/howItWorks\("onelake\.access-all", \{[\s\S]*?\n    \}\)/)?.[0] || "";
+  assert.match(panel, /changes: "Refresh changes adds rows to the access cache in the central lakehouse/);
+  assert.match(panel, /OneLake security roles/);
+});
+
+// HD-052 (UI-8): pages are built with h(), which only makes text nodes, so data can't become markup.
+// A new raw HTML (or code) sink in app/ui fails here unless it is reviewed and added below with why
+// it is safe. Keys are the file and the exact trimmed line, so editing an allowed line needs a new review.
+test("no raw HTML sinks in app/ui outside the reviewed list", () => {
+  const sink = /\.(?:innerHTML|outerHTML)\b|\binsertAdjacentHTML\b|\bdocument\.write(?:ln)?\b|\bcreateContextualFragment\b|\bDOMParser\b|\b(?:set|parse)HTMLUnsafe\b|\bsrcdoc\b|\beval\s*\(|\bnew Function\b|\bFunction\s*\(/;
+  const allowed = new Set([
+    // markdown(): a fixed placeholder string, no data.
+    `app.js: wrap.innerHTML = '<p class="placeholder">Empty Markdown cell. Double-click to edit.</p>';`,
+    // markdown(): every piece of cell text goes through inlineMd(), which esc()apes &<>"' before adding
+    // <code>, <strong>, <em> and <u title>; headings and lists add only fixed tags. See the two
+    // Markdown tests at the top of this file.
+    `app.js: wrap.innerHTML = html.join("");`,
+    // Data mesh map links: path coordinates are numbers from getBoundingClientRect, and the only data
+    // (project and product ids in <title>) goes through esc().
+    `meshmap.js: svg.innerHTML = \`<defs><marker id="mesh-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z"/></marker></defs>\${paths.join("")}\`;`
+  ]);
+  const found = [];
+  const walk = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) { if (e.name !== "vendor") walk(p); continue; }
+      if (!/\.(js|html)$/.test(e.name)) continue;
+      const rel = path.relative(ui, p).split(path.sep).join("/");
+      for (const line of fs.readFileSync(p, "utf8").split("\n")) if (sink.test(line)) found.push(`${rel}: ${line.trim()}`);
+    }
+  };
+  walk(ui);
+  assert.deepStrictEqual(found.filter((f) => !allowed.has(f)), [], "a new raw HTML sink: build it with h(), or review it and add it to the list");
+  assert.deepStrictEqual([...allowed].filter((a) => !found.includes(a)), [], "an allowed sink is gone from the code: remove it from the list");
+});
+
 // HD-020 (SH-1, UI-1): the page has a Content Security Policy, and notebook HTML output runs on
 // its own origin, never in the app's, where the Tauri API is.
 test("the app has a strict CSP and notebook HTML output stays off the app's origin", () => {
@@ -2612,6 +2668,7 @@ test("the global key handlers and the Keyboard shortcuts dialog read one table",
   assert.ok(ctx.isShortcut(key(" "), "open") && ctx.isShortcut(key("Enter"), "open"));
   assert.ok(!ctx.isShortcut(key("ArrowLeft"), "menu") && ctx.isShortcut(key("ArrowLeft"), "tabs"));
   assert.ok(!ctx.isShortcut(key("x"), "nothing"));
+  assert.ok(ctx.isShortcut(key("ArrowLeft", { altKey: true }), "history") && !ctx.isShortcut(key("ArrowLeft"), "history"));
   // "?" typed in a box stays a character.
   const el = (tagName, inEditor = false) => ({ tagName, isContentEditable: false, closest: () => (inEditor ? {} : null) });
   assert.ok(ctx.typingIn(el("INPUT")) && ctx.typingIn(el("TEXTAREA")) && ctx.typingIn(el("DIV", true)));
@@ -2624,7 +2681,7 @@ test("the global key handlers and the Keyboard shortcuts dialog read one table",
   inNotebook = true;
   const groups = ctx.shortcutGroups();
   assert.deepStrictEqual([...groups.map(([g, list]) => [g, list.length])],
-    [["Anywhere", 3], ["Moving around", 2], ["Menus and tabs", 2], ["Notebook", 1]]);
+    [["Anywhere", 3], ["Moving around", 3], ["Menus and tabs", 2], ["Notebook", 1]]);
   assert.ok(!ctx.isShortcut(key("Enter", { shiftKey: true }), undefined), "an entry without an id matches nothing");
   // The dialog lists the registry, opens from the command bar and Settings, and points at the notebook keys.
   const dialog = features.match(/function shortcutsDialog\([\s\S]*?\n}\n/)[0];
@@ -3046,6 +3103,15 @@ test("the keys card says where keys come from instead of an LH_Keys MERGE", () =
   assert.match(card, /Keys come from \$\{e\.keys_from\}/);
 });
 
+// A running cell shows how far its spark query is when the engine can tell (spark_local.progress).
+test("a running cell shows its query's progress and drops it when the cell ends", () => {
+  const n = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(n, /cell\.progress = snap\.status === "running" \? snap\.progress \?\? null : null;/);
+  const line = /function statusLine\(cell\) \{[\s\S]*?\n\}\n/.exec(n)[0];
+  assert.match(line, /s === "running" && cell\.progress != null \? h\("span", \{ class: "cell-progress"/);
+  assert.match(line, /h\("progress", \{ max: 100, value: cell\.progress, "aria-label": "Query progress" \}\)/);
+});
+
 // PySpark on this PC: the notebooks page lists what KratosForge adds to DuckDB's Spark API.
 test("notebooks docs list the PySpark calls added on this PC", () => {
   const page = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
@@ -3289,6 +3355,8 @@ test("Ctrl+Shift+Enter runs the selection or the cursor's line, dedented, with t
   const sql = { lang: "sql" };
   assert.strictEqual(ctx.f(sql, "%%sql\nSELECT 1;\nSELECT 2", 16, 24), "%%sql\nSELECT 2");
   assert.strictEqual(ctx.f(sql, "%%sql\nSELECT 1", 2, 2), null);  // the magic line alone
+  assert.strictEqual(ctx.f(sql, "%sql\nSELECT 1;\nSELECT 2", 15, 23), "%sql\nSELECT 2");  // Databricks' %sql stays %sql
+  assert.strictEqual(ctx.f(sql, "%sql\nSELECT 1", 2, 2), null);
 });
 
 test("several selected cells: the notebook hooks are in place", () => {
@@ -3313,6 +3381,10 @@ test("a collapsed heading hides the cells up to the next heading of the same or 
   assert.strictEqual(headingLevel(md(1, "Intro\n\n## Two")), 2);
   assert.strictEqual(headingLevel(md(1, "#hashtag")), 0);
   assert.strictEqual(headingLevel(code(1)), 0);
+  // A comment inside a fenced code block isn't a heading.
+  assert.strictEqual(headingLevel(md(1, "Example:\n```python\n# load the table\n```")), 0);
+  assert.strictEqual(headingLevel(md(1, "~~~\n# x\n~~~\n### After")), 3);
+  assert.strictEqual(headingLevel(md(1, "````\n```\n# x\n````\n## Out")), 2);
   const cells = [md(1, "# A", true), code(2), md(3, "## A.1", true), code(4), md(5, "# B"), code(6), md(7, "### C", true), code(8)];
   const { hidden, counts } = collapsedCells(cells);
   assert.deepStrictEqual([...hidden].sort(), [2, 3, 4, 8]);
@@ -3905,6 +3977,42 @@ test("variables filter on name or type and sort by name, type or memory with unk
   assert.doesNotMatch(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /function variableTable/);
 });
 
+// Notebook %pip: the magics page says installs go to the notebook's own environment.
+test("the magics page documents %pip installing into the notebook's environment", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /## Installing packages with %pip/);
+  assert.match(doc, /\(notebooks\.md#notebook-environments-preview\)/);
+});
+
+// Notebook %autoreload: the magics page documents autoreload and %aimport.
+test("the magics page documents %autoreload and %aimport", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /### Editing your own modules: %autoreload/);
+  assert.match(doc, /`%load_ext autoreload`, `%autoreload 2`, `%aimport name`/);
+});
+
+// Notebook %run -b: the magics and resources pages say how to run a file from Built-in resources.
+test("the magics page documents %run -b and the resources page links to it", () => {
+  const root = path.join(__dirname, "..", "..");
+  const magicsDoc = fs.readFileSync(path.join(root, "docs", "notebook-magics.md"), "utf8");
+  assert.match(magicsDoc, /### Running a file from the notebook's resources: %run -b/);
+  assert.match(fs.readFileSync(path.join(root, "docs", "notebook-resources.md"), "utf8"), /notebook-magics\.md#running-a-file-from-the-notebooks-resources-run-b/);
+});
+
+test("a workload page says whether its actions reached the platform's audit", () => {
+  const src = fs.readFileSync(path.join(ui, "workloads.js"), "utf8");
+  const fn = /function platformAuditNote\([\s\S]*?\n}\n/.exec(src)[0];
+  const ctx = { h: (tag, attrs, ...kids) => kids.join("") };
+  vm.runInNewContext(`${fn}this.f = platformAuditNote;`, ctx);
+  assert.strictEqual(ctx.f(null), null);
+  assert.strictEqual(ctx.f({ platform: "this_pc", waiting: 0 }), "Each one is also on Platform > Audit.");
+  assert.match(ctx.f({ platform: "fabric", waiting: 2, error: "Signed out." }),
+    /^2 actions or changes haven't reached Platform > Audit yet: Signed out\. This PC keeps them/);
+  assert.match(ctx.f({ platform: "fabric", waiting: 1, error: "" }), /^1 action or change hasn't reached Platform > Audit yet\. /);
+  assert.match(ctx.f({ platform: "none", waiting: 3 }), /^Kept on this PC only: there's no platform yet\. 3 actions/);
+  assert.strictEqual(ctx.f({ platform: "none", waiting: 0 }), "Kept on this PC only: there's no platform yet.");
+});
+
 test("the notebook, several-cells and find keys are listed in the Keyboard shortcuts dialog", () => {
   for (const [file, group, key] of [["notebook.js", "Notebook", "Shift+Enter"], ["nbselect.js", "Notebook: several cells", "Shift+M"], ["nbfind.js", "Notebook: find and replace", "Ctrl+H"]]) {
     const src = fs.readFileSync(path.join(ui, file), "utf8");
@@ -3985,6 +4093,33 @@ test("a widget after a restart asks for its cell again, and a busy kernel's refu
   assert.strictEqual(allNodes(d).find((n) => n.tag === "input").attrs.disabled, true);
 });
 
+// notebookutils.udf.getFunctions lists a User data functions item; calls run in Fabric.
+test("notebook docs describe udf.getFunctions as read only, Preview", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /\| `udf` \(Preview\) \| `getFunctions\(name, workspaceId\)` reads a User data functions item as you/);
+  assert.match(doc, /Calling a function runs it in Fabric on its workspace's capacity, so on this PC the call says so instead/);
+});
+
+// Altair charts (renderVegaLite): the spec goes into the frame's script with every < escaped, so text in
+// the data can't end the script tag, and the Vega libraries are the vendored build, not a CDN.
+test("an Altair chart's spec can't break out of the frame's script", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(/function vegaPage\([\s\S]*?\n}\n/.exec(nb)[0] + "\nthis.vegaPage = vegaPage;", ctx);
+  const evil = "</script><script>parent.postMessage('x','*')</script><!--";
+  const page = ctx.vegaPage("/* vega */", { data: { values: [{ name: evil }] }, mark: "bar" });
+  assert.strictEqual(page.match(/<\/script>/g).length, 2, "only the page's own two scripts end");
+  assert.ok(!page.includes(evil) && !page.includes("<!--"));
+  const json = /vegaEmbed\("#chart", ([\s\S]*?), \{ actions/.exec(page)[1];
+  assert.strictEqual(JSON.parse(json).data.values[0].name, evil, "the spec arrives unchanged");
+  const loader = /function loadVega\([\s\S]*?\n}\n/.exec(nb)[0];
+  assert.match(loader, /script\.src = "vendor\/vega\/vega-frame\.js"/);
+  const built = fs.readFileSync(path.join(ui, "vendor", "vega", "vega-frame.js"), "utf8");
+  assert.match(built.split("\n")[0], /vega 6\.4\.0, vega-lite 6\.4\.3, vega-embed 7\.3\.0/);
+  assert.ok(!/<\/script|<!--/i.test(built));
+});
+
 // Folders for notebooks (notebook-files.js, notebook_folders_service.py): the grouped tree, where a
 // notebook can move, and the folder actions' wiring.
 function notebookFolderHelpers() {
@@ -4050,4 +4185,170 @@ test("a move that leaves something behind names it and says what to do", () => {
   assert.deepStrictEqual([...nbRenameProblemLines([])], []);
   const files = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
   assert.strictEqual(files.match(/nbRenameWarning\((out|ok)\.problems\)/g).length, 3);
+});
+
+test("Format code (nbformat.js): the engine call, its hooks in notebook.js and the shortcut", () => {
+  const src = fs.readFileSync(path.join(ui, "nbformat.js"), "utf8");
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="nbformat.js"') > html.indexOf('src="notebook.js"'));
+  assert.match(src, /rpc\("notebook_format", \{ sources: sent \}\)/);
+  assert.match(src, /c\.source === sent\[i\]/, "a cell typed in while formatting keeps what was typed");
+  assert.match(nb, /\{ key: "Shift-Alt-f", run: \(\) => \{ formatCells\(\[cell\]\); return true; \} \}/);
+  assert.match(nb, /btn\("Format notebook", "code", formatNotebook/);
+  assert.match(nb, /label: "Format cell"/);
+  assert.match(src, /registerShortcuts\("Notebook", \[\s*\{ keys: \["Shift\+Alt\+F"\]/);
+});
+
+// Notebook history: the magics page documents In, Out and %history.
+test("the magics page documents In, Out and %history", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /\| `In`, `Out`, `_`, `__`, `___`/);
+  assert.match(doc, /\| `%history`, `%history -n 4-6`/);
+});
+
+// Spark on this PC: createDataFrame takes a DDL schema string.
+test("the Spark on this PC page says createDataFrame reads a DDL schema string", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`spark.createDataFrame` takes a list of column names, a `StructType` or a DDL string/);
+  assert.match(doc, /A `NOT NULL` field\nrefuses a row with a null there/);
+});
+
+// Magics hardening: the magics page says how to write Windows paths with spaces.
+test("the magics page says to quote paths with spaces and keeps backslashes", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /Put a path with spaces in quotes/);
+  assert.match(doc, /inside double quotes `\\"` is a quote/);
+});
+
+// Spark on this PC: the NOT NULL check names PySpark's error and verifySchema.
+test("the Spark on this PC page names the NOT NULL error and verifySchema", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`\[FIELD_NOT_NULLABLE_WITH_NAME\]` error; `verifySchema=False` skips the check/);
+});
+
+// Spark on this PC: NOT NULL covers array elements and map values.
+test("the Spark on this PC page says NOT NULL covers array elements and map values", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /for array elements or map values a `StructType` declares\nnon-nullable/);
+});
+
+// Spark on this PC: an empty struct<> is refused with a clear message.
+test("the Spark on this PC page says an empty struct<> isn't supported", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /An empty `struct<>` isn't supported here/);
+});
+
+// Magics: _sqldf follows the last statement with -- and /* */ comments skipped.
+test("the magics page says _sqldf reads the last statement past comments", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /What counts is the cell's last statement,\n  with `--` and `\/\* \*\/` comments skipped/);
+});
+
+// Magics: %timeit names options it doesn't take; %who filters by type.
+test("the magics page says %timeit -o isn't supported and %who filters by type", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /Other IPython options such as `-o` and `-q` say they aren't supported/);
+  assert.match(doc, /`%who str int` lists only those types/);
+});
+
+// Magics: %pip takes combined quiet flags and refuses options after a package in a requirements file.
+test("the magics page says %pip takes -qU and refuses options after a package", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /even after a\n  package on the same line/);
+  assert.match(doc, /\(also combined, like `-qU`\) and `-rfile.txt` work as\n  in pip/);
+});
+
+// Magics: autoreload repoints a number or string only under its own name.
+test("the magics page says autoreload leaves your own values alone", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /A number or string follows only\n  under its own name/);
+  assert.match(doc, /also `pip install --user`\n  ones/);
+});
+
+// Magics: %run and %%writefile refuse what they would otherwise drop.
+test("the magics page says %run and %%writefile refuse leftover words", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /Anything else on the line is an\n  error rather than being dropped/);
+  assert.match(doc, /A name with spaces needs quotes, or the cell says so instead of writing to the first word/);
+});
+
+// Magics: %env says when a name can't be set.
+test("the magics page says %env refuses a name it can't set", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /`%env 1BAD=x` says so instead of doing nothing/);
+});
+
+// Magics: a CTE that inserts isn't a query; %env's space form explains a bad name.
+test("the magics page says WITH ... INSERT is a write and covers %env 1BAD x", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /`WITH x AS \(\.\.\.\) INSERT INTO \.\.\.` is a write, not a query/);
+  assert.match(doc, /and so does `%env 1BAD x`/);
+});
+
+// Spark on this PC: sample, dropna and unpivot check their arguments.
+test("the Spark on this PC page says sample, dropna and unpivot check arguments as Spark does", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`sample`, `dropna` and `unpivot` check their arguments as Spark does/);
+});
+
+// Spark on this PC: na functions and describe refuse unknown columns.
+test("the Spark on this PC page says na functions name a missing column", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`\[UNRESOLVED_COLUMN\]` error instead of skipping it, and `replace` refuses lists of different lengths/);
+});
+
+// Spark on this PC: agg's dict form works after groupBy and pivot.
+test("the Spark on this PC page says agg takes a dict after groupBy and pivot", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`agg` takes Spark's `\{column: function\}` form after `groupBy` and `pivot` too/);
+});
+
+// Spark on this PC: drop and withColumnRenamed skip a missing column, as Spark does.
+test("the Spark on this PC page says drop and withColumnRenamed skip a missing column", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`drop` and `withColumnRenamed` match names ignoring case and skip a column that isn't there/);
+});
+
+// Spark on this PC: dropping every column says why it can't.
+test("the Spark on this PC page says dropping every column is an error", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /Dropping every column is an error here: Spark keeps a frame with no columns/);
+});
+
+// Spark on this PC: summary takes statistics and adds quartiles.
+test("the Spark on this PC page says summary takes statistics and adds quartiles", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`summary` takes statistics, not columns, and\nadds the quartiles/);
+});
+
+// Spark on this PC: substring position 0 and concat with a NULL match Spark.
+test("the Spark on this PC page says substring counts position 0 as 1 and concat keeps NULL", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`substring` counts position 0 as 1 and `concat` is NULL when any input is NULL/);
+});
+
+// Spark on this PC: initcap lower-cases the rest of each word.
+test("the Spark on this PC page says initcap lower-cases the rest of each word", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`initcap` lower-cases the rest of each word, as Spark does/);
+});
+
+// Spark on this PC: unix_timestamp takes dates and timestamps.
+test("the Spark on this PC page says unix_timestamp takes a date or timestamp", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`unix_timestamp` takes a date or timestamp as well as text, reads it in the session\ntime zone/);
+});
+
+// Spark on this PC: unix_timestamp without a year starts from 1970, as Spark does.
+test("the Spark on this PC page says a pattern without a year reads from 1970-01-01", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /A pattern without a year reads its date from 1970-01-01, as Spark does/);
+});
+
+// Spark on this PC: quoted repeated pattern letters, groupBy() and ignorenulls.
+test("the Spark on this PC page covers quoted 'yyyy', groupBy() and first/last ignoring NULLs", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /Quoted text that repeats a pattern letter \(`'yyyy'`\)/);
+  assert.match(doc, /`groupBy\(\)` with no columns aggregates the whole frame/);
 });

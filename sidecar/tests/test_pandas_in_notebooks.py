@@ -78,8 +78,8 @@ def test_bokeh_show_from_a_thread_a_cell_started_says_so_instead_of_opening_a_br
     assert opened == [] and list(tmp_path.iterdir()) == []
 
 
-def test_an_altair_chart_says_how_to_see_it():
+def test_an_altair_chart_draws_from_its_spec():
     out = Kernel().run("import altair as alt, pandas as pd\n"
                        "alt.Chart(pd.DataFrame({'x': [1, 2]})).mark_line().encode(x='x')")
     assert out["status"] == "ok", out
-    assert out["outputs"][0]["text"].startswith("Altair charts don't draw in a cell on this PC yet.")
+    assert out["outputs"][0]["type"] == "vegalite" and out["outputs"][0]["spec"]["mark"]["type"] == "line"

@@ -64,6 +64,7 @@ Press **?** when you aren't typing in a box to see every shortcut. The list also
 | **Esc** | Close the command bar, a menu, a dialog or the activity tray |
 | **Tab**, **Shift+Tab** | Move to the next or previous control; in a dialog, focus stays inside it |
 | **Enter** or **Space** | Open the row or card that has focus |
+| **Alt+Left**, **Alt+Right** | Go back or forward to the page you were on, as the top bar's arrows do (not while typing in a box) |
 | **Up**, **Down**, **Home**, **End** | Move through an open menu |
 | **Left**, **Right**, **Home**, **End** | Move between tabs |
 
@@ -281,7 +282,19 @@ The full guide is [Shortcut command center](shortcuts.md). Needs `OneLake.ReadWr
 
 ### Access (Preview)
 
-Who can reach each environment's workspace, and who can read which tables. Changes apply in Fabric right away.
+Who can reach your workspaces, and who can read which tables. The tab has three views.
+
+**All workspaces** shows every workspace you can open, from the access cache in the central lakehouse ([how the cache works](optimize/README.md#the-access-cache-fdacc_)). It needs a connected central lakehouse (Settings > Optimize lakehouses).
+
+- Each row counts the workspace's people, groups, apps and guests, and says how many things are **worth a look**. A workspace whose roles couldn't be read at the last refresh keeps its last known list, marked **Out of date**.
+- **Refresh changes** reads every workspace again as you, and writes only what changed. The first time, it asks before adding the cache's tables to the central lakehouse. Nothing in the workspaces it reads changes.
+- Filter by **Worth a look**, **Guests**, **Write roles by name** or **Out of date**, or find a workspace or person by name.
+- Click a workspace to see its people and its lakehouses' table roles, with **guided fixes**: people with write roles by name, guests, apps with Admin, and lakehouses without data access roles. **Review in Workspace roles** opens it in Environments, and **Table access** opens the lakehouse. Both ask before they change anything in Fabric.
+- **Who may read it** limits the cache to the people and groups you pick. It asks before it changes the central lakehouse's OneLake security roles: DefaultReader stops reading the cache's `access` schema, and a role named AccessCacheReaders reads it.
+
+Refreshing needs write access to the central lakehouse. Reading the cache needs read access.
+
+**Environments** and **Table access** ask Fabric directly, and changes there apply in Fabric right away.
 
 - **Workspace roles** is a grid: one row per person, group or app, one column per environment's workspace, with their role in each (No access, Viewer, Contributor, Member, Admin). Change a role with its drop-down; the app asks before it changes anything. The **Worth a look** column flags entries that deserve a check. **Add a workspace** adds any other workspace to the grid. Listing roles needs Member or Admin on the workspace.
 - **Give access** adds a person, group or app to a workspace with a role. Finding someone by email asks you once to let the app read your directory's names.
@@ -407,6 +420,8 @@ The line above the list says what each source is and how fresh it is, for exampl
 A notebook is linked to its Fabric item when you publish or run it in Fabric from this app, and the link survives renames. A notebook that only shares a name with a Fabric item is shown as linked "by name"; **Link** keeps it by its id. **More > Unlink** removes the link.
 
 Ownership, criticality, tags, links and the action log are kept on this PC in `workloads.sqlite`, next to your other app data. They aren't shared with your team yet.
+
+**On the platform's audit.** When there's a platform ([The platform](platform.md)), each action and change made from a workload page is also written to **Platform > Audit**: the action as **Submitted**, then as **Succeeded**, **Failed** or **Cancelled** once the run records say how it ended, and each owner, criticality, tag or link change with what it was before and after. Who made it is the signed-in person the platform sees, not what the app says. The environment, where it ran, as whom and the target go with it; secrets in an error are removed and each value is cut to 500 characters. If the platform can't take a line (you're signed out, or a platform in Fabric hasn't been updated yet), this PC keeps it, sends the lines in order later, and **Actions from KratosForge** says how many wait and why. Without a platform nothing is sent and no platform is made. The action itself never fails because its audit line couldn't be sent.
 
 **On Home**, **Your workloads** (Preview) shows what you own by health, the ones that need attention with **Open**, and how many workloads in your workspaces have no owner, with **Review**.
 
@@ -561,7 +576,7 @@ When a tool asks for something that needs you, a prompt opens over whatever page
 | Part of the tab | What it's for |
 | --- | --- |
 | **How tools connect** | The MCP command tools start, and the **Local HTTP API** switch for tools that call `http://127.0.0.1:47615` instead (this PC only, with a token per tool). |
-| **Connected tools** | Each tool with what it may do and when it last asked. **Edit** changes its permissions, limits it to some workspaces (it then can't run code or check a run's risk, and sees only the notebooks, proofs, receipts and runs in those workspaces) or makes a new HTTP token. **Revoke** stops it at once. |
+| **Connected tools** | Each tool with what it may do and when it last asked. **Edit** changes its permissions, limits it to some workspaces (it then can't run code, checks a run's risk only for workloads deployed in those workspaces, and sees only the notebooks, proofs, receipts and runs in those workspaces) or makes a new HTTP token. **Revoke** stops it at once. |
 | **Extensions** (Preview) | Extra capabilities tools can use, each off until you turn it on. The built-in **Notebook outline** lets a tool read a notebook's headings, functions and classes without its code. A tool still needs the permission an extension asks for, and anything that runs code still asks you. Tools that are connected see the change within a few seconds. Your organization can limit which extensions can be turned on. |
 | **Recent activity** | Every request each tool made, refused ones included: what it asked for, what was decided (allowed, approved by you, refused, denied by you, not answered) and how it ended. Code, queries and table data aren't kept. **Check the trail** confirms no line was changed or removed. The full trail, for your IT team, is in `%LOCALAPPDATA%\FabricDesktop\integrations\audit`. |
 

@@ -311,9 +311,10 @@ function announce(text) {
 }
 
 // Long main-thread tasks (WebView2 and Chromium report them) add up; past the budget, effects drop a
-// level for a while. Decorative motion never competes with the work.
-if (typeof PerformanceObserver === "function" && PerformanceObserver.supportedEntryTypes?.includes("longtask")) {
-  new PerformanceObserver((list) => {
+// level for a while. Decorative motion never competes with the work. Kept as motionLoadWatch so a
+// test can stop it and check one effect without the machine's load deciding the outcome.
+const motionLoadWatch = typeof PerformanceObserver === "function" && PerformanceObserver.supportedEntryTypes?.includes("longtask")
+  ? new PerformanceObserver((list) => {
     const now = performance.now();
     loadTasks = loadTasks.concat(list.getEntries().map((e) => [e.startTime, e.duration])).filter(([t]) => now - t < LOAD_WINDOW_MS);
     motionStats.loadMs = Math.round(loadTasks.reduce((s, [, d]) => s + d, 0));
@@ -323,8 +324,8 @@ if (typeof PerformanceObserver === "function" && PerformanceObserver.supportedEn
       applyMotion();
       setTimeout(applyMotion, LOAD_COOLDOWN_MS + 50);
     }
-  }).observe({ type: "longtask", buffered: false });
-}
+  }) : null;
+motionLoadWatch?.observe({ type: "longtask", buffered: false });
 if (typeof matchMedia === "function") matchMedia("(prefers-reduced-motion: reduce)").addEventListener?.("change", applyMotion);
 // Ambient loops (the embers behind the wolf, the running cell's glow) pause while the app isn't in front.
 const motionPause = () => { document.documentElement.dataset.motionPaused = document.hidden || !document.hasFocus() ? "on" : "off"; };

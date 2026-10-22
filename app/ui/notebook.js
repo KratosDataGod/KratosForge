@@ -30,8 +30,8 @@ function selectedCell() {
 function cellLang(cell) {
   if (cell.type === "markdown") return "markdown";
   const first = cell.source.trimStart().split("\n", 1)[0].trim();
-  if (first.startsWith("%%sql") || first === "%sql") return "sql";
-  if (first.startsWith("%%html")) return "html";
+  if (/^%%sql\b/.test(first) || first === "%sql") return "sql";
+  if (/^%%html\b/.test(first)) return "html";
   return "python";
 }
 
@@ -101,6 +101,7 @@ function renderNotebook() {
       toggleBtn("Parameter cell", "braces", isParams(sel), () => toggleParams(sel), { disabled: sel.type !== "code" }),
       toggleBtn("Freeze", "shield", sel.meta?.frozen, () => toggleFreeze(sel)),
       btn("Find and replace", "search", () => openFind(true), "tool", { title: "Find and replace in every cell (Ctrl+H)" }),
+      btn("Format notebook", "code", formatNotebook, "tool", { title: "Format every code cell: Python in Black's style, SQL in the SQL page's style (nbformat.js)" }),
       h("div", { class: "sep" }), btn("Clear all outputs", "clear", clearOutputs)],
     run: [runAllBtn, btn("Run cell", "play", () => runCell(selectedCell()), "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
       btn("Run all above", "up", runAbove, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
@@ -233,9 +234,8 @@ function renderOutline() {
   const items = [];
   state.notebook.cells.forEach((cell) => {
     if (cell.type === "markdown") {
-      for (const line of cell.source.split("\n")) {
-        const m = line.match(/^(#{1,4})\s+(.+)$/);
-        if (m) items.push({ cell, level: m[1].length, text: m[2].replace(/[*_`]/g, "") });
+      for (const hd of markdownHeadings(cell.source)) {  // nbcells.js: skips fenced code blocks
+        if (hd.level <= 4) items.push({ cell, level: hd.level, text: hd.text.replace(/[*_`]/g, "") });
       }
     } else if (isParams(cell)) {
       items.push({ cell, level: 1, text: "Parameters" });
@@ -407,6 +407,7 @@ function cellMenu(cell) {
     items.push({ label: isParams(cell) ? "Remove parameter tag" : "Toggle parameter cell", icon: "braces", action: () => toggleParams(cell) });
     items.push({ label: cell.meta.outputs_hidden ? "Show output" : "Hide output", icon: "panel", action: () => setMeta(cell, "outputs_hidden", !cell.meta.outputs_hidden) });
     items.push({ label: "Clear output", icon: "clear", action: () => { cell.outputs = []; cell.status = null; updateCell(cell); } });
+    items.push({ label: "Format cell", icon: "code", action: () => formatCells([cell]) });  // nbformat.js
     if (dbgOn() && !nbWhere(state.notebook).fabric) {  // debugging.js
       items.push({ label: "Debug cell (pause at the first line)", icon: "play", action: () => debugCell(cell) });
     }
@@ -427,6 +428,8 @@ function statusLine(cell) {
     error: ["bad", "Failed"], stopped: ["bad", "Stopped"], cancelled: ["bad", "Cancelled"] }[s];
   return h("div", { class: "cell-status", "data-s": s }, h("span", { class: label[0] }, label[1]),
     s === "running" && cell.seconds != null ? h("span", {}, `${cell.seconds.toFixed(1)} s`) : null,
+    s === "running" && cell.progress != null ? h("span", { class: "cell-progress", title: "How far the running query is" },
+      h("progress", { max: 100, value: cell.progress, "aria-label": "Query progress" }), `Query ${Math.floor(cell.progress)}%`) : null,
     s === "ok" || s === "error" || s === "cancelled" ? h("span", {}, cell.partial ? "Ran the selection on this PC" : "Ran on this PC") : null,
     cell.seconds != null && s !== "running" && s !== "queued" ? h("span", {}, `${cell.seconds.toFixed(1)} s`) : null,
     cell.finishedAt && s !== "running" ? h("span", {}, cell.finishedAt) : null);
@@ -497,6 +500,7 @@ function addCell(type, atEnd = false, offset = 1) {
   cells.splice(offset > 0 ? i + 1 : Math.max(i, 0), 0, cell);
   state.selected = cell.id;
   markDirty();
+  revealCell(cell);  // nbcells.js: added inside a collapsed section (below its heading): open it
   renderNotebook();
   document.querySelector(`[data-cell="${cell.id}"]`)?.scrollIntoView({ block: "nearest" });
   enterEditMode(cell);
@@ -517,15 +521,11 @@ function setSource(cell, source) {
   }
 }
 
+// Moves past the next shown cell; a collapsed heading takes its section along (nbcells.js).
 function moveCell(delta, cell = selectedCell()) {
-  const cells = state.notebook.cells;
-  const i = cells.indexOf(cell);
-  const j = i + delta;
-  if (j < 0 || j >= cells.length) return;
-  [cells[i], cells[j]] = [cells[j], cells[i]];
+  if (moveShown([cell], delta) !== "moved") return;
   state.selected = cell.id;
   markDirty();
-  revealCell(cell);  // moved into a collapsed section: open it rather than hide the cell
   renderNotebook();
   refreshOutline();
 }
@@ -575,17 +575,19 @@ function pasteCell(cell, offset) {
   const copy = copies[0];
   state.selected = copy.id;
   markDirty();
+  copies.forEach(revealCell);  // pasted into a collapsed section: open it
   renderNotebook();
   enterCommandMode(copy);
 }
 
 function splitCell(cell) {
-  if (cell.meta?.frozen) return;
+  if (cell.meta?.frozen) { toast("This cell is frozen. Unfreeze it on the Edit tab to change it."); return; }
   const view = editors.get(cell.id);
   const pos = view ? view.state.selection.main.head : cell.source.length;
   const before = cell.source.slice(0, pos).replace(/\n$/, "");
   let after = cell.source.slice(pos).replace(/^\n/, "");
-  const magic = MAGIC[cellLang(cell)];
+  // The second half keeps the cell's magic as the cell writes it: Fabric's %%sql or Databricks' %sql.
+  const magic = MAGIC[cellLang(cell)] && cell.source.trimStart().split(/\s/, 1)[0];
   if (magic && !after.trimStart().startsWith(magic)) after = `${magic}\n${after}`;
   setSource(cell, before);
   const cells = state.notebook.cells;
@@ -605,7 +607,10 @@ function mergeBelow(cell) {
 }
 
 function setLanguage(cell, lang) {
-  const body = cell.source.replace(/^\s*(%%(sql|html|pyspark|python)[^\n]*|%(sql|python)[ \t]*(?=\n|$))\n?/, "");
+  // The picker is disabled on a frozen cell; M and Y in command mode come here too.
+  if (cell.meta?.frozen) { toast("This cell is frozen. Unfreeze it on the Edit tab to change it."); return; }
+  // The old language's magic line goes, including Databricks' %md and %%markdown, so M on a %md cell keeps only its text.
+  const body = cell.source.replace(/^\s*(%%(sql|html|pyspark|python|md|markdown)\b[^\n]*|%(sql|python|md)[ \t]*(?=\n|$))\n?/, "");
   const wasMarkdown = cell.type === "markdown";
   if (lang === "markdown") {
     cell.type = "markdown";
@@ -800,11 +805,13 @@ function editorFor(cell) {
         CM.highlightSpecialChars(), CM.history(), CM.drawSelection(), CM.dropCursor(), CM.indentOnInput(),
         CM.bracketMatching(), CM.closeBrackets(), CM.highlightActiveLine(), CM.highlightSelectionMatches(),
         CM.syntaxHighlighting(editorHighlight),
+        // Before langComp: its completion keymap, also at highest precedence, would otherwise take Esc
+        // while suggestions are still being fetched, with nothing on screen.
+        CM.Prec.highest(CM.keymap.of(keys)),
         langComp.of(languageFor(cell)),
         readOnlyComp.of(readOnly(cell)),
         findHighlighter(cell),  // nbfind.js
         dataItemDrop(cell),  // nbdrag.js: tables and files dragged from the Explorer
-        CM.Prec.highest(CM.keymap.of(keys)),
         CM.keymap.of([...CM.closeBracketsKeymap, ...CM.defaultKeymap, ...CM.searchKeymap, ...CM.historyKeymap,
           ...CM.foldKeymap, ...CM.completionKeymap, CM.indentWithTab]),
         CM.placeholder(cell.type === "markdown" ? "Write Markdown. Press Shift+Enter to render."
@@ -856,10 +863,17 @@ function cellKeymap(cell) {
     { key: "Shift-Enter", run: run(true, false) },
     { key: "Mod-Enter", run: run(false, false) },
     { key: "Alt-Enter", run: run(false, true) },
-    { key: "Escape", run: () => { editors.get(cell.id)?.contentDOM.blur(); enterCommandMode(cell); return true; } },
-    { key: "Mod-Shift-Minus", run: () => { splitCell(cell); return true; } },
+    // A suggestion list on screen takes Esc first (it closes); otherwise Esc leaves for command mode.
+    { key: "Escape", run: (view) => {
+      if (view.dom.querySelector(".cm-tooltip-autocomplete")) return false;
+      view.contentDOM.blur();
+      enterCommandMode(cell);
+      return true;
+    } },
+    { key: "Mod-Shift--", run: () => { splitCell(cell); return true; } },  // CodeMirror names keys by their character
     { key: "Mod-/", run: CM.toggleComment },
     { key: "F9", run: () => dbgToggleAtCursor(cell) },
+    { key: "Shift-Alt-f", run: () => { formatCells([cell]); return true; } },
   ];
 }
 
@@ -937,6 +951,7 @@ function renderOutput(o, cell) {
     return h("div", { class: "output" }, h("img", { class: "out-img", alt: "Chart from this cell", src: `data:${o.mime};base64,${o.data}` }));
   }
   if (o.type === "html") return h("div", { class: "output" }, htmlFrame(o.html));
+  if (o.type === "vegalite") return renderVegaLite(o);
   // Markdown from %%md, IPython.display.Markdown or _repr_markdown_: the Markdown cell's escaping renderer.
   if (o.type === "markdown") return h("div", { class: "output md-view" }, markdown(o.text));
   if (o.type === "json") return h("div", { class: "output json-output" }, jsonTree(o.data, null, 0));
@@ -986,6 +1001,36 @@ function htmlFrame(html) {
     src: window.__TAURI__.core.convertFileSrc("frame", "nbout") });
   frame.addEventListener("load", () => frame.contentWindow?.postMessage({ fdHtml: html }, "*"));
   return frame;
+}
+
+// Altair charts (chart_output.py): the Vega-Lite spec, drawn by the Vega libraries (vendor/vega) inside a
+// sandboxed output frame, inline, since the frame can't load scripts; the app's page never runs them.
+// The libraries load once, when the first chart shows.
+let vegaSource = null;
+function loadVega() {
+  vegaSource ||= new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "vendor/vega/vega-frame.js";
+    script.onload = () => resolve(window.fdVegaSource);
+    script.onerror = () => { vegaSource = null; reject(new Error("Could not load the chart libraries. Reload the app and run the cell again.")); };
+    document.head.append(script);
+  });
+  return vegaSource;
+}
+
+function vegaPage(source, spec) {
+  // JSON is a JS expression; with every < escaped, nothing in the spec can end the script tag.
+  const data = JSON.stringify(spec).replace(/</g, "\\u003c");
+  return `<!doctype html><meta charset="utf-8"><style>body{margin:0;font:13px "Segoe UI",system-ui,sans-serif}</style>` +
+    `<div id="chart"></div><script>${source}<\/script><script>vegaEmbed("#chart", ${data}, { actions: false, renderer: "svg" })` +
+    `.catch(function (e) { document.getElementById("chart").textContent = "This chart can't draw: " + (e && e.message || e); });<\/script>`;
+}
+
+function renderVegaLite(o) {
+  const wrap = h("div", { class: "output" }, h("div", { class: "out-bar" }, previewMarked("altair", h("span", { class: "muted-text" }, "Altair chart"))));
+  loadVega().then((source) => wrap.append(htmlFrame(vegaPage(source, o.spec))),
+    (err) => wrap.append(h("div", { class: "more", role: "alert" }, friendlyError(err))));
+  return wrap;
 }
 
 window.addEventListener("message", (e) => {
@@ -1338,6 +1383,7 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
   let last = null;
   try {
     const watches = await dbgWatches(nb);  // debugging.js
+    await nbInputsSaved();  // nbinputs.js: a value just changed in the bar is the one that runs
     let snap = await rpc("start_cell", { code: cell.source + nbInputSuffix(cell), lakehouse_ref: nbLakehouse(nb), notebook: nb.name,
       ...(timeLimit ? {} : { time_limit: false }), ...(watches.length ? { watches } : {}), ...(code != null ? { code } : dbgStartArgs(cell, debug)) });
     for (;;) {
@@ -1345,6 +1391,7 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
       cell.count = snap.execution_count;
       cell.seconds = snap.seconds;
       const pauseMoved = dbgSnapshot(cell, snap);  // debugging.js
+      cell.progress = snap.status === "running" ? snap.progress ?? null : null;  // a DuckDB query's %, while one runs
       if (snap.status !== "running") break;
       // While paused, redraw only when the pause changes, so the debugger's input keeps what's typed.
       if (state.notebook?.cells.includes(cell) && (!cell.paused || pauseMoved || snap.outputs)) updateResults(cell);

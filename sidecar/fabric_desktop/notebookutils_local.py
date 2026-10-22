@@ -20,10 +20,12 @@ What only Fabric has (mounting other storage, session settings) raises an error 
 
 from __future__ import annotations
 
+import ast
 import base64
 import datetime as dt
 import json
 import os
+import posixpath
 import re
 import shutil
 import time
@@ -31,6 +33,7 @@ import types
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import unquote, urlsplit
 
 import requests
 
@@ -93,17 +96,39 @@ def _store() -> FileStore:
     return FileStore(lakehouse._current().storage_token)
 
 
+_URI_DRIVE = re.compile(r"^/[A-Za-z]:[\\/]")
+
+
 def _split(path: str) -> tuple[str, str]:
     """("onelake", "Files/...") for the lakehouse, or ("local", path) for this PC."""
     p = str(path)
     if p.startswith("file:"):
-        return "local", p[len("file:"):] if not p.startswith("file://") else p[len("file://"):]
+        local = p[len("file:"):] if not p.startswith("file://") else p[len("file://"):]
+        # A Windows file URI (file:///C:/data, as Path.as_uri writes it) names the drive after a slash.
+        if os.name == "nt" and _URI_DRIVE.match(local):
+            local = local[1:]
+        return "local", local
     rel = lakehouse.relative_path(p)
     if rel is not None:
         return "onelake", rel
     if p.startswith(("abfss://", "wasbs://", "https://")):
         raise ValueError(f"{path}: on this PC only the attached lakehouse and local files are reachable.")
     return "local", p
+
+
+def _same_or_inside(src: str, dest: str) -> bool:
+    """Whether ``dest`` is ``src`` or a path inside it, so copying there would copy onto itself."""
+    (sw, sp), (dw, dp) = _split(src), _split(dest)
+    if sw != dw:
+        return False
+    if sw == "local":
+        # realpath follows symlinks and Windows junctions, so a link to the source counts as the source.
+        sp, dp = (os.path.normcase(os.path.realpath(p)) for p in (sp, dp))
+        return dp == sp or dp.startswith(sp.rstrip(os.sep) + os.sep)
+    # OneLake decodes %XX in the path it gets. requests sends a backslash as %5C, and whether OneLake
+    # reads that as a separator is unverified, so it is compared as one: that can only refuse more.
+    sp, dp = (posixpath.normpath(unquote(p).replace("\\", "/")) for p in (sp, dp))
+    return dp == sp or dp.startswith(sp + "/")
 
 
 TABLES_REFUSED = "{path}: Tables/ holds managed Delta tables; change them through a table write, not notebookutils.fs."
@@ -216,6 +241,8 @@ def _make_fs() -> types.SimpleNamespace:
 
     def cp(src: str, dest: str, recurse: bool = False) -> bool:
         _check_writable(dest)
+        if _same_or_inside(src, dest):
+            raise ValueError(f"{dest} is {src} or inside it, so it can't be copied there.")
         where, p = _split(src)
         if where == "local" and Path(p).is_dir():
             if not recurse:
@@ -259,6 +286,9 @@ def _make_fs() -> types.SimpleNamespace:
     def mv(src: str, dest: str, create_path: bool = False, overwrite: bool = False) -> bool:  # noqa: ARG001
         _check_writable(src)
         _check_writable(dest)
+        # Moving a path onto itself or into itself would remove it once copied.
+        if _same_or_inside(src, dest):
+            raise ValueError(f"{dest} is {src} or inside it, so it can't be moved there.")
         if not overwrite and exists(dest):
             raise FileExistsError(f"{dest} exists. Pass overwrite=True to replace it.")
         before = _entry(src)
@@ -320,6 +350,37 @@ _AUDIENCES = {
 }
 
 
+_VAULT_NAME = re.compile(r"[A-Za-z0-9-]{1,24}")
+_SECRET_NAME = re.compile(r"[A-Za-z0-9-]{1,127}")
+
+
+def vault_url(akv: str) -> str:
+    """``https://<name>.vault.azure.net`` for a Key Vault name or URL. Anything else is refused:
+    the request carries your Key Vault token, which must not reach another host."""
+    akv = str(akv).strip()
+    if _VAULT_NAME.fullmatch(akv):
+        return f"https://{akv.lower()}.vault.azure.net"
+    url = urlsplit(akv)
+    host = (url.hostname or "").lower()
+    if url.scheme == "https" and host.endswith(".vault.azure.net") and _VAULT_NAME.fullmatch(host[:-len(".vault.azure.net")]) \
+            and url.port is None and not url.username and url.path.strip("/") == "" and not url.query and not url.fragment:
+        return f"https://{host}"
+    raise ValueError(f"{akv!r} isn't a Key Vault: give its name or its https://<name>.vault.azure.net URL. "
+                     "Your Key Vault token is only sent there.")
+
+
+def on_vault(url: str, vault: str) -> bool:
+    """Whether ``url`` is on the Key Vault ``vault`` (from vault_url), as Key Vault's own next-page
+    links write it: https, that host, on the default port (which they spell :443)."""
+    u = urlsplit(str(url))
+    try:
+        port = u.port
+    except ValueError:
+        return False
+    return (u.scheme == "https" and (u.hostname or "").lower() == urlsplit(vault).hostname
+            and port in (None, 443) and not u.username and u.path.startswith("/secrets"))
+
+
 def _make_credentials(host: Host) -> types.SimpleNamespace:
     def getToken(audience: str) -> str:  # noqa: N802
         if host.token is None:
@@ -330,7 +391,9 @@ def _make_credentials(host: Host) -> types.SimpleNamespace:
         return host.token(key)
 
     def getSecret(akvName: str, secret: str, linkedService: str | None = None) -> str:  # noqa: N802, N803, ARG001
-        vault = akvName if akvName.startswith("https://") else f"https://{akvName}.vault.azure.net"
+        vault = vault_url(akvName)
+        if not _SECRET_NAME.fullmatch(str(secret)):
+            raise ValueError(f"{secret!r} isn't a Key Vault secret name (letters, digits and dashes, up to 127).")
         headers = {"Authorization": f"Bearer {getToken('keyvault')}"}
         resp = send_with_retry(lambda: http_session.session().get(f"{vault.rstrip('/')}/secrets/{secret}",
                                                     params={"api-version": "7.4"}, headers=headers, timeout=30),
@@ -420,9 +483,9 @@ def _make_notebook(host: Host) -> types.SimpleNamespace:
         skipped. Every result is kept; if any activity failed, a RuntimeError lists them after all
         have run, with the results on its ``results`` attribute."""
         activities = _activities(dag)
-        if isinstance(dag, dict) and (dag.get("concurrency") or 0) > 1:
+        if isinstance(dag, dict) and float(dag.get("concurrency") or 0) > 1:
             print("Note: on this PC the notebooks run one at a time, so concurrency doesn't apply.")
-        whole = (dag.get("timeoutInSeconds") if isinstance(dag, dict) else None) or timeout_seconds or 0
+        whole = float((dag.get("timeoutInSeconds") if isinstance(dag, dict) else None) or timeout_seconds or 0)
         ends = time.monotonic() + whole if whole else None
         results: dict[str, Any] = {}
         failed: list[str] = []
@@ -432,12 +495,17 @@ def _make_notebook(host: Host) -> types.SimpleNamespace:
             blocked = [d for d in a["dependencies"] if d in failed]
             left = ends - time.monotonic() if ends is not None else None
             if blocked or (left is not None and left <= 0):
-                why = f"{', '.join(blocked)} failed" if blocked else f"the DAG's timeoutInSeconds ({whole}) ran out"
+                why = f"{', '.join(blocked)} failed" if blocked else f"the DAG's timeoutInSeconds ({whole:g}) ran out"
                 results[a["name"]] = {"exitVal": None, "exception": f"Skipped: {why}."}
                 failed.append(a["name"])
                 continue
             for attempt in range(a["retry"] + 1):
                 left = ends - time.monotonic() if ends is not None else None
+                if left is not None and left <= 0:
+                    # A run given no time left would run with no limit at all.
+                    results[a["name"]] = {"exitVal": None,
+                                          "exception": f"Stopped: the DAG's timeoutInSeconds ({whole:g}) ran out."}
+                    break
                 host.tasks.append(a["name"])
                 try:
                     results[a["name"]] = {"exitVal": run(a["path"], left if left is not None else 0, a["args"],
@@ -446,7 +514,8 @@ def _make_notebook(host: Host) -> types.SimpleNamespace:
                 except Exception as exc:  # noqa: BLE001 - recorded per activity, as Fabric does
                     results[a["name"]] = {"exitVal": None, "exception": f"{type(exc).__name__}: {exc}"}
                     if attempt < a["retry"]:
-                        time.sleep(a["retry_interval"])
+                        rest = ends - time.monotonic() if ends is not None else a["retry_interval"]
+                        time.sleep(max(0.0, min(a["retry_interval"], rest)))
                 finally:
                     host.tasks.pop()
             if results[a["name"]]["exception"]:
@@ -510,6 +579,35 @@ def _make_runtime(host: Host) -> types.SimpleNamespace:
             self.refresh()
             return super().get(key, default)
 
+        # Every read refreshes, so `in`, len, loops and keys/items/values see the values too.
+        def __contains__(self, key: object) -> bool:
+            self.refresh()
+            return super().__contains__(key)
+
+        def __iter__(self) -> Any:
+            self.refresh()
+            return super().__iter__()
+
+        def __len__(self) -> int:
+            self.refresh()
+            return super().__len__()
+
+        def keys(self) -> Any:
+            self.refresh()
+            return super().keys()
+
+        def items(self) -> Any:
+            self.refresh()
+            return super().items()
+
+        def values(self) -> Any:
+            self.refresh()
+            return super().values()
+
+        def copy(self) -> dict[str, Any]:
+            self.refresh()
+            return dict(super().items())
+
         def refresh(self) -> None:
             lh = lakehouse._attached
             self.update({
@@ -530,7 +628,9 @@ def _make_runtime(host: Host) -> types.SimpleNamespace:
                 "userName": os.environ.get("USERNAME") or os.environ.get("USER") or "",
             })
 
-    return types.SimpleNamespace(context=_Context())
+    context = _Context()
+    context.refresh()  # json.dumps reads the dict directly, without calling any of the above
+    return types.SimpleNamespace(context=context)
 
 
 class Item(dict):
@@ -616,6 +716,80 @@ def _make_lakehouse(host: Host) -> types.SimpleNamespace:
                                                         "list, listTables (create, update, delete run in Fabric)"))
 
 
+def _udf_functions(parts: dict[str, str]) -> list[dict[str, Any]]:
+    """The functions a User data functions item publishes: each ``@udf.function()`` in its Python
+    files, with its parameters, return type and docstring, read from the code (nothing runs)."""
+    found = []
+    for path, text in sorted(parts.items()):
+        if not path.lower().endswith(".py"):
+            continue
+        try:
+            tree = ast.parse(text.removeprefix("\ufeff"))
+        except (SyntaxError, ValueError, RecursionError, MemoryError) as exc:
+            print(f"Skipped {path}: Python can't read it ({exc}), so its functions aren't listed.")
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            marks = [d.func if isinstance(d, ast.Call) else d for d in node.decorator_list]
+            if not any(isinstance(m, ast.Attribute) and m.attr == "function" for m in marks):
+                continue
+            found.append({"name": node.name, "description": ast.get_docstring(node) or "",
+                          "parameters": [{"name": a.arg, "type": ast.unparse(a.annotation) if a.annotation else ""}
+                                         for a in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs)],
+                          "returnType": ast.unparse(node.returns) if node.returns else ""})
+    return found
+
+
+class UdfFunctions:
+    """``notebookutils.udf.getFunctions(...)``: the item's details and its functions. On this PC a
+    function is listed with its signature; calling it runs it in Fabric, so it is refused here."""
+
+    def __init__(self, item: dict[str, Any], functions: list[dict[str, Any]]):
+        object.__setattr__(self, "itemDetails", Item(item))
+        object.__setattr__(self, "functionDetails", [Item(f) for f in functions])
+
+    def __getattr__(self, name: str) -> Any:
+        details = object.__getattribute__(self, "functionDetails")
+        if not any(f["name"] == name for f in details):
+            raise AttributeError(f"{object.__getattribute__(self, 'itemDetails').get('displayName')} has no function {name}")
+        item = object.__getattribute__(self, "itemDetails")
+
+        def call(*_a: Any, **_kw: Any) -> Any:
+            raise NotImplementedError(
+                f"{name} is a User data function: calling it runs it in Fabric, on its workspace's capacity. "
+                f"On this PC its signature is in functionDetails; run the notebook in Fabric to call it, "
+                f"or open {item.get('displayName')} in Fabric to test it.")
+        call.__name__ = name
+        return call
+
+    def __dir__(self) -> list[str]:
+        return ["itemDetails", "functionDetails", *(f["name"] for f in object.__getattribute__(self, "functionDetails"))]
+
+    def __repr__(self) -> str:
+        names = ", ".join(f["name"] for f in object.__getattribute__(self, "functionDetails")) or "none"
+        return f"UdfFunctions({object.__getattribute__(self, 'itemDetails').get('displayName')}: {names})"
+
+
+def _make_udf(host: Host) -> types.SimpleNamespace:
+    def getFunctions(udf: str, workspaceId: str = "") -> UdfFunctions:  # noqa: N802, N803
+        ws = _workspace(workspaceId)
+        client = _client(host)
+        item = next((i for i in client.list_items(ws)
+                     if i.get("type") == "UserDataFunction" and i.get("displayName") == udf), None)
+        if item is None:
+            raise LookupError(f"No User data functions item named {udf} in workspace {ws}.")
+        got = client.get_item_definition(ws, item["id"])
+        parts = {p["path"]: base64.b64decode(p.get("payload") or "").decode("utf-8-sig", "replace")
+                 for p in (got.get("definition") or {}).get("parts", []) if p.get("path")}
+        return UdfFunctions(item, _udf_functions(parts))
+
+    return types.SimpleNamespace(
+        getFunctions=getFunctions,
+        help=lambda *_a: print("notebookutils.udf on this PC: getFunctions lists a User data functions item's "
+                               "functions (calling one runs in Fabric)"))
+
+
 class VariableLibrary:
     """A variable library's values, read as attributes: ``lib.CRM_server_host``."""
 
@@ -675,9 +849,10 @@ def build(host: Host) -> types.ModuleType:
     mod.notebook = _make_notebook(host)
     mod.runtime = _make_runtime(host)
     mod.lakehouse = _make_lakehouse(host)
+    mod.udf = _make_udf(host)
     mod.variableLibrary = _make_variable_library(host)
     mod.mssparkutils = mod  # ``from notebookutils import mssparkutils`` still works
-    mod.help = lambda *_a: print("notebookutils on this PC: fs, notebook, credentials, runtime, lakehouse, "
+    mod.help = lambda *_a: print("notebookutils on this PC: fs, notebook, credentials, runtime, lakehouse, udf, "
                                  "variableLibrary, nbResPath")
 
     def attribute(name: str) -> Any:

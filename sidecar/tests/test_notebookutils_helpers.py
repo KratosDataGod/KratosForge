@@ -83,6 +83,13 @@ def test_runtime_context_has_fabric_keys(k):
     assert out["outputs"][-1]["text"] == "(True, None, 'KratosForge')"
 
 
+def test_runtime_context_reads_like_a_dict(k):
+    out = k.run("import json\nc = notebookutils.runtime.context\n"
+                "('isLocal' in c, len(c) > 5, 'productType' in list(c), dict(c.items())['isLocal'], "
+                "c.copy()['productType'], json.loads(json.dumps(c))['isLocal'], dict(c)['isForInteractive'])")
+    assert out["outputs"][-1]["text"] == "(True, True, True, True, 'KratosForge', True, True)", out
+
+
 def test_where_it_runs_knows_reads_from_changes():
     from fabric_desktop.fabric_run import compute_check
     reads = compute_check([{"type": "code", "source": "notebookutils.lakehouse.list()"}], {"id": "lh"})
@@ -132,3 +139,67 @@ def test_negative_max_results_lists_everything():
     assert _limit([1, 2, 3], -1) == [1, 2, 3]
     assert _limit([1, 2, 3], 2) == [1, 2]
     assert _limit([1, 2, 3], 0) == []
+
+
+UDF_SOURCE = '''import fabric.functions as fn
+udf = fn.UserDataFunctions()
+
+@udf.function()
+def hello(name: str) -> str:
+    """Says hello."""
+    return f"Hello {name}"
+
+@udf.connection(argName="sql", alias="Sales")
+@udf.function()
+def top_customers(sql: fn.FabricSqlConnection, n: int) -> list:
+    return []
+
+def helper():
+    pass
+'''
+
+
+class FakeUdf(FakeClient):
+    def list_items(self, ws):
+        return [{"id": "u1", "displayName": "SalesFunctions", "type": "UserDataFunction", "workspaceId": ws},
+                {"id": "n1", "displayName": "SalesFunctions", "type": "Notebook", "workspaceId": ws}]
+
+    def get_item_definition(self, ws, item, fmt=None):
+        FakeClient.calls.append(("definition", ws, item))
+        return {"definition": {"parts": [
+            {"path": "function_app.py", "payload": base64.b64encode(UDF_SOURCE.encode()).decode()},
+            {"path": "definition.json", "payload": base64.b64encode(b"{}").decode()}]}}
+
+
+def test_udf_get_functions_lists_signatures_and_calls_run_in_fabric(k, monkeypatch):
+    monkeypatch.setattr(fabric_api, "FabricClient", FakeUdf)
+    out = k.run("fns = notebookutils.udf.getFunctions('SalesFunctions', 'ws1')\n"
+                "([f.name for f in fns.functionDetails], fns.functionDetails[1].parameters[1], "
+                "fns.functionDetails[0].description, fns.itemDetails.id)")
+    assert out["status"] == "ok", out
+    assert out["outputs"][-1]["text"] == ("(['hello', 'top_customers'], {'name': 'n', 'type': 'int'}, "
+                                          "'Says hello.', 'u1')")
+    assert ("definition", "ws1", "u1") in FakeClient.calls
+    out = k.run("fns.hello('Chris')")
+    assert out["outputs"][-1]["ename"] == "NotImplementedError" and "runs it in Fabric" in out["outputs"][-1]["evalue"]
+    assert k.run("fns.nope")["outputs"][-1]["ename"] == "AttributeError"
+    assert k.run("notebookutils.udf.getFunctions('Missing', 'ws1')")["outputs"][-1]["ename"] == "LookupError"
+
+
+def test_udf_needs_a_workspace(k):
+    out = k.run("notebookutils.udf.getFunctions('SalesFunctions')")
+    assert out["outputs"][-1]["ename"] == "ValueError" and "attach a lakehouse" in out["outputs"][-1]["evalue"]
+
+
+def test_udf_files_with_a_bom_or_errors_are_read_or_named():
+    from fabric_desktop.notebookutils_local import _udf_functions
+    windows = "\ufeff" + UDF_SOURCE.replace("def hello(name: str)", "def hello(name: str, /, *, loud: bool = False)")
+    got = _udf_functions({"Function_App.PY": windows, "broken.py": "def (:\n", "nul.py": "x = 1\0"})
+    assert [f["name"] for f in got] == ["hello", "top_customers"]
+    assert [p["name"] for p in got[0]["parameters"]] == ["name", "loud"]
+
+
+def test_udf_names_a_file_it_cant_read(capsys):
+    from fabric_desktop.notebookutils_local import _udf_functions
+    assert _udf_functions({"broken.py": "def (:\n"}) == []
+    assert "Skipped broken.py" in capsys.readouterr().out

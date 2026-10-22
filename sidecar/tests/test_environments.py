@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from test_prove import call  # noqa: F401
 
-from fabric_desktop.environments import Environments, check_packages
+from fabric_desktop.environments import Environments, check_name, check_packages
 from fabric_desktop.service import Service
 
 # Stands in for "python -m pip install --target T ... demo-pkg==1.0": writes the package and its
@@ -68,6 +68,30 @@ def test_only_package_names_are_accepted():
                 "pandas-2.0-py3-none-any.whl", "mylib.tar.gz", "mylib.ZIP"]:
         with pytest.raises(ValueError):
             check_packages([bad])
+
+
+def test_windows_device_names_are_refused():
+    for bad in ["CON", "nul", "Com1", "lpt9.env", "aux.txt", "con .txt", "prn  .x"]:
+        with pytest.raises(ValueError, match="Windows keeps for a device"):
+            check_name(bad)
+    assert check_name("Console tools") == "Console tools" and check_name("com10") == "com10"
+
+
+def test_an_environment_whose_folder_cant_be_made_isnt_listed(tmp_path):
+    env = Environments(tmp_path)
+    env.folder.write_text("not a folder")  # anything that stops the folder being made
+    with pytest.raises(OSError):
+        env.create("Data science")
+    assert env.list() == []
+
+
+def test_delete_clears_folders_an_earlier_delete_left(tmp_path):
+    env = Environments(tmp_path)
+    env.create("Old")
+    stuck = env.folder / ".deleting-0000aaaa"  # a delete Windows couldn't finish (a file still open)
+    (stuck / "site-packages").mkdir(parents=True)
+    env.delete("Old")
+    assert sorted(p.name for p in env.folder.iterdir()) == []
 
 
 def test_install_list_and_remove(tmp_path, fake_python):
@@ -156,3 +180,73 @@ def test_an_environment_in_use_isnt_half_deleted(tmp_path, monkeypatch, fake_pyt
     monkeypatch.setattr(Path, "rename", real)
     assert env.delete("Data science") == {"deleted": "Data science", "detached": ["NB"]}
     assert env.list() == [] and not any(env.folder.iterdir())
+
+
+def test_percent_pip_in_a_cell_installs_waits_and_says_when_to_restart(tmp_path, monkeypatch, fake_python):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
+    monkeypatch.setattr("fabric_desktop.pip_magic.POLL_SECONDS", 0.05)
+    s = Service(root=tmp_path / "app")
+    s.environments.python = fake_python
+    call(s, "save_app_settings", changes={"kernel_process": True})
+
+    def cell(code, notebook="NB"):
+        out = call(s, "run_cell", code=code, notebook=notebook)
+        return out["status"], "".join(o.get("text", "") + str(o.get("evalue", "")) for o in out["outputs"])
+    try:
+        # No environment yet: one is made and attached; this session started without it.
+        status, text = cell("%pip install -q demo-pkg==3.0")
+        assert status == "ok" and "Installed demo-pkg==3.0 in environment NB" in text and "Restart the session" in text
+        assert s.environments.of("NB") == "NB"
+        # A new session has it; a further install is visible at once.
+        for k in s.sessions.kernels():
+            k.close()
+        status, text = cell("import demo_pkg\nprint(demo_pkg.VERSION)")
+        assert status == "ok" and "3.0" in text
+        status, text = cell("%pip install other-pkg==1.0\nimport other_pkg\nprint(other_pkg.VERSION)")
+        assert status == "ok" and "Restart the session" not in text and text.strip().endswith("1.0")
+        status, text = cell("%pip install broken==1.0")
+        assert status == "error" and "No matching distribution" in text
+        status, text = cell("%pip install https://example.com/x.whl")
+        assert status == "error"
+        status, text = cell("%pip install --index-url https://evil/ x")
+        assert status == "error" and "isn't supported" in text
+    finally:
+        for k in s.sessions.kernels():
+            k.close()
+
+
+def test_percent_pip_without_a_process_kernel_is_skipped_with_a_note():
+    from fabric_desktop.notebook import Kernel
+    out = Kernel().run("%pip install x==1")
+    assert out["status"] == "ok" and "own process" in out["outputs"][0]["text"]
+    out = Kernel().run("%conda install x")
+    assert out["status"] == "error" and "%pip install" in out["outputs"][-1]["evalue"]
+
+
+def test_percent_pip_reads_a_requirements_file_from_the_resources(tmp_path):
+    from fabric_desktop import pip_magic
+    res = tmp_path / "N.resources" / "builtin"
+    res.mkdir(parents=True)
+    (res / "requirements.txt").write_text("# pins\nopenpyxl==3.1.5\n\nrich>=13  # pretty\n")
+    read = lambda p: pip_magic.read_text(p, str(tmp_path / "N.resources"))  # noqa: E731
+    assert pip_magic.specs(["-q", "-r", "builtin/requirements.txt", "x"], read) == ["openpyxl==3.1.5", "rich>=13", "x"]
+    (res / "bad.txt").write_text("--extra-index-url https://evil/\nx\n")
+    with pytest.raises(ValueError, match="isn't supported"):
+        pip_magic.specs(["-r", "builtin/bad.txt"], read)
+
+
+def test_percent_pip_reads_combined_flags_attached_requirement_files_and_pips_line_rules():
+    from fabric_desktop import pip_magic
+    files = {"r.txt": "a  # note\n#whole line\nb#egg\nc \\\r\n  >=1\r\npandas>=2 ; python_version > \"3\"\n",
+             "hash.txt": "polars==1.9 \\\n    --hash=sha256:abc\n",
+             "index.txt": "x --extra-index-url https://evil/\n"}
+    read = files.__getitem__
+    wanted = ["a", "b#egg", "c   >=1", 'pandas>=2 ; python_version > "3"']
+    assert pip_magic.specs(["-qq", "-Uq", "-rr.txt"], read) == wanted
+    assert pip_magic.specs(["--requirement=r.txt", "-v", "y"], read) == wanted + ["y"]
+    for bad in ("hash.txt", "index.txt"):  # an option after a package on the same line is still an option
+        with pytest.raises(ValueError, match="isn't supported"):
+            pip_magic.specs(["-r", bad], read)
+    with pytest.raises(ValueError, match="-qx isn't supported"):
+        pip_magic.specs(["-qx", "y"], read)

@@ -246,6 +246,10 @@ _FABRIC_ONLY = [
     # Streams run here as trigger(availableNow=True) (spark_stream.py); these kinds don't.
     (re.compile(r"\.trigger\(\s*continuous\s*="), "runs a continuous stream"),
     (re.compile(r"""\.format\(\s*["'](kafka|eventhubs|socket|rate)["']"""), "streams from Kafka, Event Hubs or a socket"),
+    (re.compile(r"\bspark\.sql\(\s*[rfbu]*[\"']+\s*(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.I),
+     "changes table rows in place with spark.sql (MERGE, UPDATE or DELETE), which runs in Fabric only"),
+    (re.compile(r"\.option\(\s*[\"'](replaceWhere|partitionOverwriteMode)[\"']", re.I),
+     "uses a write option this PC doesn't have (replaceWhere or partitionOverwriteMode); ignoring it would replace the whole table"),
     (re.compile(r"\b(notebookutils|mssparkutils)\.(fs\.(mount|unmount)|lakehouse\.(create|update|delete|loadTable)|notebook\.(create|update|updateDefinition|delete)\b|warehouse|"
                 r"udf|connections)\b"), "uses Fabric notebook utilities that need Fabric"),
 ]

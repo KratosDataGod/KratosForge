@@ -230,3 +230,32 @@ def project(service: Any, arguments: dict[str, Any], ctx: CallContext | None) ->
     if arguments.get("id", "metadata") == "notebooks":
         return set()
     return metadata_of(service.meta_project())
+
+
+def workload_of(service: Any, record: dict[str, Any], action: str, env: str) -> set[str] | None:
+    """What the risk check reads for one action on a workload (risk_service._risk_facts): the
+    capacity of the workspace its deployment in ``env`` runs in, and for a Data mesh entity's run,
+    the Delta log of its inputs in that environment's workspace. None when there's no deployment
+    for the action or a Fabric deployment has no workspace id: it can't be checked."""
+    dep = next((d for d in record.get("deployments") or []
+                if (d.get("env") or None) == (env or None) and action in (d.get("actions") or [])), None)
+    if dep is None:
+        return None
+    loc = dep.get("location") or {}
+    found: set[str] = set()
+    if loc.get("kind") == "fabric" and action != "run_schedule":
+        if not loc.get("workspace_id"):
+            return None
+        found.add(str(loc["workspace_id"]))
+    if record.get("kind") == "meta_entity" and action == "run":
+        envs = service.meta_project().get("environments") or {}
+        inputs = located(envs.get(env or "dev") or {})
+        if inputs is None:
+            return None
+        found |= inputs
+    return found
+
+
+def workload(service: Any, arguments: dict[str, Any], ctx: CallContext | None) -> set[str] | None:
+    return workload_of(service, service._wl_record(arguments["workload_id"]), arguments.get("action", ""),
+                       arguments.get("env", ""))

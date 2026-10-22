@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import queue
 import sys
 import threading
 import time
-from typing import IO, Callable
+from typing import IO, Any, Callable
 
 from . import audit
 from .redact import secrets
@@ -24,7 +25,7 @@ from .service import Service
 METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", "sign_out", "app_settings", "save_app_settings", "list_workspaces", "list_capacities", "list_lakehouses", "create_lakehouse",
            "catalog", "catalog_tables", "endorsements", "set_favorite", "list_items", "workspace_marks", "set_workspace_mark",
            "list_tables", "list_files", "preview_job", "run_job", "history",
-           "run_cell", "start_cell", "poll_cell", "interrupt_cell", "debug_cell", "kernel_variables", "kernel_variable_detail", "kernel_complete", "kernel_inspect", "notebook_syntax", "notebook_frame_page", "notebook_frame_profile", "notebook_frame_chart", "notebook_frame_wrangle", "notebook_ipywidget_event", "notebook_frame_download", "restart_kernel", "run_sql", "save_sql", "export_sql_csv", "table_columns", "sql_dialects", "sql_format", "sql_analyze", "sql_compat_profiles", "sql_compat_export", "sql_start", "sql_status", "sql_executions", "sql_page", "sql_cancel", "sql_export", "sql_export_status", "sql_export_cancel", "list_notebooks", "new_notebook", "open_notebook",
+           "run_cell", "start_cell", "poll_cell", "interrupt_cell", "debug_cell", "kernel_variables", "kernel_variable_detail", "kernel_complete", "kernel_inspect", "notebook_syntax", "notebook_format", "notebook_frame_page", "notebook_frame_profile", "notebook_frame_chart", "notebook_frame_wrangle", "notebook_ipywidget_event", "notebook_frame_download", "restart_kernel", "run_sql", "save_sql", "export_sql_csv", "table_columns", "sql_dialects", "sql_format", "sql_analyze", "sql_compat_profiles", "sql_compat_export", "sql_start", "sql_status", "sql_executions", "sql_page", "sql_cancel", "sql_export", "sql_export_status", "sql_export_cancel", "list_notebooks", "new_notebook", "open_notebook",
            "save_notebook", "notebook_inputs", "notebook_inputs_set", "rename_notebook", "delete_notebook", "publish_notebook",
            "platform_status", "platform_setup", "platform_join", "platform_forget", "platform_keys_setup", "platform_keys_join", "platform_share_keys", "platform_cancel_share_keys", "platform_domains",
            "platform_save_domain", "platform_delete_domain", "platform_import_fabric_domains", "mesh_workspace_domains", "mesh_map", "platform_glossary", "platform_save_term", "platform_audit",
@@ -118,6 +119,11 @@ from .platform_notify_service import METHODS as PLATFORM_NOTIFY_METHODS  # noqa:
 
 METHODS |= PLATFORM_NOTIFY_METHODS
 
+# OneLake > Access across every workspace: the access cache (access_cache_service.py).
+from .access_cache_service import METHODS as ACCESS_CACHE_METHODS  # noqa: E402
+
+METHODS |= ACCESS_CACHE_METHODS
+
 # A notebook's resources folder (notebook_resources_service.py).
 from .notebook_resources_service import METHODS as NOTEBOOK_RESOURCE_METHODS  # noqa: E402
 
@@ -164,7 +170,8 @@ METHODS |= COMMENT_METHODS
 # long call must not write its older cells over an autosave that overtook it.
 QUICK = frozenset({
     "app_settings", "debug_cell", "interrupt_cell", "kernel_complete", "kernel_info", "kernel_variables",
-    "list_notebooks", "notebook_debug_get", "notebook_dependencies", "notebook_environment",
+    "list_notebooks", "notebook_comments_list", "notebook_debug_get", "notebook_dependencies",
+    "notebook_environment", "notebook_folders", "notebook_resources", "notebook_version", "notebook_versions",
     "open_notebook", "poll_cell", "prove_list", "prove_rules_get", "prove_status",
     "receipt_get", "receipts_list", "side_by_side_list",
     "side_by_side_status", "side_by_side_writes", "sql_analyze", "sql_cancel",
@@ -225,6 +232,26 @@ def _count(service: Service, method: str, reply: dict, seconds: float) -> None:
         print(f"telemetry: could not count {method}: {type(exc).__name__}", file=sys.stderr)
 
 
+def _finite(value: Any) -> Any:
+    """``value`` with NaN and infinity as null, anywhere in it."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: _finite(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_finite(v) for v in value]
+    return value
+
+
+def _reply_text(reply: dict[str, Any]) -> str:
+    """The reply as one line of strict JSON. Python writes NaN and Infinity, which the shell's parser
+    (and JavaScript's) refuses, failing the whole call: a widget's value or a chart's data can hold them."""
+    try:
+        return json.dumps(reply, default=str, allow_nan=False)
+    except ValueError:
+        return json.dumps(_finite(json.loads(json.dumps(reply, default=str))), allow_nan=False)
+
+
 def serve(service: Service | None = None, stdin: IO[str] = sys.stdin, stdout: IO[str] = sys.stdout) -> None:
     """Hands each request to its lane (QUICK, or everything else in order). Replies can come back
     in a different order from the requests: each carries its request's id, which the shell matches."""
@@ -234,7 +261,7 @@ def serve(service: Service | None = None, stdin: IO[str] = sys.stdin, stdout: IO
     def answer(line: str) -> None:
         reply = handle(service, line)
         try:
-            text = json.dumps(reply, default=str)
+            text = _reply_text(reply)
         except Exception as exc:  # noqa: BLE001 - the caller still gets an answer
             text = json.dumps({"id": reply.get("id"), "error": f"Could not send the result: {type(exc).__name__}"})
         with write:
@@ -307,6 +334,8 @@ def main() -> None:
     sys.stdin.reconfigure(encoding="utf-8")  # the shell sends UTF-8 whatever the Windows code page
     _log_to_stderr()
     _refresh_integration_launcher()
+    from . import notebook
+    notebook.sweep_spills()  # output files a closed notebook session left behind
     service = Service()
     threading.Thread(target=_start_integration_http, args=(service,), daemon=True, name="integrations-http").start()
     try:

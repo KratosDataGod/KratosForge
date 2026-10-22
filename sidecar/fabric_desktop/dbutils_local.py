@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from . import http_session
-from .notebookutils_local import Host, NotebookExit
+from .notebookutils_local import Host, NotebookExit, on_vault, vault_url
 from .retrying import send_with_retry
 
 
@@ -169,7 +169,7 @@ class SecretScope:
 
 def _make_secrets(get_secret: Callable[..., str], token: Callable[[str], str]) -> types.SimpleNamespace:
     def vault(scope: str) -> str:
-        return scope if scope.startswith("https://") else f"https://{scope}.vault.azure.net"
+        return vault_url(scope)
 
     def get(scope: str, key: str) -> str:
         return get_secret(scope, key)
@@ -192,7 +192,7 @@ def _make_secrets(get_secret: Callable[..., str], token: Callable[[str], str]) -
             body = resp.json()
             names += [SecretMetadata(item["id"].rstrip("/").rsplit("/", 1)[-1]) for item in body.get("value", [])]
             url, params = body.get("nextLink"), None
-            if url and not url.startswith(f"{vault(scope).rstrip('/')}/"):
+            if url and not on_vault(url, vault(scope)):
                 raise ValueError(f"Key Vault {vault(scope)} answered with a next page on another host; stopped listing.")
         return names
 

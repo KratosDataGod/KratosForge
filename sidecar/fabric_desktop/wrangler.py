@@ -14,6 +14,7 @@ ever produce the Polars call it names. Each line runs with no builtins.
 from __future__ import annotations
 
 import keyword
+import math
 from typing import Any
 
 import pyarrow as pa
@@ -54,7 +55,8 @@ def reader(value: Any, name: str) -> str:
     if module.startswith("polars"):
         return f"{name}.collect()" if hasattr(value, "collect") else name
     if module.startswith("pandas"):
-        return f"pl.from_pandas({name})"
+        from .frames import pandas_reader
+        return f"pl.from_pandas({pandas_reader(value, name)})"
     if module.startswith(("pyspark", "duckdb.experimental.spark")):
         return f"pl.from_pandas({name}.toPandas())"
     if module.startswith("duckdb"):
@@ -100,10 +102,19 @@ def _literal(dtype: Any, text: Any) -> str:
     """A typed-in value as a Polars literal for a column of ``dtype``."""
     kind = _kind(dtype)
     if kind == "number":
+        if dtype.is_integer():
+            try:  # as written: through float, 9007199254740993 would become ...992 and match another row
+                return repr(int(str(text).strip()))
+            except ValueError:
+                pass
         try:
             number = float(text)
         except (TypeError, ValueError):
             raise ValueError(f"{text!r} isn't a number.") from None
+        if not math.isfinite(number):
+            raise ValueError(f"Type a number such as 3 or 2.5, not {text!r}.")
+        if dtype.is_decimal():  # a float literal would turn the column into Float64 and lose its exact digits
+            return f"pl.lit({str(text).strip()!r}).cast(pl.Decimal({dtype.precision!r}, {dtype.scale!r}))"
         if dtype.is_integer():
             if not number.is_integer():
                 raise ValueError(f"{text!r} isn't a whole number.")
@@ -115,8 +126,16 @@ def _literal(dtype: Any, text: Any) -> str:
             raise ValueError("Type true or false.")
         return repr(word == "true")
     if kind == "date":
-        cast = "to_date" if dtype == _pl().Date else "to_datetime"
-        return f"pl.lit({str(text)!r}).str.{cast}()"
+        pl = _pl()
+        if dtype == pl.Date:
+            return f"pl.lit({str(text)!r}).str.to_date()"
+        if dtype == pl.Time:
+            return f"pl.lit({str(text)!r}).str.to_time()"
+        if isinstance(dtype, pl.Duration):
+            raise ValueError("A duration can't be typed in here; change the column's type to integer first.")
+        # The column's own unit and time zone: a typed time is read in that zone, and Polars won't mix zones.
+        zone = f", time_zone={dtype.time_zone!r}" if dtype.time_zone else ""
+        return f"pl.lit({str(text)!r}).str.to_datetime(time_unit={dtype.time_unit!r}{zone})"
     return repr(str(text))
 
 

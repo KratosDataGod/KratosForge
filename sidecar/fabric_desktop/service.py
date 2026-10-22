@@ -44,6 +44,7 @@ from .workload_service import WorkloadMixin
 from .incident_service import IncidentMixin
 from .incident_desk import IncidentDeskMixin
 from .platform_notify_service import PlatformNotifyMixin
+from .access_cache_service import AccessCacheMixin
 from .git_service import GitMixin
 from .pipeline_service import PipelineMixin, PipelineRunMixin
 from .integrations.app_service import IntegrationsMixin
@@ -81,12 +82,13 @@ def data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
-class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin):
+class Service(AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
         self.root = root or data_dir()
         self._auth: Authenticator | None = None
+        self._auth_lock = threading.Lock()
         self.sessions = KernelSessions(self._new_kernel, lambda: bool(app_settings.value("kernel_process")),
                                        max_sessions=lambda: int(app_settings.value("kernel_max_sessions") or 0),
                                        idle_minutes=lambda: float(app_settings.value("kernel_idle_minutes") or 0),
@@ -100,9 +102,12 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
     def auth(self) -> Authenticator:
         # The app ID can change on the Settings page; a new one needs a new sign-in.
         client_id = self._client_id or app_settings.value("client_id")
-        if self._auth is None or getattr(self._auth, "client_id", client_id) != client_id:
-            self._auth = Authenticator(client_id, interactive=not self.headless)
-        return self._auth
+        # Built once: building it asks Microsoft for its sign-in endpoints (and on Windows starts the
+        # sign-in broker), so calls arriving together, as a tool's do, must not each build one.
+        with self._auth_lock:
+            if self._auth is None or getattr(self._auth, "client_id", client_id) != client_id:
+                self._auth = Authenticator(client_id, interactive=not self.headless)
+            return self._auth
 
     @property
     def audit(self) -> AuditLog:
@@ -492,18 +497,29 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
             self.attach_lock.release()
 
     # ``notebook`` names whose kernel to ask; without it, the open notebook's.
+    # Looking at a notebook's session never makes one: a new session can stop another notebook's
+    # idle one to make room (Settings cap), clearing its variables just because a notebook opened.
+
     def poll_cell(self, version: int = -1, wait: float = 0.0, notebook: str | None = None) -> dict[str, Any]:
-        return self.sessions.kernel(notebook).poll(version, wait)
+        session = self.sessions.session(notebook, create=False)
+        if session is None:
+            return {"status": "idle", "execution_count": 0, "version": 0, "seconds": 0, "outputs": []}
+        return session.kernel.poll(version, wait)
 
     def interrupt_cell(self, notebook: str | None = None) -> dict[str, Any]:
-        return self.sessions.kernel(notebook).interrupt()
+        session = self.sessions.session(notebook, create=False)
+        return session.kernel.interrupt() if session is not None else {"interrupted": False}
 
     def debug_cell(self, action: str, expression: str | None = None, notebook: str | None = None) -> dict[str, Any]:
         """A cell paused under the debugger: continue, step, next, out, or eval ``expression`` where it is."""
-        return self.sessions.kernel(notebook).debug(action, expression)
+        session = self.sessions.session(notebook, create=False)
+        if session is None:
+            raise RuntimeError("No cell is running under the debugger.")
+        return session.kernel.debug(action, expression)
 
     def kernel_variables(self, notebook: str | None = None) -> list[dict[str, Any]]:
-        return self.sessions.kernel(notebook).variables()
+        session = self.sessions.session(notebook, create=False)
+        return session.kernel.variables() if session is not None else []
 
     def kernel_complete(self, code: str, cursor: int | None = None, notebook: str | None = None) -> dict[str, Any]:
         return self.sessions.kernel(notebook).complete(code, cursor)
@@ -516,6 +532,13 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
         """The first Python syntax error in a cell, for the editor's red underline."""
         from .intellisense import syntax_problems
         return syntax_problems(source)
+
+    def notebook_format(self, sources: list[str]) -> list[dict[str, Any]]:
+        """Format cells (Python with ruff, %%sql with the SQL formatter) without running them."""
+        from .code_format import format_cells
+        if not isinstance(sources, list):
+            raise ValueError("sources must be a list of cell sources")
+        return format_cells(sources)
 
     def kernel_variable_detail(self, name: str) -> dict[str, Any]:
         return self.kernel.variable_detail(str(name))

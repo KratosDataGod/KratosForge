@@ -24,9 +24,11 @@ import itertools
 import json
 import keyword
 import logging
+import math
 import os
 import re
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -41,7 +43,8 @@ import pyarrow as pa
 from . import chart_output
 from . import notebook_resources
 from . import magics
-from .frames import Frames, type_name
+from . import history
+from .frames import Frames, pandas_table, type_name
 from .redact import describe
 
 # Charts are drawn off screen and shown as images in the cell.
@@ -50,12 +53,65 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 _log = logging.getLogger(__name__)
 
 PREVIEW_ROWS = 1000
+# What one cell run keeps and polls: printed text past STREAM_CHARS goes to a file the user can open,
+# and rich outputs (tables, charts, HTML) past RICH_CHARS are dropped, each with one line saying so.
+STREAM_CHARS = 1_000_000
+RICH_CHARS = 16_000_000
 _CELL_FILE = "<cell>"
 # Proxy and certificate settings the engine's own HTTP calls (with your Fabric token) read.
 _ENV_NETWORK = {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
                 "SSL_CERT_FILE", "SSL_CERT_DIR"}
 _SECRET_NAME = re.compile(r"(pass(word)?|pwd|secret|token|key|credential)", re.I)
 _SQL_IN_PLACE = re.compile(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.IGNORECASE)
+# The file stops at SPILL_CHARS. Files go when the kernel restarts or the clear_output() that hides
+# them runs, and the engine sweeps ones left by a closed session when it starts (sweep_spills).
+SPILL_CHARS = 100_000_000
+SPILL_PREFIX = "kratosforge-output-"
+# A notebook's own process (kernel_proc) writes its files in a folder of its own, named here, so the
+# engine can delete them when Stop or Restart ends the process.
+SPILL_DIR_ENV = "FABRIC_DESKTOP_OUTPUT_DIR"
+SPILL_DIR_PREFIX = "kratosforge-kernel-"
+_spills: set[Path] = set()
+_spills_lock = threading.Lock()
+
+
+def _drop_spill(path: Path, handle: Any = None) -> None:
+    if handle is not None:
+        with contextlib.suppress(OSError):
+            handle.close()
+    with _spills_lock:
+        _spills.discard(path)
+    with contextlib.suppress(OSError):
+        path.unlink()
+
+
+def remove_spills() -> None:
+    """Delete the output files this process's cells wrote (a kernel restart)."""
+    with _spills_lock:
+        paths = list(_spills)
+    for path in paths:
+        _drop_spill(path)
+
+
+def sweep_spills(idle_seconds: float = 3600) -> None:
+    """At engine start: delete output files from earlier sessions, leaving any written to lately."""
+    cutoff = time.time() - idle_seconds
+    temp = Path(tempfile.gettempdir())
+    for path in [*temp.glob(f"{SPILL_PREFIX}*.txt"), *temp.glob(f"{SPILL_DIR_PREFIX}*/{SPILL_PREFIX}*.txt")]:
+        with contextlib.suppress(OSError):
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+    for folder in temp.glob(f"{SPILL_DIR_PREFIX}*"):
+        with contextlib.suppress(OSError):
+            if folder.is_dir() and folder.stat().st_mtime < cutoff:
+                folder.rmdir()  # only once empty
+
+
+def clear_spill_dir(folder: Path) -> None:
+    """Delete the output files a notebook process wrote, once it has ended."""
+    for path in folder.glob(f"{SPILL_PREFIX}*.txt"):
+        with contextlib.suppress(OSError):
+            path.unlink()
 
 
 def _no_input(*_args, **_kwargs):
@@ -63,8 +119,11 @@ def _no_input(*_args, **_kwargs):
 
 
 def _json_value(value: Any) -> Any:
-    if value is None or isinstance(value, (bool, int, float, str)):
+    """A preview cell: JSON (and the shell) has no NaN or infinity, so those show as text, as SQL results do."""
+    if value is None or isinstance(value, (bool, int, str)):
         return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else str(value)
     return str(value)
 
 
@@ -86,7 +145,7 @@ def as_table(value: Any) -> pa.Table | None:
         rel = value.limit(PREVIEW_ROWS + 1)
         return (getattr(rel, "to_arrow_table", None) or rel.arrow)()
     if module.startswith("pandas") and hasattr(value, "columns"):
-        return pa.Table.from_pandas(value.head(PREVIEW_ROWS + 1), preserve_index=False)
+        return pandas_table(value.head(PREVIEW_ROWS + 1))
     return None
 
 
@@ -131,7 +190,7 @@ def display(value: Any) -> dict[str, Any]:
     if chart_output.is_bokeh(value):
         return chart_output.bokeh_html(value)
     if chart_output.is_altair(value):
-        return {"type": "text", "text": chart_output.ALTAIR_NOTE}
+        return chart_output.altair_output(value)
     if module.startswith("plotly") and hasattr(value, "to_html"):
         return {"type": "html", "html": value.to_html(include_plotlyjs=True, full_html=True)}
     if module.startswith("bokeh") and hasattr(value, "document"):  # a plot or layout: the page Bokeh's show() would open
@@ -234,7 +293,8 @@ class _Run:
     def __init__(self, count: int):
         self.count = count
         self.lock = threading.Lock()
-        self.outputs: list[dict[str, Any]] = []
+        self._outputs: list[dict[str, Any]] = []
+        self._tail: list[str] = []  # text printed since, joined onto the last stream output when read
         self.version = 0
         self.status = "running"
         self.started = time.monotonic()
@@ -242,7 +302,7 @@ class _Run:
         self.thread: threading.Thread | None = None
         self.done = threading.Event()
         self.watches: list[dict[str, Any]] | None = None
-        self.clear_pending = False
+        self._reset()
         self.debugger: Any = None  # debugger.Debugger when the cell runs with breakpoints
         self.paused: dict[str, Any] | None = None  # where a debugged cell is paused
 
@@ -251,23 +311,111 @@ class _Run:
             self.paused = json.loads(json.dumps(paused, default=str)) if paused is not None else None
             self.version += 1
 
+    def _reset(self) -> None:
+        if getattr(self, "spill", None) is not None:
+            _drop_spill(self.spill, self.spill_file)
+        self._outputs, self._tail, self.clear_pending = [], [], False
+        self.stream_chars = self.rich_chars = self.spill_chars = 0
+        self.spill: Path | None = None
+        self.spill_file: Any = None
+        self.overflowed = self.rich_dropped = False
+
+    @property
+    def outputs(self) -> list[dict[str, Any]]:
+        with self.lock:
+            self._join()
+            return self._outputs
+
+    def _join(self) -> None:
+        """Join the printed text kept in pieces; one join instead of copying the text on every print."""
+        if self._tail:
+            self._outputs[-1] = {"type": "stream", "text": self._outputs[-1]["text"] + "".join(self._tail)}
+            self._tail = []
+
+    def _append(self, output: dict[str, Any]) -> None:
+        self._join()
+        self._outputs.append(output)
+
+    def _note(self, text: str) -> None:
+        self._append({"type": "text", "text": text})
+
     def write(self, text: str) -> None:
         if not text:
             return
         with self.lock:
             if self.clear_pending:
-                self.outputs, self.clear_pending = [], False
-            if self.outputs and self.outputs[-1]["type"] == "stream":
-                self.outputs[-1] = {"type": "stream", "text": self.outputs[-1]["text"] + text}
+                self._reset()
+            if self.overflowed:
+                self._spill(text)
+                return
+            room = STREAM_CHARS - self.stream_chars
+            if len(text) > room:
+                self._overflow(text, room)
             else:
-                self.outputs.append({"type": "stream", "text": text})
+                self._stream(text)
+                self.stream_chars += len(text)
             self.version += 1
 
+    def _stream(self, text: str) -> None:
+        if self._outputs and self._outputs[-1]["type"] == "stream":
+            self._tail.append(text)
+        else:
+            self._outputs.append({"type": "stream", "text": text})
+
+    def _overflow(self, text: str, room: int) -> None:
+        """The first write past STREAM_CHARS: keep what fits, put all printed text in a file."""
+        if room:
+            self._stream(text[:room])
+        self.stream_chars, self.overflowed = STREAM_CHARS, True
+        self._join()
+        shown = "".join(o["text"] for o in self._outputs if o["type"] == "stream")
+        try:
+            folder = os.environ.get(SPILL_DIR_ENV) or None
+            if folder:  # another engine's start-up sweep may have removed it while it was empty
+                os.makedirs(folder, exist_ok=True)
+            fd, name = tempfile.mkstemp(prefix=SPILL_PREFIX, suffix=".txt", dir=folder)
+            self.spill, self.spill_file = Path(name), os.fdopen(fd, "w", encoding="utf-8", errors="replace")
+            with _spills_lock:
+                _spills.add(self.spill)
+            where = f" All of it, up to {SPILL_CHARS // 1_000_000} million characters, is in {name}."
+        except OSError:
+            where = " The rest wasn't kept."
+        self._note(f"Output truncated: this cell printed more than {STREAM_CHARS:,} characters.{where}")
+        self._spill(shown[:len(shown) - room] + text)
+
+    def _spill(self, text: str) -> None:
+        """Printed text after the cap goes to the file, until it holds SPILL_CHARS."""
+        if self.spill_file is None:
+            return
+        room = SPILL_CHARS - self.spill_chars
+        try:
+            self.spill_file.write(text[:room])
+            self.spill_chars += min(len(text), room)
+            if len(text) > room:
+                self.spill_file.write(f"\n[KratosForge stopped keeping this cell's output at {SPILL_CHARS:,} characters.]\n")
+                self.spill_file.close()
+                self.spill_file = None
+        except OSError:
+            with contextlib.suppress(OSError):
+                self.spill_file.close()
+            self.spill_file = None
+
     def add(self, output: dict[str, Any]) -> None:
+        size = len(json.dumps(output, default=str))
         with self.lock:
             if self.clear_pending:
-                self.outputs, self.clear_pending = [], False
-            self.outputs.append(output)
+                self._reset()
+            if output.get("type") == "error":  # an error always shows, whatever came before it
+                self._append(output)
+            elif self.rich_chars + size > RICH_CHARS:
+                if self.rich_dropped:
+                    return
+                self.rich_dropped = True
+                self._note(f"Output truncated: this cell's tables, charts and HTML passed {RICH_CHARS // 1_000_000} MB, "
+                           "so later ones aren't shown.")
+            else:
+                self.rich_chars += size
+                self._append(output)
             self.version += 1
 
     def clear(self, wait: bool = False) -> None:
@@ -277,24 +425,34 @@ class _Run:
             if wait:
                 self.clear_pending = True
             else:
-                self.outputs, self.clear_pending = [], False
+                self._reset()
                 self.version += 1
 
     def finish(self, status: str) -> None:
         with self.lock:
+            if self.spill_file is not None:
+                with contextlib.suppress(OSError):
+                    self.spill_file.close()
+                self.spill_file = None
             self.status = status
             self.seconds = round(time.monotonic() - self.started, 2)
             self.version += 1
         self.done.set()
 
     def snapshot(self, known_version: int = -1) -> dict[str, Any]:
+        progress = _query_progress(self.thread.ident if self.thread else None) if self.status == "running" else None
         with self.lock:
             changed = self.version != known_version
             snap = {"status": self.status, "execution_count": self.count, "version": self.version,
                     "seconds": self.seconds if self.seconds is not None else round(time.monotonic() - self.started, 2),
-                    "outputs": list(self.outputs) if changed else None}
+                    "outputs": None}
+            if changed:
+                self._join()
+                snap["outputs"] = list(self._outputs)
             if self.watches is not None:
                 snap["watches"] = list(self.watches)
+            if progress is not None:
+                snap["progress"] = progress
             if self.debugger is not None:
                 snap["paused"] = self.paused
             return snap
@@ -318,6 +476,24 @@ class _OutputSink:
 
 WIDGET_SECONDS = 60
 WIDGET_GONE = "This control is no longer held by the kernel (it restarted). Run the cell again."
+
+
+def _query_progress(thread: int | None) -> float | None:
+    """The running ``spark`` query's progress, when the cell's own thread is the one waiting on it:
+    a query a widget handler or a thread the cell started doesn't show under the cell. Without
+    importing the Spark API for a cell that never used it."""
+    module = sys.modules.get("fabric_desktop.spark_local")
+    if module is None or thread is None:
+        return None
+    # The cell's thread is waiting on the query when the Spark API, or the table output that runs a
+    # DataFrame shown as the cell's result or a %%sql cell (as_table), is on its stack.
+    frame = sys._current_frames().get(thread)
+    while frame is not None:
+        name = str(frame.f_globals.get("__name__", ""))
+        if name.startswith(("duckdb", "fabric_desktop.spark")) or (name == __name__ and frame.f_code.co_name == "as_table"):
+            return module.progress()
+        frame = frame.f_back
+    return None
 
 
 class _Router(io.TextIOBase):
@@ -378,6 +554,8 @@ class Kernel:
                  variable_libraries: Callable[[str], dict[str, str] | None] | None = None):
         self.token = token
         self.load_notebook = load_notebook
+        # Asks the engine for something (name, *args), when the kernel runs in its own process: %pip.
+        self.engine_call: Callable[..., Any] | None = None
         self.variable_libraries = variable_libraries
         self.notebook_name = ""
         # The Widgets bar's values for the open notebook; each cell run starts with them (start).
@@ -398,7 +576,7 @@ class Kernel:
     def _base_namespace(self) -> dict[str, Any]:
         from . import dbutils_local, notebookutils_local
         ns: dict[str, Any] = {"__name__": "__main__", "input": _no_input, "display": self._display,
-                              "displayHTML": self._display_html}
+                              "displayHTML": self._display_html, "In": [""], "Out": {}}
         from . import ipython_display
         ipython_display.install(ipython_display.build(self._display, self._clear_output))
         from . import widgets as ipywidgets_local
@@ -439,6 +617,8 @@ class Kernel:
         if self._current is not None and not self._current.done.is_set():
             self.interrupt()
         self._widget_thread = None  # a stuck handler keeps the old namespace; the new one is free
+        if hasattr(self, "namespace"):  # not the first start: another kernel in this process may own files
+            remove_spills()
         self._reset()
 
     def _handler_alive(self) -> bool:
@@ -509,7 +689,7 @@ class Kernel:
                     self._patch_pyplot(run)
                     widgets.handle(model, event)
                     self._flush_figures(run)
-                except LookupError:
+                except widgets.WidgetGone:  # not any LookupError: a handler's own KeyError is its error
                     status["value"] = "gone"
                 except KeyboardInterrupt:
                     status["value"] = "cancelled"
@@ -557,8 +737,10 @@ class Kernel:
     def frame_download(self, frame: str, format: str, path: str) -> dict[str, Any]:  # noqa: A002 - RPC name
         return self.frames.download(frame, format, path)
 
-    def _display_html(self, html: str) -> None:
+    def _display_html(self, html: str | bytes) -> None:
         """displayHTML(html), as Fabric and Databricks have: shown in the cell's sandboxed frame."""
+        if isinstance(html, (bytes, bytearray)):  # read from a file in binary, as open(..., 'rb')
+            html = bytes(html).decode("utf-8", errors="replace")
         self._display(_Html(str(html)))
 
     def _clear_output(self, wait: bool = False) -> None:
@@ -566,10 +748,13 @@ class Kernel:
         if run is not None:
             run.clear(wait)
 
-    def _display(self, *values: Any, summary: bool = False, **_kw: Any) -> None:
+    def _display(self, *values: Any, summary: bool = False, raw: bool = False, **_kw: Any) -> None:
         run = getattr(self._local, "run", None)
         for value in values:
-            out = self._show(value)
+            if raw and isinstance(value, dict):  # display(bundle, raw=True): a mime bundle, as IPython reads it
+                out = _from_bundle(value) or {"type": "text", "text": str(value.get("text/plain", ""))}
+            else:
+                out = self._show(value)
             if summary and out["type"] == "table":
                 out["summary"] = True
             if run is not None:
@@ -662,6 +847,7 @@ class Kernel:
         self._local.run = run
         status = "error"
         restart = False
+        history.record_input(self.namespace, run.count, code)
         try:
             try:
                 if run.debugger is not None:
@@ -745,6 +931,8 @@ class Kernel:
             return "error"
         code = magics.rewrite(cell.body)
         namespace.setdefault(magics.CALL, self._magic)
+        if getattr(self, "_autoreload", None) is not None:
+            self._autoreload.check(namespace)  # %autoreload: your edited modules, before the cell runs
         self._patch_pyplot(run)
         if cell.header == "%%time":
             started = time.monotonic()
@@ -778,8 +966,11 @@ class Kernel:
                 if tail is not None:
                     value = eval(tail, namespace)
                 if value is not None:
-                    namespace["_"] = value
-                    self._emit(run, self._show(value))
+                    self._emit(run, self._show(value))  # shown first, as IPython does, so Out isn't in itself
+                    if namespace is self.namespace and not getattr(self._local, "depth", 0):
+                        history.record_output(namespace, self.count, value)
+                    else:
+                        namespace["_"] = namespace[history.LAST] = value
         except NotebookExit as done:
             if not isinstance(done, RestartPython):
                 print(f"Notebook exited with value: {done.value}")
@@ -804,6 +995,10 @@ class Kernel:
         import statistics
         import timeit
         flags = dict(re.findall(r"-([nr])\s*(\d+)", args))
+        if other := re.sub(r"-[nr]\s*\d+", "", args).split():
+            raise ValueError(f"%timeit {other[0]} isn't supported here. Use -n N (loops per run) and -r R (runs).")
+        if any(int(v) < 1 for v in flags.values()):
+            raise ValueError("%timeit -n and -r need a number of 1 or more.")
         timer = timeit.Timer(stmt=code, globals=namespace)
         number = int(flags["n"]) if "n" in flags else timer.autorange()[0]
         times = [t / number for t in timer.repeat(repeat=int(flags.get("r", 7)), number=number)]
@@ -858,15 +1053,25 @@ class Kernel:
 
     def _writefile(self, cell: Any, run: _Run | None) -> str:
         """``%%writefile [-a] path``: the cell's text into a file on this PC (``-a`` appends)."""
-        words = cell.args.split()
-        append = "-a" in words or "--append" in words
-        target = next((w for w in words if not w.startswith("-")), None)
-        if target is None:
-            self._emit(run, {"type": "error", "ename": "ValueError", "traceback": "",
-                             "evalue": "%%writefile needs a file name, like: %%writefile helpers.py"})
+        try:
+            words = magics.words(cell.args)
+        except ValueError as exc:  # an unclosed quote
+            self._emit(run, self._error(exc))
             return "error"
-        path = Path(os.path.expandvars(os.path.expanduser(target.strip("\"'")))).resolve()
-        text = cell.body.removeprefix("\n")
+        append = "-a" in words or "--append" in words
+        targets = [w for w in words if not w.startswith("-")]
+        flags = [w for w in words if w.startswith("-") and w not in ("-a", "--append")]
+        problem = ("%%writefile needs a file name, like: %%writefile helpers.py" if not targets else
+                   f"%%writefile {flags[0]} isn't supported here. Use -a to append." if flags else
+                   f"%%writefile takes one file name; quote a name with spaces, like: %%writefile \"{' '.join(targets)}\""
+                   if len(targets) > 1 else None)
+        if problem:
+            self._emit(run, {"type": "error", "ename": "ValueError", "traceback": "", "evalue": problem})
+            return "error"
+        target = targets[0]
+        path = Path(os.path.expandvars(os.path.expanduser(target))).resolve()
+        # A cell saved on Windows has \r\n; text mode writes this PC's own line ending once.
+        text = cell.body.removeprefix("\n").replace("\r\n", "\n")
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             existed = path.exists()
@@ -887,7 +1092,11 @@ class Kernel:
             return {k: "hidden" if _SECRET_NAME.search(k) else v for k, v in sorted(os.environ.items())}
         m = re.match(r"([A-Za-z_]\w*)(?:\s*=\s*|\s+)(.*)$", line)
         if m is None:
-            return os.environ.get(line)
+            if "=" in line or re.search(r"\s", line):  # 1BAD=x or 1BAD x would read "1BAD=x" and show nothing
+                bad = re.split(r"[=\s]", line, maxsplit=1)[0] or "a variable with no name"
+                raise ValueError(f"%env can't set {bad}: "
+                                 "a name to set starts with a letter or _ and has letters, digits and _.")
+            return os.environ.get(line)  # reading takes any name, like ProgramFiles(x86) on Windows
         name, value = m.groups()
         if name.upper().startswith("FABRIC_DESKTOP_"):
             raise ValueError(f"{name} is KratosForge's own setting and can't be changed from a notebook.")
@@ -899,9 +1108,10 @@ class Kernel:
         return None
 
     def _line_magic_help(self) -> str:
-        return ("Line magics: %sql, %run, %fs, %sh, !command, %time, %timeit, %pwd, %env, %who, %whos, %reset -f, "
-                "%lsmagic, %matplotlib (charts are always inline), %pip and %conda (skipped), "
-                "%load_ext, %autoreload and %config (skipped)\n"
+        return ("Line magics: %sql, %run (-b for a resources file), %fs, %sh, !command, %time, %timeit, %pwd, %env, %who, %whos, %reset -f, "
+                "%history (with In, Out, _N and _iN), "
+                "%lsmagic, %matplotlib (charts are always inline), %pip (in the notebook's environment), "
+                "%autoreload and %aimport (with %load_ext autoreload), %config (skipped)\n"
                 "Cell magics: %%sql, %%pyspark, %%python, %%html, %%markdown, %%configure, %%sh, %%bash, %%cmd, "
                 "%%powershell, %%time, %%timeit, %%capture, %%writefile\n"
                 "Databricks cells: %sql, %python, %md, %sh, %fs, %run (%scala and %r run in Fabric)")
@@ -957,6 +1167,8 @@ class Kernel:
 
     def _magic(self, name: str, line: str) -> Any:
         if name == "run":
+            if m := _RUN_SCRIPT.match(line):
+                return self._run_builtin(m["flags"], m["rest"])
             target, args = _run_target(line)
             return self._run_notebook_in(target, self.namespace, args)
         if name == "sql":
@@ -969,10 +1181,13 @@ class Kernel:
             return lines if name == "sx" else None
         if name == "fs":
             return _fs_magic(self.namespace["notebookutils"].fs, line)
-        if name in ("pip", "conda"):
-            print(f"Note: %{name} installs packages in Fabric's session. On this PC the engine's packages "
-                  f"are fixed, so this line was skipped.")
+        if name == "pip":
+            from . import pip_magic
+            pip_magic.run(line, self.engine_call, lambda path: pip_magic.read_text(path, self.resources_dir))
             return None
+        if name == "conda":
+            raise ValueError("%conda isn't on this PC. Use %pip install, which installs into the notebook's "
+                             "own environment.")
         if name == "time":
             started = time.monotonic()
             try:
@@ -983,7 +1198,7 @@ class Kernel:
             print(f"Wall time: {_duration(time.monotonic() - started)}")
             return value
         if name == "timeit":
-            m = re.match(r"((?:\s*-[nr]\s*\d+)*)\s*(.*)$", line)
+            m = re.match(r"((?:\s*-(?:[nr]\s*\d+|[A-Za-z])(?=\s|$))*)\s*(.*)$", line)  # options lead, as in IPython
             return self._timeit(m.group(1), m.group(2), self.namespace)
         if name == "lsmagic":
             print(self._line_magic_help())
@@ -997,6 +1212,8 @@ class Kernel:
             return self._env(line)
         if name in ("who", "whos"):
             rows = self.variables()
+            if kinds := line.split():  # %who str int: only variables of those types, as in IPython
+                rows = [r for r in rows if r["type"] in kinds]
             if name == "who":
                 print("  ".join(r["name"] for r in rows) or "No variables yet.")
             else:
@@ -1008,13 +1225,38 @@ class Kernel:
             keep = set(self._base_namespace_keys())
             for key in [k for k in self.namespace if not k.startswith("__") and k not in keep]:
                 del self.namespace[key]
+            history.clear_output(self.namespace)
+            return None
+        if name in ("history", "hist"):
+            text = history.command(self.namespace, line)
+            if text:
+                print(text)
             return None
         if name in ("matplotlib",):
             return None  # charts are always shown in the cell
-        if name in ("load_ext", "reload_ext", "autoreload", "config", "aimport"):
-            print(f"Note: %{name} changes IPython itself, which this kernel isn't, so this line was skipped.")
+        if name in ("load_ext", "reload_ext") and line.strip() == "autoreload":
+            self._reloader()  # %autoreload and %aimport work with or without this, as a convenience
+            return None
+        if name == "autoreload":
+            self._reloader().command(line)
+            return None
+        if name == "aimport":
+            listed = self._reloader().aimport(line, self.namespace)
+            if listed:
+                print(listed)
+            return None
+        if name in ("load_ext", "reload_ext", "unload_ext", "config"):
+            what = f"the {line.strip()} extension" if name.endswith("_ext") and line.strip() else f"%{name}"
+            print(f"Note: {what} needs IPython's own shell, which this kernel isn't, so this line was skipped. "
+                  "%load_ext autoreload works.")
             return None
         raise ValueError(f"%{name} isn't supported on this PC. %lsmagic lists the magics that are.")
+
+    def _reloader(self) -> Any:
+        from .autoreload import Reloader
+        if getattr(self, "_autoreload", None) is None:
+            self._autoreload = Reloader()
+        return self._autoreload
 
     def _run_script(self, cell: Any, run: _Run | None) -> str:
         """A %sh, %%sh, %%bash, %%cmd or %%powershell cell: the cell runs as a script on this PC.
@@ -1049,6 +1291,37 @@ class Kernel:
         ns[magics.CALL] = self._magic
         with _deadline(timeout_seconds, f"Notebook {name!r} didn't finish within {timeout_seconds} seconds."):
             return self._run_notebook_in(name, ns, arguments or {}, cell_timeout)
+
+    def _run_builtin(self, flags: str, rest: str) -> Any:
+        """Fabric's ``%run -b script.py`` (or ``.sql``): runs a file from the notebook's Built-in
+        resources in this session. A ``.py`` file runs in the notebook's variables, after any
+        ``{"name": value}`` arguments are set; a ``.sql`` file runs as a %%sql cell would."""
+        from . import notebook_resources
+        if "-c" in flags.split() or "--current" in flags.split():
+            if getattr(self._local, "depth", 0):
+                raise NotImplementedError("%run -c inside a notebook that another one runs isn't supported on "
+                                          "this PC yet: it would need that notebook's own resources. Use -b, "
+                                          "which reads the resources of the notebook you run.")
+        file, args = _run_target(rest, keep_path=True)
+        if not self.resources_dir:
+            raise FileNotFoundError(f"%run -b {file}: this notebook has no resources folder yet. Add the file "
+                                    "under Resources (Built-in) first.")
+        path = notebook_resources.resolve(f"builtin/{file}", self.resources_dir)
+        if path is None or not os.path.isfile(path):
+            raise FileNotFoundError(f"%run -b: {file} isn't in this notebook's Built-in resources.")
+        text = Path(path).read_text(encoding="utf-8-sig")  # Notepad may save a BOM
+        kind = Path(path).suffix.lower()
+        if kind == ".sql":
+            if args:
+                raise ValueError("%run -b with a .sql file takes no arguments.")
+            if self._run_sql(text, getattr(self._local, "run", None), self.namespace) != "ok":
+                raise RuntimeError(f"{file} failed; its error is shown above.")
+            return None
+        if kind != ".py":
+            raise ValueError(f"%run -b runs .py and .sql files; {file} is neither.")
+        self.namespace.update(args)
+        exec(compile(text, f"builtin/{file}", "exec"), self.namespace)  # noqa: S102 - the notebook's own file
+        return None
 
     def _run_notebook_in(self, name: str, namespace: dict[str, Any], arguments: dict[str, Any],
                          cell_timeout: float | None = None) -> Any:
@@ -1272,13 +1545,14 @@ class Kernel:
     @staticmethod
     def _error(exc: BaseException) -> dict[str, Any]:
         frames = [f for f in traceback.extract_tb(exc.__traceback__)
-                  if f.filename != __file__ and not f.filename.endswith(("notebookutils_local.py",))]
+                  if f.filename not in (__file__, _WIDGETS_FILE) and not f.filename.endswith(("notebookutils_local.py",))]
         lines = traceback.format_list(frames) + traceback.format_exception_only(type(exc), exc)
         return {"type": "error", "ename": type(exc).__name__, "evalue": str(exc),
                 "traceback": "Traceback (most recent call last):\n" + "".join(lines)}
 
 
 _MISSING = object()
+_WIDGETS_FILE = str(Path(__file__).with_name("widgets.py"))  # a control handler's error shows the user's frames only
 
 
 # How many notebooks notebook.run and %run may nest, so a notebook that runs itself stops.
@@ -1430,7 +1704,10 @@ class _BuiltinPaths(ast.NodeTransformer):
         return node
 
 
-def _run_target(line: str) -> tuple[str, dict[str, Any]]:
+_RUN_SCRIPT = re.compile(r"^\s*(?P<flags>(?:(?:-b|--builtin|-c|--current)\s+)+)(?P<rest>.*)$", re.S)
+
+
+def _run_target(line: str, keep_path: bool = False) -> tuple[str, dict[str, Any]]:
     """The notebook and arguments of a ``%run`` line, in Fabric's or Databricks' form:
     ``%run Load sales {"day": "2026-01-01", "full": true}`` (JSON or a Python dict) or
     ``%run ./Load sales $day="2026-01-01" $full=true`` (Databricks widgets, always text).
@@ -1443,7 +1720,9 @@ def _run_target(line: str) -> tuple[str, dict[str, Any]]:
         name, rest = (text[:m.start()], text[m.end():]) if m else (text, "")
     if not name:
         raise ValueError("%run needs a notebook name, like: %run Load sales")
-    name = name.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1].removesuffix(".ipynb")
+    name = name.replace("\\", "/").rstrip("/")
+    if not keep_path:  # a notebook is found by its name; a resources file keeps its folder
+        name = name.rsplit("/", 1)[-1].removesuffix(".ipynb")
     rest = rest.strip()
     if not rest:
         return name, {}
@@ -1458,9 +1737,11 @@ def _run_target(line: str) -> tuple[str, dict[str, Any]]:
         if not isinstance(args, dict):
             raise ValueError("%run arguments are a {name: value} object.")
         return name, args
-    pairs = re.findall(r"""\$(\w+)\s*=\s*(?:"([^"]*)"|'([^']*)'|(\S+))""", rest)
-    if not pairs:
-        raise ValueError(f"%run couldn't read the arguments {rest!r}. Use {{\"name\": value}} or $name=\"value\".")
+    pair = r"""\$(\w+)\s*=\s*(?:"([^"]*)"|'([^']*)'|(\S+))"""
+    pairs = re.findall(pair, rest)
+    left = re.sub(pair, "", rest).strip()  # anything else would be dropped without a word
+    if not pairs or left:
+        raise ValueError(f"%run couldn't read the arguments {(left or rest)!r}. Use {{\"name\": value}} or $name=\"value\".")
     return name, {k: a or b or c for k, a, b, c in pairs}
 
 
@@ -1552,8 +1833,7 @@ class CapturedOutput:
 def _fs_magic(fs: Any, line: str) -> Any:
     """Databricks' ``%fs`` on notebookutils.fs: ``%fs ls Files/raw``, ``head``, ``cp [-r]``,
     ``mv``, ``rm [-r]``, ``mkdirs``, ``put [-f] path "text"``. Same paths and safety rules as fs."""
-    import shlex
-    words = shlex.split(line, posix=True)
+    words = magics.words(line)
     if not words:
         raise ValueError("%fs needs a command: ls, head, cp, mv, rm, mkdirs or put.")
     command, flags = words[0], {w for w in words[1:] if w in ("-r", "-f")}

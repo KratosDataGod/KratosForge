@@ -71,6 +71,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [notebook-comments.md](notebook-comments.md) | Engineers, analysts | Comments on notebook cells: threads, replies, resolve, and where they are kept |
 | [notebook-editor/find-and-replace.md](notebook-editor/find-and-replace.md) | Engineers, analysts | Find and replace across every cell of a notebook, with Replace all and undo |
 | [notebook-editor/load-data-items.md](notebook-editor/load-data-items.md) | Engineers, analysts | Drag tables and files into cells; Load with Polars, Spark, SQL or pandas |
+| [notebook-editor/format-code.md](notebook-editor/format-code.md) | Engineers, analysts | Format a cell or the whole notebook: Python with ruff, SQL cells as Format SQL does |
 | [notebook-editor/intellisense.md](notebook-editor/intellisense.md) | Engineers, analysts | Hover docs, signature help and syntax errors in Python cells |
 | [notebook-editor/variables.md](notebook-editor/variables.md) | Engineers, analysts | The Variables pane: filter, sort, memory, open data frames and containers |
 | [prove/how-proofs-work.md](prove/how-proofs-work.md) | Engineers, analysts | Proving a notebook: pinned inputs, sandboxed outputs, how results are verified, the scorecard and receipts (Preview) |
@@ -174,6 +175,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Chart builder | Notebook > a table output > Chart ([notebooks.md](notebooks.md)) |
 | Data Wrangler | Notebook > a table output > Clean ([notebooks.md](notebooks.md)) |
 | Notebook widgets | Notebook > a cell that shows ipywidgets controls ([notebooks.md](notebooks.md)) |
+| Altair charts in notebooks | Notebook > a cell that shows an Altair chart ([notebooks.md](notebooks.md)) |
 | Result downloads | Notebook > a table output > Download ([notebooks.md](notebooks.md)) |
 | Column lineage | Entity page, Columns |
 | Roll back a release | Data mesh > Deploy, Roll back... on a Test or Prod Last release card |

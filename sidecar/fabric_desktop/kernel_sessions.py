@@ -130,6 +130,7 @@ class KernelSessions:
                 found = self.session(host, create)
                 if found is None:
                     return None
+                found.touch()  # a guest's use keeps the host's session from being reaped as idle
                 guest = Session(key, GuestKernel(found.kernel, key, host))
                 guest.created, guest.last_used = found.created, found.last_used
                 return guest

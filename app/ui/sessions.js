@@ -90,6 +90,9 @@ function shareSection(current, data) {
 async function shareSession(guest, host) {
   const nb = openNotebooks.get(guest);
   if (nb?.kernelStatus === "busy") { toast(`A cell is running in ${guest}. Share when it has finished.`); return; }
+  if (!await confirmDialog(`Share ${host}'s session with ${guest}?`,
+    `${guest}'s own session ends and its variables are cleared. From then on it runs in ${host}'s session, with its own variables.`,
+    "Share", { danger: true })) return;
   const out = await attempt(() => rpc("kernel_session_share", { notebook: guest, host }), "Could not share the session");
   if (!out) return;
   if (nb) nb.kernelStatus = "idle";

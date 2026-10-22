@@ -622,6 +622,8 @@ class Kernel:
             return self._namespace
         found = self._guests.get(guest)
         if found is None:
+            # Building it points sys.modules' notebookutils at the guest's copy; both copies talk
+            # to this kernel, so an import in either notebook gets the same behaviour.
             found = self._guests[guest] = self._base_namespace()
         return found
 
@@ -1312,6 +1314,10 @@ class Kernel:
             return _fs_magic(self.namespace["notebookutils"].fs, line)
         if name == "pip":
             from . import pip_magic
+            guest = getattr(self._local, "guest", None)
+            if guest and line.split()[:1] == ["install"]:
+                raise ValueError(f"{guest} shares another notebook's session, so it uses that notebook's environment. "
+                                 "Run %pip install in that notebook, or leave the shared session (Sessions) first.")
             pip_magic.run(line, self.engine_call, lambda path: pip_magic.read_text(path, self.resources_dir))
             return None
         if name == "conda":

@@ -4449,6 +4449,7 @@ test("Share adds another notebook to this session, and a notebook that shares on
   const calls = [];
   const dialogs = [];
   const toasts = [];
+  const confirms = [];
   let data = { process: true, notes: [], shared: {}, max_sessions: 5, idle_minutes: 0, sessions: [
     { notebook: "Sales cleanup", process: true, status: "idle", pid: 10, memory_bytes: 1, cells_run: 3, last_used: 1, active: true, shared_with: [] },
     { notebook: "Customer churn", process: true, status: "idle", pid: 11, memory_bytes: 1, cells_run: 1, last_used: 1, active: false, shared_with: [] }] };
@@ -4456,6 +4457,7 @@ test("Share adds another notebook to this session, and a notebook that shares on
     preview: (_id, n) => n, previewMarked: (_id, n) => n, toast: (t) => toasts.push(t), attempt: (fn) => fn(),
     when: String, formatBytes: String, go: () => {}, openNotebook: () => {}, renderNotebook: () => {},
     closeDialog: () => {}, showDialog: (title, body) => dialogs.push(body),
+    confirmDialog: async (title, text, ok, opts) => { confirms.push([title, text, ok, opts.danger]); return true; },
     openNotebooks: new Map([["Sales cleanup", {}], ["Sales report", {}]]), state: { notebook: { name: "Sales cleanup" }, view: "notebook" },
     rpc: async (m, a) => { calls.push([m, a]); return m === "kernel_sessions" ? data : m === "kernel_session_share" ? { host: a.host } : { left: "Sales cleanup" }; } };
   vm.createContext(ctx);
@@ -4470,6 +4472,8 @@ test("Share adds another notebook to this session, and a notebook that shares on
   allNodes(dialogs[0]).find((n) => n.tag === "button" && n.kids.includes("Share")).attrs.onclick();
   await new Promise((r) => setImmediate(r));
   assert.deepStrictEqual(plain(calls.find(([m]) => m === "kernel_session_share")[1]), { notebook: "Sales report", host: "Sales cleanup" });
+  assert.deepStrictEqual(confirms[0].slice(2), ["Share", true]);
+  assert.match(confirms[0][1], /Sales report's own session ends and its variables are cleared/);
   assert.match(toasts.join(" "), /Sales report now shares Sales cleanup's session. Its variables were cleared/);
   // The host's row names its guests, and the status bar says the session is shared.
   data = { ...data, shared: { "Sales report": "Sales cleanup" }, sessions: [{ ...data.sessions[0], shared_with: ["Sales report"] }] };

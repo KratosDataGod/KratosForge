@@ -131,3 +131,21 @@ def test_a_notebook_still_sees_its_last_cell_after_another_starts_one(svc):  # n
     assert out(finish(svc, "A")) == "from A\n"
     with pytest.raises(Exception, match="shares A's session.*environment"):
         call(svc, "environment_attach", notebook="B", name=None)
+
+
+def test_a_guest_keeps_to_its_hosts_environment_lakehouse_and_session(svc):  # noqa: F811
+    call(svc, "save_app_settings", changes={"kernel_process": True})
+    run(svc, "A", "1")
+    call(svc, "kernel_session_share", notebook="B", host="A")
+    snap = run(svc, "B", "%pip install six")
+    assert snap["status"] == "error" and "uses that notebook's environment" in str(snap["outputs"])
+    with pytest.raises(Exception, match=r"B shares A.s session, which uses its environment. They leave the shared session \(Sessions\) first"):
+        call(svc, "environment_attach", notebook="A", name=None)
+    ref = {"workspace_id": "w", "lakehouse_id": "other", "name": "Other"}
+    with pytest.raises(Exception, match="B shares A's session but now has another default lakehouse"):
+        call(svc, "start_cell", code="1", notebook="B", lakehouse_ref=ref)
+    # A guest's use keeps the host's session in use, so idle reaping doesn't stop it.
+    host = svc.sessions._sessions["A"]
+    host.last_used = 0
+    call(svc, "poll_cell", notebook="B")
+    assert host.last_used > 0

@@ -1059,11 +1059,16 @@ class Kernel:
             self._emit(run, self._error(exc))
             return "error"
         append = "-a" in words or "--append" in words
-        target = next((w for w in words if not w.startswith("-")), None)
-        if target is None:
-            self._emit(run, {"type": "error", "ename": "ValueError", "traceback": "",
-                             "evalue": "%%writefile needs a file name, like: %%writefile helpers.py"})
+        targets = [w for w in words if not w.startswith("-")]
+        flags = [w for w in words if w.startswith("-") and w not in ("-a", "--append")]
+        problem = ("%%writefile needs a file name, like: %%writefile helpers.py" if not targets else
+                   f"%%writefile {flags[0]} isn't supported here. Use -a to append." if flags else
+                   f"%%writefile takes one file name; quote a name with spaces, like: %%writefile \"{' '.join(targets)}\""
+                   if len(targets) > 1 else None)
+        if problem:
+            self._emit(run, {"type": "error", "ename": "ValueError", "traceback": "", "evalue": problem})
             return "error"
+        target = targets[0]
         path = Path(os.path.expandvars(os.path.expanduser(target))).resolve()
         # A cell saved on Windows has \r\n; text mode writes this PC's own line ending once.
         text = cell.body.removeprefix("\n").replace("\r\n", "\n")
@@ -1728,9 +1733,11 @@ def _run_target(line: str, keep_path: bool = False) -> tuple[str, dict[str, Any]
         if not isinstance(args, dict):
             raise ValueError("%run arguments are a {name: value} object.")
         return name, args
-    pairs = re.findall(r"""\$(\w+)\s*=\s*(?:"([^"]*)"|'([^']*)'|(\S+))""", rest)
-    if not pairs:
-        raise ValueError(f"%run couldn't read the arguments {rest!r}. Use {{\"name\": value}} or $name=\"value\".")
+    pair = r"""\$(\w+)\s*=\s*(?:"([^"]*)"|'([^']*)'|(\S+))"""
+    pairs = re.findall(pair, rest)
+    left = re.sub(pair, "", rest).strip()  # anything else would be dropped without a word
+    if not pairs or left:
+        raise ValueError(f"%run couldn't read the arguments {(left or rest)!r}. Use {{\"name\": value}} or $name=\"value\".")
     return name, {k: a or b or c for k, a, b, c in pairs}
 
 

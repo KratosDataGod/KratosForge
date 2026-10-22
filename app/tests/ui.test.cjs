@@ -4265,3 +4265,10 @@ test("the magics page says autoreload leaves your own values alone", () => {
   assert.match(doc, /A number or string follows only\n  under its own name/);
   assert.match(doc, /also `pip install --user`\n  ones/);
 });
+
+// Magics: %run and %%writefile refuse what they would otherwise drop.
+test("the magics page says %run and %%writefile refuse leftover words", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /Anything else on the line is an\n  error rather than being dropped/);
+  assert.match(doc, /A name with spaces needs quotes, or the cell says so instead of writing to the first word/);
+});

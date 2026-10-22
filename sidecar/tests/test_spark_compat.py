@@ -416,3 +416,19 @@ def test_unix_timestamp_reads_quoted_letters_and_dates_a_time_only_pattern_to_19
     out = df.select(F.unix_timestamp("iso", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"), F.unix_timestamp("t", "h:mm a"),
                     F.unix_timestamp("at", "'at' HH"), F.unix_timestamp("md", "MM-dd"), F.unix_timestamp("q", "'it''s' HH"))
     assert rows(out) == [(1710075907, 47100, 46800, 5875200, 46800)]  # no year: 1970-01-01, as in Spark
+
+
+def test_group_by_nothing_aggregates_the_frame_and_first_last_skip_nulls(live):
+    import pyspark.sql.functions as F
+    from pyspark.sql import Window
+    df = live.createDataFrame([(1, None, 1), (1, "a", 2), (2, "b", 3), (2, None, 4)], ["k", "v", "o"])
+    assert rows(df.groupBy().agg(F.sum("k"), F.max("o"))) == [(6, 4)] and rows(df.groupBy().agg({"k": "sum"})) == [(6,)]
+    out = df.groupBy("k").agg(F.first("v", True), F.last("v", ignorenulls=True)).orderBy("k")
+    assert rows(out) == [(1, "a", "a"), (2, "b", "b")] and out.columns == ["k", "first(v)", "last(v)"]
+    window = Window.partitionBy("k").orderBy("o")
+    assert rows(df.select("o", F.last("v", True).over(window)).orderBy("o")) == [(1, None), (2, "a"), (3, "b"), (4, "b")]
+    query = ("SELECT k, last(v, true) l, first(v) IGNORE NULLS f, last_value(v, true) lv "
+             "FROM VALUES (1, 'a'), (1, NULL) t(k, v) GROUP BY k")
+    assert rows(live.sql(query)) == [(1, "a", "a", "a")]
+    query = ("SELECT o, last(v, true) OVER (ORDER BY o) l FROM VALUES (1, NULL), (2, 'a'), (3, NULL) t(o, v) ORDER BY o")
+    assert rows(live.sql(query)) == [(1, None), (2, "a"), (3, "a")]

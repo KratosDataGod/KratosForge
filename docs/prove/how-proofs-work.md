@@ -37,7 +37,7 @@ Each table's result has a **level**:
 | --- | --- | --- |
 | `keys` | none | Columns that identify a row. |
 | `ignore` | none | Columns left out, such as a load timestamp. |
-| `abs`, `rel` | 0, 1e-9 | Numbers match when they differ by at most `abs`, or by at most `rel` times the larger value. Two engines adding the same numbers in a different order differ around 1e-15. |
+| `abs`, `rel` | 0, 1e-9 | Numbers match when they differ by at most `abs`, or by at most `rel` times the larger value. Two engines adding the same numbers in a different order differ around 1e-15. With both at 0, whole numbers and decimals are compared exactly, digit for digit (1.50 equals 1.5); a difference too small to show as a floating-point number is counted but its size isn't shown. |
 | `columns` | none | Tolerances for one column: `{"amount": {"abs": 0.01}}`. |
 | `timestamps` | `us` | Compare timestamps to the microsecond, millisecond (`ms`) or second (`s`). Timestamps are compared in UTC. |
 | `limit_rows` | 5,000,000 | Above this, compare fingerprints only. |

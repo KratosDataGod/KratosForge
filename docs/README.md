@@ -85,7 +85,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [source-control.md](source-control.md) | Engineers, analysts | Source control (Preview): clone, diffs, branches, commit, pull and push, the secret check, what it doesn't do yet |
 | [orchestration/pipeline-definitions.md](orchestration/pipeline-definitions.md) | Engineers | Reading, checking and converting Fabric pipeline definitions on your PC (Preview) |
 | [orchestration/activity-registry.md](orchestration/activity-registry.md) | Engineers | Which pipeline activities run on your PC, are only checked, or need Fabric capacity (Preview) |
-| [orchestration/local-runs.md](orchestration/local-runs.md) | Engineers | Running a pipeline's control flow on your PC with mocks; no capacity used (Preview) |
+| [orchestration/local-runs.md](orchestration/local-runs.md) | Engineers | Running a pipeline's control flow on your PC with mocks; it starts no Fabric job, and notebook steps read and write OneLake, which uses capacity (Preview) |
 | [teams.md](teams.md) | Team leads, platform owners | Roles, Git workflow, environments and workspaces, shared keys, feedback at scale |
 | [troubleshooting.md](troubleshooting.md) | Everyone | Each error message, what it means and what to do |
 | [release-management/README.md](release-management/README.md) | Maintainers, platform owners | How builds reach Preview and Stable, who approves each step, the integration cycle for parallel PRs, promoting, per-build releases, rollback and pinning, versioning ([status](release-management/release-status.md), [history](release-management/release-history.md)) |
@@ -126,7 +126,7 @@ KratosForge is new, and it's honest about what has been proven.
 - Startup, updates and settings
 - The headless agent's queue, retries and leases
 
-**Not yet tried on a live tenant:** sign-in through Microsoft's Fabric sign-in with no app registration, and Windows sign-in (version 0.15.0). Until it is, the maintainer's tenant results below are with an own app registration.
+**Not yet tried on a live tenant:** sign-in through Microsoft's Fabric sign-in with no app registration, and Windows sign-in. Until it is, the maintainer's tenant results below are with an own app registration.
 
 **Used on the maintainer's own Fabric tenant (with an own app registration):** sign-in and admin consent, listing workspaces and items, the OneLake catalog, the embedded Fabric pages (Fabric and the Monitoring hub) and their saved sign-in, and writing tables to OneLake from the PC. That is one tenant; yours may differ in settings and permissions.
 

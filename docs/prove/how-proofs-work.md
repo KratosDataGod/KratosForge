@@ -44,6 +44,8 @@ Each table's result has a **level**:
 
 A column of whole numbers on one side and decimals on the other (for example an average one engine returns as an integer type) is compared as numbers under these tolerances, and the result notes it. Any other type difference makes the table differ.
 
+A key column that is text on one side and numbers on the other is matched as text, so rows still pair up; the type difference already makes the table differ. A rule that isn't valid (a negative or non-numeric tolerance, a row limit that isn't a whole number, `keys` that aren't column names) is refused with a message saying what it should be, and nothing is compared.
+
 Rules can be set for all tables and per table. A finished proof can be verified again under other rules without running anything (`prove_verify`), for example to see whether a difference is within a tolerance; that check can be saved as its own receipt pointing at the proof's.
 
 ## Scorecard

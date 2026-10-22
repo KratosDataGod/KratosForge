@@ -502,3 +502,16 @@ def test_returns_rows_skips_block_comments_and_quoted_semicolons():
     cells = [{"type": "code", "source": "%%sql\n/* header */ SELECT * FROM sales"},
              {"type": "code", "source": "_sqldf.show()"}]
     assert fabric_sql_magics(cells, spark=True)[0]["source"].startswith("_sqldf = spark.sql(")
+
+
+def test_timeit_refuses_options_it_cant_honour_and_who_filters_by_type():
+    k = Kernel()
+    k.run("a = 1\nb = 'x'\nc = [1]")
+    for code, message in (("%timeit -n0 1", "1 or more"), ("%timeit -r 0 1", "1 or more"),
+                          ("%timeit -o 1 + 1", "-o isn't supported"), ("%%timeit -n1 -q\n1", "-q isn't supported")):
+        out = k.run(code)
+        assert out["status"] == "error" and message in out["outputs"][-1]["evalue"], code
+    assert "per loop" in k.run("%timeit -n 2 -r 2 -1")["outputs"][0]["text"]  # -1 is code, not an option
+    assert k.run("%who str")["outputs"][0]["text"].split() == ["b"]
+    assert k.run("%who int list")["outputs"][0]["text"].split() == ["a", "c"]
+    assert k.run("%who")["outputs"][0]["text"].split() == ["a", "b", "c"]

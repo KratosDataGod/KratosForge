@@ -140,11 +140,11 @@ the same as any other.
 | Magic | Does |
 | --- | --- |
 | `%time statement`, `%%time` | Runs it and prints the wall time |
-| `%timeit expression`, `%%timeit` | Runs it many times and prints the mean and spread per loop, as IPython does. `-n 100` sets loops per run and `-r 5` runs; by default it picks enough loops for 0.2 seconds and does 7 runs |
+| `%timeit expression`, `%%timeit` | Runs it many times and prints the mean and spread per loop, as IPython does. `-n 100` sets loops per run and `-r 5` runs; by default it picks enough loops for 0.2 seconds and does 7 runs. Other IPython options such as `-o` and `-q` say they aren't supported |
 | `%%capture name` | Keeps the cell's printed output, tables and charts in `name` instead of showing them. `name.stdout` is the text; `name.show()` shows it all. An error still shows |
 | `%%writefile path` | Writes the cell's text to a file on this PC, replacing a file that's there without asking; `-a` appends. A relative path lands in the engine's working folder (`%pwd`), not the notebook's; give a full path to choose where |
 | `%env`, `%env NAME`, `%env NAME=value` | Lists, reads or sets environment variables. Values of names that look secret (token, key, password...) show as hidden. `FABRIC_DESKTOP_*` and the proxy and certificate settings (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `REQUESTS_CA_BUNDLE`, `SSL_CERT_FILE` and similar) can't be set here, because the engine's signed-in Fabric calls use them |
-| `%who`, `%whos` | Lists the notebook's variables (the same ones as the **Variables** pane) |
+| `%who`, `%whos` | Lists the notebook's variables (the same ones as the **Variables** pane); `%who str int` lists only those types |
 | `%pwd` | The kernel's working folder |
 | `%reset -f` | Clears every variable and `Out`; `spark`, `notebookutils` and `display` stay |
 | `In`, `Out`, `_`, `__`, `___`, `_3`, `_i`, `_i3` | The notebook's history, as in IPython: `In[3]` and `_i3` are cell 3's code, `Out[3]` and `_3` its result, `_` the last result. `_i` is the cell before this one. A notebook run with `%run` isn't recorded, `Out` keeps the last 20 results (as many tables as the result viewer keeps), and Restart starts again from 1 |

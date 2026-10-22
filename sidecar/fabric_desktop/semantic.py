@@ -72,13 +72,40 @@ class Relationship:
     why: str = ""
 
 
-def plan(project: Any, layer: str) -> tuple[list[ModelTable], list[Relationship]]:
-    """The tables and relationships of a model over ``layer``; columns are filled in later."""
+def _unquote(name: str) -> str:
+    return name[1:-1].replace("''", "'") if name.startswith("'") and name.endswith("'") else name
+
+
+def table_names(parts: dict[str, str], entities: list[str]) -> dict[str, str]:
+    """The name each entity's table has in an existing model, found by its lineage tag, which is derived
+    from the entity (``tag('table', entity)``). ``parts`` are the model's TMDL files, keyed by path."""
+    by_tag = {}
+    for path, text in parts.items():
+        if not path.startswith("definition/tables/"):
+            continue
+        head = re.match(r"table (.+)\n\tlineageTag: (\S+)", text.replace("\r\n", "\n"))
+        if head:
+            by_tag[head.group(2)] = _unquote(head.group(1).strip())
+    return {e: by_tag[tag("table", e)] for e in entities if tag("table", e) in by_tag}
+
+
+def plan(project: Any, layer: str, kept: dict[str, str] | None = None) -> tuple[list[ModelTable], list[Relationship]]:
+    """The tables and relationships of a model over ``layer``; columns are filled in later.
+
+    ``kept`` maps an entity to the name its table already has in the model (``table_names``). Those names
+    stay, so a new entity whose Delta table shares a name in another schema never renames a table that
+    reports already use (with its measures, which are named after it); only the newcomer is qualified."""
     entities = [e for e in project.entities.values() if e.layer == layer]
+    kept = {e: n for e, n in (kept or {}).items() if list((kept or {}).values()).count(n) == 1}
+    taken = set(kept.values())
     tables: list[ModelTable] = []
     for e in sorted(entities, key=lambda x: x.name):
-        clash = sum(1 for x in entities if x.table == e.table) > 1
-        name = f"{e.schema}_{e.table}" if clash or not e.table else e.table
+        if e.name in kept:
+            name = kept[e.name]
+        else:
+            clash = sum(1 for x in entities if x.table == e.table) > 1
+            name = f"{e.schema}_{e.table}" if clash or not e.table or e.table in taken else e.table
+        taken.add(name)
         tables.append(ModelTable(name=name, entity=e.name, schema=e.schema, table=e.table, keys=list(e.keys),
                                  surrogate_key=e.surrogate_key,
                                  is_dimension=e.mode in ("scd1", "scd2") and bool(e.surrogate_key)))

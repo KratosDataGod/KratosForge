@@ -1,6 +1,7 @@
 """Run in Fabric, schedules, table maintenance, the Direct Lake model and profiling."""
 
 import ast
+import base64
 import io
 import json
 import sys
@@ -199,6 +200,12 @@ class FakeFabric:
         self.models = [{"id": "m1", "displayName": name}]
         return {"id": "m1", "created": True}
 
+    def get_item_definition(self, ws, item_id, fmt=None):
+        self.calls.append(("definition", item_id, fmt))
+        parts = [c for c in self.calls if c[0] == "model"][-1][2]
+        return {"definition": {"parts": [{"path": p, "payload": base64.b64encode(t.encode()).decode(),
+                                          "payloadType": "InlineBase64"} for p, t in parts.items()]}}
+
 
 class CloudService(Service):
     fake = None
@@ -299,6 +306,7 @@ def test_onelake_run_queues_maintenance_and_builds_the_model(svc, tmp_path, monk
     assert svc.meta_build_model("test")["confirm"]["name"] == "SM_Gold"
     assert len([c for c in svc.fake.calls if c[0] == "model"]) == 1
     svc.meta_build_model("test", replace=True)
+    assert ("definition", "m1", "TMDL") in svc.fake.calls  # updating reads the model's table names first
     again = [c for c in svc.fake.calls if c[0] == "model"][-1][2]
     assert again == parts
 
@@ -368,3 +376,33 @@ def test_the_model_names_columns_direct_lake_cant_read_and_never_relates_on_them
     assert "column tags" not in fact and "column customer_sk" not in fact
     assert semantic.left_out(semantic.ModelTable("t", "e", "dbo", "t", columns=[("a", "long"), ("b", "map<string,int>")])) \
         == [{"table": "t", "column": "b", "type": "map<string,int>"}]
+
+
+def test_semantic_model_keeps_table_names_when_a_same_named_table_arrives():
+    from types import SimpleNamespace as NS
+
+    def entity(name, schema, table):
+        return NS(name=name, layer="gold", schema=schema, table=table, keys=[], surrogate_key=None, mode="append",
+                  spec={}, columns=[])
+    orders = entity("gold.orders", "sales", "orders")
+    first, _ = semantic.plan(NS(entities={"gold.orders": orders}), "gold")
+    assert [t.name for t in first] == ["orders"]
+    first[0].columns = [("amount", "double")]
+    parts = semantic.build(first, [], "srv", "ep")
+    # A second orders table arrives in another schema: without the model's names both would be renamed.
+    project = NS(entities={"gold.orders": orders, "gold.returns_orders": entity("gold.returns_orders", "returns", "orders")})
+    assert [t.name for t in semantic.plan(project, "gold")[0]] == ["sales_orders", "returns_orders"]
+    kept = semantic.table_names(parts, list(project.entities))
+    assert kept == {"gold.orders": "orders"}
+    assert [t.name for t in semantic.plan(project, "gold", kept)[0]] == ["orders", "returns_orders"]
+    # Quoted names round-trip, and a name two entities claim is not kept for either.
+    quoted = semantic.build([semantic.ModelTable("it's", "gold.x", "dbo", "x", columns=[("a", "long")])], [], "s", "e")
+    assert semantic.table_names(quoted, ["gold.x"]) == {"gold.x": "it's"}
+    clash = semantic.plan(project, "gold", {"gold.orders": "orders", "gold.returns_orders": "orders"})[0]
+    assert [t.name for t in clash] == ["sales_orders", "returns_orders"]
+
+
+def test_semantic_model_update_stops_when_its_definition_cant_be_read(svc, monkeypatch):
+    monkeypatch.setattr(svc.fake, "get_item_definition", lambda *a, **k: (_ for _ in ()).throw(OSError("throttled")))
+    with pytest.raises(RuntimeError, match="table names aren't known"):  # guessing would rename tables reports use
+        svc._kept_table_names(svc._project(), "gold", "ws", {"id": "m1", "displayName": "SM_Gold"})

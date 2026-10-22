@@ -40,7 +40,7 @@ function poppedOutBand(section, title, cls) {
   return h("section", { class: `card ${cls} popped-out` },
     h("div", { class: "monitor-band" },
       h("h2", {}, title),
-      h("span", { class: "muted-text" }, "Open in its own window"),
+      h("span", { class: "muted-text" }, "In a window of its own"),
       h("span", { class: "spacer" }),
       btn("Show window", "open", () => popOut(section), "tool outline"),
       btn("Dock back", null, () => dockBack(section), "tool outline")));

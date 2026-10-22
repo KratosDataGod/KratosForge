@@ -34,7 +34,8 @@ other than `any` or `all`, and an empty list of value columns are errors rather 
 (`avg(x)` for `"mean"`, `count(1)` for `{"*": "count"}`).
 `drop` and `withColumnRenamed` match names ignoring case and skip a column that isn't there, as Spark does, and
 `dropDuplicates` names a missing column with `[UNRESOLVED_COLUMN]`. Dropping every column is an error here: Spark keeps a frame with no columns,
-which DuckDB can't hold. An empty `struct<>` isn't supported here,
+which DuckDB can't hold. `drop` also takes `F.col("ID")` for `id`. `summary` takes statistics, not columns, and
+adds the quartiles (`25%`, `50%`, `75%`) as Spark does; describe a few columns with `describe`. An empty `struct<>` isn't supported here,
 since DuckDB can't store a struct with no fields; give it at least one.
 
 ### DataFrame: 79 of 102

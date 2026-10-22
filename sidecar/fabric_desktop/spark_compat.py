@@ -525,15 +525,42 @@ class DataFrameNaFunctions:
 def _describe(self: DataFrame, *cols: str) -> DataFrame:
     """count, mean, stddev, min and max of each column, as text, as Spark's describe() shows them."""
     names = _known(self, list(_flat(cols))) or [c for c, t in _types(self) if _NUMERIC.match(t) or t.upper() == "VARCHAR"]
+    return _stats(self, names, ("count", "mean", "stddev", "min", "max"))
+
+
+_SUMMARY = ("count", "mean", "stddev", "min", "25%", "50%", "75%", "max")
+_PERCENT = re.compile(r"^(\d+(?:\.\d+)?)%$")
+
+
+def _summary(self: DataFrame, *statistics: str) -> DataFrame:
+    """Spark's summary(): the statistics it names (default count, mean, stddev, min, quartiles, max) of every
+    number and string column. It takes statistics, not columns; select the columns first."""
+    stats = tuple(_flat(statistics)) or _SUMMARY
+    for stat in stats:
+        pct = _PERCENT.match(str(stat))
+        if not (stat in ("count", "mean", "stddev", "min", "max", "count_distinct", "approx_count_distinct")
+                or (pct and float(pct.group(1)) <= 100)):
+            raise ValueError(f"{stat} is not a recognised statistic. Use count, mean, stddev, min, max, "
+                             "count_distinct, approx_count_distinct or a percentile such as 75%.")
+    names = [c for c, t in _types(self) if _NUMERIC.match(t) or t.upper() == "VARCHAR"]
+    return _stats(self, names, stats)
+
+
+def _stats(self: DataFrame, names: list[str], stats: Any) -> DataFrame:
     types_ = dict(_types(self))
     rows = []
-    for stat in ("count", "mean", "stddev", "min", "max"):
+    for stat in stats:
         parts = []
         for c in names:
             q = _col_sql(c)
             numeric = bool(_NUMERIC.match(types_[c]))
-            sql = {"count": f"count({q})", "mean": f"avg({q})" if numeric else "NULL",
-                   "stddev": f"stddev_samp({q})" if numeric else "NULL", "min": f"min({q})", "max": f"max({q})"}[stat]
+            if pct := _PERCENT.match(stat):  # Spark's approximate percentile is an actual value, as quantile_disc
+                sql = f"quantile_disc({q}, {float(pct.group(1)) / 100})" if numeric else "NULL"
+            else:
+                sql = {"count": f"count({q})", "mean": f"avg({q})" if numeric else "NULL",
+                       "stddev": f"stddev_samp({q})" if numeric else "NULL", "min": f"min({q})", "max": f"max({q})",
+                       "count_distinct": f"count(DISTINCT {q})",
+                       "approx_count_distinct": f"approx_count_distinct({q})"}[stat]
             parts.append(f"CAST({sql} AS VARCHAR) AS {q}")
         rows.append(self.relation.aggregate(f"'{stat}' AS summary, {', '.join(parts)}"))
     out = rows[0]
@@ -547,7 +574,13 @@ def _drop_cols(fn: Any) -> Any:
     Dropping every column is refused: Spark keeps a frame with no columns, which DuckDB can't hold."""
     def drop(self: DataFrame, *cols: Any) -> DataFrame:
         by_lower = {c.lower(): c for c in self.columns}
-        cols = tuple(by_lower.get(c.lower(), c) if isinstance(c, str) else c for c in cols)
+
+        def resolve(c: Any) -> Any:  # F.col("ID") names the column too; another expression is left as given
+            name = c if isinstance(c, str) else c.expr.get_name() if isinstance(c, Column) else None
+            if isinstance(c, Column) and len(name) > 1 and name[0] == name[-1] == "`":
+                name = name[1:-1]
+            return by_lower.get(name.lower(), c) if name is not None else c
+        cols = tuple(resolve(c) for c in cols)
         gone = {c if isinstance(c, str) else c.expr.get_name() for c in cols if isinstance(c, (str, Column))}
         if self.columns and not set(self.columns) - gone:
             raise ValueError(f"drop would leave no columns ({', '.join(self.columns)}). Spark keeps an empty "
@@ -715,7 +748,7 @@ def install() -> None:
     DataFrame.replace = _replace  # type: ignore[attr-defined]
     DataFrame.na = property(DataFrameNaFunctions)  # type: ignore[attr-defined]
     DataFrame.describe = _describe  # type: ignore[attr-defined]
-    DataFrame.summary = _describe  # type: ignore[attr-defined]
+    DataFrame.summary = _summary  # type: ignore[attr-defined]
     DataFrame.drop = _drop_cols(DataFrame.drop)  # type: ignore[method-assign]
     DataFrame.withColumnRenamed = _with_column_renamed(DataFrame.withColumnRenamed)  # type: ignore[method-assign]
     DataFrame.dropDuplicates = DataFrame.drop_duplicates = _drop_duplicates(DataFrame.dropDuplicates)  # type: ignore[method-assign]

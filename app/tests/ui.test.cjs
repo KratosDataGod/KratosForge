@@ -4244,3 +4244,10 @@ test("the magics page says _sqldf reads the last statement past comments", () =>
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
   assert.match(doc, /What counts is the cell's last statement,\n  with `--` and `\/\* \*\/` comments skipped/);
 });
+
+// Magics: %timeit names options it doesn't take; %who filters by type.
+test("the magics page says %timeit -o isn't supported and %who filters by type", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /Other IPython options such as `-o` and `-q` say they aren't supported/);
+  assert.match(doc, /`%who str int` lists only those types/);
+});

@@ -995,6 +995,10 @@ class Kernel:
         import statistics
         import timeit
         flags = dict(re.findall(r"-([nr])\s*(\d+)", args))
+        if other := re.sub(r"-[nr]\s*\d+", "", args).split():
+            raise ValueError(f"%timeit {other[0]} isn't supported here. Use -n N (loops per run) and -r R (runs).")
+        if any(int(v) < 1 for v in flags.values()):
+            raise ValueError("%timeit -n and -r need a number of 1 or more.")
         timer = timeit.Timer(stmt=code, globals=namespace)
         number = int(flags["n"]) if "n" in flags else timer.autorange()[0]
         times = [t / number for t in timer.repeat(repeat=int(flags.get("r", 7)), number=number)]
@@ -1185,7 +1189,7 @@ class Kernel:
             print(f"Wall time: {_duration(time.monotonic() - started)}")
             return value
         if name == "timeit":
-            m = re.match(r"((?:\s*-[nr]\s*\d+)*)\s*(.*)$", line)
+            m = re.match(r"((?:\s*-(?:[nr]\s*\d+|[A-Za-z])(?=\s|$))*)\s*(.*)$", line)  # options lead, as in IPython
             return self._timeit(m.group(1), m.group(2), self.namespace)
         if name == "lsmagic":
             print(self._line_magic_help())
@@ -1199,6 +1203,8 @@ class Kernel:
             return self._env(line)
         if name in ("who", "whos"):
             rows = self.variables()
+            if kinds := line.split():  # %who str int: only variables of those types, as in IPython
+                rows = [r for r in rows if r["type"] in kinds]
             if name == "who":
                 print("  ".join(r["name"] for r in rows) or "No variables yet.")
             else:

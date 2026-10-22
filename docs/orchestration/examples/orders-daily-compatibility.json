@@ -1,6 +1,6 @@
 {
   "ok": true,
-  "registry_version": "5",
+  "registry_version": "6",
   "pipeline": "pl_orders_daily",
   "schema": {
     "parser_version": 1,
@@ -130,17 +130,15 @@
   "summary": {
     "activities": 18,
     "by_classification": {
-      "local": 12,
+      "local": 14,
       "simulated": 0,
-      "static": 5,
+      "static": 3,
       "cloud": 0,
       "unsupported": 1
     },
     "overall": "unsupported",
     "runs_on_this_pc": false,
     "needs_fabric_capacity": [
-      "Get watermark",
-      "List new files",
       "Copy file to bronze",
       "Run AMER script",
       "Check silver",
@@ -151,16 +149,6 @@
       "ContosoPagerNotify"
     ],
     "planned_to_run_on_this_pc": [
-      {
-        "name": "Get watermark",
-        "classification": "simulated",
-        "stage": "later (not scheduled)"
-      },
-      {
-        "name": "List new files",
-        "classification": "simulated",
-        "stage": "later (not scheduled)"
-      },
       {
         "name": "Copy file to bronze",
         "classification": "simulated",
@@ -187,33 +175,30 @@
       "container": null,
       "known": true,
       "title": "Lookup",
-      "classification": "static",
+      "classification": "local",
       "evidence": "unit_tests",
       "verified": false,
-      "planned": {
-        "classification": "simulated",
-        "stage": "later (not scheduled)",
-        "note": "Returns rows from a fixture or a local table."
-      },
+      "planned": null,
       "fabric_capacity": "metered_in_fabric",
       "auth": [
-        "fabric",
-        "connection"
+        "fabric"
       ],
       "side_effects": [
-        "reads_external",
         "reads_onelake"
       ],
       "external_dependencies": [
-        "source connection"
+        "its lakehouse"
       ],
       "inactive": false,
       "properties": [],
       "checked_properties": [
-        "source"
+        "source",
+        "firstRowOnly",
+        "datasetSettings"
       ],
       "limitations": [
-        "Fabric returns at most 5,000 rows or 4 MB; not checked here."
+        "Reads the lakehouse in OneLake its dataset names, when the run is started with lakehouse reads on. Tables are read at the version they had when the run first used that lakehouse, or from the run's own folder when a notebook step wrote them. Reading OneLake uses some capacity; no Fabric job is started and nothing is written.",
+        "Reads a whole lakehouse table (LakehouseTable dataset); queries and other connections need a mock. At most 5,000 rows, and an output over 4 MB fails, as in Fabric."
       ],
       "problems": []
     },
@@ -224,32 +209,30 @@
       "container": null,
       "known": true,
       "title": "Get Metadata",
-      "classification": "static",
+      "classification": "local",
       "evidence": "unit_tests",
       "verified": false,
-      "planned": {
-        "classification": "simulated",
-        "stage": "later (not scheduled)",
-        "note": "Reads metadata of local files."
-      },
+      "planned": null,
       "fabric_capacity": "metered_in_fabric",
       "auth": [
-        "fabric",
-        "connection"
+        "fabric"
       ],
       "side_effects": [
-        "reads_external",
         "reads_onelake"
       ],
       "external_dependencies": [
-        "dataset connection"
+        "its lakehouse"
       ],
       "inactive": false,
       "properties": [],
       "checked_properties": [
-        "fieldList"
+        "fieldList",
+        "datasetSettings"
       ],
-      "limitations": [],
+      "limitations": [
+        "Reads the lakehouse in OneLake its dataset names, when the run is started with lakehouse reads on. Tables are read at the version they had when the run first used that lakehouse, or from the run's own folder when a notebook step wrote them. Reading OneLake uses some capacity; no Fabric job is started and nothing is written.",
+        "A lakehouse table gives exists, itemName, structure and columnCount; a file or folder under Files gives exists, itemName, itemType, size, lastModified and childItems. Files are read as they are now, not pinned; other fields and connections need a mock."
+      ],
       "problems": []
     },
     {

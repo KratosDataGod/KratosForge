@@ -111,6 +111,8 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--read-lakehouse", action="store_true",
                    help="let Lookup and Get Metadata read the lakehouse their dataset names (reads only)")
     p.add_argument("--workspace", metavar="ID", help="the pipeline's own workspace, for datasets that leave it out")
+    p.add_argument("--sql-project", action="append", default=[], metavar="KEY=PROJECT",
+                   help="run a Script activity (by activity or connection name) in a local data project")
     p.add_argument("--json", action="store_true", help="print the whole run record as JSON")
     args = parser.parse_args(argv)
 
@@ -329,15 +331,16 @@ def _pipeline_run(args: argparse.Namespace) -> int:
         return 2
     params = dict(item.partition("=")[::2] for item in args.param)
     run_id, notebooks, data = str(uuid.uuid4()), None, None
-    if args.notebook or args.read_lakehouse:
+    if args.notebook or args.read_lakehouse or args.sql_project:
         svc = Service()
     if args.notebook:
         from .pipeline_notebooks import LocalNotebooks
         notebooks = LocalNotebooks(svc, run_id, dict(item.partition("=")[::2] for item in args.notebook),
                                    args.allow_uncontained, args.keep_outputs)
-    if args.read_lakehouse:
+    if args.read_lakehouse or args.sql_project:
         from .pipeline_data import LocalData
-        data = LocalData(svc, run_id, notebooks, args.workspace)
+        data = LocalData(svc, run_id, notebooks, args.workspace, lakehouse_reads=args.read_lakehouse,
+                         sql_projects=dict(item.partition("=")[::2] for item in args.sql_project))
     run = PipelineRun(imp, parameters=params, mocks=mocks, children=children, max_parallel=args.max_parallel,
                       wait_scale=args.wait_scale, timeout_seconds=args.timeout, run_id=run_id, notebooks=notebooks,
                       data=data)

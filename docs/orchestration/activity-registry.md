@@ -8,9 +8,9 @@ This is Preview. Nothing in the registry has been compared against a run in Fabr
 
 | Classification | Meaning | Activities today |
 | --- | --- | --- |
-| `local` | Runs on this PC with a tested adapter. | Set Variable, Append Variable, If Condition, Switch, ForEach, Until, Wait, Fail, Filter, Execute and Invoke pipeline (with the child's definition), Notebook (Python notebooks saved in KratosForge), Lookup and Get Metadata (on a lakehouse) |
+| `local` | Runs on this PC with a tested adapter. | Set Variable, Append Variable, If Condition, Switch, ForEach, Until, Wait, Fail, Filter, Execute and Invoke pipeline (with the child's definition), Notebook (Python notebooks saved in KratosForge), Lookup and Get Metadata (on a lakehouse), Script (on a lakehouse or a local data project) |
 | `simulated` | Runs on this PC against fixtures or a stand-in, with no real side effects. | None yet |
-| `static` | Checked on this PC (structure, references, required properties, documented limits) but not run here. | Copy, Script, Stored procedure, Delete, Web, Webhook |
+| `static` | Checked on this PC (structure, references, required properties, documented limits) but not run here. | Copy, Stored procedure, Delete, Web, Webhook |
 | `cloud` | Only runs in Fabric or the Azure service it calls. Always uses Fabric capacity. | Dataflow Gen2, Spark job definition, Semantic model refresh, Outlook, Teams, KQL, Azure Databricks notebook, Azure Function |
 | `unsupported` | A type this version doesn't know. It is kept exactly as it is and listed, but not checked or run. | Every unknown type |
 
@@ -76,3 +76,4 @@ Entries are in `sidecar/fabric_desktop/orchestration/activities.py`; the rules a
 | 4 | ORCH-004: Notebook (`TridentNotebook`) is `local`. It runs a Python notebook saved in KratosForge, with its parameters, writing to the run's own folder; Spark notebooks still need a mock. Its `parameters` are checked. |
 | 5 | Execute and Invoke pipeline with `waitOnCompletion: false` succeed once the child starts and no longer wait for it; the local run still waits for the child before it ends, so the child's result is in the record. |
 | 6 | Pipelines plan P1: Lookup and Get Metadata are `local`. They read the lakehouse their dataset names, at the run's pinned table versions, when the run is started with lakehouse reads on. Their `datasetSettings` (and Lookup's `firstRowOnly`) are checked. |
+| 7 | Pipelines plan P2: Script is `local`. Each script runs through the SQL page's runner and policy: read-only T-SQL on a lakehouse (with lakehouse reads on), or in a local data project named for it. Warehouse and other connections, and script parameters, need a mock. `scripts` and `scriptBlockExecutionTimeout` are checked; `logSettings` isn't used here. |

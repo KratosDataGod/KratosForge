@@ -49,7 +49,7 @@ _TYPE_DEFAULTS = {"string": "", "securestring": "", "bool": False, "boolean": Fa
                   "integer": 0, "float": 0.0, "object": {}}
 CHILD_TYPES = ("ExecutePipeline", "InvokePipeline")
 NOTEBOOK_TYPE = "TridentNotebook"
-DATA_TYPES = ("Lookup", "GetMetadata")
+DATA_TYPES = ("Lookup", "GetMetadata", "Script")
 
 
 class NotebookRunner(Protocol):
@@ -87,6 +87,11 @@ class DataReader(Protocol):
 
     def metadata(self, activity: Activity, properties: dict[str, Any]) -> dict[str, Any]:
         """Get Metadata's output from its evaluated typeProperties, or raise ActivityFailed."""
+        ...
+
+    def script(self, activity: Activity, properties: dict[str, Any], cancelled: Callable[[], bool],
+               deadline: float | None) -> dict[str, Any]:
+        """Script's output from its evaluated scripts and connection, or raise ActivityFailed."""
         ...
 
 
@@ -248,9 +253,10 @@ class PipelineRun:
                         problems.extend(self.notebooks.check(a))
                 if entry.type in DATA_TYPES:
                     if self.data is None:
-                        problems.append(_problem("data_needs_engine", f"{a.name} ({a.type}) reads a lakehouse. It runs "
-                                                 "when you start the run with lakehouse reads on (fabric-desktop "
-                                                 "pipeline run --read-lakehouse); give a mock for it here.",
+                        problems.append(_problem("data_needs_engine", f"{a.name} ({a.type}) reads a lakehouse or a "
+                                                 "local data project. It runs when you start the run with lakehouse "
+                                                 "reads on (fabric-desktop pipeline run --read-lakehouse) or name its "
+                                                 "project (--sql-project); give a mock for it here.",
                                                  a.name, a.path))
                     else:
                         problems.extend(self.data.check(a))
@@ -686,6 +692,16 @@ class _Context:
     def read_data(self, activity: Activity, properties: dict[str, Any]) -> dict[str, Any]:
         if self.run.data is None:
             raise ActivityFailed(f"{activity.name} can't read a lakehouse without the engine.", "LocalDataUnsupported")
+        if activity.type == "Script":
+            try:
+                output = self.run.data.script(activity, properties, lambda: self.run.cancelled, self.deadline)
+            except ActivityFailed:
+                if self.run.cancelled:
+                    raise _Cancelled() from None
+                raise
+            if self.run.cancelled:
+                raise _Cancelled()
+            return output
         read = self.run.data.lookup if activity.type == "Lookup" else self.run.data.metadata
         return read(activity, properties)
 

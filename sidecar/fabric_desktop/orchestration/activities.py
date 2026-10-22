@@ -209,12 +209,16 @@ ENTRIES: tuple[ActivitySupport, ...] = (
            limitations=(DATA_LIMIT, "A lakehouse table gives exists, itemName, structure and columnCount; a file or "
                         "folder under Files gives exists, itemName, itemType, size, lastModified and childItems. "
                         "Files are read as they are now, not pinned; other fields and connections need a mock.")),
-    _static("Script", "Script", ("scripts",), fabric_capacity="metered_in_fabric", auth=("connection",),
-            side_effects=("runs_code", "reads_external", "writes_external"),
-            external_dependencies=("database connection",),
-            planned=Planned("simulated", LATER, "Runs against a local DuckDB copy only, never the real database."),
-            properties={"scriptBlockExecutionTimeout": CARRIED, "logSettings": CARRIED},
-            limitations=("SQL is carried as written; its dialect is the target database's.",)),
+    _local("Script", "Script", A.ReadData, ("scripts",), auth=("fabric",), side_effects=("runs_code", "reads_onelake"),
+           external_dependencies=("its lakehouse, or a local data project named for it",),
+           properties={"scripts": CHECKED, "scriptBlockExecutionTimeout": CHECKED,
+                       "logSettings": P("unsupported_locally", "Script logs aren't written on this PC.")},
+           limitations=("Runs each script through the SQL page's runner, with its policy, Stop and limits. On a "
+                        "lakehouse (with lakehouse reads on) T-SQL runs read-only against its tables as they are now; "
+                        "in a local data project named for it, it may change the project's own tables, but DROP, "
+                        "TRUNCATE and DELETE or UPDATE without WHERE are refused.",
+                        "Warehouse and other connections, and script parameters, need a mock. Query results keep at "
+                        "most 5,000 rows each (outputTruncated). recordsAffected isn't reported.")),
     _static("SqlServerStoredProcedure", "Stored procedure", ("storedProcedureName",), fabric_capacity="metered_in_fabric",
             auth=("connection",), side_effects=("runs_code", "writes_external"),
             external_dependencies=("database connection", "the stored procedure"),

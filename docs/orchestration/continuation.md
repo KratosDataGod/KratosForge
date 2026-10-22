@@ -13,7 +13,8 @@ Last updated: 2026-10-20.
 | ORCH-003 Local pipeline execution engine | `claude/orch-003-local-runs-b6ql2h` | #218 | Merged 2026-10-18 |
 | ORCH-004 Notebook steps | `claude/orch-001-pipeline-definitions-b6ql2h` (restarted from main) | #319 | Merged 2026-10-20 |
 | P0 Invoke pipeline without waiting (a fix) | `claude/orch-001-pipeline-definitions-b6ql2h` | #559 | Merged 2026-10-22 |
-| P1 Lookup and Get Metadata | `claude/orch-001-pipeline-definitions-b6ql2h` | | In review |
+| P1 Lookup and Get Metadata | `claude/orch-001-pipeline-definitions-b6ql2h` | #563 | In review |
+| P2 Script through the SQL runner | `claude/orch-001-pipeline-definitions-b6ql2h` | | In review |
 
 Chris authorized ORCH-002 on 2026-10-18 and ORCH-003 the same day ("Good idea. Do this", answering the recommended next PR). He picked ORCH-004 on 2026-10-20 ("Notebook steps"). On 2026-10-22 he made pipelines the next focus and gave his go for the pipelines plan's P1 (Lookup and Get Metadata), P2 (Script through the SQL runner) and one mockup for the Pipelines page and Monitor > Runs (P3, P4). Later stages need his go. Release management merges PRs.
 

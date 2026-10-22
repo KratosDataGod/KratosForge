@@ -31,6 +31,7 @@ from typing import Any
 
 from .orchestration.adapters import ActivityFailed
 from .orchestration.definition import Activity
+from .pipeline_script import LocalScripts
 from .redact import describe
 
 LOOKUP_ROWS = 5000                 # Fabric's Lookup returns at most this many rows
@@ -83,15 +84,24 @@ class LocalData:
     """The DataReader for one pipeline run. ``svc`` is the engine's Service; ``notebooks`` is the
     run's LocalNotebooks when it has notebook steps, so both share the run's pins and folder."""
 
-    def __init__(self, svc: Any, run_id: str, notebooks: Any = None, workspace_id: str | None = None):
+    def __init__(self, svc: Any, run_id: str, notebooks: Any = None, workspace_id: str | None = None,
+                 lakehouse_reads: bool = True, sql_projects: dict[str, str] | None = None):
         self.svc, self.run_id, self.notebooks = svc, run_id, notebooks
         self.workspace_id = workspace_id or None
+        self.lakehouse_reads = lakehouse_reads
+        self.scripts = LocalScripts(self, sql_projects)
         self._lock = threading.Lock()
         self._lakes: dict[str, dict[str, Any]] = {}
 
     # ---- before the run
 
     def check(self, a: Activity) -> list[dict[str, Any]]:
+        if a.type == "Script":
+            return self.scripts.check(a)
+        if not self.lakehouse_reads:
+            return [_problem("data_needs_engine", f"{a.name} ({a.type}) reads a lakehouse. It runs when you start "
+                             "the run with lakehouse reads on (fabric-desktop pipeline run --read-lakehouse); give "
+                             "a mock for it here.", a)]
         tp = a.type_properties
         kind, ds_tp, service, _ = _dataset(tp.get("datasetSettings"))
         what = "Lookup" if a.type == "Lookup" else "Get Metadata"
@@ -126,7 +136,8 @@ class LocalData:
 
     def lakehouses(self, acts: list[Activity]) -> bool:
         """Whether any activity reads a lakehouse, so the engine can sign in before the run."""
-        return any(a.type in ("Lookup", "GetMetadata") for a in acts)
+        return any(a.type in ("Lookup", "GetMetadata") or (a.type == "Script" and self.scripts.on_lakehouse(a))
+                   for a in acts)
 
     # ---- the lakehouse an activity names
 
@@ -183,6 +194,9 @@ class LocalData:
 
     def metadata(self, a: Activity, props: dict[str, Any]) -> dict[str, Any]:
         return self._read(a, self._metadata, props)
+
+    def script(self, a: Activity, props: dict[str, Any], cancelled: Any, deadline: float | None) -> dict[str, Any]:
+        return self.scripts.run(a, props, cancelled, deadline)
 
     @staticmethod
     def _read(a: Activity, read: Any, props: dict[str, Any]) -> dict[str, Any]:

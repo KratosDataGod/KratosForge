@@ -143,7 +143,7 @@ Download [fabric-desktop.exe](https://github.com/KratosDataGod/KratosForge/relea
 Each time it starts, the app checks its components before anything else runs. The check only shows a window when something is updating or needs attention:
 
 - **KratosForge:** if a newer build has been released on this PC's channel, it downloads it straight away, checks the file really is that build, replaces the exe in place and restarts. The account menu shows which build is running.
-- **Local engine:** the engine built from the same commit as the exe, so the two always match. A missing or older engine is downloaded from the release (`fabric-desktop-engine.zip`) and unpacked automatically. With `FABRIC_DESKTOP_PYTHON` set, the sidecar is pip-installed into that Python instead (it must be 3.11 or later), and an editable (`pip install -e`) install is left alone.
+- **Local engine:** the engine built from the same commit as the exe, so the two always match. A missing or older engine is downloaded from the release (`fabric-desktop-engine.zip`) and unpacked automatically. When only the engine's own code changed (most builds), just that is downloaded (`fabric-desktop-engine-update.zip`, a few MB) and swapped into a copy of the installed engine. With `FABRIC_DESKTOP_PYTHON` set, the sidecar is pip-installed into that Python instead (it must be 3.11 or later), and an editable (`pip install -e`) install is left alone.
 - **Blocked by Windows:** if Smart App Control or an organization's App Control policy refuses the engine's DLLs, the check names the blocked packages and says what to do instead of reinstalling.
 
 Exes you build yourself skip the update check and leave the sidecar as you installed it.

@@ -275,6 +275,14 @@ def slice(x: Any, start: Any, length: Any) -> Column:  # noqa: A001
         f"slice({_name_of(x)}, {', '.join(str(v) if isinstance(v, int) else _name_of(v) for v in (start, length))})")
 
 
+def add_months(start: Any, months: Any) -> Column:
+    """A date ``months`` months after ``start``, also for text or a timestamp, as in Spark."""
+    if isinstance(months, int):
+        return _call(f"add_months({{0}}, {months})", start).alias(f"add_months({_name_of(start)}, {months})")
+    return _call("add_months({0}, {1})", start, months).alias(
+        f"add_months({_name_of(start)}, {_name_of(months)})")
+
+
 def initcap(col: Any) -> Column:
     """Each word's first letter upper case and the rest lower case, as in Spark (DuckDB's initcap
     only upper-cases first letters)."""
@@ -792,7 +800,8 @@ def install() -> None:
     if getattr(DataFrame, "_fd_compat", False):
         return
     for name, fn in FUNCTIONS.items():
-        if name in ("count", "substring", "concat", "initcap", "first", "last", "slice") or not hasattr(F, name):
+        if name in ("count", "substring", "concat", "initcap", "first", "last", "slice",
+                    "add_months") or not hasattr(F, name):
             setattr(F, name, fn)
     F.expr = expr  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
     Column.over = _over  # type: ignore[attr-defined]

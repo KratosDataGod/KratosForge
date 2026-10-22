@@ -445,3 +445,24 @@ def test_slice_takes_a_length_and_add_months_is_a_date_as_in_spark(live):
              "add_months(timestamp'2024-01-31 10:00:00', 1) c")
     assert rows(live.sql(query)) == [(dt.date(2024, 2, 29),) * 3]
     assert rows(df.selectExpr("add_months(d, 1)")) == [(dt.date(2024, 2, 29),)]
+
+
+def test_slice_refuses_index_0_and_add_months_reads_text_as_in_spark(live):
+    import datetime as dt
+    import pyspark.sql.functions as F
+    df = live.createDataFrame([([3, 1, 2], 0, -1, "2024-01-31", "2024-03-31 10:00:00", "bad")],
+                              "arr array<int>, z int, neg int, t string, ts string, junk string")
+    for col in (F.slice("arr", 0, 2), F.slice("arr", "z", 1)):
+        with pytest.raises(Exception, match="index 0 is invalid"):
+            rows(df.select(col))
+    with pytest.raises(Exception, match="length must be greater than or equal to 0"):
+        rows(df.select(F.slice("arr", 1, "neg")))
+    with pytest.raises(Exception, match="index 0 is invalid"):
+        rows(live.sql("SELECT slice(array(1, 2), 0, 1)"))
+    assert rows(df.select(F.slice("arr", -1, 1))) == [([2],)]
+    out = df.select(F.add_months("t", 1), F.add_months("ts", 1), F.add_months("junk", 1))
+    assert rows(out) == [(dt.date(2024, 2, 29), dt.date(2024, 4, 30), None)]
+    assert rows(df.selectExpr("add_months(t, -1)")) == [(dt.date(2023, 12, 31),)]
+    named = df.select(F.add_months("t", 1), F.add_months(F.col("t"), F.lit(2)))
+    assert named.columns[0] == "add_months(t, 1)"
+    assert rows(named) == [(dt.date(2024, 2, 29), dt.date(2024, 3, 31))]

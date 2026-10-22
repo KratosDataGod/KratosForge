@@ -370,3 +370,11 @@ def test_substring_counts_position_zero_as_one_and_concat_is_null_with_a_null(li
     assert rows(live.sql("SELECT substring('hello', 0, 2) a, substr('hello', -3) b")) == [("he", "llo")]
     arrays = live.createDataFrame([([1, 2], [3], None)], "a array<int>, b array<int>, c array<int>")
     assert rows(arrays.select(F.concat("a", "b"), F.concat("a", "c"))) == [([1, 2, 3], None)]
+
+
+def test_initcap_lowers_the_rest_and_concat_names_a_literal_by_its_text(live):
+    import pyspark.sql.functions as F
+    df = live.createDataFrame([("hELLO wORLD-x y_z", "a")], ["s", "a"])
+    out = df.select(F.initcap("s"), F.concat("a", F.lit("!")), F.concat(F.lit("it's"), "a"))
+    assert rows(out) == [("Hello World-x Y_z", "a!", "it'sa")]
+    assert out.columns == ["initcap(s)", "concat(a, !)", "concat(it's, a)"]

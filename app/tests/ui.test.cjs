@@ -4327,3 +4327,9 @@ test("the Spark on this PC page says substring counts position 0 as 1 and concat
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
   assert.match(doc, /`substring` counts position 0 as 1 and `concat` is NULL when any input is NULL/);
 });
+
+// Spark on this PC: initcap lower-cases the rest of each word.
+test("the Spark on this PC page says initcap lower-cases the rest of each word", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`initcap` lower-cases the rest of each word, as Spark does/);
+});

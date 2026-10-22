@@ -190,10 +190,11 @@ def _num(v: Any) -> float | int | None:
     f = float(v)
     return round(f, 6) if f == f else None
 
+
 def _chart_key(v: Any) -> Any:
     """An x value as a dict key: NaN never equals itself and lists don't hash, so a NaN or list
     category would lose its value (or fail the chart)."""
-    if isinstance(v, float) and v != v:
+    if isinstance(v, float) and math.isnan(v):
         return ("nan",)
     if isinstance(v, (list, dict)):
         return ("json", json.dumps(v, default=str, sort_keys=True))
@@ -562,7 +563,7 @@ _EXCEL_FIRST = dt.datetime(1900, 1, 1)
 _EXCEL_LEAP = dt.datetime(1900, 3, 1)
 
 
-def _excel_exact(v: int | float | decimal.Decimal) -> bool:
+def _excel_exact(v: float | decimal.Decimal) -> bool:
     """Whether Excel, which keeps 15 significant digits, holds the number as written."""
     if isinstance(v, float):
         return True  # a float shows as Excel rounds it, as any spreadsheet does

@@ -818,6 +818,12 @@ class Kernel:
         with contextlib.suppress(Exception):
             from . import spark_local
             spark_local.interrupt()
+        # A cell that was just started may not have its thread running yet (no ident): wait for it.
+        deadline = time.monotonic() + 2.0
+        while run.thread.ident is None and not run.done.is_set() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        if run.thread.ident is None:
+            return {"interrupted": False}
         ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(run.thread.ident), ctypes.py_object(KeyboardInterrupt))
         run.done.wait(2.0)
         return {"interrupted": True, "stopped": run.done.is_set()}

@@ -351,6 +351,49 @@ def test_cancel_during_the_pc_run(svc):
     assert out["receipt_id"]
 
 
+def test_cancel_that_lands_while_a_cell_is_starting_stops_it(svc, monkeypatch):
+    # Windows CI: Cancel landed after the proof moved to the next cell but before that cell's
+    # thread ran, and interrupt failed on the thread's missing id (TypeError), or found the last
+    # cell already done and the long cell then ran to its end.
+    svc.fake = FakeFabric(svc)
+    cells = CELLS[:2] + [{"type": "code", "source": "import time\nfor _ in range(400):\n    time.sleep(0.05)"}] + CELLS[3:]
+    started = call(svc, "prove_start", **payload(cells))
+    start = Kernel.start
+
+    def cancel_first(self, code, *args, **kwargs):
+        if "range(400)" in code:
+            assert call(svc, "prove_cancel", id=started["id"]) == {"cancelled": True}
+        return start(self, code, *args, **kwargs)
+
+    monkeypatch.setattr(Kernel, "start", cancel_first)
+    began = time.monotonic()
+    out = wait(svc, started["id"])
+    assert out["state"] == "cancelled" and time.monotonic() - began < 15, out["pc"]  # the cell alone takes 20 s
+    assert out["pc"]["cells"]["2"]["status"] != "ok" and svc.fake.saved == []
+
+
+def test_interrupt_waits_for_a_cell_thread_that_hasnt_started_yet(monkeypatch):
+    import threading
+    k = Kernel()
+    answers = []
+
+    class SlowStart(threading.Thread):
+        def start(self):
+            if self.name.startswith("cell-"):  # interrupt arrives between the thread's creation and its start
+                threading.Thread(target=lambda: answers.append(k.interrupt())).start()
+                time.sleep(0.3)
+            super().start()
+
+    monkeypatch.setattr(threading, "Thread", SlowStart)
+    k.start("import time\nfor _ in range(400):\n    time.sleep(0.05)")
+    monkeypatch.undo()
+    deadline = time.monotonic() + 10
+    while not answers and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert answers == [{"interrupted": True, "stopped": True}]
+    assert k.poll(-1, 0.0)["status"] == "cancelled"
+
+
 def test_the_kernel_refuses_cells_while_a_proof_runs_and_one_proof_at_a_time(svc):
     svc.fake = FakeFabric(svc)
     cells = CELLS[:2] + [{"type": "code", "source": "import time\ntime.sleep(1.5)"}]

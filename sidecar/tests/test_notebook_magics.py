@@ -442,6 +442,17 @@ def test_run_passes_json_parameters_into_the_parameter_cell(tmp_path):
     assert out["outputs"][-1] == {"type": "text", "text": "'2026-02-02 False'"}
 
 
+def test_run_skips_the_fabric_step_which_runs_only_on_fabric_spark(tmp_path):
+    store = NotebookStore(tmp_path)
+    store.save("Gold", [{"type": "code", "source": "done = 'here'"},
+                        {"type": "code", "source": 'spark.sql("OPTIMIZE t VORDER")\ndone = "fabric"',
+                         "meta": {"fabric_step": True}}])
+    k = Kernel(load_notebook=lambda name: store.load(name)["cells"])
+    out = k.run("%run Gold\ndone")
+    assert out["status"] == "ok", out
+    assert out["outputs"][-1] == {"type": "text", "text": "'here'"}
+
+
 # ---- %%configure: checked as Fabric would, explained, nothing changed here
 
 from fabric_desktop.notebook import configure_report

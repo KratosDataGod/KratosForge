@@ -334,6 +334,10 @@ def test_side_by_side_needs_a_notebook_that_runs_in_both_places(svc, tables):
     out = handle(svc, json.dumps({"id": 1, "method": "side_by_side_start", "params": payload(
         [{"type": "code", "source": "x = open('C:\\\\data\\\\a.csv')", "meta": {}}])}))
     assert "can't run in Fabric" in out["error"]
+    # The Fabric step runs only on Fabric Spark, so the run on this PC can't (fabric_step.py).
+    step = CELLS[:2] + [dict(CELLS[2], meta={"fabric_step": True})]
+    out = handle(svc, json.dumps({"id": 1, "method": "side_by_side_start", "params": payload(step)}))
+    assert "can't run side by side: Cell 3 is marked Run on Fabric" in out["error"] and svc.fake.saved == []
     out = handle(svc, json.dumps({"id": 1, "method": "side_by_side_start", "params": payload() | {"lakehouse_ref": None}}))
     assert "Attach a lakehouse" in out["error"]
 

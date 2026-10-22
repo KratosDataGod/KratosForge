@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 
 from .fabric_api import FabricClient
 from .fabric_run import TERMINAL, describe_schedule
+from .fabric_step import is_step
 from .local_schedules import LocalSchedules, target_label
 from .redact import describe
 from .workloads.notify import Outbox, send, single
@@ -218,6 +219,9 @@ class ScheduleMixin:
         frozen = sum(1 for c in code if (c.get("meta") or {}).get("frozen"))
         code = [c for c in code if not (c.get("meta") or {}).get("frozen")]
         skipped = f", {frozen} frozen cell{'s' if frozen != 1 else ''} skipped" if frozen else ""
+        if any(is_step(c) for c in code):  # it runs on Fabric Spark only when started from the notebook
+            code = [c for c in code if not is_step(c)]
+            skipped += ", the Fabric step skipped"
         for i, cell in enumerate(code, 1):
             res = self.kernel.run(cell["source"])  # type: ignore[attr-defined]
             if res["status"] not in ("ok",):

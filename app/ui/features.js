@@ -64,6 +64,7 @@ const PREVIEW_FEATURES = {
   chartBuilder: "Chart builder",
   severalCharts: "Several charts per result",
   dataWrangler: "Data Wrangler",
+  queryProfile: "Query profile",
   ipywidgets: "Notebook widgets",
   altair: "Altair charts in notebooks",
   mesh: "Data mesh",
@@ -88,6 +89,7 @@ const PREVIEW_FEATURES = {
   nbFormats: "Notebook import and export formats",
   profile: "Profile",
   notebookFolderPublish: "Publishing notebooks from folders",
+  fabricStep: "Run the last cell on Fabric",
   popOut: "Pop-out windows",
 };
 

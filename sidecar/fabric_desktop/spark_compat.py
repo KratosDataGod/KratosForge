@@ -417,21 +417,26 @@ def _fillable(dtype: str, value: Any) -> bool:
 
 
 def _known(df: DataFrame, names: Any) -> list[str]:
-    """Column names Spark would resolve; one that isn't there is an error, as in Spark, not skipped."""
+    """Column names as Spark resolves them, ignoring case, in the frame's own spelling; one that
+    isn't there is an error, as in Spark, not skipped."""
     from duckdb.experimental.spark.errors import AnalysisException
-    names = [names] if isinstance(names, str) else list(names)
-    for name in names:
-        if name not in df.columns:
+    by_lower = {c.lower(): c for c in df.columns}
+    out = []
+    for name in [names] if isinstance(names, str) else list(names):
+        if name in df.columns:
+            out.append(name)
+        elif (found := by_lower.get(str(name).lower())) is not None:
+            out.append(found)
+        else:
             raise AnalysisException(message=f"[UNRESOLVED_COLUMN.WITH_SUGGESTION] A column or function parameter "
                                     f"with name `{name}` cannot be resolved. Did you mean one of the following? "
                                     f"{df.columns}.")
-    return names
+    return out
 
 
 def _fillna(self: DataFrame, value: Any, subset: Any = None) -> DataFrame:
     if isinstance(value, dict):
-        fills = value
-        _known(self, fills)
+        fills = dict(zip(_known(self, value), value.values()))
     else:
         if not isinstance(value, (bool, int, float, str)):
             raise TypeError("fillna takes a number, text, a boolean or a dict of column to value.")

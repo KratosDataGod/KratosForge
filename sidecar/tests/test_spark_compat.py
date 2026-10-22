@@ -298,3 +298,7 @@ def test_na_functions_and_describe_refuse_unknown_columns_and_uneven_replace_lis
         df.na.replace(["b", "c"], ["B"])
     assert rows(df.na.replace(["b"], ["B"], "v")) == [(1, None, 1.5), (2, "B", None)]
     assert rows(df.na.fill(0, "x")) == [(1, None, 1.5), (2, "b", 0.0)] and df.dropna(subset="v").count() == 1
+    # Spark resolves names ignoring case
+    assert df.dropna(subset=["V"]).count() == 1 and rows(df.na.fill({"X": 0})) == [(1, None, 1.5), (2, "b", 0.0)]
+    assert rows(df.na.fill("z", "V"))[0][1] == "z" and rows(df.na.replace("b", "B", "V"))[1][1] == "B"
+    assert df.describe("ID").columns == ["summary", "id"]

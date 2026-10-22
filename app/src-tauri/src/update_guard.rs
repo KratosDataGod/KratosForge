@@ -159,13 +159,34 @@ pub fn offered(path: &Path) -> Option<String> {
 // run, because builds from before HD-022 (which a rollback can install) never write the marker.
 // exe.old is removed only by an exe that has got that far, never at the top of main().
 
+/// Renames `from` to `to`, retrying for about 15 seconds while the file is locked. OneDrive (an
+/// exe on a synced Desktop), antivirus and the search indexer open a file that was just written
+/// or renamed for a few seconds, and Windows then refuses with "Access is denied" (5) or a
+/// sharing violation (32). Any other error, such as a missing file, fails at once.
+fn rename_retrying(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut attempt = 0;
+    loop {
+        match std::fs::rename(from, to) {
+            Err(e) if attempt < 60 && is_lock(&e) => {
+                attempt += 1;
+                std::thread::sleep(Duration::from_millis(250));
+            }
+            done => return done,
+        }
+    }
+}
+
+fn is_lock(e: &std::io::Error) -> bool {
+    e.kind() == std::io::ErrorKind::PermissionDenied || matches!(e.raw_os_error(), Some(5 | 32 | 33))
+}
+
 /// Puts `new` in place of `exe`, keeping the running exe as `old`.
 pub fn swap_in(exe: &Path, new: &Path, old: &Path) -> Result<(), String> {
     let _ = std::fs::remove_file(old);
-    std::fs::rename(exe, old).map_err(|e| format!("Could not replace {}: {e}", exe.display()))?;
-    if let Err(e) = std::fs::rename(new, exe) {
-        let _ = std::fs::rename(old, exe);
-        return Err(format!("Could not replace {}: {e}", exe.display()));
+    rename_retrying(exe, old).map_err(|e| format!("Could not move {} aside: {e}", exe.display()))?;
+    if let Err(e) = rename_retrying(new, exe) {
+        let _ = rename_retrying(old, exe);
+        return Err(format!("Could not put the new build in place of {}: {e}", exe.display()));
     }
     Ok(())
 }

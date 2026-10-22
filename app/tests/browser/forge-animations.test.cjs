@@ -28,15 +28,34 @@ async function open({ cells = CELLS, reducedMotion = "no-preference", settings }
     state.ribbonTab = "run";
     go("notebook");
   }, cells);
-  // Every effect element made, whether or not it is still there when we look.
+  // Every effect element made, whether or not it is still there when we look, with the cell it was in.
+  // Effects drop a level while the machine is busy (motion.js, motionLoadWatch); a loaded CI runner
+  // starting the page can trip that, so the load watch is stopped here and the effects these tests
+  // check depend only on the run.
   await app.page.evaluate(() => {
+    motionLoadWatch?.disconnect();
+    loadTasks = [];
+    dropUntil = 0;
+    applyMotion();
     window.__fx = [];
+    const seen = (e) => window.__fx.push(`${e.className} @${e.closest("[data-cell]")?.dataset.cell ?? ""}`);
     new MutationObserver((list) => list.forEach((m) => m.addedNodes.forEach((n) => {
-      if (n.classList?.contains("fx") || n.classList?.contains("wolf")) window.__fx.push(n.className);
-      n.querySelectorAll?.(".fx, .wolf").forEach((e) => window.__fx.push(e.className));
+      if (n.classList?.contains("fx") || n.classList?.contains("wolf")) seen(n);
+      n.querySelectorAll?.(".fx, .wolf").forEach(seen);
     }))).observe(document.body, { childList: true, subtree: true });
   });
   return app;
+}
+
+// Waits until an effect matching kind was made in the cell (the record above, so a short effect
+// can't come and go between two looks), and says what motion.js did if it never was.
+async function madeFx(page, kind, cellId) {
+  try {
+    await page.waitForFunction(([kind, id]) => window.__fx.some((c) => c.includes(`fx-${kind}`) && c.endsWith(` @${id}`)),
+      [kind, cellId], { timeout: 30000 });
+  } catch {
+    assert.fail(`no ${kind} in cell ${cellId}: ${JSON.stringify(await page.evaluate(() => motionDiagnostics()))}`);
+  }
 }
 
 after(async () => { for (const app of apps) await app.close(); });
@@ -47,10 +66,14 @@ test("Run all shows the wolf at the cells done, glows at the end, and says so on
   await page.getByRole("button", { name: "Run all" }).first().click();
   const bar = page.getByRole("progressbar", { name: "Notebook run" });
   await bar.waitFor();
-  assert.match(await page.locator(".wolf-text").innerText(), /^Cell [12] of 3 on this PC$/);
+  // Which cell is running when the track appears depends on the runner's speed; the count must be real.
+  const [text, done] = await page.evaluate(() => [document.querySelector(".wolf-text").textContent,
+    state.notebook.cells.filter((c) => c.status === "ok").length]);
+  assert.match(text, /^Cell [123] of 3 on this PC$/);
+  assert.ok(Number(text.split(" ")[1]) >= done, `${text} lags ${done} cells done`);
   assert.ok(await page.locator(".wolf-bar .wolf").count(), "no wolf on the track");
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "forge-run-all.png") });
-  await page.locator(".fx-arrive").waitFor({ state: "attached", timeout: 30000 });
+  await madeFx(page, "arrive", "");  // in the status bar, outside any cell
   await bar.waitFor({ state: "detached" });
   await page.waitForFunction(() => document.getElementById("announce").textContent === "Run finished: 3 cells succeeded");
   const made = await page.evaluate(() => window.__fx);
@@ -63,16 +86,17 @@ test("A cell that succeeds sparks; a cell that fails shows the ember and the err
   const cells = [CELLS[0], { type: "code", cell_id: "f", source: "raise KeyError('daily_total')", meta: {} }];
   const app = await open({ cells });
   const { page } = app;
-  const [first, second] = await page.evaluate(() => state.notebook.cells.map((c) => `[data-cell="${c.id}"]`));
-  const spark = page.waitForSelector(`${first} .fx-spark`, { state: "attached", timeout: 30000 });
-  await page.evaluate(() => runCell(state.notebook.cells[0]));
-  await spark;
+  const [firstId, secondId] = await page.evaluate(() => state.notebook.cells.map((c) => String(c.id)));
+  const [first, second] = [firstId, secondId].map((id) => `[data-cell="${id}"]`);
+  assert.strictEqual(await page.evaluate(() => runCell(state.notebook.cells[0])), true);
+  await madeFx(page, "spark", firstId);
   await page.locator(`${first} .fx-spark`).waitFor({ state: "detached" });
   await page.waitForFunction(() => document.getElementById("announce").textContent === "Cell 1 succeeded");
   await page.evaluate(() => runCell(state.notebook.cells[1]));
   assert.strictEqual(await page.locator(`${second} .cell-status > span`).first().innerText(), "Failed");
   assert.match(await page.locator(`${second} .output.error`).innerText(), /KeyError/);
-  assert.ok((await page.evaluate(() => window.__fx)).some((c) => /fx-fail/.test(c)), "no ember for the failed cell");
+  await madeFx(page, "fail", secondId);
+  assert.ok(!(await page.evaluate(() => window.__fx)).some((c) => c.includes("fx-spark") && c.endsWith(` @${secondId}`)), "the failed cell sparked");
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "forge-fail.png") });
   assert.deepStrictEqual(app.errors, []);
 });

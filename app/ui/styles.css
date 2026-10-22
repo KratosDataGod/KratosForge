@@ -1914,3 +1914,15 @@ html[data-fx-ambient="on"] .flow-node[data-state="running"] .flow-link::after { 
 .pn-route .note-box { padding: 10px 12px; background: var(--hover); border-radius: 6px; font-size: 13px; }
 .pn-route .note-box p { margin: 4px 0 0; }
 .pn-waiting-line .pill-s { white-space: nowrap; }
+
+/* The Fabric step (fabricstep.js): the last cell, run on Fabric Spark for V-Order */
+.cell-head .fabric-step-tag { background: var(--accent); color: #ffffff; }
+.fabric-step-output { display: flex; flex-direction: column; gap: 8px; }
+.fabric-step-line { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; font-size: 13px; }
+.vorder-chips { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.vorder-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 10px; border: 1px solid var(--border-input); border-radius: 10px; font-size: 12px; color: var(--text-2); }
+.vorder-chip.ok { border-color: #1b6e3a; color: #1b6e3a; }
+.vorder-chip.warn { border-color: #a35200; color: #8a4500; }
+.kv-grid { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 6px 12px; margin: 12px 0; font-size: 13px; }
+.check-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 12px; max-height: 260px; overflow: auto; margin-top: 8px; }
+.check-row { display: flex; align-items: center; gap: 6px; font-size: 13px; }

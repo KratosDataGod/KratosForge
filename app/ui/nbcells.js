@@ -179,6 +179,7 @@ function duplicateCell(cell) {
   if (meta.tags) meta.tags = meta.tags.filter((t) => t !== "parameters");  // one parameter cell
   if (meta.tags && !meta.tags.length) delete meta.tags;
   delete meta.heading_collapsed;
+  delete meta.fabric_step;  // one Fabric step, the last cell (fabricstep.js)
   const copy = cellFrom({ type: cell.type, source: cell.source, meta });
   if (copy.type === "markdown") copy.editing = false;
   cells.splice(cells.indexOf(cell) + 1, 0, copy);

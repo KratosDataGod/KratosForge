@@ -2103,6 +2103,8 @@ def _cell_metadata(meta: dict[str, Any]) -> dict[str, Any]:
     chart = _chart_meta(meta.get("chart"))
     if chart:
         md["fabric_desktop"] = {"chart": chart}
+    if meta.get("fabric_step"):  # the last cell runs on Fabric Spark (fabric_step.py)
+        md.setdefault("fabric_desktop", {})["run_on"] = "fabric"
     return md
 
 
@@ -2135,9 +2137,12 @@ def _cell_meta(md: dict[str, Any]) -> dict[str, Any]:
     title = (md.get(_DATABRICKS_CELL) or {}).get("title") if isinstance(md.get(_DATABRICKS_CELL), dict) else None
     if isinstance(title, str) and title.strip():
         meta["title"] = title.strip()
-    chart = _chart_meta((md.get("fabric_desktop") or {}).get("chart") if isinstance(md.get("fabric_desktop"), dict) else None)
+    own = md.get("fabric_desktop") if isinstance(md.get("fabric_desktop"), dict) else {}
+    chart = _chart_meta(own.get("chart"))
     if chart:
         meta["chart"] = chart
+    if own.get("run_on") == "fabric":
+        meta["fabric_step"] = True
     return meta
 
 
@@ -2190,7 +2195,7 @@ def _merge_cell_metadata(ours: dict[str, Any], before: dict[str, Any]) -> dict[s
     if isinstance(keep.get("run_control"), dict):
         keep["run_control"] = {k: v for k, v in keep["run_control"].items() if k != "frozen"}
     if isinstance(keep.get("fabric_desktop"), dict):
-        keep["fabric_desktop"] = {k: v for k, v in keep["fabric_desktop"].items() if k != "chart"}
+        keep["fabric_desktop"] = {k: v for k, v in keep["fabric_desktop"].items() if k not in ("chart", "run_on")}
     for k in ("jupyter", "run_control", _DATABRICKS_CELL, "fabric_desktop"):
         if k in keep and not keep[k]:
             del keep[k]

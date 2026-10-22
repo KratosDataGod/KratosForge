@@ -4358,3 +4358,10 @@ test("the Spark on this PC page says slice takes a length and add_months returns
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
   assert.match(doc, /`slice\(arr, start, length\)` takes a length and counts a\nnegative start from the end, and `add_months` returns a date/);
 });
+
+// Spark on this PC: slice refuses index 0 and add_months reads text.
+test("the Spark on this PC page says slice refuses index 0 and add_months reads text as a date", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`slice` refuses index 0 and a negative\nlength with Spark's error/);
+  assert.match(doc, /`add_months` reads text as a date \(text that isn't a date gives NULL\)/);
+});

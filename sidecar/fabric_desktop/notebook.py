@@ -420,16 +420,17 @@ class _Run:
             self.version += 1
 
     def replace(self, display_id: str, output: dict[str, Any]) -> None:
-        """update_display: every output shown with ``display_id`` becomes ``output``, in place."""
-        size = len(json.dumps(output, default=str))
+        """update_display: every output shown with ``display_id`` becomes ``output``, in place. An
+        update that would take the cell past RICH_CHARS shows a line saying so instead."""
         with self.lock:
             self._join()
             hits = [i for i, o in enumerate(self._outputs) if o.get("display_id") == display_id]
+            if not hits:
+                return
+            self.rich_chars, output = _replace_capped(self._outputs, hits, output, self.rich_chars)
             for i in hits:
-                self.rich_chars += size - len(json.dumps(self._outputs[i], default=str))
                 self._outputs[i] = output
-            if hits:
-                self.version += 1
+            self.version += 1
 
     def clear(self, wait: bool = False) -> None:
         """IPython's clear_output: now, or (``wait``) when the next output arrives, so a loop that
@@ -484,7 +485,21 @@ class _OutputSink:
         self.out._add(output)
 
     def replace(self, display_id: str, output: dict[str, Any]) -> None:
-        self.out.outputs[:] = [output if o.get("display_id") == display_id else o for o in self.out.outputs]
+        self.out._replace(display_id, output)
+
+
+def _replace_capped(outputs: list[dict[str, Any]], hits: list[int], output: dict[str, Any],
+                    rich: int) -> tuple[int, dict[str, Any]]:
+    """The rich count after outputs[hits] become ``output``, and what they become: ``output``, or a
+    line saying the update passed RICH_CHARS (it keeps the id, so a smaller update still lands)."""
+    old = sum(len(json.dumps(outputs[i], default=str)) for i in hits)
+    size = len(json.dumps(output, default=str))
+    if rich - old + size * len(hits) > RICH_CHARS:
+        output = {"type": "text", "display_id": output.get("display_id"),
+                  "text": f"Output truncated: this update would take the output's tables, charts and HTML past "
+                          f"{RICH_CHARS // 1_000_000} MB, so it isn't shown."}
+        size = len(json.dumps(output, default=str))
+    return rich - old + size * len(hits), output
 
     def clear(self, wait: bool = False) -> None:
         self.out.clear_output(wait)

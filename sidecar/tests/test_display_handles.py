@@ -24,3 +24,25 @@ def test_display_handles_update_their_output_in_place():
     k.run("g.update('changed')")
     assert k.run("o.outputs[0]['text']")["outputs"][0]["text"] == '"\'changed\'"'
     assert k.run("update_display('x')")["outputs"][0]["ename"] == "TypeError"  # as IPython: display_id is required
+
+
+def test_an_update_cant_take_a_cell_or_an_output_widget_past_the_rich_cap(monkeypatch):
+    import json
+
+    from fabric_desktop import notebook
+    monkeypatch.setattr(notebook, "RICH_CHARS", 1_000)
+    k = Kernel()
+    out = k.run("from IPython.display import display, HTML\nh = display(HTML('x'), display_id=True)\n"
+                "h.update(HTML('y' * 5_000))")
+    (o,) = out["outputs"]
+    assert o["type"] == "text" and o["text"].startswith("Output truncated: this update") and o["display_id"]
+    assert sum(len(json.dumps(v, default=str)) for v in out["outputs"]) < 1_000
+    # A smaller update still lands where the big one would have gone.
+    out = k.run("h2 = display(HTML('a'), display_id=True)\nh2.update(HTML('b' * 5_000))\nh2.update(HTML('c'))")
+    assert [v.get("html") for v in out["outputs"]] == ["c"]
+    # The same inside an ipywidgets Output.
+    k.run("import ipywidgets as w\no = w.Output()\nwith o:\n    g = display(HTML('in'), display_id=True)\n"
+          "    g.update(HTML('z' * 5_000))")
+    assert k.run("o.outputs[0]['text'].startswith('Output truncated: this update')")["outputs"][0]["text"] == "True"
+    k.run("g.update(HTML('small'))")
+    assert k.run("o.outputs[0].get('html')")["outputs"][0]["text"] == "'small'"

@@ -207,6 +207,10 @@ class FabricClient:
         items it created itself and recorded in its ledger."""
         self._request("DELETE", f"/workspaces/{workspace_id}/items/{item_id}")
 
+    def get_warehouse(self, workspace_id: str, warehouse_id: str) -> dict[str, Any]:
+        """A warehouse, with its SQL connection string (``properties.connectionString``)."""
+        return self._request("GET", f"/workspaces/{workspace_id}/warehouses/{warehouse_id}").json()
+
     def find_lakehouse(self, workspace_id: str, name: str) -> dict[str, Any] | None:
         return next((lh for lh in self.list_lakehouses(workspace_id) if lh["displayName"] == name), None)
 

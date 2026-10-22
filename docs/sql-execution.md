@@ -60,9 +60,19 @@ A run can also go to a [local data project](local-data.md) instead of a lakehous
 - Statements that would reach outside the project never run, confirmed or not: `COPY`, `EXPORT`, `ATTACH`, `INSTALL`, `LOAD`; reading files or other databases (`read_csv`, `read_parquet`, `read_text`, `glob`, `FROM 'file.csv'`, Spark's ``csv.`path` `` and the like); SQL text run inside a query (`query('...')`); settings that show this PC's paths (`current_setting`, `duckdb_settings()`); and `SET`, `RESET` or `PRAGMA`, which would change the project database's settings. Add a file to the project first, then query its table.
 - This is a check of each statement before anything runs, not a sandbox: unlike a lakehouse run, the project's database keeps DuckDB's file access on, because the project's own tables live in files. A quoted table name with a dot or slash in it (`"my.table"`) is refused as if it were a file.
 
-**Dry run.** `sql_start` with `dry_run = true`, for either target, lists each statement with its class and whether it needs confirming, and says whether the run would be refused. Nothing runs, and no run is kept.
+**Dry run.** `sql_start` with `dry_run = true`, for any target, lists each statement with its class and whether it needs confirming, and says whether the run would be refused. Nothing runs, and no run is kept.
 
 Lakehouse runs are unchanged: their writes are still refused, as in the table above.
+
+## Queries on a warehouse (Preview)
+
+A run can also go to a Fabric **Data warehouse** or a lakehouse's **SQL analytics endpoint** (engine call `sql_start` with `target = "warehouse"`, `dialect = "tsql"` and `warehouse_ref`: `workspace_id`, `item_id` and `kind`, `warehouse` or `endpoint` with the lakehouse's id; the screens come with Create > Data warehouse). Unlike every other run here, **it runs in Fabric, so it uses capacity**. It is tagged Preview until it has been tested on a tenant. It is the same managed run: the same states, **Stop**, time limit, pages and export. The differences:
+
+- **It only reads.** The T-SQL is read before anything is sent, and it must be one statement that only reads: `SELECT`, `WITH ... SELECT`, `UNION` and the like. A second statement, `SELECT ... INTO`, `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `CREATE`, `EXEC`, `DECLARE`, transactions, `OPENROWSET`, `OPENQUERY` and `OPENDATASOURCE` are refused, and nothing is sent to Fabric. T-SQL the check can't read is refused too. The run is also held in a transaction that is rolled back when it ends, so even a statement the check misread changes nothing.
+- **Fabric's own server only.** The server and database are read from Fabric for the item you picked, and the server must be a `*.datawarehouse.fabric.microsoft.com` host, so the sign-in token is never sent anywhere else.
+- **As you.** It connects with Microsoft's SQL driver (`mssql-python`) and a token for Azure SQL (`https://database.windows.net`), asked for the first time you run a warehouse query. Fabric's permissions on the warehouse apply as they do in Fabric.
+- **Stop and the time limit.** The run is a process of its own, as a lakehouse run is. **Stop** and the time limit end that process, which closes the connection, and Fabric stops the query when its connection closes. The time limit is also the driver's query timeout.
+- The `sql_execution` audit line names the workspace, warehouse id and warehouse, and never the SQL or the token.
 
 ## Limits
 
@@ -85,4 +95,4 @@ Each run adds one `sql_execution` line to the [audit trail](user-guide.md#audit-
 
 ## For developers and other tools
 
-The engine calls are `sql_start`, `sql_status`, `sql_executions`, `sql_page`, `sql_cancel`, `sql_export`, `sql_export_status` and `sql_export_cancel` (`sidecar/fabric_desktop/sql_exec.py`). `sql_start` takes `target` (`lakehouse` or `local`), `project`, `confirm` and `dry_run` as well. `local_query_start`, `local_query_status` and `local_query_cancel` are deprecated: they forward to these runs and answer as before. `run_sql`, `export_sql_csv` and `save_sql`, which the page used before, still work unchanged for other callers, as do `lakehouse.sql()` in notebooks and the read-only query that external AI tools use through the [local API](architecture/ai-integration.md).
+The engine calls are `sql_start`, `sql_status`, `sql_executions`, `sql_page`, `sql_cancel`, `sql_export`, `sql_export_status` and `sql_export_cancel` (`sidecar/fabric_desktop/sql_exec.py`). `sql_start` takes `target` (`lakehouse`, `local` or `warehouse`), `project`, `warehouse_ref`, `confirm` and `dry_run` as well. `local_query_start`, `local_query_status` and `local_query_cancel` are deprecated: they forward to these runs and answer as before. `run_sql`, `export_sql_csv` and `save_sql`, which the page used before, still work unchanged for other callers, as do `lakehouse.sql()` in notebooks and the read-only query that external AI tools use through the [local API](architecture/ai-integration.md).

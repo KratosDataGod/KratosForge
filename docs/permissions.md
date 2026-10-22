@@ -41,6 +41,7 @@ With Microsoft's sign-in, KratosForge asks each Microsoft API for its default ac
 | Reading the tenant settings history (`tenant_settings_read`, Preview: Optimize > Settings history) | Fabric admin API (`GET /v1/admin/tenantsettings`) | Only for Fabric administrators, and not yet tried. Anyone else's read is recorded as unreadable. It only reads; it never changes a setting |
 | Seeing which Fabric domain a project's workspaces are in | Fabric | Yes. Any workspace member can read it |
 | The [live test](live-testing.md): creating and deleting a throwaway lakehouse, OneLake files and a Delta table in a workspace marked for tests | Fabric, OneLake (Azure Storage) | Yes. Nothing new is asked; you need Contributor or higher on the test workspace |
+| Queries on a Data warehouse or SQL analytics endpoint (Preview, [SQL execution](sql-execution.md#queries-on-a-warehouse-preview)) | Azure SQL (`https://database.windows.net/.default`) | Not yet tried; the first live query checks it. If Microsoft's app is refused, warehouse queries need your own app registration with Azure SQL Database `user_impersonation` |
 | `notebookutils.credentials.getSecret` in notebooks on the PC | Azure Key Vault | Possibly not. Needs your own app registration |
 
 "Expected" means Fabric CLI itself does these things with the same app. None of it has been tried from KratosForge on a live tenant yet.
@@ -61,6 +62,7 @@ With your own app, KratosForge signs in with the browser (not Windows sign-in) a
 | API (as Entra shows it) | Permission | Needed for | Asked |
 | --- | --- | --- | --- |
 | Azure Key Vault | `user_impersonation` | Notebooks reading secrets with `notebookutils.credentials.getSecret` on this PC | Optional, when a notebook asks |
+| Azure SQL Database | `user_impersonation` | Queries on a Data warehouse or SQL analytics endpoint (Preview, [SQL execution](sql-execution.md#queries-on-a-warehouse-preview)); they only read | On first use |
 | Azure Storage | `user_impersonation` | Reading and writing OneLake: tables, files, the Fabric runner bundle; listing the platform's landing zone | At first sign-in |
 | Microsoft Graph | `User.ReadBasic.All` | Adding someone to a data access role who has no role in the workspace yet | Optional, on first use |
 | Power BI Service | `Capacity.Read.All` | Listing capacities when you create a workspace, the size and status of each environment's capacity (Optimize > Cost and savings, Data mesh > Environments), and reading capacities for the capacity settings history (`capacity_settings_read`, Preview: Optimize > Settings history; it only reads) | On first use |

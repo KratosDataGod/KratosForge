@@ -16,6 +16,7 @@ from __future__ import annotations
 import importlib.util
 import re
 import sys
+import weakref
 from typing import Any
 
 import duckdb
@@ -380,6 +381,7 @@ class LocalSparkSession(SparkSession):
         self.conn.execute("SET enable_progress_bar_print = false")
         self._views: dict[str, str] = {}
         self._snapshot = None
+        self._frames: weakref.WeakSet[DataFrame] = weakref.WeakSet()  # this session's DataFrames still in use
         self._conf = spark_api.LocalRuntimeConfig(self)  # spark.conf (spark_compat's RuntimeConfig patches don't apply)
         self._local_context = spark_api.LocalSparkContext(self)
         catalog = self.catalog
@@ -411,6 +413,28 @@ class LocalSparkSession(SparkSession):
             self._views = {}
             self._snapshot = current
         return self._views
+
+    def _bind(self, statement: Any) -> None:
+        """Point ``statement``'s lakehouse tables at registered views, then drop the views of older
+        versions that no DataFrame or temp view still reads, so a notebook that writes and reads a
+        table many times doesn't keep every version's view on the connection."""
+        views = self._bound()
+        _sql.bind_tables(statement, self.conn, views, self._is_local)
+        old = _sql.superseded(views)
+        if not old:
+            return
+        # A DataFrame is a query over the view's name, run when it's used: a view one still reads stays.
+        used = [frame.relation.sql_query() for frame in list(self._frames) if frame.relation is not None]
+        used += [sql for (sql,) in self.conn.execute("SELECT sql FROM duckdb_views() WHERE NOT internal").fetchall() if sql]
+        text = "\n".join(used)
+        for key in old:
+            view = views[key]
+            if not re.search(rf"\b{view}\b", text):
+                self.conn.unregister(view)
+                del views[key]
+
+    def _is_view(self, name: str) -> bool:
+        return bool(self.conn.execute("SELECT 1 FROM duckdb_views() WHERE lower(view_name) = lower(?)", [name]).fetchall())
 
     def _is_local(self, name: str) -> bool:
         rows = self.conn.execute("SELECT 1 FROM duckdb_views() WHERE lower(view_name) = lower(?) "
@@ -448,6 +472,24 @@ class LocalSparkSession(SparkSession):
     def _statement(self, statement: Any) -> DataFrame | None:
         from sqlglot import exp
         statement = _sql.history_query(statement, self.conn, self._bound())  # DESCRIBE HISTORY t
+        # DROP TABLE and TRUNCATE TABLE on a lakehouse table; a temp view is DuckDB's to drop.
+        if isinstance(statement, exp.TruncateTable) or (
+                isinstance(statement, exp.Drop) and str(statement.args.get("kind", "")).upper() == "TABLE"):
+            tables = statement.expressions if isinstance(statement, exp.TruncateTable) else statement.args.get("tables") or []
+            names = [".".join(p for p in (t.db, t.name) if p) for t in tables
+                     if t.db or not self._is_local(t.name)]
+            if names:
+                if isinstance(statement, exp.Drop) and statement.args.get("exists") \
+                        and not any(lakehouse.table_exists(n) for n in names):
+                    return None  # DROP TABLE IF EXISTS of a table that isn't there changes nothing, as in Spark
+                listed = ", ".join(names)
+                if isinstance(statement, exp.TruncateTable):
+                    raise ValueError(f"TRUNCATE TABLE empties {listed} in place, which runs in Fabric. On this PC, "
+                                     "overwrite it with no rows: spark.table(name).limit(0).write.mode('overwrite').saveAsTable(name).")
+                raise ValueError(f"DROP TABLE removes {listed} from the lakehouse, which runs in Fabric. "
+                                 "Run the cell in Fabric.")
+            if isinstance(statement, exp.Drop) and all(self._is_view(t.name) for t in tables):
+                statement.set("kind", "VIEW")  # Spark's DROP TABLE drops a temp view of that name too
         # CREATE TABLE ... AS SELECT and INSERT INTO ... SELECT (or VALUES) write a lakehouse table.
         if isinstance(statement, (exp.Create, exp.Insert)) and isinstance(statement.expression, (exp.Query, exp.Select, exp.Values)):
             target = statement.this
@@ -458,7 +500,7 @@ class LocalSparkSession(SparkSession):
             if isinstance(target, exp.Table) and not is_view and not temporary:
                 name = f"{target.db}.{target.name}" if target.db else target.name
                 query = statement.expression.copy()
-                _sql.bind_tables(query, self.conn, self._bound(), self._is_local)
+                self._bind(query)
                 data = self.conn.sql(query.sql("duckdb"))
                 insert = isinstance(statement, exp.Insert)
                 mode = "append" if insert and not statement.args.get("overwrite") else "overwrite"
@@ -489,7 +531,7 @@ class LocalSparkSession(SparkSession):
                 else:
                     print(lakehouse.write_table(arrow, name, mode=mode))
                 return None
-        _sql.bind_tables(statement, self.conn, self._bound(), self._is_local)
+        self._bind(statement)
         text = statement.sql("duckdb")
         if isinstance(statement, (exp.Query, exp.Select, exp.Describe, exp.Show)) or text.upper().startswith(("SELECT", "WITH", "FROM", "VALUES", "DESCRIBE", "SHOW")):
             return DataFrame(self.conn.sql(text), self)
@@ -643,6 +685,16 @@ def check_not_null(data: Any, schema: Any) -> None:
 spark_compat.install()
 
 # ``df.write`` goes to the lakehouse instead of a DuckDB table in memory.
+_frame_init = _dataframe.DataFrame.__init__
+
+
+def _tracked_init(self: DataFrame, relation: Any, session: Any) -> None:
+    _frame_init(self, relation, session)
+    if isinstance(session, LocalSparkSession):
+        session._frames.add(self)
+
+
+_dataframe.DataFrame.__init__ = _tracked_init  # type: ignore[method-assign]
 _dataframe.DataFrame.write = property(lambda self: LakehouseWriter(self))  # type: ignore[assignment]
 
 

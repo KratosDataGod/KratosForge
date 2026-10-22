@@ -296,6 +296,19 @@ def test_a_spark_file_write_in_a_clean_run_stops_and_writes_nothing(svc, write):
     assert _lakehouse_files(svc.lh) == before
 
 
+@pytest.mark.parametrize("statement, says", [("DROP TABLE dbo.orders", "DROP TABLE removes dbo.orders from the lakehouse"),
+                                              ("TRUNCATE TABLE orders", "TRUNCATE TABLE empties orders in place")])
+def test_drop_or_truncate_in_a_clean_run_stops_with_a_clear_message(svc, statement, says):
+    # These stopped with DuckDB's own parser or binder error.
+    before = _lakehouse_files(svc.lh)
+    cells = [code("df = spark.read.table('dbo.orders')"), code(f"spark.sql({statement!r})")]
+    st = done(svc, call(svc, "notebook_validate_start", name="Drop", cells=cells, lakehouse_ref=LH, runs_on="pc")["id"])
+    assert st["run"]["failed_cell"] == 2 and [c["status"] for c in st["cells"]] == ["ok", "error"]
+    [f] = [f for f in st["findings"] if f["code"] == "run_failed"]
+    assert says in f["text"] and "runs in Fabric" in f["text"], f["text"]
+    assert _lakehouse_files(svc.lh) == before
+
+
 def test_one_validation_at_a_time_and_cancel_ends_it(svc):
     slow = [code("import time\ntime.sleep(60)")]
     vid = call(svc, "notebook_validate_start", name="Slow", cells=slow)["id"]

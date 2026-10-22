@@ -81,7 +81,7 @@ body.replaceChildren(withHowItWorks(content, howItWorks("platform.overview", {
 
 ## UX review
 
-A pull request that changes a screen gets a UX review against the [usability release gates](ux/release-review.md). The [navigation architecture](ux/navigation.md) says where planned features go; a new rail item, Monitor segment or Platform tab needs a mockup first.
+A pull request that changes a screen gets a UX review against the [usability release gates](ux/release-review.md). One that adds illustration or animation also answers the eight checks in the [visual style guide](design/KRATOSFORGE_VISUAL_STYLE_GUIDE.md#consistency-checks) (gate UG-8). The [navigation architecture](ux/navigation.md) says where planned features go; a new rail item, Monitor segment or Platform tab needs a mockup first.
 
 ## Releases
 

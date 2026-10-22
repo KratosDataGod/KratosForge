@@ -1,6 +1,8 @@
 # Animation style guide
 
-This guide says what KratosForge's animations look like and when each kind is allowed. It sits above
+This guide says how much KratosForge's animations may move and when each kind is allowed. What they
+look like is fixed by the [visual style guide](design/KRATOSFORGE_VISUAL_STYLE_GUIDE.md) and its
+canonical storyboard; this guide is the motion half of that identity. It sits above
 [Motion and effects](forge-animations.md), which lists every effect that ships today and how people
 turn them down, and above the motion engine in `app/ui/motion.js`. Every new effect gets a tier from
 this guide before it gets any CSS.
@@ -63,13 +65,15 @@ Forge is a small story with a beginning and an end: something drops, strikes, ru
 Titan is the cover of the book. It is the only tier allowed to take over the window, so it is the
 one with the strictest rules.
 
-- **Motifs:** the Wolf Forge emblem rising out of fire, a wolf leaping across the whole window on a
-  trail of sparks, Kratos's hammer coming down with a shockwave of embers, a winter storm parting to
-  show the forge. Painted light, rim glow and deep shadows, like a fantasy cover, with comic-book
-  ink and halftone in the shadows.
-- **Motion:** built like a shot in a game trailer: about 15% anticipation, 25% impact, 60% settle.
-  It ends on a still frame that fades out, never a hard cut.
-- **Today:** none. Step 2 of this project builds the first.
+- **Motifs:** the storyboard's panels 5, 6 and 7 in sequence: Kratos the smith at the anvil, the
+  hammer coming down with a dome of embers and an orange ink splash, the wolf howling in on an ice
+  splash, the title in heavy condensed italic. Painted panels cut by slanted wipes, impact frames,
+  speed lines, a camera that creeps, hits and settles, film grain and a vignette over all of it.
+- **Motion:** built like a shot in a game trailer: anticipation, impact, settle, title, out. About
+  6.5 s with a hard cut to black at the end and a fade back to the desktop.
+- **Today:** none in the app. The first-deployment sequence is built as a sample in
+  `docs/design/examples/forge-motion-samples.html` (beats in [examples](design/examples.md)) and
+  waits on full-size art; step 2 of this project ships it.
 - **Rules:**
     - Plays only when nothing is running, no dialog is open and no error is showing, right after the
       milestone is confirmed by the engine.
@@ -160,9 +164,13 @@ beside it is. Embers, sparks and frost are decoration and may be lighter still.
 | **Forge** (making) | Building and success | Embers, sparks, flame tongues from the emblem, glowing metal | Upward, flickering, fading as it cools |
 | **Winter** (calm) | Waiting, Fabric, cooling, cancel | Frost, ice crystals, snow, breath | Slow drift down or inward, crystal growth from an edge |
 
-Artwork comes from `docs/brand/`: the Wolf Forge emblem (`wolf-forge-emblem-2048.png`), the
-KratosBI logo and mark (SVG), and the KratosForge wordmark. Small effects trace these into one-path
-SVGs like `WOLF_PATH`; Titan art may use the 2048 px emblem directly.
+Kratos is drawn as a bearded blacksmith at the anvil, never as a fighter. Painted art follows the
+[visual style guide](design/KRATOSFORGE_VISUAL_STYLE_GUIDE.md) and the
+[wolf character sheet](design/wolf-character-sheet.md), and every piece is listed in the
+[asset manifest](design/assets.md). Brand marks come from `docs/brand/`: the Wolf Forge emblem
+(`wolf-forge-emblem-2048.png`), the KratosBI logo and mark (SVG), and the KratosForge wordmark.
+Small effects trace these into one-path SVGs like `WOLF_PATH`; Forge and Titan effects compose the
+painted panels beside the UI, as the storyboard does, never over it.
 
 ## Timing and easing tokens
 
@@ -249,5 +257,6 @@ implementation guide, sets the measured performance budget for each tier.
 
 1. **Dark theme.** The app has no dark theme yet. When it gets one, fire tokens stay the same and the
    navy ink becomes `--fx-ice` so the wolf stays visible.
-2. **Artwork for Titan.** The 2048 px emblem is enough for a first Titan. Painted, cover-quality
-   wolf and Kratos artwork would lift it, if KratosBI has or commissions some.
+2. **Artwork for Titan.** The sample uses crops of the storyboard as stand-ins. The full-size wolf
+   and Kratos pieces in the [asset manifest](design/assets.md) marked `needed` or `placeholder`
+   must exist before the first Titan ships to Stable.

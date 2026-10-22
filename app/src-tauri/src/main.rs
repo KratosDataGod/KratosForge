@@ -479,6 +479,10 @@ struct SidecarState {
     /// Set while update_app hands over to a new exe: the engine is stopped and must not be
     /// started again by a stray call while the new build's engine starts (HD-022).
     updating: std::sync::atomic::AtomicBool,
+    /// Set while update_sidecar installs an engine: a call must not start the old engine meanwhile,
+    /// since installing removes the old engine's folder and that engine would run on without its
+    /// files (its certificates among them, so every sign-in failed).
+    installing: std::sync::atomic::AtomicBool,
 }
 
 impl SidecarState {
@@ -554,6 +558,9 @@ async fn rpc(
         // can't start a new engine after the hand-over has stopped this one.
         if state.updating.load(Ordering::SeqCst) {
             return Err("KratosForge is starting its new build. Try again in a moment.".into());
+        }
+        if state.installing.load(Ordering::SeqCst) {
+            return Err("KratosForge is updating its engine. Try again in a moment.".into());
         }
         state.start_into(&mut guard)?;
         guard.clone().expect("sidecar started")
@@ -655,8 +662,21 @@ async fn update_sidecar(app: tauri::AppHandle, state: tauri::State<'_, SidecarSt
         return Err("This is a local build, so it cannot pick a sidecar version. Install it with pip.".into());
     }
     // A running sidecar holds its files open, which blocks pip and the engine swap on Windows.
+    // The flag is set under the engine's lock, so no call starts the old engine again until the
+    // install is over (a Monitor refresh every 15 s would otherwise).
+    {
+        let mut guard = state.sidecar.lock().map_err(|e| e.to_string())?;
+        state.installing.store(true, Ordering::SeqCst);
+        *guard = None;
+    }
+    struct Installing<'a>(&'a std::sync::atomic::AtomicBool);
+    impl Drop for Installing<'_> {
+        fn drop(&mut self) {
+            self.0.store(false, Ordering::SeqCst);
+        }
+    }
+    let _installing = Installing(&state.installing);
     stop_kernel(state.clone())?;
-    *state.sidecar.lock().map_err(|e| e.to_string())? = None;
     if bundled() {
         return install_engine(&app).map(|commit| json!({ "engine": commit }));
     }
@@ -795,12 +815,7 @@ fn put_engine_in_place(root: &std::path::Path, staging: &std::path::Path, commit
     std::fs::rename(staging, &dest).map_err(|e| format!("Could not put the engine in place: {e}"))?;
 
     // Engines of other builds are no longer needed; one still in use goes next time.
-    for entry in std::fs::read_dir(root).into_iter().flatten().flatten() {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if name != commit && name != BUILD_COMMIT && entry.path().is_dir() {
-            let _ = std::fs::remove_dir_all(entry.path());
-        }
-    }
+    engine_patch::prune_engines(root, &[commit, BUILD_COMMIT]);
     Ok(())
 }
 
@@ -1741,7 +1756,7 @@ fn main() {
         let _ = std::fs::remove_file(exe.with_extension("exe.failed"));
     }
     tauri::Builder::default()
-        .manage(SidecarState { sidecar: Mutex::new(None), child: Mutex::new(None), updating: Default::default() })
+        .manage(SidecarState { sidecar: Mutex::new(None), child: Mutex::new(None), updating: Default::default(), installing: Default::default() })
         .register_uri_scheme_protocol(OUTPUT_SCHEME, |ctx, _| output_frame(ctx.webview_label()))
         .on_window_event(on_window_event)
         .invoke_handler(tauri::generate_handler![

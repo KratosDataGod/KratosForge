@@ -4303,3 +4303,9 @@ test("the Spark on this PC page says agg takes a dict after groupBy and pivot", 
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
   assert.match(doc, /`agg` takes Spark's `\{column: function\}` form after `groupBy` and `pivot` too/);
 });
+
+// Spark on this PC: drop and withColumnRenamed skip a missing column, as Spark does.
+test("the Spark on this PC page says drop and withColumnRenamed skip a missing column", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`drop` and `withColumnRenamed` match names ignoring case and skip a column that isn't there/);
+});

@@ -31,7 +31,9 @@ other than `any` or `all`, and an empty list of value columns are errors rather 
 `na.fill`, `na.drop`, `na.replace` and `describe` name a column that isn't there with Spark's
 `[UNRESOLVED_COLUMN]` error instead of skipping it, and `replace` refuses lists of different lengths.
 `agg` takes Spark's `{column: function}` form after `groupBy` and `pivot` too, and names the result as Spark does
-(`avg(x)` for `"mean"`, `count(1)` for `{"*": "count"}`). An empty `struct<>` isn't supported here,
+(`avg(x)` for `"mean"`, `count(1)` for `{"*": "count"}`).
+`drop` and `withColumnRenamed` match names ignoring case and skip a column that isn't there, as Spark does, and
+`dropDuplicates` names a missing column with `[UNRESOLVED_COLUMN]`. An empty `struct<>` isn't supported here,
 since DuckDB can't store a struct with no fields; give it at least one.
 
 ### DataFrame: 79 of 102

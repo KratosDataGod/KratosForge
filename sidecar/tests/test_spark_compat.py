@@ -396,3 +396,16 @@ def test_unix_timestamp_takes_dates_and_timestamps_and_reads_the_session_time_zo
         assert rows(live.sql(query)) == [(1710090307, 1710090307)]  # 13:05:07 EDT
     finally:
         live.conf.set("spark.sql.session.timeZone", "UTC")
+
+
+def test_unix_timestamp_reads_fractions_and_quoted_text_and_refuses_what_it_cant_read(live):
+    import pyspark.sql.functions as F
+    df = live.createDataFrame([("2024-03-10 13:05:07.250", "2024-03-10T13:05:07", "Mar 10, 2024")], ["a", "b", "c"])
+    out = df.select(F.unix_timestamp("a", "yyyy-MM-dd HH:mm:ss.SSS"), F.unix_timestamp("b", "yyyy-MM-dd'T'HH:mm:ss"),
+                    F.unix_timestamp("c", "MMM d, yyyy"))
+    assert rows(out) == [(1710075907, 1710075907, 1710028800)]
+    assert rows(live.sql("SELECT unix_timestamp('2024-03-10 13:05:07.250', 'yyyy-MM-dd HH:mm:ss.SSS')")) == [(1710075907,)]
+    with pytest.raises(ValueError, match="can't read part of its format"):
+        df.select(F.unix_timestamp("a", "yyyy-MM-dd Q"))
+    with pytest.raises(ValueError, match="quoted text that holds pattern letters"):
+        df.select(F.unix_timestamp("a", "'at' HH"))

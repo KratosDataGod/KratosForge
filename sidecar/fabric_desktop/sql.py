@@ -70,6 +70,28 @@ def _spark_dates(statement: exp.Expression) -> exp.Expression:
 _TIME_TYPES = "'DATE', 'TIMESTAMP', 'TIMESTAMP WITH TIME ZONE', 'TIMESTAMP_S', 'TIMESTAMP_MS', 'TIMESTAMP_NS'"
 
 
+def _strptime_format(node: exp.Expression) -> str:
+    """The DuckDB strptime format, as SQL, for a Spark datetime pattern sqlglot has read into ``node``.
+    S, SS and SSS (fractions of a second) become %g and a quoted 'T' stays literal; anything else
+    sqlglot leaves untranslated is refused, since strptime would quietly match nothing."""
+    from sqlglot.dialects.duckdb import DuckDB
+    value = sqlglot.parse_one(DuckDB().generator().format_time(node), read="duckdb").name
+    value = re.sub(r"(?<![%S])S{1,3}(?!S)", "%g", value)
+    out = []
+    for i, piece in enumerate(re.split(r"('[^']*')", value)):
+        if i % 2:  # 'quoted text', as Spark writes a literal
+            if "%" in piece:
+                raise ValueError("unix_timestamp can't read quoted text that holds pattern letters (such as 'at') "
+                                 "in its format on this PC; a quoted 'T' works.")
+            out.append(piece[1:-1])
+        elif re.search(r"[A-Za-z']", re.sub(r"%-?[A-Za-z%]", "", piece)):
+            raise ValueError(f"unix_timestamp can't read part of its format ({value}) on this PC. Use pattern "
+                             "letters such as yyyy, MM, dd, HH, mm, ss and SSS.")
+        else:
+            out.append(piece)
+    return exp.Literal.string("".join(out)).sql("duckdb")
+
+
 def spark_substring(node: exp.Expression) -> exp.Expression:
     """Spark's substring counts position 0 as 1 (substring('hello', 0, 2) is 'he'); DuckDB starts
     before the first character and returns 'h'.
@@ -79,8 +101,7 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
     number of seconds, as in Spark."""
     for unix in list(node.find_all(exp.StrToUnix)):
         value = unix.this.sql("duckdb")
-        fmt = exp.StrToUnix(this=exp.column("__fd__"), format=unix.args.get("format")).sql("duckdb")
-        fmt = fmt[len("EPOCH(STRPTIME(__fd__, "):-2] if unix.args.get("format") else "'%Y-%m-%d %H:%M:%S'"
+        fmt = _strptime_format(unix) if unix.args.get("format") else "'%Y-%m-%d %H:%M:%S'"
         swapped = unix.replace(sqlglot.parse_one(
             f"CAST(floor(epoch(CASE WHEN typeof({value}) IN ({_TIME_TYPES}) THEN TRY_CAST({value} AS TIMESTAMPTZ) "
             f"ELSE CAST(try_strptime(CAST({value} AS VARCHAR), {fmt}) AS TIMESTAMPTZ) END)) AS BIGINT)", read="duckdb"))

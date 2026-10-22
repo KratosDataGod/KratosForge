@@ -3386,6 +3386,13 @@ test("a collapsed heading hides the cells up to the next heading of the same or 
   assert.strictEqual(headingLevel(md(1, "Example:\n```python\n# load the table\n```")), 0);
   assert.strictEqual(headingLevel(md(1, "~~~\n# x\n~~~\n### After")), 3);
   assert.strictEqual(headingLevel(md(1, "````\n```\n# x\n````\n## Out")), 2);
+  // A fence with an info string doesn't close one (CommonMark).
+  assert.strictEqual(headingLevel(md(1, "```\n```python\n# x\n```\n### After")), 3);
+  // Setext headings: a line underlined with === is level 1, with --- level 2; a --- after a blank line or a list isn't.
+  assert.strictEqual(headingLevel(md(1, "Title\n=====")), 1);
+  assert.strictEqual(headingLevel(md(1, "Intro text\n\nSection\n---")), 2);
+  assert.strictEqual(headingLevel(md(1, "Some text\n\n---\n")), 0);
+  assert.strictEqual(headingLevel(md(1, "- item\n---")), 0);
   const cells = [md(1, "# A", true), code(2), md(3, "## A.1", true), code(4), md(5, "# B"), code(6), md(7, "### C", true), code(8)];
   const { hidden, counts } = collapsedCells(cells);
   assert.deepStrictEqual([...hidden].sort(), [2, 3, 4, 8]);

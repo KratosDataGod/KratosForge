@@ -291,8 +291,8 @@ def test_onelake_run_queues_maintenance_and_builds_the_model(svc, tmp_path, monk
     assert "\t\tmode: directLake" in fact and "\t\t\tschemaName: dbo" in fact
     assert "column customer_sk\n\t\tdataType: int64\n\t\tisHidden" in fact
     assert "column net_amount\n\t\tdataType: double" in fact and "summarizeBy: sum" not in fact
-    assert "\tmeasure 'Total net_amount' = SUM(fact_sales[net_amount])\n\t\tformatString: #,0.00" in fact
-    assert "measure 'Total customer_sk'" not in fact
+    assert "\tmeasure 'fact_sales total net_amount' = SUM(fact_sales[net_amount])\n\t\tformatString: #,0.00" in fact
+    assert "total customer_sk" not in fact
     assert 'Sql.Database("abc.datawarehouse.fabric.microsoft.com", "sql1")' in parts["definition/expressions.tmdl"]
     assert "fromColumn: fact_sales.customer_sk\n\ttoColumn: dim_customer.customer_sk" in parts["definition/relationships.tmdl"]
     # Building again asks first, since it replaces the model's definition; then keeps every lineage tag.
@@ -323,21 +323,23 @@ def test_semantic_model_totals_instead_of_summarizing():
         return semantic.ModelTable(name, f"gold.{name}", "dbo", name, columns=cols, keys=["order_id"])
     sales = fact("fact_sales", [("order_id", "long"), ("customer_sk", "long"), ("qty", "long"), ("amount", "decimal(10,2)"),
                                 ("odd]name", "double"), ("_run_id", "long"), ("note", "string")])
-    returns = fact("fact_returns", [("order_id", "long"), ("amount", "double"), ("Total qty", "long")])
     dim = semantic.ModelTable("dim_customer", "gold.dim_customer", "dbo", "dim_customer", columns=[("age", "long")],
                               is_dimension=True)
-    parts = semantic.build([sales, returns, dim], [], "srv", "ep")
-    s, r, d = (parts[f"definition/tables/{t}.tmdl"] for t in ("fact_sales", "fact_returns", "dim_customer"))
-    assert "summarizeBy: sum" not in s + r + d
-    assert "\tmeasure 'Total qty (fact_sales)' = SUM(fact_sales[qty])\n\t\tformatString: #,0\n" in s  # a column is named Total qty
-    assert "\tmeasure 'Total amount (fact_sales)' = SUM(fact_sales[amount])\n\t\tformatString: #,0.00\n" in s  # two facts have amount
-    assert "\tmeasure 'Total amount (fact_returns)' = SUM(fact_returns[amount])" in r
-    assert "\tmeasure 'Total odd]name' = SUM(fact_sales[odd]]name])" in s
-    assert "\tmeasure 'Total Total qty' = SUM(fact_returns[Total qty])" in r
+    first = semantic.build([sales, dim], [], "srv", "ep")
+    s, d = first["definition/tables/fact_sales.tmdl"], first["definition/tables/dim_customer.tmdl"]
+    assert "summarizeBy: sum" not in s + d
+    assert "\tmeasure 'fact_sales total qty' = SUM(fact_sales[qty])\n\t\tformatString: #,0\n" in s
+    assert "\tmeasure 'fact_sales total amount' = SUM(fact_sales[amount])\n\t\tformatString: #,0.00\n" in s
+    assert "\tmeasure 'fact_sales total odd]name' = SUM(fact_sales[odd]]name])" in s
     for key in ("order_id", "customer_sk", "_run_id", "note"):  # keys, hidden and text columns get no total
-        assert f"'Total {key}" not in s
+        assert f"total {key}" not in s
     assert "measure" not in d
-    assert parts == semantic.build([sales, returns, dim], [], "srv", "ep")  # lineage tags stay put
+    # Reports bind measures by name: a second fact with the same column leaves the first fact's measures as they were.
+    returns = fact("fact_returns", [("order_id", "long"), ("amount", "double")])
+    second = semantic.build([sales, returns, dim], [], "srv", "ep")
+    assert second["definition/tables/fact_sales.tmdl"] == s
+    assert "\tmeasure 'fact_returns total amount' = SUM(fact_returns[amount])" in second["definition/tables/fact_returns.tmdl"]
+    assert second == semantic.build([sales, returns, dim], [], "srv", "ep")  # lineage tags stay put
 
 
 def test_the_model_names_columns_direct_lake_cant_read_and_never_relates_on_them(svc, tmp_path, monkeypatch):

@@ -6,7 +6,7 @@ Relationships come from the metadata: a fact's ``[[lookup]]`` names the dimensio
 the key column, and any other column named like a dimension's surrogate key joins
 to it. Surrogate keys and the framework's own columns (``_run_id``, ``_loaded_at``) are
 hidden. No column summarizes on its own (``summarizeBy: none``); each fact's visible numeric columns that
-aren't keys get a Total measure instead, which is what Best Practice Analyzer's rules ask for. Lineage tags are
+aren't keys get a total measure instead, which is what Best Practice Analyzer's rules ask for. Lineage tags are
 derived from names, so updating the model keeps them stable.
 """
 
@@ -15,7 +15,6 @@ from __future__ import annotations
 import json
 import re
 import uuid
-from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -115,8 +114,10 @@ def _hidden(t: ModelTable, col: str) -> bool:
 
 
 def _summed(t: ModelTable) -> list[tuple[str, str]]:
-    """A fact's visible numeric columns that aren't keys: each gets an explicit Total measure, since every
-    column has ``summarizeBy: none`` (Best Practice Analyzer's NUMERIC_COLUMN_SUMMARIZE_BY, an error-level rule)."""
+    """A fact's visible numeric columns that aren't keys: each gets an explicit total measure, since every
+    column has ``summarizeBy: none`` (Best Practice Analyzer's NUMERIC_COLUMN_SUMMARIZE_BY, an error-level rule).
+    The measure is named after its table and column, like the row count measure, so the name stays the same as the
+    model grows: reports bind measures by name, and a name can't clash with another table's."""
     if t.is_dimension:
         return []
     out = []
@@ -128,23 +129,13 @@ def _summed(t: ModelTable) -> list[tuple[str, str]]:
     return out
 
 
-def _measure_names(tables: list[ModelTable]) -> dict[tuple[str, str], str]:
-    """Total measure names, keyed by (table, column). Measure names are unique across a model and can't
-    match a column, so a name two facts share, or one that is already a column, carries its table."""
-    taken = {c for t in tables for c, _ in t.columns} | {t.name + " rows" for t in tables}
-    wanted = [(t.name, col) for t in tables for col, _ in _summed(t)]
-    counts = Counter(col for _, col in wanted)
-    return {(tn, col): f"Total {col}" if counts[col] == 1 and f"Total {col}" not in taken else f"Total {col} ({tn})"
-            for tn, col in wanted}
-
-
-def _table_tmdl(t: ModelTable, expression: str, names: dict[tuple[str, str], str]) -> str:
+def _table_tmdl(t: ModelTable, expression: str) -> str:
     lines = [f"table {quote(t.name)}", f"\tlineageTag: {tag('table', t.entity)}", ""]
     if not t.is_dimension:
         lines += [f"\tmeasure {quote(t.name + ' rows')} = COUNTROWS({quote(t.name)})",
                   "\t\tformatString: #,0", f"\t\tlineageTag: {tag('measure', t.entity)}", ""]
     for col, dtype in _summed(t):
-        lines += [f"\tmeasure {quote(names[(t.name, col)])} = SUM({quote(t.name)}[{col.replace(']', ']]')}])",
+        lines += [f"\tmeasure {quote(f'{t.name} total {col}')} = SUM({quote(t.name)}[{col.replace(']', ']]')}])",
                   f"\t\tformatString: {'#,0' if dtype == 'int64' else '#,0.00'}",
                   f"\t\tlineageTag: {tag('measure', t.entity, col)}", ""]
     for col, delta_type in t.columns:
@@ -179,9 +170,8 @@ def build(tables: list[ModelTable], rels: list[Relationship], sql_server: str, s
             f'\t\t    database = Sql.Database("{sql_server}", "{sql_endpoint_id}")', "\t\tin", "\t\t    database",
             f"\tlineageTag: {tag('expression', sql_endpoint_id)}", ""]),
     }
-    names = _measure_names(tables)
     for t in tables:
-        parts[f"definition/tables/{t.name}.tmdl"] = _table_tmdl(t, expression, names)
+        parts[f"definition/tables/{t.name}.tmdl"] = _table_tmdl(t, expression)
     if rels:
         lines = []
         for r in rels:

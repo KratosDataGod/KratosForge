@@ -1264,7 +1264,7 @@ async function renderModelTab(body) {
       h("div", { class: "row wrap" }, h("b", {}, "Direct Lake semantic model"), h("span", { class: "spacer" }),
         plan.existing ? btn("Open in Fabric", "open", () => openInFabric(plan.existing.url), "tool outline small") : null,
         btn(plan.existing ? "Update model" : "Create model", "cube", () => build(), "tool primary small")),
-      h("p", { class: "muted-text" }, `Reads ${plan.lakehouse} in ${plan.workspace_name || plan.workspace_id} through its SQL analytics endpoint, with no import and no refresh schedule. Relationships come from the metadata. Surrogate keys and the framework's _run_id and _loaded_at columns are hidden; every fact gets a row count measure and a Total measure for each numeric column, and no column sums on its own. Updating keeps every column's lineage tag, so reports built on the model keep working.`),
+      h("p", { class: "muted-text" }, `Reads ${plan.lakehouse} in ${plan.workspace_name || plan.workspace_id} through its SQL analytics endpoint, with no import and no refresh schedule. Relationships come from the metadata. Surrogate keys and the framework's _run_id and _loaded_at columns are hidden; every fact gets a row count measure and a total measure for each numeric column, and no column sums on its own. Updating keeps every column's lineage tag, so reports built on the model keep working.`),
       h("div", { class: "row wrap" }, h("label", { class: "field" }, "Layer", layer), h("label", { class: "field grow" }, "Model name", name)),
       result),
     h("div", { class: "entity-grid" },

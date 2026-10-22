@@ -400,7 +400,7 @@ lib.CRM_server_host
 **Data mesh > Deploy > Semantic model** builds a Direct Lake semantic model over a layer's tables (the last layer, usually Gold) in Test or Prod. It reads the layer's lakehouse through its SQL analytics endpoint, with no import and no refresh schedule.
 
 - Each entity is a table; dimensions and facts are marked. Facts get a row count measure.
-- No column sums on its own (`summarizeBy: none`, as Best Practice Analyzer's rules ask). Instead each fact gets a **Total** measure for every visible numeric column that isn't a key, such as `Total net_amount`. A name two facts share, or one a column already has, carries its table: `Total amount (fact_returns)`. Visuals that already sum a column keep their aggregation.
+- No column sums on its own (`summarizeBy: none`, as Best Practice Analyzer's rules ask). Instead each fact gets a total measure for every visible numeric column that isn't a key, named like its row count measure: `fact_sales total net_amount`. Names don't change as the model grows, so reports keep their measures. Visuals that already sum a column keep their aggregation.
 - Relationships come from the metadata: a fact's `[[lookup]]` names the dimension and key, and any other column named like a dimension's surrogate key joins to it.
 - Surrogate keys, `_run_id` and `_loaded_at` are hidden.
 - **Create model** makes `SM_<Layer>` in the environment's workspace (rename it if you like). **Update model** updates it in place and keeps every lineage tag, so reports built on it keep working.

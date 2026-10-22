@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import datetime as dt
 import decimal
+import json
 import logging
 import math
 import os
@@ -189,6 +190,16 @@ def _num(v: Any) -> float | int | None:
     f = float(v)
     return round(f, 6) if f == f else None
 
+def _chart_key(v: Any) -> Any:
+    """An x value as a dict key: NaN never equals itself and lists don't hash, so a NaN or list
+    category would lose its value (or fail the chart)."""
+    if isinstance(v, float) and v != v:
+        return ("nan",)
+    if isinstance(v, (list, dict)):
+        return ("json", json.dumps(v, default=str, sort_keys=True))
+    return v
+
+
 def _rows(result: Any) -> list[list[Any]]:
     """A query's rows through Arrow: DuckDB's own fetchall() needs pytz for time zone-aware
     timestamps (Delta's default), and the engine doesn't ship pytz."""
@@ -346,6 +357,21 @@ class Frames:
                 raise ValueError(f"The chart's {what} column isn't in this result.")
             return cols[int(i)]
         cx, cy, cs = col(x, "X axis"), col(y, "Values"), col(series, "Series")
+
+        def number(i: int | None, c: str | None, what: str, boolean: bool = False) -> None:
+            """Refused here with a plain message, not as a DuckDB binder error."""
+            if c is None:
+                return
+            f = table.schema.field(int(i))
+            if _kind(f.type) != "number" and not (boolean and _kind(f.type) == "boolean"):
+                raise ValueError(f"{f.name!r} isn't a number column. Pick a number column for {what}"
+                                 + (", or count rows." if what == "Values" and boolean else "."))
+        if kind in ("histogram", "box", "scatter"):
+            number(y, cy, "Values")
+        elif agg != "count":
+            number(y, cy, "Values", boolean=True)
+        if kind == "scatter":
+            number(x, cx, "the X axis")
         con = duckdb.connect()
         try:
             con.register("t", table.rename_columns(cols))
@@ -385,7 +411,9 @@ class Frames:
                     f"GROUP BY k ORDER BY n DESC LIMIT {CHART_CATEGORIES}").fetchall()
                 out.update(boxes=[{"x": k, "min": a, "q1": b, "median": c, "q3": d, "max": e, "n": n} for k, a, b, c, d, e, n in got])
                 return out
-            value = "count(*)" if agg == "count" or cy is None else f"{agg}({cy})::DOUBLE"
+            # A true/false column charts as 1 and 0: sum counts the trues, avg is their share.
+            ynum = f"{cy}::INTEGER" if cy is not None and pa.types.is_boolean(table.schema.field(int(y)).type) else cy
+            value = "count(*)" if agg == "count" or cy is None else f"{agg}({ynum})::DOUBLE"
             where = f"WHERE {_finite(cy)}" if cy is not None and agg != "count" else ""
             skey = f"CAST({cs} AS VARCHAR)" if cs else "NULL"
             ordered = kind in ("line", "area")
@@ -405,7 +433,7 @@ class Frames:
                 names = [r[0] for r in top[:CHART_SERIES]]
                 if len(top) > CHART_SERIES:
                     names.append(OTHER)
-            index = {k: i for i, k in enumerate(keys)}
+            index = {_chart_key(k): i for i, k in enumerate(keys)}
             values = {n: [None] * len(keys) for n in names}
             fold = (f"CASE WHEN {skey} IN (SELECT unnest(?)) THEN {skey} ELSE '{OTHER}' END" if cs and OTHER in names else skey)
             params = [[n for n in names if n not in (OTHER, None)]] if cs and OTHER in names else []
@@ -414,8 +442,8 @@ class Frames:
             for k, sname, v in _rows(con.execute(
                     f"SELECT t.{cx}, {fold} AS s, {value} FROM t JOIN {keep} ON t.{cx} IS NOT DISTINCT FROM keep.k {where} "
                     f"GROUP BY t.{cx}, s", params)):
-                if sname in values and k in index:
-                    values[sname][index[k]] = _num(v)
+                if sname in values and _chart_key(k) in index:
+                    values[sname][index[_chart_key(k)]] = _num(v)
             out.update(categories=[_cell(k) for k in keys], series=[{"name": n, "values": values[n]} for n in names],
                        truncated=truncated)
             return out
@@ -476,7 +504,7 @@ class Frames:
             with open(partial, "xb") as sink:
                 if fmt == "csv":
                     import pyarrow.csv as pa_csv
-                    pa_csv.write_csv(table, sink)
+                    pa_csv.write_csv(_csv_ready(table), sink)
                 elif fmt == "parquet":
                     import pyarrow.parquet as pq
                     pq.write_table(table.rename_columns(_unique(table.schema.names)), sink)
@@ -487,6 +515,16 @@ class Frames:
             with_suppressed_unlink(partial)
             raise
         return {"path": str(target), "rows": table.num_rows, "format": fmt}
+
+
+def _csv_ready(table: pa.Table) -> pa.Table:
+    """Arrow's CSV writer refuses lists, structs and maps: those columns go out as JSON text."""
+    for i, f in enumerate(table.schema):
+        if pa.types.is_nested(f.type):
+            text = pa.array([None if v is None else json.dumps(v, default=str) for v in table.column(i).to_pylist()],
+                            pa.string())
+            table = table.set_column(i, pa.field(f.name, pa.string()), text)
+    return table
 
 
 def with_suppressed_unlink(path: Path) -> None:
@@ -518,6 +556,20 @@ def _unique(names: list[str]) -> list[str]:
 # ---- a small Excel writer: one sheet, a bold header, numbers as numbers and dates as dates
 
 _EPOCH = dt.datetime(1899, 12, 30)
+# Excel has no date before 1900-01-01, and counts a 29 February 1900 that never was, so its serials
+# before 1 March 1900 are one less than days from _EPOCH. Earlier dates go out as text.
+_EXCEL_FIRST = dt.datetime(1900, 1, 1)
+_EXCEL_LEAP = dt.datetime(1900, 3, 1)
+
+
+def _excel_exact(v: int | float | decimal.Decimal) -> bool:
+    """Whether Excel, which keeps 15 significant digits, holds the number as written."""
+    if isinstance(v, float):
+        return True  # a float shows as Excel rounds it, as any spreadsheet does
+    if isinstance(v, int):
+        return abs(v) < 10 ** 15
+    digits = v.normalize().as_tuple().digits
+    return len(digits) <= 15
 
 
 def _col(n: int) -> str:
@@ -537,12 +589,20 @@ def _xlsx_cell(ref: str, v: Any) -> str:
     if isinstance(v, (int, float, decimal.Decimal)) and not (isinstance(v, float) and v != v):
         if isinstance(v, float) and v in (float("inf"), float("-inf")):
             return _text(ref, str(v))
+        if not _excel_exact(v):  # Excel keeps 15 digits: an ID like 1234567890123456789 would end in 000
+            return _text(ref, str(v))
         return f'<c r="{ref}"><v>{v}</v></c>'
     if isinstance(v, dt.datetime):
-        serial = ((v.replace(tzinfo=None) if v.tzinfo else v) - _EPOCH).total_seconds() / 86400
+        naive = v.replace(tzinfo=None) if v.tzinfo else v
+        if naive < _EXCEL_FIRST:
+            return _text(ref, str(v))
+        serial = (naive - _EPOCH).total_seconds() / 86400 - (naive < _EXCEL_LEAP)
         return f'<c r="{ref}" s="2"><v>{serial}</v></c>'
     if isinstance(v, dt.date):
-        return f'<c r="{ref}" s="3"><v>{(dt.datetime(v.year, v.month, v.day) - _EPOCH).days}</v></c>'
+        day = dt.datetime(v.year, v.month, v.day)
+        if day < _EXCEL_FIRST:
+            return _text(ref, v.isoformat())
+        return f'<c r="{ref}" s="3"><v>{(day - _EPOCH).days - (day < _EXCEL_LEAP)}</v></c>'
     return _text(ref, v if isinstance(v, str) else str(v))
 
 

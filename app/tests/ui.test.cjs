@@ -4232,3 +4232,9 @@ test("the Spark on this PC page says NOT NULL covers array elements and map valu
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
   assert.match(doc, /for array elements or map values a `StructType` declares\nnon-nullable/);
 });
+
+// Spark on this PC: an empty struct<> is refused with a clear message.
+test("the Spark on this PC page says an empty struct<> isn't supported", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /An empty `struct<>` isn't supported here/);
+});

@@ -553,6 +553,9 @@ def _ddl_type(text: str) -> Any:
         key, value = (_split_top(m[1]) + ["", ""])[:2]
         return T.MapType(_ddl_type(key), _ddl_type(value))
     if m := re.fullmatch(r"struct\s*<(.*)>", t, re.I | re.S):
+        if not m[1].strip():  # Spark allows struct<>; DuckDB can't store a struct with no fields
+            raise ValueError("An empty struct<> isn't supported on this PC. Give the struct at least one field, "
+                             "like struct<id: int>.")
         return ddl_schema(m[1])
     raise ValueError(f"The schema type {t!r} isn't supported on this PC. Use a StructType, or types such as "
                      "int, bigint, string, double, boolean, date, timestamp, decimal(p,s), array<...>, map<...>, "

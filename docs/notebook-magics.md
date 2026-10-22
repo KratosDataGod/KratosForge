@@ -282,8 +282,9 @@ until pip finishes:
   without it, so the cell says to restart the session before importing. Later installs import
   at once; a package the session already imported needs a restart for the new version.
 - Packages come from PyPI by name, with versions as pip writes them. Paths, URLs, wheels,
-  `--index-url` and `-e` are refused, and so is a requirements file that uses them. The engine's
-  own packages (polars, DuckDB...) keep their versions.
+  `--index-url` and `-e` are refused, and so is a requirements file that uses them, even after a
+  package on the same line. `-q`, `-U` and `-v` (also combined, like `-qU`) and `-rfile.txt` work as
+  in pip. The engine's own packages (polars, DuckDB...) keep their versions.
 - Your organization can turn installs off; `%pip install` then says so.
 - `%pip list`, `freeze` and `show` read what this session can import. `%pip uninstall` is on the
   notebook's Environment page.

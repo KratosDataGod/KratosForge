@@ -432,3 +432,16 @@ def test_group_by_nothing_aggregates_the_frame_and_first_last_skip_nulls(live):
     assert rows(live.sql(query)) == [(1, "a", "a", "a")]
     query = ("SELECT o, last(v, true) OVER (ORDER BY o) l FROM VALUES (1, NULL), (2, 'a'), (3, NULL) t(o, v) ORDER BY o")
     assert rows(live.sql(query)) == [(1, None), (2, "a"), (3, "a")]
+
+
+def test_slice_takes_a_length_and_add_months_is_a_date_as_in_spark(live):
+    import datetime as dt
+    import pyspark.sql.functions as F
+    df = live.createDataFrame([([3, 1, None, 2], 2, dt.date(2024, 1, 31))], "arr array<int>, n int, d date")
+    out = df.select(F.slice("arr", 2, 2), F.slice("arr", -2, 2), F.slice("arr", "n", 1), F.slice("arr", 1, 10))
+    assert rows(out) == [([1, None], [None, 2], [1], [3, 1, None, 2])]
+    assert out.columns[0] == "slice(arr, 2, 2)"
+    query = ("SELECT add_months(date'2024-01-31', 1) a, add_months('2024-01-31', 1) b, "
+             "add_months(timestamp'2024-01-31 10:00:00', 1) c")
+    assert rows(live.sql(query)) == [(dt.date(2024, 2, 29),) * 3]
+    assert rows(df.selectExpr("add_months(d, 1)")) == [(dt.date(2024, 2, 29),)]

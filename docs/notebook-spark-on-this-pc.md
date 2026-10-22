@@ -44,7 +44,8 @@ and quoted text such as `'T'` and `'Z'`; a pattern letter this PC can't read is 
 A pattern without a year reads its date from 1970-01-01, as Spark does. Quoted text that repeats a pattern letter (`'yyyy'`)
 isn't read back as written, so such a pattern gives NULL; keep quoted text to words such as `'T'`, `'Z'` or `'at'`.
 `groupBy()` with no columns aggregates the whole frame, and `first` and `last` with `ignorenulls=True` (or
-`first(x, true)` in SQL, in a window too) skip NULLs, as in Spark. An empty `struct<>` isn't supported here,
+`first(x, true)` in SQL, in a window too) skip NULLs, as in Spark. `slice(arr, start, length)` takes a length and counts a
+negative start from the end, and `add_months` returns a date, as in Spark. An empty `struct<>` isn't supported here,
 since DuckDB can't store a struct with no fields; give it at least one.
 
 ### DataFrame: 79 of 102

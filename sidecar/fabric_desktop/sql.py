@@ -108,6 +108,8 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
     value in the session time zone, is NULL for text that doesn't match the format, and is a whole
     number of seconds, as in Spark.
 
+    add_months is a date, as in Spark, also for text or a timestamp.
+
     first(x, true) and last(x, true) skip NULLs as aggregates too (DuckDB takes IGNORE NULLS only
     in a window)."""
     for ignore in list(node.find_all(exp.IgnoreNulls)):
@@ -125,6 +127,9 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
             text, target = f"{name}({value}) FILTER (WHERE {value} IS NOT NULL)", ignore
         swapped = target.replace(sqlglot.parse_one(text, read="duckdb"))
         node = swapped if target is node else node
+    for months in list(node.find_all(exp.AddMonths)):  # Spark's add_months is a date, whatever it's given
+        swapped = months.replace(exp.cast(months.copy(), exp.DataType.Type.DATE))
+        node = swapped if months is node else node
     for unix in list(node.find_all(exp.StrToUnix)):
         value = unix.this.sql("duckdb")
         fmt, has_year = _strptime_format(unix) if unix.args.get("format") else ("'%Y-%m-%d %H:%M:%S'", True)

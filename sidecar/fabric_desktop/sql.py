@@ -103,10 +103,18 @@ def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views
         # lakehouse.table_ref checks the parts: a catalog is only allowed as the lakehouse's own name.
         name = ".".join(p for p in (table.catalog, table.db, table.name) if p)
         point = _time_travel(table)  # VERSION AS OF n, TIMESTAMP AS OF '...', or Databricks' sales@v3
-        key = name.lower() if point is None else f"{name.lower()}@{point}"
+        opened = None
+        if point is None:
+            # The latest version is looked up each time, so a table written since an earlier statement
+            # on a long-lived connection (spark on this PC) is read as it is now, as Spark does. Its
+            # location is part of the key: in a proof, a table it wrote is read from the proof's copy.
+            opened = lakehouse.open_table(name)
+            key = f"{name.lower()}@{opened.table_uri}#{opened.version()}"
+        else:
+            key = f"{name.lower()}@{point}"
         if key not in views:
             views[key] = f"__lakehouse_table_{len(views)}"
-            opened = lakehouse.open_table(name) if point is None else lakehouse.open_table(name, **point_args(point))
+            opened = opened or lakehouse.open_table(name, **point_args(point))
             con.register(views[key], opened.to_pyarrow_dataset())
         # Keep the name the query used as the alias, so sales.Country still resolves.
         alias = table.args.get("alias") or exp.TableAlias(this=exp.to_identifier(table.name))

@@ -197,3 +197,20 @@ def test_read_schema_is_applied_or_refused(tmp_path):
     assert out["status"] == "error" and "cast the columns after reading" in str(out["outputs"])
     out = k.run(f"spark.read.schema('id INT').csv({str(data)!r})")
     assert out["status"] == "error" and "StructType" in str(out["outputs"])
+
+
+def test_a_table_written_in_one_cell_is_read_as_it_is_now_in_the_next(lake):
+    # spark kept each table as it was when first read, so a later read missed the session's own writes.
+    k = Kernel()
+    count = lambda: k.run("print(spark.table('dbo.sales').count(), spark.sql('SELECT count(*) FROM dbo.sales').first()[0])")
+    assert count()["outputs"][-1]["text"].split() == ["3", "3"]
+    assert k.run("spark.createDataFrame([(9, 'EU')], ['id', 'region']).write.mode('append').saveAsTable('dbo.sales')")["status"] == "ok"
+    assert count()["outputs"][-1]["text"].split() == ["4", "4"]
+    # INSERT ... VALUES writes through the lakehouse too, rather than failing on the registered table.
+    out = k.run("spark.sql(\"INSERT INTO dbo.sales VALUES (10, 'US'), (11, 'EU')\")")
+    assert out["status"] == "ok", out
+    assert count()["outputs"][-1]["text"].split() == ["6", "6"]
+    assert [r["id"] for r in rows(lake)] == [1, 2, 3, 9, 10, 11]
+    # Time travel still reads the version asked for.
+    out = k.run("print(spark.sql('SELECT count(*) FROM dbo.sales VERSION AS OF 0').first()[0])")
+    assert out["outputs"][-1]["text"].strip() == "3", out

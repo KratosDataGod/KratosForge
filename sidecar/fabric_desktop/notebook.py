@@ -487,6 +487,9 @@ class _OutputSink:
     def replace(self, display_id: str, output: dict[str, Any]) -> None:
         self.out._replace(display_id, output)
 
+    def clear(self, wait: bool = False) -> None:
+        self.out.clear_output(wait)
+
 
 def _replace_capped(outputs: list[dict[str, Any]], hits: list[int], output: dict[str, Any],
                     rich: int) -> tuple[int, dict[str, Any]]:
@@ -500,9 +503,6 @@ def _replace_capped(outputs: list[dict[str, Any]], hits: list[int], output: dict
                           f"{RICH_CHARS // 1_000_000} MB, so it isn't shown."}
         size = len(json.dumps(output, default=str))
     return rich - old + size * len(hits), output
-
-    def clear(self, wait: bool = False) -> None:
-        self.out.clear_output(wait)
 
 
 WIDGET_SECONDS = 60

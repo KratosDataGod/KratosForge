@@ -46,3 +46,12 @@ def test_an_update_cant_take_a_cell_or_an_output_widget_past_the_rich_cap(monkey
     assert k.run("o.outputs[0]['text'].startswith('Output truncated: this update')")["outputs"][0]["text"] == "True"
     k.run("g.update(HTML('small'))")
     assert k.run("o.outputs[0].get('html')")["outputs"][0]["text"] == "'small'"
+
+
+def test_clear_output_inside_an_output_widget_clears_only_that_widget():
+    k = Kernel()
+    out = k.run("import ipywidgets as w\nfrom IPython.display import clear_output\no = w.Output()\n"
+                "with o:\n    print('a')\n    clear_output()\n    print('b')\nprint('cell')")
+    assert out["status"] == "ok", out
+    assert [v.get("text") for v in out["outputs"]] == ["cell\n"]
+    assert k.run("o.outputs")["outputs"][0]["text"] == "[{'type': 'stream', 'text': 'b\\n'}]"

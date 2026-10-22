@@ -4315,3 +4315,9 @@ test("the Spark on this PC page says dropping every column is an error", () => {
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
   assert.match(doc, /Dropping every column is an error here: Spark keeps a frame with no columns/);
 });
+
+// Spark on this PC: summary takes statistics and adds quartiles.
+test("the Spark on this PC page says summary takes statistics and adds quartiles", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`summary` takes statistics, not columns, and\nadds the quartiles/);
+});

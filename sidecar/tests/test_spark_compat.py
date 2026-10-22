@@ -336,3 +336,24 @@ def test_dropping_every_column_says_so_instead_of_duckdbs_binder_error(live):
         with pytest.raises(ValueError, match=r"drop would leave no columns \(id, v\)"):
             call()
     assert df.drop("id", "nope").columns == ["v"]
+
+
+def test_drop_takes_a_column_object_in_any_case(live):
+    import pyspark.sql.functions as F
+    df = live.createDataFrame([(1, "a", 2)], ["id", "v", "x"])
+    assert df.drop(F.col("ID")).columns == ["v", "x"] and df.drop(F.col("`id`")).columns == ["v", "x"]
+    assert df.drop(df["V"], "X").columns == ["id"]
+    assert df.drop(F.col("id") + 1).columns == ["id", "v", "x"]  # not a column: nothing to drop
+    with pytest.raises(ValueError, match="drop would leave no columns"):
+        df.drop(F.col("ID"), F.col("V"), "x")
+
+
+def test_summary_takes_statistics_and_adds_quartiles_as_spark_does(live):
+    df = live.createDataFrame([(1, "a", 2.0), (2, "b", None), (3, "b", 5.0), (4, "c", 1.0)], ["id", "v", "x"])
+    out = rows(df.summary())
+    assert [r[0] for r in out] == ["count", "mean", "stddev", "min", "25%", "50%", "75%", "max"]
+    assert out[4:7] == [("25%", "1", None, "1.0"), ("50%", "2", None, "2.0"), ("75%", "3", None, "5.0")]
+    assert rows(df.summary("count", "count_distinct")) == [("count", "4", "4", "3"), ("count_distinct", "4", "3", "3")]
+    with pytest.raises(ValueError, match="id is not a recognised statistic"):
+        df.summary("id")  # summary takes statistics; describe takes columns
+    assert len(df.select("x").summary("min").columns) == 2

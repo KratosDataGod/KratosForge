@@ -458,6 +458,29 @@ def test_whole_numbers_on_one_side_and_decimals_on_the_other_compare_as_numbers(
     assert verify.compare(pc, pa.table({"k": [1, 2], "n": ["1", "2"]}), rules)["result"] == "differs"
 
 
+@pytest.mark.parametrize("keys", [[], ["k"]], ids=["whole rows", "keyed"])
+def test_with_no_tolerance_decimals_are_compared_exactly_not_as_doubles(keys):
+    # Both values are the same DOUBLE, so rel 0 called them equal: a complete "match" that wasn't.
+    from decimal import Decimal as D
+    pc = pa.table({"k": [1, 2, 3], "n": pa.array([D("12345678901234567.0000000001"), D("1.5"), D("15")], pa.decimal128(38, 10))})
+    fabric = pa.table({"k": [1, 2, 3], "n": pa.array([D("12345678901234567.0000000002"), D("1.50"), D("15")], pa.decimal128(30, 12))})
+    out = verify.compare(pc, fabric, {"keys": keys, "rel": 0})
+    assert out["result"] == "differs" and out["level"] == "complete", out
+    if keys:
+        assert out["counts"]["changed"] == 1 and out["examples"][0]["key"] == {"k": 1}
+        # The difference is below what a DOUBLE shows, so no "largest 0" is reported for it.
+        assert out["column_diffs"]["n"] == {"rows": 1}
+    else:
+        assert out["counts"] == {"only_pc": 1, "only_fabric": 1}
+    # The default tolerance still allows it, and 1.5 = 1.50, 15 = 15.0 and an integer = its decimal exactly.
+    assert verify.compare(pc, fabric, {"keys": keys})["result"] == "match"
+    whole = pa.table({"k": [1, 2], "n": pa.array([12345678901234567, 15], pa.int64())})
+    dec = pa.table({"k": [1, 2], "n": pa.array([D("12345678901234567.00"), D("15.0")], pa.decimal128(20, 2))})
+    assert verify.compare(whole, dec, {"keys": keys, "rel": 0})["result"] == "match"
+    off = pa.table({"k": [1, 2], "n": pa.array([D("12345678901234567.01"), D("15.0")], pa.decimal128(20, 2))})
+    assert verify.compare(whole, off, {"keys": keys, "rel": 0})["result"] == "differs"
+
+
 NAN, INF = float("nan"), float("inf")
 
 

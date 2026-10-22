@@ -15,6 +15,7 @@ Rules (all optional):
 ``keys``        columns that identify a row (matched case-insensitively)
 ``ignore``      columns left out of the comparison
 ``abs`` ``rel`` the default numeric tolerance: equal when |a-b| <= abs or |a-b| <= rel*max(|a|,|b|)
+                (both 0: integers and decimals are compared exactly, digit for digit, not as DOUBLEs)
 ``columns``     per-column overrides: {"amount": {"abs": 0.01}}
 ``timestamps``  compare timestamps to "us" (default), "ms" or "s"
 ``limit_rows``  above this many rows on either side, compare fingerprints only (default 5,000,000)
@@ -66,15 +67,23 @@ def _sig_digits(rel: float) -> int:
     return max(1, min(15, int(math.floor(-math.log10(rel)))))
 
 
-def _norm(expr: str, kind: str, r: dict[str, Any], digits: int | None = None) -> str:
-    """A column expression both engines' values normalize to before whole-row matching."""
+def _exact(expr: str) -> str:
+    """An integer or decimal as text with no trailing zeros, so 1.50 (decimal(10,2)), 1.5000 and 15
+    vs 15.0 compare exactly at any precision, without DOUBLE's 15-17 digits or a common decimal type."""
+    s = f"CAST({expr} AS VARCHAR)"
+    return f"CASE WHEN contains({s}, '.') THEN rtrim(rtrim({s}, '0'), '.') ELSE {s} END"
+
+
+def _norm(expr: str, kind: str, r: dict[str, Any], digits: int | None = None, exact: bool = False) -> str:
+    """A column expression both engines' values normalize to before whole-row matching. ``exact``:
+    both sides are integers or decimals, compared exactly when no tolerance is allowed."""
     if kind == "integer":
         return f"CAST({expr} AS HUGEINT)"
     if kind == "number":
         x = f"CAST({expr} AS DOUBLE)"
         d = digits if digits is not None else _sig_digits(float(r["rel"]))
         if d >= 17:
-            return x
+            return _exact(expr) if exact else x
         return (f"CASE WHEN {x} IS NULL OR {x} = 0 OR NOT isfinite({x}) THEN {x} "
                 f"ELSE round({x}, {d - 1} - CAST(floor(log10(abs({x}))) AS INTEGER)) END")
     if kind == "timestamp":
@@ -100,7 +109,10 @@ def _columns(schema_a: pa.Schema, schema_b: pa.Schema, r: dict[str, Any]) -> dic
             "types": sorted(f"{a[n].name} ({kinds[n][0]} vs {kinds[n][1]})" for n in common
                             if kinds[n][0] != kinds[n][1] and n not in widened),
             "widened": sorted(f"{a[n].name} ({kinds[n][0]} vs {kinds[n][1]})" for n in widened),
-            "numbers": frozenset(widened)}
+            "numbers": frozenset(widened),
+            # Both sides integers or decimals: no tolerance means exactly equal, not equal as DOUBLEs.
+            "exact": frozenset(n for n in common if all(pa.types.is_integer(t) or pa.types.is_decimal(t)
+                                                        for t in (a[n].type, b[n].type)))}
 
 
 def _tolerance(r: dict[str, Any], column: str) -> tuple[float, float]:
@@ -179,10 +191,13 @@ def _keyed(con: Any, cols: dict[str, Any], kq: list[tuple[str, str]], r: dict[st
         if ka == kb == "number":  # widened integer/decimal pairs arrive as number
             ab, rl = _tolerance(r, name_a)
             x, y = f"CAST(a.{qa} AS DOUBLE)", f"CAST(b.{qb} AS DOUBLE)"
-            same = (f"(({x} IS NULL AND {y} IS NULL) OR ({x} IS NOT NULL AND {y} IS NOT NULL AND "
-                    f"((isfinite({x}) AND isfinite({y}) AND (abs({x} - {y}) <= {ab!r} OR "
-                    f"abs({x} - {y}) <= {rl!r} * greatest(abs({x}), abs({y})))) "
-                    f"OR (isnan({x}) AND isnan({y})) OR {x} = {y})))")  # the tolerance holds between finite numbers
+            if ab == rl == 0 and name_a.lower() in cols["exact"]:
+                same = f"({_exact('a.' + qa)} IS NOT DISTINCT FROM {_exact('b.' + qb)})"
+            else:
+                same = (f"(({x} IS NULL AND {y} IS NULL) OR ({x} IS NOT NULL AND {y} IS NOT NULL AND "
+                        f"((isfinite({x}) AND isfinite({y}) AND (abs({x} - {y}) <= {ab!r} OR "
+                        f"abs({x} - {y}) <= {rl!r} * greatest(abs({x}), abs({y})))) "
+                        f"OR (isnan({x}) AND isnan({y})) OR {x} = {y})))")  # the tolerance holds between finite numbers
             metrics.append((name_a, f"max(abs({x} - {y})) FILTER (WHERE NOT {same})",
                             f"max(abs({x} - {y}) / nullif(greatest(abs({x}), abs({y})), 0)) FILTER (WHERE NOT {same})"))
         elif ka == kb == "timestamp":
@@ -214,7 +229,8 @@ def _keyed(con: Any, cols: dict[str, Any], kq: list[tuple[str, str]], r: dict[st
                              f'max(abs(CAST("a{i}" AS DOUBLE) - CAST("b{i}" AS DOUBLE)) / '
                              f'nullif(greatest(abs(CAST("a{i}" AS DOUBLE)), abs(CAST("b{i}" AS DOUBLE))), 0)) '
                              f'FROM j WHERE NOT no_a AND NOT no_b AND NOT "s{i}"').fetchone()
-            entry |= {"max_abs": _finite(mx[0]), "max_rel": _finite(mx[1])}
+            if not (mx[0] == 0 and name.lower() in cols["exact"]):  # a decimal difference DOUBLE can't show
+                entry |= {"max_abs": _finite(mx[0]), "max_rel": _finite(mx[1])}
         per_column[name] = entry
     limit = int(r["examples"])
     key_cols = ", ".join(f'coalesce("k_a{i}", "k_b{i}") AS "key{i}"' for i in range(len(kq)))
@@ -250,8 +266,10 @@ def _whole_rows(con: Any, cols: dict[str, Any], r: dict[str, Any], offset: int) 
         return {"level": "complete", "method": "whole rows", "counts": {"only_pc": max(na - nb, 0), "only_fabric": max(nb - na, 0)},
                 "examples": [], "offset": int(offset)}
     # A tolerance per column can't apply to whole rows: the default relative tolerance sets the digits.
-    ea = ", ".join(f"{_norm(_q(x), ka if ka == kb else 'other', r)} AS c{i}" for i, (x, _y, ka, kb) in enumerate(pairs))
-    eb = ", ".join(f"{_norm(_q(y), kb if ka == kb else 'other', r)} AS c{i}" for i, (_x, y, ka, kb) in enumerate(pairs))
+    ea = ", ".join(f"{_norm(_q(x), ka if ka == kb else 'other', r, exact=x.lower() in cols['exact'])} AS c{i}"
+                   for i, (x, _y, ka, kb) in enumerate(pairs))
+    eb = ", ".join(f"{_norm(_q(y), kb if ka == kb else 'other', r, exact=x.lower() in cols['exact'])} AS c{i}"
+                   for i, (x, y, ka, kb) in enumerate(pairs))
     names = ", ".join(f"c{i}" for i in range(len(pairs)))
     on = " AND ".join(f"ga.c{i} IS NOT DISTINCT FROM gb.c{i}" for i in range(len(pairs)))
     con.execute(f"""CREATE TEMP TABLE w AS

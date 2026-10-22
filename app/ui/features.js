@@ -87,6 +87,7 @@ const PREVIEW_FEATURES = {
   nbFormats: "Notebook import and export formats",
   profile: "Profile",
   notebookFolderPublish: "Publishing notebooks from folders",
+  popOut: "Pop-out windows",
 };
 
 function previewShown() {

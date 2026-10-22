@@ -874,7 +874,8 @@ test("the risk gate passes quietly, never runs a blocked item and needs the tick
 
 test("only Monitor > Runs shares the page with Fabric's hub, so Schedules and Cost get the whole page (#190)", () => {
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  assert.match(src, /const wide = monitorPage\.panel !== "runs";/);
+  // With From KratosForge in its own window (Pop out), Monitor here is the hub's band and the hub.
+  assert.match(src, /const wide = !runsOut && monitorPage\.panel !== "runs";/);
 });
 
 // The pure helpers at the top of replay.js.
@@ -2721,7 +2722,7 @@ function navHarness({ stored = null, preview = true } = {}) {
   const store = new Map(stored ? [["fd.nav.last", JSON.stringify(stored)]] : []);
   const dialogRoot = { childElementCount: 0 };
   const ctx = {
-    console, h: () => ({}), icon: () => ({}), renders: 0,
+    console, h: () => ({}), icon: () => ({}), renders: 0, POP_OUT: null,
     state: { view: "home", meta: { tab: "overview", entity: null }, notebook: null, openWorkspace: null, lakehouseView: null, settingsTab: "general" },
     monitorPage: { panel: "runs" }, catalogPage: { tab: "catalog" }, optimizePage: { tab: "overview" },
     platformPage: { tab: "overview" }, gitPage: { tab: "changes" }, wlPage: { id: null }, incPage: { id: null, env_of: null },
@@ -4383,4 +4384,19 @@ test("the Spark on this PC page says slice refuses index 0 and add_months reads 
 test("the Spark on this PC page says element_at refuses index 0 and months_between rounds to 8 digits", () => {
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
   assert.match(doc, /`element_at` refuses an array's index 0, and `months_between` counts the time of day and rounds to 8 digits/);
+});
+
+// Pop-out windows (Preview): the shell opens only these sections, and the app's own page in their
+// windows is the only part that gets the app's permissions; their Fabric views get none.
+test("pop-out windows load popout.js after app.js and get no more than the main window", () => {
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="app.js"') < html.indexOf('src="popout.js"'), "popout.js uses app.js's helpers");
+  const cap = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "src-tauri", "capabilities", "default.json"), "utf8"));
+  assert.deepStrictEqual(cap.windows, ["main"]);
+  assert.deepStrictEqual(cap.webviews, ["pop-out-runs", "pop-out-fabric"]);
+  assert.deepStrictEqual(cap.permissions, ["core:default"]);
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /const POP_OUT = \["runs", "fabric"\]\.find/);
+  const shell = fs.readFileSync(path.join(__dirname, "..", "src-tauri", "src", "main.rs"), "utf8");
+  assert.match(shell, /const POP_OUTS: \[\(&str, &str\); 2\] = \[\("runs", [^)]*\), \("fabric", [^)]*\)\];/);
 });

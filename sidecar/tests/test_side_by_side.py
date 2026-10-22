@@ -327,6 +327,14 @@ def test_a_failure_on_this_pc_still_runs_in_fabric(svc, tables):
     assert out["fabric"]["status"] == "ok"
     assert "failed on this PC" in out["verdict"]["text"]
     assert out["tables"][0]["result"] == "only_fabric"
+    assert out["local"]["message"] == "ValueError: only on my laptop"
+    assert out["speed"] == {}  # a run that stopped early isn't faster
+
+
+def test_both_sides_failing_points_at_this_pcs_error():
+    v = sbs.verdict([], "failed", "failed", 4)
+    assert v["same"] is False
+    assert "this PC (cell 4) and in Fabric" in v["text"] and "Fix this PC's error first" in v["text"]
 
 
 def test_side_by_side_needs_a_notebook_that_runs_in_both_places(svc, tables):

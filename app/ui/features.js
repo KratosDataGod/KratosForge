@@ -62,6 +62,7 @@ const PREVIEW_FEATURES = {
   itemPreview: "Item preview",
   resultViewer: "Result downloads",
   chartBuilder: "Chart builder",
+  severalCharts: "Several charts per result",
   dataWrangler: "Data Wrangler",
   ipywidgets: "Notebook widgets",
   altair: "Altair charts in notebooks",

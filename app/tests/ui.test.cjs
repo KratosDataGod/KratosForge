@@ -3736,7 +3736,7 @@ function chartsHarness(answer) {
     document: { createElementNS: (_ns, tag) => node(tag) },
     rpc: async (m, a) => { calls.push([m, a]); return typeof answer === "function" ? answer(a) : answer; } };
   vm.createContext(ctx);
-  vm.runInContext(src + "\nthis.api = { chartConfig, renderChartBuilder, chartSvg };", ctx);
+  vm.runInContext(src + "\nthis.api = { chartConfig, renderChartBuilder, chartSvg, addChart, removeChart, chartName, chartCount };", ctx);
   return { ctx, calls, dirty: () => dirty, node };
 }
 const allNodes = (n, out = []) => { if (n && typeof n === "object") { out.push(n); (n.kids || []).forEach((k) => allNodes(k, out)); } return out; };
@@ -3766,6 +3766,47 @@ test("the chart builder asks the engine for every row and keeps the cell's chart
   assert.match(nb, /o\.view \|\|= o\.summary \? "inspect" : o\.frame && cell\?\.meta\?\.chart \? "chart" : "table";/);
   assert.match(nb, /previewMarked\("chartBuilder"/);
   assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="notebook\.js"><\/script>\n  <script src="charts\.js"><\/script>/);
+});
+
+test("one result keeps several charts, each with its own settings in the cell", async () => {
+  const d = { kind: "bar", rows: 2, truncated: false, categories: ["East"], series: [{ name: null, values: [1] }] };
+  const { ctx, calls, dirty } = chartsHarness(d);
+  const o = { frame: "f", columns: ["region", "month", "amount"], rows: [["East", "Jan", 1]] };
+  const cell = { meta: {} };
+  const numeric = [false, false, true];
+  assert.strictEqual(ctx.api.chartCount(cell), 1);
+  assert.strictEqual(ctx.api.chartName(cell, 0), "Chart");
+  assert.strictEqual(ctx.api.addChart(o, numeric, cell), 1);
+  assert.strictEqual(ctx.api.chartCount(cell), 2);
+  assert.ok(cell.meta.chart, "adding a chart saves the first one too, where older builds read it");
+  assert.strictEqual(ctx.api.chartName(cell, 1), "Chart 2");
+  let removed = null;
+  const box = ctx.api.renderChartBuilder(o, numeric, cell, 1, (n, what) => { removed = [n, what]; });
+  const x = allNodes(box).find((n) => n.tag === "select" && n.attrs["aria-label"] === "X axis");
+  x.attrs.onchange({ target: { value: "month" } });
+  assert.strictEqual(cell.meta.charts[0].x, "month");
+  assert.strictEqual(cell.meta.chart.x, "region", "a second chart's settings stay its own");
+  assert.strictEqual(ctx.api.chartConfig(o, numeric, cell, 0).x, "region");
+  const title = allNodes(box.replaced).find((n) => n.tag === "input");
+  title.value = "Amount by month, all regions in one chart";
+  title.listeners.change();
+  assert.deepStrictEqual(removed, [1, "renamed"]);
+  assert.strictEqual(ctx.api.chartName(cell, 1), "Amount by month, all re…");
+  const twins = { meta: { chart: { title: "Sales" }, charts: [{ title: "Sales" }, { title: "Sales" }] } };
+  assert.deepStrictEqual([0, 1, 2].map((n) => ctx.api.chartName(twins, n)), ["Sales", "Sales (2)", "Sales (3)"]);
+  assert.ok(dirty() >= 3);
+  assert.ok(!allNodes(ctx.api.renderChartBuilder(o, numeric, cell, 0)).some((n) => n.tag === "button" && n.kids.includes("Remove chart")));
+  const rm = allNodes(box.replaced).find((n) => n.tag === "button" && n.kids.includes("Remove chart"));
+  rm.attrs.onclick();
+  assert.deepStrictEqual(removed, [1, "removed"]);
+  assert.strictEqual(cell.meta.charts, undefined);
+  assert.strictEqual(ctx.api.chartCount(cell), 1);
+  await new Promise((r) => setImmediate(r));
+  assert.ok(calls.length >= 2);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /previewMarked\("severalCharts"/);
+  assert.match(nb, /charts < MAX_CHARTS/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /severalCharts: "Several charts per result"/);
 });
 
 test("every chart kind draws marks with a tooltip, and an empty result says so", () => {

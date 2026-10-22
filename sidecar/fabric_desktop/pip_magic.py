@@ -21,7 +21,10 @@ POLL_SECONDS = 1.0
 GIVE_UP_SECONDS = 15 * 60 + 60  # the engine stops pip at 15 minutes (environments.INSTALL_SECONDS)
 
 # Flags that only change pip's output or let it upgrade: safe to drop.
-_QUIET = {"-q", "--quiet", "-U", "--upgrade", "--no-cache-dir", "--disable-pip-version-check", "--user"}
+_QUIET = {"-q", "--quiet", "-U", "--upgrade", "--no-cache-dir", "--disable-pip-version-check", "--user", "-v",
+          "--verbose"}
+_SHORT_QUIET = re.compile(r"^-[qUv]+$")  # -qq, -Uq: pip's short flags combine
+_REQUIREMENT = re.compile(r"^(?:-r|--requirement=)(.+)$")  # -rreq.txt and --requirement=req.txt
 _NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 
 
@@ -30,7 +33,10 @@ def specs(args: list[str], read_file: Callable[[str], str]) -> list[str]:
     out: list[str] = []
     it = iter(args)
     for arg in it:
-        if arg in _QUIET:
+        if arg in _QUIET or _SHORT_QUIET.match(arg):
+            continue
+        if m := _REQUIREMENT.match(arg):
+            out += _requirements(read_file(m[1]))
             continue
         if arg in ("-r", "--requirement"):
             path = next(it, None)
@@ -48,9 +54,12 @@ def specs(args: list[str], read_file: Callable[[str], str]) -> list[str]:
 
 
 def _requirements(text: str) -> list[str]:
-    lines = [line.split("#", 1)[0].strip() for line in text.splitlines()]
+    """Package lines of a requirements file. As in pip, a line ending in a backslash goes on to the
+    next, and # starts a comment at the start of a line or after a space (so a#b is kept)."""
+    joined = re.sub(r"\\\r?\n", "", text)
+    lines = [re.split(r"(?:^|\s)#", line, maxsplit=1)[0].strip() for line in joined.splitlines()]
     for line in lines:
-        if line.startswith("-"):
+        if any(word.startswith("-") for word in line.split()):  # -r, --index-url, or --hash after a package
             raise ValueError(f"The requirements file's line {line!r} isn't supported on this PC; list packages by name.")
     return [line for line in lines if line]
 

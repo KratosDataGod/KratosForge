@@ -4251,3 +4251,10 @@ test("the magics page says %timeit -o isn't supported and %who filters by type",
   assert.match(doc, /Other IPython options such as `-o` and `-q` say they aren't supported/);
   assert.match(doc, /`%who str int` lists only those types/);
 });
+
+// Magics: %pip takes combined quiet flags and refuses options after a package in a requirements file.
+test("the magics page says %pip takes -qU and refuses options after a package", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /even after a\n  package on the same line/);
+  assert.match(doc, /\(also combined, like `-qU`\) and `-rfile.txt` work as\n  in pip/);
+});

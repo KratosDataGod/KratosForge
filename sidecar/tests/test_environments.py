@@ -234,3 +234,19 @@ def test_percent_pip_reads_a_requirements_file_from_the_resources(tmp_path):
     (res / "bad.txt").write_text("--extra-index-url https://evil/\nx\n")
     with pytest.raises(ValueError, match="isn't supported"):
         pip_magic.specs(["-r", "builtin/bad.txt"], read)
+
+
+def test_percent_pip_reads_combined_flags_attached_requirement_files_and_pips_line_rules():
+    from fabric_desktop import pip_magic
+    files = {"r.txt": "a  # note\n#whole line\nb#egg\nc \\\r\n  >=1\r\npandas>=2 ; python_version > \"3\"\n",
+             "hash.txt": "polars==1.9 \\\n    --hash=sha256:abc\n",
+             "index.txt": "x --extra-index-url https://evil/\n"}
+    read = files.__getitem__
+    wanted = ["a", "b#egg", "c   >=1", 'pandas>=2 ; python_version > "3"']
+    assert pip_magic.specs(["-qq", "-Uq", "-rr.txt"], read) == wanted
+    assert pip_magic.specs(["--requirement=r.txt", "-v", "y"], read) == wanted + ["y"]
+    for bad in ("hash.txt", "index.txt"):  # an option after a package on the same line is still an option
+        with pytest.raises(ValueError, match="isn't supported"):
+            pip_magic.specs(["-r", bad], read)
+    with pytest.raises(ValueError, match="-qx isn't supported"):
+        pip_magic.specs(["-qx", "y"], read)

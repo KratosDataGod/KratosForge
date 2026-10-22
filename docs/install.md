@@ -75,6 +75,8 @@ Every build of `main` comes with proof of where it came from and a list of what 
 
 - **Software bill of materials.** The Preview (`latest`) release carries `sbom-engine.cdx.json` (every Python package in the engine, read from the engine itself) and `sbom-app.cdx.json` (every Rust crate in the exe), in CycloneDX format. Most vulnerability scanners and asset tools read it.
 
+- **Microsoft's SQL driver.** The engine includes `mssql-python` (MIT), which carries Microsoft ODBC Driver 18 for SQL Server and the Visual C++ runtime (`msvcp140.dll`) under Microsoft's own license terms. Their license files are in the engine at `Lib\site-packages\mssql_python_odbc\libs\windows\x64\`. Nothing connects to a warehouse until you run a warehouse query.
+
 - **Vulnerability scanning.** CI checks the engine's pinned Python packages (`pip-audit`) and the exe's Rust crates (`cargo audit`) on every pull request.
 
 These prove where a file came from; they don't replace code signing, which is still being set up ([If Windows blocks the engine](#if-windows-blocks-the-engine)).

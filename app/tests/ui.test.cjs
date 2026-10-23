@@ -361,6 +361,24 @@ test("the commit button says what it will commit, and refuses with conflicts", (
   assert.strictEqual(gitCommitLabel(gitStatus({ merging: true })), "Commit the merge to main");
 });
 
+test("an exception about to end raises one notice a day, and an ended one is a problem", () => {
+  const src = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function exceptionNotice\([\s\S]*?\n}\n/)[0]}; this.exceptionNotice = exceptionNotice;`, ctx);
+  const row = { entity: "gold.fact_sales", rule: "custom_code_test", expires: "2026-10-20", status: "expiring",
+    notice: "gold.fact_sales: the exception for custom_code_test expires in 5 days (2026-10-20)" };
+  const notice = ctx.exceptionNotice(row, "2026-10-15");
+  assert.strictEqual(notice.id, "exception:gold.fact_sales:custom_code_test:2026-10-20:2026-10-15");
+  assert.strictEqual(notice.status, "info");
+  assert.strictEqual(notice.notice, true);
+  assert.match(notice.text, /expires in 5 days/);
+  assert.strictEqual(ctx.exceptionNotice({ ...row, status: "active" }, "2026-10-15"), null);
+  const ended = ctx.exceptionNotice({ ...row, status: "expired" }, "2026-10-21");
+  assert.strictEqual(ended.status, "failed");
+  assert.strictEqual(ended.notice, false);
+  assert.match(src, /\["exceptions", "Exceptions"\]/);
+});
+
 test("side by side pairs removed and added lines and keeps context on both sides", () => {
   const { gitSideBySide, gitSplitPath } = gitHelpers();
   const rows = gitSideBySide([{ header: "@@ -1,3 +1,3 @@", lines: [
@@ -389,6 +407,7 @@ test("a cost figure shows its classification, and an unknown one never reads as 
   // Every figure in the Cost panel goes through measureFigure, which adds the badge.
   const body = src.match(/function costBody\([\s\S]*?\n}\n/)[0];
   assert.ok(!/money\(t\.(cost|saved)/.test(body) && !/cuHours\(t\./.test(body), "a raw total is shown without its classification");
+
   // FINOPS-005: savings come from Fabric runs of the same table, and runs with none are said to be left out.
   assert.ok(/never from how long it took here/.test(body) && !/Scenario: what runs on this PC/.test(body));
   assert.ok(/t\.uncalibrated_runs/.test(body) && !/scenario_cu/.test(body), "the rough scenario isn't shown as the saving");

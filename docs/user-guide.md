@@ -329,11 +329,15 @@ The **Data mesh** page (it was called Metadata) is where your metadata project l
 | Overview (Preview) | Domains: the page opens here. Your organization's domains and how they feed each other; open a domain to see its projects, their layers, products and readers, then a layer of the project on this PC to see each table's whole lineage, from its source files to the projects that read its products. Read only. See [Data mesh](data-mesh.md#from-domains-to-tables) |
 | Design | Entities, Layers, Surrogate keys, Source systems |
 | Runs | Every run, with its steps, rows and problems |
-| Quality | Tests and Table health |
+| Quality | Tests, Table health, and Exceptions |
 | Domains (Preview) | Domain and workspaces, Data products, Links. Domains are created and edited on **Platform > Domains** and the glossary is on **Platform > Glossary**; this tab lists the domains and links there. See [Data mesh](data-mesh.md) |
 | Deploy | Environments and promote, Semantic model |
 
 Each entity page also has an **About** card (Preview): description, tags, classification, glossary terms and steward for the table and each column, saved in the catalog so anyone can write them without a Git change.
+
+### Approved exceptions
+
+**Data mesh > Quality > Exceptions** lists every approved exception in `exceptions.toml`: the table, the rule, the table's owner, why it was approved, who approved it, and when it ends. An exception that ends within 14 days shows a banner on Data mesh and a notice on the bell, once a day, before the save gate starts failing again. One with no end date stays in force. How to write an exception is in the [metadata guide](metadata-guide.md#6-quality-checks-quarantine-and-the-four-gates).
 
 The **Environment** picker in the top bar (Dev, Test or Prod) only shows on Data mesh pages. Everything on these pages, from runs to table health, is for the environment picked there.
 

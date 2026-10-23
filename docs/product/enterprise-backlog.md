@@ -126,6 +126,7 @@ Split in two so each change is reviewable on its own.
 ### FD-129 Governance exceptions (P1)
 
 - **Acceptance criteria:** exceptions in `exceptions.toml` show in the app with owner, reason, approver and expiry; expiring ones raise a notice; adding one records who asked and who approved in the audit trail (FD-125).
+- **In the app:** Data mesh > Quality > Exceptions lists each exception with the table's owner, the reason, the approver and the expiry. One that ends within 14 days raises a notice on the bell and a banner on Data mesh. Still open: asking for an exception in the app, and recording who asked and who approved in the audit trail.
 
 ### FD-130 Multi-team permissions (P1)
 

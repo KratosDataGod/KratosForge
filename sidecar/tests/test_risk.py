@@ -249,6 +249,19 @@ def test_warnings_can_be_acknowledged_and_recorded_but_blocked_or_changed_result
     assert line["user"] and line["result"] == risk.WARNING
 
 
+def test_a_fabric_step_is_checked_against_the_attached_lakehouses_workspace(svc, item):  # noqa: F811
+    # The live run (2026-10-23): the step's notebook has no Fabric deployment, so the check used to
+    # raise and the UI went ahead unchecked. It reads the lakehouse's workspace capacity instead.
+    svc.notebooks.save("Gold load", [{"type": "code", "source": "x = 1", "meta": {"fabric_step": True}}],
+                       {"workspace_id": "ws1", "workspace_name": "Sales Dev", "lakehouse_id": "lh1", "name": "LH"})
+    r = svc.risk_check(model.notebook_id("Gold load"), "run_fabric_step")
+    assert r["result"] == risk.BLOCKED and by_check(r)["capacity"]["title"] == "fabcapdev is paused"
+    assert ReadOnlyFabric.calls == ["list_capacities", "get_workspace ws1"]
+    svc.notebooks.save("Local", [{"type": "code", "source": "x = 1", "meta": {}}], None)
+    with pytest.raises(ValueError, match="Attach a OneLake lakehouse"):
+        svc.risk_check(model.notebook_id("Local"), "run_fabric_step")
+
+
 def test_settings_turn_warnings_on_and_off(svc):  # noqa: F811
     assert svc.risk_settings() == risk.DEFAULTS
     cfg = svc.set_risk_settings(warn_run_cu_hours=2.5, require_acknowledgement=True)

@@ -173,6 +173,11 @@ class FabricClient:
                                   f"or use another name.", exc.code) from exc
             raise
 
+    def assign_to_capacity(self, workspace_id: str, capacity_id: str) -> None:
+        """Put a workspace on a capacity. Needs the workspace's Admin role and Contributor on the capacity;
+        the same permission (Workspace.ReadWrite.All) as creating it."""
+        self._request("POST", f"/workspaces/{workspace_id}/assignToCapacity", json={"capacityId": capacity_id})
+
     def list_lakehouses(self, workspace_id: str) -> list[dict[str, Any]]:
         return self._paged(f"/workspaces/{workspace_id}/lakehouses")
 

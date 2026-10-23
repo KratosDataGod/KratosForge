@@ -95,6 +95,7 @@ const PREVIEW_FEATURES = {
   popOut: "Pop-out windows",
   pipelines: "Pipelines",
   pipelineRuns: "Pipeline runs in Monitor",
+  requestsCoreFour: "Workspace, domain and exception requests",
 };
 
 function previewShown() {

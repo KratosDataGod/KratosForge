@@ -72,7 +72,7 @@ With your own app, KratosForge signs in with the browser (not Windows sign-in) a
 | Power BI Service | `Item.ReadWrite.All` | Creating, updating and (in the [live test](live-testing.md) only) deleting lakehouses, notebooks, pipelines, semantic models, variable libraries, the platform's SQL database and functions; reading a notebook's cells for its preview, for Edit on this PC and for the check before Publish ([Notebook files](notebook-files.md)) | At first sign-in |
 | Power BI Service | `OneLake.ReadWrite.All` | OneLake shortcuts and data access roles | On first use |
 | Power BI Service | `Tenant.Read.All` | Importing Fabric's domains and subdomains (**Platform > Domains > Import from Fabric**), reading tenant settings for the tenant settings history, and, when chosen, each capacity's tenant setting overrides for the capacity settings history. Only works for a Fabric administrator; leave it out if no Fabric administrator uses KratosForge | Optional, when a Fabric administrator imports domains or reads tenant settings |
-| Power BI Service | `Workspace.ReadWrite.All` | Listing and creating workspaces, workspace roles (also by email) | At first sign-in |
+| Power BI Service | `Workspace.ReadWrite.All` | Listing and creating workspaces, putting one on a capacity, workspace roles (also by email), including when approving a workspace or workspace access request | At first sign-in |
 
 `notebookutils.credentials.getToken` in a notebook asks for a token for the API the notebook names, and nothing more. For `kusto`, add **Azure Data Explorer** `user_impersonation`; for a resource URL, add that API's delegated permission. Leave them out if no notebook asks.
 

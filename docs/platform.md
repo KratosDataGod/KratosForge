@@ -63,7 +63,7 @@ Inside the platform:
 
 | Who | Can change |
 | --- | --- |
-| **Platform admins** | Domains, business key tables, landing zone sources, shared glossary terms, governance policies, shortcut rules and accepted shortcut risks ([shortcuts.md](shortcuts.md#accept-a-crossed-environment)), the list of admins, and every request |
+| **Platform admins** | Domains, business key tables, landing zone sources, shared glossary terms, governance policies and their exceptions, shortcut rules and accepted shortcut risks ([shortcuts.md](shortcuts.md#accept-a-crossed-environment)), the list of admins, and every request |
 | **A domain's owners** (set on the domain) | Their domain's glossary terms, and which governance policies apply to their domain (tightening only) |
 | **A data product's owner** | Who else may read their product (access requests) |
 | **Everyone** | Catalog text (descriptions, tags, classification), their own products and links, and requests |
@@ -81,7 +81,7 @@ The rail's **Platform** page is the central team's home, and the same screens sh
 - **Business keys:** the platform's key tables. **New key table** (admins) makes it in Dev, Test and Prod at once, so every environment has the same tables.
 - **Domains** and **Glossary:** your organization's domains and shared terms. This is the only place they're created and edited; Data mesh > Domains lists the domains and links here. **Import from Fabric** brings in the domains and subdomains defined in Fabric; it needs a Fabric administrator. A domain that follows Fabric offers **Edit owners** (its name and parent follow Fabric); delete it in Fabric first, or the next import brings it back. See [Domains come from Fabric](data-mesh.md#domains-come-from-fabric).
 - **Governance:** the organization's governance policies, their versions, where each applies and why. See [Governance policies](governance.md).
-- **Requests:** what domain teams asked for, and what was decided.
+- **Requests:** what domain teams asked for, and what was decided. **New request** asks for a workspace, access to a workspace, a domain or an exception to a policy (Preview), and links to the other kinds.
 - **Audit** and **Settings** (where each environment's platform is, and its admins).
 
 ## Requests
@@ -94,6 +94,16 @@ What only someone else may give is asked for, not taken:
 | **A source** in the landing zone | Platform > Landing zone or Requests | A platform admin | Registers the source; the central team then lands its files |
 | **Access to a data product** open only to its domain, or private | OneLake > Data products > Request access | The product's owner (or a platform admin) | Lets the project link to it. The owner still gives read access in OneLake (a data access role on the Product workspace) |
 | **A shortcut** | OneLake > Shortcuts > Request a shortcut | A platform admin, or the owner of the data product it points at | Makes the shortcut, as the person approving, then marks the request approved ([shortcuts.md](shortcuts.md#requests-and-shortcut-needs)) |
+| **A new workspace** (Preview): its name, domain, capacity, admins and why | Platform > Requests > New request | A platform admin | Creates the workspace on its capacity and makes the people (by email or UPN) and groups (by object ID) its admins, as the person approving. A workspace's Fabric domain is set with Fabric's admin API, which KratosForge doesn't ask for: the approver is told to put it in the domain in Fabric's admin portal |
+| **Access to a workspace** (Preview): a role (Viewer, Contributor, Member or Admin) for you or a group | Platform > Requests > New request | A platform admin | Gives the person or group the role, as the person approving (or changes the role they have) |
+| **A domain** or subdomain (Preview): name, parent, description, owners | Platform > Requests > New request | A platform admin | Saves it in the platform, where every team sees it. It isn't created in Fabric: a Fabric administrator does that in the admin portal, then **Import from Fabric** links the two |
+| **An exception to a governance policy** (Preview): the policy, a project, domain or workspace, until when (a year at most) and why | Platform > Requests > New request, or a policy's **Where it applies > Ask for one** | A platform admin | Records the exception in the platform's catalog (`catalog.policy_exception`), in the audit and in the policy's history. Where the policy is resolved for that place, it shows **Excepted until <date>: <why>** instead of applying. It ends on its own on its date |
+
+Every field is checked when the request is sent: a workspace name Fabric wouldn't take, a role that isn't one, an admin who isn't an email, UPN or object ID, a domain that's already there, a date past a year: the request is refused then, not on approval. Approving makes what was asked for first, as the person approving, and only then marks the request approved, after **Approve** says what will be made. If a step fails, the request stays waiting and the error names the step. A workspace request remembers what it already made (the workspace, and which admins were added), and the workspace's description names the request, so approving again carries on instead of making a second one; a workspace of the same name that the request didn't make is never taken over.
+
+Who may decide a request is checked by the platform itself. For workspace access that's platform admins only for now: the platform runs in Fabric as a user data function and can't safely read a workspace's own admins, and a workspace's admins can give roles themselves on **OneLake > Access**.
+
+After this update, a platform admin runs **Platform > Settings > Finish or repair** once, so `UDF_Platform` knows the new kinds and has `record_request_progress` and `list_policy_exceptions`. Until then, sending one of these says so.
 
 Each request records who sent it, why, who decided and a note. A request can be withdrawn while it waits. A product owner can take access away again; existing links stay in the project but no new link is allowed.
 
@@ -103,7 +113,7 @@ A request waiting on someone, a decision or withdrawal, and a shortcut that brea
 
 People are named by their UPN. A request's reason is never put in a Teams message, which anyone in the channel can read: the message names the request and says where to open it in the app. Webhook addresses work like passwords: the app never shows them again after they're saved, leaves them out of the audit log, and leaves them out of backups.
 
-Routes and quiet hours are set in **Settings > Notifications > Platform notices**, and the bell's **Platform** filter lists what's still open ([Platform notices](user-guide.md#platform-notices-preview)). The requests and shortcut pages don't send notices yet. Email isn't supported.
+Routes and quiet hours are set in **Settings > Notifications > Platform notices**, and the bell's **Platform** filter lists what's still open ([Platform notices](user-guide.md#platform-notices-preview)). The requests and shortcut pages don't send notices yet. Email isn't supported yet: it needs a way to send without an app registration.
 
 ## One landing zone
 

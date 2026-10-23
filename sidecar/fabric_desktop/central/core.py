@@ -29,7 +29,8 @@ Tables (T-SQL schema.table; SQLite schema__table):
     catalog.reader       which project reads which landing zone source
     catalog.landing_zone the central landing workspace's zones (Preview): Shared, a domain's, or a secure
                          one for PII or PHI, each its own lakehouse; a source's zone column names its zone
-    catalog.request      requests from domain teams: a key table, a source, or access to a product
+    catalog.request      requests from domain teams: a key table, a source, access to a product, a shortcut,
+                         a workspace, access to a workspace, a domain, or an exception to a policy
     catalog.grant        projects let in to a domain or private product by its owner
     catalog.shortcut     every OneLake shortcut last seen in a scan: its target and health
     catalog.shortcut_scope  lakehouses scanned for shortcuts, so a first scan isn't read as "all added"
@@ -40,7 +41,7 @@ Tables (T-SQL schema.table; SQLite schema__table):
 Who may change what (the caller is always who Fabric says it is, see udf.py):
 
     platform admins      domains, key tables, source systems, landing zones, glossary, admins, shortcut rules,
-                         accepted shortcut risks, and every request
+                         accepted shortcut risks, policy exceptions, and every request
     domain owners        glossary terms of their domain
     product owners       access requests to their product
     everyone             reading, issuing keys from existing key tables, catalog text, products, links, requests
@@ -61,15 +62,24 @@ MAX_BK = 400
 ACCESS = ("public", "domain", "private")
 STATUS = ("draft", "published", "deprecated")
 CLASSIFICATIONS = ("public", "internal", "confidential", "restricted")
-REQUEST_KINDS = ("key_table", "source", "access", "shortcut")
+REQUEST_KINDS = ("key_table", "source", "access", "shortcut", "workspace", "workspace_access", "domain", "exception")
+# Kinds whose approval the app carries out in Fabric first, as the person approving (central/requests_service.py).
+FABRIC_KINDS = ("shortcut", "workspace", "workspace_access")
+WORKSPACE_ROLES = ("Viewer", "Contributor", "Member", "Admin")
 REQUEST_STATUS = ("waiting", "approved", "declined", "withdrawn")
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
 _CODE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,40}$")
 _ID = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
+_GUID = re.compile(r"^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$")
+_EMAIL = re.compile(r"^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$")
+_WS_BAD = re.compile(r'[\\/:*?"<>|#%\x00-\x1f]')
 
 
 # Tables other modules add to the platform (policy.py's governance policies), created with the rest.
 SCHEMA_HOOKS: list[Any] = []
+# Request kinds another module checks and carries out (policy.py's exceptions):
+# {kind: {"check": fn(db, target, detail, reason, by) -> (target, detail), "approve": fn(db, req, by)}}
+REQUEST_HOOKS: dict[str, dict[str, Any]] = {}
 
 
 class PlatformError(ValueError):
@@ -1263,13 +1273,104 @@ def _product_owners(product: dict[str, Any]) -> set[str]:
     return _names(product.get("owner"))
 
 
+def workspace_name(value: Any) -> str:
+    """A Fabric workspace's name as Fabric takes it: up to 256 characters, none of \\ / : * ? " < > | # %."""
+    name = re.sub(r"\s+", " ", str(value or "")).strip()
+    if not name or len(name) > 256 or _WS_BAD.search(name):
+        raise PlatformError(f"{name!r} isn't a workspace name: up to 256 characters, without \\ / : * ? \" < > | # %")
+    return name
+
+
+def principal(value: Any) -> dict[str, str]:
+    """A person by email or UPN, or a group by its object ID (Microsoft Entra), as a request stores it."""
+    if isinstance(value, dict):
+        text, name = str(value.get("id") or value.get("email") or "").strip(), str(value.get("name") or "").strip()
+    else:
+        text, name = str(value or "").strip(), ""
+    if _GUID.match(text):
+        return {"type": "Group", "id": text.lower(), "email": "", "name": name or text.lower()}
+    if _EMAIL.match(text):
+        return {"type": "User", "id": "", "email": text.lower(), "name": name or text.lower()}
+    raise PlatformError(f"{text or 'Nobody'} isn't a person's email or UPN, or a group's object ID")
+
+
+def _principals(values: Any) -> list[dict[str, str]]:
+    items = values if isinstance(values, list) else [v for v in re.split(r"[,;\n]", str(values or "")) if v.strip()]
+    out, seen = [], set()
+    for v in items:
+        p = principal(v)
+        if (p["id"] or p["email"]) not in seen:
+            seen.add(p["id"] or p["email"])
+            out.append(p)
+    return out
+
+
+def _check_workspace(db: Db, target: str, detail: dict[str, Any], reason: str) -> tuple[str, dict[str, Any]]:
+    name = workspace_name(detail.get("name") or target)
+    capacity = str(detail.get("capacity_id") or "").strip().lower()
+    if capacity and not _GUID.match(capacity):
+        raise PlatformError("Pick the capacity from the list")
+    domain = str(detail.get("domain_id") or "").strip()
+    row = _row(db, "domain", "id", domain_id(domain)) if domain else None
+    if domain and row is None:
+        raise PlatformError(f"{domain} isn't one of the platform's domains")
+    admins = _principals(detail.get("admins"))
+    if not admins:
+        raise PlatformError("Say who its admins are: a person's email or UPN, or a group's object ID")
+    if not str(reason or "").strip():
+        raise PlatformError("Say what the workspace is for")
+    return name, {"name": name, "capacity_id": capacity, "capacity_name": str(detail.get("capacity_name") or ""),
+                  "domain_id": row["id"] if row else "", "domain_name": row["name"] if row else "",
+                  "fabric_domain": (row or {}).get("fabric_domain") or "", "admins": admins}
+
+
+def _check_workspace_access(db: Db, target: str, detail: dict[str, Any], by: str) -> tuple[str, dict[str, Any]]:
+    wid = str(detail.get("workspace_id") or "").strip().lower()
+    if not _GUID.match(wid):
+        raise PlatformError("Pick the workspace, or paste its ID from its address in Fabric")
+    role = str(detail.get("role") or "").strip().title()
+    if role not in WORKSPACE_ROLES:
+        raise PlatformError(f"role must be one of {', '.join(WORKSPACE_ROLES)}")
+    if str(detail.get("who") or "me") == "me":
+        if not _EMAIL.match(_who(by)):
+            raise PlatformError("Sign in, so the request says who you are")
+        who = principal(_who(by))
+    else:
+        who = principal({"id": detail.get("group_id"), "name": detail.get("group_name")})
+        if who["type"] != "Group":
+            raise PlatformError("A group is given by its object ID (Microsoft Entra admin center > Groups)")
+    name = str(detail.get("workspace_name") or target or wid).strip()
+    return name, {"workspace_id": wid, "workspace_name": name, "role": role, "principal": who}
+
+
+def _check_domain(db: Db, target: str, detail: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    name = str(detail.get("name") or target or "").strip()
+    if not name:
+        raise PlatformError("A domain needs a name")
+    did = domain_id(detail.get("id") or name)
+    if _row(db, "domain", "id", did):
+        raise PlatformError(f"{did} is already a domain")
+    parent = str(detail.get("parent_id") or "").strip()
+    if parent:
+        parent = domain_id(parent)
+        p = _row(db, "domain", "id", parent)
+        if p is None:
+            raise PlatformError(f"parent domain {parent} doesn't exist")
+        if p.get("parent_id"):
+            raise PlatformError("Subdomains go one level deep: pick a top-level domain as the parent")
+    return did, {"id": did, "name": name, "parent_id": parent, "description": str(detail.get("description") or ""),
+                 "owners": str(detail.get("owners") or "").strip()}
+
+
 def request(db: Db, kind: str, target: str, project: str = "", reason: str = "", detail: dict[str, Any] | None = None,
             by: str = "") -> dict[str, Any]:
-    """Ask for something only someone else may give: a key table or source (platform admins), or
-    access to a domain or private data product (its owner)."""
+    """Ask for something only someone else may give: a key table, source, workspace, domain or policy
+    exception (platform admins), or access to a domain or private data product (its owner). Every
+    field is checked now, so a request that couldn't be carried out is refused before anyone decides."""
     if kind not in REQUEST_KINDS:
         raise PlatformError(f"kind must be one of {', '.join(REQUEST_KINDS)}")
     detail = dict(detail or {})
+    detail.pop("made", None)  # only the person approving records what was made
     target = str(target or "").strip()
     if kind == "key_table":
         target = key_name(target)
@@ -1286,6 +1387,16 @@ def request(db: Db, kind: str, target: str, project: str = "", reason: str = "",
         target = shortcut_id(detail["item_id"], f"{str(detail['where']).strip('/')}/{detail['name']}")
         if _row(db, "shortcut", "id", target):
             raise PlatformError(f"There's already a shortcut {detail['name']} there")
+    elif kind == "workspace":
+        target, detail = _check_workspace(db, target, detail, reason)
+    elif kind == "workspace_access":
+        target, detail = _check_workspace_access(db, target, detail, by)
+    elif kind == "domain":
+        target, detail = _check_domain(db, target, detail)
+    elif kind in REQUEST_HOOKS:
+        target, detail = REQUEST_HOOKS[kind]["check"](db, target, detail, reason, by)
+    elif kind == "exception":
+        raise PlatformError("The platform can't take policy exceptions yet: governance policies aren't set up")
     else:
         product = _row(db, "product", "id", target)
         if product is None:
@@ -1296,17 +1407,51 @@ def request(db: Db, kind: str, target: str, project: str = "", reason: str = "",
             raise PlatformError(f"{target} is open to everyone: link to it without asking")
         if _row(db, "grant", "id", f"{target}|{project}"):
             raise PlatformError(f"{project} already has access to {target}")
-    for r in db.rows(f"SELECT * FROM {db.t('catalog', 'request')} WHERE kind = ? AND target = ? AND status = 'waiting'",
-                     (kind, target)):
-        if kind != "access" or r["project"] == project:
-            raise PlatformError(f"There's already a request waiting for {target}, from {r['requested_by'] or 'someone'}")
     row = {"id": uuid.uuid4().hex[:12], "kind": kind, "target": target, "detail": json.dumps(detail),
            "project": project or "", "reason": str(reason or ""), "requested_by": _who(by), "requested_at": _now(),
            "status": "waiting", "decided_by": "", "decided_at": "", "note": ""}
+    mine = _duplicate_key(_request_out(row))
+    for r in db.rows(f"SELECT * FROM {db.t('catalog', 'request')} WHERE kind = ? AND status = 'waiting'", (kind,)):
+        if _duplicate_key(_request_out(r)) == mine:
+            raise PlatformError(f"There's already a request waiting for {target}, from {r['requested_by'] or 'someone'}")
     _upsert(db, "catalog", "request", "id", row)
     _audit(db, by, f"request {kind}", target, {"project": project})
     db.commit()
     return _request_out(row)
+
+
+def _duplicate_key(req: dict[str, Any]) -> str:
+    """Two waiting requests with the same key are the same request: the same target, and for some
+    kinds the same project, person or group, or scope too."""
+    d = req.get("detail") or {}
+    kind, target = req["kind"], str(req.get("target") or "")
+    if kind == "access":
+        return f"{target}|{req.get('project') or ''}"
+    if kind == "workspace":
+        return target.lower()
+    if kind == "workspace_access":
+        p = d.get("principal") or {}
+        return f"{d.get('workspace_id')}|{p.get('id') or p.get('email')}"
+    if kind == "exception":
+        return f"{target}|{d.get('scope')}|{str(d.get('scope_target') or '').lower()}"
+    return target
+
+
+def record_request_progress(db: Db, id: str, made: dict[str, Any], by: str = "") -> dict[str, Any]:
+    """Note what approving a request has made so far in Fabric (a workspace's id, the admins added),
+    so a retry after a failed step finds it instead of making it twice. Only someone who may decide it."""
+    req = _row(db, "request", "id", str(id))
+    if req is None or req["status"] != "waiting":
+        raise PlatformError("Only a waiting request can be carried out")
+    req = _request_out(req)
+    if not (is_admin(db, by) or _who(by) in _deciders(db, req)):
+        raise PlatformError("Only a platform admin can carry out this request")
+    detail = dict(req["detail"])
+    detail["made"] = {**(detail.get("made") or {}), **{str(k): v for k, v in (made or {}).items()}}
+    db.run(f"UPDATE {db.t('catalog', 'request')} SET detail = ? WHERE id = ?", (json.dumps(detail), req["id"]))
+    _audit(db, by, f"made for {req['kind']} request", req["target"], {"request": req["id"], "made": made})
+    db.commit()
+    return _request_out(_row(db, "request", "id", req["id"]) or {})
 
 
 def _request_out(row: dict[str, Any]) -> dict[str, Any]:
@@ -1361,6 +1506,20 @@ def decide_request(db: Db, id: str, approve: bool, note: str = "", by: str = "")
             _put_source(db, _source_row({"name": req["target"], **d}, _who(by)))
         elif req["kind"] == "shortcut":
             pass  # the app creates the shortcut in Fabric first, as the person approving, then approves
+        elif req["kind"] == "workspace":
+            # The app makes it in Fabric first, as the person approving (central/requests_service.py).
+            if not (d.get("made") or {}).get("workspace_id"):
+                raise PlatformError("Create the workspace first: approve this request in KratosForge")
+        elif req["kind"] == "workspace_access":
+            if not (d.get("made") or {}).get("assigned"):
+                raise PlatformError("Add the role first: approve this request in KratosForge")
+        elif req["kind"] == "domain":
+            if _row(db, "domain", "id", req["target"]) is None:
+                raise PlatformError(f"Save the domain {req['target']} first: approve this request in KratosForge")
+        elif req["kind"] in REQUEST_HOOKS:
+            REQUEST_HOOKS[req["kind"]]["approve"](db, req, by)
+        elif req["kind"] == "exception":
+            raise PlatformError("The platform can't record policy exceptions yet: governance policies aren't set up")
         else:
             _upsert(db, "catalog", "grant", "id", {"id": f"{req['target']}|{req['project']}", "product_id": req["target"],
                                                    "project": req["project"], "request_id": req["id"],
@@ -1694,6 +1853,7 @@ OPERATIONS = {
     "list_landing_zones": list_landing_zones, "save_landing_zone": save_landing_zone,
     "delete_landing_zone": delete_landing_zone, "switch_landing_reads": switch_landing_reads,
     "decide_request": decide_request, "withdraw_request": withdraw_request, "list_grants": list_grants,
+    "record_request_progress": record_request_progress,
     "revoke_grant": revoke_grant, "record_shortcuts": record_shortcuts, "log_shortcut_change": log_shortcut_change,
     "record_shortcut_health": record_shortcut_health, "list_seen_shortcuts": list_seen_shortcuts,
     "shortcut_changes": shortcut_changes, "shortcut_rules": shortcut_rules, "save_shortcut_rules": save_shortcut_rules,

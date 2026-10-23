@@ -15,7 +15,9 @@ from typing import Any
 from .redact import secrets
 
 _UPN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-_KIND = {"key_table": "New key table", "source": "New source", "access": "Access to", "shortcut": "New shortcut"}
+_KIND = {"key_table": "New key table", "source": "New source", "access": "Access to", "shortcut": "New shortcut",
+         "workspace": "New workspace", "workspace_access": "Workspace access to", "domain": "New domain",
+         "exception": "Exception to"}
 _DECIDED = {"approved": "approved", "declined": "declined"}
 
 
@@ -37,11 +39,25 @@ def _product(req: dict[str, Any], products: list[dict[str, Any]]) -> dict[str, A
     return next((p for p in products if pid and p.get("id") == pid), {})
 
 
+def _domain(req: dict[str, Any], product: dict[str, Any]) -> str:
+    """The domain a request is in: its product's, the new workspace's, the new subdomain's parent, or
+    the domain an exception is for."""
+    d = req.get("detail") or {}
+    kind = req.get("kind")
+    if kind == "workspace":
+        return str(d.get("domain_id") or "")
+    if kind == "domain":
+        return str(d.get("parent_id") or req.get("target") or "")
+    if kind == "exception" and d.get("scope") == "domain":
+        return str(d.get("scope_target") or "")
+    return product.get("domain_id") or ""
+
+
 def request_waiting(req: dict[str, Any], products: list[dict[str, Any]]) -> dict[str, Any]:
     """A new request, for the people who can decide it: the product's owners and platform admins."""
     product = _product(req, products)
     return {"kind": "request.waiting", "id": req["id"], "title": _title(req), "at": req.get("requested_at") or _now(),
-            "domain": product.get("domain_id") or "",
+            "domain": _domain(req, product),
             "to": {"people": _upns(product.get("owner")), "roles": ["platform_admin"]},
             "open": {"view": "platform", "tab": "requests", "target": req["id"]}}
 
@@ -50,7 +66,7 @@ def request_closed(req: dict[str, Any], products: list[dict[str, Any]]) -> dict[
     """A decided or withdrawn request, for whoever asked (decided) or decides (withdrawn)."""
     status = req.get("status")
     product = _product(req, products)
-    base = {"id": req["id"], "at": req.get("decided_at") or _now(), "domain": product.get("domain_id") or "",
+    base = {"id": req["id"], "at": req.get("decided_at") or _now(), "domain": _domain(req, product),
             "open": {"view": "platform", "tab": "requests", "target": req["id"]}}
     if status in _DECIDED:
         asker = _upns(req.get("requested_by"))

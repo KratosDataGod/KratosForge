@@ -220,12 +220,21 @@ function trayItem(i) {
   if (i.details) links.push(btn("Copy details", null, () => copyText(i.details, "Details"), "tool link small"));
   return h("div", { class: `tray-item${PROBLEM.has(i.status) ? " bad" : ""}` },
     h("div", { class: "row" }, h("span", { class: `pill-s ${cls}` }, label), h("b", { class: "grow" }, i.title || ""), h("span", { class: "muted-text small" }, when(i.at))),
-    i.status === "running" && !i.stale ? h("div", { class: "progress", role: "progressbar", "aria-label": i.title },
-      h("div", { class: i.progress === undefined ? "bar indeterminate" : "bar", style: i.progress === undefined ? "" : `width:${Math.round(i.progress * 100)}%` })) : null,
+    i.status === "running" && !i.stale ? runningBar(i) : null,
     i.text ? h("div", { class: "tray-text" }, i.text) : null,
     i.stale ? h("div", { class: "muted-text small" }, "The app was closed while this ran. Monitor has its final state.") : null,
     i.details ? h("details", {}, h("summary", {}, "Details"), h("pre", {}, i.details)) : null,
     links.length ? h("div", { class: "row wrap" }, links) : null);
+}
+
+// A job the app started in Fabric (id fabric:…) reports no progress of its own.
+const remoteActivity = (i) => String(i.id || "").startsWith("fabric:") && i.progress === undefined;
+
+// A running entry's bar: how far it is when that's known, the navy wolf for a run in Fabric, else indeterminate.
+function runningBar(i) {
+  if (remoteActivity(i)) return remoteProgress(i.title);
+  return h("div", { class: "progress", role: "progressbar", "aria-label": i.title },
+    h("div", { class: i.progress === undefined ? "bar indeterminate" : "bar", style: i.progress === undefined ? "" : `width:${Math.round(i.progress * 100)}%` }));
 }
 
 // Jobs the app started in Fabric: follow every unfinished one until it ends, wherever the user is.

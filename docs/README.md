@@ -162,6 +162,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Table history and restore | Entity page |
 | Table health | Data mesh > Quality (with Optimize) |
 | Semantic model | Data mesh > Deploy |
+| Semantic models and Apache Ossie | Data mesh > Deploy > Semantic model, Preview ([semantic-model-ossie.md](semantic-model-ossie.md)) |
 | Tests | Data mesh > Quality |
 | Estate X-ray | Home |
 | Optimize | Optimize |

@@ -168,6 +168,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Item preview | Workspaces |
 | Data mesh | Data mesh > Domains, Platform > Domains, OneLake > Data products, Home, entity page (domains from Fabric, products, links, glossary, About, the map on Home, data products for everyone) |
 | Platform | Platform, Settings, Data mesh > Surrogate keys (admins, landing zone, business keys, requests) |
+| Workspace, domain and exception requests | Platform > Requests > New request: a new workspace, access to a workspace, a domain, an exception to a policy ([platform.md](platform.md#requests)) |
 | Source control | Source control |
 | Workloads | Monitor > Operations > Workloads, Home (inventory, health, ownership, the workload page, Your workloads) |
 | Incidents | Monitor > Operations > Incidents (numbers, priorities, SLAs, reported incidents, your service desk; [incidents.md](incidents.md)) |

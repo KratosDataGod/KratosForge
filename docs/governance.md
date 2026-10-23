@@ -128,6 +128,6 @@ The desktop calls these engine methods (JSON-RPC, see [architecture](architectur
 
 - Checking a project against its policies (GOV-002, offline policy validation) and blocking promote or deployment on a **Block** policy (later GOV items). Today a policy's **Checked by** rule is a name only.
 - Signed policy packages for offline use (GOV-002).
-- Exception requests against a registry policy. Project exceptions in `exceptions.toml` are unchanged.
+- Exceptions are recorded and shown (Platform > Requests, then the policy's **Where it applies** and **Explain**), but no policy rule runs yet, so there is no finding for them to turn into a note. Project exceptions in `exceptions.toml` are unchanged.
 - A separate approver for publishing (the same admin can write and publish).
 - Not yet tried against `SQL_Platform` in a live Fabric tenant (hence Preview).

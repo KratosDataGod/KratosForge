@@ -324,6 +324,14 @@ def withdraw_request(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionCont
 
 
 @udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def record_request_progress(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, id: str,
+                            made: dict) -> dict:
+    return _run(sqlDB, "record_request_progress", ctx, id=id, made=made or {})
+
+
+@udf.connection(argName="sqlDB", alias="platform")
 @udf.function()
 def list_grants(sqlDB: fn.FabricSqlConnection, product_id: str = "") -> list:
     return _run(sqlDB, "list_grants", product_id=product_id)
@@ -529,6 +537,13 @@ def policy_snapshot(sqlDB: fn.FabricSqlConnection, policies: list = None) -> dic
 @udf.function()
 def policy_options(sqlDB: fn.FabricSqlConnection) -> dict:
     return _run(sqlDB, "policy_options")
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def list_policy_exceptions(sqlDB: fn.FabricSqlConnection, policy: str = "", active: bool = False,
+                           today: str = "") -> list:
+    return _run(sqlDB, "list_policy_exceptions", policy=policy, active=active, today=today)
 
 '''
 

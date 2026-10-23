@@ -93,6 +93,7 @@ const PREVIEW_FEATURES = {
   fabricStep: "Run the last cell on Fabric",
   popOut: "Pop-out windows",
   pipelineRuns: "Pipeline runs in Monitor",
+  requestsCoreFour: "Workspace, domain and exception requests",
 };
 
 function previewShown() {

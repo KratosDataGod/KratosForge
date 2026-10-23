@@ -7,7 +7,8 @@ const PLATFORM_TABS = [
   ["overview", "Overview"], ["landing", "Landing zone"], ["keys", "Business keys"], ["domains", "Domains"],
   ["glossary", "Glossary"], ["governance", "Governance"], ["requests", "Requests"], ["audit", "Audit"], ["settings", "Settings"],
 ];
-const REQUEST_KIND = { key_table: "Key table", source: "Source", access: "Access", shortcut: "Shortcut" };
+const REQUEST_KIND = { key_table: "Key table", source: "Source", access: "Access", shortcut: "Shortcut",
+  workspace: "Workspace", workspace_access: "Workspace access", domain: "Domain", exception: "Exception" };
 const REQUEST_STATUS = { waiting: "Waiting", approved: "Approved", declined: "Declined", withdrawn: "Withdrawn" };
 const platformPage = { tab: "overview", env: "dev", requests: "waiting", source: null, me: null };
 
@@ -122,7 +123,7 @@ async function platformOverviewTab(body) {
         auditList(o.recent, true)))].filter(Boolean),
   howItWorks("platform.overview", {
     reads: "Each environment's platform: its catalog in SQL_Platform in Fabric, or a file on this PC until that environment has a platform. It reads when the page opens and when you press Refresh.",
-    changes: "Requests waiting for you can be approved or declined here; approving a shortcut request creates it in OneLake. Domains, key tables and sources change on their own tabs, and only platform admins can change them.",
+    changes: "Requests waiting for you can be approved or declined here; approving one makes what it asks for first, as you: a shortcut in OneLake, a workspace or a workspace role in Fabric, a domain or a policy exception in the platform. Domains, key tables and sources change on their own tabs, and only platform admins can change them.",
     results: "Everyone who uses this platform sees the same counts, requests and recent changes. Each change is kept on the Audit tab.",
     anchor: "platform",
   })));
@@ -316,36 +317,252 @@ function requestDialog(kind, target, done, extra = {}) {
     }, "tool primary")]);
 }
 
+// The kinds the New request dialog offers first (Preview, "requestsCoreFour"); the older four follow under "Also here".
+const NEW_REQUEST_KINDS = [
+  ["workspace", "A new workspace", "Named, in a domain, on a capacity"],
+  ["workspace_access", "Access to a workspace", "A role for you or a group"],
+  ["domain", "A domain", "Or a subdomain"],
+  ["exception", "An exception to a policy", "For a while, with a reason"],
+];
+const WORKSPACE_ROLES = ["Viewer", "Contributor", "Member", "Admin"];
+
+const reqQuietly = (method, params = {}) => rpc(method, params).catch(() => null);
+const reqDay = (d) => d.toISOString().slice(0, 10);
+const reqField = (label, input, hint) => h("label", { class: "field" }, label, input, hint ? h("span", { class: "muted-text small" }, hint) : null);
+const reqOptions = (rows, picked) => rows.map(([v, t]) => h("option", { value: v, selected: v === picked ? true : null }, t));
+
+// Each form draws its fields into `box` and returns a function that gives the request to send, or null
+// (after focusing what's missing). The platform checks every field again when it's sent.
+const REQUEST_FORMS = {
+  async workspace(box) {
+    const [domains, capacities] = await Promise.all([reqQuietly("platform_domains"), reqQuietly("list_capacities")]);
+    const name = h("input", { placeholder: "Sales Forecasting - Dev", "aria-label": "Workspace name" });
+    const domain = h("select", { "aria-label": "Domain" }, reqOptions([["", "No domain"], ...(domains || []).map((d) => [d.id, d.parent_id ? `${(domains.find((x) => x.id === d.parent_id) || {}).name || d.parent_id} / ${d.name}` : d.name])]));
+    const caps = capacities || [];
+    const capacity = h("select", { "aria-label": "Capacity" }, reqOptions(caps.length ? caps.map((c) => [c.id, c.displayName || c.id]) : [["", "None I can see: the approver picks one"]]));
+    const admins = h("input", { placeholder: "lee@contoso.com, or a group's object ID", "aria-label": "Admins" });
+    const why = h("textarea", { rows: 2, placeholder: "What it's for", "aria-label": "Why" });
+    box.replaceChildren(reqField("Workspace name", name),
+      h("div", { class: "req-two" }, reqField("Domain", domain), reqField("Capacity", capacity)),
+      reqField("Admins", admins, "People by email or UPN, groups by object ID, separated by commas."), reqField("Why", why));
+    return () => {
+      if (!name.value.trim()) return name.focus();
+      if (!admins.value.trim()) return admins.focus();
+      if (!why.value.trim()) return why.focus();
+      const cap = caps.find((c) => c.id === capacity.value);
+      return { kind: "workspace", target: name.value.trim(), reason: why.value.trim(),
+        detail: { name: name.value.trim(), domain_id: domain.value, capacity_id: capacity.value, capacity_name: cap?.displayName || "",
+          admins: admins.value.split(/[,;]/).map((x) => x.trim()).filter(Boolean) } };
+    };
+  },
+  async workspace_access(box) {
+    const spaces = (state.workspaces || await reqQuietly("list_workspaces") || []).filter((w) => w.id);
+    const ws = h("select", { "aria-label": "Workspace" }, reqOptions([...spaces.map((w) => [w.id, w.displayName || w.id]), ["other", "Another workspace (paste its ID)"]]));
+    const otherId = h("input", { placeholder: "Its ID, from its address in Fabric", "aria-label": "Workspace ID" });
+    const otherName = h("input", { placeholder: "Its name", "aria-label": "Workspace name" });
+    const other = h("div", { class: "req-two", hidden: spaces.length ? true : null }, reqField("Workspace ID", otherId), reqField("Name", otherName));
+    if (!spaces.length) ws.value = "other";
+    ws.onchange = () => { other.hidden = ws.value !== "other"; };
+    const role = h("select", { "aria-label": "Role" }, reqOptions(WORKSPACE_ROLES.map((r) => [r, r]), "Viewer"));
+    let who = "me";
+    const groupId = h("input", { placeholder: "The group's object ID", "aria-label": "Group object ID" });
+    const groupName = h("input", { placeholder: "Sales Engineers", "aria-label": "Group name" });
+    const group = h("div", { class: "req-two", hidden: true }, reqField("Group object ID", groupId), reqField("Group name", groupName));
+    const seg = h("div", { class: "seg", role: "group", "aria-label": "Who" }, [["me", "Me"], ["group", "A group"]].map(([k, t]) =>
+      h("button", { class: k === who ? "on" : null, onclick: (e) => { who = k; seg.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === e.currentTarget)); group.hidden = k !== "group"; } }, t)));
+    const why = h("textarea", { rows: 2, placeholder: "What you need it for", "aria-label": "Why" });
+    box.replaceChildren(reqField("Workspace", ws), other, reqField("Role", role), h("div", { class: "field" }, "Who", seg), group, reqField("Why", why));
+    return () => {
+      const picked = spaces.find((w) => w.id === ws.value);
+      if (ws.value === "other" && !otherId.value.trim()) return otherId.focus();
+      if (who === "group" && !groupId.value.trim()) return groupId.focus();
+      const id = picked ? picked.id : otherId.value.trim();
+      const wsName = picked ? picked.displayName : (otherName.value.trim() || id);
+      return { kind: "workspace_access", target: wsName, reason: why.value.trim(),
+        detail: { workspace_id: id, workspace_name: wsName, role: role.value, who,
+          ...(who === "group" ? { group_id: groupId.value.trim(), group_name: groupName.value.trim() } : {}) } };
+    };
+  },
+  async domain(box) {
+    const domains = (await reqQuietly("platform_domains")) || [];
+    const name = h("input", { placeholder: "Marketing", "aria-label": "Domain name" });
+    const parent = h("select", { "aria-label": "Parent" }, reqOptions([["", "None: a top-level domain"], ...domains.filter((d) => !d.parent_id).map((d) => [d.id, d.name])]));
+    const description = h("input", { placeholder: "What it covers", "aria-label": "Description" });
+    const owners = h("input", { placeholder: "ana@contoso.com, Marketing data team", "aria-label": "Owners" });
+    const why = h("textarea", { rows: 2, placeholder: "Who needs it, and for what", "aria-label": "Why" });
+    box.replaceChildren(reqField("Name", name), reqField("Parent", parent, "Pick one to ask for a subdomain."),
+      reqField("Description", description), reqField("Owners", owners), reqField("Why", why));
+    return () => {
+      if (!name.value.trim()) return name.focus();
+      return { kind: "domain", target: name.value.trim(), reason: why.value.trim(),
+        detail: { name: name.value.trim(), parent_id: parent.value, description: description.value.trim(), owners: owners.value.trim() } };
+    };
+  },
+  async exception(box) {
+    const o = (await reqQuietly("governance_overview")) || { policies: [], domains: [], projects: [] };
+    const live = o.policies.filter((p) => p.current_version && p.status !== "retired");
+    if (!live.length) { box.replaceChildren(h("p", { class: "muted-text" }, "No published policy to ask an exception to.")); return () => null; }
+    const pol = h("select", { "aria-label": "Policy" }, reqOptions(live.map((p) => [p.id, p.name])));
+    const scope = h("select", { "aria-label": "Scope" }, reqOptions([["project", "A project"], ["domain", "A domain"], ["workspace", "A workspace"]]));
+    const targets = {
+      project: h("select", { "aria-label": "Project" }, reqOptions((o.projects || []).map((p) => [p, p]))),
+      domain: h("select", { "aria-label": "Domain" }, reqOptions((o.domains || []).map((d) => [d.id, d.name]))),
+      workspace: h("input", { placeholder: "The workspace's name", "aria-label": "Workspace" }),
+    };
+    const where = h("div", {}, reqField("Which", targets.project));
+    scope.onchange = () => where.replaceChildren(reqField("Which", targets[scope.value]));
+    const tomorrow = new Date(Date.now() + 86400000);
+    const yearOn = new Date(); yearOn.setFullYear(yearOn.getFullYear() + 1);
+    const month = new Date(Date.now() + 30 * 86400000);
+    const until = h("input", { type: "date", min: reqDay(tomorrow), max: reqDay(yearOn), value: reqDay(month), "aria-label": "Until" });
+    const why = h("textarea", { rows: 2, placeholder: "Why the policy can't be met for now", "aria-label": "Why" });
+    box.replaceChildren(reqField("Policy", pol), h("div", { class: "req-two" }, reqField("For", scope), where),
+      reqField("Until", until, "A year at most. It ends on its own on that date."), reqField("Why", why));
+    return () => {
+      const target = targets[scope.value];
+      if (!target.value.trim()) return target.focus();
+      if (!until.value) return until.focus();
+      if (!why.value.trim()) return why.focus();
+      return { kind: "exception", target: pol.value, reason: why.value.trim(),
+        detail: { policy: pol.value, scope: scope.value, scope_target: target.value.trim(), until: until.value } };
+    };
+  },
+};
+
+// Platform > Requests > New request: the kind picker, then that kind's fields.
+function newRequestDialog(done, start = "workspace") {
+  const shown = previewShown();
+  const box = h("div", { class: "req-form" });
+  let read = null;
+  const pick = async (kind) => {
+    grid.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.kind === kind)));
+    box.replaceChildren(loading("Loading..."));
+    read = await REQUEST_FORMS[kind](box);
+  };
+  const grid = h("div", { class: "req-kinds", role: "group", "aria-label": "What you need" }, NEW_REQUEST_KINDS.map(([k, title, sub]) =>
+    h("button", { class: "req-kind", "data-kind": k, "aria-pressed": "false", onclick: () => pick(k) },
+      previewMarked("requestsCoreFour", h("b", {}, title, " ")), h("span", { class: "muted-text small" }, sub))));
+  const elsewhere = (label, run) => btn(label, null, () => { closeDialog(); run(); }, "tool link small");
+  const also = h("div", { class: "row tight muted-text small" }, "Also here: ",
+    elsewhere("Key table", () => requestDialog("key_table", "", done)),
+    elsewhere("Source", () => requestDialog("source", "", done)),
+    elsewhere("Product access", () => { catalogPage.tab = "products"; go("onelake"); }),
+    elsewhere("Shortcut", () => { catalogPage.tab = "shortcuts"; scPage.view = "requests"; go("onelake"); shortcutDialog("request"); }));
+  showDialog("New request", h("div", { class: "req-dialog" }, shown ? grid : null, also, shown ? box : null), [
+    btn("Cancel", null, closeDialog, "tool outline"),
+    shown ? btn("Send request", null, async () => {
+      const req = read?.();
+      if (!req) return;
+      const res = await platformCall("platform_request", req, "Not sent");
+      if (res) { closeDialog(); toast(`Request sent: ${REQUEST_KIND[req.kind].toLowerCase()} ${res.target}`, false, { log: true }); done?.(); }
+    }, "tool primary") : null].filter(Boolean));
+  if (shown) pick(start);
+}
+
+// One line on what a request is for, beyond its target.
+function requestDetail(r) {
+  const d = r.detail || {};
+  const muted = (text) => (text ? h("span", { class: "muted-text" }, text) : null);
+  const names = (list) => (list || []).map((a) => a.name || a.email || a.id).join(", ");
+  if (r.kind === "shortcut") return [h("b", {}, d.name), muted(` in ${d.workspace_name || ""} / ${d.lakehouse_name || ""}`)];
+  if (r.kind === "workspace") {
+    return [h("b", {}, r.target), h("div", { class: "muted-text small" },
+      [d.domain_name ? `${d.domain_name} domain` : null, d.capacity_name || (d.capacity_id ? "a capacity" : "capacity: the approver picks"),
+        `admins ${names(d.admins)}`].filter(Boolean).join(", "))];
+  }
+  if (r.kind === "workspace_access") {
+    const p = d.principal || {};
+    return [h("b", {}, r.target), muted(` ${d.role} for ${p.type === "Group" ? `group ${p.name}` : p.email || p.name}`)];
+  }
+  if (r.kind === "domain") return [h("b", {}, d.name || r.target), muted(d.parent_id ? ` under ${d.parent_id}` : " (top level)"), d.owners ? h("div", { class: "muted-text small" }, `Owners: ${d.owners}`) : null];
+  if (r.kind === "exception") {
+    return [h("b", {}, d.policy_name || r.target), muted(` for ${d.scope} ${d.scope_target}`), h("div", { class: "muted-text small" }, `Until ${d.until}`)];
+  }
+  return h("b", { class: "mono" }, r.target);
+}
+
+// What approving makes, said before it's made. A request that makes something in Fabric is confirmed
+// first; null means the person cancelled. Returns extra params for platform_decide.
+async function confirmApproval(r) {
+  const d = r.detail || {};
+  const names = (list) => (list || []).map((a) => a.name || a.email || a.id).join(", ");
+  const after = "Then the request is approved. If any step fails, it stays waiting and says which.";
+  if (r.kind === "workspace") {
+    let capacity = d.capacity_id;
+    let capName = d.capacity_name || "its capacity";
+    if (!capacity) {
+      const caps = (await reqQuietly("list_capacities")) || [];
+      if (!caps.length) { toast("No capacity you can put a workspace on. Ask for Contributor on one, then approve.", true); return null; }
+      const sel = h("select", { "aria-label": "Capacity" }, reqOptions(caps.map((c) => [c.id, c.displayName || c.id])));
+      const ok = await new Promise((resolve) => showDialog(`Pick a capacity for ${r.target}`, reqField("Capacity", sel, "The request didn't name one."), [
+        btn("Cancel", null, () => { closeDialog(); resolve(false); }, "tool outline"),
+        btn("Next", null, () => { closeDialog(); resolve(true); }, "tool primary")]));
+      if (!ok) return null;
+      capacity = sel.value;
+      capName = caps.find((c) => c.id === capacity)?.displayName || "that capacity";
+    }
+    // Putting a workspace in a Fabric domain needs Fabric's admin API, which KratosForge doesn't ask
+    // for, so that step is named as the approver's to do in Fabric rather than promised.
+    const domain = d.domain_id ? ` Then put it in the ${d.domain_name || d.domain_id} domain in Fabric's admin portal.` : "";
+    const ok = await confirmDialog(`Approve and create ${r.target}?`,
+      `As you, KratosForge creates the workspace on ${capName} and makes ${names(d.admins)} its admins. ${after}${domain}`,
+      "Create and approve");
+    return ok ? { capacity_id: d.capacity_id ? "" : capacity } : null;
+  }
+  if (r.kind === "workspace_access") {
+    const p = d.principal || {};
+    const ok = await confirmDialog(`Approve ${d.role} on ${r.target}?`,
+      `As you, KratosForge gives ${p.type === "Group" ? `the group ${p.name}` : p.email} the ${d.role} role in ${r.target}. ${after}`, "Add and approve");
+    return ok ? {} : null;
+  }
+  if (r.kind === "domain") {
+    const ok = await confirmDialog(`Approve the domain ${d.name || r.target}?`,
+      `As you, KratosForge saves the ${d.parent_id ? "subdomain" : "domain"} ${d.name || r.target} in the platform, where every team sees it. It isn't created in Fabric: a Fabric administrator does that in the admin portal. ${after}`,
+      "Save and approve");
+    return ok ? {} : null;
+  }
+  if (r.kind === "exception") {
+    const ok = await confirmDialog(`Grant an exception to ${d.policy_name || r.target}?`,
+      `The platform records the exception for ${d.scope} ${d.scope_target} until ${d.until}, with its reason, and adds it to the policy's history. Where the policy is resolved there, it shows as "Excepted until ${d.until}" instead of applying. It ends on its own on that date.`,
+      "Approve");
+    return ok ? {} : null;
+  }
+  return {};
+}
+
 function requestTable(rows, rerender, compact = false) {
   if (!rows.length) return h("p", { class: "muted-text" }, "Nothing waiting.");
   const decide = async (r, approve) => {
     let note = "";
+    let extra = {};
     if (!approve) {
       const input = h("input", { placeholder: "Why, so they know what to do next" });
-      const ok = await new Promise((resolve) => showDialog(`Decline ${REQUEST_KIND[r.kind].toLowerCase()} ${r.target}?`, h("label", { class: "field" }, "Note", input), [
+      const ok = await new Promise((resolve) => showDialog(`Decline ${(REQUEST_KIND[r.kind] || "request").toLowerCase()} ${r.target}?`, h("label", { class: "field" }, "Note", input), [
         btn("Cancel", null, () => { closeDialog(); resolve(false); }, "tool outline"),
         btn("Decline", null, () => { note = input.value.trim(); closeDialog(); resolve(true); }, "tool primary")]));
       if (!ok) return;
+    } else {
+      extra = await confirmApproval(r);
+      if (!extra) return;
     }
-    const res = await platformCall("platform_decide", { id: r.id, approve, note }, "Not decided");
+    const res = await platformCall("platform_decide", { id: r.id, approve, note, ...extra }, "Not decided");
     if (!res) return;
-    toast(`${approve ? "Approved" : "Declined"} ${r.kind === "shortcut" ? `shortcut ${r.detail?.name}` : r.target}${res.problems?.length ? `; ${res.problems.join("; ")}` : ""}`, !!res.problems?.length, { log: true });
+    const tail = [...(res.problems || []), ...(res.next || [])];
+    toast(`${approve ? "Approved" : "Declined"} ${r.kind === "shortcut" ? `shortcut ${r.detail?.name}` : r.target}${tail.length ? `; ${tail.join("; ")}` : ""}`, !!res.problems?.length, { log: true });
     rerender();
   };
   return h("table", { class: "list" },
     h("thead", {}, h("tr", {}, ["Type", "Request", "From", compact ? "" : "Status", ""].map((x) => h("th", {}, x)))),
-    h("tbody", {}, rows.map((r) => h("tr", {},
-      h("td", {}, h("span", { class: "pill-s info" }, REQUEST_KIND[r.kind])),
-      h("td", {}, r.kind === "shortcut"
-        ? [h("b", {}, r.detail?.name), h("span", { class: "muted-text" }, ` in ${r.detail?.workspace_name || ""} / ${r.detail?.lakehouse_name || ""}`)]
-        : h("b", { class: "mono" }, r.target), r.project ? h("span", { class: "muted-text" }, ` for ${r.project}`) : null,
+    h("tbody", {}, rows.map((r) => h("tr", { "data-request": r.id },
+      h("td", {}, h("span", { class: "pill-s info" }, REQUEST_KIND[r.kind] || r.kind)),
+      h("td", {}, requestDetail(r), r.project ? h("span", { class: "muted-text" }, ` for ${r.project}`) : null,
         r.reason ? h("div", { class: "muted-text small" }, r.reason) : null,
         r.note ? h("div", { class: "muted-text small" }, `Note: ${r.note}`) : null),
       h("td", {}, r.requested_by || h("span", { class: "muted-text" }, "someone"), h("div", { class: "muted-text small" }, when(r.requested_at))),
       compact ? h("td", {}) : h("td", {}, h("span", { class: `pill-s ${r.status === "approved" ? "pass" : r.status === "waiting" ? "wrn" : "neu"}` }, REQUEST_STATUS[r.status]),
         r.decided_by ? h("div", { class: "muted-text small" }, `${r.decided_by}, ${relTime(r.decided_at)}`) : null),
       h("td", {}, h("span", { class: "row tight" },
-        r.can_decide ? btn("Approve", null, () => decide(r, true), "tool primary small") : null,
+        r.can_decide ? btn(r.kind === "workspace" ? "Approve and create" : "Approve", null, () => decide(r, true), "tool primary small") : null,
         r.can_decide ? btn("Decline", null, () => decide(r, false), "tool outline small") : null,
         r.mine && r.status === "waiting" ? btn("Withdraw", null, async () => {
           if (await platformCall("platform_withdraw", { id: r.id }, "Not withdrawn")) rerender();
@@ -360,16 +577,21 @@ async function platformRequestsTab(body) {
   const filters = { waiting: (r) => r.status === "waiting", decided: (r) => r.status === "approved" || r.status === "declined", mine: (r) => r.mine, all: () => true };
   const labels = { waiting: "Waiting", decided: "Decided", mine: "Sent by me", all: "All" };
   const shown = all.filter(filters[p.requests] || filters.waiting);
-  body.replaceChildren(h("div", { class: "card pad" },
+  body.replaceChildren(withHowItWorks(h("div", { class: "card pad" },
     h("div", { class: "row" },
       h("div", { class: "seg", role: "group", "aria-label": "Show" }, Object.entries(labels).map(([id, label]) =>
         h("button", { class: p.requests === id ? "on" : null, onclick: () => { p.requests = id; rerender(); } },
           label, id === "waiting" ? ` (${all.filter(filters.waiting).length})` : ""))),
       h("span", { class: "spacer" }),
-      btn("Request a key table", "add", () => requestDialog("key_table", "", rerender), "tool outline small"),
-      btn("Request a source", "add", () => requestDialog("source", "", rerender), "tool outline small")),
-    h("p", { class: "muted-text small" }, "Platform admins decide key tables and sources. A data product's owner decides who else may read it; ask from the OneLake catalog."),
-    requestTable(shown, rerender)));
+      btn("New request", "add", () => newRequestDialog(rerender), "tool primary small")),
+    h("p", { class: "muted-text small" }, "Platform admins decide key tables, sources, workspaces, workspace access, domains and policy exceptions. A data product's owner decides who else may read it; ask from the OneLake catalog."),
+    requestTable(shown, rerender)),
+  howItWorks("platform.requests", {
+    reads: "The requests in the platform's catalog (SQL_Platform in Fabric, or a file on this PC), when the tab opens. New request also lists the domains, capacities, workspaces and policies you can see, to pick from.",
+    changes: "Sending adds a request to the catalog. Approving makes what was asked for first, as you: a key table or source in the platform; a shortcut in OneLake; a workspace in Fabric on its capacity, with its admins added; a role in a workspace; a domain saved in the platform; an exception recorded in the platform for its policy. Then the request is marked approved. If a step fails, the request stays waiting and the error names the step.",
+    results: "Everyone sees requests here and in the bell, and the platform's Teams routes get a notice (no email yet). A workspace's domain in Fabric is set by a Fabric administrator in Fabric's admin portal. Every change is on the Audit tab.",
+    anchor: "platform",
+  })));
 }
 
 // ---------- domains, glossary, audit ----------

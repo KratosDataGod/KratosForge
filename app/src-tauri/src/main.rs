@@ -14,6 +14,7 @@ use tauri::webview::{NewWindowResponse, WebviewBuilder};
 use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
 
 mod engine_patch;
+mod policy_file;
 mod replies;
 mod update_guard;
 mod watchdog;
@@ -31,18 +32,23 @@ const BUILD_COMMIT: &str = env!("FABRIC_BUILD_COMMIT");
 /// The app (client) ID CI built in; the sidecar uses it unless policy or Settings name another.
 const BUILTIN_CLIENT_ID: &str = env!("FABRIC_BUILTIN_CLIENT_ID");
 
-/// Reads one key of a settings file; None when the file or key is missing.
-fn setting(path: PathBuf, key: &str) -> Option<String> {
-    let text = std::fs::read_to_string(path).ok()?;
+/// Reads one key of a settings file's text; None when the text isn't JSON or the key is missing.
+fn setting(text: &str, key: &str) -> Option<String> {
     let value: Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).ok()?;
     value.get(key)?.as_str().map(str::to_owned)
+}
+
+/// The organization's policy file (%ProgramData%\FabricDesktop\policy.json), or when it can't be
+/// read, the last copy the sidecar could read (policy_file.rs); empty for no policy.
+fn policy_text() -> String {
+    let Some(dir) = std::env::var_os("ProgramData") else { return String::new() };
+    policy_file::text(&PathBuf::from(dir).join("FabricDesktop").join("policy.json"), &data_dir().join("policy-last-good.json"))
 }
 
 /// Whether the app may update itself. An organization that rolls out builds itself sets
 /// `"auto_update": false` in its policy file; only that file can turn updates off.
 fn auto_update_allowed() -> bool {
-    let Some(dir) = std::env::var_os("ProgramData") else { return true };
-    policy_allows_updates(&std::fs::read_to_string(PathBuf::from(dir).join("FabricDesktop").join("policy.json")).unwrap_or_default())
+    policy_allows_updates(&policy_text())
 }
 
 fn policy_allows_updates(text: &str) -> bool {
@@ -52,7 +58,7 @@ fn policy_allows_updates(text: &str) -> bool {
 
 /// Extra hosts the Fabric view may open for sign-in: the organization's own identity provider
 /// (AD FS, Okta, Ping, ...), from `"fabric_view_sign_in_hosts"` in the policy file. Only that
-/// file can set it; a missing or unreadable file means none.
+/// file can set it; a missing or unreadable file means none (its last good copy isn't used).
 fn fabric_view_sign_in_hosts() -> Vec<String> {
     let Some(dir) = std::env::var_os("ProgramData") else { return Vec::new() };
     policy_sign_in_hosts(&std::fs::read_to_string(PathBuf::from(dir).join("FabricDesktop").join("policy.json")).unwrap_or_default())
@@ -124,12 +130,12 @@ mod policy_tests {
 }
 
 /// The release this PC updates from: "stable" or "latest" (the Preview channel). The
-/// organization's policy file wins over the Settings page, as in the sidecar's app_settings.py.
+/// organization's policy file (or its last good copy) wins over the Settings page, as in the
+/// sidecar's app_settings.py.
 fn release_tag() -> &'static str {
-    let policy = std::env::var_os("ProgramData").map(|d| PathBuf::from(d).join("FabricDesktop").join("policy.json"));
-    let user = data_dir().join("app-settings.json");
-    for path in policy.into_iter().chain([user]) {
-        match setting(path, "channel").as_deref() {
+    let user = std::fs::read_to_string(data_dir().join("app-settings.json")).unwrap_or_default();
+    for text in [policy_text(), user] {
+        match setting(&text, "channel").as_deref() {
             Some("preview") => return "latest",
             Some("stable") => return "stable",
             _ => {}

@@ -1975,6 +1975,26 @@ html[data-fx-ambient="on"] .flow-node[data-state="running"] .flow-link::after { 
 .check-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 12px; max-height: 260px; overflow: auto; margin-top: 8px; }
 .check-row { display: flex; align-items: center; gap: 6px; font-size: 13px; }
 
+/* Panel and dialog transitions (motion.js motionPanes, motionLeave): Minimal and above, transform and
+   opacity only. Off has none; Windows' reduced motion cuts them to nothing (the rule further up). */
+@keyframes mo-fade-in { from { opacity: 0; } }
+@keyframes mo-rise-in { from { opacity: 0; transform: translateY(8px) scale(0.98); } }
+@keyframes mo-from-right { from { opacity: 0; transform: translateX(16px); } }
+@keyframes mo-from-left { from { opacity: 0; transform: translateX(-16px); } }
+@keyframes mo-fade-out { to { opacity: 0; } }
+@keyframes mo-sink-out { to { opacity: 0; transform: translateY(6px) scale(0.98); } }
+.overlay.mo-in { animation: mo-fade-in 180ms ease-out; }
+.overlay.mo-in > .dialog { animation: mo-rise-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+:is(.tray, .varpane, .provepane, .validatepane, .runspane, .commentspane).mo-in { animation: mo-from-right 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.explorer.mo-in { animation: mo-from-left 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.mo-ghost { position: fixed; inset: 0; z-index: 9; pointer-events: none; }  /* under a dialog opened straight after (.overlay is 10) */
+.mo-ghost > div { position: fixed; }
+.mo-ghost-veil { background: rgba(0,0,0,0.35); animation: mo-fade-out 160ms ease-in forwards; }
+.mo-ghost-card { border-radius: 8px; background: var(--surface); box-shadow: 0 8px 28px rgba(0,0,0,0.2); animation: mo-sink-out 160ms ease-in forwards; }
+.mo-ghost-card.side { border-radius: 0; box-shadow: none; border-left: 1px solid var(--border); animation-name: mo-fade-out; }
+html[data-motion-level="0"] :is(.mo-in, .mo-in > .dialog) { animation: none; }
+html[data-motion-level="0"] .mo-ghost { display: none; }
+
 /* Monitor > Runs: a pipeline run opens to its activities (pipeline-runs.js) */
 .pl-toggle { border: 0; background: none; font: inherit; width: 24px; min-height: 24px; padding: 0; margin-right: 4px; cursor: pointer; color: var(--muted); }
 .list tr.pl-child td { background: #fafafa; font-size: 13px; }

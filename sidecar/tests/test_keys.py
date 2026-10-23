@@ -433,3 +433,18 @@ def test_the_template_merge_skips_rows_without_a_business_key(tmp_path):
     assert "CONCAT_WS" not in sql
     assert sql.count(K._spark_bk(["country", "customer_id"])) == 1
     assert sql.count(K._spark_bk(["country", "customer_id"], "b")) == 1  # src_keyed joins on the same key
+
+
+def test_composite_business_keys_with_the_separator_in_a_part_never_collide():
+    rows = {"a": ["A||B", "A", "A|", "A", "a\\", "x\\|", " west ", "A\\B"],
+            "b": ["C", "B||C", "|C", "||C", "b", "y", "10", "C"]}
+    local, spark = _both_engines(rows)
+    assert local == spark
+    assert len(set(local)) == len(local)  # each business key its own text, so its own surrogate key
+    assert local[:2] == ["A\\|\\|B||C", "A||B\\|\\|C"]
+    assert local[5] == "x\\\\|||y"  # the \ before an escaped | is kept as it is
+    # Parts without a | are written as before (a \ too), so keys already issued keep their text and key.
+    plain = {"a": ["a\\", " west ", "A\\B", "US"], "b": ["b", "10", "C", " 7"]}
+    assert _both_engines(plain) == (["a\\||b", "west||10", "A\\B||C", "US||7"],) * 2
+    single = pl.DataFrame({"a": ["A||B"]}).select(K.business_key(["a"]))["a"].to_list()
+    assert single == ["A||B"]  # a single-column key is never escaped

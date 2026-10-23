@@ -183,7 +183,7 @@ Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each envi
 | `agent`, `host`, `pid`, `version` | Which agent, where, and which KratosForge version |
 | `owner`, `identity` | `agent.owner` as written (`null` when not set), and `auth.type`: `service_principal`, `managed_identity` or `user`. No ids, certificate paths or secrets |
 | `credential` | Facts about the agent's credential, never the credential itself: `kind` (`certificate`, `secret`, `managed_identity` or `user`), `expires_at` (a certificate's end date, read from `auth.certificate_path`; `null` for a secret or managed identity, whose expiry the agent can't see), `last_token_at`, and `last_token_error` (`at` and the error, with secrets, ids, emails and user paths removed). The path, thumbprint, key and password are never published |
-| `state` | `running`, `stopping` (waiting for running jobs) or `stopped` (shut down cleanly) |
+| `state` | `running`, `stopping` (waiting for running jobs; still written every `status_seconds`, so no other agent takes over its requests) or `stopped` (shut down cleanly) |
 | `env`, `environments` | The environment this record is for, and every environment the agent runs |
 | `started_at`, `heartbeat_at`, `stale_after` | UTC times. Treat an agent as **offline** once `stale_after` (three beats after `heartbeat_at`) has passed without a newer record |
 | `status_seconds`, `concurrency` | Its settings |

@@ -92,6 +92,7 @@ const PREVIEW_FEATURES = {
   notebookFolderPublish: "Publishing notebooks from folders",
   fabricStep: "Run the last cell on Fabric",
   popOut: "Pop-out windows",
+  pipelineRuns: "Pipeline runs in Monitor",
 };
 
 function previewShown() {

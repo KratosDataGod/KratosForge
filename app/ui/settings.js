@@ -379,6 +379,7 @@ function showMotionGallery() {
   const failed = sample("Failed", "bad");
   const run = h("button", { class: "tool outline small", tabindex: "-1", "aria-hidden": "true" }, "Run all");
   const deployed = sample("Deployed 4 steps.");
+  const passed = sample("Ready: no errors or warnings");
   const lane = h("span", { class: "motion-lane" }, "Kernel idle");
   const award = sample("Achievement earned: First Flame");
   const trackHost = h("span", { class: "motion-track" });
@@ -425,6 +426,7 @@ function showMotionGallery() {
     }),
     row("Wolf Run", "A cell that ran 10 s or more succeeded.", lane, () => forgeEvent("notebook.long.succeeded", lane)),
     row("Anvil Strike", "A deployment succeeded.", deployed, () => forgeEvent("deploy.succeeded", deployed)),
+    row("Cooling spark", "Validate passed, a proof matched, or Fabric confirmed a publish.", passed, () => forgeEvent("validate.passed", passed)),
     previewShown() ? row("Achievement Reveal", "Profile awarded you an achievement. Plays only with Achievement celebrations on.", award,
       () => forgeEvent("achievement.unlocked", award)) : null,
     h("div", { class: "motion-demo" }, h("div", {}, h("b", {}, "Energy Flow"),

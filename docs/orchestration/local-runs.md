@@ -2,6 +2,8 @@
 
 KratosForge can run a Microsoft Fabric Data Factory pipeline on your PC, so you can test its control flow (dependencies, conditions, loops, variables, failure handling and child pipelines) its Python notebooks and its lookups without a Fabric run. A local run starts no Fabric job and meters no activity runs. Control flow never calls Fabric or OneLake; a [notebook step](#notebook-steps) reads its lakehouse's tables and writes to a folder of its own there, and [Lookup and Get Metadata](#lookup-and-get-metadata) read a lakehouse, which uses some capacity.
 
+In the app, **Create > Pipeline** opens a pipeline, shows what can run here and runs it, with a Run dialog for parameters, mocks, notebooks and data steps and a run view with Stop ([user guide](../user-guide.md#pipelines-preview)). The app lists the `.DataPipeline` folders in the repositories this PC opened (`pipeline_list`). The command line and the engine methods below do the same.
+
 This is Preview. The behaviour follows Microsoft's Data Factory documentation and is tested with hand-built pipelines; it hasn't been compared with a run in Fabric yet. Every run record says `verified_against_fabric: false`.
 
 ## What runs here

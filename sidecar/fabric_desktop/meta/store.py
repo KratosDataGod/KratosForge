@@ -137,14 +137,14 @@ class Store:
     # Central landing (Preview): reads {"zones": {id: zone}, "sources": {source: zone id, "" for Shared}}
     # from the platform's catalog, called on the first landing read only. None: no central landing,
     # so [source] landing reads this environment's own LH_Landing, as before.
-    landing_zones: Callable[[], dict[str, Any]] | None = None
+    landing_zones: Callable[[], dict[str, Any] | None] | None = None
     _landing: dict[str, Any] | None = None
 
     def landing_map(self) -> dict[str, Any] | None:
         if self.landing_zones is None:
             return None
         if self._landing is None:
-            self._landing = self.landing_zones()
+            self._landing = self.landing_zones() or {}  # None: no map known, so no zones
         return self._landing
 
     def landing_zone(self, source: str) -> dict[str, Any] | None:

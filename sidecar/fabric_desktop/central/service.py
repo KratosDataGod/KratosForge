@@ -471,23 +471,46 @@ class PlatformMixin:
         cfg = self._landing_config()
         return cfg if cfg.get("workspace_id") else {}
 
-    def _landing_resolver(self) -> Any:
+    def _zone_call(self, op: str, **kwargs: Any) -> Any:
+        """Landing zones came with an update: a UDF_Platform made before it has no such function, and
+        Fabric answers 404, which the client reads as "UDF_Platform wasn't found". Say what to do."""
+        missing = (f"The platform can't use landing zones yet: UDF_Platform has no {op} function. After an update, "
+                   "a platform admin runs Platform > Settings > Finish or repair once.")
+        try:
+            return self._catalog().call(op, **kwargs)
+        except LookupError as exc:
+            _log.info("%s: %s", op, describe(exc))
+            raise LookupError(missing) from exc
+        except core.PlatformError as exc:
+            if op in str(exc) and ("not found" in str(exc).lower() or "no operation" in str(exc).lower()):
+                _log.info("%s: %s", op, describe(exc))
+                raise LookupError(missing) from exc
+            raise
+
+    def _landing_resolver(self, local: bool = False) -> Any:
         """For a store: where each source's zone is, read from the catalog on the first landing read.
-        None without central landing, so each environment reads its own LH_Landing as before."""
+        None without central landing, so each environment reads its own LH_Landing as before. For a
+        store on this PC (``local``), a catalog that can't be read gives no map: every zone reads the
+        local landing folder there anyway, so Dev runs on without the catalog."""
         if not self._central_landing():
             return None
 
-        def read() -> dict[str, Any]:
-            catalog = self._catalog()
-            zones = {z["id"]: z for z in catalog.call("list_landing_zones")}
-            sources = {s["name"]: s.get("zone") or "" for s in catalog.call("list_sources")}
+        def read() -> dict[str, Any] | None:
+            try:
+                zones = {z["id"]: z for z in self._zone_call("list_landing_zones")}
+                sources = {s["name"]: s.get("zone") or "" for s in self._catalog().call("list_sources")}
+            except Exception as exc:  # noqa: BLE001 - on a PC the local folder is read; elsewhere the run stops with this
+                if not local:
+                    raise
+                _log.info("Landing zones not read; this PC's landing folder is read instead: %s", describe(exc))
+                return None
             return {"zones": zones, "sources": sources}
         return read
 
     def _landing_zones(self) -> list[dict[str, Any]]:
         """The catalog's landing zones; none when its UDF_Platform predates them."""
         try:
-            return self._catalog().call("list_landing_zones")
+            return self._zone_call("list_landing_zones")
         except Exception as exc:  # noqa: BLE001 - an older catalog has no zones: today's landing zone shows
             _log.info("Landing zones not read from the catalog: %s", describe(exc))
             return []
@@ -520,7 +543,7 @@ class PlatformMixin:
         cfg = out["config"]
         if cfg.get("lakehouse_id"):
             try:
-                self._catalog().call("save_landing_zone", zone={
+                self._zone_call("save_landing_zone", zone={
                     "id": core.SHARED_ZONE, "name": "Shared", "workspace_id": cfg["workspace_id"],
                     "workspace_name": cfg.get("workspace_name", ""), "lakehouse_id": cfg["lakehouse_id"],
                     "lakehouse_name": setup_mod.LANDING})
@@ -548,7 +571,7 @@ class PlatformMixin:
             raise ValueError("Shared is made with the landing workspace; give the new zone another name")
         lakehouse = core.zone_lakehouse(name)
         lh, created = setup_mod.zone_lakehouse(self.fabric, cfg["workspace_id"], lakehouse)  # type: ignore[attr-defined]
-        zones = self._catalog().call("save_landing_zone", zone=dict(zone) | {
+        zones = self._zone_call("save_landing_zone", zone=dict(zone) | {
             "name": name, "workspace_id": cfg["workspace_id"], "workspace_name": cfg.get("workspace_name", ""),
             "lakehouse_id": lh["id"], "lakehouse_name": lakehouse})
         return {"created": created, "lakehouse": lakehouse, "zones": zones}
@@ -556,11 +579,11 @@ class PlatformMixin:
     def platform_switch_landing_reads(self) -> list[dict[str, Any]]:
         """Every environment reads Shared sources from the landing workspace from now on, instead of
         its own LH_Landing. Nothing is copied: the files runs need must be there first."""
-        return self._catalog().call("switch_landing_reads")
+        return self._zone_call("switch_landing_reads")
 
     def platform_delete_landing_zone(self, id: str) -> list[dict[str, Any]]:
         """Take a zone out of the catalog; its lakehouse and files stay in Fabric."""
-        return self._catalog().call("delete_landing_zone", id=id)
+        return self._zone_call("delete_landing_zone", id=id)
 
     def _zone_listing(self, workspace_id: str, lakehouse_id: str) -> list[dict[str, Any]]:
         store = FileStore(lambda: self.auth.storage_token())  # type: ignore[attr-defined]

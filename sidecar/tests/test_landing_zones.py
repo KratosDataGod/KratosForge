@@ -7,7 +7,7 @@ import pytest
 
 from fabric_desktop.central import core
 from fabric_desktop.central import setup as setup_mod
-from fabric_desktop.central.client import LocalPlatform
+from fabric_desktop.central.client import FabricPlatform, LocalPlatform
 from fabric_desktop.fabric_compute import bundle_files, run_bundle
 from fabric_desktop.meta.engine import CheckStop, Engine
 from fabric_desktop.meta.store import LANDING_LAKEHOUSE, LocalStore, OneLakeStore
@@ -382,3 +382,54 @@ def test_another_pc_picks_up_the_landing_workspace_from_the_catalog(svc):
     assert svc._landing_resolver() is None
     assert svc.platform_landing("dev")["central"]
     assert svc._landing_config()["workspace_id"] == "ws-landing" and svc._landing_resolver() is not None
+
+
+# --------------------------------------------------------------------------- a UDF_Platform older than zones
+
+
+class _Old404:
+    """A UDF_Platform made before landing zones: Fabric answers 404 for a function it doesn't have."""
+
+    def post(self, url, headers, json, timeout):  # noqa: A002 - requests' own name
+        resp = type("Response", (), {"status_code": 404, "content": b"", "text": "", "json": lambda self: {}})()
+        return resp
+
+
+def _old_platform(svc, monkeypatch):
+    svc._save_platform("landing", {"workspace_id": "ws-landing", "workspace_name": "Platform - Landing", "lakehouse_id": "lh"})
+    old = FabricPlatform(lambda: "tok", "ws-prod", "fn-prod", session=_Old404())
+    monkeypatch.setattr(Service, "_catalog", lambda self: old)
+
+
+def test_an_old_udf_platform_says_to_finish_or_repair(svc, monkeypatch, tmp_path):
+    _old_platform(svc, monkeypatch)
+    with pytest.raises(LookupError, match=r"can't use landing zones yet: UDF_Platform has no switch_landing_reads "
+                                          r"function\. After an update, a platform admin runs Platform > Settings > Finish or repair once"):
+        svc.platform_switch_landing_reads()
+    with pytest.raises(LookupError, match="UDF_Platform has no delete_landing_zone function"):
+        svc.platform_delete_landing_zone("hr")
+    # A run in Fabric stops with the same words, not "UDF_Platform wasn't found".
+    store = _onelake("prod", tmp_path, None)
+    store.landing_zones = svc._landing_resolver()
+    with pytest.raises(CheckStop, match="UDF_Platform has no list_landing_zones function"):
+        Engine(None, store).landing_lakehouse("sap/orders/*.csv")
+    # The Landing zone tab still shows, as before zones.
+    assert not svc._landing_zones()
+
+
+def test_dev_on_a_pc_reads_the_local_folder_when_the_catalog_cant_be_read(svc, monkeypatch):
+    folder = svc._landing_dir("dev") / "Files" / "payroll" / "workers"
+    folder.mkdir(parents=True)
+    (folder / "day1.csv").write_text("id\n1\n2\n", encoding="utf-8")
+    write(svc._project().root, "metadata/entities/bronze.payroll.toml", ENTITY.format(name="payroll", source="payroll"))
+    _old_platform(svc, monkeypatch)
+    store = svc._store(svc._project(), "dev")
+    assert isinstance(store, LocalStore) and store.landing_zones is not None
+    assert Engine(None, store).landing_lakehouse("payroll/workers/*.csv") == LANDING_LAKEHOUSE
+    [res] = svc.meta_run(["bronze.payroll"])
+    assert res["status"] == "ok", res
+    # When the zone map is known, the Prod-only stop still holds on a PC.
+    known = LocalStore(svc._project().local_data / "dev", "dev", landing=svc._landing_dir("dev"))
+    known.landing_zones = lambda: ZONES
+    with pytest.raises(CheckStop, match="secure zone HR-Secure"):
+        Engine(None, known).landing_lakehouse("payroll/workers/*.csv")

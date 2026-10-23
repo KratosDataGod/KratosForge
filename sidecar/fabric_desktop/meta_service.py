@@ -181,7 +181,7 @@ class MetaMixin:
         cfg = project.environments.get(env, {})
         if cfg.get("target", "onelake" if env != "dev" else "local") == "local":
             store: Store = LocalStore(project.local_data / env, env, landing=self._landing_dir(env))
-            store.landing_zones = self._landing_resolver()  # type: ignore[attr-defined]
+            store.landing_zones = self._landing_resolver(local=True)  # type: ignore[attr-defined]
             return store
         ws = cfg.get("workspace_id")
         if not ws:

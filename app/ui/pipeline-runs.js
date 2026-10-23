@@ -52,6 +52,14 @@ function reopenPipelineRuns(list, rows) {
   }
 }
 
+// Details opens the run view (pipelines.js), where Stop and Run again live; until that view is in
+// this build, a pipeline run's row only opens to its activities.
+function pipelineRunDetails(r) {
+  if (typeof openPipelineRun !== "function") return null;
+  return h("button", { class: "tool small link", "aria-label": `Details of ${r.activity}`,
+    onclick: (e) => { e.stopPropagation(); openPipelineRun(r.pipelineRun); } }, "Details");
+}
+
 // The ▸/▾ button in a pipeline run's Activity cell.
 function pipelineToggle(r) {
   const open = pipelineRunsOpen.has(r.pipelineRun);

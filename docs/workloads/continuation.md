@@ -16,7 +16,7 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 | --- | --- | --- | --- |
 | `claude/workload-management-plan-4su03b` | new | P3: local pipeline runs in Monitor > Runs, opening to their activities (Preview), per the Pipelines P3+P4 mockup Chris approved 2026-10-23 | Draft; with quality and UX oversight |
 
-Out of P3 (Chris's scope, 2026-10-23): Fabric pipeline runs in Monitor, rerun from failed, Open in KratosForge from Workspaces. The run view (artboard 4) belongs to the Local Fabric pipeline execution thread; Monitor's Details link waits for its entry point.
+Out of P3 (Chris's scope, 2026-10-23): Fabric pipeline runs in Monitor, rerun from failed, Open in KratosForge from Workspaces. The run view (artboard 4) belongs to the Local Fabric pipeline execution thread; Monitor's **Details** calls its `openPipelineRun(run_id)` (#578) and shows only once that is in the build.
 
 ## Completed backlog items
 

@@ -1019,7 +1019,7 @@ async function renderMonitor() {
         r.reason ? h("div", { class: "reason" }, r.reason) : null),
       h("td", {}, runEnvCell(r)), h("td", {}, r.ranOn || (r.where === "fabric" ? "Fabric" : "This PC")),
       h("td", {}, when(r.at)), h("td", { class: "n" }, took(r.seconds)), h("td", { class: "n" }, r.rows ?? ""),
-      h("td", { class: "n" }, r.open ? h("span", { class: "link-text" }, "Details") : null)))))) :
+      h("td", { class: "n" }, r.open ? h("span", { class: "link-text" }, "Details") : r.pipelineRun ? pipelineRunDetails(r) : null)))))) :
     h("p", { class: "muted-text monitor-empty" }, monitorPage.env !== "all" || monitorPage.where !== "any"
       ? "Nothing matches these filters." : "Nothing has run yet. Run a metadata entity or write a table from a notebook.");
   local.replaceWith(list);

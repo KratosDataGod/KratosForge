@@ -81,4 +81,13 @@ test("a run opens to its activities, with mocks marked and the inner failure nam
   assert.strictEqual(await page().locator("tr.pl-child").count(), 0);
 });
 
+test("Details opens the run view once it is in the build, and only then", { skip }, async () => {
+  assert.strictEqual(await page().locator("tr.pl-run button", { hasText: "Details" }).count(), 0);
+  await page().evaluate(() => { window.openPipelineRun = (id) => { window.openedRun = id; }; render(); });
+  await page().locator("tr.pl-run button", { hasText: "Details" }).first().click();
+  const opened = await page().evaluate(() => window.openedRun);
+  assert.match(opened, /^[0-9a-f-]{36}$/);
+  assert.strictEqual(await page().locator("tr.pl-child").count(), 0, "Details doesn't also open the activities");
+});
+
 test("no page errors", { skip }, () => assert.deepStrictEqual(app.errors, []));

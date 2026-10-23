@@ -23,7 +23,7 @@ At Refined and Expressive, a switch for each family turns it off:
 
 | Switch | Effects |
 | --- | --- |
-| Wolf animations | The wolf on Run all progress, its arrival, the Wolf Run after long work |
+| Wolf animations | The wolf on Run all progress, its arrival, the Wolf Run after long work, the navy wolf on runs in Fabric |
 | Forge sparks | Forge Spark, Anvil Strike, the failure ember |
 | Running indicators | The glow on a running cell, the flow into a running pipeline step, the ring when Run all starts |
 
@@ -56,6 +56,7 @@ Every key can be fixed in the policy file ([Azure setup](azure-setup.md#4-push-s
 | Run all (or Run above, Run below) starts | **Pulse**: one orange ring off the Run all button | the button | 0.35 s |
 | Run all takes longer than 0.6 s | The status bar says **Cell 3 of 8 on this PC**, with the wolf at the share of cells done and embers rising behind it | status bar | until the run ends |
 | Run all finishes | **Wolf Arrival**: the wolf glows once at the end and the track goes | status bar | 0.55 s |
+| A job the app started in Fabric is running | The bell and Home show the wolf trotting in place in Kratos navy on an empty track, with **Running in Fabric** beside it. Fabric reports no measurable progress, so there is no fill, percentage or time estimate; with the wolf off, the plain indeterminate bar shows | the bell, Home | while running |
 | A cell is running | A small breathing ember on **Running** (forge orange, because notebook cells run on this PC) | the cell's status | while running |
 | A pipeline activity runs | **Energy Flow**: the link into the running activity carries a moving dash; each activity says Queued, In progress, Succeeded, Failed, Skipped or Cancelled in words | pipeline flow | while running |
 | A pipeline activity finishes | It settles with one glow (succeeded) or the failure ember | the activity | 0.45 s |
@@ -115,6 +116,8 @@ happened, and the engine decides whether and how it shows.
 - `MOTION`: each kind's length (`ms`), minimum gap, lowest level, family and optional `build`
   for extra parts (the anvil, the running wolf).
 - `wolfTrack(where, label, unit, engine)`: step progress with the wolf, real fractions only.
+- `remoteProgress(label, where)`: an indeterminate bar for a run elsewhere (in Fabric), with the
+  navy wolf trotting in place and the words saying where it runs. No value, no fill.
 - `pipelineFlow(container)`: `update(status)` draws a `pipeline_run_status` result as linked
   activities and fires the activity events.
 - `viewTransition(view)`: called by `setView`; animates only when the page changes.

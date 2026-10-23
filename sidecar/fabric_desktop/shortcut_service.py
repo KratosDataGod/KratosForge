@@ -19,12 +19,14 @@ from . import governance_notices as notices
 from . import shortcut_center as center
 from . import shortcuts as shortcuts_mod
 from .auth import ONELAKE_SCOPES
+from .central import core
 from .fabric_api import FabricClient
 from .meta.project import ENVIRONMENTS
 from .onelake import FileStore
 from .redact import describe
 
 _log = logging.getLogger(__name__)
+RISKS_REPAIR = "After an update, a platform admin runs Platform > Settings > Finish or repair once."
 
 
 class ShortcutMixin:
@@ -117,7 +119,7 @@ class ShortcutMixin:
             r["risks"] = flagged.get(r["id"], [])
             r["same_env_target"] = (center.same_env_target(r, envs, lakehouses)
                                     if any(x["kind"] == "cross_env" for x in r["risks"]) else None)
-        center.accept_risks(rows, self._sc_call("list_shortcut_risks", problems, []))
+        center.accept_risks(rows, self._sc_accepted(problems))
         requests = [q for q in self._sc_call("list_requests", problems, []) if q.get("kind") == "shortcut"]
         week = [c for c in self._sc_call("shortcut_changes", problems, [], days=7)
                 if c["kind"] in ("added", "removed", "repointed")]
@@ -335,15 +337,38 @@ class ShortcutMixin:
         self._catalog().call("save_shortcut_rules", rules=rules)  # type: ignore[attr-defined]
         return self.shortcut_rules()
 
+    def _sc_risk_call(self, op: str, **kwargs: Any) -> Any:
+        """Accepted risks came with an update: a UDF_Platform made before it has no such function,
+        and Fabric answers 404, which the client reads as "UDF_Platform wasn't found". Say what to do."""
+        missing = f"The platform can't keep accepted shortcut risks yet: UDF_Platform has no {op} function. {RISKS_REPAIR}"
+        try:
+            return self._catalog().call(op, **kwargs)  # type: ignore[attr-defined]
+        except LookupError as exc:
+            _log.info("%s: %s", op, describe(exc))
+            raise LookupError(missing) from exc
+        except core.PlatformError as exc:
+            if op in str(exc) and ("not found" in str(exc).lower() or "no operation" in str(exc).lower()):
+                _log.info("%s: %s", op, describe(exc))
+                raise LookupError(missing) from exc
+            raise
+
+    def _sc_accepted(self, problems: list[str]) -> list[dict[str, Any]]:
+        """The accepted risks; none, with a problem line, when the platform can't say."""
+        try:
+            return self._sc_risk_call("list_shortcut_risks")
+        except Exception as exc:  # noqa: BLE001 - the shortcuts still show, every risk flagged
+            msg = str(exc) if isinstance(exc, LookupError) else f"The platform couldn't list shortcut risks: {exc}"
+            if msg not in problems:
+                problems.append(msg)
+            return []
+
     def shortcut_accept_risk(self, shortcut_id: str, kind: str, reason: str) -> dict[str, Any]:
         """A platform admin accepts a flagged risk (Dev reading Prod on purpose), and says why."""
-        return self._catalog().call("accept_shortcut_risk", shortcut_id=shortcut_id, kind=kind,  # type: ignore[attr-defined]
-                                    reason=reason)
+        return self._sc_risk_call("accept_shortcut_risk", shortcut_id=shortcut_id, kind=kind, reason=reason)
 
     def shortcut_withdraw_risk(self, shortcut_id: str, kind: str) -> dict[str, Any]:
         """Take back an accepted risk, so the shortcut is flagged again."""
-        return {"accepted": self._catalog().call("withdraw_shortcut_risk", shortcut_id=shortcut_id,  # type: ignore[attr-defined]
-                                                 kind=kind)}
+        return {"accepted": self._sc_risk_call("withdraw_shortcut_risk", shortcut_id=shortcut_id, kind=kind)}
 
     def _sc_new(self, workspace_id: str, workspace_name: str, source: dict[str, Any],
                 target_workspace_name: str = "") -> dict[str, Any]:

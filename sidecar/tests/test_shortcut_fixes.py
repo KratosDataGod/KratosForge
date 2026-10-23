@@ -235,3 +235,36 @@ def test_an_older_platform_gets_the_new_table_and_columns(tmp_path):
     assert p.call("list_shortcut_risks") == []
     cols = {r[1] for r in sqlite3.connect(path).execute('PRAGMA table_info("catalog__shortcut")')}
     assert {"target_workspace_name", "target_lakehouse_name"} <= cols
+
+
+def test_a_platform_in_fabric_without_the_new_functions_says_to_finish_or_repair(svc, monkeypatch):
+    from fabric_desktop.central.client import FabricPlatform
+
+    class NotFound:
+        status_code = 404
+        content = b""
+        text = "Function not found"
+
+    class Session:
+        def post(self, url, headers, json, timeout):  # noqa: A002 - requests' own name
+            return NotFound()
+
+    fabric = FabricPlatform(lambda: "tok", "ws", "fn", session=Session())
+    local = svc._catalog()
+
+    class Catalog:
+        """The platform as it is in Fabric before Finish or repair: everything but accepted risks."""
+
+        def call(self, op, **kwargs):
+            return (fabric if "shortcut_risk" in op else local).call(op, **kwargs)
+
+    monkeypatch.setattr(type(svc), "_catalog", lambda self: Catalog())
+    out = center_of(svc, [HOST, GOLD])
+    assert [n["kind"] for n in out["needs"]] == ["cross_env"]  # carries on, every risk flagged
+    assert [p for p in out["problems"] if "risk" in p] == [
+        "The platform can't keep accepted shortcut risks yet: UDF_Platform has no list_shortcut_risks function. "
+        "After an update, a platform admin runs Platform > Settings > Finish or repair once."]
+    for call in (lambda: svc.shortcut_accept_risk("lh-1|Tables/dbo/product", "cross_env", "On purpose"),
+                 lambda: svc.shortcut_withdraw_risk("lh-1|Tables/dbo/product", "cross_env")):
+        with pytest.raises(LookupError, match="can't keep accepted shortcut risks yet.*Finish or repair once"):
+            call()

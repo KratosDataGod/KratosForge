@@ -35,7 +35,7 @@ A health check lists one entry of the shortcut's folder through OneLake, with yo
 | Health | Means | What to do |
 | --- | --- | --- |
 | **Healthy** | The check listed the target | Nothing |
-| **Broken**, target isn't there | The table or folder it points at was removed, renamed or moved | **Repoint** it at the new place, or **Remove** it. When the whole lakehouse is gone, see [A lakehouse that's gone](#a-lakehouse-thats-gone) |
+| **Broken**, target isn't there | The table or folder it points at was removed, renamed or moved | **Repoint** it at the new place, or **Remove** it. When you can't open the lakehouse at all, see [A lakehouse you can't open](#a-lakehouse-you-cant-open) |
 | **Broken**, storage refused the connection | An ADLS Gen2, S3 or other storage shortcut whose connection was refused: an expired key or secret, or the account lost its rights | The connection's owner updates it in Fabric (**Settings > Manage connections and gateways**), then **Check now** |
 | **Unreachable** | You have no access to a OneLake target, so the check can't tell whether it works for others | Ask for access to the target, or ask someone who has it to check |
 | **Not checked** | Not checked yet, or you can't read the lakehouse it's in | **Check all now** |
@@ -53,9 +53,9 @@ The Health view also lists shortcuts that work but are **worth a look**:
 
 These fixes are in preview, with their own Preview tag.
 
-### A lakehouse that's gone
+### A lakehouse you can't open
 
-When a OneLake shortcut is broken and the lakehouse it points at isn't in any workspace you can open, the lakehouse is gone (deleted, or made again somewhere else). The Health view groups those shortcuts by the lakehouse they lost: **LH_Gold in Sales Old isn't there any more**. The name is the one KratosForge last saw the lakehouse with; a lakehouse that was gone before KratosForge first saw it shows as **The lakehouse it points at**.
+When a OneLake shortcut is broken and the lakehouse it points at isn't in any workspace you can open, the lakehouse may be gone (deleted, or made again somewhere else), or you may only have lost access to it. The Health view groups those shortcuts by that lakehouse: **LH_Gold in Sales Old isn't in a workspace you can open**. The name is the one KratosForge last saw the lakehouse with; a lakehouse that was gone before KratosForge first saw it shows as **The lakehouse it points at**.
 
 KratosForge then looks for a lakehouse with the same name among the lakehouses you can list, and asks OneLake whether each shortcut's table or folder is there, the way a health check does. Nothing else is read, and nothing changes.
 

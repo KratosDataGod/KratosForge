@@ -62,7 +62,7 @@ async function openShortcuts(view) {
 
 test("broken shortcuts are grouped by the lakehouse they lost, which is found again and repointed in one go", { skip }, async () => {
   await openShortcuts("health");
-  const card = page().locator(".card.pad", { hasText: "LH_Gold in Sales Old isn't there any more" });
+  const card = page().locator(".card.pad", { hasText: "LH_Gold in Sales Old isn't in a workspace you can open" });
   await card.waitFor();
   await card.locator("text=A lakehouse called LH_Gold is now in Sales New, and 2 of 3 tables are there.").waitFor();
   assert.strictEqual(await card.locator(".sc-item").count(), 3);

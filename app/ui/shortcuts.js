@@ -345,7 +345,7 @@ async function renderShortcuts() {
     load();
   }
 
-  // A OneLake target lakehouse that isn't in any workspace the person can open: gone.
+  // A OneLake target lakehouse that isn't in any workspace the person can open: gone, or no longer theirs to see.
   const scGone = (s) => s.health === "broken" && s.target_type === "OneLake" && s.item_id && !sp.byId[s.item_id];
 
   // The card for broken shortcuts whose lakehouse is gone: where it may have gone, and repointing them all.
@@ -377,7 +377,7 @@ async function renderShortcuts() {
       sp.moved[key].then(show);
     }
     return h("div", { class: "card pad" }, h("div", { class: "row" }, h("span", { class: "pill-s fail" }, String(n)),
-      h("b", {}, `${lh || "The lakehouse it points at"} in ${ws} isn't there any more`)), box);
+      h("b", {}, `${lh || "The lakehouse it points at"} in ${ws} isn't in a workspace you can open`)), box);
   }
 
   // ---- Health

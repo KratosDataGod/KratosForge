@@ -2010,6 +2010,7 @@ test("A scheduled run whose Teams alert didn't go out says so in Runs and Schedu
 function motionHarness({ setting = true, reduced = false, hidden = false, settings = null } = {}) {
   let clock = 0;
   let timers = [];
+  let watch = null;
   const node = (cls = "") => {
     const n = {
       cls: new Set(String(cls).split(" ").filter(Boolean)), kids: [], attrs: {}, style: {}, parent: null, textContent: "",
@@ -2038,6 +2039,10 @@ function motionHarness({ setting = true, reduced = false, hidden = false, settin
     setTimeout: (fn, ms) => { const t = { at: clock + ms, fn }; timers.push(t); return t; },
     clearTimeout: (t) => { timers = timers.filter((x) => x !== t); },
     Date: { now: () => clock },
+    performance: { now: () => clock },
+    // The long-task watch, fed by longTasks() below instead of the machine's load.
+    PerformanceObserver: Object.assign(function (cb) { watch = cb; this.observe = () => {}; this.disconnect = () => { watch = null; }; },
+      { supportedEntryTypes: ["longtask"] }),
     h: (tag, attrs = {}, ...children) => {
       const n = node(attrs.class || "");
       for (const [k, v] of Object.entries(attrs)) if (k !== "class") n.attrs[k] = v;
@@ -2054,6 +2059,8 @@ function motionHarness({ setting = true, reduced = false, hidden = false, settin
   const page = node();  // anchors the tests make sit on the page, as real ones do
   ctx.node = (cls) => { const n = node(cls); page.append(n); return n; };
   ctx.live = live;
+  // Long main-thread tasks of these durations (ms), each starting now.
+  ctx.longTasks = (...durations) => watch?.({ getEntries: () => durations.map((duration) => ({ startTime: clock, duration })) });
   return ctx;
 }
 
@@ -2512,6 +2519,36 @@ test("Motion budget: at most three effects at once, each removed on time, the co
   assert.ok(made.slice(0, 3).every((el) => !el.isConnected), "an effect element stayed on the page");
   const strike = ctx.fx(ctx.node(), "wolfrun");
   assert.ok(strike && strike.kids.length >= 2, "the Wolf Run has no runner or trail");
+});
+
+test("Motion under load: long tasks past the budget drop effects a level for the cooldown, then it comes back", () => {
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  ctx.longTasks(300);
+  ctx.advance(5001);
+  ctx.longTasks(300);  // the first left the window, so this is 300 ms, not 600
+  assert.strictEqual(ctx.motionLevel(), 2, "dropped under the budget");
+  ctx.longTasks(250);
+  assert.strictEqual(ctx.motionLevel(), 1, "550 ms of long tasks in the window did not drop a level");
+  assert.strictEqual(ctx.document.documentElement.dataset.motionLevel, "1", "<html> still says the chosen level");
+  assert.strictEqual(ctx.fx(ctx.node(), "spark"), null, "a branded effect played under load");
+  assert.strictEqual(ctx.motionDiagnostics().skipped.level, 1);
+  ctx.advance(20000);
+  ctx.longTasks(600);  // more load during the cooldown neither drops again nor extends it
+  assert.strictEqual(ctx.motionLevel(), 1);
+  assert.strictEqual(ctx.motionDiagnostics().drop, 1);
+  ctx.advance(9999);
+  assert.strictEqual(ctx.motionLevel(), 1, "the cooldown ended early");
+  ctx.advance(1);
+  assert.strictEqual(ctx.motionLevel(), 2, "the cooldown ran past 30 s");
+  ctx.advance(50);
+  assert.strictEqual(ctx.document.documentElement.dataset.motionLevel, "2", "<html> was not told the level came back");
+  assert.ok(ctx.fx(ctx.node(), "spark"), "no spark after the cooldown");
+  const expressive = motionHarness({ settings: { motion_level: { value: 3 } } });
+  expressive.longTasks(600);
+  assert.strictEqual(expressive.motionLevel(), 2, "Expressive under load is not Refined");
+  const minimal = motionHarness({ settings: { motion_level: { value: 1 } } });
+  minimal.longTasks(600);
+  assert.strictEqual(minimal.motionLevel(), 1, "load took Minimal lower");
 });
 
 test("Forge events: every event names a real effect, unknown ones play nothing, and each is counted", () => {
@@ -4623,4 +4660,15 @@ test("pipelines: SecureString values and network leave are never kept on this PC
   assert.strictEqual(kept.allow_uncontained, false);
   assert.strictEqual(kept.keep_outputs, true);
   assert.doesNotMatch(JSON.stringify(kept), /s3cret/);
+});
+
+test("SQL Forge events (KF-MO-005): a slow success sparks, a failure plays the ember, after the redraw", () => {
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  const events = vm.runInContext("FORGE_EVENTS", ctx);
+  assert.strictEqual(events["sql.succeeded"], "spark");
+  assert.strictEqual(events["sql.failed"], "fail");
+  const q = fs.readFileSync(path.join(ui, "query.js"), "utf8");
+  assert.match(q, /const SQL_SPARK_SECONDS = 2;/);
+  const run = /async function run\(query[\s\S]*?\n  }\n/.exec(q)[0];
+  assert.ok(run.lastIndexOf("runFx(status, allow)") > run.lastIndexOf("sqlPage.redraw?.()"), "the effect plays before the redraw replaces the pill");
 });

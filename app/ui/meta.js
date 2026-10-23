@@ -193,10 +193,9 @@ function exceptionBanner(p) {
 function renderExceptionsTab(body, p) {
   const rows = p.exception_notices || [];
   if (!rows.length) {
-    body.replaceChildren(h("div", { class: "empty" },
-      h("span", { class: "title" }, "No approved exceptions"),
-      h("span", { class: "text" }, "When a rule genuinely doesn't fit, add it to exceptions.toml with the table, the rule, why, who approved it and when it ends. One that is about to end shows here and in the bell. ",
-        learnMore("approved-exceptions"))));
+    body.replaceChildren(emptyState({ title: "No approved exceptions",
+      text: ["When a rule genuinely doesn't fit, add it to exceptions.toml with the table, the rule, why, who approved it and when it ends. One that is about to end shows here and in the bell. ",
+        learnMore("approved-exceptions")] }));
     return;
   }
   body.replaceChildren(

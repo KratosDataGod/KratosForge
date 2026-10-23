@@ -172,13 +172,16 @@ def test_dependency_order_and_parallel_branches():
 def test_independent_activities_run_in_parallel_up_to_max_parallel():
     text = pipeline(act("M1", "Copy", source={}, sink={}), act("M2", "Copy", source={}, sink={}))
     mocks = {"M1": {"seconds": 0.3}, "M2": {"seconds": 0.3}}
-    t = time.monotonic()
-    run(text, mocks=mocks, wait_scale=1, max_parallel=2)
-    both = time.monotonic() - t
-    t = time.monotonic()
-    run(text, mocks=mocks, wait_scale=1, max_parallel=1)
-    one = time.monotonic() - t
-    assert both < 0.5 and one >= 0.55
+
+    def took(max_parallel):
+        t = time.monotonic()
+        run(text, mocks=mocks, wait_scale=1, max_parallel=max_parallel)
+        return time.monotonic() - t
+
+    # Compare the two runs with each other, not with a fixed limit, so a slow CI machine can't flake
+    # it: both carry the same overhead, and only one-at-a-time waits out the second 0.3 s mock.
+    both, one = took(2), took(1)
+    assert one >= 0.55 and one - both >= 0.15, (both, one)
 
 
 @pytest.mark.parametrize("conditions,parent_fails,expected", [

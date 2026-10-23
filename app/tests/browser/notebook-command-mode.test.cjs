@@ -17,7 +17,10 @@ let app;
 const page = () => app.page;
 const sources = () => page().evaluate(() => state.notebook.cells.map((c) => `${c.type}:${c.source}`));
 const selectedIndex = () => page().evaluate(() => state.notebook.cells.findIndex((c) => c.id === state.selected));
-const editing = () => page().evaluate(() => !!document.activeElement?.closest(".cm-editor"));
+// Waits for the cell editor to gain or lose focus: Enter and Esc move focus after the key event,
+// so checking straight away can see the old state on a slow machine.
+const editing = (on) => page().waitForFunction((on) => !!document.activeElement?.closest(".cm-editor") === on, on, { timeout: 5000 })
+  .then(() => on, () => !on);
 
 // Puts the notebook back and selects cell i in command mode.
 async function reset(i = 0) {
@@ -27,6 +30,13 @@ async function reset(i = 0) {
     selectCell(state.notebook.cells[i]);
     enterCommandMode(state.notebook.cells[i]);
   }, { cells: CELLS, i });
+  // Keys go to the focused cell. Right after the app opens (the first test), a render still settling
+  // can replace the cell and drop focus to the page, so put focus back until it stays on the cell.
+  await page().waitForFunction(() => {
+    const on = !!document.activeElement?.closest?.(`[data-cell="${state.selected}"]`) && !document.activeElement.closest(".cm-editor");
+    if (!on) enterCommandMode(selectedCell());
+    return on;
+  }, null, { polling: 50 });
 }
 
 before(async () => {
@@ -42,11 +52,11 @@ after(async () => { if (app) await app.close(); });
 test("Enter edits the selected cell and Esc goes back to command mode", { skip }, async () => {
   await reset(1);
   await page().keyboard.press("Enter");
-  assert.strictEqual(await editing(), true);
+  assert.strictEqual(await editing(true), true);
   await page().keyboard.press("End");
   await page().keyboard.type(" + 1");
   await page().keyboard.press("Escape");
-  assert.strictEqual(await editing(), false);
+  assert.strictEqual(await editing(false), false);
   assert.strictEqual(await selectedIndex(), 1);
   assert.deepStrictEqual((await sources())[1], "code:b = 2 + 1");
 });
@@ -60,9 +70,9 @@ test("Esc with suggestions on screen closes them first, and a second Esc leaves 
   await page().locator(".cm-tooltip-autocomplete").waitFor();
   await page().keyboard.press("Escape");
   assert.strictEqual(await page().locator(".cm-tooltip-autocomplete").count(), 0);
-  assert.strictEqual(await editing(), true);
+  assert.strictEqual(await editing(true), true);
   await page().keyboard.press("Escape");
-  assert.strictEqual(await editing(), false);
+  assert.strictEqual(await editing(false), false);
 });
 
 test("A and B add a code cell above or below and start editing it", { skip }, async () => {
@@ -70,7 +80,7 @@ test("A and B add a code cell above or below and start editing it", { skip }, as
   await page().keyboard.press("a");
   assert.deepStrictEqual(await sources(), ["code:a = 1", "code:", "code:b = 2", "markdown:Some notes"]);
   assert.strictEqual(await selectedIndex(), 1);
-  assert.strictEqual(await editing(), true);
+  assert.strictEqual(await editing(true), true);
   await page().keyboard.press("Escape");
   await page().keyboard.press("b");
   assert.deepStrictEqual(await sources(), ["code:a = 1", "code:", "code:", "code:b = 2", "markdown:Some notes"]);
@@ -207,7 +217,7 @@ test("Alt+Enter runs the cell and adds a code cell below; Shift+Enter runs and m
   await page().waitForFunction(() => state.notebook.cells.length === 2 && state.notebook.cells[0].status === "ok");
   await page().locator(".cell").first().getByText("ran", { exact: true }).waitFor();
   assert.strictEqual(await selectedIndex(), 1);
-  assert.strictEqual(await editing(), true);
+  assert.strictEqual(await editing(true), true);
   await page().keyboard.type("z = 3");
   await page().keyboard.press("Shift+Enter");
   await page().waitForFunction(() => state.notebook.cells[1].status === "ok" && state.notebook.cells.length === 3);  // the last cell: a new one follows

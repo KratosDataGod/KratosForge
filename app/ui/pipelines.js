@@ -531,6 +531,7 @@ async function pipelineRunDialog(again = null) {
     // and files, which is asked again each run. Run again in this session keeps both.
     plSave(p.imp.name, plStorable(settings, p.imp.parameters));
     plStarts.set(out.run_id, settings);
+    plPulse.add(out.run_id);
     closeDialog();
     logActivity({ id: `pipeline:${out.run_id}`, status: "running", title: `${p.imp.name} · Pipeline run`, text: "Running on this PC" });
     openPipelineRun(out.run_id);
@@ -563,6 +564,15 @@ function openPipelineRun(runId) {
 }
 
 const plFollowing = new Set();
+// Energy Flow (KF-MO-004, motion.js pipelineFlow): one per run, kept across the run view's redraws so
+// an activity that changes state settles or fails once, not on every poll. plPulse holds runs started
+// from the Run dialog whose view hasn't drawn yet: the first draw plays the Pulse.
+let plFlow = null;
+const plPulse = new Set();
+function plRunFlow(id) {
+  if (plFlow?.id !== id) plFlow = { id, flow: pipelineFlow(document.createDocumentFragment()) };
+  return plFlow.flow;
+}
 
 async function renderPipelineRun() {
   const id = plPage.runId;
@@ -590,6 +600,11 @@ async function plFollow(id) {
   } });
   plFollowing.delete(id);
   const r = plPage.runId === id ? plPage.run : null;
+  // The Anvil Strike when the run ends well while you watch; a run with mocks isn't a real success,
+  // so it gets none. A failure gets the ember. An opened run that had already ended plays nothing.
+  const head = state.view === "pipelineRun" && r ? document.querySelector(".pl-flow .flow-where") : null;
+  if (head && r.state === "succeeded" && !(r.options?.mocked || []).length) forgeEvent("pipeline.succeeded", head);
+  if (head && r.state === "failed") forgeEvent("pipeline.failed", head);
   const text = end.stopped === "lost" ? `Lost track of the run: ${end.message}` : r ? `${plStateWord(r.state)} in ${took(r.seconds)}.` : "Ended.";
   logActivity({ id: `pipeline:${id}`, status: r?.state === "succeeded" ? "ok" : "error", title: `${r?.pipeline || "Pipeline"} · Pipeline run`, text });
 }
@@ -609,6 +624,7 @@ function plDrawRun(help) {
   const settings = plStarts.get(r.run_id);
   const canAgain = !running && plPage.pipeline?.imp?.name === r.pipeline && settings;
   const sel = rows.find((x) => x.act.id === plPage.runSelected)?.act;
+  const flow = plRunFlow(r.run_id);
   const row = ({ act, depth }) => {
     const bar = plBar(act, r.started, end);
     const color = { succeeded: "ok", failed: "bad", cancelled: "off", skipped: "off", running: "run" }[act.state] || "off";
@@ -631,6 +647,7 @@ function plDrawRun(help) {
         btn("Run again with the same settings", "restart", () => pipelineRunDialog(settings), "tool outline",
           { disabled: !canAgain, title: canAgain ? null : running ? "Wait for this run to end" : "Open this run's pipeline and start it from this app to run it again" }),
         running ? btn("Stop", "stop", () => plStop(r.run_id), "tool danger") : null)),
+    h("section", { class: "card pad pl-flow", "aria-label": "Activity flow" }, flow.el),
     h("div", { class: "pl-run-body" },
       h("section", { class: "card pl-timeline", "aria-label": "Activity timeline" },
         h("div", { class: "pl-row head" }, h("span", {}, "Activity"), h("span", {}, "Status"), h("span", {}, "Time line"), h("span", { class: "n" }, "Took")),
@@ -638,6 +655,9 @@ function plDrawRun(help) {
         (r.problems || []).length ? h("ul", { class: "pl-notes pad" }, r.problems.map((x) => h("li", { class: "error-text" }, x.message))) : null,
         h("ul", { class: "pl-notes pad" }, (r.notes || []).map((n) => h("li", { class: "muted-text small" }, n)))),
       sel ? plActDetail(sel) : h("section", { class: "card pad pl-detail" }, h("p", { class: "muted-text" }, "Click an activity for its output and error.")))));
+  // After the view is on the page: effects only play over elements that are there.
+  flow.update(r);
+  if (plPulse.delete(r.run_id) && running) forgeEvent("pipeline.started", document.querySelector(".pl-actions .tool.danger"));
 }
 
 function plActDetail(a) {

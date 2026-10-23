@@ -74,6 +74,8 @@ from .meta.project import ENVIRONMENTS
 # Keys whose value would be a secret itself. Give the name of an environment variable instead.
 _SECRET_KEYS = {"client_secret", "password", "secret", "certificate_password", "teams_webhook", "token", "api_key"}
 _ID = re.compile(r"[A-Za-z0-9_.-]{1,64}")
+# Every-N-minutes schedules count from here (local time), so 60 runs on the hour and 15 at :00, :15, :30 and :45.
+GRID_START = "2000-01-01T00:00:00"
 
 
 class ConfigError(ValueError):
@@ -251,7 +253,9 @@ def _schedule(raw: dict[str, Any], i: int, errors: list[str]) -> Schedule | None
     if shared and minutes is not None and (isinstance(minutes, bool) or not isinstance(minutes, int) or minutes < 1):
         errors.append(f"{where}: a shared schedule's every_minutes is a whole number of at least 1")  # slots are named to the minute
         return None
-    return Schedule(sid, env, entities, local_configuration(schedule), str(raw.get("backfill", "")), schedule, shared)
+    config = local_configuration(schedule)
+    config["startDateTime"] = GRID_START  # not the parse time: every N minutes keeps its times across restarts
+    return Schedule(sid, env, entities, config, str(raw.get("backfill", "")), schedule, shared)
 
 
 def load(path: Path | str | None = None) -> AgentConfig:

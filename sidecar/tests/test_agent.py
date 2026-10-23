@@ -426,6 +426,32 @@ def test_schedules_fire_once_when_due_and_do_not_pile_up(tmp_path, setup):
     assert agent.queue.counts()["queued"] == 1
 
 
+def test_every_minutes_keeps_its_times_across_a_restart(tmp_path, setup, monkeypatch):
+    import datetime as dt
+    import types
+    from fabric_desktop import local_schedules
+    path = tmp_path / "s.toml"
+    path.write_text(config_text(setup.project, tmp_path / "h3", '[[schedule]]\nid = "hourly"\nenv = "dev"\nevery_minutes = 60'),
+                    encoding="utf-8")
+
+    def load_at(when):  # agent.toml parsed at ``when``
+        fake = type("Now", (dt.datetime,), {"now": classmethod(lambda cls, tz=None: when)})
+        monkeypatch.setattr(local_schedules, "dt", types.SimpleNamespace(**{**vars(dt), "datetime": fake}))
+        cfg = agent_config.load(path)
+        monkeypatch.setattr(local_schedules, "dt", dt)
+        return cfg
+    clock = Clock(dt.datetime(2026, 10, 23, 10, 37).timestamp())
+    queue = JobQueue(setup.home / "grid.sqlite3", clock=clock)
+    Agent(load_at(dt.datetime(2026, 10, 23, 10, 37)), queue=queue, clock=clock).tick_schedules()
+    first = queue.schedule_next("hourly")
+    assert first == dt.datetime(2026, 10, 23, 11, 0).timestamp()
+    clock.t = dt.datetime(2026, 10, 23, 10, 50).timestamp()
+    agent = Agent(load_at(dt.datetime(2026, 10, 23, 10, 50)), queue=queue, clock=clock)  # restarted
+    clock.t = first
+    assert agent.tick_schedules() == ["hourly"]
+    assert queue.schedule_next("hourly") == first + 3600  # not 10:50 + 60 minutes
+
+
 def test_cli_check_enqueue_and_status(setup, capsys):
     assert cli._agent(cli_args(setup, "check")) == 0
     checked = json.loads(capsys.readouterr().out)

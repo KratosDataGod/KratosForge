@@ -70,10 +70,14 @@ def publish(data: pa.Table, ref: TableRef, mode: str, storage_token: str, schema
     adds new columns."""
     opts = storage_options(storage_token)
     how = resolve_schema_mode(mode, schema_mode)
-    delta_profile.check_target(ref.uri, opts)
     with _lease(ref, storage_token):
-        write_deltalake(ref.uri, data, mode=mode, storage_options=opts, schema_mode=how)
-        table = DeltaTable(ref.uri, storage_options=opts)
+        # One load of the log for the profile check, the write and the new version: delta-rs moves a
+        # table it was handed on to the version it committed. Loaded under the lease, so no other
+        # writer can commit in between.
+        table = delta_profile.open_target(ref.uri, opts)
+        write_deltalake(table if table is not None else ref.uri, data, mode=mode, storage_options=opts, schema_mode=how)
+        if table is None:
+            table = DeltaTable(ref.uri, storage_options=opts)
     delta_profile.note_after_write(table)
     return table
 

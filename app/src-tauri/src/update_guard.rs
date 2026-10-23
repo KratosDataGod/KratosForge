@@ -102,6 +102,18 @@ pub fn wants_install(running: &str, accepted: &Seen) -> bool {
     is_commit(running) && !accepted.commit.eq_ignore_ascii_case(running)
 }
 
+/// The releases the engine may come from, in order, for a PC on `channel` ("stable" or "latest")
+/// running `build`. With `"auto_update": false` only that build's own release (build-<first 12
+/// characters of its commit>, which CI keeps for each published build), so the app never installs
+/// an engine newer than the exe the organization deployed (#418). Otherwise the channel's: Stable
+/// falls back to Preview ("latest") while no build has been promoted, as the updater does.
+pub fn engine_tags(auto_update: bool, channel: &str, build: &str) -> Vec<String> {
+    if !auto_update {
+        return vec![format!("build-{}", build.get(..12).unwrap_or(build).to_ascii_lowercase())];
+    }
+    if channel == "stable" { vec!["stable".into(), "latest".into()] } else { vec!["latest".into()] }
+}
+
 // ---- What this PC remembers: update-state.json in the app's data folder.
 // { "channels": { "<release tag>": { "commit": "...", "published": 1760000000 } },
 //   "offered": "<the build the last accepted check offered, which update_app may install>" }
@@ -334,6 +346,14 @@ mod tests {
     const A: &str = "13cd5dfa54ee4be7c066919bd3828eda3e5c1326";
     const B: &str = "2c9d1f23eee5857a79a72be77d4c8f4f913febcd";
     const NOW: i64 = 1_760_800_000;
+
+    #[test]
+    fn managed_pcs_take_the_engine_only_from_their_own_builds_release() {
+        assert_eq!(engine_tags(true, "stable", A), ["stable", "latest"]);
+        assert_eq!(engine_tags(true, "latest", A), ["latest"]);
+        assert_eq!(engine_tags(false, "stable", A), ["build-13cd5dfa54ee"]);
+        assert_eq!(engine_tags(false, "latest", &A.to_ascii_uppercase()), ["build-13cd5dfa54ee"]);
+    }
 
     fn manifest(commit: &str, published: Option<i64>) -> Value {
         let mut m = json!({ "commit": commit, "exe_sha256": "ab".repeat(32), "engine_sha256": "cd".repeat(32) });

@@ -4741,5 +4741,11 @@ test("SQL Forge events (KF-MO-005): a slow success sparks, a failure plays the e
 test("the Spark on this PC page says NOT NULL inside a struct isn't checked and SQL keeps function names", () => {
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
   assert.match(doc, /`NOT NULL` on a field inside a struct\nis accepted in SQL but not checked/);
-  assert.match(doc, /without an alias is named after what you wrote, as in Spark/);
+  assert.match(doc, /without an alias gets a short name close to Spark's/);
+});
+
+// Spark on this PC: rewritten SQL function names are close to Spark's, not identical.
+test("the Spark on this PC page says how SQL function names differ from Spark's", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /Spark's names differ for literals \(it drops their quotes\) and add defaults such as\n`months_between`'s `roundOff`/);
 });

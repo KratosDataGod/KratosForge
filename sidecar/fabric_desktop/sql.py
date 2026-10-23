@@ -17,7 +17,8 @@ import duckdb
 import pyarrow as pa
 import sqlglot
 from sqlglot import exp
-from sqlglot.errors import ParseError
+from sqlglot.errors import ParseError, TokenError
+from sqlglot.tokens import TokenType
 
 from . import lakehouse, sql_dialects
 
@@ -38,9 +39,8 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
         if chosen["id"] == "spark":
             statements = [spark_substring(_spark_dates(_spark_names(s))) for s in statements if s is not None]
     except ParseError as first_error:
-        if chosen["id"] == "spark" and re.search(r"\bstruct\s*<\s*>", query, re.I):
-            raise ValueError("An empty struct<> isn't supported on this PC. Give the struct at least one field, "
-                             "like struct<id: int>.") from None
+        if chosen["id"] == "spark" and _only_empty_structs_fail(query):
+            raise ValueError(_EMPTY_STRUCT) from None
         if chosen["id"] != "spark":
             raise ValueError(f"Could not read the query: {first_error}") from None
         try:
@@ -51,6 +51,36 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
     if not statements:
         raise ValueError("The query is empty.")
     return statements
+
+
+_EMPTY_STRUCT = "An empty struct<> isn't supported on this PC. Give the struct at least one field, like struct<id: int>."
+
+
+def _only_empty_structs_fail(query: str) -> bool:
+    """Whether the query reads once each empty struct<> is given a field: only then is struct<> the
+    error to name (not a 'struct<>' inside a string, nor a query with another mistake)."""
+    try:
+        tokens = sqlglot.tokenize(query, read="spark")
+    except TokenError:  # a query the tokenizer refuses has another error to report
+        return False
+    spans = []
+    for i, token in enumerate(tokens[:-1]):
+        after = tokens[i + 1]
+        if token.token_type == TokenType.STRUCT:
+            if after.token_type == TokenType.NEQ:
+                spans.append((after.start, after.end))
+            elif after.token_type == TokenType.LT and i + 2 < len(tokens) and tokens[i + 2].token_type == TokenType.GT:
+                spans.append((after.start, tokens[i + 2].end))
+    if not spans:
+        return False
+    filled = query
+    for start, end in reversed(spans):
+        filled = filled[:start] + "<x: int>" + filled[end + 1:]
+    try:
+        sqlglot.parse(filled, read="spark")
+    except ParseError:
+        return False
+    return True
 
 
 # Spark's date and time unit names that DuckDB doesn't know ('MM' is minutes to DuckDB if anything).
@@ -171,6 +201,9 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
                                        to=exp.DataType.build("DATE")))
         swapped = months.replace(exp.cast(months.copy(), exp.DataType.Type.DATE))
         node = swapped if months is node else node
+    for kind in node.find_all(exp.DataType):  # struct< > reads as a struct with no fields
+        if kind.this == exp.DataType.Type.STRUCT and not kind.expressions:
+            raise ValueError(_EMPTY_STRUCT)
     for constraint in list(node.find_all(exp.NotNullColumnConstraint)):  # DuckDB has no NOT NULL in a struct
         column = constraint.parent.parent if constraint.parent else None
         if isinstance(column, exp.ColumnDef) and isinstance(column.parent, exp.DataType):

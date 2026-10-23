@@ -24,6 +24,7 @@ function when(iso) {
 function took(seconds) {
   if (seconds === null || seconds === undefined || seconds === "") return "";
   const s = Number(seconds);
+  if (s > 0 && s < 0.05) return "<0.1s";  // measured, just too short to round to a tenth: never "0s"
   if (s < 10) return `${Math.round(s * 10) / 10}s`;
   if (s < 60) return `${Math.round(s)}s`;
   const m = Math.floor(s / 60);

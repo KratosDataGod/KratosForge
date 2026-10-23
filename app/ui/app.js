@@ -964,17 +964,19 @@ async function renderMonitor() {
   if (monitorPage.panel === "queue") { local.replaceWith(queuePanel()); return; }
   if (monitorPage.panel === "runas") { local.replaceWith(runAsPanel()); return; }
 
-  const [writes, meta, cloud, scheduled] = await Promise.all([
+  const [writes, meta, cloud, scheduled, pipelines] = await Promise.all([
     attempt(() => rpc("history")),
     rpc("meta_runs_all", { limit: 200 }).catch(() => ({ runs: [], unavailable: {} })),
     rpc("fabric_runs", { limit: 50 }).catch(() => []),  // not signed in yet
     rpc("pc_schedule_runs", { limit: 100 }).catch(() => []),
+    previewShown() ? rpc("pipeline_runs", { limit: 50 }).catch((err) => ({ runs: [], error: friendlyError(err).text })) : { runs: [] },
   ]);
   if (state.view !== "monitor") return;
   const unavailable = Object.entries(meta.unavailable || {});
   note.textContent = [
     meta.project_error ? `Metadata runs not shown: the metadata project couldn't be read (${meta.project_error})` : "",
     ...unavailable.map(([env, why]) => `${ENV_LABEL[env]}: ${why}`),
+    pipelines.error ? `Pipeline runs not shown: they couldn't be read (${pipelines.error.replace(/\.$/, "")})` : "",
   ].filter(Boolean).join(" · ");
   const rows = [
     ...(meta.runs || []).map((r) => ({
@@ -996,6 +998,7 @@ async function renderMonitor() {
       reason: r.status === "ok" ? "" : [r.message?.replace(/\.$/, ""), r.alert_error].filter(Boolean).join(". "),
       open: () => { monitorPage.panel = "schedules"; render(); },
     })),
+    ...pipelineRunRows(pipelines.runs),
     ...(writes || []).map((r) => ({
       at: r.finished_at, status: "ok", activity: r.job, kind: "Notebook write", env: "", where: "local",
       seconds: r.seconds, rows: r.rows, note: `${r.table_uri.split("/Tables/")[1] || r.table_uri} (${r.mode}, v${r.delta_version})`, reason: "",
@@ -1008,16 +1011,20 @@ async function renderMonitor() {
   if (monitorPage.problemsFirst) rows.sort((a, b) => bad(a) - bad(b));  // stable: newest first within each group
   const list = rows.length ? h("div", { class: "monitor-scroll" }, h("table", { class: "list" },
     h("thead", {}, h("tr", {}, ["Status", "Activity", "Env", "Ran on", "When", "Took", "Rows", ""].map((c) => h("th", ["Took", "Rows"].includes(c) ? { class: "n" } : {}, c)))),
-    h("tbody", {}, rows.map((r) => h("tr", r.open ? { class: "click", onclick: r.open } : {},
-      h("td", {}, statusPill(r.status)),
-      h("td", {}, h("div", {}, h("b", {}, r.activity)), h("div", { class: "muted-text small" }, [r.kind, r.note].filter(Boolean).join(" · ")),
+    h("tbody", {}, rows.map((r) => h("tr", r.open ? { class: "click", onclick: r.open }
+      : r.pipelineRun ? { class: "click pl-run", "data-pl-run": r.pipelineRun, onclick: (e) => togglePipelineRun(e.currentTarget, r) } : {},
+      h("td", {}, r.pill || statusPill(r.status)),
+      h("td", {}, h("div", {}, r.pipelineRun ? pipelineToggle(r) : null, h("b", {}, r.activity)),
+        h("div", { class: "muted-text small" }, [r.kind, r.note].filter(Boolean).join(" · "),
+          r.pipelineRun ? h("span", { class: "pl-summary" }) : null, r.tags?.length ? [" ", r.tags] : null),
         r.reason ? h("div", { class: "reason" }, r.reason) : null),
       h("td", {}, runEnvCell(r)), h("td", {}, r.ranOn || (r.where === "fabric" ? "Fabric" : "This PC")),
       h("td", {}, when(r.at)), h("td", { class: "n" }, took(r.seconds)), h("td", { class: "n" }, r.rows ?? ""),
-      h("td", { class: "n" }, r.open ? h("span", { class: "link-text" }, "Details") : null)))))) :
+      h("td", { class: "n" }, r.open ? h("span", { class: "link-text" }, "Details") : r.pipelineRun ? pipelineRunDetails(r) : null)))))) :
     h("p", { class: "muted-text monitor-empty" }, monitorPage.env !== "all" || monitorPage.where !== "any"
       ? "Nothing matches these filters." : "Nothing has run yet. Run a metadata entity or write a table from a notebook.");
   local.replaceWith(list);
+  if (rows.length) reopenPipelineRuns(list, rows);
   list.scrollTop = keptTop;
 }
 
@@ -1034,10 +1041,10 @@ function monitorHubButtons() {
 // Runs > Env for a row with no environment, saying why there isn't one (testing item 32).
 function runEnvCell(r) {
   if (r.env) return ENV_LABEL[r.env] || r.env;
-  const why = r.where === "fabric"
+  const why = r.envWhy || (r.where === "fabric"
     ? "Started in a Fabric workspace (named under the activity), not from one of the project's environments"
-    : "Notebook writes and this PC's schedules aren't tied to an environment";
-  return h("span", { class: "muted-text", title: why }, "None");
+    : "Notebook writes and this PC's schedules aren't tied to an environment");
+  return h("span", { class: "muted-text", title: why }, "No environment");
 }
 
 // Fabric job states, shown with the same pills as local runs.

@@ -1962,7 +1962,7 @@ html[data-fx-ambient="on"] .flow-node[data-state="running"] .flow-link::after { 
 .pl-head h1 { margin: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .pl-title { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 420px; }
 .pl-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.pl-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0 0 12px; font-size: 13px; }
+.pipelines .pl-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0 0 12px; font-size: 13px; }
 .pl-graph { overflow-x: auto; min-width: 0; max-width: 100%; }
 .pl-layers { width: max-content; }
 .dialog:has(.pl-run-dialog), .dialog:has(.pl-open) { max-width: 720px; }

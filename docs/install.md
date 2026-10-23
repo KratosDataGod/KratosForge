@@ -18,7 +18,7 @@ You do **not** need Python, Spark, Java or admin rights on the PC. The app bring
 
 ## Download and start
 
-1. Download **[kratosforge.exe](https://github.com/KratosDataGod/KratosForge/releases/download/stable/kratosforge.exe)** (the Stable channel). It is also on the repository's **Releases** page.
+1. Download **kratosforge.exe** from the [Stable release](https://github.com/KratosDataGod/KratosForge/releases/tag/stable) (a release made before the name changed has it as `fabric-desktop.exe`, the same app, which takes the new name after its first update).
 2. Put it anywhere you like, for example a `Tools` folder or your Desktop. It is a single file; there is no installer.
 3. Double-click it.
 4. **Windows SmartScreen** may say "Windows protected your PC" because the exe isn't code-signed yet. Choose **More info > Run anyway**. You only see this the first time.

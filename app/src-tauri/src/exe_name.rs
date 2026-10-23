@@ -76,13 +76,14 @@ pub struct Windows;
 const FIND: &str = r#"
 $ErrorActionPreference = 'Stop'
 $shell = New-Object -ComObject WScript.Shell
+$from = @($env:KF_FROM -split "`n" | Where-Object { $_ })
 $roots = @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('StartMenu'),
            (Join-Path $env:APPDATA 'Microsoft\Internet Explorer\Quick Launch'))
 foreach ($root in $roots) {
   if (-not $root -or -not (Test-Path -LiteralPath $root)) { continue }
   foreach ($file in Get-ChildItem -LiteralPath $root -Filter *.lnk -Recurse -File -ErrorAction SilentlyContinue) {
     try { $target = $shell.CreateShortcut($file.FullName).TargetPath } catch { continue }
-    if ($target -and [string]::Equals($target, $env:KF_FROM, 'OrdinalIgnoreCase')) { [Console]::Out.WriteLine($file.FullName) }
+    if ($target -and ($from -contains $target)) { [Console]::Out.WriteLine($file.FullName) }
   }
 }
 "#;
@@ -91,13 +92,17 @@ foreach ($root in $roots) {
 const RETARGET: &str = r#"
 $ErrorActionPreference = 'Stop'
 $shell = New-Object -ComObject WScript.Shell
+$from = @($env:KF_FROM -split "`n" | Where-Object { $_ })
 foreach ($path in $env:KF_LINKS -split "`n") {
   if (-not $path) { continue }
   $link = $shell.CreateShortcut($path)
-  if (-not [string]::Equals($link.TargetPath, $env:KF_FROM, 'OrdinalIgnoreCase')) { continue }
+  if (-not ($from -contains $link.TargetPath)) { continue }
   $link.TargetPath = $env:KF_TO
-  if ($link.IconLocation.StartsWith($env:KF_FROM + ',', 'OrdinalIgnoreCase')) {
-    $link.IconLocation = $env:KF_TO + $link.IconLocation.Substring($env:KF_FROM.Length)
+  foreach ($f in $from) {
+    if ($link.IconLocation.StartsWith($f + ',', 'OrdinalIgnoreCase')) {
+      $link.IconLocation = $env:KF_TO + $link.IconLocation.Substring($f.Length)
+      break
+    }
   }
   $link.Save()
 }
@@ -129,10 +134,32 @@ fn plain(p: &Path) -> String {
     s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
 }
 
+/// The ways a shortcut may spell `p`: as given, and in full. Windows stores a shortcut's target
+/// with long folder names, so a path given as C:\Users\RUNNER~1\... must also match its long
+/// form. The folder is resolved, not the file, which is gone once renamed. (PowerShell's
+/// -contains compares without case.)
+#[cfg(windows)]
+fn spellings(p: &Path) -> String {
+    let mut all = vec![plain(p)];
+    let full = p.parent().zip(p.file_name()).and_then(|(dir, name)| std::fs::canonicalize(dir).ok().map(|d| d.join(name)));
+    if let Some(full) = full {
+        let full = full.to_string_lossy();
+        // A network share comes back as \\?\UNC\server\share.
+        let full = match full.strip_prefix(r"\\?\UNC\") {
+            Some(rest) => format!(r"\\{rest}"),
+            None => plain(Path::new(full.as_ref())),
+        };
+        if !all.iter().any(|a| a.eq_ignore_ascii_case(&full)) {
+            all.push(full);
+        }
+    }
+    all.join("\n")
+}
+
 #[cfg(windows)]
 impl Host for Windows {
     fn shortcuts_to(&mut self, exe: &Path) -> Result<Vec<PathBuf>, String> {
-        let out = powershell(FIND, &[("KF_FROM", plain(exe))])?;
+        let out = powershell(FIND, &[("KF_FROM", spellings(exe))])?;
         Ok(out.lines().map(str::trim).filter(|l| !l.is_empty()).map(PathBuf::from).collect())
     }
 
@@ -141,7 +168,7 @@ impl Host for Windows {
             return Ok(());
         }
         let list = links.iter().map(|l| plain(l)).collect::<Vec<_>>().join("\n");
-        powershell(RETARGET, &[("KF_LINKS", list), ("KF_FROM", plain(from)), ("KF_TO", plain(to))]).map(|_| ())
+        powershell(RETARGET, &[("KF_LINKS", list), ("KF_FROM", spellings(from)), ("KF_TO", plain(to))]).map(|_| ())
     }
 
     fn rename(&mut self, from: &Path, to: &Path) -> Result<(), String> {
@@ -331,7 +358,7 @@ $s.TargetPath = $env:KF_FROM; $s.IconLocation = $env:KF_FROM + ',0'; $s.Save()"#
         let read = "$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:KF_LINK); $s.TargetPath; $s.IconLocation";
         let out = powershell(read, &[("KF_LINK", plain(&link))]).unwrap();
         let lines: Vec<&str> = out.lines().collect();
-        assert!(lines[0].eq_ignore_ascii_case(&plain(&to)), "{out}");
+        assert!(spellings(&to).lines().any(|s| lines[0].eq_ignore_ascii_case(s)), "{out}");
         assert!(lines[1].to_ascii_lowercase().ends_with("kratosforge.exe,0"), "{out}");
         // The next update swaps in place under the new name and keeps the previous exe beside it.
         let (new, old) = (to.with_extension("exe.new"), to.with_extension("exe.old"));

@@ -97,6 +97,19 @@ def test_config_refuses_secrets_and_lists_every_problem(tmp_path, setup):
     assert "s3cret" not in text
 
 
+def test_agent_name_must_be_one_the_mailbox_can_take_over(tmp_path, setup, monkeypatch):
+    raw = {"agent": {"project": str(setup.project), "environments": ["dev"], "name": "etl 01"}, "auth": {"type": "user"}}
+    with pytest.raises(agent_config.ConfigError, match="agent.name: 'etl 01' isn't 1 to 64 letters"):
+        agent_config.parse(raw)
+    del raw["agent"]["name"]
+    monkeypatch.setattr(agent_config.socket, "gethostname", lambda: "Büro PC#2")
+    assert agent_config.parse(raw).name == "B-ro-PC-2"  # the default always passes
+    monkeypatch.setattr(agent_config.socket, "gethostname", lambda: "x" * 70)
+    assert agent_config.parse(raw).name == "x" * 64
+    monkeypatch.setattr(agent_config.socket, "gethostname", lambda: "")
+    assert agent_config.parse(raw).name == "agent"
+
+
 def test_webhook_comes_from_an_environment_variable(tmp_path, setup, monkeypatch):
     path = tmp_path / "a.toml"
     path.write_text(config_text(setup.project, tmp_path / "h", '[alerts]\nteams_webhook_env = "FD_HOOK"'), encoding="utf-8")

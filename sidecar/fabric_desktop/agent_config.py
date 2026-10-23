@@ -258,6 +258,11 @@ def _schedule(raw: dict[str, Any], i: int, errors: list[str]) -> Schedule | None
     return Schedule(sid, env, entities, config, str(raw.get("backfill", "")), schedule, shared)
 
 
+def host_name() -> str:
+    """The default agent name: this machine's name, with anything agent.name can't hold made a ``-``."""
+    return re.sub(r"[^A-Za-z0-9_.-]+", "-", socket.gethostname())[:64] or "agent"
+
+
 def load(path: Path | str | None = None) -> AgentConfig:
     path = Path(path) if path else default_config_path()
     if not path.exists():
@@ -348,8 +353,11 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
                                 digest_over=int(number(inc, "digest_over", 5, 1, "incidents")),
                                 quiet_hours=quiet, quiet_except=tuple(str(x).lower() for x in inc.get("quiet_except", ["critical"])),
                                 escalate_after_minutes=escalate_after, escalate_to=escalate_to, routes=routes)
+    name = agent.get("name") or host_name()
+    if not isinstance(name, str) or not _ID.fullmatch(name):  # the mailbox takes over only such names
+        errors.append(f"agent.name: {name!r} isn't 1 to 64 letters, digits, . _ or - (it names agents/<name>.json)")
     cfg = AgentConfig(
-        path=Path(path), name=str(agent.get("name") or socket.gethostname()),
+        path=Path(path), name=name,
         home=Path(agent["home"]) if agent.get("home") else default_home(),
         project=Path(project), environments=envs, auth=dict(auth), owner=str(agent.get("owner") or "").strip(),
         concurrency=concurrency,

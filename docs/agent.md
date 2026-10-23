@@ -69,7 +69,7 @@ Secrets never go in `agent.toml`, and the agent refuses to start if one does. A 
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `agent.name` | host name | The worker's name in logs and run rows |
+| `agent.name` | host name | The worker's name in logs, run rows and `agents/<name>.json`: 1 to 64 letters, digits, `.`, `_` or `-` (other characters in the host name become `-`) |
 | `agent.owner` | none | Who looks after this agent (a team or contact), shown in the app as written |
 | `agent.project` | required | The metadata project folder |
 | `agent.environments` | required | The environments this agent may run |

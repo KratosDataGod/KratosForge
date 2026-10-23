@@ -18,7 +18,7 @@ You do **not** need Python, Spark, Java or admin rights on the PC. The app bring
 
 ## Download and start
 
-1. Download **[fabric-desktop.exe](https://github.com/KratosDataGod/KratosForge/releases/download/stable/fabric-desktop.exe)** (the Stable channel). It is also on the repository's **Releases** page.
+1. Download **kratosforge.exe** from the [Stable release](https://github.com/KratosDataGod/KratosForge/releases/tag/stable) (a release made before the name changed has it as `fabric-desktop.exe`, the same app, which takes the new name after its first update).
 2. Put it anywhere you like, for example a `Tools` folder or your Desktop. It is a single file; there is no installer.
 3. Double-click it.
 4. **Windows SmartScreen** may say "Windows protected your PC" because the exe isn't code-signed yet. Choose **More info > Run anyway**. You only see this the first time.
@@ -65,10 +65,10 @@ The update check uses GitHub's public API, which allows 60 checks an hour from o
 
 Every build of `main` comes with proof of where it came from and a list of what is inside it. Security teams can check both before allowing the app.
 
-- **Build provenance.** GitHub signs a statement that `fabric-desktop.exe` and `fabric-desktop-engine.zip` were built by this repository's CI workflow from a named commit. With the [GitHub CLI](https://cli.github.com/), check a file you downloaded:
+- **Build provenance.** GitHub signs a statement that `kratosforge.exe` and `fabric-desktop-engine.zip` were built by this repository's CI workflow from a named commit. With the [GitHub CLI](https://cli.github.com/), check a file you downloaded:
 
     ```powershell
-    gh attestation verify fabric-desktop.exe -R KratosDataGod/KratosForge
+    gh attestation verify kratosforge.exe -R KratosDataGod/KratosForge
     ```
 
     It prints the workflow and commit that built it, or fails if the file was changed. A file promoted to Stable is the same file, so the same check works. Builds made before the repository was renamed (October 2026) name the old repository, so check those with `-R KratosDataGod/fabric-desktop`.
@@ -83,7 +83,7 @@ These prove where a file came from; they don't replace code signing, which is st
 
 | Path | What it is |
 | --- | --- |
-| The folder you put `fabric-desktop.exe` in | The app. The update replaces this file in place. |
+| The folder you put `kratosforge.exe` in | The app. The update replaces this file in place. A copy saved as `fabric-desktop.exe` (its name before KratosForge) renames itself to `kratosforge.exe` after its next update, and its shortcuts follow ([Legacy names](kratosforge.md#the-program-file)). |
 | `%LOCALAPPDATA%\FabricDesktop\engine` | The local engine: Python and its packages. |
 | `%LOCALAPPDATA%\FabricDesktop\notebooks` | Your notebooks, as `.ipynb` files. Back them up with the rest of this folder ([Back up and restore](backup.md)) or keep them in Git. |
 | `%LOCALAPPDATA%\FabricDesktop\msal_cache.bin` | Your sign-in token cache. Delete it to force a fresh sign-in. |
@@ -102,7 +102,7 @@ These prove where a file came from; they don't replace code signing, which is st
 ## Uninstall
 
 1. If you added schedules on this PC, remove them in **Monitor > Schedules** first. They live in Windows Task Scheduler under the `FabricDesktop` folder.
-2. Close the app and delete `fabric-desktop.exe`.
+2. Close the app and delete `kratosforge.exe` (or `fabric-desktop.exe` on a copy that kept that name).
 3. Delete `%LOCALAPPDATA%\FabricDesktop` to remove the engine, your notebooks, settings and sign-in. Copy the `notebooks` folder somewhere first if you want to keep them.
 
 Nothing in Fabric is removed. Lakehouses, tables and notebooks you published stay where they are.

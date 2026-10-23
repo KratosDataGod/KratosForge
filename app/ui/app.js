@@ -2546,7 +2546,7 @@ async function checkComponents(afterInstall = false) {
   else if (report.bundled && !report.python) set("app", "ok", `Build ${short(app.commit)}; checked for updates once the engine is installed`);
   else if (app.updated_to && app.updated_to !== app.commit) {
     set("app", "error", `The update didn't take: this is still build ${short(app.commit)}, not ${short(app.updated_to)}. ` +
-      "Download fabric-desktop.exe again from the latest release.");
+      "Download kratosforge.exe again from the latest release.");
   } else if (report.auto_update === false) {
     // The organization rolls out builds itself (policy auto_update: false).
     set("app", "ok", latest.commit && latest.commit !== app.commit
@@ -2599,7 +2599,7 @@ async function checkComponents(afterInstall = false) {
       // The engine just installed is still not this build's: the exe update above failed.
       set("sidecar", "error", `The latest engine is build ${sidecar.commit ? short(sidecar.commit) : "unknown"}, ` +
         `but this app is ${short(app.commit)}. ` + (report.auto_update === false
-        ? "Your organization rolls out updates: ask IT for the current build of fabric-desktop.exe."
+        ? "Your organization rolls out updates: ask IT for the current build of kratosforge.exe."
         : "Restart KratosForge to update it."));
       if (await choose("Retry", "Continue anyway") === 0) return checkComponents();
       return closeDialog();

@@ -278,6 +278,15 @@ def test_a_proof_runs_both_sides_from_pinned_inputs_without_touching_shared_tabl
     assert call(svc, "prove_list", name="Order values")[0]["id"] == out["id"]
 
 
+def test_a_matching_proof_earns_proof_forged_once(svc):
+    svc.fake = FakeFabric(svc)
+    out = wait(svc, call(svc, "prove_start", **payload())["id"])
+    assert out["verdict"]["verdict"] == "same", out
+    assert out["earned"] == [{"id": "proof-forged", "name": "Proof Forged", "xp": 150, "first": True}]
+    row = call(svc, "profile_get")["evidence"][0]
+    assert row["type"] == "prove.match" and row["ref"]["id"] == out["receipt_id"]
+
+
 def test_tiny_floating_point_drift_passes_the_default_tolerance(svc):
     svc.fake = FakeFabric(svc, env={"FD_FAKE_FABRIC_DRIFT": "1"})
     out = wait(svc, call(svc, "prove_start", **payload())["id"])

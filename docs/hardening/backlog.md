@@ -97,7 +97,7 @@ Complexity is S (under a day, one module), M (a few modules, new tests), L (cros
 | HD-010 | EP-4: policy fails closed, one loader | Hardening | open stack (`app_settings.py`) | M |
 | HD-011 | SH-6: `cargo test` in CI | Hardening | open stack (`ci.yml`); workflow change needs Chris's review | S |
 | HD-012 | EN-2: execution kernels get an allowlisted environment | Hardening | none | S |
-| HD-013 | EN-10: encrypt the token cache (DPAPI via `msal-extensions`) | Hardening | **Chris: decision D-C2** | M |
+| HD-013 | EN-10: encrypt the token cache with DPAPI on Windows | Hardening | Done (D-C2 approved 2026-10-23); Windows check pending | M |
 | HD-014 | EN-3: workspace limits on every capability | Hardening | HD-006 | M |
 | HD-015 | EN-4: external SQL timeout interrupts and releases the lock | Hardening | none | S |
 | HD-016 | EN-6, AR-1: leases atomic across processes; lost lease stops the write | Hardening (agent) | none | M |
@@ -124,7 +124,7 @@ Acceptance for each P1 item is the fix and tests named in its finding. The ones 
 
 - **HD-010:** a `policy.json` with a syntax error denies Fabric runs and other tenants and shows the error in Settings; a wrongly typed restrictive key is treated as the most restrictive value; `integrations*` and `receipt_redactions` aren't reported as unknown.
 - **HD-012:** inside an external-tool run, `os.environ` has no variable from the parent outside an allowlist (`PATH`, `SYSTEMROOT`, `TEMP`, `TMP`, locale); `docs/permissions.md` says tools' code runs as the user and can reach their sign-in until HD-013.
-- **HD-013:** the cache file is DPAPI-encrypted on Windows; an existing plaintext cache is migrated once and removed; sign-in survives the update without a prompt. Migration documented in `docs/security.md`.
+- **HD-013:** the cache file is DPAPI-encrypted on Windows; an existing plaintext cache is encrypted in place on first start; sign-in survives the update without a prompt. Migration documented in `docs/security.md`.
 - **HD-020:** CSP set in `tauri.conf.json`; notebook HTML output, charts, the Fabric view and sign-in work on Windows (checked by hand and recorded in the PR); a UI test fails if `csp` is null or allows `unsafe-eval`.
 - **HD-021:** a push to `main` without signing configured fails the release unless an explicit unsigned-Preview variable is set; the client refuses an exe or engine whose signature doesn't name the expected publisher.
 - **HD-027:** checked by hand on Windows and recorded in the PR: sign-in inside the Fabric view; open a catalog item; sign out; a link off the allowed hosts opens in the default browser; a sign-in pop-up opened from a sign-in host can't navigate off the list (its links open in the browser) and still reports back to the view; on a federated tenant with `fabric_view_sign_in_hosts` set, sign-in finishes in the view, the identity provider's cookies survive a restart (or the provider asks again, which is acceptable but noted), and Seamless SSO, the device step and `login.windows.net` don't leave the view.

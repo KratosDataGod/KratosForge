@@ -553,6 +553,9 @@ class CloudMixin:
         if project.links:  # where each link points in this environment, resolved now for the runner
             resolve = self._link_table(project, env)  # type: ignore[attr-defined]
             config["links"] = {alias: resolve(alias) for alias in project.links}
+        if store.landing_zones is not None and any(e.spec.get("source", {}).get("landing")
+                                                   for e in project.entities.values()):
+            config["landing"] = store.landing_map()  # each source's zone, resolved now like links
         files = bundle_files(project.root, config)
         digest = bundle_hash(files)
         try:

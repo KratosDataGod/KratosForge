@@ -29,6 +29,7 @@ nav = [
     { "Security model" = "security.md" },
     { "Security evidence pack" = "evidence-pack.md" },
     { "Usage data" = "telemetry.md" },
+    { "End-user terms (draft)" = "end-user-terms.md" },
   ] },
   { "Use the app" = [
     { "User guide" = "user-guide.md" },

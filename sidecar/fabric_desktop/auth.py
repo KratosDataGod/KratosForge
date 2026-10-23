@@ -57,6 +57,9 @@ TENANT_READ_SCOPES = ["https://api.fabric.microsoft.com/Tenant.Read.All"]
 # Adding someone to a workspace by email (Power BI's API, the same Power BI Service permission
 # as Workspace.ReadWrite.All above), so no directory permission is needed for it.
 POWERBI_WORKSPACE_SCOPES = ["https://analysis.windows.net/powerbi/api/Workspace.ReadWrite.All"]
+# Queries on a Data warehouse or SQL analytics endpoint (SQL-004): its SQL connection takes a token for
+# Azure SQL's resource. Asked for the first time you run a query on a warehouse.
+WAREHOUSE_SCOPES = ["https://database.windows.net/user_impersonation"]
 
 
 def resource_of(scope: str) -> str:
@@ -268,6 +271,9 @@ class Authenticator:
 
     def storage_token(self) -> str:
         return self._token(STORAGE_SCOPES, STORAGE_MIN_SECONDS)
+
+    def warehouse_token(self) -> str:
+        return self._token(WAREHOUSE_SCOPES)
 
     def sign_out(self) -> None:
         for account in self.app.get_accounts():

@@ -70,7 +70,9 @@ test("Run all shows the wolf at the cells done, glows at the end, and says so on
   const [text, done] = await page.evaluate(() => [document.querySelector(".wolf-text").textContent,
     state.notebook.cells.filter((c) => c.status === "ok").length]);
   assert.match(text, /^Cell [123] of 3 on this PC$/);
-  assert.ok(Number(text.split(" ")[1]) >= done, `${text} lags ${done} cells done`);
+  const at = Number(text.split(" ")[1]);
+  assert.ok(at >= done, `${text} lags ${done} cells done`);
+  assert.ok(at <= done + 1, `${text} runs ahead of ${done} cells done`);
   assert.ok(await page.locator(".wolf-bar .wolf").count(), "no wolf on the track");
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "forge-run-all.png") });
   await madeFx(page, "arrive", "");  // in the status bar, outside any cell

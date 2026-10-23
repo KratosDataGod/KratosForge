@@ -178,6 +178,9 @@ async function followValidation(nb, id) {
   logActivity({ id: `validate:${id}`, status: ok ? "ok" : "error", title: `${nb.name} · Validate`, text: r.summary || r.state });
   toast(`${nb.name}: ${r.summary || r.state}`, r.state === "failed");
   profileEarned(r.earned);
+  // The verdict banner cools when the clean run passed; an ember when it didn't (motion.js). Cancel plays nothing.
+  const banner = validateOpen(nb) && state.notebook === nb ? document.querySelector(".validatepane .prove-banner") : null;
+  if (r.state !== "cancelled") forgeEvent(ok ? "validate.passed" : "validate.failed", ok ? banner : banner?.querySelector("b"));
 }
 
 async function cancelCleanRun(nb) {

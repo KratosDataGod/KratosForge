@@ -22,9 +22,16 @@ from .notebook import leaf_name, to_ipynb
 from .onelake import DFS_HOST
 
 STEP_SUFFIX = " (Fabric step)"
-# Files this size or smaller are in OPTIMIZE's scope; 1 TiB puts every file in it, so
-# "Rewrite all files" V-Orders a table whose files were already large enough to be skipped.
-REWRITE_ALL_MIN_FILE_SIZE = 1 << 40
+# OPTIMIZE leaves a file alone when it has nothing to compact it with (a table of one file, or
+# files already large), so "Rewrite all files" reads each table and writes it back instead: a
+# write with no data change, V-Ordered like everything the step writes. Tested on Fabric
+# 2026-10-23: OPTIMIZE ... VORDER, even with minFileSize at 1 TiB, didn't touch a one-file table.
+REWRITE_FUNCTION = "rewrite_with_vorder"
+_REWRITE_DEF = f'''def {REWRITE_FUNCTION}(table):
+    """Reads the table and writes it back, so every file is rewritten with V-Order."""
+    path = spark.sql(f"DESCRIBE DETAIL {{table}}").first()["location"]
+    (spark.read.format("delta").load(path).write.format("delta")
+     .mode("overwrite").option("dataChange", "false").save(path))'''
 
 
 # Prove and Side by side run every cell on this PC too, which can't run the step.
@@ -81,15 +88,17 @@ def table_name(table: str) -> str:
 def vorder_source(tables: list[str], rewrite_all: bool = False) -> str:
     """The cell "Insert V-Order cell" writes: OPTIMIZE ... VORDER for each table.
 
-    OPTIMIZE rewrites only the files in its compaction scope; ``rewrite_all`` puts every file in
-    it, for a table whose files were already large enough to be skipped."""
+    OPTIMIZE rewrites only the files it compacts; ``rewrite_all`` reads each table and writes it
+    back, for a table OPTIMIZE left alone."""
     if not tables:
         raise ValueError("Pick at least one table to V-Order")
     lines = ["# V-Order the tables this notebook wrote, so Direct Lake reads them faster."]
     if rewrite_all:
-        lines += ["# Every file is rewritten, also those already large enough to be left out of compaction.",
-                  f'spark.conf.set("spark.databricks.delta.optimize.minFileSize", "{REWRITE_ALL_MIN_FILE_SIZE}")']
-    lines += [f"spark.sql({json.dumps(f'OPTIMIZE {table_name(t)} VORDER')})" for t in tables]
+        lines += ["# OPTIMIZE leaves alone a file it has nothing to compact with, so every file is rewritten.",
+                  _REWRITE_DEF, ""]
+        lines += [f"{REWRITE_FUNCTION}({json.dumps(table_name(t))})" for t in tables]
+    else:
+        lines += [f"spark.sql({json.dumps(f'OPTIMIZE {table_name(t)} VORDER')})" for t in tables]
     return "\n".join(lines)
 
 
@@ -109,15 +118,17 @@ def vorder_candidates(cells: list[dict[str, Any]], tables: list[str]) -> list[st
     return out
 
 
-_OPTIMIZE = re.compile(r"\bOPTIMIZE\s+((?:`[^`]+`|[\w]+)(?:\s*\.\s*(?:`[^`]+`|[\w]+)){0,2})", re.I)
+_NAME = r"((?:`[^`]+`|[\w]+)(?:\s*\.\s*(?:`[^`]+`|[\w]+)){0,2})"
+_OPTIMIZE = re.compile(r"\bOPTIMIZE\s+" + _NAME + "|" + r"\b" + REWRITE_FUNCTION + r"\(\s*[\"']" + _NAME, re.I)
 
 
 def optimized_tables(source: str) -> list[str]:
-    """The tables a cell OPTIMIZEs, as ``schema.table`` (or ``table``): what the V-Order check reads
-    after the step. A three-part name's lakehouse is the attached one, so it's left out."""
+    """The tables a cell OPTIMIZEs or rewrites, as ``schema.table`` (or ``table``): what the V-Order
+    check reads after the step. A three-part name's lakehouse is the attached one, so it's left out."""
     out: list[str] = []
-    for m in _OPTIMIZE.finditer(source):
-        parts = [p.strip().strip("`").replace("``", "`") for p in re.findall(r"`[^`]+`|[\w]+", m.group(1))]
+    for m in _OPTIMIZE.finditer(re.sub(r"(?m)^\s*#.*$", "", source)):  # not in comment lines
+        found = m.group(1) or m.group(2)
+        parts = [p.strip().strip("`").replace("``", "`") for p in re.findall(r"`[^`]+`|[\w]+", found)]
         name = ".".join(parts[-2:])
         if name and name not in out:
             out.append(name)

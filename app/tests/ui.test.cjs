@@ -1787,7 +1787,7 @@ function followHarness(statuses) {
       }
       return [];
     },
-    setKernel() {}, renderNotebook() {}, updateResults() {}, registerFeature() {}, previewShown: () => true,
+    setKernel() {}, renderNotebook() {}, forgeEvent() {}, updateResults() {}, registerFeature() {}, previewShown: () => true,
     logActivity: (item) => calls.bell.push(item),
     toast: (text) => calls.toasts.push(text),
     document: { querySelector: () => null, querySelectorAll: () => [] },
@@ -2011,6 +2011,7 @@ test("A scheduled run whose Teams alert didn't go out says so in Runs and Schedu
 function motionHarness({ setting = true, reduced = false, hidden = false, settings = null } = {}) {
   let clock = 0;
   let timers = [];
+  let watch = null;
   const node = (cls = "") => {
     const n = {
       cls: new Set(String(cls).split(" ").filter(Boolean)), kids: [], attrs: {}, style: {}, parent: null, textContent: "",
@@ -2039,6 +2040,10 @@ function motionHarness({ setting = true, reduced = false, hidden = false, settin
     setTimeout: (fn, ms) => { const t = { at: clock + ms, fn }; timers.push(t); return t; },
     clearTimeout: (t) => { timers = timers.filter((x) => x !== t); },
     Date: { now: () => clock },
+    performance: { now: () => clock },
+    // The long-task watch, fed by longTasks() below instead of the machine's load.
+    PerformanceObserver: Object.assign(function (cb) { watch = cb; this.observe = () => {}; this.disconnect = () => { watch = null; }; },
+      { supportedEntryTypes: ["longtask"] }),
     h: (tag, attrs = {}, ...children) => {
       const n = node(attrs.class || "");
       for (const [k, v] of Object.entries(attrs)) if (k !== "class") n.attrs[k] = v;
@@ -2055,6 +2060,8 @@ function motionHarness({ setting = true, reduced = false, hidden = false, settin
   const page = node();  // anchors the tests make sit on the page, as real ones do
   ctx.node = (cls) => { const n = node(cls); page.append(n); return n; };
   ctx.live = live;
+  // Long main-thread tasks of these durations (ms), each starting now.
+  ctx.longTasks = (...durations) => watch?.({ getEntries: () => durations.map((duration) => ({ startTime: clock, duration })) });
   return ctx;
 }
 
@@ -2214,11 +2221,14 @@ test("Motion & effects settings: four levels, family switches, reduced-motion ch
   assert.match(card, /type: "radio", name: "motion_level"/);
   assert.match(card, /disabled: locked\("motion_level"\) \? true : null, onchange: \(\) => save\(\{ motion_level: n \}\)/);
   assert.match(card, /\[0, 1, 2, 3\]\.map\(levelRow\)/);
-  assert.match(card, /toggle\(key, label, s\[key\]\?\.value !== false, level < 2\)/, "family switches don't grey out below Refined");
+  assert.match(card, /toggle\(key, label, s\[key\]\?\.value \?\? key !== "motion_achievements", level < 2\)/, "family switches don't grey out below Refined");
   assert.match(card, /disabled: disabled \|\| locked\(key\) \? true : null/);
   assert.match(card, /"Respect Windows' reduced-motion setting"/);
   for (const key of ["motion_wolf", "motion_sparks", "motion_ambient"]) assert.match(s, new RegExp(`\\["${key}", "`));
-  assert.doesNotMatch(s, /\["motion_achievements", "/, "the achievements switch shows before the profile can award anything");
+  // Achievement celebrations shows only while Profile (Preview) can award something (#361).
+  assert.match(s, /const motionFamilies = \(\) => \(previewShown\(\) \? \[\.\.\.MOTION_FAMILIES, MOTION_ACHIEVEMENTS\] : MOTION_FAMILIES\);/);
+  assert.match(card, /motionFamilies\(\)\.map\(/);
+  assert.match(s, /previewShown\(\) \? row\("Achievement Reveal", [^\n]*\n\s+\(\) => forgeEvent\("achievement\.unlocked", award\)\) : null,/);
   assert.match(s, /\["motion_ambient", "Running indicators",/);
   assert.match(s, /const display = s\.motion_level \? motionSettingsCard\(s, locked\) : null;/);
   assert.match(s, /\[account, updates, display, previews,/);
@@ -2227,7 +2237,7 @@ test("Motion & effects settings: four levels, family switches, reduced-motion ch
   const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
   assert.match(css, /html\[data-motion="off"\] \.fx, html\[data-motion="off"\] \.wolf \{ display: none; \}/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{ html:not\(\[data-motion-override\]\) :is\(\.fx, \.wolf\) \{ display: none; \}/);
-  assert.match(css, /html\[data-fx-wolf="off"\] \.wolf, html\[data-fx-sparks="off"\] :is\(\.fx-spark, \.fx-fail, \.fx-strike\),/);
+  assert.match(css, /html\[data-fx-wolf="off"\] \.wolf, html\[data-fx-sparks="off"\] :is\(\.fx-spark, \.fx-fail, \.fx-strike, \.fx-cool\),/);
   // Effects animate only transform and opacity, so they never move the layout.
   const keyframes = [...css.matchAll(/@keyframes fx-[\w-]+ \{([^\n]*)\}\n/g)].map((m) => m[1]);
   assert.ok(keyframes.length >= 6, "fx keyframes not found");
@@ -2513,6 +2523,36 @@ test("Motion budget: at most three effects at once, each removed on time, the co
   assert.ok(made.slice(0, 3).every((el) => !el.isConnected), "an effect element stayed on the page");
   const strike = ctx.fx(ctx.node(), "wolfrun");
   assert.ok(strike && strike.kids.length >= 2, "the Wolf Run has no runner or trail");
+});
+
+test("Motion under load: long tasks past the budget drop effects a level for the cooldown, then it comes back", () => {
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  ctx.longTasks(300);
+  ctx.advance(5001);
+  ctx.longTasks(300);  // the first left the window, so this is 300 ms, not 600
+  assert.strictEqual(ctx.motionLevel(), 2, "dropped under the budget");
+  ctx.longTasks(250);
+  assert.strictEqual(ctx.motionLevel(), 1, "550 ms of long tasks in the window did not drop a level");
+  assert.strictEqual(ctx.document.documentElement.dataset.motionLevel, "1", "<html> still says the chosen level");
+  assert.strictEqual(ctx.fx(ctx.node(), "spark"), null, "a branded effect played under load");
+  assert.strictEqual(ctx.motionDiagnostics().skipped.level, 1);
+  ctx.advance(20000);
+  ctx.longTasks(600);  // more load during the cooldown neither drops again nor extends it
+  assert.strictEqual(ctx.motionLevel(), 1);
+  assert.strictEqual(ctx.motionDiagnostics().drop, 1);
+  ctx.advance(9999);
+  assert.strictEqual(ctx.motionLevel(), 1, "the cooldown ended early");
+  ctx.advance(1);
+  assert.strictEqual(ctx.motionLevel(), 2, "the cooldown ran past 30 s");
+  ctx.advance(50);
+  assert.strictEqual(ctx.document.documentElement.dataset.motionLevel, "2", "<html> was not told the level came back");
+  assert.ok(ctx.fx(ctx.node(), "spark"), "no spark after the cooldown");
+  const expressive = motionHarness({ settings: { motion_level: { value: 3 } } });
+  expressive.longTasks(600);
+  assert.strictEqual(expressive.motionLevel(), 2, "Expressive under load is not Refined");
+  const minimal = motionHarness({ settings: { motion_level: { value: 1 } } });
+  minimal.longTasks(600);
+  assert.strictEqual(minimal.motionLevel(), 1, "load took Minimal lower");
 });
 
 test("Forge events: every event names a real effect, unknown ones play nothing, and each is counted", () => {
@@ -4589,4 +4629,110 @@ test("Panel transitions: the dialog and tray go before anything fades, and the C
   const ins = [...css.matchAll(/\.mo-in[^{]*\{ animation: [\w-]+ (\d+)ms/g)];
   assert.ok(ins.length >= 4);
   for (const m of ins) assert.ok(+m[1] >= 150 && +m[1] <= 250, `${m[0]} is outside 150-250 ms`);
+});
+
+// The cooling spark (KF-MO-006): Validate, Prove and a confirmed publish cool; their failures are embers.
+test("Cooling spark: a passed check cools for 500 ms, then is gone; failures play the ember", () => {
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  const events = vm.runInContext("FORGE_EVENTS", ctx);
+  for (const name of ["validate.passed", "prove.matched", "publish.verified"]) assert.strictEqual(events[name], "cool", name);
+  for (const name of ["validate.failed", "prove.failed", "publish.failed"]) assert.strictEqual(events[name], "fail", name);
+  const badge = ctx.node();
+  const el = ctx.forgeEvent("validate.passed", badge);
+  assert.ok(el && el.cls.has("fx-cool") && el.attrs["aria-hidden"] === "true", "no cooling spark");
+  assert.strictEqual(ctx.live.textContent, "", "the cooling spark announced itself");
+  ctx.advance(599);
+  assert.strictEqual(badge.kids.length, 1, "removed before it finished cooling");
+  ctx.advance(1);
+  assert.strictEqual(badge.kids.length, 0, "the cooling spark stayed");
+  assert.strictEqual(motionHarness({ settings: { motion_level: { value: 2 }, motion_sparks: { value: false } } }).forgeEvent("prove.matched", ctx.node()), null,
+    "the cooling spark ignored the sparks switch");
+  assert.strictEqual(motionHarness({ settings: { motion_level: { value: 1 } } }).forgeEvent("publish.verified", ctx.node()), null, "it played at Minimal");
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  for (const rule of css.match(/@keyframes fx-cool-[a-z]+ \{[^\n]*\n/g)) assert.doesNotMatch(rule, /color|background|width|height|top|left/, "cooling animates more than transform and opacity");
+  const validate = fs.readFileSync(path.join(ui, "validate.js"), "utf8");
+  assert.match(validate, /if \(r\.state !== "cancelled"\) forgeEvent\(ok \? "validate\.passed" : "validate\.failed"/, "a cancelled clean run would play an effect");
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /if \(result\.id\) forgeEvent\("publish\.verified"/, "a publish cools before Fabric gave back the item");
+});
+
+// KF-MO-008 Achievement Reveal (profile.js profileEarned): one message and one reveal per new award,
+// nothing for an award already shown (this session or a stored one), kept per account.
+test("Achievement Reveal: a new award is announced and revealed once, a repeat never, and deleting the profile resets it", () => {
+  const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
+  const src = p.slice(p.indexOf("const PROFILE_CELEBRATED"), p.indexOf("registerFeature("));
+  const stored = {};
+  const said = [];
+  const revealed = [];
+  const toastEl = { id: "toast" };
+  const ctx = {
+    state: { user: "dev@contoso.com" }, RECORDING_ON: "Recording is on.",
+    localStorage: { getItem: (k) => stored[k] ?? null, setItem: (k, v) => { stored[k] = v; } },
+    setTimeout: (fn) => fn(),
+    toast: (text) => said.push(text),
+    forgeEvent: (name, anchor) => revealed.push([name, anchor.id]),
+    document: { getElementById: (id) => (id === "toast" ? toastEl : null) },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(`${src}; this.profileEarned = profileEarned; this.profileForget = profileForget;`, ctx);
+  const first = { id: "first-flame", name: "First Flame", xp: 50 };
+  const steady = { id: "steady-hand", name: "Steady Hand", xp: 100 };
+  ctx.profileEarned([first, steady]);
+  assert.deepStrictEqual(said, ["Achievement earned: First Flame (+50 XP), Steady Hand (+100 XP). See it in Profile. Recording is on."]);
+  assert.deepStrictEqual(revealed, [["achievement.unlocked", "toast"]], "not one reveal for the message");
+  ctx.profileEarned([first]);
+  ctx.profileEarned([]);
+  ctx.profileEarned(undefined);
+  assert.strictEqual(said.length, 1, "a repeat was announced");
+  assert.strictEqual(revealed.length, 1, "a repeat was revealed");
+  assert.deepStrictEqual(JSON.parse(stored["kf.profile.celebrated"]), ["dev@contoso.com|first-flame", "dev@contoso.com|steady-hand"]);
+  ctx.state.user = "other@contoso.com";  // another account's profile earns its own
+  ctx.profileEarned([first]);
+  assert.strictEqual(revealed.length, 2);
+  ctx.state.user = "dev@contoso.com";
+  ctx.profileForget();
+  assert.deepStrictEqual(JSON.parse(stored["kf.profile.celebrated"]), ["other@contoso.com|first-flame"], "deleting one profile forgot another's");
+  ctx.profileEarned([first]);
+  assert.strictEqual(revealed.length, 3, "an award earned again after deleting the profile stayed silent");
+  // Storage that can't be read or written still never repeats within the session.
+  ctx.localStorage.getItem = () => { throw new Error("blocked"); };
+  ctx.localStorage.setItem = () => { throw new Error("blocked"); };
+  ctx.profileEarned([first]);
+  assert.strictEqual(revealed.length, 3);
+  assert.match(p, /if \(await attempt\(\(\) => rpc\("profile_delete", \{\}\), "Could not delete your profile data"\)\) \{\n\s+profileForget\(\);/);
+});
+
+test("Remote runs (KF-MO-009): the navy wolf trots in an indeterminate bar, with no fill or count, and goes with the motion", () => {
+  const find = (n, cls) => [n, ...n.all()].find((k) => k.cls.has(cls)) || null;
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  const el = ctx.remoteProgress("Sales · Notebook run");
+  const bar = find(el, "progress");
+  assert.strictEqual(bar.attrs.role, "progressbar");
+  assert.strictEqual(bar.attrs["aria-label"], "Sales · Notebook run");
+  assert.strictEqual(bar.attrs["aria-valuetext"], "Running in Fabric");
+  for (const k of ["aria-valuenow", "aria-valuemax"]) assert.ok(!(k in bar.attrs), `an indeterminate bar has ${k}`);
+  assert.strictEqual(find(el, "wolf-idle")?.attrs["aria-hidden"], "true", "no wolf at Refined");
+  assert.ok(!find(el, "wolf-fill"), "a remote run has a fill");
+  assert.ok(find(el, "remote-where"), "nothing says where it runs");
+  for (const opts of [{ settings: { motion_level: { value: 1 } } }, { reduced: true }, { settings: { motion_level: { value: 2 }, motion_wolf: { value: false } } }]) {
+    const quiet = motionHarness(opts).remoteProgress("Sales · Notebook run");
+    assert.strictEqual(find(quiet, "wolf"), null, `a wolf trotted: ${JSON.stringify(opts)}`);
+    assert.ok(find(quiet, "indeterminate"), `the bar went with the wolf: ${JSON.stringify(opts)}`);
+    assert.ok(find(quiet, "remote-where"), "the words saying where it runs went with the wolf");
+  }
+  // The bar hides only while the wolf can show; only jobs the app started in Fabric get it.
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  assert.match(css, /\.wolf\.wolf-idle \{[^}]*animation: fx-trot/);
+  assert.match(css, /html\[data-motion="on"\]:not\(\[data-fx-wolf="off"\]\) \.progress\.remote:has\(\.wolf-idle\) > \.bar \{ display: none; \}/);
+  assert.match(fs.readFileSync(path.join(ui, "activity.js"), "utf8"), /const remoteActivity = \(i\) => String\(i\.id \|\| ""\)\.startsWith\("fabric:"\) && i\.progress === undefined;/);
+});
+
+test("SQL Forge events (KF-MO-005): a slow success sparks, a failure plays the ember, after the redraw", () => {
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  const events = vm.runInContext("FORGE_EVENTS", ctx);
+  assert.strictEqual(events["sql.succeeded"], "spark");
+  assert.strictEqual(events["sql.failed"], "fail");
+  const q = fs.readFileSync(path.join(ui, "query.js"), "utf8");
+  assert.match(q, /const SQL_SPARK_SECONDS = 2;/);
+  const run = /async function run\(query[\s\S]*?\n  }\n/.exec(q)[0];
+  assert.ok(run.lastIndexOf("runFx(status, allow)") > run.lastIndexOf("sqlPage.redraw?.()"), "the effect plays before the redraw replaces the pill");
 });

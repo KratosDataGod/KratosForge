@@ -35,6 +35,11 @@ report stay.
 | First Flame | Your first notebook passes Validate with a clean run | 50 |
 | Steady Hand | Five different notebooks have each passed Validate with a clean run | 100 |
 
+When Validate earns you an achievement, a short message names it (turn that off with **Settings >
+Achievement notifications**). Each achievement is announced once, even if you open the same Validate
+result again. With **Settings > Display > Motion & effects > Achievement celebrations** on (off by
+default), the message also gets a brief reveal; see [Forge animations](forge-animations.md).
+
 After the first, each **different** notebook that passes for the first time earns 10 XP, for up to
 three notebooks a day. New revisions of a notebook already counted earn no XP. Nothing rewards
 hours, run counts, lines of code or compute used.

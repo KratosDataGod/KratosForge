@@ -14,6 +14,7 @@ use tauri::webview::{NewWindowResponse, WebviewBuilder};
 use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
 
 mod engine_patch;
+mod policy_file;
 mod replies;
 mod update_guard;
 mod watchdog;
@@ -31,18 +32,23 @@ const BUILD_COMMIT: &str = env!("FABRIC_BUILD_COMMIT");
 /// The app (client) ID CI built in; the sidecar uses it unless policy or Settings name another.
 const BUILTIN_CLIENT_ID: &str = env!("FABRIC_BUILTIN_CLIENT_ID");
 
-/// Reads one key of a settings file; None when the file or key is missing.
-fn setting(path: PathBuf, key: &str) -> Option<String> {
-    let text = std::fs::read_to_string(path).ok()?;
+/// Reads one key of a settings file's text; None when the text isn't JSON or the key is missing.
+fn setting(text: &str, key: &str) -> Option<String> {
     let value: Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).ok()?;
     value.get(key)?.as_str().map(str::to_owned)
+}
+
+/// The organization's policy file (%ProgramData%\FabricDesktop\policy.json), or when it can't be
+/// read, the last copy the sidecar could read (policy_file.rs); empty for no policy.
+fn policy_text() -> String {
+    let Some(dir) = std::env::var_os("ProgramData") else { return String::new() };
+    policy_file::text(&PathBuf::from(dir).join("FabricDesktop").join("policy.json"), &data_dir().join("policy-last-good.json"))
 }
 
 /// Whether the app may update itself. An organization that rolls out builds itself sets
 /// `"auto_update": false` in its policy file; only that file can turn updates off.
 fn auto_update_allowed() -> bool {
-    let Some(dir) = std::env::var_os("ProgramData") else { return true };
-    policy_allows_updates(&std::fs::read_to_string(PathBuf::from(dir).join("FabricDesktop").join("policy.json")).unwrap_or_default())
+    policy_allows_updates(&policy_text())
 }
 
 fn policy_allows_updates(text: &str) -> bool {
@@ -52,7 +58,7 @@ fn policy_allows_updates(text: &str) -> bool {
 
 /// Extra hosts the Fabric view may open for sign-in: the organization's own identity provider
 /// (AD FS, Okta, Ping, ...), from `"fabric_view_sign_in_hosts"` in the policy file. Only that
-/// file can set it; a missing or unreadable file means none.
+/// file can set it; a missing or unreadable file means none (its last good copy isn't used).
 fn fabric_view_sign_in_hosts() -> Vec<String> {
     let Some(dir) = std::env::var_os("ProgramData") else { return Vec::new() };
     policy_sign_in_hosts(&std::fs::read_to_string(PathBuf::from(dir).join("FabricDesktop").join("policy.json")).unwrap_or_default())
@@ -124,12 +130,12 @@ mod policy_tests {
 }
 
 /// The release this PC updates from: "stable" or "latest" (the Preview channel). The
-/// organization's policy file wins over the Settings page, as in the sidecar's app_settings.py.
+/// organization's policy file (or its last good copy) wins over the Settings page, as in the
+/// sidecar's app_settings.py.
 fn release_tag() -> &'static str {
-    let policy = std::env::var_os("ProgramData").map(|d| PathBuf::from(d).join("FabricDesktop").join("policy.json"));
-    let user = data_dir().join("app-settings.json");
-    for path in policy.into_iter().chain([user]) {
-        match setting(path, "channel").as_deref() {
+    let user = std::fs::read_to_string(data_dir().join("app-settings.json")).unwrap_or_default();
+    for text in [policy_text(), user] {
+        match setting(&text, "channel").as_deref() {
             Some("preview") => return "latest",
             Some("stable") => return "stable",
             _ => {}
@@ -140,10 +146,23 @@ fn release_tag() -> &'static str {
 
 /// Where release builds get their engine: Python with the sidecar and every package it
 /// needs, built and (once a certificate is set up) code-signed by CI, so the PC's own
-/// Python and its unsigned packages are not involved. Stable falls back to Preview
-/// ("latest") while no build has been promoted, as the updater does.
-fn engine_tags() -> &'static [&'static str] {
-    if release_tag() == "stable" { &["stable", "latest"] } else { &["latest"] }
+/// Python and its unsigned packages are not involved. The channel's release, or with
+/// `"auto_update": false` only this build's own (update_guard::engine_tags).
+fn engine_tags() -> Vec<String> {
+    update_guard::engine_tags(auto_update_allowed(), release_tag(), BUILD_COMMIT)
+}
+
+/// With `"auto_update": false` the engine must be this exe's own build, never a newer one (#418).
+fn check_engine_build(commit: &str) -> Result<(), String> {
+    if auto_update_allowed() || commit.eq_ignore_ascii_case(BUILD_COMMIT) {
+        return Ok(());
+    }
+    Err(format!(
+        "Your organization rolls out builds itself, and the engine offered is build {}, not this app's build {}, \
+         so it wasn't installed. Ask IT for the current KratosForge exe.",
+        commit.get(..7).unwrap_or(commit),
+        BUILD_COMMIT.get(..7).unwrap_or(BUILD_COMMIT)
+    ))
 }
 
 /// Whether a failed download means the release has no such file (curl --fail reports HTTP 404),
@@ -655,7 +674,8 @@ async fn check_components() -> Result<Value, String> {
 
 /// Installs the sidecar from the commit this exe was built from, so the two always match:
 /// the bundled engine for release builds, else pip into the user's Python. Returns the
-/// engine's build, which can be newer than this exe when the release has moved on.
+/// engine's build, which can be newer than this exe when the release has moved on (never with
+/// `"auto_update": false`, which installs only this build's engine).
 #[tauri::command]
 async fn update_sidecar(app: tauri::AppHandle, state: tauri::State<'_, SidecarState>) -> Result<Value, String> {
     if BUILD_COMMIT.is_empty() {
@@ -694,8 +714,8 @@ fn run_tool(mut cmd: Command, what: &str) -> Result<(), String> {
     Err(format!("Could not {what}: {}", String::from_utf8_lossy(&out.stderr).trim()))
 }
 
-/// Downloads the latest engine and unpacks it to engine\<its commit>, then removes
-/// other builds' engines. Uses curl.exe and tar.exe, which come with Windows. When an installed
+/// Downloads the latest engine (with `"auto_update": false`, this build's) and unpacks it to
+/// engine\<its commit>, then removes other builds' engines. Uses curl.exe and tar.exe, which come with Windows. When an installed
 /// engine already has the release's Python and packages, only the engine's own code is
 /// downloaded (engine_patch.rs); the whole engine is the fallback.
 fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
@@ -722,8 +742,9 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
     let mut result = Err(String::new());
     let mut release = Value::Null;
     let mut release_tag_used = "";
-    for tag in engine_tags() {
-        release_tag_used = tag;
+    let tags = engine_tags();
+    for tag in &tags {
+        release_tag_used = tag.as_str();
         let mut curl = Command::new(system_tool("curl.exe"));
         // Give up on a dead or stalled connection (under 1 KB/s for a minute) instead of
         // leaving "Downloading the engine" up for ever; Retry is then shown.
@@ -757,6 +778,13 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
     }
     if let Err(e) = result {
         let _ = std::fs::remove_file(&zip);
+        if !auto_update_allowed() && missing_release_file(&e) {
+            return Err(format!(
+                "Your organization rolls out builds itself, and this app's build ({}) no longer has an engine to \
+                 download (release {release_tag_used}), so none was installed. Ask IT for the current KratosForge exe.",
+                BUILD_COMMIT.get(..7).unwrap_or(BUILD_COMMIT)
+            ));
+        }
         return Err(e);
     }
     // An out-of-date version.json would install an older engine than the channel last offered.
@@ -803,6 +831,10 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
              A new build may be being published; try again in a few minutes."
             .into());
     }
+    if let Err(e) = check_engine_build(&commit) {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(e);
+    }
     put_engine_in_place(&root, &staging, &commit)?;
     say(&format!("Installed engine build {}.", &commit[..7]));
     Ok(commit)
@@ -830,7 +862,8 @@ fn update_engine_code(root: &std::path::Path, nocache: u64, say: &dyn Fn(&str)) 
     let release_json = root.join("version.json");
     let mut release = Value::Null;
     let mut tag_used = "";
-    for tag in engine_tags() {
+    let tags = engine_tags();
+    for tag in &tags {
         let mut curl = Command::new(system_tool("curl.exe"));
         curl.args(["-L", "--fail", "-sS", "--connect-timeout", "20", "--max-time", "60", "-H",
                    "Cache-Control: no-cache", "-o"])
@@ -838,7 +871,7 @@ fn update_engine_code(root: &std::path::Path, nocache: u64, say: &dyn Fn(&str)) 
             .arg(format!("{}?nocache={nocache}", release_file(tag, "version.json")));
         match run_tool(curl, "read the engine's release") {
             Ok(()) => {
-                tag_used = tag;
+                tag_used = tag.as_str();
                 release = std::fs::read_to_string(&release_json)
                     .ok()
                     .and_then(|text| serde_json::from_str(text.trim_start_matches('\u{feff}')).ok())
@@ -860,6 +893,7 @@ fn update_engine_code(root: &std::path::Path, nocache: u64, say: &dyn Fn(&str)) 
     if root.join(&commit).exists() {
         return Ok(None);
     }
+    check_engine_build(&commit)?;
     let Some(source) = engine_patch::find_runtime(root, &runtime) else { return Ok(None) };
     let state = update_state();
     let seen = update_guard::check_manifest(&release, update_guard::load_seen(&state, tag_used).as_ref(), unix_now())?;

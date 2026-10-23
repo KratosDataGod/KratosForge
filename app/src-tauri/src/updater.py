@@ -41,13 +41,25 @@ def _settings(path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _policy(policy: Path, saved: Path) -> dict:
+    """The organization's policy file; when it exists but can't be read as a JSON object, the last
+    copy the sidecar could read (policy-last-good.json). A missing file is no policy."""
+    try:
+        data = json.loads(policy.read_text(encoding="utf-8-sig"))
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError):
+        data = None
+    return data if isinstance(data, dict) else _settings(saved)
+
+
 def channel() -> str:
-    """This PC's update channel: the organization's policy file wins over the Settings page.
-    The same rule as the sidecar's app_settings.py; this file can't import it."""
+    """This PC's update channel: the organization's policy file (or its last good copy) wins over
+    the Settings page. The same rule as the sidecar's app_settings.py; this file can't import it."""
     policy = Path(os.environ.get("ProgramData") or "/etc") / "FabricDesktop" / "policy.json"
     user = Path(os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()) / "FabricDesktop" / "app-settings.json"
-    for path in (policy, user):
-        value = _settings(path).get("channel")
+    for settings in (_policy(policy, user.with_name("policy-last-good.json")), _settings(user)):
+        value = settings.get("channel")
         if value in CHANNEL_TAGS:
             return value
     return "stable"

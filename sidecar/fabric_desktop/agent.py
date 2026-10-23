@@ -21,7 +21,7 @@ import os
 import signal
 import threading
 import time
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
@@ -425,6 +425,11 @@ class Agent:
             self.stopping.wait(self.config.poll_seconds)
         self.log.info("agent stopping: waiting for running jobs", extra=fields(running=list(self._running)))
         self.publish_status("stopping")
+        running = [f for f in self._running.values() if not f.done()]
+        while running:  # keep the record fresh, or a peer takes over a request still running here
+            running = list(wait(running, timeout=self.config.status_seconds).not_done)
+            if running:
+                self.publish_status("stopping")
         self._pool.shutdown(wait=True)
         self.publish_status("stopped")
         self.log.info("agent stopped")

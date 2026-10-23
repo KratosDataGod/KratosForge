@@ -555,7 +555,7 @@ Open Settings from the gear at the bottom of the left rail, or from the account 
 | **Usage data** (Preview) | Off unless you turn it on. Once a day it sends how often each action ran, failed and took, never your data or names. **See what's sent** shows the exact text. See [Usage data](telemetry.md). |
 | **Notifications** | **Teams alerts**: post new incidents (late and failed tables, missed objectives, agents that stopped) to a Teams channel, unless an agent already checks that environment. See [Freshness promises](metadata-guide.md#freshness-promises). **Platform notices** (Preview): Teams channels for platform requests and broken shortcuts. See [Platform notices](#platform-notices-preview). |
 | **Help and about** | This guide, **Report a problem**, the **Guide for IT admins**, the build, the engine's Python version and where the organization settings file is. |
-| **Advanced** | Folded until you open it: the App (client) ID, the notebook process and its limits, and the SQL query limits. See [Advanced settings](#advanced-settings). |
+| **Advanced** | Folded until you open it: the App (client) ID, the notebook process and its limits, OneLake writes, and the SQL query limits. See [Advanced settings](#advanced-settings). |
 
 Anything your organization has set shows "Set by your organization's policy" and can't be changed there.
 
@@ -579,6 +579,7 @@ At the bottom of **Settings > General**, folded. Click **Advanced** to open it; 
 | --- | --- |
 | **Sign-in** | The **App (client) ID**. Leave it empty: KratosForge then uses Microsoft's own Fabric sign-in and nobody registers an app. Only paste an ID if your organization gave you its own app ([Permissions](permissions.md#using-your-own-app-registration)). When an ID is in use, a note says so, where it came from and how to go back; if you set it here, **Use Microsoft's sign-in** clears it. |
 | **Notebooks** | **Run notebooks in their own process** (Preview) and, with it on, the **Cell time limit** and **Notebook memory limit**. |
+| **OneLake writes** | How notebooks on this PC write tables: **New notebooks write** (here, then upload in the background; or straight to OneLake, for a fast upload line), **Compression** (Zstandard or Snappy) and **Skip unchanged tables**. Each notebook can choose its own under **Runs on**. See [Writing to OneLake](architecture.md#writing-to-onelake). |
 | **SQL queries** | Rows per page, time limit, memory, queries at once, how long results are kept, and the **Temp folder**. See [Running SQL queries on this PC](sql-execution.md#limits). |
 
 When your organization's policy file sets one of these, or the `FABRIC_DESKTOP_CLIENT_ID` environment variable sets the App ID, the field shows the value it uses, can't be edited and says which: "Set by your organization's policy" or "Set by the FABRIC_DESKTOP_CLIENT_ID environment variable". To change an ID the variable sets, remove the variable (`setx FABRIC_DESKTOP_CLIENT_ID ""`) and restart KratosForge.

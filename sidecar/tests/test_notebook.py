@@ -84,7 +84,7 @@ def test_notebook_store_names_and_renames(tmp_path):
 
 
 def test_notebook_reads_local_files_and_writes_tables(tmp_path, monkeypatch):
-    def local_publish(data, ref, mode, token):
+    def local_publish(data, ref, mode, token, **_):
         path = tmp_path / "onelake" / ref.schema / ref.table
         write_deltalake(str(path), data, mode=mode)
         return DeltaTable(str(path))
@@ -282,7 +282,7 @@ def test_sql_result_saves_as_a_table_and_exports_csv(tmp_path, monkeypatch):
     service, _ = _sql_service(tmp_path, monkeypatch)
     written = {}
 
-    def local_publish(data, ref, mode, token):
+    def local_publish(data, ref, mode, token, **_):
         written[ref.table] = data
         path = tmp_path / "onelake" / ref.table
         write_deltalake(str(path), data, mode=mode)

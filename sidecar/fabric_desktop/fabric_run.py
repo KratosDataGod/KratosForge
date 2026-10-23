@@ -102,9 +102,11 @@ def _fabric_desktop_module(workspace_id, lakehouse_id, name, schemas, root=None,
     lh.read_table = lambda table: _pl.from_arrow(lh.open_table(table).to_pyarrow_table())
     lh.files = lambda directory="Files": sorted(f"{directory.rstrip('/')}/{n}" for n in _os.listdir(f"{mount}/{directory}"))
 
-    def write_table(data, table, mode="overwrite"):
+    def write_table(data, table, mode="overwrite", schema_mode=None, upload=None, skip_unchanged=None):
         if isinstance(data, _pl.LazyFrame):
             data = data.collect()
+        if hasattr(data, "read_all"):  # a stream of batches, as the PC takes: the session's memory holds it
+            data = data.read_all()
         arrow = data.to_arrow() if isinstance(data, _pl.DataFrame) else data
 
         def write(target, rows, how="overwrite"):

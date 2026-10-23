@@ -219,6 +219,7 @@ class ValidateMixin:
             record["_kernel"] = kernel
             kernel.notebook_name = record["name"]
             kernel.resources_dir = self._resources_dir(record["name"])  # type: ignore[attr-defined]
+            kernel.onelake_writes = self._onelake_writes(record["name"])  # type: ignore[attr-defined]
             if lakehouse_ref:
                 schemas = self._schemas_enabled(lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"])  # type: ignore[attr-defined]
                 pins = self._proof_tables(lakehouse_ref).versions()  # type: ignore[attr-defined]

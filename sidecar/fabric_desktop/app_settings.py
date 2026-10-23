@@ -57,6 +57,13 @@ Keys:
     local_retention_days  IT only: local copies of lakehouse data (file previews, staged writes, the
                      metadata framework's download cache) are deleted after this many days unused;
                      0 keeps them (default 30)
+    onelake_writes   "local_first" (default): a notebook cell's table writes are staged on this PC and
+                     upload in the background while the cell goes on; the cell ends when they're in.
+                     "direct": each write goes to OneLake before the next line runs
+    onelake_compression  "zstd" (default) or "snappy": the Parquet codec for tables written to
+                     OneLake from this PC. zstd files are about a quarter smaller, so they upload faster
+    onelake_skip_unchanged  true (default): an overwrite whose rows match what this app last wrote to
+                     the table uploads nothing and makes no new version
     sql_page_rows    the SQL page: rows on each page of a result (default 1000, 100 to 10000)
     sql_time_limit_minutes  the SQL page: minutes a query may run before it's stopped (default 10,
                      0 for no limit, at most 1440)
@@ -150,6 +157,12 @@ USER_KEYS += ("motion_level", *MOTION_SWITCHES)
 # Incident SLA targets (workloads/sla.py checks the shape and says what it ignored).
 DEFAULTS["incident_sla"] = {}
 TYPES["incident_sla"] = dict
+# OneLake writes from notebooks on this PC (lakehouse.write_table, publish). onelake_writes is the
+# default for notebooks that don't choose; each notebook can set its own.
+CHOICES = {"onelake_writes": ("local_first", "direct"), "onelake_compression": ("zstd", "snappy")}
+DEFAULTS.update({"onelake_writes": "local_first", "onelake_compression": "zstd", "onelake_skip_unchanged": True})
+TYPES.update({"onelake_writes": str, "onelake_compression": str, "onelake_skip_unchanged": bool})
+USER_KEYS += ("onelake_writes", "onelake_compression", "onelake_skip_unchanged")
 # Read by integrations/policy.py, which decides what each means; listed here so the policy file has
 # one list of settings.
 INTEGRATION_KEYS = ("integrations", "integrations_max_permissions", "integrations_http", "integrations_extensions",
@@ -297,6 +310,8 @@ def policy_problems() -> list[str]:
                             + (", so it takes its most restrictive value" if key in RESTRICTED else ""))
         elif key == "channel" and value not in CHANNELS:
             problems.append(f"channel must be one of {', '.join(CHANNELS)}")
+        elif key in CHOICES and value not in CHOICES[key]:
+            problems.append(f"{key} must be one of {', '.join(CHOICES[key])}")
         elif key == "motion_level" and not MOTION_LEVELS[0] <= value <= MOTION_LEVELS[1]:
             problems.append(f"motion_level must be between {MOTION_LEVELS[0]} and {MOTION_LEVELS[1]}")
         elif key in SQL_RANGES and not SQL_RANGES[key][0] <= value <= SQL_RANGES[key][1]:
@@ -406,6 +421,8 @@ def _in_range(key: str, value: Any) -> bool:
         return 0 <= value <= LIMITS[key]
     if key == "motion_level":
         return MOTION_LEVELS[0] <= value <= MOTION_LEVELS[1]
+    if key in CHOICES:
+        return value in CHOICES[key]
     return True
 
 
@@ -478,6 +495,8 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
                              f"here wouldn't be used. Remove the variable and restart KratosForge to set it here")
         if key == "channel" and new not in CHANNELS:
             raise ValueError(f"channel must be one of {', '.join(CHANNELS)}")
+        if key in CHOICES and new not in (None, "", *CHOICES[key]):
+            raise ValueError(f"{key} must be one of {', '.join(CHOICES[key])}")
         if key in SQL_RANGES:
             new = _sql_number(key, new)
         if key == "sql_temp_dir":
@@ -486,7 +505,7 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
             new = str(new or "").strip()
             if new and not valid_client_id(new):
                 raise ValueError("That isn't an app (client) ID. It looks like 00000000-0000-0000-0000-000000000000.")
-        if key in ("show_preview", "kernel_process", "telemetry", "forge_animations", *MOTION_SWITCHES):
+        if key in ("show_preview", "kernel_process", "telemetry", "forge_animations", "onelake_skip_unchanged", *MOTION_SWITCHES):
             new = bool(new)
         if key == "motion_level" and new is not None and (
                 isinstance(new, bool) or not isinstance(new, int) or not MOTION_LEVELS[0] <= new <= MOTION_LEVELS[1]):

@@ -491,7 +491,9 @@ class Service(AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineR
                  notebook: str | None = None) -> dict[str, Any]:
         self._replay_guard(None)
         self._attach(lakehouse_ref)
-        return self.sessions.kernel(notebook).run(code)
+        kernel = self.sessions.kernel(notebook)
+        kernel.onelake_writes = self._onelake_writes(notebook)
+        return kernel.run(code)
 
     # The app runs cells with start_cell, then polls: output shows while the cell runs, and
     # interrupt_cell stops it without clearing variables.
@@ -531,6 +533,7 @@ class Service(AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineR
             # Values set in the Widgets bar, so a cell that creates a widget and reads it gets them.
             kernel.widget_values = dict((self._saved_inputs(notebook) or {}).get("widgets") or {})
             kernel.resources_dir = self._resources_dir(notebook)
+            kernel.onelake_writes = self._onelake_writes(notebook)
             if isinstance(kernel, ProcessKernel):
                 return kernel.start(code, time_limit=time_limit, watches=check_watches(watches),
                                     breakpoints=breakpoints, step=bool(step))
@@ -895,7 +898,27 @@ class Service(AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineR
         self.sessions.active = name  # its session, if it has one, is the one Run, Stop and proofs use
         self.sessions.reap_idle()
         return self._with_place(nb) | {"check": compute_check(nb["cells"], nb["lakehouse"]),
-                                       "replay": self.notebooks.extra(name, "replay")}  # a replay notebook (prove_service)
+                                       "replay": self.notebooks.extra(name, "replay"),  # a replay notebook (prove_service)
+                                       "onelake_writes": self.notebooks.extra(name, "onelake_writes")}
+
+    def _onelake_writes(self, name: str | None) -> str:
+        """How the notebook's cells write to OneLake: its own choice, else the Settings default."""
+        mode = None
+        if name:
+            try:
+                mode = self.notebooks.extra(name, "onelake_writes")
+            except (OSError, ValueError):  # not saved yet
+                mode = None
+        return mode if mode in lakehouse.UPLOADS else app_settings.value("onelake_writes")
+
+    def notebook_onelake_writes_set(self, name: str, mode: str | None) -> dict[str, Any]:
+        """Keeps the notebook's own OneLake writes choice: "local_first" (write here, upload in the
+        background, the cell ends when it's in), "direct" (each write returns once it's in OneLake),
+        or None to follow Settings. Takes effect from the next cell run."""
+        if mode not in (None, "", *lakehouse.UPLOADS):
+            raise ValueError(f"OneLake writes must be one of {', '.join(lakehouse.UPLOADS)}")
+        self.notebooks.set_extra(name, "onelake_writes", mode or None)
+        return {"onelake_writes": mode or None, "effective": self._onelake_writes(name)}
 
     def notebook_inputs(self, name: str, cells: list[dict[str, Any]]) -> dict[str, Any]:
         """The Parameters and Widgets bar for these cells, with the values saved for the notebook."""

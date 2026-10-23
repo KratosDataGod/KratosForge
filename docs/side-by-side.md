@@ -60,6 +60,8 @@ When a run **overwrites** a table, the whole table is compared. When a run only 
 
 Write outputs with `mode="overwrite"` (the default of `lakehouse.write_table`) for the cleanest comparison.
 
+The local time includes uploading what the notebook writes, and on most lines that upload is most of it. The notebook's **Runs on > Table writes to OneLake** choice decides how: written here and uploaded in the background (the default), or straight to OneLake. A rerun whose tables come out the same uploads nothing for them, so a second run of the TPC-H data notebook is much faster than the first; it says "unchanged" for each table it skipped ([Writing to OneLake](architecture.md#writing-to-onelake)).
+
 ### Time and cost
 
 The time on this PC runs from the start of the first cell to the end of the last. The Fabric time runs from Run all to the end of the job, so it includes publishing, queueing and starting a session: what someone waiting for the result sees. The session-start and run split comes from the timing cells; if they couldn't save their file, only the job time is shown.

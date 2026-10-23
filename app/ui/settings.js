@@ -706,12 +706,34 @@ function advancedSection(s, locked, limitRow) {
     s.kernel_process.value && s.kernel_idle_minutes ? limitRow("kernel_idle_minutes", "Stop idle sessions after",
       "A notebook you haven't run for this long, and don't have open, has its process stopped to give back memory. Its variables are cleared.",
       [[0, "Never"], [20, "20 minutes"], [60, "1 hour"], [240, "4 hours"]]) : null) : null;
+  const onelake = s.onelake_writes ? oneLakeWritesSection(s, locked) : null;
   // SQL queries (SQL-003): the limits every SQL page query runs with on this PC.
   const sql = s.sql_page_rows ? sqlSettingsSection(s, locked) : null;
   return foldable("settings.advanced", h("h2", {}, "Advanced"), [
     h("p", { class: "muted-text small" }, "Most people never need these: your own app registration, and the limits notebooks and SQL queries run with on this PC. ",
       learnMore("advanced-settings")),
-    signInGroup, kernel, sql].filter(Boolean), { start: true, cls: "card pad advanced" });
+    signInGroup, kernel, onelake, sql].filter(Boolean), { start: true, cls: "card pad advanced" });
+}
+
+// How notebooks on this PC write lakehouse tables (lakehouse.write_table). onelake_writes is only the
+// default: each notebook can choose its own under Runs on.
+const ONELAKE_WRITES = [["local_first", "Write here, then upload"], ["direct", "Straight to OneLake"]];
+function oneLakeWritesSection(s, locked) {
+  const choice = (key, title, help, options) => settingRow(title, help,
+    h("select", { "aria-label": title, disabled: locked(key) ? true : null,
+      onchange: async (e) => { if (await saveSettings({ [key]: e.target.value })) render(); } },
+      options.map(([v, label]) => h("option", { value: v, selected: v === s[key].value ? true : null }, label))),
+    fixedBy(s, key));
+  return h("div", { class: "advanced-group" }, h("h3", {}, "OneLake writes"),
+    choice("onelake_writes", "New notebooks write", "Write here, then upload: a cell's table writes are kept on this PC and upload in the background while the cell goes on; the cell ends when they're in OneLake. Straight to OneLake: each write returns once it's uploaded, which suits a fast upload line. Each notebook can choose its own under Runs on.",
+      ONELAKE_WRITES),
+    choice("onelake_compression", "Compression", "Zstandard files are about a quarter smaller than Snappy, so they upload sooner, and cost the same to write. Fabric's SQL analytics endpoint reads both. Choose Snappy if a Fabric reader you use can't read Zstandard.",
+      [["zstd", "Zstandard"], ["snappy", "Snappy"]]),
+    settingRow("Skip unchanged tables", "A table overwritten with exactly the rows it already holds isn't uploaded again. KratosForge keeps a fingerprint of the rows in the table's Delta log to tell.",
+      h("label", { class: "switch" }, h("input", { type: "checkbox", checked: s.onelake_skip_unchanged.value ? true : null, disabled: locked("onelake_skip_unchanged") ? true : null,
+        onchange: async (e) => { await saveSettings({ onelake_skip_unchanged: e.target.checked }); render(); } }),
+      h("span", {}, s.onelake_skip_unchanged.value ? "On" : "Off")),
+      fixedBy(s, "onelake_skip_unchanged")));
 }
 
 // The SQL page's limits. Each is checked by the engine (app_settings.SQL_RANGES); a value set by the

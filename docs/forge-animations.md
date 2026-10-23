@@ -24,7 +24,7 @@ At Refined and Expressive, a switch for each family turns it off:
 | Switch | Effects |
 | --- | --- |
 | Wolf animations | The wolf on Run all progress, its arrival, the Wolf Run after long work |
-| Forge sparks | Forge Spark, Anvil Strike, the failure ember |
+| Forge sparks | Forge Spark, Anvil Strike, the cooling spark, the failure ember |
 | Running indicators | The glow on a running cell, the flow into a running pipeline step, the ring when Run all starts |
 
 **Preview effects** plays each effect on a sample, and runs a three-step sample pipeline on this PC
@@ -60,6 +60,9 @@ Every key can be fixed in the policy file ([Azure setup](azure-setup.md#4-push-s
 | A pipeline activity runs | **Energy Flow**: the link into the running activity carries a moving dash; each activity says Queued, In progress, Succeeded, Failed, Skipped or Cancelled in words | pipeline flow | while running |
 | A pipeline activity finishes | It settles with one glow (succeeded) or the failure ember | the activity | 0.45 s |
 | A pipeline run succeeds | **Anvil Strike** (shown in Preview effects until the pipeline run screen arrives) | the run's result | 0.65 s |
+| A Validate clean run passes (Ready, or Ready with warnings) | **Cooling spark**: the verdict glows forge orange, then cools to the success colour. A run that isn't ready gets the failure ember beside its verdict; a cancelled run plays nothing | the Validate verdict | 0.5 s |
+| Prove finds both runs made the same results | **Cooling spark** on the **Same** verdict; **Differs** or a failed proof gets the failure ember | the Prove verdict | 0.5 s |
+| Publish to Fabric, once Fabric gives back the notebook item it saved | **Cooling spark** on the "Published" message; a failed publish gets the failure ember beside the error | beside the message | 0.5 s |
 | A platform deployment succeeds (Source control) | **Anvil Strike**: a small anvil drops onto the "Deployed" message and two sparks fly. No shake, no flash | beside the message | 0.65 s |
 | Your developer profile records a milestone | **Achievement Reveal**: a ring and an offset outline reveal the badge once. Off unless you turn on **Achievement celebrations**, which appears when the developer profile ships | the badge | 0.9 s |
 

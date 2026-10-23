@@ -23,6 +23,7 @@ const MOTION = {
   strike: { ms: 650, gap: 1500, level: 2, family: "sparks", build: anvilParts },  // a deployment succeeded
   wolfrun: { ms: 900, gap: 5000, level: 2, family: "wolf", build: wolfRunParts },  // long work finished
   achieve: { ms: 900, gap: 3000, level: 2, family: "achievements" },  // for the developer profile (#327)
+  cool: { ms: 500, gap: 300, level: 2, family: "sparks" },       // a check passed: the badge glows orange and cools
 };
 // What happened -> the effect it plays. Only finished, real state changes are listed; nothing here
 // is told about work before it is confirmed.
@@ -40,6 +41,12 @@ const FORGE_EVENTS = {
   "deploy.succeeded": "strike",
   "deploy.failed": "fail",
   "achievement.unlocked": "achieve",
+  "validate.passed": "cool",
+  "validate.failed": "fail",
+  "prove.matched": "cool",
+  "prove.failed": "fail",
+  "publish.verified": "cool",
+  "publish.failed": "fail",
 };
 // Runs shorter than this never show the progress track, so quick runs don't flash it.
 const WOLF_DELAY_MS = 600;

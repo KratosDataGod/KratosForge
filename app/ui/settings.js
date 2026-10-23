@@ -376,6 +376,7 @@ function showMotionGallery() {
   const failed = sample("Failed", "bad");
   const run = h("button", { class: "tool outline small", tabindex: "-1", "aria-hidden": "true" }, "Run all");
   const deployed = sample("Deployed 4 steps.");
+  const passed = sample("Ready: no errors or warnings");
   const lane = h("span", { class: "motion-lane" }, "Kernel idle");
   const trackHost = h("span", { class: "motion-track" });
   const flowHost = h("div", { class: "motion-flow" });
@@ -421,6 +422,7 @@ function showMotionGallery() {
     }),
     row("Wolf Run", "A cell that ran 10 s or more succeeded.", lane, () => forgeEvent("notebook.long.succeeded", lane)),
     row("Anvil Strike", "A deployment succeeded.", deployed, () => forgeEvent("deploy.succeeded", deployed)),
+    row("Cooling spark", "Validate passed, a proof matched, or Fabric confirmed a publish.", passed, () => forgeEvent("validate.passed", passed)),
     h("div", { class: "motion-demo" }, h("div", {}, h("b", {}, "Energy Flow"),
       h("div", { class: "muted-text small" }, "A pipeline's activities as they really run: the link into the running step flows, a finished step settles.")),
     h("div", { class: "motion-target" }, flowNote), btn("Run sample on this PC", "play", runPipeline, "tool small")),

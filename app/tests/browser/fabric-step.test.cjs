@@ -80,7 +80,8 @@ test("Insert V-Order cell ticks the tables the notebook names and writes OPTIMIZ
 
 test("Run all runs cell 1 here, confirms, sends only the last cell to Fabric and shows the V-Order check", { skip }, async () => {
   result = { status: "Completed", url: "https://app.fabric.microsoft.com/groups/ws/synapsenotebooks/item-1", output: { stdout: "optimized\n", error: null },
-    tables: [{ table: "gold.fact_sales", v_ordered: true, files: 4 }, { table: "gold.dim_customer", v_ordered: false, files: 1 }] };
+    tables: [{ table: "gold.fact_sales", v_ordered: true, files: 4, checked: 4, v_ordered_files: 4 },
+      { table: "gold.dim_customer", v_ordered: false, files: 1, checked: 1, v_ordered_files: 0 }] };
   const run = page().evaluate(() => runAll());
   await cell(0).getByText("wrote gold.fact_sales").waitFor({ timeout: 60000 });
   const dialog = page().locator(".dialog, [role=dialog]").last();
@@ -99,10 +100,11 @@ test("Run all runs cell 1 here, confirms, sends only the last cell to Fabric and
   assert.match(await cell(1).innerText(), /Succeeded\s+Fabric step[\s\S]*Completed on Fabric[\s\S]*optimized/);
   assert.match(await cell(1).innerText(), /gold\.dim_customer not V-Ordered/);
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "fabric-step-done.png") });
-  // Rewrite all files puts every file of the table that wasn't rewritten in scope.
+  assert.strictEqual(await cell(1).locator(".vorder-chip.warn").getAttribute("title"), "0 of 1 files V-Ordered");
+  // Rewrite all files writes the table OPTIMIZE left alone back with V-Order.
   await cell(1).getByRole("button", { name: "Rewrite all files" }).click();
-  await page().waitForFunction(() => state.notebook.cells[1].source.includes("minFileSize"));
-  assert.match(await page().evaluate(() => state.notebook.cells[1].source), /OPTIMIZE `gold`\.`dim_customer` VORDER/);
+  await page().waitForFunction(() => state.notebook.cells[1].source.includes("rewrite_with_vorder"));
+  assert.match(await page().evaluate(() => state.notebook.cells[1].source), /rewrite_with_vorder\("`gold`\.`dim_customer`"\)/);
   assert.deepStrictEqual(app.errors, []);
 });
 

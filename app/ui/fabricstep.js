@@ -166,13 +166,14 @@ function fabricStepOutput(o, cell) {
   const head = h("div", { class: "fabric-step-line" }, h("span", {}, o.text || `${label}${time}`),
     o.url ? h("a", { href: "#", onclick: (e) => { e.preventDefault(); openInFabric(o.url); } }, "Open the run in Fabric") : null,
     running && o.run ? btn("Cancel", null, () => attempt(() => rpc("cancel_fabric_run", { workspace_id: o.run.workspace_id, item_id: o.run.item_id, job_id: o.run.job_id }), "Could not cancel"), "tool small outline") : null);
+  const counted = (t) => t.checked != null ? `${t.v_ordered_files} of ${t.checked}${t.checked < t.files ? ` newest (of ${t.files})` : ""} files V-Ordered` : "";
   const tables = (o.tables || []).map((t) => h("span", { class: `vorder-chip ${t.v_ordered ? "ok" : t.v_ordered === false ? "warn" : ""}`,
-    title: t.message || (t.v_ordered ? `OPTIMIZE by Fabric since the last write${t.last_optimize ? `, ${t.last_optimize}` : ""}` : "No Fabric OPTIMIZE since the last write") },
+    title: t.message || counted(t) },
   t.v_ordered ? icon("ok", 12) : null, `${t.table} ${t.v_ordered ? "V-Ordered" : t.v_ordered === false ? "not V-Ordered" : "not checked"}`));
   const missed = (o.tables || []).filter((t) => t.v_ordered === false).map((t) => t.table);
   return h("div", { class: "output fabric-step-output" }, head,
-    tables.length ? h("div", { class: "vorder-chips" }, tables, h("span", { class: "muted-text small" }, "Checked from each table's Delta log after the run.")) : null,
+    tables.length ? h("div", { class: "vorder-chips" }, tables, h("span", { class: "muted-text small" }, "Checked from each file's Parquet footer after the run.")) : null,
     missed.length && cell ? h("div", { class: "fabric-step-line" },
-      h("span", {}, "OPTIMIZE may have left these tables' files alone because they were already large."),
+      h("span", {}, "OPTIMIZE leaves alone a file it has nothing to compact with. Rewrite all files writes each table back with V-Order."),
       btn("Rewrite all files", null, () => setVOrderSource(cell, missed, true), "tool small outline")) : null);
 }

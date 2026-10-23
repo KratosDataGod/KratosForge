@@ -238,6 +238,7 @@ function sbsResult(nb, s) {
         f.url ? h("a", { href: "#", onclick: (e) => { e.preventDefault(); openInFabric(f.url); } }, "Open the run in Fabric") : null)),
     s.speed?.end_to_end ? h("b", {}, s.speed.end_to_end) : null,
     s.speed?.run ? h("span", {}, s.speed.run) : null,
+    local.message ? h("div", { class: "problems" }, `This PC: ${local.message}`) : null,
     f.message ? h("div", { class: "problems" }, `Fabric: ${f.message}`) : null,
     rows.length ? h("div", { class: "sbs-table" },
       h("div", { class: "sbs-tr head" }, h("span", {}, "Table written"), h("span", {}, "Rows: this PC"), h("span", {}, "Rows: Fabric"),

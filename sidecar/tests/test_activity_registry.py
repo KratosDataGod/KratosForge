@@ -27,7 +27,7 @@ EXAMPLE = HERE.parent.parent / "docs" / "orchestration" / "examples" / "orders-d
 
 # Fingerprint of every entry. A change to an entry changes it: bump REGISTRY_VERSION, add a line to
 # the changelog in docs/orchestration/activity-registry.md, then record the new fingerprint here.
-FINGERPRINTS = {"1": "2949500357d2", "2": "24ea20e1e271", "3": "d5a083b3b021", "4": "d008b0f371dc", "5": "9e1f0c6f7840"}
+FINGERPRINTS = {"1": "2949500357d2", "2": "24ea20e1e271", "3": "d5a083b3b021", "4": "d008b0f371dc", "5": "9e1f0c6f7840", "6": "907754475559"}
 
 
 @pytest.fixture(autouse=True)
@@ -82,10 +82,11 @@ def test_nothing_is_locally_executable_without_an_adapter_and_tests():
     for e in ENTRIES:
         if e.classification in ("local", "simulated"):
             assert e.adapter.can_execute and e.evidence != "none", e.type
-    # ORCH-003's control-flow adapters and ORCH-004's Notebook are the only ones that run here.
+    # ORCH-003's control-flow adapters, ORCH-004's Notebook and P1's Lookup and Get Metadata are the only ones
+    # that run here.
     local = {e.type for e in ENTRIES if e.classification in ("local", "simulated")}
     assert local == {"SetVariable", "AppendVariable", "IfCondition", "Switch", "ForEach", "Until", "Wait", "Fail",
-                     "Filter", "ExecutePipeline", "InvokePipeline", "TridentNotebook"}
+                     "Filter", "ExecutePipeline", "InvokePipeline", "TridentNotebook", "Lookup", "GetMetadata"}
 
 
 def test_cloud_activities_need_capacity_and_fabric_items_are_cloud():
@@ -251,7 +252,7 @@ def test_fixture_report():
     r = PipelineMixin().pipeline_compatibility(path=str(FIXTURES / "orders_daily.json"))
     s = r["summary"]
     assert r["ok"] is True and s["activities"] == 18
-    assert s["by_classification"] == {"local": 12, "simulated": 0, "static": 5, "cloud": 0, "unsupported": 1}
+    assert s["by_classification"] == {"local": 14, "simulated": 0, "static": 3, "cloud": 0, "unsupported": 1}
     assert s["runs_on_this_pc"] is False and s["verified_against_fabric"] == []
     assert {"name": "Copy file to bronze", "classification": "simulated", "stage": "later (not scheduled)"} in \
         s["planned_to_run_on_this_pc"]
@@ -274,7 +275,7 @@ def test_activities_that_cant_run_here_are_never_reported_free():
     r = PipelineMixin().pipeline_compatibility(path=str(FIXTURES / "orders_daily.json"))
     s = r["summary"]
     assert s["runs_on_this_pc"] is False
-    assert s["activities"] == 18 and len(s["needs_fabric_capacity"]) == 6
+    assert s["activities"] == 18 and len(s["needs_fabric_capacity"]) == 4
     assert "Alert on failure" in s["needs_fabric_capacity"]
     assert any("meters every activity run" in n for n in r["notes"])
 
@@ -338,7 +339,7 @@ def test_cli_compat(capsys):
     assert done.value.code == 0
     out = capsys.readouterr().out
     assert "unsupported Alert on failure [ContosoPagerNotify]" in out
-    assert "overall: unsupported; runs on this PC: no; needs Fabric capacity: 6 of 18 activities" in out
+    assert "overall: unsupported; runs on this PC: no; needs Fabric capacity: 4 of 18 activities" in out
     assert "these can't run on this PC yet, and Fabric meters every activity run" in out
 
 

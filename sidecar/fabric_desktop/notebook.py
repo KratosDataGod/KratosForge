@@ -719,6 +719,8 @@ class Kernel:
         out = display(value)
         if out["type"] == "table":
             out["frame"] = self.frames.keep(value)
+            if type(value).__module__.startswith("duckdb.experimental.spark"):
+                out["spark"] = True  # it has a query to profile (spark_local.query_profile)
         return out
 
     # ---- ipywidgets (widgets.py): a control changed in the app
@@ -808,6 +810,9 @@ class Kernel:
 
     def frame_wrangle(self, frame: str, steps: list[dict[str, Any]], name: str = "df") -> dict[str, Any]:
         return self.frames.wrangle(frame, steps, name)
+
+    def frame_query_profile(self, frame: str) -> dict[str, Any]:
+        return self.frames.query_profile(frame)
 
     def frame_download(self, frame: str, format: str, path: str) -> dict[str, Any]:  # noqa: A002 - RPC name
         return self.frames.download(frame, format, path)

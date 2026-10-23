@@ -267,9 +267,12 @@ class SideBySideMixin:
             record["state"] = "checking"
             after_fabric = tables.versions()
             record["tables"] = sbs.compare(tables, before, after_local, after_fabric)
-            record["verdict"] = sbs.verdict(record["tables"], record["local"]["status"], record["fabric"]["status"])
+            record["verdict"] = sbs.verdict(record["tables"], record["local"]["status"], record["fabric"]["status"],
+                                            record["local"].get("failed_cell"))
             f = record["fabric"]
-            record["speed"] = sbs.speed(record["local"]["seconds"], f.get("total_seconds"), f.get("run_seconds"))
+            if record["local"]["status"] == "ok" and f["status"] == "ok":
+                # A run that stopped early isn't faster, it's shorter.
+                record["speed"] = sbs.speed(record["local"]["seconds"], f.get("total_seconds"), f.get("run_seconds"))
             record["state"] = "done"
         except _Cancelled:
             record["state"], record["message"] = "cancelled", "Cancelled."
@@ -309,6 +312,9 @@ class SideBySideMixin:
             if snap["status"] != "ok":
                 status = "cancelled" if record["_cancel"] else "failed"
                 local["failed_cell"] = i + 1
+                err = next((o for o in reversed(local["cells"][str(i)]["outputs"]) if o.get("type") == "error"), None)
+                if err:
+                    local["message"] = f"{err.get('ename', 'Error')}: {err.get('evalue', '')}".strip()[:1000]
                 break
         local["seconds"] = round(time.monotonic() - started, 2)
         local["status"] = status

@@ -162,6 +162,9 @@ class Host:
     def frame_wrangle(self, **args: Any) -> dict[str, Any]:
         return self.kernel.frame_wrangle(**args)
 
+    def frame_query_profile(self, **args: Any) -> dict[str, Any]:
+        return self.kernel.frame_query_profile(**args)
+
     def ipywidget_event(self, **args: Any) -> dict[str, Any]:
         return self.kernel.ipywidget_event(**args)
 
@@ -175,7 +178,7 @@ class Host:
         return {"pid": os.getpid(), "python": sys.version.split()[0]}
 
     OPS = ("start", "poll", "interrupt", "debug", "variables", "variable_detail", "complete", "inspect", "attach", "bind_proof", "unbind_proof",
-           "finish_proof", "proof_log", "reads", "frame_page", "frame_profile", "frame_chart", "frame_wrangle", "ipywidget_event", "frame_download", "forget_guest", "ping")
+           "finish_proof", "proof_log", "reads", "frame_page", "frame_profile", "frame_chart", "frame_wrangle", "frame_query_profile", "ipywidget_event", "frame_download", "forget_guest", "ping")
 
     def handle(self, message: dict[str, Any]) -> None:
         mid = message.get("id")

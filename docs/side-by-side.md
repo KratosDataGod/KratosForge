@@ -19,7 +19,7 @@ The notebook must be able to run in both places. The check above the cells says 
 
 Run all goes through three steps, shown in a panel above the cells:
 
-1. **Run on this PC.** The kernel restarts, so the run starts clean as Fabric's does, and every code cell runs in order. Cell output shows in the notebook as usual. If a cell fails, the run on this PC stops there, and the comparison still goes on to Fabric, so you see which side breaks.
+1. **Run on this PC.** The kernel restarts, so the run starts clean as Fabric's does, and every code cell runs in order. Cell output shows in the notebook as usual. If a cell fails, the run on this PC stops there, and the comparison still goes on to Fabric, so you see which side breaks. The result shows this PC's error under the timings; when both sides fail, fix that one first, since the same code usually fails in Fabric for the same reason (Fabric's own message, such as *System cancelled the Spark session due to statement execution failures*, rarely says why).
 2. **Run in Fabric.** The notebook is published to its workspace (the same as **Publish to OneLake**) and started with Fabric's job scheduler, as **Run in Fabric** does. It shows in **Monitor** and in Fabric's Monitoring hub. The published copy gets two extra cells, one first and one last, that time the notebook's own cells inside Fabric. They aren't added to your notebook on this PC, and the next ordinary publish removes them.
 3. **Check the outputs.** Every table either run wrote is compared.
 
@@ -34,7 +34,7 @@ The runs go one after the other, not at the same moment, so they never write the
 | The top line | **Same results in both places**, **Results differ in N tables**, or which side failed |
 | This PC | Time from the first cell to the last, and the PC's cores and memory. No Fabric job starts; its OneLake reads and writes still use some capacity, which isn't measured. |
 | Fabric | Time from Run all to the end of the Fabric job, split into the **session start** (Fabric starting a session and queueing) and the **run** (the notebook's cells). Below it, the estimated CU-seconds and cost. |
-| Faster | Which side was faster end to end, and on run time alone with Fabric's session start left out |
+| Faster | Which side was faster end to end, and on run time alone with Fabric's session start left out. Left out when either side failed, since a run that stopped early is only shorter. |
 | Tables | Each table written: rows on each side, whether the columns match, and the result |
 
 A table's result is one of:

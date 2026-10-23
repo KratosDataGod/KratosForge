@@ -527,6 +527,11 @@ class ProcessKernel:
             raise FrameGone(GONE)
         return self._request("frame_profile", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame)
 
+    def frame_query_profile(self, frame: str) -> dict[str, Any]:
+        if not self.alive():
+            raise FrameGone(GONE)
+        return self._request("frame_query_profile", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame)
+
     def ipywidget_event(self, model: str, event: dict[str, Any], root: str | None = None) -> dict[str, Any]:
         """A control changed in the app; its handlers run in the cell process (widgets.py)."""
         if not self.alive():

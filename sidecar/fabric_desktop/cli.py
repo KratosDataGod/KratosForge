@@ -108,6 +108,9 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--allow-uncontained", action="store_true",
                    help="let notebooks call the network or read files on this PC")
     p.add_argument("--keep-outputs", action="store_true", help="keep the run's folder in the lakehouse")
+    p.add_argument("--read-lakehouse", action="store_true",
+                   help="let Lookup and Get Metadata read the lakehouse their dataset names (reads only)")
+    p.add_argument("--workspace", metavar="ID", help="the pipeline's own workspace, for datasets that leave it out")
     p.add_argument("--json", action="store_true", help="print the whole run record as JSON")
     args = parser.parse_args(argv)
 
@@ -325,17 +328,24 @@ def _pipeline_run(args: argparse.Namespace) -> int:
         print(f"error: {exc}")
         return 2
     params = dict(item.partition("=")[::2] for item in args.param)
-    run_id, notebooks = str(uuid.uuid4()), None
+    run_id, notebooks, data = str(uuid.uuid4()), None, None
+    if args.notebook or args.read_lakehouse:
+        svc = Service()
     if args.notebook:
         from .pipeline_notebooks import LocalNotebooks
-        svc = Service()
         notebooks = LocalNotebooks(svc, run_id, dict(item.partition("=")[::2] for item in args.notebook),
                                    args.allow_uncontained, args.keep_outputs)
+    if args.read_lakehouse:
+        from .pipeline_data import LocalData
+        data = LocalData(svc, run_id, notebooks, args.workspace)
     run = PipelineRun(imp, parameters=params, mocks=mocks, children=children, max_parallel=args.max_parallel,
-                      wait_scale=args.wait_scale, timeout_seconds=args.timeout, run_id=run_id, notebooks=notebooks)
+                      wait_scale=args.wait_scale, timeout_seconds=args.timeout, run_id=run_id, notebooks=notebooks,
+                      data=data)
     try:
         problems = run.check()
-        if not problems and notebooks is not None and notebooks.lakehouses(imp.pipeline.all_activities()):
+        acts = imp.pipeline.all_activities()
+        if not problems and ((notebooks is not None and notebooks.lakehouses(acts))
+                             or (data is not None and data.lakehouses(acts))):
             svc.auth.storage_token()  # sign in before anything runs
         run.run()
     except RunRefused as exc:

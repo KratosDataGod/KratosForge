@@ -185,7 +185,15 @@ pub fn swap_in(exe: &Path, new: &Path, old: &Path) -> Result<(), String> {
     let _ = std::fs::remove_file(old);
     rename_retrying(exe, old).map_err(|e| format!("Could not move {} aside: {e}", exe.display()))?;
     if let Err(e) = rename_retrying(new, exe) {
-        let _ = rename_retrying(old, exe);
+        if let Err(back) = rename_retrying(old, exe) {
+            return Err(format!(
+                "Could not put the new build in place of {}: {e}, and the old build couldn't be put back ({back}). \
+                 It is kept as {}: rename it to {} to start KratosForge again.",
+                exe.display(),
+                old.display(),
+                exe.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+            ));
+        }
         return Err(format!("Could not put the new build in place of {}: {e}", exe.display()));
     }
     Ok(())

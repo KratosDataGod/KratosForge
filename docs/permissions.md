@@ -43,6 +43,7 @@ With Microsoft's sign-in, KratosForge asks each Microsoft API for its default ac
 | The [live test](live-testing.md): creating and deleting a throwaway lakehouse, OneLake files and a Delta table in a workspace marked for tests | Fabric, OneLake (Azure Storage) | Yes. Nothing new is asked; you need Contributor or higher on the test workspace |
 | Queries on a Data warehouse or SQL analytics endpoint (Preview, [SQL execution](sql-execution.md#queries-on-a-warehouse-preview)) | Azure SQL (`https://database.windows.net/.default`) | Not yet tried; the first live query checks it. If Microsoft's app is refused, warehouse queries need your own app registration with Azure SQL Database `user_impersonation` |
 | `notebookutils.credentials.getSecret` in notebooks on the PC | Azure Key Vault | Possibly not. Needs your own app registration |
+| `notebookutils.credentials.getToken` in notebooks on the PC | The API the notebook names: `storage` (Azure Storage), `pbi` (Power BI Service), `keyvault` (Azure Key Vault), `kusto` (Azure Data Explorer) or any resource URL | For Azure Storage and Power BI Service, yes. For any other API, possibly not; with your own app registration, add that API's permission |
 
 "Expected" means Fabric CLI itself does these things with the same app. None of it has been tried from KratosForge on a live tenant yet.
 
@@ -72,6 +73,8 @@ With your own app, KratosForge signs in with the browser (not Windows sign-in) a
 | Power BI Service | `OneLake.ReadWrite.All` | OneLake shortcuts and data access roles | On first use |
 | Power BI Service | `Tenant.Read.All` | Importing Fabric's domains and subdomains (**Platform > Domains > Import from Fabric**), reading tenant settings for the tenant settings history, and, when chosen, each capacity's tenant setting overrides for the capacity settings history. Only works for a Fabric administrator; leave it out if no Fabric administrator uses KratosForge | Optional, when a Fabric administrator imports domains or reads tenant settings |
 | Power BI Service | `Workspace.ReadWrite.All` | Listing and creating workspaces, workspace roles (also by email) | At first sign-in |
+
+`notebookutils.credentials.getToken` in a notebook asks for a token for the API the notebook names, and nothing more. For `kusto`, add **Azure Data Explorer** `user_impersonation`; for a resource URL, add that API's delegated permission. Leave them out if no notebook asks.
 
 The Fabric permissions are listed under **Power BI Service** in Entra, even though the app calls `api.fabric.microsoft.com`. Only add what your people will use: without a permission, the feature that needs it says which one, and everything else works.
 

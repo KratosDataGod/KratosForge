@@ -83,14 +83,9 @@ def run(job: dict[str, Any]) -> None:
     _say("started", permission=sql_policy.strongest(verdicts))
 
     views: dict[str, str] = {}
-
-    def is_local(name: str) -> bool:
-        return bool(con.execute("SELECT 1 FROM duckdb_tables() WHERE table_name = ? UNION ALL "
-                                "SELECT 1 FROM duckdb_views() WHERE view_name = ?", [name, name]).fetchall())
-
     result = None
     for statement in statements:
-        sql.bind_tables(statement, con, views, is_local)
+        sql.bind_tables(statement, con, views, lambda name: sql.is_local(con, name))
         result = con.execute(statement.sql("duckdb"))
 
     out = Path(job["out"])

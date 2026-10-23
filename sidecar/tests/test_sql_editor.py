@@ -1,10 +1,11 @@
 """SQL-001: the SQL query page's dialects and Format SQL (the editor itself is checked in app/tests)."""
 
 import datetime as dt
+from pathlib import Path
 
 import pytest
 
-from fabric_desktop import server, sql, sql_dialects
+from fabric_desktop import lakehouse, server, sql, sql_dialects
 from fabric_desktop.sql_format import format_sql
 from test_notebook import LH, _sql_service
 
@@ -147,3 +148,17 @@ def test_the_page_can_call_the_new_methods(tmp_path):
     assert [d["label"] for d in labels] == ["Spark SQL (Lakehouse)", "Fabric Warehouse (T-SQL)",
                                               "Fabric SQL analytics endpoint (T-SQL)", "Fabric SQL database (T-SQL)",
                                               "DuckDB (this PC)"]
+
+
+def test_save_and_export_read_a_temp_view_made_earlier_in_the_query(tmp_path, monkeypatch):
+    # #413: Save as table (sql.run) and Export CSV (sql.Stream) bound the view as a lakehouse table.
+    service, opened = _sql_service(tmp_path, monkeypatch)
+    saved = []
+    monkeypatch.setattr(lakehouse, "table_exists", lambda _name: False)
+    monkeypatch.setattr(lakehouse, "write_table", lambda data, table, mode: saved.append(data) or
+                        type("Written", (), {"table": table, "rows": data.num_rows})())
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    query = "CREATE OR REPLACE TEMP VIEW recent AS SELECT * FROM sales WHERE Country = 'US'; SELECT * FROM recent"
+    assert service.save_sql(query, LH, "us_sales")["rows"] == 2 and saved[0].column("Country").to_pylist() == ["US", "US"]
+    assert service.export_sql_csv(query, LH)["rows"] == 2
+    assert "recent" not in opened and opened == ["sales", "sales"]

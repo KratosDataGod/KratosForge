@@ -102,6 +102,18 @@ pub fn wants_install(running: &str, accepted: &Seen) -> bool {
     is_commit(running) && !accepted.commit.eq_ignore_ascii_case(running)
 }
 
+/// The releases the engine may come from, in order, for a PC on `channel` ("stable" or "latest")
+/// running `build`. With `"auto_update": false` only that build's own release (build-<first 12
+/// characters of its commit>, which CI keeps for each published build), so the app never installs
+/// an engine newer than the exe the organization deployed (#418). Otherwise the channel's: Stable
+/// falls back to Preview ("latest") while no build has been promoted, as the updater does.
+pub fn engine_tags(auto_update: bool, channel: &str, build: &str) -> Vec<String> {
+    if !auto_update {
+        return vec![format!("build-{}", build.get(..12).unwrap_or(build).to_ascii_lowercase())];
+    }
+    if channel == "stable" { vec!["stable".into(), "latest".into()] } else { vec!["latest".into()] }
+}
+
 // ---- What this PC remembers: update-state.json in the app's data folder.
 // { "channels": { "<release tag>": { "commit": "...", "published": 1760000000 } },
 //   "offered": "<the build the last accepted check offered, which update_app may install>" }
@@ -159,13 +171,42 @@ pub fn offered(path: &Path) -> Option<String> {
 // run, because builds from before HD-022 (which a rollback can install) never write the marker.
 // exe.old is removed only by an exe that has got that far, never at the top of main().
 
+/// Renames `from` to `to`, retrying for about 15 seconds while the file is locked. OneDrive (an
+/// exe on a synced Desktop), antivirus and the search indexer open a file that was just written
+/// or renamed for a few seconds, and Windows then refuses with "Access is denied" (5) or a
+/// sharing violation (32). Any other error, such as a missing file, fails at once.
+fn rename_retrying(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut attempt = 0;
+    loop {
+        match std::fs::rename(from, to) {
+            Err(e) if attempt < 60 && is_lock(&e) => {
+                attempt += 1;
+                std::thread::sleep(Duration::from_millis(250));
+            }
+            done => return done,
+        }
+    }
+}
+
+fn is_lock(e: &std::io::Error) -> bool {
+    e.kind() == std::io::ErrorKind::PermissionDenied || matches!(e.raw_os_error(), Some(5 | 32 | 33))
+}
+
 /// Puts `new` in place of `exe`, keeping the running exe as `old`.
 pub fn swap_in(exe: &Path, new: &Path, old: &Path) -> Result<(), String> {
     let _ = std::fs::remove_file(old);
-    std::fs::rename(exe, old).map_err(|e| format!("Could not replace {}: {e}", exe.display()))?;
-    if let Err(e) = std::fs::rename(new, exe) {
-        let _ = std::fs::rename(old, exe);
-        return Err(format!("Could not replace {}: {e}", exe.display()));
+    rename_retrying(exe, old).map_err(|e| format!("Could not move {} aside: {e}", exe.display()))?;
+    if let Err(e) = rename_retrying(new, exe) {
+        if let Err(back) = rename_retrying(old, exe) {
+            return Err(format!(
+                "Could not put the new build in place of {}: {e}, and the old build couldn't be put back ({back}). \
+                 It is kept as {}: rename it to {} to start KratosForge again.",
+                exe.display(),
+                old.display(),
+                exe.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+            ));
+        }
+        return Err(format!("Could not put the new build in place of {}: {e}", exe.display()));
     }
     Ok(())
 }
@@ -305,6 +346,14 @@ mod tests {
     const A: &str = "13cd5dfa54ee4be7c066919bd3828eda3e5c1326";
     const B: &str = "2c9d1f23eee5857a79a72be77d4c8f4f913febcd";
     const NOW: i64 = 1_760_800_000;
+
+    #[test]
+    fn managed_pcs_take_the_engine_only_from_their_own_builds_release() {
+        assert_eq!(engine_tags(true, "stable", A), ["stable", "latest"]);
+        assert_eq!(engine_tags(true, "latest", A), ["latest"]);
+        assert_eq!(engine_tags(false, "stable", A), ["build-13cd5dfa54ee"]);
+        assert_eq!(engine_tags(false, "latest", &A.to_ascii_uppercase()), ["build-13cd5dfa54ee"]);
+    }
 
     fn manifest(commit: &str, published: Option<i64>) -> Value {
         let mut m = json!({ "commit": commit, "exe_sha256": "ab".repeat(32), "engine_sha256": "cd".repeat(32) });

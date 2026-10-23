@@ -717,3 +717,11 @@ def test_old_local_query_calls_forward_to_managed_runs(tmp_path):
     finally:
         svc.sql_runs.shutdown()
         svc.local_data.close_all()
+
+
+def test_a_temp_view_is_found_whatever_case_it_is_named_in(runs, lake):
+    # #414: the worker compared names case-sensitively, so `recent` was opened as a lakehouse table.
+    status = wait(runs, runs.start("CREATE TEMP VIEW Recent AS SELECT * FROM sales WHERE id > 1; "
+                                   "SELECT count(*) AS n FROM recent", lake, allow=["local_mutation"])["id"])
+    assert status["state"] == "completed", status.get("error")
+    assert runs.page(status["id"])["rows"] == [[2]]

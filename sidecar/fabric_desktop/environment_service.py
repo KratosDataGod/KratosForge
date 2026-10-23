@@ -38,6 +38,14 @@ class EnvironmentMixin:
 
     def environment_attach(self, notebook: str, name: str | None) -> dict[str, Any]:
         """Use ``name`` (or none) for ``notebook``. Its session restarts with it the next time it runs."""
+        host = self.sessions.host_of(notebook)  # type: ignore[attr-defined]
+        if host:
+            raise RuntimeError(f"{notebook} shares {host}'s session, which uses {host}'s environment. Leave the "
+                               "shared session (Sessions) to change its environment.")
+        guests = self.sessions.guests(notebook)  # type: ignore[attr-defined]
+        if guests:
+            raise RuntimeError(f"{', '.join(guests)} share{'s' if len(guests) == 1 else ''} {notebook}'s session, which "
+                               "uses its environment. They leave the shared session (Sessions) first.")
         out = self.environments.attach(notebook, name)
         session = self.sessions.session(notebook, create=False)  # type: ignore[attr-defined]
         restart = bool(session and isinstance(session.kernel, ProcessKernel) and session.kernel.alive())

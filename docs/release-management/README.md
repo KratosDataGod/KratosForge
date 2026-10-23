@@ -141,7 +141,7 @@ An organization can stay on one build while the channels move on. Turn off self-
 
 The engine zip, `version.json` and SBOMs are next to it under the same tag. `version.json` gives the SHA-256 of the exe and the engine to check a copy against.
 
-The app itself can't be pointed at a `build-*` release yet. It downloads its engine from its channel's current release (`stable` or `latest`). So a pinned exe runs on a PC whose engine for that build is already installed. A PC that has to download the engine gets the channel's current engine, which doesn't match, and is told to ask IT for the current exe. Letting the app or policy name a build for the engine download is a follow-up.
+With `"auto_update": false` the app downloads its engine only from its own build's `build-*` release, never the channel's (`stable` or `latest`), so a pinned exe gets the matching engine for as long as its release is kept. Once that release is deleted, a PC that has to download the engine is told this build no longer has one and to ask IT for the current exe. Self-updating PCs take the engine from their channel's current release.
 
 Reverting the app does not revert what a newer build wrote: local settings, schedules, run history, the metadata store and anything in OneLake stay as the newer build left them. Before shipping a change to a stored format, its PR must say whether an older build can still read it.
 

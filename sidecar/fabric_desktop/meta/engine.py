@@ -508,9 +508,11 @@ class Engine:
         wm_col = e.spec.get("load", {}).get("watermark")
         if e.mode == "incremental" and wm_col and not full:
             wm = self._watermark(e)
-            if wm is not None and wm_col in names:
-                after = (wm_col, _wm_literal(wm, schema[wm_col]))
-                lf = lf.filter(pl.col(wm_col) > after[1])
+            # The watermark is a contract column, saved from the output; the source may call it something else.
+            src_wm = {v: k for k, v in (src.get("rename") or {}).items()}.get(wm_col, wm_col)
+            if wm is not None and src_wm in names:
+                after = (src_wm, _wm_literal(wm, schema[src_wm]))
+                lf = lf.filter(pl.col(src_wm) > after[1])
                 detail = f"incremental, {wm_col} after {wm}"
         keep = self._source_columns(e, names)
         total = len([c for c in names if c not in SYSTEM_COLUMNS])

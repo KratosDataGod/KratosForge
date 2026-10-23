@@ -4408,6 +4408,62 @@ test("the Spark on this PC page covers quoted 'yyyy', groupBy() and first/last i
   assert.match(doc, /`groupBy\(\)` with no columns aggregates the whole frame/);
 });
 
+// Query profile (qprofile.js): runs only when asked, says it reads OneLake again, and lists each step.
+test("the query profile runs only when asked, warns about capacity and lists each step with its share", async () => {
+  const src = fs.readFileSync(path.join(ui, "qprofile.js"), "utf8");
+  const { node } = chartsHarness(null);
+  const calls = [];
+  let copied = null;
+  let answer = { seconds: 1.38, rows: 6, rows_scanned: 12480113, peak_memory: 212 * 1024 * 1024, more_steps: 0, steps: [
+    { depth: 0, name: "ORDER_BY", rows: 6, seconds: 0.001, share: 0.001, details: { "Order By": "revenue DESC" } },
+    { depth: 1, name: "HASH_GROUP_BY", rows: 6, seconds: 0.29, share: 0.21, details: { Groups: "region" } },
+    { depth: 2, name: "SEQ_SCAN", rows: 12480113, seconds: 0.97, share: 0.71, details: { Table: "silver.orders", Filters: "status='shipped'" } }] };
+  const ctx = { h: node, friendlyError: (e) => `failed: ${e.message}`, toast: () => {}, attempt: (fn) => fn(),
+    btn: (label, _i, onclick, _c, attrs = {}) => node("button", { onclick, ...attrs }, label),
+    navigator: { clipboard: { writeText: async (t) => { copied = t; } } },
+    rpc: async (m, a) => { calls.push([m, a]); if (answer instanceof Error) throw answer; return answer; } };
+  vm.createContext(ctx);
+  vm.runInContext(src + "\nthis.api = { renderQueryProfile, qprofileText, qprofileBytes };", ctx);
+  const o = { frame: "f", spark: true };
+  const box = ctx.api.renderQueryProfile(o);
+  assert.strictEqual(calls.length, 0, "nothing runs until asked");
+  const text = (n) => allNodes(n).flatMap((x) => x.kids.filter((k) => typeof k === "string")).join(" ");
+  assert.match(text(box), /read from OneLake again, which uses capacity/);
+  allNodes(box).find((n) => n.tag === "button" && n.kids.includes("Profile the query")).attrs.onclick();
+  await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(plain(calls[0]), ["notebook_frame_query_profile", { frame: "f" }]);
+  const t = text(box);
+  assert.match(t, /Read table/);
+  assert.match(t, /silver\.orders/);
+  assert.match(t, /Slowest step/);
+  assert.match(t, /12,480,113/);
+  assert.match(t, /212 MB/);
+  const slow = allNodes(box).filter((n) => n.tag === "tr" && n.attrs.class === "slowest");
+  assert.strictEqual(slow.length, 1);
+  assert.match(text(slow[0]), /Read table/);
+  allNodes(box).find((n) => n.tag === "button" && n.kids.includes("Copy as text")).attrs.onclick();
+  await new Promise((r) => setImmediate(r));
+  assert.match(copied, /^Query profile: 1\.38 s/);
+  assert.match(copied, /\n    Read table \(silver\.orders\): 12,480,113 rows, 0\.97 s, 71%/);
+  // A restart since the result says to run the cell again; an error keeps the last profile.
+  answer = new Error("boom");
+  allNodes(box).find((n) => n.tag === "button" && n.kids.includes("Run again")).attrs.onclick();
+  await new Promise((r) => setImmediate(r));
+  assert.match(text(box), /failed: boom/);
+  assert.match(text(box), /Read table/);
+  answer = { gone: true };
+  allNodes(box).find((n) => n.tag === "button" && n.kids.includes("Run again")).attrs.onclick();
+  await new Promise((r) => setImmediate(r));
+  assert.match(text(box), /Run the cell again/);
+  assert.strictEqual(ctx.api.qprofileBytes(1.1 * 1024 ** 3), "1.1 GB");
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /o\.frame && o\.spark \? seg\("qprofile", "Query profile"\) : null/);
+  assert.match(nb, /previewMarked\("queryProfile"/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /queryProfile: "Query profile"/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="ipywidgets\.js"><\/script>\n  <script src="qprofile\.js"><\/script>/);
+  assert.doesNotMatch(src, /innerHTML|insertAdjacentHTML|outerHTML/);
+});
+
 // Spark on this PC: slice takes a length and add_months returns a date.
 test("the Spark on this PC page says slice takes a length and add_months returns a date", () => {
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
@@ -4440,4 +4496,54 @@ test("pop-out windows load popout.js after app.js and get no more than the main 
   assert.match(app, /const POP_OUT = \["runs", "fabric"\]\.find/);
   const shell = fs.readFileSync(path.join(__dirname, "..", "src-tauri", "src", "main.rs"), "utf8");
   assert.match(shell, /const POP_OUTS: \[\(&str, &str\); 2\] = \[\("runs", [^)]*\), \("fabric", [^)]*\)\];/);
+});
+
+// Shared sessions (sessions.js): Share sends the picked notebook to join this one's session; a guest can Leave.
+test("Share adds another notebook to this session, and a notebook that shares one can leave it", async () => {
+  const src = fs.readFileSync(path.join(ui, "sessions.js"), "utf8");
+  const { node } = chartsHarness(null);
+  const calls = [];
+  const dialogs = [];
+  const toasts = [];
+  const confirms = [];
+  let data = { process: true, notes: [], shared: {}, max_sessions: 5, idle_minutes: 0, sessions: [
+    { notebook: "Sales cleanup", process: true, status: "idle", pid: 10, memory_bytes: 1, cells_run: 3, last_used: 1, active: true, shared_with: [] },
+    { notebook: "Customer churn", process: true, status: "idle", pid: 11, memory_bytes: 1, cells_run: 1, last_used: 1, active: false, shared_with: [] }] };
+  const ctx = { h: node, btn: (label, _i, onclick, _c, attrs = {}) => node("button", { onclick, ...attrs }, label),
+    preview: (_id, n) => n, previewMarked: (_id, n) => n, toast: (t) => toasts.push(t), attempt: (fn) => fn(),
+    when: String, formatBytes: String, go: () => {}, openNotebook: () => {}, renderNotebook: () => {},
+    closeDialog: () => {}, showDialog: (title, body) => dialogs.push(body),
+    confirmDialog: async (title, text, ok, opts) => { confirms.push([title, text, ok, opts.danger]); return true; },
+    openNotebooks: new Map([["Sales cleanup", {}], ["Sales report", {}]]), state: { notebook: { name: "Sales cleanup" }, view: "notebook" },
+    rpc: async (m, a) => { calls.push([m, a]); return m === "kernel_sessions" ? data : m === "kernel_session_share" ? { host: a.host } : { left: "Sales cleanup" }; } };
+  vm.createContext(ctx);
+  vm.runInContext(src + "\nthis.api = { sessionsDialog, sessionsButton, sharedCount: (n) => sharedCount(n) };", ctx);
+  await ctx.api.sessionsDialog();
+  const text = (n) => allNodes(n).flatMap((x) => x.kids.filter((k) => typeof k === "string")).join(" ");
+  const select = allNodes(dialogs[0]).find((n) => n.tag === "select");
+  assert.deepStrictEqual(select.kids.map((o) => o.attrs.value), ["Customer churn", "Sales report"]);
+  assert.match(text(dialogs[0]), /Share this notebook's session with/);
+  assert.match(text(dialogs[0]), /same default lakehouse and environment/);
+  select.value = "Sales report";
+  allNodes(dialogs[0]).find((n) => n.tag === "button" && n.kids.includes("Share")).attrs.onclick();
+  await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(plain(calls.find(([m]) => m === "kernel_session_share")[1]), { notebook: "Sales report", host: "Sales cleanup" });
+  assert.deepStrictEqual(confirms[0].slice(2), ["Share", true]);
+  assert.match(confirms[0][1], /Sales report's own session ends and its variables are cleared/);
+  assert.match(toasts.join(" "), /Sales report now shares Sales cleanup's session. Its variables were cleared/);
+  // The host's row names its guests, and the status bar says the session is shared.
+  data = { ...data, shared: { "Sales report": "Sales cleanup" }, sessions: [{ ...data.sessions[0], shared_with: ["Sales report"] }] };
+  await ctx.api.sessionsDialog();
+  assert.match(text(dialogs[dialogs.length - 1]), /Shared with Sales report/);
+  assert.strictEqual(ctx.api.sharedCount("Sales report"), 2);
+  assert.ok(ctx.api.sessionsButton().kids.includes("Shared session · 2 notebooks"));
+  // A notebook that shares one says whose, and leaves it.
+  ctx.state.notebook = { name: "Sales report" };
+  await ctx.api.sessionsDialog();
+  const last = dialogs[dialogs.length - 1];
+  assert.match(text(last), /Sales report shares Sales cleanup's session/);
+  allNodes(last).find((n) => n.tag === "button" && n.kids.includes("Leave")).attrs.onclick();
+  await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(plain(calls.find(([m]) => m === "kernel_session_leave")[1]), { notebook: "Sales report" });
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /sharedSessions: "Shared notebook sessions"/);
 });

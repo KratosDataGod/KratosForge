@@ -19,6 +19,8 @@ KratosForge's program for importing, checking and, later, running Microsoft Fabr
 | ORCH-002 | Activity compatibility registry | Merged | #150 | ORCH-001 |
 | ORCH-003 | Local pipeline execution engine (DAG, states, cancel, timeouts, run records) | Merged | #218 | ORCH-001, ORCH-002 |
 | ORCH-004 | Notebook steps: a Notebook activity runs a notebook saved on this PC | Merged | #319 | ORCH-003, Validate notebook (#282) |
+| P1 | Lookup and Get Metadata read a lakehouse (pipelines plan stage P1) | Merged | #563 | ORCH-004 |
+| P2 | Script runs through the SQL page's runner, on a lakehouse or a local data project | In review | | P1, SQL-003 |
 | ORCH-005 to ORCH-010 | Later stages (breakpoints, step and replay, more adapters, Fabric hand-off) | Not defined yet | | ORCH-003 |
 
 ## ORCH-001: pipeline definition engine
@@ -109,4 +111,4 @@ Chris picked this stage on 2026-10-20 ("Notebook steps").
 
 ## Next recommended PR
 
-A mockup for a pipeline runs page (needs Chris's go), or Lookup and Get Metadata as `simulated` against a local table.
+The pipelines plan (P1 onward) continues this program; Chris gave his go for P1, P2 and the Pipelines page mockup on 2026-10-22.

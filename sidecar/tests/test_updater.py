@@ -111,6 +111,24 @@ def test_channel_defaults_to_stable_and_policy_wins(settings_dirs):
     assert updater.channel() == "preview"
 
 
+def test_channel_uses_the_last_good_policy_when_the_policy_is_unreadable(settings_dirs):
+    # As the sidecar does (app_settings._policy_file), so the channel matches what Settings shows (#419).
+    policy, user = settings_dirs
+    saved = user.with_name("policy-last-good.json")
+    user.write_text(json.dumps({"channel": "preview"}))
+    saved.write_text(json.dumps({"channel": "stable"}))
+    assert updater.channel() == "preview"  # no policy file: the copy left over doesn't apply
+    for broken in ('{"channel": "preview",}', "[]", ""):
+        policy.write_text(broken)
+        assert updater.channel() == "stable", broken
+    policy.write_bytes(b"\xff\xfe{}")  # not UTF-8
+    assert updater.channel() == "stable"
+    saved.write_text("not json")  # no usable copy either: the user's channel
+    assert updater.channel() == "preview"
+    policy.write_text(json.dumps({"channel": "stable"}))
+    assert updater.channel() == "stable"
+
+
 def test_latest_release_reads_the_channels_version_json(monkeypatch, settings_dirs):
     seen = serve(monkeypatch, {"/stable/version.json": json.dumps({"commit": SHA, "notes": "Settings page"}).encode()})
     assert updater.latest_release() == {"commit": SHA, "error": None, "channel": "stable", "notes": "Settings page", "history": [],

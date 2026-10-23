@@ -99,7 +99,7 @@ These need longer runs or capacity time; they will be added as more opt-in check
 
 ## T-SQL contract cases
 
-Fabric Desktop by KratosBI never runs T-SQL on this PC: it checks and formats it ([SQL compatibility check](sql-compatibility.md)) and runs Spark SQL and DuckDB here. The T-SQL contract cases (HD-054) pin that behavior and say what Fabric is expected to do with the same SQL, so a change on either side shows up.
+KratosForge never runs T-SQL on this PC: it checks and formats it ([SQL compatibility check](sql-compatibility.md)) and runs Spark SQL and DuckDB here. The T-SQL contract cases (HD-054) pin that behavior and say what Fabric is expected to do with the same SQL, so a change on either side shows up.
 
 The cases are in `sidecar/tests/tsql_contract/cases.jsonl`, one JSON object per line after the first, and `sidecar/tests/test_tsql_contract.py` runs them with the rest of the tests. Each case has:
 

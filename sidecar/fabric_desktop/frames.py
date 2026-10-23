@@ -285,6 +285,15 @@ class Frames:
 
     # ---- the profile (Inspect, display(df, summary=True))
 
+    def query_profile(self, fid: str) -> dict[str, Any]:
+        """How the query behind a ``spark`` or ``%%sql`` result ran, step by step (spark_local.query_profile)."""
+        with self._lock:
+            if fid not in self._values:
+                raise FrameGone(GONE)
+            value = self._values[fid]
+        from . import spark_local
+        return spark_local.query_profile(value)
+
     def profile(self, fid: str) -> dict[str, Any]:
         """A profile of every row, per column: missing, distinct (approximate), and for numbers min,
         max, mean, standard deviation, quartiles and a histogram; for dates their range; for

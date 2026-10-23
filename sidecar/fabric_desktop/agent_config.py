@@ -74,6 +74,8 @@ from .meta.project import ENVIRONMENTS
 # Keys whose value would be a secret itself. Give the name of an environment variable instead.
 _SECRET_KEYS = {"client_secret", "password", "secret", "certificate_password", "teams_webhook", "token", "api_key"}
 _ID = re.compile(r"[A-Za-z0-9_.-]{1,64}")
+# Every-N-minutes schedules count from here (local time), so 60 runs on the hour and 15 at :00, :15, :30 and :45.
+GRID_START = "2000-01-01T00:00:00"
 
 
 class ConfigError(ValueError):
@@ -251,7 +253,14 @@ def _schedule(raw: dict[str, Any], i: int, errors: list[str]) -> Schedule | None
     if shared and minutes is not None and (isinstance(minutes, bool) or not isinstance(minutes, int) or minutes < 1):
         errors.append(f"{where}: a shared schedule's every_minutes is a whole number of at least 1")  # slots are named to the minute
         return None
-    return Schedule(sid, env, entities, local_configuration(schedule), str(raw.get("backfill", "")), schedule, shared)
+    config = local_configuration(schedule)
+    config["startDateTime"] = GRID_START  # not the parse time: every N minutes keeps its times across restarts
+    return Schedule(sid, env, entities, config, str(raw.get("backfill", "")), schedule, shared)
+
+
+def host_name() -> str:
+    """The default agent name: this machine's name, with anything agent.name can't hold made a ``-``."""
+    return re.sub(r"[^A-Za-z0-9_.-]+", "-", socket.gethostname())[:64] or "agent"
 
 
 def load(path: Path | str | None = None) -> AgentConfig:
@@ -344,8 +353,11 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
                                 digest_over=int(number(inc, "digest_over", 5, 1, "incidents")),
                                 quiet_hours=quiet, quiet_except=tuple(str(x).lower() for x in inc.get("quiet_except", ["critical"])),
                                 escalate_after_minutes=escalate_after, escalate_to=escalate_to, routes=routes)
+    name = agent.get("name") or host_name()
+    if not isinstance(name, str) or not _ID.fullmatch(name):  # the mailbox takes over only such names
+        errors.append(f"agent.name: {name!r} isn't 1 to 64 letters, digits, . _ or - (it names agents/<name>.json)")
     cfg = AgentConfig(
-        path=Path(path), name=str(agent.get("name") or socket.gethostname()),
+        path=Path(path), name=name,
         home=Path(agent["home"]) if agent.get("home") else default_home(),
         project=Path(project), environments=envs, auth=dict(auth), owner=str(agent.get("owner") or "").strip(),
         concurrency=concurrency,

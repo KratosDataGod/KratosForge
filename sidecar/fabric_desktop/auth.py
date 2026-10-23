@@ -201,9 +201,12 @@ class Authenticator:
                 _log.warning("Couldn't encrypt the saved sign-in, so it wasn't updated: %s", describe(exc))
                 return
             tmp = self.cache_path.with_name(f"{self.cache_path.name}.{os.getpid()}.tmp")
-            tmp.write_bytes(data)
+            # Refresh tokens: this user only, from the moment the file exists (POSIX; Windows ignores the mode).
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0), 0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
             if os.name != "nt":
-                tmp.chmod(0o600)  # refresh tokens: this user only
+                tmp.chmod(0o600)  # a temporary file left by an earlier run keeps its old mode
             os.replace(tmp, self.cache_path)
 
     def _token(self, scopes: list[str], min_seconds: int = 0) -> str:

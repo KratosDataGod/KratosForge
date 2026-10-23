@@ -12,7 +12,8 @@ This is Preview. The behaviour follows Microsoft's Data Factory documentation an
 | Execute Pipeline and Invoke Pipeline | Run the child pipeline on this PC when you give its definition, by `referenceName` or `pipelineId`. With `waitOnCompletion` false the activity succeeds as soon as the child starts and the pipeline moves on; the child's result doesn't change the run's. The run itself ends only after the child does, so the child's whole run is in the record. |
 | Notebook | Runs a Python notebook saved in KratosForge when you say which one (see [Notebook steps](#notebook-steps)). Spark notebooks need a mock. |
 | Lookup and Get Metadata | Read the lakehouse their dataset names when you start the run with lakehouse reads on (see [Lookup and Get Metadata](#lookup-and-get-metadata)). Queries and other connections need a mock. |
-| Copy, Script, Stored procedure, Delete, Web, Webhook | Don't run. Give a mock for each one the run reaches. |
+| Script | Runs read-only T-SQL on a lakehouse with lakehouse reads on, or in a local data project you name for it (see [Script](#script)). Warehouse and other connections need a mock. |
+| Copy, Stored procedure, Delete, Web, Webhook | Don't run. Give a mock for each one the run reaches. |
 | Dataflow Gen2, Spark job definition, semantic model refresh, Outlook, Teams, KQL and other Fabric-only activities, and unknown types | Don't run. Give a mock, or run the pipeline in Fabric. |
 
 Before anything starts, the run checks every activity it could reach, nested ones and child pipelines included. One activity that can't run here and has no mock refuses the whole run, with the activity and the reason. The pipeline's own checks ([pipeline definitions](pipeline-definitions.md)) must pass too, and every parameter without a default needs a value.
@@ -66,6 +67,15 @@ fabric-desktop pipeline run .\pl_orders_daily.DataPipeline --read-lakehouse --wo
 
 The run is refused before anything starts when a Lookup runs a query (`sqlReaderQuery`), a dataset is on another connection, a Get Metadata field isn't one of those above, or the workspace isn't known. Give a mock for those. Lookup and Get Metadata read only when you start the run yourself (`--read-lakehouse`; the engine method takes `read_lakehouses`). A run your AI tool starts still needs a mock for them.
 
+## Script
+
+A Script activity runs each of its scripts through the [SQL page's runner](../sql-execution.md), with the same policy, Stop, time and memory limits. Each script is one run there, so it also shows in the SQL page's recent runs and adds a `sql_execution` line to the audit trail.
+
+- **On a lakehouse** (a `Lakehouse` connection, with lakehouse reads on): the T-SQL is translated to DuckDB SQL the way [local data projects](../local-data.md) translate it, and runs read-only against the lakehouse's tables as they are now (not the run's pinned versions). A statement that would change a table, Fabric or files is refused before the run starts, and so is T-SQL that can't be carried (variables, control flow, procedures). Notes on what may answer differently from the SQL analytics endpoint, such as a division whose types couldn't be told, go in the output's `outputLogs`.
+- **In a local data project**: name the project for the activity or its connection, `--sql-project "Build marts=Sales sandbox"` (`sql_projects` in the engine method). The script runs in the project's own database and may change its own tables. DROP, TRUNCATE and DELETE or UPDATE without WHERE are refused, because the SQL page runs them only after you confirm and a pipeline can't confirm.
+
+Query scripts return `resultSets`, each with `rowCount` and `rows` (at most 5,000 rows; `outputTruncated` says when more were cut), as in Fabric: `activity('Totals').output.resultSets[0].rows[0].total`. `recordsAffected` isn't reported. Warehouse connections (they run only in Fabric), other connections and script parameters need a mock. A failing script fails the activity with `LocalScriptFailed`; one the policy refuses with `LocalScriptRefused`. Cancel and the policy timeout stop the script's run.
+
 ## How a run behaves
 
 - An activity starts when every activity it depends on has finished and each one's status matches the dependency's conditions: `Succeeded`, `Failed`, `Skipped`, or `Completed` (succeeded or failed). Otherwise it is skipped.
@@ -114,12 +124,12 @@ fabric-desktop pipeline run .\parent.json --child child_pipeline=.\child.json --
 
 The command prints each activity run and the result. It exits 0 when the run succeeds, 1 when it fails and 2 when it is refused. It doesn't save a record. With `--notebook` or `--read-lakehouse`, it signs in first when a step reads a lakehouse.
 
-The engine methods are `pipeline_run_check`, `pipeline_run_start` (runs in the background, at most two at once; `notebooks`, `allow_uncontained` and `keep_outputs` are for notebook steps; `read_lakehouses` and `workspace_id` for Lookup and Get Metadata), `pipeline_run_status`, `pipeline_run_cancel` and `pipeline_runs`. From your own AI tool, through MCP or the local API ([connect your AI tool](../ai/README.md)):
+The engine methods are `pipeline_run_check`, `pipeline_run_start` (runs in the background, at most two at once; `notebooks`, `allow_uncontained` and `keep_outputs` are for notebook steps; `read_lakehouses` and `workspace_id` for Lookup, Get Metadata and Script; `sql_projects` for Script in a local data project), `pipeline_run_status`, `pipeline_run_cancel` and `pipeline_runs`. From your own AI tool, through MCP or the local API ([connect your AI tool](../ai/README.md)):
 
 | Tool | Permission |
 | --- | --- |
 | `fabric_desktop_check_pipeline_run` | Read metadata |
-| `fabric_desktop_start_pipeline_run` | Run code on this PC; you approve every run. Notebook, Lookup and Get Metadata activities need a mock. |
+| `fabric_desktop_start_pipeline_run` | Run code on this PC; you approve every run. Notebook, Lookup, Get Metadata and Script activities need a mock. |
 | `fabric_desktop_get_pipeline_run`, `fabric_desktop_list_pipeline_runs` | Read metadata. Outputs, variable values and parameter values are left out. |
 | `fabric_desktop_cancel_pipeline_run` | Run code on this PC; you approve it |
 

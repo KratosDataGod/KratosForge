@@ -291,13 +291,15 @@ class Notebook(LocalAdapter):
 
 
 class ReadData(LocalAdapter):
-    """Lookup and Get Metadata: their dataset settings are evaluated here (a ForEach often names the
-    table with item()); the run's data reader reads the lakehouse."""
+    """Lookup, Get Metadata and Script: their dataset settings and scripts are evaluated here (a
+    ForEach often names the table with item()); the run's data reader does the reading."""
 
     def execute(self, activity: Activity, ctx: ActivityContext) -> Any:
         tp = activity.type_properties
-        props = {k: _eval(tp.get(k), ctx.scope, k) for k in ("datasetSettings", "source", "firstRowOnly", "fieldList")
-                 if k in tp}
+        props = {k: _eval(tp.get(k), ctx.scope, k) for k in ("datasetSettings", "source", "firstRowOnly", "fieldList",
+                                                             "scripts", "scriptBlockExecutionTimeout") if k in tp}
+        if "linkedService" in activity.raw:   # Script names its connection on the activity itself
+            props["linkedService"] = _eval(activity.raw["linkedService"], ctx.scope, "linkedService")
         return ctx.read_data(activity, props)
 
 

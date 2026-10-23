@@ -157,7 +157,7 @@ class PipelineRunMixin:
                  mocks: dict[str, Any] | None, children: dict[str, str] | None,
                  notebooks: dict[str, str] | None = None, allow_uncontained: bool = False,
                  keep_outputs: bool = False, read_lakehouses: bool = False, workspace_id: str | None = None,
-                 **options: Any) -> PipelineRun:
+                 sql_projects: dict[str, str] | None = None, **options: Any) -> PipelineRun:
         imp = read(text, path)
         kids = {}
         for key, definition_text in (children or {}).items():
@@ -171,10 +171,13 @@ class PipelineRunMixin:
         # caller that names the notebooks: external tools' calls (integrations/services.py) don't.
         runner = (LocalNotebooks(self, run_id, notebooks, allow_uncontained, keep_outputs)
                   if notebooks is not None and hasattr(self, "_validate_kernel") and hasattr(self, "notebooks") else None)
-        # Lookup and Get Metadata read lakehouses only when the person starts the run with lakehouse
-        # reads on; external tools' calls don't, so there they still need mocks.
-        data = (LocalData(self, run_id, runner, workspace_id)
-                if read_lakehouses and hasattr(self, "_proof_location") else None)
+        if sql_projects is not None and not isinstance(sql_projects, dict):
+            raise DefinitionError("sql_projects must be {activity or connection name: local data project}.", "bad_request")
+        # Lookup, Get Metadata and Script read lakehouses only when the person starts the run with
+        # lakehouse reads on, and Script runs in a local data project only when the person names it;
+        # external tools' calls do neither, so there they still need mocks.
+        data = (LocalData(self, run_id, runner, workspace_id, lakehouse_reads=read_lakehouses, sql_projects=sql_projects)
+                if (read_lakehouses or sql_projects) and hasattr(self, "_proof_location") else None)
         return PipelineRun(imp, parameters=parameters, mocks=mocks, children=kids, run_id=run_id, notebooks=runner,
                            data=data, **options)
 
@@ -201,12 +204,12 @@ class PipelineRunMixin:
                            parameters: dict[str, Any] | None = None, mocks: dict[str, Any] | None = None,
                            children: dict[str, str] | None = None, notebooks: dict[str, str] | None = None,
                            allow_uncontained: bool = False, read_lakehouses: bool = False,
-                           workspace_id: str | None = None) -> dict[str, Any]:
+                           workspace_id: str | None = None, sql_projects: dict[str, str] | None = None) -> dict[str, Any]:
         """Whether this pipeline can run on this PC with these parameters, mocks and notebooks, and
         if not, why, activity by activity. Runs nothing."""
         try:
             run = self._prepare(text, path, parameters, mocks, children, notebooks, allow_uncontained,
-                                read_lakehouses=read_lakehouses, workspace_id=workspace_id)
+                                read_lakehouses=read_lakehouses, workspace_id=workspace_id, sql_projects=sql_projects)
         except DefinitionError as exc:
             return {"ok": False, "problems": [exc.to_json()]}
         problems = run.check()
@@ -218,7 +221,8 @@ class PipelineRunMixin:
                            children: dict[str, str] | None = None, max_parallel: int = 4, wait_scale: float = 1.0,
                            timeout_seconds: float | None = None, notebooks: dict[str, str] | None = None,
                            allow_uncontained: bool = False, keep_outputs: bool = False,
-                           read_lakehouses: bool = False, workspace_id: str | None = None) -> dict[str, Any]:
+                           read_lakehouses: bool = False, workspace_id: str | None = None,
+                           sql_projects: dict[str, str] | None = None) -> dict[str, Any]:
         """Start a local run in the background and return its id at once. Refuses (with the
         problems) when an activity can't run here and has no mock. Nothing is sent to Fabric.
 
@@ -228,7 +232,9 @@ class PipelineRunMixin:
         calls the network or reads files on this PC needs ``allow_uncontained``. Without
         ``notebooks``, Notebook activities need a mock. With ``read_lakehouses``, Lookup and Get
         Metadata read the lakehouse their dataset names (pipeline_data.py), at the same pinned table
-        versions; ``workspace_id`` is the pipeline's own workspace, for datasets that leave it out."""
+        versions; ``workspace_id`` is the pipeline's own workspace, for datasets that leave it out.
+        Script runs read-only T-SQL on a lakehouse with ``read_lakehouses``, or in the local data
+        project ``sql_projects`` names for it ({activity or connection name: project})."""
         store, live = self._runs()
         store.recover(set(live))
         if sum(1 for r in live.values() if r.state in ("pending", "running")) >= MAX_RUNS:
@@ -237,7 +243,7 @@ class PipelineRunMixin:
                                                "path": "$"}]}
         try:
             run = self._prepare(text, path, parameters, mocks, children, notebooks, allow_uncontained, keep_outputs,
-                                read_lakehouses=read_lakehouses, workspace_id=workspace_id,
+                                read_lakehouses=read_lakehouses, workspace_id=workspace_id, sql_projects=sql_projects,
                                 max_parallel=max_parallel, wait_scale=wait_scale, timeout_seconds=timeout_seconds)
         except DefinitionError as exc:
             return {"ok": False, "problems": [exc.to_json()]}

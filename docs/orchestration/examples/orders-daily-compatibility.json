@@ -1,6 +1,6 @@
 {
   "ok": true,
-  "registry_version": "6",
+  "registry_version": "7",
   "pipeline": "pl_orders_daily",
   "schema": {
     "parser_version": 1,
@@ -130,9 +130,9 @@
   "summary": {
     "activities": 18,
     "by_classification": {
-      "local": 14,
+      "local": 15,
       "simulated": 0,
-      "static": 3,
+      "static": 2,
       "cloud": 0,
       "unsupported": 1
     },
@@ -140,7 +140,6 @@
     "runs_on_this_pc": false,
     "needs_fabric_capacity": [
       "Copy file to bronze",
-      "Run AMER script",
       "Check silver",
       "Alert on failure"
     ],
@@ -151,11 +150,6 @@
     "planned_to_run_on_this_pc": [
       {
         "name": "Copy file to bronze",
-        "classification": "simulated",
-        "stage": "later (not scheduled)"
-      },
-      {
-        "name": "Run AMER script",
         "classification": "simulated",
         "stage": "later (not scheduled)"
       },
@@ -526,33 +520,30 @@
       "container": "Pick region job",
       "known": true,
       "title": "Script",
-      "classification": "static",
+      "classification": "local",
       "evidence": "unit_tests",
       "verified": false,
-      "planned": {
-        "classification": "simulated",
-        "stage": "later (not scheduled)",
-        "note": "Runs against a local DuckDB copy only, never the real database."
-      },
+      "planned": null,
       "fabric_capacity": "metered_in_fabric",
       "auth": [
-        "connection"
+        "fabric"
       ],
       "side_effects": [
         "runs_code",
-        "reads_external",
-        "writes_external"
+        "reads_onelake"
       ],
       "external_dependencies": [
-        "database connection"
+        "its lakehouse, or a local data project named for it"
       ],
       "inactive": false,
       "properties": [],
       "checked_properties": [
-        "scripts"
+        "scripts",
+        "scriptBlockExecutionTimeout"
       ],
       "limitations": [
-        "SQL is carried as written; its dialect is the target database's."
+        "Runs each script through the SQL page's runner, with its policy, Stop and limits. On a lakehouse (with lakehouse reads on) T-SQL runs read-only against its tables as they are now; in a local data project named for it, it may change the project's own tables, but DROP, TRUNCATE and DELETE or UPDATE without WHERE are refused.",
+        "Warehouse and other connections, and script parameters, need a mock. Query results keep at most 5,000 rows each (outputTruncated). recordsAffected isn't reported."
       ],
       "problems": []
     },

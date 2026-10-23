@@ -310,6 +310,33 @@ class PipelineRunMixin:
             run.notebooks.stop()
         return {"cancelled": True, "state": "cancelling"}
 
+    def pipeline_list(self) -> dict[str, Any]:
+        """The pipelines in the repositories this PC opened (Fabric Git ``<name>.DataPipeline``
+        folders), with their activity count and the state of their last run here. Reads only."""
+        repos = self.git_repos()["repos"] if hasattr(self, "git_repos") else []  # type: ignore[attr-defined]
+        last: dict[str, dict[str, Any]] = {}
+        for r in self.pipeline_runs(limit=200)["runs"]:   # newest first
+            last.setdefault(r.get("pipeline") or "", r)
+        out: list[dict[str, Any]] = []
+        for repo in repos:
+            if not repo.get("exists"):
+                continue
+            root = Path(repo["path"])
+            for folder in _pipeline_folders(root):
+                row: dict[str, Any] = {"path": str(folder), "repo": repo.get("name") or root.name,
+                                       "relative": folder.relative_to(root).as_posix()}
+                try:
+                    imp = definition.load(folder)
+                    row |= {"name": imp.pipeline.name, "activity_count": len(imp.pipeline.all_activities())}
+                except DefinitionError as exc:
+                    row |= {"name": folder.name.removesuffix(".DataPipeline"), "problem": str(exc)}
+                run = last.get(row["name"])
+                row["last_run"] = {"state": run["state"], "started": run.get("started")} if run else None
+                out.append(row)
+                if len(out) >= _LIST_LIMIT:
+                    return {"pipelines": out, "truncated": True}
+        return {"pipelines": out, "truncated": False}
+
     def pipeline_runs(self, limit: int = 50) -> dict[str, Any]:
         """Recent local runs, newest first, without activity details."""
         store, live = self._runs()
@@ -319,6 +346,24 @@ class PipelineRunMixin:
         keep = ("run_id", "pipeline", "state", "stop_reason", "started", "ended", "seconds", "counts", "options")
         ordered = sorted(rows.values(), key=lambda r: r.get("started") or "", reverse=True)[:limit]
         return {"runs": [{k: r.get(k) for k in keep} for r in ordered]}
+
+
+_LIST_LIMIT = 200    # pipelines listed from repositories
+_LIST_DEPTH = 4      # folder levels searched under a repository's root
+_SKIP = {".git", "node_modules", ".venv", "venv", "__pycache__"}
+
+
+def _pipeline_folders(root: Path, depth: int = 0):
+    """``<name>.DataPipeline`` folders under root, a few levels down, in name order."""
+    try:
+        entries = sorted((p for p in root.iterdir() if p.is_dir() and not p.is_symlink()), key=lambda p: p.name.lower())
+    except OSError:
+        return
+    for p in entries:
+        if p.name.endswith(".DataPipeline"):
+            yield p
+        elif depth < _LIST_DEPTH and p.name not in _SKIP and not p.name.startswith("."):
+            yield from _pipeline_folders(p, depth + 1)
 
 
 def _without_values(record: dict[str, Any]) -> dict[str, Any]:

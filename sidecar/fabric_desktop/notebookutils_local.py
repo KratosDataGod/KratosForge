@@ -345,6 +345,9 @@ def _make_fs() -> types.SimpleNamespace:
         # As in Fabric the folder is created now, so exists() and ls() find it before any file is
         # written into it. The write guard and a proof are asked first, as for every other change.
         lh = _writable(path, p)
+        # OneLake answers 409 for a file at that path as for a folder; a file there is an error, as in Fabric.
+        if (_entry(path) or {}).get("is_dir") is False:
+            raise FileExistsError(f"{path} is a file, so a folder can't be made there.")
         _store().mkdir(lh.workspace_id, lh.lakehouse_id, p)
         return True
 

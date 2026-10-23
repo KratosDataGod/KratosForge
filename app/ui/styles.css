@@ -1988,6 +1988,82 @@ html[data-fx-ambient="on"] .flow-node[data-state="running"] .flow-link::after { 
 .check-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 12px; max-height: 260px; overflow: auto; margin-top: 8px; }
 .check-row { display: flex; align-items: center; gap: 6px; font-size: 13px; }
 
+/* Pipelines (pipelines.js) */
+.pipelines { display: flex; flex-direction: column; gap: 14px; }
+.pl-head { flex-direction: row !important; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.pl-head h1 { margin: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pl-title { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 420px; }
+.pl-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.pipelines .pl-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0 0 12px; font-size: 13px; }
+.pl-graph { overflow-x: auto; min-width: 0; max-width: 100%; }
+.pl-layers { width: max-content; }
+.dialog:has(.pl-run-dialog), .dialog:has(.pl-open) { max-width: 720px; }
+.pl-layers { display: flex; align-items: flex-start; gap: 8px; }
+.pl-layer { display: flex; flex-direction: column; gap: 10px; }
+.pl-arrow { align-self: center; color: var(--muted); font-size: 18px; padding: 0 2px; }
+.pl-node { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; width: 180px; padding: 10px 12px; text-align: left;
+  background: var(--surface); border: 1px solid var(--border-input); border-radius: 8px; font: inherit; color: inherit; cursor: pointer; }
+.pl-node.box { width: 210px; background: #fafafa; }
+.pl-node.sel { border: 2px solid var(--accent); padding: 9px 11px; }
+.pl-inner { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 6px 8px; border: 1px dashed var(--border-input); border-radius: 6px; background: var(--surface); font-size: 12px; }
+.pl-inner-row { display: flex; justify-content: space-between; gap: 6px; align-items: center; }
+.pl-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pl-detail-head h2 { margin: 0; font-size: 16px; }
+.pl-detail p { margin: 0; }
+.pl-notes { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; }
+.pl-json { margin: 0; padding: 8px 10px; background: #f7f7f7; border-radius: 6px; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-word; max-height: 420px; overflow: auto; }
+.pl-open { display: flex; flex-direction: column; gap: 10px; }
+.pl-open-rows { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 6px; max-height: 280px; overflow: auto; }
+.pl-open-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 10px 12px; text-align: left;
+  background: var(--surface); border: 0; border-bottom: 1px solid var(--border-soft); font: inherit; color: inherit; cursor: pointer; }
+.pl-open-row:hover { background: #f5f8fc; }
+.pl-open-files { display: flex; flex-wrap: wrap; gap: 8px; }
+.pl-run-dialog { display: flex; flex-direction: column; gap: 14px; max-height: 70vh; overflow: auto; padding-right: 4px; }
+.pl-section { display: flex; flex-direction: column; gap: 8px; }
+.pl-field { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 4px 8px; align-items: center; font-size: 13px; }
+.pl-field input, .pl-field select, .pl-field textarea { min-height: 30px; padding: 4px 8px; border: 1px solid var(--border-input); border-radius: 4px; background: var(--surface); font: inherit; width: 100%; box-sizing: border-box; }
+.pl-field textarea, .pl-field input.mono { font-family: var(--mono); font-size: 12.5px; }
+.pl-field .error-text, .pl-field .muted-text { grid-column: 2; }
+.pl-mocks { display: flex; flex-direction: column; gap: 8px; }
+.pl-mock { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; }
+.pl-mock .tool { align-self: flex-start; }
+.pl-check-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.pl-check { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; background: #f7f7f7; border-radius: 6px; font-size: 13px; }
+.pl-check p { margin: 0; }
+.pl-run-body { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; align-items: start; }
+@media (max-width: 1100px) { .pl-run-body { grid-template-columns: minmax(0, 1fr); } }
+.pl-timeline { overflow-x: auto; }
+.pl-timeline .pad { padding: 10px 14px 10px 30px; }
+.pl-row { display: grid; grid-template-columns: minmax(180px, 1.3fr) 100px minmax(160px, 2fr) 60px; gap: 12px; align-items: center; width: 100%;
+  padding: 8px 12px; border: 0; border-bottom: 1px solid var(--border-soft); background: var(--surface); font: inherit; font-size: 13px; color: inherit; text-align: left; cursor: pointer; }
+.pl-row.head { font-size: 12px; font-weight: 600; color: var(--muted); cursor: default; }
+.pl-row.sel { background: #e9eef7; }
+.pl-row .n { text-align: right; font-variant-numeric: tabular-nums; }
+.pl-row-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-track { position: relative; height: 12px; background: #f3f3f3; border-radius: 3px; }
+.pl-bar { position: absolute; top: 0; height: 12px; border-radius: 3px; background: #9e9e9e; }
+.pl-bar.ok { background: #2e7d4f; } .pl-bar.bad { background: #b10e1c; } .pl-bar.run { background: var(--accent); }
+
+/* Panel and dialog transitions (motion.js motionPanes, motionLeave): Minimal and above, transform and
+   opacity only. Off has none; Windows' reduced motion cuts them to nothing (the rule further up). */
+@keyframes mo-fade-in { from { opacity: 0; } }
+@keyframes mo-rise-in { from { opacity: 0; transform: translateY(8px) scale(0.98); } }
+@keyframes mo-from-right { from { opacity: 0; transform: translateX(16px); } }
+@keyframes mo-from-left { from { opacity: 0; transform: translateX(-16px); } }
+@keyframes mo-fade-out { to { opacity: 0; } }
+@keyframes mo-sink-out { to { opacity: 0; transform: translateY(6px) scale(0.98); } }
+.overlay.mo-in { animation: mo-fade-in 180ms ease-out; }
+.overlay.mo-in > .dialog { animation: mo-rise-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+:is(.tray, .varpane, .provepane, .validatepane, .runspane, .commentspane).mo-in { animation: mo-from-right 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.explorer.mo-in { animation: mo-from-left 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.mo-ghost { position: fixed; inset: 0; z-index: 9; pointer-events: none; }  /* under a dialog opened straight after (.overlay is 10) */
+.mo-ghost > div { position: fixed; }
+.mo-ghost-veil { background: rgba(0,0,0,0.35); animation: mo-fade-out 160ms ease-in forwards; }
+.mo-ghost-card { border-radius: 8px; background: var(--surface); box-shadow: 0 8px 28px rgba(0,0,0,0.2); animation: mo-sink-out 160ms ease-in forwards; }
+.mo-ghost-card.side { border-radius: 0; box-shadow: none; border-left: 1px solid var(--border); animation-name: mo-fade-out; }
+html[data-motion-level="0"] :is(.mo-in, .mo-in > .dialog) { animation: none; }
+html[data-motion-level="0"] .mo-ghost { display: none; }
+
 /* Monitor > Runs: a pipeline run opens to its activities (pipeline-runs.js) */
 .pl-toggle { border: 0; background: none; font: inherit; width: 24px; min-height: 24px; padding: 0; margin-right: 4px; cursor: pointer; color: var(--muted); }
 .list tr.pl-child td { background: #fafafa; font-size: 13px; }

@@ -147,7 +147,9 @@ let dialogOnClose = null;
 function closeDialog() {
   const onClose = dialogOnClose;
   dialogOnClose = null;
-  document.getElementById("dialog-root").replaceChildren();
+  const root = document.getElementById("dialog-root");
+  motionLeave(root.querySelector(":scope > .overlay"));
+  root.replaceChildren();
   onClose?.();
 }
 
@@ -861,7 +863,8 @@ function renderCreate() {
       tile("notebook", "Notebook", "Explore, transform and write Delta tables with Python", newNotebook),
       preview("wizard", tile("notebook", "Notebook from a template", "Ten templates to load, clean, check, model and compare data, with checks and a proof contract", openWizard)),
       preview("replay", tile("history", "Open replay bundle", "Run a notebook that failed again, up to the failed cell, against the same table versions", replayOpenDialog)),
-      tile("lakehouse", "Lakehouse", "Store tables and files in OneLake, organized by schema", () => newLakehouse()))));
+      tile("lakehouse", "Lakehouse", "Store tables and files in OneLake, organized by schema", () => newLakehouse()),
+      preview("pipelines", tile("flow", "Pipeline", "Open a Fabric pipeline, check what can run here, and run it on this PC", pipelineOpenDialog)))));
 }
 
 // Filters on Monitor, kept for the session; showFabric is remembered on this PC.
@@ -2378,7 +2381,7 @@ function markdown(src) {
 // (meta.js, settings.js); features.js has the rules.
 registerFeature({ id: "home", rail: { label: "Home", icon: "home", order: 10, also: ["notebooks"] }, views: { home: renderHome } });
 registerFeature({
-  id: "create", rail: { label: "Create", icon: "create", order: 20 }, views: { create: renderCreate },
+  id: "create", rail: { label: "Create", icon: "create", order: 20, also: ["pipelines", "pipelineRun"] }, views: { create: renderCreate },
   commands: [
     { label: "New notebook", icon: "notebook", keywords: "create python", run: () => newNotebook() },
     { label: "Move this notebook to another place", icon: "folder", keywords: "repository git save in",

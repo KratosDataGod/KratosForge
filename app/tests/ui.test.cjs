@@ -836,7 +836,12 @@ test("the risk gate passes quietly, never runs a blocked item and needs the tick
   const ctx = { h: node, icon: () => null, measureBadge: () => null, previewMarked: (_, n) => n,
     btn: (label, _i, onClick) => ({ label, onClick }), closeDialog: () => { dialog = null; },
     showDialog: (title, body, actions) => { dialog = { title, actions }; }, toast: (t) => toasts.push(t),
-    attempt: (fn) => fn(), rpc: async (m, p) => (m === "risk_acknowledge" ? (acks.push(p), { ok: true }) : ctx.result) };
+    attempt: (fn) => fn(), friendlyError: (e) => ({ text: e.message }),
+    rpc: async (m, p) => {
+      if (m === "risk_acknowledge") return (acks.push(p), { ok: true });
+      if (ctx.result instanceof Error) throw ctx.result;
+      return ctx.result;
+    } };
   vm.runInNewContext(`${src}; Object.assign(this, { riskGate });`, ctx);
   const target = { id: "notebook:nb", action: "run_in_fabric", title: "Run?", alt: { label: "Run on this PC", run: () => ctx.ran.push("pc") } };
   ctx.ran = [];
@@ -870,6 +875,18 @@ test("the risk gate passes quietly, never runs a blocked item and needs the tick
   await press("Run anyway");
   assert.strictEqual(await gate, true);
   assert.deepStrictEqual(acks.map((a) => a.risk_id), ["r2"]);
+
+  // A check that couldn't run never goes ahead silently and never blocks: the reason, then Continue or Cancel.
+  ctx.result = new Error("This notebook has no deployment.");
+  for (const [label, expected] of [["Cancel", false], ["Continue", true]]) {
+    gate = ctx.riskGate(target);
+    await settle();
+    assert.ok(dialog, "an error shows a dialog");
+    assert.deepStrictEqual(Array.from(dialog.actions, (a) => a.label), ["Cancel", "Continue"]);
+    press(label);
+    assert.strictEqual(await gate, expected);
+  }
+  assert.deepStrictEqual(acks.map((a) => a.risk_id), ["r2"], "nothing is acknowledged when nothing was checked");
 });
 
 test("only Monitor > Runs shares the page with Fabric's hub, so Schedules and Cost get the whole page (#190)", () => {
@@ -1871,6 +1888,7 @@ function dialogHelpers() {
     h: node, icon: () => node("svg"), btn: (label, _i, onClick, cls) => node("button", { class: cls, onclick: onClick }, label),
     MutationObserver: class { observe() {} disconnect() {} },
     document: { getElementById: () => root, addEventListener: (t, fn) => { (docOn[t] ||= []).push(fn); } },
+    motionLeave: () => null,  // motion.js: the fade after a dialog goes
   };
   vm.runInNewContext(`${code}; Object.assign(this, { showDialog, closeDialog, askText, pickWorkspace, confirmDialog });`, ctx);
   const overlay = () => root.kids[0];
@@ -4588,6 +4606,125 @@ test("Share adds another notebook to this session, and a notebook that shares on
   assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /sharedSessions: "Shared notebook sessions"/);
 });
 
+// The pure helpers at the top of pipelines.js (Pipelines, Preview).
+function pipelineHelpers() {
+  const src = fs.readFileSync(path.join(ui, "pipelines.js"), "utf8");
+  const code = src.slice(src.indexOf("const PL_SETUP"), src.indexOf("// UTF-8 text as base64"));
+  const ctx = {};
+  vm.runInNewContext(`${code}; Object.assign(this, { plVerdict, plLayers, plAfter, plTimelineRows, plBar, plParamValue, plParamText, plStorable });`, ctx);
+  return ctx;
+}
+
+test("pipelines: an activity runs here, needs a mock or runs only in Fabric", () => {
+  const { plVerdict } = pipelineHelpers();
+  const copy = { path: "$.a[1]", classification: "static" };
+  assert.strictEqual(plVerdict(copy, [{ path: "$.a[1]", code: "not_local" }]), "mock");
+  // What the Run dialog settles (a notebook to pick, lakehouse reads to allow) doesn't need a mock.
+  assert.strictEqual(plVerdict({ path: "$.a[3]", classification: "local" }, [{ path: "$.a[3]", code: "notebook_unmapped" }]), "here");
+  assert.strictEqual(plVerdict({ path: "$.a[3]", classification: "local" }, [{ path: "$.a[30]", code: "not_local" }]), "here");
+  assert.strictEqual(plVerdict({ path: "$.a[4]", classification: "unsupported" }, []), "fabric");
+});
+
+test("pipelines: the graph puts each activity a column after what it depends on", () => {
+  const { plLayers, plAfter } = pipelineHelpers();
+  const acts = [
+    { name: "C", depends_on: [{ activity: "A", conditions: ["Succeeded"] }, { activity: "B", conditions: ["Failed"] }] },
+    { name: "A", depends_on: [] },
+    { name: "B", depends_on: [{ activity: "A", conditions: ["Succeeded"] }] },
+    { name: "D", depends_on: [{ activity: "missing" }] },
+  ];
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(plLayers(acts).map((l) => l.map((a) => a.name)))), [["A", "D"], ["B"], ["C"]]);
+  // A cycle (validation reports it) still draws every activity, once.
+  const cycle = plLayers([{ name: "X", depends_on: [{ activity: "Y" }] }, { name: "Y", depends_on: [{ activity: "X" }] }]);
+  assert.strictEqual(cycle.flat().map((a) => a.name).sort().join(), "X,Y");
+  assert.strictEqual(plAfter(acts[0]), "after A, B fails");
+  assert.strictEqual(plAfter({ depends_on: [{ activity: "V", conditions: ["Succeeded", "Failed"] }] }), "after V or fails");
+  assert.strictEqual(plAfter(acts[1]), "");
+});
+
+test("pipelines: the run view nests iterations and child pipelines under their parent", () => {
+  const { plTimelineRows, plBar } = pipelineHelpers();
+  const record = { activities: [
+    { id: "1", name: "Loop" }, { id: "2", name: "Step", parent: "1", label: "iteration 0" },
+    { id: "3", name: "Child", child_run: { activities: [{ id: "c1", name: "Inner" }] } },
+    { id: "4", name: "Step", parent: "1", label: "iteration 1" },
+  ] };
+  const rows = plTimelineRows(record);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(rows.map((r) => [r.act.name, r.depth]))), [["Loop", 0], ["Step", 1], ["Step", 1], ["Child", 0], ["Inner", 1]]);
+  // Within a loop, rows go by iteration, then in the order they ran.
+  const loop = plTimelineRows({ activities: [{ id: "L", name: "L" },
+    { id: "a0", name: "A", parent: "L", label: "iteration 0" }, { id: "a1", name: "A", parent: "L", label: "iteration 1" },
+    { id: "b0", name: "B", parent: "L", label: "iteration 0" }, { id: "b1", name: "B", parent: "L", label: "iteration 1" }] });
+  assert.strictEqual(loop.map((r) => r.act.id).join(), "L,a0,b0,a1,b1");
+  const bar = plBar({ started: "2026-10-23T10:00:05Z", ended: "2026-10-23T10:00:10Z" }, "2026-10-23T10:00:00Z", "2026-10-23T10:00:20Z");
+  assert.deepStrictEqual({ ...bar }, { left: 25, width: 25 });
+  assert.deepStrictEqual({ ...plBar({ started: "x" }, "2026-10-23T10:00:00Z", "2026-10-23T10:00:20Z") }, { left: 0, width: 0 });
+});
+
+test("pipelines: parameters are typed as Fabric declares them", () => {
+  const { plParamValue, plParamText } = pipelineHelpers();
+  assert.strictEqual(plParamValue("String", "[1]"), "[1]");
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(plParamValue("array", '["a", "b"]'))), ["a", "b"]);
+  assert.strictEqual(plParamValue("int", "3"), 3);
+  assert.strictEqual(plParamValue("int", " "), undefined);
+  assert.throws(() => plParamValue("object", "{nope"));
+  assert.strictEqual(plParamText("string", "x"), "x");
+  assert.strictEqual(plParamText("array", ["a"]), '["a"]');
+  assert.strictEqual(plParamText("int", undefined), "");
+});
+
+test("pipelines: SecureString values and network leave are never kept on this PC", () => {
+  const { plStorable } = pipelineHelpers();
+  const kept = plStorable({ parameters: { day: "2026-10-23", token: "s3cret", Key: "k" }, allow_uncontained: true, keep_outputs: true },
+    [{ name: "day", type: "String" }, { name: "token", type: "SecureString" }, { name: "Key", type: "securestring" }]);
+  assert.strictEqual(JSON.stringify(kept.parameters), '{"day":"2026-10-23"}');
+  assert.strictEqual(kept.allow_uncontained, false);
+  assert.strictEqual(kept.keep_outputs, true);
+  assert.doesNotMatch(JSON.stringify(kept), /s3cret/);
+});
+
+// Panel and dialog transitions (KF-MO-003): Minimal and above, transform and opacity only, never at Off.
+test("Panel transitions: the fade-out card is made at Minimal, not at Off or with reduced motion, and hides from readers", () => {
+  const at = (level, opts = {}) => {
+    const ctx = motionHarness({ ...opts, settings: { motion_level: { value: level } } });
+    ctx.document.body = ctx.node();
+    const dialog = ctx.node("overlay");
+    dialog.querySelector = () => null;
+    dialog.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 });
+    return [ctx, dialog];
+  };
+  for (const [level, opts] of [[0, {}], [3, { reduced: true }]]) {
+    const [ctx, dialog] = at(level, opts);
+    assert.strictEqual(ctx.motionLeave(dialog), null, `a card faded at level ${level}${opts.reduced ? " with reduced motion" : ""}`);
+  }
+  const [ctx, dialog] = at(1);
+  const ghost = ctx.motionLeave(dialog);
+  assert.ok(ghost, "no card faded at Minimal");
+  assert.strictEqual(ghost.attrs["aria-hidden"], "true");
+  assert.ok(ghost.cls.has("mo-ghost") && !ghost.cls.has("overlay"), "the fading card can be mistaken for the dialog");
+  assert.strictEqual(ghost.parent, ctx.document.body);
+  ctx.advance(250);
+  assert.strictEqual(ghost.parent, null, "the fading card stayed");
+  assert.strictEqual(ctx.motionLeave(null), null);
+});
+
+test("Panel transitions: the dialog and tray go before anything fades, and the CSS animates only transform and opacity", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /motionLeave\(root\.querySelector\(":scope > \.overlay"\)\);\n\s*root\.replaceChildren\(\);/, "closeDialog doesn't take the dialog away at once");
+  assert.match(fs.readFileSync(path.join(ui, "activity.js"), "utf8"), /motionLeave\(root\.querySelector\(":scope > \.tray"\)\); root\.replaceChildren\(\);/);
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  const frames = [...css.matchAll(/@keyframes (mo-[\w-]+) \{(.*)\}\n/g)];
+  assert.ok(frames.length >= 6);
+  for (const [, name, body] of frames) {
+    for (const [, prop] of body.matchAll(/([\w-]+)\s*:/g)) assert.ok(["opacity", "transform"].includes(prop), `${name} animates ${prop}`);
+  }
+  assert.match(css, /html\[data-motion-level="0"\] :is\(\.mo-in, \.mo-in > \.dialog\) \{ animation: none; \}/);
+  assert.match(css, /html\[data-motion-level="0"\] \.mo-ghost \{ display: none; \}/);
+  const ins = [...css.matchAll(/\.mo-in[^{]*\{ animation: [\w-]+ (\d+)ms/g)];
+  assert.ok(ins.length >= 4);
+  for (const m of ins) assert.ok(+m[1] >= 150 && +m[1] <= 250, `${m[0]} is outside 150-250 ms`);
+});
+
 // The cooling spark (KF-MO-006): Validate, Prove and a confirmed publish cool; their failures are embers.
 test("Cooling spark: a passed check cools for 500 ms, then is gone; failures play the ember", () => {
   const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
@@ -4705,4 +4842,11 @@ test("Profile shows proofs, and Journey and Achievements only while progression 
   const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
   const block = css.slice(css.indexOf("/* Profile (profile.js)"), css.indexOf("@media (max-width: 900px) { .profile-grid"));
   assert.doesNotMatch(block.replace(/#fff\b/g, ""), /#[0-9a-f]{3,6}\b/i, "profile styles use tokens");
+});
+
+// Spark on this PC: NOT NULL inside a struct and names of rewritten SQL functions.
+test("the Spark on this PC page says NOT NULL inside a struct isn't checked and SQL keeps function names", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`NOT NULL` on a field inside a struct\nis accepted in SQL but not checked/);
+  assert.match(doc, /without an alias is named after what you wrote, as in Spark/);
 });

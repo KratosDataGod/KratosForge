@@ -41,7 +41,7 @@ Scheduled runs on this PC, local pipeline runs, `%run` and `notebookutils.notebo
 
 `OPTIMIZE` rewrites only the files it compacts ([Table compaction](https://learn.microsoft.com/en-us/fabric/data-engineering/table-compaction)). A file it has nothing to compact with stays as it is: the only file of a small table written in one go, or files that are already large. Raising `spark.databricks.delta.optimize.minFileSize` doesn't change that for a table of one file (tested on Fabric, October 2026).
 
-Then the table shows **not V-Ordered** and a **Rewrite all files** button. The button changes the cell so it reads each table and writes it back, which is an overwrite with no data change (`dataChange` false), V-Ordered like everything the step writes. Run the cell again. That rewrites the whole table, so it takes longer and uses more capacity, and it adds a Delta version whose old files stay until VACUUM.
+Then the table shows **not V-Ordered** and a **Rewrite all files** button. The button changes the cell so it reads each table and writes it back, which is an overwrite with no data change (`dataChange` false), V-Ordered like everything the step writes. Run the cell again. That rewrites the whole table, so it takes longer and uses more capacity, and it adds a Delta version whose old files stay until VACUUM. V-Order is asked for on the write itself and in the session, which Fabric applies even when the table's own `delta.parquet.vorder.enabled` is false ([V-Order settings](https://learn.microsoft.com/en-us/fabric/data-engineering/delta-optimization-and-v-order)). A table with a `GENERATED ALWAYS AS IDENTITY` column can't be written back this way: the step fails with Spark's error and the table is left as it was.
 
 ## How this works
 

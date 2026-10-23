@@ -174,6 +174,6 @@ function fabricStepOutput(o, cell) {
   return h("div", { class: "output fabric-step-output" }, head,
     tables.length ? h("div", { class: "vorder-chips" }, tables, h("span", { class: "muted-text small" }, "Checked from each file's Parquet footer after the run.")) : null,
     missed.length && cell ? h("div", { class: "fabric-step-line" },
-      h("span", {}, "OPTIMIZE leaves alone a file it has nothing to compact with. Rewrite all files writes each table back with V-Order."),
+      h("span", {}, "OPTIMIZE leaves alone a file it has nothing to compact with. Rewrite all files writes each table back with V-Order: the whole table, so a large table takes longer and uses more capacity."),
       btn("Rewrite all files", null, () => setVOrderSource(cell, missed, true), "tool small outline")) : null);
 }

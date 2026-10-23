@@ -73,6 +73,7 @@ def test_vorder_source_quotes_names_and_rewrite_all_writes_each_table_back():
     src = fabric_step.vorder_source(["gold.t"], rewrite_all=True)
     assert 'rewrite_with_vorder("`gold`.`t`")' in src and "OPTIMIZE `" not in src
     assert '.mode("overwrite").option("dataChange", "false")' in src and "minFileSize" not in src
+    assert '.option("parquet.vorder.enabled", "true")' in src  # wins over the table's own setting
     compile(src, "cell", "exec")
     # What the V-Order check later reads: the same tables, comments not mistaken for names.
     assert fabric_step.optimized_tables(fabric_step.vorder_source(["gold.fact_sales", "dim"], rewrite_all=True)) == [

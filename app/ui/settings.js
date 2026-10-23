@@ -204,8 +204,8 @@ async function checkForUpdates() {
     h("dt", {}, `Latest on ${latest.channel === "preview" ? "Preview" : "Stable"}`), h("dd", {}, short(latest.commit)));
   const manual = btn("Download manually", "arrowDownload", () => openLink(latest.page), "tool outline");
   const note = h("p", { class: "muted-text small" }, result.kind === "newer"
-    ? "Running cells stop. Or download fabric-desktop.exe from the release page and run it in place of this one."
-    : result.kind === "current" ? "" : "You can download fabric-desktop.exe from the channel's release page and run it in place of this one.");
+    ? "Running cells stop. Or download kratosforge.exe from the release page and run it in place of this one."
+    : result.kind === "current" ? "" : "You can download kratosforge.exe from the channel's release page and run it in place of this one.");
   if (latest.note) note.prepend(`${latest.note} `);
   const text = h("p", { class: result.kind === "error" ? "error-text" : "" }, result.text);
   if (result.kind !== "newer") {

@@ -836,7 +836,12 @@ test("the risk gate passes quietly, never runs a blocked item and needs the tick
   const ctx = { h: node, icon: () => null, measureBadge: () => null, previewMarked: (_, n) => n,
     btn: (label, _i, onClick) => ({ label, onClick }), closeDialog: () => { dialog = null; },
     showDialog: (title, body, actions) => { dialog = { title, actions }; }, toast: (t) => toasts.push(t),
-    attempt: (fn) => fn(), rpc: async (m, p) => (m === "risk_acknowledge" ? (acks.push(p), { ok: true }) : ctx.result) };
+    attempt: (fn) => fn(), friendlyError: (e) => ({ text: e.message }),
+    rpc: async (m, p) => {
+      if (m === "risk_acknowledge") return (acks.push(p), { ok: true });
+      if (ctx.result instanceof Error) throw ctx.result;
+      return ctx.result;
+    } };
   vm.runInNewContext(`${src}; Object.assign(this, { riskGate });`, ctx);
   const target = { id: "notebook:nb", action: "run_in_fabric", title: "Run?", alt: { label: "Run on this PC", run: () => ctx.ran.push("pc") } };
   ctx.ran = [];
@@ -870,6 +875,18 @@ test("the risk gate passes quietly, never runs a blocked item and needs the tick
   await press("Run anyway");
   assert.strictEqual(await gate, true);
   assert.deepStrictEqual(acks.map((a) => a.risk_id), ["r2"]);
+
+  // A check that couldn't run never goes ahead silently and never blocks: the reason, then Continue or Cancel.
+  ctx.result = new Error("This notebook has no deployment.");
+  for (const [label, expected] of [["Cancel", false], ["Continue", true]]) {
+    gate = ctx.riskGate(target);
+    await settle();
+    assert.ok(dialog, "an error shows a dialog");
+    assert.deepStrictEqual(Array.from(dialog.actions, (a) => a.label), ["Cancel", "Continue"]);
+    press(label);
+    assert.strictEqual(await gate, expected);
+  }
+  assert.deepStrictEqual(acks.map((a) => a.risk_id), ["r2"], "nothing is acknowledged when nothing was checked");
 });
 
 test("only Monitor > Runs shares the page with Fabric's hub, so Schedules and Cost get the whole page (#190)", () => {

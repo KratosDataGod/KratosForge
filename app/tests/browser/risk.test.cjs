@@ -39,6 +39,7 @@ const PRE = { allowed: true, label: "Run now", workload: "pl_load_erp", env_labe
   warnings: [], recorded: "Recorded on this workload as submitted, then as succeeded or failed when the run finishes." };
 
 let app;
+const FAILS = "fails";
 let current = WARNING;
 let checks = 0;
 const acks = [];
@@ -51,7 +52,10 @@ before(async () => {
     viewport: { width: 1000, height: 900 },
     mocks: {
       workload_preflight: () => ({ ...PRE, risk: current }),
-      risk_check: (p) => { checks += 1; return p.id === "meta:sales:orders" ? BLOCKED : p.id === "meta:sales:customers" ? WARNING : current; },
+      risk_check: (p) => {
+        checks += 1;
+        if (current === FAILS) throw new Error("This notebook isn't deployed to a Fabric workspace yet.");
+        return p.id === "meta:sales:orders" ? BLOCKED : p.id === "meta:sales:customers" ? WARNING : current; },
       // Data mesh Run all reads the risk of every entity in one batch (#297).
       meta_risk_gate: (p) => {
         const all = { orders: BLOCKED, customers: WARNING };
@@ -145,6 +149,26 @@ test("the notebook gate offers this PC when Fabric is blocked and stays quiet on
   current = PASS;
   assert.strictEqual(await page().evaluate(() => riskGate({ id: "notebook:nb", action: "run_in_fabric", title: "x" })), true);
   assert.strictEqual(await dialog().count(), 0);
+});
+
+test("a risk check that couldn't run says why and asks, never going ahead on its own", { skip }, async () => {
+  current = FAILS;
+  const ask = () => page().evaluate(() => riskGate({ id: "notebook:nb", action: "run_in_fabric", title: "Run in Fabric nb_sales_daily?", runLabel: "Run in Fabric" }));
+  let gate = ask();
+  await dialog().waitFor();
+  const text = await dialog().textContent();
+  assert.match(text, /Unknown/);
+  assert.match(text, /The risk check couldn't run/);
+  assert.match(text, /This notebook isn't deployed to a Fabric workspace yet\./);
+  assert.deepStrictEqual(await page().locator(".dialog-actions button").allTextContents(), ["Cancel", "Continue"]);
+  await shot("risk-check-failed.png");
+  await page().locator(".dialog-actions button", { hasText: "Cancel" }).click();
+  assert.strictEqual(await gate, false);
+  gate = ask();
+  await dialog().waitFor();
+  await page().locator(".dialog-actions button", { hasText: "Continue" }).click();
+  assert.strictEqual(await gate, true);
+  current = PASS;
 });
 
 test("the Prices dialog saves the Before a run settings", { skip }, async () => {

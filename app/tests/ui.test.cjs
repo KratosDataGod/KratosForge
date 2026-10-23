@@ -4693,3 +4693,10 @@ test("SQL Forge events (KF-MO-005): a slow success sparks, a failure plays the e
   const run = /async function run\(query[\s\S]*?\n  }\n/.exec(q)[0];
   assert.ok(run.lastIndexOf("runFx(status, allow)") > run.lastIndexOf("sqlPage.redraw?.()"), "the effect plays before the redraw replaces the pill");
 });
+
+// Spark on this PC: NOT NULL inside a struct and names of rewritten SQL functions.
+test("the Spark on this PC page says NOT NULL inside a struct isn't checked and SQL keeps function names", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`NOT NULL` on a field inside a struct\nis accepted in SQL but not checked/);
+  assert.match(doc, /without an alias is named after what you wrote, as in Spark/);
+});

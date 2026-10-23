@@ -58,7 +58,7 @@ def parse(text: str) -> dict[str, Any]:
     except yaml.YAMLError as exc:
         raise ValueError(f"This isn't valid YAML or JSON: {exc}") from exc
     if not isinstance(doc, dict):
-        raise ValueError("This isn't an Ossie semantic model: it should be one object with version, name and datasets")
+        raise TypeError("This isn't an Ossie semantic model: it should be one object with version, name and datasets")
     if "semantic_model" in doc:
         raise ValueError("This file uses the older Ossie layout with a semantic_model list. "
                          f"Ossie {OSSIE_VERSION} puts one model's name and datasets at the top of the file.")

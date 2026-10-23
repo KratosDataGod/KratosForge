@@ -73,7 +73,7 @@ Every build of `main` comes with proof of where it came from and a list of what 
 
     It prints the workflow and commit that built it, or fails if the file was changed. A file promoted to Stable is the same file, so the same check works. Builds made before the repository was renamed (October 2026) name the old repository, so check those with `-R KratosDataGod/fabric-desktop`.
 
-- **Software bill of materials.** The Preview (`latest`) release carries `sbom-engine.cdx.json` (every Python package in the engine, read from the engine itself) and `sbom-app.cdx.json` (every Rust crate in the exe), in CycloneDX format. Most vulnerability scanners and asset tools read it.
+- **Software bill of materials.** The Preview (`latest`) release carries `sbom-engine.cdx.json` (every Python package in the engine, read from the engine itself) and `sbom-app.cdx.json` (every Rust crate in the exe), in CycloneDX format. Most vulnerability scanners and asset tools read it. One piece of third-party code ships inside the engine package instead of as its own package, so it isn't a separate SBOM entry: the Apache Ossie Microsoft converter (Apache License 2.0, upstream commit `82b9eff`, in `fabric_desktop/_vendor/ossie_microsoft` with its LICENSE and NOTICE).
 
 - **Vulnerability scanning.** CI checks the engine's pinned Python packages (`pip-audit`) and the exe's Rust crates (`cargo audit`) on every pull request.
 

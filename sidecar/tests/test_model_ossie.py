@@ -96,7 +96,7 @@ def test_export_reports_what_only_fabric_understands_and_writes_simple_measures_
     (f"version: {model_ossie.OSSIE_VERSION}\nname: x\ndatasets: []\n", "at least one dataset"),
 ])
 def test_files_that_arent_ossie_are_refused_with_a_reason(text, says):
-    with pytest.raises(ValueError, match=says):
+    with pytest.raises((ValueError, TypeError), match=says):
         model_ossie.parse(text)
 
 

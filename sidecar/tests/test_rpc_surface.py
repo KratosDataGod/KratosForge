@@ -35,7 +35,17 @@ _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-0
 # Allowlisted methods with no UI caller, each with why it stays. Remove a name when the UI starts
 # calling it or when it leaves METHODS; the test below fails until you do.
 # Dropping a name from METHODS? Also drop it from the timeout list in app/src-tauri/src/watchdog.rs.
+_OSSIE = "Semantic model tab's Ossie card: engine only, the card waits on Chris's mockup review (docs/semantic-model-ossie.md)"
+
 NO_UI_CALLER: dict[str, str] = {
+    # Export to Ossie / Import from Ossie.
+    "meta_model_ossie_models": _OSSIE,
+    "meta_model_ossie_export": _OSSIE,
+    "meta_model_ossie_save": _OSSIE,
+    "meta_model_ossie_read": _OSSIE,
+    "meta_model_ossie_preview": _OSSIE,
+    "meta_model_ossie_import": _OSSIE,
+    "meta_model_tmdl_save": _OSSIE,
     # MCP / local HTTP API tools (in-process).
     "placement_advice": _MCP + "; Prove shows it later (docs/finops/placement-advice.md)",
     "notebook_environment": _MCP,

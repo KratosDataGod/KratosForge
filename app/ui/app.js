@@ -147,7 +147,9 @@ let dialogOnClose = null;
 function closeDialog() {
   const onClose = dialogOnClose;
   dialogOnClose = null;
-  document.getElementById("dialog-root").replaceChildren();
+  const root = document.getElementById("dialog-root");
+  motionLeave(root.querySelector(":scope > .overlay"));
+  root.replaceChildren();
   onClose?.();
 }
 
@@ -720,7 +722,7 @@ async function renderHome() {
   const live = activity.items.filter((i) => i.status === "running" && !i.stale);
   running.replaceWith(live.length ? h("div", { class: "home-list" }, live.map((i) => h("div", { class: "home-item" },
     h("div", { class: "row" }, h("b", { class: "grow" }, i.title), h("span", { class: "muted-text small" }, `started ${relTime(i.at)}`)),
-    h("div", { class: "progress" }, h("div", { class: "bar indeterminate" })),
+    remoteActivity(i) ? remoteProgress(i.title) : h("div", { class: "progress" }, h("div", { class: "bar indeterminate" })),
     i.text ? h("div", { class: "muted-text small" }, i.text) : null)))
     : h("p", { class: "muted-text" }, "Nothing is running."));
 
@@ -861,7 +863,8 @@ function renderCreate() {
       tile("notebook", "Notebook", "Explore, transform and write Delta tables with Python", newNotebook),
       preview("wizard", tile("notebook", "Notebook from a template", "Ten templates to load, clean, check, model and compare data, with checks and a proof contract", openWizard)),
       preview("replay", tile("history", "Open replay bundle", "Run a notebook that failed again, up to the failed cell, against the same table versions", replayOpenDialog)),
-      tile("lakehouse", "Lakehouse", "Store tables and files in OneLake, organized by schema", () => newLakehouse()))));
+      tile("lakehouse", "Lakehouse", "Store tables and files in OneLake, organized by schema", () => newLakehouse()),
+      preview("pipelines", tile("flow", "Pipeline", "Open a Fabric pipeline, check what can run here, and run it on this PC", pipelineOpenDialog)))));
 }
 
 // Filters on Monitor, kept for the session; showFabric is remembered on this PC.
@@ -963,17 +966,19 @@ async function renderMonitor() {
   if (monitorPage.panel === "queue") { local.replaceWith(queuePanel()); return; }
   if (monitorPage.panel === "runas") { local.replaceWith(runAsPanel()); return; }
 
-  const [writes, meta, cloud, scheduled] = await Promise.all([
+  const [writes, meta, cloud, scheduled, pipelines] = await Promise.all([
     attempt(() => rpc("history")),
     rpc("meta_runs_all", { limit: 200 }).catch(() => ({ runs: [], unavailable: {} })),
     rpc("fabric_runs", { limit: 50 }).catch(() => []),  // not signed in yet
     rpc("pc_schedule_runs", { limit: 100 }).catch(() => []),
+    previewShown() ? rpc("pipeline_runs", { limit: 50 }).catch((err) => ({ runs: [], error: friendlyError(err).text })) : { runs: [] },
   ]);
   if (state.view !== "monitor") return;
   const unavailable = Object.entries(meta.unavailable || {});
   note.textContent = [
     meta.project_error ? `Metadata runs not shown: the metadata project couldn't be read (${meta.project_error})` : "",
     ...unavailable.map(([env, why]) => `${ENV_LABEL[env]}: ${why}`),
+    pipelines.error ? `Pipeline runs not shown: they couldn't be read (${pipelines.error.replace(/\.$/, "")})` : "",
   ].filter(Boolean).join(" · ");
   const rows = [
     ...(meta.runs || []).map((r) => ({
@@ -995,6 +1000,7 @@ async function renderMonitor() {
       reason: r.status === "ok" ? "" : [r.message?.replace(/\.$/, ""), r.alert_error].filter(Boolean).join(". "),
       open: () => { monitorPage.panel = "schedules"; render(); },
     })),
+    ...pipelineRunRows(pipelines.runs),
     ...(writes || []).map((r) => ({
       at: r.finished_at, status: "ok", activity: r.job, kind: "Notebook write", env: "", where: "local",
       seconds: r.seconds, rows: r.rows, note: `${r.table_uri.split("/Tables/")[1] || r.table_uri} (${r.mode}, v${r.delta_version})`, reason: "",
@@ -1007,16 +1013,20 @@ async function renderMonitor() {
   if (monitorPage.problemsFirst) rows.sort((a, b) => bad(a) - bad(b));  // stable: newest first within each group
   const list = rows.length ? h("div", { class: "monitor-scroll" }, h("table", { class: "list" },
     h("thead", {}, h("tr", {}, ["Status", "Activity", "Env", "Ran on", "When", "Took", "Rows", ""].map((c) => h("th", ["Took", "Rows"].includes(c) ? { class: "n" } : {}, c)))),
-    h("tbody", {}, rows.map((r) => h("tr", r.open ? { class: "click", onclick: r.open } : {},
-      h("td", {}, statusPill(r.status)),
-      h("td", {}, h("div", {}, h("b", {}, r.activity)), h("div", { class: "muted-text small" }, [r.kind, r.note].filter(Boolean).join(" · ")),
+    h("tbody", {}, rows.map((r) => h("tr", r.open ? { class: "click", onclick: r.open }
+      : r.pipelineRun ? { class: "click pl-run", "data-pl-run": r.pipelineRun, onclick: (e) => togglePipelineRun(e.currentTarget, r) } : {},
+      h("td", {}, r.pill || statusPill(r.status)),
+      h("td", {}, h("div", {}, r.pipelineRun ? pipelineToggle(r) : null, h("b", {}, r.activity)),
+        h("div", { class: "muted-text small" }, [r.kind, r.note].filter(Boolean).join(" · "),
+          r.pipelineRun ? h("span", { class: "pl-summary" }) : null, r.tags?.length ? [" ", r.tags] : null),
         r.reason ? h("div", { class: "reason" }, r.reason) : null),
       h("td", {}, runEnvCell(r)), h("td", {}, r.ranOn || (r.where === "fabric" ? "Fabric" : "This PC")),
       h("td", {}, when(r.at)), h("td", { class: "n" }, took(r.seconds)), h("td", { class: "n" }, r.rows ?? ""),
-      h("td", { class: "n" }, r.open ? h("span", { class: "link-text" }, "Details") : null)))))) :
+      h("td", { class: "n" }, r.open ? h("span", { class: "link-text" }, "Details") : r.pipelineRun ? pipelineRunDetails(r) : null)))))) :
     h("p", { class: "muted-text monitor-empty" }, monitorPage.env !== "all" || monitorPage.where !== "any"
       ? "Nothing matches these filters." : "Nothing has run yet. Run a metadata entity or write a table from a notebook.");
   local.replaceWith(list);
+  if (rows.length) reopenPipelineRuns(list, rows);
   list.scrollTop = keptTop;
 }
 
@@ -1033,10 +1043,10 @@ function monitorHubButtons() {
 // Runs > Env for a row with no environment, saying why there isn't one (testing item 32).
 function runEnvCell(r) {
   if (r.env) return ENV_LABEL[r.env] || r.env;
-  const why = r.where === "fabric"
+  const why = r.envWhy || (r.where === "fabric"
     ? "Started in a Fabric workspace (named under the activity), not from one of the project's environments"
-    : "Notebook writes and this PC's schedules aren't tied to an environment";
-  return h("span", { class: "muted-text", title: why }, "None");
+    : "Notebook writes and this PC's schedules aren't tied to an environment");
+  return h("span", { class: "muted-text", title: why }, "No environment");
 }
 
 // Fabric job states, shown with the same pills as local runs.
@@ -1977,11 +1987,16 @@ async function publishNotebook() {
   const gate = await nbFabricChangeGate(nb);  // someone changed it in Fabric: they decide first
   if (!gate) return;
   toast(`Publishing ${nb.name} to ${ws}...`);
-  const result = await attempt(() => rpc("publish_notebook", { ...publishPayload(), replace_fabric_changes: gate.replace }), "Publish failed");
+  let failed = false;
+  const result = await attempt(() => rpc("publish_notebook", { ...publishPayload(), replace_fabric_changes: gate.replace })
+    .catch((err) => { failed = !friendlyError(err).cancelled; throw err; }), "Publish failed");
+  if (failed) forgeEvent("publish.failed", document.getElementById("toast"));  // an ember beside the error (motion.js)
   if (result) {
     nb.dirty = false;
     renderChrome();
     toast(`Published ${nb.name} to ${ws} as a Fabric notebook item.`);
+    // Fabric gave back the item it saved, so the publish is confirmed: the toast cools (motion.js).
+    if (result.id) forgeEvent("publish.verified", document.getElementById("toast"));
   }
 }
 
@@ -2366,7 +2381,7 @@ function markdown(src) {
 // (meta.js, settings.js); features.js has the rules.
 registerFeature({ id: "home", rail: { label: "Home", icon: "home", order: 10, also: ["notebooks"] }, views: { home: renderHome } });
 registerFeature({
-  id: "create", rail: { label: "Create", icon: "create", order: 20 }, views: { create: renderCreate },
+  id: "create", rail: { label: "Create", icon: "create", order: 20, also: ["pipelines", "pipelineRun"] }, views: { create: renderCreate },
   commands: [
     { label: "New notebook", icon: "notebook", keywords: "create python", run: () => newNotebook() },
     { label: "Move this notebook to another place", icon: "folder", keywords: "repository git save in",
@@ -2531,7 +2546,7 @@ async function checkComponents(afterInstall = false) {
   else if (report.bundled && !report.python) set("app", "ok", `Build ${short(app.commit)}; checked for updates once the engine is installed`);
   else if (app.updated_to && app.updated_to !== app.commit) {
     set("app", "error", `The update didn't take: this is still build ${short(app.commit)}, not ${short(app.updated_to)}. ` +
-      "Download fabric-desktop.exe again from the latest release.");
+      "Download kratosforge.exe again from the latest release.");
   } else if (report.auto_update === false) {
     // The organization rolls out builds itself (policy auto_update: false).
     set("app", "ok", latest.commit && latest.commit !== app.commit
@@ -2584,7 +2599,7 @@ async function checkComponents(afterInstall = false) {
       // The engine just installed is still not this build's: the exe update above failed.
       set("sidecar", "error", `The latest engine is build ${sidecar.commit ? short(sidecar.commit) : "unknown"}, ` +
         `but this app is ${short(app.commit)}. ` + (report.auto_update === false
-        ? "Your organization rolls out updates: ask IT for the current build of fabric-desktop.exe."
+        ? "Your organization rolls out updates: ask IT for the current build of kratosforge.exe."
         : "Restart KratosForge to update it."));
       if (await choose("Retry", "Continue anyway") === 0) return checkComponents();
       return closeDialog();

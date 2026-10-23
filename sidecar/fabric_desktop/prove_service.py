@@ -17,6 +17,7 @@ import base64
 import datetime as dt
 import hashlib
 import json
+import logging
 import re
 import threading
 import time
@@ -24,7 +25,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from . import app_settings, depgraph, envprofile, proof, receipts, replay, scorecard, verify, wizard
+from . import app_settings, depgraph, envprofile, proof, receipts, redact, replay, scorecard, verify, wizard
 from .notebook import check_watches, leaf_name
 from .fabric_run import TERMINAL, fabric_ipynb
 from .kernel_proc import ProcessKernel
@@ -40,6 +41,8 @@ POLL_SECONDS = 5
 MAX_FABRIC_SECONDS = 6 * 3600
 RUNNING = ("preparing", "pc", "fabric", "verifying")
 PROOF_SUFFIX = "_proof"
+
+_log = logging.getLogger(__name__)
 
 
 def _now() -> str:
@@ -720,6 +723,11 @@ class ProveMixin:
             record["receipt_id"] = self.receipts.put(self._proof_receipt(record | {"state": final}))
         except Exception as exc:  # noqa: BLE001 - the record still says what happened
             record["message"] = (record["message"] + f" The receipt couldn't be saved: {exc}").strip()
+        if final == "done":
+            try:
+                record["earned"] = self._progress_observe_proof(record | {"state": final})  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001 - the profile never changes a proof's result
+                _log.warning("The proof couldn't be added to the profile: %s", redact.describe(exc))
         record["state"] = final
         self._proof_save(record)
 

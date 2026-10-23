@@ -170,6 +170,22 @@ New items:
 - **Notebook:** a new Python notebook, saved on this PC. See [Notebooks](notebooks.md).
 - **Notebook from a template** (Preview): a notebook written from a fixed template (clean a table, join and aggregate, load a file) with key checks and the columns a proof matches rows by. See [Notebooks](notebooks.md#your-first-notebook).
 - **Lakehouse:** asks for a workspace and a name, then creates a schema-enabled lakehouse in Fabric (tables live under schemas, `dbo` by default) and opens it. Needs a workspace on a capacity, and Contributor or higher on it.
+- **Pipeline** (Preview): opens a Fabric pipeline read-only and runs it on this PC. See [Pipelines](#pipelines-preview).
+
+## Pipelines (Preview)
+
+**Create > Pipeline** opens a Fabric pipeline: one of the `.DataPipeline` folders in the repositories this PC opened (Source control), a `.DataPipeline` folder you choose, or a pipeline JSON file (`pipeline-content.json`, or a definition with parts). It opens read-only: you edit pipelines in Fabric or in your repository.
+
+The page shows the pipeline's **Graph** (each column runs after the one before it; click an activity for how it runs here), **Compatibility** (every activity, nested ones included, with whether it runs here, needs a mock or runs only in Fabric, and why), **Runs** (this pipeline's runs on this PC) and **Definition** (`pipeline-content.json`, with Copy). **Check again** reads the definition again.
+
+**Run on this PC** asks for what the run needs, and checks it as you go:
+
+- **Parameters**, filled with the pipeline's defaults or the values of the last run here. SecureString values are never kept on this PC; type them again each time.
+- **Activities that need a mock**: for each one that can't run here, whether it ends Succeeded or Failed and the output later activities read.
+- **Data steps** (Lookup, Get Metadata, Script): whether they may read lakehouses (off by default; off, they need a mock), the pipeline's workspace when a lakehouse connection doesn't name it, and for each Script whether it runs on the lakehouse (read-only) or in one of your local data projects. A Script that changes tables, or needs the SQL page's confirmation, is refused; give it a mock.
+- **Notebook steps**: the notebook saved in KratosForge each Notebook activity runs, whether notebook steps may reach the network and files on this PC (asked again each run), and whether to keep what they wrote.
+
+**Run** stays off until every activity can run here or has a mock. The run view shows every activity on a time line, nested ones under their loop, branch or child pipeline, and the output and error of the one you click. **Stop** ends the run: nothing new starts and running steps stop. **Run again with the same settings** opens the Run dialog with the settings that run started with. No Fabric job starts; notebook steps write only to a temporary folder in the lakehouse, and OneLake reads and writes use a little capacity. Results can differ from Fabric: see [Local pipeline runs](orchestration/local-runs.md).
 
 ## Notebook resources
 
@@ -313,11 +329,15 @@ The **Data mesh** page (it was called Metadata) is where your metadata project l
 | Overview (Preview) | Domains: the page opens here. Your organization's domains and how they feed each other; open a domain to see its projects, their layers, products and readers, then a layer of the project on this PC to see each table's whole lineage, from its source files to the projects that read its products. Read only. See [Data mesh](data-mesh.md#from-domains-to-tables) |
 | Design | Entities, Layers, Surrogate keys, Source systems |
 | Runs | Every run, with its steps, rows and problems |
-| Quality | Tests and Table health |
+| Quality | Tests, Table health, and Exceptions |
 | Domains (Preview) | Domain and workspaces, Data products, Links. Domains are created and edited on **Platform > Domains** and the glossary is on **Platform > Glossary**; this tab lists the domains and links there. See [Data mesh](data-mesh.md) |
 | Deploy | Environments and promote, Semantic model |
 
 Each entity page also has an **About** card (Preview): description, tags, classification, glossary terms and steward for the table and each column, saved in the catalog so anyone can write them without a Git change.
+
+### Approved exceptions
+
+**Data mesh > Quality > Exceptions** lists every approved exception in `exceptions.toml`: the table, the rule, the table's owner, why it was approved, who approved it, and when it ends. An exception that ends within 14 days shows a banner on Data mesh and a notice on the bell, once a day, before the save gate starts failing again. One with no end date stays in force. How to write an exception is in the [metadata guide](metadata-guide.md#6-quality-checks-quarantine-and-the-four-gates).
 
 The **Environment** picker in the top bar (Dev, Test or Prod) only shows on Data mesh pages. Everything on these pages, from runs to table health, is for the environment picked there.
 
@@ -371,7 +391,7 @@ Monitor has two halves.
 
 **From KratosForge** (top) has three tabs:
 
-- **Runs:** everything this app ran or started, in every environment, on this PC and in Fabric: metadata runs, notebook table writes, notebook runs in Fabric, scheduled runs on this PC, and table maintenance jobs. Filter by environment (All, Dev, Test, Prod) and by where it ran (Anywhere, This PC, Fabric). **Problems first** puts failures at the top. Each failed row says why. When a failed scheduled run on this PC couldn't post its Teams alert, the row says that too, and so does the schedule's last result in **Schedules**. The alert isn't lost: it waits on this PC (in `schedule_alerts.sqlite3`) and is posted, marked **Delayed**, after the next scheduled run here, oldest first; one still waiting after three days is dropped. If the metadata project can't be read (a broken `layers.toml`, say), Runs says so above the list instead of showing no metadata runs, Home says it couldn't check the metadata project, and the bell says freshness wasn't checked. Each metadata run says where it ran: **This PC**, **Agent** with the agent's name and server, or **Fabric**. Click a row for its details: a metadata run shows each step with rows and time, each check with how many rows failed, and the job it belongs to (the agent's job id, or the request id of a run in Fabric, which names its result file in `LH_Meta/Files/_fabric_desktop/results/`) and which try it was. Test and Prod runs show once you're signed in.
+- **Runs:** everything this app ran or started, in every environment, on this PC and in Fabric: metadata runs, notebook table writes, notebook runs in Fabric, scheduled runs on this PC, table maintenance jobs, and pipeline runs on this PC ([Preview](#pipeline-runs-in-monitor-preview)). Filter by environment (All, Dev, Test, Prod) and by where it ran (Anywhere, This PC, Fabric). **Problems first** puts failures at the top. Each failed row says why. When a failed scheduled run on this PC couldn't post its Teams alert, the row says that too, and so does the schedule's last result in **Schedules**. The alert isn't lost: it waits on this PC (in `schedule_alerts.sqlite3`) and is posted, marked **Delayed**, after the next scheduled run here, oldest first; one still waiting after three days is dropped. If the metadata project can't be read (a broken `layers.toml`, say), Runs says so above the list instead of showing no metadata runs, Home says it couldn't check the metadata project, and the bell says freshness wasn't checked. Each metadata run says where it ran: **This PC**, **Agent** with the agent's name and server, or **Fabric**. Click a row for its details: a metadata run shows each step with rows and time, each check with how many rows failed, and the job it belongs to (the agent's job id, or the request id of a run in Fabric, which names its result file in `LH_Meta/Files/_fabric_desktop/results/`) and which try it was. Test and Prod runs show once you're signed in.
 - **Schedules** (Preview): every schedule, on this PC and in Fabric, in one list, with how its last run went, when it runs next, and **Run now**, **On/Off**, **Open** and **Remove**. **Remove** asks first and says what stops: on this PC it deletes the Windows task, in Fabric it deletes the schedule there, and past runs stay. To stop a schedule for a while, turn it Off instead. Schedules on this PC are started by Windows Task Scheduler even when the app is closed, as long as the PC is on and you are signed in to it. Fabric schedules run on capacity even when your PC is off. If this PC's schedules file is ever damaged (a crash mid-save, say), it is moved aside to `schedules.json.corrupt-<time>` in the app's folder, and a warning above the list says when and where. Schedules saved before then aren't listed, but Task Scheduler may still have tasks for them under the `FabricDesktop` folder. Their runs fail and don't show here. The moved-aside file has the old schedules if you want to add them again. The warning goes away once that file is moved out of the folder or deleted.
 - **Operations** (Preview): the views for running workloads day to day. **Show** picks one, and Operations opens on the last one you used:
   - **Workloads**: everything you build and run, with its health, owner and what you can do with it. See [Workloads](#workloads-preview) below.
@@ -381,6 +401,12 @@ Monitor has two halves.
   - **Incidents**: one record per problem in each environment, shared with your team and your agents. See [Incidents](#incidents-preview) below.
 
 **In Fabric** (bottom, on Runs) is Fabric's own Monitoring hub, for everything else in your workspaces, with **Back**, **Home**, **Reload** and **Open in browser**. It shows under **Runs** only. **Hide** gives Runs the whole page; the app remembers it. Every other panel always uses the whole page.
+
+### Pipeline runs in Monitor (Preview)
+
+**Runs** also lists the pipelines you ran on this PC, newest first with everything else. A row says how the run ended: **Succeeded**, **Failed**, **Cancelled**, **Running**, or **Interrupted** when KratosForge stopped while it was going (it isn't resumed, because activities that were running may have done part of their work). A run where you gave the output of some activities instead of running them says how many were **mocked**, and when everything else succeeded it says **Succeeded with mocks**, never plain **Succeeded**. **Env** says **No environment**: pipeline runs on this PC aren't tied to one.
+
+Click a pipeline run to see its activities underneath: each one's status, its type, how long it took, and for a ForEach how many iterations ran. A mocked activity says **Mocked**. When an If condition, Switch or ForEach failed, the row names the activity inside it that failed, with its error. The activities are read from that run's record on this PC when you open it, so a run that is still going shows where it had got to; **Refresh** reads it again. **Rows** shows a dash: pipeline runs don't count rows yet. Pipeline runs in Fabric aren't listed here yet; use **In Fabric** for those.
 
 ### Pop-out windows (Preview)
 
@@ -603,6 +629,8 @@ There are two channels:
 
 - **Stable** (the default): builds that have been checked and released.
 - **Preview**: every new build as soon as it's ready. For testers; things may change or break.
+
+To update without waiting for the next start, choose **Check for updates** in the account menu (or in **Settings > Updates**). It shows your build next to your channel's newest one. If that one is newer, **Install and restart** downloads it, saves the open notebook, closes KratosForge and starts the new build; running cells stop. If there is nothing newer it says you're up to date. **Download manually** opens the channel's release page on GitHub, where you can download `fabric-desktop.exe` and run it in place of the one you have.
 
 A channel change takes effect the next time KratosForge starts. More detail, including where files are kept, is in [install.md](install.md#updates).
 

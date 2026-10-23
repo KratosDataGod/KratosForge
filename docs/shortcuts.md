@@ -11,7 +11,7 @@ The tab has five views, picked with the buttons under the title.
 | View | What it shows |
 | --- | --- |
 | **All shortcuts** | Counts at the top (shortcuts, broken, read with a connection, changed in the last 7 days, requests waiting on you), then one row per shortcut: where it lives, what it points at, its health, the managed tables that read it, and its last change. Broken shortcuts are listed first. Select a row to open its panel. |
-| **Health** | Broken shortcuts grouped by cause, and shortcuts that work but are worth a look, each with a fix |
+| **Health** | Broken shortcuts grouped by cause (or by the lakehouse they lost), and shortcuts that work but are worth a look, each with a fix |
 | **Access** | Shortcuts whose readers and target don't match, and the platform's shortcut rules |
 | **Changes** | Every shortcut added, repointed, removed, broken or fixed, with Undo and Recreate |
 | **Requests** | Shortcut requests waiting on you and the ones you sent, and **shortcut needs**: shortcuts that need changing |
@@ -26,7 +26,7 @@ Select a shortcut to see:
 - **Who can read:** everyone who can read the shortcut, and whether the target lets each of them in.
 - **History:** every change to this shortcut.
 
-From the panel you can **Check now**, **Repoint** it, **Open in Fabric** (its lakehouse) or **Remove** it. Removing a shortcut never touches the data it points at, and you can recreate it from **Changes**.
+From the panel you can **Check now**, **Repoint** it, **Open in Fabric** (its lakehouse) or **Remove** it. A shortcut that crosses environments also offers its [fixes](#a-crossed-environment), and one whose risk was accepted shows who accepted it and why, with **Withdraw**. Removing a shortcut never touches the data it points at, and you can recreate it from **Changes**.
 
 ## Health
 
@@ -35,7 +35,7 @@ A health check lists one entry of the shortcut's folder through OneLake, with yo
 | Health | Means | What to do |
 | --- | --- | --- |
 | **Healthy** | The check listed the target | Nothing |
-| **Broken**, target isn't there | The table or folder it points at was removed, renamed or moved | **Repoint** it at the new place, or remove it |
+| **Broken**, target isn't there | The table or folder it points at was removed, renamed or moved | **Repoint** it at the new place, or **Remove** it. When you can't open the lakehouse at all, see [A lakehouse you can't open](#a-lakehouse-you-cant-open) |
 | **Broken**, storage refused the connection | An ADLS Gen2, S3 or other storage shortcut whose connection was refused: an expired key or secret, or the account lost its rights | The connection's owner updates it in Fabric (**Settings > Manage connections and gateways**), then **Check now** |
 | **Unreachable** | You have no access to a OneLake target, so the check can't tell whether it works for others | Ask for access to the target, or ask someone who has it to check |
 | **Not checked** | Not checked yet, or you can't read the lakehouse it's in | **Check all now** |
@@ -48,6 +48,42 @@ The Health view also lists shortcuts that work but are **worth a look**:
 
 - **Crossing environments:** a shortcut in a Dev or Test workspace that points at Prod (a Dev run reads live data), or one in Prod that points at Dev or Test (Prod depends on data that isn't released). The environment comes from the metadata project's environment workspaces and the platform's workspaces, else from a word in the workspace name (dev, test, uat, qa, prod, production).
 - **Duplicates:** two shortcuts in one workspace that point at the same place.
+
+## Fixing shortcuts
+
+These fixes are in preview, with their own Preview tag.
+
+### A lakehouse you can't open
+
+When a OneLake shortcut is broken and the lakehouse it points at isn't in any workspace you can open, the lakehouse may be gone (deleted, or made again somewhere else), or you may only have lost access to it. The Health view groups those shortcuts by that lakehouse: **LH_Gold in Sales Old isn't in a workspace you can open**. The name is the one KratosForge last saw the lakehouse with; a lakehouse that was gone before KratosForge first saw it shows as **The lakehouse it points at**.
+
+KratosForge then looks for a lakehouse with the same name among the lakehouses you can list, and asks OneLake whether each shortcut's table or folder is there, the way a health check does. Nothing else is read, and nothing changes.
+
+- **A lakehouse called LH_Gold is now in Sales New, and all 6 tables are there** (or **4 of 6**): **Repoint all 4 there** repoints the ones that are there.
+- **Repoint all to another lakehouse...** is always there: pick any lakehouse you can open.
+
+Each shortcut in the list also has **Repoint**, to point it somewhere else on its own, and **Remove**.
+
+### Repoint many at once
+
+Repointing several shortcuts asks once: **Repoint 6 shortcuts?** Each keeps its name and its table or folder path, and only the lakehouse changes. They're repointed one at a time, as [Repoint](#repointing) does it: one that fails is put back as it was, and the rest carry on. The message at the end says how many were repointed and why any weren't. Each one is on **Changes**, with **Undo**.
+
+### A crossed environment
+
+A shortcut that crosses environments (Dev reading Prod) shows what to do on Health, on **Shortcut needs** and in its panel:
+
+- **Repoint to Dev's LH_Gold:** when the metadata project or the platform says which workspaces are the shortcut's own environment, and one of them has a lakehouse with the same name as the target, this repoints the shortcut there, keeping its table. Otherwise **Repoint** opens the usual dialog.
+- **Accept...** (platform admins only): see below.
+
+### Accept a crossed environment
+
+Sometimes Dev reading Prod is on purpose, for example a read-only price list. A platform admin selects **Accept...**, says **Why it's fine** (required), and selects **Accept**. The shortcut then leaves **Shortcut needs** and **Worth a look**, and shows **Accepted by** *who*: *why* instead of the warning.
+
+- Repointing or removing the shortcut ends the acceptance (in KratosForge, or seen at scan when done in Fabric), so a new target is judged afresh.
+- **Withdraw**, in the shortcut's panel, takes it back: the shortcut is flagged again.
+- Accepting, withdrawing and an acceptance ending are each in **Platform > Audit**, with who did it.
+
+Acceptances are kept by the [platform](platform.md), so the whole team sees them. A platform in Fabric needs **Platform > Settings > Finish or repair** once after this update, so `UDF_Platform` has the functions; its table and columns are added on first use, and nothing already there changes.
 
 ## Who can read a shortcut
 
@@ -112,14 +148,15 @@ Shortcut requests are the [platform's requests](platform.md#requests), next to k
 
 - Broken shortcuts that a managed table in the open metadata project reads (its runs fail until it's fixed).
 - Shortcuts pointing at a deprecated data product.
-- Shortcuts crossing environments.
+- Shortcuts crossing environments, unless a platform admin [accepted](#accept-a-crossed-environment) it.
 
 ## Permissions
 
-Nothing new. The command center uses what the Shortcuts and Access tabs already used: listing, creating and removing shortcuts and data access roles (Fabric), and listing folders through OneLake for health checks. See [Permissions](permissions.md).
+Nothing new. The command center uses what the Shortcuts and Access tabs already used: listing, creating and removing shortcuts and data access roles (Fabric), and listing folders through OneLake for health checks. Finding a lakehouse that moved lists workspaces and lakehouses with your sign-in, as the OneLake catalog does, and asks OneLake the way a health check does. See [Permissions](permissions.md).
 
 ## What isn't there yet
 
 - Health is checked when the page opens or when you ask. There is no scheduled check, and no Teams alert when a shortcut breaks.
 - An approved request makes the shortcut in one lakehouse, not in each environment.
+- Only a crossed environment can be accepted, not a duplicate. Finding a lakehouse that moved compares names only, and looks at five lakehouses with that name at most.
 - Not tried on a live Fabric tenant yet. In particular, the error codes OneLake returns for a broken target or a refused connection haven't been seen on a real tenant, so a broken shortcut may show the wrong cause.

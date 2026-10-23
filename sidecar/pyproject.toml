@@ -9,7 +9,7 @@ description = "Run data jobs on your own machine and publish Delta tables to Mic
 requires-python = ">=3.11"
 dependencies = [
     "duckdb>=1.1",
-    "sqlglot>=25",
+    "sqlglot>=30.12",  # 30.12: the Apache Ossie converter (_vendor/ossie_microsoft)
     "polars>=1.20",
     "pyarrow>=16",
     "deltalake>=0.25",
@@ -45,6 +45,9 @@ dependencies = [
     # its own ODBC Driver 18, so nobody installs anything, and takes the sign-in token we already hold.
     # It also brings azure-identity, which the app doesn't use for sign-in. About 15 MB of wheels, 41 MB installed.
     "mssql-python>=1.16,<1.17",
+    # Semantic models to and from Apache Ossie (the vendored converter in _vendor/ossie_microsoft
+    # needs PyYAML and sqlglot>=30.12; bokeh brings PyYAML already, so this only makes it explicit).
+    "PyYAML>=6",
 ]
 
 [project.optional-dependencies]
@@ -55,6 +58,10 @@ fabric-desktop = "fabric_desktop.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["fabric_desktop*"]
+
+[tool.setuptools.package-data]
+# Vendored third-party code ships with its license and notice.
+"fabric_desktop._vendor.ossie_microsoft" = ["LICENSE", "NOTICE", "README.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

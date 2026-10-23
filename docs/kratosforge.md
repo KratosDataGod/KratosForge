@@ -12,13 +12,23 @@ Some files, folders, settings and markers keep a legacy name from before KratosF
 
 | What | Legacy name | Why it stays |
 | --- | --- | --- |
-| The download, the program file and the Windows program name | `fabric-desktop.exe`, `fabric-desktop-engine.zip`, `Fabric Desktop` | Updates replace the file people already have, and download links keep working. |
+| The engine download and the Windows program name | `fabric-desktop-engine.zip`, `Fabric Desktop` | Installed copies download the engine by this name, and the program name goes with the app identity below. |
+| The earlier program file name | `fabric-desktop.exe`, published beside `kratosforge.exe` | Builds from before the name changed update by downloading this name ([the program file](#the-program-file)). |
 | The folder on your PC | `%LOCALAPPDATA%\FabricDesktop` | Your notebooks, sign-in, settings and engine are there ([where files live](install.md#where-things-are-kept-on-your-pc)). |
 | The Windows app identity and update address | `com.kratosbi.fabricdesktop`, the `fabric-desktop` GitHub releases | Changing either would stop installed copies from updating. |
 | Platform workspaces it suggests | `Fabric Desktop Platform - <Environment>` | Existing workspaces are found by this name ([the platform](platform.md)). |
 | The central lakehouse | `FabricDesktop_Central` | Every installation in your organization shares it ([Optimize](optimize/README.md)). |
 | Cells the app adds to notebooks | `# Fabric Desktop setup`, `# Fabric Desktop proof`, `# Fabric Desktop side by side`, `# Fabric Desktop runner` | The app recognizes its own cells by these first lines, in notebooks already in Fabric too. |
 | The Python package, command and settings | `fabric_desktop`, `fabric-desktop`, `FABRIC_DESKTOP_*` variables, the `fabric_desktop_*` MCP tools | Scripts, agents, policies and AI tool setups use them. |
+
+## The program file
+
+The program is `kratosforge.exe`. Before, it was `fabric-desktop.exe`, and an update replaces the file under the name it already has, so copies people saved keep the old name until a build that knows the new one starts.
+
+- **Copies already installed.** The first time a copy saved as `fabric-desktop.exe` starts after an update to a build with the new name, and the update has started cleanly, it renames its own file to `kratosforge.exe` in the same folder. It then points your shortcuts to the old file at the new one: on the Desktop, in the Start menu, and pinned to the taskbar. If any of them can't be changed, the shortcuts and the file go back to `fabric-desktop.exe`, which keeps updating as before. What happened is noted in `%LOCALAPPDATA%\FabricDesktop\exe-rename.json`.
+- **Left alone.** A copy on a PC whose organization rolls out updates itself (`"auto_update": false`) keeps the name IT gave it. A folder that already holds a `kratosforge.exe` keeps both files. A copy you renamed yourself keeps your name; any name works.
+- **Releases** carry the same file under both names, so builds from before the change keep updating, and a rollback to an earlier build works under either name. Earlier `build-*` releases have only `fabric-desktop.exe`; the app downloads that name when a release has no `kratosforge.exe`.
+- **Nothing else moves.** Your data folder (`%LOCALAPPDATA%\FabricDesktop`), the embedded browser's data and the sign-in are found by the app's identity, not by the file name.
 
 ## The repository's address
 

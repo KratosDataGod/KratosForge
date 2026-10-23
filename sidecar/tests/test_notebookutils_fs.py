@@ -394,3 +394,12 @@ def test_head_reads_only_the_bytes_it_shows(store, fs, tmp_path):
     assert fs.head("Files/big.csv", 0) == ""
     (tmp_path / "big.txt").write_bytes(b"y" * 1_000_000)
     assert fs.head(f"file:{tmp_path}/big.txt", 5) == "yyyyy"
+
+
+def test_mkdirs_on_a_file_says_so(store, fs, tmp_path):
+    with pytest.raises(FileExistsError, match="is a file"):
+        fs.mkdirs("Files/one.txt/")
+    assert store.mutations() == []
+    (tmp_path / "f.txt").write_text("x")
+    with pytest.raises(FileExistsError):
+        fs.mkdirs(f"file:{tmp_path}/f.txt")

@@ -361,6 +361,24 @@ test("the commit button says what it will commit, and refuses with conflicts", (
   assert.strictEqual(gitCommitLabel(gitStatus({ merging: true })), "Commit the merge to main");
 });
 
+test("an exception about to end raises one notice a day, and an ended one is a problem", () => {
+  const src = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function exceptionNotice\([\s\S]*?\n}\n/)[0]}; this.exceptionNotice = exceptionNotice;`, ctx);
+  const row = { entity: "gold.fact_sales", rule: "custom_code_test", expires: "2026-10-20", status: "expiring",
+    notice: "gold.fact_sales: the exception for custom_code_test expires in 5 days (2026-10-20)" };
+  const notice = ctx.exceptionNotice(row, "2026-10-15");
+  assert.strictEqual(notice.id, "exception:gold.fact_sales:custom_code_test:2026-10-20:2026-10-15");
+  assert.strictEqual(notice.status, "info");
+  assert.strictEqual(notice.notice, true);
+  assert.match(notice.text, /expires in 5 days/);
+  assert.strictEqual(ctx.exceptionNotice({ ...row, status: "active" }, "2026-10-15"), null);
+  const ended = ctx.exceptionNotice({ ...row, status: "expired" }, "2026-10-21");
+  assert.strictEqual(ended.status, "failed");
+  assert.strictEqual(ended.notice, false);
+  assert.match(src, /\["exceptions", "Exceptions"\]/);
+});
+
 test("side by side pairs removed and added lines and keeps context on both sides", () => {
   const { gitSideBySide, gitSplitPath } = gitHelpers();
   const rows = gitSideBySide([{ header: "@@ -1,3 +1,3 @@", lines: [
@@ -389,6 +407,7 @@ test("a cost figure shows its classification, and an unknown one never reads as 
   // Every figure in the Cost panel goes through measureFigure, which adds the badge.
   const body = src.match(/function costBody\([\s\S]*?\n}\n/)[0];
   assert.ok(!/money\(t\.(cost|saved)/.test(body) && !/cuHours\(t\./.test(body), "a raw total is shown without its classification");
+
   // FINOPS-005: savings come from Fabric runs of the same table, and runs with none are said to be left out.
   assert.ok(/never from how long it took here/.test(body) && !/Scenario: what runs on this PC/.test(body));
   assert.ok(/t\.uncalibrated_runs/.test(body) && !/scenario_cu/.test(body), "the rough scenario isn't shown as the saving");
@@ -836,7 +855,12 @@ test("the risk gate passes quietly, never runs a blocked item and needs the tick
   const ctx = { h: node, icon: () => null, measureBadge: () => null, previewMarked: (_, n) => n,
     btn: (label, _i, onClick) => ({ label, onClick }), closeDialog: () => { dialog = null; },
     showDialog: (title, body, actions) => { dialog = { title, actions }; }, toast: (t) => toasts.push(t),
-    attempt: (fn) => fn(), rpc: async (m, p) => (m === "risk_acknowledge" ? (acks.push(p), { ok: true }) : ctx.result) };
+    attempt: (fn) => fn(), friendlyError: (e) => ({ text: e.message }),
+    rpc: async (m, p) => {
+      if (m === "risk_acknowledge") return (acks.push(p), { ok: true });
+      if (ctx.result instanceof Error) throw ctx.result;
+      return ctx.result;
+    } };
   vm.runInNewContext(`${src}; Object.assign(this, { riskGate });`, ctx);
   const target = { id: "notebook:nb", action: "run_in_fabric", title: "Run?", alt: { label: "Run on this PC", run: () => ctx.ran.push("pc") } };
   ctx.ran = [];
@@ -870,6 +894,18 @@ test("the risk gate passes quietly, never runs a blocked item and needs the tick
   await press("Run anyway");
   assert.strictEqual(await gate, true);
   assert.deepStrictEqual(acks.map((a) => a.risk_id), ["r2"]);
+
+  // A check that couldn't run never goes ahead silently and never blocks: the reason, then Continue or Cancel.
+  ctx.result = new Error("This notebook has no deployment.");
+  for (const [label, expected] of [["Cancel", false], ["Continue", true]]) {
+    gate = ctx.riskGate(target);
+    await settle();
+    assert.ok(dialog, "an error shows a dialog");
+    assert.deepStrictEqual(Array.from(dialog.actions, (a) => a.label), ["Cancel", "Continue"]);
+    press(label);
+    assert.strictEqual(await gate, expected);
+  }
+  assert.deepStrictEqual(acks.map((a) => a.risk_id), ["r2"], "nothing is acknowledged when nothing was checked");
 });
 
 test("only Monitor > Runs shares the page with Fabric's hub, so Schedules and Cost get the whole page (#190)", () => {
@@ -1291,10 +1327,10 @@ test("Runs > Env says why a row has no environment, for this PC and for Fabric (
   vm.runInNewContext(`${src.match(/function runEnvCell\([\s\S]*?\n}\n/)[0]}; this.runEnvCell = runEnvCell;`, ctx);
   assert.strictEqual(ctx.runEnvCell({ env: "prod", where: "fabric" }), "Prod");
   const pc = ctx.runEnvCell({ env: "", where: "local" });
-  assert.strictEqual(pc.text, "None");
+  assert.strictEqual(pc.text, "No environment");
   assert.match(pc.attrs.title, /this PC's schedules/);
   const fabric = ctx.runEnvCell({ env: "", where: "fabric" });
-  assert.strictEqual(fabric.text, "None");
+  assert.strictEqual(fabric.text, "No environment");
   assert.match(fabric.attrs.title, /Fabric workspace/);
   assert.doesNotMatch(fabric.attrs.title, /this PC/);
 });
@@ -1787,7 +1823,7 @@ function followHarness(statuses) {
       }
       return [];
     },
-    setKernel() {}, renderNotebook() {}, updateResults() {}, registerFeature() {}, previewShown: () => true,
+    setKernel() {}, renderNotebook() {}, forgeEvent() {}, profileEarned() {}, updateResults() {}, registerFeature() {}, previewShown: () => true,
     logActivity: (item) => calls.bell.push(item),
     toast: (text) => calls.toasts.push(text),
     document: { querySelector: () => null, querySelectorAll: () => [] },
@@ -1871,6 +1907,7 @@ function dialogHelpers() {
     h: node, icon: () => node("svg"), btn: (label, _i, onClick, cls) => node("button", { class: cls, onclick: onClick }, label),
     MutationObserver: class { observe() {} disconnect() {} },
     document: { getElementById: () => root, addEventListener: (t, fn) => { (docOn[t] ||= []).push(fn); } },
+    motionLeave: () => null,  // motion.js: the fade after a dialog goes
   };
   vm.runInNewContext(`${code}; Object.assign(this, { showDialog, closeDialog, askText, pickWorkspace, confirmDialog });`, ctx);
   const overlay = () => root.kids[0];
@@ -2010,6 +2047,7 @@ test("A scheduled run whose Teams alert didn't go out says so in Runs and Schedu
 function motionHarness({ setting = true, reduced = false, hidden = false, settings = null } = {}) {
   let clock = 0;
   let timers = [];
+  let watch = null;
   const node = (cls = "") => {
     const n = {
       cls: new Set(String(cls).split(" ").filter(Boolean)), kids: [], attrs: {}, style: {}, parent: null, textContent: "",
@@ -2038,6 +2076,10 @@ function motionHarness({ setting = true, reduced = false, hidden = false, settin
     setTimeout: (fn, ms) => { const t = { at: clock + ms, fn }; timers.push(t); return t; },
     clearTimeout: (t) => { timers = timers.filter((x) => x !== t); },
     Date: { now: () => clock },
+    performance: { now: () => clock },
+    // The long-task watch, fed by longTasks() below instead of the machine's load.
+    PerformanceObserver: Object.assign(function (cb) { watch = cb; this.observe = () => {}; this.disconnect = () => { watch = null; }; },
+      { supportedEntryTypes: ["longtask"] }),
     h: (tag, attrs = {}, ...children) => {
       const n = node(attrs.class || "");
       for (const [k, v] of Object.entries(attrs)) if (k !== "class") n.attrs[k] = v;
@@ -2054,6 +2096,8 @@ function motionHarness({ setting = true, reduced = false, hidden = false, settin
   const page = node();  // anchors the tests make sit on the page, as real ones do
   ctx.node = (cls) => { const n = node(cls); page.append(n); return n; };
   ctx.live = live;
+  // Long main-thread tasks of these durations (ms), each starting now.
+  ctx.longTasks = (...durations) => watch?.({ getEntries: () => durations.map((duration) => ({ startTime: clock, duration })) });
   return ctx;
 }
 
@@ -2213,11 +2257,14 @@ test("Motion & effects settings: four levels, family switches, reduced-motion ch
   assert.match(card, /type: "radio", name: "motion_level"/);
   assert.match(card, /disabled: locked\("motion_level"\) \? true : null, onchange: \(\) => save\(\{ motion_level: n \}\)/);
   assert.match(card, /\[0, 1, 2, 3\]\.map\(levelRow\)/);
-  assert.match(card, /toggle\(key, label, s\[key\]\?\.value !== false, level < 2\)/, "family switches don't grey out below Refined");
+  assert.match(card, /toggle\(key, label, s\[key\]\?\.value \?\? key !== "motion_achievements", level < 2\)/, "family switches don't grey out below Refined");
   assert.match(card, /disabled: disabled \|\| locked\(key\) \? true : null/);
   assert.match(card, /"Respect Windows' reduced-motion setting"/);
   for (const key of ["motion_wolf", "motion_sparks", "motion_ambient"]) assert.match(s, new RegExp(`\\["${key}", "`));
-  assert.doesNotMatch(s, /\["motion_achievements", "/, "the achievements switch shows before the profile can award anything");
+  // Achievement celebrations shows only while Profile (Preview) can award something (#361).
+  assert.match(s, /const motionFamilies = \(\) => \(previewShown\(\) \? \[\.\.\.MOTION_FAMILIES, MOTION_ACHIEVEMENTS\] : MOTION_FAMILIES\);/);
+  assert.match(card, /motionFamilies\(\)\.map\(/);
+  assert.match(s, /previewShown\(\) \? row\("Achievement Reveal", [^\n]*\n\s+\(\) => forgeEvent\("achievement\.unlocked", award\)\) : null,/);
   assert.match(s, /\["motion_ambient", "Running indicators",/);
   assert.match(s, /const display = s\.motion_level \? motionSettingsCard\(s, locked\) : null;/);
   assert.match(s, /\[account, updates, display, previews,/);
@@ -2226,7 +2273,7 @@ test("Motion & effects settings: four levels, family switches, reduced-motion ch
   const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
   assert.match(css, /html\[data-motion="off"\] \.fx, html\[data-motion="off"\] \.wolf \{ display: none; \}/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{ html:not\(\[data-motion-override\]\) :is\(\.fx, \.wolf\) \{ display: none; \}/);
-  assert.match(css, /html\[data-fx-wolf="off"\] \.wolf, html\[data-fx-sparks="off"\] :is\(\.fx-spark, \.fx-fail, \.fx-strike\),/);
+  assert.match(css, /html\[data-fx-wolf="off"\] \.wolf, html\[data-fx-sparks="off"\] :is\(\.fx-spark, \.fx-fail, \.fx-strike, \.fx-cool\),/);
   // Effects animate only transform and opacity, so they never move the layout.
   const keyframes = [...css.matchAll(/@keyframes fx-[\w-]+ \{([^\n]*)\}\n/g)].map((m) => m[1]);
   assert.ok(keyframes.length >= 6, "fx keyframes not found");
@@ -2512,6 +2559,36 @@ test("Motion budget: at most three effects at once, each removed on time, the co
   assert.ok(made.slice(0, 3).every((el) => !el.isConnected), "an effect element stayed on the page");
   const strike = ctx.fx(ctx.node(), "wolfrun");
   assert.ok(strike && strike.kids.length >= 2, "the Wolf Run has no runner or trail");
+});
+
+test("Motion under load: long tasks past the budget drop effects a level for the cooldown, then it comes back", () => {
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  ctx.longTasks(300);
+  ctx.advance(5001);
+  ctx.longTasks(300);  // the first left the window, so this is 300 ms, not 600
+  assert.strictEqual(ctx.motionLevel(), 2, "dropped under the budget");
+  ctx.longTasks(250);
+  assert.strictEqual(ctx.motionLevel(), 1, "550 ms of long tasks in the window did not drop a level");
+  assert.strictEqual(ctx.document.documentElement.dataset.motionLevel, "1", "<html> still says the chosen level");
+  assert.strictEqual(ctx.fx(ctx.node(), "spark"), null, "a branded effect played under load");
+  assert.strictEqual(ctx.motionDiagnostics().skipped.level, 1);
+  ctx.advance(20000);
+  ctx.longTasks(600);  // more load during the cooldown neither drops again nor extends it
+  assert.strictEqual(ctx.motionLevel(), 1);
+  assert.strictEqual(ctx.motionDiagnostics().drop, 1);
+  ctx.advance(9999);
+  assert.strictEqual(ctx.motionLevel(), 1, "the cooldown ended early");
+  ctx.advance(1);
+  assert.strictEqual(ctx.motionLevel(), 2, "the cooldown ran past 30 s");
+  ctx.advance(50);
+  assert.strictEqual(ctx.document.documentElement.dataset.motionLevel, "2", "<html> was not told the level came back");
+  assert.ok(ctx.fx(ctx.node(), "spark"), "no spark after the cooldown");
+  const expressive = motionHarness({ settings: { motion_level: { value: 3 } } });
+  expressive.longTasks(600);
+  assert.strictEqual(expressive.motionLevel(), 2, "Expressive under load is not Refined");
+  const minimal = motionHarness({ settings: { motion_level: { value: 1 } } });
+  minimal.longTasks(600);
+  assert.strictEqual(minimal.motionLevel(), 1, "load took Minimal lower");
 });
 
 test("Forge events: every event names a real effect, unknown ones play nothing, and each is counted", () => {
@@ -3316,7 +3393,7 @@ test("Profile opens from the account menu and the command bar, and Validate pass
   assert.match(p, /confirmDialog\("Delete your profile data\?"[\s\S]*?\{ danger: true, typeToConfirm: "DELETE" \}/);
   assert.match(p, /aria-valuenow/, "the XP bar has no progressbar values");
   assert.match(p, /const RECORDING_ON = "Recording is on: [^"]*Turn it off in Profile > Settings\."/);
-  assert.match(p, /a\.id === "first-flame"\) \? ` \$\{RECORDING_ON\}`/, "the first achievement toast doesn't say recording is on");
+  assert.match(p, /a\.first\) \? ` \$\{RECORDING_ON\}`/, "the first achievement toast doesn't say recording is on");
   const s = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   assert.match(s, /previewShown\(\) \? \{ label: "Profile \(Preview\)"/);
   assert.match(s, /showMenu\(anchor, items\.filter\(Boolean\)\)/);
@@ -4546,4 +4623,276 @@ test("Share adds another notebook to this session, and a notebook that shares on
   await new Promise((r) => setImmediate(r));
   assert.deepStrictEqual(plain(calls.find(([m]) => m === "kernel_session_leave")[1]), { notebook: "Sales report" });
   assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /sharedSessions: "Shared notebook sessions"/);
+});
+
+// The pure helpers at the top of pipelines.js (Pipelines, Preview).
+function pipelineHelpers() {
+  const src = fs.readFileSync(path.join(ui, "pipelines.js"), "utf8");
+  const code = src.slice(src.indexOf("const PL_SETUP"), src.indexOf("// UTF-8 text as base64"));
+  const ctx = {};
+  vm.runInNewContext(`${code}; Object.assign(this, { plVerdict, plLayers, plAfter, plTimelineRows, plBar, plParamValue, plParamText, plStorable });`, ctx);
+  return ctx;
+}
+
+test("pipelines: an activity runs here, needs a mock or runs only in Fabric", () => {
+  const { plVerdict } = pipelineHelpers();
+  const copy = { path: "$.a[1]", classification: "static" };
+  assert.strictEqual(plVerdict(copy, [{ path: "$.a[1]", code: "not_local" }]), "mock");
+  // What the Run dialog settles (a notebook to pick, lakehouse reads to allow) doesn't need a mock.
+  assert.strictEqual(plVerdict({ path: "$.a[3]", classification: "local" }, [{ path: "$.a[3]", code: "notebook_unmapped" }]), "here");
+  assert.strictEqual(plVerdict({ path: "$.a[3]", classification: "local" }, [{ path: "$.a[30]", code: "not_local" }]), "here");
+  assert.strictEqual(plVerdict({ path: "$.a[4]", classification: "unsupported" }, []), "fabric");
+});
+
+test("pipelines: the graph puts each activity a column after what it depends on", () => {
+  const { plLayers, plAfter } = pipelineHelpers();
+  const acts = [
+    { name: "C", depends_on: [{ activity: "A", conditions: ["Succeeded"] }, { activity: "B", conditions: ["Failed"] }] },
+    { name: "A", depends_on: [] },
+    { name: "B", depends_on: [{ activity: "A", conditions: ["Succeeded"] }] },
+    { name: "D", depends_on: [{ activity: "missing" }] },
+  ];
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(plLayers(acts).map((l) => l.map((a) => a.name)))), [["A", "D"], ["B"], ["C"]]);
+  // A cycle (validation reports it) still draws every activity, once.
+  const cycle = plLayers([{ name: "X", depends_on: [{ activity: "Y" }] }, { name: "Y", depends_on: [{ activity: "X" }] }]);
+  assert.strictEqual(cycle.flat().map((a) => a.name).sort().join(), "X,Y");
+  assert.strictEqual(plAfter(acts[0]), "after A, B fails");
+  assert.strictEqual(plAfter({ depends_on: [{ activity: "V", conditions: ["Succeeded", "Failed"] }] }), "after V or fails");
+  assert.strictEqual(plAfter(acts[1]), "");
+});
+
+test("pipelines: the run view nests iterations and child pipelines under their parent", () => {
+  const { plTimelineRows, plBar } = pipelineHelpers();
+  const record = { activities: [
+    { id: "1", name: "Loop" }, { id: "2", name: "Step", parent: "1", label: "iteration 0" },
+    { id: "3", name: "Child", child_run: { activities: [{ id: "c1", name: "Inner" }] } },
+    { id: "4", name: "Step", parent: "1", label: "iteration 1" },
+  ] };
+  const rows = plTimelineRows(record);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(rows.map((r) => [r.act.name, r.depth]))), [["Loop", 0], ["Step", 1], ["Step", 1], ["Child", 0], ["Inner", 1]]);
+  // Within a loop, rows go by iteration, then in the order they ran.
+  const loop = plTimelineRows({ activities: [{ id: "L", name: "L" },
+    { id: "a0", name: "A", parent: "L", label: "iteration 0" }, { id: "a1", name: "A", parent: "L", label: "iteration 1" },
+    { id: "b0", name: "B", parent: "L", label: "iteration 0" }, { id: "b1", name: "B", parent: "L", label: "iteration 1" }] });
+  assert.strictEqual(loop.map((r) => r.act.id).join(), "L,a0,b0,a1,b1");
+  const bar = plBar({ started: "2026-10-23T10:00:05Z", ended: "2026-10-23T10:00:10Z" }, "2026-10-23T10:00:00Z", "2026-10-23T10:00:20Z");
+  assert.deepStrictEqual({ ...bar }, { left: 25, width: 25 });
+  assert.deepStrictEqual({ ...plBar({ started: "x" }, "2026-10-23T10:00:00Z", "2026-10-23T10:00:20Z") }, { left: 0, width: 0 });
+});
+
+test("pipelines: parameters are typed as Fabric declares them", () => {
+  const { plParamValue, plParamText } = pipelineHelpers();
+  assert.strictEqual(plParamValue("String", "[1]"), "[1]");
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(plParamValue("array", '["a", "b"]'))), ["a", "b"]);
+  assert.strictEqual(plParamValue("int", "3"), 3);
+  assert.strictEqual(plParamValue("int", " "), undefined);
+  assert.throws(() => plParamValue("object", "{nope"));
+  assert.strictEqual(plParamText("string", "x"), "x");
+  assert.strictEqual(plParamText("array", ["a"]), '["a"]');
+  assert.strictEqual(plParamText("int", undefined), "");
+});
+
+test("pipelines: SecureString values and network leave are never kept on this PC", () => {
+  const { plStorable } = pipelineHelpers();
+  const kept = plStorable({ parameters: { day: "2026-10-23", token: "s3cret", Key: "k" }, allow_uncontained: true, keep_outputs: true },
+    [{ name: "day", type: "String" }, { name: "token", type: "SecureString" }, { name: "Key", type: "securestring" }]);
+  assert.strictEqual(JSON.stringify(kept.parameters), '{"day":"2026-10-23"}');
+  assert.strictEqual(kept.allow_uncontained, false);
+  assert.strictEqual(kept.keep_outputs, true);
+  assert.doesNotMatch(JSON.stringify(kept), /s3cret/);
+});
+
+// Panel and dialog transitions (KF-MO-003): Minimal and above, transform and opacity only, never at Off.
+test("Panel transitions: the fade-out card is made at Minimal, not at Off or with reduced motion, and hides from readers", () => {
+  const at = (level, opts = {}) => {
+    const ctx = motionHarness({ ...opts, settings: { motion_level: { value: level } } });
+    ctx.document.body = ctx.node();
+    const dialog = ctx.node("overlay");
+    dialog.querySelector = () => null;
+    dialog.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 });
+    return [ctx, dialog];
+  };
+  for (const [level, opts] of [[0, {}], [3, { reduced: true }]]) {
+    const [ctx, dialog] = at(level, opts);
+    assert.strictEqual(ctx.motionLeave(dialog), null, `a card faded at level ${level}${opts.reduced ? " with reduced motion" : ""}`);
+  }
+  const [ctx, dialog] = at(1);
+  const ghost = ctx.motionLeave(dialog);
+  assert.ok(ghost, "no card faded at Minimal");
+  assert.strictEqual(ghost.attrs["aria-hidden"], "true");
+  assert.ok(ghost.cls.has("mo-ghost") && !ghost.cls.has("overlay"), "the fading card can be mistaken for the dialog");
+  assert.strictEqual(ghost.parent, ctx.document.body);
+  ctx.advance(250);
+  assert.strictEqual(ghost.parent, null, "the fading card stayed");
+  assert.strictEqual(ctx.motionLeave(null), null);
+});
+
+test("Panel transitions: the dialog and tray go before anything fades, and the CSS animates only transform and opacity", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /motionLeave\(root\.querySelector\(":scope > \.overlay"\)\);\n\s*root\.replaceChildren\(\);/, "closeDialog doesn't take the dialog away at once");
+  assert.match(fs.readFileSync(path.join(ui, "activity.js"), "utf8"), /motionLeave\(root\.querySelector\(":scope > \.tray"\)\); root\.replaceChildren\(\);/);
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  const frames = [...css.matchAll(/@keyframes (mo-[\w-]+) \{(.*)\}\n/g)];
+  assert.ok(frames.length >= 6);
+  for (const [, name, body] of frames) {
+    for (const [, prop] of body.matchAll(/([\w-]+)\s*:/g)) assert.ok(["opacity", "transform"].includes(prop), `${name} animates ${prop}`);
+  }
+  assert.match(css, /html\[data-motion-level="0"\] :is\(\.mo-in, \.mo-in > \.dialog\) \{ animation: none; \}/);
+  assert.match(css, /html\[data-motion-level="0"\] \.mo-ghost \{ display: none; \}/);
+  const ins = [...css.matchAll(/\.mo-in[^{]*\{ animation: [\w-]+ (\d+)ms/g)];
+  assert.ok(ins.length >= 4);
+  for (const m of ins) assert.ok(+m[1] >= 150 && +m[1] <= 250, `${m[0]} is outside 150-250 ms`);
+});
+
+// The cooling spark (KF-MO-006): Validate, Prove and a confirmed publish cool; their failures are embers.
+test("Cooling spark: a passed check cools for 500 ms, then is gone; failures play the ember", () => {
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  const events = vm.runInContext("FORGE_EVENTS", ctx);
+  for (const name of ["validate.passed", "prove.matched", "publish.verified"]) assert.strictEqual(events[name], "cool", name);
+  for (const name of ["validate.failed", "prove.failed", "publish.failed"]) assert.strictEqual(events[name], "fail", name);
+  const badge = ctx.node();
+  const el = ctx.forgeEvent("validate.passed", badge);
+  assert.ok(el && el.cls.has("fx-cool") && el.attrs["aria-hidden"] === "true", "no cooling spark");
+  assert.strictEqual(ctx.live.textContent, "", "the cooling spark announced itself");
+  ctx.advance(599);
+  assert.strictEqual(badge.kids.length, 1, "removed before it finished cooling");
+  ctx.advance(1);
+  assert.strictEqual(badge.kids.length, 0, "the cooling spark stayed");
+  assert.strictEqual(motionHarness({ settings: { motion_level: { value: 2 }, motion_sparks: { value: false } } }).forgeEvent("prove.matched", ctx.node()), null,
+    "the cooling spark ignored the sparks switch");
+  assert.strictEqual(motionHarness({ settings: { motion_level: { value: 1 } } }).forgeEvent("publish.verified", ctx.node()), null, "it played at Minimal");
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  for (const rule of css.match(/@keyframes fx-cool-[a-z]+ \{[^\n]*\n/g)) assert.doesNotMatch(rule, /color|background|width|height|top|left/, "cooling animates more than transform and opacity");
+  const validate = fs.readFileSync(path.join(ui, "validate.js"), "utf8");
+  assert.match(validate, /if \(r\.state !== "cancelled"\) forgeEvent\(ok \? "validate\.passed" : "validate\.failed"/, "a cancelled clean run would play an effect");
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /if \(result\.id\) forgeEvent\("publish\.verified"/, "a publish cools before Fabric gave back the item");
+});
+
+// KF-MO-008 Achievement Reveal (profile.js profileEarned): one message and one reveal per new award,
+// nothing for an award already shown (this session or a stored one), kept per account.
+test("Achievement Reveal: a new award is announced and revealed once, a repeat never, and deleting the profile resets it", () => {
+  const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
+  const src = p.slice(p.indexOf("const PROFILE_CELEBRATED"), p.indexOf("registerFeature("));
+  const stored = {};
+  const said = [];
+  const revealed = [];
+  const toastEl = { id: "toast" };
+  const ctx = {
+    state: { user: "dev@contoso.com" }, RECORDING_ON: "Recording is on.",
+    localStorage: { getItem: (k) => stored[k] ?? null, setItem: (k, v) => { stored[k] = v; } },
+    setTimeout: (fn) => fn(),
+    toast: (text) => said.push(text),
+    forgeEvent: (name, anchor) => revealed.push([name, anchor.id]),
+    document: { getElementById: (id) => (id === "toast" ? toastEl : null) },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(`${src}; this.profileEarned = profileEarned; this.profileForget = profileForget;`, ctx);
+  const first = { id: "first-flame", name: "First Flame", xp: 50, first: true };  // the engine marks the profile's first award
+  const steady = { id: "steady-hand", name: "Steady Hand", xp: 100 };
+  ctx.profileEarned([first, steady]);
+  assert.deepStrictEqual(said, ["Achievement earned: First Flame (+50 XP), Steady Hand (+100 XP). See it in Profile. Recording is on."]);
+  assert.deepStrictEqual(revealed, [["achievement.unlocked", "toast"]], "not one reveal for the message");
+  ctx.profileEarned([first]);
+  ctx.profileEarned([]);
+  ctx.profileEarned(undefined);
+  assert.strictEqual(said.length, 1, "a repeat was announced");
+  assert.strictEqual(revealed.length, 1, "a repeat was revealed");
+  assert.deepStrictEqual(JSON.parse(stored["kf.profile.celebrated"]), ["dev@contoso.com|first-flame", "dev@contoso.com|steady-hand"]);
+  ctx.state.user = "other@contoso.com";  // another account's profile earns its own
+  ctx.profileEarned([first]);
+  assert.strictEqual(revealed.length, 2);
+  ctx.state.user = "dev@contoso.com";
+  ctx.profileForget();
+  assert.deepStrictEqual(JSON.parse(stored["kf.profile.celebrated"]), ["other@contoso.com|first-flame"], "deleting one profile forgot another's");
+  ctx.profileEarned([first]);
+  assert.strictEqual(revealed.length, 3, "an award earned again after deleting the profile stayed silent");
+  // Storage that can't be read or written still never repeats within the session.
+  ctx.localStorage.getItem = () => { throw new Error("blocked"); };
+  ctx.localStorage.setItem = () => { throw new Error("blocked"); };
+  ctx.profileEarned([first]);
+  assert.strictEqual(revealed.length, 3);
+  assert.match(p, /if \(await attempt\(\(\) => rpc\("profile_delete", \{\}\), "Could not delete your profile data"\)\) \{\n\s+profileForget\(\);/);
+});
+
+test("Remote runs (KF-MO-009): the navy wolf trots in an indeterminate bar, with no fill or count, and goes with the motion", () => {
+  const find = (n, cls) => [n, ...n.all()].find((k) => k.cls.has(cls)) || null;
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  const el = ctx.remoteProgress("Sales · Notebook run");
+  const bar = find(el, "progress");
+  assert.strictEqual(bar.attrs.role, "progressbar");
+  assert.strictEqual(bar.attrs["aria-label"], "Sales · Notebook run");
+  assert.strictEqual(bar.attrs["aria-valuetext"], "Running in Fabric");
+  for (const k of ["aria-valuenow", "aria-valuemax"]) assert.ok(!(k in bar.attrs), `an indeterminate bar has ${k}`);
+  assert.strictEqual(find(el, "wolf-idle")?.attrs["aria-hidden"], "true", "no wolf at Refined");
+  assert.ok(!find(el, "wolf-fill"), "a remote run has a fill");
+  assert.ok(find(el, "remote-where"), "nothing says where it runs");
+  for (const opts of [{ settings: { motion_level: { value: 1 } } }, { reduced: true }, { settings: { motion_level: { value: 2 }, motion_wolf: { value: false } } }]) {
+    const quiet = motionHarness(opts).remoteProgress("Sales · Notebook run");
+    assert.strictEqual(find(quiet, "wolf"), null, `a wolf trotted: ${JSON.stringify(opts)}`);
+    assert.ok(find(quiet, "indeterminate"), `the bar went with the wolf: ${JSON.stringify(opts)}`);
+    assert.ok(find(quiet, "remote-where"), "the words saying where it runs went with the wolf");
+  }
+  // The bar hides only while the wolf can show; only jobs the app started in Fabric get it.
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  assert.match(css, /\.wolf\.wolf-idle \{[^}]*animation: fx-trot/);
+  assert.match(css, /html\[data-motion="on"\]:not\(\[data-fx-wolf="off"\]\) \.progress\.remote:has\(\.wolf-idle\) > \.bar \{ display: none; \}/);
+  assert.match(fs.readFileSync(path.join(ui, "activity.js"), "utf8"), /const remoteActivity = \(i\) => String\(i\.id \|\| ""\)\.startsWith\("fabric:"\) && i\.progress === undefined;/);
+});
+
+test("SQL Forge events (KF-MO-005): a slow success sparks, a failure plays the ember, after the redraw", () => {
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  const events = vm.runInContext("FORGE_EVENTS", ctx);
+  assert.strictEqual(events["sql.succeeded"], "spark");
+  assert.strictEqual(events["sql.failed"], "fail");
+  const q = fs.readFileSync(path.join(ui, "query.js"), "utf8");
+  assert.match(q, /const SQL_SPARK_SECONDS = 2;/);
+  const run = /async function run\(query[\s\S]*?\n  }\n/.exec(q)[0];
+  assert.ok(run.lastIndexOf("runFx(status, allow)") > run.lastIndexOf("sqlPage.redraw?.()"), "the effect plays before the redraw replaces the pill");
+});
+
+test("Profile shows proofs, and Journey and Achievements only while progression is on (KF-DX-002)", () => {
+  const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
+  assert.match(p, /p\.settings\.progression \? tab\("journey", "Journey"\) : null/);
+  assert.match(p, /p\.settings\.progression \? tab\("achievements", "Achievements"\) : null/);
+  assert.match(p, /if \(!p\.settings\.progression && \["journey", "achievements"\]\.includes\(profilePage\.tab\)\) profilePage\.tab = "overview";/);
+  assert.match(p, /const proved = r\.type === "prove\.match";/);
+  const v = fs.readFileSync(path.join(ui, "prove.js"), "utf8");
+  assert.match(v, /toast\(`\$\{nb\.name\}: \$\{text\}`, r\.state === "failed"\);\n  if \(r\.state === "done"\) profileEarned\(r\.earned\);/);
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  const block = css.slice(css.indexOf("/* Profile (profile.js)"), css.indexOf("@media (max-width: 900px) { .profile-grid"));
+  assert.doesNotMatch(block.replace(/#fff\b/g, ""), /#[0-9a-f]{3,6}\b/i, "profile styles use tokens");
+});
+
+// Spark on this PC: NOT NULL inside a struct and names of rewritten SQL functions.
+test("the Spark on this PC page says NOT NULL inside a struct isn't checked and SQL keeps function names", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`NOT NULL` on a field inside a struct\nis accepted in SQL but not checked/);
+  assert.match(doc, /without an alias gets a short name close to Spark's/);
+});
+
+// Spark on this PC: rewritten SQL function names are close to Spark's, not identical.
+test("the Spark on this PC page says how SQL function names differ from Spark's", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /Spark's names differ for literals \(it drops their quotes\) and add defaults such as\n`months_between`'s `roundOff`/);
+});
+
+// Check for updates (account menu, Settings): only a newer build on a self-updating PC offers
+// Install and restart; everything else says why and offers the channel's release page.
+test("Check for updates says what the channel has and offers an install only for a newer build", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function updateCheckResult\([\s\S]*?\n}\n/)[0]}; this.f = updateCheckResult;`, ctx);
+  const a = "5d69f21aa1b2c3d4e5f60718293a4b5c6d7e8f90", b = "a41c0e9aa1b2c3d4e5f60718293a4b5c6d7e8f90";
+  const kind = (report) => ctx.f(report).kind;
+  assert.strictEqual(kind({ commit: a, auto_update: true, latest: { commit: b, channel: "preview" } }), "newer");
+  assert.match(ctx.f({ commit: a, auto_update: true, latest: { commit: a, channel: "preview" } }).text, /up to date.*Preview/);
+  assert.strictEqual(kind({ commit: a, auto_update: false, latest: { commit: b, channel: "stable" } }), "managed");
+  assert.match(ctx.f({ commit: a, latest: { commit: null, error: "URLError: offline", channel: "stable" } }).text, /Stable channel: URLError/);
+  assert.strictEqual(kind({ commit: a, auto_update: true, latest: { commit: b, refused: "older than the last one", channel: "preview" } }), "error");
+  assert.strictEqual(kind({ commit: null, latest: { commit: b } }), "local");
+  const dialog = src.slice(src.indexOf("async function checkForUpdates"), src.indexOf("// ---------- What's new"));
+  assert.match(dialog, /invoke\("check_for_update"\)/);
+  assert.match(dialog, /invoke\("update_app", \{ commit: latest\.commit \}\)/);
+  assert.match(dialog, /openLink\(latest\.page\)/);
+  assert.match(src.slice(src.indexOf("function accountMenu"), src.indexOf("function channelLabel")), /"Check for updates".*checkForUpdates/);
 });

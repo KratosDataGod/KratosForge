@@ -13,6 +13,9 @@ try { scCheckOnOpen = localStorage.getItem("fd.shortcuts.checkOnOpen") !== "0"; 
 
 const scHere = () => state.view === "onelake" && catalogPage.tab === "shortcuts";
 const scPlural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+// Risks no platform admin has accepted: the ones that still flag a shortcut.
+const scOpenRisks = (s) => s.risks.filter((r) => !r.accepted);
+const scEnv = (env) => ({ dev: "Dev", test: "Test", prod: "Prod" }[env] || env);
 
 function scHealthPill(s) {
   const [cls, label] = SC_HEALTH[s.health] || SC_HEALTH.not_checked;
@@ -43,6 +46,7 @@ async function renderShortcuts() {
   const lakehouses = lakehouseRows(catalog);
   sp.lakehouses = lakehouses;
   sp.byId = Object.fromEntries(catalog.items.map((r) => [r.item_id, r]));
+  const wsNames = Object.fromEntries((catalog.workspaces || []).map((w) => [w.id, w.displayName]));
   const here = () => scHere() && body.isConnected;
 
   function drawViews() {
@@ -72,6 +76,7 @@ async function renderShortcuts() {
     if (refresh) await rpc("shortcut_center", { lakehouses: scRefs(lakehouses), refresh: true }).catch(() => null);
     await pollSidecar("shortcut_center", { lakehouses: scRefs(lakehouses), refresh: false }, (result) => {
       sp.loading = false;
+      sp.moved = {};
       if (result.rows) sp.data = result;
       else sp.data = { rows: [], counts: {}, needs: [], requests: [], problems: [result.reason || "The shortcuts couldn't be read"], errors: {} };
       drawViews(); draw();
@@ -117,7 +122,7 @@ async function renderShortcuts() {
     const q = sp.query.toLowerCase();
     return sp.data.rows.filter((s) => (sp.ws === "all" || s.host_workspace_id === sp.ws)
       && (sp.type === "all" || s.target_type === sp.type) && (sp.health === "all" || s.health === sp.health
-        || (sp.health === "risky" && s.risks.length))
+        || (sp.health === "risky" && scOpenRisks(s).length))
       && (!q || `${s.name} ${s.full_path} ${s.target} ${s.target_path || ""} ${s.lakehouse_name} ${s.workspace_name}`.toLowerCase().includes(q)))
       .sort((a, b) => scRank(a) - scRank(b) || `${a.workspace_name} ${a.lakehouse_name} ${a.full_path}`.localeCompare(`${b.workspace_name} ${b.lakehouse_name} ${b.full_path}`));
   }
@@ -166,7 +171,8 @@ async function renderShortcuts() {
           wide ? h("td", {}, h("div", {}, s.workspace_name), h("div", { class: "muted-text small" }, s.lakehouse_name)) : null,
           h("td", {}, scTarget(s)),
           h("td", {}, scHealthPill(s), wide && s.health !== "healthy" && s.health_detail ? h("div", { class: "muted-text small sc-detail" }, s.health_detail) : null,
-            s.risks.map((r) => h("div", { class: "small warn-text sc-detail" }, wide ? r.text : r.kind === "cross_env" ? "Crosses environments" : "Duplicate"))),
+            s.risks.map((r) => r.accepted ? h("div", { class: "small muted-text sc-detail" }, wide ? `Accepted by ${r.accepted.by || "a platform admin"}` : "Accepted")
+              : h("div", { class: "small warn-text sc-detail" }, wide ? r.text : r.kind === "cross_env" ? "Crosses environments" : "Duplicate"))),
           wide ? h("td", {}, s.used_by.length ? s.used_by.map((u) => h("div", { class: "small" }, u.entity)) : h("span", { class: "muted-text small" }, "Not used here")) : null,
           wide ? h("td", {}, scLastChange(s.last_change)) : null))))
         : h("p", { class: "muted-text", style: "padding:16px" }, sp.data.rows.length ? "Nothing matches." : "No shortcuts in any lakehouse yet. Use New shortcut."),
@@ -206,7 +212,12 @@ async function renderShortcuts() {
         s.health === "broken" ? h("div", { class: "problems" }, h("b", {}, s.checked_at ? `Broken, checked ${relTime(s.checked_at)}` : "Broken"),
           h("p", { class: "small" }, s.health_detail),
           s.used_by.length ? h("p", { class: "small" }, `Runs of ${s.used_by.map((u) => u.entity).join(", ")} fail until it's fixed.`) : null) : null,
-        s.risks.length ? h("div", { class: "card pad warn-box" }, s.risks.map((r) => h("div", { class: "small" }, r.text))) : null,
+        scOpenRisks(s).length ? h("div", { class: "card pad warn-box" }, scOpenRisks(s).map((r) => h("div", { class: "small" }, r.text,
+          r.kind === "cross_env" ? h("div", { class: "row sc-fixes" }, crossEnvActions(s)) : null))) : null,
+        ...s.risks.filter((r) => r.accepted).map((r) => h("div", { class: "card pad" },
+          h("div", { class: "small" }, h("b", {}, `Accepted by ${r.accepted.by || "a platform admin"}: `), r.accepted.reason),
+          h("div", { class: "muted-text small" }, `${r.text}. Accepted ${relTime(r.accepted.at)}; repointing it ends this.`),
+          sp.data.admin ? preview("shortcutFixes", btn("Withdraw", null, () => withdrawRisk(s, r), "tool outline small")) : null)),
         h("b", {}, "Points at"),
         h("div", { class: "sc-kv" },
           ...kv("Type", s.target_type),
@@ -259,32 +270,152 @@ async function renderShortcuts() {
     load(true);
   }
 
+  // ---- fixes: repoint many at one lakehouse, a crossed environment's same-environment copy, accepting a risk
+
+  async function repointMany(list, t) {
+    const n = list.length;
+    if (!(await confirmDialog(`Repoint ${scPlural(n, "shortcut")}?`,
+      `Each keeps its name and table, and now points at ${t.lakehouse_name} in ${t.workspace_name}. Fabric can't change where a shortcut points, so each is removed and made again. One that fails is put back as it was, and the rest carry on. Each one is in Shortcuts > Changes with Undo.`,
+      "Repoint", { danger: true }))) return;
+    const res = await attempt(() => rpc("shortcut_repoint_many", { items: list, workspace_id: t.workspace_id, lakehouse_id: t.lakehouse_id,
+      workspace_name: t.workspace_name, lakehouse_name: t.lakehouse_name }), "Not repointed");
+    if (!res) return;
+    const failed = res.failed.map((f) => `${f.name}: ${f.error}`);
+    toast([`Repointed ${res.done.length} of ${n}`, ...failed, ...res.problems].join(". "), failed.length > 0, { log: true });
+    sp.data = null; sp.changes = null; sp.access = null;
+    load(true);
+  }
+
+  function pickLakehouse(list) {
+    const pick = h("select", { "aria-label": "Lakehouse" }, lakehouses.map((l) => h("option", { value: l.item_id }, `${l.name} · ${l.workspace_name}`)));
+    const go_ = () => {
+      const l = lakehouses.find((x) => x.item_id === pick.value);
+      if (!l) return;
+      closeDialog();
+      repointMany(list, { workspace_id: l.workspace_id, workspace_name: l.workspace_name, lakehouse_id: l.item_id, lakehouse_name: l.name });
+    };
+    showDialog(`Repoint ${scPlural(list.length, "shortcut")}`, h("div", { class: "scroll estate" },
+      h("p", { class: "text" }, "Pick the lakehouse they point at now. Each keeps its name and its table or folder path."),
+      h("label", { class: "field" }, "Lakehouse", pick)),
+    [btn("Cancel", null, closeDialog, "tool outline"), btn("Next", null, go_, "tool primary")]);
+  }
+
+  function crossEnvActions(s) {
+    const t = s.same_env_target;
+    return [
+      t ? preview("shortcutFixes", btn(`Repoint to ${scEnv(t.env)}'s ${t.lakehouse_name}`, null, () => repointSameEnv(s, t), "tool primary small"))
+        : btn("Repoint", null, () => shortcutDialog("repoint", { shortcut: s }), "tool primary small"),
+      sp.data.admin ? preview("shortcutFixes", btn("Accept...", null, () => acceptRisk(s), "tool outline small")) : null];
+  }
+
+  async function repointSameEnv(s, t) {
+    if (!(await confirmDialog(`Repoint ${s.name}?`, `It keeps its name and table, and now points at ${t.lakehouse_name} in ${t.workspace_name}, ${scEnv(t.env)}'s copy. Fabric can't change where a shortcut points, so it's removed and made again. If that fails, it's put back as it was. It's in Shortcuts > Changes with Undo.`, "Repoint", { danger: true }))) return;
+    const res = await attempt(() => rpc("shortcut_repoint", { workspace_id: s.host_workspace_id, item_id: s.lakehouse_id, path: s.path, name: s.name,
+      source: { type: "oneLake", workspace_id: t.workspace_id, item_id: t.lakehouse_id, path: s.target_path },
+      lakehouse_name: s.lakehouse_name, workspace_name: s.workspace_name, target_workspace_name: t.workspace_name }), "Not repointed");
+    if (!res) return;
+    toast(`Repointed ${s.name}${res.problems?.length ? `; ${res.problems.join("; ")}` : ""}`, false, { log: true });
+    sp.data = null; sp.changes = null; sp.access = null;
+    load(true);
+  }
+
+  function acceptRisk(s) {
+    const why = h("textarea", { rows: 3, placeholder: "For example: it reads the live price list on purpose, read-only" });
+    const ok = btn("Accept", null, async () => {
+      const res = await attempt(() => rpc("shortcut_accept_risk", { shortcut_id: s.id, kind: "cross_env", reason: why.value.trim() }), "Not accepted");
+      if (!res) return;
+      closeDialog();
+      toast(`Accepted ${s.name} reading ${scEnv(s.target_env)}`, false, { log: true });
+      sp.data = null;
+      load();
+    }, "tool primary", { disabled: true });
+    why.addEventListener("input", () => { ok.disabled = !why.value.trim(); });
+    showDialog(`Accept ${s.name} reading ${scEnv(s.target_env)}?`, h("div", { class: "scroll estate" },
+      h("p", { class: "text" }, `${s.name} in ${s.workspace_name} / ${s.lakehouse_name} points at ${scEnv(s.target_env)}. Accepting takes it off Shortcut needs and shows your name and reason on it instead of the warning. Repointing it ends this.`),
+      h("label", { class: "field" }, "Why it's fine", why)),
+    [btn("Cancel", null, closeDialog, "tool outline"), ok]);
+    why.focus();
+  }
+
+  async function withdrawRisk(s, r) {
+    const ok = await attempt(() => rpc("shortcut_withdraw_risk", { shortcut_id: s.id, kind: r.kind }), "Not withdrawn");
+    if (!ok) return;
+    toast(`${s.name} is flagged again`, false, { log: true });
+    sp.data = null;
+    load();
+  }
+
+  // A OneLake target lakehouse that isn't in any workspace the person can open: gone, or no longer theirs to see.
+  const scGone = (s) => s.health === "broken" && s.target_type === "OneLake" && s.item_id && !sp.byId[s.item_id];
+
+  // The card for broken shortcuts whose lakehouse is gone: where it may have gone, and repointing them all.
+  function goneCard(key, list) {
+    const s0 = list[0];
+    const lh = list.find((s) => s.target_lakehouse_name)?.target_lakehouse_name || "";
+    const ws = s0.target_workspace_name || wsNames[s0.workspace_id] || s0.workspace_id;
+    const n = list.length;
+    const box = h("div", { class: "sc-moved" });
+    const another = preview("shortcutFixes", btn("Repoint all to another lakehouse...", null, () => pickLakehouse(list), "tool outline small"));
+    // m: what shortcut_find_moved said; null while it's looking (or with no name to look for)
+    const show = (m) => {
+      const c = m?.candidate;
+      const found = list.filter((s) => (m?.found || []).includes(s.id));
+      fill(box, c ? h("div", { class: "row" }, h("span", { class: "small grow" }, found.length === n
+          ? `A lakehouse called ${c.lakehouse_name} is now in ${c.workspace_name}, and all ${n} tables are there.`
+          : `A lakehouse called ${c.lakehouse_name} is now in ${c.workspace_name}, and ${found.length} of ${n} tables are there.`),
+        found.length ? preview("shortcutFixes", btn(`Repoint all ${found.length} there`, null, () => repointMany(found, c), "tool primary small")) : null)
+        : !lh ? null
+          : !m ? h("p", { class: "muted-text small" }, `Looking for a lakehouse called ${lh}...`)
+            : m.error ? h("p", { class: "muted-text small" }, `Couldn't look for where it went: ${m.error}`)
+              : h("p", { class: "muted-text small" }, `No lakehouse called ${lh} in a workspace you can open.`),
+        another);
+    };
+    show(null);
+    if (lh) {
+      sp.moved ||= {};
+      sp.moved[key] ||= rpc("shortcut_find_moved", { shortcuts: list }).catch((err) => ({ candidate: null, error: friendlyError(err).text }));
+      sp.moved[key].then(show);
+    }
+    return h("div", { class: "card pad" }, h("div", { class: "row" }, h("span", { class: "pill-s fail" }, String(n)),
+      h("b", {}, `${lh || "The lakehouse it points at"} in ${ws} isn't in a workspace you can open`)), box);
+  }
+
   // ---- Health
 
   function drawHealth() {
     const rows = sp.data.rows;
     const groups = new Map();
     for (const s of rows.filter((x) => x.health === "broken" || x.health === "unreachable")) {
-      const key = `${s.health}|${s.health_detail}`;
+      // A lakehouse that's gone is one cause, whatever each probe said: grouped by that lakehouse.
+      const key = scGone(s) ? `gone|${s.workspace_id}|${s.item_id}` : `${s.health}|${s.health_detail}`;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(s);
     }
-    const risky = rows.filter((s) => s.risks.length);
+    const risky = rows.filter((s) => scOpenRisks(s).length);
     const item = (s, why, action) => h("div", { class: "sc-item" },
       h("div", {}, h("b", {}, s.name), h("div", { class: "muted-text small" }, `${s.workspace_name} / ${s.lakehouse_name}`)),
       h("div", { class: "small" }, why), action);
     const open = (s) => btn("Open", null, () => { sp.view = "all"; sp.selected = s.id; sp.panelTab = "overview"; drawViews(); draw(); }, "tool outline small");
-    const fix = (s) => s.health === "broken" && s.target_type === "OneLake" ? btn("Repoint", null, () => shortcutDialog("repoint", { shortcut: s }), "tool primary small") : open(s);
+    const fix = (s) => h("span", { class: "row" },
+      s.health === "broken" && s.target_type === "OneLake" ? btn("Repoint", null, () => shortcutDialog("repoint", { shortcut: s }), "tool primary small") : open(s),
+      btn("Remove", null, () => removeShortcut(s), "tool outline small danger"));
     const left = h("div", { class: "sc-col" },
       groups.size || risky.length ? null : h("div", { class: "card pad" }, h("b", {}, sp.data.checked_at ? "Every shortcut that could be checked works." : "Nothing checked yet."),
         h("p", { class: "muted-text small" }, sp.data.checked_at ? `Last check ${relTime(sp.data.checked_at)}.` : "Select Check all now.")),
       ...[...groups.entries()].map(([key, list]) => {
+        const readers = (s) => s.used_by.length ? `${s.used_by.map((u) => u.entity).join(", ")} read it` : "Nothing in the open project reads it";
+        if (key.startsWith("gone|")) {
+          const card = goneCard(key, list);
+          card.append(...list.map((s) => item(s, `${s.target_path}. ${readers(s)}`, fix(s))));
+          return card;
+        }
         const [health, detail] = key.split("|");
         return h("div", { class: "card pad" }, h("div", { class: "row" }, h("span", { class: `pill-s ${SC_HEALTH[health][0]}` }, String(list.length)),
-          h("b", {}, detail || SC_HEALTH[health][1])), ...list.map((s) => item(s, s.used_by.length ? `${s.used_by.map((u) => u.entity).join(", ")} read it` : "Nothing in the open project reads it", fix(s))));
+          h("b", {}, detail || SC_HEALTH[health][1])), ...list.map((s) => item(s, readers(s), fix(s))));
       }),
       risky.length ? h("div", { class: "card pad" }, h("div", { class: "row" }, h("span", { class: "pill-s wrn" }, String(risky.length)), h("b", {}, "Worth a look, not broken")),
-        ...risky.map((s) => item(s, s.risks.map((r) => r.text).join(". "), open(s)))) : null);
+        ...risky.map((s) => item(s, scOpenRisks(s).map((r) => r.text).join(". "),
+          h("span", { class: "row" }, scOpenRisks(s).some((r) => r.kind === "cross_env") ? crossEnvActions(s) : null, open(s))))) : null);
     const toggle = h("input", { type: "checkbox", id: "sc-check-open", checked: scCheckOnOpen ? "" : null });
     toggle.addEventListener("change", () => {
       scCheckOnOpen = toggle.checked;
@@ -419,7 +550,8 @@ async function renderShortcuts() {
     const action = (n) => {
       const s = sp.data.rows.find((x) => x.id === n.id);
       if (!s) return null;
-      if (n.kind === "deprecated" || n.kind === "cross_env" || (n.kind === "broken_in_use" && s.target_type === "OneLake"))
+      if (n.kind === "cross_env") return h("span", { class: "row" }, crossEnvActions(s));
+      if (n.kind === "deprecated" || (n.kind === "broken_in_use" && s.target_type === "OneLake"))
         return btn("Repoint", null, () => shortcutDialog("repoint", { shortcut: s }), "tool primary small");
       return btn("Open", null, () => { sp.view = "all"; sp.selected = s.id; drawViews(); draw(); }, "tool outline small");
     };
@@ -444,7 +576,7 @@ async function renderShortcuts() {
 }
 
 function scRank(s) {
-  return s.health === "broken" ? 0 : s.health === "unreachable" ? 1 : s.risks.length ? 2 : 3;
+  return s.health === "broken" ? 0 : s.health === "unreachable" ? 1 : scOpenRisks(s).length ? 2 : 3;
 }
 
 function scCheckItem(s) {

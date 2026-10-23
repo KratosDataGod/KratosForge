@@ -83,6 +83,7 @@ function accountMenu(anchor) {
     { label: "Help and user guide", icon: "help", action: () => invoke("open_doc", { page: "user-guide.md" }).catch(() => {}) },
     { label: "Report a problem", icon: "bug", action: reportProblem },
     { label: "What's new", icon: "rocket", action: () => showWhatsNew(true) },
+    { label: "Check for updates", icon: "sync", action: checkForUpdates },
     { info: `KratosForge build ${state.build || "unknown"} · ${channelLabel()}` },
   );
   if (state.user) items.push({ label: "Sign out", icon: "signOut", action: signOut });
@@ -160,6 +161,86 @@ function reportProblem() {
       : "Send copies all of this and opens a new issue on GitHub. Paste it there.")),
   [btn("Copy only", null, () => copyText(report(), "Report"), "tool outline"), h("span", { class: "spacer" }),
     btn("Cancel", null, closeDialog, "tool outline"), btn("Send", null, send, "tool primary")]);
+}
+
+// ---------- Check for updates ----------
+
+// What a manual update check found (check_for_update): "newer" offers Install and restart; every
+// other kind offers only the channel's release page.
+function updateCheckResult(report) {
+  const short = (c) => c.slice(0, 7);
+  const { commit, latest } = report;
+  const channel = latest.channel === "preview" ? "Preview" : "Stable";
+  if (!commit) return { kind: "local", text: "This is a local build, so it doesn't update itself." };
+  if (!latest.commit) return { kind: "error", text: `Couldn't check the ${channel} channel: ${latest.error}` };
+  if (latest.refused) return { kind: "error", text: latest.refused };
+  if (latest.commit === commit) return { kind: "current", text: `You're up to date. The ${channel} channel has nothing newer than this build.` };
+  if (report.auto_update === false) {
+    return { kind: "managed", text: `Build ${short(latest.commit)} is out. Your organization rolls out new builds, so ask IT for it.` };
+  }
+  return { kind: "newer", text: `Build ${short(latest.commit)} is out. Install it now: KratosForge downloads it, ` +
+    "saves the open notebook, closes and starts the new build." };
+}
+
+// The startup update on demand (account menu, Settings): this build next to the channel's newest,
+// installed through the same checked download and hand-over as at startup (update_app), or
+// downloaded by hand from the channel's release page.
+async function checkForUpdates() {
+  const short = (c) => (c ? c.slice(0, 7) : "unknown");
+  const show = (lines, actions) => showDialog("Check for updates", h("div", { class: "setup" }, lines), actions);
+  show([h("p", {}, "Checking for a newer build…")], []);
+  let report;
+  try {
+    report = await invoke("check_for_update");
+  } catch (err) {
+    show([h("p", { class: "error-text" }, String(err))],
+      [btn("Try again", null, checkForUpdates, "tool outline"), btn("Close", null, closeDialog, "tool primary")]);
+    return;
+  }
+  const { latest } = report;
+  const result = updateCheckResult(report);
+  const facts = h("dl", { class: "about" },
+    h("dt", {}, "This build"), h("dd", {}, report.commit ? short(report.commit) : state.build || "local build"),
+    h("dt", {}, `Latest on ${latest.channel === "preview" ? "Preview" : "Stable"}`), h("dd", {}, short(latest.commit)));
+  const manual = btn("Download manually", "arrowDownload", () => openLink(latest.page), "tool outline");
+  const note = h("p", { class: "muted-text small" }, result.kind === "newer"
+    ? "Running cells stop. Or download kratosforge.exe from the release page and run it in place of this one."
+    : result.kind === "current" ? "" : "You can download kratosforge.exe from the channel's release page and run it in place of this one.");
+  if (latest.note) note.prepend(`${latest.note} `);
+  const text = h("p", { class: result.kind === "error" ? "error-text" : "" }, result.text);
+  if (result.kind !== "newer") {
+    show([facts, text, note.textContent ? note : null], [
+      result.kind === "error" ? btn("Try again", null, checkForUpdates, "tool outline") : null,
+      latest.page ? manual : null, h("span", { class: "spacer" }), btn("Close", null, closeDialog, "tool primary")].filter(Boolean));
+    return;
+  }
+  const install = btn("Install and restart", "arrowDownload", async () => {
+    install.disabled = true;
+    later.disabled = true;
+    install.lastChild.textContent = "Downloading…";
+    if (state.notebook?.dirty && !(await saveNotebook())) {
+      install.disabled = later.disabled = false;
+      install.lastChild.textContent = "Install and restart";
+      return;
+    }
+    const unlisten = await window.__TAURI__.event.listen("component-log", (e) => {
+      const m = /^progress (\d+)/.exec(e.payload);
+      if (m) install.lastChild.textContent = m[1] === "100" ? "Restarting…" : `Downloading… ${m[1]}%`;
+    });
+    try {
+      await invoke("update_app", { commit: latest.commit });
+      install.lastChild.textContent = "Restarting…";  // the new build takes over
+    } catch (err) {
+      text.className = "error-text";
+      text.textContent = `Update to build ${short(latest.commit)} failed: ${err} You are still on ${short(report.commit)}.`;
+      install.disabled = later.disabled = false;
+      install.lastChild.textContent = "Try again";
+    } finally {
+      unlisten();
+    }
+  }, "tool primary");
+  const later = btn("Later", null, closeDialog, "tool outline");
+  show([facts, text, note], [manual, h("span", { class: "spacer" }), later, install]);
 }
 
 // ---------- What's new ----------
@@ -325,11 +406,14 @@ const MOTION_LEVEL_HELP = ["No animation at all. Progress, results and errors st
   "Quick page and panel transitions only. No branded effects.",
   "Subtle sparks, embers and the wolf on real progress. Recommended.",
   "The same moments with more character: extra sparks, halftone and offset rings."];
-// Achievement celebrations (motion_achievements, off by default) gets its row when the developer
-// profile (#327) can award something to celebrate; a switch that does nothing would only confuse.
 const MOTION_FAMILIES = [["motion_wolf", "Wolf animations", "The wolf on run progress, its arrival and the Wolf Run after long work."],
   ["motion_sparks", "Forge sparks", "Sparks when work succeeds, the anvil strike after a deployment, the ember when something fails."],
   ["motion_ambient", "Running indicators", "The glow on a running cell, the flow into a running pipeline step, the ring when work starts."]];
+// Achievement celebrations (off by default, #361) shows only while Profile (a Preview feature) can
+// award something; a switch that does nothing would only confuse.
+const MOTION_ACHIEVEMENTS = ["motion_achievements", "Achievement celebrations",
+  "A short reveal on the message when Profile awards you an achievement. Off unless you turn it on."];
+const motionFamilies = () => (previewShown() ? [...MOTION_FAMILIES, MOTION_ACHIEVEMENTS] : MOTION_FAMILIES);
 
 function motionSettingsCard(s, locked) {
   const level = s.motion_level.value;
@@ -350,8 +434,8 @@ function motionSettingsCard(s, locked) {
       reduced ? h("b", {}, "Off now: Windows asks apps to reduce motion. ") : null, learnMore("motion-and-effects")),
     h("div", { class: "choices motion-levels", role: "radiogroup", "aria-label": "Visual intensity" }, [0, 1, 2, 3].map(levelRow)),
     source("motion_level") ? h("div", { class: "setting-source" }, SOURCE_TEXT.policy) : null,
-    MOTION_FAMILIES.map(([key, label, help]) => settingRow(label, level < 2 ? `${help} Plays at Refined and Expressive.` : help,
-      toggle(key, label, s[key]?.value !== false, level < 2), source(key))),
+    motionFamilies().map(([key, label, help]) => settingRow(label, level < 2 ? `${help} Plays at Refined and Expressive.` : help,
+      toggle(key, label, s[key]?.value ?? key !== "motion_achievements", level < 2), source(key))),
     settingRow("Respect Windows' reduced-motion setting",
       "When Windows' Animation effects are off, KratosForge shows no motion. Untick to keep the level you chose anyway.",
       toggle("motion_follow_system", "Respect Windows' reduced-motion setting", s.motion_follow_system?.value !== false), source("motion_follow_system")),
@@ -376,7 +460,9 @@ function showMotionGallery() {
   const failed = sample("Failed", "bad");
   const run = h("button", { class: "tool outline small", tabindex: "-1", "aria-hidden": "true" }, "Run all");
   const deployed = sample("Deployed 4 steps.");
+  const passed = sample("Ready: no errors or warnings");
   const lane = h("span", { class: "motion-lane" }, "Kernel idle");
+  const award = sample("Achievement earned: First Flame");
   const trackHost = h("span", { class: "motion-track" });
   const flowHost = h("div", { class: "motion-flow" });
   const flowNote = h("span", { class: "muted-text small" });
@@ -421,6 +507,9 @@ function showMotionGallery() {
     }),
     row("Wolf Run", "A cell that ran 10 s or more succeeded.", lane, () => forgeEvent("notebook.long.succeeded", lane)),
     row("Anvil Strike", "A deployment succeeded.", deployed, () => forgeEvent("deploy.succeeded", deployed)),
+    row("Cooling spark", "Validate passed, a proof matched, or Fabric confirmed a publish.", passed, () => forgeEvent("validate.passed", passed)),
+    previewShown() ? row("Achievement Reveal", "Profile awarded you an achievement. Plays only with Achievement celebrations on.", award,
+      () => forgeEvent("achievement.unlocked", award)) : null,
     h("div", { class: "motion-demo" }, h("div", {}, h("b", {}, "Energy Flow"),
       h("div", { class: "muted-text small" }, "A pipeline's activities as they really run: the link into the running step flows, a finished step settles.")),
     h("div", { class: "motion-target" }, flowNote), btn("Run sample on this PC", "play", runPipeline, "tool small")),
@@ -490,7 +579,8 @@ async function renderSettings() {
           try { localStorage.setItem(UPDATE_SPLASH_OFF, e.target.checked ? "0" : "1"); } catch { /* kept for this start */ }
           render();
         } }), h("span", {}, updateSplashOn() ? "On" : "Off"))),
-    h("div", { class: "row" }, btn("What's new in this build", "rocket", () => showWhatsNew(true), "tool link small"),
+    h("div", { class: "row" }, btn("Check for updates", "sync", checkForUpdates, "tool link small"),
+      btn("What's new in this build", "rocket", () => showWhatsNew(true), "tool link small"),
       btn("Show the update splash", "rocket", () => showUpdateSplash(true), "tool link small")));
 
   // Appearance > Motion & effects (motion.js, docs/forge-animations.md)

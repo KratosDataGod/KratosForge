@@ -60,6 +60,9 @@ function lakehouseSqlProvider(p, ref, changed) {
   };
 }
 
+// A query that succeeds after running longer than this (engine seconds) gets a spark; quicker ones don't.
+const SQL_SPARK_SECONDS = 2;
+
 // A managed run's state on the Results band: [pill class, label].
 const SQL_STATE = { queued: ["busy", "Queued"], running: ["busy", "Running"], cancelling: ["busy", "Stopping"],
   completed: ["ok", "Succeeded"], failed: ["bad", "Failed"], cancelled: ["", "Stopped"], timed_out: ["bad", "Timed out"] };
@@ -181,7 +184,21 @@ function renderQuery() {
       tab.error = status.error || `The query ${SQL_STATE[status.state]?.[1].toLowerCase() || status.state}.`;
     }
     sqlPage.redraw?.();
-    if (here()) editor.recheck();
+    if (here()) {
+      editor.recheck();
+      runFx(status, allow);
+    }
+  }
+
+  // KF-MO-005: a spark on the Results pill when a query that took a while succeeds, the ember when one
+  // fails; a stop, a quick query or a confirmation the person declined plays nothing. Uses the
+  // engine's own seconds, and runs after the redraw, which replaces the pill. The pill already
+  // says the outcome to a screen reader, so nothing extra is announced.
+  function runFx(status, allow) {
+    const pill = band.querySelector(".sql-pill");
+    if (status?.state === "completed" && !tab.error && status.seconds > SQL_SPARK_SECONDS) forgeEvent("sql.succeeded", pill);
+    else if (["failed", "timed_out"].includes(status?.state)
+      && !(status.refused?.permission === "local_mutation" && !allow.length)) forgeEvent("sql.failed", pill);
   }
 
   async function stop() {

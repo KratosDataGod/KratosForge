@@ -8,7 +8,7 @@ KratosForge does Microsoft Fabric data engineering work on your own Windows PC a
 
 ### KratosForge app (`app/`)
 
-`fabric-desktop.exe` is a [Tauri 2](https://v2.tauri.app/) shell written in Rust. It holds two WebView2 views and starts the local engine.
+`kratosforge.exe` is a [Tauri 2](https://v2.tauri.app/) shell written in Rust. It holds two WebView2 views and starts the local engine.
 
 | Part | What it does | Code |
 | --- | --- | --- |
@@ -60,7 +60,7 @@ A metadata project is a folder you choose and keep in Git.
 | Fabric REST API (`api.fabric.microsoft.com`) | Listing and creating workspaces, lakehouses and notebooks |
 | OneLake (`onelake.dfs.fabric.microsoft.com`) | `Tables/` (Delta) and `Files/` in each lakehouse. The OneLake table API lists schemas and tables. |
 | Fabric portal (`app.fabric.microsoft.com`) | The pages shown in the Fabric view |
-| GitHub Releases | The `latest` release: `fabric-desktop.exe` and `version.json`, replaced by every green build of `main` |
+| GitHub Releases | The `latest` release: `kratosforge.exe` (also published as `fabric-desktop.exe` for builds before the name changed) and `version.json`, replaced by every green build of `main` |
 
 ## How a request flows
 

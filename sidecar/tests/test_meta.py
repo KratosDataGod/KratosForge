@@ -509,6 +509,54 @@ def test_05e_exceptions_expire(repo):
     assert "gold.fact_sales: custom step transforms.sales:build needs a test" in errs
 
 
+def test_05e_exception_notices_name_the_owner_and_warn_before_expiry(repo):
+    from fabric_desktop.meta.project import describe_exceptions
+
+    write(repo.root, "exceptions.toml", """
+        [[exception]]
+        entity = "gold.fact_sales"
+        rule = "custom_code_test"
+        reason = "Allocation logic signed off by finance; test due next sprint"
+        approver = "Chris"
+        expires = "2026-10-20"
+
+        [[exception]]
+        entity = "silver.customers"
+        rule = "owner"
+        reason = "Shared table; owner is the domain, not a person"
+        approver = "Dana"
+        expires = "permanent"
+
+        [[exception]]
+        entity = "missing.table"
+        rule = "key_unique"
+        reason = "Waiting on the source"
+        approver = "Dana"
+        expires = "soon"
+    """)
+    repo.reload()
+    soon = {r["entity"]: r for r in describe_exceptions(repo.p, D(2026, 10, 15))}
+    sales = soon["gold.fact_sales"]
+    assert sales["status"] == "expiring" and sales["days_left"] == 5 and sales["owner"] == "Chris"
+    assert sales["reason"].startswith("Allocation") and sales["approver"] == "Chris"
+    assert sales["notice"] == "gold.fact_sales: the exception for custom_code_test expires in 5 days (2026-10-20)"
+    assert soon["silver.customers"]["status"] == "permanent" and soon["silver.customers"]["notice"] == ""
+    assert soon["missing.table"]["status"] == "invalid" and soon["missing.table"]["owner"] == ""
+    assert "isn't a date" in soon["missing.table"]["notice"]
+
+    active = describe_exceptions(repo.p, D(2026, 10, 1))
+    assert next(r for r in active if r["entity"] == "gold.fact_sales")["status"] == "active"
+    ended = next(r for r in describe_exceptions(repo.p, D(2026, 10, 21)) if r["entity"] == "gold.fact_sales")
+    assert ended["status"] == "expired" and ended["days_left"] == -1
+    assert "expired on 2026-10-20" in ended["notice"]
+    today = next(r for r in describe_exceptions(repo.p, D(2026, 10, 20)) if r["entity"] == "gold.fact_sales")
+    assert today["status"] == "expiring" and "expires today" in today["notice"]
+
+    summary = repo.p.summary(D(2026, 10, 15))
+    assert summary["exception_notices"][0]["status"] == "expiring"
+    assert summary["exceptions"][0]["expires"] == "2026-10-20"
+
+
 def test_05f_notebooks_cannot_write_managed_tables(repo, tmp_path):
     from fabric_desktop import lakehouse
     from fabric_desktop.service import Service

@@ -52,11 +52,15 @@ class ProgressMixin:
 
     def _progress_observe(self, record: dict[str, Any]) -> list[dict[str, Any]]:
         """Record a finished validation if it is a verified accomplishment. Returns achievements it earned."""
-        if not app_settings.value("show_preview"):
+        return self._progress_record(progress.from_validation(record))
+
+    def _progress_observe_proof(self, record: dict[str, Any]) -> list[dict[str, Any]]:
+        """Record a finished proof whose tables all matched. Returns achievements it earned."""
+        return self._progress_record(progress.from_proof(record, record.get("receipt_id")))
+
+    def _progress_record(self, row: dict[str, Any] | None) -> list[dict[str, Any]]:
+        if row is None or not app_settings.value("show_preview"):
             return []  # Profile is a Preview feature: nothing is recorded while it's hidden
-        row = progress.from_validation(record)
-        if row is None:
-            return []
         path = self._profile_path()
         with _LOCK:
             profile = progress.load(path)
@@ -64,12 +68,14 @@ class ProgressMixin:
                 return []
             before = {a["id"] for a in progress.progression(profile)["achievements"]}
             if not progress.add(profile, row):
-                return []  # the same code validated again: nothing new
+                return []  # the same code verified again: nothing new
             progress.save(path, profile)
         p = progress.progression(profile)
         if not profile["settings"]["progression"] or not profile["settings"]["notifications"]:
             return []
-        return [{"id": a["id"], "name": a["name"], "xp": a["xp"]} for a in p["achievements"] if a["id"] not in before]
+        # "first": the profile had no achievement before this one, so the app says recording is on
+        return [{"id": a["id"], "name": a["name"], "xp": a["xp"], "first": not before}
+                for a in p["achievements"] if a["id"] not in before]
 
     # ---- what the app calls
 
@@ -108,7 +114,7 @@ class ProgressMixin:
         return self._profile_view(profile)
 
     def profile_backfill(self) -> dict[str, Any]:
-        """Once: add notebooks that passed Validate before recording was on, dated when they ran."""
+        """Once: add notebooks that passed Validate or Prove before recording was on, dated when they ran."""
         path = self._profile_path()
         with _LOCK:
             profile = progress.load(path)
@@ -118,6 +124,9 @@ class ProgressMixin:
             if not profile["settings"]["backfilled"]:
                 for record in self._validations_saved():  # type: ignore[attr-defined]
                     row = progress.from_validation(record, origin="backfill")
+                    added += bool(row and progress.add(profile, row))
+                for record in self._proofs_saved():  # type: ignore[attr-defined]
+                    row = progress.from_proof(record, record.get("receipt_id"), origin="backfill")
                     added += bool(row and progress.add(profile, row))
                 profile["settings"]["backfilled"] = True
                 progress.save(path, profile)

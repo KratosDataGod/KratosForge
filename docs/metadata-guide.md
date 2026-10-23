@@ -206,7 +206,7 @@ Checks run before every write. Each has an `on_fail`:
 
 The table commit comes first and everything in step 4 follows it, together with the quarantined rows. Only the table commit is ever retried, so a failure after it can't put the rows in twice: the run reports the rows as written and says what it couldn't record. Each commit also carries its watermark, so if saving `meta.watermarks` failed, the next run goes by the commit and doesn't load the same rows again. A run whose table write fails quarantines nothing.
 
-**Exceptions.** When a rule genuinely doesn't fit, add an approved exception to `exceptions.toml` with the entity, the rule, a reason, an approver and an expiry date (or `permanent`). An expired exception fails the save gate again.
+**Exceptions.** When a rule genuinely doesn't fit, add an approved exception to `exceptions.toml` with the entity, the rule, a reason, an approver and an expiry date (or `permanent`). An expired exception fails the save gate again. **Data mesh > Quality > Exceptions** shows each one with the table's owner, the reason, the approver and the end date. One that ends within 14 days raises a notice on the bell and a banner on Data mesh, so it can be renewed or the rule met before runs and promote are blocked.
 
 ```toml
 [[exception]]

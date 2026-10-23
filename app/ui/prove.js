@@ -197,8 +197,13 @@ async function followProof(nb, id) {
   const text = r.state === "cancelled" ? "Cancelled." : r.verdict?.text || r.message || r.state;
   logActivity({ id: `prove:${id}`, status: r.verdict?.verdict === "same" ? "ok" : "error", title: `${nb.name} · Prove`, text });
   toast(`${nb.name}: ${text}`, r.state === "failed");
+  if (r.state === "done") profileEarned(r.earned);
   nb.prove.history = await rpc("prove_list", { name: nb.name, limit: 5 }).catch(() => nb.prove.history);
   drawProve(nb);
+  // The verdict pill cools when both runs match; an ember when they differ or the proof failed (motion.js).
+  const pill = state.notebook === nb && state.view === "notebook" ? document.querySelector(".provepane .prove-body .pill-s") : null;
+  if (r.verdict?.verdict === "same") forgeEvent("prove.matched", pill);
+  else if (r.state === "failed" || r.verdict?.verdict === "differs") forgeEvent("prove.failed", pill);
 }
 
 async function cancelProof(nb) {

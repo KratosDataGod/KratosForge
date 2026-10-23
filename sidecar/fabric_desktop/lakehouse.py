@@ -126,8 +126,8 @@ def _record(kind: str, key: str, entry: Callable[[], dict[str, Any]]) -> None:
         _log.info("Couldn't record a read for replay: %s", describe(exc))
 
 
-def _record_table(ref: TableRef, version: int | None, first: str) -> None:
-    lh = _current()
+def _record_table(ref: TableRef, version: int | None, first: str, lh: Attached | None = None) -> None:
+    lh = lh or _current()  # a background write passes the lakehouse it was made in
     _record("tables", f"{ref.lakehouse_id}/{ref.schema}.{ref.table}".lower(), lambda: {
         "table": f"{ref.schema}.{ref.table}", "version": version, "first": first,
         "workspace_id": ref.workspace_id, "lakehouse_id": ref.lakehouse_id, "lakehouse": lh.name})
@@ -497,7 +497,7 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
         result = WriteResult(name_, rows, delta.version(), ref.uri, skipped)
         # A table the notebook writes before reading starts, for a replay, at the version before that write.
         _record_table(ref, result.delta_version if skipped else
-                      result.delta_version - 1 if result.delta_version > 0 else None, "write")
+                      result.delta_version - 1 if result.delta_version > 0 else None, "write", lh)
         if lh.history_file:
             record = {"job": f"Notebook write to {lh.name}", "table_uri": ref.uri, "mode": mode,
                       "rows": result.rows, "delta_version": result.delta_version,

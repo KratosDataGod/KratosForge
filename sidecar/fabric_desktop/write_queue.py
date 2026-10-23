@@ -18,9 +18,10 @@ import logging
 import os
 import tempfile
 import threading
+from collections.abc import Callable, Iterable
 from concurrent.futures import Future
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Iterable
+from typing import TYPE_CHECKING, Any
 
 from .redact import describe
 

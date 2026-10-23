@@ -434,6 +434,28 @@ def save_shortcut_rules(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionC
     return _run(sqlDB, "save_shortcut_rules", ctx, rules=rules)
 
 
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def list_shortcut_risks(sqlDB: fn.FabricSqlConnection) -> list:
+    return _run(sqlDB, "list_shortcut_risks")
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def accept_shortcut_risk(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, shortcut_id: str, kind: str,
+                         reason: str) -> dict:
+    return _run(sqlDB, "accept_shortcut_risk", ctx, shortcut_id=shortcut_id, kind=kind, reason=reason)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def withdraw_shortcut_risk(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, shortcut_id: str,
+                           kind: str) -> list:
+    return _run(sqlDB, "withdraw_shortcut_risk", ctx, shortcut_id=shortcut_id, kind=kind)
+
+
 # ---- governance policies (policy.py)
 
 @udf.connection(argName="sqlDB", alias="platform")

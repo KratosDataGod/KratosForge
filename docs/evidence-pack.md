@@ -42,7 +42,7 @@ Last checked against `main` a346145 (2026-10-18). Nothing in this pack has been 
 | --- | --- | --- | --- | --- |
 | The app | `login.microsoftonline.com` | Sign-in | When someone signs in or a token renews | Microsoft identity platform; Windows account broker |
 | The app | `api.fabric.microsoft.com`, `onelake.dfs.fabric.microsoft.com`, `api.powerbi.com`, `graph.microsoft.com` | Fabric items, jobs, OneLake files and tables, semantic models, people lookups | When someone uses those features | HTTPS with the person's token; writes are version-checked and ask first where they replace data |
-| The app | `app.fabric.microsoft.com` | Fabric's own pages, shown inside the app | When someone opens them | The embedded view's cookies are encrypted with Windows DPAPI |
+| The app | `app.fabric.microsoft.com`, `app.powerbi.com`, Microsoft sign-in hosts, and any identity provider hosts IT lists in `fabric_view_sign_in_hosts` | Fabric's own pages, shown inside the app | When someone opens them | The embedded view opens only those hosts over `https`; every other link opens in the default browser. SmartScreen stays on. Its cookies are encrypted with Windows DPAPI |
 | The app | `github.com` and its release hosts | Update check and downloads | Each time the app starts, unless the policy turns updates off | SHA-256 checked against the release's `version.json`; not yet signed |
 | The app | The organization's central lakehouse (`FabricDesktop_Central`) | Optimization results and other organization-wide tables | Only after someone connects it and agrees to each first write | The person's token; `allow_optimize_lakehouse: false` turns it off |
 | The app | `onelake.table.fabric.microsoft.com` | Lists of OneLake tables and their schemas | When someone browses lakehouse tables | HTTPS with the person's token; reads only |
@@ -73,11 +73,11 @@ These are the items a reviewer will raise. They are tracked in [release readines
 
 - unsigned builds;
 - the plain-text token cache;
-- no Content Security Policy;
 - no live tenant run;
-- no pinned builds or rollback;
-- no MSI or MSIX;
+- no MSI or MSIX, so the engine is installed in each person's own profile;
 - Preview features.
+
+Closed since the first version of this page: the app has a Content Security Policy, and earlier builds are kept so IT can promote or reinstall a named build ([rollback](release-management/README.md#rollback)).
 
 A privacy statement and support terms are being drafted for KratosBI to approve as the publisher.
 

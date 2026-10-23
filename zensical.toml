@@ -71,6 +71,7 @@ nav = [
     { "Governance policies" = "governance.md" },
     { "Governance guide" = "governance-guide.md" },
     { "Data mesh" = "data-mesh.md" },
+    { "Semantic models and Apache Ossie" = "semantic-model-ossie.md" },
     { "Shortcuts" = "shortcuts.md" },
     { "Pipeline definitions" = "orchestration/pipeline-definitions.md" },
     { "Pipeline activity compatibility" = "orchestration/activity-registry.md" },

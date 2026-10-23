@@ -29,7 +29,7 @@ You can write any Spark code in the cell instead. V-Order is turned on for the s
 
 **Run all** runs every other cell on this PC. If one fails, the run stops and nothing is sent to Fabric. Then, for the marked cell, or when you run that cell on its own:
 
-1. The [risk check](finops/risk-check.md) runs, as for **Run in Fabric**. A blocked check stops here.
+1. The [risk check](finops/risk-check.md) runs for the lakehouse's workspace: its capacity, your sign-in and the organization's policy. A blocked check stops here.
 2. A confirm shows the workspace, lakehouse, the tables it V-Orders, and what it writes. **Stop here** sends nothing.
 3. The cell is published as a one-cell Spark notebook, **<notebook name> (Fabric step)**, in the lakehouse's workspace, with the same lakehouse attached, and started as a Fabric job.
 4. The cell shows Queued, then Running, with a link to the run in Fabric and **Cancel**. The run is in **Monitor > Runs** too.

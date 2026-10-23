@@ -52,6 +52,7 @@ const PREVIEW_FEATURES = {
   capacity: "Capacity status",
   usage: "Measured usage import",
   shortcuts: "OneLake shortcuts",
+  shortcutFixes: "Shortcut fixes",
   access: "OneLake access",
   history: "Table history and restore",
   health: "Table health",
@@ -92,6 +93,7 @@ const PREVIEW_FEATURES = {
   notebookFolderPublish: "Publishing notebooks from folders",
   fabricStep: "Run the last cell on Fabric",
   popOut: "Pop-out windows",
+  pipelines: "Pipelines",
   pipelineRuns: "Pipeline runs in Monitor",
 };
 

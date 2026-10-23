@@ -49,7 +49,11 @@ negative start from the end, and `add_months` returns a date, as in Spark. `slic
 length with Spark's error, and `add_months` reads text as a date (text that isn't a date gives NULL).
 `element_at` refuses an array's index 0, and `months_between` counts the time of day and rounds to 8 digits
 (unless `roundOff` is false), as in Spark. An empty `struct<>` isn't supported here,
-since DuckDB can't store a struct with no fields; give it at least one.
+since DuckDB can't store a struct with no fields; give it at least one. `NOT NULL` on a field inside a struct
+is accepted in SQL but not checked, since DuckDB has no such constraint. In SQL, a selected `add_months`,
+`months_between`, `substring` or `slice` without an alias gets a short name close to Spark's, such as
+`add_months(d, 1)`; Spark's names differ for literals (it drops their quotes) and add defaults such as
+`months_between`'s `roundOff`.
 
 ### DataFrame: 79 of 102
 

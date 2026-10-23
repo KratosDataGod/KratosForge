@@ -35,17 +35,23 @@ _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-0
 # Allowlisted methods with no UI caller, each with why it stays. Remove a name when the UI starts
 # calling it or when it leaves METHODS; the test below fails until you do.
 # Dropping a name from METHODS? Also drop it from the timeout list in app/src-tauri/src/watchdog.rs.
+_OSSIE = "Semantic model tab's Ossie card: engine only, the card waits on Chris's mockup review (docs/semantic-model-ossie.md)"
+
 NO_UI_CALLER: dict[str, str] = {
+    # Export to Ossie / Import from Ossie.
+    "meta_model_ossie_models": _OSSIE,
+    "meta_model_ossie_export": _OSSIE,
+    "meta_model_ossie_save": _OSSIE,
+    "meta_model_ossie_read": _OSSIE,
+    "meta_model_ossie_preview": _OSSIE,
+    "meta_model_ossie_import": _OSSIE,
+    "meta_model_tmdl_save": _OSSIE,
     # MCP / local HTTP API tools (in-process).
     "placement_advice": _MCP + "; Prove shows it later (docs/finops/placement-advice.md)",
     "notebook_environment": _MCP,
     "pipeline_activity_registry": _MCP,
-    "pipeline_compatibility": _MCP,
-    "pipeline_export": _MCP,
     "pipeline_inspect": _MCP,
     "pipeline_validate": _MCP,
-    "pipeline_run_check": _MCP,
-    "pipeline_run_cancel": _MCP,
     "receipt_export": _MCP,
     "receipts_list": _MCP,
     "run_sql": _MCP,
@@ -53,7 +59,6 @@ NO_UI_CALLER: dict[str, str] = {
     "preview_job": _CLI,
     "run_job": _CLI,
     # Local data projects.
-    "list_local_projects": _LOCAL,
     "list_local_tables": _LOCAL,
     "local_add_source": _LOCAL,
     "local_close_project": _LOCAL,
@@ -112,7 +117,6 @@ NO_UI_CALLER: dict[str, str] = {
     "meta_diff": _QA017,
     "meta_preview": _QA017,
     "notebook_diff": _QA017,
-    "pipeline_import": _QA017,
     "platform_revoke": _QA017,
     "platform_sources": _QA017,
     "workload_actions": _QA017,

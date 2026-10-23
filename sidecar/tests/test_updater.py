@@ -185,10 +185,11 @@ def test_download_app_follows_preview_without_a_stable_release(monkeypatch, sett
     import urllib.error
     exe = b"MZ..." + SHA.encode()
     seen = serve(monkeypatch, {"/stable/": urllib.error.HTTPError("u", 404, "Not Found", {}, None),
-                               "/latest/fabric-desktop.exe": exe,
+                               "/latest/kratosforge.exe": exe,
                                "/latest/version.json": json.dumps({"commit": SHA, "exe_sha256": hashlib.sha256(exe).hexdigest()}).encode()})
     assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 0
-    assert all("/latest/" in url for url, _ in seen[1:])
+    # Stable is missing under both names before Preview is tried.
+    assert all("/stable/" in url for url, _ in seen[:2]) and all("/latest/" in url for url, _ in seen[2:])
 
 
 def test_preview_channel_does_not_fall_back(monkeypatch, settings_dirs):
@@ -201,20 +202,20 @@ def test_preview_channel_does_not_fall_back(monkeypatch, settings_dirs):
 def test_download_app_refuses_a_release_without_a_checksum(monkeypatch, tmp_path, capsys):
     # A version.json that names the build but gives no checksum: the download can't be checked (HD-022).
     for info in ({"commit": SHA}, {"commit": SHA, "exe_sha256": "not-a-checksum"}):
-        serve(monkeypatch, {"fabric-desktop.exe": b"MZ..." + SHA.encode() + b"...", "version.json": json.dumps(info).encode()})
+        serve(monkeypatch, {"kratosforge.exe": b"MZ..." + SHA.encode() + b"...", "version.json": json.dumps(info).encode()})
         assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 1
         assert "gives no checksum" in capsys.readouterr().out
 
 
 def test_download_app_refuses_when_the_checksum_cant_be_read(monkeypatch, tmp_path, capsys):
-    serve(monkeypatch, {"fabric-desktop.exe": b"MZ..." + SHA.encode()})  # no version.json
+    serve(monkeypatch, {"kratosforge.exe": b"MZ..." + SHA.encode()})  # no version.json
     assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 1
     assert "Could not read build 0123456's checksum" in capsys.readouterr().out
 
 
 def test_download_app_waits_while_the_release_names_another_build(monkeypatch, tmp_path, capsys):
     other = json.dumps({"commit": "f" * 40, "exe_sha256": "0" * 64}).encode()
-    serve(monkeypatch, {"fabric-desktop.exe": b"MZ..." + SHA.encode(), "version.json": other})
+    serve(monkeypatch, {"kratosforge.exe": b"MZ..." + SHA.encode(), "version.json": other})
     assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 1
 
 
@@ -223,9 +224,9 @@ def test_download_app_refuses_a_stale_copy(monkeypatch, tmp_path, capsys):
     stale = b"MZ...old build..."
     # Even with a matching checksum, the file must carry the build's commit.
     info = {"commit": SHA, "exe_sha256": hashlib.sha256(stale).hexdigest()}
-    seen = serve(monkeypatch, {"fabric-desktop.exe": stale, "version.json": json.dumps(info).encode()})
+    seen = serve(monkeypatch, {"kratosforge.exe": stale, "version.json": json.dumps(info).encode()})
     assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 1
-    exe = [url for url, _ in seen if "fabric-desktop.exe" in url]
+    exe = [url for url, _ in seen if "kratosforge.exe" in url]
     assert len(exe) == 2 and "nocache=" in exe[1]
     assert "not build 0123456 yet" in capsys.readouterr().out
 
@@ -234,9 +235,9 @@ def test_download_app_checks_the_checksum(monkeypatch, tmp_path, capsys):
     import hashlib
     good = b"MZ..." + SHA.encode()
     info = {"commit": SHA, "exe_sha256": hashlib.sha256(good).hexdigest()}
-    serve(monkeypatch, {"version.json": json.dumps(info).encode(), "fabric-desktop.exe": good})
+    serve(monkeypatch, {"version.json": json.dumps(info).encode(), "kratosforge.exe": good})
     assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 0
-    serve(monkeypatch, {"version.json": json.dumps(info).encode(), "fabric-desktop.exe": good + b"tampered"})
+    serve(monkeypatch, {"version.json": json.dumps(info).encode(), "kratosforge.exe": good + b"tampered"})
     assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 1
     assert "checksum" in capsys.readouterr().out
 
@@ -250,6 +251,29 @@ def test_download_app_refuses_a_cut_off_download(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(updater.urllib.request, "urlopen", lambda req, timeout=None: Short(b"MZ..." + SHA.encode()))
     assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 1
     assert "stopped at" in capsys.readouterr().out
+
+
+def test_download_app_takes_the_legacy_name_from_an_older_release(monkeypatch, tmp_path):
+    # A build-* release from before kratosforge.exe (Stable rolled back to it) has only fabric-desktop.exe.
+    import hashlib
+    import urllib.error
+    exe = b"MZ..." + SHA.encode()
+    seen = serve(monkeypatch, {"/kratosforge.exe": urllib.error.HTTPError("u", 404, "Not Found", {}, None),
+                               "/fabric-desktop.exe": exe,
+                               "version.json": json.dumps({"commit": SHA, "exe_sha256": hashlib.sha256(exe).hexdigest()}).encode()})
+    assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 0
+    assert (tmp_path / "new.exe").read_bytes() == exe
+    assert [url.split("?")[0].rsplit("/", 1)[1] for url, _ in seen[:2]] == ["kratosforge.exe", "fabric-desktop.exe"]
+    assert "/stable/" in seen[0][0] and "/stable/" in seen[1][0], "the same release, not Preview"
+
+
+def test_download_app_asks_for_kratosforge_exe_first(monkeypatch, tmp_path):
+    import hashlib
+    exe = b"MZ..." + SHA.encode()
+    seen = serve(monkeypatch, {"/kratosforge.exe": exe,
+                               "version.json": json.dumps({"commit": SHA, "exe_sha256": hashlib.sha256(exe).hexdigest()}).encode()})
+    assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 0
+    assert not any("fabric-desktop.exe" in url for url, _ in seen)
 
 
 def test_install_sidecar_reinstalls_from_commit(monkeypatch):
@@ -296,6 +320,22 @@ def test_check_reports_python(monkeypatch, capsys):
     assert report["latest"]["commit"] == SHA
     assert set(report["sidecar"]) == {"version", "commit", "editable", "error", "blocked", "cached"}
     assert report["sidecar"]["error"] is None
+
+
+def test_latest_reports_the_channels_build_and_release_page(monkeypatch, capsys):
+    # "Check for updates": the build and where to download it by hand, without the engine check.
+    monkeypatch.setattr(updater, "installed_sidecar", lambda: pytest.fail("the manual check doesn't check the engine"))
+    monkeypatch.setattr(updater, "latest_release", lambda: {"commit": SHA, "error": None, "tag": "preview"})
+    assert updater.main(["latest"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["commit"] == SHA
+    assert report["page"] == "https://github.com/KratosDataGod/KratosForge/releases/tag/latest"
+
+
+def test_latest_offline_still_names_the_channels_release_page(monkeypatch):
+    monkeypatch.setattr(updater, "channel", lambda: "stable")
+    monkeypatch.setattr(updater, "latest_release", lambda: {"commit": None, "error": "URLError: offline"})
+    assert updater.latest()["page"] == "https://github.com/KratosDataGod/KratosForge/releases/tag/stable"
 
 
 class FakeFile(str):

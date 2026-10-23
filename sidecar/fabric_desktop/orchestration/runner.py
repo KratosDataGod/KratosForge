@@ -505,8 +505,11 @@ class PipelineRun:
                 "counts": {s: sum(1 for r in self.records if r["state"] == s) for s in FINAL + ("running",)},
                 "activities": acts, "problems": list(self.problems),
                 "notes": (self.notebooks.notes() if self.notebooks is not None else [])
-                or ["Ran on this PC; no Fabric call was made and no capacity was used."],
+                or ["Ran on this PC; no Fabric job was started."],
             }
+            if any(r["type"] in DATA_TYPES and r.get("executed_by") == "adapter" and r.get("started") for r in self.records):
+                out["notes"].append("Lookup, Get Metadata and Script steps ran here; those that read a lakehouse "
+                                    "read OneLake, which uses a little capacity.")
             out["notes"].append("Behaviour follows Microsoft's Data Factory documentation and hasn't been compared "
                                 "with Fabric.")
             if values:

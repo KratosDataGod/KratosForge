@@ -116,7 +116,7 @@ async function runFabricStep(cell, nb) {
   const check = await rpc("notebook_fabric_step_check", { name: nb.name, cells: stepCells(nb), lakehouse_ref: nbLakehouse(nb) }).catch((e) => ({ ok: false, problem: String(e) }));
   if (!check.ok) return stepError(cell, check.problem);
   if (!(await ensureSignedIn())) return stepError(cell, "Sign in to run this cell on Fabric. Nothing was sent.");
-  if (!(await riskGate({ id: `notebook:${nb.name}`, action: "run_in_fabric", title: `Run the last cell of ${nb.name} on Fabric?`, runLabel: "Continue" }))) {
+  if (!(await riskGate({ id: `notebook:${nb.name}`, action: "run_fabric_step", title: `Run the last cell of ${nb.name} on Fabric?`, runLabel: "Continue" }))) {
     return stepError(cell, "Not sent to Fabric: the risk check stopped it.");
   }
   if (!(await stepConfirm(nb, check))) {

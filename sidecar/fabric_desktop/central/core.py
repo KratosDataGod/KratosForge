@@ -34,12 +34,13 @@ Tables (T-SQL schema.table; SQLite schema__table):
     catalog.shortcut     every OneLake shortcut last seen in a scan: its target and health
     catalog.shortcut_scope  lakehouses scanned for shortcuts, so a first scan isn't read as "all added"
     catalog.shortcut_change every shortcut added, repointed, removed, broken or fixed, and by whom
+    catalog.shortcut_risk   risks a platform admin accepted on a shortcut (Dev reading Prod), and why
     catalog.policy*      governance policies, their versions, assignments and history (policy.py)
 
 Who may change what (the caller is always who Fabric says it is, see udf.py):
 
     platform admins      domains, key tables, source systems, landing zones, glossary, admins, shortcut rules,
-                         and every request
+                         accepted shortcut risks, and every request
     domain owners        glossary terms of their domain
     product owners       access requests to their product
     everyone             reading, issuing keys from existing key tables, catalog text, products, links, requests
@@ -167,7 +168,7 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
     "shortcut": [("id", "key"), ("workspace_id", "text"), ("workspace_name", "text"), ("lakehouse_id", "text"),
                  ("lakehouse_name", "text"), ("path", "text"), ("name", "text"), ("target", "long"),
                  ("health", "text"), ("health_detail", "long"), ("checked_at", "text"), ("first_seen", "text"),
-                 ("last_seen", "text")],
+                 ("last_seen", "text"), ("target_workspace_name", "text"), ("target_lakehouse_name", "text")],
     "landing_zone": [("id", "key"), ("name", "text"), ("domain_id", "text"), ("workspace_id", "text"),
                      ("workspace_name", "text"), ("lakehouse_id", "text"), ("lakehouse_name", "text"), ("secure", "text"),
                      ("readers", "long"), ("label", "text"), ("devtest", "text"), ("updated_at", "text"), ("updated_by", "text"),
@@ -177,6 +178,8 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
                         ("workspace_name", "text"), ("lakehouse_name", "text"), ("name", "text"),
                         ("before_def", "long"), ("after_def", "long"), ("by_user", "text"), ("how", "text"),
                         ("note", "long")],
+    "shortcut_risk": [("id", "key"), ("shortcut_id", "text"), ("kind", "text"), ("reason", "long"),
+                      ("target", "long"), ("accepted_by", "text"), ("accepted_at", "text")],
 }
 
 
@@ -207,6 +210,7 @@ def ensure_schema(db: Db) -> dict[str, Any]:
     created += ensure_source_ids(db)
     created += ensure_domain_columns(db)
     created += ensure_landing_zones(db)
+    created += ensure_shortcut_risks(db)
     for hook in SCHEMA_HOOKS:
         created += hook(db)
     _upsert(db, "config", "setting", "name", {"name": "schema_version", "value": str(SCHEMA_VERSION)})
@@ -1410,6 +1414,31 @@ DEFAULT_SHORTCUT_RULES = {"cross_env": "block", "storage_role": "warn", "depreca
                           "connections": "off", "allowed_connections": [], "who_creates": "anyone"}
 
 
+ACCEPTABLE_RISKS = ("cross_env",)
+# Columns catalog.shortcut gained after it was made: the last names its OneLake target was seen
+# with, so a target lakehouse that's gone can still be named, and found again by name.
+_SHORTCUT_ADDED = ("target_workspace_name", "target_lakehouse_name")
+
+
+def ensure_shortcut_risks(db: Db) -> list[str]:
+    """Give a platform made before accepted risks catalog.shortcut_risk and catalog.shortcut's
+    target name columns. Additive only, and safe to run again; the shortcut operations that use
+    them call it, so a platform in Fabric gets them on first use."""
+    added = []
+    if not db.exists("catalog", "shortcut_risk"):
+        cols = _CATALOG["shortcut_risk"]
+        db.run(f"CREATE TABLE {db.t('catalog', 'shortcut_risk')} ({', '.join(_column(db, n, k) for n, k in cols)})")
+        added.append("catalog.shortcut_risk")
+    have = _columns(db, "shortcut")
+    for col in _SHORTCUT_ADDED:
+        if col not in have:
+            db.run(f"ALTER TABLE {db.t('catalog', 'shortcut')} ADD {'' if db.tsql else 'COLUMN '}{_column(db, col, 'text')}")
+            added.append(f"catalog.shortcut.{col}")
+    if added:
+        db.commit()
+    return added
+
+
 def shortcut_id(lakehouse_id: str, full_path: str) -> str:
     return f"{lakehouse_id}|{str(full_path).strip('/')}"
 
@@ -1456,6 +1485,7 @@ def record_shortcuts(db: Db, lakehouses: list[dict[str, Any]], shortcuts: list[d
     were all read, ``shortcuts`` [{lakehouse_id, workspace_id, workspace_name, lakehouse_name, path, name,
     target}] is everything in them. Records what's new, gone or pointing somewhere else since the last
     scan, and returns those changes. A lakehouse scanned for the first time only sets the baseline."""
+    ensure_shortcut_risks(db)
     now = _now()
     scanned = {str(l["lakehouse_id"]): l for l in lakehouses if l.get("lakehouse_id")}
     seen = {}
@@ -1474,6 +1504,9 @@ def record_shortcuts(db: Db, lakehouses: list[dict[str, Any]], shortcuts: list[d
                "lakehouse_id": s.get("lakehouse_id"), "lakehouse_name": s.get("lakehouse_name"),
                "path": str(s.get("path") or "").strip("/"), "name": s.get("name"), "target": _canon(s.get("target")),
                "last_seen": now}
+        for col in _SHORTCUT_ADDED:  # a target seen by name keeps it; one that's gone keeps its last
+            if s.get(col):
+                row[col] = str(s[col])
         if before is None:
             row |= {"health": "not_checked", "health_detail": "", "checked_at": "", "first_seen": now}
             if str(s["lakehouse_id"]) not in first:
@@ -1481,11 +1514,14 @@ def record_shortcuts(db: Db, lakehouses: list[dict[str, Any]], shortcuts: list[d
         elif _canon(json.loads(before.get("target") or "{}")) != row["target"]:
             changes.append(_change(db, "repointed", sid, s, _definition(_shortcut_out(before)), _definition(s), "", "scan"))
             row |= {"health": "not_checked", "health_detail": "", "checked_at": ""}
+            row |= {col: str(s.get(col) or "") for col in _SHORTCUT_ADDED}
+            _end_risks(db, sid, "", "it was repointed (seen at scan)")
         _upsert(db, "catalog", "shortcut", "id", row)
     for sid, before in stored.items():
         if sid not in seen:
             changes.append(_change(db, "removed", sid, before, _definition(_shortcut_out(before)), None, "", "scan"))
             db.run(f"DELETE FROM {db.t('catalog', 'shortcut')} WHERE id = ?", (sid,))
+            _end_risks(db, sid, "", "it was removed (seen at scan)")
     for lh in scanned:
         _upsert(db, "catalog", "shortcut_scope", "lakehouse_id",
                 {"lakehouse_id": lh, "first_scan": (_row(db, "shortcut_scope", "lakehouse_id", lh) or {}).get("first_scan") or now,
@@ -1500,6 +1536,7 @@ def log_shortcut_change(db: Db, kind: str, shortcut: dict[str, Any], before: dic
     so the next scan doesn't count it again."""
     if kind not in ("added", "removed", "repointed"):
         raise PlatformError("kind is added, removed or repointed")
+    ensure_shortcut_risks(db)
     sid = shortcut_id(shortcut["lakehouse_id"], f"{str(shortcut.get('path') or '').strip('/')}/{shortcut.get('name')}")
     out = _change(db, kind, sid, shortcut, before, after, by, "app", note)
     if kind == "removed":
@@ -1512,7 +1549,11 @@ def log_shortcut_change(db: Db, kind: str, shortcut: dict[str, Any], before: dic
             "lakehouse_id": shortcut.get("lakehouse_id"), "lakehouse_name": shortcut.get("lakehouse_name"),
             "path": str(shortcut.get("path") or "").strip("/"), "name": shortcut.get("name"),
             "target": _canon((after or {}).get("target")), "health": "not_checked", "health_detail": "",
-            "checked_at": "", "first_seen": prev.get("first_seen") or now, "last_seen": now})
+            "checked_at": "", "first_seen": prev.get("first_seen") or now, "last_seen": now,
+            # a new target: the next scan names it
+            "target_workspace_name": "", "target_lakehouse_name": ""})
+    if kind in ("removed", "repointed"):
+        _end_risks(db, sid, by, f"it was {kind}")
     _audit(db, by, f"shortcut {kind}", sid, {"note": note} if note else None)
     db.commit()
     return out
@@ -1583,6 +1624,58 @@ def save_shortcut_rules(db: Db, rules: dict[str, Any], by: str = "") -> dict[str
     return out
 
 
+# ---- accepted risks: a platform admin says a flagged shortcut is fine, and why. Repointing or
+# removing the shortcut ends it, so a new target is judged afresh.
+
+def _risk_out(row: dict[str, Any]) -> dict[str, Any]:
+    return {"shortcut_id": row["shortcut_id"], "kind": row["kind"], "reason": row.get("reason") or "",
+            "by": row.get("accepted_by") or "", "at": row.get("accepted_at") or ""}
+
+
+def _end_risks(db: Db, sid: str, by: str, why: str) -> None:
+    for r in db.rows(f"SELECT * FROM {db.t('catalog', 'shortcut_risk')} WHERE shortcut_id = ?", (sid,)):
+        db.run(f"DELETE FROM {db.t('catalog', 'shortcut_risk')} WHERE id = ?", (r["id"],))
+        _audit(db, by, "end accepted shortcut risk", sid, {"kind": r["kind"], "why": why})
+
+
+def list_shortcut_risks(db: Db) -> list[dict[str, Any]]:
+    ensure_shortcut_risks(db)
+    return [_risk_out(r) for r in db.rows(f"SELECT * FROM {db.t('catalog', 'shortcut_risk')}")]
+
+
+def accept_shortcut_risk(db: Db, shortcut_id: str, kind: str, reason: str, by: str = "") -> dict[str, Any]:
+    """Accept a flagged risk on one shortcut (Dev reading Prod on purpose). Platform admins only."""
+    require_admin(db, by, "accept a shortcut's risk")
+    ensure_shortcut_risks(db)
+    if kind not in ACCEPTABLE_RISKS:
+        raise PlatformError(f"Only {', '.join(ACCEPTABLE_RISKS)} can be accepted")
+    reason = str(reason or "").strip()
+    if not reason:
+        raise PlatformError("Say why it's fine, so the next person knows")
+    row = _row(db, "shortcut", "id", str(shortcut_id))
+    if row is None:
+        raise PlatformError("That shortcut isn't in the platform's inventory. Refresh Shortcuts, then try again")
+    out = {"id": f"{shortcut_id}#{kind}", "shortcut_id": str(shortcut_id), "kind": kind, "reason": reason,
+           "target": row.get("target") or "", "accepted_by": _who(by), "accepted_at": _now()}
+    _upsert(db, "catalog", "shortcut_risk", "id", out)
+    _audit(db, by, "accept shortcut risk", str(shortcut_id), {"kind": kind, "reason": reason})
+    db.commit()
+    return _risk_out(out)
+
+
+def withdraw_shortcut_risk(db: Db, shortcut_id: str, kind: str, by: str = "") -> list[dict[str, Any]]:
+    """Take back an accepted risk: the shortcut is flagged again. Platform admins only."""
+    require_admin(db, by, "withdraw a shortcut's accepted risk")
+    ensure_shortcut_risks(db)
+    key = f"{shortcut_id}#{kind}"
+    if _row(db, "shortcut_risk", "id", key) is None:
+        raise PlatformError("That risk isn't accepted")
+    db.run(f"DELETE FROM {db.t('catalog', 'shortcut_risk')} WHERE id = ?", (key,))
+    _audit(db, by, "withdraw shortcut risk", str(shortcut_id), {"kind": kind})
+    db.commit()
+    return list_shortcut_risks(db)
+
+
 # Everything a caller (the app, a notebook, a report button) may ask the platform to do.
 OPERATIONS = {
     "ensure_schema": ensure_schema, "ensure_key_table": ensure_key_table, "issue_keys": issue_keys,
@@ -1604,4 +1697,6 @@ OPERATIONS = {
     "revoke_grant": revoke_grant, "record_shortcuts": record_shortcuts, "log_shortcut_change": log_shortcut_change,
     "record_shortcut_health": record_shortcut_health, "list_seen_shortcuts": list_seen_shortcuts,
     "shortcut_changes": shortcut_changes, "shortcut_rules": shortcut_rules, "save_shortcut_rules": save_shortcut_rules,
+    "list_shortcut_risks": list_shortcut_risks, "accept_shortcut_risk": accept_shortcut_risk,
+    "withdraw_shortcut_risk": withdraw_shortcut_risk,
 }

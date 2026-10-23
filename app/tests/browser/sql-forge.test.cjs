@@ -24,6 +24,8 @@ before(async () => {
       sql_start: () => {
         const id = `run${next++}`;
         if (plan.state === "cancelled") return { id, state: "running", rows: 0, seconds: 0.5 };
+        if (plan.refused) return { id, state: "failed", rows: 0, columns: [], seconds: 0.1, error_kind: "permission",
+          error: "Statement 1 needs confirming, so nothing ran.", refused: plan.refused };
         return { id, state: plan.state, rows: 1, columns: COLS, seconds: plan.seconds,
           ...(plan.state === "failed" ? { error: "Binder Error: column \"x\" not found", error_kind: "sql" } : {}) };
       },
@@ -96,5 +98,21 @@ test("a stopped query plays nothing", { skip }, async () => {
   assert.strictEqual(out.pill, "Stopped");
   assert.deepStrictEqual(out.fx, []);
   assert.strictEqual(out.events["sql.failed"], 1, "the stop was sent as a failure");
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("declining to let a query change its own session plays nothing: nothing ran", { skip }, async () => {
+  plan = { refused: { permission: "local_mutation", statement: 1, label: "makes a temp view" } };
+  await app.page.evaluate(() => {
+    window.__fx = [];
+    const v = sqlPage.editor.view;
+    v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: "CREATE TEMP VIEW v AS SELECT 1" } });
+    v.focus();
+  });
+  await app.page.keyboard.press("Control+Enter");
+  await app.page.getByRole("button", { name: "Cancel" }).click();
+  // The declined run sets its error and draws Failed in the same step that would play an effect.
+  await app.page.waitForFunction(() => sqlPage.tabs[sqlPage.active].error && document.querySelector(".sql-pill").textContent === "Failed");
+  assert.deepStrictEqual(await app.page.evaluate(() => window.__fx), [], "the declined confirmation played the ember");
   assert.deepStrictEqual(app.errors, []);
 });

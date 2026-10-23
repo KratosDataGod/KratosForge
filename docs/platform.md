@@ -63,7 +63,7 @@ Inside the platform:
 
 | Who | Can change |
 | --- | --- |
-| **Platform admins** | Domains, business key tables, landing zone sources, shared glossary terms, governance policies, the list of admins, and every request |
+| **Platform admins** | Domains, business key tables, landing zone sources, shared glossary terms, governance policies, shortcut rules and accepted shortcut risks ([shortcuts.md](shortcuts.md#accept-a-crossed-environment)), the list of admins, and every request |
 | **A domain's owners** (set on the domain) | Their domain's glossary terms, and which governance policies apply to their domain (tightening only) |
 | **A data product's owner** | Who else may read their product (access requests) |
 | **Everyone** | Catalog text (descriptions, tags, classification), their own products and links, and requests |

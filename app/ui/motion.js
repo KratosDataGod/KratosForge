@@ -370,8 +370,8 @@ function motionPanes(records) {
     if (redrawn.has(kind)) {
       // Redrawn while still on its way in (the tray redraws as its notices arrive): the copy carries on
       // from where the first one was, rather than jumping to the end.
-      const since = now - (redrawn.get(kind).moInAt ?? -Infinity);
-      if (since < 250) paneIn(el, since);
+      const old = redrawn.get(kind);
+      if (old.moEntering) paneIn(el, now - old.moInAt);
       continue;
     }
     if (kind === "overlay" && (el.parentElement?.id !== "dialog-root" || el.classList.contains("splash"))) continue;
@@ -380,9 +380,20 @@ function motionPanes(records) {
   }
 }
 
+// Entering lasts until the element's own way-in animation ends, so the CSS duration is the only clock.
 function paneIn(el, since) {
   el.moInAt = performance.now() - since;
+  el.moEntering = true;
+  const done = (e) => { if (e.target === el) el.moEntering = false; };
+  el.addEventListener("animationend", done);
+  el.addEventListener("animationcancel", done);
   el.classList.add("mo-in");
+  // The first copy's animationend may not have been dispatched yet when its time was already up.
+  if (since && since >= parseFloat(getComputedStyle(el).animationDuration) * 1000) {
+    el.classList.remove("mo-in");
+    el.moEntering = false;
+    return;
+  }
   if (since) for (const x of [el, el.querySelector(":scope > .dialog")]) if (x) x.style.animationDelay = `-${Math.round(since)}ms`;
 }
 if (typeof MutationObserver === "function" && document.body) new MutationObserver(motionPanes).observe(document.body, { childList: true, subtree: true });

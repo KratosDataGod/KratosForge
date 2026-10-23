@@ -82,8 +82,10 @@ test("The activity tray slides in, isn't replayed when it redraws, and leaves at
   await page.evaluate(() => toggleTray(true));
   const tray = page.locator(".tray");
   assert.ok(await tray.evaluate((el) => el.classList.contains("mo-in")));
-  await page.waitForFunction(() => document.querySelector(".tray")?.getAnimations().length === 0);
+  // Its way in has ended (animationend, which motion.js waits for too) before the redraw.
+  await page.waitForFunction(() => { const t = document.querySelector(".tray"); return t && !t.moEntering && !t.getAnimations().length; });
   await page.evaluate(() => renderTray());
+  assert.strictEqual(await tray.evaluate((el) => el.getAnimations().length), 0, "the redrawn tray is animating");
   assert.strictEqual(await tray.evaluate((el) => el.classList.contains("mo-in")), false, "a redraw played the tray's way in again");
   await page.evaluate(() => toggleTray(false));
   assert.strictEqual(await page.locator(".tray").count(), 0);

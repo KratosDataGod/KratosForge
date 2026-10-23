@@ -1871,6 +1871,7 @@ function dialogHelpers() {
     h: node, icon: () => node("svg"), btn: (label, _i, onClick, cls) => node("button", { class: cls, onclick: onClick }, label),
     MutationObserver: class { observe() {} disconnect() {} },
     document: { getElementById: () => root, addEventListener: (t, fn) => { (docOn[t] ||= []).push(fn); } },
+    motionLeave: () => null,  // motion.js: the fade after a dialog goes
   };
   vm.runInNewContext(`${code}; Object.assign(this, { showDialog, closeDialog, askText, pickWorkspace, confirmDialog });`, ctx);
   const overlay = () => root.kids[0];
@@ -4586,6 +4587,48 @@ test("Share adds another notebook to this session, and a notebook that shares on
   await new Promise((r) => setImmediate(r));
   assert.deepStrictEqual(plain(calls.find(([m]) => m === "kernel_session_leave")[1]), { notebook: "Sales report" });
   assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /sharedSessions: "Shared notebook sessions"/);
+});
+
+// Panel and dialog transitions (KF-MO-003): Minimal and above, transform and opacity only, never at Off.
+test("Panel transitions: the fade-out card is made at Minimal, not at Off or with reduced motion, and hides from readers", () => {
+  const at = (level, opts = {}) => {
+    const ctx = motionHarness({ ...opts, settings: { motion_level: { value: level } } });
+    ctx.document.body = ctx.node();
+    const dialog = ctx.node("overlay");
+    dialog.querySelector = () => null;
+    dialog.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 });
+    return [ctx, dialog];
+  };
+  for (const [level, opts] of [[0, {}], [3, { reduced: true }]]) {
+    const [ctx, dialog] = at(level, opts);
+    assert.strictEqual(ctx.motionLeave(dialog), null, `a card faded at level ${level}${opts.reduced ? " with reduced motion" : ""}`);
+  }
+  const [ctx, dialog] = at(1);
+  const ghost = ctx.motionLeave(dialog);
+  assert.ok(ghost, "no card faded at Minimal");
+  assert.strictEqual(ghost.attrs["aria-hidden"], "true");
+  assert.ok(ghost.cls.has("mo-ghost") && !ghost.cls.has("overlay"), "the fading card can be mistaken for the dialog");
+  assert.strictEqual(ghost.parent, ctx.document.body);
+  ctx.advance(250);
+  assert.strictEqual(ghost.parent, null, "the fading card stayed");
+  assert.strictEqual(ctx.motionLeave(null), null);
+});
+
+test("Panel transitions: the dialog and tray go before anything fades, and the CSS animates only transform and opacity", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /motionLeave\(root\.querySelector\(":scope > \.overlay"\)\);\n\s*root\.replaceChildren\(\);/, "closeDialog doesn't take the dialog away at once");
+  assert.match(fs.readFileSync(path.join(ui, "activity.js"), "utf8"), /motionLeave\(root\.querySelector\(":scope > \.tray"\)\); root\.replaceChildren\(\);/);
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  const frames = [...css.matchAll(/@keyframes (mo-[\w-]+) \{(.*)\}\n/g)];
+  assert.ok(frames.length >= 6);
+  for (const [, name, body] of frames) {
+    for (const [, prop] of body.matchAll(/([\w-]+)\s*:/g)) assert.ok(["opacity", "transform"].includes(prop), `${name} animates ${prop}`);
+  }
+  assert.match(css, /html\[data-motion-level="0"\] :is\(\.mo-in, \.mo-in > \.dialog\) \{ animation: none; \}/);
+  assert.match(css, /html\[data-motion-level="0"\] \.mo-ghost \{ display: none; \}/);
+  const ins = [...css.matchAll(/\.mo-in[^{]*\{ animation: [\w-]+ (\d+)ms/g)];
+  assert.ok(ins.length >= 4);
+  for (const m of ins) assert.ok(+m[1] >= 150 && +m[1] <= 250, `${m[0]} is outside 150-250 ms`);
 });
 
 // The cooling spark (KF-MO-006): Validate, Prove and a confirmed publish cool; their failures are embers.

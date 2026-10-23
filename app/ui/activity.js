@@ -189,7 +189,7 @@ function toggleTray(open = !activity.open) {
 
 function renderTray() {
   const root = document.getElementById("tray-root");
-  if (!activity.open) { root.replaceChildren(); return; }
+  if (!activity.open) { motionLeave(root.querySelector(":scope > .tray")); root.replaceChildren(); return; }
   const running = activity.items.filter((i) => i.status === "running" && !i.stale);
   const problems = activity.items.filter((i) => PROBLEM.has(i.status));
   const platform = platformNoticesShown();

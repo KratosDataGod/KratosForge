@@ -45,6 +45,7 @@ from . import chart_output
 from . import notebook_resources
 from . import magics
 from . import history
+from . import write_queue
 from .frames import Frames, pandas_table, type_name
 from .redact import describe
 
@@ -595,6 +596,10 @@ class Kernel:
         # The Widgets bar's values for the open notebook; each cell run starts with them (start).
         self.widget_values: dict[str, str] = {}
         self.resources_dir = ""  # the running notebook's resources folder, "" for none (notebook_resources)
+        # "local_first": a cell's lakehouse writes upload in the background and the cell waits for
+        # them at its end (write_queue); "direct": each write_table returns once it is in OneLake.
+        self.onelake_writes = "local_first"
+        self._writes: Any = None
         self._current: _Run | None = None
         self._widget_lock = threading.Lock()
         self._widget_thread: threading.Thread | None = None  # a handler stuck in native code outlives its event
@@ -980,7 +985,9 @@ class Kernel:
         status = "error"
         restart = False
         history.record_input(self.namespace, run.count, code)
+        writes = None
         try:
+            writes = self._write_queue()
             try:
                 if run.debugger is not None:
                     sys.settrace(run.debugger.trace)
@@ -996,6 +1003,8 @@ class Kernel:
             except KeyboardInterrupt:
                 status = "cancelled"
                 run.add({"type": "text", "text": "Cancelled. Variables are kept."})
+            if writes is not None:
+                status = self._finish_writes(writes, run, status)
             if watches and status != "cancelled":
                 # What a watch prints goes nowhere: the cell's output is the cell's.
                 out.targets[ident] = err.targets[ident] = _Run(0)
@@ -1003,6 +1012,9 @@ class Kernel:
         except KeyboardInterrupt:  # an interrupt that landed while the first one was being handled
             status = "cancelled"
         finally:
+            if writes is not None:
+                write_queue.cell_writes.queue = None
+                writes.flush(cancel=True)  # only left after a second Cancel: drop what hasn't started
             out.targets.pop(ident, None)
             err.targets.pop(ident, None)
             self._local.run = None
@@ -1014,6 +1026,33 @@ class Kernel:
                 self._reset()  # this cell is the one running, so there is nothing to interrupt
                 run.add({"type": "text", "text": "Python restarted. Variables were cleared."})
             run.finish(status)
+
+    def _write_queue(self) -> Any:
+        """This cell's background writes, when its notebook writes local first (lakehouse.write_table)."""
+        if self.onelake_writes != "local_first" or getattr(self, "_proof", None) is not None:
+            write_queue.cell_writes.queue = None
+            return None
+        if self._writes is None:
+            self._writes = write_queue.Queue()
+        write_queue.cell_writes.queue = self._writes
+        return self._writes
+
+    def _finish_writes(self, writes: Any, run: _Run, status: str) -> str:
+        """Wait for the cell's writes to reach OneLake: the cell is done when they are, and fails if one did."""
+        cancelled = status == "cancelled"
+        try:
+            failed = writes.flush(cancel=cancelled)
+        except KeyboardInterrupt:
+            failed = writes.flush(cancel=True)
+            cancelled = True
+        if not failed:
+            return "cancelled" if cancelled else status
+        if not cancelled:
+            self._emit(run, {"type": "error", "ename": "WriteFailed", "traceback": "",
+                             "evalue": "A table write didn't reach OneLake:\n" + "\n".join(failed)})
+            return "error"
+        run.add({"type": "text", "text": "\n".join(failed)})
+        return "cancelled"
 
     def _watch(self, watches: list[str], run: _Run) -> None:
         """Evaluate each watch expression; Cancel stops the rest, which are reported as skipped."""

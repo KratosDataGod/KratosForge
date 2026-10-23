@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import pyarrow as pa
-from deltalake import DeltaTable, write_deltalake
+from deltalake import CommitProperties, DeltaTable, WriterProperties, write_deltalake
 
 from . import delta_profile
 from .fabric_api import FabricClient
@@ -67,10 +67,39 @@ def resolve_schema_mode(mode: str, schema_mode: str | None) -> str | None:
     return schema_mode
 
 
-def publish(data: pa.Table, ref: TableRef, mode: str, storage_token: str, schema_mode: str | None = "auto") -> DeltaTable:
-    """Write ``data`` to ``ref``. ``schema_mode`` "auto" replaces the schema on overwrite (as jobs
-    always have); None refuses a different schema, as Spark does without overwriteSchema; "merge"
-    adds new columns."""
+# The commit metadata key that keeps what an overwrite wrote (write_queue.fingerprint).
+ROWS_KEY = "kratosforge.rows"
+
+
+def writer_properties() -> WriterProperties:
+    """zstd unless the onelake_compression setting says snappy: about a quarter fewer bytes to upload
+    for the same encoding time. Fabric's Spark, SQL analytics endpoint and delta-rs all read it."""
+    from . import app_settings
+    try:
+        codec = str(app_settings.value("onelake_compression")).lower()
+    except Exception:  # noqa: BLE001 - a broken settings file keeps the default
+        codec = "zstd"
+    if codec == "snappy":
+        return WriterProperties(compression="SNAPPY")
+    return WriterProperties(compression="ZSTD", compression_level=3)
+
+
+def unchanged(table: DeltaTable | None, rows: str | None) -> bool:
+    """Whether ``table`` holds exactly the rows ``rows`` names: its newest commit is an overwrite this
+    app made with the same fingerprint, so nothing has changed the table since."""
+    if table is None or not rows:
+        return False
+    last = (table.history(1) or [{}])[0]
+    return last.get(ROWS_KEY) == rows and (last.get("operationParameters") or {}).get("mode") == "Overwrite"
+
+
+def publish(data: Any, ref: TableRef, mode: str, storage_token: str, schema_mode: str | None = "auto",
+            rows: str | None = None, skip_unchanged: bool = False) -> DeltaTable:
+    """Write ``data`` (an Arrow table or a stream of batches) to ``ref``. ``schema_mode`` "auto" replaces
+    the schema on overwrite (as jobs always have); None refuses a different schema, as Spark does without
+    overwriteSchema; "merge" adds new columns. ``rows`` is the data's fingerprint, kept in an
+    overwrite's commit; with ``skip_unchanged`` an overwrite of the same rows writes nothing, and the
+    returned table has ``skipped`` set."""
     opts = storage_options(storage_token)
     how = resolve_schema_mode(mode, schema_mode)
     with _lease(ref, storage_token):
@@ -78,10 +107,16 @@ def publish(data: pa.Table, ref: TableRef, mode: str, storage_token: str, schema
         # table it was handed on to the version it committed. Loaded under the lease, so no other
         # KratosForge writer can commit in between.
         table = delta_profile.open_target(ref.uri, opts)
-        write_deltalake(table if table is not None else ref.uri, data, mode=mode, storage_options=opts, schema_mode=how)
+        if mode == "overwrite" and skip_unchanged and unchanged(table, rows):
+            table.skipped = True  # type: ignore[union-attr]
+            return table  # type: ignore[return-value]
+        meta = CommitProperties(custom_metadata={ROWS_KEY: rows}) if rows and mode == "overwrite" else None
+        write_deltalake(table if table is not None else ref.uri, data, mode=mode, storage_options=opts, schema_mode=how,
+                        writer_properties=writer_properties(), commit_properties=meta)
         if table is None:
             table = DeltaTable(ref.uri, storage_options=opts)
     delta_profile.note_after_write(table)
+    table.skipped = False  # type: ignore[attr-defined]
     return table
 
 

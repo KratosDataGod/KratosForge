@@ -47,7 +47,7 @@ class _Files:
         shutil.copy(_ROOT / "files" / rel, dest)
         return dest
 
-def _publish(data, ref, mode, token):
+def _publish(data, ref, mode, token, **_):
     path = str(_ROOT / "onelake" / ref.schema / ref.table)
     _write(path, data, mode=mode)
     return _DT(path)

@@ -136,6 +136,7 @@ class ProcessKernel:
         self.notebook_name = ""
         self.widget_values: dict[str, str] = {}
         self.resources_dir = ""  # passed with each cell (notebook.Kernel.resources_dir)
+        self.onelake_writes = "local_first"  # likewise (notebook.Kernel.onelake_writes)
         self._lock = threading.Lock()  # one process at a time: starting, stopping
         self._proc: subprocess.Popen[str] | None = None
         self._tree: _Tree | None = None  # the process and everything its cells start
@@ -378,7 +379,8 @@ class ProcessKernel:
             self._started_at = time.monotonic()
         try:
             snap = self._request("start", code=code, notebook_name=self.notebook_name,
-                                 widget_values=dict(self.widget_values), resources_dir=self.resources_dir, watches=list(watches or []),
+                                 widget_values=dict(self.widget_values), resources_dir=self.resources_dir, onelake_writes=self.onelake_writes,
+                                 watches=list(watches or []),
                                  breakpoints=list(breakpoints or []), step=step)
         except KernelGone:
             # The cell ended its process before the start was even answered (os._exit, a crash).

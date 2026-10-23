@@ -78,6 +78,9 @@ A policy file that sets everything an organization usually wants:
 | `kernel_memory_limit_gb` | A number, `0` for none | With `kernel_process`: gigabytes a notebook's process may use before it's ended (Preview; none by default) |
 | `kernel_process` | `true` or `false` | Runs notebook cells in a Python process of their own, so Stop and crashes end only that process (Preview; off by default) |
 | `local_retention_days` | A whole number of days (default `30`; `0` keeps them) | Local copies of lakehouse data that haven't been used for this long are deleted when the app starts: file previews, tables staged before a publish, the metadata framework's download cache. Notebooks, settings and history are never deleted |
+| `onelake_compression` | `"zstd"` or `"snappy"` (default `"zstd"`) | How table files written from this PC are compressed. Zstandard files are about a quarter smaller, so they upload sooner ([Writing to OneLake](architecture.md#writing-to-onelake)) |
+| `onelake_skip_unchanged` | `true` or `false` (default `true`) | An overwrite of exactly the rows a table already holds from KratosForge uploads nothing |
+| `onelake_writes` | `"local_first"` or `"direct"` (default `"local_first"`) | The default for notebooks that don't choose: write on this PC and upload in the background, or straight to OneLake. Each notebook can still choose its own unless the policy fixes this |
 | `show_preview` | `true` or `false` | Shows or hides every feature tagged Preview |
 | `sql_max_concurrent` | 1 to 8 (default `2`) | SQL page queries that run at once; more wait in a queue ([SQL execution](sql-execution.md#limits)) |
 | `sql_memory_limit_percent` | 10 to 90 (default `60`) | Share of the PC's memory one SQL page query may use; more spills to the temp folder |

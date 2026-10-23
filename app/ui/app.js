@@ -1825,7 +1825,8 @@ function loadIntoState(nb) {
     state.notebook = kept;
   } else {
     state.notebook = { name: nb.name, cells: nb.cells.map(cellFrom), lakehouse: nb.lakehouse || null, place: nb.place || null, locations: nb.locations || null, dirty: false,
-      compute: nb.compute || "default", workspace: nb.workspace || null, check: nb.check || null, replay: nb.replay || null };
+      compute: nb.compute || "default", workspace: nb.workspace || null, check: nb.check || null, replay: nb.replay || null,
+      onelake_writes: nb.onelake_writes || null };
     if (!state.notebook.cells.length) state.notebook.cells.push(cellFrom({ type: "code" }));
     state.notebook.cells.forEach((c) => { if (c.type === "markdown" && c.source) c.editing = false; });
     if (kept) keepOutputs(kept, state.notebook);
@@ -2026,8 +2027,34 @@ function computeMenu(nb) {
       ? option("fabric", `Fabric${nbLakehouse(nb) ? ` (${publishWorkspaceName(nb)})` : " (attach a lakehouse first)"} · Preview`, "cloud") : null,
     option("default", `Same as ${env} (${where.envFabric ? "Fabric" : "this PC"})`, "sync"),
     { info: `Python ${state.python || "3"} on this PC. Fabric runs publish the notebook first.` },
+    ...(where.fabric ? [] : oneLakeWritesMenu(nb)),
     { label: "Restart kernel", icon: "restart", action: restartKernel },
   ].filter(Boolean);
+}
+
+// How this notebook's cells on this PC write lakehouse tables (lakehouse.write_table): its own choice,
+// kept in the notebook file, or the Settings default.
+function oneLakeWritesMenu(nb) {
+  const fallback = state.settings?.onelake_writes?.value || "local_first";
+  const label = (mode) => (ONELAKE_WRITES.find(([v]) => v === mode) || [])[1] || mode;
+  const option = (value, text, iconName) => ({ label: text, icon: (nb.onelake_writes || null) === value ? "ok" : iconName,
+    action: () => setNotebookOneLakeWrites(value) });
+  return [
+    { info: "Table writes to OneLake from this PC." },
+    option("local_first", "Write here, then upload in the background", "save"),
+    option("direct", "Straight to OneLake (fast upload line)", "cloud"),
+    option(null, `Same as Settings (${label(fallback)})`, "sync"),
+  ];
+}
+
+async function setNotebookOneLakeWrites(mode) {
+  const nb = state.notebook;
+  if (nb.dirty && !(await saveNotebook())) return;
+  const res = await attempt(() => rpc("notebook_onelake_writes_set", { name: nb.name, mode }), "Not saved");
+  if (!res) return;
+  nb.onelake_writes = res.onelake_writes;
+  toast(res.effective === "direct" ? `${nb.name} now writes straight to OneLake. Each write returns once it's uploaded.`
+    : `${nb.name} now writes here first. Uploads run in the background and each cell ends when its writes are in OneLake.`);
 }
 
 async function setNotebookCompute(value) {

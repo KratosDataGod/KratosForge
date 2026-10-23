@@ -291,6 +291,7 @@ class SideBySideMixin:
         kernel.restart()  # a clean start, as Fabric has
         kernel.notebook_name = record["name"]
         kernel.resources_dir = self._resources_dir(record["name"])  # type: ignore[attr-defined]
+        kernel.onelake_writes = self._onelake_writes(record["name"])  # type: ignore[attr-defined]
         started = time.monotonic()
         status = "ok"
         for n, i in enumerate(code, 1):

@@ -378,7 +378,9 @@ def _spark_name(workspace: str, lakehouse: str, schema: str, table: str) -> str:
 def _spark_bk(columns: list[str], alias: str = "") -> str:
     a = f"{alias}." if alias else ""
     parts = [f"NULLIF(TRIM(CAST({a}{c} AS STRING)), '')" for c in columns]
-    return parts[0] if len(parts) == 1 else f"CONCAT_WS('{BK_SEPARATOR}', {', '.join(parts)})"
+    # CONCAT, not CONCAT_WS: CONCAT_WS skips NULL parts, CONCAT gives NULL when any part is missing,
+    # as business_key does, so the row gets -1 and no key is issued for what's left.
+    return parts[0] if len(parts) == 1 else f"CONCAT({f', {BK_SEPARATOR!r}, '.join(parts)})"
 
 
 def merge_sql(project: Project, e: Entity, keys_workspace: str = "") -> str:
@@ -392,7 +394,6 @@ def merge_sql(project: Project, e: Entity, keys_workspace: str = "") -> str:
         kt = project.key_tables[b["table"]]
         target = _spark_name(keys_workspace, KEYS_LAKEHOUSE, KEY_SCHEMA, kt.table)
         bk_cols = b["business_key"]
-        not_null = " AND ".join(f"{c} IS NOT NULL" for c in bk_cols)
         out += [
             f"-- {i}. New business keys get the next {kt.sk}. Existing ones keep theirs.",
             f"MERGE INTO {target} AS k",
@@ -400,8 +401,7 @@ def merge_sql(project: Project, e: Entity, keys_workspace: str = "") -> str:
             f"    SELECT n.{kt.bk},",
             f"           CAST(m.max_sk + ROW_NUMBER() OVER (ORDER BY n.{kt.bk}) AS INT) AS {kt.sk}",
             f"    FROM (SELECT DISTINCT {_spark_bk(bk_cols)} AS {kt.bk}",
-            f"          FROM {source}",
-            f"          WHERE {not_null}) n",
+            f"          FROM {source}) n",
             f"    LEFT ANTI JOIN {target} e ON e.{kt.bk} = n.{kt.bk}",
             f"    CROSS JOIN (SELECT GREATEST(COALESCE(MAX({kt.sk}), 0), 0) AS max_sk FROM {target}) m",
             f"    WHERE n.{kt.bk} IS NOT NULL",

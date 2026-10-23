@@ -361,6 +361,16 @@ class FabricClient:
         body = self._request("GET", "/admin/domains", params={"preview": "false"}).json()
         return body.get("domains", body.get("value", []))
 
+    def create_admin_domain(self, name: str, description: str = "", parent_id: str = "") -> dict[str, Any]:
+        """Create a domain, or a subdomain of ``parent_id``, in Fabric: {id, displayName, description,
+        parentDomainId}. Fabric administrators only (Tenant.ReadWrite.All); anyone else gets 401/403."""
+        body: dict[str, Any] = {"displayName": name}
+        if description:
+            body["description"] = description
+        if parent_id:
+            body["parentDomainId"] = parent_id
+        return self._request("POST", "/admin/domains", params={"preview": "false"}, json=body).json()
+
     def list_admin_domain_role_assignments(self, domain_id: str) -> list[dict[str, Any]]:
         """A domain's role assignments (Admins, Contributors): [{id, principal: {id, displayName,
         type}, role}]. Fabric admin API, Tenant.Read.All."""

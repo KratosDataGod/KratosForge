@@ -18,7 +18,7 @@ from typing import Any
 
 from .. import app_settings
 from .. import governance_notices as notices
-from ..auth import EXECUTE_SCOPES, TENANT_READ_SCOPES
+from ..auth import EXECUTE_SCOPES, TENANT_READ_SCOPES, TENANT_WRITE_SCOPES
 from ..fabric_api import FabricClient, FabricError
 from ..meta import keys as keys_mod
 from ..meta import mesh
@@ -28,6 +28,7 @@ from ..redact import describe
 from . import keys_home
 from . import setup as setup_mod
 from .client import FabricPlatform, LocalPlatform, PlatformKeys
+from .core import domain_id
 from .migrate import migrate
 
 _log = logging.getLogger(__name__)
@@ -286,15 +287,58 @@ class PlatformMixin:
         self._catalog().call("save_domain", domain=domain)
         return self.platform_domains()
 
+    def platform_create_domain(self, domain: dict[str, Any], in_fabric: bool = True) -> list[dict[str, Any]]:
+        """A new domain, created in Fabric first when ``in_fabric`` and then kept in the platform linked
+        to it, as Import from Fabric would. Everything that could stop the platform's save is checked
+        before Fabric is asked, so a refused domain is never left in Fabric alone."""
+        if not in_fabric:
+            return self.platform_save_domain(domain)
+        name = str(domain.get("name") or "").strip()
+        if not name:
+            raise ValueError("A domain needs a name")
+        did = domain_id(domain.get("id") or name)
+        if not self._catalog().call("whoami").get("admin"):
+            raise PermissionError("Only platform admins can create domains. Send a request in Platform > Requests.")
+        known = {d["id"]: d for d in self.platform_domains()}
+        same = known.get(did) or next((d for d in known.values() if d["name"].strip().lower() == name.lower()), None)
+        if same:
+            raise ValueError(f"The platform already has a domain called {same['name']}")
+        parent = known.get(str(domain.get("parent_id") or ""))
+        if domain.get("parent_id") and not parent:
+            raise ValueError(f"parent domain {domain.get('parent_id')} doesn't exist")
+        if parent and not parent.get("fabric_domain"):
+            raise ValueError(f"{parent['name']} isn't in Fabric, so its subdomains can't be either. Create "
+                             f"{parent['name']} in Fabric first, or choose Import from Fabric.")
+        if parent and parent.get("parent_id"):
+            raise ValueError("Subdomains go one level deep: pick a top-level domain as the parent")
+        try:
+            created = self._fabric_admin(write=True).create_admin_domain(
+                name, str(domain.get("description") or ""), (parent or {}).get("fabric_domain") or "")
+        except FabricError as exc:
+            if exc.status in (401, 403):
+                raise PermissionError("Only a Fabric administrator can create domains in Fabric, and Fabric refused "
+                                      "this account. Nothing was changed.") from exc
+            if exc.status == 409 or "AlreadyExists" in str(exc.code or ""):
+                raise ValueError(f"Fabric already has a domain called {name}. Choose Import from Fabric to bring "
+                                 "it in.") from exc
+            raise
+        try:
+            return self.platform_save_domain(domain | {"id": did, "name": name, "fabric_domain": str(created["id"])})
+        except Exception as exc:
+            raise RuntimeError(f"{name} was created in Fabric but not saved in the platform ({exc}). Choose Import "
+                               "from Fabric to bring it in.") from exc
+
     def platform_delete_domain(self, id: str) -> list[dict[str, Any]]:
         self._catalog().call("delete_domain", did=id)
         return self.platform_domains()
 
     # ---- domains from Fabric
 
-    def _fabric_admin(self) -> FabricClient:
-        """Fabric's admin API, as the signed-in user. Tenant.Read.All is asked for only here."""
-        return FabricClient(lambda: self.auth._token(TENANT_READ_SCOPES))  # type: ignore[attr-defined]
+    def _fabric_admin(self, write: bool = False) -> FabricClient:
+        """Fabric's admin API, as the signed-in user. Tenant.Read.All is asked for only here, and
+        Tenant.ReadWrite.All only to create a domain (``write``)."""
+        scopes = TENANT_WRITE_SCOPES if write else TENANT_READ_SCOPES
+        return FabricClient(lambda: self.auth._token(scopes))  # type: ignore[attr-defined]
 
     def platform_import_fabric_domains(self) -> dict[str, Any]:
         """Bring Fabric's domains and subdomains into the catalog, so everyone sees their names.

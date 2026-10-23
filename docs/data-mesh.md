@@ -64,6 +64,7 @@ The mesh's domains and subdomains are the ones defined in Fabric (Admin portal >
 | Step | Who | Needs |
 | --- | --- | --- |
 | **Platform > Domains > Import from Fabric** copies every Fabric domain and subdomain into the platform's catalog | A platform admin who is also a **Fabric administrator** | Fabric's domain list is an admin API (`GET /v1/admin/domains`, `Tenant.Read.All`). KratosForge asks for it only at this step. Each domain's admins are read too (`GET /v1/admin/domains/{id}/roleAssignments`, same permission). No app registration |
+| **Platform > Domains > New domain** creates the domain or subdomain in Fabric, then keeps it in the platform linked to it (Preview) | A platform admin who is also a **Fabric administrator** | `POST /v1/admin/domains` with `Tenant.ReadWrite.All`, asked for only at this step. The platform's checks (name, parent, platform admin) run first, so a domain the platform would refuse is never created in Fabric. Someone who isn't a Fabric administrator is told so, and can save the domain in the platform only. Not yet tried against a real tenant |
 | Seeing the domains, joining one, and the mesh map on Home | Everyone | Nothing: the names are read from the platform's catalog |
 | **Data mesh > Domains** shows which Fabric domain each of the project's workspaces is in, with **Use it** to pick it | Anyone who can see the workspace | Nothing new: each workspace says its domain to its members. Without an import, only the domain's id is known, so the tab asks for a Fabric administrator to import |
 

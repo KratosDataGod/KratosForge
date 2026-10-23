@@ -598,7 +598,7 @@ h2.flush { margin: 0; }
 .ws-list td.actions, .ws-items td.actions { text-align: right; white-space: nowrap; }
 .ws-items { margin: 0; }
 .ws-items td { padding-top: 6px; padding-bottom: 6px; }
-.ws-items .ws-type { width: 200px; color: var(--muted, #616161); }
+.ws-items .ws-type { width: 200px; color: var(--muted); }
 .ws-items-note { margin: 8px 0; }
 .ws-list button[aria-expanded] { font-size: 18px; width: 24px; }
 
@@ -1994,3 +1994,8 @@ html[data-fx-ambient="on"] .flow-node[data-state="running"] .flow-link::after { 
 .mo-ghost-card.side { border-radius: 0; box-shadow: none; border-left: 1px solid var(--border); animation-name: mo-fade-out; }
 html[data-motion-level="0"] :is(.mo-in, .mo-in > .dialog) { animation: none; }
 html[data-motion-level="0"] .mo-ghost { display: none; }
+
+/* Monitor > Runs: a pipeline run opens to its activities (pipeline-runs.js) */
+.pl-toggle { border: 0; background: none; font: inherit; width: 24px; min-height: 24px; padding: 0; margin-right: 4px; cursor: pointer; color: var(--muted); }
+.list tr.pl-child td { background: #fafafa; font-size: 13px; }
+.list tr.pl-child td.pl-indent { padding-left: 28px; }

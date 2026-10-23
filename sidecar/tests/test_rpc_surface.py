@@ -46,7 +46,6 @@ NO_UI_CALLER: dict[str, str] = {
     "pipeline_validate": _MCP,
     "pipeline_run_check": _MCP,
     "pipeline_run_cancel": _MCP,
-    "pipeline_runs": _MCP,
     "receipt_export": _MCP,
     "receipts_list": _MCP,
     "run_sql": _MCP,

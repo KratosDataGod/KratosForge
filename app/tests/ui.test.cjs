@@ -2220,11 +2220,14 @@ test("Motion & effects settings: four levels, family switches, reduced-motion ch
   assert.match(card, /type: "radio", name: "motion_level"/);
   assert.match(card, /disabled: locked\("motion_level"\) \? true : null, onchange: \(\) => save\(\{ motion_level: n \}\)/);
   assert.match(card, /\[0, 1, 2, 3\]\.map\(levelRow\)/);
-  assert.match(card, /toggle\(key, label, s\[key\]\?\.value !== false, level < 2\)/, "family switches don't grey out below Refined");
+  assert.match(card, /toggle\(key, label, s\[key\]\?\.value \?\? key !== "motion_achievements", level < 2\)/, "family switches don't grey out below Refined");
   assert.match(card, /disabled: disabled \|\| locked\(key\) \? true : null/);
   assert.match(card, /"Respect Windows' reduced-motion setting"/);
   for (const key of ["motion_wolf", "motion_sparks", "motion_ambient"]) assert.match(s, new RegExp(`\\["${key}", "`));
-  assert.doesNotMatch(s, /\["motion_achievements", "/, "the achievements switch shows before the profile can award anything");
+  // Achievement celebrations shows only while Profile (Preview) can award something (#361).
+  assert.match(s, /const motionFamilies = \(\) => \(previewShown\(\) \? \[\.\.\.MOTION_FAMILIES, MOTION_ACHIEVEMENTS\] : MOTION_FAMILIES\);/);
+  assert.match(card, /motionFamilies\(\)\.map\(/);
+  assert.match(s, /previewShown\(\) \? row\("Achievement Reveal", [^\n]*\n\s+\(\) => forgeEvent\("achievement\.unlocked", award\)\) : null,/);
   assert.match(s, /\["motion_ambient", "Running indicators",/);
   assert.match(s, /const display = s\.motion_level \? motionSettingsCard\(s, locked\) : null;/);
   assert.match(s, /\[account, updates, display, previews,/);
@@ -4583,6 +4586,52 @@ test("Share adds another notebook to this session, and a notebook that shares on
   await new Promise((r) => setImmediate(r));
   assert.deepStrictEqual(plain(calls.find(([m]) => m === "kernel_session_leave")[1]), { notebook: "Sales report" });
   assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /sharedSessions: "Shared notebook sessions"/);
+});
+
+// KF-MO-008 Achievement Reveal (profile.js profileEarned): one message and one reveal per new award,
+// nothing for an award already shown (this session or a stored one), kept per account.
+test("Achievement Reveal: a new award is announced and revealed once, a repeat never, and deleting the profile resets it", () => {
+  const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
+  const src = p.slice(p.indexOf("const PROFILE_CELEBRATED"), p.indexOf("registerFeature("));
+  const stored = {};
+  const said = [];
+  const revealed = [];
+  const toastEl = { id: "toast" };
+  const ctx = {
+    state: { user: "dev@contoso.com" }, RECORDING_ON: "Recording is on.",
+    localStorage: { getItem: (k) => stored[k] ?? null, setItem: (k, v) => { stored[k] = v; } },
+    setTimeout: (fn) => fn(),
+    toast: (text) => said.push(text),
+    forgeEvent: (name, anchor) => revealed.push([name, anchor.id]),
+    document: { getElementById: (id) => (id === "toast" ? toastEl : null) },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(`${src}; this.profileEarned = profileEarned; this.profileForget = profileForget;`, ctx);
+  const first = { id: "first-flame", name: "First Flame", xp: 50 };
+  const steady = { id: "steady-hand", name: "Steady Hand", xp: 100 };
+  ctx.profileEarned([first, steady]);
+  assert.deepStrictEqual(said, ["Achievement earned: First Flame (+50 XP), Steady Hand (+100 XP). See it in Profile. Recording is on."]);
+  assert.deepStrictEqual(revealed, [["achievement.unlocked", "toast"]], "not one reveal for the message");
+  ctx.profileEarned([first]);
+  ctx.profileEarned([]);
+  ctx.profileEarned(undefined);
+  assert.strictEqual(said.length, 1, "a repeat was announced");
+  assert.strictEqual(revealed.length, 1, "a repeat was revealed");
+  assert.deepStrictEqual(JSON.parse(stored["kf.profile.celebrated"]), ["dev@contoso.com|first-flame", "dev@contoso.com|steady-hand"]);
+  ctx.state.user = "other@contoso.com";  // another account's profile earns its own
+  ctx.profileEarned([first]);
+  assert.strictEqual(revealed.length, 2);
+  ctx.state.user = "dev@contoso.com";
+  ctx.profileForget();
+  assert.deepStrictEqual(JSON.parse(stored["kf.profile.celebrated"]), ["other@contoso.com|first-flame"], "deleting one profile forgot another's");
+  ctx.profileEarned([first]);
+  assert.strictEqual(revealed.length, 3, "an award earned again after deleting the profile stayed silent");
+  // Storage that can't be read or written still never repeats within the session.
+  ctx.localStorage.getItem = () => { throw new Error("blocked"); };
+  ctx.localStorage.setItem = () => { throw new Error("blocked"); };
+  ctx.profileEarned([first]);
+  assert.strictEqual(revealed.length, 3);
+  assert.match(p, /if \(await attempt\(\(\) => rpc\("profile_delete", \{\}\), "Could not delete your profile data"\)\) \{\n\s+profileForget\(\);/);
 });
 
 test("Remote runs (KF-MO-009): the navy wolf trots in an indeterminate bar, with no fill or count, and goes with the motion", () => {

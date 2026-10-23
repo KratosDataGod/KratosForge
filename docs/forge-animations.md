@@ -64,7 +64,7 @@ Every key can be fixed in the policy file ([Azure setup](azure-setup.md#4-push-s
 | A pipeline activity finishes | It settles with one glow (succeeded) or the failure ember | the activity | 0.45 s |
 | A pipeline run succeeds | **Anvil Strike** (shown in Preview effects until the pipeline run screen arrives) | the run's result | 0.65 s |
 | A platform deployment succeeds (Source control) | **Anvil Strike**: a small anvil drops onto the "Deployed" message and two sparks fly. No shake, no flash | beside the message | 0.65 s |
-| Your developer profile records a milestone | **Achievement Reveal**: a ring and an offset outline reveal the badge once. Off unless you turn on **Achievement celebrations**, which appears when the developer profile ships | the badge | 0.9 s |
+| Profile awards you an achievement | **Achievement Reveal**: a ring and an offset outline reveal the message naming it, once per award (never again for the same award, even after a restart). Off unless you turn on **Achievement celebrations**, shown while Preview features are on | the achievement message | 0.9 s |
 
 During Run all, cells don't spark one by one; the track shows the progress instead. Stop and
 Cancel show nothing, on a notebook or a SQL query. Activities inside ForEach and Until are counted on their parent

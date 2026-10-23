@@ -243,6 +243,7 @@ function profileSettings(p) {
         if (!(await confirmDialog("Delete your profile data?", "This deletes your recorded accomplishments, profile details and report summary on this PC. "
           + "Validate history and run receipts stay as they are. It can't be undone.", "Delete", { danger: true, typeToConfirm: "DELETE" }))) return;
         if (await attempt(() => rpc("profile_delete", {}), "Could not delete your profile data")) {
+          profileForget();
           toast("Your profile data was deleted"); profilePage.tab = "overview"; render();
         }
       }, "tool outline danger")));
@@ -251,13 +252,41 @@ function profileSettings(p) {
 
 // ---------- after a validation ----------
 
-// Called by Validate when a clean run earned something; shown after Validate's own message.
+// Achievements already shown, so following the same Validate result again (or after a restart) never
+// announces or reveals an award twice. The engine reports an award as earned only on the run that earned it.
+// Kept per account, as the profile is.
+const PROFILE_CELEBRATED = "kf.profile.celebrated";
+const profileShown = new Set();  // this session's, for when the PC's storage can't be read
+function profileCelebrated() {
+  let kept = [];
+  try { kept = JSON.parse(localStorage.getItem(PROFILE_CELEBRATED) || "[]"); } catch { /* unreadable: this session's list only */ }
+  return new Set([...profileShown, ...(Array.isArray(kept) ? kept : [])]);
+}
+
+// Deleting the profile deletes its achievements, so earning one again shows again.
+function profileForget() {
+  const mine = (k) => k.startsWith(`${state.user || ""}|`);
+  [...profileShown].filter(mine).forEach((k) => profileShown.delete(k));
+  try { localStorage.setItem(PROFILE_CELEBRATED, JSON.stringify([...profileCelebrated()].filter((k) => !mine(k)))); } catch { /* nothing kept to forget */ }
+}
+
+// Called by Validate when a clean run earned something; shown after Validate's own message, with the
+// Achievement Reveal on that message when Achievement celebrations is on (motion.js, off by default).
 function profileEarned(earned) {
   if (!earned?.length) return;
-  const names = earned.map((a) => `${a.name} (+${a.xp} XP)`).join(", ");
+  const seen = profileCelebrated();
+  const key = (a) => `${state.user || ""}|${a.id}`;
+  const fresh = earned.filter((a) => !seen.has(key(a)));
+  if (!fresh.length) return;
+  fresh.forEach((a) => { seen.add(key(a)); profileShown.add(key(a)); });
+  try { localStorage.setItem(PROFILE_CELEBRATED, JSON.stringify([...seen])); } catch { /* not kept: only this session remembers */ }
+  const names = fresh.map((a) => `${a.name} (+${a.xp} XP)`).join(", ");
   // The first achievement is also the first time most people hear that recording is on.
-  const first = earned.some((a) => a.id === "first-flame") ? ` ${RECORDING_ON}` : "";
-  setTimeout(() => toast(`Achievement earned: ${names}. See it in Profile.${first}`, false, { log: true }), 2500);
+  const first = fresh.some((a) => a.id === "first-flame") ? ` ${RECORDING_ON}` : "";
+  setTimeout(() => {
+    toast(`Achievement earned: ${names}. See it in Profile.${first}`, false, { log: true });
+    forgeEvent("achievement.unlocked", document.getElementById("toast"));  // one reveal per message, however many awards it names
+  }, 2500);
 }
 
 registerFeature({

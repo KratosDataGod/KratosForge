@@ -34,7 +34,8 @@ NEW_NOTEBOOK_XP = 10
 
 DIMENSIONS = ("Data Engineering", "Engineering Quality", "Performance & Optimization", "Architecture & Reusability",
               "Reliability & Operations", "Security & Governance", "Learning & Growth", "Delivery & Impact")
-EVENT_DIMENSIONS = {"validate.pass": ("Data Engineering", "Engineering Quality")}
+EVENT_DIMENSIONS = {"validate.pass": ("Data Engineering", "Engineering Quality"),
+                    "prove.match": ("Engineering Quality", "Performance & Optimization")}
 TRACKED = {d for dims in EVENT_DIMENSIONS.values() for d in dims}
 
 ACHIEVEMENTS = {
@@ -47,8 +48,14 @@ ACHIEVEMENTS = {
                     "description": "Five different notebooks validated with clean runs.",
                     "criteria": "Five notebooks with different names have each passed Validate with a clean run.",
                     "evidence": "Five Validate results, one per notebook."},
+    "proof-forged": {"name": "Proof Forged", "xp": 150, "badge": "proof",
+                     "description": "A notebook proven to give the same results on this PC and in Fabric.",
+                     "criteria": "A Prove run finishes and its verification finds every table the same on this PC and "
+                                 "in Fabric. It runs the notebook in Fabric too, so it is never needed to level up.",
+                     "evidence": "One run receipt (its SHA-256 id) with the verification."},
 }
 STEADY_HAND_NOTEBOOKS = 5
+NEW_PROOF_XP = 20           # each further notebook proven, after Proof Forged
 
 TITLES = ((50, "Legend of the Forge"), (40, "Wolf Guardian"), (30, "Forge Architect"), (20, "Master Forger"),
           (15, "Steel Forger"), (10, "Iron Forger"), (5, "Forge Initiate"), (1, "Apprentice"))
@@ -137,6 +144,30 @@ def from_validation(record: dict[str, Any], origin: str = "live") -> dict[str, A
             "rules_version": RULES_VERSION, "recorded_at": _now(), "origin": origin, "contribution": None}
 
 
+def from_proof(record: dict[str, Any], receipt_id: str | None, origin: str = "live") -> dict[str, Any] | None:
+    """The evidence row for a finished proof, or None unless every table compared the same on both
+    sides. Times are the measured ones from its scorecard; nothing estimated is kept."""
+    verdict = record.get("verdict") or {}
+    revision = (record.get("code") or {}).get("revision")
+    name = record.get("name")
+    if record.get("state") != "done" or verdict.get("verdict") != "same" or not receipt_id or not revision or not name:
+        return None
+    time = (record.get("scorecard") or {}).get("time") or {}
+    pc, fabric = time.get("pc") or {}, time.get("fabric") or {}
+    measured = {"pc_seconds": pc.get("seconds") if pc.get("kind") == "measured" else None,
+                "fabric_seconds": fabric.get("total_seconds") if fabric.get("kind") == "measured" else None}
+    return {"id": evidence_id("prove.match", name, revision), "type": "prove.match",
+            "at": record.get("finished_at") or _now(),
+            "artifact": {"kind": "notebook", "name": name},
+            "ref": {"source": "receipt", "id": receipt_id, "revision": revision},
+            "status": "verified", "verdict": "same",
+            "detail": {"level": verdict.get("level"), "tables": len(record.get("tables") or [])},
+            "measurement": {**measured, "kind": "measured", "source": "proof scorecard"}
+            if any(v is not None for v in measured.values()) else None,
+            "dimensions": list(EVENT_DIMENSIONS["prove.match"]),
+            "rules_version": RULES_VERSION, "recorded_at": _now(), "origin": origin, "contribution": None}
+
+
 def add(profile: dict[str, Any], row: dict[str, Any]) -> bool:
     """Add a row unless one with its id is there already. Returns whether it was added."""
     if any(r["id"] == row["id"] for r in profile["evidence"]):
@@ -170,28 +201,24 @@ def included(profile: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def progression(profile: dict[str, Any]) -> dict[str, Any]:
-    """XP per row, achievements earned and the level, from the included rows in date order."""
+    """XP per row, achievements earned, the level and the milestones on the way (newest first), from the
+    included rows in date order."""
     seen: set[str] = set()
+    proven: set[str] = set()
     per_day: dict[str, int] = {}
     xp_by_row: dict[str, int] = {}
     earned: list[dict[str, Any]] = []
+    milestones: list[dict[str, Any]] = []
+    reached = 1
     for r in included(profile):
-        xp_by_row[r["id"]] = 0
-        if r["type"] != "validate.pass":
-            continue
-        name = r["artifact"]["name"]
-        if name in seen:
-            continue  # a new revision of a notebook already counted: evidence, no XP
-        seen.add(name)
-        if len(seen) == 1:
-            earned.append(_award("first-flame", r))
-        else:
-            day = (r.get("at") or "")[:10]
-            if per_day.get(day, 0) < DAILY_NOTEBOOK_XP_CAP:
-                per_day[day] = per_day.get(day, 0) + 1
-                xp_by_row[r["id"]] = NEW_NOTEBOOK_XP
-        if len(seen) == STEADY_HAND_NOTEBOOKS:
-            earned.append(_award("steady-hand", r))
+        before = len(earned)
+        _progress_row(r, seen, proven, per_day, xp_by_row, earned)
+        milestones += [{"kind": "achievement", "at": a["at"], "id": a["id"], "text": f"Earned {a['name']} (+{a['xp']} XP)"}
+                       for a in earned[before:]]
+        now = level_for(sum(xp_by_row.values()) + sum(a["xp"] for a in earned))
+        milestones += [{"kind": "level", "at": r.get("at"), "level": lv, "text": f"Reached level {lv}, {title_for(lv)}"}
+                       for lv in range(reached + 1, now + 1)]
+        reached = now
     xp = sum(xp_by_row.values()) + sum(a["xp"] for a in earned)
     level = level_for(xp)
     got = {a["id"] for a in earned}
@@ -201,9 +228,43 @@ def progression(profile: dict[str, Any]) -> dict[str, Any]:
     if "steady-hand" not in got:
         upcoming.append({"id": "steady-hand", "name": ACHIEVEMENTS["steady-hand"]["name"], "xp": ACHIEVEMENTS["steady-hand"]["xp"],
                          "progress": f"{notebooks} of {STEADY_HAND_NOTEBOOKS} different notebooks"})
+    if "proof-forged" not in got:
+        upcoming.append({"id": "proof-forged", "name": ACHIEVEMENTS["proof-forged"]["name"], "xp": ACHIEVEMENTS["proof-forged"]["xp"],
+                         "progress": "Prove a notebook gives the same results on this PC and in Fabric (optional: it runs in Fabric)"})
     return {"xp": xp, "level": level, "title": title_for(level), "level_xp": xp_for_level(level),
             "next_level_xp": xp_for_level(level + 1), "achievements": earned, "next": upcoming,
-            "xp_by_row": xp_by_row, "rules_version": RULES_VERSION, "level_curve": LEVEL_CURVE}
+            "xp_by_row": xp_by_row, "milestones": milestones[::-1], "rules_version": RULES_VERSION, "level_curve": LEVEL_CURVE}
+
+
+def _progress_row(r: dict[str, Any], seen: set[str], proven: set[str], per_day: dict[str, int],
+                  xp_by_row: dict[str, int], earned: list[dict[str, Any]]) -> None:
+    """One included row's XP and any achievement it completes (rules v1)."""
+    xp_by_row[r["id"]] = 0
+    name = r["artifact"]["name"]
+    day = (r.get("at") or "")[:10]
+    if r["type"] == "prove.match":
+        if name in proven:
+            return  # the same notebook proven again: evidence, no XP
+        proven.add(name)
+        if len(proven) == 1:
+            earned.append(_award("proof-forged", r))
+        elif per_day.get(day, 0) < DAILY_NOTEBOOK_XP_CAP:
+            per_day[day] = per_day.get(day, 0) + 1
+            xp_by_row[r["id"]] = NEW_PROOF_XP
+        return
+    if r["type"] != "validate.pass":
+        return
+    if name in seen:
+        return  # a new revision of a notebook already counted: evidence, no XP
+    seen.add(name)
+    if len(seen) == 1:
+        earned.append(_award("first-flame", r))
+    else:
+        if per_day.get(day, 0) < DAILY_NOTEBOOK_XP_CAP:
+            per_day[day] = per_day.get(day, 0) + 1
+            xp_by_row[r["id"]] = NEW_NOTEBOOK_XP
+    if len(seen) == STEADY_HAND_NOTEBOOKS:
+        earned.append(_award("steady-hand", r))
 
 
 def _award(aid: str, row: dict[str, Any]) -> dict[str, Any]:
@@ -271,18 +332,22 @@ def report(profile: dict[str, Any], days: int = 90, include_achievements: bool =
     start = now - dt.timedelta(days=days)
     rows = [r for r in included(profile) if (_parse(r.get("at")) or now) >= start]
     refs = {r["id"]: f"E{i}" for i, r in enumerate(rows, 1)}
-    latest: dict[str, dict[str, Any]] = {}
-    for r in rows:
-        latest[r["artifact"]["name"]] = r
+    validated = [r for r in rows if r["type"] == "validate.pass"]
+    proved = [r for r in rows if r["type"] == "prove.match"]
+    latest: dict[str, dict[str, Any]] = {r["artifact"]["name"]: r for r in validated}
+    latest_proof: dict[str, dict[str, Any]] = {r["artifact"]["name"]: r for r in proved}
     who = profile["identity"]
     name = who.get("display_name") or "Developer"
     period = f"{start:%d %B %Y} to {now:%d %B %Y}"
     entered = profile["report"]["summary"].strip()
-    n = len(latest)
-    generated = (f"Validated {n} notebooks that read or write lakehouse tables; each finished a clean run in a separate "
-                 "process on a workstation." if n > 1 else
-                 "Validated 1 notebook that reads or writes lakehouse tables; it finished a clean run in a separate "
-                 "process on a workstation." if n else "")
+    n, m = len(latest), len(latest_proof)
+    generated = " ".join(x for x in (
+        (f"Validated {n} notebooks that read or write lakehouse tables; each finished a clean run in a separate "
+         "process on a workstation." if n > 1 else
+         "Validated 1 notebook that reads or writes lakehouse tables; it finished a clean run in a separate "
+         "process on a workstation." if n else ""),
+        (f"Proved {m} notebook{'s' if m != 1 else ''} gave the same results on a workstation and in Microsoft Fabric."
+         if m else "")) if x)
     lines = [f"# Engineering accomplishments", "", f"{md(name)}{' · ' + md(who['role']) if who.get('role') else ''} · {period}", "",
           "Each statement is marked Verified (with its evidence reference), Entered by you, Generated summary "
           "(worded from verified evidence) or Not measured.", "", "## Executive summary", ""]
@@ -295,22 +360,42 @@ def report(profile: dict[str, Any], days: int = 90, include_achievements: bool =
     lines += ["", "## Key contributions", ""]
     contributions = []
     for nb, r in latest.items():
-        ids = ", ".join(refs[x["id"]] for x in rows if x["artifact"]["name"] == nb)
+        ids = ", ".join(refs[x["id"]] for x in validated if x["artifact"]["name"] == nb)
         verdict = "Ready" if r["verdict"] == "ready" else "Ready with warnings"
         d = r.get("detail") or {}
         rest = (f": clean run finished {verdict} (reads {d.get('reads', 0)} lakehouse "
                 f"table{'s' if d.get('reads', 0) != 1 else ''}, writes {d.get('writes', 0)}).")
         contributions.append(f"Validated notebook {nb}{rest}")
         lines.append(f"- Validated notebook {md(nb)}{rest} *(Verified, {ids})*")
-    if not latest:
+    for nb, r in latest_proof.items():
+        ids = ", ".join(refs[x["id"]] for x in proved if x["artifact"]["name"] == nb)
+        t = (r.get("detail") or {}).get("tables") or 0
+        rest = (f" gives the same results on a workstation and in Microsoft Fabric ({t} table{'s' if t != 1 else ''} "
+                "compared).")
+        contributions.append(f"Proved notebook {nb}{rest}")
+        lines.append(f"- Proved notebook {md(nb)}{rest} *(Verified, {ids})*")
+    if not latest and not latest_proof:
         lines.append("- None recorded in this period. *(Not measured)*")
-    revisions = len(rows)
     lines += ["", "## Engineering quality", ""]
-    lines.append(f"{revisions} validated revision{'s' if revisions != 1 else ''} of {n} notebook{'s' if n != 1 else ''}, "
-              "each run from the top in a fresh process with table writes kept in a sandbox. *(Verified)*" if rows
-              else "No validations in this period. *(Not measured)*")
-    lines += ["", "## Performance and efficiency", "", "No before and after measurements in this period. *(Not measured)*",
-           "", "## Technical competencies", ""]
+    if validated:
+        lines.append(f"{len(validated)} validated revision{'s' if len(validated) != 1 else ''} of {n} notebook{'s' if n != 1 else ''}, "
+                     "each run from the top in a fresh process with table writes kept in a sandbox. *(Verified)*")
+    if proved:
+        lines.append(f"{len(proved)} proof{'s' if len(proved) != 1 else ''} whose results matched in Microsoft Fabric, "
+                     "each with a run receipt. *(Verified)*")
+    if not rows:
+        lines.append("No validations in this period. *(Not measured)*")
+    lines += ["", "## Performance and efficiency", ""]
+    timed = [r for r in proved if r.get("measurement")]
+    for r in timed:
+        mm = r["measurement"]
+        parts = [f"{label} {mm[k]:g} s" for k, label in (("pc_seconds", "workstation"), ("fabric_seconds", "Microsoft Fabric"))
+                 if isinstance(mm.get(k), (int, float))]
+        lines.append(f"- {md(r['artifact']['name'])}: {', '.join(parts)} end to end, measured in the same proof. "
+                     f"*(Verified, {refs[r['id']]})*")
+    if not timed:
+        lines.append("No before and after measurements in this period. *(Not measured)*")
+    lines += ["", "## Technical competencies", ""]
     shown = [c for c in coverage(profile) if c["state"] in ("Emerging", "Demonstrated", "Established")]
     lines.append("; ".join(f"{c['name']}: {c['state'].lower()} ({c['rows']} verified items across {c['artifacts']} "
                         f"artifacts)" for c in shown) + ". *(Generated summary)*" if shown
@@ -324,7 +409,9 @@ def report(profile: dict[str, Any], days: int = 90, include_achievements: bool =
     lines += ["", "## Evidence appendix", ""]
     for r in rows:
         ref = r.get("ref") or {}
-        lines.append(f"- {refs[r['id']]} · {r.get('at', '')[:10]} · Validate {ref.get('id')} · code revision "
+        source = (f"Run receipt {ref.get('id')} (SHA-256)" if ref.get("source") == "receipt"
+                  else f"Validate {ref.get('id')}")
+        lines.append(f"- {refs[r['id']]} · {r.get('at', '')[:10]} · {source} · code revision "
                   f"{(ref.get('revision') or '')[:12]} · {r['verdict']}")
     if not rows:
         lines.append("- None.")

@@ -38,7 +38,7 @@ What stands between download and first useful work today. Target: nothing but si
 | `FABRIC_DESKTOP_BUILTIN_CLIENT_ID`, `FABRIC_CLIENT_ID` (build) | `app_settings.py:117`, `build.rs:10` | Unset | Not in docs; `build.rs:8-9` comment still says "people paste one in Settings" | Document in `permissions.md`; fix the comment | Undocumented behavior |
 | Authority | `auth.py:25` | `/organizations` | Fixed | **Optional** (advanced): tenant choice for guest accounts | Guests (B2B) can't pick another tenant; sovereign clouds unsupported. Document as a limit now |
 | Account | `auth.py:136` | First cached account | No switch | **Optional**: account switcher in the account menu | The brief asks for multi-account support and easy switching |
-| Token cache | `auth.py:86-131` | `%LOCALAPPDATA%\FabricDesktop\msal_cache.bin`, file permissions only | Plain file | **Automatic**, OS-protected | Pending Chris's decision on msal-extensions (DPAPI), recommended yes by the enterprise readiness thread |
+| Token cache | `auth.py:86-131` | `%LOCALAPPDATA%\FabricDesktop\msal_cache.bin`, encrypted with DPAPI for the Windows account | Encrypted | **Automatic**, OS-protected | Done (HD-013) |
 | Scopes | `auth.py:29-49` | Requested on first use | Automatic | Keep | Matches "request only what the operation needs" |
 | `allowed_tenants` | policy, `app_settings.py:163` | Any | GUIDs typed in a policy file | **Advanced** (policy) | Admin-only; GUIDs are acceptable there. Accept tenant domain names too |
 | Service principal (agent) | `agent_config.py:260-268` | None | Typed in `agent.toml` | **Optional**, agent only | Never needed for the desktop. The brief's "guided setup" for app identity applies to the agent; propose a `fabric-desktop agent init` that writes the file |

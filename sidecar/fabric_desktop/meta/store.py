@@ -25,7 +25,10 @@ from ..onelake import FileStore, TableRef, storage_options
 META_LAKEHOUSE = "LH_Meta"
 # The organization's one landing zone: raw files from every source, in the platform's workspace.
 # Entities read it with [source] landing = "<folder>/<pattern>"; each team builds its own Bronze from it.
+# With one central landing workspace (Preview), each source is in a zone, and each zone is its own
+# lakehouse there (LH_Landing for Shared, LH_Landing_<Name> for the rest): see Store.landing_zone.
 LANDING_LAKEHOUSE = "LH_Landing"
+SHARED_ZONE = "shared"
 META_SCHEMAS: dict[str, dict[str, pl.DataType]] = {
     "run_log": {"run_id": pl.String, "batch_id": pl.String, "entity": pl.String, "env": pl.String,
                 "status": pl.String, "metadata": pl.String, "logic": pl.String, "load_date": pl.String,
@@ -131,6 +134,34 @@ def _key_bounds(df: pl.DataFrame, on: list[str]) -> list[str]:
 
 class Store:
     env: str
+    # Central landing (Preview): reads {"zones": {id: zone}, "sources": {source: zone id, "" for Shared}}
+    # from the platform's catalog, called on the first landing read only. None: no central landing,
+    # so [source] landing reads this environment's own LH_Landing, as before.
+    landing_zones: Callable[[], dict[str, Any] | None] | None = None
+    _landing: dict[str, Any] | None = None
+
+    def landing_map(self) -> dict[str, Any] | None:
+        if self.landing_zones is None:
+            return None
+        if self._landing is None:
+            self._landing = self.landing_zones() or {}  # None: no map known, so no zones
+        return self._landing
+
+    def landing_zone(self, source: str) -> dict[str, Any] | None:
+        """The zone a source's files land in, or None when there are no zones (its own LH_Landing)."""
+        found = self.landing_map()
+        if not found or not found.get("zones"):
+            return None
+        zones = found["zones"]
+        zone = zones.get(found.get("sources", {}).get(source.lower()) or SHARED_ZONE) or zones.get(SHARED_ZONE)
+        # Shared sources read this environment's own LH_Landing until reads are switched (core.switch_landing_reads).
+        if zone and zone.get("id", SHARED_ZONE) == SHARED_ZONE and not zone.get("switched_at"):
+            return None
+        return zone
+
+    def landing_lakehouse(self, zone: dict[str, Any]) -> str:
+        """The lakehouse name a zone is read as, in this store."""
+        return zone.get("lakehouse_name") or LANDING_LAKEHOUSE
 
     def uri(self, lakehouse: str, schema: str, table: str) -> str:
         raise NotImplementedError
@@ -425,6 +456,9 @@ class LocalStore(Store):
                      version: int | None = None) -> int:
         return local_retry(lambda: super(LocalStore, self).merge_insert(lakehouse, schema, table, df, on, version))
 
+    def landing_lakehouse(self, zone: dict[str, Any]) -> str:
+        return LANDING_LAKEHOUSE  # on this PC every zone is the one local landing folder
+
     def files_dir(self, lakehouse: str) -> Path:
         if lakehouse == LANDING_LAKEHOUSE and self.landing is not None:
             return self.landing / "Files"
@@ -467,6 +501,16 @@ class OneLakeStore(Store):
 
     def workspace_of(self, lakehouse: str) -> str:
         return self.lakehouse_workspaces.get(lakehouse) or self.workspace_id
+
+    def landing_lakehouse(self, zone: dict[str, Any]) -> str:
+        """A zone's lakehouse in the central landing workspace, the same one for every environment."""
+        name = zone.get("lakehouse_name") or LANDING_LAKEHOUSE
+        if not zone.get("lakehouse_id") or not zone.get("workspace_id"):
+            raise LookupError(f"the landing zone {zone.get('name') or zone.get('id')} has no lakehouse yet: "
+                              "a platform admin sets it up in Platform > Landing zone")
+        self.lakehouse_ids[name] = zone["lakehouse_id"]
+        self.lakehouse_workspaces[name] = zone["workspace_id"]
+        return name
 
     def uri(self, lakehouse: str, schema: str, table: str) -> str:
         return TableRef(self.workspace_of(lakehouse), self._lakehouse_id(lakehouse), schema, table).uri

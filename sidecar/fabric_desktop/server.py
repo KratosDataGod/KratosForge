@@ -31,7 +31,8 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "platform_save_domain", "platform_delete_domain", "platform_import_fabric_domains", "mesh_workspace_domains", "mesh_map", "platform_glossary", "platform_save_term", "platform_audit",
            "platform_whoami", "platform_admins", "platform_claim_admin", "platform_add_admin", "platform_remove_admin",
            "platform_key_tables", "platform_create_key_table", "platform_sources", "platform_save_source",
-           "platform_delete_source", "platform_landing", "platform_landing_files", "platform_requests", "platform_request",
+           "platform_delete_source", "platform_landing", "platform_landing_files", "platform_landing_setup",
+           "platform_create_landing_zone", "platform_delete_landing_zone", "platform_switch_landing_reads", "platform_requests", "platform_request",
            "platform_decide", "platform_withdraw", "platform_revoke", "platform_overview", "platform_products",
            "governance_overview", "governance_policy", "governance_version", "governance_create", "governance_save_draft",
            "governance_discard_draft", "governance_publish", "governance_set_status", "governance_assign",
@@ -57,7 +58,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "list_shortcuts", "all_shortcuts", "create_shortcut", "delete_shortcut", "shortcut_connections",
            "shortcut_center", "shortcut_check", "shortcut_readers", "shortcut_access", "shortcut_rules",
            "shortcut_save_rules", "shortcut_preflight", "shortcut_changes", "shortcut_repoint", "shortcut_undo",
-           "shortcut_request",
+           "shortcut_request", "shortcut_find_moved", "shortcut_repoint_many", "shortcut_accept_risk", "shortcut_withdraw_risk",
            "meta_entity_shortcuts", "access_review", "access_set_role", "access_find_person", "access_lakehouse",
            "access_save_role", "access_delete_role", "access_who_can_read", "meta_tests", "meta_varlib",
            "meta_publish_varlib", "add_pc_schedule", "pc_schedules_for", "delete_pc_schedule",
@@ -90,6 +91,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "pipeline_import", "pipeline_validate", "pipeline_inspect", "pipeline_export",
            "pipeline_compatibility", "pipeline_activity_registry",
            "pipeline_run_check", "pipeline_run_start", "pipeline_run_status", "pipeline_run_cancel", "pipeline_runs",
+           "pipeline_list",
            "git_path_info", "git_notebook_info", "audit_log", "telemetry_status", "telemetry_new_install_id"}
 
 
@@ -128,6 +130,11 @@ METHODS |= ACCESS_CACHE_METHODS
 from .notebook_resources_service import METHODS as NOTEBOOK_RESOURCE_METHODS  # noqa: E402
 
 METHODS |= NOTEBOOK_RESOURCE_METHODS
+
+# Semantic model tab: Export to Ossie and Import from Ossie (model_ossie_service.py).
+from .model_ossie_service import METHODS as MODEL_OSSIE_METHODS  # noqa: E402
+
+METHODS |= MODEL_OSSIE_METHODS
 
 # Validate notebook (validate_service.py): code checks and a clean run in a fresh kernel.
 from .validate_service import METHODS as VALIDATE_METHODS  # noqa: E402

@@ -180,7 +180,9 @@ class MetaMixin:
             raise ValueError(f"environment must be one of {', '.join(ENVIRONMENTS)}")
         cfg = project.environments.get(env, {})
         if cfg.get("target", "onelake" if env != "dev" else "local") == "local":
-            return LocalStore(project.local_data / env, env, landing=self._landing_dir(env))
+            store: Store = LocalStore(project.local_data / env, env, landing=self._landing_dir(env))
+            store.landing_zones = self._landing_resolver(local=True)  # type: ignore[attr-defined]
+            return store
         ws = cfg.get("workspace_id")
         if not ws:
             raise LookupError(f"Assign a workspace to {env.title()} first (Data mesh > Deploy > Environments and promote).")
@@ -203,14 +205,17 @@ class MetaMixin:
                 if name not in existing:
                     existing[name] = fabric.create_lakehouse(
                         space, name, "Managed by KratosForge's metadata framework")["id"]
-        # The organization's landing zone is the platform's, never created here.
+        # The organization's landing zone is the platform's, never created here. With the central landing
+        # workspace (Preview), each source's zone is looked up on the first landing read instead.
         platform = self._platform_config().get(env, {})  # type: ignore[attr-defined]
         if platform.get("landing_id"):
             existing[LANDING_LAKEHOUSE] = platform["landing_id"]
             where[LANDING_LAKEHOUSE] = platform["workspace_id"]
-        return OneLakeStore(env, ws, existing, lambda: self.auth.storage_token(),  # type: ignore[attr-defined]
-                            self.root / "onelake-cache",
-                            lakehouse_workspaces={n: w for n, w in where.items() if w != ws})
+        store = OneLakeStore(env, ws, existing, lambda: self.auth.storage_token(),  # type: ignore[attr-defined]
+                             self.root / "onelake-cache",
+                             lakehouse_workspaces={n: w for n, w in where.items() if w != ws})
+        store.landing_zones = self._landing_resolver()  # type: ignore[attr-defined]
+        return store
 
     def _landing_dir(self, env: str) -> Path:
         """This PC's landing zone for a local environment, shared by every project on the PC."""
@@ -386,7 +391,9 @@ class MetaMixin:
         if template in ("files", "landing") and source:
             try:
                 store = self._store(project, "dev")
-                where = LANDING_LAKEHOUSE if template == "landing" else project.layer(layer).lakehouse
+                # Dev reads no zone it doesn't read in a run: the contract then starts with a placeholder.
+                where = (Engine(project, store).landing_lakehouse(source) if template == "landing"
+                         else project.layer(layer).lakehouse)
                 sample, _ = store.read_files(where, source)
             except Exception:  # no files yet: the contract starts with a placeholder column
                 sample = None

@@ -172,13 +172,16 @@ def test_dependency_order_and_parallel_branches():
 def test_independent_activities_run_in_parallel_up_to_max_parallel():
     text = pipeline(act("M1", "Copy", source={}, sink={}), act("M2", "Copy", source={}, sink={}))
     mocks = {"M1": {"seconds": 0.3}, "M2": {"seconds": 0.3}}
-    t = time.monotonic()
-    run(text, mocks=mocks, wait_scale=1, max_parallel=2)
-    both = time.monotonic() - t
-    t = time.monotonic()
-    run(text, mocks=mocks, wait_scale=1, max_parallel=1)
-    one = time.monotonic() - t
-    assert both < 0.5 and one >= 0.55
+
+    def took(max_parallel):
+        t = time.monotonic()
+        run(text, mocks=mocks, wait_scale=1, max_parallel=max_parallel)
+        return time.monotonic() - t
+
+    # Compare the two runs with each other, not with a fixed limit, so a slow CI machine can't flake
+    # it: both carry the same overhead, and only one-at-a-time waits out the second 0.3 s mock.
+    both, one = took(2), took(1)
+    assert one >= 0.55 and one - both >= 0.15, (both, one)
 
 
 @pytest.mark.parametrize("conditions,parent_fails,expected", [
@@ -661,3 +664,35 @@ def test_notebook_cleanup_runs_before_the_run_reports_its_end():
     r = PipelineRun(loads(pipeline(act("N", "TridentNotebook", notebookId="x"))), wait_scale=0, notebooks=Notebooks())
     r.run()
     assert seen == ["running"] and r.state == "succeeded"
+
+
+def test_pipelines_in_open_repositories_are_listed_with_their_last_run(tmp_path):
+    import shutil
+    repo = tmp_path / "repo"
+    shutil.copytree(FIXTURES / "pl_orders_daily.DataPipeline", repo / "pipelines" / "pl_orders_daily.DataPipeline")
+    broken = repo / "deep" / "a" / "b" / "pl_broken.DataPipeline"
+    broken.mkdir(parents=True)
+    (repo / ".git" / "x.DataPipeline").mkdir(parents=True)        # never looked in
+    (repo / "a" / "b" / "c" / "d" / "e" / "far.DataPipeline").mkdir(parents=True)   # too deep
+
+    class Repos(Svc):
+        def git_repos(self):
+            return {"repos": [{"path": str(repo), "name": "platform", "exists": True},
+                              {"path": str(tmp_path / "gone"), "name": "gone", "exists": False}]}
+
+    svc = Repos(tmp_path / "data")
+    out = svc.pipeline_list()
+    assert out["truncated"] is False
+    rows = {r["relative"]: r for r in out["pipelines"]}
+    assert set(rows) == {"pipelines/pl_orders_daily.DataPipeline", "deep/a/b/pl_broken.DataPipeline"}
+    ok = rows["pipelines/pl_orders_daily.DataPipeline"]
+    assert ok["name"] == "pl_orders_daily" and ok["repo"] == "platform" and ok["activity_count"] > 0
+    assert ok["last_run"] is None
+    assert rows["deep/a/b/pl_broken.DataPipeline"]["problem"].startswith("pl_broken.DataPipeline has no pipeline-content.json")
+    record = svc.pipeline_run_start(text=json.dumps({"name": "pl_orders_daily", "properties": {"activities": [
+        {"name": "W", "type": "Wait", "typeProperties": {"waitTimeInSeconds": 0}}]}}))
+    finish(svc, record["run_id"])
+    assert svc.pipeline_list()["pipelines"][1]["last_run"]["state"] == "succeeded"
+    assert "pipeline_list" in server.METHODS and "pipeline_list" in audit.READ_ONLY
+    # Without the Git service (an external tool's service), nothing is listed.
+    assert Svc(tmp_path / "other").pipeline_list() == {"pipelines": [], "truncated": False}

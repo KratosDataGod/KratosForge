@@ -175,6 +175,7 @@ def test_storage_token_has_half_an_hour_left_for_long_onelake_writes(tmp_path):
 
 
 def test_token_cache_survives_damage_and_is_swapped_in_whole(tmp_path):
+    from fabric_desktop import auth as auth_mod
     from fabric_desktop.auth import Authenticator
     path = tmp_path / "cache.bin"
     path.write_text('{"AccessToken": {"half-writ')  # e.g. two runs wrote it at once before
@@ -182,7 +183,7 @@ def test_token_cache_survives_damage_and_is_swapped_in_whole(tmp_path):
     auth.cache.add({"client_id": auth.client_id, "scope": ["s"], "token_endpoint": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
                     "response": {"access_token": "a", "expires_in": 3600, "token_type": "Bearer"}})
     auth._save()
-    assert "AccessToken" in path.read_text() and list(tmp_path.iterdir()) == [path]
+    assert "AccessToken" in auth_mod.read_cache(path)[0] and list(tmp_path.iterdir()) == [path]  # encrypted on Windows
     Authenticator("11111111-2222-3333-4444-555555555555", cache_path=path)  # reads back cleanly
 
 

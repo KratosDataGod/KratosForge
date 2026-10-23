@@ -24,6 +24,7 @@ function when(iso) {
 function took(seconds) {
   if (seconds === null || seconds === undefined || seconds === "") return "";
   const s = Number(seconds);
+  if (s > 0 && s < 0.05) return "<0.1s";  // measured, just too short to round to a tenth: never "0s"
   if (s < 10) return `${Math.round(s * 10) / 10}s`;
   if (s < 60) return `${Math.round(s)}s`;
   const m = Math.floor(s / 60);
@@ -167,9 +168,12 @@ function renderBell() {
   const bell = document.getElementById("bell");
   if (!bell) return;
   const running = activity.items.filter((i) => i.status === "running" && !i.stale).length;
-  const problems = activity.items.filter((i) => PROBLEM.has(i.status) && new Date(i.at).getTime() > activity.seenAt).length;
-  const count = running + problems;
-  const parts = [running ? `${running} running` : "", problems ? `${problems} new problem${problems === 1 ? "" : "s"}` : ""].filter(Boolean);
+  const unseen = (i) => new Date(i.at).getTime() > activity.seenAt;
+  const problems = activity.items.filter((i) => PROBLEM.has(i.status) && unseen(i)).length;
+  const notices = activity.items.filter((i) => i.notice && !PROBLEM.has(i.status) && unseen(i)).length;
+  const count = running + problems + notices;
+  const parts = [running ? `${running} running` : "", problems ? `${problems} new problem${problems === 1 ? "" : "s"}` : "",
+    notices ? `${notices} notice${notices === 1 ? "" : "s"}` : ""].filter(Boolean);
   bell.setAttribute("aria-label", `Activity${parts.length ? `, ${parts.join(", ")}` : ""}`);
   bell.title = parts.length ? `Activity: ${parts.join(", ")}` : "Activity";
   bell.classList.toggle("on", activity.open);
@@ -188,7 +192,7 @@ function toggleTray(open = !activity.open) {
 
 function renderTray() {
   const root = document.getElementById("tray-root");
-  if (!activity.open) { root.replaceChildren(); return; }
+  if (!activity.open) { motionLeave(root.querySelector(":scope > .tray")); root.replaceChildren(); return; }
   const running = activity.items.filter((i) => i.status === "running" && !i.stale);
   const problems = activity.items.filter((i) => PROBLEM.has(i.status));
   const platform = platformNoticesShown();
@@ -219,12 +223,21 @@ function trayItem(i) {
   if (i.details) links.push(btn("Copy details", null, () => copyText(i.details, "Details"), "tool link small"));
   return h("div", { class: `tray-item${PROBLEM.has(i.status) ? " bad" : ""}` },
     h("div", { class: "row" }, h("span", { class: `pill-s ${cls}` }, label), h("b", { class: "grow" }, i.title || ""), h("span", { class: "muted-text small" }, when(i.at))),
-    i.status === "running" && !i.stale ? h("div", { class: "progress", role: "progressbar", "aria-label": i.title },
-      h("div", { class: i.progress === undefined ? "bar indeterminate" : "bar", style: i.progress === undefined ? "" : `width:${Math.round(i.progress * 100)}%` })) : null,
+    i.status === "running" && !i.stale ? runningBar(i) : null,
     i.text ? h("div", { class: "tray-text" }, i.text) : null,
     i.stale ? h("div", { class: "muted-text small" }, "The app was closed while this ran. Monitor has its final state.") : null,
     i.details ? h("details", {}, h("summary", {}, "Details"), h("pre", {}, i.details)) : null,
     links.length ? h("div", { class: "row wrap" }, links) : null);
+}
+
+// A job the app started in Fabric (id fabric:…) reports no progress of its own.
+const remoteActivity = (i) => String(i.id || "").startsWith("fabric:") && i.progress === undefined;
+
+// A running entry's bar: how far it is when that's known, the navy wolf for a run in Fabric, else indeterminate.
+function runningBar(i) {
+  if (remoteActivity(i)) return remoteProgress(i.title);
+  return h("div", { class: "progress", role: "progressbar", "aria-label": i.title },
+    h("div", { class: i.progress === undefined ? "bar indeterminate" : "bar", style: i.progress === undefined ? "" : `width:${Math.round(i.progress * 100)}%` }));
 }
 
 // Jobs the app started in Fabric: follow every unfinished one until it ends, wherever the user is.

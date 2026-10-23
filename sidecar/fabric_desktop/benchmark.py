@@ -732,14 +732,21 @@ def table_name(schema, table):
 
 _WRITE = '''
 def slices(reader):
-    """The query's rows in tables of about batch_rows, so a big table never has to fit in memory at once."""
-    batches, pending = [], 0
+    """The query's rows in tables of about batch_rows, so a big table never has to fit in memory at once.
+    A short last piece goes with the slice before it: each write is a commit, which costs the same
+    round trips to OneLake however few rows it carries (lineitem at scale 1 ends with 1,215)."""
+    batches, pending, held = [], 0, None
     for batch in reader:
         batches.append(batch)
         pending += batch.num_rows
         if pending >= batch_rows:
-            yield pa.Table.from_batches(batches)
-            batches, pending = [], 0
+            if held:
+                yield pa.Table.from_batches(held)
+            held, batches, pending = batches, [], 0
+    if held and pending < batch_rows // 10:
+        held, batches = held + batches, []
+    if held:
+        yield pa.Table.from_batches(held)
     if batches:
         yield pa.Table.from_batches(batches)
 

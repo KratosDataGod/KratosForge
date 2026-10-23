@@ -44,7 +44,7 @@ The Python package `fabric_desktop`, run by the shell as `python -m fabric_deskt
 - the MSAL token cache
 - run history, and the jobs this app started in Fabric (`fabric_runs.jsonl`)
 - workload owners, links to Fabric items and actions taken from the app (`workloads.sqlite`)
-- local staging copies of each write
+- the local staging table of each write (its schema only, no rows)
 - catalog favorites
 - the list of repositories opened in Source control (`git_repos.json`; the repositories themselves stay where you put them)
 - the Fabric view's profile and its saved, encrypted sign-in
@@ -77,7 +77,7 @@ Several calls can be on the pipe at once. Each request carries an id, and the sh
 
 `lakehouse.write_table`, **Save as table**, jobs and metadata runs all write the same way:
 
-1. The result is written to a local staging Delta table first. It is checked against the Fabric-safe Delta profile before anything leaves the PC: reader version 1, writer version 2, no deletion vectors, no column mapping and classic checkpoints.
+1. An empty local staging Delta table with the result's schema is written first, since the schema alone decides the table's protocol. It is checked against the Fabric-safe Delta profile before anything leaves the PC: reader version 1, writer version 2, no deletion vectors, no column mapping and classic checkpoints.
 2. delta-rs writes the Parquet data files to `Tables/<schema>/<table>`, or `Tables/<table>` in a lakehouse without schemas. It then commits the Delta log in one atomic step, so Fabric never sees a half-written version.
 3. The written table is checked against the profile again, and the write is added to the run history shown in **Monitor**.
 

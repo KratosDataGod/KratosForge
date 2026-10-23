@@ -147,7 +147,9 @@ let dialogOnClose = null;
 function closeDialog() {
   const onClose = dialogOnClose;
   dialogOnClose = null;
-  document.getElementById("dialog-root").replaceChildren();
+  const root = document.getElementById("dialog-root");
+  motionLeave(root.querySelector(":scope > .overlay"));
+  root.replaceChildren();
   onClose?.();
 }
 

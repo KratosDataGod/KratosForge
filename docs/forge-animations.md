@@ -62,6 +62,8 @@ Every key can be fixed in the policy file ([Azure setup](azure-setup.md#4-push-s
 | A pipeline run succeeds | **Anvil Strike** (shown in Preview effects until the pipeline run screen arrives) | the run's result | 0.65 s |
 | A platform deployment succeeds (Source control) | **Anvil Strike**: a small anvil drops onto the "Deployed" message and two sparks fly. No shake, no flash | beside the message | 0.65 s |
 | Your developer profile records a milestone | **Achievement Reveal**: a ring and an offset outline reveal the badge once. Off unless you turn on **Achievement celebrations**, which appears when the developer profile ships | the badge | 0.9 s |
+| A dialog opens or closes (Minimal and above) | The dialog rises and fades in; focus is inside it from the first frame. On close it is gone at once and a blank card fades where it was. **Escape** closes with no fade | the dialog | 0.2 s in, 0.16 s out |
+| The Activity tray or a side pane opens (Explorer, Variables, Comments, Runs, Prove, Validate; Minimal and above) | It slides 16 px in from its edge and fades in. A page that opens with its panes doesn't animate them, and redraws never replay it. The tray leaves like a dialog | the tray or pane | 0.22 s |
 
 During Run all, cells don't spark one by one; the track shows the progress instead. Stop and
 Cancel show nothing. Activities inside ForEach and Until are counted on their parent

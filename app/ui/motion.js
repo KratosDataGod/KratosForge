@@ -332,3 +332,77 @@ const motionPause = () => { document.documentElement.dataset.motionPaused = docu
 addEventListener("blur", motionPause);
 addEventListener("focus", motionPause);
 document.addEventListener("visibilitychange", motionPause);
+
+// Panel and dialog transitions (KF-MO-003). Dialogs, the activity tray and side panes slide and fade in
+// at Minimal and above (styles.css, .mo-in); nothing at Off or while Windows reduces motion. The way in
+// never holds focus back: the element is in the page, focusable, from the first frame. On the way out
+// the real dialog or tray goes at once (focus returns, screen readers lose it) and a blank card where
+// it was fades, so nothing closed can be clicked or read while it fades. Escape closes with no fade.
+const PANE_OUT_MS = 160;
+const SIDE_PANES = ["explorer", "varpane", "provepane", "validatepane", "runspane", "commentspane"];
+const PANES = ["overlay", "tray", ...SIDE_PANES];
+let paneEscAt = -Infinity;
+let paneView;
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") paneEscAt = Date.now(); }, true);
+
+const paneClass = (el) => PANES.find((c) => el.classList.contains(c));
+
+function panesIn(nodes) {
+  const out = [];
+  for (const n of nodes) if (n.nodeType === 1) out.push(n, ...n.querySelectorAll(PANES.map((c) => `.${c}`).join(", ")));
+  return out.filter(paneClass);
+}
+
+// Marks newly opened dialogs, the tray and side panes so CSS plays their way in. A redraw that swaps a
+// pane for a fresh copy of itself isn't an opening, and neither is a page opening with its panes.
+function motionPanes(records) {
+  if (typeof state !== "object") return;  // the page is still loading app.js
+  const samePage = state.view === paneView;
+  paneView = state.view;
+  if (motionLevel() < 1 || document.hidden) return;
+  const added = panesIn(records.flatMap((r) => [...r.addedNodes]));
+  if (!added.length) return;
+  const redrawn = new Map(panesIn(records.flatMap((r) => [...r.removedNodes])).map((el) => [paneClass(el), el]));
+  const now = performance.now();
+  for (const el of added) {
+    const kind = paneClass(el);
+    if (!el.isConnected) continue;
+    if (redrawn.has(kind)) {
+      // Redrawn while still on its way in (the tray redraws as its notices arrive): the copy carries on
+      // from where the first one was, rather than jumping to the end.
+      const since = now - (redrawn.get(kind).moInAt ?? -Infinity);
+      if (since < 250) paneIn(el, since);
+      continue;
+    }
+    if (kind === "overlay" && (el.parentElement?.id !== "dialog-root" || el.classList.contains("splash"))) continue;
+    if (SIDE_PANES.includes(kind) && !samePage) continue;
+    paneIn(el, 0);
+  }
+}
+
+function paneIn(el, since) {
+  el.moInAt = performance.now() - since;
+  el.classList.add("mo-in");
+  if (since) for (const x of [el, el.querySelector(":scope > .dialog")]) if (x) x.style.animationDelay = `-${Math.round(since)}ms`;
+}
+if (typeof MutationObserver === "function" && document.body) new MutationObserver(motionPanes).observe(document.body, { childList: true, subtree: true });
+
+// Call just before taking an open dialog (its .overlay) or the tray away: a blank card where it was
+// fades out. Returns the card, or null when nothing fades (Off, reduced motion, Escape, hidden window).
+function motionLeave(el) {
+  if (!el?.isConnected || motionLevel() < 1 || document.hidden || Date.now() - paneEscAt < 250) return null;
+  const box = (from, cls) => {
+    const r = from.getBoundingClientRect();
+    const d = h("div", { class: cls });
+    Object.assign(d.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+    return d;
+  };
+  const overlay = el.classList.contains("overlay");
+  const card = overlay ? el.querySelector(".dialog") : el;
+  const ghost = h("div", { class: "mo-ghost", "aria-hidden": "true" },
+    overlay ? box(el, "mo-ghost-veil") : null,
+    card ? box(card, `mo-ghost-card${overlay ? "" : " side"}`) : null);
+  document.body.append(ghost);
+  setTimeout(() => ghost.remove(), PANE_OUT_MS + 60);
+  return ghost;
+}

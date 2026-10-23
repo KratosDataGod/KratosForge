@@ -39,6 +39,8 @@ const FORGE_EVENTS = {
   "pipeline.failed": "fail",
   "deploy.succeeded": "strike",
   "deploy.failed": "fail",
+  "sql.succeeded": "spark",
+  "sql.failed": "fail",
   "achievement.unlocked": "achieve",
 };
 // Runs shorter than this never show the progress track, so quick runs don't flash it.
@@ -239,6 +241,17 @@ function wolfTrack(where, label, unit, engine = "") {
     stop,
     get shown() { return !!el; },
   };
+}
+
+// A run elsewhere (in Fabric) that reports no measurable progress: an indeterminate bar with no fill,
+// percentage or time estimate, the wolf trotting in place in Kratos navy (wolf family, level 2+), and
+// the words saying where it runs. Without the wolf the plain indeterminate bar shows instead.
+function remoteProgress(label, where = "Running in Fabric") {
+  const wolf = motionOn("wolf") ? h("span", { class: "wolf wolf-idle", "aria-hidden": "true" }, wolfIcon()) : null;
+  return h("div", { class: "remote-progress" },
+    h("div", { class: "progress remote", role: "progressbar", "aria-label": label, "aria-valuetext": where },
+      h("div", { class: "bar indeterminate" }), wolf),
+    h("span", { class: "remote-where" }, where));
 }
 
 // Energy Flow: a pipeline run's top-level activities as a row of nodes joined by links, drawn from

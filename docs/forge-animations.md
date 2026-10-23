@@ -23,7 +23,7 @@ At Refined and Expressive, a switch for each family turns it off:
 
 | Switch | Effects |
 | --- | --- |
-| Wolf animations | The wolf on Run all progress, its arrival, the Wolf Run after long work |
+| Wolf animations | The wolf on Run all progress, its arrival, the Wolf Run after long work, the navy wolf on runs in Fabric |
 | Forge sparks | Forge Spark, Anvil Strike, the failure ember |
 | Running indicators | The glow on a running cell, the flow into a running pipeline step, the ring when Run all starts |
 
@@ -56,7 +56,10 @@ Every key can be fixed in the policy file ([Azure setup](azure-setup.md#4-push-s
 | Run all (or Run above, Run below) starts | **Pulse**: one orange ring off the Run all button | the button | 0.35 s |
 | Run all takes longer than 0.6 s | The status bar says **Cell 3 of 8 on this PC**, with the wolf at the share of cells done and embers rising behind it | status bar | until the run ends |
 | Run all finishes | **Wolf Arrival**: the wolf glows once at the end and the track goes | status bar | 0.55 s |
+| A job the app started in Fabric is running | The bell and Home show the wolf trotting in place in Kratos navy on an empty track, with **Running in Fabric** beside it. Fabric reports no measurable progress, so there is no fill, percentage or time estimate; with the wolf off, the plain indeterminate bar shows | the bell, Home | while running |
 | A cell is running | A small breathing ember on **Running** (forge orange, because notebook cells run on this PC) | the cell's status | while running |
+| A SQL query succeeds after more than 2 s | **Forge Spark** on **Succeeded**. Quicker queries show nothing | the Results band | 0.4 s |
+| A SQL query fails or times out | **Controlled Failure**: the ember beside **Failed**; the error is there from the first frame | the Results band | 0.45 s |
 | A pipeline activity runs | **Energy Flow**: the link into the running activity carries a moving dash; each activity says Queued, In progress, Succeeded, Failed, Skipped or Cancelled in words | pipeline flow | while running |
 | A pipeline activity finishes | It settles with one glow (succeeded) or the failure ember | the activity | 0.45 s |
 | A pipeline run succeeds | **Anvil Strike** (shown in Preview effects until the pipeline run screen arrives) | the run's result | 0.65 s |
@@ -64,7 +67,7 @@ Every key can be fixed in the policy file ([Azure setup](azure-setup.md#4-push-s
 | Profile awards you an achievement | **Achievement Reveal**: a ring and an offset outline reveal the message naming it, once per award (never again for the same award, even after a restart). Off unless you turn on **Achievement celebrations**, shown while Preview features are on | the achievement message | 0.9 s |
 
 During Run all, cells don't spark one by one; the track shows the progress instead. Stop and
-Cancel show nothing. Activities inside ForEach and Until are counted on their parent
+Cancel show nothing, on a notebook or a SQL query. Activities inside ForEach and Until are counted on their parent
 ("In progress · 4 of 9"), never animated one by one. A pipeline flow always says where it runs:
 **Local run on this PC (not run in Fabric)** for a local run.
 
@@ -115,6 +118,8 @@ happened, and the engine decides whether and how it shows.
 - `MOTION`: each kind's length (`ms`), minimum gap, lowest level, family and optional `build`
   for extra parts (the anvil, the running wolf).
 - `wolfTrack(where, label, unit, engine)`: step progress with the wolf, real fractions only.
+- `remoteProgress(label, where)`: an indeterminate bar for a run elsewhere (in Fabric), with the
+  navy wolf trotting in place and the words saying where it runs. No value, no fill.
 - `pipelineFlow(container)`: `update(status)` draws a `pipeline_run_status` result as linked
   activities and fires the activity events.
 - `viewTransition(view)`: called by `setView`; animates only when the page changes.

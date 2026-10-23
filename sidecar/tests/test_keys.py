@@ -400,3 +400,51 @@ def test_service_keys_round_trip(tmp_path):
     call("meta_set_environment", env="test", workspace_id="ws-test2", workspace_name="Sales Test 2")
     envs = Project(tmp_path / "proj").environments["test"]
     assert envs["keys_workspace_id"] == "ws-keys" and envs["workspace_id"] == "ws-test2"
+
+
+def _both_engines(rows: dict[str, list]) -> tuple[list, list]:
+    """The composite business key of each row, from the local engine and from the template's Spark SQL
+    (translated to DuckDB with sqlglot, so its NULL and string rules are the ones that run)."""
+    import duckdb
+    import sqlglot
+    df = pl.DataFrame(rows, schema={c: pl.String for c in rows})
+    local = df.select(K.business_key(list(rows)).alias("bk"))["bk"].to_list()
+    sql = sqlglot.transpile(f"SELECT {K._spark_bk(list(rows), 'b')} AS bk FROM t b", read="spark", write="duckdb")[0]
+    con = duckdb.connect()
+    con.register("t", df.to_arrow())
+    return local, [r[0] for r in con.execute(sql).fetchall()]
+
+
+def test_a_blank_or_missing_part_gives_no_business_key_in_spark_too():
+    local, spark = _both_engines({"country": ["US", "US", "US", " "], "customer_no": [" 7 ", "  ", None, "7"]})
+    assert local == spark == ["US||7", None, None, None]
+    sql = K._spark_bk(["country", "customer_no"])
+    assert "CONCAT_WS" not in sql and sql.startswith("CONCAT(")
+
+
+def test_the_template_merge_skips_rows_without_a_business_key(tmp_path):
+    p = init_project(tmp_path / "project", "3", "Chris", True)
+    e = p.entities["silver.customers"]
+    kt = p.key_tables["customer"]
+    e.spec["keys"] = [{"table": "customer", "business_key": ["country", "customer_id"]}]
+    sql = K.merge_sql(p, e)
+    # The new keys come from rows whose business key isn't NULL, not rows whose raw columns aren't.
+    assert f"WHERE n.{kt.bk} IS NOT NULL" in sql and "country IS NOT NULL" not in sql
+    assert "CONCAT_WS" not in sql
+    assert sql.count(K._spark_bk(["country", "customer_id"])) == 1
+    assert sql.count(K._spark_bk(["country", "customer_id"], "b")) == 1  # src_keyed joins on the same key
+
+
+def test_composite_business_keys_with_the_separator_in_a_part_never_collide():
+    rows = {"a": ["A||B", "A", "A|", "A", "a\\", "x\\|", " west ", "A\\B"],
+            "b": ["C", "B||C", "|C", "||C", "b", "y", "10", "C"]}
+    local, spark = _both_engines(rows)
+    assert local == spark
+    assert len(set(local)) == len(local)  # each business key its own text, so its own surrogate key
+    assert local[:2] == ["A\\|\\|B||C", "A||B\\|\\|C"]
+    assert local[5] == "x\\\\|||y"  # the \ before an escaped | is kept as it is
+    # Parts without a | are written as before (a \ too), so keys already issued keep their text and key.
+    plain = {"a": ["a\\", " west ", "A\\B", "US"], "b": ["b", "10", "C", " 7"]}
+    assert _both_engines(plain) == (["a\\||b", "west||10", "A\\B||C", "US||7"],) * 2
+    single = pl.DataFrame({"a": ["A||B"]}).select(K.business_key(["a"]))["a"].to_list()
+    assert single == ["A||B"]  # a single-column key is never escaped

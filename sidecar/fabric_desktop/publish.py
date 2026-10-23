@@ -2,8 +2,8 @@
 
 delta-rs writes the Parquet data files first and makes them visible with a
 single atomic commit to ``_delta_log``, so Fabric never sees a half-written
-version. A local staging copy is written first so the Delta profile is
-checked before anything leaves the machine.
+version. The table delta-rs would create is staged locally first (schema
+only), so the Delta profile is checked before anything leaves the machine.
 """
 
 from __future__ import annotations
@@ -37,7 +37,10 @@ class RunRecord:
 
 
 def stage_locally(data: pa.Table, staging_dir: Path) -> DeltaTable:
-    write_deltalake(str(staging_dir), data, mode="overwrite", schema_mode="overwrite")
+    """The table delta-rs would create for ``data``, on disk, so its protocol is checked against the profile
+    before anything leaves the PC. Only the schema decides that, so no rows are written: copying every
+    row here cost about a second per 70 MB on each write and kept every old copy."""
+    write_deltalake(str(staging_dir), data.schema.empty_table(), mode="overwrite", schema_mode="overwrite")
     table = DeltaTable(str(staging_dir))
     delta_profile.check_table(table)
     return table
@@ -73,7 +76,7 @@ def publish(data: pa.Table, ref: TableRef, mode: str, storage_token: str, schema
     with _lease(ref, storage_token):
         # One load of the log for the profile check, the write and the new version: delta-rs moves a
         # table it was handed on to the version it committed. Loaded under the lease, so no other
-        # writer can commit in between.
+        # KratosForge writer can commit in between.
         table = delta_profile.open_target(ref.uri, opts)
         write_deltalake(table if table is not None else ref.uri, data, mode=mode, storage_options=opts, schema_mode=how)
         if table is None:

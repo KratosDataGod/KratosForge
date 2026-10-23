@@ -39,7 +39,15 @@ def test_staged_table_matches_fabric_profile(tmp_path):
     data = run_local(Job.load(EXAMPLES / "sales_by_region.toml"))
     table = stage_locally(data, tmp_path / "stage")
     assert table.protocol().min_reader_version == 1
-    assert table.to_pyarrow_table().num_rows == 3
+    assert table.schema().to_arrow().names == data.schema.names
+    assert table.to_pyarrow_table().num_rows == 0  # the schema decides the protocol; the rows only cost time and disk
+
+
+def test_staging_still_refuses_a_schema_outside_the_profile(tmp_path):
+    import datetime as dt
+    data = pa.table({"at": pa.array([dt.datetime(2026, 1, 1)], pa.timestamp("us"))})  # timestamp_ntz: reader 3
+    with pytest.raises(delta_profile.ProfileViolation, match="reader version 3"):
+        stage_locally(data, tmp_path / "stage")
 
 
 def test_profile_rejects_v2_checkpoints(tmp_path):

@@ -37,6 +37,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/azure-setup.md](docs/azure-setup.md) | Configuring Fabric for an organization: tenant settings, sign-in policies, the optional policy file, workspaces, capacity and access |
 | [docs/permissions.md](docs/permissions.md) | How sign-in works (no app registration), what each feature uses, an optional own app registration with its permissions in alphabetical order, and what the agent needs |
 | [docs/telemetry.md](docs/telemetry.md) | Opt-in usage data: every field sent, what is never sent, and how IT turns it off |
+| [docs/end-user-terms.md](docs/end-user-terms.md) | Draft end-user terms (not in effect yet), including what shipping Microsoft's ODBC driver requires |
 | [docs/security.md](docs/security.md) | The security model: what is protected, trust boundaries, how downloads and updates are checked, and what is still open |
 | [docs/evidence-pack.md](docs/evidence-pack.md) | The security evidence pack: data flows, documents, build and release evidence, and what is still open, for a security review |
 | [docs/hardening/README.md](docs/hardening/README.md) | The enterprise hardening audit: evidence-based scorecard, [findings](docs/hardening/findings.md), [backlog](docs/hardening/backlog.md) and [release gates](docs/hardening/readiness-checklist.md) |

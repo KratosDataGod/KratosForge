@@ -720,7 +720,7 @@ async function renderHome() {
   const live = activity.items.filter((i) => i.status === "running" && !i.stale);
   running.replaceWith(live.length ? h("div", { class: "home-list" }, live.map((i) => h("div", { class: "home-item" },
     h("div", { class: "row" }, h("b", { class: "grow" }, i.title), h("span", { class: "muted-text small" }, `started ${relTime(i.at)}`)),
-    h("div", { class: "progress" }, h("div", { class: "bar indeterminate" })),
+    remoteActivity(i) ? remoteProgress(i.title) : h("div", { class: "progress" }, h("div", { class: "bar indeterminate" })),
     i.text ? h("div", { class: "muted-text small" }, i.text) : null)))
     : h("p", { class: "muted-text" }, "Nothing is running."));
 

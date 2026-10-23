@@ -1704,6 +1704,18 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
 html[data-motion="off"] .fx, html[data-motion="off"] .wolf { display: none; }
 @media (prefers-reduced-motion: reduce) { html:not([data-motion-override]) :is(.fx, .wolf) { display: none; } .wolf-fill { transition: none; } }
 
+/* A run in Fabric with no measurable progress (KF-MO-009): the wolf trots in place in navy on an empty
+   track; no fill, no percentage. Where the wolf is hidden (Off, Minimal, reduced motion, wolf switch
+   off) the indeterminate bar shows as before. */
+.remote-progress { display: flex; align-items: center; gap: 10px; }
+.remote-progress .progress.remote { flex: 1; overflow: visible; position: relative; background: var(--accent-soft); }
+.remote-where { font-size: 12px; color: var(--accent); white-space: nowrap; }
+.wolf.wolf-idle { left: 50%; transition: none; animation: fx-trot .5s ease-in-out infinite alternate; }
+.wolf.wolf-idle::before { display: none; }
+@keyframes fx-trot { from { transform: translateY(0) rotate(0); } to { transform: translateY(-2px) rotate(-4deg); } }
+html[data-motion="on"]:not([data-fx-wolf="off"]) .progress.remote:has(.wolf-idle) > .bar { display: none; }
+html[data-motion-paused="on"] .wolf-idle { animation-play-state: paused; }
+
 /* Motion & effects levels and families (motion.js applyMotion sets these on <html>) */
 html[data-fx-wolf="off"] .wolf, html[data-fx-sparks="off"] :is(.fx-spark, .fx-fail, .fx-strike, .fx-cool),
 html[data-fx-ambient="off"] :is(.fx-pulse, .fx-settle), html[data-fx-achievements="off"] .fx-achieve { display: none; }

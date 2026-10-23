@@ -325,11 +325,14 @@ const MOTION_LEVEL_HELP = ["No animation at all. Progress, results and errors st
   "Quick page and panel transitions only. No branded effects.",
   "Subtle sparks, embers and the wolf on real progress. Recommended.",
   "The same moments with more character: extra sparks, halftone and offset rings."];
-// Achievement celebrations (motion_achievements, off by default) gets its row when the developer
-// profile (#327) can award something to celebrate; a switch that does nothing would only confuse.
 const MOTION_FAMILIES = [["motion_wolf", "Wolf animations", "The wolf on run progress, its arrival and the Wolf Run after long work."],
   ["motion_sparks", "Forge sparks", "Sparks when work succeeds, the anvil strike after a deployment, the ember when something fails."],
   ["motion_ambient", "Running indicators", "The glow on a running cell, the flow into a running pipeline step, the ring when work starts."]];
+// Achievement celebrations (off by default, #361) shows only while Profile (a Preview feature) can
+// award something; a switch that does nothing would only confuse.
+const MOTION_ACHIEVEMENTS = ["motion_achievements", "Achievement celebrations",
+  "A short reveal on the message when Profile awards you an achievement. Off unless you turn it on."];
+const motionFamilies = () => (previewShown() ? [...MOTION_FAMILIES, MOTION_ACHIEVEMENTS] : MOTION_FAMILIES);
 
 function motionSettingsCard(s, locked) {
   const level = s.motion_level.value;
@@ -350,8 +353,8 @@ function motionSettingsCard(s, locked) {
       reduced ? h("b", {}, "Off now: Windows asks apps to reduce motion. ") : null, learnMore("motion-and-effects")),
     h("div", { class: "choices motion-levels", role: "radiogroup", "aria-label": "Visual intensity" }, [0, 1, 2, 3].map(levelRow)),
     source("motion_level") ? h("div", { class: "setting-source" }, SOURCE_TEXT.policy) : null,
-    MOTION_FAMILIES.map(([key, label, help]) => settingRow(label, level < 2 ? `${help} Plays at Refined and Expressive.` : help,
-      toggle(key, label, s[key]?.value !== false, level < 2), source(key))),
+    motionFamilies().map(([key, label, help]) => settingRow(label, level < 2 ? `${help} Plays at Refined and Expressive.` : help,
+      toggle(key, label, s[key]?.value ?? key !== "motion_achievements", level < 2), source(key))),
     settingRow("Respect Windows' reduced-motion setting",
       "When Windows' Animation effects are off, KratosForge shows no motion. Untick to keep the level you chose anyway.",
       toggle("motion_follow_system", "Respect Windows' reduced-motion setting", s.motion_follow_system?.value !== false), source("motion_follow_system")),
@@ -378,6 +381,7 @@ function showMotionGallery() {
   const deployed = sample("Deployed 4 steps.");
   const passed = sample("Ready: no errors or warnings");
   const lane = h("span", { class: "motion-lane" }, "Kernel idle");
+  const award = sample("Achievement earned: First Flame");
   const trackHost = h("span", { class: "motion-track" });
   const flowHost = h("div", { class: "motion-flow" });
   const flowNote = h("span", { class: "muted-text small" });
@@ -423,6 +427,8 @@ function showMotionGallery() {
     row("Wolf Run", "A cell that ran 10 s or more succeeded.", lane, () => forgeEvent("notebook.long.succeeded", lane)),
     row("Anvil Strike", "A deployment succeeded.", deployed, () => forgeEvent("deploy.succeeded", deployed)),
     row("Cooling spark", "Validate passed, a proof matched, or Fabric confirmed a publish.", passed, () => forgeEvent("validate.passed", passed)),
+    previewShown() ? row("Achievement Reveal", "Profile awarded you an achievement. Plays only with Achievement celebrations on.", award,
+      () => forgeEvent("achievement.unlocked", award)) : null,
     h("div", { class: "motion-demo" }, h("div", {}, h("b", {}, "Energy Flow"),
       h("div", { class: "muted-text small" }, "A pipeline's activities as they really run: the link into the running step flows, a finished step settles.")),
     h("div", { class: "motion-target" }, flowNote), btn("Run sample on this PC", "play", runPipeline, "tool small")),

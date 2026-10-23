@@ -6,7 +6,7 @@
 
 The engine includes Microsoft's SQL driver (`mssql-python`, MIT licence). It brings two Microsoft components that come under Microsoft's own licence terms, not open-source ones:
 
-- **Microsoft ODBC Driver 18 for SQL Server:** `msodbcsql18.dll`, `msodbcdiag18.dll` and `msodbcsqlr18.rll`.
+- **Microsoft ODBC Driver 18 for SQL Server:** `msodbcsql18.dll`, `msodbcdiag18.dll` and `msodbcsqlr18.rll`, plus `mssql-auth.dll`, whose licence is still to be confirmed.
 - **Microsoft Visual C++ runtime:** `msvcp140.dll`.
 
 Their licence files are in the engine at `Lib\site-packages\mssql_python_odbc\libs\windows\x64\` ([Install](install.md)). Section 2 of the ODBC Driver 18 licence lets an application redistribute the driver on three conditions:
@@ -54,5 +54,10 @@ The Microsoft components are provided "as is". Microsoft gives no warranty for t
 ## Before these terms take effect
 
 - Counsel reviews and finalises the terms, including the indemnity KratosBI gives Microsoft.
+- Counsel confirms the right to redistribute each Microsoft file the engine ships:
+  - `msodbcsql18.dll`, `msodbcdiag18.dll` and `msodbcsqlr18.rll` must be on the ODBC Driver 18 REDIST list (`aka.ms/odbc18eularedist`), because section 2(a)(i) covers only the files listed there.
+  - `mssql-auth.dll`, which is also in `libs\windows\x64`, isn't named in these terms or in the package's `LICENSING` file, so its licence and the right to redistribute it need confirming.
+  - `msvcp140.dll` comes with Visual Studio 2017 Tools, Add-ons and Extensions terms, which have no Distributable Code section. The right to redistribute it normally comes from the Visual C++ Redistributable terms instead.
+- Engineering confirms that the driver sends nothing to Microsoft, as section 7 promises, since both Microsoft licences have data-collection clauses. The driver's own Python code makes no network calls other than the warehouse connection; the native DLLs still need a network check on Windows.
 - The app shows the terms and records acceptance: on first run, and in the installer and the Enterprise install docs for managed rollouts. This needs a mockup first.
 - These terms are published before the first Stable release that includes the warehouse driver.

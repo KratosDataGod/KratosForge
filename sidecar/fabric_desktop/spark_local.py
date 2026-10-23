@@ -441,10 +441,7 @@ class LocalSparkSession(SparkSession):
         return bool(self.conn.execute("SELECT 1 FROM duckdb_views() WHERE lower(view_name) = lower(?)", [name]).fetchall())
 
     def _is_local(self, name: str) -> bool:
-        rows = self.conn.execute("SELECT 1 FROM duckdb_views() WHERE lower(view_name) = lower(?) "
-                                 "UNION ALL SELECT 1 FROM duckdb_tables() WHERE lower(table_name) = lower(?)",
-                                 [name, name]).fetchall()
-        return bool(rows)
+        return _sql.is_local(self.conn, name)
 
     def _from_arrow_dataset(self, data: Any) -> DataFrame:
         return DataFrame(self.conn.from_arrow(data), self)

@@ -47,7 +47,7 @@ class ModelBpaMixin:
         store = self._store(project, env)  # type: ignore[attr-defined]
         if not isinstance(store, OneLakeStore):
             raise ValueError(f"{env.title()} keeps its tables on this PC, so it has no semantic model in Fabric to check. "
-                             "Check the model in Test or Prod.")
+                             "Check an environment that runs on Fabric, with its model created there.")
         meta_id = store.lakehouse_ids.get(META_LAKEHOUSE)
         if not meta_id:
             raise LookupError(f"{META_LAKEHOUSE} doesn't exist in the {env} workspace yet; promote to {env} first")

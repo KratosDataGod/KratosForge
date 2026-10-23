@@ -498,3 +498,15 @@ def test_sql_names_rewritten_functions_as_spark_and_reads_not_null_in_a_struct(l
     assert live.sql("SELECT CAST(a AS struct<x:int not null>) AS a FROM nn").collect()[0][0]["x"] == 1
     with pytest.raises(ValueError, match="empty struct<> isn't supported"):
         live.sql("SELECT CAST(NULL AS struct<>)")
+
+
+def test_empty_struct_message_only_when_struct_is_the_error():
+    from fabric_desktop import sql
+    for query in ("SELECT CAST(NULL AS struct<>)", "SELECT CAST(NULL AS array<struct< >>)",
+                  "SELECT CAST(NULL AS struct< >)"):
+        with pytest.raises(ValueError, match="empty struct<> isn't supported"):
+            sql.parse(query)
+    for query in ("SELECT 'struct<>' FRM x y z", "SELECT CAST(NULL AS struct<>) FRM x y z"):
+        with pytest.raises(ValueError, match="Could not read the query"):
+            sql.parse(query)
+    assert sql.parse("SELECT 'struct<>' AS s")

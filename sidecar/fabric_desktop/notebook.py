@@ -301,6 +301,8 @@ class _Run:
         self.started = time.monotonic()
         self.seconds: float | None = None
         self.thread: threading.Thread | None = None
+        self.guest: str | None = None  # the notebook whose cell this is, in a shared session (Kernel.as_guest)
+        self.notebook = ""  # its name, for the other notebooks in the session
         self.done = threading.Event()
         self.watches: list[dict[str, Any]] | None = None
         self._reset()
@@ -602,9 +604,47 @@ class Kernel:
         self._tasks: list[str] = []
         self.task_values: dict[str, dict[str, Any]] = {}
         self.frames = Frames()
+        self._guests: dict[str, dict[str, Any]] = {}  # each guest notebook's variables (as_guest)
+        self._last_runs: dict[str | None, _Run] = {}  # each notebook's last cell in a shared session, for poll
         self.restart()
 
     # ---- namespace
+
+    # A shared session (kernel_sessions.share): other notebooks run in this kernel, with this
+    # spark, its temp views and settings, but each with variables of its own, as in Fabric's
+    # high-concurrency sessions. A request for a guest runs under as_guest(name), and the cell it
+    # starts keeps that name, so ``namespace`` is the guest's own.
+
+    @property
+    def namespace(self) -> dict[str, Any]:
+        guest = getattr(self._local, "guest", None)
+        if not guest:
+            return self._namespace
+        found = self._guests.get(guest)
+        if found is None:
+            # Building it points sys.modules' notebookutils at the guest's copy; both copies talk
+            # to this kernel, so an import in either notebook gets the same behaviour.
+            found = self._guests[guest] = self._base_namespace()
+        return found
+
+    @namespace.setter
+    def namespace(self, value: dict[str, Any]) -> None:
+        self._namespace = value
+
+    @contextlib.contextmanager
+    def as_guest(self, notebook: str | None) -> Iterator[None]:
+        """Requests in this block act for ``notebook``, a guest in this shared session (None: the host)."""
+        before = getattr(self._local, "guest", None)
+        self._local.guest = notebook or None
+        try:
+            yield
+        finally:
+            self._local.guest = before
+
+    def forget_guest(self, notebook: str) -> dict[str, Any]:
+        """A guest left the shared session, or restarted: its variables go; the session stays."""
+        self._last_runs.pop(notebook, None)
+        return {"forgotten": self._guests.pop(notebook, None) is not None}
 
     def _base_namespace(self) -> dict[str, Any]:
         from . import dbutils_local, notebookutils_local
@@ -650,7 +690,7 @@ class Kernel:
         if self._current is not None and not self._current.done.is_set():
             self.interrupt()
         self._widget_thread = None  # a stuck handler keeps the old namespace; the new one is free
-        if hasattr(self, "namespace"):  # not the first start: another kernel in this process may own files
+        if hasattr(self, "_namespace"):  # not the first start: another kernel in this process may own files
             remove_spills()
         self._reset()
 
@@ -665,7 +705,9 @@ class Kernel:
         from . import lakehouse
         lakehouse.reads_reset()
         self.task_values.clear()
-        self.namespace: dict[str, Any] = self._base_namespace()
+        self._guests.clear()  # a restart of the session clears every notebook's variables in it
+        self._last_runs.clear()
+        self.namespace = self._base_namespace()
         self.count = 0
         self.frames.clear()
 
@@ -830,6 +872,15 @@ class Kernel:
 
     # ---- running a cell
 
+    def check_free(self) -> None:
+        """Refuse a cell while one runs: in a shared session, say whose it is."""
+        run = self._current
+        if run is not None and not run.done.is_set():
+            if run.guest != getattr(self._local, "guest", None):
+                raise RuntimeError(f"{run.notebook or 'Another notebook'} is running a cell in this shared session. "
+                                   "Its notebooks run one cell at a time; wait for it, or Cancel it there.")
+            raise RuntimeError("A cell is already running. Wait for it, or Cancel it.")
+
     def start(self, code: str, watches: list[str] | None = None, breakpoints: list[int] | None = None,
               step: bool = False) -> dict[str, Any]:
         """Start ``code`` on its own thread; ``poll`` reports its output as it comes.
@@ -838,8 +889,7 @@ class Kernel:
         (so Cancel and the cell time limit cover them); their values come back in ``watches``.
         ``breakpoints`` (line numbers in the cell) or ``step`` (pause at the first line) run the
         cell under the debugger (debugger.py): ``poll`` reports ``paused`` and ``debug`` resumes."""
-        if self._current is not None and not self._current.done.is_set():
-            raise RuntimeError("A cell is already running. Wait for it, or Cancel it.")
+        self.check_free()
         if self._widget_lock.locked() or self._handler_alive():
             raise RuntimeError("A widget's handler is still running. Run the cell when it finishes, or restart the kernel.")
         widgets = getattr(self.namespace.get("dbutils"), "widgets", None)
@@ -849,12 +899,14 @@ class Kernel:
         lines = check_breakpoints(breakpoints)
         self.count += 1
         run = _Run(self.count)
+        run.guest = getattr(self._local, "guest", None)
+        run.notebook = self.notebook_name
         if lines or step:
             from .redact import secrets
             run.debugger = Debugger(lines, step, self._frame_row, redact=secrets, watches=watches,
                                     on_change=run.set_paused)
             run.debugger.skip = set(self._base_namespace_keys())
-        self._current = run
+        self._current = self._last_runs[run.guest] = run
         run.thread = threading.Thread(target=self._execute, args=(code, run, list(watches or [])), daemon=True,
                                       name=f"cell-{self.count}")
         run.thread.start()
@@ -865,8 +917,15 @@ class Kernel:
 
         ``wait`` seconds is how long to wait for news before answering, so the app can poll slowly."""
         run = self._current
-        if run is None:
-            return {"status": "idle", "execution_count": self.count, "version": 0, "seconds": 0, "outputs": []}
+        guest = getattr(self._local, "guest", None)
+        if run is None or run.guest != guest:
+            # Another notebook's cell, in a shared session, isn't this notebook's to show: it sees its
+            # own last cell, and the session busy all the same (kernel_sessions keeps a busy session).
+            busy = {"session_running": True} if run is not None and not run.done.is_set() else {}
+            mine = self._last_runs.get(guest)
+            if mine is not None:
+                return mine.snapshot(known_version) | busy
+            return {"status": "idle", "execution_count": self.count, "version": 0, "seconds": 0, "outputs": []} | busy
         deadline = time.monotonic() + min(wait, 2.0)
         while run.version == known_version and not run.done.is_set() and time.monotonic() < deadline:
             run.done.wait(0.05)
@@ -875,7 +934,7 @@ class Kernel:
     def interrupt(self) -> dict[str, Any]:
         """Stop the running cell, keeping the namespace. Native code (a DuckDB query) is asked to stop too."""
         run = self._current
-        if run is None or run.done.is_set() or run.thread is None:
+        if run is None or run.done.is_set() or run.thread is None or run.guest != getattr(self._local, "guest", None):
             return {"interrupted": False}
         # Paused: the cell's thread ends it itself. If it doesn't (busy evaluating an expression),
         # interrupt it the usual way.
@@ -897,7 +956,7 @@ class Kernel:
     def debug(self, action: str, expression: str | None = None) -> dict[str, Any]:
         """Resume a paused cell (continue, step, next, out) or evaluate ``expression`` where it is paused."""
         run = self._current
-        if run is None or run.done.is_set() or run.debugger is None:
+        if run is None or run.done.is_set() or run.debugger is None or run.guest != getattr(self._local, "guest", None):
             raise RuntimeError("No cell is running under the debugger.")
         return run.debugger.command(action, expression)
 
@@ -917,6 +976,7 @@ class Kernel:
         ident = threading.get_ident()
         out.targets[ident] = err.targets[ident] = run
         self._local.run = run
+        self._local.guest = run.guest  # this thread is the cell's: its namespace is its notebook's
         status = "error"
         restart = False
         history.record_input(self.namespace, run.count, code)
@@ -946,7 +1006,11 @@ class Kernel:
             out.targets.pop(ident, None)
             err.targets.pop(ident, None)
             self._local.run = None
-            if restart:
+            if restart and run.guest:
+                self._guests.pop(run.guest, None)  # a guest restarts only its own variables
+                run.add({"type": "text", "text": "Python restarted for this notebook. Its variables were cleared; "
+                                                 "the shared session goes on."})
+            elif restart:
                 self._reset()  # this cell is the one running, so there is nothing to interrupt
                 run.add({"type": "text", "text": "Python restarted. Variables were cleared."})
             run.finish(status)
@@ -1255,6 +1319,10 @@ class Kernel:
             return _fs_magic(self.namespace["notebookutils"].fs, line)
         if name == "pip":
             from . import pip_magic
+            guest = getattr(self._local, "guest", None)
+            if guest and line.split()[:1] == ["install"]:
+                raise ValueError(f"{guest} shares another notebook's session, so it uses that notebook's environment. "
+                                 "Run %pip install in that notebook, or leave the shared session (Sessions) first.")
             pip_magic.run(line, self.engine_call, lambda path: pip_magic.read_text(path, self.resources_dir))
             return None
         if name == "conda":

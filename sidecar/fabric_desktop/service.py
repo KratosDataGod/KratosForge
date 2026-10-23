@@ -82,6 +82,13 @@ def data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
+
+def _lakehouse_key(ref: Any) -> Any:
+    """A lakehouse reference's identity: its id, else its name."""
+    if isinstance(ref, dict):
+        return ref.get("lakehouse_id") or ref.get("name") or None
+    return ref or None
+
 class Service(AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
@@ -229,6 +236,7 @@ class Service(AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineR
     def kernel_sessions(self) -> dict[str, Any]:
         """The Sessions list: each notebook's session, and sessions stopped since the last look."""
         return {"process": self.sessions.in_process, "sessions": self.sessions.describe(),
+                "shared": self.sessions.joined(),
                 "notes": self.sessions.take_notes(), "max_sessions": int(app_settings.value("kernel_max_sessions") or 0),
                 "idle_minutes": float(app_settings.value("kernel_idle_minutes") or 0)}
 
@@ -238,6 +246,34 @@ class Service(AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineR
         if self.proof_busy() and (notebook is None or notebook == self.sessions.active):
             raise RuntimeError("A proof is using the kernel. Cancel the proof first.")
         return self.sessions.stop(self.sessions.active if notebook is None else notebook)
+
+    def kernel_session_share(self, notebook: str, host: str) -> dict[str, Any]:
+        """``notebook`` joins ``host``'s session, as Fabric's high-concurrency sessions do: same
+        ``spark``, temp views and settings, one cell at a time, variables of its own. Like Fabric,
+        both need the same default lakehouse and environment. ``notebook``'s own session ends."""
+        if self.proof_busy():
+            raise RuntimeError("A proof is using a notebook's kernel. Share sessions when it has finished.")
+        host = self.sessions.host_of(host) or host
+        lakehouse_of = self._saved_lakehouse
+        if lakehouse_of(notebook) != lakehouse_of(host):
+            raise RuntimeError(f"{notebook} and {host} have different default lakehouses. Notebooks in a shared "
+                               "session use the same one, as in Fabric; change one of them first.")
+        if self.environments.of(notebook) != self.environments.of(host):
+            raise RuntimeError(f"{notebook} and {host} use different environments. Notebooks in a shared session "
+                               "use the same one, as in Fabric; change one of them first.")
+        return self.sessions.share(notebook, host)
+
+    def _saved_lakehouse(self, name: str) -> Any:
+        """A notebook's saved default lakehouse, by id (or name), for a shared session's match."""
+        try:
+            ref = self.notebooks.load(name).get("lakehouse")
+        except (OSError, KeyError, ValueError):
+            return None  # a notebook that isn't saved yet has none
+        return _lakehouse_key(ref)
+
+    def kernel_session_leave(self, notebook: str) -> dict[str, Any]:
+        """``notebook`` leaves its shared session; its next cell starts a session of its own."""
+        return self.sessions.leave(notebook)
 
     def app_settings(self) -> dict[str, Any]:
         return {**app_settings.load(), "policy_file": str(app_settings.policy_path()),
@@ -469,6 +505,10 @@ class Service(AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineR
         if self.proof_busy():
             raise RuntimeError("A proof is running this notebook's kernel. Wait for it, or cancel it.")
         self._replay_guard(notebook)  # prove_service: a replay's cells run only inside it
+        host = self.sessions.host_of(notebook)
+        if host and lakehouse_ref and _lakehouse_key(lakehouse_ref) != self._saved_lakehouse(host):
+            raise RuntimeError(f"{notebook} shares {host}'s session but now has another default lakehouse. Change it "
+                               f"back to {host}'s, or leave the shared session (Sessions).")
         # Busy is checked before attaching, under the lock external runs take: a refused start must
         # not re-point the running cell, and an external run can't re-point this one as it starts.
         if not self.attach_lock.acquire(timeout=ATTACH_WAIT_SECONDS):

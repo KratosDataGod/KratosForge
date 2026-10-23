@@ -1939,6 +1939,11 @@ html[data-fx-ambient="on"] .flow-node[data-state="running"] .flow-link::after { 
 .qprofile tr.slowest td { background: var(--accent-soft); }
 .qprofile-flag { margin-left: 8px; font-size: 11px; font-weight: 600; padding: 1px 6px; border: 1px solid var(--brand-orange); border-radius: 3px; }
 
+/* Shared notebook sessions (sessions.js). */
+.share-session { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 12px; }
+.share-session .row { gap: 8px; }
+.share-session select { flex-grow: 1; }
+.status-link.shared-session { color: var(--accent); background: var(--accent-soft); border-radius: 3px; padding: 0 6px; font-weight: 600; }
 /* The Fabric step (fabricstep.js): the last cell, run on Fabric Spark for V-Order */
 .cell-head .fabric-step-tag { background: var(--accent); color: #ffffff; }
 .fabric-step-output { display: flex; flex-direction: column; gap: 8px; }

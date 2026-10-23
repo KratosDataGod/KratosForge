@@ -266,6 +266,7 @@ def test_a_cell_that_ignores_the_interrupt_has_its_process_ended(kernel, quick_l
     kernel.time_limit = 0.5
     snap = until_done(kernel)
     assert snap["status"] == "error" and "didn't stop when interrupted" in text(snap)
+    kernel.time_limit = None  # the check runs in a fresh process, whose start a slow runner can take past 0.5 s
     out = kernel.run("'kept' in dir()")
     assert out["outputs"] == [{"type": "text", "text": "False"}] and kernel.pid != pid
 

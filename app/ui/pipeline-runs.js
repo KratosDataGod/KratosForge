@@ -35,7 +35,7 @@ function pipelineRunRows(runs) {
       at: run.started, ...pipelineRunStatus(run), activity: run.pipeline || "Pipeline", env: "", where: "local", ranOn: "This PC",
       kind: "Pipeline run", note: "", reason: run.state === "interrupted" ? "KratosForge stopped while this run was going" : "",
       envWhy: "Pipeline runs on this PC aren't tied to an environment",
-      tags: [mocked ? h("span", { class: "pill-s neu" }, `${mocked} mocked`) : null, previewTag()],
+      tags: mocked ? [h("span", { class: "pill-s neu" }, `${mocked} mocked`)] : [],
       seconds: run.seconds, rows: "—", pipelineRun: run.run_id,
     };
   });

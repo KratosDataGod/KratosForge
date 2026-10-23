@@ -44,7 +44,7 @@ test("a mocked run never reads as plain Succeeded", { skip }, async () => {
   assert.ok(ok && bad, texts.join("\n"));
   for (const t of texts) {
     assert.match(t, /pl_reference_local/);
-    assert.match(t, /Pipeline run 2 mocked ?Preview/);
+    assert.match(t, /Pipeline run 2 mocked/);
     assert.match(t, /No environment/);
     assert.match(t, /This PC/);
   }

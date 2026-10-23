@@ -17,14 +17,14 @@ A capability is only as far along as its weakest evidence. A passing unit test i
 
 ## Verdict
 
-**Not ready for an enterprise pilot.** Three gates are met (7, 8, 9). Two are blocked on Chris (signing, live verification), and two High findings are still open (SH-1, SH-2). Nothing is live-tenant verified.
+**Not ready for an enterprise pilot.** Four gates are met (2, 7, 8, 9). Two are blocked on Chris (signing, live verification), and one High finding is still open (SH-2, unsigned updates, which signing closes). Nothing is live-tenant verified.
 
 ## Gates
 
 | # | Gate | Acceptance criteria | Evidence today | State |
 | --- | --- | --- | --- | --- |
-| 1 | Security verification | No open High finding in the [register](findings.md); CSP set; external-tool approvals bound to the code they run; token cache encrypted on Windows; security docs match the code | 2 High findings open: no CSP (SH-1), unsigned updates (SH-2). EN-1 fixed (#156); security docs corrected (#137); token cache plaintext (awaits D-C2) | **Failing** |
-| 2 | Automated tests | Engine, UI, browser and Rust suites all run in CI on every PR and all pass; failure-injection tests for post-commit failures, restore and leases exist | Engine (1,915 pass, 2 skipped) and UI suites run in CI; failure-injection tests added (#138, #152, #155, #159, #180). Rust tests (SH-6, HD-011) and browser tests (UI-8, HD-052) don't run in CI | **Partly met** |
+| 1 | Security verification | No open High finding in the [register](findings.md); CSP set; external-tool approvals bound to the code they run; token cache encrypted on Windows; security docs match the code | CSP set in `tauri.conf.json` (SH-1 closed); the Fabric view opens only Fabric and sign-in hosts (SH-12, #259); RPC replies matched by id (SH-11). Still open: unsigned updates (SH-2, High) and the plain-text token cache (awaits D-C2) | **Failing: Chris (D-C2, D-C3)** |
+| 2 | Automated tests | Engine, UI, browser and Rust suites all run in CI on every PR and all pass; failure-injection tests for post-commit failures, restore and leases exist | Engine, UI, browser (`ui-browser` job, headless Chromium) and Rust (`cargo test --release --locked`) suites run in `ci.yml` on every PR; failure-injection tests added (#138, #152, #155, #159, #180) | **Met** |
 | 3 | Live integration verification | FD-101 harness passes on a designated non-production workspace; summary recorded in release-readiness.md with date and build | Harness merged (#80), never run | **Blocked: Chris (HD-029)** |
 | 4 | Build signing and integrity | Exe and engine DLLs Authenticode-signed; release fails if unsigned; checksums required; provenance attested | Signing steps built but skipped (no account); unsigned releases publish without failing (SH-2); checksums required (SH-3, #158); attestations produced, not verified | **Blocked: Chris (D-C3)** |
 | 5 | Installer and update reliability | Stable never installs a Preview engine; downgrades refused; failed update restores the previous exe; agent installers use pinned dependencies | Stable never takes a Preview engine after a network error and checksums are required (#158). Out-of-date channel releases refused and the previous exe kept until the new one starts (SH-5, HD-022; Windows check pending); agent installer unpinned (SH-9); no MSI | **Partly met** |
@@ -32,7 +32,7 @@ A capability is only as far along as its weakest evidence. A passing unit test i
 | 7 | Backup and restore | Restore yields exactly the backed-up state, verified by hash; refuses while in use; runbook in docs | Restore removes stale WAL files, refuses databases in use and verifies each file's SHA-256 (#155); docs (#91) | **Met** |
 | 8 | Enterprise configuration policies | Invalid or wrongly typed policy fails closed and is shown in Settings; every documented key tested | Fails closed and keeps the last good copy, shown in Settings (#165) | **Met** |
 | 9 | Operational logging and diagnostics | Logs and bundles never contain secrets (shared redaction cases pass through every writer); audit chain verifies with concurrent writers | Agent log fields redacted before encoding (#157); audit chain holds across processes (#182); more secret patterns (#181, #215) | **Met** |
-| 10 | Documentation and support | Install, enterprise install, security, permissions, backup, troubleshooting accurate at the release commit; support route agreed with pilot | False statements corrected (#137); readiness pages refreshed. No security evidence pack, privacy statement or support terms yet | **Partly met** |
+| 10 | Documentation and support | Install, enterprise install, security, permissions, backup, troubleshooting accurate at the release commit; support route agreed with pilot | False statements corrected (#137); [security evidence pack](../evidence-pack.md) (#236) with every outbound host; policy file permissions documented (#261). Privacy statement and support terms drafted, waiting on KratosBI's details | **Partly met: Chris** |
 
 ## Capability evidence
 

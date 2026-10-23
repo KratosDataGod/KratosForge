@@ -485,3 +485,16 @@ def test_months_between_counts_time_and_rounds_and_element_at_refuses_index_0_as
                   live.sql("SELECT element_at(array(1, 2), 0)")):
         with pytest.raises(Exception, match="index 0 is invalid"):
             rows(frame)
+
+
+def test_sql_names_rewritten_functions_as_spark_and_reads_not_null_in_a_struct(live):
+    out = live.sql("SELECT months_between('2024-03-01', '2024-01-31'), substring('abc', 0, 2) AS s, "
+                   "slice(array(1, 2), 1, 1), upper('a')")
+    assert out.columns == ["months_between('2024-03-01', '2024-01-31')", "s", "slice(array(1, 2), 1, 1)", "upper('a')"]
+    assert rows(out) == [(1.03225806, "ab", [1], "A")]
+    grouped = live.sql("SELECT substring(v, 0, 1), count(*) FROM VALUES ('ab'), ('ac') AS t(v) GROUP BY substring(v, 0, 1)")
+    assert rows(grouped) == [("a", 2)]
+    live.sql("CREATE OR REPLACE TEMP VIEW nn AS SELECT named_struct('x', 1) AS a")
+    assert live.sql("SELECT CAST(a AS struct<x:int not null>) AS a FROM nn").collect()[0][0]["x"] == 1
+    with pytest.raises(ValueError, match="empty struct<> isn't supported"):
+        live.sql("SELECT CAST(NULL AS struct<>)")

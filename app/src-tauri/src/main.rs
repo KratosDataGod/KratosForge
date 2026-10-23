@@ -718,6 +718,26 @@ async fn check_components() -> Result<Value, String> {
     Ok(report)
 }
 
+/// "Check for updates" (account menu, Settings): the channel's newest build, put through the same
+/// release rule as the startup check, so update_app will install it. Leaves the engine alone: the
+/// new build's startup check updates it.
+#[tauri::command]
+async fn check_for_update() -> Result<Value, String> {
+    let out = updater(&["latest"])?.output().map_err(|e| format!("Python was not found ({e})."))?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        return Err(format!("Python could not run the update check. {}", stderr.trim()));
+    }
+    let mut latest: Value = serde_json::from_slice(&out.stdout)
+        .map_err(|_| "Python gave an unexpected answer to the update check.".to_string())?;
+    apply_release_rule(&mut latest);
+    Ok(json!({
+        "commit": if BUILD_COMMIT.is_empty() { Value::Null } else { json!(BUILD_COMMIT) },
+        "auto_update": auto_update_allowed(),
+        "latest": latest,
+    }))
+}
+
 /// Installs the sidecar from the commit this exe was built from, so the two always match:
 /// the bundled engine for release builds, else pip into the user's Python. Returns the
 /// engine's build, which can be newer than this exe when the release has moved on (never with
@@ -1840,7 +1860,7 @@ fn main() {
         .register_uri_scheme_protocol(OUTPUT_SCHEME, |ctx, _| output_frame(ctx.webview_label()))
         .on_window_event(on_window_event)
         .invoke_handler(tauri::generate_handler![
-            rpc, stop_kernel, check_components, update_sidecar, update_app,
+            rpc, stop_kernel, check_components, check_for_update, update_sidecar, update_app,
             fabric_view_show, fabric_view_hide, fabric_view_action, open_doc, fabric_view_sign_out, open_link,
             pop_out_open, pop_out_close, pop_out_on_top, pop_out_list, pop_out_open_in_fabric
         ])

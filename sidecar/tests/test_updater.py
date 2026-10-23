@@ -322,6 +322,22 @@ def test_check_reports_python(monkeypatch, capsys):
     assert report["sidecar"]["error"] is None
 
 
+def test_latest_reports_the_channels_build_and_release_page(monkeypatch, capsys):
+    # "Check for updates": the build and where to download it by hand, without the engine check.
+    monkeypatch.setattr(updater, "installed_sidecar", lambda: pytest.fail("the manual check doesn't check the engine"))
+    monkeypatch.setattr(updater, "latest_release", lambda: {"commit": SHA, "error": None, "tag": "preview"})
+    assert updater.main(["latest"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["commit"] == SHA
+    assert report["page"] == "https://github.com/KratosDataGod/KratosForge/releases/tag/latest"
+
+
+def test_latest_offline_still_names_the_channels_release_page(monkeypatch):
+    monkeypatch.setattr(updater, "channel", lambda: "stable")
+    monkeypatch.setattr(updater, "latest_release", lambda: {"commit": None, "error": "URLError: offline"})
+    assert updater.latest()["page"] == "https://github.com/KratosDataGod/KratosForge/releases/tag/stable"
+
+
 class FakeFile(str):
     @property
     def suffix(self):

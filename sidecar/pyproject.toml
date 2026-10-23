@@ -41,6 +41,10 @@ dependencies = [
     # Format cell and Format notebook (code_format.py), Black's style as Fabric and Databricks format
     # Python. One program of its own, no dependencies; about 11 MB as a wheel, 25 MB installed.
     "ruff>=0.17,<0.18",
+    # Queries on a Fabric Data warehouse or SQL analytics endpoint (SQL-004). Microsoft's driver: it brings
+    # its own ODBC Driver 18, so nobody installs anything, and takes the sign-in token we already hold.
+    # It also brings azure-identity, which the app doesn't use for sign-in. About 15 MB of wheels, 41 MB installed.
+    "mssql-python>=1.16,<1.17",
     # Semantic models to and from Apache Ossie (the vendored converter in _vendor/ossie_microsoft
     # needs PyYAML and sqlglot>=30.12; bokeh brings PyYAML already, so this only makes it explicit).
     "PyYAML>=6",

@@ -2,7 +2,7 @@
 
 Everything a security or IT team needs to review KratosForge before approving it, in one place. Each row links to the page or file that holds the evidence. Where something is missing or unverified, the row says so.
 
-Last checked against `main` a346145 (2026-10-18). Nothing in this pack has been verified on a live Fabric tenant yet. That is gate 3 in the [readiness checklist](hardening/readiness-checklist.md).
+Last checked against `main` c9874896 (2026-10-23). Nothing in this pack has been verified on a live Fabric tenant yet. That is gate 3 in the [readiness checklist](hardening/readiness-checklist.md).
 
 ## At a glance
 
@@ -16,7 +16,7 @@ Last checked against `main` a346145 (2026-10-18). Nothing in this pack has been 
 | Is customer data collected? | No. Usage data is off by default and never holds data, names, accounts or tenants | [Usage data](telemetry.md) |
 | Can IT control it? | Yes. A policy file fixes settings for everyone, including tenants allowed, runs in Fabric, updates, telemetry and AI tools | [Configure Azure and Fabric: policy file](azure-setup.md#4-push-settings-to-everyone) |
 | Is it signed? | **Not yet.** Waiting on a code signing account | [Release readiness, row 1](product/release-readiness.md#whats-missing-for-an-enterprise-approved-app) |
-| Is the sign-in cache encrypted? | **Not yet.** It is a plain file in the user's profile | [Security model: threats](security.md#threats-and-what-stops-them) |
+| Is the sign-in cache encrypted? | Yes, on Windows: Windows DPAPI for the person's own Windows account, so a copied file is useless on another account or PC. Programs running as that person can still read it | [Security model: threats](security.md#threats-and-what-stops-them) |
 
 ## Documents
 
@@ -72,12 +72,11 @@ These are the flows the app itself starts, from the hosts named in its source co
 These are the items a reviewer will raise. They are tracked in [release readiness](product/release-readiness.md#whats-missing-for-an-enterprise-approved-app):
 
 - unsigned builds;
-- the plain-text token cache;
 - no live tenant run;
 - no MSI or MSIX, so the engine is installed in each person's own profile;
 - Preview features.
 
-Closed since the first version of this page: the app has a Content Security Policy, and earlier builds are kept so IT can promote or reinstall a named build ([rollback](release-management/README.md#rollback)).
+Closed since the first version of this page: the app has a Content Security Policy, the sign-in cache is encrypted on Windows, and earlier builds are kept so IT can promote or reinstall a named build ([rollback](release-management/README.md#rollback)).
 
 A privacy statement and support terms are being drafted for KratosBI to approve as the publisher.
 

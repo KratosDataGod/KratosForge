@@ -27,6 +27,8 @@ Tables (T-SQL schema.table; SQLite schema__table):
     catalog.source       every source system: the id business keys use, code, owner, type, expected
                          arrival in LH_Landing, connections per env (one list for every project)
     catalog.reader       which project reads which landing zone source
+    catalog.landing_zone the central landing workspace's zones (Preview): Shared, a domain's, or a secure
+                         one for PII or PHI, each its own lakehouse; a source's zone column names its zone
     catalog.request      requests from domain teams: a key table, a source, or access to a product
     catalog.grant        projects let in to a domain or private product by its owner
     catalog.shortcut     every OneLake shortcut last seen in a scan: its target and health
@@ -36,7 +38,8 @@ Tables (T-SQL schema.table; SQLite schema__table):
 
 Who may change what (the caller is always who Fabric says it is, see udf.py):
 
-    platform admins      domains, key tables, source systems, glossary, admins, shortcut rules, and every request
+    platform admins      domains, key tables, source systems, landing zones, glossary, admins, shortcut rules,
+                         and every request
     domain owners        glossary terms of their domain
     product owners       access requests to their product
     everyone             reading, issuing keys from existing key tables, catalog text, products, links, requests
@@ -154,7 +157,7 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
                   ("created_at", "text"), ("created_by", "text")],
     "source": [("name", "key"), ("title", "text"), ("description", "long"), ("owner", "text"),
                ("expected_hours", "text"), ("connections", "long"), ("updated_at", "text"), ("updated_by", "text"),
-               ("source_id", "text"), ("code", "text"), ("system_type", "text"), ("active", "text")],
+               ("source_id", "text"), ("code", "text"), ("system_type", "text"), ("active", "text"), ("zone", "text")],
     "reader": [("id", "key"), ("project", "text"), ("source", "text"), ("entities", "long"), ("updated_at", "text")],
     "request": [("id", "key"), ("kind", "text"), ("target", "text"), ("detail", "long"), ("project", "text"),
                 ("reason", "long"), ("requested_by", "text"), ("requested_at", "text"), ("status", "text"),
@@ -165,6 +168,9 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
                  ("lakehouse_name", "text"), ("path", "text"), ("name", "text"), ("target", "long"),
                  ("health", "text"), ("health_detail", "long"), ("checked_at", "text"), ("first_seen", "text"),
                  ("last_seen", "text")],
+    "landing_zone": [("id", "key"), ("name", "text"), ("domain_id", "text"), ("workspace_id", "text"),
+                     ("workspace_name", "text"), ("lakehouse_id", "text"), ("lakehouse_name", "text"), ("secure", "text"),
+                     ("readers", "long"), ("label", "text"), ("devtest", "text"), ("updated_at", "text"), ("updated_by", "text")],
     "shortcut_scope": [("lakehouse_id", "key"), ("first_scan", "text"), ("last_scan", "text")],
     "shortcut_change": [("id", "key"), ("at", "text"), ("kind", "text"), ("shortcut_id", "text"),
                         ("workspace_name", "text"), ("lakehouse_name", "text"), ("name", "text"),
@@ -199,6 +205,7 @@ def ensure_schema(db: Db) -> dict[str, Any]:
         created.append("catalog.audit")
     created += ensure_source_ids(db)
     created += ensure_domain_columns(db)
+    created += ensure_landing_zones(db)
     for hook in SCHEMA_HOOKS:
         created += hook(db)
     _upsert(db, "config", "setting", "name", {"name": "schema_version", "value": str(SCHEMA_VERSION)})
@@ -964,6 +971,7 @@ def list_sources(db: Db) -> list[dict[str, Any]]:
         src["connections"] = json.loads(src["connections"] or "{}")
         src["source_id"] = int(src["source_id"])
         src["active"] = src["active"] != "0"
+        src["zone"] = src.get("zone") or ""  # empty: the Shared zone
         src["readers"] = [{"project": r["project"], "entities": json.loads(r["entities"] or "[]")}
                           for r in readers if r["source"] == src["name"]]
     return sorted(sources, key=lambda x: x["name"])
@@ -988,14 +996,21 @@ def _source_row(source: dict[str, Any], by: str) -> dict[str, Any]:
     return {"name": name, "title": str(source.get("title") or name), "description": str(source.get("description") or ""),
             "owner": str(source.get("owner") or ""), "expected_hours": hours, "connections": json.dumps(conns),
             "updated_at": _now(), "updated_by": by, "code": code, "system_type": str(source.get("system_type") or ""),
-            "active": "0" if source.get("active") is False else "1"}
+            "active": "0" if source.get("active") is False else "1",
+            # None keeps the zone a source already has (callers that don't know zones, like adopt_sources).
+            "zone": None if source.get("zone") is None else _source_zone(source.get("zone"))}
 
 
 def _put_source(db: Db, row: dict[str, Any], source_id: Any = None) -> None:
     """Add or change one source. An existing source keeps its id; a new one takes ``source_id``
     (a project's own id, when sources move to the platform) or the next free one."""
     ensure_source_ids(db)
+    ensure_landing_zones(db)
     before = _row(db, "source", "name", row["name"])
+    if row.get("zone") is None:
+        row = row | {"zone": (before or {}).get("zone") or ""}
+    if row["zone"] and not _row(db, "landing_zone", "id", row["zone"]):
+        raise PlatformError(f"{row['zone']} isn't a landing zone: pick one from Platform > Landing zone")
     if before:
         row = row | {"source_id": before["source_id"]}
     else:
@@ -1017,7 +1032,8 @@ def _put_source(db: Db, row: dict[str, Any], source_id: Any = None) -> None:
 
 def save_source(db: Db, source: dict[str, Any], by: str = "") -> list[dict[str, Any]]:
     """Add or change a source system, landed in LH_Landing (Files/<name>/<entity>/) and read by
-    projects with the same id everywhere. Platform admins only."""
+    projects with the same id everywhere. ``zone`` is its landing zone's id; empty is the Shared
+    zone. Platform admins only."""
     row = _source_row(source, by)
     require_admin(db, by, "add or change source systems")
     _put_source(db, row)
@@ -1072,6 +1088,132 @@ def delete_source(db: Db, name: str, by: str = "") -> list[dict[str, Any]]:
     _audit(db, by, "delete source", name)
     db.commit()
     return list_sources(db)
+
+
+# --------------------------------------------------------------------------- landing zones (Preview)
+
+# One landing workspace read by Dev, Test and Prod, split into zones. Each zone is its own lakehouse:
+# Shared (LH_Landing) for every domain, a domain's own (LH_Landing_HR), or a secure one for PII or PHI
+# (LH_Landing_HR_Secure) that only its readers may read. A zone's devtest says whether Dev and Test
+# read it ("read") or only Prod does ("none", the default for a new zone). The app creates each
+# lakehouse in Fabric (central/setup.py); this records it. Access roles and labels are set in Fabric.
+SHARED_ZONE = "shared"
+DEVTEST = ("none", "read")
+
+
+def zone_key(name: Any) -> str:
+    """A zone's id from its name: HR-Secure is hr_secure."""
+    zid = re.sub(r"[^a-z0-9]+", "_", str(name or "").strip().lower()).strip("_")
+    if not zid or not zid[0].isalpha() or len(zid) > 40:
+        raise PlatformError(f"{name!r}: a landing zone's name starts with a letter and has letters, digits, "
+                            "spaces, - or _, up to 40")
+    return zid
+
+
+def zone_lakehouse(name: Any) -> str:
+    """The lakehouse a zone lives in: LH_Landing for Shared, LH_Landing_<Name> for the rest."""
+    if zone_key(name) == SHARED_ZONE:
+        return "LH_Landing"
+    return "LH_Landing_" + re.sub(r"[^A-Za-z0-9]+", "_", str(name).strip()).strip("_")
+
+
+def _source_zone(value: Any) -> str:
+    zid = str(value or "").strip()
+    return "" if not zid or zone_key(zid) == SHARED_ZONE else zone_key(zid)
+
+
+def ensure_landing_zones(db: Db) -> list[str]:
+    """Give a platform made before landing zones catalog.landing_zone and catalog.source.zone.
+    Additive only, safe to run again."""
+    added = []
+    if not db.exists("catalog", "landing_zone"):
+        db.run(f"CREATE TABLE {db.t('catalog', 'landing_zone')} "
+               f"({', '.join(_column(db, n, k) for n, k in _CATALOG['landing_zone'])})")
+        added.append("catalog.landing_zone")
+    if db.exists("catalog", "source") and "zone" not in _columns(db, "source"):
+        db.run(f"ALTER TABLE {db.t('catalog', 'source')} ADD {'' if db.tsql else 'COLUMN '}{_column(db, 'zone', 'text')}")
+        added.append("catalog.source.zone")
+    if added:
+        db.commit()
+    return added
+
+
+def _zone_out(row: dict[str, Any], sources: list[dict[str, Any]]) -> dict[str, Any]:
+    zone = dict(row)
+    zone["secure"] = zone.get("secure") == "1"
+    zone["readers"] = json.loads(zone.get("readers") or "[]")
+    zone["devtest"] = zone.get("devtest") or ("read" if zone["id"] == SHARED_ZONE else "none")
+    zone["sources"] = sorted(s["name"] for s in sources if (s.get("zone") or SHARED_ZONE) == zone["id"])
+    return zone
+
+
+def list_landing_zones(db: Db) -> list[dict[str, Any]]:
+    """Every landing zone, Shared first, with the sources in each. Empty until the central landing
+    workspace is set up (a read never migrates the catalog)."""
+    if not db.exists("catalog", "landing_zone"):
+        return []
+    sources = db.rows(f"SELECT * FROM {db.t('catalog', 'source')}")
+    zones = [_zone_out(r, sources) for r in db.rows(f"SELECT * FROM {db.t('catalog', 'landing_zone')}")]
+    return sorted(zones, key=lambda z: (z["id"] != SHARED_ZONE, (z["name"] or "").lower()))
+
+
+def save_landing_zone(db: Db, zone: dict[str, Any], by: str = "") -> list[dict[str, Any]]:
+    """Add or change a landing zone: its name, domain, readers, whether it's secure, its label, and
+    whether Dev and Test read it. Where it lives (workspace and lakehouse) is kept once recorded.
+    Platform admins only."""
+    name = str(zone.get("name") or "").strip()
+    zid = zone_key(zone.get("id") or name)
+    require_admin(db, by, "add or change landing zones")
+    ensure_landing_zones(db)
+    before = _row(db, "landing_zone", "id", zid) or {}
+    name = name or before.get("name") or ""
+    if not name:
+        raise PlatformError("A landing zone needs a name")
+    devtest = str(zone.get("devtest") or before.get("devtest") or ("read" if zid == SHARED_ZONE else "none"))
+    if devtest not in DEVTEST:
+        raise PlatformError("Dev and Test either don't read the zone (none) or read it like Prod (read)")
+    domain = str((zone["domain_id"] if "domain_id" in zone else before.get("domain_id")) or "").strip()
+    if domain:
+        domain = domain_id(domain)
+        if not _row(db, "domain", "id", domain):
+            raise PlatformError(f"domain {domain} doesn't exist: add it first in Platform > Domains")
+    readers = zone["readers"] if "readers" in zone else json.loads(before.get("readers") or "[]")
+    if isinstance(readers, str):
+        readers = re.split(r"[,;\n]", readers)
+    readers = sorted({str(r).strip() for r in readers or [] if str(r).strip()})
+    secure = bool(zone["secure"]) if "secure" in zone else before.get("secure") == "1"
+    if zid == SHARED_ZONE and secure:
+        raise PlatformError("The Shared zone is read by every domain, so it can't be secure: make a secure zone for that data")
+    row = {"id": zid, "name": name, "domain_id": domain or None,
+           "workspace_id": str(zone.get("workspace_id") or before.get("workspace_id") or ""),
+           "workspace_name": str(zone.get("workspace_name") or before.get("workspace_name") or ""),
+           "lakehouse_id": str(zone.get("lakehouse_id") or before.get("lakehouse_id") or ""),
+           "lakehouse_name": str(zone.get("lakehouse_name") or before.get("lakehouse_name") or zone_lakehouse(name)),
+           "secure": "1" if secure else "0", "readers": json.dumps(readers),
+           "label": str((zone["label"] if "label" in zone else before.get("label")) or "").strip(),
+           "devtest": devtest, "updated_at": _now(), "updated_by": by}
+    _upsert(db, "catalog", "landing_zone", "id", row)
+    _audit(db, by, "save landing zone", zid, {k: v for k, v in row.items() if k not in ("updated_at", "updated_by")})
+    db.commit()
+    return list_landing_zones(db)
+
+
+def delete_landing_zone(db: Db, id: str, by: str = "") -> list[dict[str, Any]]:
+    """Take a zone out of the catalog. Its lakehouse and files stay in Fabric. Refused while a source
+    is in it (a source with no zone is in Shared). Platform admins only."""
+    zid = zone_key(id)
+    require_admin(db, by, "remove landing zones")
+    zone = next((z for z in list_landing_zones(db) if z["id"] == zid), None)
+    if zone is None:
+        raise PlatformError(f"{zid} isn't a landing zone")
+    if zone["sources"]:
+        used = zone["sources"]
+        raise PlatformError(f"{zone['name']} still holds {', '.join(used)}: move {'it' if len(used) == 1 else 'them'} "
+                            "to another zone first")
+    db.run(f"DELETE FROM {db.t('catalog', 'landing_zone')} WHERE id = ?", (zid,))
+    _audit(db, by, "delete landing zone", zid)
+    db.commit()
+    return list_landing_zones(db)
 
 
 def _save_readers(db: Db, project: str, landing: dict[str, list[str]]) -> None:
@@ -1427,6 +1569,8 @@ OPERATIONS = {
     "whoami": whoami, "list_admins": list_admins, "claim_admin": claim_admin, "add_admin": add_admin,
     "remove_admin": remove_admin, "list_key_tables": list_key_tables, "list_sources": list_sources,
     "save_source": save_source, "delete_source": delete_source, "adopt_sources": adopt_sources, "request": request, "list_requests": list_requests,
+    "list_landing_zones": list_landing_zones, "save_landing_zone": save_landing_zone,
+    "delete_landing_zone": delete_landing_zone,
     "decide_request": decide_request, "withdraw_request": withdraw_request, "list_grants": list_grants,
     "revoke_grant": revoke_grant, "record_shortcuts": record_shortcuts, "log_shortcut_change": log_shortcut_change,
     "record_shortcut_health": record_shortcut_health, "list_seen_shortcuts": list_seen_shortcuts,

@@ -1081,6 +1081,9 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .plat-stat .plat-n { font-size: 24px; font-weight: 600; }
 .plat-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 14px; align-items: start; }
 .plat-two > .card { display: flex; flex-direction: column; gap: 10px; }
+.zone-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; margin: 4px 0 12px; }
+.zone-card { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.zone-card.secure { border: 2px solid #c98a2b; }
 .plat-subdomain { padding-left: 28px; border-left: 3px solid var(--border-input); }
 @media (max-width: 1000px) { .plat-two { grid-template-columns: minmax(0, 1fr); } }
 

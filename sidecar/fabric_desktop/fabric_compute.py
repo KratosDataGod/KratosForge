@@ -148,6 +148,8 @@ def run_bundle(bundle: str | Path, entities: str = "", backfill: str = "", casca
             keys_store = PlatformKeys(FabricPlatform(fabric_token, pk["workspace_id"], pk["functions_id"]), env)
     else:
         store, keys_store = stores
+    if config.get("landing") is not None:  # central landing: each source's zone, resolved when the run was sent
+        store.landing_zones = lambda: config["landing"]
     names = [n.strip() for n in entities.split(",") if n.strip()] or None
     started = dt.datetime.now(dt.timezone.utc)
     links = config.get("links", {})

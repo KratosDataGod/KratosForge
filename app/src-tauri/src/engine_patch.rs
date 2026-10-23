@@ -101,6 +101,35 @@ pub fn stage_runtime(src: &Path, staging: &Path) -> Result<(), String> {
     })
 }
 
+/// Removes the engines of builds other than `keep`. An engine is first renamed to `.old-<name>` and
+/// only then deleted: Windows refuses to rename a folder while a program runs from it, so an engine
+/// still running is left whole (and goes next time). Deleting it in place would remove every file
+/// Windows doesn't hold open, such as certifi's cacert.pem, and its process would then fail every
+/// sign-in. Leftover `.old-` folders from an earlier pass go too; other dot folders (`.new`) and
+/// anything not named for a build are never touched.
+pub fn prune_engines(root: &Path, keep: &[&str]) {
+    for entry in std::fs::read_dir(root).into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        if name.starts_with(".old-") {
+            let _ = std::fs::remove_dir_all(&path);
+            continue;
+        }
+        let is_build = name.len() == 40 && name.bytes().all(|b| b.is_ascii_hexdigit());
+        if !is_build || keep.iter().any(|k| k.eq_ignore_ascii_case(&name)) {
+            continue;
+        }
+        let aside = root.join(format!(".old-{name}"));
+        let _ = std::fs::remove_dir_all(&aside);
+        if std::fs::rename(&path, &aside).is_ok() {
+            let _ = std::fs::remove_dir_all(&aside);
+        }
+    }
+}
+
 /// Checks an engine built from an update zip before it is put in place: it must be the release's
 /// build, with the release's runtime, and have Python and the engine package.
 pub fn check_patched(dir: &Path, commit: &str, runtime: &str) -> Result<(), String> {
@@ -250,6 +279,30 @@ mod tests {
         assert_eq!(std::fs::read_to_string(sp.join("pyarrow").join("lib.pyd")).unwrap(), "pyarrow");
         assert!(sp.join("fabric_desktop").join("old_module.py").is_file());
         assert!(sp.join("bin").join("fabric-desktop.exe").is_file());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn prune_engines_removes_other_builds_only() {
+        let root = temp("prune");
+        let keep = "2".repeat(40);
+        let other = "3".repeat(40);
+        engine(&root.join(COMMIT), COMMIT, RUNTIME);
+        engine(&root.join(&keep), &keep, RUNTIME);
+        engine(&root.join(&other), &other, RUNTIME);
+        engine(&root.join(".new"), COMMIT, RUNTIME);
+        engine(&root.join(format!(".old-{}", "4".repeat(40))), COMMIT, RUNTIME);
+        engine(&root.join("not-a-build"), COMMIT, RUNTIME);
+        write(&root.join("version.json"), "{}");
+        prune_engines(&root, &[COMMIT, &keep.to_uppercase()]);
+        assert!(check_patched(&root.join(COMMIT), COMMIT, RUNTIME).is_ok());
+        assert!(check_patched(&root.join(&keep), &keep, RUNTIME).is_ok());
+        assert!(!root.join(&other).exists());
+        assert!(!root.join(format!(".old-{other}")).exists());
+        assert!(!root.join(format!(".old-{}", "4".repeat(40))).exists());
+        assert!(root.join(".new").join("python.exe").is_file());
+        assert!(root.join("not-a-build").join("python.exe").is_file());
+        assert!(root.join("version.json").is_file());
         let _ = std::fs::remove_dir_all(&root);
     }
 

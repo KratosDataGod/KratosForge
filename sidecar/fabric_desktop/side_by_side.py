@@ -212,9 +212,15 @@ def compare(tables: Tables, before: dict[str, int], after_local: dict[str, int],
     return rows
 
 
-def verdict(rows: list[dict[str, Any]], local_status: str, fabric_status: str) -> dict[str, Any]:
+def verdict(rows: list[dict[str, Any]], local_status: str, fabric_status: str,
+            local_cell: int | None = None) -> dict[str, Any]:
     """The one line at the top of the comparison."""
     failed = [w for w, s in (("this PC", local_status), ("Fabric", fabric_status)) if s != "ok"]
+    if len(failed) == 2 and local_cell:
+        # The same code failing in both places is usually the notebook or its data, not either side:
+        # this PC's error is the one to read first, it names the line.
+        return {"same": False, "text": f"The run failed on this PC (cell {local_cell}) and in Fabric. "
+                                       "Fix this PC's error first: Fabric usually fails the same way."}
     if failed:
         return {"same": False, "text": f"The run failed on {' and '.join(failed)}, so the results can't be the same."}
     if not rows:

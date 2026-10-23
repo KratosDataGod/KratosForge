@@ -38,6 +38,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/permissions.md](docs/permissions.md) | How sign-in works (no app registration), what each feature uses, an optional own app registration with its permissions in alphabetical order, and what the agent needs |
 | [docs/telemetry.md](docs/telemetry.md) | Opt-in usage data: every field sent, what is never sent, and how IT turns it off |
 | [docs/security.md](docs/security.md) | The security model: what is protected, trust boundaries, how downloads and updates are checked, and what is still open |
+| [docs/evidence-pack.md](docs/evidence-pack.md) | The security evidence pack: data flows, documents, build and release evidence, and what is still open, for a security review |
 | [docs/hardening/README.md](docs/hardening/README.md) | The enterprise hardening audit: evidence-based scorecard, [findings](docs/hardening/findings.md), [backlog](docs/hardening/backlog.md) and [release gates](docs/hardening/readiness-checklist.md) |
 | [docs/user-guide.md](docs/user-guide.md) | Every page of the app and how to use it |
 | [docs/notebooks.md](docs/notebooks.md) | Notebooks and SQL on your PC, Fabric code that works here, publishing, Run in Fabric and schedules |
@@ -64,6 +65,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/notebook-editor/format-code.md](docs/notebook-editor/format-code.md) | Format a notebook cell or the whole notebook: Python in Black's style with ruff, %%sql cells as Format SQL lays them out |
 | [docs/notebook-editor/intellisense.md](docs/notebook-editor/intellisense.md) | Notebook IntelliSense: hover docs, signature help, docs in autocomplete and syntax errors as you type, all from the local kernel |
 | [docs/notebook-editor/variables.md](docs/notebook-editor/variables.md) | The notebook Variables pane: filter, sort by memory, open data frames, lists and dicts |
+| [docs/prove/how-proofs-work.md](docs/prove/how-proofs-work.md) | Prove this notebook (Preview): pinned inputs, sandboxed outputs, how results are verified, the scorecard and receipts |
 | [docs/side-by-side.md](docs/side-by-side.md) | Running a notebook on this PC and in Fabric side by side: time, cost and a check that both wrote the same results, plus the TPC-H benchmark ([examples/benchmark](examples/benchmark)) |
 | [docs/finops/capacity.md](docs/finops/capacity.md) | The capacity each environment is on and whether it is running: read only, with freshness and what to do when it can't be read |
 | [docs/finops/risk-check.md](docs/finops/risk-check.md) | The risk check before a run: pass, warning, blocked or unknown, with evidence for each finding |

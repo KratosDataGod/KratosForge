@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import email.utils
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import unquote
 
 import requests
+
+from . import http_session
+from .retrying import send_with_retry
 
 DFS_HOST = "onelake.dfs.fabric.microsoft.com"
 TABLE_API = "https://onelake.table.fabric.microsoft.com/delta"
@@ -53,12 +58,16 @@ def storage_options(token: str) -> dict[str, str]:
 class TableCatalog:
     """Read-only listing through the OneLake Delta table API (Unity Catalog compatible)."""
 
-    def __init__(self, token_provider: Callable[[], str], session: requests.Session | None = None):
+    def __init__(self, token_provider: Callable[[], str], session: requests.Session | None = None,
+                 sleep: Callable[[float], None] = time.sleep):
         self._token = token_provider
-        self._http = session or requests.Session()
+        self._http = session or http_session.session()
+        self._sleep = sleep
 
     def _get(self, url: str, **params) -> dict[str, Any]:
-        resp = self._http.get(url, params=params, headers={"Authorization": f"Bearer {self._token()}"}, timeout=60)
+        resp = send_with_retry(lambda: self._http.get(url, params=params, timeout=60,
+                                                      headers={"Authorization": f"Bearer {self._token()}"}),
+                               "GET", sleep=self._sleep)
         resp.raise_for_status()
         return resp.json()
 
@@ -82,25 +91,51 @@ def _iso(http_date: str | None) -> str:
         return ""
 
 
-class FileStore:
-    """The lakehouse Files area, through the OneLake DFS (ADLS Gen2) API."""
+def item_path(path: str, empty_ok: bool = False) -> str:
+    """``path`` inside a lakehouse, without its edge slashes. Refuses a ``.`` or ``..`` segment
+    (also percent-encoded or with backslashes): the HTTP client resolves them before sending, so
+    the request would land in another lakehouse or workspace. An empty path names the lakehouse's
+    own root, which only a read may do (``empty_ok``): a delete there removes everything."""
+    clean = path.strip("/")
+    for segment in re.split(r"[/\\]", unquote(clean)):
+        if segment in (".", ".."):
+            raise ValueError(f"{path!r} isn't a path inside the lakehouse.")
+    if not clean and not empty_ok:
+        raise ValueError("A file path is needed; an empty one would name the whole lakehouse.")
+    return clean
 
-    def __init__(self, token_provider: Callable[[], str], session: requests.Session | None = None):
+
+class FileStore:
+    """The lakehouse Files area, through the OneLake DFS (ADLS Gen2) API.
+
+    Reads are retried on throttling, 5xx and dropped connections (retrying.send_with_retry). Uploads
+    and deletes are sent once: a write that failed part way may have happened."""
+
+    def __init__(self, token_provider: Callable[[], str], session: requests.Session | None = None,
+                 sleep: Callable[[float], None] = time.sleep):
         self._token = token_provider
-        self._http = session or requests.Session()
+        self._http = session or http_session.session()
+        self._sleep = sleep
+
+    def _read(self, url: str, extra_headers: dict[str, str] | None = None, **kwargs: Any) -> requests.Response:
+        return send_with_retry(lambda: self._http.get(url, headers={**self._headers(), **(extra_headers or {})},
+                                                      **kwargs), "GET", sleep=self._sleep)
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._token()}", "x-ms-version": "2023-11-03"}
 
     def list(self, workspace_id: str, lakehouse_id: str, directory: str = "Files",
-             recursive: bool = False) -> list[dict[str, Any]]:
-        """Children of ``directory`` (all the way down with ``recursive``) as ``{"name", "path", "is_dir", "size", "modified"}``."""
+             recursive: bool = False, max_results: int | None = None) -> list[dict[str, Any]]:
+        """Children of ``directory`` (all the way down with ``recursive``) as ``{"name", "path", "is_dir", "size", "modified"}``.
+        With ``max_results``, only the first page of at most that many."""
         url = f"https://{DFS_HOST}/{workspace_id}"
         params = {"resource": "filesystem", "recursive": "true" if recursive else "false",
-                  "directory": f"{lakehouse_id}/{directory.strip('/')}"}
+                  "directory": f"{lakehouse_id}/{item_path(directory, empty_ok=True)}"}
+        if max_results:
+            params["maxResults"] = str(max_results)
         entries: list[dict[str, Any]] = []
         while True:
-            resp = self._http.get(url, params=params, headers=self._headers(), timeout=60)
+            resp = self._read(url, params=dict(params), timeout=60)
             resp.raise_for_status()
             for p in resp.json().get("paths", []):
                 path = p["name"].split("/", 1)[1]  # drop the lakehouse GUID
@@ -108,7 +143,7 @@ class FileStore:
                                 "is_dir": str(p.get("isDirectory", "")).lower() == "true",
                                 "size": int(p.get("contentLength") or 0), "modified": _iso(p.get("lastModified"))})
             token = resp.headers.get("x-ms-continuation")
-            if not token:
+            if not token or max_results:
                 break
             params["continuation"] = token
         return sorted(entries, key=lambda e: (not e["is_dir"], e["name"].lower()))
@@ -119,7 +154,7 @@ class FileStore:
         request didn't get an answer."""
         url = f"https://{DFS_HOST}/{workspace_id}"
         params = {"resource": "filesystem", "recursive": "false", "maxResults": "1",
-                  "directory": f"{lakehouse_id}/{directory.strip('/')}"}
+                  "directory": f"{lakehouse_id}/{item_path(directory, empty_ok=True)}"}
         try:
             resp = self._http.get(url, params=params, headers=self._headers(), timeout=60)
         except requests.RequestException as exc:
@@ -134,8 +169,8 @@ class FileStore:
         return resp.status_code, message
 
     def download(self, workspace_id: str, lakehouse_id: str, path: str, dest: Path) -> Path:
-        url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{path.strip('/')}"
-        with self._http.get(url, headers=self._headers(), stream=True, timeout=300) as resp:
+        url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{item_path(path)}"
+        with self._read(url, stream=True, timeout=300) as resp:
             resp.raise_for_status()
             dest.parent.mkdir(parents=True, exist_ok=True)
             with dest.open("wb") as f:
@@ -143,18 +178,22 @@ class FileStore:
                     f.write(chunk)
         return dest
 
-    def read_bytes(self, workspace_id: str, lakehouse_id: str, path: str) -> bytes | None:
-        """A small file's content, or None when it doesn't exist."""
-        url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{path.strip('/')}"
-        resp = self._http.get(url, headers=self._headers(), timeout=60)
+    def read_bytes(self, workspace_id: str, lakehouse_id: str, path: str, length: int | None = None) -> bytes | None:
+        """A small file's content, or None when it doesn't exist. With ``length``, only its first
+        ``length`` bytes are asked for (a Range request), so peeking at a large file is cheap."""
+        url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{item_path(path)}"
+        ranged = {"Range": f"bytes=0-{length - 1}"} if length else None
+        resp = self._read(url, extra_headers=ranged, timeout=60)
         if resp.status_code == 404:
             return None
+        if ranged and resp.status_code == 416:  # an empty file has no byte 0
+            return b""
         resp.raise_for_status()
-        return resp.content
+        return resp.content[:length] if length else resp.content
 
     def upload(self, workspace_id: str, lakehouse_id: str, path: str, data: bytes) -> None:
         """Create or replace a file: create, append, then flush (the ADLS Gen2 way)."""
-        url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{path.strip('/')}"
+        url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{item_path(path)}"
         steps = [("PUT", {"resource": "file"}, None),
                  ("PATCH", {"action": "append", "position": "0"}, data),
                  ("PATCH", {"action": "flush", "position": str(len(data))}, None)]
@@ -164,9 +203,20 @@ class FileStore:
             resp = self._http.request(method, url, params=params, data=body, headers=self._headers(), timeout=300)
             resp.raise_for_status()
 
-    def delete(self, workspace_id: str, lakehouse_id: str, path: str) -> None:
-        """Delete a file or a whole folder; a missing one is fine."""
-        url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{path.strip('/')}"
-        resp = self._http.request("DELETE", url, params={"recursive": "true"}, headers=self._headers(), timeout=300)
+    def mkdir(self, workspace_id: str, lakehouse_id: str, path: str) -> None:
+        """Create a folder (and any missing parents). One that is already there is left as it is:
+        If-None-Match makes OneLake answer 409 instead of touching it."""
+        url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{item_path(path)}"
+        resp = self._http.request("PUT", url, params={"resource": "directory"},
+                                  headers={**self._headers(), "If-None-Match": "*"}, timeout=60)
+        if resp.status_code != 409:
+            resp.raise_for_status()
+
+    def delete(self, workspace_id: str, lakehouse_id: str, path: str, recursive: bool = True) -> None:
+        """Delete a file or a whole folder; a missing one is fine. Without ``recursive``, OneLake
+        refuses (409) a folder that isn't empty."""
+        url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{item_path(path)}"
+        resp = self._http.request("DELETE", url, params={"recursive": "true" if recursive else "false"},
+                                  headers=self._headers(), timeout=300)
         if resp.status_code != 404:
             resp.raise_for_status()

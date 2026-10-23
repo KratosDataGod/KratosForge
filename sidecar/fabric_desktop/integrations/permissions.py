@@ -8,11 +8,15 @@
 2. The caller is a connected tool that hasn't been disconnected.
 3. The capability's permission category is offered in this release, allowed by the organization
    (``integrations_max_permissions``) and granted to this tool.
-4. Its target is in the tool's scope (the workspaces the person limited it to, if any).
+4. Every workspace it reaches is in the tool's scope (the workspaces the person limited it to, if
+   any). Each capability declares how it is confined (scope.py): by its ``workspace_id``, by what
+   the notebook, proof, receipt or execution it names points at, or, for lists, by leaving out
+   what is elsewhere. One that can't be confined, or declares nothing, is refused to a limited tool.
 5. If the capability needs approval, the person approves this exact call in Fabric Desktop. The
    call waits a while for the answer; if none comes it fails with ``approval_required`` and the
    same call made again later uses the approval once it is given. An approval is single-use and
-   bound to a hash of the exact arguments.
+   bound to a hash of the exact arguments, including those the capability binds before asking
+   (a notebook run's code cells and their SHA-256), so it can't be used for other code.
 
 Approvals are decided only through the app's own engine (``IntegrationStore.decide``, reached
 from the Settings page). No capability, MCP message or API endpoint can grant, approve or change
@@ -22,9 +26,9 @@ permissions.
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import Any, Callable
 
-from . import policy
+from . import policy, scope
 from .core import CallContext, IntegrationError, redact_secrets
 from .registry import PERMISSIONS, Capability
 from .store import IntegrationStore, args_hash
@@ -34,9 +38,10 @@ from .store import IntegrationStore, args_hash
 OFFERED = ("READ_METADATA", "READ_DATA", "WRITE_LOCAL_FILES", "EXECUTE_LOCAL_CODE")
 NEVER = ("MANAGE_CONNECTIONS",)  # credentials never leave the app
 APPROVAL_WAIT_SECONDS = 60.0
-WHERE = "Fabric Desktop by KratosBI > Settings > Integrations"
+WHERE = "KratosForge > Settings > Integrations"
 _TARGET_KEYS = ("workspace_id", "lakehouse_id", "item_id", "name", "notebook", "table", "id", "execution_id")
 _CONTENT_KEYS = ("code", "query", "cells", "source")
+MAX_CONTENT = 20_000  # characters of code the approval can show; longer is refused, never cut
 
 
 def summary(cap: Capability, client: dict[str, Any], arguments: dict[str, Any]) -> dict[str, Any]:
@@ -47,7 +52,16 @@ def summary(cap: Capability, client: dict[str, Any], arguments: dict[str, Any]) 
     for key in _CONTENT_KEYS:
         if key in arguments:
             value = arguments[key]
-            out["content"] = {"kind": key, "text": redact_secrets(value if isinstance(value, str) else repr(value))[:20_000]}
+            if isinstance(value, list) and all(isinstance(v, str) for v in value):  # a notebook's code cells
+                value = "\n\n".join(f"# ---- cell {n} of {len(value)}\n{v}" for n, v in enumerate(value, 1))
+            text = redact_secrets(value if isinstance(value, str) else repr(value))
+            if len(text) > MAX_CONTENT:
+                # Never cut: code past the cut would run without being shown.
+                what = "notebook" if key == "cells" else "query" if key == "query" else "code"
+                raise IntegrationError("too_large", f"This {what} is too long to show for approval ({len(text):,} characters, "
+                                       f"limit {MAX_CONTENT:,}). Run it in KratosForge instead.",
+                                       details={"characters": len(text), "limit": MAX_CONTENT})
+            out["content"] = {"kind": key, "text": text}
             break
     return out
 
@@ -70,7 +84,7 @@ class PermissionAuthorizer:
 
     def _category(self, cap: Capability, client: dict[str, Any] | None) -> tuple[bool, str]:
         if cap.permission in NEVER:
-            return False, "Fabric Desktop by KratosBI never gives connections or credentials to external tools."
+            return False, "KratosForge never gives connections or credentials to external tools."
         if cap.permission not in OFFERED:
             return False, f"{cap.permission} isn't offered to external tools in this release."
         if cap.permission not in policy.current()["max_permissions"]:
@@ -80,6 +94,8 @@ class PermissionAuthorizer:
         if cap.permission == "EXECUTE_LOCAL_CODE" and client["workspaces"]:
             # Code runs with the person's sign-in, which reaches every workspace they can open.
             return False, "A tool limited to some workspaces can't run code: code would reach every workspace you can."
+        if client["workspaces"] and not scope.confinable(cap):
+            return False, scope.unconfined_reason(cap)
         return True, ""
 
     def _client(self, ctx: CallContext | None) -> dict[str, Any] | None:
@@ -102,7 +118,9 @@ class PermissionAuthorizer:
             return "unavailable", why
         return cap.status, cap.reason
 
-    def check(self, cap: Capability, arguments: dict[str, Any], ctx: CallContext) -> None:
+    def check(self, cap: Capability, arguments: dict[str, Any], ctx: CallContext,
+              bind: Callable[[], dict[str, Any]] | None = None,
+              workspaces: Callable[[], set[str] | None] | None = None) -> None:
         on, why = self._enabled()
         if not on:
             if cap.public:
@@ -113,18 +131,21 @@ class PermissionAuthorizer:
         client = self._client(ctx)
         if client is None:
             known = self.store.client(ctx.caller.client_id)
-            message = ("This tool was disconnected in Fabric Desktop by KratosBI." if known else
-                       "This tool isn't connected to Fabric Desktop by KratosBI.")
+            message = ("This tool was disconnected in KratosForge." if known else
+                       "This tool isn't connected to KratosForge.")
             raise IntegrationError("permission_denied", message,
                                    hint=f"Ask the person to add it in {WHERE} and update your MCP or API configuration.")
         ok, why = self._category(cap, client)
         if not ok:
             raise IntegrationError("permission_denied", why, details={"permission": cap.permission})
-        scope = client["workspaces"]
-        if scope and "workspace_id" in arguments and arguments["workspace_id"] not in scope:
-            raise IntegrationError("permission_denied", "This tool is limited to other workspaces.",
-                                   hint=f"The person can change its workspaces in {WHERE}.")
+        limit = frozenset(client["workspaces"]) or None
+        ctx.workspaces = limit  # lists leave out what is outside it (scope.keep)
+        scope.enforce(cap, limit, workspaces or (lambda: scope.targets(cap, None, arguments, ctx)))
         self.store.touch(client["id"])
+        if bind is not None:
+            # Read only for a permitted caller, and before asking, so the person sees (and the
+            # approval is bound to) what will run, not just a name. Calls that don't ask bind too.
+            arguments.update(bind())
         ctx.decision = "allowed"
         if self._needs_approval(cap, client):
             self._approve(cap, client, arguments, ctx)
@@ -140,7 +161,7 @@ class PermissionAuthorizer:
         digest = args_hash(cap.id, arguments)
         request = self.store.request_approval(client, cap.id, cap.title, cap.permission, summary(cap, client, arguments), arguments)
         give_up = time.monotonic() + min(self.wait_seconds, max(ctx.remaining(), 0.0) or self.wait_seconds)
-        ctx.report(0, None, "Waiting for approval in Fabric Desktop by KratosBI")
+        ctx.report(0, None, "Waiting for approval in KratosForge")
         while True:
             current = self.store.approval(request["id"]) or request
             state = current["state"]
@@ -159,7 +180,7 @@ class PermissionAuthorizer:
                 raise IntegrationError("cancelled", "Cancelled by the caller while waiting for approval.")
             if time.monotonic() >= give_up:
                 raise IntegrationError(
-                    "approval_required", f"Waiting for the person to approve {cap.title.lower()} in Fabric Desktop by KratosBI.",
+                    "approval_required", f"Waiting for the person to approve {cap.title.lower()} in KratosForge.",
                     retryable=True, details={"approval_id": current["id"], "expires_at": current["expires_at"]},
                     hint="Tell the person what you asked for. Once they approve it, make the same call again with the same arguments.")
             time.sleep(self.poll)

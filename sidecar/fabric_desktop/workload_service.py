@@ -10,24 +10,34 @@ recorded with how they ended. See docs/workloads/plan.md.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import threading
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from .auth import FABRIC_SCOPES, STORAGE_SCOPES
+from .auth import EXECUTE_SCOPES, FABRIC_SCOPES, STORAGE_SCOPES
+from .central.client import FabricPlatform
+from .central.service import CATALOG_ENV
 from .fabric_api import FabricClient
 from .fabric_run import TERMINAL
 from .meta import freshness as freshness_mod
 from .meta.project import ENVIRONMENTS, impact
 from .meta import mesh as mesh_mod
+from . import measurement as ms
+from .redact import describe, secrets
 from .workloads import health, inventory, model, query
 from .workloads.store import ManagementStore
+
+_log = logging.getLogger(__name__)
 
 REMOTE_RUNS_MAX_AGE = 120          # seconds a OneLake run log read is reused without asking again
 RUNS_STALE_AFTER = 3600            # a cached run log older than this is shown as stale
 ITEMS_STALE_AFTER = 24 * 3600      # Fabric item listings
 RUN_LIMIT = 2000
+AUDIT_RETRY_AFTER = 600            # seconds before lines the platform didn't take are tried again on their own
+AUDIT_BATCH = 50
 _ACTION_LABELS = {"run": "Run", "run_in_fabric": "Run in Fabric", "run_item": "Run in Fabric",
                   "run_schedule": "Run the schedule now", "cancel": "Cancel the run"}
 
@@ -37,6 +47,7 @@ class WorkloadMixin:
     _wl_scan: dict[str, Any] | None = None
     _wl_scan_lock = threading.Lock()
     _wl_records: dict[str, dict[str, Any]] | None = None
+    _wl_audit_lock = threading.Lock()
 
     @property
     def workload_store(self) -> ManagementStore:
@@ -50,13 +61,15 @@ class WorkloadMixin:
     def _wl_user(self) -> str:
         try:
             return self.auth.signed_in_user() or ""  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001 - no client id yet
+        except Exception as exc:  # noqa: BLE001 - no client id yet
+            _log.info("Signed-in user unknown: %s", describe(exc))
             return ""
 
     def _wl_token(self, scopes: list[str]) -> str | None:
         try:
             return self.auth.silent_token(scopes)  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            _log.info("No silent token: %s", describe(exc))
             return None
 
     # ---- sources
@@ -243,6 +256,7 @@ class WorkloadMixin:
         sources.append(items_obs)
         self._wl_records = {r["id"]: r for r in records}
         self._wl_reconcile(fabric_runs, pc_runs)
+        self._wl_audit_retry()
         return {"records": records, "sources": sources, "scanning": scanning, "user": user, "signed_in": signed_in}
 
     def workloads_list(self, view: str = "all", query_text: str = "", kind: str = "", env: str = "",
@@ -279,10 +293,38 @@ class WorkloadMixin:
         w["runs"] = runs[:50]
         w["actions"] = actions
         w["assignment_history"] = store.history(id, 50)
+        w["platform_audit"] = self.workload_audit_state()
         w["timeline"] = self._wl_timeline(w, actions)
         w["consumers"] = self._wl_consumers(w)
         w["available_actions"] = self._wl_available(w)
         return w
+
+    def workload_capacity_use(self, id: str, days: int = 30) -> dict[str, Any]:
+        """The capacity used in the last ``days`` by the runs the workload record holds: the ones this
+        app started or scheduled, not Fabric's own job history (workload_detail reads that). Each
+        Fabric run counts with its measured CU when an imported usage row matched it, else the app's
+        estimate, else as unknown (left out of the total, not counted as 0). Runs on this PC start no
+        Fabric job; their OneLake reads and writes still use some capacity, which isn't counted.
+        Reads only what this PC holds: the workload's runs, usage imports and the run history."""
+        w = self._wl_record(id)
+        since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=int(days))
+        # A run whose start time can't be read isn't known to be in the period, so it isn't counted.
+        recent = [r for r in w.get("runs") or [] if (model.parse_time(r.get("started_at")) or dt.datetime.min.replace(tzinfo=dt.timezone.utc)) >= since]
+        fabric = [r for r in recent if r.get("where") == "fabric"]
+        with_id = [r for r in fabric if r.get("job_id")]
+        measured, est, problem = self._risk_cu(with_id)  # type: ignore[attr-defined]
+        by_job_m = {m.get("run_id"): m for m in measured}
+        by_job_e = {e.get("run_id"): e for e in est}
+        parts = []
+        for r in fabric:
+            j = r.get("job_id")
+            parts.append(by_job_m.get(j) or by_job_e.get(j) or ms.unknown(
+                "fabric_job_cu", ms.CU_SECONDS, "No job id or estimate for this run.", run_id=j))
+        return {"id": id, "days": int(days), "fabric_runs": len(fabric), "pc_runs": len(recent) - len(fabric),
+                "measured_runs": len(measured),
+                "measured": ms.total(measured, "fabric_job_cu", ms.CU_HOURS) if measured else None,
+                "total": ms.total(parts, "fabric_job_cu", ms.CU_HOURS) if parts else None,
+                "problem": problem}
 
     def _wl_fabric_history(self, w: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         d = w["definition"]
@@ -324,7 +366,7 @@ class WorkloadMixin:
         for a in actions:
             events.append({"at": a["at"], "kind": "action", "state": a["status"],
                            "text": f"{_ACTION_LABELS.get(a['action'], a['action'])} by {a['by'] or 'you'} · {a['status']}",
-                           "source": "actions from Fabric Desktop by KratosBI"})
+                           "source": "actions from KratosForge"})
         for h in w.get("assignment_history") or []:
             events.append({"at": h["at"], "kind": "ownership", "state": "ok",
                            "text": f"{model.ROLE_LABELS.get(h['field'], h['field'].title())}: "
@@ -340,7 +382,8 @@ class WorkloadMixin:
             return []
         try:
             products = self.platform_products()  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001 - no platform: the products are still listed, without consumers
+        except Exception as exc:  # noqa: BLE001 - no platform: the products are still listed, without consumers
+            _log.info("No platform catalog; products are listed without consumers: %s", describe(exc))
             return []
         pname = w["definition"].get("project")
         wanted = {f"{pname}.{f['product']}" for f in feeds} | {f["product"] for f in feeds}
@@ -362,7 +405,15 @@ class WorkloadMixin:
             o = w["owners"][declared[0]]
             raise ValueError(f"{model.ROLE_LABELS[declared[0]]} is set in the {o['where']}, so change it there. "
                              "What's in the project's files wins over this PC.")
-        self.workload_store.assign(id, changes, by=self._wl_user())
+        store, user = self.workload_store, self._wl_user()
+        before = store.assignments([id]).get(id, {})
+        store.assign(id, changes, by=user)
+        after = store.assignments([id]).get(id, {})
+        for field in changes:
+            old, new = (before.get(field) or {}).get("value"), (after.get(field) or {}).get("value")
+            if old != new:
+                self._wl_audit(id, "assign", "changed", {"name": w["name"], "target": field,
+                               "before": _audit_text(old), "after": _audit_text(new), "identity": user})
         self._wl_records = None
         return self.workload_detail(id)
 
@@ -371,18 +422,27 @@ class WorkloadMixin:
         try:
             self.workload_store.record_link(name, workspace_id, item_id, workspace_name, how="recorded",
                                             by=self._wl_user())
-        except Exception:  # noqa: BLE001 - never fail a publish over this
-            pass
+        except Exception as exc:  # noqa: BLE001 - never fail a publish over this
+            _log.warning("Couldn't record notebook %r's Fabric item: %s", name, describe(exc))
 
     def workload_link(self, notebook: str, workspace_id: str, item_id: str, workspace_name: str = "") -> dict[str, Any]:
         self.notebooks.load(notebook)  # type: ignore[attr-defined]  # it exists
-        self.workload_store.record_link(notebook, workspace_id, item_id, workspace_name, how="manual",
-                                        by=self._wl_user())
+        user = self._wl_user()
+        before, after = self.workload_store.record_link(notebook, workspace_id, item_id, workspace_name,
+                                                        how="manual", by=user)
+        if before != after:
+            self._wl_audit(model.notebook_id(notebook), "link", "changed",
+                           {"name": notebook, "target": "its Fabric item", "before": before, "after": after,
+                            "identity": user})
         self._wl_records = None
         return self.workload_detail(model.notebook_id(notebook))
 
     def workload_unlink(self, notebook: str) -> dict[str, Any]:
-        self.workload_store.unlink(notebook)
+        user = self._wl_user()
+        before = self.workload_store.unlink(notebook, by=user)
+        if before:
+            self._wl_audit(model.notebook_id(notebook), "unlink", "changed",
+                           {"name": notebook, "target": "its Fabric item", "before": before, "identity": user})
         self._wl_records = None
         return {"unlinked": notebook}
 
@@ -409,8 +469,9 @@ class WorkloadMixin:
                             "env": d.get("env"), "where": d["location"]["label"]})
         return out
 
-    def workload_preflight(self, id: str, action: str, env: str | None = None) -> dict[str, Any]:
-        """What an action will do before it does it: environment, identity, target, consequence."""
+    def workload_preflight(self, id: str, action: str, env: str | None = None, assess: bool = True) -> dict[str, Any]:
+        """What an action will do before it does it: environment, identity, target, consequence, and
+        the risk check's findings (FINOPS-004) unless ``assess`` is false."""
         w = self._wl_record(id)
         allowed = [a for a in self._wl_available(w) if a["action"] == action and (a.get("env") or None) == (env or None)]
         if not allowed:
@@ -461,12 +522,14 @@ class WorkloadMixin:
         return {"allowed": True, "action": action, "label": _ACTION_LABELS.get(action, action), "workload": w["name"],
                 "env": env, "env_label": dep.get("env_label") or "", "where": where, "identity": identity,
                 "target": target, "consequence": consequence, "warnings": warnings,
-                "recorded": "Recorded on this workload as submitted, then as succeeded or failed when the run finishes."}
+                "recorded": "Recorded on this workload as submitted, then as succeeded or failed when the run finishes"
+                            + (", and on Platform > Audit." if self.workload_audit_state()["platform"] != "none" else "."),
+                "risk": self._risk_for_preflight(w, action, env) if assess else None}  # type: ignore[attr-defined]
 
     def workload_act(self, id: str, action: str, env: str | None = None, schedule_id: str = "",
                      job_id: str = "") -> dict[str, Any]:
         """Do a supported action through the service that already does it, and record the outcome."""
-        pre = self.workload_preflight(id, action, env)
+        pre = self.workload_preflight(id, action, env, assess=False)
         if not pre.get("allowed"):
             raise PermissionError(pre.get("reason") or "Not allowed")
         w = self._wl_record(id)
@@ -475,6 +538,7 @@ class WorkloadMixin:
         user = self._wl_user()
         record = store.start_action(id, action, env or "", {"target": pre["target"], "where": pre["where"]},
                                     pre["identity"], user)
+        self._wl_audit_action(record, w["name"])
         try:
             if w["kind"] == "meta_entity" and action == "run":
                 results = self.meta_run([w["name"]], env or "dev")  # type: ignore[attr-defined]
@@ -514,9 +578,12 @@ class WorkloadMixin:
             else:
                 raise ValueError(f"unknown action {action}")
         except Exception as exc:
-            store.update_action(record["id"], "failed", detail=f"{type(exc).__name__}: {exc}")
+            failed = store.update_action(record["id"], "failed", detail=f"{type(exc).__name__}: {exc}")
+            self._wl_audit_action(failed, w["name"])
             self._wl_records = None
             raise
+        if record["status"] != "submitted":
+            self._wl_audit_action(record, w["name"])
         self._wl_records = None
         return {"action": record, "result": outcome}
 
@@ -540,22 +607,126 @@ class WorkloadMixin:
                     else:
                         status = {"ok": "succeeded", "cancelled": "cancelled", "skipped": "cancelled"}.get(state, "failed")
                         detail = run.get("message") or f"Fabric says {run['status']}"
-                    store.update_action(a["id"], status, detail=detail)
+                    self._wl_audit_action(store.update_action(a["id"], status, detail=detail))
             elif ref.get("schedule_id"):
                 done = [r for r in pc_runs if r.get("schedule_id") == ref["schedule_id"]
                         and r.get("trigger") == "manual" and str(r.get("started") or "") >= str(a["at"])[:19]]
                 if done:
                     r = done[-1]
-                    store.update_action(a["id"], "succeeded" if r.get("status") == "ok" else "failed",
-                                        detail=r.get("message") or r.get("status", ""))
+                    self._wl_audit_action(store.update_action(a["id"], "succeeded" if r.get("status") == "ok" else "failed",
+                                                              detail=r.get("message") or r.get("status", "")))
 
     def workload_actions(self, id: str = "", limit: int = 50) -> list[dict[str, Any]]:
         return self.workload_store.actions(id or None, limit)
+
+    # ---- the platform's audit (plan item 76): every action and change above, as the platform sees it
+
+    def _wl_audit_action(self, record: dict[str, Any], name: str = "") -> None:
+        """One line per state an action reaches: submitted, then how it ended."""
+        target = record.get("target") or {}
+        self._wl_audit(record["wid"], record["action"], record["status"],
+                       {"id": record["id"], "name": name, "env": record.get("env"), "where": target.get("where"),
+                        "target": target.get("target"), "identity": record.get("identity"),
+                        "detail": record.get("detail"), "at": record.get("ended_at") or record.get("at")},
+                       key=f"{record['id']}:{record['status']}")
+
+    def _wl_audit(self, wid: str, action: str, status: str, entry: dict[str, Any], key: str = "") -> None:
+        """Keep the line on this PC, then send what's waiting. Never fails the action: the action
+        happened whether or not the platform heard about it."""
+        try:
+            entry = {k: secrets(str(v)) for k, v in entry.items() if v not in (None, "")}
+            entry.setdefault("at", model.iso(model.now()))
+            self.workload_store.audit_queue(key or uuid.uuid4().hex, wid, action, status, entry)
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("Couldn't keep a workload audit line: %s", describe(exc))
+            return
+        self._wl_audit_send()
+
+    def _wl_audit_platform(self) -> Any:
+        """The platform the audit lines go to, which never asks anyone to sign in. None when there
+        is no platform yet: the lines wait for one, and this doesn't make one."""
+        cfg = self._platform_config().get(CATALOG_ENV, {})  # type: ignore[attr-defined]
+        if not cfg.get("functions_id"):
+            local = self.root / "platform" / f"platform-{CATALOG_ENV}.sqlite"
+            return self._catalog() if local.exists() else None  # type: ignore[attr-defined]
+
+        def token() -> str:
+            t = self._wl_token(EXECUTE_SCOPES)
+            if not t:
+                raise PermissionError("Signed out. They're sent after you sign in.")
+            return t
+        return FabricPlatform(token, cfg["workspace_id"], cfg["functions_id"])
+
+    def _wl_audit_send(self) -> int:
+        """Send waiting lines oldest first; stop at the first the platform doesn't take, so they
+        keep their order. One send at a time; a call while one runs leaves its lines to that one or
+        the next. Returns how many went."""
+        if not self._wl_audit_lock.acquire(blocking=False):
+            return 0
+        try:
+            return self._wl_audit_send_locked()
+        finally:
+            self._wl_audit_lock.release()
+
+    def _wl_audit_send_locked(self) -> int:
+        store = self.workload_store
+        try:
+            waiting = store.audit_waiting(AUDIT_BATCH)
+            if not waiting:
+                return 0
+            platform = self._wl_audit_platform()
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("Couldn't reach the platform for workload audit lines: %s", describe(exc))
+            return 0
+        if platform is None:
+            return 0
+        sent = 0
+        for line in waiting:
+            try:
+                platform.call("log_workload_action", workload=line["workload"], action=line["action"],
+                              status=line["status"], entry=line["entry"])
+            except Exception as exc:  # noqa: BLE001 - kept on this PC and tried again
+                store.audit_result(line["key"], _audit_problem(exc))
+                break
+            store.audit_result(line["key"])
+            sent += 1
+        return sent
+
+    def _wl_audit_retry(self) -> None:
+        """Try waiting lines again in the background, at most every AUDIT_RETRY_AFTER seconds."""
+        state = self.workload_audit_state()
+        if not state["waiting"] or state["platform"] == "none":
+            return
+        last = model.parse_time(state["tried_at"]) if state["tried_at"] else None
+        if last and (model.now() - last).total_seconds() < AUDIT_RETRY_AFTER:
+            return
+        threading.Thread(target=self._wl_audit_send, name="workload-audit", daemon=True).start()
+
+    def workload_audit_state(self) -> dict[str, Any]:
+        """How many workload audit lines this PC still holds for the platform, and why."""
+        state = self.workload_store.audit_state()
+        on_fabric = bool(self._platform_config().get(CATALOG_ENV, {}).get("functions_id"))  # type: ignore[attr-defined]
+        local = (self.root / "platform" / f"platform-{CATALOG_ENV}.sqlite").exists()
+        return state | {"platform": "fabric" if on_fabric else "this_pc" if local else "none"}
+
+
+def _audit_text(value: Any) -> str:
+    return ", ".join(value) if isinstance(value, list) else str(value or "")
+
+
+def _audit_problem(exc: BaseException) -> str:
+    """Why the platform didn't take a line, in words an admin can act on."""
+    text = describe(exc)
+    if "log_workload_action" in text or isinstance(exc, LookupError):
+        return ("a platform admin may need to run Platform > Settings > Finish or repair once, so the platform "
+                "records workload actions. " + text)
+    return text
 
 
 def _rows(df: Any) -> list[dict[str, Any]]:
     try:
         return [{k: (v.isoformat() if isinstance(v, (dt.date, dt.datetime)) else v) for k, v in r.items()}
                 for r in df.to_dicts()]
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("Couldn't convert rows for the workload view: %s", describe(exc))
         return []

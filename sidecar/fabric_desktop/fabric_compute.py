@@ -102,7 +102,7 @@ def runner_ipynb(workspace_id: str, meta_lakehouse_id: str, meta_lakehouse: str 
                 "default_lakehouse_workspace_id": workspace_id}}},
             "cells": [{"cell_type": "markdown", "metadata": {}, "source": [
                 "# Fabric Desktop runner\n",
-                "Runs the metadata project uploaded by Fabric Desktop by KratosBI to `Files/_fabric_desktop/current` "
+                "Runs the metadata project uploaded by KratosForge to `Files/_fabric_desktop/current` "
                 "of this notebook's lakehouse. Start runs and schedules from **Metadata** in the app.\n"]},
                       code(params, ["parameters"]),
                       code(_SETUP % {"mount": MOUNT, "bundle": BUNDLE_DIR}),

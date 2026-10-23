@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ..jsonfile import write_text
+
 if TYPE_CHECKING:
     from .project import Project
 
@@ -157,7 +159,7 @@ def write_project_file(root: Path, fields: dict[str, Any]) -> Path:
         return json.dumps(v)
 
     lines = ["# This project's place in your organization: its domain and the team that owns it.",
-             "# Domains come from your platform (Metadata > Mesh > Domains and workspaces).", "", "[project]"]
+             "# Domains come from your platform (Platform > Domains).", "", "[project]"]
     for key in ("name", "domain", "subdomain", "team", "description"):
         if fields.get(key):
             lines.append(f"{key} = {q(str(fields[key]))}")
@@ -165,7 +167,7 @@ def write_project_file(root: Path, fields: dict[str, Any]) -> Path:
         lines.append(f"contacts = {q([str(c) for c in fields['contacts']])}")
     lines.append(f"format = {FORMAT}")
     path = Path(root) / PROJECT_FILE
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_text(path, "\n".join(lines) + "\n")
     return path
 
 
@@ -185,7 +187,7 @@ def write_product(root: Path, p: dict[str, Any]) -> Path:
                   f"entity = {json.dumps(str(port.get('entity', '')))}"]
     path = Path(root) / "metadata" / "products" / f"{name}.toml"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_text(path, "\n".join(lines) + "\n")
     return path
 
 
@@ -211,7 +213,7 @@ def write_link(root: Path, l: dict[str, Any]) -> Path:
             lines += ["", f"[location.{env}]", f"table = {json.dumps(str(table))}"]
     path = Path(root) / "metadata" / "links" / f"{alias}.toml"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_text(path, "\n".join(lines) + "\n")
     return path
 
 

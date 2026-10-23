@@ -1,19 +1,19 @@
 # Architecture
 
-![Fabric Desktop by KratosBI architecture](architecture.svg)
+![KratosForge architecture](architecture.svg)
 
-Fabric Desktop by KratosBI does Microsoft Fabric data engineering work on your own Windows PC and writes the results straight into OneLake. Fabric is used for sign-in, for managing items and for storage. Notebooks, SQL queries, jobs and metadata runs all execute on the PC, so they use no Fabric capacity.
+KratosForge does Microsoft Fabric data engineering work on your own Windows PC and writes the results straight into OneLake. Fabric is used for sign-in, for managing items and for storage. Notebooks, SQL queries, jobs and metadata runs all execute on the PC, so they start no Fabric job; their OneLake reads and writes still use capacity.
 
 ## The pieces
 
-### Fabric Desktop by KratosBI app (`app/`)
+### KratosForge app (`app/`)
 
 `fabric-desktop.exe` is a [Tauri 2](https://v2.tauri.app/) shell written in Rust. It holds two WebView2 views and starts the local engine.
 
 | Part | What it does | Code |
 | --- | --- | --- |
 | **App UI** | The Fabric-style pages: Home, Create, Workspaces, OneLake catalog, Fabric, notebooks, SQL query, Metadata and Monitor. Plain HTML and JavaScript with no build step. `activity.js` holds the environment picker, the activity tray and plain-language errors. Each data action is one `rpc` command to the shell. | `app/ui/` |
-| **Fabric view** | A second WebView2 laid over the page, showing Fabric's own portal from `app.fabric.microsoft.com`: full page on the **Fabric** page, where item links across the app open, and the Monitoring hub on **Monitor**. It has its own WebView2 profile that uses Windows single sign-on. Its sign-in cookies are saved every few seconds, encrypted with Windows DPAPI, and restored before the next launch's first page load. Links that leave Fabric open in the default browser. | `fabric_view_show`, `mod signin` in `app/src-tauri/src/main.rs` |
+| **Fabric view** | A second WebView2 laid over the page, showing Fabric's own portal from `app.fabric.microsoft.com`: full page on the **Fabric** page, where item links across the app open, and the Monitoring hub on **Monitor**. It has its own WebView2 profile that uses Windows single sign-on. Its sign-in cookies are saved every few seconds, encrypted with Windows DPAPI, and restored before the next launch's first page load. Only Fabric and Microsoft sign-in pages open in it (the host list is in [security](security.md)); other links open in the default browser. | `fabric_view_show`, `mod signin` in `app/src-tauri/src/main.rs` |
 | **Startup check** | Before the engine starts: if GitHub Releases has a newer build, it downloads it, checks the file is that build, swaps the exe and restarts. It then checks Python 3.11 or later, and installs the sidecar from the commit the exe was built from, so the exe and the engine always match. | `check_components`, `app/src-tauri/src/updater.py` |
 
 ### Local engine (`sidecar/`)
@@ -23,15 +23,18 @@ The Python package `fabric_desktop`, run by the shell as `python -m fabric_deskt
 | Module | What it does |
 | --- | --- |
 | **Notebook kernel** (`notebook.py`, `lakehouse.py`) | Runs notebook cells in one Python namespace. The `lakehouse` module is the notebook API: `read_csv`, `read_parquet` and `read_json` for `Files/`, plus `read_table`, `write_table` and `sql`. |
-| **SQL engine** (`sql.py`) | Takes Spark SQL, as Fabric's SQL query tab does. sqlglot translates each statement to DuckDB SQL. Every table the query names becomes a DuckDB view over that table's Delta dataset in OneLake. |
+| **SQL engine** (`sql.py`, `sql_dialects.py`, `sql_format.py`) | Takes Spark SQL, as Fabric's SQL query tab does. sqlglot translates each statement to DuckDB SQL. Every table the query names becomes a DuckDB view over that table's Delta dataset in OneLake. `sql_dialects.py` lists the dialects the SQL page edits (Spark SQL, Fabric Warehouse, SQL analytics endpoint and SQL database T-SQL, DuckDB) and which run on this PC; `sql_format.py` formats SQL with sqlglot and refuses any change beyond layout and case. The page is `app/ui/query.js` and its editor is `app/ui/sqleditor.js` (CodeMirror 6), with completion from a metadata provider so Warehouse metadata can plug in later. |
+| **SQL compatibility** (`sqlcompat/`) | Checks SQL against a Fabric engine's documented rules without running it: profiles per engine, versioned rules with sources and confidence, and an analyzer that reports findings with positions. Shown as editor diagnostics and the Compatibility panel. See [sql-compatibility.md](sql-compatibility.md). |
+| **SQL execution** (`sql_exec.py`, `sql_worker.py`, `sql_policy.py`) | The SQL page's managed runs: each query is classified (read, session change, lakehouse write, outside change) before it runs, then runs in a process of its own with DuckDB's memory limit, a temp folder and external access locked off. A queue caps how many run at once; Stop and the time limit end only that process. The result streams into an Arrow IPC snapshot that pages and exports (CSV, Parquet) read by batch, so large results are never held in memory. One audit line per run, without the SQL. See [sql-execution.md](sql-execution.md). |
 | **Metadata framework** (`meta/`, `meta_service.py`) | Layers, entities, the four gates, SCD Type 1 and 2, incremental loads, quarantine and promotion from Dev to Test to Prod. See the README. |
 | **Fabric hand-off** (`cloud_service.py`, `fabric_run.py`, `maintenance.py`, `semantic.py`, `profiling.py`) | The work that deliberately uses Fabric capacity: Run in Fabric and schedules for published notebooks (with the setup cell that makes `fabric_desktop.lakehouse` work in a Fabric Python notebook), table health and Fabric's table maintenance job (OPTIMIZE with V-Order, VACUUM), and a Direct Lake semantic model written as TMDL. Profiling runs locally and suggests `[[clean]]` and `[[check]]` blocks. |
 | **Fabric compute** (`fabric_compute.py`) | Metadata runs for an environment set to run on Fabric: uploads the engine and project to `LH_Meta/Files/_fabric_desktop/current`, publishes the runner notebook `nb_fabric_desktop_runner`, starts or schedules it with Fabric's job scheduler, and reads its results file back. Inside Fabric, `run_bundle` runs the same `Engine` against the same OneLake tables. |
 | **Git** (`git/`, `git_service.py`) | Source control: runs the person's own `git` with prompts off, literal paths and only the https, ssh and file protocols. `repo.py` reads status, diffs, branches and history and stages and commits; `ops.py` runs clone, fetch, pull and push in the background so the engine keeps answering; `secrets.py` scans staged files before a commit and removes credentials from every message. Sign-in is Git Credential Manager or the SSH agent; the engine never sees a password or token. |
+| **Local data projects** (`localdata/`, `localdata_service.py`) | A persistent DuckDB database per project on the PC. Registered folders of CSV, JSON, Parquet and Delta files become views (`discovery.py` names them), queried with limits, time-outs and cancel. No sign-in. See [local-data.md](local-data.md). |
 | **Job runner** (`jobs.py`, `publish.py`) | TOML job files that run DuckDB SQL or a Polars script and publish the result. |
 | **Auth** (`auth.py`) | MSAL public-client sign-in as you (delegated, no service principal). Tokens for Fabric, Azure Storage and, when consented, the Power BI admin API. The token cache is on the PC. |
 | **OneLake I/O** (`onelake.py`, `publish.py`, `delta_profile.py`) | Builds OneLake paths, lists files and tables, and reads and writes Delta with delta-rs. |
-| **Fabric REST client** (`fabric_api.py`) | Workspaces, items, lakehouses, notebook publish, job instances and schedules, table maintenance, semantic models, SQL endpoint metadata refresh, and the admin workspace scan used for endorsement. |
+| **Fabric REST client** (`fabric_api.py`) | Workspaces, items, lakehouses, notebook publish, job instances and schedules, table maintenance, semantic models, SQL endpoint metadata refresh, and the admin workspace scan used for endorsement. It and the OneLake, Power BI and platform clients share one pooled session from `http_session.py`; reads retry through `retrying.py`, writes are sent once. Telemetry, the Teams webhook and the managed identity token client keep their own connections. |
 | **Workloads** (`workloads/`, `workload_service.py`) | One inventory of what runs where: metadata entities per environment, notebooks on this PC and their Fabric items, and pipelines, notebooks and Spark jobs in the workspaces the app works in. Reads existing records only (run logs, `fabric_runs.jsonl`, PC and Fabric schedules) and says how fresh each reading is. Ownership, links and actions taken from the app are kept in `workloads.sqlite`. |
 
 ### On this PC
@@ -67,6 +70,8 @@ A metadata project is a folder you choose and keep in Git.
 4. The result goes back as one JSON line. The shell returns it to the UI, which draws the grid.
 
 Every other action follows the same path. Only the work in step 3 changes.
+
+Several calls can be on the pipe at once. Each request carries an id, and the shell hands each reply only to the call with that id; a late reply nobody waits for is dropped. The sidecar runs the quick calls (the ones the shell gives a 60-second limit, such as polling a cell, opening a notebook and the SQL page's paging) in their own lane, so a long run, publish or sign-in doesn't hold them up. Every other call runs one at a time in the order it arrives. Saving, creating and renaming a notebook stay in that order with publish and delete, so a publish that waited can never write older cells over a newer save; while a long call runs, a save waits for it.
 
 ## Writing to OneLake
 

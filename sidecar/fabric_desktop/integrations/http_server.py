@@ -152,7 +152,7 @@ class Guard:
             if found is None:
                 await self._refuse(scope, receive, send, IntegrationError(
                     "permission_denied", "A valid token is required." if token else "Send Authorization: Bearer <token>.",
-                    hint="Fabric Desktop by KratosBI > Settings > Integrations shows the token when you connect a tool."),
+                    hint="KratosForge > Settings > Integrations shows the token when you connect a tool."),
                     {"WWW-Authenticate": "Bearer"}, 401)
                 return
             if not self.limiter.allow(found["id"]):
@@ -213,8 +213,8 @@ def openapi(registry: Registry, port: int) -> dict[str, Any]:
                                                  "seconds": {"type": "number"}, "result": cap.output_schema},
                 "required": ["ok", "result"]}}}}, **errors}}}
     return {"openapi": "3.1.0",
-            "info": {"title": "Fabric Desktop by KratosBI local API", "version": __version__,
-                     "description": "Fabric Desktop by KratosBI's capabilities for external tools, on this PC only. "
+            "info": {"title": "KratosForge local API", "version": __version__,
+                     "description": "KratosForge's capabilities for external tools, on this PC only. "
                                     "The same capabilities as the MCP server, with the same permissions and approvals."},
             "servers": [{"url": f"http://127.0.0.1:{port}"}],
             "security": [{"bearer": []}],
@@ -226,7 +226,7 @@ def openapi(registry: Registry, port: int) -> dict[str, Any]:
 
 
 def build_app(registry: Registry, store: IntegrationStore, port: int, service_factory: Callable[[], Any] | None = None,
-              limiter: RateLimiter | None = None) -> ASGIApp:
+              limiter: RateLimiter | None = None, refresh: Callable[[], Any] | None = None) -> ASGIApp:
     from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
     from mcp.server.transport_security import TransportSecuritySettings
 
@@ -240,7 +240,7 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
         return Caller(client["id"], "api", client["name"])
 
     async def health(request: Request) -> Response:
-        return JSONResponse({"ok": True, "product": "Fabric Desktop by KratosBI", "version": __version__})
+        return JSONResponse({"ok": True, "product": "KratosForge", "version": __version__})
 
     async def spec(request: Request) -> Response:
         return JSONResponse(openapi(registry, port))
@@ -287,7 +287,7 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
         with anyio.move_on_after(QUEUE_WAIT_SECONDS) as waiting:
             await slots.acquire()
         if waiting.cancelled_caught:
-            return error_response(IntegrationError("rate_limited", "Fabric Desktop by KratosBI is busy with other calls.",
+            return error_response(IntegrationError("rate_limited", "KratosForge is busy with other calls.",
                                                    retryable=True, hint="Try again shortly."), {"Retry-After": "5"})
         result: dict[str, Any] = {}
         try:
@@ -324,7 +324,7 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
         client = ctx.request.scope["state"]["fd_client"]
         return Caller(client["id"], "mcp-http", client["name"])
 
-    mcp = build_server(registry, service_factory, caller_for=mcp_caller)
+    mcp = build_server(registry, service_factory, caller_for=mcp_caller, refresh=refresh)
     manager = StreamableHTTPSessionManager(
         app=mcp, max_request_body_size=MAX_BODY_BYTES, max_sessions=20,
         security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=sorted(Guard(None, store, port).hosts),  # type: ignore[arg-type]
@@ -372,6 +372,7 @@ def serve(port: int, parent_pid: int = 0) -> int:
     from ..service import data_dir
     from .mcp_server import _engine_service
     from .audit import IntegrationAudit
+    from .extensions import ExtensionHost
     from .permissions import PermissionAuthorizer
     from .registry import default_registry
 
@@ -387,12 +388,19 @@ def serve(port: int, parent_pid: int = 0) -> int:
     registry = default_registry()
     registry.authorizer = PermissionAuthorizer(store)
     registry.audit = IntegrationAudit(store).record
-    app = build_app(registry, store, port, _engine_service)
+    extensions = ExtensionHost(registry, store)
+    extensions.sync()
+    app = build_app(registry, store, port, _engine_service, refresh=extensions.sync)
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", access_log=False,
                                            timeout_graceful_shutdown=10, server_header=False))
     state = root / "integrations" / "http.json"
 
     def watch() -> None:
+        # http.json tells the app the API is up, so it is written only once uvicorn is listening.
+        while not server.started and not server.should_exit:
+            time.sleep(0.05)
+        if server.started:
+            state.write_text(json.dumps({"pid": os.getpid(), "port": port, "started_at": time.time()}), encoding="utf-8")
         while not server.should_exit:
             if not _parent_alive(parent_pid):
                 server.should_exit = True
@@ -400,7 +408,6 @@ def serve(port: int, parent_pid: int = 0) -> int:
             time.sleep(1)
 
     threading.Thread(target=watch, daemon=True, name="parent-watch").start()
-    state.write_text(json.dumps({"pid": os.getpid(), "port": port, "started_at": time.time()}), encoding="utf-8")
     try:
         server.run()
     finally:

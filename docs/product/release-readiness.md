@@ -1,25 +1,42 @@
 # Release readiness
 
-What must be true before Fabric Desktop by KratosBI goes to an enterprise pilot, and where each piece stands. Updated as items in the [enterprise backlog](enterprise-backlog.md) land.
+What must be true before KratosForge goes to an enterprise pilot, and where each piece stands. Updated as items in the [enterprise backlog](enterprise-backlog.md) land.
 
-Last updated 2026-10-17. "Open PR" means built and tested in CI but not merged yet.
+Last updated 2026-10-18 at `main` a346145. The current gate status, with acceptance criteria and evidence, is the [readiness checklist](../hardening/readiness-checklist.md) from the hardening audit.
 
 ## Verdict today
 
-**Not ready for an enterprise pilot.** Two gates need Chris: a run of the live test harness on a non-production workspace (G1) and a code signing account (G2). Every other gate has its work in an open PR.
+**Not ready for an enterprise pilot.** Two gates need Chris: a run of the live test harness on a non-production workspace (G1) and a code signing account (G2). The [hardening audit](../hardening/findings.md) defects are being fixed in their own PRs; the readiness checklist says which are still open.
+
+## What's missing for an enterprise-approved app
+
+An enterprise security or IT team approving KratosForge would ask for each of these. Asked by Chris in unit testing on 2026-10-18 (item 38).
+
+| # | Missing | Why an enterprise needs it | Waits on |
+| --- | --- | --- | --- |
+| 1 | Code signing | Smart App Control, App Control and many EDR tools block or flag the unsigned exe and engine | Chris: Azure Trusted Signing account (D-C3), then signing in CI |
+| 2 | Live tenant verification | Nothing has been proven on a real tenant, including sign-in with no app registration | Chris: one run of the FD-101 harness on a non-production workspace |
+| 3 | Token cache encryption | The MSAL token cache is a plain file in the user's profile; security reviews expect it protected with Windows DPAPI | Chris: decision D-C2 |
+| 4 | Pin a build and roll back | Each channel keeps only its newest build, so IT can't hold a known build or go back one | Release management: keep every build as its own release asset |
+| 5 | Managed install package | Intune and Configuration Manager deploy MSI or MSIX; today it's one exe plus a policy file copied by script | A packaging PR, which needs signing (1) first |
+| 6 | Security evidence pack | Reviewers want one place with the security model, data flows, permissions, SBOM and provenance, plus a privacy statement and support terms. The pieces exist ([security](../security.md), [permissions](../permissions.md), [telemetry](../telemetry.md); SBOMs and build provenance attestations are made for each Preview build, but the Stable release carries only the exe, engine and version.json) but aren't collected, and there is no privacy statement or support terms | Enterprise readiness can assemble the pack; privacy statement and support terms need Chris as publisher |
+| 7 | Open High security findings | A security review will find them: no Content Security Policy ([SH-1](../hardening/findings.md#sh-1-high-no-content-security-policy-tauri-api-on-the-page)), and updates prove integrity but not who published them ([SH-2](../hardening/findings.md#sh-2-high-updates-prove-integrity-not-authenticity)). The third, run-notebook approvals not bound to the code (EN-1), was fixed in #156 | Hardening: HD-020; HD-021 also needs signing (1) |
+| 8 | Tested features | Run in Fabric, schedules, Prove, the metadata framework against OneLake and the agent are Preview: built to documented APIs, untested on a tenant | Live tenant runs (2), feature by feature |
+
+Settings could show the parts of this a person can see on their own PC (signed build, policy applied, token cache protected, updates managed by IT). That is a UI change, so it starts with a mockup.
 
 ## Pilot gates
 
 | Gate | Needs | State |
 | --- | --- | --- |
-| G1 Live verification | The FD-101 harness run on a non-production workspace with every check passing, results attached below | Harness in open PR [#80](https://github.com/KratosDataGod/fabric-desktop/pull/80); not run yet |
+| G1 Live verification | The FD-101 harness run on a non-production workspace with every check passing, results attached below | Harness merged (#80); not run yet |
 | G2 Signed builds | Azure Trusted Signing account (D-C3), signing in CI (PR #28) | Blocked on Chris |
-| G3 Update integrity | FD-102a (checksums enforced), FD-103 (scanning, SBOM, provenance) | Open PRs [#82](https://github.com/KratosDataGod/fabric-desktop/pull/82), [#86](https://github.com/KratosDataGod/fabric-desktop/pull/86), [#88](https://github.com/KratosDataGod/fabric-desktop/pull/88) |
-| G4 Admin controls | FD-105 policies, FD-104 deployment guide | Open PR [#90](https://github.com/KratosDataGod/fabric-desktop/pull/90). Pinning a build and rollback still need per-build releases |
-| G5 Data protection | FD-131a redaction, FD-138 safe support report, FD-131b local retention | Open PRs [#84](https://github.com/KratosDataGod/fabric-desktop/pull/84), [#95](https://github.com/KratosDataGod/fabric-desktop/pull/95). Token cache encryption waits on D-C2 |
-| G6 Audit | FD-125 audit trail | Open PR [#89](https://github.com/KratosDataGod/fabric-desktop/pull/89) |
-| G7 Recovery | FD-126 backup and restore | Open PR [#91](https://github.com/KratosDataGod/fabric-desktop/pull/91) |
-| G8 Documentation | This page, the security model, install, enterprise install, backup, troubleshooting | In the PRs above |
+| G3 Update integrity | FD-102a (checksums enforced), FD-103 (scanning, SBOM, provenance) | Merged (#82, #86, #88) |
+| G4 Admin controls | FD-105 policies, FD-104 deployment guide | Merged (#90). A broken policy file keeps the last good copy (#165, merged). Pinning a build and rollback still need per-build releases |
+| G5 Data protection | FD-131a redaction, FD-138 safe support report, FD-131b local retention | Merged (#84, #95, and more secret patterns in #181). Token cache encryption waits on D-C2 |
+| G6 Audit | FD-125 audit trail | Merged (#89, and one chain across processes in #182) |
+| G7 Recovery | FD-126 backup and restore | Merged (#91) |
+| G8 Documentation | This page, the security model, install, enterprise install, backup, troubleshooting | Written; a security evidence pack and privacy statement are missing (row 6 above) |
 
 ## Supported capability matrix
 
@@ -44,10 +61,10 @@ The full threat model is in `docs/security.md` (PR #82). In short:
 | --- | --- |
 | Sign-in | Microsoft's Fabric CLI public client with Windows' account broker; no app registration and no secrets in the app. Tokens stay in the user's MSAL cache. An organization can limit sign-in to its own tenants (`allowed_tenants`) |
 | Access | Every call uses the person's own token, so the app can do no more than their Fabric roles allow. Scopes are listed in `docs/permissions.md` |
-| UI to engine | The engine is a child process on stdio with a fixed method allowlist. It runs no server; only a browser sign-in with an own app registration briefly listens on `localhost` for Microsoft's redirect |
+| UI to engine | The engine is a child process on stdio with a fixed method allowlist. It listens on no port by default. A browser sign-in with an own app registration briefly listens on `localhost` for Microsoft's redirect. If someone switches on **Settings > Integrations > Local HTTP**, a separate process serves MCP and the REST API on `127.0.0.1:47615` only, with a bearer token per client, `Host` and `Origin` checks, rate limits and an audit line per call ([AI integration](../architecture/ai-integration.md)) |
 | Updates | The exe and engine come from the repository's GitHub releases. Their SHA-256 must match `version.json` and the engine's build must match the release. IT can turn self-updates off |
 | Build | Actions pinned by SHA, dependency scanning, SBOMs and build provenance attestations (PR #88). Not code signed yet (G2) |
-| Data leaving the PC | No telemetry. Error messages and logs have secrets removed; problem reports and support bundles also remove personal details |
+| Data leaving the PC | Usage data only if a person turns it on, or their organization does: daily counts of actions, failures and timings, with no data, names, account or tenant ([telemetry.md](../telemetry.md)). Policy can turn it off for everyone. Error messages and logs have secrets removed; problem reports and support bundles also remove personal details |
 | Data in OneLake | Writes go through the person's token. Preview before write and promote. The live harness only writes to a workspace marked for testing, and only to items it created |
 | Records | A hash-chained local audit log of every run, write and Fabric job start |
 
@@ -56,11 +73,11 @@ The full threat model is in `docs/security.md` (PR #82). In short:
 | Requirement | Detail |
 | --- | --- |
 | PCs | Windows 10 or 11, 64-bit, with WebView2. Several hundred MB per user for the engine |
-| Network | The hosts in [Enterprise install: Network access](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/enterprise-install.md#network-access) |
+| Network | The hosts in [Enterprise install: Network access](https://github.com/KratosDataGod/KratosForge/blob/main/docs/enterprise-install.md#network-access) |
 | Fabric | A capacity for lakehouses and anything run in Fabric. Tenant settings as in [Configure Azure and Fabric](../azure-setup.md) |
 | Releases | A maintainer promotes a Preview build to Stable with release notes. Under managed updates, IT deploys each Stable exe |
 | Support | A `support_url` in policy, and support bundles for diagnosis |
-| Backups | People's local notebooks and settings: [Back up and restore](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/backup.md) |
+| Backups | People's local notebooks and settings: [Back up and restore](https://github.com/KratosDataGod/KratosForge/blob/main/docs/backup.md) |
 
 ## Validated scenarios
 
@@ -84,7 +101,7 @@ None yet. When the FD-101 harness is run, its `summary.md` goes here with the da
 
 To be completed with the pilot organization. Each line needs a date and a name.
 
-1. The open PRs for gates G3 to G8 are merged and promoted to Stable.
+1. The fixes for gates G3 to G8 are merged and promoted to Stable.
 2. Code signing is in place (G2), or the pilot PCs don't run Smart App Control or App Control.
 3. Tenant settings and sign-in checked as in [azure-setup.md](../azure-setup.md).
 4. The live test harness passes on the pilot's non-production workspace, and its summary is recorded above.

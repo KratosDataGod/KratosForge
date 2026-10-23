@@ -4,7 +4,7 @@
 
 state.meta = {
   project: null,       // summary from meta_project
-  tab: "entities",     // entities | layers | keys | sources | runs | health | tests | exceptions | model | environments | domains | products | links | glossary
+  tab: "overview",     // overview | entities | layers | keys | sources | runs | health | model | tests | exceptions | environments | domains | products | links
   env: (() => { try { return localStorage.getItem("fd.env") || "dev"; } catch { return "dev"; } })(),  // set from the top bar
   entity: null,        // open entity detail
   layersDraft: null,   // unsaved layer edits
@@ -68,14 +68,14 @@ async function loadMetaProject() {
   return p;
 }
 
-// Metadata's tabs, in four groups so new metadata features join a group instead of a long row.
+// Data mesh's tabs, in groups so new features join a group instead of a long row. Overview comes first.
 // [group id, label, [[tab id, label, preview feature id]]]
 const META_TAB_GROUPS = [
+  ["overview", "Overview", [["overview", "Domains", "mesh"]]],
   ["design", "Design", [["entities", "Entities"], ["layers", "Layers"], ["keys", "Surrogate keys"], ["sources", "Source systems"]]],
   ["runs", "Runs", [["runs", "Runs"]]],
   ["quality", "Quality", [["tests", "Tests", "tests"], ["health", "Table health", "health"], ["exceptions", "Exceptions"]]],
-  ["mesh", "Domains", [["domains", "Domain and workspaces", "mesh"], ["products", "Data products", "mesh"], ["links", "Links", "mesh"],
-    ["glossary", "Glossary", "mesh"]]],
+  ["mesh", "Domains", [["domains", "Domain and workspaces", "mesh"], ["products", "Data products", "mesh"], ["links", "Links", "mesh"]]],
   ["deploy", "Deploy", [["environments", "Environments and promote"], ["model", "Semantic model", "model"]]],
 ];
 
@@ -111,7 +111,7 @@ async function renderMetadata() {
       h("div", {},
         h("h1", {}, "Data mesh"),
         h("p", { class: "sub" }, "Every table is a file in ", h("span", { class: "mono" }, p.path),
-          ". Metadata version ", h("span", { class: "mono" }, p.version), ". ", learnMore("metadata"))),
+          ". Metadata version ", h("span", { class: "mono" }, p.version), ". ", learnMore("data-mesh"))),
       h("div", { class: "head-actions" },
         btn("New entity", "add", newEntityDialog, "tool outline"),
         preview("schedules", btn("Schedule", "history", () => scheduleMetaRuns(m.env), "tool outline",
@@ -125,9 +125,9 @@ async function renderMetadata() {
     visible(group[2]).length > 1 ? h("div", { class: "seg meta-tabs", role: "group", "aria-label": group[1] }, visible(group[2]).map(([id, label, previewId]) =>
       h("button", { class: m.tab === id ? "on" : null, onclick: () => goMeta(id) }, tabLabel(label, previewId)))) : null,
     body));
-  const render = { entities: renderEntitiesTab, layers: renderLayersTab, keys: renderKeysTab, sources: renderSourcesTab,
+  const render = { overview: renderMeshOverviewTab, entities: renderEntitiesTab, layers: renderLayersTab, keys: renderKeysTab, sources: renderSourcesTab,
     runs: renderRunsTab, health: renderHealthTab, model: renderModelTab, tests: renderTestsTab, environments: renderEnvTab,
-    domains: renderMeshDomainsTab, products: renderMeshProductsTab, links: renderMeshLinksTab, glossary: renderMeshGlossaryTab,
+    domains: renderMeshDomainsTab, products: renderMeshProductsTab, links: renderMeshLinksTab,
     exceptions: renderExceptionsTab }[m.tab];
   raiseExceptionNotices(p);
   await render(body, p);
@@ -282,9 +282,9 @@ async function renderEntitiesTab(body, p) {
         h("td", {}, r ? [statusPill(r.status), h("span", { class: "muted-text" }, " ", when(r.started_at))]
           : h("span", { class: "muted-text" }, "never")),
         h("td", {}, e.owner));
-    }))) : h("div", { class: "empty" }, h("span", { class: "title" }, "No entities yet"),
-    h("span", { class: "text" }, "Add one from a template. It starts out meeting your layer's standards."),
-    btn("New entity", "add", newEntityDialog, "tool primary")));
+    }))) : emptyState({ title: "No entities yet",
+    text: "Add one from a template. It starts out meeting your layer's standards.",
+    action: btn("New entity", "add", newEntityDialog, "tool primary") }));
 }
 
 function newEntityDialog(preset) {
@@ -419,10 +419,10 @@ async function renderEntity() {
         h("div", { class: "row" }, h("button", { class: "tool link", onclick: () => goMeta("entities") }, "Data mesh"), h("span", { class: "muted-text" }, "/")),
         h("h1", { class: "row" }, h("span", { class: "mono" }, e.name), layerChip(e.layer)),
         h("p", { class: "sub" }, `${MODE_LABEL[e.mode] || e.mode}${e.watermark ? ` on ${e.watermark}` : ""} · owner ${e.owner || "not set"} · `,
-          h("span", { class: "mono" }, e.path))),
+          h("span", { class: "mono" }, e.path), " ", learnMore("data-mesh"))),
       h("div", { class: "head-actions" },
         btn("Delete", "delete", async () => {
-          if (!(await confirmDialog(`Delete ${e.name}?`, "The entity file is removed. Its Delta table stays in the lakehouse until you delete it there.", "Delete"))) return;
+          if (!(await confirmDialog(`Delete ${e.name}?`, "The entity file is removed. Its Delta table stays in the lakehouse until you delete it there.", "Delete", { danger: true }))) return;
           const res = await metaCall("meta_delete_entity", { name: e.name }, "Not deleted");
           if (res) { toast(`Deleted ${e.name}`); goMeta("entities"); }
         }, "tool outline"),
@@ -444,7 +444,8 @@ async function renderEntity() {
         errBox, editor),
       h("div", { class: "side" },
         h("div", { class: "card pad" }, h("b", {}, "Contract"), h("div", { class: "cols" }, cols)),
-        h("div", { class: "card pad" }, h("b", {}, "Lineage"),
+        h("div", { class: "card pad" }, h("div", { class: "row" }, h("b", { class: "grow" }, "Lineage"),
+          preview("lineage", btn("Columns", "flow", () => columnLineage(e.name), "tool link small"))),
           h("div", { class: "lineage3" },
             h("div", {}, h("span", { class: "muted-text small" }, "Reads"),
               e.reads.length ? e.reads.map((r) => h("button", { class: "node", onclick: () => openEntity(r) }, entityName(r)))
@@ -470,20 +471,36 @@ function keysCard(e) {
     h("div", { class: "row wrap" }, h("b", {}, "Cell 1: surrogate keys"),
       h("span", { class: "muted-text" }, e.surrogate_keys.map((k) => `${k.column} from sk.${k.table} on ${k.business_key.join(" + ")}`).join(" · ")),
       h("span", { class: "spacer" }),
-      e.keys_sql ? btn("Copy", null, () => attempt(() => navigator.clipboard.writeText(e.keys_sql), "Could not copy").then(() => toast("Copied")), "tool outline small") : null,
+      e.keys_sql ? btn("Copy", null, () => copyText(e.keys_sql, "Key SQL"), "tool outline small") : null,
       e.keys_sql ? btn("Create template notebook", "notebook", async () => {
         const res = await metaCall("meta_key_notebook", { name: e.name, env: state.meta.env }, "No notebook created");
         if (res) { toast(`Created ${res.name}`); openNotebook(res.name); }
       }, "tool primary small") : null),
     e.keys_sql ? h("pre", { class: "sql-block" }, e.keys_sql)
+      : e.keys_from ? h("p", { class: "muted-text" }, `Keys come from ${e.keys_from}, so there's no MERGE into LH_Keys to copy. Each run of this entity takes its keys from ${e.keys_from}.`)
       : h("p", { class: "muted-text" }, "Fix the problems above to see the MERGE."));
 }
 
-function confirmDialog(title, text, okLabel = "OK") {
+// opts.danger: the action deletes or overwrites data, so it is drawn red and Cancel has focus (UX-018).
+// opts.typeToConfirm: the action stays off until exactly this text is typed, for the worst overwrites.
+// Escape, the close button and a click outside count as Cancel.
+function confirmDialog(title, text, okLabel = "OK", opts = {}) {
   return new Promise((resolve) => {
-    const done = (v) => { closeDialog(); resolve(v); };
-    showDialog(title, h("p", { class: "text" }, text), [
-      btn("Cancel", null, () => done(false), "tool outline"), btn(okLabel, null, () => done(true), "tool primary")]);
+    let settled = false;
+    const done = (v) => { if (settled) return; settled = true; closeDialog(); resolve(v); };
+    const cancel = btn("Cancel", null, () => done(false), "tool outline");
+    const ok = btn(okLabel, null, () => done(true), opts.danger ? "tool danger-solid" : "tool primary");
+    let typed = null;
+    if (opts.typeToConfirm) {
+      ok.disabled = true;
+      typed = h("label", { class: "field" }, `Type ${opts.typeToConfirm} to confirm`,
+        h("input", { autocomplete: "off", spellcheck: "false",
+          oninput: (e) => { ok.disabled = e.target.value.trim() !== opts.typeToConfirm; },
+          onkeydown: (e) => { if (e.key === "Enter" && !ok.disabled) done(true); } }));
+    }
+    showDialog(title, h("div", {}, h("p", { class: "text" }, text), typed), [cancel, ok],
+      () => { if (!settled) { settled = true; resolve(false); } });
+    if (opts.danger && !typed) cancel.focus();
   });
 }
 
@@ -497,21 +514,59 @@ function dataTable(preview) {
 
 async function runEntities(names, opts = {}) {
   const p = state.meta.project;
-  const label = names ? names.join(", ") : `all ${p.entities.length} entities`;
+  let label = names ? names.join(", ") : `all ${p.entities.length} entities`;
   const env = state.meta.env;
+  if (inFabric(p, env) && !state.user && !(await signIn())) return;
+  const go = await metaRiskGate(p, names, env, label);
+  if (!go) return;
+  const only = go === true ? names : go;
+  if (only !== names) label = only.join(", ");  // only those that can start
   if (inFabric(p, env)) {
-    if (!state.user && !(await signIn())) return;
     toast(`Sending ${label} to Fabric for ${ENV_LABEL[env]}...`);
   } else {
     toast(`Running ${label} in ${ENV_LABEL[env]}...`);
   }
-  const results = await metaCall("meta_run", { names, env, backfill: opts.backfill || null, cascade: !!opts.cascade }, "Run blocked");
+  const results = await metaCall("meta_run", { names: only, env, backfill: opts.backfill || null, cascade: !!opts.cascade }, "Run blocked");
   if (!results) return;
-  if (results[0]?.status === "submitted") return watchMetaFabricRun(results[0], names ? label : "Run all");
+  if (results[0]?.status === "submitted") return watchMetaFabricRun(results[0], only ? label : "Run all");
   const decision = results.find((r) => r.status === "needs_decision");
-  logRunActivity(`${names ? label : "Run all"} · ${ENV_LABEL[env]}`, results, "on this PC", env);
+  logRunActivity(`${only ? label : "Run all"} · ${ENV_LABEL[env]}`, results, "on this PC", env);
   showRunResults(results, decision);
   render();
+}
+
+// The risk check (FINOPS-004) for the entities in the run, read in one batch, shown as one dialog
+// when anything should stop or slow it. Resolves true to run as asked, a list of names to run only
+// those (the rest are blocked, or read from one that is), or false. When nothing can start there is
+// no way to run.
+async function metaRiskGate(p, names, env, label) {
+  const wid = (n) => `meta:${p.project?.name || "project"}:${n}`;
+  const gate = await rpc("meta_risk_gate", { names, env }).catch(() => null);
+  if (!gate) return true;
+  const found = gate.checks.filter((c) => c.result === "warning" || c.result === "blocked").map((c) => [c.entity, c]);
+  const held = Object.entries(gate.held || {});
+  if (!found.length && !held.length) return true;
+  const stopped = gate.checks.length - gate.run.length;
+  const none = !gate.run.length;
+  return new Promise((resolve) => {
+    const boxes = new Map(found.map(([n, r]) => [n, riskAckBox(r)]));
+    const go_ = async () => {
+      for (const [n, r] of found.filter(([n]) => gate.run.includes(n))) {
+        if (!(await riskProceed({ id: wid(n), action: "run", env }, r, boxes.get(n)))) return;
+      }
+      closeDialog();
+      resolve(stopped ? gate.run : true);
+    };
+    showDialog(`Run ${label} in ${ENV_LABEL[env]}?`, h("div", { class: "wl-confirm" },
+      found.map(([n, r]) => [gate.checks.length > 1 ? h("h3", {}, n) : null, riskPanel(r, { box: boxes.get(n) })]),
+      held.length ? h("p", { class: "text" }, `Waiting because they read from one that can't start: ${held.map(([n, ups]) => `${n} (reads ${ups.join(", ")})`).join("; ")}.`) : null,
+      stopped && !none ? h("p", { class: "text" }, `${stopped} of ${gate.checks.length} won't start; the other ${gate.run.length} run if you go ahead.`) : null,
+      h("p", { class: "muted-text small" }, (found[0]?.[1] || gate.checks[0])?.note || "")),
+    none
+      ? [btn("Close", null, () => { closeDialog(); resolve(false); }, "tool primary")]
+      : [btn("Cancel", null, () => { closeDialog(); resolve(false); }, "tool outline"),
+        btn(stopped ? `Run the other ${gate.run.length}` : "Run anyway", null, go_, "tool primary")]);
+  });
 }
 
 // One tray entry for a finished batch: how many succeeded, and the results to reopen.
@@ -713,8 +768,14 @@ async function renderEnvTab(body, p) {
             onclick: !onWorkspace && cfg.workspace_id ? () => setEnv(env, { target: "onelake" }) : null }, "Workspace"),
           h("button", { class: local ? "on" : null, onclick: local ? null : () => setEnv(env, { target: "local" }) }, "This PC only"))),
       computeChoice(env, local, cfg.compute === "fabric"),
+      capacitySlots[env] = h("div"),
       h("p", { class: "muted-text small" }, where));
   };
+  // Each workspace's capacity, from the last reading (FINOPS-002); never signs in.
+  const capacitySlots = {};
+  rpc("capacity_health").then((doc) => {
+    for (const e of doc.environments || []) capacitySlots[e.env]?.replaceWith((capacityLine(e) && preview("capacity", capacityLine(e))) || h("div"));
+  }).catch(() => {});
   const promoteRow = (source, target) => {
     const box = h("div", { class: "muted-text" }, "Checking the promote gate...");
     attempt(() => rpc("meta_promote_check", { source, target })).then((res) => {
@@ -726,7 +787,7 @@ async function renderEnvTab(body, p) {
       box.replaceWith(res.notes?.length ? h("div", {}, verdict, h("div", { class: "card pad warn-box" }, gateList(res.notes))) : verdict);
     });
     return h("div", { class: "card pad" },
-      h("div", { class: "row" }, h("b", {}, `Promote ${ENV_LABEL[source]} to ${ENV_LABEL[target]}`), h("span", { class: "spacer" }),
+      h("div", { class: "row" }, previewMarked("promote", h("b", {}, `Promote ${ENV_LABEL[source]} to ${ENV_LABEL[target]}`)), h("span", { class: "spacer" }),
         btn(`Promote to ${ENV_LABEL[target]}`, "publish", async () => {
           if (!state.user && !(await signIn())) return;
           toast(`Promoting to ${ENV_LABEL[target]}...`);
@@ -734,7 +795,7 @@ async function renderEnvTab(body, p) {
           if (res) { toast(`${ENV_LABEL[target]} is now on metadata ${res.version}`, false, { log: true }); render(); }
         }, "tool primary small")),
       h("p", { class: "muted-text" }, "Needs the project to pass the save gate, its tests to pass, and every table's last run here to be green on this exact metadata version. Lakehouses that don't exist yet are created."),
-      box, promoteImpact(source, target));
+      box, promoteImpact(source, target), lastRelease(target, render));
   };
   body.replaceChildren(h("div", { class: "env-cards" }, ["dev", "test", "prod"].map(card)),
     promoteRow("dev", "test"), promoteRow("test", "prod"));
@@ -766,7 +827,7 @@ function scheduleMetaRuns(env) {
   const p = state.meta.project;
   const fabric = inFabric(p, env);
   openScheduleDialog({
-    title: `Schedule ${ENV_LABEL[env]} runs`,
+    title: `Schedule ${ENV_LABEL[env]} runs`, what: `${ENV_LABEL[env]} runs`,
     mode: fabric ? "fabric" : "pc",
     pc: { target: { kind: "meta", env }, query: { kind: "meta", env },
           intro: `This PC runs every entity in ${ENV_LABEL[env]}, in layer order, from the project files as they are when it runs.` },
@@ -878,7 +939,7 @@ async function renderKeysTab(body) {
         h("div", { class: "muted-text" }, "One table per business key. Every run MERGEs new business keys here first, then puts the key on every row."),
         h("div", { class: "muted-text small" }, keysWhere(k)))),
     k.local ? null : btn(k.workspace_id ? "Change Keys workspace" : "Pick Keys workspace", "workspace", () => pickKeysWorkspace(k.env), "tool outline small"),
-    btn("Sync to LH_Keys", "sync", async () => {
+    previewMarked("syncKeys", btn("Sync to LH_Keys", "sync", async () => {
       if (!k.local && !state.user && !(await signIn())) return;
       const res = await metaCall("meta_keys_sync", { env: k.env }, "Not synced");
       if (res) {
@@ -887,9 +948,8 @@ async function renderKeysTab(body) {
           : `Synced: ${res.config.source_system} source systems${res.created.length ? `, created ${res.created.map((n) => `sk.${n}`).join(", ")}` : ""}`);
         rerender();
       }
-    }, "tool outline small"),
-    k.central_key_tables ? btn("Use a key table", "add", () => useKeyTableDialog(k, rerender), "tool primary small")
-      : btn("New key table", "add", () => newKeyTableDialog(rerender), "tool primary small")));
+    }, "tool outline small")),
+    addKeyTableButton(k, rerender, "tool primary small")));
 
   const problems = [...k.errors, ...(k.problem ? [k.problem] : [])];
   const list = tables.length ? h("table", { class: "list" },
@@ -902,9 +962,10 @@ async function renderKeysTab(body) {
       h("td", { class: "n" }, t.created ? t.keys.toLocaleString() : h("span", { class: "muted-text" }, "not created")),
       h("td", { class: "n mono" }, t.created ? t.next.toLocaleString() : "1"),
       h("td", {}, t.used_by.length ? `${t.used_by.length} table${t.used_by.length === 1 ? "" : "s"}` : h("span", { class: "muted-text" }, "none"))))))
-    : h("div", { class: "empty" }, h("span", { class: "title" }, "No key tables yet"),
-      h("span", { class: "text" }, "Add one per business key, like customer or product. Each gets its own table in LH_Keys."),
-      btn("New key table", "add", () => newKeyTableDialog(rerender), "tool primary"));
+    : emptyState({ title: "No key tables yet",
+      text: k.central_key_tables ? "Use the platform's key table for each business key, like customer or product."
+        : "Add one per business key, like customer or product. Each gets its own table in LH_Keys.",
+      action: addKeyTableButton(k, rerender, "tool primary") });
 
   body.replaceChildren(...[head, keysPlatformCard(k, rerender),
     problems.length ? h("div", { class: "problems" }, h("b", {}, "Fix these first"), gateList(problems)) : null,
@@ -925,7 +986,7 @@ function keyTableDetail(t, k, rerender) {
   return h("div", { class: "card pad side-panel" },
     h("div", { class: "row" }, h("h2", { class: "flush mono" }, t.table), h("span", { class: "spacer" }),
       btn("Delete", "delete", async () => {
-        if (!(await confirmDialog(`Delete key table ${t.name}?`, "The definition file is removed. The table stays in LH_Keys, so no key is lost.", "Delete"))) return;
+        if (!(await confirmDialog(`Delete key table ${t.name}?`, "The definition file is removed. The table stays in LH_Keys, so no key is lost.", "Delete", { danger: true }))) return;
         const res = await metaCall("meta_delete_key_table", { name: t.name, env: k.env }, "Not deleted");
         if (res) { toast(`Deleted ${t.name}`); state.meta.keyTable = null; rerender(); }
       }, "tool outline small", { disabled: t.used_by.length ? true : null, title: t.used_by.length ? "Tables still use it" : "Delete" })),
@@ -945,6 +1006,12 @@ function keyTableDetail(t, k, rerender) {
 }
 
 // Keys in the platform: a project uses the platform's key tables, it doesn't make its own.
+// With platform keys there is one key system: the project uses the platform's key tables and never makes its own.
+function addKeyTableButton(k, done, cls) {
+  return k.central_key_tables ? btn("Use a key table", "add", () => useKeyTableDialog(k, done), cls)
+    : btn("New key table", "add", () => newKeyTableDialog(done), cls);
+}
+
 function useKeyTableDialog(k, done) {
   const have = new Set(k.key_tables.map((t) => t.name));
   const free = k.central_key_tables.filter((t) => !have.has(t.name));
@@ -1000,9 +1067,12 @@ async function pickKeysWorkspace(env) {
 
 async function renderSourcesTab(body) {
   const m = state.meta;
-  const k = await metaCall("meta_keys", { env: m.env });
+  const k = await metaCall("meta_keys", { env: m.env, platform: previewShown() });
   if (!k || state.view !== "metadata" || m.tab !== "sources") return;
   const systems = k.source_systems;
+  // With the platform (Preview), its list is the one list of source systems: a project reads
+  // sources from it and keeps only its own connections (UX-009).
+  const plat = previewShown() ? k.platform_sources : null;
   if (m.source !== "new" && !systems.find((s) => s.id === m.source)) m.source = systems[0]?.id ?? "new";
   const rerender = () => renderSourcesTab(body);
   const nextId = Math.max(0, ...systems.map((s) => s.id)) + 1;
@@ -1014,11 +1084,26 @@ async function renderSourcesTab(body) {
   const draft = m.sourceDraft.draft;
   const pick = (id) => { m.source = id; m.sourceDraft = null; rerender(); };
 
-  const list = h("div", { class: "card source-list" },
-    systems.map((s) => h("button", { class: `source-item${s.id === m.source ? " picked" : ""}`, onclick: () => pick(s.id) },
-      h("b", {}, s.code), h("span", { class: "muted-text small" }, `${s.system_type || "Type not set"} · id ${s.id}${s.active ? "" : " · inactive"}`))),
-    h("button", { class: `source-item add${m.source === "new" ? " picked" : ""}`, onclick: () => pick("new") },
-      icon("add", 16), "New source system"));
+  const item = (s) => h("button", { class: `source-item${s.id === m.source ? " picked" : ""}`, onclick: () => pick(s.id) },
+    h("b", {}, s.code), h("span", { class: "muted-text small" }, `${s.system_type || "Type not set"} · id ${s.id}${s.active ? "" : " · inactive"}`));
+  const own = systems.filter((s) => !s.platform);
+  const list = plat ? h("div", { class: "card source-list" },
+    h("b", { class: "source-head" }, "Sources this project reads"),
+    systems.some((s) => s.platform) ? h("span", { class: "muted-text small source-group" }, "From the platform") : null,
+    systems.filter((s) => s.platform).map(item),
+    own.length ? h("span", { class: "muted-text small source-group" }, "Only in this project") : null,
+    own.map(item),
+    h("button", { class: "source-item add", onclick: () => readSourceDialog(plat, m.env, pick) },
+      icon("add", 16), "Add a source this project reads"))
+    : h("div", { class: "card source-list" }, systems.map(item),
+      h("button", { class: `source-item add${m.source === "new" ? " picked" : ""}`, onclick: () => pick("new") },
+        icon("add", 16), "New source system"));
+  // Sources made before the platform's list existed move there with their ids, like Move keys.
+  const moveCard = plat && own.length ? h("div", { class: "card pad" }, h("div", { class: "row" }, icon("database", 18),
+    h("span", { class: "grow" }, h("b", {}, `${own.map((s) => s.code).join(", ")} ${own.length === 1 ? "is" : "are"} only in this project`),
+      h("div", { class: "muted-text small" }, "Move sources to the platform copies them to its one list with the same ids, so every project reads them alike. Connections stay here.")),
+    btn("Move sources to the platform", "databaseArrowRight", () => moveSourcesToPlatform(own, m.env, rerender), "tool outline small"))) : null;
+  const fromPlatform = !!(plat && current?.platform);
 
   const field = (label, value, onInput, attrs = {}) => {
     const input = h("input", { value: value ?? "", ...attrs });
@@ -1042,21 +1127,26 @@ async function renderSourcesTab(body) {
 
   const form = h("div", { class: "card pad source-form" },
     h("div", { class: "row" }, h("h2", { class: "flush" }, m.source === "new" ? "New source system" : current.code), h("span", { class: "spacer" }),
-      m.source === "new" ? null : btn("Delete", "delete", async () => {
-        if (!(await confirmDialog(`Delete ${current.code}?`, "It is removed from source_systems.toml. Sync to remove it from LH_Keys too.", "Delete"))) return;
+      m.source === "new" ? null : btn(fromPlatform ? "Stop reading" : "Delete", "delete", async () => {
+        if (!(await confirmDialog(fromPlatform ? `Stop reading ${current.code}?` : `Delete ${current.code}?`,
+          `It is removed from source_systems.toml${fromPlatform ? " with this project's connection; the platform keeps the source" : ""}. Sync to remove it from LH_Keys too.`,
+          fromPlatform ? "Stop reading" : "Delete", { danger: !fromPlatform }))) return;
         const res = await metaCall("meta_delete_source_system", { id: current.id, env: m.env }, "Not deleted");
         if (res) { toast(`Deleted ${current.code}`); pick(null); }
       }, "tool outline small"),
-      btn("Save", "save", save, "tool primary small")),
+      btn(fromPlatform ? "Save connection" : "Save", "save", save, "tool primary small")),
     h("b", {}, "General"),
+    fromPlatform ? h("div", { class: "row" },
+      h("p", { class: "muted-text small grow" }, "Name, id, owner and type are kept once for every project in Platform > Landing zone > Sources. Only the connection is this project's own."),
+      btn("Edit in Platform", "building", () => { platformPage.source = current.platform.name; goPlatform("landing"); }, "tool link small")) : null,
     h("div", { class: "form-grid" },
       field("Source system id (never changes)", draft.id, (v) => { draft.id = v; }, { type: "number", min: "1", readonly: m.source === "new" ? null : true }),
-      field("Code", draft.code, (v) => { draft.code = v; }, { placeholder: "CRM" }),
-      field("Name", draft.name, (v) => { draft.name = v; }, { placeholder: "Dynamics 365 Sales" }),
-      select("System type", draft.system_type, ["", ...k.system_types], (v) => { draft.system_type = v; }),
-      field("Owner", draft.owner, (v) => { draft.owner = v; }),
-      select("Active", draft.active ? "Yes" : "No", ["Yes", "No"], (v) => { draft.active = v === "Yes"; })),
-    field("Description", draft.description, (v) => { draft.description = v; }),
+      field("Code", draft.code, (v) => { draft.code = v; }, { placeholder: "CRM", readonly: fromPlatform || null }),
+      field("Name", draft.name, (v) => { draft.name = v; }, { placeholder: "Dynamics 365 Sales", readonly: fromPlatform || null }),
+      fromPlatform ? field("System type", draft.system_type, () => {}, { readonly: true }) : select("System type", draft.system_type, ["", ...k.system_types], (v) => { draft.system_type = v; }),
+      field("Owner", draft.owner, (v) => { draft.owner = v; }, { readonly: fromPlatform || null }),
+      fromPlatform ? field("Active", draft.active ? "Yes" : "No", () => {}, { readonly: true }) : select("Active", draft.active ? "Yes" : "No", ["Yes", "No"], (v) => { draft.active = v === "Yes"; })),
+    field("Description", draft.description, (v) => { draft.description = v; }, { readonly: fromPlatform || null }),
     h("div", { class: "row" }, h("b", {}, "Connection"), h("span", { class: "spacer" }),
       h("div", { class: "seg", role: "group", "aria-label": "Environment" }, ["dev", "test", "prod"].map((env) =>
         h("button", { class: env === m.sourceEnv ? "on" : "", onclick: () => { m.sourceEnv = env; rerender(); } }, ENV_LABEL[env])))),
@@ -1065,10 +1155,58 @@ async function renderSourcesTab(body) {
       "Passwords and keys never go here. Give the Key Vault URL and the secret's name; the notebook reads the secret when it runs."),
     h("p", { class: "muted-text small" }, "Sync writes these to LH_Keys as config.source_system and config.source_connection, one row per source per environment, so notebooks and pipelines look up connections by code."));
 
+  const problems = [...k.errors, ...(plat ? k.source_problems : [])];
   body.replaceChildren(...[
-    k.errors.length ? h("div", { class: "problems" }, h("b", {}, "Fix these first"), gateList(k.errors)) : null,
+    problems.length ? h("div", { class: "problems" }, h("b", {}, "Fix these first"), gateList(problems)) : null,
+    previewShown() && k.platform_problem ? h("p", { class: "fail-text small" }, k.platform_problem) : null,
+    moveCard,
     h("div", { class: "sources-grid" }, list, form), varlibCard()].filter(Boolean));
 }
+
+// Pick one of the platform's sources for this project to read. New sources are added on the
+// Platform page by its admins (or requested there).
+function readSourceDialog(plat, env, pick) {
+  const left = plat.filter((p) => !p.read);
+  showDialog("Add a source this project reads", h("div", {},
+    h("p", { class: "text" }, "The platform keeps one list of source systems for every project, each with one id. Pick one; you then give this project's connection in each environment."),
+    left.length ? h("table", { class: "list" },
+      h("thead", {}, h("tr", {}, ["Source", "Type", "Owner", "Id", ""].map((c) => h("th", {}, c)))),
+      h("tbody", {}, left.map((p) => h("tr", {},
+        h("td", {}, h("b", {}, p.code), h("div", { class: "muted-text small" }, p.title)),
+        h("td", {}, p.system_type || h("span", { class: "muted-text" }, "not set")),
+        h("td", {}, p.owner || h("span", { class: "muted-text" }, "not set")),
+        h("td", { class: "mono" }, p.source_id ?? ""),
+        h("td", {}, btn("Read", "add", async () => {
+          const res = await metaCall("meta_source_read", { name: p.name, env }, "Not added");
+          if (res) { closeDialog(); toast(`This project now reads ${p.code}`); pick(p.source_id); }
+        }, "tool outline small"))))))
+      : h("p", { class: "muted-text" }, plat.length ? "This project already reads every source in the platform." : "The platform has no sources yet."),
+    h("p", { class: "muted-text small" }, "Missing one? Platform admins add sources on Platform > Landing zone; anyone can request one there.")), [
+    btn("Open Platform > Landing zone", "building", () => { closeDialog(); goPlatform("landing"); }, "tool outline"),
+    btn("Close", null, closeDialog, "tool primary")]);
+}
+
+async function moveSourcesToPlatform(own, env, done) {
+  if (!(await confirmDialog("Move sources to the platform?",
+    `Copies ${own.map((s) => `${s.code} (id ${s.id})`).join(", ")} to the platform's list with the same ids. Their connections stay in this project. A code or id the platform already uses for another source is reported, not changed. Needs a platform admin.`,
+    "Move"))) return;
+  const res = await metaCall("meta_sources_move", { env }, "Not moved");
+  if (!res) return;
+  if (res.conflicts.length) {
+    showDialog("Some sources weren't moved", h("div", {},
+      res.moved.length ? h("p", { class: "text" }, `Moved ${res.moved.join(", ")}.`) : null,
+      h("ul", { class: "plain" }, res.conflicts.map((c) => h("li", {}, c))),
+      h("p", { class: "muted-text small" }, "Rows already loaded keep this project's ids, so nothing was renumbered. Ask a platform admin which id stays.")),
+      [btn("Close", null, closeDialog, "tool primary")]);
+  } else toast(res.moved.length ? `Moved ${res.moved.join(", ")} to the platform` : "Already in the platform");
+  done();
+}
+
+// The entity file editor's own keys, listed in the Keyboard shortcuts dialog on an entity page (handled in renderEntity).
+registerShortcuts("Entity page", [
+  { keys: ["Ctrl+S"], label: "In the entity file: save it", when: () => state.view === "entity" },
+  { keys: ["Tab"], label: "In the entity file: type four spaces (Tab doesn't leave the box there)", when: () => state.view === "entity" },
+]);
 
 registerFeature({
   id: "metadata", rail: { label: "Data mesh", icon: "metadata", order: 50, also: ["entity"] },
@@ -1163,20 +1301,33 @@ async function renderModelTab(body) {
   }
   body.replaceChildren(h("p", { class: "muted-text" }, "Reading the layer's tables and relationships..."));
   if (!state.user && !(await signIn())) return;
-  const plan = await metaCall("meta_model_plan", { env: m.env, layer: m.modelLayer || null });
-  if (!plan || state.view !== "metadata" || m.tab !== "model") return;
+  const plan = await metaCall("meta_model_plan", { env: m.env, layer: m.modelLayer || null }, "Semantic model not checked");
+  if (state.view !== "metadata" || m.tab !== "model") return;
+  if (!plan) {  // whether the model exists isn't known, so neither Create nor Update is offered
+    body.replaceChildren(h("p", { class: "muted-text" }, "Couldn't check the semantic model in Fabric, so Create and Update are off until it can be read. Open this tab again to retry."));
+    return;
+  }
   const layer = h("select", { onchange: (e) => { m.modelLayer = e.target.value; renderModelTab(body); } },
     plan.layers.map((l) => h("option", { value: l, selected: l === plan.layer ? true : null }, l)));
   const name = h("input", { value: m.modelName || plan.name, oninput: (e) => { m.modelName = e.target.value; } });
   const result = h("div", {});
-  const build = async () => {
+  const build = async (replace = false) => {
     toast(`Building ${name.value} in ${plan.workspace_name || "the workspace"}...`);
-    const res = await metaCall("meta_build_model", { env: m.env, layer: plan.layer, name: name.value }, "Model not built");
+    const res = await metaCall("meta_build_model", { env: m.env, layer: plan.layer, name: name.value, replace }, "Model not built");
     if (!res) return;
+    if (res.confirm) {  // the model exists: nothing is written until the user says to replace it
+      const c = res.confirm;
+      if (await confirmDialog(`Replace ${c.name}?`,
+        `${c.name} already exists in ${c.workspace_name || plan.workspace_name || "the workspace"}. Its definition will be replaced by this layer's tables and relationships; measures, tables and relationships added to it in Fabric are lost.`,
+        `Replace ${c.name}`, { danger: true })) build(true);
+      return;
+    }
     toast(`${res.created ? "Created" : "Updated"} ${res.name}`);
     result.replaceChildren(h("div", { class: "pass-box" }, icon("ok", 16),
       `${res.created ? "Created" : "Updated"} ${res.name}: ${res.tables.length} tables, ${res.relationships} relationship${res.relationships === 1 ? "" : "s"}.`,
       res.skipped.length ? ` Not written yet, so left out: ${res.skipped.join(", ")}.` : "",
+      res.columns_left_out?.length ? ` Direct Lake can't read these column types, so they were left out: ${res.columns_left_out.map((c) => `${c.table}.${c.column} (${c.type})`).join(", ")}.` : "",
+      res.relationships_left_out?.length ? ` Relationships left out because their column isn't in the model: ${res.relationships_left_out.join(", ")}.` : "",
       res.endpoint_refreshed ? "" : " The SQL endpoint refresh didn't run; if a table is missing, refresh the lakehouse in Fabric and build again.",
       res.url ? btn("Open in Fabric", "open", () => openInFabric(res.url), "tool link small") : null));
   };
@@ -1184,8 +1335,8 @@ async function renderModelTab(body) {
     h("div", { class: "card pad" },
       h("div", { class: "row wrap" }, h("b", {}, "Direct Lake semantic model"), h("span", { class: "spacer" }),
         plan.existing ? btn("Open in Fabric", "open", () => openInFabric(plan.existing.url), "tool outline small") : null,
-        btn(plan.existing ? "Update model" : "Create model", "cube", build, "tool primary small")),
-      h("p", { class: "muted-text" }, `Reads ${plan.lakehouse} in ${plan.workspace_name || plan.workspace_id} through its SQL analytics endpoint, with no import and no refresh schedule. Relationships come from the metadata. Surrogate keys and the framework's _run_id and _loaded_at columns are hidden; every fact gets a row count measure. Updating keeps every column's lineage tag, so reports built on the model keep working.`),
+        btn(plan.existing ? "Update model" : "Create model", "cube", () => build(), "tool primary small")),
+      h("p", { class: "muted-text" }, `Reads ${plan.lakehouse} in ${plan.workspace_name || plan.workspace_id} through its SQL analytics endpoint, with no import and no refresh schedule. Relationships come from the metadata. Surrogate keys and the framework's _run_id and _loaded_at columns are hidden; every fact gets a row count measure and a total measure for each numeric column, and no column sums on its own. Updating keeps every column's lineage tag, so reports built on the model keep working.`),
       h("div", { class: "row wrap" }, h("label", { class: "field" }, "Layer", layer), h("label", { class: "field grow" }, "Model name", name)),
       result),
     h("div", { class: "entity-grid" },

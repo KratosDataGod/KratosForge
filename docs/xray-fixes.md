@@ -1,6 +1,6 @@
 # Estate X-ray: what each finding means and how to fix it
 
-The Estate X-ray on Home reads every lakehouse you can reach and lists what needs attention. It only reads: the folders under `Tables`, each Delta table's log, workspace roles, and the cost of runs this app started in Fabric. It changes nothing until you press a fix.
+The Estate X-ray on Home reads every lakehouse you can reach and lists what needs attention. It only reads: the folders under `Tables`, each Delta table's log, workspace roles, and the cost of runs this app started in Fabric. It changes none of the lakehouses it reads until you press a fix. One write happens by itself: when this PC is connected to a central lakehouse you can write to, each scan adds its lakehouse and table findings there for Optimize, never people's names or cost estimates. Anyone who can read the central lakehouse can read those rows, including the workspace, lakehouse and table names ([Optimize](optimize/README.md#findings-and-recommendations)).
 
 Each finding links here. Every section says what the finding means, why it matters, what the button in the app does, and how to fix it by hand in Fabric if you'd rather.
 
@@ -16,18 +16,31 @@ Each finding links here. Every section says what the finding means, why it matte
 
 The scan reads at most 500 tables. Scans run when you press **Scan now** or **Scan again** (the very first one on a PC starts by itself), and **Pause** holds a scan where it is.
 
+## After you press a fix
+
+**Optimize** and **Vacuum** start a job in Fabric; they don't finish it. The finding stays in the list marked **Fix submitted to Fabric, not finished yet** until the job ends:
+
+- **Completed**: the finding is marked fixed and leaves the list.
+- **Failed** or **Cancelled** (a paused capacity, for example): the finding stays, with Fabric's reason, and the button comes back so you can try again.
+
+A finding marked fixed shows again if a later scan, started after the job completed, still finds the problem. The job's progress is in **Monitor**.
+
+## When Fabric can't be read
+
+Vacuum deletes files for good, so KratosForge never guesses how much history a table must keep. If it can't read the table's own retention setting (no access, throttling, a sign-in that failed) or the metadata project (a broken `layers.toml` or `environments.toml`), **Vacuum**, **Optimize** and the Vacuum dry run stop with the reason and start nothing. Fix the cause and press the button again. With no metadata project open at all, a table keeps the longest of Fabric's 7 days and its own setting.
+
 ## Small files
 
 **What it means.** The table has 20 or more data files averaging under 32 MB each. Each small append, streaming micro-batch or row-by-row load adds files, and nothing has combined them.
 
 **Why it matters.** Every query opens every file. Hundreds of small files make Spark, the SQL analytics endpoint and Direct Lake slower, and cost more capacity, than a few large ones holding the same rows.
 
-**What Optimize does.** It runs Fabric's own table maintenance job on the table, on your Fabric capacity:
+**What Optimize does.** It first asks, naming the table and saying that it runs in Fabric and uses capacity, with the [risk check](finops/risk-check.md) for the workspace's capacity: blocked (a paused capacity, no sign-in, or a policy that keeps work off Fabric) has no **Optimize** button. Then it runs Fabric's own table maintenance job on the table, on your Fabric capacity:
 
 1. `OPTIMIZE` with V-Order: rewrites the small files into large ones, sorted and compressed the way Direct Lake and the SQL endpoint read fastest.
-2. `VACUUM` keeping 7 days: deletes files no version from the last 7 days needs.
+2. `VACUUM` keeping at least 7 days (or the history the table's layer or its own setting promises, as [Vacuum](#needs-vacuum) does): deletes files no version from that time needs.
 
-Follow the job in **Monitor**. Old versions within those 7 days stay readable (time travel and restore still work).
+Follow the job in **Monitor**. Old versions within that time stay readable (time travel and restore still work).
 
 **By hand.** In Fabric, open the lakehouse, select **...** next to the table, then **Maintenance**. Tick **Run OPTIMIZE command** and **Apply V-Order**, tick **Run VACUUM command** with a retention of 7 days, and select **Run now**. Or in a notebook:
 
@@ -36,7 +49,7 @@ OPTIMIZE my_schema.my_table VORDER;
 VACUUM my_schema.my_table RETAIN 168 HOURS;
 ```
 
-**To stop it coming back.** Load in larger batches. For tables loaded by Fabric Desktop by KratosBI's metadata framework, Test and Prod already optimize after each run (`optimize_after_run` in `environments.toml`, on by default).
+**To stop it coming back.** Load in larger batches. For tables loaded by KratosForge's metadata framework, Test and Prod already optimize after each run (`optimize_after_run` in `environments.toml`, on by default).
 
 ## Unidentified tables
 
@@ -50,7 +63,7 @@ VACUUM my_schema.my_table RETAIN 168 HOURS;
 
 - **Files belong in Files.** In the lakehouse explorer, move the folder from `Tables` to `Files`.
 - **It should be a table.** Load the files into a Delta table: right-click the folder in `Files` and choose **Load to Tables**, or in a notebook read them and write with `df.write.format("delta").saveAsTable("my_table")`. Then delete the original folder under `Tables`.
-- **A table written from outside Fabric** (for example by Fabric Desktop by KratosBI) that is Delta but still shows as Unidentified needs a refresh of the lakehouse in Fabric. In that case the X-ray doesn't list it, since it does have a `_delta_log`.
+- **A table written from outside Fabric** (for example by KratosForge) that is Delta but still shows as Unidentified needs a refresh of the lakehouse in Fabric. In that case the X-ray doesn't list it, since it does have a `_delta_log`.
 
 ## Access
 
@@ -69,11 +82,11 @@ The X-ray can only read roles in workspaces where you are Admin.
 
 ## Cost
 
-**What it means.** A notebook this app ran in Fabric used enough capacity in the last 30 days to be worth noticing. The estimate comes from the run times in Monitor's **Cost** panel and your capacity price (set in **Monitor > Cost**).
+**What it means.** A notebook this app ran in Fabric used enough capacity in the last 30 days to be worth noticing. The estimate comes from the run times in **Optimize > Cost and savings** and your capacity price (set there under **Prices**).
 
-**Why it matters.** The same notebook run on this PC uses no Fabric capacity.
+**Why it matters.** Run on this PC, the same notebook does its processing here, with no Spark session in Fabric. OneLake reads and writes it makes still count against the workspace's capacity.
 
-**What the buttons do.** **Open notebook** opens it here (when the notebook is on this PC); set **Runs on** to **This PC** in the ribbon and later runs cost nothing. **See cost** opens **Monitor > Cost** with every item's numbers.
+**What the buttons do.** **Open notebook** opens it here (when the notebook is on this PC); set **Runs on** to **This PC** in the ribbon and later runs start no Fabric job (their OneLake reads and writes still use some capacity). **See cost** opens **Optimize > Cost and savings** with every item's numbers.
 
 **By hand.** Nothing to do in Fabric. If the notebook must stay in Fabric, look for a smaller Spark pool or a shorter session timeout in its environment.
 

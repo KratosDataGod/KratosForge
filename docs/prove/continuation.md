@@ -14,8 +14,14 @@ Last updated: 2026-10-16.
 | 3 First-release UI | `claude/prove-stage3-ui` | #65 | Merged |
 | 4 Kernel process | `claude/prove-stage4-kernels` | #67 | Merged |
 | 5 Notebook state | `claude/prove-stage5-state` | #68 | Merged |
-| FD-112 Side by side asks before overwriting tables | `claude/prove-sbs-sandbox` | #81 | Open for review |
-| FD-110 Engine request time limits | `claude/prove-rpc-timeouts` | see GitHub | Open for review; independent of #81 |
+| FD-112 Side by side asks before overwriting tables | `claude/prove-sbs-sandbox` | #81 | Merged |
+| FD-110 Engine request time limits | `claude/prove-rpc-timeouts` | #83 | Merged |
+| Plan: AI from the developer's own tools (stage 8) | `claude/prove-ai-rescope` | #97 | Merged |
+| FD-110 Quick-call limit for the side-by-side write check | `claude/prove-quick-sbs-writes` | #114 | Merged |
+| FD-110 Notebook cell time and memory limits | `claude/prove-kernel-limits` | #115 | Merged |
+| 5 Variable history, watches, hidden state (45, 46, 48) | `claude/prove-variable-history` | #129 | Merged |
+| 5 Failure replay bundles: save (47) | `claude/prove-replay-bundles` | #142 | Ready for review (Chris approved board 9) |
+| 5 Failure replay bundles: open and replay (47) | `claude/prove-replay-open` | #148 | Open for review (stacked on #142) |
 
 Merge order: stages merge in number order. Each stage's PR lists any PR it is stacked on.
 
@@ -61,4 +67,4 @@ None yet.
 
 ## Next action
 
-Stage 5 next: variable history (45) and watches (46), then failure replay bundles (47) and clean-run diagnostics (48); breakpoints (44) build on the stage 4 kernel process. Known gap in 42: a cell isn't yet marked stale when a table it reads gets a new Delta version from outside the notebook (needs the version at run time; the proof runtime already reads it). Stage 4 remaining: after #81 merges, add `side_by_side_writes` to the shell's quick-call list (`app/src-tauri/src/watchdog.rs`); a per-cell time limit and memory limit for the kernel process (needs a Settings control, so mockup first); and per-profile virtual environments (needs Chris's decision on where packages come from). When Chris reacts to the mockup, apply his changes to #65 first. `cloud_service.py` `_publish` and `run_notebook_in_fabric` get a hook from the workload program (PR #60); keep it if those change.
+Breakpoints (44) are done: `debugger.py` (a `sys.settrace` tracer on the cell's thread that traces only code objects compiled from that cell; pause state in `_Run.paused`, commands through `Kernel.debug` / `debug_cell`) and the breakpoint gutter, debug panel and F5/F9/F10/F11 keys in `app/ui/debugging.js`. Replay bundles (47) are done: saving is `replay.py`, `app/ui/replay.js` and the read recorder in `lakehouse.py` (`reads`, cleared on kernel restart); replay is `prove_service.replay_*` (process kernel only; `_replay_guard` in start_cell keeps replay notebooks inside a replay). Replay sandboxes are remembered per notebook (`replay_sandboxes` extra) and deleted with `replay_delete_outputs`. Variable history (45), watches (46) and hidden state (48) are in #129 (`app/ui/debugging.js`; watches run in `notebook.Kernel._watch`). Known gap in 42: a cell isn't yet marked stale when a table it reads gets a new Delta version from outside the notebook (needs the version at run time; the proof runtime already reads it). Stage 4 remaining: per-profile virtual environments (needs Chris's decision on where packages come from). The receipt schema's cost carries FinOps #117's `classification` and `measurement` per side (`scorecard._pc_cost`, `scorecard.fabric_cost`). When Chris reacts to the mockup, apply his changes to #65 first. `cloud_service.py` `_publish` and `run_notebook_in_fabric` get a hook from the workload program (PR #60); keep it if those change.

@@ -14,14 +14,19 @@ higher) and from the Fabric tenant setting "Service principals can use Fabric AP
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
+import time
 from pathlib import Path
 from typing import Any, Protocol
 
 import msal
 
 from .auth import AUTHORITY, FABRIC_SCOPES, STORAGE_SCOPES, default_scope, resource_of  # noqa: F401  (re-exported)
+from .redact import describe
+
+_log = logging.getLogger(__name__)
 
 
 class Credential(Protocol):
@@ -38,6 +43,10 @@ class _AppCredential:
 
     tenant_id: str | None = None
     name = "app"
+    # The last token request, for the agent's status record (credential_facts.py): when one last
+    # succeeded, and (when, error) if the latest failed. Never the token.
+    last_token_at: float | None = None
+    last_token_error: tuple[float, str] | None = None
 
     def __init__(self) -> None:
         self._lock = threading.Lock()  # MSAL apps aren't safe to call from several threads at once
@@ -47,11 +56,16 @@ class _AppCredential:
 
     def _token(self, scopes: list[str]) -> str:
         scope = default_scope(scopes)
-        with self._lock:
-            result = self._acquire(scope)
-        if "access_token" not in result:
-            raise RuntimeError(f"{self.name} couldn't get a token for {scope}: "
-                               f"{result.get('error')}: {result.get('error_description')}")
+        try:
+            with self._lock:
+                result = self._acquire(scope)
+            if "access_token" not in result:
+                raise RuntimeError(f"{self.name} couldn't get a token for {scope}: "
+                                   f"{result.get('error')}: {result.get('error_description')}")
+        except Exception as exc:
+            self.last_token_error = (time.time(), f"{type(exc).__name__}: {exc}")
+            raise
+        self.last_token_at, self.last_token_error = time.time(), None
         return result["access_token"]
 
     def fabric_token(self) -> str:
@@ -63,7 +77,8 @@ class _AppCredential:
     def silent_token(self, scopes: list[str]) -> str | None:
         try:
             return self._token(scopes)
-        except Exception:
+        except Exception as exc:
+            _log.info("No token for the agent's credential: %s", describe(exc))
             return None
 
     def signed_in_user(self) -> str | None:

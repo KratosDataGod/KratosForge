@@ -533,3 +533,159 @@ def test_the_agent_reports_other_agents_that_went_quiet_and_routes_by_team(agent
     [c] = agent.evaluate_incidents()["dev"]
     assert c["incident"]["kind"] == "agent_offline"
     assert posted == [("https://default", "New: Agent etl-02 stopped reporting in Dev (agent etl-01)")]
+
+
+def test_the_app_lists_agents_serving_an_environment_and_sums_incidents(tmp_path, monkeypatch):
+    svc = Service(root=tmp_path / "app")
+    svc._auth = types.SimpleNamespace(signed_in_user=lambda: "chris@contoso.com", silent_token=lambda s: None,
+                                      fabric_token=lambda: None, storage_token=lambda: None)
+    svc.meta_init(str(tmp_path / "proj"), "3")
+    name = sorted(svc._project().entities)[0]
+    monkeypatch.setattr(svc, "meta_runs", lambda env, limit: [run(name, "failed", "r1")] if env == "dev" else [])
+    backend = svc._incident_log("dev").backend
+    fresh = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=3)).isoformat()
+    backend.create("agents/etl-01.json", json.dumps({**status("etl-01", "now", fresh),
+                                                     "incidents": {"enabled": True, "seconds": 300}}).encode())
+    backend.create("agents/etl-02.json", json.dumps(status("etl-02", "2026-10-17T07:40:00Z", "2026-10-17T07:43:00Z")).encode())
+    svc.incidents_evaluate("dev")
+    listed = svc.incidents_list("dev")
+    assert listed["user"] == "chris@contoso.com"
+    agents = {a["agent"]: a for a in listed["agents"]["agents"]}
+    assert agents["etl-01"]["state"] == "live" and agents["etl-01"]["incidents"]["enabled"]
+    assert agents["etl-02"]["state"] == "offline" and agents["etl-02"]["incidents"] is None
+    kinds = sorted(i["kind"] for i in listed["incidents"])
+    assert kinds == ["agent_offline", "run_failed"]
+    summary = {e["env"]: e for e in svc.incidents_summary()["envs"]}
+    assert summary["dev"]["count"] == 2
+    assert summary["test"]["count"] is None and summary["test"]["observation"]["state"] == "not_set_up"
+    mine = svc.incidents_summary(workload=f"meta:{listed['incidents'][0]['workload'].split(':')[1]}:{name}")
+    assert [i["kind"] for i in {e["env"]: e for e in mine["envs"]}["dev"]["incidents"]] == ["run_failed"]
+
+
+def test_the_agent_status_record_says_how_it_checks_incidents_without_webhooks(agent_setup, monkeypatch):
+    from fabric_desktop import agent_status
+    raw = incidents_raw(agent_setup.project, route=[{"name": "sales", "webhook_env": "SALES_HOOK", "teams": ["sales"]}],
+                        escalate_after_minutes=30, escalate_to="sales")
+    cfg = agent_config.parse(raw)
+    out = agent_status.incidents_summary(cfg.incidents)
+    assert out["enabled"] and out["escalate_to"] == "sales" and out["routes"] == [
+        {"name": "sales", "teams": ["sales"], "owners": [], "criticality": [], "kinds": [], "envs": []}]
+    assert "SALES_HOOK" not in json.dumps(out)
+
+
+def test_the_app_checks_only_environments_no_running_agent_checks(tmp_path, monkeypatch):
+    svc = Service(root=tmp_path / "app")
+    svc._auth = types.SimpleNamespace(signed_in_user=lambda: "chris@contoso.com", silent_token=lambda s: None,
+                                      fabric_token=lambda: None, storage_token=lambda: None)
+    svc.meta_init(str(tmp_path / "proj"), "3")
+    name = sorted(svc._project().entities)[0]
+    monkeypatch.setattr(svc, "meta_runs", lambda env, limit: [run(name, "failed", "r1")])
+    posted = []
+    monkeypatch.setattr("fabric_desktop.incident_service.post_teams", lambda url, title, lines: posted.append(title))
+    settings = svc._settings
+    svc._settings = lambda: {**settings(), "teams_webhook": "https://hook"}
+    out = {e["env"]: e for e in svc.incidents_watch(notify=True)["envs"]}
+    assert out["dev"]["mode"] == "app", out["dev"]
+    assert [c["change"] for c in out["dev"]["changes"]] == ["opened"]
+    assert out["test"]["mode"] == "unreadable" and out["test"]["state"] == "not_set_up"
+    assert len(posted) == 1 and posted[0].startswith("New: ")
+    assert svc.incidents_watch(notify=True)["envs"][0]["changes"] == [] and len(posted) == 1  # once each
+    # a running agent checks Dev now: the app only reads it, and says nothing to Teams
+    fresh = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=3)).isoformat()
+    svc._incident_log("dev").backend.create("agents/etl-01.json", json.dumps(
+        {**status("etl-01", "now", fresh), "incidents": {"enabled": True, "seconds": 300}}).encode())
+    monkeypatch.setattr(svc, "meta_runs", lambda env, limit: [run(name, "ok", "r2")])
+    dev = svc.incidents_watch(notify=True)["envs"][0]
+    assert dev["mode"] == "agent" and dev["agents"] == ["etl-01"] and "changes" not in dev
+    assert [i["kind"] for i in dev["incidents"]] == ["run_failed"]  # recovery is the agent's to record
+    assert len(posted) == 1
+
+
+def _alerting_agent(tmp_path, monkeypatch, url):
+    import json as _json
+    from fabric_desktop import agent_config
+    from fabric_desktop.agent import Agent
+    from fabric_desktop.meta.templates import init_project
+    init_project(tmp_path / "proj", "3", "Chris", True)
+    monkeypatch.setenv("FD_HOOK", url)
+    path = tmp_path / "agent.toml"
+    path.write_text(f"""
+[agent]
+name = "etl-01"
+home = {_json.dumps(str(tmp_path / "home"))}
+project = {_json.dumps(str(tmp_path / "proj"))}
+environments = ["dev"]
+
+[auth]
+type = "user"
+
+[alerts]
+teams_webhook_env = "FD_HOOK"
+""", encoding="utf-8")
+    agent = Agent(agent_config.load(path))
+    logged = []
+    monkeypatch.setattr(agent.log, "warning", lambda msg, extra=None: logged.append((msg, extra)))
+    return agent, logged
+
+
+JOB = {"id": "j1", "payload": {"env": "prod"}, "source": "schedule"}
+
+
+def test_an_agents_failed_job_alert_logs_no_webhook_signature(tmp_path, monkeypatch):
+    def down(url, title, lines):
+        raise ConnectionError(f"Max retries exceeded with url: {url.split('.com', 1)[1]}")
+    monkeypatch.setattr("fabric_desktop.agent.post_teams", down)
+    agent, logged = _alerting_agent(tmp_path, monkeypatch, "https://x.webhook.office.com/workflows/a/invoke?sv=1.0&sig=SECRET123")
+    agent._alert(JOB, "boom")
+    assert logged and "SECRET123" not in str(logged) and "sig=[removed]" in str(logged)
+
+
+def test_a_job_alert_teams_didnt_take_goes_out_later_marked_delayed(tmp_path, monkeypatch):
+    # QA-021: the "job didn't finish" alert went straight to Teams, once; a network blip lost it.
+    posted, up = [], {"ok": False}
+
+    def teams(url, title, lines):
+        if not up["ok"]:
+            raise ConnectionError("Teams can't be reached")
+        posted.append((title, lines))
+    monkeypatch.setattr("fabric_desktop.agent.post_teams", teams)
+    agent, logged = _alerting_agent(tmp_path, monkeypatch, "https://x.webhook.office.com/workflows/a/invoke?sig=S")
+    agent._alert(JOB, "boom")
+    assert posted == [] and "it goes with the next try" in logged[-1][0]
+    agent.send_waiting_alerts()  # still down: it stays
+    assert posted == [] and len(agent._alert_outbox().pending()) == 1
+    up["ok"] = True
+    agent._status_at = 0
+    agent.step()  # the next status round sends it
+    [(title, lines)] = posted
+    assert title == "Delayed: KratosForge agent etl-01: a Prod job didn't finish"
+    assert lines[0].startswith("From ") and lines[1:] == ["Job j1 (schedule)", "boom"]
+    assert agent._alert_outbox().pending() == []
+    agent.send_waiting_alerts()
+    assert len(posted) == 1  # sent once
+
+
+def test_waiting_job_alerts_go_before_a_new_one(tmp_path, monkeypatch):
+    posted, up = [], {"ok": False}
+
+    def teams(url, title, lines):
+        if not up["ok"]:
+            raise ConnectionError("down")
+        posted.append(lines[-1])
+    monkeypatch.setattr("fabric_desktop.agent.post_teams", teams)
+    agent, _ = _alerting_agent(tmp_path, monkeypatch, "https://x.webhook.office.com/workflows/a/invoke?sig=S")
+    agent._alert(JOB, "first")
+    up["ok"] = True
+    agent._alert(JOB | {"id": "j2"}, "second")
+    assert posted == ["first", "second"]
+
+
+def test_a_legacy_connector_webhook_stays_out_of_a_waiting_job_alert(tmp_path, monkeypatch):
+    legacy = ("https://127.0.0.1:9/webhookb2/11111111-2222-3333-4444-555555555555@66666666-7777-8888-9999-000000000000"
+              "/IncomingWebhook/abcdef0123456789abcdef0123456789/11111111-2222-3333-4444-555555555555/V2SECRETSECRET0123")
+    agent, logged = _alerting_agent(tmp_path, monkeypatch, legacy)
+    agent._alert(JOB, "boom")  # the real post_teams: a ConnectionError naming the URL's path
+    [item] = agent._alert_outbox().pending()
+    assert item["error"].startswith("ConnectionError: ")  # what went wrong is kept
+    for secret in ("V2SECRETSECRET0123", "abcdef0123456789abcdef0123456789", "webhookb2"):
+        assert secret not in item["error"] and secret not in str(logged)  # the webhook isn't, however it's masked

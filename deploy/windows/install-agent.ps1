@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Installs the Fabric Desktop agent on a Windows server as a startup task that restarts on failure.
+  Installs the KratosForge agent on a Windows server as a startup task that restarts on failure.
 
 .DESCRIPTION
   Creates C:\ProgramData\FabricDesktop, installs the sidecar into a virtual environment under

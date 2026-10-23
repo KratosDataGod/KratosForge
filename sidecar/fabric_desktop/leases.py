@@ -6,6 +6,9 @@ second writer wait: before running an entity, a worker creates a small lease fil
 table, keeps renewing it while it works, and deletes it when done. A worker that dies stops
 renewing; once the lease expires, the next writer takes it over.
 
+Every OneLake table write also holds a lease in the table's own lakehouse (``table_lease``), so a
+notebook or job writing a table and a metadata run writing the same table wait for each other.
+
 For an environment in OneLake the lease files live in its ``LH_Meta`` lakehouse under
 ``Files/_fabric_desktop/leases/`` and every change is conditional (``If-None-Match: *`` to
 create, ``If-Match: <etag>`` to renew, take over or delete), so agents on different machines
@@ -21,12 +24,13 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import logging
 import os
 import socket
 import threading
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -34,7 +38,12 @@ from typing import Any, Callable, Iterator, Protocol
 
 import requests
 
+from . import http_session
 from .onelake import DFS_HOST
+from .redact import describe
+from .retrying import send_with_retry
+
+_log = logging.getLogger(__name__)
 
 LEASE_DIR = "Files/_fabric_desktop/leases"
 
@@ -61,12 +70,48 @@ class Backend(Protocol):
     def delete(self, key: str, etag: str) -> bool: ...
 
 
+@contextmanager
+def _file_lock(path: Path) -> Iterator[None]:
+    """An exclusive lock on ``path`` held across processes (the app, scheduled runs, agents)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a+b") as f:
+        if os.name == "nt":
+            import msvcrt
+            f.seek(0)
+            while True:
+                try:
+                    msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)  # retries for about 10 s, then raises
+                    break
+                except OSError:
+                    continue
+            try:
+                yield
+            finally:
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+
 class LocalBackend:
     """Lease files in a folder on this machine (local environments, and tests)."""
 
     def __init__(self, folder: Path):
         self.folder = Path(folder)
+        # Read, compare and replace must be one step for every process on the machine, or two of
+        # them taking over the same expired lease both win. The thread lock keeps threads of one
+        # process off the file lock, which on Windows is per process.
         self._lock = threading.Lock()
+
+    @contextmanager
+    def _exclusive(self) -> Iterator[None]:
+        with self._lock, _file_lock(self.folder / ".lock"):
+            yield
 
     def _path(self, key: str) -> Path:
         return self.folder / (key.replace("/", "__") + ".json")
@@ -111,7 +156,7 @@ class LocalBackend:
         return None
 
     def replace(self, key: str, data: bytes, etag: str) -> str | None:
-        with self._lock:
+        with self._exclusive():
             now = self.read(key)
             if now is None or now.etag != etag:
                 return None
@@ -121,7 +166,7 @@ class LocalBackend:
             return self._etag(data)
 
     def delete(self, key: str, etag: str) -> bool:
-        with self._lock:
+        with self._exclusive():
             now = self.read(key)
             if now is None or now.etag != etag:
                 return False
@@ -133,10 +178,15 @@ class OneLakeBackend:
     """Lease files in a lakehouse's Files area, changed only with ADLS Gen2 conditional requests."""
 
     def __init__(self, workspace_id: str, lakehouse_id: str, token: Callable[[], str],
-                 session: requests.Session | None = None):
+                 session: requests.Session | None = None, sleep: Callable[[float], None] = time.sleep,
+                 timeout: float = 60):
         self.workspace_id, self.lakehouse_id = workspace_id, lakehouse_id
+        # Per request. A renewal is up to three requests, so keep this at a ninth of the lease's length
+        # or less (lease_timeout): one hung renewal then can't outlast the lease unnoticed.
+        self.timeout = timeout
         self._token = token
-        self._http = session or requests.Session()
+        self._http = session or http_session.session()
+        self._sleep = sleep
 
     def _url(self, key: str) -> str:
         return f"https://{DFS_HOST}/{self.workspace_id}/{self.lakehouse_id}/{LEASE_DIR}/{key}.json"
@@ -146,16 +196,16 @@ class OneLakeBackend:
 
     def _write(self, key: str, data: bytes, condition: dict[str, str]) -> str | None:
         url = self._url(key)
-        resp = self._http.put(url, params={"resource": "file"}, headers=self._headers(**condition), timeout=60)
+        resp = self._http.put(url, params={"resource": "file"}, headers=self._headers(**condition), timeout=self.timeout)
         if resp.status_code in (409, 412):
             return None  # it exists already (create), or changed since we read it (replace)
         resp.raise_for_status()
         etag = resp.headers.get("ETag", "")
         resp = self._http.patch(url, params={"action": "append", "position": "0"}, data=data,
-                                headers=self._headers(), timeout=60)
+                                headers=self._headers(), timeout=self.timeout)
         resp.raise_for_status()
         resp = self._http.patch(url, params={"action": "flush", "position": str(len(data))},
-                                headers=self._headers(**({"If-Match": etag} if etag else {})), timeout=60)
+                                headers=self._headers(**({"If-Match": etag} if etag else {})), timeout=self.timeout)
         if resp.status_code == 412:
             return None  # someone replaced it between our create and flush
         resp.raise_for_status()
@@ -165,7 +215,9 @@ class OneLakeBackend:
         return self._write(key, data, {"If-None-Match": "*"})
 
     def read(self, key: str) -> Stored | None:
-        resp = self._http.get(self._url(key), headers=self._headers(), timeout=60)
+        # Only the read is retried on 429/5xx: the conditional writes report a lost race as None.
+        resp = send_with_retry(lambda: self._http.get(self._url(key), headers=self._headers(), timeout=self.timeout),
+                               "GET", sleep=self._sleep)
         if resp.status_code == 404:
             return None
         resp.raise_for_status()
@@ -179,7 +231,7 @@ class OneLakeBackend:
         return self._write(key, data, {"If-Match": etag})
 
     def delete(self, key: str, etag: str) -> bool:
-        resp = self._http.delete(self._url(key), headers=self._headers(**{"If-Match": etag}), timeout=60)
+        resp = self._http.delete(self._url(key), headers=self._headers(**{"If-Match": etag}), timeout=self.timeout)
         if resp.status_code in (404, 409, 412):
             return False
         resp.raise_for_status()
@@ -223,6 +275,18 @@ class Leases:
         stored = self.backend.read(key)
         return self._expires(stored)[1] if stored else ""
 
+    def _holder_and_host(self, key: str) -> str:
+        """The holder for a busy message, with its machine: every desktop's owner is "KratosForge"."""
+        stored = self.backend.read(key)
+        if not stored:
+            return ""
+        owner = self._expires(stored)[1]
+        try:
+            host = json.loads(stored.data).get("host")
+        except (ValueError, AttributeError):
+            host = None
+        return f"{owner} on {host}" if host else owner
+
     @contextmanager
     def hold(self, key: str) -> Iterator["Held"]:
         """Hold ``key`` for the block: wait up to ``wait`` seconds for it, renew it every third of
@@ -231,7 +295,7 @@ class Leases:
         delay = 1.0
         while (etag := self.try_acquire(key)) is None:
             if self.clock() >= deadline:
-                raise LeaseBusy(f"{key} is being written by {self.holder(key) or 'another writer'}; "
+                raise LeaseBusy(f"{key} is being written by {self._holder_and_host(key) or 'another writer'}; "
                                 f"will try again later")
             self.sleep(delay)
             delay = min(delay * 2, 15)
@@ -250,6 +314,7 @@ class Held:
     def __init__(self, leases: Leases, key: str, etag: str):
         self.leases, self.key, self.etag = leases, key, etag
         self.lost = False
+        self._renewed = leases.clock()  # when the lease was last known to be ours
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._renew, daemon=True, name=f"lease-{key}")
 
@@ -260,12 +325,16 @@ class Held:
         while not self._stop.wait(self.leases.ttl / 3):
             try:
                 etag = self.leases.backend.replace(self.key, self.leases._body(), self.etag)
-            except Exception:  # a network blip: try again at the next beat, the lease still has time
+            except Exception:  # a network blip: try again at the next beat while the lease has time
+                if self.leases.clock() - self._renewed >= self.leases.ttl:
+                    # Unrenewed past its length: another writer may have taken it over by now.
+                    self.lost = True
+                    return
                 continue
             if etag is None:
                 self.lost = True
                 return
-            self.etag = etag
+            self.etag, self._renewed = etag, self.leases.clock()
 
     def stop(self) -> None:
         self._stop.set()
@@ -273,9 +342,39 @@ class Held:
         if not self.lost:
             try:
                 self.leases.backend.delete(self.key, self.etag)
-            except Exception:  # it expires on its own
-                pass
+            except Exception as exc:  # it expires on its own
+                _log.warning("Couldn't release the lease; it expires on its own: %s", describe(exc))
 
 
 def table_key(lakehouse: str, schema: str, table: str) -> str:
     return f"{lakehouse}/{schema}.{table}"
+
+
+# Every writer of a OneLake table (a notebook's write_table, a job's publish, a metadata run on this PC
+# or an agent) also holds this lease, kept in the table's own lakehouse, so writers that know only
+# the table, not its metadata project, still see each other. Metadata runs hold their LH_Meta
+# lease (table_key) first and this one second; nothing takes them the other way round.
+# A writer that dies mid-write (a killed kernel) leaves its lease for at most TABLE_LEASE_TTL; the next
+# writer waits a little longer than that, so it takes the abandoned lease over instead of failing.
+TABLE_LEASE_TTL = 60
+TABLE_LEASE_WAIT = 90
+
+
+def table_lease(backend: Backend, schema: str, table: str, owner: str, wait: float | None = None,
+                ttl: float | None = None) -> AbstractContextManager["Held"]:
+    """Hold the write lease on ``schema.table`` in the lakehouse ``backend`` keeps its files in."""
+    return Leases(backend, owner=owner, ttl=TABLE_LEASE_TTL if ttl is None else ttl,
+                  wait=TABLE_LEASE_WAIT if wait is None else wait).hold(f"{schema}.{table}")
+
+
+def lease_timeout(ttl: float) -> float:
+    """The per-request timeout for a lease ``ttl`` seconds long (see OneLakeBackend)."""
+    return min(60.0, ttl / 9)
+
+
+def onelake_table_lease(workspace_id: str, lakehouse_id: str, schema: str, table: str,
+                        token: Callable[[], str], owner: str, ttl: float | None = None,
+                        **kw: Any) -> AbstractContextManager["Held"]:
+    ttl = TABLE_LEASE_TTL if ttl is None else ttl
+    backend = OneLakeBackend(workspace_id, lakehouse_id, token, timeout=lease_timeout(ttl))
+    return table_lease(backend, schema, table, owner, ttl=ttl, **kw)

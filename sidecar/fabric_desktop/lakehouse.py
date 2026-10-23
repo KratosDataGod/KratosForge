@@ -15,9 +15,11 @@ locally; only the input file download and the Delta write touch OneLake.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -27,7 +29,10 @@ from deltalake import DeltaTable
 from deltalake.exceptions import TableNotFoundError
 
 from .onelake import FileStore, TableRef, storage_options
-from .publish import publish, stage_locally
+from .publish import publish, resolve_schema_mode, stage_locally
+from .redact import describe
+
+_log = logging.getLogger(__name__)
 
 MODES = ("overwrite", "append")
 
@@ -69,6 +74,34 @@ proof: Any = None
 # previews and lookups read the real lakehouse, not the proof's view of it. Every other thread (the
 # notebook's cells and any threads they start) goes through the proof.
 proof_exempt_thread: threading.Thread | None = threading.main_thread()
+
+
+# What the notebook's cells have read since the kernel started, for replay bundles (replay.py):
+# each table's Delta version when the notebook first read it (or the version before its first
+# write), and each Files/ file's local copy, hashed only when a bundle is saved. Reads from the
+# exempt thread (the Explorer) and during a proof (which keeps its own log) aren't the cells' own.
+reads: dict[str, dict[str, dict[str, Any]]] = {"tables": {}, "files": {}}
+
+
+def reads_reset() -> None:
+    reads["tables"].clear()
+    reads["files"].clear()
+
+
+def _record(kind: str, key: str, entry: Callable[[], dict[str, Any]]) -> None:
+    if proof is not None or threading.current_thread() is proof_exempt_thread or key in reads[kind]:
+        return
+    try:
+        reads[kind][key] = entry()
+    except Exception as exc:  # noqa: BLE001 - a replay record never fails the cell's own read
+        _log.info("Couldn't record a read for replay: %s", describe(exc))
+
+
+def _record_table(ref: TableRef, version: int | None, first: str) -> None:
+    lh = _current()
+    _record("tables", f"{ref.lakehouse_id}/{ref.schema}.{ref.table}".lower(), lambda: {
+        "table": f"{ref.schema}.{ref.table}", "version": version, "first": first,
+        "workspace_id": ref.workspace_id, "lakehouse_id": ref.lakehouse_id, "lakehouse": lh.name})
 
 
 def _proof() -> Any:
@@ -157,6 +190,12 @@ def local_path(path: str) -> Path:
     got = FileStore(lh.storage_token).download(lh.workspace_id, lh.lakehouse_id, rel, dest)
     if (p := _proof()) is not None:
         p.file_read(rel, got)
+
+    def entry() -> dict[str, Any]:
+        st = got.stat()
+        return {"path": rel, "local": str(got), "bytes": st.st_size, "mtime_ns": st.st_mtime_ns,
+                "workspace_id": lh.workspace_id, "lakehouse_id": lh.lakehouse_id, "lakehouse": lh.name}
+    _record("files", f"{lh.lakehouse_id}/{rel}".lower(), entry)
     return got
 
 
@@ -172,7 +211,66 @@ def read_json(path: str, **kwargs: Any) -> pl.DataFrame:
     return pl.read_json(local_path(path), **kwargs)
 
 
-def open_table(table: str) -> DeltaTable:
+def as_of(version: Any = None, timestamp: Any = None) -> int | datetime | None:
+    """A Delta time travel point, as Spark's versionAsOf / timestampAsOf give it: a version
+    number, or a time (an ISO date or date and time; without a zone it is UTC, like Fabric's
+    Spark sessions). None for the latest version."""
+    if version is not None and timestamp is not None:
+        raise ValueError("Give a version or a timestamp to read, not both.")
+    if version is not None:
+        try:
+            n = int(str(version).strip().lstrip("vV"))
+        except ValueError:
+            raise ValueError(f"versionAsOf must be a whole number, not {version!r}.") from None
+        if n < 0:
+            raise ValueError("versionAsOf can't be negative.")
+        return n
+    if timestamp is None:
+        return None
+    if isinstance(timestamp, datetime):
+        when = timestamp
+    else:
+        try:
+            when = datetime.fromisoformat(str(timestamp).strip().replace("Z", "+00:00"))
+        except ValueError:
+            raise ValueError(f"timestampAsOf must be a date or a date and time like 2026-10-20 13:00:00, "
+                             f"not {timestamp!r}.") from None
+    return when if when.tzinfo else when.replace(tzinfo=timezone.utc)
+
+
+def open_table(table: str, version: Any = None, timestamp: Any = None) -> DeltaTable:
+    """The table's Delta log, at its latest version or, with ``version`` or ``timestamp``, as it
+    was then (Delta time travel; only reads)."""
+    point = as_of(version, timestamp)
+    opened = _open_table(table, record=point is None)
+    if point is not None:
+        try:
+            opened.load_as_version(point)
+        except Exception as exc:
+            what = f"version {point}" if isinstance(point, int) else f"{point.isoformat()}"
+            raise ValueError(f"{table} has no {what} to read: {exc}. DESCRIBE HISTORY {table} lists its versions; "
+                             "versions removed by VACUUM can't be read.") from None
+        _record_table(table_ref(table), opened.version(), "read")  # the version it read, for a replay
+    return opened
+
+
+def table_history(table: str, limit: int | None = None) -> pl.DataFrame:
+    """DESCRIBE HISTORY: the table's versions, newest first, from its Delta log (only reads)."""
+    rows = _open_table(table).history(limit)
+    cols = ("version", "timestamp", "operation", "operationParameters", "operationMetrics", "userName",
+            "engineInfo", "isBlindAppend", "readVersion")
+    out = {c: [r.get(c) for r in rows] for c in cols}
+    # In UTC without a zone, as Fabric's Spark sessions show it (a zoned time needs pytz in DuckDB).
+    out["timestamp"] = [datetime.fromtimestamp(t / 1000, timezone.utc).replace(tzinfo=None) if t else None
+                        for t in out["timestamp"]]
+    for c in ("operationParameters", "operationMetrics"):
+        out[c] = [json.dumps(v, default=str) if v is not None else None for v in out[c]]
+    return pl.DataFrame(out, schema={"version": pl.Int64, "timestamp": pl.Datetime("us"), "operation": pl.Utf8,
+                                     "operationParameters": pl.Utf8, "operationMetrics": pl.Utf8, "userName": pl.Utf8,
+                                     "engineInfo": pl.Utf8, "isBlindAppend": pl.Boolean, "readVersion": pl.Int64})
+
+
+def _open_table(table: str, record: bool = True) -> DeltaTable:
     ref = table_ref(table)
     if (p := _proof()) is not None:
         from .proof_runtime import ProofTableMissing
@@ -183,11 +281,23 @@ def open_table(table: str) -> DeltaTable:
             raise TableNotFoundError(str(e)) from None
     opts = storage_options(_current().storage_token())
     try:
-        return DeltaTable(ref.uri, storage_options=opts)
+        opened = DeltaTable(ref.uri, storage_options=opts)
+        if record:
+            _record_table(ref, opened.version(), "read")
+        return opened
     except TableNotFoundError as e:
-        folder = ref.uri.split("/Tables/", 1)[1]
-        raise TableNotFoundError(f"No Delta table at Tables/{folder} in {_current().name}. "
-                                 f"Check the name in the Explorer. ({e})") from None
+        lh, folder = _current().name, ref.uri.split("/Tables/", 1)[1]
+        shown = ref.table if ref.flat else f"{ref.schema}.{ref.table}"
+        # Nothing there (delta-rs says "No files in log segment" for an empty or missing folder in
+        # OneLake): say so plainly. Anything else keeps delta-rs's words.
+        detail = "" if any(m in str(e) for m in _MISSING) else f" ({e})"
+        raise TableNotFoundError(f"{shown} isn't in {lh}: there's no Delta table at Tables/{folder}{detail}. "
+                                 f"Check the name in the Explorer, or run the notebook that creates it "
+                                 f"with {lh} attached first.") from None
+
+
+# delta-rs's words for a table folder with no Delta log in it.
+_MISSING = ("No files in log segment", "does not exist")
 
 
 def table_exists(table: str) -> bool:
@@ -200,8 +310,9 @@ def table_exists(table: str) -> bool:
     return True
 
 
-def read_table(table: str) -> pl.DataFrame:
-    return pl.from_arrow(open_table(table).to_pyarrow_table())
+def read_table(table: str, version: int | None = None, timestamp: Any = None) -> pl.DataFrame:
+    """The table as a data frame; ``version`` or ``timestamp`` read it as it was then."""
+    return pl.from_arrow(open_table(table, version, timestamp).to_pyarrow_table())
 
 
 def sql(query: str) -> pl.DataFrame:
@@ -229,10 +340,14 @@ def _to_arrow(data: Any) -> pa.Table:
     return pa.table(data)
 
 
-def write_table(data: Any, table: str, mode: str = "overwrite") -> WriteResult:
-    """Write ``data`` to the attached lakehouse as the Delta table ``schema.table``."""
+def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str | None = "auto") -> WriteResult:
+    """Write ``data`` to the attached lakehouse as the Delta table ``schema.table``.
+
+    ``schema_mode``: "auto" (the default) replaces the schema on overwrite; None refuses a
+    different schema, as Spark does; "merge" adds new columns; "overwrite" replaces it."""
     if mode not in MODES:
         raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
+    resolve_schema_mode(mode, schema_mode)
     started = time.monotonic()
     lh = _current()
     ref = table_ref(table)
@@ -242,9 +357,12 @@ def write_table(data: Any, table: str, mode: str = "overwrite") -> WriteResult:
     arrow = _to_arrow(data)
     stage_locally(arrow, lh.work_dir / "staging" / lh.lakehouse_id / ref.schema / ref.table)
     if (p := _proof()) is not None:
-        return _write_proof(p, arrow, ref, mode)
-    delta = publish(arrow, ref, mode, lh.storage_token())
+        return _write_proof(p, arrow, ref, mode, schema_mode)
+    token = lh.storage_token()
+    delta = publish(arrow, ref, mode, token) if schema_mode == "auto" else publish(arrow, ref, mode, token, schema_mode=schema_mode)
     result = WriteResult(f"{ref.schema}.{ref.table}", arrow.num_rows, delta.version(), ref.uri)
+    # A table the notebook writes before reading starts, for a replay, at the version before that write.
+    _record_table(ref, result.delta_version - 1 if result.delta_version > 0 else None, "write")
     if lh.history_file:
         record = {"job": f"Notebook write to {lh.name}", "table_uri": ref.uri, "mode": mode,
                   "rows": result.rows, "delta_version": result.delta_version,
@@ -256,18 +374,19 @@ def write_table(data: Any, table: str, mode: str = "overwrite") -> WriteResult:
     return result
 
 
-def _write_proof(proof: Any, arrow: pa.Table, ref: TableRef, mode: str) -> WriteResult:
+def _write_proof(proof: Any, arrow: pa.Table, ref: TableRef, mode: str, schema_mode: str | None = "auto") -> WriteResult:
     """A write during a proof: to this run's sandbox, never the shared table."""
     from deltalake import write_deltalake
 
     from . import delta_profile
 
-    def write(uri: str, data: pa.Table, how: str = "overwrite") -> DeltaTable:
+    def write(uri: str, data: pa.Table, how: str = "overwrite", schema: str | None = "auto") -> DeltaTable:
+        delta_profile.check_target(uri, proof.options())
         write_deltalake(uri, data, mode=how, storage_options=proof.options(),
-                        schema_mode="overwrite" if how == "overwrite" else None)
+                        schema_mode=resolve_schema_mode(how, schema))
         table = DeltaTable(uri, storage_options=proof.options())
-        delta_profile.check_table(table)
+        delta_profile.note_after_write(table)
         return table
     uri = proof.write_location(ref.schema, ref.table, mode, write)
-    table = write(uri, arrow, mode)
+    table = write(uri, arrow, mode, schema_mode)
     return WriteResult(f"{ref.schema}.{ref.table}", arrow.num_rows, table.version(), uri)

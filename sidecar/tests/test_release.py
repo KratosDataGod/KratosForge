@@ -133,7 +133,7 @@ def test_a_promote_without_git_still_works_and_says_the_record_has_no_commit(svc
 
 
 def test_no_git_installed_reads_as_such(svc, monkeypatch):
-    monkeypatch.setattr(release.shutil, "which", lambda name: None)
+    monkeypatch.setattr(release.cli, "git_path", lambda: None)
     status = svc.meta_git_status()
     assert status == {"available": False, "repo": False,
                       "message": "Git isn't installed on this PC, so releases can't name a commit."}
@@ -204,3 +204,22 @@ def test_deployments_written_before_releases_still_read_and_gate(svc, pushed):
     assert rows["receipt_id"][0] is None
     # Test to Prod reads the newest Test deployment as before.
     assert not [e for e in svc.meta_promote_check("test", "prod")["errors"] if "not on metadata" in e]
+
+
+def test_the_last_release_reads_back_with_its_record_checked(svc, pushed):
+    assert svc.meta_last_release("test") == {"env": "test", "release": None, "problem": None}
+    result = svc.meta_promote("dev", "test")
+    last = svc.meta_last_release("test")["release"]
+    head = git(pushed, "rev-parse", "HEAD").strip()
+    assert (last["version"], last["source_env"], last["commit"], last["branch"], last["pushed"]) == (
+        result["version"], "dev", head, "main", True)
+    assert last["verified"] and last["receipt_id"] == result["release"]["receipt_id"]
+    assert json.loads(last["receipt"])["kind"] == "release"
+
+    store = svc._store(svc._project(), "test")  # a record changed after it was written no longer checks out
+    deps = store.meta("deployments")
+    body = json.loads(deps["receipt"][-1])
+    body["code"]["commit"] = "0" * 40
+    store.meta_append("deployments", [dict(deps.row(-1, named=True), at="2999-01-01T00:00:00+00:00",
+                                           receipt=receipts.canonical(body).decode())])
+    assert svc.meta_last_release("test")["release"]["verified"] is False

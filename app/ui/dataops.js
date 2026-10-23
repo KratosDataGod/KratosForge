@@ -133,6 +133,153 @@ function promoteImpact(source, target) {
   return box;
 }
 
+// ---------- release records ----------
+
+// The last release promoted to an environment, from its meta.deployments row: which metadata,
+// which commit, which engine, who and when, and whether the stored record still matches its id.
+function lastRelease(env, onChange = null) {
+  if (!previewShown()) return null;
+  const box = h("div", { class: "muted-text small" }, `Reading the last release to ${ENV_LABEL[env]}...`);
+  rpc("meta_last_release", { env }).then((res) => {
+    if (res.problem) { box.replaceWith(h("p", { class: "muted-text small" }, `Can't read ${ENV_LABEL[env]}'s releases yet: ${friendlyError(res.problem).text}`)); return; }
+    const r = res.release;
+    if (!r) { box.replaceWith(h("p", { class: "muted-text small" }, `Nothing has been promoted to ${ENV_LABEL[env]} yet.`)); return; }
+    const row = (label, ...value) => h("div", { class: "release-row" }, h("span", { class: "muted-text" }, label), h("span", {}, value));
+    const record = r.receipt_id ? [h("span", { class: "mono" }, `${r.receipt_id.slice(0, 8)}…`),
+      h("span", { class: `pill-s ${r.verified ? "pass" : "fail"}` }, r.verified ? "checks out" : "doesn't match its id"),
+      btn("Copy record", null, () => copyText(r.receipt, "Record"), "tool link small")]
+      : h("span", { class: "muted-text" }, "none (promoted before release records)");
+    box.replaceWith(h("div", { class: "release-card dataops" },
+      h("div", { class: "row" }, preview("releases", h("b", { class: "grow" }, `Last release to ${ENV_LABEL[env]}`)),
+        env !== "dev" ? preview("rollback", btn("Roll back...", "history", () => rollbackDialog(env, onChange), "tool link small")) : null),
+      row("Metadata version", h("span", { class: "mono" }, r.version || "")),
+      row("Code", releaseCommitText(r)),
+      r.engine_version ? row("Engine", `KratosForge ${r.engine_version}`, r.lock_hash ? h("span", { class: "muted-text" }, `, lock ${r.lock_hash.slice(0, 4)}…${r.lock_hash.slice(-4)}`) : null) : null,
+      row("Promoted", `from ${ENV_LABEL[r.source_env] || r.source_env || "?"}${r.by ? ` by ${r.by}` : ""}, `,
+        h("span", { title: r.at ? new Date(r.at).toLocaleString() : "" }, relTime(r.at))),
+      row("Record", record)));
+  }).catch(() => box.remove());
+  return box;
+}
+
+// Put Test or Prod back on an earlier release, from the files that environment keeps
+// (meta/snapshot.py). Nothing is read from Git or Dev; tables keep their rows until they run.
+async function rollbackDialog(env, onChange) {
+  const res = await metaCall("meta_releases", { env }, "Releases not available");
+  if (!res) return;
+  if (res.problem) { toast(`Can't read ${ENV_LABEL[env]}'s releases: ${friendlyError(res.problem).text}`, true); return; }
+  const earlier = res.releases.filter((r) => !r.current && r.kept);
+  let pick = earlier.length ? earlier[0].version : null;
+  const what = h("div", { class: "rollback-what" });
+  const go = btn("Roll back", null, async () => {
+    if (!pick) return;
+    if (!state.user && !(await signIn())) return;
+    const out = await metaCall("meta_rollback", { env, version: pick }, "Rollback blocked");
+    if (!out) return;
+    closeDialog();
+    toast(`${ENV_LABEL[env]} is back on metadata ${out.version}`, false, { log: true });
+    if (out.fabric && out.fabric !== "synced") toast(`Fabric runs: ${out.fabric}`, true);
+    onChange?.();
+  }, "tool primary");
+  const label = (r) => `${r.version} (${relTime(r.at)})`;
+  const show = async () => {
+    go.disabled = !pick;
+    go.textContent = pick ? `Roll back ${ENV_LABEL[env]} to ${pick}` : "Roll back";
+    if (!pick) { what.replaceChildren(); return; }
+    what.replaceChildren(h("p", { class: "muted-text small" }, "Working out what changes..."));
+    const p = await metaCall("meta_rollback_preview", { env, version: pick }, "Preview not available");
+    if (!p || p.to !== pick) return;
+    const pills = { changed: ["wrn", "Logic changes"], removed: ["fail", "Removed"], new: ["info", "Comes back"], unreadable: ["neu", "Can't compare"] };
+    const rows = p.entities.map((t) => {
+      const [cls, text] = t.state === "changed" && !t.logic ? ["neu", "Settings change"] : pills[t.state] || ["neu", t.state];
+      const detail = t.state === "removed" ? h("span", { class: "muted-text" }, `Not in ${pick}. Its table stays; nothing runs it.`)
+        : t.problem ? h("span", { class: "muted-text" }, t.problem)
+        : h("ul", { class: "gate-list small" }, t.changes.slice(0, 6).map((c) => h("li", {}, c.text)),
+          t.changes.length > 6 ? h("li", { class: "muted-text" }, `and ${t.changes.length - 6} more`) : null);
+      return h("div", { class: "rollback-entity" }, h("span", { class: "mono" }, t.entity), h("span", {}, h("span", { class: `pill-s ${cls}` }, text)), detail);
+    });
+    what.replaceChildren(
+      h("b", {}, `What goes back in ${ENV_LABEL[env]}`),
+      rows.length ? h("div", { class: "rollback-list" }, rows) : h("p", { class: "muted-text small" }, "No entity's settings differ between the two releases; other project files may."),
+      h("div", { class: "rollback-warn" }, h("b", {}, "Tables keep their data"),
+        h("span", {}, `Rolling back changes which files ${ENV_LABEL[env]} runs, not what its tables hold. A table whose logic changes asks whether to rebuild on its next run. To put its rows back now, restore it from History.`)));
+  };
+  const row = (r) => {
+    const can = !r.current && r.kept;
+    const input = h("input", { type: "radio", name: "rollback-to", value: r.version, disabled: !can, checked: r.version === pick && can,
+      "aria-label": r.current ? "Current release" : `Roll back to ${r.version}`, onchange: () => { pick = r.version; show(); } });
+    const state_ = r.current ? ["neu", "Running now"] : !r.kept ? ["neu", "files not kept"] : r.receipt_id ? (r.verified ? ["pass", "checks out"] : ["fail", "doesn't match its id"]) : ["neu", "no record"];
+    return h("label", { class: `rollback-row${can ? "" : " off"}` }, input,
+      h("span", { class: "mono" }, r.version),
+      h("span", {}, `${relTime(r.at)}${r.by ? `, ${r.by}` : ""}${r.source_env === env ? " (rollback)" : ""}`),
+      h("span", {}, releaseCommitText(r)),
+      h("span", {}, h("span", { class: `pill-s ${state_[0]}` }, state_[1])));
+  };
+  const body = h("div", { class: "rollback-view" },
+    h("p", { class: "muted-text" }, `Puts ${ENV_LABEL[env]} back on the files an earlier promote kept there, exactly as they were. Nothing is read from Git or from Dev.`),
+    h("fieldset", { class: "rollback-releases" }, h("legend", {}, `Releases to ${ENV_LABEL[env]}`), res.releases.map(row)),
+    earlier.length ? null : h("p", { class: "muted-text small" }, `${ENV_LABEL[env]} keeps no earlier release to go back to. Releases promoted before this version of the app didn't keep their files.`),
+    what,
+    h("p", { class: "muted-text small" }, `The rollback is recorded as a new release in ${ENV_LABEL[env]}, naming the release it went back to. Your project folder on this PC is not changed.`));
+  showDialog(`Roll back ${ENV_LABEL[env]}`, body, [btn("Cancel", null, closeDialog, "tool"), go])
+    .querySelector(".dialog")?.classList.add("wide");
+  show();
+}
+
+// Where the released files stood in Git, in one line.
+function releaseCommitText(r) {
+  if (!r.receipt_id) return "not recorded";
+  if (!r.commit) return r.dirty === null || r.dirty === undefined ? "not in Git" : "nothing committed yet";
+  const at = `commit ${r.commit.slice(0, 7)}${r.branch ? ` on ${r.branch}` : ""}`;
+  if (r.dirty) return `${at}, with uncommitted changes`;
+  return `${at}, ${r.pushed ? "pushed" : "not pushed"}`;
+}
+
+// ---------- column lineage ----------
+
+const LINEAGE_HOW = { source: "source", derived: "derived", lookup: "lookup", key: "key", framework: "framework", custom: "custom" };
+const LINEAGE_PILL = { declared: "info", inferred: "neu", opaque: "cus" };
+
+// Every column the entity writes and where it comes from, worked out from the project's files.
+// Picking a column shows the steps back to where it starts and what reads it further on.
+async function columnLineage(name, pick = null) {
+  const res = await metaCall("meta_lineage", { name }, "Lineage not available");
+  if (!res) return;
+  const columns = Object.entries(res.columns);
+  const detail = h("div", { class: "lineage-detail" }, h("p", { class: "muted-text" }, "Pick a column to see where it comes from."));
+  const list = h("div", { class: "lineage-cols" }, columns.map(([col, c]) =>
+    h("button", { class: "lineage-col", onclick: (ev) => { list.querySelectorAll(".on").forEach((b) => b.classList.remove("on")); ev.currentTarget.classList.add("on"); show(col); } },
+      h("span", { class: "mono" }, col), h("span", { class: "muted-text small" }, `${LINEAGE_HOW[c.how] || c.how}, `),
+      h("span", { class: `pill-s ${LINEAGE_PILL[c.label] || "neu"}` }, c.label))));
+  const show = async (col) => {
+    detail.replaceChildren(h("p", { class: "muted-text" }, "Working it out..."));
+    const r = await metaCall("meta_lineage", { name, column: col }, "Lineage not available");
+    if (!r) return;
+    const input = (i) => i.entity ? `${i.entity}.${i.column}` : `${i.value}${i.column ? ` (${i.column})` : ""}`;
+    detail.replaceChildren(
+      h("b", {}, `Where ${col} comes from`),
+      h("table", { class: "grid small" },
+        h("thead", {}, h("tr", {}, h("th", {}, "Column"), h("th", {}, "How"), h("th", {}, "Label"), h("th", {}, "Reads"))),
+        h("tbody", {}, r.upstream.map((s) => h("tr", {},
+          h("td", { class: "mono" }, `${s.entity}.${s.column}`), h("td", {}, LINEAGE_HOW[s.how] || s.how),
+          h("td", {}, h("span", { class: `pill-s ${LINEAGE_PILL[s.label] || "neu"}` }, s.label)),
+          h("td", { class: "small" }, [s.expr ? h("div", { class: "mono" }, s.expr) : null,
+            (s.inputs || []).length ? h("div", {}, s.inputs.map(input).join(", ")) : null,
+            s.note ? h("div", { class: "muted-text" }, s.note) : null,
+            s.custom_may_change ? h("div", { class: "muted-text" }, `custom code may change it (${s.custom_may_change.join(", ")})`) : null]))))),
+      h("b", {}, "Read further on"),
+      r.downstream.length ? h("ul", { class: "gate-list small" }, r.downstream.map((d) => h("li", {},
+        h("button", { class: "tool link small", onclick: () => { closeDialog(); openEntity(d.entity); } }, `${d.entity}.${d.column}`),
+        ` (${LINEAGE_HOW[d.how] || d.how})`)))
+        : h("p", { class: "muted-text small" }, `Nothing in this project reads ${name}.${col}. Reports in Power BI aren't shown here yet.`));
+  };
+  const overlay = showDialog(`Column lineage: ${name}`, h("div", { class: "lineage-view" },
+    h("p", { class: "muted-text small" }, "Worked out from the project's files, not from running anything. Declared means a file names the link. Inferred means the name matches. Opaque means your Python decides."),
+    h("div", { class: "lineage-split" }, list, detail)), [btn("Close", null, closeDialog, "tool outline")]);
+  overlay.querySelector(".dialog").classList.add("wide");
+  if (pick && res.columns[pick]) list.querySelectorAll(".lineage-col")[columns.findIndex(([c]) => c === pick)].click();
+}
+
 // ---------- schema drift ----------
 
 // The entity page's drift card: what the source sends that the contract doesn't expect, and one
@@ -211,7 +358,7 @@ function quarantinePanel(e, q) {
   const edits = {};
   const editable = new Set(q.editable || []);
   const count = h("span", { class: "muted-text" });
-  const replayBtn = btn("Replay selected", "play", () => replay(), "tool primary small", { disabled: true });
+  const replayBtn = previewMarked("quarantineReplay", btn("Replay selected", "play", () => replay(), "tool primary small", { disabled: true }));
   const discardBtn = btn("Discard selected", "delete", () => discard(), "tool outline small", { disabled: true });
   const sync = () => {
     const edited = Object.keys(edits).filter((id) => Object.keys(edits[id]).length).length;
@@ -265,7 +412,7 @@ function quarantinePanel(e, q) {
   };
   const discard = async () => {
     const ids = [...picked];
-    if (!(await confirmDialog(`Discard ${ids.length} row${ids.length === 1 ? "" : "s"}?`, "They leave quarantine for good and are never loaded. Use this for test data or true duplicates.", "Discard"))) return;
+    if (!(await confirmDialog(`Discard ${ids.length} row${ids.length === 1 ? "" : "s"}?`, "They leave quarantine for good and are never loaded. Use this for test data or true duplicates.", "Discard", { danger: true }))) return;
     const res = await attempt(() => rpc("meta_discard_quarantine", { name: e.name, env, ids }), "Not discarded");
     if (res) { toast(`Discarded ${ids.length} row${ids.length === 1 ? "" : "s"}`); render(); }
   };
@@ -344,7 +491,7 @@ function freshnessDialog(e) {
 
 function alertsLine() {
   return h("div", { class: "row wrap muted-text small" }, icon("alert", 14),
-    fresh.alerts ? "Late and failed tables are also posted to your Teams channel." : "Late and failed tables can also be posted to a Teams channel.",
+    fresh.alerts ? "New incidents are also posted to your Teams channel, unless an agent already checks that environment." : "New incidents can also be posted to a Teams channel.",
     btn(fresh.alerts ? "Change" : "Set up Teams alerts", null, alertsDialog, "tool link small"));
 }
 
@@ -359,28 +506,43 @@ async function alertsDialog() {
     toast(res.teams_webhook ? (test ? "Sent a test message to Teams and saved" : "Teams alerts are on") : "Teams alerts are off");
   };
   showDialog("Teams alerts", h("div", { class: "dataops" },
-    h("p", { class: "text" }, "In the Teams channel, add the Workflows template \"Post to a channel when a webhook request is received\", then paste its address here. Each late or failed table is posted once."),
+    h("p", { class: "text" }, "In the Teams channel, add the Workflows template \"Post to a channel when a webhook request is received\", then paste its address here. Each new incident (a failed or late table, a missed objective, an agent that stopped) is posted once, and again when it recovers. Environments that a running agent checks are left to the agent."),
     h("label", { class: "field" }, "Webhook address", url),
-    h("p", { class: "muted-text small" }, "This PC sends the alerts while the app is open; the address stays on this PC.")),
+    h("p", { class: "muted-text small" }, "This PC sends them while the app is open; the address stays on this PC. A message Teams doesn't take is sent with the next check.")),
   [btn("Cancel", null, closeDialog, "tool outline"), btn("Save", null, () => save(false), "tool outline"), btn("Send a test and save", "alert", () => save(true), "tool primary")]);
 }
 
-// Checked at startup and every 10 minutes: late tables go to the bell (and Teams, once each).
+// Checked at startup and every 10 minutes. Late tables show on Home; problems become incidents
+// (incident_service.incidents_watch): an environment a running agent checks is only read, any other
+// is checked here, and its new incidents go to the bell and, once each, to this PC's Teams webhook.
 async function checkFreshness() {
   clearTimeout(fresh.timer);
   fresh.timer = setTimeout(checkFreshness, 600000);
-  const res = await rpc("meta_freshness", { notify: true }).catch(() => null);
-  if (!res) return;
-  fresh.items = res.items;
-  fresh.alerts = res.alerts;
-  for (const x of res.items) {
-    if (x.status !== "late") continue;
-    const id = `fresh:${x.env}:${x.entity}:${x.last_ok}`;
-    if (!activity.items.some((i) => i.id === id)) {
-      logActivity({ id, status: "failed", title: `${x.entity} is late · ${ENV_LABEL[x.env]}`, text: `${x.reasons.join("; ")}.` });
+  const [res, watch] = await Promise.all([
+    // With preview features hidden, Teams gets the old per-table alerts instead of incidents.
+    rpc("meta_freshness", { notify: !previewShown() }).catch(() => null),
+    previewShown() ? rpc("incidents_watch", { notify: true }).catch(() => null) : null,
+  ]);
+  if (res) {
+    fresh.items = res.items;
+    fresh.alerts = res.alerts;
+    for (const x of previewShown() ? [] : res.items) {
+      const id = `fresh:${x.env}:${x.entity}:${x.last_ok}`;
+      if (x.status === "late" && !activity.items.some((i) => i.id === id)) {
+        logActivity({ id, status: "failed", title: `${x.entity} is late · ${ENV_LABEL[x.env]}`, text: `${x.reasons.join("; ")}.` });
+      }
     }
+    if (res.project_error) logActivity({ id: "fresh:project-error", status: "error", title: "Freshness not checked", text: "The metadata project couldn't be read, so late tables can't be found.", details: res.project_error });
+    if (res.alert_error) logActivity({ id: "fresh:teams-error", status: "error", title: "Teams alert not sent", text: friendlyError(res.alert_error).text, details: res.alert_error });
   }
-  if (res.alert_error) logActivity({ id: "fresh:teams-error", status: "error", title: "Teams alert not sent", text: friendlyError(res.alert_error).text, details: res.alert_error });
+  for (const e of watch?.envs || []) {
+    for (const i of e.incidents) {
+      const id = `inc:${i.id}`;
+      if (i.state !== "open" || activity.items.some((x) => x.id === id)) continue;
+      logActivity({ id, status: "failed", title: i.title, text: [i.text, e.mode === "agent" ? `Raised in ${ENV_LABEL[e.env]}'s incident list.` : ""].filter(Boolean).join(" ") });
+    }
+    if (e.notified?.error) logActivity({ id: "inc:teams-error", status: "error", title: "Teams alert not sent", text: `It will go with the next check. ${friendlyError(e.notified.error).text}`, details: e.notified.error });
+  }
   if (state.view === "home") renderFreshHome();
 }
 

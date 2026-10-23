@@ -71,6 +71,10 @@ class ProofRuntime:
         self._options = lambda: {}
         self.log = {"proof": self.id, "side": side, "reads": {}, "files": {}, "writes": {},
                     "seed": self.seed, "timezone": None, "started": time.time()}
+        # Tables already in this side's sandbox when it starts (a replay seeded from a bundle's sample):
+        # reads and writes of these go to the sandbox copy, as if this side had written them.
+        for key in config.get("seeded") or []:
+            self.log["writes"][key.lower()] = ["seeded"]
 
     # ---- where things are
 
@@ -167,7 +171,7 @@ class ProofRuntime:
             import numpy as np
             np.random.seed(self.seed)
             seeded.append("numpy")
-        except Exception:  # noqa: BLE001 - no NumPy: nothing to seed
+        except ImportError:  # NumPy is optional; without it there is nothing to seed
             pass
         self.log["seeded"] = seeded
         tz = "not changed"
@@ -205,7 +209,7 @@ class ProofRuntime:
         for n in names:
             try:
                 packages[n.lower()] = md.version(n)
-            except Exception:  # noqa: BLE001 - not a distribution
+            except Exception:  # noqa: BLE001  # silent-ok: a module name that isn't an installed distribution has no version
                 pass
         return {"python": platform.python_version(), "implementation": platform.python_implementation(),
                 "platform": platform.system(), "packages": dict(sorted(packages.items()))}

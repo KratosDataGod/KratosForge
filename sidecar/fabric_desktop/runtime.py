@@ -8,11 +8,10 @@ interactive sign-in: the project and the identity come from ``agent.toml``.
 
 from __future__ import annotations
 
-import json
 import os
 import socket
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .agent_config import AgentConfig
 from .auth import EXECUTE_SCOPES
@@ -20,9 +19,9 @@ from .cloud_service import CloudMixin
 from .credentials import Credential, from_config
 from .dataops_service import DataOpsMixin
 from .fabric_api import FabricClient
-from .leases import Backend, Leases, LocalBackend, OneLakeBackend, table_key
-from .meta import Engine, LocalStore, OneLakeStore, Project
-from .meta.store import META_LAKEHOUSE, Store
+from .jsonfile import read_json, write_json
+from .meta import Engine, OneLakeStore, Project
+from .meta.store import META_LAKEHOUSE
 from .meta_service import MetaMixin
 from .central.service import PlatformMixin
 
@@ -59,9 +58,9 @@ class Runtime(PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin):
                                       "teams_webhook": self.config.teams_webhook}
 
     def _save_settings(self, **changes: Any) -> None:
-        kept = {k: v for k, v in (MetaMixin._settings(self) | changes).items() if k not in _FROM_CONFIG}
-        self.settings_file.parent.mkdir(parents=True, exist_ok=True)
-        self.settings_file.write_text(json.dumps(kept, indent=2), encoding="utf-8")
+        # read_json sets a torn file aside instead of letting this save drop everything in it (QA-011)
+        kept = {k: v for k, v in (read_json(self.settings_file, {}) | changes).items() if k not in _FROM_CONFIG}
+        write_json(self.settings_file, kept, indent=2)
 
     # ---- guard rails
 
@@ -78,16 +77,6 @@ class Runtime(PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin):
             if ws and ws not in self.config.workspaces:
                 raise PermissionError(f"{env.title()}'s {key} {ws} isn't in agent.workspaces, so this agent won't write there")
 
-    def lease_backend(self, project: Project, env: str, store: Store) -> Backend:
-        if isinstance(store, OneLakeStore):
-            meta_id = store.lakehouse_ids.get(META_LAKEHOUSE)
-            if not meta_id:
-                raise LookupError(f"{META_LAKEHOUSE} doesn't exist in the {env} workspace yet; promote to {env} first")
-            return OneLakeBackend(store.workspace_id, meta_id, self.auth.storage_token)
-        if isinstance(store, LocalStore):
-            return LocalBackend(store.root / "_leases")
-        raise TypeError(f"no lease backend for {type(store).__name__}")
-
     def control_backend(self, env: str) -> Any:
         """Where pipelines leave run requests for ``env``: its LH_Meta, or a local folder (mailbox.py)."""
         from .mailbox import control_backend_for
@@ -103,21 +92,25 @@ class Runtime(PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin):
     # ---- running
 
     def run_environment(self, env: str, entities: list[str] | None = None, backfill: str | None = None,
-                        cascade: bool = False, job: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+                        cascade: bool = False, job: dict[str, Any] | None = None,
+                        guard: Callable[[], None] | None = None) -> list[dict[str, Any]]:
         """Run an environment's entities on this machine, each table under a write lease. Returns
-        one result per entity, as the desktop's Run does."""
+        one result per entity, as the desktop's Run does. ``guard`` is called once each table's
+        lease is held, before anything is written; it raises ``Abandoned`` to stop the run."""
         project = self._project()
         self.check_allowed(project, env)
         # The agent never creates lakehouses: an environment is set up by promoting to it.
         store = self._store(project, env)
+        project = self._released(project, env, store)  # the files of the release env is on, not this checkout's
         uses_keys = self._uses_keys(project, entities)
         keys_store = self._keys_store(project, env) if uses_keys else None
-        leases = Leases(self.lease_backend(project, env, store), owner=self.config.name,
-                        ttl=self.config.table_lease_seconds, wait=self.config.table_lease_seconds)
+        table_lock = self._table_lock(project, env, store, owner=self.config.name,
+                                      seconds=self.config.table_lease_seconds, guard=guard)
         job = job or {}
+
         engine = Engine(project, store, keys_store=keys_store, source_options=self._source_options,
                         link_table=self._link_table(project, env),
-                        table_lock=lambda e: leases.hold(table_key(project.layer(e.layer).lakehouse, e.schema, e.table)),
+                        table_lock=table_lock,
                         run_context={"worker": self.config.name, "host": socket.gethostname(),
                                      "attempt": int(job.get("attempts") or 1), "job_id": job.get("id", "")})
         engine.batch_prefix = "agent-"

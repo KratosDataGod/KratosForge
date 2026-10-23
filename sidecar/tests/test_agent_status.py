@@ -67,7 +67,10 @@ def test_the_agent_publishes_what_it_is_doing(setup):
     assert r["counts"]["running"] == 1 and r["running"][0]["job_id"] == job["id"]
     assert r["running"][0]["entities"] == ["bronze.orders"]
     assert r["pipeline"] == {"enabled": True, "entities": ["bronze.*"], "allow_backfill": False}
-    assert [s["id"] for s in r["schedules"]] == ["dev-hourly"]
+    assert r["schedules"][0]["id"] == "dev-hourly"
+    assert r["schedules"][0]["entities"] == []  # all entities: present and empty, not missing
+    assert r["schedules"][0]["when"] == {"kind": "cron", "every_minutes": 60}
+    assert r["owner"] is None and r["identity"] == "user"
     release.set()
     for f in list(agent._running.values()):
         f.result(timeout=120)
@@ -105,6 +108,28 @@ def test_a_clean_stop_says_so(setup):
     assert record(setup)["state"] == "stopped"
 
 
+def test_a_stopping_agent_keeps_its_record_fresh_until_its_jobs_finish(setup):
+    agent = Agent(dataclasses.replace(setup, poll_seconds=0.05, status_seconds=0.05))
+    release, started = threading.Event(), threading.Event()
+    agent.runtime.run_environment = lambda *a, **k: (started.set(), release.wait(60), [])[2]
+    states = []
+    real = agent.publish_status
+    agent.publish_status = lambda state="running": (states.append(state), real(state))[1]
+    agent.enqueue("dev", ["bronze.orders"], source="cli")
+    loop = threading.Thread(target=agent.run_forever, kwargs={"install_signals": False})
+    loop.start()
+    assert started.wait(30)
+    agent.stop()
+    for _ in range(200):
+        if states.count("stopping") >= 3:
+            break
+        threading.Event().wait(0.05)
+    assert states.count("stopping") >= 3 and "stopped" not in states  # beats while the job still runs
+    release.set()
+    loop.join(30)
+    assert states[-1] == "stopped" and record(setup)["state"] == "stopped"
+
+
 def test_a_failed_publish_is_logged_and_the_loop_goes_on(setup, caplog):
     agent = Agent(setup)
 
@@ -134,3 +159,23 @@ def test_status_seconds_is_checked(setup):
     with pytest.raises(agent_config.ConfigError, match="agent.status_seconds"):
         agent_config.parse(raw)
     assert agent_config.parse({**raw, "agent": raw["agent"] | {"status_seconds": 120}}).status_seconds == 120
+
+
+def test_the_record_names_the_owner_and_what_each_schedule_runs(setup):
+    cfg = dataclasses.replace(setup, owner="Sales data team", schedules=[
+        agent_config._schedule({"id": "dev-gold", "env": "dev", "daily": ["02:00"], "entities": ["gold.sales"]}, 0, []),
+        agent_config._schedule({"id": "dev-weekly", "env": "dev", "weekly": {"days": ["Monday"], "times": ["06:00"]}}, 1, [])])
+    from fabric_desktop.agent_status import record as status_record
+    agent = Agent(cfg, queue=JobQueue(cfg.home / "q.sqlite3"))
+    r = status_record(agent, "dev")
+    assert r["owner"] == "Sales data team" and r["identity"] == "user"
+    assert [(s["id"], s["entities"], s["when"]) for s in r["schedules"]] == [
+        ("dev-gold", ["gold.sales"], {"kind": "daily", "times": ["02:00"]}),
+        ("dev-weekly", [], {"kind": "weekly", "times": ["06:00"], "weekdays": ["Monday"]})]
+    assert "certificate_path" not in json.dumps(r) and "client_id" not in json.dumps(r)
+
+
+def test_owner_comes_from_agent_toml(setup):
+    text = setup.path.read_text(encoding="utf-8").replace('name = "etl-01"', 'name = "etl-01"\nowner = "  Sales data team "')
+    setup.path.write_text(text, encoding="utf-8")
+    assert agent_config.load(setup.path).owner == "Sales data team"

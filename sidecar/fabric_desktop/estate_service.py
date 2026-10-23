@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import os
 import re
 import threading
@@ -17,22 +18,28 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import polars as pl
-import requests
 from deltalake.exceptions import TableNotFoundError
 
 from . import access as access_mod
+from . import capacity as capacity_mod
 from . import costs as costs_mod
+from . import http_session
 from . import shortcuts as shortcuts_mod
-from .auth import CAPACITY_SCOPES, CONNECTION_SCOPES, GRAPH_USER_SCOPES, ONELAKE_SCOPES, POWERBI_WORKSPACE_SCOPES
-from .fabric_api import FabricClient
+from .auth import CAPACITY_SCOPES, CONNECTION_SCOPES, FABRIC_SCOPES, GRAPH_USER_SCOPES, ONELAKE_SCOPES, POWERBI_WORKSPACE_SCOPES
+from .fabric_api import FabricClient, FabricError
 from .meta import impact
 from .meta import restore as restore_mod
 from .meta import testing as testing_mod
 from .meta import varlib as varlib_mod
+from .notebookutils_local import FROM_KEY
 from .meta.engine import _wm_text
 from .meta.project import ENVIRONMENTS
 from .meta.store import OneLakeStore
 from .onelake import TableCatalog
+from .redact import describe
+from .retrying import send_with_retry
+
+_log = logging.getLogger(__name__)
 
 FABRIC_APP = "https://app.fabric.microsoft.com"
 _GUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
@@ -45,11 +52,33 @@ def _who(service: Any) -> str:
         return os.environ.get("USERNAME") or os.environ.get("USER") or ""
 
 
+
+def _put_roles(api: FabricClient, workspace_id: str, item_id: str, roles: list[dict[str, Any]],
+               etag: str | None) -> None:
+    """Replace the roles only if nobody changed them since ``etag`` was read: the PUT replaces the
+    whole list, so writing over someone else's change would silently undo it."""
+    try:
+        api.put_data_access_roles(workspace_id, item_id, roles, etag=etag)
+    except FabricError as exc:
+        if exc.code == "PreconditionFailed" or exc.status == 412:
+            raise PermissionError("Someone changed this lakehouse's roles while you were editing. Nothing was "
+                                  "saved; open it again to see their change, then make yours.") from exc
+        raise
+
 class EstateMixin:
 
     def _scoped(self, scopes: list[str]) -> FabricClient:
         """A Fabric client for calls that need a scope beyond the sign-in's (asked for once)."""
         return FabricClient(lambda: self.auth._token(scopes))  # type: ignore[attr-defined]
+
+    def _silent_client(self, scopes: list[str]) -> FabricClient | None:
+        """A Fabric client with an existing sign-in for these scopes, never a prompt; None when
+        signed out or the scope isn't granted yet."""
+        try:
+            token = self.auth.silent_token(scopes)  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 - no client configured: signed out
+            token = None
+        return FabricClient(lambda: token) if token else None
 
     # ---- restore a table to an earlier version
 
@@ -117,49 +146,67 @@ class EstateMixin:
         self._save_settings(cost=cfg)  # type: ignore[attr-defined]
         return cfg
 
-    def _env_capacities(self) -> dict[str, dict[str, Any]]:
-        """The capacity each environment's workspace is on, read only when already signed in."""
+    def capacity_health(self, refresh: bool = False) -> dict[str, Any]:
+        """The capacity each environment's workspace is on and whether it is running (read only).
+
+        Uses a reading from the last hour unless ``refresh``; never asks for a sign-in or consent.
+        Readings that fail now keep the last good one, labeled with its age."""
         try:
             project = self._project()  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001
-            return {}
-        # Only when Capacity.Read.All was already granted: the cost view never asks for consent.
+        except Exception:  # noqa: BLE001 - no metadata project: nothing to show
+            return {"observed_at": None, "environments": [], "partial": False}
+        path = self.root / "capacity_observations.json"  # type: ignore[attr-defined]
+        cached = capacity_mod.load(path)
+        envs = {env: dict(project.environments.get(env, {})) for env in ENVIRONMENTS}
+        now = dt.datetime.now(dt.timezone.utc)
+        if cached and not refresh and [e.get("workspace_id") for e in cached.get("environments", [])] == \
+                [cfg.get("workspace_id") for cfg in envs.values()]:
+            fresh = [e | capacity_mod.freshness(e, now) for e in cached["environments"]]
+            if not any(e["stale"] for e in fresh):
+                return cached | {"environments": fresh}
+
+        fabric = self._silent_client(FABRIC_SCOPES)
+        get_workspace = fabric.get_workspace if fabric else None
+        list_caps = None
+        if fabric:
+            cap_client = self._silent_client(CAPACITY_SCOPES)
+
+            def list_caps() -> list[dict[str, Any]]:
+                if not cap_client:
+                    raise PermissionError("Capacity.Read.All not granted")
+                return cap_client.list_capacities()
+        doc = capacity_mod.merge_cached(capacity_mod.observe(envs, get_workspace, list_caps, now), cached, now)
         try:
-            token = self.auth.silent_token(CAPACITY_SCOPES)  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001
-            token = None
-        if not token:
-            return {}
-        fabric = FabricClient(lambda: token)
-        cache = getattr(self, "_capacity_cache", None)
-        if cache is None:
-            try:
-                cache = {c["id"]: c for c in fabric.list_capacities()}
-            except Exception:  # noqa: BLE001
-                return {}
-            self._capacity_cache = cache
-        out = {}
-        for env in ENVIRONMENTS:
-            ws = project.environments.get(env, {}).get("workspace_id")
-            if not ws:
-                continue
-            try:
-                cap = cache.get(fabric.get_workspace(ws).get("capacityId") or "")
-            except Exception:  # noqa: BLE001
-                continue
-            if cap:
-                out[env] = {"name": cap.get("displayName"), "sku": cap.get("sku")}
-        return out
+            capacity_mod.save(path, doc)
+        except OSError:
+            pass  # shown anyway; only the offline copy is lost
+        return doc
+
+    @staticmethod
+    def _env_capacities(doc: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        """The capacity each environment's workspace is on, for the cost view: {env: {name, sku, id}}."""
+        return {e["env"]: {"name": e["capacity"].get("name"), "sku": e["capacity"].get("sku"), "id": e["capacity"].get("id")}
+                for e in doc.get("environments", []) if e.get("capacity")}
 
     def cost_report(self, days: int = 30) -> dict[str, Any]:
-        """Estimated capacity use and cost of every run in the last ``days``, and what this PC saved."""
+        """Capacity use and cost of every run in the last ``days``, and what running on this PC avoided.
+
+        Every figure comes with its classified measurement (``evidence``); see measurement.py."""
         cfg = self._cost_settings()
         meta = self.meta_runs_all(limit=100000)  # type: ignore[attr-defined]
         fabric = self.fabric_runs(limit=500, refresh=False)  # type: ignore[attr-defined]
         writes = self.history(limit=100000)  # type: ignore[attr-defined]
         rows = costs_mod.activities(meta["runs"], fabric, writes, cfg)
-        return costs_mod.report(rows, cfg, int(days), capacities=self._env_capacities()) | {
-            "unavailable": meta.get("unavailable", {})}
+        try:
+            caps = self.capacity_health()
+        except Exception:  # noqa: BLE001 - cost works without it
+            caps = {"observed_at": None, "environments": [], "partial": True}
+        try:
+            usage = self._usage_reconcile(int(days), fabric, rows, caps)  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001 - cost works without imported usage
+            usage = {"error": str(exc)[:300]}
+        return costs_mod.report(rows, cfg, int(days), capacities=self._env_capacities(caps)) | {
+            "unavailable": meta.get("unavailable", {}), "capacities": caps, "usage": usage}
 
     # ---- OneLake shortcuts
 
@@ -167,7 +214,8 @@ class EstateMixin:
         """Managed tables that live in this lakehouse of an environment's workspace."""
         try:
             project = self._project()  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            _log.info("No metadata project for managed tables: %s", describe(exc))
             return []
         if not any(project.environments.get(env, {}).get("workspace_id") == workspace_id for env in ENVIRONMENTS):
             return []
@@ -260,7 +308,8 @@ class EstateMixin:
             return []
         try:
             store = self._store(project, env)  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            _log.info("No store for this environment's files: %s", describe(exc))
             return []
         if not isinstance(store, OneLakeStore):
             return []
@@ -331,7 +380,7 @@ class EstateMixin:
         if "@" not in email:
             raise ValueError("Type a person's email, or a group's or app's object ID.")
         token = self.auth._token(POWERBI_WORKSPACE_SCOPES)  # type: ignore[attr-defined]
-        r = requests.post(f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/users",
+        r = http_session.session().post(f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/users",
                           json={"emailAddress": email, "groupUserAccessRight": role, "principalType": "User"},
                           headers={"Authorization": f"Bearer {token}"}, timeout=30)
         if r.status_code == 404:
@@ -362,17 +411,20 @@ class EstateMixin:
         try:
             token = self.auth._token(GRAPH_USER_SCOPES)  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001
-            raise LookupError(f"{text} doesn't have a role in this workspace, and Fabric Desktop by KratosBI can't look people up "
+            raise LookupError(f"{text} doesn't have a role in this workspace, and KratosForge can't look people up "
                               "in your directory. Give them a workspace role first, or paste their object ID "
                               "(Microsoft Entra admin center > Users).") from exc
-        r = requests.get(f"https://graph.microsoft.com/v1.0/users/{text}",
-                         params={"$select": "id,displayName,userPrincipalName,mail"},
-                         headers={"Authorization": f"Bearer {token}"}, timeout=30)
+        headers = {"Authorization": f"Bearer {token}"}
+        http = http_session.session()
+        r = send_with_retry(lambda: http.get(f"https://graph.microsoft.com/v1.0/users/{text}",
+                                                 params={"$select": "id,displayName,userPrincipalName,mail"},
+                                                 headers=headers, timeout=30), "GET")
         if r.status_code == 404:
-            r = requests.get("https://graph.microsoft.com/v1.0/users",
-                             params={"$filter": f"mail eq '{text.replace(chr(39), '')}'",
-                                     "$select": "id,displayName,userPrincipalName,mail"},
-                             headers={"Authorization": f"Bearer {token}"}, timeout=30)
+            r = send_with_retry(lambda: http.get(
+                "https://graph.microsoft.com/v1.0/users",
+                params={"$filter": f"mail eq '{text.replace(chr(39), '')}'",
+                        "$select": "id,displayName,userPrincipalName,mail"},
+                headers=headers, timeout=30), "GET")
             found = (r.json().get("value") or []) if r.ok else []
             if not found:
                 raise LookupError(f"No one with the email {text} in your organization.")
@@ -396,8 +448,8 @@ class EstateMixin:
         try:
             people = [access_mod.principal(a.get("principal") or {}) | {"role": a.get("role")}
                       for a in self.fabric.list_role_assignments(workspace_id)]  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001 - roles still show; names fall back to IDs
-            pass
+        except Exception as exc:  # noqa: BLE001 - roles still show; names fall back to IDs
+            _log.warning("Couldn't list the workspace's role assignments; showing IDs: %s", describe(exc))
         try:
             schemas, tables = self._lakehouse_paths(workspace_id, item_id)
         except Exception:  # noqa: BLE001
@@ -414,29 +466,31 @@ class EstateMixin:
     def access_save_role(self, workspace_id: str, item_id: str, name: str, paths: list[str], members: list[str],
                          original_name: str | None = None) -> dict[str, Any]:
         api = self._scoped(ONELAKE_SCOPES)
-        roles = api.list_data_access_roles(workspace_id, item_id)
+        roles, etag = api.list_data_access_roles_tagged(workspace_id, item_id)
         names = {r.get("name") for r in roles}
         if (original_name is None or name != original_name) and name in names:
             raise ValueError(f"There is already a role named {name}.")
         keep = next((r for r in roles if r.get("name") == (original_name or name)), None)
         role = access_mod.make_role(name, paths, members, self.auth.signed_in_tenant() or "", keep)  # type: ignore[attr-defined]
-        api.put_data_access_roles(workspace_id, item_id,
-                                  [r for r in roles if r.get("name") not in (original_name, name)] + [role])
+        _put_roles(api, workspace_id, item_id,
+                   [r for r in roles if r.get("name") not in (original_name, name)] + [role], etag)
         return self.access_lakehouse(workspace_id, item_id)
 
     def access_delete_role(self, workspace_id: str, item_id: str, name: str) -> dict[str, Any]:
         api = self._scoped(ONELAKE_SCOPES)
-        roles = api.list_data_access_roles(workspace_id, item_id)
-        api.put_data_access_roles(workspace_id, item_id, [r for r in roles if r.get("name") != name])
+        roles, etag = api.list_data_access_roles_tagged(workspace_id, item_id)
+        _put_roles(api, workspace_id, item_id, [r for r in roles if r.get("name") != name], etag)
         return self.access_lakehouse(workspace_id, item_id)
 
-    def access_who_can_read(self, workspace_id: str, item_id: str, table: str) -> list[dict[str, Any]]:
+    def access_who_can_read(self, workspace_id: str, item_id: str, table: str) -> dict[str, Any]:
+        """Who can read one table: {readers, partial, problem}. When the data access roles can't be
+        read (other than OneLake security being off), the list is marked partial, never passed off
+        as complete."""
         assignments = self.fabric.list_role_assignments(workspace_id)  # type: ignore[attr-defined]
-        try:
-            roles = self._scoped(ONELAKE_SCOPES).list_data_access_roles(workspace_id, item_id)
-        except Exception:  # noqa: BLE001 - without OneLake security, the workspace roles decide
-            roles = None
-        return access_mod.who_can_read(table, assignments, roles)
+        roles, problem = access_mod.read_roles(
+            lambda: self._scoped(ONELAKE_SCOPES).list_data_access_roles(workspace_id, item_id))
+        return {"readers": access_mod.who_can_read(table, assignments, roles), "partial": problem is not None,
+                "problem": problem}
 
     # ---- tests that gate a promote
 
@@ -482,10 +536,10 @@ class EstateMixin:
         cfg = project.environments.get(env, {})
         ws = cfg.get("workspace_id")
         if not ws:
-            raise LookupError(f"Assign a workspace to {env.title()} first (Metadata > Environments and promote).")
+            raise LookupError(f"Assign a workspace to {env.title()} first (Data mesh > Deploy > Environments and promote).")
         fabric = self.fabric  # type: ignore[attr-defined]
         item = fabric.save_variable_library(ws, varlib_mod.LIBRARY, varlib_mod.definition(project),
-                                            "Source system connections, managed by Fabric Desktop by KratosBI")
+                                            "Source system connections, managed by KratosForge")
         if item.get("id"):
             fabric.set_active_value_set(ws, item["id"], varlib_mod.active_set(env))
         published = self._settings().get("varlib_published", {})  # type: ignore[attr-defined]
@@ -503,15 +557,24 @@ class EstateMixin:
             raise ValueError(f"environment must be one of {', '.join(ENVIRONMENTS)}")
         return self._publish_varlib(self._project(), env)  # type: ignore[attr-defined]
 
-    def _notebook_variables(self, library: str) -> dict[str, str] | None:
-        """notebookutils.variableLibrary on this PC: VL_Sources for the attached lakehouse's environment."""
-        if library != varlib_mod.LIBRARY:
-            return None
-        try:
-            project = self._project()  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001
-            return None
+    def _notebook_variables(self, library: str) -> dict[str, Any] | None:
+        """notebookutils.variableLibrary on this PC. VL_Sources comes from the metadata project, for
+        the attached lakehouse's environment; any other library is read (never changed) from the
+        attached lakehouse's workspace, with its active value set, as Fabric reads the notebook's."""
         from . import lakehouse
         ws = lakehouse._attached.workspace_id if lakehouse._attached else None
-        env = next((env for env in ENVIRONMENTS if ws and project.environments.get(env, {}).get("workspace_id") == ws), "dev")
-        return varlib_mod.resolve(project, env)
+        if library == varlib_mod.LIBRARY:
+            try:
+                project = self._project()  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001
+                _log.info("No metadata project for notebook variables: %s", describe(exc))
+            else:
+                env = next((env for env in ENVIRONMENTS if ws and project.environments.get(env, {}).get("workspace_id") == ws), "dev")
+                return varlib_mod.resolve(project, env)
+        if not ws:
+            return None
+        found = self.fabric.read_variable_library(ws, library)  # type: ignore[attr-defined]
+        if found is None:
+            raise LookupError(f"The workspace of the attached lakehouse has no variable library named {library}.")
+        # Says where it read from: Fabric reads the notebook's own workspace, this PC the lakehouse's.
+        return varlib_mod.read(*found) | {FROM_KEY: lakehouse._attached.workspace_name or ws}

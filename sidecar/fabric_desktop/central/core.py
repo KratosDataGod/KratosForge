@@ -24,13 +24,15 @@ Tables (T-SQL schema.table; SQLite schema__table):
     catalog.audit        who changed what in the catalog
     catalog.admin        platform admins: the central team, who create domains, key tables and sources
     catalog.key_table    the platform's key tables: business key, description, who made it
-    catalog.source       source systems landed in LH_Landing: owner, expected arrival, connections per env
+    catalog.source       every source system: the id business keys use, code, owner, type, expected
+                         arrival in LH_Landing, connections per env (one list for every project)
     catalog.reader       which project reads which landing zone source
     catalog.request      requests from domain teams: a key table, a source, or access to a product
     catalog.grant        projects let in to a domain or private product by its owner
     catalog.shortcut     every OneLake shortcut last seen in a scan: its target and health
     catalog.shortcut_scope  lakehouses scanned for shortcuts, so a first scan isn't read as "all added"
     catalog.shortcut_change every shortcut added, repointed, removed, broken or fixed, and by whom
+    catalog.policy*      governance policies, their versions, assignments and history (policy.py)
 
 Who may change what (the caller is always who Fabric says it is, see udf.py):
 
@@ -48,7 +50,7 @@ import re
 import uuid
 from typing import Any
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 5
 UNKNOWN_KEY = -1
 UNKNOWN_BK = "UNKNOWN"
 MAX_BK = 400
@@ -58,7 +60,12 @@ CLASSIFICATIONS = ("public", "internal", "confidential", "restricted")
 REQUEST_KINDS = ("key_table", "source", "access", "shortcut")
 REQUEST_STATUS = ("waiting", "approved", "declined", "withdrawn")
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
+_CODE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,40}$")
 _ID = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
+
+
+# Tables other modules add to the platform (policy.py's governance policies), created with the rest.
+SCHEMA_HOOKS: list[Any] = []
 
 
 class PlatformError(ValueError):
@@ -126,7 +133,7 @@ _LONG = {"tsql": "NVARCHAR(MAX)", "sqlite": "TEXT"}
 
 _CATALOG: dict[str, list[tuple[str, str]]] = {
     "domain": [("id", "key"), ("name", "text"), ("parent_id", "text"), ("description", "long"), ("owners", "text"),
-               ("fabric_domain", "text"), ("updated_at", "text"), ("updated_by", "text")],
+               ("fabric_domain", "text"), ("updated_at", "text"), ("updated_by", "text"), ("fabric_owners", "long")],
     "project": [("name", "key"), ("domain_id", "text"), ("subdomain_id", "text"), ("team", "text"),
                 ("description", "long"), ("updated_at", "text"), ("updated_by", "text")],
     "product": [("id", "key"), ("project", "text"), ("name", "text"), ("domain_id", "text"), ("description", "long"),
@@ -146,7 +153,8 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
     "key_table": [("name", "key"), ("business_key", "text"), ("description", "long"), ("domain_id", "text"),
                   ("created_at", "text"), ("created_by", "text")],
     "source": [("name", "key"), ("title", "text"), ("description", "long"), ("owner", "text"),
-               ("expected_hours", "text"), ("connections", "long"), ("updated_at", "text"), ("updated_by", "text")],
+               ("expected_hours", "text"), ("connections", "long"), ("updated_at", "text"), ("updated_by", "text"),
+               ("source_id", "text"), ("code", "text"), ("system_type", "text"), ("active", "text")],
     "reader": [("id", "key"), ("project", "text"), ("source", "text"), ("entities", "long"), ("updated_at", "text")],
     "request": [("id", "key"), ("kind", "text"), ("target", "text"), ("detail", "long"), ("project", "text"),
                 ("reason", "long"), ("requested_by", "text"), ("requested_at", "text"), ("status", "text"),
@@ -189,6 +197,10 @@ def ensure_schema(db: Db) -> dict[str, Any]:
         db.run(f"CREATE TABLE {db.t('catalog', 'audit')} (id {ident}, at {_TEXT[db.dialect]}, by_user {_TEXT[db.dialect]}, "
                f"action {_TEXT[db.dialect]}, target {_TEXT[db.dialect]}, detail {_LONG[db.dialect]})")
         created.append("catalog.audit")
+    created += ensure_source_ids(db)
+    created += ensure_domain_columns(db)
+    for hook in SCHEMA_HOOKS:
+        created += hook(db)
     _upsert(db, "config", "setting", "name", {"name": "schema_version", "value": str(SCHEMA_VERSION)})
     db.commit()
     return {"created": created, "schema_version": SCHEMA_VERSION}
@@ -279,6 +291,72 @@ def _clean_bks(business_keys: list[Any]) -> list[str]:
     return sorted(out)
 
 
+# A keys database that has stopped issuing (keys moving to, or moved to, the one keys database
+# for every environment) keeps the reason here; every run that asks for keys is told it.
+KEYS_CLOSED = "keys_closed"
+# Set on the shared keys database while a move fills it and nothing uses it yet.
+KEYS_STAGING = "keys_staging"
+# Set on the shared keys database once every environment uses it: from then on it's never staged or cleared.
+KEYS_LIVE = "keys_live"
+
+
+def _setting(db: Db, name: str) -> str:
+    if not db.exists("config", "setting"):
+        return ""
+    found = db.rows(f"SELECT value FROM {db.t('config', 'setting')} WHERE name = ?", (name,))
+    return str(found[0]["value"] or "") if found else ""
+
+
+def _require_open(db: Db) -> None:
+    if why := _setting(db, KEYS_CLOSED):
+        raise PlatformError(why)
+
+
+def close_keys(db: Db, reason: str = "", by: str = "") -> dict[str, Any]:
+    """Stop issuing and importing keys here, telling every run ``reason``; an empty reason opens them again."""
+    require_admin(db, by, "close or reopen key issuing")
+    _upsert(db, "config", "setting", "name", {"name": KEYS_CLOSED, "value": str(reason or "")})
+    _audit(db, by, "close keys" if reason else "reopen keys", "keys", {"reason": reason})
+    db.commit()
+    return {"closed": str(reason or "")}
+
+
+def keys_state(db: Db) -> dict[str, Any]:
+    """Whether this keys database is live (Dev, Test and Prod use it), being filled by a move, or closed."""
+    return {"live": _setting(db, KEYS_LIVE) == "1", "staging": _setting(db, KEYS_STAGING) == "1",
+            "closed": _setting(db, KEYS_CLOSED)}
+
+
+def stage_keys(db: Db, staging: bool, live: bool = False, by: str = "") -> dict[str, Any]:
+    """Mark the shared keys database as being filled by a move (only then can clear_keys empty it),
+    or, with ``live``, as the one every environment uses now. A live database is never staged again."""
+    require_admin(db, by, "move keys")
+    if _setting(db, KEYS_LIVE) == "1" and (staging or not live):
+        raise PlatformError("This keys database is already in use by Dev, Test and Prod. Join it instead of moving keys into it.")
+    _upsert(db, "config", "setting", "name", {"name": KEYS_STAGING, "value": "1" if staging and not live else ""})
+    if live:
+        _upsert(db, "config", "setting", "name", {"name": KEYS_LIVE, "value": "1"})
+        _audit(db, by, "keys live", "keys")
+    db.commit()
+    return keys_state(db)
+
+
+def clear_keys(db: Db, by: str = "") -> dict[str, Any]:
+    """Drop every key table a move put here before it switched, so the move can start again.
+    Refused on a keys database that isn't being filled by a move: those keys are in use."""
+    require_admin(db, by, "clear the keys a move copied")
+    if _setting(db, KEYS_LIVE) == "1" or _setting(db, KEYS_STAGING) != "1":
+        raise PlatformError("Only a keys database a move is still filling can be cleared: these keys are in use.")
+    names = [t["name"] for t in list_key_tables(db)]
+    for name in names:
+        if db.exists("keys", name):
+            db.run(f"DROP TABLE {db.t('keys', name)}")
+        db.run(f"DELETE FROM {db.t('catalog', 'key_table')} WHERE name = ?", (name,))
+    _audit(db, by, "clear moved keys", "keys", {"tables": names})
+    db.commit()
+    return {"cleared": names}
+
+
 def issue_keys(db: Db, name: str, business_keys: list[Any]) -> dict[str, Any]:
     """The surrogate key of every business key given, issuing the next keys for new ones.
 
@@ -287,6 +365,7 @@ def issue_keys(db: Db, name: str, business_keys: list[Any]) -> dict[str, Any]:
     business key. Returns {"keys": {bk: sk}, "inserted": n}."""
     name = key_name(name)
     bks = _clean_bks(business_keys)
+    _require_open(db)
     if not db.exists("keys", name):
         raise _missing_key_table(name)
     if not bks:
@@ -326,6 +405,10 @@ def issue_keys(db: Db, name: str, business_keys: list[Any]) -> dict[str, Any]:
     return {"keys": out, "inserted": len(new)}
 
 
+# SQL Server takes at most 2,100 parameters in one statement, and three go in per key.
+TSQL_ROWS_PER_INSERT = 500
+
+
 def import_keys(db: Db, name: str, rows: list[list[Any]], by: str = "") -> dict[str, Any]:
     """Copy existing keys in with the same numbers ([[sk, bk, create_date], ...]): moving from LH_Keys.
 
@@ -333,6 +416,7 @@ def import_keys(db: Db, name: str, rows: list[list[Any]], by: str = "") -> dict[
     migration never renumbers a key. The identity continues after the highest key. A key table
     that isn't there yet is created, which only a platform admin may do."""
     name = key_name(name)
+    _require_open(db)
     ensure_key_table(db, name, by)
     t = db.t("keys", name)
     have = {r["bk"]: int(r["sk"]) for r in db.rows(f"SELECT {name}_bk AS bk, {name}_sk AS sk FROM {t}")}
@@ -353,8 +437,8 @@ def import_keys(db: Db, name: str, rows: list[list[Any]], by: str = "") -> dict[
         raise PlatformError(f"keys.{name}: can't copy without renumbering: " + "; ".join(clashes[:5]))
     if new:
         if db.tsql:
-            for i in range(0, len(new), 1000):
-                chunk = new[i:i + 1000]
+            for i in range(0, len(new), TSQL_ROWS_PER_INSERT):
+                chunk = new[i:i + TSQL_ROWS_PER_INSERT]
                 values = ", ".join("(?, ?, ?)" for _ in chunk)
                 db.run(f"SET IDENTITY_INSERT {t} ON; INSERT INTO {t} ({name}_sk, {name}_bk, create_date) VALUES {values}; "
                        f"SET IDENTITY_INSERT {t} OFF;", [v for row in chunk for v in row])
@@ -445,15 +529,35 @@ def _slug(name: str, taken: set[str]) -> str:
     return did
 
 
+def _fabric_admins(d: dict[str, Any]) -> str | None:
+    """A Fabric domain's admins as stored: a JSON list of {name, type}, names only (no email), sorted."""
+    people = sorted({(str(a.get("name") or "").strip(), str(a.get("type") or "User"))
+                     for a in d.get("admins") or [] if str(a.get("name") or "").strip()})
+    return json.dumps([{"name": n, "type": t} for n, t in people]) if people else None
+
+
+def ensure_domain_columns(db: Db) -> list[str]:
+    """Give catalog.domain the columns added after it was made (fabric_owners). Safe to run again."""
+    added = []
+    if "fabric_owners" not in _columns(db, "domain"):
+        db.run(f"ALTER TABLE {db.t('catalog', 'domain')} ADD {'' if db.tsql else 'COLUMN '}{_column(db, 'fabric_owners', 'long')}")
+        added.append("catalog.domain.fabric_owners")
+    return added
+
+
 def import_fabric_domains(db: Db, domains: list[dict[str, Any]], by: str = "") -> dict[str, Any]:
     """Make the catalog's domains follow Fabric's domains and subdomains (``GET /v1/admin/domains``).
 
     A Fabric domain matches the catalog domain already linked to it (``fabric_domain``), else one
     with the same name that isn't linked yet, else it's added. Linked domains take Fabric's name and
-    parent; their owners and description stay as the platform set them. Domains that are no longer
+    parent; their owners and description stay as the platform set them. A Fabric domain that carries
+    ``admins`` (its Fabric domain admins, read during the import) stores their names and kinds in
+    ``fabric_owners``: shown as "From Fabric", never used to grant anything. One without ``admins``
+    keeps what an earlier import read. Domains that are no longer
     in Fabric are reported, never deleted: projects may still use them. Platform admins only.
     """
     require_admin(db, by, "import domains from Fabric")
+    ensure_domain_columns(db)  # a platform made before fabric_owners
     existing = list_domains(db)
     by_fabric = {d["fabric_domain"]: d for d in existing if d.get("fabric_domain")}
     by_name = {str(d["name"] or "").strip().lower(): d for d in existing if not d.get("fabric_domain")}
@@ -481,11 +585,15 @@ def import_fabric_domains(db: Db, domains: list[dict[str, Any]], by: str = "") -
             row = {"id": did, "description": str(d.get("description") or ""), "owners": ""}
         elif kind == "updated" and row["name"] == name and (row.get("parent_id") or None) == parent:
             kind = "unchanged"
+        admins = _fabric_admins(d) if "admins" in d else row.get("fabric_owners")
+        if kind == "unchanged" and (admins or None) != (row.get("fabric_owners") or None):
+            kind = "updated"
         ids[fid] = row["id"]
         if kind != "unchanged":
             new = {"id": row["id"], "name": name, "parent_id": parent,
                    "description": str(row.get("description") or d.get("description") or ""),
-                   "owners": str(row.get("owners") or ""), "fabric_domain": fid, "updated_at": _now(), "updated_by": by}
+                   "owners": str(row.get("owners") or ""), "fabric_domain": fid, "fabric_owners": admins or None,
+                   "updated_at": _now(), "updated_by": by}
             _upsert(db, "catalog", "domain", "id", new)
         out[kind].append(row["id"])
     out["gone"] = [d["id"] for f, d in by_fabric.items() if f not in fabric]
@@ -672,6 +780,30 @@ def audit(db: Db, limit: int = 100) -> list[dict[str, Any]]:
     return db.rows(f"SELECT {top}* FROM {db.t('catalog', 'audit')} ORDER BY id DESC{tail}")
 
 
+WORKLOAD_ACTIONS = ("run", "run_in_fabric", "run_item", "run_schedule", "cancel", "assign", "link", "unlink")
+WORKLOAD_STATES = ("submitted", "succeeded", "failed", "cancelled", "changed")
+_WORKLOAD_FIELDS = ("id", "name", "env", "where", "target", "identity", "before", "after", "detail", "at")
+
+
+def log_workload_action(db: Db, workload: str, action: str, status: str, entry: dict[str, Any] | None = None,
+                        by: str = "") -> dict[str, Any]:
+    """What someone did from a workload page in the app, and how it ended, on the platform's audit.
+    Who did it is the caller (in Fabric, Fabric's own context); the rest is what the app reports,
+    each value cut to 500 characters. ``entry.id`` is the app's own record, so a line the app sent
+    twice can be told apart."""
+    if action not in WORKLOAD_ACTIONS:
+        raise PlatformError(f"action is one of {', '.join(WORKLOAD_ACTIONS)}")
+    if status not in WORKLOAD_STATES:
+        raise PlatformError(f"status is one of {', '.join(WORKLOAD_STATES)}")
+    workload = str(workload or "").strip()
+    if not workload:
+        raise PlatformError("say which workload")
+    detail = {k: str(v)[:500] for k, v in (entry or {}).items() if k in _WORKLOAD_FIELDS and v not in (None, "")}
+    _audit(db, by, f"workload {action} {status}", f"workload:{workload[:300]}", detail or None)
+    db.commit()
+    return {"recorded": True}
+
+
 # --------------------------------------------------------------------------- who may change what
 
 
@@ -776,18 +908,73 @@ def list_key_tables(db: Db) -> list[dict[str, Any]]:
     return out
 
 
+# Columns catalog.source gained in schema 5, when it became the one list of source systems.
+_SOURCE_ADDED = ("source_id", "code", "system_type", "active")
+
+
+def _columns(db: Db, table: str) -> set[str]:
+    if db.tsql:
+        return {r["name"] for r in db.rows(f"SELECT name FROM sys.columns WHERE object_id = OBJECT_ID('catalog.{table}')")}
+    return {r["name"] for r in db.rows(f"PRAGMA table_info({db.t('catalog', table)})")}
+
+
+def ensure_source_ids(db: Db) -> list[str]:
+    """Give catalog.source the columns of schema 5 and every source an id. A platform made before
+    keeps its sources: each gets the next free id, in name order, and a code from its name."""
+    added = []
+    have = _columns(db, "source")
+    for col in _SOURCE_ADDED:
+        if col not in have:
+            db.run(f"ALTER TABLE {db.t('catalog', 'source')} ADD {'' if db.tsql else 'COLUMN '}{_column(db, col, 'text')}")
+            added.append(f"catalog.source.{col}")
+    rows = db.rows(f"SELECT name, source_id, code, active FROM {db.t('catalog', 'source')}")
+    used = [int(r["source_id"]) for r in rows if str(r["source_id"] or "").isdigit()]
+    nxt = max(used, default=0) + 1
+    for r in sorted(rows, key=lambda r: r["name"]):
+        if not str(r["source_id"] or "").isdigit():
+            db.run(f"UPDATE {db.t('catalog', 'source')} SET source_id = ? WHERE name = ?", (str(nxt), r["name"]))
+            nxt += 1
+        if not r["code"]:
+            db.run(f"UPDATE {db.t('catalog', 'source')} SET code = ? WHERE name = ?", (r["name"].upper(), r["name"]))
+        if r["active"] in (None, ""):
+            db.run(f"UPDATE {db.t('catalog', 'source')} SET active = '1' WHERE name = ?", (r["name"],))
+    db.commit()
+    return added
+
+
+def _with_source_ids(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The schema 5 fields as ensure_source_ids would set them, worked out without writing: a read
+    never migrates the catalog (that's Finish or repair, or the next change to a source)."""
+    used = [int(s["source_id"]) for s in sources if str(s.get("source_id") or "").isdigit()]
+    nxt = max(used, default=0) + 1
+    for s in sorted(sources, key=lambda s: s["name"]):
+        if not str(s.get("source_id") or "").isdigit():
+            s["source_id"], nxt = str(nxt), nxt + 1
+        s["code"] = s.get("code") or s["name"].upper()
+        s["system_type"] = s.get("system_type") or ""
+        if s.get("active") in (None, ""):
+            s["active"] = "1"
+    return sources
+
+
 def list_sources(db: Db) -> list[dict[str, Any]]:
-    sources = db.rows(f"SELECT * FROM {db.t('catalog', 'source')}")
+    sources = _with_source_ids(db.rows(f"SELECT * FROM {db.t('catalog', 'source')}"))
     readers = db.rows(f"SELECT * FROM {db.t('catalog', 'reader')}")
     for src in sources:
         src["connections"] = json.loads(src["connections"] or "{}")
+        src["source_id"] = int(src["source_id"])
+        src["active"] = src["active"] != "0"
         src["readers"] = [{"project": r["project"], "entities": json.loads(r["entities"] or "[]")}
                           for r in readers if r["source"] == src["name"]]
     return sorted(sources, key=lambda x: x["name"])
 
 
 def _source_row(source: dict[str, Any], by: str) -> dict[str, Any]:
-    name = key_name(source.get("name"))
+    code = str(source.get("code") or "").strip()
+    name = key_name(source.get("name") or code)
+    code = code or name.upper()
+    if not _CODE.match(code) or code.lower() != name:
+        raise PlatformError(f"{code!r}: a source's code is its folder name in any case, like {name.upper()}")
     hours = str(source.get("expected_hours") or "").strip()
     if hours and not hours.replace(".", "", 1).isdigit():
         raise PlatformError("Expected every ... hours is a number, like 24")
@@ -800,17 +987,79 @@ def _source_row(source: dict[str, Any], by: str) -> dict[str, Any]:
                 raise PlatformError(f"{env}.{k}: keep secrets in Key Vault and give the secret's name only")
     return {"name": name, "title": str(source.get("title") or name), "description": str(source.get("description") or ""),
             "owner": str(source.get("owner") or ""), "expected_hours": hours, "connections": json.dumps(conns),
-            "updated_at": _now(), "updated_by": by}
+            "updated_at": _now(), "updated_by": by, "code": code, "system_type": str(source.get("system_type") or ""),
+            "active": "0" if source.get("active") is False else "1"}
+
+
+def _put_source(db: Db, row: dict[str, Any], source_id: Any = None) -> None:
+    """Add or change one source. An existing source keeps its id; a new one takes ``source_id``
+    (a project's own id, when sources move to the platform) or the next free one."""
+    ensure_source_ids(db)
+    before = _row(db, "source", "name", row["name"])
+    if before:
+        row = row | {"source_id": before["source_id"]}
+    else:
+        ids = {int(r["source_id"]): r["name"] for r in db.rows(f"SELECT name, source_id FROM {db.t('catalog', 'source')}")}
+        if source_id not in (None, ""):
+            try:
+                sid = int(source_id)
+            except (TypeError, ValueError):
+                raise PlatformError("A source system id is a whole number") from None
+            if sid <= 0:
+                raise PlatformError("A source system id is a whole number above 0")
+            if sid in ids:
+                raise PlatformError(f"id {sid} is already {ids[sid]} in the platform")
+        else:
+            sid = max(ids, default=0) + 1
+        row = row | {"source_id": str(sid)}
+    _upsert(db, "catalog", "source", "name", row)
 
 
 def save_source(db: Db, source: dict[str, Any], by: str = "") -> list[dict[str, Any]]:
-    """Add or change a source system landed in LH_Landing (Files/<name>/<entity>/). Platform admins only."""
+    """Add or change a source system, landed in LH_Landing (Files/<name>/<entity>/) and read by
+    projects with the same id everywhere. Platform admins only."""
     row = _source_row(source, by)
     require_admin(db, by, "add or change source systems")
-    _upsert(db, "catalog", "source", "name", row)
+    _put_source(db, row)
     _audit(db, by, "save source", row["name"])
     db.commit()
     return list_sources(db)
+
+
+def adopt_sources(db: Db, systems: list[dict[str, Any]], project: str = "", by: str = "") -> dict[str, Any]:
+    """Move a project's own source systems into the platform's list, keeping their ids (like Move
+    keys). A source the platform already has with the same id is left as it is; one whose code or
+    id the platform uses for something else is reported, never changed. Platform admins only."""
+    require_admin(db, by, "move source systems to the platform")
+    ensure_source_ids(db)
+    moved, already, conflicts = [], [], []
+    for s in systems or []:
+        code = str(s.get("code") or "").strip()
+        try:
+            row = _source_row({"name": code.lower(), "code": code, "title": s.get("name") or code,
+                               "description": s.get("description"), "owner": s.get("owner"),
+                               "system_type": s.get("system_type"), "active": s.get("active", True)}, by)
+            sid = int(s.get("id") or 0)
+        except (PlatformError, TypeError, ValueError) as exc:
+            conflicts.append(f"{code or '?'}: {exc}")
+            continue
+        have = _row(db, "source", "name", row["name"])
+        if have:
+            if int(have["source_id"]) == sid:
+                already.append(code)
+            else:
+                conflicts.append(f"{code} is id {have['source_id']} in the platform but {sid} in this project")
+            continue
+        try:
+            _put_source(db, row, sid)
+        except PlatformError as exc:
+            conflicts.append(f"{code}: {exc}")
+            continue
+        moved.append(code)
+    if moved:
+        _audit(db, by, "move sources", project or "a project", {"moved": moved})
+    db.commit()
+    return {"moved": moved, "already": already, "conflicts": conflicts, "sources": list_sources(db)}
 
 
 def delete_source(db: Db, name: str, by: str = "") -> list[dict[str, Any]]:
@@ -934,7 +1183,7 @@ def decide_request(db: Db, id: str, approve: bool, note: str = "", by: str = "")
             _register_key_table(db, req["target"], d.get("business_key", ""), d.get("description", "") or req["reason"],
                                 d.get("domain_id", ""), _who(by))
         elif req["kind"] == "source":
-            _upsert(db, "catalog", "source", "name", _source_row({"name": req["target"], **d}, _who(by)))
+            _put_source(db, _source_row({"name": req["target"], **d}, _who(by)))
         elif req["kind"] == "shortcut":
             pass  # the app creates the shortcut in Fabric first, as the person approving, then approves
         else:
@@ -1166,16 +1415,18 @@ def save_shortcut_rules(db: Db, rules: dict[str, Any], by: str = "") -> dict[str
 # Everything a caller (the app, a notebook, a report button) may ask the platform to do.
 OPERATIONS = {
     "ensure_schema": ensure_schema, "ensure_key_table": ensure_key_table, "issue_keys": issue_keys,
-    "import_keys": import_keys, "key_stats": key_stats, "lookup_key": lookup_key, "export_keys": export_keys,
+    "import_keys": import_keys, "close_keys": close_keys, "stage_keys": stage_keys, "clear_keys": clear_keys,
+    "keys_state": keys_state,
+    "key_stats": key_stats, "lookup_key": lookup_key, "export_keys": export_keys,
     "list_domains": list_domains, "save_domain": save_domain, "delete_domain": delete_domain,
     "import_fabric_domains": import_fabric_domains,
     "register_project": register_project, "list_projects": list_projects, "register_product": register_product,
     "list_products": list_products, "resolve_port": resolve_port, "register_link": register_link,
     "save_enrichment": save_enrichment, "enrichment": enrichment, "list_glossary": list_glossary,
-    "save_term": save_term, "audit": audit,
+    "save_term": save_term, "audit": audit, "log_workload_action": log_workload_action,
     "whoami": whoami, "list_admins": list_admins, "claim_admin": claim_admin, "add_admin": add_admin,
     "remove_admin": remove_admin, "list_key_tables": list_key_tables, "list_sources": list_sources,
-    "save_source": save_source, "delete_source": delete_source, "request": request, "list_requests": list_requests,
+    "save_source": save_source, "delete_source": delete_source, "adopt_sources": adopt_sources, "request": request, "list_requests": list_requests,
     "decide_request": decide_request, "withdraw_request": withdraw_request, "list_grants": list_grants,
     "revoke_grant": revoke_grant, "record_shortcuts": record_shortcuts, "log_shortcut_change": log_shortcut_change,
     "record_shortcut_health": record_shortcut_health, "list_seen_shortcuts": list_seen_shortcuts,

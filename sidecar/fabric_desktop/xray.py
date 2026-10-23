@@ -8,6 +8,7 @@ cost of runs this app started. Each finding says what is wrong, why it matters a
 from __future__ import annotations
 
 import datetime as dt
+import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
@@ -102,9 +103,9 @@ def cost_findings(report: dict[str, Any], local_notebooks: set[str]) -> list[dic
         if kind != "Notebook run" or item["cost"] < 0.01:
             continue
         out.append({"kind": "cost", "severity": "medium" if item["cost"] >= 10 else "low",
-                    "title": f"{name} cost about ${item['cost']:,.2f} in Fabric in {report['days']} days",
-                    "detail": f"{item['fabric_runs']} runs, {item['cu_hours']:,.1f} CU hours. Set it to run on this PC "
-                              "and those runs cost nothing.",
+                    "title": f"{name} cost about ${item['cost']:,.2f} in Fabric in {report['days']} days (estimated)",
+                    "detail": f"{item['fabric_runs']} runs, about {item['cu_hours']:,.1f} CU hours, estimated from run time "
+                              "(Monitor > Cost shows how). Set it to run on this PC and those runs use no Fabric compute.",
                     "action": "run_local" if name in local_notebooks else "cost", "notebook": name, "cost": item["cost"]})
     return sorted(out, key=lambda f: -f["cost"])[:5]
 
@@ -229,3 +230,34 @@ def counts(findings: list[dict[str, Any]]) -> dict[str, int]:
     for f in findings:
         out[f["kind"]] = out.get(f["kind"], 0) + 1
     return out
+
+
+RULE_SET = "xray-1"
+_FIXES = {"optimize": ("optimize", "Compact the small files and apply V-Order (X-ray > Optimize)"),
+          "vacuum": ("vacuum", "Vacuum the files older than the history the table keeps (X-ray > Vacuum)")}
+_EVIDENCE = ("files", "bytes", "days", "versions")
+
+
+def optimize_records(result: dict[str, Any]) -> dict[str, Any]:
+    """A finished scan as one Optimize analysis run (Shared.record_analysis): the lakehouses it
+    looked at, its lakehouse and table findings, and a recommendation for each one X-ray can fix.
+    Access findings name people and cost findings are estimates for this PC, so neither is shared."""
+    lakehouses = {r["lakehouse_id"]: r for r in result.get("lakehouse_rows", [])}
+    findings, recommendations = [], []
+    for f in result.get("findings", []):
+        if f.get("kind") in ("access", "cost") or not f.get("lakehouse_id"):
+            continue
+        target = f"{f['schema']}.{f['table']}" if f.get("schema") else f.get("table") or ""
+        where = {"rule_id": f"xray.{f['kind']}", "workspace_id": f["workspace_id"], "item_id": f["lakehouse_id"],
+                 "target": target}
+        evidence = {k: f[k] for k in _EVIDENCE if f.get(k) is not None}
+        findings.append(where | {"rule_version": RULE_SET, "severity": f["severity"], "title": f["title"],
+                                 "detail": f.get("detail"), "evidence": json.dumps(evidence) if evidence else None})
+        if f.get("action") in _FIXES:
+            kind, reason = _FIXES[f["action"]]
+            recommendations.append(where | {"kind": kind, "reason": reason, "confidence": "high"})
+    artifacts = [{"workspace_id": r["workspace_id"], "item_id": r["lakehouse_id"], "item_type": "Lakehouse",
+                  "display_name": r["lakehouse_name"]} for r in lakehouses.values()]
+    run = {"run_id": f"xray-{result['scanned']}", "finished_at": result["scanned"],
+           "status": "partial" if result.get("partial") else "complete", "scope": "estate", "rule_set_version": RULE_SET}
+    return {"run": run, "artifacts": artifacts, "findings": findings, "recommendations": recommendations}

@@ -23,18 +23,18 @@ Highest priority first, by risk and by what unblocks other items. Owned-elsewher
 | 11 | FD-139 Accessibility fixes | Enterprise procurement requirement | none |
 | 12 | FD-130 Permission checks before writes | Separation of duties | FD-125 |
 | 13 | FD-129 Exception requests and history | Builds on exceptions.toml | FD-125 |
-| 14 | FD-137 Opt-in telemetry | Needs a decision on the destination | Decision T1 |
+| 14 | FD-137 Opt-in telemetry | Chris chose telemetry (2026-10-17); built, waits on the Application Insights resource | D-E8 |
 | 15 | FD-102b Content Security Policy | Defense in depth; notebook output frames need care | FD-102a |
 
 ## All items
 
 | Id | Priority | Capability | Status | Owner | PR |
 | --- | --- | --- | --- | --- | --- |
-| FD-101 | P0 | Live Fabric integration test harness | MISSING | This program | [#80](https://github.com/KratosDataGod/fabric-desktop/pull/80) |
-| FD-102 | P0 | Threat model and hardening | PARTIAL | This program | [#82](https://github.com/KratosDataGod/fabric-desktop/pull/82) (102a) |
-| FD-103 | P0 | Supply chain security | PARTIAL | This program | [#88](https://github.com/KratosDataGod/fabric-desktop/pull/88), [#86](https://github.com/KratosDataGod/fabric-desktop/pull/86) |
-| FD-104 | P0 | Enterprise installation and updates | PARTIAL (signing BLOCKED) | This program | [#90](https://github.com/KratosDataGod/fabric-desktop/pull/90) (guide) |
-| FD-105 | P0 | Configuration policies | PARTIAL | This program | [#90](https://github.com/KratosDataGod/fabric-desktop/pull/90) |
+| FD-101 | P0 | Live Fabric integration test harness | MISSING | This program | [#80](https://github.com/KratosDataGod/KratosForge/pull/80) |
+| FD-102 | P0 | Threat model and hardening | PARTIAL | This program | [#82](https://github.com/KratosDataGod/KratosForge/pull/82) (102a) |
+| FD-103 | P0 | Supply chain security | PARTIAL | This program | [#88](https://github.com/KratosDataGod/KratosForge/pull/88), [#86](https://github.com/KratosDataGod/KratosForge/pull/86) |
+| FD-104 | P0 | Enterprise installation and updates | PARTIAL (signing BLOCKED) | This program | [#90](https://github.com/KratosDataGod/KratosForge/pull/90) (guide) |
+| FD-105 | P0 | Configuration policies | PARTIAL | This program | [#90](https://github.com/KratosDataGod/KratosForge/pull/90) |
 | FD-109 | P0 | Reproducible environments | DUPLICATE | [Prove](../prove/plan.md) | |
 | FD-110 | P0 | Notebook execution isolation | DUPLICATE | [Prove](../prove/plan.md) | #67 |
 | FD-111 | P0 | Compatibility analyzer | DUPLICATE | [Prove](../prove/plan.md) | |
@@ -51,21 +51,21 @@ Highest priority first, by risk and by what unblocks other items. Owned-elsewher
 | FD-122 | P1 | Agent dashboard | DUPLICATE | [Workloads](../workloads/plan.md) | |
 | FD-123 | P1 | Incident management | DUPLICATE | [Workloads](../workloads/plan.md) | #74 |
 | FD-124 | P1 | Multi-worker execution | DUPLICATE | [Workloads](../workloads/plan.md) | |
-| FD-125 | P0 | Execution auditing | PARTIAL | This program | [#89](https://github.com/KratosDataGod/fabric-desktop/pull/89) |
-| FD-126 | P1 | Backup and disaster recovery | MISSING | This program | [#91](https://github.com/KratosDataGod/fabric-desktop/pull/91) |
+| FD-125 | P0 | Execution auditing | PARTIAL | This program | [#89](https://github.com/KratosDataGod/KratosForge/pull/89) |
+| FD-126 | P1 | Backup and disaster recovery | MISSING | This program | [#91](https://github.com/KratosDataGod/KratosForge/pull/91) |
 | FD-127 | P1 | Data contracts | DUPLICATE | [Staged roadmap](../scale-and-operations-plan.md) | |
 | FD-128 | P1 | Lineage and impact | DUPLICATE | [Staged roadmap](../scale-and-operations-plan.md) | #76 (open) |
 | FD-129 | P1 | Governance exceptions | PARTIAL | This program | |
-| FD-130 | P1 | Multi-team permissions | PARTIAL | This program | [#93](https://github.com/KratosDataGod/fabric-desktop/pull/93) |
-| FD-131 | P0 | Sensitive data protection | PARTIAL | This program | [#84](https://github.com/KratosDataGod/fabric-desktop/pull/84) (131a), [#95](https://github.com/KratosDataGod/fabric-desktop/pull/95) (131b retention) |
+| FD-130 | P1 | Multi-team permissions | PARTIAL | This program | [#93](https://github.com/KratosDataGod/KratosForge/pull/93) |
+| FD-131 | P0 | Sensitive data protection | PARTIAL | This program | [#84](https://github.com/KratosDataGod/KratosForge/pull/84) (131a), [#95](https://github.com/KratosDataGod/KratosForge/pull/95) (131b retention) |
 | FD-132 | P2 | Extension SDK | DUPLICATE | Git-native | |
 | FD-133 | P2 | Custom commands | DUPLICATE | Git-native | |
 | FD-134 | P2 | Project templates | DUPLICATE | Git-native | |
 | FD-135 | P2 | Extension packaging | DUPLICATE | Git-native | |
-| FD-136 | P1 | First-run experience | PARTIAL | This program | [#94](https://github.com/KratosDataGod/fabric-desktop/pull/94) (draft) |
-| FD-137 | P1 | Opt-in telemetry | MISSING (decision T1) | This program | |
+| FD-136 | P1 | First-run experience | PARTIAL | This program | [#94](https://github.com/KratosDataGod/KratosForge/pull/94) (draft) |
+| FD-137 | P1 | Opt-in telemetry | PARTIAL | This program | |
 | FD-138 | P1 | Diagnostic support bundles | PARTIAL | This program | |
-| FD-139 | P1 | Accessibility | PARTIAL | This program | [#92](https://github.com/KratosDataGod/fabric-desktop/pull/92) |
+| FD-139 | P1 | Accessibility | PARTIAL | This program | [#92](https://github.com/KratosDataGod/KratosForge/pull/92) |
 | FD-140 | P0 | Pilot readiness | PARTIAL | This program | this PR ([release-readiness.md](release-readiness.md)) |
 
 ## Items this program owns
@@ -104,12 +104,12 @@ Split in two so each change is reviewable on its own.
 ### FD-104 Enterprise installation and updates (P0)
 
 - **Acceptance criteria:** a documented per-machine and silent deployment path (copy the exe and policy file with Intune or Group Policy); policy settings to turn automatic updates off or pin a version; documented rollback and recovery from a failed engine install; uninstall steps that list every folder.
-- **Remaining after #90:** releases keep only the newest build per channel and the engine always comes from the channel's current release, so pinning a build and real rollback need per-build release assets (a release workflow change for maintainer review). The app deletes `fabric-desktop.exe.old` at startup, so it is not a rollback path.
+- **Remaining after #90:** releases keep only the newest build per channel and the engine always comes from the channel's current release, so pinning a build and real rollback need per-build release assets (a release workflow change for maintainer review). Since HD-022 the app keeps `fabric-desktop.exe.old` only until the new build has started (and puts it back if it doesn't), so it is not a rollback path either.
 - **Blocked part:** an MSI or MSIX package and a quiet Smart App Control experience need code signing (PR #28).
 
 ### FD-105 Configuration policies (P0)
 
-- **Built in #90:** `auto_update`, `allow_fabric_runs` (the `allowed_compute` criterion), `allowed_tenants`, and reporting of ignored keys in Settings. Still open: `allowed_hosts`, `local_retention_days` (with FD-131b), `telemetry` (waits on D-C1).
+- **Built in #90:** `auto_update`, `allow_fabric_runs` (the `allowed_compute` criterion), `allowed_tenants`, and reporting of ignored keys in Settings. Still open: `allowed_hosts`, `local_retention_days` (with FD-131b), `telemetry` and `telemetry_connection_string` (FD-137).
 - **Acceptance criteria:** new policy keys, each with a test: `auto_update` (on/off), `allowed_compute` (this PC, Fabric or both), `allowed_hosts` (endpoints the app may call beyond Microsoft's), `local_retention_days`, `telemetry` (off by default, FD-137). A malformed policy file or unknown key is reported in Settings instead of silently ignored. Documented in [azure-setup.md](../azure-setup.md).
 - **Existing code:** `app_settings.py`.
 
@@ -143,7 +143,8 @@ Split in two so each change is reviewable on its own.
 
 ### FD-137 Opt-in telemetry (P1)
 
-- **Decision T1 (Chris):** where telemetry goes (Azure Monitor Application Insights in a KratosBI subscription, or none). Until then, nothing is built. Defaults: off, policy can force off, no customer data, the payload is shown before sending.
+- **Decision T1 (Chris, 2026-10-17):** telemetry, to Azure Monitor Application Insights (D-E8).
+- **Acceptance criteria:** off by default; policy can force it off (or on, with the organization's own destination); no customer data; Settings shows the exact text before it's sent; turning it off deletes what's waiting; the agent never sends. Done in the FD-137 pull request except a real send, which needs KratosBI's Application Insights resource and the `TELEMETRY_CONNECTION_STRING` repository variable (Chris).
 
 ### FD-138 Diagnostic support bundles (P1)
 

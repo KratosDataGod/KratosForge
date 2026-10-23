@@ -54,6 +54,18 @@ def test_cells_run_in_another_process_with_the_same_kernel(kernel):
     assert out["outputs"] == [{"type": "text", "text": "'token-for-storage'"}]
 
 
+def test_the_persons_own_kernel_keeps_their_environment(monkeypatch):
+    """Only external-tool runs get the allowlisted environment (HD-012); the person's own
+    notebooks see the variables they set, as they expect."""
+    monkeypatch.setenv("FABRIC_DESKTOP_TEST_SECRET", "theirs")
+    k = ProcessKernel()
+    try:
+        out = k.run("import os\nos.environ.get('FABRIC_DESKTOP_TEST_SECRET')")
+    finally:
+        k.close()
+    assert out["outputs"] == [{"type": "text", "text": "'theirs'"}]
+
+
 def test_cancel_keeps_variables_and_stop_ends_only_the_process(kernel):
     kernel.run("kept = 1")
     kernel.start("import time\nwhile True:\n    time.sleep(0.05)")
@@ -72,6 +84,83 @@ def test_cancel_keeps_variables_and_stop_ends_only_the_process(kernel):
     assert snap["status"] == "cancelled" and STOPPED_TEXT in text(snap)
     out = kernel.run("'kept' in dir()")
     assert out["outputs"] == [{"type": "text", "text": "False"}] and kernel.pid != pid
+
+
+def described(pid):
+    """What a process that should have ended is doing, for a failure message."""
+    try:
+        status = Path(f"/proc/{pid}/status").read_text()
+    except OSError:
+        return f"{pid}: no /proc entry"
+    keep = ("Name", "State", "PPid", "SigPnd", "ShdPnd", "SigBlk")
+    return f"{pid}: pgid {os.getpgid(pid)}; " + "; ".join(line for line in status.splitlines() if line.split(":")[0] in keep)
+
+
+def alive(pid):
+    """Whether process ``pid`` is still running (a zombie waiting to be reaped counts as ended)."""
+    if sys.platform == "win32":
+        import ctypes
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == 259  # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    if not Path("/proc").is_dir():
+        return True  # macOS: the signal is all there is to go on
+    try:
+        return "\tZ" not in Path(f"/proc/{pid}/status").read_text()
+    except (FileNotFoundError, ProcessLookupError):
+        return False  # a zombie reaped between the signal and the read: it ended
+
+
+def test_stop_ends_the_processes_a_cell_started_too(kernel):
+    """HD-037 (EN-8): Stop used to end only the kernel, leaving a process its cell started running."""
+    kernel.start("import subprocess, sys, time\n"
+                 "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n"
+                 "print(child.pid, flush=True)\ntime.sleep(120)")
+    deadline = time.monotonic() + 30
+    pid = None
+    while pid is None and time.monotonic() < deadline:
+        out = text(kernel.poll(-1, 0.5)).strip()
+        pid = int(out) if out.isdigit() else None
+    assert pid and alive(pid)
+    assert kernel.stop() == {"stopped": True}
+    deadline = time.monotonic() + 10
+    while alive(pid) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    assert not alive(pid), described(pid)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="on Windows the Job Object holds every process the kernel starts")
+@pytest.mark.parametrize("how", ["start_new_session=True", "process_group=0"])
+def test_stop_ends_a_process_that_left_the_kernels_group(kernel, how):
+    """A cell's process in its own session or group (a server it started) outlived Stop."""
+    kernel.start("import subprocess, sys, time\n"
+                 f"child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'], {how})\n"
+                 "grand = subprocess.Popen([sys.executable, '-c', 'import subprocess, sys, time; "
+                 "p = subprocess.Popen([sys.executable, \"-c\", \"import time; time.sleep(120)\"], start_new_session=True); "
+                 "print(p.pid, flush=True); time.sleep(120)'], stdout=subprocess.PIPE, text=True)\n"
+                 "print(child.pid, grand.pid, grand.stdout.readline().strip(), flush=True)\ntime.sleep(120)")
+    deadline = time.monotonic() + 30
+    pids = []
+    while not pids and time.monotonic() < deadline:
+        words = text(kernel.poll(-1, 0.5)).split()
+        pids = [int(w) for w in words] if len(words) == 3 and all(w.isdigit() for w in words) else []
+    assert pids and all(alive(p) for p in pids)
+    assert os.getpgid(pids[0]) != os.getpgid(kernel.pid), "the child left the kernel's group"
+    assert kernel.stop() == {"stopped": True}
+    deadline = time.monotonic() + 10
+    while any(alive(p) for p in pids) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    assert not any(alive(p) for p in pids), [described(p) for p in pids]
 
 
 def test_a_crash_ends_the_cell_with_a_reason_and_the_next_cell_gets_a_fresh_kernel(kernel):
@@ -123,7 +212,8 @@ def test_the_setting_switches_the_kernel_and_stop_uses_it(tmp_path, monkeypatch)
 def test_a_proof_runs_the_pc_side_in_the_kernel_process(svc):  # noqa: F811
     svc.fake = FakeFabric(svc)
     tz_before = os.environ.get("TZ")
-    svc.kernel = ProcessKernel(token=svc._token_for, command=[sys.executable, BOOTSTRAP, str(svc.lh_root)])
+    kernel = ProcessKernel(token=svc._token_for, command=[sys.executable, BOOTSTRAP, str(svc.lh_root)])
+    svc.sessions.put(payload()["name"], kernel)  # the proved notebook's own session
     try:
         before = shared_version(svc)
         out = wait(svc, call(svc, "prove_start", **payload())["id"])
@@ -136,4 +226,140 @@ def test_a_proof_runs_the_pc_side_in_the_kernel_process(svc):  # noqa: F811
         # The time zone was fixed in the kernel's process only; the engine's is as it was.
         assert os.environ.get("TZ") == tz_before
     finally:
-        svc.kernel.close()
+        kernel.close()
+
+
+@pytest.fixture
+def quick_limits(monkeypatch):
+    from fabric_desktop import kernel_proc
+    monkeypatch.setattr(kernel_proc, "WATCH_SECONDS", 0.1)
+    monkeypatch.setattr(kernel_proc, "TIME_GRACE_SECONDS", 1.0)
+
+
+def test_a_cell_past_the_time_limit_is_interrupted_and_keeps_variables(kernel, quick_limits):
+    kernel.run("kept = 1")
+    kernel.time_limit = 1.0
+    kernel.start("import time\nwhile True:\n    time.sleep(0.05)")
+    snap = until_done(kernel)
+    assert snap["status"] == "error" and "ran longer than the 1 second limit" in text(snap)
+    assert "ran longer" in text(kernel.poll(-1, 0)), "every later look at the cell still says why it stopped"
+    assert kernel.limit_hit == "time"
+    assert kernel.run("kept")["outputs"] == [{"type": "text", "text": "1"}]
+    # Run again without the limit: this one cell isn't stopped.
+    kernel.start("import time\ntime.sleep(1.6)\n'done'", time_limit=False)
+    snap = until_done(kernel)
+    assert snap["status"] == "ok" and kernel.limit_hit == ""
+
+
+def test_a_cell_that_ignores_the_interrupt_has_its_process_ended(kernel, quick_limits):
+    kernel.run("kept = 1")
+    pid = kernel.pid
+    # The cell swallows the interrupt wherever it lands once it has printed, so the outcome doesn't
+    # depend on timing. The limit is set only once the cell is inside its try, or a slow machine
+    # could interrupt it before, and the cell would just stop.
+    kernel.time_limit = 0
+    kernel.start("import time\nwhile True:\n    try:\n        print('in', flush=True)\n        time.sleep(600)\n"
+                 "    except KeyboardInterrupt:\n        pass")
+    deadline = time.monotonic() + 30
+    while "in" not in text(kernel.poll(-1, 0.2)) and time.monotonic() < deadline:
+        pass
+    kernel.time_limit = 0.5
+    snap = until_done(kernel)
+    assert snap["status"] == "error" and "didn't stop when interrupted" in text(snap)
+    out = kernel.run("'kept' in dir()")
+    assert out["outputs"] == [{"type": "text", "text": "False"}] and kernel.pid != pid
+
+
+def test_a_poll_as_the_process_ends_reports_the_ended_cell_not_a_fresh_process(kernel):
+    kernel.run("kept = 1")
+    kernel.start("import time\ntime.sleep(600)")
+    proc, pid = kernel._proc, kernel.pid
+    kernel._end(proc, "Stopped: over the limit.")  # what the limits watcher does
+    proc.wait()
+    real, looks = proc.poll, iter([None])
+    proc.poll = lambda: next(looks, real())  # the first check still sees it running: it ends just after
+    snap = until_done(kernel)
+    assert snap["status"] == "error" and "over the limit" in text(snap)
+    assert kernel.pid == pid, "a poll doesn't start a process; the next cell does"
+
+
+@pytest.mark.skipif(not sys.platform.startswith(("linux", "win")), reason="memory is read on Windows and Linux")
+def test_a_notebook_over_the_memory_limit_has_its_process_ended(kernel, quick_limits):
+    from fabric_desktop.kernel_proc import memory_used
+    assert memory_used(os.getpid()) > 10 * 1024 ** 2
+    kernel.run("kept = 1")
+    kernel.memory_limit = (memory_used(kernel.pid) or 0) + 200 * 1024 ** 2
+    kernel.start("import time\nblock = bytearray(400 * 1024 ** 2)\ntime.sleep(30)")
+    snap = until_done(kernel)
+    assert snap["status"] == "error" and "the memory limit" in text(snap) and kernel.limit_hit == "memory"
+    assert kernel.run("'kept' in dir()")["outputs"] == [{"type": "text", "text": "False"}]
+
+
+def test_the_limits_come_from_settings_or_policy(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
+    s = Service(root=tmp_path / "app")
+    call(s, "save_app_settings", changes={"kernel_process": True, "cell_time_limit_minutes": 60, "kernel_memory_limit_gb": 8})
+    try:
+        assert (s.kernel.time_limit, s.kernel.memory_limit) == (3600, 8 * 1024 ** 3)
+        call(s, "save_app_settings", changes={"cell_time_limit_minutes": 0})
+        assert s.kernel.time_limit is None and app_settings.load()["cell_time_limit_minutes"]["source"] == "default"
+        for bad in (-1, "lots", 10 ** 9):
+            with pytest.raises(ValueError):
+                app_settings.save({"kernel_memory_limit_gb": bad})
+        policy = tmp_path / "pd" / "FabricDesktop" / "policy.json"
+        policy.parent.mkdir(parents=True)
+        policy.write_text(json.dumps({"kernel_memory_limit_gb": 4}))
+        with pytest.raises(ValueError, match="Your organization sets"):
+            app_settings.save({"kernel_memory_limit_gb": 16})
+        s.kernel.close()
+        s.kernel = s._new_kernel()
+        assert s.kernel.memory_limit == 4 * 1024 ** 3
+        # A policy value out of range or of the wrong kind is ignored, and Help and about says why.
+        for bad in (10 ** 9, True):
+            policy.write_text(json.dumps({"kernel_memory_limit_gb": bad}))
+            assert app_settings.load()["kernel_memory_limit_gb"]["source"] != "policy"
+            assert any("kernel_memory_limit_gb" in p for p in app_settings.policy_problems())
+    finally:
+        s.kernel.close()
+
+
+def test_a_proof_stopped_by_a_limit_says_so():
+    from fabric_desktop.prove_service import _verdict
+    record = {"pc": {"status": "failed", "stopped_by": "the time limit"}, "fabric": {"status": "ok"}}
+    assert _verdict(record, [], [])["text"] == ("The run failed on this PC (stopped by the time limit), "
+                                               "so the results can't be compared.")
+
+
+def test_hover_and_signature_help_come_from_the_notebook_process(kernel):
+    assert kernel.inspect("x", 1) is None  # no process is started just to hover
+    kernel.start("def area(w, h=1):\n    'Width times height.'\n    return w * h")
+    assert until_done(kernel)["status"] == "ok"
+    hover = kernel.inspect("area(2)", 1)
+    assert hover["signature"] == "(w, h=1)" and hover["doc"] == "Width times height."
+    sig = kernel.inspect("area(2, ", call=True)
+    assert sig["params"] == ["w", "h=1"] and sig["active"] == 1
+
+
+def test_variable_detail_comes_from_the_kernel_process(kernel):
+    assert kernel.variable_detail("x") == {"name": "x", "missing": True}  # no process yet
+    out = kernel.run("import polars as pl\nframe = pl.DataFrame({'a': [1]})\nitems = [1, 'two']")
+    assert out["status"] == "ok", out
+    assert kernel.variable_detail("frame")["columns"] == [{"name": "a", "type": "Int64"}]
+    assert [i["value"] for i in kernel.variable_detail("items")["items"]] == ["1", "'two'"]
+
+
+def test_stop_restart_and_close_delete_the_processs_output_files(kernel):
+    big = "print('x' * 1_100_000)"
+    assert kernel.run(big)["status"] == "ok"
+    folder = kernel.output_dir
+    assert folder is not None and len(list(folder.glob("kratosforge-output-*.txt"))) == 1
+    kernel.stop()
+    assert not list(folder.glob("*"))
+    kernel.run(big)
+    assert len(list(folder.glob("*"))) == 1
+    kernel.restart()
+    assert not list(folder.glob("*"))
+    kernel.run(big)
+    kernel.close()
+    assert not folder.exists() and kernel.output_dir is None

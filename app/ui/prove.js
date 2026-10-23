@@ -13,10 +13,13 @@ function proveNames(text) {
   return String(text || "").split(",").map((s) => s.trim()).filter(Boolean);
 }
 
-// A number from a form field, or undefined when it's empty. NaN stays NaN so the engine refuses it.
+// A number from a form field, or undefined when it's empty. Text that isn't a number goes to the
+// engine as typed so it refuses it (NaN would be sent as null and read as "use the default").
 function proveNumber(text) {
   const t = String(text ?? "").trim();
-  return t === "" ? undefined : Number(t);
+  if (t === "") return undefined;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : t;
 }
 
 // Rules for one table from the rules form's values; only what was filled in.
@@ -80,6 +83,27 @@ function proveDifference(pc, fabric) {
   return "";
 }
 
+// Follows a run's status until it finishes (`onStatus` returns false), the run is gone (the engine
+// says it doesn't know it) or `limit` checks in a row fail. Waits longer between failed checks.
+// Prove and side by side both use it (HD-035). It goes on after the notebook closes, so the bell
+// still gets the result.
+async function pollRun(fetchStatus, { onStatus, every = 1500, limit = 20, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+  let failures = 0;
+  for (;;) {
+    await sleep(every * Math.min(2 ** failures, 8));
+    let now;
+    try {
+      now = await fetchStatus();
+    } catch (e) {
+      const message = String(e?.message || e);
+      if (/(^|LookupError: )No (proof|side-by-side run) /.test(message) || ++failures >= limit) return { stopped: "lost", message };
+      continue;
+    }
+    failures = 0;
+    if (!onStatus(now)) return { stopped: "finished" };
+  }
+}
+
 // ---------- state ----------
 
 function proveOpen(nb) {
@@ -98,6 +122,8 @@ function proveToggle(nb) {
 
 async function openProve(nb) {
   nb.prove = { open: true, check: null, rules: null, history: null, record: nb.prove?.record || null, problem: "" };
+  if (nb.validate?.open) nb.validate.open = false;  // one panel beside the cells at a time
+  if (nb.runs?.open) nb.runs.open = false;
   renderNotebook();
   if (!proveRunning(nb)) await refreshProveCheck(nb);
 }
@@ -152,18 +178,20 @@ async function startProof(nb) {
   followProof(nb, run.id);
 }
 
+// Run id -> the notebook showing it. Reopening a notebook makes a new object, which takes over the
+// loop already following the run rather than starting a second one.
+const proveFollows = new Map();
+
 async function followProof(nb, id) {
-  if (nb.prove.following === id) return;
-  nb.prove.following = id;
-  for (;;) {
-    await new Promise((r) => setTimeout(r, 1500));
-    const now = await rpc("prove_status", { id }).catch(() => null);
-    if (!now) continue;
-    nb.prove.record = now;
-    drawProve(nb);
-    if (!PROVE_RUNNING.has(now.state)) break;
-  }
-  nb.prove.following = null;
+  const following = proveFollows.has(id);
+  proveFollows.set(id, nb);
+  if (following) return;
+  const end = await pollRun(() => rpc("prove_status", { id }), {
+    onStatus: (now) => { const n = proveFollows.get(id); n.prove.record = now; drawProve(n); return PROVE_RUNNING.has(now.state); },
+  });
+  nb = proveFollows.get(id);
+  proveFollows.delete(id);
+  if (end.stopped === "lost") nb.prove.record = { ...nb.prove.record, state: "failed", message: `Lost track of the proof: ${end.message}` };
   if (state.notebook === nb) setKernel("idle");
   const r = nb.prove.record;
   const text = r.state === "cancelled" ? "Cancelled." : r.verdict?.text || r.message || r.state;
@@ -171,6 +199,10 @@ async function followProof(nb, id) {
   toast(`${nb.name}: ${text}`, r.state === "failed");
   nb.prove.history = await rpc("prove_list", { name: nb.name, limit: 5 }).catch(() => nb.prove.history);
   drawProve(nb);
+  // The verdict pill cools when both runs match; an ember when they differ or the proof failed (motion.js).
+  const pill = state.notebook === nb && state.view === "notebook" ? document.querySelector(".provepane .prove-body .pill-s") : null;
+  if (r.verdict?.verdict === "same") forgeEvent("prove.matched", pill);
+  else if (r.state === "failed" || r.verdict?.verdict === "differs") forgeEvent("prove.failed", pill);
 }
 
 async function cancelProof(nb) {
@@ -525,7 +557,7 @@ function showScorecard(r) {
     box("Fabric capacity", fab.kind, fab.cu_seconds !== undefined ? `about ${Math.round(fab.cu_seconds).toLocaleString()} CU-s` : "Not known",
       fab.amount !== undefined ? `About ${fab.amount} ${fab.currency} at pay-as-you-go prices.` : fab.text,
       fab.assumptions ? h("ul", { class: "small" }, fab.assumptions.map((a) => h("li", {}, a))) : null),
-    box("Fabric capacity of this PC's run", cost.pc?.kind, "0 CU-s", cost.pc?.text));
+    box("Fabric capacity of this PC's run", cost.pc?.kind, "No Fabric job", cost.pc?.text));
   const notes = (c.notes || []).map((n) => h("li", {}, n));
   const overlay = showDialog("Scorecard", h("div", {}, body, notes.length ? h("ul", { class: "small muted" }, notes) : null),
     [btn("Close", null, closeDialog, "tool outline")]);

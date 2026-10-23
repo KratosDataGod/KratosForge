@@ -5,7 +5,7 @@
 
 const PLATFORM_TABS = [
   ["overview", "Overview"], ["landing", "Landing zone"], ["keys", "Business keys"], ["domains", "Domains"],
-  ["glossary", "Glossary"], ["requests", "Requests"], ["audit", "Audit"], ["settings", "Settings"],
+  ["glossary", "Glossary"], ["governance", "Governance"], ["requests", "Requests"], ["audit", "Audit"], ["settings", "Settings"],
 ];
 const REQUEST_KIND = { key_table: "Key table", source: "Source", access: "Access", shortcut: "Shortcut" };
 const REQUEST_STATUS = { waiting: "Waiting", approved: "Approved", declined: "Declined", withdrawn: "Withdrawn" };
@@ -40,21 +40,23 @@ async function renderPlatform() {
   setView(h("div", { class: "page" },
     h("div", { class: "page-head" },
       h("div", {}, h("h1", {}, "Platform ", previewTag()), who),
-      h("div", { class: "head-actions" }, ["landing", "keys", "overview"].includes(p.tab) ? envSeg : null,
+      // Only the landing zone and business keys are kept per environment; domains, glossary, governance and
+      // requests are organization-wide, so the other tabs show no environment picker (Overview has its own).
+      h("div", { class: "head-actions" }, ["landing", "keys"].includes(p.tab) && !(p.tab === "keys" && p.keysShared) ? envSeg : null,
         btn("Refresh", "sync", () => render(), "tool outline"))),
     h("div", { class: "subtabs" }, PLATFORM_TABS.map(([id, label]) =>
-      h("button", { class: `tab${p.tab === id ? " active" : ""}`, onclick: () => goPlatform(id) }, label))),
+      h("button", { class: `tab${p.tab === id ? " active" : ""}`, onclick: () => { if (id === "governance") govPage.open = null; goPlatform(id); } }, label))),
     body));
   p.me = await attempt(() => rpc("platform_whoami"), "Could not reach the platform");
   if (state.view !== "platform") return;
   if (!p.me) { body.replaceChildren(h("p", { class: "muted-text" }, "The platform shows once the local engine is running.")); return; }
-  who.replaceChildren(...[p.me.admin ? "You're a platform admin: you create domains, key tables and sources, and decide requests. "
+  who.replaceChildren(...[p.me.admin ? "You're a platform admin: you create domains, key tables and sources, write governance policies, and decide requests. "
     : p.me.can_claim ? "This platform has no admin yet. "
       : "Domain teams see everything here and ask for what they need in Requests. ",
   p.me.can_claim ? h("a", { href: "#", onclick: (e) => { e.preventDefault(); claimAdmin(); } }, "Become its first admin") : null,
   p.me.can_claim ? ". " : null, learnMore("platform")].filter(Boolean));
   const tabs = { overview: platformOverviewTab, landing: platformLandingTab, keys: platformKeysTab, domains: platformDomainsTab,
-    glossary: platformGlossaryTab, requests: platformRequestsTab, audit: platformAuditTab, settings: platformSettingsTab };
+    glossary: platformGlossaryTab, governance: platformGovernanceTab, requests: platformRequestsTab, audit: platformAuditTab, settings: platformSettingsTab };
   await (tabs[p.tab] || platformOverviewTab)(body);
 }
 
@@ -80,17 +82,22 @@ async function platformOverviewTab(body) {
   if (!o || !stillHere("overview")) return;
   const c = o.counts;
   const late = (o.landing.sources || []).filter((s) => s.late);
-  const health = h("table", { class: "list" },
-    h("thead", {}, h("tr", {}, ["", ...MESH_ENVS.map((e) => ENV_LABEL[e])].map((x) => h("th", {}, x)))),
-    h("tbody", {}, h("tr", {}, h("td", {}, h("b", {}, "Platform")), ...MESH_ENVS.map((env) => {
-      const e = o.status.environments[env];
-      return h("td", {}, e.kind === "fabric" ? h("span", { class: "pill-s pass" }, e.workspace_name || "In Fabric") : h("span", { class: "pill-s neu" }, "On this PC"));
-    }))));
-  body.replaceChildren(...[
+  // One row per environment, so the card stays narrow enough to sit beside the landing zone.
+  const health = h("table", { class: "list" }, h("tbody", {}, MESH_ENVS.map((env) => {
+    const e = o.status.environments[env];
+    return h("tr", {}, h("td", {}, h("b", {}, ENV_LABEL[env])),
+      h("td", { class: "grow" }, e.kind === "fabric" ? h("span", { class: "pill-s pass" }, e.workspace_name || "In Fabric") : h("span", { class: "pill-s neu" }, "On this PC")),
+      h("td", {}, e.kind === "fabric" ? null : o.status.source === "policy"
+        ? h("span", { class: "muted-text small" }, "Set by your organization's policy")
+        : (adminOnly(btn("Set up in Fabric", null, () => platformSetupDialog(env, o.status), "tool link small"))
+          || h("span", { class: "muted-text small" }, "A platform admin sets it up"))));
+  })));
+  body.replaceChildren(withHowItWorks([
     o.problems.length || o.landing.problem ? h("div", { class: "problems" }, h("b", {}, "Couldn't read everything"), gateList([...o.problems, o.landing.problem].filter(Boolean))) : null,
     h("div", { class: "tiles plat-stats" },
-      platStat(c.domains, "Domains", c.subdomains ? `${c.subdomains} subdomains` : "", () => goPlatform("domains")),
-      platStat(c.projects, "Projects", c.teams ? `${c.teams} team${c.teams === 1 ? "" : "s"}` : ""),
+      platStat(c.domains, "Domains", c.subdomains ? `${c.subdomains} subdomain${c.subdomains === 1 ? "" : "s"}` : "", () => goPlatform("domains")),
+      platStat(c.projects, "Projects joined", c.teams ? `${c.teams} team${c.teams === 1 ? "" : "s"}, joined to a domain` : "joined to a domain in Data mesh",
+        () => goMeta("domains")),
       platStat(c.key_tables, "Business key tables", `${c.keys.toLocaleString()} keys in ${ENV_LABEL[o.env]}`, () => goPlatform("keys")),
       platStat(c.products, "Data products", `${c.published} published`, () => go("onelake")),
       platStat(c.requests, "Requests waiting", o.needs_you.length ? `${o.needs_you.length} for you` : "", () => goPlatform("requests"))),
@@ -99,7 +106,10 @@ async function platformOverviewTab(body) {
         requestTable(o.me.admin || o.needs_you.length ? o.needs_you : o.mine, () => render(), true),
         h("b", {}, "Each environment's platform"), health),
       h("div", { class: "card pad" },
-        h("div", { class: "row" }, h("b", { class: "grow" }, `Landing zone in ${ENV_LABEL[o.env]}`), btn("Open", null, () => goPlatform("landing"), "tool link small")),
+        h("div", { class: "row" }, h("b", { class: "grow" }, "Landing zone"),
+          h("div", { class: "seg small", role: "group", "aria-label": "Landing zone environment" }, MESH_ENVS.map((env) =>
+            h("button", { class: platformPage.env === env ? "on" : null, onclick: () => { platformPage.env = env; render(); } }, ENV_LABEL[env]))),
+          btn("Open", null, () => goPlatform("landing"), "tool link small")),
         late.length ? h("p", { class: "fail-text small" }, `${late.map((s) => s.name).join(", ")} ${late.length === 1 ? "is" : "are"} late.`) : null,
         (o.landing.sources || []).length ? h("table", { class: "list" },
           h("thead", {}, h("tr", {}, ["Source", "Last file", "Read by"].map((x) => h("th", {}, x)))),
@@ -109,10 +119,23 @@ async function platformOverviewTab(body) {
             h("td", {}, s.readers.length ? `${s.readers.length} project${s.readers.length === 1 ? "" : "s"}` : h("span", { class: "muted-text" }, "none"))))))
           : h("p", { class: "muted-text" }, "No sources in the landing zone yet."),
         h("b", {}, "Recent changes"),
-        auditList(o.recent)))].filter(Boolean));
+        auditList(o.recent, true)))].filter(Boolean),
+  howItWorks("platform.overview", {
+    reads: "Each environment's platform: its catalog in SQL_Platform in Fabric, or a file on this PC until that environment has a platform. It reads when the page opens and when you press Refresh.",
+    changes: "Requests waiting for you can be approved or declined here; approving a shortcut request creates it in OneLake. Domains, key tables and sources change on their own tabs, and only platform admins can change them.",
+    results: "Everyone who uses this platform sees the same counts, requests and recent changes. Each change is kept on the Audit tab.",
+    anchor: "platform",
+  })));
 }
 
-function auditList(rows) {
+// compact: two lines per change, for a narrow card (Overview); the Audit tab keeps the table.
+function auditList(rows, compact = false) {
+  if (compact) {
+    return rows.length ? h("div", { class: "audit-compact" }, rows.map((a) => h("div", { class: "audit-row" },
+      h("div", { class: "audit-what" }, a.action, " ", h("span", { class: "mono small", title: a.target }, a.target)),
+      h("div", { class: "muted-text small" }, a.by_user || "someone", " · ", when(a.at)))))
+      : h("p", { class: "muted-text" }, "Nothing yet.");
+  }
   return rows.length ? h("table", { class: "list" }, h("tbody", {}, rows.map((a) => h("tr", {},
     h("td", { class: "muted-text small" }, when(a.at)), h("td", {}, a.by_user || h("span", { class: "muted-text" }, "someone")),
     h("td", {}, a.action), h("td", { class: "mono small" }, a.target)))))
@@ -129,23 +152,25 @@ async function platformLandingTab(body) {
   const sel = l.sources.find((s) => s.name === p.source);
   const rerender = () => platformLandingTab(body);
   const list = h("div", { class: "card pad" },
-    h("div", { class: "row" }, h("b", { class: "grow" }, "Sources landed by the central team"),
-      adminOnly(btn("Add source", "add", () => sourceDialog(null, rerender), "tool primary small")),
+    h("div", { class: "row" }, h("b", { class: "grow" }, "Source systems"),
+      adminOnly(btn("Add source", "add", () => sourceDialog(null, rerender, l.system_types), "tool primary small")),
       platformPage.me?.admin ? null : btn("Request a source", "add", () => requestDialog("source", "", rerender), "tool outline small")),
     h("p", { class: "muted-text small" }, "Each source lands once, in ", h("span", { class: "mono" }, "Files/<source>/<entity>/"), " of LH_Landing ",
       l.kind === "fabric" ? `in ${l.where}` : h("span", {}, "on this PC (", h("span", { class: "mono" }, l.where), ")"),
-      ". Domain teams read it in their own Bronze; only the central team writes here."),
+      ". Domain teams read it in their own Bronze; only the central team writes here. ",
+      "This is the one list of source systems for every project: each keeps its id here, and projects pick theirs in Data mesh > Source systems."),
     l.problem ? h("p", { class: "fail-text small" }, l.problem) : null,
     l.sources.length ? h("table", { class: "list" },
-      h("thead", {}, h("tr", {}, ["Source", "Entities", "Last arrival", "Expected", "Read by"].map((x) => h("th", {}, x)))),
+      h("thead", {}, h("tr", {}, ["Source", "Id", "Entities", "Last arrival", "Expected", "Read by"].map((x) => h("th", {}, x)))),
       h("tbody", {}, l.sources.map((s) => h("tr", { class: `click${s.name === p.source ? " picked" : ""}`, onclick: () => { p.source = s.name; rerender(); } },
-        h("td", {}, h("b", {}, s.name), s.registered ? null : h("span", { class: "pill-s wrn" }, "not registered")),
+        h("td", {}, h("b", {}, s.registered ? s.code : s.name), s.registered ? null : h("span", { class: "pill-s wrn" }, "not registered")),
+        h("td", { class: "mono" }, s.source_id ?? ""),
         h("td", {}, s.entities.length),
         h("td", {}, s.late ? h("span", { class: "pill-s fail" }, s.newest ? `late, ${relTime(s.newest)}` : "nothing yet") : s.newest ? when(s.newest) : h("span", { class: "muted-text" }, "nothing yet")),
         h("td", {}, s.expected_hours ? `every ${s.expected_hours} h` : h("span", { class: "muted-text" }, "not set")),
         h("td", {}, s.readers.length || h("span", { class: "muted-text" }, "none"))))))
-      : h("div", { class: "empty" }, h("span", { class: "title" }, "The landing zone is empty"),
-        h("span", { class: "text" }, "Add a source, then land its files in Files/<source>/<entity>/.")));
+      : emptyState({ title: "The landing zone is empty",
+        text: "Add a source, then land its files in Files/<source>/<entity>/." }));
   body.replaceChildren(h("div", { class: "keys-grid" }, list, sel ? sourceDetail(sel, l, rerender) : null));
 }
 
@@ -159,11 +184,12 @@ function sourceDetail(s, l, rerender) {
   });
   return h("div", { class: "card pad side-panel" },
     h("div", { class: "row" }, h("h2", { class: "flush" }, s.title || s.name), h("span", { class: "spacer" }),
-      adminOnly(btn(s.registered ? "Edit" : "Register", null, () => sourceDialog(s, rerender), "tool outline small")),
+      adminOnly(btn(s.registered ? "Edit" : "Register", null, () => sourceDialog(s, rerender, l.system_types), "tool outline small")),
       adminOnly(s.registered ? btn("Remove", "delete", async () => {
-        if (!(await confirmDialog(`Remove source ${s.name}?`, "Only the registration goes; files in the landing zone stay. A source a project still reads can't be removed.", "Remove"))) return;
+        if (!(await confirmDialog(`Remove source ${s.name}?`, "Only the registration goes; files in the landing zone stay. A source a project still reads can't be removed.", "Remove", { danger: true }))) return;
         if (await platformCall("platform_delete_source", { name: s.name }, "Not removed")) rerender();
       }, "tool outline small") : null)),
+    s.registered ? h("p", { class: "muted-text small" }, `${s.code} · id ${s.source_id ?? "not given yet"}${s.system_type ? ` · ${s.system_type}` : ""}`) : null,
     h("p", { class: "muted-text small" }, s.description || "", s.owner ? ` Owner ${s.owner}.` : ""),
     h("b", {}, "Entities"),
     s.entities.length ? h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["Entity", "Files", "Size", "Newest"].map((x) => h("th", {}, x)))),
@@ -178,16 +204,19 @@ function sourceDetail(s, l, rerender) {
     h("p", { class: "muted-text small" }, "Or Data mesh > New entity > From the landing zone."));
 }
 
-function sourceDialog(s, done) {
+function sourceDialog(s, done, systemTypes = []) {
   const name = h("input", { value: s?.name || "", placeholder: "sap", disabled: s?.registered ? true : null });
   const title = h("input", { value: s?.title || "", placeholder: "SAP ERP" });
   const description = h("input", { value: s?.description || "" });
   const owner = h("input", { value: s?.owner || "", placeholder: "Who lands it" });
   const hours = h("input", { type: "number", min: "1", value: s?.expected_hours || "", placeholder: "24" });
+  const type = h("select", {}, ["", ...systemTypes, ...(s?.system_type && !systemTypes.includes(s.system_type) ? [s.system_type] : [])]
+    .map((t) => h("option", { value: t, selected: t === (s?.system_type || "") ? true : null }, t || "Not set")));
   const secrets = MESH_ENVS.map((env) => [env, h("input", { value: s?.connections?.[env]?.secret_name || "", placeholder: "Key Vault secret name" })]);
   showDialog(s?.registered ? `Edit ${s.name}` : "Add a source", h("div", { class: "scroll" },
     h("div", { class: "form-grid" }, h("label", { class: "field" }, "Folder name", name), h("label", { class: "field" }, "Title", title),
-      h("label", { class: "field" }, "Owner", owner), h("label", { class: "field" }, "Expected every (hours)", hours)),
+      h("label", { class: "field" }, "Owner", owner), h("label", { class: "field" }, "Expected every (hours)", hours),
+      h("label", { class: "field" }, "System type", type)),
     h("label", { class: "field" }, "Description", description),
     h("b", {}, "Connection secret per environment"),
     h("p", { class: "muted-text small" }, "The name of the Key Vault secret its pipeline uses. Secrets themselves never go here."),
@@ -197,7 +226,8 @@ function sourceDialog(s, done) {
       if (!name.value.trim()) { name.focus(); return; }
       const connections = Object.fromEntries(secrets.filter(([, i]) => i.value.trim()).map(([env, i]) => [env, { secret_name: i.value.trim() }]));
       const res = await platformCall("platform_save_source", { source: { name: name.value.trim().toLowerCase(), title: title.value.trim(),
-        description: description.value.trim(), owner: owner.value.trim(), expected_hours: hours.value.trim(), connections } }, "Not saved");
+        description: description.value.trim(), owner: owner.value.trim(), expected_hours: hours.value.trim(), connections,
+        system_type: type.value, ...(s?.registered ? { code: s.code, active: s.active !== false } : {}) } }, "Not saved");
       if (res) { closeDialog(); platformPage.source = name.value.trim().toLowerCase(); done(); }
     }, "tool primary")]);
 }
@@ -209,13 +239,18 @@ async function platformKeysTab(body) {
   if (!k || !stillHere("keys")) return;
   const rerender = () => platformKeysTab(body);
   const admin = platformPage.me?.admin;
-  body.replaceChildren(h("div", { class: "card pad" },
-    h("div", { class: "row" }, h("b", { class: "grow" }, `Key tables in SQL_Platform (${ENV_LABEL[k.env]})`),
-      admin ? btn("New key table", "add", () => keyTableDialog(rerender), "tool primary small")
+  if (!!k.shared !== !!platformPage.keysShared) { platformPage.keysShared = !!k.shared; render(); return; }  // one list: no environment picker
+  body.replaceChildren(withHowItWorks(h("div", { class: "card pad" },
+    h("div", { class: "row" }, h("b", { class: "grow" }, k.shared ? "Key tables in SQL_Keys" : `Key tables in SQL_Platform (${ENV_LABEL[k.env]})`),
+      k.shared ? h("span", { class: "pill-s pass" }, "Shared by Dev, Test and Prod") : null,
+      admin ? btn("New key table", "add", () => keyTableDialog(rerender, k.shared), "tool primary small")
         : btn("Request a key table", "add", () => requestDialog("key_table", "", rerender), "tool primary small")),
-    h("p", { class: "muted-text small" }, "One key per business key for every team: customer C-10442 from any source always gets the same key. ",
-      admin ? "A new key table is made in Dev, Test and Prod at once." : "Only platform admins add key tables; ask for one and it appears here once approved.",
+    h("p", { class: "muted-text small" }, k.shared
+      ? "One key per business key, everywhere: customer C-10442 has the same key in Dev, Test and Prod. Test runs that meet new customers use up key numbers here too. "
+      : "One key per business key for every team: customer C-10442 from any source always gets the same key. ",
+      admin ? (k.shared ? "A new key table is made once." : "A new key table is made in Dev, Test and Prod at once.") : "Only platform admins add key tables; ask for one and it appears here once approved.",
       " Projects pick from this list in Data mesh > Surrogate keys."),
+    !k.shared && admin ? h("p", { class: "muted-text small" }, "To give every environment the same keys, use Move keys in, in Settings under Platform.") : null,
     k.key_tables.length ? h("table", { class: "list" },
       h("thead", {}, h("tr", {}, ["Key table", "Business key", "Description", "Keys", "Next key", "Created"].map((x) => h("th", {}, x)))),
       h("tbody", {}, k.key_tables.map((t) => h("tr", {},
@@ -226,17 +261,28 @@ async function platformKeysTab(body) {
         h("td", { class: "n mono" }, (t.next || 1).toLocaleString()),
         h("td", { class: "muted-text small" }, t.created_at ? `${relTime(t.created_at)}${t.created_by ? `, ${t.created_by}` : ""}` : "")))))
       : h("p", { class: "muted-text" }, "No key tables yet."),
-    k.requested.length ? h("div", {}, h("b", {}, "Requested"), requestTable(k.requested, rerender)) : null));
+    k.requested.length ? h("div", {}, h("b", {}, "Requested"), requestTable(k.requested, rerender)) : null),
+  howItWorks("platform.keys", {
+    reads: k.shared
+      ? "The key tables in SQL_Keys, the one keys database Dev, Test and Prod share. It reads when the tab opens."
+      : "The key tables in this environment's SQL_Platform, or a file on this PC until the environment has a platform. It reads when the tab opens.",
+    changes: `New key table adds sk.<name> ${k.shared ? "once, in SQL_Keys" : "in every environment's SQL_Platform"}; only platform admins can. ` +
+      "From Settings under Platform: Create or Finish makes a Keys workspace with SQL_Keys and UDF_Keys, which uses Fabric capacity. " +
+      "Move keys in shows what would move first, then copies every key table into it, keeps Prod's numbers, gives Dev and Test keys new numbers where Prod differs, closes each environment's old key tables and switches every environment to it. " +
+      "Cancel the move removes the copied tables and reopens the old ones; it's refused once the move has finished.",
+    results: "Runs in every environment issue keys from the list on this tab. After a move, re-run Dev and Test so their tables pick up the new numbers. Each change is kept on the Audit tab.",
+    anchor: "platform",
+  })));
 }
 
-function keyTableDialog(done) {
+function keyTableDialog(done, shared = false) {
   const name = h("input", { placeholder: "supplier" });
   const bk = h("input", { placeholder: "supplier_id" });
   const description = h("input", { placeholder: "A supplier, from any source" });
   showDialog("New key table", h("div", {},
     h("label", { class: "field" }, "Name", name), h("label", { class: "field" }, "Business key column", bk),
     h("label", { class: "field" }, "Description", description),
-    h("p", { class: "muted-text small" }, "Creates sk.<name> in every environment's SQL_Platform with <name>_sk (INT), <name>_bk (unique) and create_date, and the Unknown member -1.")), [
+    h("p", { class: "muted-text small" }, `Creates sk.<name> ${shared ? "once, in SQL_Keys," : "in every environment's SQL_Platform"} with <name>_sk (INT), <name>_bk (unique) and create_date, and the Unknown member -1.`)), [
     btn("Cancel", null, closeDialog, "tool outline"),
     btn("Create", "add", async () => {
       if (!name.value.trim()) { name.focus(); return; }
@@ -343,17 +389,20 @@ async function platformDomainsTab(body) {
     h("p", { class: "muted-text small" }, domains.some((d) => d.fabric_domain)
       ? "These follow the domains in Fabric's admin portal. Import again after a domain is added, renamed or moved there. "
       : "Start from the domains already in Fabric: Import from Fabric copies their names and subdomains here, so everyone can see them. ",
-      "Reading Fabric's domain list needs a Fabric administrator; after that nobody else needs admin rights."),
+      "Reading Fabric's domain list needs a Fabric administrator; after that nobody else needs admin rights. ",
+      "Each domain's admins in Fabric show as owners marked From Fabric until you set the platform's own."),
     domains.length ? h("table", { class: "list" },
       h("thead", {}, h("tr", {}, ["Domain", "Description", "Owners", "Source", ""].map((x) => h("th", {}, x)))),
       h("tbody", {}, domains.map((d) => h("tr", {},
-        h("td", {}, d.parent_id ? h("span", { class: "muted-text" }, "↳ ") : null, h("b", {}, d.name), h("div", { class: "muted-text small mono" }, d.id)),
-        h("td", {}, d.description || ""), h("td", {}, d.owners || h("span", { class: "muted-text" }, "not set")),
+        h("td", { class: d.parent_id ? "plat-subdomain" : null }, h("b", {}, d.name), h("div", { class: "muted-text small mono" }, d.parent_id ? `${d.id} · subdomain` : d.id)),
+        h("td", {}, d.description || ""), h("td", {}, domainOwnersCell(d)),
         h("td", {}, d.fabric_domain ? h("span", { class: "badge", title: d.fabric_domain }, "From Fabric") : h("span", { class: "muted-text" }, "Only here")),
         h("td", {}, adminOnly(h("span", { class: "row tight" },
-          btn("Edit", null, () => domainDialog(o, d, rerender), "tool small"),
+          btn(d.fabric_domain ? "Edit owners" : "Edit", null, () => domainDialog(o, d, rerender), "tool small"),
           btn("Delete", null, async () => {
-            if (!(await confirmDialog(`Delete ${d.name}?`, "Only a domain no project or subdomain uses can be deleted.", "Delete"))) return;
+            const why = "Only a domain no project or subdomain uses can be deleted." + (d.fabric_domain
+              ? " It follows a domain in Fabric: delete that one in Fabric's admin portal first, or the next Import from Fabric brings it back." : "");
+            if (!(await confirmDialog(`Delete ${d.name}?`, why, "Delete", { danger: true }))) return;
             if (await platformCall("platform_delete_domain", { id: d.id }, "Not deleted")) rerender();
           }, "tool small danger"))))))))
       : h("p", { class: "muted-text" }, "No domains yet.")));
@@ -414,7 +463,7 @@ async function platformSettingsTab(body) {
       h("td", {}, h("b", {}, a.user_name), a.user_name === me.user ? h("span", { class: "muted-text" }, " (you)") : null),
       h("td", { class: "muted-text small" }, `Added ${relTime(a.added_at)}${a.added_by && a.added_by !== a.user_name ? ` by ${a.added_by}` : ""}`),
       h("td", {}, adminOnly(btn("Remove", null, async () => {
-        if (!(await confirmDialog(`Remove ${a.user_name} as a platform admin?`, "They keep reading everything and can still send requests.", "Remove"))) return;
+        if (!(await confirmDialog(`Remove ${a.user_name} as a platform admin?`, "They keep reading everything and can still send requests.", "Remove", { danger: true }))) return;
         if (await platformCall("platform_remove_admin", { user: a.user_name }, "Not removed")) rerender();
       }, "tool small danger")))))))
       : null,
@@ -433,6 +482,7 @@ registerFeature({
     { label: "Landing zone", icon: "folderOpen", keywords: "platform sources raw files", preview: true, run: () => goPlatform("landing") },
     { label: "Business keys", icon: "database", keywords: "platform surrogate key tables", preview: true, run: () => goPlatform("keys") },
     { label: "Requests", icon: "person", keywords: "platform approve access key table", preview: true, run: () => goPlatform("requests") },
+    { label: "Governance policies", icon: "shield", keywords: "platform governance policy policies standards naming quality classification", preview: true, run: () => { govPage.open = null; goPlatform("governance"); } },
   ],
 });
 
@@ -442,14 +492,20 @@ const productsPage = { query: "", domain: "all", open: null };
 
 async function renderDataProducts() {
   const pp = productsPage;
-  const list = h("div", {}, h("p", { class: "muted-text" }, "Loading data products..."));
+  const list = h("div", {}, loading("Loading data products..."));
   const search = h("input", { class: "catalog-search", placeholder: "Search products, ports and owners", value: pp.query, "aria-label": "Search data products" });
-  setView(h("div", { class: "page monitor onelake" }, onelakeTabs(),
+  setView(h("div", { class: "page monitor onelake" }, onelakeTabs(), withHowItWorks(
     h("section", { class: "card pad" },
       h("div", { class: "monitor-band" }, h("h2", {}, "Data products"),
         h("span", { class: "muted-text" }, "What every team shares, from the platform's catalog"), h("span", { class: "spacer" }), search,
         btn("Refresh", "sync", () => render(), "tool outline")),
-      list)));
+      list),
+    howItWorks("onelake.products", {
+      reads: "Every team's published data products, their ports and readers, from the platform's catalog (SQL_Platform in Fabric, or the file on this PC). It reads when the tab opens and when you press Refresh.",
+      changes: "Link writes a link file in your open metadata project on this PC and records your project as a reader in the platform's catalog. Request access adds a request to the platform's catalog for the product's owner. Neither touches the product's tables in OneLake, and nothing else here writes.",
+      results: "The product's owner sees your request on Platform > Requests and decides it, and sees your project among the product's readers. A link shows on your project's Links tab.",
+      anchor: "data-products-preview",
+    }))));
   const out = await platformCall("platform_products", {}, "Could not read the catalog");
   if (!out || state.view !== "onelake" || catalogPage.tab !== "products") return;
   const domains = [...new Set(out.products.map((p) => p.domain_id).filter(Boolean))].sort();

@@ -33,10 +33,15 @@ from .project import (
     run_order,
     validate,
 )
-from .store import LANDING_LAKEHOUSE, Store, lazy, open_table, read_table_uri
+from .store import LANDING_LAKEHOUSE, META_LAKEHOUSE, Store, lazy, open_table, read_table_uri
 
 # A write that loses a Delta commit race re-reads the table and merges again, this many times.
 WRITE_ATTEMPTS = 3
+# Tries for a meta write after the table commit (watermark, run log, quarantine). It never makes the
+# table be written again: the rows are already in.
+AFTER_COMMIT_ATTEMPTS = 3
+# Commit metadata naming one after-commit append, so a retry can tell the append already committed.
+APPEND_KEY = "fabric_desktop_append"
 
 # Columns the quarantine adds to each held row: why, which run, when, and the row's own id.
 QUARANTINE_COLUMNS = ["_check", "_run_id", "_loaded_at", "_qid"]
@@ -88,6 +93,11 @@ def plural(n: int, word: str) -> str:
 
 class CheckStop(Exception):
     pass
+
+
+class Abandoned(Exception):
+    """Raised by a ``table_lock`` to stop a run without writing or recording the table: the work
+    was handed to another worker (the agent's mailbox takeover), which runs it instead."""
 
 
 class NothingNew(Exception):
@@ -226,6 +236,9 @@ class Engine:
         self._evolved: list[str] = []
         self._replay_rows: pl.DataFrame | None = None
         self._held: list[pl.DataFrame] | None = None  # during a replay, rows that fail again wait here
+        # Rows quarantined during a run, written only once the table commit has succeeded: a run that
+        # writes nothing quarantines nothing, so its retry doesn't quarantine the same rows twice.
+        self._pending_quarantine: list[tuple[Entity, pl.DataFrame]] = []
         # Rows per batch for [load] batch_by; None works it out from free memory (batches.py).
         self.batch_rows: int | None = None
         # During a batched load, the values unique checks have seen in earlier batches.
@@ -314,6 +327,7 @@ class Engine:
         self._dq: list[dict[str, Any]] = []
         self._schema_changes: list[dict[str, Any]] = []
         self._files_read: tuple[str, list[dict[str, Any]]] | None = None
+        self._pending_quarantine = []
         try:
             with self.table_lock(e):
                 if backfill == "migrate":
@@ -322,7 +336,10 @@ class Engine:
                     df = self._replayed(e, res) if backfill == "replay" else self._transform(e, res, backfill)
                     df, _ = self._checks(e, df, res)
                     self._write(e, df, res, backfill)
+                self._flush_quarantine(res)
                 self._record_files(e, res)
+        except Abandoned:
+            raise  # nothing was written; the worker that has the work now records its own run
         except NothingNew as ex:  # nothing to do is a successful run
             res.steps.append(Step("read", 0, 0.0, str(ex)))
         except DecisionNeeded as ex:
@@ -333,17 +350,59 @@ class Engine:
         except Exception as ex:  # custom code and source errors are reported, not raised
             from ..retrying import is_retryable
             res.status, res.message, res.retryable = "failed", f"{type(ex).__name__}: {ex}", is_retryable(ex)
+        finally:
+            self._pending_quarantine = []  # a run that didn't commit quarantines nothing
         seconds = round(time.perf_counter() - started, 3)
-        self.store.meta_append("run_log", [{
+        log = [{
             "run_id": self.run_id, "batch_id": batch_id, "entity": name, "env": self.store.env,
             "status": res.status, "metadata": self.project.version, "logic": self.project.fingerprint(e),
             "load_date": self.load_date.isoformat(), "started_at": started_at, "seconds": seconds,
             "rows_read": res.rows_read, "rows_written": res.rows_written, "quarantined": res.quarantined,
             "delta_version": res.delta_version, "backfill": backfill or "", "message": res.message,
-            "steps": json.dumps([s.__dict__ for s in res.steps])} | self.run_context])
-        self.store.meta_append("dq_results", self._dq)
-        self.store.meta_append("schema_history", self._schema_changes)
+            "steps": json.dumps([s.__dict__ for s in res.steps])} | self.run_context]
+        # The run's records, after its commit: if they can't be saved the run's result still stands
+        # (raising here would lose it, and a caller retrying would write the table again).
+        for table, rows in (("run_log", log), ("dq_results", self._dq), ("schema_history", self._schema_changes)):
+            if rows:
+                self._after_commit(res, f"the {table.replace('_', ' ')}", (META_LAKEHOUSE, "meta", table),
+                                   lambda m, t=table, r=rows: self.store.meta_append(t, r, metadata=m))
         return res
+
+    def _after_commit(self, res: RunResult, what: str, where: tuple[str, str, str],
+                      write: Callable[[dict[str, str]], None]) -> bool:
+        """An append that follows the table commit: tried a few times, and on failure noted on the
+        run instead of raised. Never a reason to write the table again.
+
+        ``write`` appends to the table at ``where`` (lakehouse, schema, table) with the commit
+        metadata it is given. That metadata names this one append, so before trying again it looks
+        for a commit carrying it: an attempt that committed and then failed (a lost response, a read
+        after the commit that failed) is not appended a second time."""
+        token = f"{self.run_id}:{uuid.uuid4().hex[:8]}"
+        try:
+            since = self.store.version(*where)
+        except Exception:  # noqa: BLE001  unknown: the check below then reads the whole history
+            since = None
+        for attempt in range(1, AFTER_COMMIT_ATTEMPTS + 1):
+            try:
+                if attempt > 1 and self.store.has_commit(*where, APPEND_KEY, token, since):
+                    return True  # the last attempt committed before it failed
+                write({APPEND_KEY: token})
+                return True
+            except Exception as exc:  # noqa: BLE001  the table is committed whatever happens here
+                if attempt == AFTER_COMMIT_ATTEMPTS:
+                    note = f"couldn't save {what} ({type(exc).__name__}: {exc})"
+                    res.steps.append(Step("record", 0, 0.0, note))
+                    res.message = f"{res.message}; {note}" if res.message else note
+                    return False
+                time.sleep(0.2 * attempt)
+        return False
+
+    def _flush_quarantine(self, res: RunResult) -> None:
+        pending, self._pending_quarantine = self._pending_quarantine, []
+        for e, rows in pending:
+            where = (self.lakehouse(e), "quarantine", f"{e.schema}_{e.table}")
+            self._after_commit(res, f"{plural(rows.height, 'quarantined row')}", where,
+                               lambda m, w=where, rows=rows: self.store.write(*w, rows, mode="append", metadata=m))
 
     def _step(self, res: RunResult, name: str, t0: float, rows: int, detail: str = "") -> None:
         res.steps.append(Step(name, rows, round(time.perf_counter() - t0, 3), detail))
@@ -354,7 +413,21 @@ class Engine:
 
     def _watermark(self, e: Entity) -> str | None:
         w = self.store.meta("watermarks").filter(pl.col("entity") == e.name)
-        return w["value"][-1] if w.height else None
+        saved = w["value"][-1] if w.height else None
+        # Each write also carries its watermark in the Delta commit. If the newest such commit's run
+        # never saved its watermark (the save failed after the commit), that commit's value is the
+        # real one: going by the saved one would load the same rows again.
+        if not e.spec.get("load", {}).get("watermark"):
+            return saved
+        try:
+            history = self.store.history(self.lakehouse(e), e.schema, e.table, 20)
+        except Exception:  # noqa: BLE001  no history to go by: the saved watermark is all there is
+            return saved
+        for commit in history:  # newest first
+            value, run = commit.get("fabric_desktop_watermark"), commit.get("fabric_desktop_run_id")
+            if value is not None and run:
+                return saved if run in set(w["run_id"].to_list()) else value
+        return saved
 
     # ---- steps before the checks
 
@@ -372,7 +445,7 @@ class Engine:
                 if where != LANDING_LAKEHOUSE:
                     raise
                 raise CheckStop(f"there's no landing zone for {self.store.env} yet: create or join the platform in "
-                                f"Settings > Platform ({exc})") from exc
+                                f"Platform > Settings ({exc})") from exc
             if not listed:
                 raise CheckStop(f"no files match {pattern} in {where}/Files")
             todo, detail = listed, f"{plural(len(listed), 'file')}"
@@ -435,9 +508,11 @@ class Engine:
         wm_col = e.spec.get("load", {}).get("watermark")
         if e.mode == "incremental" and wm_col and not full:
             wm = self._watermark(e)
-            if wm is not None and wm_col in names:
-                after = (wm_col, _wm_literal(wm, schema[wm_col]))
-                lf = lf.filter(pl.col(wm_col) > after[1])
+            # The watermark is a contract column, saved from the output; the source may call it something else.
+            src_wm = {v: k for k, v in (src.get("rename") or {}).items()}.get(wm_col, wm_col)
+            if wm is not None and src_wm in names:
+                after = (src_wm, _wm_literal(wm, schema[src_wm]))
+                lf = lf.filter(pl.col(src_wm) > after[1])
                 detail = f"incremental, {wm_col} after {wm}"
         keep = self._source_columns(e, names)
         total = len([c for c in names if c not in SYSTEM_COLUMNS])
@@ -628,7 +703,7 @@ class Engine:
             self._seen = None
             self._fold(res, mark)
         if state["wm"] is not None:
-            self._advance_watermark(e, pl.DataFrame({wm_col: [state["wm"]]}), backfill)
+            self._advance_watermark(e, pl.DataFrame({wm_col: [state["wm"]]}), backfill, res)
         res.rows_written, res.delta_version = state["written"], version
         total = state["written"] + state["kept"]
         info = (f"rebuilt: {state['written']} rows from the full source" if rebuild
@@ -947,7 +1022,7 @@ class Engine:
         if self._held is not None:
             self._held.append(rows)
             return
-        self.store.write(self.lakehouse(e), "quarantine", f"{e.schema}_{e.table}", rows, mode="append")
+        self._pending_quarantine.append((e, rows))
 
     # ---- write
 
@@ -956,12 +1031,16 @@ class Engine:
 
         for attempt in range(1, WRITE_ATTEMPTS + 1):
             try:
-                return self._write_once(e, df, res, backfill)
+                committed = self._write_once(e, df, res, backfill)
+                break
             except CommitFailedError:
-                # Another writer committed first: merge again against the table as it is now.
+                # Another writer committed first: merge again against the table as it is now. Only the
+                # table commit is retried here; what follows it (below) can't make the rows go in twice.
                 if attempt == WRITE_ATTEMPTS:
                     raise
                 time.sleep(0.5 * attempt)
+        if committed:
+            self._advance_watermark(e, df, backfill, res)
 
     def _merge_plan(self, e: Entity, df: pl.DataFrame, backfill: str | None) -> tuple[str, str]:
         """How the rows go in without rewriting the table: "upsert" (MERGE on the keys), "append", or
@@ -1065,31 +1144,33 @@ class Engine:
                   f"{plural(keys.height, 'business key')} (Delta MERGE rewrote {plural(removed, 'file')}, added {added})")
         return version, detail, self.store.count(lh, e.schema, e.table)
 
-    def _write_once(self, e: Entity, df: pl.DataFrame, res: RunResult, backfill: str | None) -> None:
+    def _write_once(self, e: Entity, df: pl.DataFrame, res: RunResult, backfill: str | None) -> bool:
+        """One attempt at the table commit; True when something was committed."""
         t0 = time.perf_counter()
         lh = self.lakehouse(e)
         if df.height == 0 and (e.mode in ("incremental", "scd1", "scd2") or backfill == "replay") \
                 and self.store.exists(lh, e.schema, e.table):
             self._step(res, "write", t0, self.store.count(lh, e.schema, e.table), "nothing new to write")
-            return
+            return False
         df = df.with_columns(pl.lit(self.run_id).alias("_run_id"), pl.lit(self.load_date).alias("_loaded_at"))
         metadata = {"fabric_desktop_run_id": self.run_id, "fabric_desktop_metadata": self.project.version,
                     "fabric_desktop_logic": self.project.fingerprint(e)}
+        mark = self._new_watermark(e, df, backfill)
+        if mark is not None:
+            metadata["fabric_desktop_watermark"] = mark
         how, why = self._merge_plan(e, df, backfill)
         if how:
             version, info = self._write_merged(e, df, how, backfill, metadata)
-            self._advance_watermark(e, df, backfill)
             res.rows_written, res.delta_version = df.height, version
             self._step(res, "write", t0, self.store.count(lh, e.schema, e.table), f"{info}; Delta version {version}")
-            return
+            return True
         if e.mode in ("scd1", "scd2") and self.merge_writes:
             done = self._write_dimension(e, df, metadata)
             if isinstance(done, tuple):
                 version, info, rows = done
-                self._advance_watermark(e, df, backfill)
                 res.rows_written, res.delta_version = df.height, version
                 self._step(res, "write", t0, rows, f"{info}; Delta version {version}")
-                return
+                return True
             why = done
         # The version read is the one the commit is made against: if another writer (the app, an
         # agent, a run in Fabric) commits in between, the commit fails and _write merges again.
@@ -1120,16 +1201,22 @@ class Engine:
             info = f"{info}; {why}"
         version = self.store.write(lh, e.schema, e.table, out, mode="overwrite", metadata=metadata,
                                    read_version=read_version)
-        self._advance_watermark(e, df, backfill)
         res.rows_written, res.delta_version = df.height, version
         self._step(res, "write", t0, out.height, f"{info}; Delta version {version}")
+        return True
 
-    def _advance_watermark(self, e: Entity, df: pl.DataFrame, backfill: str | None) -> None:
+    def _new_watermark(self, e: Entity, df: pl.DataFrame, backfill: str | None) -> str | None:
         wm_col = e.spec.get("load", {}).get("watermark")
         # Replayed rows are old rows: they never move the watermark.
         if wm_col and backfill != "replay" and wm_col in df.columns and df.height and df[wm_col].max() is not None:
-            self.store.meta_append("watermarks", [{"entity": e.name, "value": _wm_text(df[wm_col].max()),
-                                                   "run_id": self.run_id}])
+            return _wm_text(df[wm_col].max())
+        return None
+
+    def _advance_watermark(self, e: Entity, df: pl.DataFrame, backfill: str | None, res: RunResult) -> None:
+        mark = self._new_watermark(e, df, backfill)
+        if mark is not None:
+            self._after_commit(res, "the watermark", (META_LAKEHOUSE, "meta", "watermarks"), lambda m: self.store.meta_append(
+                "watermarks", [{"entity": e.name, "value": mark, "run_id": self.run_id}], metadata=m))
 
     def _migrate(self, e: Entity, res: RunResult) -> None:
         t0 = time.perf_counter()

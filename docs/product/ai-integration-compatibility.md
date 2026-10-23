@@ -1,6 +1,6 @@
 # AI integration compatibility
 
-Which external tools have been tried with Fabric Desktop by KratosBI, how, and what didn't work. Only rows marked **Tested** are claimed to work. Architecture: [ai-integration.md](../architecture/ai-integration.md).
+Which external tools have been tried with KratosForge, how, and what didn't work. Only rows marked **Tested** are claimed to work. Architecture: [ai-integration.md](../architecture/ai-integration.md).
 
 ## Protocol
 
@@ -8,8 +8,8 @@ Which external tools have been tried with Fabric Desktop by KratosBI, how, and w
 | --- | --- |
 | MCP protocol versions | 2025-06-18 and 2025-11-25 (handshake era) and 2026-07-28, negotiated by the MCP Python SDK |
 | Transports | stdio (default); Streamable HTTP on `127.0.0.1` when switched on |
-| Server features | Tools, resources and resource templates, prompts, list-changed notifications, cancellation, progress |
-| Not supported | SSE transport (deprecated by MCP), remote (non-loopback) HTTP, OAuth authorization server |
+| Server features | Tools, resources and resource templates, prompts, tool and resource list-changed notifications (on the connection at 2025-11-25, on `subscriptions/listen` at 2026-07-28), cancellation |
+| Not supported | SSE transport (deprecated by MCP), remote (non-loopback) HTTP, OAuth authorization server, progress notifications |
 
 ## Clients
 
@@ -33,6 +33,6 @@ Every build runs the same protocol checks through all three ways a tool can conn
 
 | Not supported | Why |
 | --- | --- |
-| Sampling and elicitation (the server asking the tool's model or user for something) | The server never asks an AI model for anything, and approvals happen in Fabric Desktop by KratosBI, not in the tool |
+| Sampling and elicitation (the server asking the tool's model or user for something) | The server never asks an AI model for anything, and approvals happen in KratosForge, not in the tool |
 | `logging/setLevel`, `completion/complete`, resource subscriptions | Not needed by any workflow yet; list-changed notifications cover capability changes |
 | Requests from web pages (any `Origin` header) | Only programs on this PC may call the local API |

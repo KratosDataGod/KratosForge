@@ -13,16 +13,28 @@ const state = {
   lakehouseView: null,       // {workspace_id, workspace_name, lakehouse_id, name}
   notebook: null,            // {name, cells, lakehouse, dirty}
   selected: null,            // selected cell id
-  kernel: "idle",            // idle | busy | stopped
   ribbonTab: "home",
   explorerTab: "data",
   showExplorer: true,
   tree: {},                  // explorer cache: key -> {open, items, loading}
 };
 
+// Each notebook has a session of its own (kernel_sessions.py), so the kernel's state is the open
+// notebook's: idle | busy | stopped. Inside the engine every notebook shares one kernel, so a
+// cell running in any notebook makes them all busy.
+Object.defineProperty(state, "kernel", {
+  get() { return kernelBusy(state.notebook) ? "busy" : state.notebook?.kernelStatus || "idle"; },
+  set(status) { if (state.notebook) state.notebook.kernelStatus = status; },
+});
+
+// Notebooks opened since the app started, by name: a notebook still running in its session keeps
+// running when another is opened, and opening it again shows its live output. Others reopen
+// from disk with their last outputs.
+const openNotebooks = new Map();
+const KEPT_NOTEBOOKS = 10;
+
 let nextCellId = 1;
 let saveTimer = null;
-let stopRequested = false;
 
 // ---------- small DOM helpers ----------
 
@@ -35,6 +47,8 @@ function h(tag, attrs = {}, ...children) {
     else if (k === "style") node.style.cssText = v;
     else node.setAttribute(k, v === true ? "" : v);
   }
+  // A clickable row or card ("click" class) is reached with Tab like a button; Enter or Space opens it (UX-012).
+  if (attrs?.onclick && node.classList.contains("click") && !node.hasAttribute("tabindex")) node.tabIndex = 0;
   for (const c of children.flat(Infinity)) {
     if (c === null || c === undefined || c === false) continue;
     node.append(c instanceof Node ? c : document.createTextNode(String(c)));
@@ -53,10 +67,16 @@ function hydrateIcons(root = document) {
 }
 
 // A short message at the bottom of the window. Errors, and messages marked log, also go to the
-// activity tray, which keeps them; quiet ones (the tray already has them) don't.
+// activity tray, which keeps them; quiet ones (the tray already has them) don't. opts.action
+// ({label, run}) adds a button, such as Retry. Errors are announced at once (role=alert), and the
+// toast stays while the pointer or keyboard focus is on it (UX-011).
 function toast(text, isError = false, opts = {}) {
   const t = document.getElementById("toast");
   t.textContent = opts.details ? `${text}\nDetails are in Activity (the bell).` : text;
+  if (opts.action) {
+    t.append(" ", btn(opts.action.label, null, () => { clearTimeout(toast.timer); t.hidden = true; opts.action.run(); },
+      "tool small toast-action"));
+  }
   if ((isError || opts.log) && !opts.quiet) {
     const title = opts.title || (isError ? "Something didn't work" : text);
     const body = title === text ? "" : opts.title && text.startsWith(`${opts.title}: `) ? text.slice(opts.title.length + 2) : text;
@@ -64,20 +84,56 @@ function toast(text, isError = false, opts = {}) {
   }
   // On Monitor the bottom of the window is Fabric's native view, which would cover the toast.
   t.className = `toast${isError ? " error" : ""}${state.view === "monitor" ? " top" : ""}`;
+  t.setAttribute("role", isError ? "alert" : "status");
   t.hidden = false;
-  clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => { t.hidden = true; }, isError ? 8000 : 4000);
+  toast.wait = isError ? 8000 : 4000;
+  if (!toast.wired) {
+    toast.wired = true;
+    const hold = () => { toast.held = true; clearTimeout(toast.timer); };
+    const release = () => {
+      if (t.matches(":hover") || t.contains(document.activeElement)) return;
+      toast.held = false;
+      toast.later();
+    };
+    t.addEventListener("mouseenter", hold);
+    t.addEventListener("focusin", hold);
+    t.addEventListener("mouseleave", release);
+    t.addEventListener("focusout", () => setTimeout(release));
+  }
+  toast.later = () => { clearTimeout(toast.timer); toast.timer = setTimeout(() => { t.hidden = true; }, toast.wait); };
+  if (!toast.held) toast.later(); else clearTimeout(toast.timer);
 }
 
-async function attempt(fn, label) {
+// Runs fn and shows a failure as an error toast titled label. With retry (true, or another
+// function to run instead), the toast has a Retry button. Pass it only for a read or an action that
+// is safe to repeat; Retry runs it again with no further question. What the caller does with the
+// result doesn't run after a Retry, so pass a function that does both when that matters.
+async function attempt(fn, label, opts = {}) {
   try {
     return await fn();
   } catch (err) {
     const f = friendlyError(err);
-    toast(label ? `${label}: ${f.text}` : f.text, true, { title: label, details: f.details });
+    if (f.cancelled) return undefined;  // a cancelled sign-in isn't a failure; every other error is shown
+    const again = opts.retry === true ? fn : opts.retry;
+    toast(label && !f.text.startsWith(label) ? `${label}: ${f.text}` : f.text, true, {
+      title: label, details: f.details,
+      action: typeof again === "function" ? { label: "Retry", run: () => attempt(again, label, opts) } : null,
+    });
     return undefined;
   }
 }
+
+// A click whose handler throws (or whose promise fails) outside attempt() would otherwise do
+// nothing at all on screen: say so, with the error in Activity.
+function reportUncaught(err) {
+  const f = friendlyError(err);
+  if (f.cancelled) return;
+  toast(`Something didn't work: ${f.text}`, true, { details: f.details || (err?.stack ?? "") });
+}
+// Only thrown errors: an event without one is browser noise, such as WebView2's "ResizeObserver loop
+// completed with undelivered notifications", or a resource that didn't load.
+window.addEventListener("error", (e) => { if (e.error) reportUncaught(e.error); });
+window.addEventListener("unhandledrejection", (e) => reportUncaught(e.reason));
 
 function matches(text) {
   return !state.query || String(text).toLowerCase().includes(state.query.toLowerCase());
@@ -85,8 +141,16 @@ function matches(text) {
 
 // ---------- dialogs and menus ----------
 
+// The open dialog's onClose: closeDialog, or a new dialog replacing it, runs it once (UI-4).
+let dialogOnClose = null;
+
 function closeDialog() {
-  document.getElementById("dialog-root").replaceChildren();
+  const onClose = dialogOnClose;
+  dialogOnClose = null;
+  const root = document.getElementById("dialog-root");
+  motionLeave(root.querySelector(":scope > .overlay"));
+  root.replaceChildren();
+  onClose?.();
 }
 
 // Keyboard use of dialogs: focus starts inside, Tab stays inside, Escape closes one that a click
@@ -110,8 +174,8 @@ function trapFocus(e, root) {
 document.addEventListener("keydown", (e) => {
   const root = document.getElementById("dialog-root");
   if (!root?.childElementCount) return;
-  if (e.key === "Tab") trapFocus(e, root);
-  else if (e.key === "Escape" && root.querySelector(".overlay[data-dismiss]")) {
+  if (isShortcut(e, "focus")) trapFocus(e, root);
+  else if (isShortcut(e, "close") && root.querySelector(".overlay[data-dismiss]")) {
     closeDialog();
     e.stopImmediatePropagation();  // one Escape closes one thing, not the activity tray behind it too
   }
@@ -131,14 +195,18 @@ new MutationObserver(() => {
   }
 }).observe(document.getElementById("dialog-root"), { childList: true });
 
-function showDialog(title, body, actions = []) {
+// onClose runs once however the dialog goes: overlay click, the X, Escape, an action or a new dialog.
+function showDialog(title, body, actions = [], onClose = null) {
   const overlay = h("div", { class: "overlay", "data-dismiss": true, onmousedown: (e) => { if (e.target === overlay) closeDialog(); } },
     h("div", { class: "dialog", role: "dialog", "aria-modal": "true", "aria-label": title },
       h("div", { class: "dialog-head" }, title,
         h("button", { class: "tool small", "aria-label": "Close", onclick: closeDialog }, icon("dismiss", 16))),
       body,
       actions.length ? h("div", { class: "dialog-actions" }, actions) : null));
+  const previous = dialogOnClose;
+  dialogOnClose = onClose;
   document.getElementById("dialog-root").replaceChildren(overlay);
+  previous?.();
   overlay.querySelector("input, select")?.focus();
   return overlay;
 }
@@ -148,7 +216,7 @@ function askText(title, label, initial = "", okLabel = "OK", check = null) {
   return new Promise((resolve) => {
     const input = h("input", { value: initial });
     const problem = h("p", { class: "error-text", style: "font-size:13px;margin-top:8px", hidden: true });
-    const done = (value) => { closeDialog(); resolve(value); };
+    const done = (value) => { resolve(value); closeDialog(); };
     const submit = () => {
       const value = input.value.trim();
       if (!value) return;
@@ -164,7 +232,7 @@ function askText(title, label, initial = "", okLabel = "OK", check = null) {
     showDialog(title, h("div", {}, h("label", { class: "field" }, label, input), problem), [
       btn("Cancel", null, () => done(null), "tool outline"),
       btn(okLabel, null, submit, "tool primary"),
-    ]);
+    ], () => resolve(null));
     input.select();
   });
 }
@@ -172,24 +240,74 @@ function askText(title, label, initial = "", okLabel = "OK", check = null) {
 function showMenu(anchor, items) {
   closeMenu();
   const rect = anchor.getBoundingClientRect();
-  const menu = h("div", { class: "menu", id: "menu", style: `left:${rect.left}px;top:${rect.bottom + 4}px` },
-    items.map((it) => it.info ? h("div", { class: "info" }, it.info)
-      : btn(it.label, it.icon, () => { closeMenu(); it.action(); })));
+  const menu = h("div", { class: "menu", id: "menu", role: "menu", style: `left:${rect.left}px;top:${rect.bottom + 4}px` },
+    items.map((it) => it.info ? h("div", { class: "info", role: "presentation" }, it.info)
+      : btn(it.label, it.icon, () => { closeMenu(); it.action(); }, "tool", { role: "menuitem", tabindex: "-1" })));
+  menuOpener = anchor;
+  anchor.setAttribute?.("aria-expanded", "true");
   document.body.append(menu);
   // A button near the right edge (Publish options): keep the menu on screen.
   const overflow = menu.getBoundingClientRect().right - (window.innerWidth - 8);
   if (overflow > 0) menu.style.left = `${Math.max(8, rect.left - overflow)}px`;
+  menu.querySelector("[role=menuitem]")?.focus();
   setTimeout(() => document.addEventListener("mousedown", closeMenuOutside), 0);
 }
+
+let menuOpener = null;
 
 function closeMenuOutside(e) {
   if (!document.getElementById("menu")?.contains(e.target)) closeMenu();
 }
 
-function closeMenu() {
-  document.getElementById("menu")?.remove();
+function closeMenu(refocus = false) {
+  const menu = document.getElementById("menu");
+  menu?.remove();
   document.removeEventListener("mousedown", closeMenuOutside);
+  menuOpener?.setAttribute?.("aria-expanded", "false");
+  if (menu && refocus && menuOpener?.isConnected) menuOpener.focus();
+  menuOpener = null;
 }
+
+// The open menu: arrows, Home and End move, Escape closes it and returns to its button, Tab leaves it.
+// Capture phase, so Escape closes the menu before a dialog behind it sees the key.
+document.addEventListener("keydown", (e) => {
+  const menu = document.getElementById("menu");
+  if (!menu) return;
+  const items = [...menu.querySelectorAll("[role=menuitem]")];
+  const at = items.indexOf(document.activeElement);
+  const move = isShortcut(e, "menu") ? { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[e.key] : undefined;
+  if (isShortcut(e, "close")) { e.preventDefault(); e.stopImmediatePropagation(); closeMenu(true); }
+  else if (isShortcut(e, "focus")) closeMenu(true);  // back on its button, so Tab goes on to the next control
+  else if (move !== undefined && items.length) {
+    e.preventDefault();
+    items[(move + items.length) % items.length].focus();
+  }
+}, true);
+
+// Rows and cards with the "click" class (focusable, see h()): Enter or Space opens them.
+// Tabs (role="tab" in a role="tablist"): Left, Right, Home and End move to the next tab and select it.
+document.addEventListener("keydown", (e) => {
+  const el = e.target;
+  if (!(el instanceof Element) || e.altKey || e.ctrlKey || e.metaKey) return;
+  if (isShortcut(e, "open") && el.classList.contains("click") && el === document.activeElement
+      && !["BUTTON", "A", "INPUT", "SELECT", "TEXTAREA"].includes(el.tagName)) {
+    e.preventDefault();
+    el.click();
+    return;
+  }
+  if (el.getAttribute("role") !== "tab") return;
+  const tabs = [...(el.closest("[role=tablist]")?.querySelectorAll("[role=tab]") || [])];
+  const at = tabs.indexOf(el);
+  const next = isShortcut(e, "tabs") ? { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: tabs.length - 1 }[e.key] : undefined;
+  if (next === undefined || at < 0) return;
+  e.preventDefault();
+  const tab = tabs[(next + tabs.length) % tabs.length];
+  const label = tab.textContent;
+  tab.click();
+  // Selecting a tab often re-renders the tab list: focus the new copy of the same tab.
+  const now = [...(document.querySelectorAll("[role=tab]"))].find((t) => t.textContent === label && t.getAttribute("aria-selected") === "true");
+  (now || (tab.isConnected ? tab : null))?.focus();
+});
 
 // ---------- account and data ----------
 
@@ -210,7 +328,9 @@ async function ensureSignedIn() {
 async function loadWorkspaces() {
   if (!(await ensureSignedIn())) return [];
   if (!state.workspaces) {
-    state.workspaces = (await attempt(() => rpc("list_workspaces"), "Could not list workspaces")) || null;
+    // Listing workspaces only reads, so the error toast offers Retry; it fills the list and redraws (UX-011).
+    const again = async () => { state.workspaces = await rpc("list_workspaces"); render(); };
+    state.workspaces = (await attempt(() => rpc("list_workspaces"), "Could not list workspaces", { retry: again })) || null;
   }
   return state.workspaces || [];
 }
@@ -221,13 +341,172 @@ function lakehouseRef(ws, lh) {
 
 // ---------- navigation and chrome ----------
 
-function go(view) {
+// ---------- navigation history (UX-008) ----------
+
+// Back and Forward walk a list of {view, values}: the page, plus the one field each page keeps its
+// tab in (or the item it shows). The entry you're on is kept up to date on every render, so a tab
+// clicked on a page comes back with it. The last page is remembered on this PC and opened on start.
+const NAV_LIMIT = 50;
+const NAV_KEY = "fd.nav.last";
+const nav = { stack: [], index: -1, restored: false };  // nothing is saved until the last page is read back
+// The fields that make up each page's place: [object, key] pairs, read when the entry is saved and
+// written back when you go Back or Forward to it. The first pair of a "tab" page is its tab.
+const NAV_FIELDS = {
+  metadata: () => [[state.meta, "tab"]],
+  monitor: () => [[monitorPage, "panel"]],
+  onelake: () => [[catalogPage, "tab"]],
+  optimize: () => [[optimizePage, "tab"]],
+  platform: () => [[platformPage, "tab"]],
+  source: () => [[gitPage, "tab"]],
+  settings: () => [[state, "settingsTab"]],
+  workspace: () => [[state, "openWorkspace"]],
+  lakehouse: () => [[state, "lakehouseView"], [state, "openWorkspace"]],
+  entity: () => [[state.meta, "entity"]],
+  workload: () => [[wlPage, "id"]],
+  incident: () => [[incPage, "id"], [incPage, "env_of"]],
+  agent: () => [[agPage, "name"]],
+};
+// Pages whose tab is remembered across a restart; the rest reopen on their rail page.
+const NAV_TAB_VIEWS = ["metadata", "monitor", "onelake", "optimize", "platform", "source", "settings"];
+
+function navFields(view) {
+  try { return (NAV_FIELDS[view] || (() => []))(); } catch { return []; }
+}
+
+function navEntry(view) {
+  return { view, values: navFields(view).map(([o, k]) => o?.[k]) };
+}
+
+function navSame(a, b) {
+  return !!a && !!b && a.view === b.view && JSON.stringify(a.values) === JSON.stringify(b.values);
+}
+
+// The feature a view belongs to, and whether it can be shown now (registered, and not a preview
+// feature while preview features are hidden).
+function navFeature(view) {
+  return features.list.find((f) => f.views && Object.prototype.hasOwnProperty.call(f.views, view));
+}
+function navShown(view) {
+  const f = navFeature(view);
+  return !!f && (!f.preview || previewShown());
+}
+
+// Whether an entry can be opened again: its page is shown, and what it showed is still there.
+function navAvailable(entry) {
+  if (!entry || !navShown(entry.view)) return false;
+  if (entry.view === "notebook") return !!state.notebook;
+  if (entry.view === "query") return !!sqlPage.ref;
+  if (NAV_FIELDS[entry.view] && !NAV_TAB_VIEWS.includes(entry.view)) return entry.values[0] != null;
+  return true;
+}
+
+// Keeps the entry you're on in step with the page as drawn, and remembers it on this PC.
+function navSync() {
+  const here = navEntry(state.view);
+  if (nav.index < 0) { nav.stack = [here]; nav.index = 0; } else nav.stack[nav.index] = here;
+  if (nav.restored) navSave(here);
+}
+
+function navSave(entry) {
+  const tab = NAV_TAB_VIEWS.includes(entry.view) && typeof entry.values[0] === "string" ? entry.values[0] : null;
+  try { localStorage.setItem(NAV_KEY, JSON.stringify({ view: entry.view, tab })); } catch { /* not remembered */ }
+}
+
+// Called by go() with the page about to open: the page being left is already saved by navSync.
+function navPush(view) {
+  if (nav.index < 0) navSync();
+  const next = navEntry(view);
+  if (navSame(nav.stack[nav.index], next)) return;
+  nav.stack = nav.stack.slice(0, nav.index + 1);
+  nav.stack.push(next);
+  if (nav.stack.length > NAV_LIMIT) nav.stack.shift();
+  nav.index = nav.stack.length - 1;
+}
+
+// The nearest entry Back (step -1) or Forward (step 1) opens, or -1.
+function navTarget(step) {
+  for (let i = nav.index + step; i >= 0 && i < nav.stack.length; i += step) {
+    if (navAvailable(nav.stack[i])) return i;
+  }
+  return -1;
+}
+function navCan(step) {
+  return navTarget(step) >= 0;
+}
+
+function navMove(step) {
+  const i = navTarget(step);
+  if (i < 0) return false;
+  if (nav.index >= 0) nav.stack[nav.index] = navEntry(state.view);
+  nav.index = i;
+  const entry = nav.stack[i];
+  navFields(entry.view).forEach(([o, k], n) => { if (o) o[k] = entry.values[n]; });
   closeMenu();
+  state.view = entry.view;
+  render();
+  return true;
+}
+function navBack() { return navMove(-1); }
+function navForward() { return navMove(1); }
+
+// The page to open on start: the last one, its tab too, or its rail page when it showed an item
+// that isn't open any more; Home when that page no longer exists or is hidden.
+function navRestore() {
+  let last = null;
+  try { last = JSON.parse(localStorage.getItem(NAV_KEY) || "null"); } catch { /* start on Home */ }
+  const view = navStartView(last?.view);
+  if (view === last?.view && NAV_TAB_VIEWS.includes(view) && typeof last.tab === "string") {
+    const [pair] = navFields(view);
+    if (pair?.[0]) pair[0][pair[1]] = last.tab;
+  }
+  state.view = view;
+  nav.stack = [navEntry(view)];
+  nav.index = 0;
+  nav.restored = true;
+  return view;
+}
+function navStartView(view) {
+  if (typeof view !== "string" || !navShown(view)) return "home";
+  const f = navFeature(view);
+  const main = Object.keys(f.views)[0];
+  if (f.rail && main === view) return view;
+  // An item page (a workspace, a run, a notebook) reopens on the rail page it sits under.
+  const parent = features.list.find((x) => x.rail && (x.rail.also || []).includes(view));
+  if (parent) return Object.keys(parent.views)[0];
+  return f.rail ? main : "home";
+}
+
+// Alt+Left and Alt+Right, except while typing or with a dialog open. Keys pressed inside the embedded
+// Fabric portal never reach this page (it is a separate child webview, main.rs add_child); there they
+// move within Fabric's own history, so the top-bar buttons are the way out.
+function navKey(e) {
+  if (!isShortcut(e, "history") || e.ctrlKey || e.metaKey || e.shiftKey) return false;
+  const t = e.target;
+  if (t?.closest?.("input, textarea, select, [contenteditable], .cm-editor")) return false;
+  if (document.getElementById("dialog-root")?.childElementCount) return false;
+  e.preventDefault();
+  if (e.key === "ArrowLeft") navBack(); else navForward();
+  return true;
+}
+
+function renderNavButtons() {
+  const back = document.getElementById("nav-back");
+  const fwd = document.getElementById("nav-forward");
+  if (back) back.disabled = !navCan(-1);
+  if (fwd) fwd.disabled = !navCan(1);
+}
+
+function go(view) {
+  // A pop-out window has no Fabric view of its own for the portal: Fabric links open in the main window.
+  if (POP_OUT && view === "fabric") { popOutOpenInFabric(fabricPage.page); return; }
+  closeMenu();
+  navPush(view);
   state.view = view;
   render();
 }
 
 function renderChrome() {
+  renderNavButtons();
   renderEnvBar();
   renderBell();
   if (typeof renderGitPill === "function") renderGitPill();  // git.js loads last
@@ -243,11 +522,12 @@ function renderChrome() {
   // Items opened recently, each with a close button.
   const open = [];
   const recent = (view, iconName, label, onOpen, onClose) => h("div", { class: "rail-open-item" },
-    h("button", { class: `rail-item${state.view === view ? " active" : ""}`, onclick: onOpen }, icon(iconName, 22), label),
+    h("button", { class: `rail-item${state.view === view ? " active" : ""}`, "aria-current": state.view === view ? "page" : null,
+      onclick: onOpen }, icon(iconName, 22), label),
     h("button", { class: "rail-close", title: `Close ${label}`, "aria-label": `Close ${label}`,
       onclick: async (e) => {
         e.stopPropagation();
-        await onClose();
+        if (await onClose() === false) return;  // e.g. a notebook that couldn't be saved stays open
         if (state.view === view) go("home"); else renderChrome();
       } }, icon("dismiss", 12)));
   if (state.openWorkspace) {
@@ -259,7 +539,7 @@ function renderChrome() {
   }
   if (state.notebook) {
     open.push(recent("notebook", "notebook", state.notebook.name, () => go("notebook"), async () => {
-      if (state.notebook?.dirty) await saveNotebook();  // closing never loses edits
+      if (state.notebook?.dirty && !(await saveNotebook())) return false;  // closing never loses edits
       state.notebook = null;
     }));
   }
@@ -267,8 +547,8 @@ function renderChrome() {
 
   const crumbs = [];
   if (state.view === "notebook" && state.notebook) {
-    const lh = state.notebook.lakehouse;
-    crumbs.push(h("span", {}, lh ? lh.workspace_name || "Workspace" : "My notebooks"), h("span", { "aria-hidden": "true" }, "/"));
+    const lh = nbLakehouse(state.notebook);
+    crumbs.push(h("span", {}, state.notebook.place ? state.notebook.place.label : lh ? lh.workspace_name || "Workspace" : "My notebooks"), h("span", { "aria-hidden": "true" }, "/"));
     crumbs.push(h("button", { class: "current", title: "Rename notebook", onclick: renameNotebook },
       state.notebook.name + (state.notebook.dirty ? " •" : "")));
   } else if (state.view === "workspace" && state.openWorkspace) {
@@ -278,6 +558,14 @@ function renderChrome() {
     crumbs.push(h("button", { class: "crumb", onclick: () => { monitorPage.panel = "runs"; go("monitor"); } }, "Monitor"), h("span", {}, "/"),
       h("button", { class: "crumb", onclick: backToWorkloads }, "Workloads"), h("span", {}, "/"),
       h("span", { class: "current" }, wlPage.detail.name));
+  } else if (state.view === "incident" && incPage.detail) {
+    crumbs.push(h("button", { class: "crumb", onclick: () => { monitorPage.panel = "runs"; go("monitor"); } }, "Monitor"), h("span", {}, "/"),
+      h("button", { class: "crumb", onclick: backToIncidents }, "Incidents"), h("span", {}, "/"),
+      h("span", { class: "current" }, incPage.detail.title));
+  } else if (state.view === "agent" && agPage.detail) {
+    crumbs.push(h("button", { class: "crumb", onclick: () => { monitorPage.panel = "runs"; go("monitor"); } }, "Monitor"), h("span", {}, "/"),
+      h("button", { class: "crumb", onclick: backToAgents }, "Agents"), h("span", {}, "/"),
+      h("span", { class: "current" }, agPage.detail.agent));
   } else if (state.view === "query" && sqlPage.ref) {
     const lh = sqlPage.ref;
     crumbs.push(h("span", {}, lh.workspace_name || "Workspace"), h("span", {}, "/"),
@@ -292,13 +580,32 @@ function renderChrome() {
 }
 
 function render() {
+  navSync();
   renderChrome();
   if (state.view !== fabricView.owner) placeFabricView();
   (features.views[state.view] || renderHome)();
 }
 
 function setView(...children) {
-  document.getElementById("view").replaceChildren(...children);
+  const view = document.getElementById("view");
+  view.replaceChildren(...children);
+  viewTransition(view);  // motion.js: only when the page itself changed
+}
+
+// The shared look for a part of a page that is still being read (UX-020): a small spinner and the
+// label, announced once to screen readers. cls adds classes a page already lays out with; live: false
+// leaves out role="status" where one line elsewhere already speaks for the whole page.
+function loading(label = "Loading...", cls = "", { live = true } = {}) {
+  return h("div", { class: `loading muted-text${cls ? ` ${cls}` : ""}`, role: live ? "status" : null },
+    h("span", { class: "spinner", "aria-hidden": "true" }), label);
+}
+
+// The shared look for a list with nothing in it yet (UX-020): an optional icon, a title, a line
+// saying what goes here, and an optional button (or several) to add the first one.
+function emptyState({ icon: name, title, text, action } = {}) {
+  return h("div", { class: "empty" }, name ? icon(name, 32) : null,
+    title ? h("span", { class: "title" }, title) : null,
+    text ? h("span", { class: "text" }, text) : null, action);
 }
 
 function signInCallout() {
@@ -311,9 +618,13 @@ function signInCallout() {
 // ---------- Home, Create, Monitor ----------
 
 // A section that folds to its header, remembered on this PC. head is what stays visible.
-function foldable(id, head, body, { cls = "card pad", always = null } = {}) {
-  let folded = false;
-  try { folded = localStorage.getItem(`fd.fold.${id}`) === "1"; } catch { /* unfolded */ }
+// start: whether it opens folded the first time; after that it opens as it was left on this PC.
+function foldable(id, head, body, { cls = "card pad", always = null, start = false } = {}) {
+  let folded = start;
+  try {
+    const saved = localStorage.getItem(`fd.fold.${id}`);
+    if (saved === "1" || saved === "0") folded = saved === "1";
+  } catch { /* as it starts */ }
   const box = h("section", { class: `${cls} foldable${folded ? " folded" : ""}` });
   const toggle = h("button", { class: "fold-toggle", "aria-expanded": String(!folded), title: folded ? "Show" : "Hide",
     onclick: () => {
@@ -327,23 +638,63 @@ function foldable(id, head, body, { cls = "card pad", always = null } = {}) {
   return box;
 }
 
+// Coming back to Home within a few minutes shows the page as it was, with no calls (#192), once it
+// had finished loading; a sign-in, a search or a run starting or finishing draws it again, as does Refresh.
+const HOME_REUSE_MS = 5 * 60 * 1000;
+const homeCache = { page: null, key: "", at: 0, stamp: null, done: false };
+function homeKey() {
+  return JSON.stringify([state.user, state.query, previewShown(), state.meta?.project?.path, activity.items.filter((i) => i.status === "running" && !i.stale).map((i) => i.id)]);
+}
+function homeUpdatedText() {
+  const min = Math.floor((Date.now() - homeCache.at) / 60000);
+  return min < 1 ? "Updated just now" : `Updated ${min} min ago`;
+}
+
+// Home while the component and update check runs (UX-020): drawn at once, with placeholders where
+// the engine's answers go. It calls nothing, since nothing may start the sidecar until the check is
+// done; the real Home replaces it when the check returns. Nothing here is kept in homeCache.
+function startingHome() {
+  // One line speaks for the page; the other placeholders only show, so a screen reader says it once.
+  const quiet = (label) => loading(label, "", { live: false });
+  const later = (label, iconName) => btn(label, iconName, null, "tool outline",
+    { disabled: true, title: "Ready once the local engine has started" });
+  return h("div", { class: "page home", "data-starting": "" },
+    h("div", { class: "row home-head" }, h("h1", { class: "grow" }, "Welcome to KratosForge")),
+    loading("Starting the local engine...", "sub"),
+    h("div", { class: "home-two" },
+      h("section", { class: "card pad" }, h("h2", {}, "Running now"), quiet()),
+      h("section", { class: "card pad" }, h("h2", {}, "Coming up"), quiet())),
+    h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"),
+      later("New notebook", "notebook"), later("New lakehouse", "lakehouse"), later("OneLake catalog", "onelake")),
+    h("section", { class: "card pad" }, h("h2", {}, "Recent notebooks"), quiet("Loading notebooks...")));
+}
+
 // Home answers "what happened since I was last here": problems first, then what is running, what
 // runs next and each environment's state, then ways to start something. Each part draws as soon as
 // its own data is in, quickest first; the Estate X-ray reads only after all of them.
 async function renderHome() {
+  if (state.starting) { setView(startingHome()); return; }
+  if (homeCache.done && homeCache.key === homeKey() && Date.now() - homeCache.at < HOME_REUSE_MS) {
+    homeCache.stamp.textContent = homeUpdatedText();
+    setView(homeCache.page);
+    return;
+  }
   const name = state.user ? state.user.split("@")[0] : "";
   const summary = h("p", { class: "sub" }, "Checking what ran...");
   const attention = h("div", { class: "home-attention" });
-  const running = h("div", { class: "muted-text" }, "Loading...");
-  const upcoming = h("div", { class: "muted-text" }, "Loading...");
+  const running = loading();
+  const upcoming = loading();
   const envCards = h("div", { class: "home-envs" });
-  const list = h("div", { class: "muted-text" }, "Loading notebooks...");
+  const list = loading("Loading notebooks...");
   const xray = previewShown() ? xrayCard() : null;
   const yours = yourWorkloadsCard();
   const envSection = h("section", {}, h("h2", {}, "Environments"), envCards);
   let notebookCount = 0;
-  setView(h("div", { class: "page home" },
-    h("h1", {}, name ? `Welcome back, ${name}` : "Welcome to Fabric Desktop by KratosBI"),
+  const stamp = h("span", { class: "muted-text small" }, "Updated just now");
+  const page = h("div", { class: "page home" },
+    h("div", { class: "row home-head" },
+      h("h1", { class: "grow" }, name ? `Welcome back, ${name}` : "Welcome to KratosForge"),
+      stamp, btn("Refresh", null, () => { homeCache.done = false; render(); }, "tool link small"), learnMore("home")),
     summary,
     readinessCard(),
     signInCallout(),
@@ -357,17 +708,21 @@ async function renderHome() {
     envSection,
     h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"),
       btn("New notebook", "notebook", newNotebook, "tool outline"),
+      btn("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"),
       btn("New lakehouse", "lakehouse", () => newLakehouse(), "tool outline"),
       btn("OneLake catalog", "onelake", () => go("onelake"), "tool outline")),
-    foldable("home.notebooks", h("h2", {}, "Recent notebooks"), list),
-    xray));
-  const onHome = () => state.view === "home";
+    foldable("home.notebooks", h("h2", {}, "Recent notebooks"), h("div", {}, list,
+      btn("All notebooks", "notebook", () => go("notebooks"), "tool link small"))),
+    xray);
+  Object.assign(homeCache, { page, key: homeKey(), at: Date.now(), stamp, done: false });
+  setView(page);
+  const onHome = () => state.view === "home" && homeCache.page === page;
 
   // What is running is already known in the app: no call needed.
   const live = activity.items.filter((i) => i.status === "running" && !i.stale);
   running.replaceWith(live.length ? h("div", { class: "home-list" }, live.map((i) => h("div", { class: "home-item" },
     h("div", { class: "row" }, h("b", { class: "grow" }, i.title), h("span", { class: "muted-text small" }, `started ${relTime(i.at)}`)),
-    h("div", { class: "progress" }, h("div", { class: "bar indeterminate" })),
+    remoteActivity(i) ? remoteProgress(i.title) : h("div", { class: "progress" }, h("div", { class: "bar indeterminate" })),
     i.text ? h("div", { class: "muted-text small" }, i.text) : null)))
     : h("p", { class: "muted-text" }, "Nothing is running."));
 
@@ -377,16 +732,17 @@ async function renderHome() {
     notebookCount = (notebooks || []).length;
     const shown = (notebooks || []).filter((n) => matches(n.name)).slice(0, 8);
     list.replaceWith(shown.length ? h("table", { class: "list" },
-      h("thead", {}, h("tr", {}, h("th", {}, "Name"), h("th", {}, "Modified"))),
+      h("thead", {}, h("tr", {}, h("th", {}, "Name"), shown.some((n) => n.place) ? h("th", {}, "Saved in") : null, h("th", {}, "Modified"))),
       h("tbody", {}, shown.map((n) => h("tr", { class: "click", onclick: () => openNotebook(n.name) },
         h("td", {}, h("span", { class: "item" }, icon("notebook", 18), n.name)),
+        shown.some((x) => x.place) ? h("td", {}, n.place ? n.place.label : "This PC") : null,
         h("td", {}, when(new Date(n.modified * 1000).toISOString())))))) : h("p", { class: "muted-text" },
       notebooks === null ? "Couldn't list notebooks." : state.query ? "No notebooks match your search." : "No notebooks yet. Create one to get started."));
   });
   const projectCall = rpc("meta_project").catch(() => null);
-  const cloudCall = rpc("fabric_runs", { limit: 50, refresh: false }).catch(() => []);
+  const cloudCall = rpc("fabric_runs", { limit: 50, refresh: false }).catch(() => null);
   const pcCall = rpc("pc_schedules_for", { kind: "all" }).catch(() => []);
-  const metaCall = rpc("meta_runs_all", { limit: 300 }).catch(() => ({ runs: [], unavailable: {} }));
+  const metaCall = rpc("meta_runs_all", { limit: 300 }).catch(() => ({ runs: [], unavailable: {}, failed: true }));
 
   // Coming up: this PC's schedules straight away, Fabric's added once read (only when signed in).
   const upcomingDone = (async () => {
@@ -438,13 +794,19 @@ async function renderHome() {
     const cloudFailed = (cloud || []).filter((r) => r.status === "Failed" && Date.now() - new Date(r.started_at) < 86400000);
 
     const problems = failing.length + cloudFailed.length;
+    // What couldn't be read is unknown, not fine: say so instead of "Nothing needs your attention".
+    const unread = meta.failed ? ["run history"] : Object.keys(meta.unavailable || {}).map((env) => ENV_LABEL[env]);
+    if (meta.project_error) unread.unshift("the metadata project");
+    if (cloud === null) unread.push("Fabric jobs");
     // Late tables (dataops.js) count too; they may arrive after the runs, so the line is redrawn then.
     state.homeSummary = () => {
       const late = (fresh.items || []).filter((x) => x.status === "late").length;
       const total = problems + late;
       summary.textContent = [
-        total ? `${total} ${total === 1 ? "thing needs" : "things need"} your attention` : "Nothing needs your attention",
+        total ? `${total} ${total === 1 ? "thing needs" : "things need"} your attention`
+          : unread.length ? "Nothing found that needs your attention" : "Nothing needs your attention",
         live.length ? `${live.length} running` : "",
+        unread.length ? `couldn't check ${unread.join(", ")}` : "",
       ].filter(Boolean).join(" · ") + ".";
     };
     state.homeSummary();
@@ -483,7 +845,9 @@ async function renderHome() {
   // The X-ray's saved scan is read last, so it never holds up the rest of Home.
   await Promise.allSettled([notebooksDone, upcomingDone, runsDone]);
   if (onHome() && yours?.isConnected) await yours.load();  // reads every source, so after the quick parts
-  if (onHome() && xray?.isConnected) loadXray(xray, false);
+  if (onHome() && xray?.isConnected) await loadXray(xray, false);
+  // The engine answers in order, so the cards that read on their own (Ready to work, the mesh map) are in too.
+  if (onHome()) homeCache.done = true;
 }
 
 function tile(iconName, title, desc, onClick) {
@@ -497,20 +861,46 @@ function renderCreate() {
     h("h2", {}, "Data engineering"),
     h("div", { class: "tiles" },
       tile("notebook", "Notebook", "Explore, transform and write Delta tables with Python", newNotebook),
-      preview("wizard", tile("notebook", "Notebook from a template", "Clean a table, join and aggregate, or load a file, with checks and a proof contract", openWizard)),
-      tile("lakehouse", "Lakehouse", "Store tables and files in OneLake, organized by schema", () => newLakehouse()))));
+      preview("wizard", tile("notebook", "Notebook from a template", "Ten templates to load, clean, check, model and compare data, with checks and a proof contract", openWizard)),
+      preview("replay", tile("history", "Open replay bundle", "Run a notebook that failed again, up to the failed cell, against the same table versions", replayOpenDialog)),
+      tile("lakehouse", "Lakehouse", "Store tables and files in OneLake, organized by schema", () => newLakehouse()),
+      preview("pipelines", tile("flow", "Pipeline", "Open a Fabric pipeline, check what can run here, and run it on this PC", pipelineOpenDialog)))));
 }
 
 // Filters on Monitor, kept for the session; showFabric is remembered on this PC.
-const monitorPage = { env: "all", where: "any", problemsFirst: true, showFabric: true, panel: "runs" };
+const monitorPage = { env: "all", where: "any", problemsFirst: true, showFabric: true, panel: "runs", opsView: "workloads",
+  refreshing: false };
+// Pop-out windows (Preview, popout.js). In a pop-out window, POP_OUT is the one section it shows ("runs"
+// or "fabric"); in the main window it is null and popOuts holds the sections open in windows of their own.
+const POP_OUT = ["runs", "fabric"].find((s) => new URLSearchParams(location.search).get("popout") === s) || null;
+const popOuts = new Set();
+// Monitor > Operations holds the workload views (UX-010). Each keeps its own panel id, so links to it still work.
+const MONITOR_OPS = [
+  { panel: "workloads", feature: "workloads", label: "Workloads", anchor: "workloads-preview",
+    text: "Everything you build and run: on this PC, on agents and in Fabric, with its health and owner" },
+  { panel: "queue", feature: "queue", label: "Queue", anchor: "queue-preview",
+    text: "What is running and what runs next, on this PC, on agents and in Fabric, and who owns it" },
+  { panel: "agents", feature: "agents", label: "Agents", anchor: "agents-preview",
+    text: "KratosForge on your own servers, from the status they report" },
+  { panel: "runas", feature: "runAs", label: "Run as", anchor: "run-as-preview",
+    text: "Which identity runs your workloads in each place, and with what credential" },
+  { panel: "incidents", feature: "incidents", label: "Incidents", anchor: "incidents-preview",
+    text: "One record per problem, shared by everyone who can read the environment" },
+];
 try { monitorPage.showFabric = localStorage.getItem("fd.monitor.fabric") !== "hidden"; } catch { /* default: shown */ }
 
 async function renderMonitor() {
+  // Cost moved to Optimize > Cost and savings (testing item 36); an old link to it lands there.
+  if (monitorPage.panel === "cost") { monitorPage.panel = "runs"; optimizePage.tab = "cost"; go("optimize"); return; }
   if (!previewShown()) monitorPage.panel = "runs";
-  const local = h("div", { class: "muted-text monitor-empty" }, "Loading runs...");
+  if (POP_OUT === "fabric") { renderFabricPopOut(); return; }
+  // A pop-out window's refresh keeps the list it has, and your place in it, until the new one is read.
+  const kept = monitorPage.refreshing ? document.querySelector(".page.monitor .monitor-scroll") : null;
+  const keptTop = kept?.scrollTop || 0;
+  monitorPage.refreshing = false;
+  const local = kept || loading("Loading runs...", "monitor-empty");
   const slot = h("div", { class: "fabric-slot" },
     h("p", { class: "muted-text" }, "Opening the Fabric Monitoring hub. Sign in once and the app remembers it."));
-  const action = (name) => attempt(() => invoke("fabric_view_action", { action: name, page: "monitor" }), "Fabric view");
   const chip = (key, value, label) => h("button", { class: `chip${monitorPage[key] === value ? " on" : ""}`,
     onclick: () => { monitorPage[key] = value; render(); } }, label);
   const toggleFabric = () => {
@@ -519,23 +909,36 @@ async function renderMonitor() {
     render();
   };
   const note = h("div", { class: "muted-text small" });
-  // Workloads takes the whole page; Fabric's hub comes back with the other panels.
-  const fabricShown = monitorPage.showFabric && monitorPage.panel !== "workloads";
-  setView(h("div", { class: `page monitor${fabricShown ? "" : " no-fabric"}` },
-    h("section", { class: "card monitor-local" },
+  const ops = MONITOR_OPS.filter((o) => !PREVIEW_FEATURES[o.feature] || previewShown());
+  const op = ops.find((o) => o.panel === monitorPage.panel);
+  if (op) monitorPage.opsView = op.panel;
+  const segment = (on, label, onclick) => h("button", { class: on ? "on" : null, onclick }, label);
+  const show = (panel) => () => { monitorPage.panel = panel; render(); };
+  // Only Runs shares the page with Fabric's hub; a list under it gets too little room (#190).
+  // A section in a window of its own leaves a band here, and the other one gets the room.
+  const runsOut = popOuts.has("runs");
+  const fabricOut = popOuts.has("fabric");
+  const wide = !runsOut && monitorPage.panel !== "runs";
+  const fabricHere = !POP_OUT && !wide;
+  const fabricShown = fabricHere && monitorPage.showFabric && !fabricOut;
+  setView(h("div", { class: `page monitor${fabricShown ? "" : " no-fabric"}${runsOut ? " runs-out" : ""}` },
+    runsOut ? poppedOutBand("runs", "From KratosForge", "monitor-local") : h("section", { class: "card monitor-local" },
       h("div", { class: "monitor-band" },
-        h("h2", {}, "From Fabric Desktop by KratosBI"),
+        h("h2", {}, "From KratosForge"),
         h("div", { class: "seg", role: "group", "aria-label": "Show" },
-          h("button", { class: monitorPage.panel === "runs" ? "on" : null, onclick: () => { monitorPage.panel = "runs"; render(); } }, "Runs"),
-          preview("workloads", h("button", { class: monitorPage.panel === "workloads" ? "on" : null, onclick: () => { monitorPage.panel = "workloads"; render(); } }, "Workloads")),
-          preview("schedules", h("button", { class: monitorPage.panel === "schedules" ? "on" : null, onclick: () => { monitorPage.panel = "schedules"; render(); } }, "Schedules")),
-          preview("cost", h("button", { class: monitorPage.panel === "cost" ? "on" : null, onclick: () => { monitorPage.panel = "cost"; render(); } }, "Cost"))),
-        h("span", { class: "muted-text" }, monitorPage.panel === "workloads" ? "Everything you build and run: on this PC, on agents and in Fabric, with its health and owner"
-          : monitorPage.panel === "cost" ? "Capacity each run used in Fabric, and what running on this PC saved"
+          segment(monitorPage.panel === "runs", "Runs", show("runs")),
+          preview("schedules", segment(monitorPage.panel === "schedules", "Schedules", show("schedules"))),
+          ops.length ? segment(!!op, ["Operations", ops.every((o) => PREVIEW_FEATURES[o.feature]) ? previewTag() : null],
+            show(ops.some((o) => o.panel === monitorPage.opsView) ? monitorPage.opsView : ops[0].panel)) : null),
+        h("span", { class: "muted-text" }, op ? op.text
           : monitorPage.panel === "schedules" ? "Every schedule, on this PC and in Fabric, with how its last run went"
-          : "Everything this app ran or started, in every environment, on this PC and in Fabric", " ", learnMore(monitorPage.panel === "workloads" ? "workloads-preview" : "monitor")),
+          : "Everything this app ran or started, in every environment, on this PC and in Fabric", " ", learnMore(op ? op.anchor : "monitor")),
         h("span", { class: "spacer" }),
-        monitorPage.panel === "workloads" ? null : btn("Refresh", "sync", () => render(), "tool outline")),
+        op ? null : btn("Refresh", "sync", () => render(), "tool outline"),
+        popOutButton("runs")),
+      op ? h("div", { class: "monitor-filters", role: "group", "aria-label": "Operations" },
+        h("span", { class: "muted-text small" }, "Show"),
+        ops.map((o) => h("button", { class: `chip${o === op ? " on" : ""}`, "aria-pressed": String(o === op), onclick: show(o.panel) }, o.label))) : null,
       monitorPage.panel !== "runs" ? null : h("div", { class: "monitor-filters" },
         h("div", { class: "row", role: "group", "aria-label": "Environment" },
           chip("env", "all", "All"), Object.entries(ENV_LABEL).map(([id, label]) => chip("env", id, label))),
@@ -545,33 +948,38 @@ async function renderMonitor() {
           onchange: (e) => { monitorPage.problemsFirst = e.target.checked; render(); } }), "Problems first"),
         note),
       local),
-    monitorPage.panel === "workloads" ? null : h("section", { class: "card monitor-fabric" },
+    !fabricHere ? null : fabricOut ? poppedOutBand("fabric", "In Fabric", "monitor-fabric") : h("section", { class: "card monitor-fabric" },
       h("div", { class: "monitor-band" },
         h("h2", {}, "In Fabric"),
         h("span", { class: "muted-text" }, "Fabric's own Monitoring hub, for everything else in your workspaces"),
         h("span", { class: "spacer" }),
-        monitorPage.showFabric ? [
-          btn("Back", null, () => action("back"), "tool outline"),
-          btn("Home", "home", () => action("home"), "tool outline"),
-          btn("Reload", "restart", () => action("reload"), "tool outline"),
-          btn("Open in browser", "publish", () => action("browser"), "tool outline")] : null,
+        monitorPage.showFabric ? [monitorHubButtons(), popOutButton("fabric")] : null,
         btn(monitorPage.showFabric ? "Hide" : "Show", null, toggleFabric, "tool outline")),
       monitorPage.showFabric ? slot : null)));
   if (fabricShown) dockFabricView(slot, "monitor", "monitor");
-  else invoke("fabric_view_hide").catch(() => {});
-  if (monitorPage.panel === "cost") { local.replaceWith(costPanel()); return; }
+  else if (!POP_OUT) invoke("fabric_view_hide").catch(() => {});
+  if (runsOut) return;
   if (monitorPage.panel === "schedules") { local.replaceWith(schedulesPanel()); return; }
   if (monitorPage.panel === "workloads") { local.replaceWith(workloadsPanel()); return; }
+  if (monitorPage.panel === "incidents") { local.replaceWith(incidentsPanel()); return; }
+  if (monitorPage.panel === "agents") { local.replaceWith(agentsPanel()); return; }
+  if (monitorPage.panel === "queue") { local.replaceWith(queuePanel()); return; }
+  if (monitorPage.panel === "runas") { local.replaceWith(runAsPanel()); return; }
 
-  const [writes, meta, cloud, scheduled] = await Promise.all([
+  const [writes, meta, cloud, scheduled, pipelines] = await Promise.all([
     attempt(() => rpc("history")),
     rpc("meta_runs_all", { limit: 200 }).catch(() => ({ runs: [], unavailable: {} })),
     rpc("fabric_runs", { limit: 50 }).catch(() => []),  // not signed in yet
     rpc("pc_schedule_runs", { limit: 100 }).catch(() => []),
+    previewShown() ? rpc("pipeline_runs", { limit: 50 }).catch((err) => ({ runs: [], error: friendlyError(err).text })) : { runs: [] },
   ]);
   if (state.view !== "monitor") return;
   const unavailable = Object.entries(meta.unavailable || {});
-  note.textContent = unavailable.map(([env, why]) => `${ENV_LABEL[env]}: ${why}`).join(" · ");
+  note.textContent = [
+    meta.project_error ? `Metadata runs not shown: the metadata project couldn't be read (${meta.project_error})` : "",
+    ...unavailable.map(([env, why]) => `${ENV_LABEL[env]}: ${why}`),
+    pipelines.error ? `Pipeline runs not shown: they couldn't be read (${pipelines.error.replace(/\.$/, "")})` : "",
+  ].filter(Boolean).join(" · ");
   const rows = [
     ...(meta.runs || []).map((r) => ({
       at: r.started_at, status: r.status, activity: r.entity, kind: `Metadata run${r.backfill ? ` · backfill ${r.backfill}` : ""}`,
@@ -588,9 +996,11 @@ async function renderMonitor() {
     ...(scheduled || []).map((r) => ({
       at: r.started, status: r.status === "ok" ? "ok" : r.status === "skipped" ? "skipped" : "failed", activity: r.label,
       kind: r.trigger === "manual" ? "Schedule, run now" : "Scheduled run", env: "", where: "local", seconds: r.seconds,
-      rows: r.rows ?? "", note: r.status === "ok" ? r.message : "", reason: r.status === "ok" ? "" : r.message,
+      rows: r.rows ?? "", note: r.status === "ok" ? r.message : "",
+      reason: r.status === "ok" ? "" : [r.message?.replace(/\.$/, ""), r.alert_error].filter(Boolean).join(". "),
       open: () => { monitorPage.panel = "schedules"; render(); },
     })),
+    ...pipelineRunRows(pipelines.runs),
     ...(writes || []).map((r) => ({
       at: r.finished_at, status: "ok", activity: r.job, kind: "Notebook write", env: "", where: "local",
       seconds: r.seconds, rows: r.rows, note: `${r.table_uri.split("/Tables/")[1] || r.table_uri} (${r.mode}, v${r.delta_version})`, reason: "",
@@ -601,17 +1011,42 @@ async function renderMonitor() {
     .sort((a, b) => String(b.at).localeCompare(String(a.at)));
   const bad = (r) => (r.status === "failed" || r.status === "needs_decision" ? 0 : r.status === "running" ? 1 : 2);
   if (monitorPage.problemsFirst) rows.sort((a, b) => bad(a) - bad(b));  // stable: newest first within each group
-  local.replaceWith(rows.length ? h("div", { class: "monitor-scroll" }, h("table", { class: "list" },
-    h("thead", {}, h("tr", {}, ["Status", "Activity", "Env", "Ran on", "When", "Took", "Rows", ""].map((c) => h("th", {}, c)))),
-    h("tbody", {}, rows.map((r) => h("tr", r.open ? { class: "click", onclick: r.open } : {},
-      h("td", {}, statusPill(r.status)),
-      h("td", {}, h("div", {}, h("b", {}, r.activity)), h("div", { class: "muted-text small" }, [r.kind, r.note].filter(Boolean).join(" · ")),
+  const list = rows.length ? h("div", { class: "monitor-scroll" }, h("table", { class: "list" },
+    h("thead", {}, h("tr", {}, ["Status", "Activity", "Env", "Ran on", "When", "Took", "Rows", ""].map((c) => h("th", ["Took", "Rows"].includes(c) ? { class: "n" } : {}, c)))),
+    h("tbody", {}, rows.map((r) => h("tr", r.open ? { class: "click", onclick: r.open }
+      : r.pipelineRun ? { class: "click pl-run", "data-pl-run": r.pipelineRun, onclick: (e) => togglePipelineRun(e.currentTarget, r) } : {},
+      h("td", {}, r.pill || statusPill(r.status)),
+      h("td", {}, h("div", {}, r.pipelineRun ? pipelineToggle(r) : null, h("b", {}, r.activity)),
+        h("div", { class: "muted-text small" }, [r.kind, r.note].filter(Boolean).join(" · "),
+          r.pipelineRun ? h("span", { class: "pl-summary" }) : null, r.tags?.length ? [" ", r.tags] : null),
         r.reason ? h("div", { class: "reason" }, r.reason) : null),
-      h("td", {}, ENV_LABEL[r.env] || r.env), h("td", {}, r.ranOn || (r.where === "fabric" ? "Fabric" : "This PC")),
+      h("td", {}, runEnvCell(r)), h("td", {}, r.ranOn || (r.where === "fabric" ? "Fabric" : "This PC")),
       h("td", {}, when(r.at)), h("td", { class: "n" }, took(r.seconds)), h("td", { class: "n" }, r.rows ?? ""),
-      h("td", { class: "n" }, r.open ? h("span", { class: "link-text" }, "Details") : null)))))) :
+      h("td", { class: "n" }, r.open ? h("span", { class: "link-text" }, "Details") : r.pipelineRun ? pipelineRunDetails(r) : null)))))) :
     h("p", { class: "muted-text monitor-empty" }, monitorPage.env !== "all" || monitorPage.where !== "any"
-      ? "Nothing matches these filters." : "Nothing has run yet. Run a metadata entity or write a table from a notebook."));
+      ? "Nothing matches these filters." : "Nothing has run yet. Run a metadata entity or write a table from a notebook.");
+  local.replaceWith(list);
+  if (rows.length) reopenPipelineRuns(list, rows);
+  list.scrollTop = keptTop;
+}
+
+// Back, Home, Reload and Open in browser for the Monitoring hub, on Monitor and in its pop-out window.
+function monitorHubButtons() {
+  const action = (name) => attempt(() => invoke("fabric_view_action", { action: name, page: "monitor" }), "Fabric view");
+  return [
+    btn("Back", null, () => action("back"), "tool outline"),
+    btn("Home", "home", () => action("home"), "tool outline"),
+    btn("Reload", "restart", () => action("reload"), "tool outline"),
+    btn("Open in browser", "publish", () => action("browser"), "tool outline")];
+}
+
+// Runs > Env for a row with no environment, saying why there isn't one (testing item 32).
+function runEnvCell(r) {
+  if (r.env) return ENV_LABEL[r.env] || r.env;
+  const why = r.envWhy || (r.where === "fabric"
+    ? "Started in a Fabric workspace (named under the activity), not from one of the project's environments"
+    : "Notebook writes and this PC's schedules aren't tied to an environment");
+  return h("span", { class: "muted-text", title: why }, "No environment");
 }
 
 // Fabric job states, shown with the same pills as local runs.
@@ -649,7 +1084,7 @@ function placeFabricView() {
     fabricView.force = false;
     invoke("fabric_view_show", { x: r.left, y: r.top, width: r.width, height: r.height, tenant: state.tenant || null,
       page: fabricView.page, force }).catch((err) => {
-      slot.replaceChildren(h("p", { class: "muted-text" }, `The Fabric view could not open: ${err}`));
+      slot.replaceChildren(h("p", { class: "muted-text" }, `The Fabric view could not open: ${friendlyError(err).text}`));
     });
   });
 }
@@ -664,14 +1099,19 @@ const workspacesPage = { marks: null, filter: "all", open: new Set(), items: {} 
 
 async function renderWorkspaces() {
   const wp = workspacesPage;
-  const body = h("div", {}, h("p", { class: "muted-text" }, state.user ? "Loading workspaces..." : ""));
+  const body = h("div", {}, state.user ? loading("Loading workspaces...") : "");
   const chips = h("div", { class: "ws-filters" });
   const previewing = itemPreviewOn();
   if (itemPreview.target?.kind !== "item" && !itemPreview.parent) itemPreview.target = null;
-  setView(h("div", { class: "page" }, h("h1", {}, "Workspaces"),
+  setView(h("div", { class: "page" }, h("h1", {}, "Workspaces"), workspacesTabs("workspaces"),
     h("p", { class: "sub" }, "Your Fabric workspaces. Expand one to see its items, star your favorites and pin the ones you use most. ",
       previewing ? "Click an item to preview it. " : "", learnMore("workspaces")),
-    signInCallout(), chips, previewing ? previewLayout(body, () => draw()) : body));
+    signInCallout(), withHowItWorks([chips, previewing ? previewLayout(body, () => draw()) : body], howItWorks("workspaces", {
+      reads: "Your Fabric workspaces and their items, from Fabric with your sign-in, when the page opens and when you expand a workspace. Item previews read only the item you click.",
+      changes: "Nothing in Fabric or OneLake. Open in notebook, in an item's preview, makes a new notebook on this PC that reads the table. Stars and pins are kept on this PC, not in Fabric.",
+      results: "Only you see your stars, pins and new notebooks. Clicking a workspace opens its own page, where New lakehouse creates a lakehouse in Fabric after you name it.",
+      anchor: "workspaces",
+    }))));
   if (!state.user) return;
   const [workspaces, marks] = await Promise.all([loadWorkspaces(),
     wp.marks ? wp.marks : rpc("workspace_marks").catch(() => ({ favorites: [], pins: [] }))]);
@@ -777,11 +1217,19 @@ function openInFabric(page) {
   }
 }
 
+// Workspaces has two tabs: your workspaces in the app, and Fabric's own portal.
+function workspacesTabs(active) {
+  return h("div", { class: "subtabs", role: "tablist", "aria-label": "Workspaces views" },
+    [["workspaces", "Your workspaces"], ["fabric", "Fabric portal"]].map(([view, label]) =>
+      h("button", { class: `tab${active === view ? " active" : ""}`, role: "tab", "aria-selected": active === view ? "true" : "false",
+        onclick: () => go(view) }, label)));
+}
+
 function renderFabric() {
   const slot = h("div", { class: "fabric-slot" },
     h("p", { class: "muted-text" }, "Opening Fabric. Sign in once and the app keeps it between launches."));
   const action = (name) => attempt(() => invoke("fabric_view_action", { action: name, page: fabricPage.page }), "Fabric view");
-  setView(h("div", { class: "page monitor fabric-page" },
+  setView(h("div", { class: "page monitor fabric-page" }, workspacesTabs("fabric"), withHowItWorks(
     h("section", { class: "card monitor-fabric" },
       h("div", { class: "monitor-band" },
         h("h2", {}, "Fabric"),
@@ -792,7 +1240,16 @@ function renderFabric() {
         btn("Monitoring hub", "monitor", () => openInFabric("monitor"), "tool outline"),
         btn("Reload", "restart", () => action("reload"), "tool outline"),
         btn("Open in browser", "publish", () => action("browser"), "tool outline")),
-      slot)));
+      slot),
+    howItWorks("workspaces.fabric", {
+      reads: "This is Fabric's own portal, app.fabric.microsoft.com, signed in as you. It shows what Fabric shows you; "
+        + "KratosForge doesn't read anything from it.",
+      changes: "Nothing by itself. What you do in the portal writes to Fabric and OneLake exactly as it would in a browser, "
+        + "with Fabric's own prompts; this app adds no confirmation of its own there.",
+      results: "Everything you change stays in Fabric. Your portal sign-in is kept on this PC, encrypted for your Windows "
+        + "account; delete fabric-view-signin.bin to make it forget.",
+      anchor: "fabric",
+    }))));
   dockFabricView(slot, "fabric", fabricPage.page);
   placeFabricView();
 }
@@ -804,8 +1261,9 @@ function openWorkspace(ws) {
 
 async function renderWorkspace() {
   const ws = state.openWorkspace;
-  const body = h("div", { class: "muted-text" }, "Loading items...");
+  const body = loading("Loading items...");
   setView(h("div", { class: "page" }, h("h1", {}, ws.displayName),
+    h("p", { class: "sub" }, "This workspace's lakehouses. ", learnMore("workspaces")),
     h("div", { class: "toolbar", style: "padding:0;border:0;margin-bottom:16px" },
       btn("New lakehouse", "add", () => newLakehouse(ws), "tool outline"),
       btn("New notebook", "add", newNotebook, "tool outline")),
@@ -932,8 +1390,8 @@ async function renderOneLake() {
   const cp = catalogPage;
   const nav = h("nav", { class: "catalog-nav" });
   const head = h("div", { class: "catalog-head" });
-  const list = h("div", { class: "catalog-list" }, h("p", { class: "muted-text", style: "padding:16px" },
-    state.user ? "Loading items from all workspaces..." : ""));
+  const list = h("div", { class: "catalog-list" },
+    state.user ? loading("Loading items from all workspaces...") : "");
   const note = h("span", { class: "muted-text" });
   const search = h("input", { class: "catalog-search", placeholder: "Search by name, workspace or table", value: cp.query, "aria-label": "Search the catalog" });
   search.addEventListener("input", () => { cp.query = search.value; draw(); });
@@ -944,7 +1402,14 @@ async function renderOneLake() {
         h("span", { class: "muted-text" }, "Every item in every workspace you can open"), h("span", { class: "spacer" }), note, search,
         btn("Refresh", "sync", () => { cp.data = null; render(); }, "tool outline"),
         btn("Open Fabric's catalog", "open", () => openInFabric("catalog"), "tool outline")),
-      h("div", { class: "catalog-body" }, nav, h("section", { class: "catalog-main" }, head, list)))));
+      h("div", { class: "catalog-body" }, nav, h("section", { class: "catalog-main" }, head, list))),
+    // Under the catalog, not beside it: the table needs the page's full width for its row actions.
+    howItWorks("onelake.catalog", {
+      reads: "Every item in every workspace you can open, and each lakehouse's table names, from Fabric with your sign-in. It reads when the page opens and when you press Refresh.",
+      changes: "Nothing in Fabric or OneLake. Open in notebook makes a new notebook on this PC that reads the table; SQL query reads it without changing it. Stars are kept on this PC.",
+      results: "Only you see your stars. The list shows only what your own Fabric permissions let you open.",
+      anchor: "catalog",
+    })));
   if (!state.user) return;
 
   const here = () => state.view === "onelake" && list.isConnected;
@@ -1194,289 +1659,12 @@ function renderLakehouse() {
   const box = h("div", { class: "lakehouse-tree" }, tree,
     pick ? h("p", { class: "muted-text tree-hint" }, "Click a table or file to preview it.") : null);
   setView(h("div", { class: "page" }, h("h1", {}, ref.name),
-    h("p", { class: "sub" }, `Lakehouse in ${ref.workspace_name}`),
+    h("p", { class: "sub" }, `Lakehouse in ${ref.workspace_name}. `, learnMore("a-lakehouse")),
     h("div", { class: "toolbar", style: "padding:0;border:0;margin-bottom:16px" },
       btn("Open in new notebook", "notebook", () => newNotebook(ref), "tool primary"),
       btn("New SQL query", "code", () => openSqlQuery(ref), "tool outline")),
     pick ? previewLayout(box, draw) : box));
   draw();
-}
-
-// ---------- SQL query page ----------
-
-// Spark SQL over one lakehouse's tables, run on this PC by the sidecar (DuckDB).
-const QUERY_HINT = "-- Spark SQL runs on this PC. Press Ctrl+Enter to run.\n";
-const sqlPage = { ref: null, tabs: [], active: 0, tables: null, cols: {}, open: {} };
-
-function openSqlQuery(ref) {
-  if (sqlPage.ref?.lakehouse_id !== ref.lakehouse_id) {
-    Object.assign(sqlPage, { ref, tabs: loadQueryTabs(ref), active: 0, tables: null, cols: {}, open: {} });
-  }
-  go("query");
-}
-
-function queryTabsKey(ref) {
-  return `fabric-desktop.sql.${ref.lakehouse_id}`;
-}
-
-function loadQueryTabs(ref) {
-  try {
-    const saved = JSON.parse(localStorage.getItem(queryTabsKey(ref)));
-    if (Array.isArray(saved) && saved.length) return saved.map((t) => ({ name: String(t.name), sql: String(t.sql) }));
-  } catch { /* no saved tabs */ }
-  return [{ name: "Query 1", sql: QUERY_HINT }];
-}
-
-function saveQueryTabs() {
-  try {
-    localStorage.setItem(queryTabsKey(sqlPage.ref), JSON.stringify(sqlPage.tabs.map((t) => ({ name: t.name, sql: t.sql }))));
-  } catch { /* storage unavailable: tabs last for this session */ }
-}
-
-// "dbo.sales" reads as "sales", the way Fabric's query tab names it.
-function sqlTableName(schema, table) {
-  const quote = (s) => (/^[A-Za-z_][A-Za-z0-9_]*$/.test(s) ? s : `\`${s.replace(/`/g, "``")}\``);
-  return schema === "dbo" ? quote(table) : `${quote(schema)}.${quote(table)}`;
-}
-
-function cellText(v) {
-  if (v === null || v === undefined) return "NULL";
-  return typeof v === "number" ? v.toLocaleString(undefined, { maximumFractionDigits: 6 }) : String(v);
-}
-
-function renderQuery() {
-  const p = sqlPage;
-  const ref = p.ref;
-  if (!ref) return go("onelake");
-  if (!p.tabs[p.active]) p.active = 0;
-  const tab = p.tabs[p.active];
-  const here = () => state.view === "query" && p.ref === ref && p.tabs[p.active] === tab;
-
-  const editor = h("textarea", { class: "sql-editor", spellcheck: "false", "aria-label": "SQL query" });
-  editor.value = tab.sql;
-  const gutter = h("div", { class: "sql-gutter", "aria-hidden": "true" });
-  const syncGutter = () => {
-    const n = Math.max(editor.value.split("\n").length, 10);
-    gutter.textContent = Array.from({ length: n }, (_, i) => i + 1).join("\n");
-    gutter.scrollTop = editor.scrollTop;
-  };
-  const setSql = (text) => { tab.sql = text; saveQueryTabs(); };
-  editor.addEventListener("input", () => { setSql(editor.value); syncGutter(); });
-  editor.addEventListener("scroll", () => { gutter.scrollTop = editor.scrollTop; });
-  editor.addEventListener("keydown", (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); run(); }
-    else if (e.key === "Tab" && !e.shiftKey) {
-      e.preventDefault();
-      editor.setRangeText("  ", editor.selectionStart, editor.selectionEnd, "end");
-      setSql(editor.value);
-    }
-  });
-  const chosenSql = () => {
-    const { selectionStart: a, selectionEnd: b } = editor;
-    return b > a ? editor.value.slice(a, b) : editor.value;
-  };
-  const insertAtCursor = (text) => {
-    editor.focus();
-    editor.setRangeText(text, editor.selectionStart, editor.selectionEnd, "end");
-    setSql(editor.value);
-    syncGutter();
-  };
-
-  async function run(query = chosenSql()) {
-    if (!query.trim() || tab.running) return;
-    tab.running = true;
-    tab.error = null;
-    drawResults();
-    try {
-      tab.result = await rpc("run_sql", { query, lakehouse_ref: ref });
-      tab.ranSql = query;
-    } catch (err) {
-      tab.result = null;
-      tab.error = String(err);
-    }
-    tab.running = false;
-    if (here()) drawResults();
-  }
-
-  async function saveAsTable() {
-    const query = chosenSql();
-    if (!query.trim()) return;
-    const name = await askText("Save as table", `Table name in ${ref.name}, written with the full query result`, "query_result", "Save");
-    if (!name) return;
-    toast(`Writing ${name}...`);
-    let out = await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name }), "Could not save the table");
-    if (out?.exists) {
-      const replace = await confirmDialog("Replace the table?",
-        `${ref.name} already has a table called ${name}. Saving replaces all of its rows with this query's result.`, "Replace");
-      out = replace && await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name, mode: "overwrite" }), "Could not save the table");
-    }
-    if (out) {
-      toast(out.message);
-      delete state.tree[treeKey(ref, "tables")];
-      p.tables = null;
-      if (here()) drawTables();
-    }
-  }
-
-  async function openInNotebook() {
-    const query = chosenSql().trim();
-    await newNotebook(ref);
-    if (!state.notebook) return;
-    const cell = state.notebook.cells[0];
-    setSource(cell, cell.source + `\ndf = lakehouse.sql("""\n${query.replace(/"""/g, '\\"\\"\\"')}\n""")\ndf\n`);
-    markDirty();
-    renderNotebook();
-  }
-
-  async function downloadCsv() {
-    if (!tab.ranSql) return;
-    const out = await attempt(() => rpc("export_sql_csv", { query: tab.ranSql, lakehouse_ref: ref }), "Could not save the CSV");
-    if (out) toast(`Saved ${out.rows.toLocaleString()} rows to ${out.path}`);
-  }
-
-  async function copyRows() {
-    const r = tab.result;
-    if (!r) return;
-    const lines = [r.columns.map((c) => c.name), ...r.rows.map((row) => row.map((v) => (v === null ? "" : String(v))))];
-    await attempt(() => navigator.clipboard.writeText(lines.map((l) => l.join("\t")).join("\n")), "Could not copy");
-    toast(`Copied ${r.rows.length.toLocaleString()} rows`);
-  }
-
-  // Explorer: click a table to query it, a column to type its name.
-  const tablesBox = h("div", { class: "explorer-content" });
-  function queryTable(name) {
-    const text = `SELECT *\nFROM ${name}\nLIMIT 100;`;
-    if (!tab.sql.trim() || tab.sql === QUERY_HINT) {
-      setSql(text);
-      editor.value = text;
-      syncGutter();
-      run(text);
-    } else {
-      p.tabs.push({ name: nextTabName(), sql: text, autorun: true });
-      p.active = p.tabs.length - 1;
-      saveQueryTabs();
-      renderQuery();
-    }
-  }
-  async function toggleColumns(name) {
-    p.open[name] = !p.open[name];
-    if (p.open[name] && !p.cols[name]) {
-      drawTables();
-      p.cols[name] = (await attempt(() => rpc("table_columns", { lakehouse_ref: ref, table: name }), "Could not read the columns")) || null;
-      if (!p.cols[name]) p.open[name] = false;
-    }
-    if (state.view === "query" && p.ref === ref) drawTables();
-  }
-  function drawTables() {
-    if (!p.tables) {
-      tablesBox.replaceChildren(h("div", { class: "tree-row muted" }, "Loading tables..."));
-      return;
-    }
-    const rows = [];
-    for (const [schema, names] of Object.entries(p.tables)) {
-      const qualify = Object.keys(p.tables).length > 1 || schema !== "dbo";
-      if (qualify) rows.push(h("div", { class: "tree-row muted", style: "padding-left:6px" }, schema));
-      if (!names.length) rows.push(h("div", { class: "tree-row muted", style: "padding-left:28px" }, "No tables"));
-      for (const t of names) {
-        const name = sqlTableName(schema, t);
-        const open = !!p.open[name];
-        rows.push(h("div", { class: "sql-table-row" },
-          h("button", { class: "tree-row chev", "aria-label": open ? `Hide columns of ${t}` : `Show columns of ${t}`,
-            style: `padding-left:${qualify ? 22 : 6}px`, onclick: () => toggleColumns(name) }, chevron(open)),
-          h("button", { class: "tree-row", title: `Query ${name}`, onclick: () => queryTable(name) },
-            icon("table", 15), h("span", { class: "label" }, t))));
-        if (open) {
-          if (!p.cols[name]) rows.push(h("div", { class: "tree-row muted", style: "padding-left:52px" }, "Loading..."));
-          for (const c of p.cols[name] || []) {
-            rows.push(h("button", { class: "tree-row sql-col", title: `Insert ${c.name}`,
-              onclick: () => insertAtCursor(/^[A-Za-z_][A-Za-z0-9_]*$/.test(c.name) ? c.name : `\`${c.name}\``) },
-            h("span", { class: "label" }, c.name), h("span", { class: "hint" }, c.type)));
-          }
-        }
-      }
-    }
-    tablesBox.replaceChildren(...rows);
-  }
-
-  const band = h("div", { class: "sql-band" });
-  const grid = h("div", { class: "sql-grid" });
-  function drawResults() {
-    const r = tab.result;
-    const pill = tab.running ? ["busy", "Running"] : tab.error ? ["bad", "Failed"] : r ? ["ok", "Succeeded"] : ["", "Not run"];
-    let msg = "Press Run to see results";
-    if (tab.running) msg = "Running on this PC...";
-    else if (r) {
-      msg = `${r.row_count.toLocaleString()} row${r.row_count === 1 ? "" : "s"} · ${r.seconds} s on this PC`;
-      if (r.rows.length < r.row_count) msg += ` · showing the first ${r.rows.length.toLocaleString()}`;
-    }
-    band.replaceChildren(h("span", { style: "font-weight:600" }, "Results"),
-      h("span", { class: `sql-pill ${pill[0]}` }, pill[1]), h("span", { class: "muted-text" }, tab.error ? "" : msg),
-      h("span", { class: "spacer" }),
-      btn("Copy", null, copyRows, "tool small", { disabled: !r }),
-      btn("Download CSV", null, downloadCsv, "tool small", { disabled: !r }));
-    if (tab.error) {
-      grid.replaceChildren(h("div", { class: "output error" }, h("pre", {}, tab.error.replace(/^Error: /, ""))));
-    } else if (r && r.columns.length) {
-      grid.replaceChildren(h("table", {},
-        h("thead", {}, h("tr", {}, h("th", { class: "i" }), r.columns.map((c) => h("th", { title: c.type }, c.name)))),
-        h("tbody", {}, r.rows.map((row, i) => h("tr", {}, h("td", { class: "i" }, String(i + 1)),
-          row.map((v) => h("td", { class: `${typeof v === "number" ? "n" : ""}${v === null ? " null" : ""}` }, cellText(v))))))));
-    } else {
-      grid.replaceChildren(h("p", { class: "muted-text", style: "padding:12px 16px" },
-        r ? "The query ran and returned no columns." : "Tables are named as in Fabric, so SELECT * FROM sales works here too."));
-    }
-  }
-
-  const nextTabName = () => {
-    let n = p.tabs.length + 1;
-    while (p.tabs.some((t) => t.name === `Query ${n}`)) n++;
-    return `Query ${n}`;
-  };
-  const tabs = h("div", { class: "sql-tabs", role: "tablist", "aria-label": "Queries" },
-    p.tabs.map((t, i) => h("div", { class: `sql-tab${i === p.active ? " on" : ""}` },
-      h("button", { class: "name", role: "tab", "aria-selected": String(i === p.active),
-        onclick: () => { p.active = i; renderQuery(); },
-        ondblclick: async () => {
-          const name = await askText("Rename query", "Name", t.name, "Rename");
-          if (name) { t.name = name; saveQueryTabs(); renderQuery(); }
-        } }, icon("code", 14), t.name),
-      p.tabs.length > 1 ? h("button", { class: "close", "aria-label": `Close ${t.name}`,
-        onclick: () => { p.tabs.splice(i, 1); p.active = Math.min(p.active, p.tabs.length - 1); saveQueryTabs(); renderQuery(); } }, "×") : null)),
-    h("button", { class: "sql-tab add", "aria-label": "New query",
-      onclick: () => { p.tabs.push({ name: nextTabName(), sql: QUERY_HINT }); p.active = p.tabs.length - 1; saveQueryTabs(); renderQuery(); } }, "+"));
-
-  const runBtn = btn("Run", "play", () => run(), "tool primary");
-  setView(h("div", { class: "sql-page" },
-    h("div", { class: "ribbon" }, h("div", { class: "toolbar" },
-      btn("New SQL query", "add", () => { p.tabs.push({ name: nextTabName(), sql: QUERY_HINT }); p.active = p.tabs.length - 1; saveQueryTabs(); renderQuery(); }),
-      btn("New notebook", "notebook", () => newNotebook(ref)),
-      btn("Refresh", "sync", () => { p.tables = null; p.cols = {}; renderQuery(); }),
-      h("span", { class: "spacer" }),
-      h("span", { class: "muted-text" }, "Queries run on this PC with DuckDB. No Fabric capacity is used."))),
-    h("div", { class: "nb-body" },
-      h("aside", { class: "explorer" }, h("div", { class: "explorer-head" }, "Explorer"),
-        h("div", { class: "tree-row", style: "margin:4px 8px 0;font-weight:600;cursor:default" }, icon("lakehouse", 16),
-          h("span", { class: "label" }, ref.name)),
-        tablesBox),
-      h("section", { class: "sql-main" }, tabs,
-        h("div", { class: "sql-card" },
-          h("div", { class: "sql-actions" }, runBtn,
-            h("span", { class: "muted-text" }, "Ctrl+Enter, or select text to run just that"), h("span", { class: "spacer" }),
-            btn("Save as table", "save", saveAsTable, "tool outline"),
-            btn("Open in notebook", "notebook", openInNotebook, "tool outline")),
-          h("div", { class: "sql-edit" }, gutter, editor),
-          band, grid)))));
-  syncGutter();
-  drawResults();
-  drawTables();
-  if (tab.autorun) { delete tab.autorun; run(tab.sql); }
-  if (!p.tables) {
-    rpc("list_tables", { workspace_id: ref.workspace_id, lakehouse_id: ref.lakehouse_id })
-      .then((t) => { p.tables = t; })
-      .catch((err) => { p.tables = {}; toast(`Could not list tables: ${err}`, true); })
-      .then(() => { if (state.view === "query" && p.ref === ref) drawTables(); });
-  }
-  editor.focus();
 }
 
 // Fabric's rule for lakehouse names (the engine checks the same): letters, numbers and
@@ -1512,9 +1700,9 @@ function pickWorkspace(workspaces, { title = "Choose a workspace", selected = nu
   return new Promise((resolve) => {
     const select = h("select", {}, workspaces.map((w) => h("option", { value: w.id, selected: w.id === selected }, w.displayName)));
     showDialog(title, h("div", {}, note ? h("p", { class: "text" }, note) : null, h("label", { class: "field" }, "Workspace", select)), [
-      btn("Cancel", null, () => { closeDialog(); resolve(null); }, "tool outline"),
-      btn(okLabel, null, () => { closeDialog(); resolve(workspaces.find((w) => w.id === select.value)); }, "tool primary"),
-    ]);
+      btn("Cancel", null, () => { resolve(null); closeDialog(); }, "tool outline"),
+      btn(okLabel, null, () => { resolve(workspaces.find((w) => w.id === select.value)); closeDialog(); }, "tool primary"),
+    ], () => resolve(null));
   });
 }
 
@@ -1564,8 +1752,9 @@ function renderTree(container, ref, onInsert, onPick = null) {
           const pick = { kind: "table", schema, table: t };
           rows.push(h("button", {
             class: `tree-row${onPick && isPreviewed({ ...pick, ref }) ? " selected" : ""}`, style: "padding-left:44px",
-            title: onInsert ? "Insert code that loads this table" : onPick ? `Preview ${schema}.${t}` : `${schema}.${t}`,
-            onclick: () => onInsert ? onInsert(`df = lakehouse.read_table("${schema}.${t}")\ndf`) : onPick && onPick(pick),
+            title: onInsert ? "Click to add a cell that loads this table. Drag it into a cell, or right-click for other ways to load it." : onPick ? `Preview ${schema}.${t}` : `${schema}.${t}`,
+            onclick: () => onInsert ? onInsert(`df = lakehouse.read_table(${JSON.stringify(`${schema}.${t}`)})\ndf`) : onPick && onPick(pick),
+            ...(onInsert ? dataItemAttrs(pick) : {}),  // nbdrag.js
           }, icon("table", 15), h("span", { class: "label" }, t)));
         });
       }
@@ -1591,8 +1780,9 @@ function fileRows(ref, path, indent, onInsert, rerender, onPick = null) {
     } else {
       const pick = { kind: "file", path: item.path, size: item.size };
       rows.push(h("button", { class: `tree-row${onPick && isPreviewed({ ...pick, ref }) ? " selected" : ""}`, style: `padding-left:${indent + 38}px`,
-        title: onInsert ? "Insert code that reads this file" : onPick ? `Preview ${item.path}` : item.path,
-        onclick: () => onInsert ? onInsert(readSnippet(item.path)) : onPick && onPick(pick) },
+        title: onInsert ? "Click to add a cell that reads this file. Drag it into a cell, or right-click for other ways to load it." : onPick ? `Preview ${item.path}` : item.path,
+        onclick: () => onInsert ? onInsert(readSnippet(item.path)) : onPick && onPick(pick),
+        ...(onInsert ? dataItemAttrs(pick) : {}) },  // nbdrag.js
       icon("file", 15), h("span", { class: "label" }, item.name), h("span", { class: "hint" }, formatSize(item.size))));
     }
   }
@@ -1602,7 +1792,7 @@ function fileRows(ref, path, indent, onInsert, rerender, onPick = null) {
 function readSnippet(path) {
   const ext = path.split(".").pop().toLowerCase();
   const reader = { parquet: "read_parquet", json: "read_json" }[ext] || "read_csv";
-  return `df = lakehouse.${reader}("${path}")\ndf`;
+  return `df = lakehouse.${reader}(${JSON.stringify(path)})\ndf`;
 }
 
 function formatSize(bytes) {
@@ -1621,32 +1811,70 @@ function newCellId() {
   return (crypto.randomUUID?.() || `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`).replace(/-/g, "").slice(0, 12);
 }
 
+// A notebook saved on Windows can hold \r\n line ends. The editor counts \n as one character, so a
+// cell keeps \n only: cursor positions (split, run selection) then line up with its text.
 function cellFrom(c) {
-  return { id: nextCellId++, cell_id: c.cell_id || newCellId(), type: c.type, source: c.source || "", meta: c.meta || {}, outputs: [], status: null, count: null, editing: !c.source };
+  return { id: nextCellId++, cell_id: c.cell_id || newCellId(), type: c.type, source: (c.source || "").replace(/\r\n?/g, "\n"), meta: c.meta || {}, outputs: [], status: null, count: null, editing: !c.source };
 }
 
 function loadIntoState(nb) {
   disposeEditors();
   state.variables = null;
-  state.notebook = { name: nb.name, cells: nb.cells.map(cellFrom), lakehouse: nb.lakehouse || null, dirty: false,
-    compute: nb.compute || "default", workspace: nb.workspace || null, check: nb.check || null };
-  if (!state.notebook.cells.length) state.notebook.cells.push(cellFrom({ type: "code" }));
-  state.notebook.cells.forEach((c) => { if (c.type === "markdown" && c.source) c.editing = false; });
+  const kept = openNotebooks.get(nb.name);
+  if (kept && nbRunning(kept)) {  // still running in its session: show it as it is
+    state.notebook = kept;
+  } else {
+    state.notebook = { name: nb.name, cells: nb.cells.map(cellFrom), lakehouse: nb.lakehouse || null, place: nb.place || null, locations: nb.locations || null, dirty: false,
+      compute: nb.compute || "default", workspace: nb.workspace || null, check: nb.check || null, replay: nb.replay || null };
+    if (!state.notebook.cells.length) state.notebook.cells.push(cellFrom({ type: "code" }));
+    state.notebook.cells.forEach((c) => { if (c.type === "markdown" && c.source) c.editing = false; });
+    if (kept) keepOutputs(kept, state.notebook);
+  }
+  rememberNotebook(state.notebook);
   state.selected = state.notebook.cells[0].id;
   state.ribbonTab = "home";
 }
 
+function nbRunning(nb) {
+  return nb.kernelStatus === "busy" || nb.cells.some((c) => c.status === "running" || c.status === "queued");
+}
+
+// Reopened from disk: cells whose source is unchanged keep the outputs they had, as the session
+// that made them (and its variables) is still there.
+function keepOutputs(from, to) {
+  const before = new Map(from.cells.filter((c) => c.cell_id).map((c) => [c.cell_id, c]));
+  for (const c of to.cells) {
+    const old = before.get(c.cell_id);
+    if (!old || old.source !== c.source) continue;
+    Object.assign(c, { outputs: old.outputs, count: old.count, status: old.status, seconds: old.seconds, finishedAt: old.finishedAt });
+  }
+  to.kernelStatus = from.kernelStatus;
+  if (from.debug) to.debug = from.debug;
+}
+
+function rememberNotebook(nb) {
+  openNotebooks.delete(nb.name);
+  openNotebooks.set(nb.name, nb);
+  for (const [name, other] of openNotebooks) {
+    if (openNotebooks.size <= KEPT_NOTEBOOKS) break;
+    if (other !== state.notebook && !nbRunning(other)) openNotebooks.delete(name);
+  }
+}
+
 async function openNotebook(name) {
-  if (state.notebook?.dirty) await saveNotebook();
+  if (state.notebook?.dirty && !(await saveNotebook())) return;
   const nb = await attempt(() => rpc("open_notebook", { name }), "Could not open the notebook");
   if (!nb) return;
   loadIntoState(nb);
   go("notebook");
 }
 
-async function newNotebook(lakehouse) {
-  if (state.notebook?.dirty) await saveNotebook();
-  const nb = await attempt(() => rpc("new_notebook"), "Could not create a notebook");
+// ``into`` ({folder, place}): a new notebook in that folder of that place (All notebooks > a folder).
+async function newNotebook(lakehouse, into = null) {
+  if (state.notebook?.dirty && !(await saveNotebook())) return;
+  const place = into ? into.place : await nbChoosePlace();  // only asks when there are notebooks repositories
+  if (place === undefined) return;
+  const nb = await attempt(() => rpc("new_notebook", into?.folder ? { place, folder: into.folder } : { place }), "Could not create a notebook");
   if (!nb) return;
   closeDialog();
   loadIntoState(nb);
@@ -1665,15 +1893,27 @@ function notebookPayload() {
     lakehouse_ref: state.notebook.lakehouse, compute: state.notebook.compute, workspace: state.notebook.workspace };
 }
 
+// For publishing and Fabric runs: also the repository location's lakehouse, which Fabric gets
+// when the notebook has none of its own. It isn't saved into the notebook.
+function publishPayload() {
+  const data = nbData(state.notebook);
+  return { ...notebookPayload(), location_ref: data.from === "locations" ? data.ref : null };
+}
+
+// True when the notebook is saved (or there is none). On a failure the error toast stays, the
+// notebook stays dirty, and callers that would close or replace it stop.
 async function saveNotebook() {
-  if (!state.notebook) return;
+  if (!state.notebook) return true;
   clearTimeout(saveTimer);
+  const nb = state.notebook;
   const ok = await attempt(() => rpc("save_notebook", notebookPayload()), "Could not save");
-  if (ok && state.notebook) {
-    state.notebook.dirty = false;
+  if (!ok) return false;
+  if (state.notebook === nb) {
+    nb.dirty = false;
     if (ok.check) setComputeCheck(ok.check);
     renderChrome();
   }
+  return true;
 }
 
 function markDirty() {
@@ -1689,9 +1929,14 @@ async function renameNotebook() {
   const nb = state.notebook;
   const name = await askText("Rename notebook", "Name", nb.name, "Rename");
   if (!name || name === nb.name) return;
-  await saveNotebook();
+  if (!(await saveNotebook())) return;
   const ok = await attempt(() => rpc("rename_notebook", { name: nb.name, new_name: name }), "Could not rename");
-  if (ok) { nb.name = name; renderChrome(); }
+  if (ok) {
+    openNotebooks.delete(nb.name);
+    nb.name = name;
+    openNotebooks.set(name, nb);
+    renderChrome();
+  }
 }
 
 // ---------- Publish to OneLake ----------
@@ -1701,7 +1946,8 @@ async function renameNotebook() {
 // Run in Fabric and schedules use the same workspace.
 function publishWorkspace(nb) {
   if (nb?.workspace?.workspace_id) return nb.workspace;
-  if (nb?.lakehouse) return { workspace_id: nb.lakehouse.workspace_id, workspace_name: nb.lakehouse.workspace_name };
+  const lh = nbLakehouse(nb);
+  if (lh) return { workspace_id: lh.workspace_id, workspace_name: lh.workspace_name };
   return null;
 }
 
@@ -1713,7 +1959,8 @@ async function chooseNotebookWorkspace(nb, okLabel = "Save") {
   const workspaces = await loadWorkspaces();
   if (!workspaces.length) return null;
   const current = publishWorkspace(nb);
-  const lh = nb.lakehouse ? ` Its lakehouse, ${nb.lakehouse.name}, stays attached wherever it is published.` : "";
+  const lh = nb.lakehouse ? ` Its lakehouse, ${nb.lakehouse.name}, stays attached wherever it is published.` :
+    nbLakehouse(nb) ? ` It uses ${nbLakehouse(nb).name}, its ${nbData(nb).envLabel} location.` : "";
   const ws = await pickWorkspace(workspaces, { title: `Publish ${nb.name} to`, selected: current?.workspace_id, okLabel,
     note: `The notebook is created or updated as a Fabric notebook item in this workspace. Publish, Run in Fabric and schedules keep using it until you change it here.${lh}` });
   if (!ws || state.notebook !== nb) return null;
@@ -1737,12 +1984,19 @@ async function publishNotebook() {
   if (!(await ensureSignedIn())) return;
   if (!nb.workspace?.workspace_id && !(await chooseNotebookWorkspace(nb, "Publish"))) return;
   const ws = nb.workspace.workspace_name;
+  const gate = await nbFabricChangeGate(nb);  // someone changed it in Fabric: they decide first
+  if (!gate) return;
   toast(`Publishing ${nb.name} to ${ws}...`);
-  const result = await attempt(() => rpc("publish_notebook", notebookPayload()), "Publish failed");
+  let failed = false;
+  const result = await attempt(() => rpc("publish_notebook", { ...publishPayload(), replace_fabric_changes: gate.replace })
+    .catch((err) => { failed = !friendlyError(err).cancelled; throw err; }), "Publish failed");
+  if (failed) forgeEvent("publish.failed", document.getElementById("toast"));  // an ember beside the error (motion.js)
   if (result) {
     nb.dirty = false;
     renderChrome();
     toast(`Published ${nb.name} to ${ws} as a Fabric notebook item.`);
+    // Fabric gave back the item it saved, so the publish is confirmed: the toast cools (motion.js).
+    if (result.id) forgeEvent("publish.verified", document.getElementById("toast"));
   }
 }
 
@@ -1753,7 +2007,7 @@ async function publishNotebook() {
 // runs the whole published notebook, so single cells only run on this PC.
 function nbWhere(nb) {
   const choice = nb?.compute || "default";
-  const ws = nb?.lakehouse ? publishWorkspace(nb).workspace_name : null;
+  const ws = nbLakehouse(nb) ? publishWorkspace(nb).workspace_name : null;
   const envFabric = envWhere(state.meta?.project, state.meta?.env).fabric;
   const fabric = choice === "fabric" || (choice === "default" && envFabric);
   const short = fabric ? (ws ? `Fabric · ${ws}` : "Fabric") : "This PC";
@@ -1767,9 +2021,9 @@ function computeMenu(nb) {
     action: () => setNotebookCompute(value) });
   return [
     { info: "Where Run all runs this notebook." },
-    option("local", "This PC (no Fabric capacity used)", "desktop"),
+    option("local", "This PC (no Fabric job)", "desktop"),
     previewShown() || where.choice === "fabric"
-      ? option("fabric", `Fabric${nb.lakehouse ? ` (${publishWorkspaceName(nb)})` : " (attach a lakehouse first)"} · Preview`, "cloud") : null,
+      ? option("fabric", `Fabric${nbLakehouse(nb) ? ` (${publishWorkspaceName(nb)})` : " (attach a lakehouse first)"} · Preview`, "cloud") : null,
     option("default", `Same as ${env} (${where.envFabric ? "Fabric" : "this PC"})`, "sync"),
     { info: `Python ${state.python || "3"} on this PC. Fabric runs publish the notebook first.` },
     { label: "Restart kernel", icon: "restart", action: restartKernel },
@@ -1838,13 +2092,19 @@ const FABRIC_DONE = new Set(["Completed", "Failed", "Cancelled", "Deduped"]);
 
 async function runInFabric() {
   const nb = state.notebook;
-  if (!nb.lakehouse) {
+  if (!nbLakehouse(nb)) {
     toast("Attach a lakehouse first. The notebook runs in that lakehouse's workspace.", true);
     return;
   }
   if (!(await ensureSignedIn())) return;
+  // The risk check (FINOPS-004) asks only when something should stop or slow the run. A notebook
+  // not yet linked to its Fabric item can't be checked and runs as before.
+  if (!(await riskGate({ id: `notebook:${nb.name}`, action: "run_in_fabric", title: `Run in Fabric ${nb.name}?`,
+    runLabel: "Run in Fabric", alt: { label: "Run on this PC", run: () => runCells(nb.cells) } }))) return;
+  const gate = await nbFabricChangeGate(nb);
+  if (!gate) return;
   toast(`Publishing ${nb.name} and starting it in ${publishWorkspaceName(nb)}...`);
-  const run = await attempt(() => rpc("run_notebook_in_fabric", notebookPayload()), "Could not start the run in Fabric");
+  const run = await attempt(() => rpc("run_notebook_in_fabric", { ...publishPayload(), replace_fabric_changes: gate.replace }), "Could not start the run in Fabric");
   if (!run) return;
   nb.dirty = false;
   nb.fabricRun = run;
@@ -1910,24 +2170,24 @@ function scheduleForm() {
 async function scheduleNotebook() {
   const nb = state.notebook;
   // Where it runs by default: the notebook's own choice, else the environment's compute.
-  const fabricDefault = nb.compute === "fabric" || (nb.compute !== "local" && state.meta?.project?.environments?.[state.env]?.compute === "fabric");
+  const fabricDefault = nb.compute === "fabric" || (nb.compute !== "local" && state.meta?.project?.environments?.[state.meta?.env]?.compute === "fabric");
   openScheduleDialog({
-    title: `Schedule ${nb.name}`,
-    mode: fabricDefault && nb.lakehouse ? "fabric" : "pc",
+    title: `Schedule ${nb.name}`, what: nb.name,
+    mode: fabricDefault && nbLakehouse(nb) ? "fabric" : "pc",
     pc: { target: { kind: "notebook", name: nb.name }, query: { kind: "notebook", name: nb.name },
-          intro: "This PC runs the saved notebook, every cell in order, with its attached lakehouse. Save your changes first." },
+          intro: "This PC runs the saved notebook in a fresh kernel, every code cell in order except frozen ones, with its attached lakehouse. Save your changes first." },
     fabric: {
-      unavailable: nb.lakehouse ? "" : "Attach a lakehouse first. Fabric runs the notebook in that lakehouse's workspace.",
+      unavailable: nbLakehouse(nb) ? "" : "Attach a lakehouse first. Fabric runs the notebook in that lakehouse's workspace.",
       intro: `Fabric runs the published notebook in ${publishWorkspaceName(nb)} on its own capacity, even when this PC is off. Adding a schedule publishes what is on screen first.`,
       adding: `Publishing ${nb.name} and adding the schedule...`,
       added: "Scheduled. Fabric runs the published notebook on its own capacity.",
-      list: () => rpc("notebook_schedules", { name: nb.name, lakehouse_ref: nb.lakehouse, workspace: nb.workspace }),
+      list: () => rpc("notebook_schedules", { name: nb.name, lakehouse_ref: nbLakehouse(nb), workspace: nb.workspace }),
       add: async (schedule) => {
-        const res = await rpc("add_notebook_schedule", { ...notebookPayload(), schedule });
+        const res = await rpc("add_notebook_schedule", { ...publishPayload(), schedule });
         nb.dirty = false; renderChrome();
         return res;
       },
-      remove: (id) => rpc("delete_notebook_schedule", { name: nb.name, lakehouse_ref: nb.lakehouse, workspace: nb.workspace, schedule_id: id }),
+      remove: (id) => rpc("delete_notebook_schedule", { name: nb.name, lakehouse_ref: nbLakehouse(nb), workspace: nb.workspace, schedule_id: id }),
     },
   });
 }
@@ -1941,7 +2201,7 @@ async function openDataItems() {
   if (!(await ensureSignedIn())) return;
   const pick = { scope: "all", query: "", selected: null, catalog: null, layers: {} };
   const nav = h("nav", { class: "catalog-nav" });
-  const list = h("div", { class: "catalog-list" }, h("p", { class: "muted-text", style: "padding:16px" }, "Loading lakehouses from all workspaces..."));
+  const list = h("div", { class: "catalog-list" }, loading("Loading lakehouses from all workspaces..."));
   const head = h("div", { class: "catalog-head" });
   const detail = h("aside", { class: "catalog-detail" });
   const note = h("span", { class: "muted-text" });
@@ -2119,16 +2379,18 @@ function markdown(src) {
 
 // The core pages, in rail order. Pages from other files register themselves the same way
 // (meta.js, settings.js); features.js has the rules.
-registerFeature({ id: "home", rail: { label: "Home", icon: "home", order: 10 }, views: { home: renderHome } });
+registerFeature({ id: "home", rail: { label: "Home", icon: "home", order: 10, also: ["notebooks"] }, views: { home: renderHome } });
 registerFeature({
-  id: "create", rail: { label: "Create", icon: "create", order: 20 }, views: { create: renderCreate },
+  id: "create", rail: { label: "Create", icon: "create", order: 20, also: ["pipelines", "pipelineRun"] }, views: { create: renderCreate },
   commands: [
     { label: "New notebook", icon: "notebook", keywords: "create python", run: () => newNotebook() },
+    { label: "Move this notebook to another place", icon: "folder", keywords: "repository git save in",
+      run: () => state.notebook ? moveNotebookDialog(state.notebook) : toast("Open a notebook first.") },
     { label: "New lakehouse", icon: "lakehouse", keywords: "create", run: () => newLakehouse() },
   ],
 });
 registerFeature({
-  id: "workspaces", rail: { label: "Workspaces", icon: "workspaces", order: 30, also: ["workspace", "lakehouse", "query"] },
+  id: "workspaces", rail: { label: "Workspaces", icon: "workspaces", order: 30, also: ["workspace", "lakehouse", "query", "fabric"] },
   views: { workspaces: renderWorkspaces, workspace: renderWorkspace, lakehouse: renderLakehouse, query: renderQuery },
 });
 registerFeature({
@@ -2142,20 +2404,24 @@ registerFeature({
     { label: "OneLake access", icon: "shield", keywords: "permissions roles security", preview: true, run: () => { catalogPage.tab = "access"; go("onelake"); } },
   ],
 });
-registerFeature({ id: "fabric", rail: { label: "Fabric", icon: "cloud", order: 60 }, views: { fabric: renderFabric } });
+// Fabric's own portal is a tab of Workspaces; its rail slot went to Optimize (optimize.js).
+registerFeature({
+  id: "fabric", views: { fabric: renderFabric },
+  commands: [{ label: "Fabric portal", icon: "cloud", keywords: "fabric web browser app.fabric.microsoft.com", run: () => go("fabric") }],
+});
 registerFeature({
   id: "monitor", rail: { label: "Monitor", icon: "monitor", order: 70, also: ["workload"] }, views: { monitor: renderMonitor },
   commands: [
     { label: "Runs", icon: "monitor", keywords: "monitor history failed", run: () => { monitorPage.panel = "runs"; go("monitor"); } },
     { label: "Schedules", icon: "history", keywords: "monitor scheduled", preview: true, run: () => { monitorPage.panel = "schedules"; go("monitor"); } },
-    { label: "Cost", icon: "gauge", keywords: "monitor capacity cu spend", preview: true, run: () => { monitorPage.panel = "cost"; go("monitor"); } },
+    { label: "Cost", icon: "gauge", keywords: "monitor capacity cu spend", preview: true, run: () => { optimizePage.tab = "cost"; go("optimize"); } },
   ],
 });
 
 // ---------- startup ----------
 
 document.getElementById("bell").addEventListener("click", () => toggleTray());
-document.addEventListener("keydown", (e) => { if (e.key === "Escape" && activity.open && !document.getElementById("dialog-root").childElementCount) toggleTray(false); });
+document.addEventListener("keydown", (e) => { if (isShortcut(e, "close") && activity.open && !document.getElementById("dialog-root").childElementCount) toggleTray(false); });
 document.getElementById("account").addEventListener("click", (e) => accountMenu(e.currentTarget));
 // The top bar's box opens the command bar; clearing it removes the page filter.
 const searchBox = document.getElementById("search");
@@ -2167,12 +2433,25 @@ searchBox.addEventListener("input", () => {
   if (!searchBox.value && state.query) { state.query = ""; render(); }
 });
 document.addEventListener("keydown", (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); openPalette(); }
+  if (isShortcut(e, "palette")) { e.preventDefault(); openPalette(); }
+  // "?" lists the shortcuts, unless it's a character typed in a box or a dialog or the command bar is open.
+  else if (isShortcut(e, "shortcuts") && !e.ctrlKey && !e.metaKey && !e.altKey && !typingIn(e.target)
+      && !document.getElementById("dialog-root")?.childElementCount && !document.getElementById("palette")) {
+    e.preventDefault();
+    shortcutsDialog();
+  }
 });
+document.addEventListener("keydown", navKey);
+document.getElementById("nav-back").addEventListener("click", navBack);
+document.getElementById("nav-forward").addEventListener("click", navForward);
+// Listed in the Keyboard shortcuts dialog while a notebook is open (handled just below).
+registerShortcuts("Notebook", [
+  { keys: ["Ctrl+S"], label: "Save the notebook", when: () => state.view === "notebook" },
+]);
 document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s" && state.view === "notebook") {
     e.preventDefault();
-    saveNotebook().then(() => toast("Saved"));
+    saveNotebook().then((ok) => { if (ok) toast("Saved"); });
   }
 });
 window.addEventListener("beforeunload", () => { if (state.notebook?.dirty) saveNotebook(); });
@@ -2229,7 +2508,7 @@ async function checkComponents(afterInstall = false) {
   const dialog = h("div", { class: "overlay" },
     h("div", { class: "dialog", role: "dialog", "aria-modal": "true", "aria-label": "Checking components" },
       h("div", { class: "dialog-head" }, "Checking components"),
-      h("div", { class: "startup-rows" }, row("app", "Fabric Desktop by KratosBI"), row("python", "Python"), row("sidecar", "Local engine")),
+      h("div", { class: "startup-rows" }, row("app", "KratosForge"), row("python", "Python"), row("sidecar", "Local engine")),
       help, log, actions));
   let dialogShown = false;
   function show() {
@@ -2259,7 +2538,7 @@ async function checkComponents(afterInstall = false) {
     set("python", report.python ? "ok" : "skip", report.python ? `${report.python}, part of the engine` : "Comes with the engine");
   } else {
     set("python", report.python_ok ? "ok" : "error",
-      report.python_ok ? report.python : `${report.python} is too old. Fabric Desktop by KratosBI needs Python 3.11 or later.`);
+      report.python_ok ? report.python : `${report.python} is too old. KratosForge needs Python 3.11 or later.`);
   }
 
   state.build = app.commit ? short(app.commit) : `${app.version} (local build)`;
@@ -2274,6 +2553,8 @@ async function checkComponents(afterInstall = false) {
       ? `Build ${short(app.commit)}. Build ${short(latest.commit)} is out; your organization rolls out updates`
       : `Build ${short(app.commit)}. Your organization rolls out updates`);
   } else if (!latest.commit) set("app", "warn", `Build ${short(app.commit)} (${latest.channel || "stable"} channel). Could not check for a newer build: ${latest.error}`);
+  // The shell refused the channel's version.json: out of date, or no checksum (HD-022).
+  else if (latest.refused) set("app", "warn", `Build ${short(app.commit)}. ${latest.refused}`);
   else if (latest.commit === app.commit) set("app", "ok", `Up to date (build ${short(app.commit)})`);
   else {
     // A newer build is installed straight away, so nobody keeps running an old one.
@@ -2319,7 +2600,7 @@ async function checkComponents(afterInstall = false) {
       set("sidecar", "error", `The latest engine is build ${sidecar.commit ? short(sidecar.commit) : "unknown"}, ` +
         `but this app is ${short(app.commit)}. ` + (report.auto_update === false
         ? "Your organization rolls out updates: ask IT for the current build of fabric-desktop.exe."
-        : "Restart Fabric Desktop by KratosBI to update it."));
+        : "Restart KratosForge to update it."));
       if (await choose("Retry", "Continue anyway") === 0) return checkComponents();
       return closeDialog();
     }
@@ -2364,22 +2645,35 @@ async function checkComponents(afterInstall = false) {
 
 hydrateIcons();
 renderChrome();
-// Nothing may start the sidecar until the check is done: pip cannot replace files it has open.
-checkComponents().finally(() => {
-  render();
-  attempt(async () => {
-    const env = await rpc("environment");
-    state.python = env.python;
-    state.user = env.user;
-    state.tenant = env.tenant;
-    await loadSettings();
-    showWhatsNew();
-    // The environment pill needs the metadata project; there may not be one yet.
-    state.meta.project = await rpc("meta_project").catch(() => state.meta.project);
+// A pop-out window starts from the engine the main window checked and started (popout.js).
+if (POP_OUT) addEventListener("DOMContentLoaded", () => startPopOut());
+else startMain();
+
+function startMain() {
+  // Nothing may start the sidecar until the check is done: pip cannot replace files it has open.
+  // Home draws at once with placeholders while the check runs (UX-020), then fills in when it returns.
+  state.starting = true;
+  if (state.view === "home") renderHome();
+  checkComponents().finally(() => {
+    state.starting = false;
+    listenForPopOuts();  // popout.js
+    navRestore();  // the page you were on last time, or Home
     render();
-    trackFabricJobs();
-    checkFreshness();
-    // After an update the engine lives in a new folder: point this PC's scheduled runs at it.
-    rpc("sync_pc_schedules").then((r) => r.error && toast(`Scheduled runs on this PC: ${friendlyError(r.error).text}`, true)).catch(() => {});
-  }, "Could not start the Python sidecar");
-});
+    attempt(async () => {
+      const env = await rpc("environment");
+      state.python = env.python;
+      state.user = env.user;
+      state.tenant = env.tenant;
+      await loadSettings();
+      if (!navShown(state.view)) state.view = "home";  // a preview page reopened while preview features are now hidden
+      showRenameSplash(() => showWhatsNew()) || showUpdateSplash();
+      // The environment pill needs the metadata project; there may not be one yet.
+      state.meta.project = await rpc("meta_project").catch(() => state.meta.project);
+      render();
+      trackFabricJobs();
+      checkFreshness();
+      // After an update the engine lives in a new folder: point this PC's scheduled runs at it.
+      rpc("sync_pc_schedules").then((r) => r.error && toast(`Scheduled runs on this PC: ${friendlyError(r.error).text}`, true)).catch(() => {});
+    }, "Could not start the Python sidecar");
+  });
+}

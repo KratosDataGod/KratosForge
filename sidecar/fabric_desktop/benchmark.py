@@ -732,14 +732,21 @@ def table_name(schema, table):
 
 _WRITE = '''
 def slices(reader):
-    """The query's rows in tables of about batch_rows, so a big table never has to fit in memory at once."""
-    batches, pending = [], 0
+    """The query's rows in tables of about batch_rows, so a big table never has to fit in memory at once.
+    A short last piece goes with the slice before it: each write is a commit, which costs the same
+    round trips to OneLake however few rows it carries (lineitem at scale 1 ends with 1,215)."""
+    batches, pending, held = [], 0, None
     for batch in reader:
         batches.append(batch)
         pending += batch.num_rows
         if pending >= batch_rows:
-            yield pa.Table.from_batches(batches)
-            batches, pending = [], 0
+            if held:
+                yield pa.Table.from_batches(held)
+            held, batches, pending = batches, [], 0
+    if held and pending < batch_rows // 10:
+        held, batches = held + batches, []
+    if held:
+        yield pa.Table.from_batches(held)
     if batches:
         yield pa.Table.from_batches(batches)
 
@@ -843,7 +850,7 @@ Loads the `tpch` tables (from **TPC-H data**), runs the 22 TPC-H queries with Du
 `bench.q01` ... `bench.q22` (`bench_q01` ... in a lakehouse without schemas).
 
 To compare this PC with Fabric, turn on **Side by side** in the ribbon and choose **Run all**. The notebook runs here,
-then in Fabric, and Fabric Desktop checks that both wrote the same answers. The timings table at the end shows each
+then in Fabric, and KratosForge checks that both wrote the same answers. The timings table at the end shows each
 step; the one from Fabric is in the notebook's run in Fabric.
 """),
         _code(f'''

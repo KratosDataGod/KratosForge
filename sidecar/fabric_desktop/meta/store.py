@@ -14,10 +14,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 import polars as pl
+import pyarrow as pa
 from deltalake import CommitProperties, DeltaTable, write_deltalake
 from deltalake.exceptions import TableNotFoundError
 
 from .. import delta_profile
+from ..retrying import local_retry
 from ..onelake import FileStore, TableRef, storage_options
 
 META_LAKEHOUSE = "LH_Meta"
@@ -44,6 +46,10 @@ META_SCHEMAS: dict[str, dict[str, pl.DataType]] = {
                     "engine_version": pl.String, "lock_hash": pl.String, "by": pl.String,
                     "receipt_id": pl.String, "receipt": pl.String},
     "entities": {"version": pl.String, "name": pl.String, "config": pl.String, "at": pl.String},
+    # Every file of a release promoted here, base64, so the environment runs and rolls back to
+    # exactly what was released (meta/snapshot.py).
+    "release_files": {"version": pl.String, "path": pl.String, "sha256": pl.String, "content": pl.String,
+                      "at": pl.String},
     "restores": {"entity": pl.String, "env": pl.String, "from_version": pl.Int64, "to_version": pl.Int64,
                  "new_version": pl.Int64, "by": pl.String, "reason": pl.String, "at": pl.String},
     # Files an entity has loaded (path under the lakehouse's Files, size, modified time), so the next
@@ -53,7 +59,8 @@ META_SCHEMAS: dict[str, dict[str, pl.DataType]] = {
 }
 # Delta returns rows in no particular order, so every meta table is sorted by when it was written.
 _ORDER = {"run_log": "started_at", "dq_results": None, "watermarks": "at", "schema_history": "at",
-          "deployments": "at", "entities": "at", "restores": "at", "loaded_files": "at"}
+          "deployments": "at", "entities": "at", "restores": "at", "loaded_files": "at",
+          "release_files": "at"}
 
 
 def ran_on(run: dict[str, Any]) -> str:
@@ -168,11 +175,18 @@ class Store:
             return None
 
     def count(self, lakehouse: str, schema: str, table: str) -> int:
-        """Rows in the table, from the Delta log's file statistics: no data is read."""
+        """Rows in the table, from the Delta log's file statistics: no data is read. A file written
+        without them (CONVERT TO DELTA, some other writers) would be left out of that sum, so then
+        the rows are counted from the files themselves."""
+        uri = self.uri(lakehouse, schema, table)
         try:
-            return DeltaTable(self.uri(lakehouse, schema, table), storage_options=self.options()).count()
+            dt_ = DeltaTable(uri, storage_options=self.options())
         except TableNotFoundError:
             return 0
+        actions = pa.table(dt_.get_add_actions(flatten=True))
+        if "num_records" in actions.column_names and actions.column("num_records").null_count == 0:
+            return dt_.count()
+        return int(lazy(dt_, uri, self.options()).select(pl.len()).collect().item())
 
     def write(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, mode: str = "overwrite",
               metadata: dict[str, str] | None = None, read_version: int | None | bool = False) -> int:
@@ -184,6 +198,7 @@ class Store:
         uri = self.uri(lakehouse, schema, table)
         if isinstance(self, LocalStore):
             Path(uri).mkdir(parents=True, exist_ok=True)
+        delta_profile.check_target(uri, self.options())
         target: Any = uri
         extra: dict[str, Any] = {}
         if mode == "overwrite" and read_version is not False:
@@ -204,7 +219,7 @@ class Store:
                 raise CommitFailedError(f"{table} was created by another writer meanwhile") from exc
             raise
         dt_ = DeltaTable(uri, storage_options=self.options())
-        delta_profile.check_table(dt_)
+        delta_profile.note_after_write(dt_)
         return dt_.version()
 
     def write_stream(self, lakehouse: str, schema: str, table: str, rows: Any,
@@ -216,6 +231,7 @@ class Store:
         uri = self.uri(lakehouse, schema, table)
         if isinstance(self, LocalStore):
             Path(uri).mkdir(parents=True, exist_ok=True)
+        delta_profile.check_target(uri, self.options())
         target: Any = uri
         extra: dict[str, Any] = {"mode": "error"}
         if read_version is not None:
@@ -230,7 +246,7 @@ class Store:
                 raise CommitFailedError(f"{table} was created by another writer meanwhile") from exc
             raise
         dt_ = DeltaTable(uri, storage_options=self.options())
-        delta_profile.check_table(dt_)
+        delta_profile.note_after_write(dt_)
         return dt_.version()
 
     def read_at(self, lakehouse: str, schema: str, table: str) -> tuple[pl.DataFrame | None, int | None]:
@@ -276,13 +292,15 @@ class Store:
             # A new table: created empty only if still absent, then merged into like any other.
             self.create_if_absent(lakehouse, schema, table, dict(df.schema))
             target = DeltaTable(uri, storage_options=self.options(), version=0)
-        if version is not None and DeltaTable(uri, storage_options=self.options()).version() != version:
+        current = DeltaTable(uri, storage_options=self.options())
+        delta_profile.check_table(current)
+        if version is not None and current.version() != version:
             raise CommitFailedError(f"{table} changed since version {version}")
         predicate = " AND ".join(f"t.{c} = s.{c}" for c in on)
         target.merge(df.to_arrow(), predicate, source_alias="s", target_alias="t") \
             .when_not_matched_insert_all().execute()
         dt_ = DeltaTable(uri, storage_options=self.options())
-        delta_profile.check_table(dt_)
+        delta_profile.note_after_write(dt_)
         return dt_.version()
 
     def upsert(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, on: list[str],
@@ -302,6 +320,7 @@ class Store:
         concurrent insert there conflicts.
         """
         uri = self.uri(lakehouse, schema, table)
+        delta_profile.check_target(uri, self.options())
         target = DeltaTable(uri, storage_options=self.options(), version=read_version)
         # The keys' range bounds the target rows that can match, so delta-rs skips files by their
         # statistics and scans less (a 1,000-row merge into 5 million rows peaks at half the memory).
@@ -316,7 +335,7 @@ class Store:
                                commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None) \
             .when_matched_update_all().when_not_matched_insert_all().execute()
         dt_ = DeltaTable(uri, storage_options=self.options())
-        delta_profile.check_table(dt_)
+        delta_profile.note_after_write(dt_)
         return dt_.version(), metrics
 
     def history(self, lakehouse: str, schema: str, table: str, limit: int = 20) -> list[dict[str, Any]]:
@@ -324,6 +343,19 @@ class Store:
             return DeltaTable(self.uri(lakehouse, schema, table), storage_options=self.options()).history(limit)
         except TableNotFoundError:
             return []
+
+    def has_commit(self, lakehouse: str, schema: str, table: str, key: str, value: str,
+                   since: int | None = None) -> bool:
+        """Whether a commit after version ``since`` (None: any commit) carries ``key`` = ``value`` in
+        its commit metadata. Reads only the commits made since then, however many other writers made."""
+        try:
+            t = DeltaTable(self.uri(lakehouse, schema, table), storage_options=self.options())
+        except TableNotFoundError:
+            return False
+        if since is not None and t.version() <= since:
+            return False
+        limit = None if since is None else t.version() - since
+        return any(commit.get(key) == value for commit in t.history(limit))
 
     # ---- files
 
@@ -348,14 +380,14 @@ class Store:
 
     # ---- run metadata
 
-    def meta_append(self, table: str, rows: list[dict[str, Any]]) -> None:
+    def meta_append(self, table: str, rows: list[dict[str, Any]], metadata: dict[str, str] | None = None) -> None:
         if not rows:
             return
         schema = META_SCHEMAS[table]
         now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
         df = pl.DataFrame([{k: r.get(k) for k in schema} | ({"at": r.get("at") or now} if "at" in schema else {})
                            for r in rows], schema=schema)
-        self.write(META_LAKEHOUSE, "meta", table, df, mode="append")
+        self.write(META_LAKEHOUSE, "meta", table, df, mode="append", metadata=metadata)
 
     def meta(self, table: str) -> pl.DataFrame:
         df = self.read(META_LAKEHOUSE, "meta", table)
@@ -376,6 +408,22 @@ class LocalStore(Store):
 
     def uri(self, lakehouse: str, schema: str, table: str) -> str:
         return str(self.root / lakehouse / "Tables" / schema / table)
+
+    # Runs at once on this PC can hit the Windows Delta log race (retrying.windows_log_race). Each call here
+    # is safe to repeat: a read, create-if-absent, or an insert-only MERGE (a repeat after a commit
+    # that landed inserts nothing, and one pinned to a version fails with CommitFailedError instead).
+    def read(self, lakehouse: str, schema: str, table: str, version: int | None = None) -> pl.DataFrame | None:
+        return local_retry(lambda: super(LocalStore, self).read(lakehouse, schema, table, version))
+
+    def read_at(self, lakehouse: str, schema: str, table: str) -> tuple[pl.DataFrame | None, int | None]:
+        return local_retry(lambda: super(LocalStore, self).read_at(lakehouse, schema, table))
+
+    def create_if_absent(self, lakehouse: str, schema: str, table: str, columns: dict[str, pl.DataType]) -> bool:
+        return local_retry(lambda: super(LocalStore, self).create_if_absent(lakehouse, schema, table, columns))
+
+    def merge_insert(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, on: list[str],
+                     version: int | None = None) -> int:
+        return local_retry(lambda: super(LocalStore, self).merge_insert(lakehouse, schema, table, df, on, version))
 
     def files_dir(self, lakehouse: str) -> Path:
         if lakehouse == LANDING_LAKEHOUSE and self.landing is not None:

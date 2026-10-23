@@ -2,6 +2,7 @@
 
     [agent]
     name = "etl-01"                       # this worker's name in run logs; the host name if left out
+    owner = "Sales data team"             # optional: who looks after this agent, shown in the app
     project = "/srv/fabric/sales-metadata" # the metadata project folder (a Git checkout)
     environments = ["test", "prod"]       # the environments this agent may run
     concurrency = 1                       # jobs at once
@@ -41,11 +42,14 @@
     entities = ["silver.*", "gold.*"]     # optional allowlist; a request for anything else is rejected
     allow_backfill = false                # full rebuilds and cascades from a pipeline
     poll_seconds = 30
+    claim = "always"                      # or "when_free": take a request only with a worker free (Preview)
+    take_over = false                     # true: take over requests from an agent that stopped reporting (Preview)
 
     [[schedule]]
     id = "prod-nightly"
     env = "prod"
     daily = ["02:00"]                     # or every_minutes = 15, or weekly = { days = [...], times = [...] }
+    shared = false                        # true: shared with other agents through the mailbox (Preview)
 
 Secrets never go in this file: a certificate is a path, a secret or webhook is the name of an
 environment variable that holds it.
@@ -53,6 +57,7 @@ environment variable that holds it.
 
 from __future__ import annotations
 
+import fnmatch
 import os
 import re
 import socket
@@ -69,6 +74,8 @@ from .meta.project import ENVIRONMENTS
 # Keys whose value would be a secret itself. Give the name of an environment variable instead.
 _SECRET_KEYS = {"client_secret", "password", "secret", "certificate_password", "teams_webhook", "token", "api_key"}
 _ID = re.compile(r"[A-Za-z0-9_.-]{1,64}")
+# Every-N-minutes schedules count from here (local time), so 60 runs on the hour and 15 at :00, :15, :30 and :45.
+GRID_START = "2000-01-01T00:00:00"
 
 
 class ConfigError(ValueError):
@@ -100,6 +107,8 @@ class Schedule:
     entities: list[str]
     config: dict[str, Any]  # the same shape local_schedules.next_run reads
     backfill: str = ""
+    when: dict[str, Any] = field(default_factory=dict)  # as written: {"kind": "cron"|"daily"|"weekly", ...}
+    shared: bool = False  # each due time goes to the mailbox as one request any agent may claim
 
 
 @dataclass(frozen=True)
@@ -111,6 +120,8 @@ class PipelineConfig:
     allow_backfill: bool = False
     poll_seconds: float = 30.0
     retention_days: float = 14.0
+    claim: str = "always"  # or "when_free": only claim a request while a worker is free
+    take_over: bool = False  # take over requests held by an agent that stopped reporting (mailbox.py)
 
 
 @dataclass(frozen=True)
@@ -134,6 +145,7 @@ class AgentConfig:
     project: Path
     environments: list[str]
     auth: dict[str, Any]
+    owner: str = ""
     concurrency: int = 1
     poll_seconds: float = 5.0
     job_lease_seconds: float = 300.0
@@ -230,7 +242,25 @@ def _schedule(raw: dict[str, Any], i: int, errors: list[str]) -> Schedule | None
         return None
     del fabric_cfg  # validated; the agent keeps local time, as Task Scheduler does
     entities = [str(e) for e in raw.get("entities") or []]
-    return Schedule(sid, env, entities, local_configuration(schedule), str(raw.get("backfill", "")))
+    shared = raw.get("shared", False)
+    if not isinstance(shared, bool):
+        errors.append(f"{where}: shared is true or false")
+        return None
+    if shared and len(sid) > 40:
+        errors.append(f"{where}: a shared schedule's id is at most 40 characters")
+        return None
+    minutes = raw.get("every_minutes")
+    if shared and minutes is not None and (isinstance(minutes, bool) or not isinstance(minutes, int) or minutes < 1):
+        errors.append(f"{where}: a shared schedule's every_minutes is a whole number of at least 1")  # slots are named to the minute
+        return None
+    config = local_configuration(schedule)
+    config["startDateTime"] = GRID_START  # not the parse time: every N minutes keeps its times across restarts
+    return Schedule(sid, env, entities, config, str(raw.get("backfill", "")), schedule, shared)
+
+
+def host_name() -> str:
+    """The default agent name: this machine's name, with anything agent.name can't hold made a ``-``."""
+    return re.sub(r"[^A-Za-z0-9_.-]+", "-", socket.gethostname())[:64] or "agent"
 
 
 def load(path: Path | str | None = None) -> AgentConfig:
@@ -281,14 +311,31 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
     errors += [f"schedule {s.id}: {s.env} isn't in agent.environments" for s in schedules if s.env not in envs]
     pipe_envs = [str(e) for e in pipe.get("environments") or envs]
     errors += [f"pipeline.environments: {e} isn't in agent.environments" for e in pipe_envs if e not in envs]
-    for key in ("enabled", "allow_backfill"):
+    for key in ("enabled", "allow_backfill", "take_over"):
         if not isinstance(pipe.get(key, False), bool):
             errors.append(f"pipeline.{key}: true or false")
     pipeline = PipelineConfig(enabled=pipe.get("enabled") is True, environments=pipe_envs,
                               entities=[str(e) for e in pipe.get("entities") or []],
                               allow_backfill=pipe.get("allow_backfill") is True,
                               poll_seconds=number(pipe, "poll_seconds", 30, 1, "pipeline"),
-                              retention_days=number(pipe, "retention_days", 14, 1, "pipeline"))
+                              retention_days=number(pipe, "retention_days", 14, 1, "pipeline"),
+                              claim=str(pipe.get("claim", "always")), take_over=pipe.get("take_over") is True)
+    if pipeline.claim not in ("always", "when_free"):
+        errors.append('pipeline.claim: "always" or "when_free"')
+    for s in schedules:
+        if not s.shared:
+            continue
+        where = f"schedule {s.id}"
+        if not pipeline.enabled or s.env not in pipeline.environments:
+            errors.append(f"{where}: a shared schedule goes through the {s.env} mailbox; enable [pipeline] for {s.env}")
+        if s.backfill and not pipeline.allow_backfill:
+            errors.append(f"{where}: a shared backfill needs pipeline.allow_backfill = true")
+        if pipeline.entities:
+            if not s.entities:
+                errors.append(f"{where}: list its entities; pipeline.entities only takes {', '.join(pipeline.entities)}")
+            refused = [e for e in s.entities if not any(fnmatch.fnmatchcase(e, p) for p in pipeline.entities)]
+            if refused:
+                errors.append(f"{where}: {', '.join(refused)} isn't in pipeline.entities")
     if not isinstance(inc.get("enabled", False), bool):
         errors.append("incidents.enabled: true or false")
     routes = _routes(inc.get("route") or [], errors)
@@ -306,10 +353,14 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
                                 digest_over=int(number(inc, "digest_over", 5, 1, "incidents")),
                                 quiet_hours=quiet, quiet_except=tuple(str(x).lower() for x in inc.get("quiet_except", ["critical"])),
                                 escalate_after_minutes=escalate_after, escalate_to=escalate_to, routes=routes)
+    name = agent.get("name") or host_name()
+    if not isinstance(name, str) or not _ID.fullmatch(name):  # the mailbox takes over only such names
+        errors.append(f"agent.name: {name!r} isn't 1 to 64 letters, digits, . _ or - (it names agents/<name>.json)")
     cfg = AgentConfig(
-        path=Path(path), name=str(agent.get("name") or socket.gethostname()),
+        path=Path(path), name=name,
         home=Path(agent["home"]) if agent.get("home") else default_home(),
-        project=Path(project), environments=envs, auth=dict(auth), concurrency=concurrency,
+        project=Path(project), environments=envs, auth=dict(auth), owner=str(agent.get("owner") or "").strip(),
+        concurrency=concurrency,
         poll_seconds=number(agent, "poll_seconds", 5, 0.1, "agent"),
         job_lease_seconds=number(agent, "job_lease_seconds", 300, 30, "agent"),
         table_lease_seconds=number(agent, "table_lease_seconds", 120, 15, "agent"),

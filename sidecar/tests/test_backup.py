@@ -3,6 +3,7 @@
 import json
 import sqlite3
 import zipfile
+from contextlib import closing
 from datetime import datetime, timezone
 
 import pytest
@@ -73,6 +74,74 @@ def test_restore_previews_then_applies_and_keeps_what_it_replaced(app, tmp_path)
     assert kept.read_text() == '{"cells": ["changed"]}'
     assert sqlite3.connect(app / "workloads.sqlite").execute("select name from w").fetchall() == [("orders",)]
     assert "set it again" in backup.describe(done)
+
+
+def _rows(path):
+    with closing(sqlite3.connect(path)) as db:
+        tables = {r[0] for r in db.execute("select name from sqlite_master where type = 'table'")}
+        return db.execute("select count(*) from r").fetchone()[0], tables
+
+
+def test_restore_moves_a_stale_wal_aside_so_it_isnt_replayed(app, tmp_path):
+    runs = app / "runs.sqlite"
+    with closing(sqlite3.connect(runs)) as db:
+        db.execute("pragma journal_mode=wal")
+        db.execute("create table r (id int)")
+        db.execute("insert into r values (1)")
+        db.commit()
+    zip_path = backup.create(tmp_path / "out", app, now=NOW)["path"]
+
+    with closing(sqlite3.connect(runs)) as db:  # written after the backup and still only in the WAL
+        db.execute("pragma wal_autocheckpoint=0")
+        db.executemany("insert into r values (?)", [(i,) for i in range(200)])
+        db.execute("create table later (x int)")
+        db.commit()
+        wal = (app / "runs.sqlite-wal").read_bytes()
+    (app / "runs.sqlite-wal").write_bytes(wal)  # as if the app stopped before checkpointing it
+
+    done = backup.restore(zip_path, app, apply=True, now=NOW)
+    assert not (app / "runs.sqlite-wal").exists()
+    kept = app / backup.SAFETY / "20261017-120000" / "app"
+    assert (kept / "runs.sqlite-wal").read_bytes() == wal  # the safety copy is complete, WAL and all
+    assert (kept / "runs.sqlite").exists() and done["safety"] == str(kept.parent)
+    assert _rows(runs) == (1, {"r"})
+
+
+def test_restore_refuses_a_database_in_use_and_changes_nothing(app, tmp_path):
+    zip_path = backup.create(tmp_path / "out", app, now=NOW)["path"]
+    (app / "notebooks" / "sales.ipynb").write_text('{"cells": ["changed"]}')
+    with closing(sqlite3.connect(app / "workloads.sqlite", isolation_level=None)) as db:
+        db.execute("begin exclusive")
+        db.execute("insert into w values ('later')")
+        with pytest.raises(backup.BackupError, match="Close KratosForge and stop the agent"):
+            backup.restore(zip_path, app, apply=True, now=NOW)
+        db.execute("commit")
+    assert (app / "notebooks" / "sales.ipynb").read_text() == '{"cells": ["changed"]}'
+    assert not (app / backup.SAFETY).exists()
+    with closing(sqlite3.connect(app / "workloads.sqlite")) as db:
+        assert db.execute("select name from w").fetchall() == [("orders",), ("later",)]
+
+
+def test_restore_refuses_while_an_idle_connection_has_a_wal_database_open(app, tmp_path):
+    with closing(sqlite3.connect(app / "workloads.sqlite")) as db:
+        db.execute("pragma journal_mode=wal")
+    zip_path = backup.create(tmp_path / "out", app, now=NOW)["path"]
+    with closing(sqlite3.connect(app / "workloads.sqlite")) as db:
+        db.execute("select name from w").fetchall()  # open with no transaction, like a running app
+        with pytest.raises(backup.BackupError, match="databases open"):
+            backup.restore(zip_path, app, apply=True, now=NOW)
+    assert not (app / backup.SAFETY).exists()
+
+
+def test_restore_checks_each_file_it_writes(app, tmp_path, monkeypatch):
+    zip_path = backup.create(tmp_path / "out", app, now=NOW)["path"]
+    (app / "notebooks" / "sales.ipynb").write_text('{"cells": ["changed"]}')
+    real = backup._sha256
+    monkeypatch.setattr(backup, "_sha256", lambda p: "0" * 64 if p.name.startswith("sales") else real(p))
+    with pytest.raises(backup.BackupError, match="didn't write correctly"):
+        backup.restore(zip_path, app, apply=True, now=NOW)
+    assert (app / "notebooks" / "sales.ipynb").read_text() == '{"cells": ["changed"]}'
+    assert not (app / "notebooks" / "sales.ipynb.restoring").exists()
 
 
 def _tamper(zip_path, tmp_path, name, data, manifest_entry=None):

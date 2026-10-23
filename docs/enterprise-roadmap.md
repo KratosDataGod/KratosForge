@@ -1,10 +1,10 @@
 # Enterprise local execution roadmap
 
-**Develop with Fabric Desktop by KratosBI. Execute on your infrastructure. Store and consume in Microsoft Fabric.**
+**Develop with KratosForge. Execute on your infrastructure. Store and consume in Microsoft Fabric.**
 
-![Fabric Desktop by KratosBI in a Microsoft Fabric solution](fabric-desktop-solution.png)
+![KratosForge in a Microsoft Fabric solution](kratosforge-solution.png)
 
-This is the assessment and plan for growing Fabric Desktop by KratosBI from a desktop development app into a platform that runs Fabric-compatible data engineering on your own Windows and Linux servers. It was written on 2026-10-15 against `main` at `8edf88a`. Milestone M1, the [headless agent](agent.md), is now built.
+This is the assessment and plan for growing KratosForge from a desktop development app into a platform that runs Fabric-compatible data engineering on your own Windows and Linux servers. It was written on 2026-10-15 against `main` at `8edf88a`. Milestone M1, the [headless agent](agent.md), is now built.
 
 Nothing in this document has been verified against a live Fabric tenant. Every Fabric API behaviour it relies on is marked as needing that check (milestone M0).
 
@@ -38,7 +38,7 @@ Paths are under `sidecar/fabric_desktop/` unless they start with `app/` or `.git
 | Surrogate keys | Central LH_Keys; Delta MERGE on business key, retried on `CommitFailedError`, duplicate-key detection | `meta/keys.py` | yes |
 | Environments and promote | Dev/Test/Prod each with workspace, "Tables in" and "Runs on"; promote gates | `meta_service.py`, `meta/promote.py`, `meta/testing.py` | yes |
 | Fabric compute | Bundle upload to LH_Meta, runner notebook, RunNotebook, result file | `fabric_compute.py`, `fabric_api.py` | unit only |
-| Fabric REST client | 429 retry with `Retry-After`, long-running operations, paging; workspaces, lakehouses, notebooks, jobs, schedules, maintenance, models, roles, shortcuts, connections, variable libraries | `fabric_api.py` | unit only |
+| Fabric REST client | 429 retry, and 5xx retry on reads, with a capped `Retry-After` (seconds or HTTP date), long-running operations, paging; workspaces, lakehouses, notebooks, jobs, schedules, maintenance, models, roles, shortcuts, connections, variable libraries | `fabric_api.py` | unit only |
 | Local schedules | Windows Task Scheduler; on other systems saved but never started; per-schedule lock file | `local_schedules.py`, `schedule_service.py` | yes |
 | Fabric schedules | List, create, enable, delete Fabric job schedules | `schedule_service.py` | unit only |
 | Alerts | Teams Workflows webhook for freshness misses and failed PC schedules | `dataops_service.py`, `meta/freshness.py` | yes |

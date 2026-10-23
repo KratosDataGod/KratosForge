@@ -221,6 +221,8 @@ def test_validate_notebook_runs_the_screen_checks(svc):
     out = services.validate_notebook(svc, ctx(), name="Uses spark")
     assert set(out) >= {"this_pc", "fabric", "proof", "dependencies", "ok"}
     assert out["proof"]["ok"] is False  # no lakehouse attached
+    # Validate's code checks too: reading a table with no lakehouse attached is an error.
+    assert out["verdict"] == "not_ready" and [f["code"] for f in out["findings"] if f["severity"] == "error"] == ["no_lakehouse"]
 
 
 def test_projects_list_the_notebook_folder_without_a_metadata_project(svc):
@@ -233,9 +235,42 @@ def test_projects_list_the_notebook_folder_without_a_metadata_project(svc):
 
 def test_status_never_starts_a_sign_in(svc):
     out = services.get_status(svc, ctx())
-    assert out["product"] == "Fabric Desktop by KratosBI" and out["caller"]["channel"] == "test"
+    assert out["product"] == "KratosForge" and out["caller"]["channel"] == "test"
     assert "token" not in json.dumps(out).lower()
 
+
+
+def test_status_builds_no_sign_in_client_when_nobody_signed_in_here(svc, tmp_path, monkeypatch):
+    """Building the sign-in client asks Microsoft for its endpoints (and on Windows starts the
+    broker): with no sign-in cache on this PC there is nobody to report, so status doesn't."""
+    import fabric_desktop.service as service_mod
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    built = []
+    monkeypatch.setattr(service_mod, "Authenticator", lambda *a, **k: built.append(1))
+    out = services.get_status(svc, ctx())
+    assert (out["signed_in"], out["user"], built) == (False, None, [])
+
+
+def test_calls_arriving_together_build_one_sign_in_client(tmp_path, monkeypatch):
+    import fabric_desktop.service as service_mod
+    built = []
+
+    class Slow:
+        client_id = ""
+
+        def __init__(self, client_id, interactive=True):
+            self.client_id = client_id
+            built.append(self)
+            time.sleep(0.2)  # the endpoint lookup
+    monkeypatch.setattr(service_mod, "Authenticator", Slow)
+    s = Service(root=tmp_path)
+    got = []
+    threads = [threading.Thread(target=lambda: got.append(s.auth)) for _ in range(12)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(built) == 1 and all(a is built[0] for a in got) and len(got) == 12
 
 def test_metadata_project_is_described_and_validated(svc, tmp_path):
     svc.meta_init(str(tmp_path / "project"))

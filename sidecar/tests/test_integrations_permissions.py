@@ -11,7 +11,7 @@ import pytest
 from mcp import Client
 
 from fabric_desktop import server
-from fabric_desktop.integrations import policy
+from fabric_desktop.integrations import policy, scope
 from fabric_desktop.integrations.capabilities import register_core
 from fabric_desktop.integrations.core import CallContext, Caller, IntegrationError
 from fabric_desktop.integrations.mcp_server import build_server
@@ -51,7 +51,7 @@ def registry(store, wait=0.3):
     reg.register(Capability("ext_write", "Write OneLake", "Writes.", schema(), schema(extra=True), "WRITE_ONELAKE",
                             ran, read_only=False, approval="always", needs_service=False))
     reg.register(Capability("ext_ws", "Workspace thing", "Reads a workspace.", schema({"workspace_id": {"type": "string"}}),
-                            schema(extra=True), "READ_METADATA", ran, needs_service=False))
+                            schema(extra=True), "READ_METADATA", ran, needs_service=False, workspaces=scope.ARGUMENT))
     return reg
 
 
@@ -116,16 +116,20 @@ def test_policy_can_turn_integrations_off_and_bad_values_fail_closed(store, tmp_
     assert err.value.code == "integrations_disabled" and "organization" in err.value.message
     write_policy(tmp_path, {"integrations": "yes", "integrations_max_permissions": "all"})
     rules = policy.current()
-    assert rules["enabled"] is False and rules["max_permissions"] == ["READ_METADATA"] and len(rules["problems"]) == 2
+    assert rules["enabled"] is False and rules["max_permissions"] == [] and len(rules["problems"]) == 2
     write_policy(tmp_path, {"integrations": True})
     assert policy.current()["enabled"] is None
 
 
 def test_workspace_scope(store):
     reg = registry(store)
-    client = enabled_client(store, workspaces=["ws-allowed"])
+    client = enabled_client(store, workspaces=["ws-allowed"], grants=["READ_METADATA", "READ_DATA"], auto=["READ_DATA"])
     assert code_of(reg, "ext_ws", client["id"], {"workspace_id": "ws-allowed"}) == "ok"
     assert code_of(reg, "ext_ws", client["id"], {"workspace_id": "ws-other"}) == "permission_denied"
+    # naming no workspace, it reaches none (HD-014; test_integrations_workspace_scope covers every capability)
+    assert code_of(reg, "ext_ws", client["id"]) == "ok"
+    # one that doesn't say which workspace it reaches is refused to a limited tool
+    assert code_of(reg, "ext_preview", client["id"], {"table": "t"}) == "permission_denied"
 
 
 def test_approval_waits_for_the_person_and_is_single_use(store):
@@ -182,6 +186,43 @@ def test_ask_categories_can_be_pre_approved_but_code_always_asks(store):
                             auto=["READ_DATA", "EXECUTE_LOCAL_CODE"])
     assert code_of(reg, "ext_preview", client["id"], {"table": "t"}) == "ok"
     assert code_of(reg, "ext_run", client["id"], {"code": "x"}) == "approval_required"
+
+
+def test_bound_arguments_are_shown_hashed_and_bound_for_pre_approved_calls_too(store):
+    reg = registry(store, wait=0.1)
+    version = {"cells": ["a = 1", "print(a)"]}
+    for cap_id, approval in (("ext_bound", "always"), ("ext_bound_auto", "ask")):
+        reg.register(Capability(cap_id, "Run a notebook", "Runs it.", schema({"name": {"type": "string"}}), schema(extra=True),
+                                "EXECUTE_LOCAL_CODE", ran, read_only=False, approval=approval,
+                                bind=lambda svc, args: {"cells": list(version["cells"])}))
+    client = enabled_client(store, grants=["READ_METADATA", "EXECUTE_LOCAL_CODE"], auto=["EXECUTE_LOCAL_CODE"])
+    # Pre-approved: no question, and the handler still gets what bind read.
+    assert reg.invoke(object(), "ext_bound_auto", {"name": "n"}, ctx(client["id"])) == {"ran": {"name": "n", "cells": ["a = 1", "print(a)"]}}
+    # Asked: every cell is shown, and an approval for one version doesn't run another.
+    with pytest.raises(IntegrationError) as err:
+        reg.invoke(object(), "ext_bound", {"name": "n"}, ctx(client["id"]))
+    first = store.approval(err.value.details["approval_id"])
+    assert first["summary"]["content"]["text"] == "# ---- cell 1 of 2\na = 1\n\n# ---- cell 2 of 2\nprint(a)"
+    store.decide(first["id"], True)
+    version["cells"] = ["import os"]
+    with pytest.raises(IntegrationError) as err:
+        reg.invoke(object(), "ext_bound", {"name": "n"}, ctx(client["id"]))
+    assert err.value.code == "approval_required" and err.value.details["approval_id"] != first["id"]
+    # A caller can't supply a bound argument itself.
+    assert code_of(reg, "ext_bound", client["id"], {"name": "n", "cells": ["x"]}) == "invalid_input"
+
+
+def test_code_too_long_to_show_is_refused_before_asking(store):
+    # Never cut: code past the cut would be approved without being seen.
+    reg = registry(store, wait=0.05)
+    client = enabled_client(store, grants=["READ_METADATA", "EXECUTE_LOCAL_CODE"])
+    with pytest.raises(IntegrationError) as err:
+        reg.invoke(None, "ext_run", {"code": "x" * 25_000}, ctx(client["id"]))
+    assert err.value.code == "too_large" and err.value.message == (
+        "This code is too long to show for approval (25,000 characters, limit 20,000). "
+        "Run it in KratosForge instead.")
+    assert store.approvals("") == []
+    assert code_of(reg, "ext_run", client["id"], {"code": "x" * 20_000}) == "approval_required"
 
 
 def test_requests_expire_and_revoking_drops_them(store):

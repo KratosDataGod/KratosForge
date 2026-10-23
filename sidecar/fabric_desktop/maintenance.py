@@ -34,6 +34,40 @@ def _by_fabric(commit: dict[str, Any]) -> bool:
     return "delta-rs" not in str(commit.get("clientVersion", "")) and bool(commit.get("engineInfo"))
 
 
+# Commits that change only the table's settings, not its files: a write since the last OPTIMIZE
+# is a commit that isn't one of these. Fabric adds "AUTOSET VORDER TBLPROPERTY" right after the
+# first OPTIMIZE ... VORDER of a table, which must not count as a write.
+_NO_FILES = re.compile(r"TBLPROPERT|CONSTRAINT|^(ADD|CHANGE|RENAME|DROP) COLUMNS?\b|^UPGRADE PROTOCOL|^VACUUM|^OPTIMIZE$", re.I)
+VORDER_KEY = b"com.microsoft.parquet.vorder.enabled"
+FOOTERS_CHECKED = 200  # V-Order is read from this many files' footers at most, newest first
+
+
+def _vorder_optimize(commit: dict[str, Any]) -> bool:
+    """An OPTIMIZE by Fabric Spark that didn't say it left V-Order off."""
+    vorder = (commit.get("operationParameters") or {}).get("vorder")
+    return _by_fabric(commit) and str(vorder).lower() != "false"
+
+
+def vorder_files(uri: str, options: dict[str, str] | None = None, limit: int = FOOTERS_CHECKED) -> dict[str, Any]:
+    """How many of the table's files are V-Ordered, read from their Parquet footers, where Fabric
+    stamps ``com.microsoft.parquet.vorder.enabled``. Reads the newest ``limit`` files' footers."""
+    import pyarrow.parquet as pq
+    from deltalake.fs import DeltaStorageHandler
+
+    table = DeltaTable(uri, storage_options=options)
+    actions = table.get_add_actions(flatten=True)
+    paths = actions.column("path").to_pylist() if actions.num_rows else []
+    times = actions.column("modification_time").to_pylist() if actions.num_rows else []
+    newest = [p for _, p in sorted(zip(times, paths, strict=True), key=lambda tp: str(tp[0] or ""), reverse=True)]
+    fs = DeltaStorageHandler(table.table_uri, options)
+    v_ordered = 0
+    for path in newest[:limit]:
+        with fs.open_input_file(path) as f:
+            meta = pq.read_metadata(f).metadata or {}
+        v_ordered += meta.get(VORDER_KEY, b"").strip().lower() == b"true"
+    return {"files": len(paths), "checked": min(len(paths), limit), "v_ordered": v_ordered}
+
+
 def health(uri: str, options: dict[str, str] | None = None, local: bool = False) -> dict[str, Any]:
     """File, size and history numbers for one Delta table, plus what maintenance would help.
 
@@ -49,8 +83,8 @@ def health(uri: str, options: dict[str, str] | None = None, local: bool = False)
     version = table.version()
     last_optimize = next((h for h in history if h.get("operation") == "OPTIMIZE"), None)
     last_vacuum = next((h for h in history if str(h.get("operation", "")).startswith("VACUUM")), None)
-    last_write = next((h for h in history if h.get("operation") not in ("OPTIMIZE", "VACUUM START", "VACUUM END")), None)
-    v_ordered = bool(last_optimize and _by_fabric(last_optimize) and last_write
+    last_write = next((h for h in history if not _NO_FILES.search(str(h.get("operation", "")))), None)
+    v_ordered = bool(last_optimize and _vorder_optimize(last_optimize) and last_write
                      and int(last_optimize.get("timestamp", 0)) >= int(last_write.get("timestamp", 0)))
     vacuum_version = int(last_vacuum.get("version", -1)) if last_vacuum and "version" in last_vacuum else None
     since_vacuum = version - vacuum_version if vacuum_version is not None else version + 1

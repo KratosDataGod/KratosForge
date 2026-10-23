@@ -15,12 +15,20 @@ the service it calls, where the UI gets it too.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
 import platform
 from typing import Any
 
 from .. import __version__
+from ..auth import default_cache_path
 from ..fabric_run import compute_check
+from ..redact import describe
+from . import scope
 from .core import CallContext, IntegrationError, redact_secrets
+
+_log = logging.getLogger(__name__)
 
 MAX_PAGE = 500
 ALL = 100_000  # services that take a limit: ask for everything, then page here so total is right
@@ -45,20 +53,29 @@ def get_status(svc: Any, ctx: CallContext) -> dict[str, Any]:
     """Who is signed in and what this engine can do, without starting a sign-in."""
     user = tenant = None
     try:
-        user, tenant = svc.auth.signed_in_user(), svc.auth.signed_in_tenant()
-    except Exception:  # no sign-in yet, or no client ID: reported as not signed in
-        pass
-    return {"product": "Fabric Desktop by KratosBI", "version": __version__, "python": platform.python_version(),
+        # Nobody has signed in on this PC: say so without building the sign-in client, which asks
+        # Microsoft for its endpoints. A tool calls this first, often several times at once.
+        if getattr(svc, "_auth", None) is not None or default_cache_path().exists():
+            user, tenant = svc.auth.signed_in_user(), svc.auth.signed_in_tenant()
+    except Exception as exc:  # no sign-in yet, or no client ID: reported as not signed in
+        _log.info("Not signed in: %s", describe(exc))
+    return {"product": "KratosForge", "version": __version__, "python": platform.python_version(),
             "signed_in": bool(user), "user": user, "tenant": tenant, "compute": "this PC",
             "caller": {"client_id": ctx.caller.client_id, "channel": ctx.caller.channel}}
+
+
+def _notebooks(svc: Any, ctx: CallContext) -> list[dict[str, Any]]:
+    """The saved notebooks a caller may see: for a tool limited to some workspaces, those whose
+    lakehouse and publish workspace are in them (or that have neither)."""
+    return scope.keep(ctx, svc.notebooks.list(), lambda n: scope.notebook_of(svc.notebooks.load(n["name"])))
 
 
 def list_projects(svc: Any, ctx: CallContext) -> dict[str, Any]:
     """The work on this PC: the notebooks folder, and the metadata project if one is open."""
     projects = [{"id": "notebooks", "kind": "notebooks", "name": "Notebooks on this PC",
-                 "items": len(svc.notebooks.list())}]
+                 "items": len(_notebooks(svc, ctx))}]
     meta = svc.meta_project()
-    if meta.get("path"):
+    if meta.get("path") and scope.keep(ctx, [meta], scope.metadata_of):
         projects.append({"id": "metadata", "kind": "metadata", "name": (meta.get("project") or {}).get("name") or "Metadata project",
                          "path": meta["path"], "entities": len(meta.get("entities", [])),
                          "layers": [l.get("name") for l in meta.get("layers", [])], "errors": len(meta.get("errors", []))})
@@ -68,11 +85,11 @@ def list_projects(svc: Any, ctx: CallContext) -> dict[str, Any]:
 def get_project(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa: A002 - the project id
     if id == "notebooks":
         return {"id": "notebooks", "kind": "notebooks", "notebooks": [
-            {"name": n["name"], "modified": n["modified"]} for n in svc.notebooks.list()]}
+            {"name": n["name"], "modified": n["modified"]} for n in _notebooks(svc, ctx)]}
     if id == "metadata":
         meta = svc.meta_project()
         if not meta.get("path"):
-            raise IntegrationError("not_found", "No metadata project is open in Fabric Desktop by KratosBI.",
+            raise IntegrationError("not_found", "No metadata project is open in KratosForge.",
                                    hint="Open or create one on the Data mesh page first.")
         return {"id": "metadata", "kind": "metadata", "path": meta["path"], "version": meta.get("version"),
                 "layers": meta.get("layers", []), "environments": _environments(meta.get("environments", {})),
@@ -96,7 +113,7 @@ def validate_project(svc: Any, ctx: CallContext) -> dict[str, Any]:
     """The open metadata project's own validation (the same list the Data mesh page shows)."""
     meta = svc.meta_project()
     if not meta.get("path"):
-        raise IntegrationError("not_found", "No metadata project is open in Fabric Desktop by KratosBI.")
+        raise IntegrationError("not_found", "No metadata project is open in KratosForge.")
     errors = meta.get("errors", [])
     return {"project": "metadata", "ok": not errors, "errors": errors, "entities": len(meta.get("entities", []))}
 
@@ -106,7 +123,7 @@ def validate_project(svc: Any, ctx: CallContext) -> dict[str, Any]:
 def list_workspaces(svc: Any, ctx: CallContext, offset: int = 0, limit: int = 100) -> dict[str, Any]:
     rows = [{"id": w["id"], "name": w.get("displayName", ""), "type": w.get("type", "Workspace"),
              "capacity_id": w.get("capacityId")} for w in svc.list_workspaces()]
-    return page(rows, offset, limit)
+    return page(scope.keep(ctx, rows, lambda w: {w["id"]}), offset, limit)
 
 
 def list_artifacts(svc: Any, ctx: CallContext, workspace_id: str, type: str = "", offset: int = 0,  # noqa: A002
@@ -145,7 +162,7 @@ def get_table_schema(svc: Any, ctx: CallContext, workspace_id: str, lakehouse_id
 # ---- notebooks on this PC
 
 def list_notebooks(svc: Any, ctx: CallContext, offset: int = 0, limit: int = 100) -> dict[str, Any]:
-    return page([{"name": n["name"], "modified": n["modified"]} for n in svc.notebooks.list()], offset, limit)
+    return page([{"name": n["name"], "modified": n["modified"]} for n in _notebooks(svc, ctx)], offset, limit)
 
 
 def get_notebook(svc: Any, ctx: CallContext, name: str, include_source: bool = True) -> dict[str, Any]:
@@ -177,6 +194,9 @@ def validate_notebook(svc: Any, ctx: CallContext, name: str) -> dict[str, Any]:
         out["dependencies"] = svc.notebook_dependencies(cells)
     except Exception as exc:  # the dependency view is extra; the checks above still stand
         out["dependencies"] = {"error": redact_secrets(str(exc))}
+    # Validate notebook's code checks (validate.py): every finding with its severity, cell and fix.
+    checked = svc.notebook_validate_check(name, cells, lakehouse, nb.get("compute"))
+    out |= {"findings": checked["findings"], "counts": checked["counts"], "verdict": checked["verdict"]}
     out["ok"] = bool(runs["local"].get("ok"))
     return out
 
@@ -208,13 +228,68 @@ def get_notebook_environment(svc: Any, ctx: CallContext, name: str) -> dict[str,
                                                                   nb.get("workspace"))}
 
 
+def validate_pipeline(svc: Any, ctx: CallContext, definition: str) -> dict[str, Any]:
+    return svc.pipeline_validate(text=definition)
+
+
+def inspect_pipeline(svc: Any, ctx: CallContext, definition: str) -> dict[str, Any]:
+    return svc.pipeline_inspect(text=definition)
+
+
+def export_pipeline(svc: Any, ctx: CallContext, definition: str, format: str = "") -> dict[str, Any]:  # noqa: A002
+    return svc.pipeline_export(text=definition, format=format or None)
+
+
+def check_run_risk(svc: Any, ctx: CallContext, workload_id: str, action: str, env: str = "") -> dict[str, Any]:
+    """The predeployment risk check (FINOPS-004) for one action on one workload."""
+    return svc.risk_check(workload_id, action, env or None)
+
+
+def get_placement_advice(svc: Any, ctx: CallContext, name: str) -> dict[str, Any]:
+    """Where to run a notebook, on this PC or in Fabric, with the evidence (FINOPS-005). Changes nothing."""
+    return svc.placement_advice(name)
+
+
+def check_pipeline_compatibility(svc: Any, ctx: CallContext, definition: str) -> dict[str, Any]:
+    return svc.pipeline_compatibility(text=definition)
+
+
+def get_activity_registry(svc: Any, ctx: CallContext, activity_type: str = "") -> dict[str, Any]:
+    return svc.pipeline_activity_registry(activity_type or None)
+
+
+def check_pipeline_run(svc: Any, ctx: CallContext, definition: str, parameters: dict | None = None,
+                       mocks: dict | None = None, children: dict | None = None) -> dict[str, Any]:
+    return svc.pipeline_run_check(text=definition, parameters=parameters, mocks=mocks, children=children)
+
+
+def start_pipeline_run(svc: Any, ctx: CallContext, definition: str, parameters: dict | None = None,
+                       mocks: dict | None = None, children: dict | None = None, max_parallel: int = 4,
+                       wait_scale: float = 1.0, timeout_seconds: float = 0) -> dict[str, Any]:
+    return svc.pipeline_run_start(text=definition, parameters=parameters, mocks=mocks, children=children,
+                                  max_parallel=max_parallel, wait_scale=wait_scale,
+                                  timeout_seconds=timeout_seconds or None)
+
+
+def get_pipeline_run(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa: A002
+    return svc.pipeline_run_status(id, values=False)
+
+
+def list_pipeline_runs(svc: Any, ctx: CallContext, limit: int = 20) -> dict[str, Any]:
+    return svc.pipeline_runs(limit)
+
+
+def cancel_pipeline_run(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa: A002
+    return svc.pipeline_run_cancel(id)
+
+
 def check_proof(svc: Any, ctx: CallContext, name: str) -> dict[str, Any]:
     nb = svc.notebooks.load(name)
     return {"name": name} | svc.prove_check(name, nb["cells"], nb.get("lakehouse"), nb.get("compute"), nb.get("workspace"))
 
 
 def list_proofs(svc: Any, ctx: CallContext, name: str = "", offset: int = 0, limit: int = 20) -> dict[str, Any]:
-    rows = svc.prove_list(name or None, limit=ALL)
+    rows = scope.keep(ctx, svc.prove_list(name or None, limit=ALL), scope.record_of)
     return page([_metadata_only(r) for r in rows], offset, limit)
 
 
@@ -223,7 +298,8 @@ def get_proof(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa: A
 
 
 def list_receipts(svc: Any, ctx: CallContext, name: str = "", offset: int = 0, limit: int = 50) -> dict[str, Any]:
-    return page(svc.receipts_list(name or None, limit=ALL), offset, limit)
+    rows = scope.keep(ctx, svc.receipts_list(name or None, limit=ALL), lambda r: scope.receipt_of(svc, r["id"]))
+    return page(rows, offset, limit)
 
 
 def get_receipt(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa: A002 - the receipt id
@@ -232,7 +308,7 @@ def get_receipt(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa:
 
 
 def list_side_by_side(svc: Any, ctx: CallContext, name: str = "", offset: int = 0, limit: int = 20) -> dict[str, Any]:
-    rows = svc.side_by_side_list(name or None, limit=ALL)
+    rows = scope.keep(ctx, svc.side_by_side_list(name or None, limit=ALL), scope.record_of)
     return page([_metadata_only(r) for r in rows], offset, limit)
 
 
@@ -275,12 +351,11 @@ def execute_python(svc: Any, ctx: CallContext, code: str, workspace_id: str = ""
     return mgr.start(run, lambda r: mgr.run_cells(r, [code], ref), ctx, wait_seconds)
 
 
-def run_notebook(svc: Any, ctx: CallContext, name: str, workspace_id: str = "", wait_seconds: float = 30,
-                 timeout_seconds: float = 900) -> dict[str, Any]:
-    """Run a notebook's code cells on this PC, in order, in a fresh process. ``workspace_id`` must
-    be the attached lakehouse's workspace, so a tool limited to some workspaces can't run a notebook
-    that reads another."""
-    from .executions import Execution
+NOTEBOOK_CHANGED = "The notebook changed after it was approved. Ask again."
+
+
+def _notebook_code(svc: Any, name: str, workspace_id: str) -> tuple[list[str], dict[str, Any] | None]:
+    """The code cells a run of the saved notebook would run, and its lakehouse."""
     nb = svc.notebooks.load(name)
     lakehouse = nb.get("lakehouse") or None
     if lakehouse and lakehouse.get("workspace_id") != workspace_id:
@@ -289,9 +364,36 @@ def run_notebook(svc: Any, ctx: CallContext, name: str, workspace_id: str = "", 
              if c.get("type", "code") != "markdown" and (c.get("source") or "").strip() and not (c.get("meta") or {}).get("frozen")]
     if not cells:
         raise ValueError(f"{name} has no code to run.")
+    return cells, lakehouse
+
+
+def _cells_sha256(cells: list[str]) -> str:
+    return hashlib.sha256(json.dumps(cells, ensure_ascii=False).encode()).hexdigest()
+
+
+def bind_notebook(svc: Any, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Read before the person approves a run: the code cells, their SHA-256 and the lakehouse, so
+    the approval shows the code and is bound to this version of the notebook (Capability.bind)."""
+    cells, lakehouse = _notebook_code(svc, arguments["name"], arguments.get("workspace_id", ""))
+    return {"cells": cells, "cells_sha256": _cells_sha256(cells), "lakehouse_id": (lakehouse or {}).get("lakehouse_id", "")}
+
+
+def run_notebook(svc: Any, ctx: CallContext, name: str, workspace_id: str = "", wait_seconds: float = 30,
+                 timeout_seconds: float = 900, *, cells: list[str], cells_sha256: str, lakehouse_id: str) -> dict[str, Any]:
+    """Run a notebook's code cells on this PC, in order, in a fresh process. ``workspace_id`` must
+    be the attached lakehouse's workspace, so a tool limited to some workspaces can't run a notebook
+    that reads another. ``cells``, ``cells_sha256`` and ``lakehouse_id`` are what bind_notebook
+    read and the person approved: exactly those cells run, and only if the saved notebook still
+    matches them."""
+    from .executions import Execution
+    current, lakehouse = _notebook_code(svc, name, workspace_id)
+    if (_cells_sha256(cells) != cells_sha256 or _cells_sha256(current) != cells_sha256
+            or (lakehouse or {}).get("lakehouse_id", "") != lakehouse_id):
+        raise IntegrationError("approval_required", NOTEBOOK_CHANGED, retryable=True,
+                               hint="Call again so the person can approve the notebook as it is now.")
     mgr = _executions(svc)
     run = Execution("notebook", ctx.caller.client_id, name, {"notebook": name, "workspace_id": workspace_id}, timeout_seconds)
-    return mgr.start(run, lambda r: mgr.run_cells(r, cells, lakehouse, notebook=name), ctx, wait_seconds)
+    return mgr.start(run, lambda r: mgr.run_cells(r, list(cells), lakehouse, notebook=name), ctx, wait_seconds)
 
 
 def get_execution_status(svc: Any, ctx: CallContext, execution_id: str, wait_seconds: float = 0) -> dict[str, Any]:
@@ -310,7 +412,8 @@ def get_execution_logs(svc: Any, ctx: CallContext, execution_id: str, offset: in
 
 
 def list_executions(svc: Any, ctx: CallContext, offset: int = 0, limit: int = 50) -> dict[str, Any]:
-    return page(_executions(svc).list(ctx.caller.client_id, limit=ALL), offset, limit)
+    rows = scope.keep(ctx, _executions(svc).list(ctx.caller.client_id, limit=ALL), scope.execution_of)
+    return page(rows, offset, limit)
 
 
 def cancel_execution(svc: Any, ctx: CallContext, execution_id: str) -> dict[str, Any]:
@@ -319,8 +422,26 @@ def cancel_execution(svc: Any, ctx: CallContext, execution_id: str) -> dict[str,
 
 # ---- Prove this notebook: actions that ask the person first
 
-def start_proof(svc: Any, ctx: CallContext, name: str) -> dict[str, Any]:
+def _proof_inputs(nb: dict[str, Any]) -> str:
+    """SHA-256 of what a proof uses: the cells, the lakehouse, the compute and where it publishes."""
+    used = [nb.get("cells"), nb.get("lakehouse"), nb.get("compute"), nb.get("workspace")]
+    return hashlib.sha256(json.dumps(used, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def bind_proof(svc: Any, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Read before the person approves a proof, so the approval is bound to this version of the
+    notebook and its lakehouse (Capability.bind), as bind_notebook does for a run."""
+    return {"notebook_sha256": _proof_inputs(svc.notebooks.load(arguments["name"]))}
+
+
+def start_proof(svc: Any, ctx: CallContext, name: str, *, notebook_sha256: str) -> dict[str, Any]:
+    """Starts only if the saved notebook still matches what was checked and approved: a lakehouse
+    changed during the approval wait would reach a workspace the tool's limit never saw."""
     nb = svc.notebooks.load(name)
+    if _proof_inputs(nb) != notebook_sha256:
+        raise IntegrationError("approval_required", NOTEBOOK_CHANGED, retryable=True,
+                               hint="Call again so the person can approve the notebook as it is now.")
+    scope.enforce_on(ctx, scope.notebook_of(nb))
     return _metadata_only(svc.prove_start(name, nb["cells"], nb.get("lakehouse"), nb.get("compute"), nb.get("workspace")))
 
 

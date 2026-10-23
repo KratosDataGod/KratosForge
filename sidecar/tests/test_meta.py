@@ -764,7 +764,7 @@ def test_service_round_trip(tmp_path):
     assert len(call("meta_set_layers", layers=layers)["result"]["layers"]) == 4
     check = call("meta_promote_check", source="dev", target="test")["result"]
     assert check["errors"] == ["gold.dim_product: has never run in dev",
-                               "Pick a Keys workspace for Test first (Metadata > Surrogate keys)"]
+                               "Pick a Keys workspace for Test first (Data mesh > Design > Surrogate keys)"]
     call("meta_set_keys_workspace", env="test", workspace_id="ws-keys", workspace_name="Keys - Test")
     assert all(r["status"] == "ok" for r in call("meta_run")["result"])
     assert call("meta_promote_check", source="dev", target="test")["result"]["errors"] == []

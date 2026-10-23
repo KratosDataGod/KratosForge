@@ -12,7 +12,9 @@ runs are compared. The Prove panel starts from it.
 
 from __future__ import annotations
 
+import math
 import re
+from datetime import date
 from typing import Any
 
 from . import verify
@@ -20,33 +22,108 @@ from . import verify
 _TABLE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$")
 _FILE = re.compile(r"^Files/[^\\\x00]+\.(csv|parquet|json)$", re.IGNORECASE)
 
+GROUPS = {"load": "Load data", "clean": "Clean and check", "model": "Model", "compare": "Compare", "run": "Orchestrate"}
+
 TEMPLATES: list[dict[str, Any]] = [
-    {"id": "clean", "title": "Clean a table",
-     "text": "Read one table, keep and rename columns, drop rows with no key and duplicates, write a new table.",
-     "fields": ["source", "columns", "keys", "output", "mode"]},
-    {"id": "join_aggregate", "title": "Join and aggregate",
-     "text": "Read a table, join another on a column, group by columns, write the result.",
-     "fields": ["source", "join_table", "join_on", "group_by", "output", "mode"]},
-    {"id": "load_file", "title": "Load a file into a table",
+    {"id": "load_file", "group": "load", "title": "Load a file into a table",
      "text": "Read a CSV, Parquet or JSON file under Files/, check its key columns and write it as a Delta table.",
      "fields": ["file", "keys", "output", "mode"]},
+    {"id": "load_folder", "group": "load", "title": "Load a folder of files",
+     "text": "Read every file of one type in a folder, add the file name and load time to each row, and write one table.",
+     "fields": ["folder", "file_type", "keys", "output", "mode"]},
+    {"id": "incremental", "group": "load", "title": "Incremental load with a watermark",
+     "text": "Copy only the rows newer than the highest value already in the target, by a date or ID column.",
+     "fields": ["source", "watermark", "keys", "output"]},
+    {"id": "flatten_json", "group": "load", "title": "Flatten a nested JSON file",
+     "text": "Read a JSON file under Files/, turn each nested object into its own columns (customer.name becomes "
+             "customer_name), check the keys and write a table.",
+     "fields": ["json_file", "keys", "output", "mode"]},
+    {"id": "clean", "group": "clean", "title": "Clean a table",
+     "text": "Read one table, keep and rename columns, drop rows with no key and duplicates, write a new table.",
+     "fields": ["source", "columns", "keys", "output", "mode"]},
+    {"id": "latest_row", "group": "clean", "title": "Keep the latest row per key",
+     "text": "Read a table where a key can appear many times and keep only its newest row, by a date, time or version column.",
+     "fields": ["source", "keys", "order_by", "output", "mode"]},
+    {"id": "profile", "group": "clean", "title": "Profile a table",
+     "text": "One row per column of a table: its type, how many values are empty, how many are distinct, and the "
+             "lowest and highest value. Writes the profile as a table.",
+     "fields": ["source", "output"]},
+    {"id": "standardize", "group": "clean", "title": "Standardize names and types",
+     "text": "Rename columns to snake_case, trim text, and turn the columns you name into dates or numbers.",
+     "fields": ["source", "dates", "numbers", "keys", "output", "mode"]},
+    {"id": "quality", "group": "clean", "title": "Data quality checks",
+     "text": "Check required columns, unique keys, allowed values and ranges. Good rows go to one table, "
+             "failing rows to a rejects table with the reason.",
+     "fields": ["source", "keys", "required", "allowed", "ranges", "output", "rejects", "mode"]},
+    {"id": "join_aggregate", "group": "model", "title": "Join and aggregate",
+     "text": "Read a table, join another on a column, group by columns, write the result.",
+     "fields": ["source", "join_table", "join_on", "group_by", "output", "mode"]},
+    {"id": "scd1", "group": "model", "title": "Update a dimension in place (SCD type 1)",
+     "text": "Upsert: rows of the source replace the rows with the same key in the dimension, new keys are added, "
+             "and keys missing from the source stay.",
+     "fields": ["source", "keys", "output"]},
+    {"id": "scd2", "group": "model", "title": "Keep a dimension's history (SCD type 2)",
+     "text": "When a tracked column changes, close the current row and add a new version, with valid_from, "
+             "valid_to, is_current and a version number per key. Other columns update the current row in place.",
+     "fields": ["source", "keys", "tracked", "output"]},
+    {"id": "date_dimension", "group": "model", "title": "Date dimension",
+     "text": "A calendar table with one row per day between two dates: year, quarter, month, week, weekday and fiscal year.",
+     "fields": ["start", "end", "fiscal_start", "output"]},
+    {"id": "snapshot", "group": "model", "title": "Daily snapshot",
+     "text": "Append today's copy of a table to a history table with a snapshot_date column, once a day, "
+             "so you can see what it looked like on any earlier day.",
+     "fields": ["source", "keys", "output"]},
+    {"id": "reconcile", "group": "compare", "title": "Reconcile two tables",
+     "text": "Compare row counts, keys found on one side only and column totals. The run fails when they differ.",
+     "fields": ["source", "other", "keys", "sums"]},
+    {"id": "run_in_order", "group": "run", "title": "Run notebooks in order",
+     "text": "An orchestrator notebook that runs other notebooks one after another, each after the one before succeeds.",
+     "fields": ["notebooks", "retries"]},
 ]
 
 FIELDS = {
     "source": "Table to read (schema.table)",
+    "other": "Table to compare with (schema.table)",
     "join_table": "Table to join (schema.table)",
     "join_on": "Column to join on",
     "group_by": "Columns to group by",
     "columns": "Columns to keep (all when empty)",
     "file": "File under Files/",
+    "json_file": "JSON file under Files/",
+    "order_by": "Column whose highest value is the newest row",
+    "folder": "Folder under Files/",
+    "file_type": "File type",
+    "watermark": "Column that only grows (a date, time or ID)",
+    "dates": "Columns to turn into dates (after renaming)",
+    "numbers": "Columns to turn into numbers (after renaming)",
+    "required": "Columns that must have a value",
+    "allowed": "Allowed values, like status: open|closed (one column per line)",
+    "ranges": "Ranges, like amount: 0..1000000 (one column per line)",
+    "rejects": "Table for failing rows (schema.table)",
+    "start": "First date (YYYY-MM-DD)",
+    "end": "Last date (YYYY-MM-DD)",
+    "fiscal_start": "Fiscal year starts in",
+    "sums": "Columns whose totals must match",
+    "tracked": "Columns whose change starts a new version (every other column when empty)",
+    "notebooks": "Notebooks to run, in order (one per line)",
+    "retries": "Retries for each notebook",
     "keys": "Columns that identify a row",
     "output": "Table to write (schema.table)",
     "mode": "Write mode",
 }
 
+MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+          "November", "December"]
+CHOICES = {"mode": [["overwrite", "Overwrite"], ["append", "Append"]],
+           "file_type": [["csv", "CSV"], ["parquet", "Parquet"], ["json", "JSON"]],
+           "fiscal_start": [[str(i + 1), m] for i, m in enumerate(MONTHS)],
+           "retries": [["0", "None"], ["1", "1"], ["2", "2"], ["3", "3"]]}
+MULTILINE = ("allowed", "ranges", "notebooks")
+
 
 def templates() -> dict[str, Any]:
-    return {"templates": TEMPLATES, "fields": FIELDS, "modes": ["overwrite", "append"]}
+    return {"templates": TEMPLATES, "groups": GROUPS, "fields": FIELDS, "modes": ["overwrite", "append"],
+            "choices": CHOICES, "multiline": list(MULTILINE)}
 
 
 def _names(value: Any) -> list[str]:
@@ -62,6 +139,12 @@ def _table(value: Any, label: str) -> str:
     return text
 
 
+def _same_table(a: str, b: str) -> bool:
+    # Names ignore case, and a name without a schema is dbo's table on a schema-enabled lakehouse.
+    full = lambda t: (t if "." in t else f"dbo.{t}").lower()  # noqa: E731
+    return full(a) == full(b)
+
+
 def _check_cell(df: str, keys: list[str]) -> str:
     return (f"# Check: every row has its key, and each key appears once\n"
             f"keys = {keys!r}\n"
@@ -72,6 +155,55 @@ def _check_cell(df: str, keys: list[str]) -> str:
             f"print(f\"{{{df}.height:,}} rows, keys unique\")")
 
 
+def _folder(value: Any) -> str:
+    text = str(value or "").strip().rstrip("/")
+    if not (text == "Files" or text.startswith("Files/")) or ".." in text.split("/") or "\\" in text or "\x00" in text:
+        raise ValueError("The folder must be under Files/, like Files/raw/orders.")
+    return text
+
+
+def _date(value: Any, label: str) -> date:
+    try:
+        return date.fromisoformat(str(value or "").strip())
+    except ValueError:
+        raise ValueError(f"{label} must be a date like 2020-01-01.") from None
+
+
+def _lines(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+    return [line.strip() for line in str(value or "").splitlines() if line.strip()]
+
+
+def _column_rules(value: Any, label: str) -> list[tuple[str, str]]:
+    out = []
+    for line in _lines(value):
+        column, sep, rule = line.partition(":")
+        if not sep or not column.strip() or not rule.strip():
+            raise ValueError(f"Write each {label} line as column: rule, like {'status: open|closed' if label == 'allowed values' else 'amount: 0..1000000'}.")
+        out.append((column.strip(), rule.strip()))
+    return out
+
+
+def _allowed(value: Any) -> dict[str, list[str]]:
+    return {c: [v.strip() for v in rule.split("|") if v.strip()] for c, rule in _column_rules(value, "allowed values")}
+
+
+def _ranges(value: Any) -> dict[str, tuple[float | None, float | None]]:
+    out: dict[str, tuple[float | None, float | None]] = {}
+    for column, rule in _column_rules(value, "range"):
+        lo, sep, hi = rule.partition("..")
+        try:
+            bounds = tuple(float(x) if x.strip() else None for x in (lo, hi))
+        except ValueError:
+            bounds = ()
+        if not sep or len(bounds) != 2 or bounds == (None, None) \
+                or any(b is not None and not math.isfinite(b) for b in bounds):
+            raise ValueError(f"The range for {column} must look like 0..100, 0.. or ..100.")
+        out[column] = bounds  # type: ignore[assignment]
+    return out
+
+
 def build(template: str, values: dict[str, Any]) -> dict[str, Any]:
     """The cells and proof contract for one template and its answers. Raises ValueError with a
     sentence the wizard shows when an answer is missing or malformed."""
@@ -79,7 +211,8 @@ def build(template: str, values: dict[str, Any]) -> dict[str, Any]:
     if t is None:
         raise ValueError(f"No template {template!r}.")
     v = values or {}
-    output = _table(v.get("output"), "The table to write")
+    writes = "output" in t["fields"]
+    output = _table(v.get("output"), "The table to write") if writes else ""
     mode = v.get("mode") or "overwrite"
     if mode not in ("overwrite", "append"):
         raise ValueError("The write mode is overwrite or append.")
@@ -87,12 +220,17 @@ def build(template: str, values: dict[str, Any]) -> dict[str, Any]:
     ignore = _names(v.get("ignore"))
     head = "import polars as pl\nfrom fabric_desktop import lakehouse"
     cells: list[dict[str, Any]] = []
+    tables: dict[str, dict[str, Any]] = {}
 
     def md(text: str) -> None:
         cells.append({"type": "markdown", "source": text})
 
     def code(text: str) -> None:
         cells.append({"type": "code", "source": text})
+
+    def need_keys() -> None:
+        if not keys:
+            raise ValueError("Name the columns that identify a row, so the result can be checked and proven.")
 
     if template == "clean":
         source = _table(v.get("source"), "The table to read")
@@ -126,7 +264,100 @@ def build(template: str, values: dict[str, Any]) -> dict[str, Any]:
              f"out = joined.group_by({group!r}).agg(pl.len().alias(\"rows\")).sort({group!r})\nout.head()")
         code(_check_cell("out", keys))
         code(f"lakehouse.write_table(out, {output!r}, mode={mode!r})")
-    else:  # load_file
+    elif template == "latest_row":
+        source = _table(v.get("source"), "The table to read")
+        by = _names(v.get("order_by"))
+        if len(by) != 1:
+            raise ValueError("Name one column whose highest value is the newest row, like modified_at.")
+        need_keys()
+        if by[0] in keys:
+            raise ValueError("The column that orders rows can't also identify a row.")
+        md(f"# Latest row of each key in {source}\n\nKeeps, for each {', '.join(f'`{k}`' for k in keys)}, the row of "
+           f"`{source}` with the highest `{by[0]}` (an empty `{by[0]}` counts as oldest) and writes `{output}`. "
+           f"When two rows of a key have the same `{by[0]}`, the run stops, because either could be kept. "
+           "Made by the new notebook wizard.")
+        code(head)
+        code(f"df = lakehouse.read_table({source!r})\nkeys = {keys!r}\nnewest = {by[0]!r}\ndf.head()")
+        # eq_missing: a key whose rows all have an empty order_by has two "newest" rows too.
+        code("top = pl.col(newest).max().over(keys)\n"
+             "tied = df.filter(pl.col(newest).eq_missing(top)).group_by(keys).len().filter(pl.col(\"len\") > 1)\n"
+             "assert tied.height == 0, f\"{tied.height} keys have two newest rows with the same {newest}\"\n"
+             "latest = df.sort(newest, descending=True, nulls_last=True, maintain_order=True)"
+             ".unique(subset=keys, keep=\"first\", maintain_order=True)\n"
+             "print(f\"{df.height:,} rows, {latest.height:,} keys\")\nlatest.head()")
+        code(_check_cell("latest", keys))
+        code(f"lakehouse.write_table(latest, {output!r}, mode={mode!r})")
+    elif template == "flatten_json":
+        path = str(v.get("json_file") or "").strip()
+        if not re.match(r"^Files/[^\\\x00]+\.json$", path, re.IGNORECASE) or ".." in path.split("/"):
+            raise ValueError("The file must be a .json file under Files/, like Files/raw/orders.json.")
+        need_keys()
+        md(f"# Flatten {path}\n\nReads `{path}`, turns each nested object into columns named after its path "
+           "(`customer.name` becomes `customer_name`), checks the key columns and writes "
+           f"`{output}`. Lists stay as list columns; explode one in a new cell if you need a row per item. "
+           "Made by the new notebook wizard.")
+        code(head)
+        code(f"df = lakehouse.read_json({path!r})\ndf.head()")
+        code("while structs := [c for c, t in df.schema.items() if isinstance(t, pl.Struct)]:\n"
+             "    names = {c: [f\"{c}_{f.name}\" for f in df.schema[c].fields] for c in structs}\n"
+             "    new = [n for c in structs for n in names[c]]\n"
+             "    # Delta column names ignore case, so Name and name clash.\n"
+             "    seen = [n.lower() for n in df.columns if n not in structs] + [n.lower() for n in new]\n"
+             "    clashes = sorted({n for n in new if seen.count(n.lower()) > 1})\n"
+             "    assert not clashes, f\"These nested names clash with existing columns: {clashes}\"\n"
+             "    df = df.with_columns([pl.col(c).struct.rename_fields(names[c]) for c in structs]).unnest(structs)\n"
+             "print(f\"{df.height:,} rows, {df.width} columns\")\ndf.head()")
+        code(_check_cell("df", keys))
+        code(f"lakehouse.write_table(df, {output!r}, mode={mode!r})")
+    elif template == "profile":
+        source = _table(v.get("source"), "The table to read")
+        if _same_table(source, output):
+            raise ValueError("Write to a different table than the one it reads, so the source table isn't changed.")
+        keys, mode = ["column"], "overwrite"
+        md(f"# Profile {source}\n\nOne row per column of `{source}`: its type, how many rows have no value, how many "
+           "distinct values it has, and its lowest and highest value (as text, so every type fits one table). "
+           f"Writes `{output}`, replacing the last profile. Made by the new notebook wizard.")
+        code(head)
+        code(f"df = lakehouse.read_table({source!r})\nprint(f\"{{df.height:,}} rows, {{df.width}} columns\")")
+        code("def bound(s, pick):\n"
+             "    try:\n"
+             "        value = pick(s.drop_nulls())\n"
+             "    except Exception:  # lists and nested values have no order\n"
+             "        return None\n"
+             "    return None if value is None else str(value)\n\n"
+             "rows = []\n"
+             "for name in df.columns:\n"
+             "    s = df[name]\n"
+             "    nulls = s.null_count()\n"
+             "    rows.append({\"column\": name, \"type\": str(s.dtype), \"rows\": s.len(), \"empty\": nulls,\n"
+             "                 \"empty_pct\": round(100 * nulls / s.len(), 2) if s.len() else 0.0,\n"
+             "                 \"distinct\": s.drop_nulls().n_unique() if s.len() > nulls else 0,\n"
+             "                 \"lowest\": bound(s, lambda x: x.min()), \"highest\": bound(s, lambda x: x.max())})\n"
+             "profile = pl.DataFrame(rows, schema={\"column\": pl.Utf8, \"type\": pl.Utf8, \"rows\": pl.Int64,\n"
+             "                                     \"empty\": pl.Int64, \"empty_pct\": pl.Float64, \"distinct\": pl.Int64,\n"
+             "                                     \"lowest\": pl.Utf8, \"highest\": pl.Utf8})\nprofile")
+        code(f"lakehouse.write_table(profile, {output!r}, mode=\"overwrite\")")
+    elif template == "snapshot":
+        source = _table(v.get("source"), "The table to read")
+        if _same_table(source, output):
+            raise ValueError("Write to a different table than the one it reads, so the source table isn't changed.")
+        need_keys()
+        mode = "append"
+        md(f"# Daily snapshot of {source}\n\nAppends today's rows of `{source}` to `{output}` with a "
+           f"`snapshot_date` column (today's date in UTC). A second run on the same day writes nothing, so a "
+           f"retry can't double the day. Schedule it once a day. Made by the new notebook wizard.")
+        code(head + "\nfrom datetime import datetime, timezone")
+        code("today = datetime.now(timezone.utc).date()\ndone = False\n"
+             f"if lakehouse.table_exists({output!r}):\n"
+             "    # Read only the snapshot_date column of the history, not the whole table.\n"
+             f"    dates = pl.from_arrow(lakehouse.open_table({output!r}).to_pyarrow_table(columns=[\"snapshot_date\"]))\n"
+             "    done = dates.filter(pl.col(\"snapshot_date\") == today).height > 0\n"
+             "print(\"Already taken today\" if done else f\"Taking the snapshot for {today}\")")
+        code(f"df = lakehouse.read_table({source!r}).with_columns(pl.lit(today).alias(\"snapshot_date\"))\ndf.head()")
+        code(_check_cell("df", keys))
+        code(f"if not done:\n    lakehouse.write_table(df, {output!r}, mode=\"append\")")
+        keys = keys + ["snapshot_date"]
+    elif template == "load_file":
         path = str(v.get("file") or "").strip()
         if not _FILE.match(path) or ".." in path.split("/"):
             raise ValueError("The file must be a .csv, .parquet or .json file under Files/, like Files/raw/orders.csv.")
@@ -139,7 +370,256 @@ def build(template: str, values: dict[str, Any]) -> dict[str, Any]:
         code(f"df = lakehouse.{reader}({path!r})\ndf.head()")
         code(_check_cell("df", keys))
         code(f"lakehouse.write_table(df, {output!r}, mode={mode!r})")
+    elif template == "load_folder":
+        folder = _folder(v.get("folder"))
+        kind = v.get("file_type") or "csv"
+        if kind not in ("csv", "parquet", "json"):
+            raise ValueError("The file type is csv, parquet or json.")
+        need_keys()
+        md(f"# Load the .{kind} files in {folder}\n\nReads every `.{kind}` file directly in `{folder}`, adds the file "
+           f"each row came from (`source_file`) and when it was loaded (`loaded_at`), checks the key columns and "
+           f"writes `{output}`. Made by the new notebook wizard.")
+        code(head + "\nfrom datetime import datetime, timezone")
+        code(f"paths = sorted(p for p in lakehouse.files({folder!r}) if p.lower().endswith({'.' + kind!r}))\n"
+             f"assert paths, {f'No .{kind} files in {folder}'!r}\n"
+             f"loaded_at = datetime.now(timezone.utc)\n"
+             f"df = pl.concat([lakehouse.read_{kind}(p).with_columns(pl.lit(p).alias(\"source_file\"))\n"
+             f"               for p in paths], how=\"diagonal_relaxed\")\n"
+             f"df = df.with_columns(pl.lit(loaded_at).alias(\"loaded_at\"))\n"
+             f"print(f\"{{len(paths)}} files, {{df.height:,}} rows\")\ndf.head()")
+        code(_check_cell("df", keys))
+        code(f"lakehouse.write_table(df, {output!r}, mode={mode!r})")
+        ignore = ignore + [c for c in ("loaded_at",) if c not in ignore]
+    elif template == "incremental":
+        source = _table(v.get("source"), "The table to read")
+        mark = _names(v.get("watermark"))
+        if len(mark) != 1:
+            raise ValueError("Name one column whose values only grow, like a modified date or an ID.")
+        need_keys()
+        mode = "append"
+        w = mark[0]
+        md(f"# Incremental load of {source}\n\nAppends to `{output}` only the rows of `{source}` whose `{w}` is "
+           f"higher than the highest `{w}` already in `{output}`. The first run copies every row. A row that "
+           f"arrives late, with a `{w}` lower than one already loaded, is not picked up: reload it on its own. "
+           "Made by the new notebook wizard.")
+        code(head)
+        code(f"high = None\nif lakehouse.table_exists({output!r}):\n"
+             f"    # Read only the watermark column of the target, not the whole table.\n"
+             f"    done = pl.from_arrow(lakehouse.open_table({output!r}).to_pyarrow_table(columns=[{w!r}]))\n"
+             f"    high = done[{w!r}].max()\nprint(\"Loaded up to:\", high)")
+        code(f"df = lakehouse.read_table({source!r})\n"
+             f"if high is not None:\n    df = df.filter(pl.col({w!r}) > high)\n"
+             f"print(f\"{{df.height:,}} new rows\")\ndf.head()")
+        code(_check_cell("df", keys))
+        code(f"if df.height:\n    lakehouse.write_table(df, {output!r}, mode=\"append\")\nelse:\n    print(\"Nothing new to load.\")")
+    elif template == "scd1":
+        source = _table(v.get("source"), "The table to read")
+        need_keys()
+        mode = "overwrite"
+        md(f"# Update {output} from {source} (SCD type 1)\n\nEach row of `{source}` replaces the row of `{output}` with "
+           f"the same {', '.join(f'`{k}`' for k in keys)}, and keys `{output}` doesn't have yet are added. Keys that "
+           f"are no longer in `{source}` stay as they were. No history is kept: use the SCD type 2 template for that. "
+           f"The notebook rewrites `{output}` as a whole, which suits dimensions. Made by the new notebook wizard.")
+        code(head)
+        code(f"src = lakehouse.read_table({source!r})\nsrc.head()")
+        code(_check_cell("src", keys))
+        code(f"keys = {keys!r}\n"
+             f"if lakehouse.table_exists({output!r}):\n"
+             f"    dim = lakehouse.read_table({output!r})\n"
+             f"    kept = dim.join(src.select(keys), on=keys, how=\"anti\")\n"
+             f"    added = src.join(dim.select(keys), on=keys, how=\"anti\").height\n"
+             f"    print(f\"{{src.height - added:,}} rows replaced, {{added:,}} added, {{kept.height:,}} kept\")\n"
+             f"    out = pl.concat([kept, src], how=\"diagonal_relaxed\")\n"
+             f"else:\n"
+             f"    out = src  # the first run copies every row\n"
+             f"out = out.sort(keys)\nout.head()")
+        code(f"lakehouse.write_table(out, {output!r}, mode=\"overwrite\")")
+    elif template == "scd2":
+        source = _table(v.get("source"), "The table to read")
+        tracked = _names(v.get("tracked"))
+        need_keys()
+        if set(tracked) & set(keys):
+            raise ValueError("A key column can't also be a tracked column: a new key is a new row, not a new version.")
+        mode = "overwrite"
+        md(f"# Keep the history of {output} from {source} (SCD type 2)\n\nCompares `{source}` with the current rows of "
+           f"`{output}` by {', '.join(f'`{k}`' for k in keys)}. When "
+           + (f"{', '.join(f'`{t}`' for t in tracked)} changes" if tracked else "any other column changes")
+           + ", the current row is closed (`valid_to` set, `is_current` false) and a new version is added. "
+           + ("A change to another column alone updates the current row in place, without a new version. " if tracked else "")
+           + "New keys "
+           "start at `version` 1. Keys that are no longer in the source stay current. `valid_from` and `valid_to` are "
+           f"the time of the run, in UTC. The notebook rewrites `{output}` as a whole, which suits dimensions. "
+           "Made by the new notebook wizard.")
+        code(head + "\nfrom datetime import datetime, timezone")
+        code(f"src = lakehouse.read_table({source!r})\nsrc.head()")
+        code(_check_cell("src", keys))
+        code(f"keys = {keys!r}\n"
+             f"tracked = {tracked!r} or [c for c in src.columns if c not in keys]\n"
+             f"missing = [c for c in tracked if c not in src.columns]\n"
+             f"assert not missing, f\"{source} has no column {{missing}}\"\n"
+             f"now = datetime.now(timezone.utc)\n"
+             f"opened = [pl.lit(now).alias(\"valid_from\"), pl.lit(None, dtype=pl.Datetime(\"us\", \"UTC\")).alias(\"valid_to\"),\n"
+             f"          pl.lit(True).alias(\"is_current\")]")
+        code(f"if not lakehouse.table_exists({output!r}):\n"
+             f"    out = src.with_columns(pl.lit(1, dtype=pl.Int64).alias(\"version\"), *opened)  # the first run\n"
+             f"    print(f\"{{out.height:,}} keys, all new\")\n"
+             f"else:\n"
+             f"    dim = lakehouse.read_table({output!r})\n"
+             f"    gone = [c for c in tracked if c not in dim.columns]\n"
+             f"    assert not gone, f\"{output} has no column {{gone}}: add it to the dimension before tracking it\"\n"
+             f"    current, history = dim.filter(pl.col(\"is_current\")), dim.filter(~pl.col(\"is_current\"))\n"
+             f"    old = current.select(keys + [pl.col(c).alias(f\"{{c}}__old\") for c in tracked] + [\"version\"])\n"
+             f"    joined = src.join(old, on=keys, how=\"left\")\n"
+             f"    differs = pl.any_horizontal([pl.col(c).ne_missing(pl.col(f\"{{c}}__old\")) for c in tracked])\n"
+             f"    new = joined.filter(pl.col(\"version\").is_null()).with_columns(pl.lit(1, dtype=pl.Int64).alias(\"version\"))\n"
+             f"    changed = joined.filter(pl.col(\"version\").is_not_null() & differs).with_columns(pl.col(\"version\") + 1)\n"
+             f"    added = pl.concat([new, changed]).select(src.columns + [\"version\"]).with_columns(*opened)\n"
+             f"    closed = current.join(changed.select(keys), on=keys, how=\"semi\").with_columns(\n"
+             f"        pl.lit(now).alias(\"valid_to\"), pl.lit(False).alias(\"is_current\"))\n"
+             f"    # Untracked columns take the source's values on the current row, without a new version.\n"
+             f"    unchanged = joined.filter(pl.col(\"version\").is_not_null() & ~differs).select(src.columns)\n"
+             f"    refreshed = current.join(unchanged.select(keys), on=keys, how=\"semi\").drop(\n"
+             f"        [c for c in src.columns if c not in keys]).join(unchanged, on=keys, how=\"left\")\n"
+             f"    left_source = current.join(src.select(keys), on=keys, how=\"anti\")\n"
+             f"    same = pl.concat([refreshed, left_source], how=\"diagonal_relaxed\")\n"
+             f"    print(f\"{{new.height:,}} new keys, {{changed.height:,}} changed, {{same.height:,}} unchanged\")\n"
+             f"    out = pl.concat([history, closed, same, added], how=\"diagonal_relaxed\")\n"
+             f"out = out.sort(keys + [\"version\"])\n"
+             f"# Check: one current row per key\n"
+             f"assert out.filter(pl.col(\"is_current\")).select(keys).is_duplicated().sum() == 0, \"A key has two current rows\"\n"
+             f"out.head()")
+        code(f"lakehouse.write_table(out, {output!r}, mode=\"overwrite\")")
+        # Each version is one row: the key and its version number identify it. The validity times are the
+        # time of the run, so they differ between this PC and Fabric and a proof leaves them out.
+        keys = keys + ["version"]
+        ignore = sorted(set(ignore) | {"valid_from", "valid_to"})
+    elif template == "standardize":
+        source = _table(v.get("source"), "The table to read")
+        dates, numbers = _names(v.get("dates")), _names(v.get("numbers"))
+        need_keys()
+        md(f"# Standardize {source}\n\nRenames the columns of `{source}` to snake_case, trims spaces from text, "
+           f"turns the columns you named into dates and numbers (a value that can't be read stops the run), "
+           f"and writes `{output}`. Made by the new notebook wizard.")
+        code(head + "\nimport re")
+        code("def snake(name):\n"
+             "    name = re.sub(r\"([a-z0-9])([A-Z])\", r\"\\1_\\2\", name)\n"
+             "    return re.sub(r\"[^0-9A-Za-z]+\", \"_\", name).strip(\"_\").lower() or \"column\"\n\n"
+             f"df = lakehouse.read_table({source!r})\n"
+             "names = {c: snake(c) for c in df.columns}\n"
+             "clashes = sorted({n for n in names.values() if list(names.values()).count(n) > 1})\n"
+             "assert not clashes, f\"These columns would get the same name: {clashes}\"\n"
+             "df = df.rename(names).with_columns(pl.col(pl.Utf8).str.strip_chars())\ndf.head()")
+        code(f"dates = {dates!r}\nnumbers = {numbers!r}\n"
+             "converted = df.with_columns([pl.col(c).cast(pl.Utf8).str.to_date(strict=False) for c in dates]\n"
+             "                            + [pl.col(c).cast(pl.Float64, strict=False) for c in numbers])\n"
+             "for c in dates + numbers:\n"
+             "    bad = df.filter(pl.col(c).is_not_null() & converted[c].is_null()).height\n"
+             "    assert bad == 0, f\"{bad} values in {c} could not be read\"\n"
+             "df = converted\ndf.head()")
+        code(_check_cell("df", keys))
+        code(f"lakehouse.write_table(df, {output!r}, mode={mode!r})")
+    elif template == "quality":
+        source = _table(v.get("source"), "The table to read")
+        rejects = _table(v.get("rejects"), "The table for failing rows")
+        if rejects.lower() == output.lower():
+            raise ValueError("Write failing rows to a different table from the good rows.")
+        need_keys()
+        required = list(dict.fromkeys(keys + _names(v.get("required"))))
+        allowed, ranges = _allowed(v.get("allowed")), _ranges(v.get("ranges"))
+        md(f"# Check {source}\n\nChecks every row of `{source}`. Rows that pass go to `{output}`; rows that fail go "
+           f"to `{rejects}` with a `reason` column saying which checks failed. Change the rules in the next "
+           "cell. Made by the new notebook wizard.")
+        code(head)
+        code(f"df = lakehouse.read_table({source!r})\n"
+             f"keys = {keys!r}\nrequired = {required!r}\nallowed = {allowed!r}\nranges = {ranges!r}")
+        code("problems = [pl.when(pl.col(c).is_null()).then(pl.lit(f\"{c} is empty\")) for c in required]\n"
+             "problems.append(pl.when(pl.struct(keys).is_duplicated()).then(pl.lit(\"key repeats\")))\n"
+             "problems += [pl.when(~pl.col(c).cast(pl.Utf8).is_in(ok)).then(pl.lit(f\"{c} is not one of {ok}\"))\n"
+             "             for c, ok in allowed.items()]\n"
+             "number = lambda c: pl.col(c).cast(pl.Float64, strict=False)\n"
+             "problems += [pl.when(pl.col(c).is_not_null() & number(c).is_null()).then(pl.lit(f\"{c} is not a number\"))\n"
+             "             .when(~number(c).is_between(-float(\"inf\") if lo is None else lo,\n"
+             "                                         float(\"inf\") if hi is None else hi))\n"
+             "             .then(pl.lit(f\"{c} is outside {lo}..{hi}\")) for c, (lo, hi) in ranges.items()]\n"
+             "checked = df.with_columns(pl.concat_str(problems, separator=\"; \", ignore_nulls=True).alias(\"reason\"))\n"
+             "good = checked.filter(pl.col(\"reason\") == \"\").drop(\"reason\")\n"
+             "bad = checked.filter(pl.col(\"reason\") != \"\")\n"
+             "print(f\"{good.height:,} rows pass, {bad.height:,} fail\")\nbad.head()")
+        code(_check_cell("good", keys))
+        code(f"lakehouse.write_table(good, {output!r}, mode={mode!r})\n"
+             f"lakehouse.write_table(bad, {rejects!r}, mode={mode!r})")
+        tables[rejects] = {"keys": [], "ignore": ignore}
+    elif template == "date_dimension":
+        start, end = _date(v.get("start"), "The first date"), _date(v.get("end"), "The last date")
+        if end < start:
+            raise ValueError("The last date must be on or after the first date.")
+        if (end - start).days > 200 * 366:
+            raise ValueError("A date dimension covers at most 200 years.")
+        fiscal = str(v.get("fiscal_start") or "1")
+        if fiscal not in [m for m, _ in CHOICES["fiscal_start"]]:
+            raise ValueError("Choose the month the fiscal year starts in.")
+        fm = int(fiscal)
+        keys, mode = ["date"], "overwrite"
+        fy = "pl.col(\"year\")" if fm == 1 else f"pl.col(\"year\") + (pl.col(\"month\") >= {fm}).cast(pl.Int32)"
+        md(f"# Date dimension {output}\n\nOne row per day from {start} to {end}. The fiscal year starts in "
+           f"{MONTHS[fm - 1]} and is named by the calendar year it ends in. Made by the new notebook wizard.")
+        code(head + "\nfrom datetime import date")
+        code(f"d = pl.col(\"date\").dt\n"
+             f"df = pl.DataFrame({{\"date\": pl.date_range(date.fromisoformat({start.isoformat()!r}), "
+             f"date.fromisoformat({end.isoformat()!r}), \"1d\", eager=True)}})\n"
+             "df = df.with_columns(\n"
+             "    date_key=d.strftime(\"%Y%m%d\").cast(pl.Int32), year=d.year(), quarter=d.quarter(), month=d.month(),\n"
+             "    month_name=d.strftime(\"%B\"), day=d.day(), iso_week=d.week(), weekday=d.weekday(),\n"
+             "    weekday_name=d.strftime(\"%A\"), is_weekend=d.weekday() >= 6,\n"
+             ")\n"
+             f"df = df.with_columns(fiscal_year={fy}, fiscal_month=((pl.col(\"month\") - {fm}) % 12) + 1)\ndf.head()")
+        code(_check_cell("df", keys))
+        code(f"lakehouse.write_table(df, {output!r}, mode=\"overwrite\")")
+    elif template == "reconcile":
+        source = _table(v.get("source"), "The table to read")
+        other = _table(v.get("other"), "The table to compare with")
+        sums = _names(v.get("sums"))
+        md(f"# Reconcile {source} with {other}\n\nCompares row counts"
+           + (", keys found on one side only" if keys else "") + (" and column totals" if sums else "")
+           + ". The last cell fails when anything differs, so a schedule or pipeline stops. Totals must match "
+           "exactly. Made by the new notebook wizard.")
+        code(head)
+        code(f"left = lakehouse.read_table({source!r})\nright = lakehouse.read_table({other!r})\n"
+             f"keys = {keys!r}\nsums = {sums!r}\nproblems = []\n"
+             f"if left.height != right.height:\n"
+             f"    problems.append(f\"Rows: {{left.height:,}} in {source}, {{right.height:,}} in {other}\")")
+        if keys:
+            code("a, b = left.select(keys).unique(), right.select(keys).unique()\n"
+                 "only_left = a.join(b, on=keys, how=\"anti\")\n"
+                 "only_right = b.join(a, on=keys, how=\"anti\")\n"
+                 f"if only_left.height:\n    problems.append(f\"{{only_left.height:,}} keys only in {source}\")\n"
+                 f"if only_right.height:\n    problems.append(f\"{{only_right.height:,}} keys only in {other}\")\n"
+                 "only_left.head()")
+        if sums:
+            code("for c in sums:\n"
+                 "    l, r = left[c].sum(), right[c].sum()\n"
+                 f"    if l != r:\n        problems.append(f\"Total of {{c}}: {{l}} in {source}, {{r}} in {other}\")")
+        code("for p in problems:\n    print(p)\nassert not problems, f\"The tables differ in {len(problems)} ways\"\n"
+             "print(\"The tables match.\")")
+    else:  # run_in_order
+        names = _lines(v.get("notebooks"))
+        if not names:
+            raise ValueError("Name the notebooks to run, one per line.")
+        if len({n.lower() for n in names}) != len(names):
+            raise ValueError("Name each notebook once.")
+        retries = str(v.get("retries") or "0")
+        if retries not in ("0", "1", "2", "3"):
+            raise ValueError("Retries is 0 to 3.")
+        acts = [{"name": n, "path": n, "retry": int(retries), "dependencies": [names[i - 1]] if i else []}
+                for i, n in enumerate(names)]
+        md(f"# Run {len(names)} notebooks in order\n\nRuns {', '.join(f'`{n}`' for n in names)} one after another "
+           "with `notebookutils.notebook.runMultiple`. A notebook runs only when the one before it succeeded. "
+           "Made by the new notebook wizard.")
+        code(f"dag = {{\"activities\": {acts!r}}}\n"
+             "results = notebookutils.notebook.runMultiple(dag)\nresults")
 
-    rules = {"keys": keys, "ignore": ignore}
-    verify.rules(rules)
-    return {"cells": cells, "proof": {"tables": {output: rules}}, "template": template}
+    if writes:
+        tables = {output: {"keys": keys, "ignore": ignore}} | tables
+    for rules in tables.values():
+        verify.rules(rules)
+    return {"cells": cells, "proof": {"tables": tables}, "template": template}

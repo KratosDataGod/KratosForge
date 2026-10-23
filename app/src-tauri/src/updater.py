@@ -24,7 +24,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-REPO = "KratosDataGod/fabric-desktop"
+REPO = "KratosDataGod/KratosForge"
 MIN_PYTHON = (3, 11)
 # Each update channel is a GitHub release: "latest" is replaced by every green build of main,
 # "stable" only when someone promotes a build (the Promote to stable workflow).
@@ -41,13 +41,25 @@ def _settings(path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _policy(policy: Path, saved: Path) -> dict:
+    """The organization's policy file; when it exists but can't be read as a JSON object, the last
+    copy the sidecar could read (policy-last-good.json). A missing file is no policy."""
+    try:
+        data = json.loads(policy.read_text(encoding="utf-8-sig"))
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError):
+        data = None
+    return data if isinstance(data, dict) else _settings(saved)
+
+
 def channel() -> str:
-    """This PC's update channel: the organization's policy file wins over the Settings page.
-    The same rule as the sidecar's app_settings.py; this file can't import it."""
+    """This PC's update channel: the organization's policy file (or its last good copy) wins over
+    the Settings page. The same rule as the sidecar's app_settings.py; this file can't import it."""
     policy = Path(os.environ.get("ProgramData") or "/etc") / "FabricDesktop" / "policy.json"
     user = Path(os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()) / "FabricDesktop" / "app-settings.json"
-    for path in (policy, user):
-        value = _settings(path).get("channel")
+    for settings in (_policy(policy, user.with_name("policy-last-good.json")), _settings(user)):
+        value = settings.get("channel")
         if value in CHANNEL_TAGS:
             return value
     return "stable"
@@ -221,6 +233,21 @@ def release_channels() -> list:
 NO_STABLE = "There is no stable release yet, so this PC follows Preview until there is one."
 
 
+def release_history(raw) -> list:
+    """What reached main in the month before a release's build (version.json "history"), newest
+    first. Releases from before it have none; anything malformed is dropped, not shown."""
+    items = []
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict) or not isinstance(item.get("title"), str) or not item["title"].strip():
+            continue
+        pr = item.get("pr")
+        commit = item.get("commit") if isinstance(item.get("commit"), str) and SHA.fullmatch(item["commit"]) else None
+        date = item.get("date") if isinstance(item.get("date"), str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", item["date"]) else None
+        items.append({"date": date, "title": item["title"].strip()[:300],
+                      "pr": pr if isinstance(pr, int) and not isinstance(pr, bool) and pr > 0 else None, "commit": commit})
+    return items[:200]
+
+
 def latest_release() -> dict:
     """Commit and notes of the newest exe on this PC's channel, from the release's version.json.
 
@@ -242,7 +269,13 @@ def latest_release() -> dict:
         commit = info.get("commit") or ""
         if not SHA.fullmatch(commit):
             return {"commit": None, "error": f"the release names {commit!r}, not a commit", "channel": name, "notes": "", "note": note}
-        return {"commit": commit, "error": None, "channel": name, "notes": str(info.get("notes") or ""), "note": note}
+        # The shell checks these against what this PC last accepted from the channel (HD-022):
+        # the release it came from, when it was published, and the exe's checksum.
+        published = info.get("published")
+        return {"commit": commit, "error": None, "channel": name, "notes": str(info.get("notes") or ""),
+                "history": release_history(info.get("history")), "note": note, "tag": tag,
+                "published": published if isinstance(published, int) and not isinstance(published, bool) else None,
+                "exe_sha256": str(info.get("exe_sha256") or "")}
     return {"commit": None, "error": "No release was found.", "channel": name, "notes": "", "note": note}
 
 
@@ -294,7 +327,7 @@ def install_sidecar(commit: str) -> int:
 
 def release_sha256(tag: str, commit: str) -> str | None:
     """The exe's SHA-256 that a release's version.json gives for this build; "" when it names this
-    build but gives no checksum (published before checksums); None when it can't be read or names
+    build but gives no valid checksum, which is refused; None when it can't be read or names
     another build (one is being published), so the download can't be checked yet."""
     try:
         with _get(f"{release_url(tag)}/version.json?nocache={int(time.time())}", timeout=10) as resp:
@@ -342,7 +375,11 @@ def download_app(dest: str, commit: str = "") -> int:
         if expected is None:
             print(f"Could not read build {commit[:7]}'s checksum from its release; trying again", flush=True)
             continue
-        if expected and digest.hexdigest() != expected:
+        if not expected:
+            # Every release CI publishes gives one; without it the download can't be checked (HD-022).
+            print(f"Build {commit[:7]}'s release gives no checksum for the app, so it wasn't installed.", flush=True)
+            return 1
+        if digest.hexdigest() != expected:
             print(f"The download does not match build {commit[:7]}'s checksum; trying again", flush=True)
             continue
         with open(dest, "rb") as f:

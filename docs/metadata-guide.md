@@ -1,6 +1,6 @@
 # Metadata framework guide
 
-The metadata framework builds and runs your medallion layers (Bronze, Silver, Gold, or any 2 to 10 layers you choose) from configuration instead of one-off notebooks. You describe each table once in a small file: where its data comes from, its columns, how to clean and check it, and how to load it. Fabric Desktop by KratosBI runs every table the same way, checks it, writes it to its layer's lakehouse, and logs what happened.
+The metadata framework builds and runs your medallion layers (Bronze, Silver, Gold, or any 2 to 10 layers you choose) from configuration instead of one-off notebooks. You describe each table once in a small file: where its data comes from, its columns, how to clean and check it, and how to load it. KratosForge runs every table the same way, checks it, writes it to its layer's lakehouse, and logs what happened.
 
 This guide goes from an empty folder to Prod. The [reference](#reference) at the end lists every setting.
 
@@ -151,7 +151,7 @@ Full loads and rebuilds replace the whole table. A source too big to read at onc
 
 **Before it reads a Delta source** (a table, a link or another entity), a run estimates the read from the table's Delta log alone: the files left after the watermark, their rows, their size on disk, and the memory the columns it reads take (8 bytes a number or timestamp, 4 a date, about 32 a text value). The **read** step shows it, for example *about 2,000 rows in 1 of 20 files (0.4 MB on disk, 0.1 MB in memory)*. If three times that estimate (the read plus the copies the later steps make; a 5-million-row first load peaked at 2.5 times) is more than the machine's free memory, the run stops before reading anything and says what to do instead: load it incrementally, read fewer columns, or run the environment in Fabric. To try anyway, set `memory_guard = false` under `[load]`; that isn't a logic change, so it doesn't ask whether to rebuild. Free memory is read on Windows and Linux; elsewhere there's no guard. File sources (`files`, `landing`) aren't estimated yet.
 
-Measured on one Linux machine (4 cores, 16 GB), local Delta tables, one incremental run with 1,000 changed and 1,000 new rows, using [examples/benchmark/large_tables.py](https://github.com/KratosDataGod/fabric-desktop/blob/main/examples/benchmark/large_tables.py):
+Measured on one Linux machine (4 cores, 16 GB), local Delta tables, one incremental run with 1,000 changed and 1,000 new rows, using [examples/benchmark/large_tables.py](https://github.com/KratosDataGod/KratosForge/blob/main/examples/benchmark/large_tables.py):
 
 | Table | Changed rows | Write | Seconds | Peak memory | Files rewritten | Written |
 | --- | --- | --- | --: | --: | --: | --: |
@@ -204,6 +204,8 @@ Checks run before every write. Each has an `on_fail`:
 3. **Promote:** Dev to Test and Test to Prod need a clean save gate, passing tests, and a green last run of every table's current logic.
 4. **After:** `meta.run_log`, `meta.dq_results`, `meta.watermarks`, `meta.schema_history` and `meta.deployments` in `LH_Meta`, plus `_run_id` and `_loaded_at` on every row and the run id and metadata version on every Delta commit.
 
+The table commit comes first and everything in step 4 follows it, together with the quarantined rows. Only the table commit is ever retried, so a failure after it can't put the rows in twice: the run reports the rows as written and says what it couldn't record. Each commit also carries its watermark, so if saving `meta.watermarks` failed, the next run goes by the commit and doesn't load the same rows again. A run whose table write fails quarantines nothing.
+
 **Exceptions.** When a rule genuinely doesn't fit, add an approved exception to `exceptions.toml` with the entity, the rule, a reason, an approver and an expiry date (or `permanent`). An expired exception fails the save gate again. **Data mesh > Quality > Exceptions** shows each one with the table's owner, the reason, the approver and the end date. One that ends within 14 days raises a notice on the bell and a banner on Data mesh, so it can be renewed or the rule met before runs and promote are blocked.
 
 ```toml
@@ -224,8 +226,8 @@ expires = "2026-11-01"
 | **History** (Preview) | Every Delta version: when, what happened, which run. **Restore** brings back an earlier version (as a new version, so it can be undone too), moves an incremental table's watermark back, and offers to run the tables that read it. |
 | **Schema drift** card | Reads the source now and lists new, gone and retyped columns. Add a new column to the contract, mark a gone column as renamed (`[source] rename`), take a new type, or set this table's drift policy. **Save to config** writes it through the save gate. |
 | **Freshness** card | See [Freshness promises](#freshness-promises). |
-| **Quarantine** card | Shows held-back rows and the check that held each. Fix values in place, or fix the check and save, then **Replay selected**: they go through the contract, derived columns and checks again, and are written as a `replay` run without moving the watermark. **Discard selected** removes rows that should never load. After a replay the app offers to rebuild downstream tables. |
-| **Cell 1: surrogate keys** card | The Spark SQL MERGE that issues this table's keys, for running in Fabric. **Create template notebook** makes a notebook that starts with it. |
+| **Quarantine** card | Shows held-back rows and the check that held each. Fix values in place, or fix the check and save, then **Replay selected** (Preview): they go through the contract, derived columns and checks again, and are written as a `replay` run without moving the watermark. **Discard selected** removes rows that should never load. After a replay the app offers to rebuild downstream tables. |
+| **Cell 1: surrogate keys** card | The Spark SQL MERGE that issues this table's keys, for running in Fabric. **Create template notebook** makes a notebook that starts with it. Once the environment's keys come from the platform (SQL_Platform, or SQL_Keys when Dev, Test and Prod share one keys database), there's no MERGE: the card says where keys come from, and runs from Data mesh take them from there. |
 
 ### Freshness promises
 
@@ -238,7 +240,7 @@ by = "07:00"          # and one by 7:00 each day, this PC's clock
 envs = ["prod"]
 ```
 
-Late tables show on Home and in the bell. To get them in Teams, **Settings > Notifications > Teams alerts** (or **Set up Teams alerts** on the card) takes the address of a Teams Workflows webhook ("Post to a channel when a webhook request is received"). Each late or failed table is posted once. The app checks at startup and every 10 minutes while it's open.
+Late tables show on Home and in the bell. To get them in Teams, **Settings > Notifications > Teams alerts** (or **Set up Teams alerts** on the card) takes the address of a Teams Workflows webhook ("Post to a channel when a webhook request is received"). The app checks at startup and every 10 minutes while it's open. Late and failed tables become [incidents](user-guide.md#incidents-preview) (Preview), shared with everyone who can read the environment, and each new incident is posted once, and again when it recovers. An environment that a running [agent](agent.md#incidents-preview) already checks is left to the agent, so Teams hears about a problem once. With preview features hidden, each late or failed table is posted once, as before.
 
 ### Reliability objectives (Preview)
 
@@ -269,6 +271,8 @@ Criticality sets the rate when `success_rate` is left out: critical 99 %, high 9
 
 **Data mesh > Deploy > Environments and promote** has a card for Dev, Test and Prod.
 
+Promote to a Fabric workspace is in Preview: it is tested against local stores and has not yet been run on a tenant.
+
 | On the card | What it does |
 | --- | --- |
 | **Assign workspace** / **Change** | Picks the environment's workspace, or **Create a new workspace** on a capacity you choose. The layer lakehouses and `LH_Meta` live there. |
@@ -290,7 +294,7 @@ Promote copies **configuration**, never data and never keys. Each environment is
 
 ### Release records
 
-*Preview.* Every promote records which Git commit it came from, so you can tell later exactly which files are running in Test or Prod. Fabric Desktop by KratosBI reads Git with the `git` installed on your PC: it never signs in, never fetches and never stores a remote's address. "Not pushed" and "behind" are counted against your upstream branch as of your last fetch.
+*Preview.* Every promote records which Git commit it came from, so you can tell later exactly which files are running in Test or Prod. KratosForge reads Git with the `git` installed on your PC: it never signs in, never fetches and never stores a remote's address. "Not pushed" and "behind" are counted against your upstream branch as of your last fetch.
 
 The record goes into the target's `meta.deployments` row:
 
@@ -304,6 +308,20 @@ The record goes into the target's `meta.deployments` row:
 | `receipt`, `receipt_id` | The whole record as a [run receipt](notebooks.md) of kind `release`, and its SHA-256 id. Anyone with the row can recompute the id to check the record wasn't changed |
 
 Rows written before this existed have these columns empty.
+
+### Released files and rollback
+
+*Preview.* A promote also keeps every file of the metadata version (configs, transforms, tests: the files the version is a hash of, without `environments.toml` and `.local`) in the target's `meta.release_files`. Test and Prod then run those files, wherever the run happens: on this PC, on an agent, or in Fabric. Editing your project folder changes what Dev runs, never what Test or Prod run, until you promote again. The first run after a release writes its files once to `.local/releases/<env>/<version>/` in the project folder and reuses them. An environment last promoted before releases kept their files runs your folder as before, and only while the folder is on that release.
+
+**Roll back...** on a Test or Prod **Last release** card puts that environment back on an earlier release it kept. It lists every release to the environment, shows what goes back entity by entity, and then:
+
+- puts the environment on the earlier release's files, exactly as that environment kept them. Nothing is read from Git, Dev or your folder, and files that don't match their recorded hashes are refused
+- records the rollback as a new release in `meta.deployments`, with a release record of its own whose `rollback` section names the release it replaced and the one it went back to
+- uploads the earlier files for Fabric runs when the environment runs in Fabric
+
+Tables keep their rows. A table whose logic changes asks whether to rebuild on its next run; to put its rows back now, restore it from **History**. Rolling back checks your workspace roles there, as a promote does. It doesn't apply `separate_promoter`, because it only goes back to a release that was already promoted. Releases promoted before this version can't be rolled back to: promote them again instead.
+
+Each promote card shows the **Last release** to its target: the metadata version, the commit and whether it was pushed, the engine, who promoted it and when, and whether the stored record still matches its id (**checks out**). **Copy record** copies the whole record.
 
 If the files can't be named by a pushed commit (uncommitted changes, unpushed commits, no upstream branch, or no Git), the promote still goes ahead and the promote card says so. To require a pushed commit instead, set `require_commit = true` for that environment in `environments.toml`:
 
@@ -337,6 +355,8 @@ With **Fabric** (Preview), **Run all** (and running one entity, backfills and re
 
 Surrogate keys are issued in one place per environment: `LH_Keys`, in a dedicated Keys workspace (Dev keeps it on the PC). Each business key has its own key table, `sk.<name>`, with three columns: `<name>_sk` (INT), `<name>_bk` (the business key, unique) and `create_date`. Customer ABC gets one key, say 123, and every source that has Customer ABC maps to 123.
 
+**Sync to LH_Keys** is in Preview for Fabric environments: it has not yet been run on a tenant.
+
 **Data mesh > Design > Surrogate keys:**
 
 - **New key table** adds one, for example `customer`.
@@ -362,11 +382,13 @@ In an environment whose keys are in the platform, the project doesn't make its o
 
 **Data mesh > Design > Source systems** keeps every source's fixed id, code (like `CRM`), name, type, owner and active flag, and its connection in Dev, Test and Prod: server, port, database, schema, base URL, file path, authentication, tenant, username, Key Vault URL and secret name, Fabric connection id, gateway and extra options. Switch environment with the Dev / Test / Prod buttons above the connection fields.
 
+With Preview features on, the platform's list is the one list of source systems: **Add a source this project reads** picks a source from it with its id, code, name, owner and type, and the project keeps only its connection. Sources made before the platform's list existed show under "Only in this project" until **Move sources to the platform** copies them there with the same ids. See [One list of source systems](platform.md#one-list-of-source-systems-preview).
+
 **Passwords and keys never go here.** Give the Key Vault URL and the secret's name; the notebook reads the secret when it runs.
 
 **Sync to LH_Keys** writes them to `config.source_system` and `config.source_connection`, one row per source per environment, so notebooks and pipelines can look up connection values by code.
 
-**Variable library VL_Sources** (on the same tab) is one Fabric variable library per environment workspace, with that environment's values active. **Publish to Dev / Test / Prod** creates or updates it; promote updates it in the target. Notebooks read the same names in Fabric and on your PC:
+**Variable library VL_Sources** (Preview, on the same tab; not yet run on a tenant) is one Fabric variable library per environment workspace, with that environment's values active. **Publish to Dev / Test / Prod** creates or updates it; promote updates it in the target. Notebooks read the same names in Fabric and on your PC:
 
 ```python
 lib = notebookutils.variableLibrary.getLibrary("VL_Sources")
@@ -378,9 +400,19 @@ lib.CRM_server_host
 **Data mesh > Deploy > Semantic model** builds a Direct Lake semantic model over a layer's tables (the last layer, usually Gold) in Test or Prod. It reads the layer's lakehouse through its SQL analytics endpoint, with no import and no refresh schedule.
 
 - Each entity is a table; dimensions and facts are marked. Facts get a row count measure.
+- No column sums on its own (`summarizeBy: none`, as Best Practice Analyzer's rules ask). Instead each fact gets a total measure for every visible numeric column that isn't a key, named like its row count measure: `fact_sales total net_amount`. Names don't change as the model grows, so reports keep their measures. Visuals that already sum a column keep their aggregation.
 - Relationships come from the metadata: a fact's `[[lookup]]` names the dimension and key, and any other column named like a dimension's surrogate key joins to it.
 - Surrogate keys, `_run_id` and `_loaded_at` are hidden.
+- Two entities whose Delta tables share a name are qualified by schema (`sales_orders`). **Update model** first reads the model's definition and keeps the names its tables already have, so when a second `orders` table arrives only the newcomer is qualified, and reports keep their tables and measures. If the definition can't be read, nothing is written.
 - **Create model** makes `SM_<Layer>` in the environment's workspace (rename it if you like). **Update model** updates it in place and keeps every lineage tag, so reports built on it keep working.
+- If a model with that name already exists (for example after a rename), KratosForge asks first: the confirmation names the model and says its definition will be replaced, including measures, tables and relationships added to it in Fabric. Nothing is written until you confirm.
+
+**When Fabric can't be read.** KratosForge doesn't guess whether a model exists or what a table holds:
+
+- If the workspace's semantic models can't be listed (no access, throttling, a sign-in that failed), the app shows the reason and the tab offers neither **Create model** nor **Update model**. Try again once Fabric answers.
+- A table that hasn't been written in the environment yet is left out, and the result says so (**Not written yet, so left out**).
+- A column whose type Direct Lake can't read (arrays, maps, structs) is left out of its table, and the result names each one with its type. A relationship that would use such a column is left out too, and named, rather than pointing at a column the model doesn't have.
+- A table that exists but can't be read stops the build with the table's name and the reason, and nothing is written, so the model never silently loses a table.
 
 Dev on the PC has no Direct Lake model: switch the environment to Test or Prod.
 
@@ -504,13 +536,17 @@ One section per environment (`[dev]`, `[test]`, `[prod]`):
 
 Changing this file doesn't change the metadata version, so it never forces a re-promote.
 
+No two environments can use the same workspace, as their own `workspace_id` or as a designation's: each environment's lakehouses have the same names (`LH_Meta`, `LH_Bronze`, ...), so a run in one would write the other's tables. Saving such a change is refused, and if the file is edited by hand to share one, both environments refuse to read or write until it's fixed.
+
+A [job file](notebooks.md) run with `fabric-desktop run job.toml` can't write a table the metadata project manages, or anything in a workspace that Test or Prod uses: those change only through a framework run and promote.
+
 ### Data mesh files
 
 `project.toml` (the project's domain and team), `metadata/products/<name>.toml` (data products) and `metadata/links/<alias>.toml` (links to other teams' products), plus an optional `[catalog]` block in an entity file. All are described in [Data mesh](data-mesh.md).
 
 ### Column lineage (Preview)
 
-Fabric Desktop by KratosBI works out where every column comes from by reading the project's files, without running anything. Each column is one of: read from the source (by the same name, or through `rename`), a `[[derive]]` expression and the columns it uses, a `[[lookup]]` of a dimension's key, a `[[keys]]` surrogate key, or added by the framework. Each is labelled **declared** when a file states the link (a rename, an expression, a lookup, a key) or **inferred** when it is assumed from a matching name. Columns your Python adds (`[hooks] adds`, or every column of a `[step] custom`) are **opaque**: they're never guessed. Columns a hook runs after are flagged, because a hook can change any column. For one column, lineage follows the steps back to the landing files and finds every column built from it further on. The app's lineage view is still to come; the engine serves it as `meta_lineage`.
+KratosForge works out where every column comes from by reading the project's files, without running anything. Each column is one of: read from the source (by the same name, or through `rename`), a `[[derive]]` expression and the columns it uses, a `[[lookup]]` of a dimension's key, a `[[keys]]` surrogate key, or added by the framework. Each is labelled **declared** when a file states the link (a rename, an expression, a lookup, a key) or **inferred** when it is assumed from a matching name. Columns your Python adds (`[hooks] adds`, or every column of a `[step] custom`) are **opaque**: they're never guessed. Columns a hook runs after are flagged, because a hook can change any column. For one column, lineage follows the steps back to the landing files and finds every column built from it further on. On an entity's page, **Columns** in the Lineage card lists every column with how it's made and its label; pick one to see where it comes from and what reads it.
 
 ### Columns and tables the framework adds
 

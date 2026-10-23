@@ -1,6 +1,6 @@
 # AI integration backlog
 
-The universal AI integration program: twelve pull requests that let any external AI tool use Fabric Desktop by KratosBI through MCP or a local API, with no AI inside the app. Architecture: [ai-integration.md](../architecture/ai-integration.md).
+The universal AI integration program: twelve pull requests that let any external AI tool use KratosForge through MCP or a local API, with no AI inside the app. Architecture: [ai-integration.md](../architecture/ai-integration.md).
 
 Status values: COMPLETE (already in the code), PARTIAL (some of it exists), MISSING, BLOCKED, DUPLICATE, UNVERIFIED. Discovery classified each item against `main` at `882438f` on 2026-10-17. The PR column is filled in as each pull request opens.
 
@@ -10,18 +10,18 @@ Built in the requested order, with one change: the capability registry (003) com
 
 | # | Item | Priority | Discovery | Depends on | PR | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| 001 | Stable application service interfaces | P0 | PARTIAL | | [#99](https://github.com/KratosDataGod/fabric-desktop/pull/99) | Draft PR; 42 tests |
-| 003 | Capability registry | P0 | MISSING | 001 | [#100](https://github.com/KratosDataGod/fabric-desktop/pull/100) | Draft PR; 24 tests |
-| 002 | MCP server (read-only) | P0 | MISSING | 003 | [#101](https://github.com/KratosDataGod/fabric-desktop/pull/101) | Draft PR; 12 protocol tests (in-memory both eras, real stdio process) |
-| 005 | Permissions and approval framework | P0 | MISSING | 002 | [#102](https://github.com/KratosDataGod/fabric-desktop/pull/102) | Draft PR; 17 tests |
-| 004 | Local API (REST + MCP over HTTP) | P0 | MISSING | 005 | [#103](https://github.com/KratosDataGod/fabric-desktop/pull/103) | Draft PR; 39 tests, including the SDK client over Streamable HTTP against a real server and the engine starting the child process |
-| 006 | Project context and metadata resources | P1 | PARTIAL | 005 | [#104](https://github.com/KratosDataGod/fabric-desktop/pull/104) | Draft PR; 23 tests |
-| 007 | External execution interface | P1 | PARTIAL | 005 | [#105](https://github.com/KratosDataGod/fabric-desktop/pull/105) | Draft PR; 31 tests |
-| 008 | Connection experience (Settings > Integrations) | P1 | MISSING | 005, mockup | [#106](https://github.com/KratosDataGod/fabric-desktop/pull/106) | Draft PR; 6 engine tests, 3 UI checks, checked in a browser against a real engine |
-| 009 | Reusable agent instructions | P1 | MISSING | 002 | [#107](https://github.com/KratosDataGod/fabric-desktop/pull/107) | Draft PR; 8 tests (prompts over MCP, docs kept the same as the code) |
-| 010 | Audit and observability | P1 | PARTIAL | PR #89 | [#108](https://github.com/KratosDataGod/fabric-desktop/pull/108) | Draft PR; 10 tests, including three processes writing one chain |
-| 011 | Compatibility and conformance testing | P1 | MISSING | 004 | (this PR) | Draft PR; 39 conformance tests across 3 transports and 2 protocol eras; MCP conformance suite run by hand |
-| 012 | Extension integration | P2 | BLOCKED (framework) | 003, Git program Phase 4 | | Interface only |
+| 001 | Stable application service interfaces | P0 | PARTIAL | | [#99](https://github.com/KratosDataGod/KratosForge/pull/99) | Draft PR; 42 tests |
+| 003 | Capability registry | P0 | MISSING | 001 | [#100](https://github.com/KratosDataGod/KratosForge/pull/100) | Draft PR; 24 tests |
+| 002 | MCP server (read-only) | P0 | MISSING | 003 | [#101](https://github.com/KratosDataGod/KratosForge/pull/101) | Draft PR; 12 protocol tests (in-memory both eras, real stdio process) |
+| 005 | Permissions and approval framework | P0 | MISSING | 002 | [#102](https://github.com/KratosDataGod/KratosForge/pull/102) | Draft PR; 17 tests |
+| 004 | Local API (REST + MCP over HTTP) | P0 | MISSING | 005 | [#103](https://github.com/KratosDataGod/KratosForge/pull/103) | Draft PR; 39 tests, including the SDK client over Streamable HTTP against a real server and the engine starting the child process |
+| 006 | Project context and metadata resources | P1 | PARTIAL | 005 | [#104](https://github.com/KratosDataGod/KratosForge/pull/104) | Draft PR; 23 tests |
+| 007 | External execution interface | P1 | PARTIAL | 005 | [#105](https://github.com/KratosDataGod/KratosForge/pull/105) | Draft PR; 31 tests |
+| 008 | Connection experience (Settings > Integrations) | P1 | MISSING | 005, mockup | [#106](https://github.com/KratosDataGod/KratosForge/pull/106) | Draft PR; 6 engine tests, 3 UI checks, checked in a browser against a real engine |
+| 009 | Reusable agent instructions | P1 | MISSING | 002 | [#107](https://github.com/KratosDataGod/KratosForge/pull/107) | Draft PR; 8 tests (prompts over MCP, docs kept the same as the code) |
+| 010 | Audit and observability | P1 | PARTIAL | PR #89 | [#108](https://github.com/KratosDataGod/KratosForge/pull/108) | Draft PR; 10 tests, including three processes writing one chain |
+| 011 | Compatibility and conformance testing | P1 | MISSING | 004 | [#110](https://github.com/KratosDataGod/KratosForge/pull/110) | Draft PR; 39 conformance tests across 3 transports and 2 protocol eras; MCP conformance suite run by hand |
+| 012 | Extension integration | P2 | BLOCKED (framework) | 003, Git program Phase 4 | [#112](https://github.com/KratosDataGod/KratosForge/pull/112) | Draft PR; the interface, checks, switch, policy key, sample extension and list-change notices; 30 tests. The manifest loader stays with the Git program |
 
 ## Items
 
@@ -102,6 +102,10 @@ Built in the requested order, with one change: the capability registry (003) com
 
 - **Evidence.** No extension framework yet (Git program Phase 4).
 - **Plan.** The registration interface with validation, enable and disable, list-changed notifications, and a sample built-in extension; the manifest loader is left to the Git program.
+- **Built.** `integrations/extensions.py`: `Extension` (id, name, version, publisher, declared permissions, capabilities) and `ExtensionHost`, the one way an extension reaches the registry. It checks that capability ids carry the extension's prefix and never `fabric_desktop_`, that permissions are ones the extension declared, that resources stay under `fabric-desktop://ext/<id>/`, and registers all of an extension's capabilities or none. Extensions are off until the person turns each on (**Settings > Integrations > Extensions**, Preview); the policy key `integrations_extensions` limits which can be, failing closed. Every MCP and HTTP server process syncs from the store every 2 seconds and tells connected clients `tools/list_changed` and `resources/list_changed` (on the connection at 2025-11-25, on `subscriptions/listen` at 2026-07-28). Sample: the built-in **Notebook outline** (`notebook_outline_get`, read metadata only: headings, functions and classes, never code).
+- **Tests.** Every check refuses what it should; off by default; the switch reaches another registry (another process); the policy takes an extension away and an unreadable policy allows none; all-or-nothing registration; a new version reloads; calls go through permissions and the audit; the sample as a tool and a resource; list-change notices in memory on both eras, over Streamable HTTP on both eras, and from the real stdio process when the switch changes in the app; the page's RPC; the card is Preview and switches only through the engine.
+- **Not done here.** The manifest, installing extensions from anywhere, signing and running an extension in its own process (Git-native program, Phase 4; its loader calls `ExtensionHost.add`). No Git capability is added.
+- **Limitations.** An extension runs in the engine with the engine's rights, so only extensions shipped with the app exist. The Extensions card wasn't in the Integrations mockup. No AI tool has been seen reacting to the list-change notices yet.
 
 ## Remaining risks
 

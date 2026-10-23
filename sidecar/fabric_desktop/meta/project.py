@@ -32,6 +32,7 @@ from . import freshness as freshness_mod
 from . import objectives as objectives_mod
 from . import keys as keys_mod
 from . import mesh as mesh_mod
+from ..jsonfile import write_text
 
 MAX_LAYERS = 10
 # Fabric's table maintenance won't VACUUM with less than 7 days' retention.
@@ -228,12 +229,13 @@ def write_layers_file(root: Path, layers: list[Layer], rules: dict[str, Any]) ->
         if l.workspace:
             lines.append(f"workspace = {json.dumps(l.workspace)}")
         lines.append("")
-    (Path(root) / "layers.toml").write_text("\n".join(lines), encoding="utf-8")
+    write_text(Path(root) / "layers.toml", "\n".join(lines))
 
 
 class Project:
-    def __init__(self, root: Path | str):
+    def __init__(self, root: Path | str, local_data: Path | None = None):
         self.root = Path(root)
+        self._local_data = local_data  # a released copy keeps its environments' local tables with the project's
         self.reload()
 
     @property
@@ -242,7 +244,7 @@ class Project:
 
     @property
     def local_data(self) -> Path:
-        return self.root / ".local"
+        return self._local_data or self.root / ".local"
 
     def reload(self) -> None:
         cfg = tomllib.loads((self.root / "layers.toml").read_text(encoding="utf-8"))
@@ -343,7 +345,7 @@ class Project:
         self.reload()
         errors = [e for e in validate(self) if "layer" in e or "reads" in e]
         if errors:
-            (self.root / "layers.toml").write_text(old, encoding="utf-8")
+            write_text(self.root / "layers.toml", old)
             self.reload()
             raise GateError("save", errors)
 
@@ -521,6 +523,10 @@ def validate(project: Project, today: dt.date | None = None) -> list[str]:
                 errors.append(f"{e.name}: key {k} is not a contract column")
         if e.mode == "incremental" and not s.get("load", {}).get("watermark") and "entity" in s.get("source", {}):
             errors.append(f"{e.name}: incremental loads need a watermark column")
+        wm, renames = s.get("load", {}).get("watermark"), s.get("source", {}).get("rename") or {}
+        if isinstance(renames, dict) and wm in renames and wm not in e.columns:
+            errors.append(f"{e.name}: the watermark is a contract column: the source renames {wm} to "
+                          f"{renames[wm]}, so use watermark = \"{renames[wm]}\"")
         if e.mode in ("scd1", "scd2"):
             if not e.surrogate_key:
                 errors.append(f"{e.name}: dimensions need [scd] surrogate_key")

@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/KratosDataGod/KratosForge/docs/product/schema/feature-inventory.schema.json",
+  "title": "KratosForge feature inventory",
+  "description": "The machine-readable feature registry. docs/product/FEATURE_INVENTORY.json is the source of truth; FEATURE_INVENTORY.md is rendered from it by docs/product/tools/product_data.py.",
+  "type": "object",
+  "required": ["schema_version", "assessed", "features"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "assessed": {
+      "description": "What the inventory was taken against and how.",
+      "type": "object",
+      "required": ["commit", "date", "method"],
+      "additionalProperties": false,
+      "properties": {
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$", "description": "main commit the inventory describes" },
+        "date": { "type": "string", "format": "date" },
+        "method": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "test_run": { "type": "string", "description": "Result of the test suites at that commit, as observed" }
+      }
+    },
+    "features": { "type": "array", "items": { "$ref": "#/$defs/feature" }, "minItems": 1 }
+  },
+  "$defs": {
+    "status": {
+      "description": "Implementation status. Implemented: works as described through its intended surface. Partially Implemented: some of the described capability exists. Implemented but Not Exposed: code exists with no way for its intended user to reach it. Implemented but Unreliable: exposed, but a known defect makes results untrustworthy. Documented Only: described in docs with no code. Missing: neither. Planned: an approved plan or open PR exists but nothing is on main. Deprecated: kept for compatibility, being replaced.",
+      "enum": ["Implemented", "Partially Implemented", "Implemented but Not Exposed", "Implemented but Unreliable", "Documented Only", "Missing", "Planned", "Deprecated"]
+    },
+    "verification": {
+      "description": "Verified: the behavior a user receives was observed working in this assessment, end to end, on the environment it targets. Partially Verified: automated tests exercise the logic (often with Fabric faked), or part of the flow was observed. Unverified: code reading only, or only someone else's report.",
+      "enum": ["Verified", "Partially Verified", "Unverified"]
+    },
+    "pillar": {
+      "description": "Mission 1 (local development), mission 2 (enterprise services), or the foundation both stand on.",
+      "enum": ["Local development", "Enterprise services", "Platform foundation"]
+    },
+    "category": {
+      "description": "The twelve backlog categories, shared with PRODUCT_BACKLOG.json.",
+      "enum": [
+        "Local Development and Execution",
+        "SQL, Python, and Notebook Development",
+        "Data Engineering and Transformation",
+        "Pipelines and Orchestration",
+        "Fabric Integration and Deployment",
+        "Enterprise Shared Services",
+        "Data Governance and Quality",
+        "Developer Experience and Productivity",
+        "Enterprise Administration and FinOps",
+        "Extensibility, APIs, CLI, and MCP",
+        "Security and Enterprise Readiness",
+        "Reliability, Testing, and Performance"
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["kind", "ref"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "test: an automated test that ran and passed in this assessment. smoke: behavior observed by driving the engine or CLI in this assessment. code: read in the source. doc: stated in documentation. report: someone else's observation (for example the maintainer's tenant). absent: looked for and not found.",
+          "enum": ["test", "smoke", "code", "doc", "report", "absent"]
+        },
+        "ref": { "type": "string", "minLength": 1 },
+        "note": { "type": "string" }
+      }
+    },
+    "feature": {
+      "type": "object",
+      "required": ["id", "name", "description", "pillar", "category", "status", "verification", "evidence", "source", "ui", "next_action"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^FEAT-[A-Z]{2,4}-[0-9]{2}$" },
+        "name": { "type": "string", "minLength": 3 },
+        "description": { "type": "string", "minLength": 10 },
+        "pillar": { "$ref": "#/$defs/pillar" },
+        "category": { "$ref": "#/$defs/category" },
+        "status": { "$ref": "#/$defs/status" },
+        "verification": { "$ref": "#/$defs/verification" },
+        "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" }, "minItems": 1 },
+        "source": { "type": "array", "items": { "type": "string" }, "description": "Repository paths (and functions) that implement it" },
+        "tests": { "type": "array", "items": { "type": "string" } },
+        "docs": { "type": "array", "items": { "type": "string" } },
+        "ui": {
+          "type": "object",
+          "required": ["surface"],
+          "additionalProperties": false,
+          "properties": {
+            "surface": { "type": "string", "description": "Where a person reaches it: a page, tab, ribbon, command, CLI command, or 'none'" },
+            "preview": { "type": "boolean", "description": "Carries a Preview tag (app/ui/features.js PREVIEW_FEATURES) or is off by default" },
+            "accessibility": { "type": "string" }
+          }
+        },
+        "depends_on": { "type": "array", "items": { "type": "string", "pattern": "^FEAT-[A-Z]{2,4}-[0-9]{2}$" } },
+        "limitations": { "type": "array", "items": { "type": "string" } },
+        "prs": { "type": "array", "items": { "type": "integer" }, "description": "Merged or open pull requests that built or change it" },
+        "issues": { "type": "array", "items": { "type": "integer" } },
+        "workstream": { "type": "string", "description": "The program that owns its further development" },
+        "backlog": { "type": "array", "items": { "type": "string", "pattern": "^PB-[0-9]{3}$" } },
+        "next_action": { "type": "string", "minLength": 3 }
+      }
+    }
+  }
+}

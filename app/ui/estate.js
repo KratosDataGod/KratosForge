@@ -151,7 +151,7 @@ function varlibBody(v, reload) {
   const cell = (x, env) => env !== "dev" && x[env] === x.dev ? h("td", { class: "muted-text small" }, "same as Dev")
     : h("td", { class: "mono small" }, x[env] || h("span", { class: "muted-text" }, "empty"));
   return [
-    h("div", { class: "row wrap" }, h("b", { class: "grow" }, `Variable library ${v.library}`),
+    h("div", { class: "row wrap" }, previewMarked("varlib", h("b", { class: "grow" }, `Variable library ${v.library}`)),
       envs.map((env) => {
         const ws = v.environments[env];
         return btn(`Publish to ${ENV_LABEL[env]}`, "publish", () => publish(env), "tool outline small",
@@ -193,39 +193,311 @@ function costPanel() {
   return panel;
 }
 
+// Every CU and cost figure is a classified measurement (sidecar measurement.py): measured,
+// estimated, scenario or unknown. The badge says which, and clicking the figure shows how it was worked out.
+const MEASURE_KIND = {
+  measured: ["Measured", "pass", "Read from a source that observed it."],
+  estimated: ["Estimated", "wrn", "Worked out from the assumptions below, not read from Fabric's billing."],
+  scenario: ["Scenario", "cus", "What it would have used if it had run differently. Nothing was charged or saved for certain."],
+  unknown: ["Unknown", "neu", "Not enough reliable information. It is left out of totals, not counted as 0."],
+};
+
+function measureBadge(m) {
+  const [label, cls, why] = MEASURE_KIND[m?.classification] || MEASURE_KIND.unknown;
+  const badge = h("span", { class: `pill-s ${cls}`, title: why }, label);
+  return m?.complete === false && m.classification !== "unknown"
+    ? [badge, h("span", { class: "pill-s neu", title: m.reason || "Some runs' figures aren't known" }, "Incomplete")] : badge;
+}
+
+function measureValue(m, cur) {
+  if (!m || m.value === null || m.value === undefined) return "Not known";
+  if (m.unit === "currency") return m.value && m.value < 0.01 ? `under ${money(0.01, m.currency || cur)}` : money(m.value, m.currency || cur);
+  if (m.unit === "cu_hours") return cuHours(m.value);
+  if (m.unit === "cu_seconds") return `${Math.round(m.value).toLocaleString()} CU-s`;
+  if (m.unit === "percent") return `${m.value < 0.1 && m.value > 0 ? "<0.1" : Number(m.value).toFixed(1)}%`;
+  return String(m.value);
+}
+
+// A figure with its badge; click it to see how it was worked out.
+function measureFigure(title, m, cur) {
+  return h("button", { class: "measure-fig", title: "How this was worked out", onclick: (ev) => { ev.stopPropagation(); measureDialog(title, m, cur); } },
+    measureValue(m, cur), " ", measureBadge(m));
+}
+
+function measureDialog(title, m, cur) {
+  const [label, , why] = MEASURE_KIND[m?.classification] || MEASURE_KIND.unknown;
+  const list = (items) => items && items.length ? h("ul", { class: "text" }, items.map((x) => h("li", {}, x))) : null;
+  const methods = m.methods || (m.method ? [m.method] : []);
+  const sources = m.sources || (m.source ? [m.source] : []);
+  const row = (k, v) => v ? h("tr", {}, h("td", { class: "muted-text" }, k), h("td", {}, v)) : null;
+  const period = m.period && (m.period.start || m.period.end)
+    ? `${m.period.start ? new Date(m.period.start).toLocaleString() : "?"} to ${m.period.end ? new Date(m.period.end).toLocaleString() : "now"}` : "";
+  showDialog(title, h("div", { class: "scroll" },
+    h("p", { class: "text" }, h("b", {}, measureValue(m, cur)), " ", measureBadge(m), " ", why),
+    h("table", { class: "list compact" }, h("tbody", {},
+      row("Classification", label),
+      row("Unit", { cu_hours: "CU hours (capacity use)", cu_seconds: "CU-seconds (capacity use)", percent: "Percent of a capacity over the period", currency: m.metric === "billed_cost" ? `Money (${m.currency}), as billed` : `Money (${m.currency || cur}), a price applied to CU use` }[m.unit]),
+      row("Worked out as", methods.join("; ")),
+      row("Source", sources.join(", ")),
+      row("Period", period),
+      row("Runs counted", m.parts !== undefined ? `${m.parts - (m.unknown_parts || 0)} of ${m.parts}` : ""),
+      row("Not known", m.reason || ""))),
+    m.assumptions?.length ? [h("p", { class: "text" }, h("b", {}, "Assumptions")), list(m.assumptions)] : null,
+    h("p", { class: "muted-text small" }, String(m.metric || "").startsWith("billed_")
+      ? "Azure Cost Management bills a capacity per meter and day, for the whole capacity: it can't be split into single runs."
+      : "Fabric's Capacity Metrics app has the CU your capacity recorded. A price is not a charge: on a reserved or already-running capacity the invoice doesn't change with each run.")),
+  [btn("Close", null, closeDialog, "tool outline")]);
+}
+
+// ---------- capacity of each environment (FINOPS-002, read only) ----------
+
+// Running, not running or unknown; or why it couldn't be read.
+function capacityStatus(e) {
+  if (e.access !== "ok") return h("span", { class: "pill-s neu", title: e.action || "" }, e.access_text);
+  const [label, cls] = { running: ["Running", "pass"], not_running: ["Not running", "fail"] }[e.status] || ["Unknown", "neu"];
+  return h("span", { class: `pill-s ${cls}`, title: e.status_text }, label);
+}
+
+function capacityName(e) {
+  const c = e.capacity;
+  if (!c) return e.capacity_id ? h("span", { class: "mono small", title: "Capacity id from the workspace" }, e.capacity_id) : null;
+  return h("span", {}, h("b", {}, c.name || c.id), [c.sku, c.region || e.region].filter(Boolean).length
+    ? h("span", { class: "muted-text" }, ` · ${[c.sku, c.region || e.region].filter(Boolean).join(" · ")}`) : null);
+}
+
+function capacityAge(e) {
+  if (!e.observed_at) return null;
+  return h("span", { class: "muted-text small" }, "Read ", when(e.observed_at), e.cached ? ` (${e.read_error.toLowerCase()} now)` : "",
+    e.stale ? [" ", h("span", { class: "pill-s wrn", title: "Older than an hour: press Refresh" }, "Stale")] : null);
+}
+
+// One line for an environment card: the capacity and whether it is running.
+function capacityLine(e) {
+  if (!e || e.access === "no_workspace") return null;
+  return h("div", { class: "capacity-line" }, icon("gauge", 14), h("span", { class: "muted-text small" }, "Capacity"),
+    capacityName(e), capacityStatus(e), capacityAge(e));
+}
+
+function capacityStrip(doc) {
+  const rows = (doc?.environments || []).filter((e) => e.access !== "no_workspace");
+  const refresh = async (button) => {
+    button.disabled = true;
+    const res = await attempt(() => rpc("capacity_health", { refresh: true }), "Capacities not read");
+    if (res) render();
+    button.disabled = false;
+  };
+  if (!rows.length) return null;
+  return h("div", { class: "card pad capacity-strip" },
+    h("div", { class: "row" }, h("b", { class: "grow" }, "Capacities"),
+      h("span", { class: "muted-text small" }, "Read only, with your sign-in. Running doesn't mean there's room: how busy a capacity is shows in Fabric's Capacity Metrics app."),
+      btn("Refresh", "sync", (ev) => refresh(ev.currentTarget), "tool outline small")),
+    h("table", { class: "list compact" }, h("tbody", {}, rows.map((e) => h("tr", {},
+      h("td", {}, h("b", {}, ENV_LABEL[e.env] || e.env), h("div", { class: "muted-text small" }, e.workspace_name || "")),
+      h("td", {}, capacityName(e) || h("span", { class: "muted-text" }, "Not known")),
+      h("td", {}, capacityStatus(e)),
+      h("td", { class: "small" }, e.access === "ok" ? e.status_text : e.action, e.cached ? h("div", { class: "muted-text" }, e.action) : null),
+      h("td", {}, capacityAge(e)))))));
+}
+
+// ---------- measured usage imported from Capacity Metrics app and Azure Cost Management exports (FINOPS-003) ----------
+
+const USAGE_STATE = {
+  matched: ["Matched by name and time", "pass", "Imported rows with this run's workspace and item name that started while it ran. Likely this run's use, not proven: names and times are all an export has."],
+  no_row: ["No row", "wrn", "An import covers this workspace and time, but no row matched: the export may be sampled or filtered."],
+  not_covered: ["Not covered", "neu", "No import covers this run's workspace and time."],
+  no_item_name: ["Can't match", "neu", "This kind of run doesn't record the item it ran, so it can't be matched."],
+};
+
+function usageCard(u, cur) {
+  if (!u) return null;
+  const imports = u.imports_list || [];
+  const importBtn = btn("Import usage file", "attach", () => usageImportDialog(), "tool outline small");
+  const tag = preview("usage", h("span", { class: "usage-tag" }));
+  if (!tag) return null;
+  const head = h("div", { class: "row" }, h("b", {}, "Measured usage"), tag, h("span", { class: "spacer" }), importBtn);
+  if (u.error) return h("div", { class: "card pad usage-card" }, head, h("p", { class: "error-text" }, u.error));
+  if (!imports.length) {
+    return h("div", { class: "card pad usage-card" }, head,
+      h("p", { class: "muted-text small" }, "The figures above are estimates. For measured CU, a capacity admin exports the operations table from the Capacity Metrics app's Timepoint page (More options > Export data > CSV) and gives you the file. For what a capacity was billed, finance can export Azure Cost Management cost details as CSV. Files stay on this PC; no admin rights are needed to import them."));
+  }
+  const m = u.matched, runs = u.runs;
+  if (!u.rows && u.billed?.length) {
+    return h("div", { class: "card pad usage-card" }, head, usageBilled(u.billed, cur), usageImportsList(imports));
+  }
+  const stat = (figure, label, sub) => h("div", { class: "cmp-stat" }, h("span", { class: "v" }, figure), h("span", { class: "k" }, label),
+    sub ? h("span", { class: "k" }, sub) : null);
+  const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const reasons = Object.entries(u.unmatched.by_reason || {}).map(([k, n]) => `${k}: ${n}`).join("\n");
+  const matchedRuns = (u.by_run || []).filter((b) => b.state === "matched");
+  return h("div", { class: "card pad usage-card" }, head,
+    h("div", { class: "cmp-stats" },
+      stat(u.imported ? measureFigure("Measured CU in your imports", u.imported, cur) : "None", "Measured CU in your imports",
+        `${plural(u.rows, "row")} in the last ${(Date.parse(u.period.end) - Date.parse(u.period.start)) / 864e5 | 0} days`),
+      stat(m.measured ? measureFigure("This app's runs, measured", m.measured, cur) : "None",
+        "This app's runs, measured", `${m.runs} of ${plural(runs.total, "Fabric run")} matched`),
+      m.estimated ? stat(measureFigure("The same runs, estimated", m.estimated, cur), "The same runs, estimated",
+        m.measured_to_estimate ? `measured is ${Number(m.measured_to_estimate).toFixed(1)}× the estimate` : null) : null,
+      stat(u.unmatched.measured ? measureFigure("Other use in the imports", u.unmatched.measured, cur) : "None",
+        h("span", { title: reasons }, "Other use in the imports"), `${plural(u.unmatched.rows, "row")} not from this app's runs`)),
+    runs.no_row || runs.not_covered || runs.no_item_name ? h("p", { class: "muted-text small" },
+      [runs.no_row ? `${plural(runs.no_row, "run")} inside an import had no matching row (exports can be sampled or filtered).` : "",
+        runs.not_covered ? `${plural(runs.not_covered, "run")} aren't covered by any import.` : "",
+        runs.no_item_name ? `${plural(runs.no_item_name, "run")} can't be matched.` : ""].filter(Boolean).join(" ")) : null,
+    matchedRuns.length ? h("table", { class: "list compact" },
+      h("thead", {}, h("tr", {}, ["Run", "Started", "Measured", "Estimated"].map((c) => h("th", {}, c)))),
+      h("tbody", {}, matchedRuns.slice(0, 20).map((b) => h("tr", {},
+        h("td", {}, h("b", {}, b.name || b.item), h("div", { class: "muted-text small" }, `${b.kind} · ${b.workspace || ""}`)),
+        h("td", {}, when(b.started_at)),
+        h("td", { class: "n" }, measureFigure(`${b.name}: measured`, b.measured, cur)),
+        h("td", { class: "n" }, measureFigure(`${b.name}: estimated`, b.estimated, cur)))))) : null,
+    usageBilled(u.billed, cur),
+    usageImportsList(imports));
+}
+
+function usageImportsList(imports) {
+  const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  return h("details", { class: "usage-imports" }, h("summary", { class: "small" }, `${plural(imports.length, "import")} on this PC`),
+    h("table", { class: "list compact" }, h("tbody", {}, imports.map((i) => h("tr", {},
+      h("td", {}, h("b", {}, i.file_name), h("div", { class: "muted-text small" }, `${i.provider_label} · ${i.layout_label}`)),
+      h("td", { class: "small" }, i.period?.start ? `${new Date(i.period.start).toLocaleDateString()} to ${new Date(Math.max(Date.parse(i.period.start), Date.parse(i.period.end || i.period.start) - 1)).toLocaleDateString()}` : ""),
+      h("td", { class: "n" }, plural(i.rows, "row")),
+      h("td", { class: "small muted-text" }, "Imported ", when(i.imported_at)),
+      h("td", {}, btn("Remove", "delete", async () => {
+        if (!(await confirmDialog(`Remove ${i.file_name}?`, "Its rows are removed from this PC. Your exported file isn't touched, and you can import it again.", "Remove", { danger: true }))) return;
+        if (await attempt(() => rpc("usage_import_delete", { import_id: i.id }), "Not removed")) render();
+      }, "tool outline small")))))));
+}
+
+// What each capacity was billed, from Azure Cost Management exports: for the whole capacity, never per run.
+function usageBilled(billed, cur) {
+  if (!billed?.length) return null;
+  const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const day = (d) => new Date(`${d}T00:00:00Z`).toLocaleDateString(undefined, { timeZone: "UTC" });
+  return h("div", { class: "usage-billed" },
+    h("p", { class: "text" }, h("b", {}, "Billed per capacity"), h("span", { class: "muted-text small" }, " · from Azure Cost Management, for the whole capacity")),
+    h("table", { class: "list compact" },
+      h("thead", {}, h("tr", {}, ["Capacity", "Days", "Compute billed", "Cost"].map((c) => h("th", {}, c)))),
+      h("tbody", {}, billed.map((b) => h("tr", {},
+        h("td", {}, h("b", {}, b.capacity), h("div", { class: "muted-text small" },
+          b.environments.length ? `Used by ${b.environments.join(", ")}` : "Not one of your environments' capacities")),
+        h("td", { class: "small" }, `${plural(b.days, "day")}`, h("div", { class: "muted-text small" }, b.first_day === b.last_day ? day(b.first_day) : `${day(b.first_day)} to ${day(b.last_day)}`)),
+        h("td", { class: "n" }, b.cu ? measureFigure(`${b.capacity}: compute billed`, b.cu, cur) : h("span", { class: "muted-text", title: "No compute meter billed in hours in these rows" }, "None")),
+        h("td", { class: "n" }, b.cost.map((c) => h("div", {}, measureFigure(`${b.capacity}: billed cost (${c.currency})`, c, cur)))))))));
+}
+
+function usageImportDialog() {
+  const state = { name: "", text: "", options: { tz: "UTC" } };
+  const out = h("div", { class: "usage-preview" });
+  const input = h("input", { type: "file", accept: ".csv,text/csv" });
+  const tz = h("input", { value: "UTC", size: 8, title: "The export doesn't say its time zone. UTC, or an offset such as +02:00." });
+  const go = btn("Import", "save", async () => {
+    const res = await attempt(() => rpc("usage_import", { file_name: state.name, content: state.text, options: state.options }), "Not imported");
+    if (res) { closeDialog(); toast(`Imported ${res.rows} row${res.rows === 1 ? "" : "s"} of measured usage`); render(); }
+  }, "tool primary");
+  go.disabled = true;
+  const check = async () => {
+    go.disabled = true;
+    if (!state.text) return;
+    state.options.tz = tz.value.trim() || "UTC";
+    fill(out, h("p", { class: "muted-text" }, "Checking the file..."));
+    const p = await attempt(() => rpc("usage_preview", { file_name: state.name, content: state.text, options: state.options }), "Not read");
+    if (!p) { fill(out); return; }
+    fill(out, ...usagePreview(p, (opt, value) => { Object.assign(state.options, opt === "period" ? value : { [opt]: value }); check(); }));
+    go.disabled = !p.ready;
+  };
+  input.onchange = async () => {
+    const f = input.files[0];
+    if (!f) return;
+    if (f.size > 64 * 1024 * 1024) { fill(out, h("p", { class: "error-text" }, "The file is larger than 64 MB. Export a shorter period.")); return; }
+    state.name = f.name; state.text = await f.text(); state.options = { tz: tz.value.trim() || "UTC" };
+    check();
+  };
+  tz.onchange = check;
+  showDialog("Import measured usage", h("div", { class: "scroll" },
+    h("p", { class: "text" }, "A CSV exported from the Capacity Metrics app (the Timepoint page's operations table with Total CU (s), or the Compute page's items matrix with CU (s)), or from Azure Cost Management (cost details with Actual cost, or FOCUS). A capacity admin or finance can export it and give it to you. The file is read on this PC and kept here; nothing is sent anywhere."),
+    h("div", { class: "form-grid" }, h("label", { class: "field" }, "File", input), h("label", { class: "field" }, "Times are in", tz)),
+    out),
+  [btn("Cancel", null, closeDialog, "tool outline"), go]);
+}
+
+// What importing the file would add, and anything the person has to choose first.
+function usagePreview(p, choose) {
+  const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const row = (k, v) => v ? h("tr", {}, h("td", { class: "muted-text" }, k), h("td", {}, v)) : null;
+  const need = p.needs;
+  let ask = null;
+  if (need && need.option === "period") {
+    const from = h("input", { type: "date" }), to = h("input", { type: "date" });
+    ask = h("div", { class: "row wrap" }, h("label", { class: "field" }, "From", from), h("label", { class: "field" }, "To", to),
+      btn("Use this period", "ok", () => choose("period", { period_start: from.value, period_end: to.value }), "tool outline small"));
+  } else if (need) {
+    ask = h("div", { class: "row wrap" }, Object.entries(need.choices).map(([v, label]) => btn(label, null, () => choose(need.option, v), "tool outline small")));
+  }
+  const cols = p.columns;
+  return [
+    p.problem ? h("p", { class: p.ready ? "muted-text" : "error-text" }, p.problem) : null,
+    ask,
+    p.provider ? h("table", { class: "list compact" }, h("tbody", {},
+      row("Recognized as", `${p.provider.label}, ${p.layout.label}`),
+      cols ? row("Columns used", Object.values(cols.used).join(", ")) : null,
+      cols?.not_stored?.length ? row("Not stored", cols.not_stored.join(", ")) : null,
+      cols?.ignored?.length ? row("Not used", cols.ignored.filter((c) => !cols.not_stored.includes(c)).join(", ")) : null,
+      p.rows_read !== undefined ? row("Rows", `${p.rows_read} read · ${p.to_import} to import` +
+        (p.already_imported ? ` · ${p.already_imported} already imported` : "")
+          + (p.replaces_earlier ? ` · ${p.replaces_earlier} for days an earlier import also has (the export that reaches the later day counts)` : "") + (p.duplicates_in_file ? ` · ${p.duplicates_in_file} repeated in the file` : "")) : null,
+      p.period?.start ? row("Period", `${new Date(p.period.start).toLocaleString()} to ${new Date(p.period.end || p.period.start).toLocaleString()}`) : null,
+      p.workspaces?.length ? row("Workspaces", p.workspaces.join(", ")) : null,
+      p.capacities?.length ? row("Capacities", p.capacities.join(", ")) : null,
+      p.total && p.to_import ? row(p.provider.id === "cost_management" ? "Compute billed" : "Measured CU", measureFigure("Measured CU in this file", p.total)) : null,
+      p.cost?.length && p.to_import ? row("Billed cost", h("span", {}, p.cost.map((c) => measureFigure(`Billed cost in this file (${c.currency})`, c)))) : null)) : null,
+    p.skipped?.length ? h("div", {}, h("p", { class: "text" }, h("b", {}, `${plural(p.skipped.reduce((a, s) => a + s.count, 0), "row")} skipped`)),
+      h("ul", { class: "text" }, p.skipped.map((s) => h("li", {}, `${s.reason}: ${s.count} (line${s.lines.length === 1 ? "" : "s"} ${s.lines.join(", ")}${s.count > s.lines.length ? ", ..." : ""})`)))) : null,
+    p.notes?.length ? h("ul", { class: "muted-text small" }, p.notes.map((n) => h("li", {}, n))) : null,
+  ];
+}
+
 function costBody(r) {
   const cur = r.settings.currency;
-  const stat = (value, label, sub) => h("div", { class: "cmp-stat" }, h("span", { class: "v" }, value), h("span", { class: "k" }, label),
+  const stat = (figure, label, sub) => h("div", { class: "cmp-stat" }, h("span", { class: "v" }, figure), h("span", { class: "k" }, label),
     sub ? h("span", { class: "k" }, sub) : null);
   const t = r.total;
+  const ev = t.evidence;
   const daysChip = (d) => h("button", { class: `chip${costPage.days === d ? " on" : ""}`, onclick: () => { costPage.days = d; render(); } }, `${d} days`);
   const unavailable = Object.entries(r.unavailable || {});
+  const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
   return [
     h("div", { class: "row wrap cost-head" }, daysChip(7), daysChip(30), daysChip(90), h("span", { class: "spacer" }),
       h("span", { class: "muted-text small" }, `${money(r.settings.price_per_cu_hour, cur)} per CU hour · Python ${r.settings.python_cu} CU · Spark ${r.settings.spark_cu} CU`),
       btn("Prices", "gauge", () => costSettingsDialog(r.settings), "tool outline small")),
     h("div", { class: "cmp-stats" },
-      stat(money(t.cost, cur), "Fabric capacity used", `${cuHours(t.cu_hours)} · ${t.fabric_runs} run${t.fabric_runs === 1 ? "" : "s"}`),
-      stat(t.saved || !t.saved_cu_hours ? money(t.saved, cur) : `under ${money(0.01, cur)}`, "Saved by running on this PC",
-        `${cuHours(t.saved_cu_hours)} · ${t.local_runs} run${t.local_runs === 1 ? "" : "s"}`),
-      r.by_env.filter((e) => e.capacity_share !== null && e.capacity_share !== undefined && e.fabric_runs).map((e) =>
-        stat(`${e.capacity_share < 0.1 ? "<0.1" : e.capacity_share.toFixed(1)}%`, `of ${e.capacity || "the"} capacity (${e.sku})`, `${ENV_LABEL[e.env] || e.env}'s Fabric runs`))),
+      stat(measureFigure("Fabric capacity used", ev.fabric_cost, cur), "Fabric capacity used",
+        h("span", {}, measureFigure("Fabric capacity used, in CU hours", ev.fabric_job_cu, cur), ` · ${plural(t.fabric_runs, "run")}`)),
+      stat(measureFigure("Fabric use avoided on this PC", ev.avoided_cost, cur), "Fabric use avoided on this PC",
+        h("span", {}, measureFigure("Fabric use avoided on this PC, in CU hours", ev.avoided_cu, cur), ` · ${plural(t.local_runs, "run")}`)),
+      r.by_env.filter((e) => e.capacity_share_evidence && e.capacity_share_evidence.classification !== "unknown" && e.fabric_runs).map((e) =>
+        stat(measureFigure(`Share of ${e.capacity || "the"} capacity`, e.capacity_share_evidence, cur), `of ${e.capacity || "the"} capacity (${e.sku})`, `${ENV_LABEL[e.env] || e.env}'s Fabric runs`))),
+    capacityStrip(r.capacities),
+    usageCard(r.usage, cur),
+    t.uncalibrated_runs ? h("p", { class: "muted-text small" }, `${t.uncalibrated_runs === 1 ? "1 run" : `${t.uncalibrated_runs} runs`} on this PC had no comparable Fabric run of the same table (same definition, last 90 days), so what ${t.uncalibrated_runs === 1 ? "it" : "they"} avoided isn't known and is left out, not counted as 0.`) : null,
+    t.unknown_runs ? h("p", { class: "muted-text small" }, `${t.unknown_runs === 1 ? "1 run's" : `${t.unknown_runs} runs'`} capacity use isn't known (still running, or no run time recorded). They are left out of the totals, not counted as 0.`) : null,
     r.by_item.length ? h("table", { class: "list" },
-      h("thead", {}, h("tr", {}, ["What ran", "Env", "Runs", "Time", "Fabric", "Saved on this PC"].map((c) => h("th", {}, c)))),
+      h("thead", {}, h("tr", {}, ["What ran", "Env", "Runs", "Time", "Fabric", "Avoided on this PC"].map((c) => h("th", {}, c)))),
       h("tbody", {}, r.by_item.slice(0, 60).map((x) => h("tr", {},
         h("td", {}, h("b", {}, x.name || x.kind), h("div", { class: "muted-text small" }, x.kind)),
         h("td", {}, ENV_LABEL[x.env] || x.env || ""),
-        h("td", { class: "n" }, x.runs), h("td", { class: "n" }, took(x.seconds)),
-        h("td", { class: "n" }, x.fabric_runs ? `${money(x.cost, cur)} · ${cuHours(x.cu_hours)}` : ""),
-        h("td", { class: "n" }, x.local_runs ? (x.saved ? money(x.saved, cur) : x.saved_cu_hours ? `under ${money(0.01, cur)}` : "") : "")))))
+        h("td", { class: "n" }, x.runs), h("td", { class: "n" }, x.seconds ? took(x.seconds) : "Not known"),
+        h("td", { class: "n" }, x.fabric_runs ? measureFigure(`${x.name || x.kind}: Fabric capacity used`, x.evidence.fabric_cost, cur) : ""),
+        h("td", { class: "n" }, x.local_runs ? measureFigure(`${x.name || x.kind}: Fabric use avoided on this PC`, x.evidence.avoided_cost, cur) : "")))))
       : h("p", { class: "muted-text" }, `Nothing ran in the last ${r.days} days.`),
-    h("p", { class: "muted-text small" }, "Estimates: run time times the capacity units of what it ran on. A Python notebook (Fabric Desktop by KratosBI's runner) uses 1 CU per 2 vCores; Spark jobs such as table maintenance use the Spark figure. ",
-      "Session start-up in Fabric isn't counted. Fabric's Capacity Metrics app has the billed numbers.",
+    h("p", { class: "muted-text small" }, "Estimated: run time times the capacity units of what it ran on. A Python notebook (KratosForge's runner) uses 1 CU per 2 vCores; Spark jobs such as table maintenance use the Spark figure. ",
+      "Avoided on this PC: estimated from the same table's runs in Fabric (their run time times the configured CUs), never from how long it took here. OneLake reads and writes from this PC still use capacity and aren't counted. Click a figure to see how it was worked out; Fabric's Capacity Metrics app has the CU your capacity recorded.",
       unavailable.length ? ` Left out: ${unavailable.map(([env, why]) => `${ENV_LABEL[env]} (${why})`).join(", ")}.` : ""),
   ];
 }
 
-function costSettingsDialog(cfg) {
+async function costSettingsDialog(cfg) {
+  const risk = await rpc("risk_settings").catch(() => null);
+  const before = risk ? riskSettingsFields(risk) : null;
   const field = (label, key, attrs) => {
     const input = h("input", { value: cfg[key], ...attrs });
     return [h("label", { class: "field" }, label, input), () => input.value];
@@ -234,11 +506,13 @@ function costSettingsDialog(cfg) {
   const [currency, getCurrency] = field("Currency", "currency", { maxlength: "5" });
   const [py, getPy] = field("CUs of a Python notebook (2 vCores = 1 CU)", "python_cu", { type: "number", min: "0.5", step: "0.5" });
   const [spark, getSpark] = field("CUs of a Spark job (starter pool, 2 medium nodes = 8 CU)", "spark_cu", { type: "number", min: "0.5", step: "0.5" });
-  showDialog("Cost estimate", h("div", { class: "scroll" },
+  showDialog(before ? "Prices and warnings" : "Cost estimate", h("div", { class: "scroll" },
     h("p", { class: "text" }, "Pay-as-you-go is about $0.18 per CU hour in US regions; a reserved capacity costs less. Use your own rate."),
-    h("div", { class: "form-grid" }, price, currency, py, spark)),
+    h("div", { class: "form-grid" }, price, currency, py, spark),
+    before ? before.el : null),
   [btn("Cancel", null, closeDialog, "tool outline"), btn("Save", "save", async () => {
     const res = await attempt(() => rpc("set_cost_settings", { price_per_cu_hour: getPrice(), currency: getCurrency(), python_cu: getPy(), spark_cu: getSpark() }), "Not saved");
+    if (res && before && !(await attempt(() => rpc("set_risk_settings", before.values()), "Warnings not saved"))) return;
     if (res) { closeDialog(); render(); }
   }, "tool primary")]);
 }
@@ -261,28 +535,43 @@ function lakehouseRows(data) {
 
 // ---------- OneLake page: Access tab ----------
 
-const accessPage = { extra: [], data: null, lakehouse: null, lh: null };
+const accessPage = { extra: [], data: null, lakehouse: null, lh: null, view: "all" };
+// All workspaces reads the access cache (access-cache.js); the other two ask Fabric directly.
+const ACCESS_VIEWS = [["all", "All workspaces"], ["roles", "Environments"], ["tables", "Table access"]];
 
 async function renderAccess() {
   const ap = accessPage;
+  const view = ACCESS_VIEWS.some(([id]) => id === ap.view) ? ap.view : "all";
   const people = h("div", { class: "estate" }, h("p", { class: "muted-text" }, state.user ? "Reading workspace roles..." : ""));
   const lhSlot = h("div", { class: "estate" });
+  const allSlot = h("div", { class: "estate" }, h("p", { class: "muted-text" }, state.user ? "Reading the access cache..." : ""));
+  const seg = h("div", { class: "seg", role: "group", "aria-label": "Show" }, ACCESS_VIEWS.map(([id, label]) =>
+    h("button", { class: view === id ? "on" : null, onclick: () => { ap.view = id; render(); } }, label)));
+  const body = view === "all" ? allSlot
+    : view === "roles" ? h("div", { class: "card pad" }, h("h2", { class: "flush" }, "Workspace roles"), people)
+      : h("div", { class: "card pad" }, h("h2", { class: "flush" }, "Table access in a lakehouse"), lhSlot);
   setView(h("div", { class: "page" }, signInCallout(), onelakeTabs(),
     h("div", { class: "page-head" },
       h("div", {}, h("h1", {}, "Access"),
-        h("p", { class: "sub" }, "Who can reach each environment's workspace, and who can read which tables. Changes apply in Fabric right away.")),
-      h("div", { class: "head-actions" },
-        btn("Add a workspace", "add", addReviewWorkspace, "tool outline"),
-        btn("Give access", "person", () => grantDialog(), "tool outline"),
-        btn("Refresh", "sync", () => { ap.data = null; ap.lh = null; render(); }, "tool outline"))),
-    h("div", { class: "card pad" }, h("h2", { class: "flush" }, "Workspace roles"), people),
-    h("div", { class: "card pad" }, h("h2", { class: "flush" }, "Table access in a lakehouse"), lhSlot)));
+        h("p", { class: "sub" }, view === "all" ? "Who can reach every workspace you can open, from the access cache, with what's worth a look."
+          : "Who can reach each environment's workspace, and who can read which tables. Changes apply in Fabric right away.")),
+      h("div", { class: "head-actions" }, seg,
+        view === "roles" ? btn("Add a workspace", "add", addReviewWorkspace, "tool outline") : null,
+        view === "roles" ? btn("Give access", "person", () => grantDialog(), "tool outline") : null,
+        view !== "all" ? btn("Refresh", "sync", () => { ap.data = null; ap.lh = null; render(); }, "tool outline") : null)),
+    view === "all" ? withHowItWorks(body, howItWorks("onelake.access-all", {
+      reads: "Each workspace's roles and each lakehouse's OneLake data access roles, as you, from Fabric, when you refresh. You only see workspaces you can open in Fabric.",
+      changes: "Refresh changes adds rows to the access cache in the central lakehouse, only for what changed since the last refresh. Nothing in the workspaces it reads changes. The first refresh asks before adding the cache's tables. Who may read it asks before it changes the central lakehouse's OneLake security roles.",
+      results: "One row per workspace with its people, groups, apps and guests, and what's worth a look. A workspace whose roles couldn't be read keeps its last known list, marked out of date. Fixes open Environments or Table access, which ask before changing anything in Fabric.",
+      anchor: "access-preview",
+    })) : body));
   if (!state.user) return;
+  if (view === "all") { renderAccessAll(allSlot); return; }
+  if (view === "tables") { drawLakehouseAccess(lhSlot); return; }
   if (!ap.data) ap.data = await attempt(() => rpc("access_review", { extra: ap.extra }), "Could not read workspace roles");
   if (state.view !== "onelake" || catalogPage.tab !== "access") return;
   if (!ap.data) { fill(people, h("p", { class: "muted-text" }, "Couldn't read the workspace roles. Details are in Activity (the bell).")); return; }
   fill(people, ...accessTable(ap.data));
-  drawLakehouseAccess(lhSlot);
 }
 
 async function addReviewWorkspace() {
@@ -378,9 +667,13 @@ function lakehouseAccessBody(a, lh, redraw) {
   tableSel.addEventListener("change", async () => {
     if (!tableSel.value) { fill(who); return; }
     fill(who, h("p", { class: "muted-text small" }, "Working it out..."));
-    const list = await attempt(() => rpc("access_who_can_read", { workspace_id: lh.workspace_id, item_id: lh.item_id, table: tableSel.value }), "Could not work it out");
-    if (list) fill(who, ...(list.length ? list.map((p) => h("div", { class: "row tight" }, h("b", {}, p.name), h("span", { class: "muted-text small" }, p.how)))
-      : [h("p", { class: "muted-text small" }, "Only workspace admins.")]));
+    const res = await attempt(() => rpc("access_who_can_read", { workspace_id: lh.workspace_id, item_id: lh.item_id, table: tableSel.value }), "Could not work it out");
+    if (!res) return;
+    const list = res.readers;
+    // Without the data access roles the list misses everyone they let in: say so (QA-005).
+    const partial = res.partial ? h("p", { class: "warn-text small" }, `Not complete: people given access by data access roles may be missing. ${res.problem}`) : null;
+    fill(who, partial, ...(list.length ? list.map((p) => h("div", { class: "row tight" }, h("b", {}, p.name), h("span", { class: "muted-text small" }, p.how)))
+      : [h("p", { class: "muted-text small" }, res.partial ? "No one found so far." : "Only workspace admins.")]));
   });
   const whoBox = h("div", { class: "card pad who-reads" }, h("b", {}, "Who can read a table"), h("label", { class: "field" }, "Table", tableSel), who);
   if (!a.enabled) {
@@ -400,7 +693,7 @@ function lakehouseAccessBody(a, lh, redraw) {
         h("td", {}, r.entra.map((o) => h("div", { class: "small" }, names[o] || o)), r.item_members.map((m) => h("div", { class: "muted-text small" }, `Everyone with ${m} permission`))),
         h("td", { class: "actions" }, btn("Edit", null, () => roleDialog(a, lh, r, redraw), "tool small link"),
           btn("Delete", "delete", async () => {
-            if (!(await confirmDialog(`Delete role ${r.name}?`, r.name === "DefaultReader" ? "DefaultReader is what lets people with read permission see every table. Without it they only see what other roles give them." : "Its members lose what this role let them read.", "Delete"))) return;
+            if (!(await confirmDialog(`Delete role ${r.name}?`, r.name === "DefaultReader" ? "DefaultReader is what lets people with read permission see every table. Without it they only see what other roles give them." : "Its members lose what this role let them read.", "Delete", { danger: true }))) return;
             const res = await attempt(() => rpc("access_delete_role", { workspace_id: lh.workspace_id, item_id: lh.item_id, name: r.name }), "Role not deleted");
             if (res) { accessPage.lh = res; toast(`Deleted role ${r.name}`, false, { log: true }); redraw(); }
           }, "tool small link"))))))

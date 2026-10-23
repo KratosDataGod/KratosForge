@@ -13,22 +13,29 @@ publish workspace, so a proof never changes the published notebook that schedule
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
+import hashlib
 import json
+import re
 import threading
 import time
 import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from . import depgraph, envprofile, proof, receipts, scorecard, verify, wizard
+from . import app_settings, depgraph, envprofile, proof, receipts, replay, scorecard, verify, wizard
+from .notebook import check_watches, leaf_name
 from .fabric_run import TERMINAL, fabric_ipynb
+from .kernel_proc import ProcessKernel
 from .measure import RunMeter
-from .onelake import DFS_HOST, FileStore, storage_options
+from .onelake import DFS_HOST, FileStore, TableRef, check_name, storage_options
 from .proof_runtime import PROOF_ROOT
+from .redact import describe
 from .side_by_side import machine
 
 NOTEBOOK_JOB = "RunNotebook"
+_GUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 POLL_SECONDS = 5
 MAX_FABRIC_SECONDS = 6 * 3600
 RUNNING = ("preparing", "pc", "fabric", "verifying")
@@ -122,9 +129,322 @@ class ProveMixin:
         folder = Path.home() / "Downloads"
         folder.mkdir(parents=True, exist_ok=True)
         ext = {"html": "html", "markdown": "md", "json": "json"}[out["format"]]
-        path = folder / f"receipt-{id[:12]}{'-redacted' if hide else ''}.{ext}"
-        path.write_text(out["text"], encoding="utf-8")
-        return {"path": str(path), "format": out["format"], "hidden": hide or []}
+        base = f"receipt-{id[:12]}{'-redacted' if hide else ''}"
+        for n in range(1, 1000):  # never replaces a file: a name that is taken gets a number (HD-038)
+            path = folder / (f"{base}.{ext}" if n == 1 else f"{base} ({n}).{ext}")
+            try:
+                with open(path, "x", encoding="utf-8") as f:
+                    f.write(out["text"])
+            except FileExistsError:
+                continue
+            return {"path": str(path), "format": out["format"], "hidden": hide or []}
+        raise ValueError("Couldn't find a free file name in Downloads for the receipt.")
+
+    # ---- failure replay bundles (replay.py): what someone needs to run a failed notebook again
+
+    def _replay_bundle(self, name: str, cells: list[dict[str, Any]], failed: int,
+                       lakehouse_ref: dict[str, str] | None) -> dict[str, Any]:
+        if self.proof_busy():
+            raise RuntimeError("A proof is using the kernel. Wait for it, or cancel it.")
+        kernel = self.sessions.kernel(name)  # type: ignore[attr-defined]
+        if kernel.poll().get("status") == "running":
+            raise RuntimeError("A cell is running. Save the bundle when it has finished.")
+        where = {"process": hasattr(kernel, "limits")}
+        if hasattr(kernel, "limits"):
+            where["limits"] = kernel.limits()
+        return replay.build(name, cells, int(failed), kernel.reads(), lakehouse_ref, where)
+
+    def replay_bundle_preview(self, name: str, cells: list[dict[str, Any]], failed: int,
+                              lakehouse_ref: dict[str, str] | None = None) -> dict[str, Any]:
+        """What Save replay bundle would save for cell ``failed`` (an index); ``cells`` is the
+        notebook screen's, with ``count`` (execution count) and the failed cell's ``outputs``."""
+        bundle = self._replay_bundle(name, cells, failed, lakehouse_ref)
+        return {"bundle": bundle, "samples_allowed": bool(app_settings.value("allow_replay_samples")),
+                "sample_tables": [t["table"] for t in replay.sample_tables(bundle)], "sample_rows": replay.SAMPLE_ROWS}
+
+    def replay_bundle_save(self, name: str, cells: list[dict[str, Any]], failed: int,
+                           lakehouse_ref: dict[str, str] | None = None, include_ids: bool = True,
+                           include_sample: bool = False) -> dict[str, Any]:
+        """Save a replay bundle to the Downloads folder, as a new file. With ``include_sample``,
+        up to replay.SAMPLE_ROWS rows of each table read, unless policy turns samples off."""
+        if include_sample and not app_settings.value("allow_replay_samples"):
+            raise PermissionError("Your organization doesn't allow data samples in replay bundles.")
+        bundle = self._replay_bundle(name, cells, failed, lakehouse_ref)
+        samples = replay.samples(bundle, self._replay_sample) if include_sample else None
+        if not include_ids:
+            bundle = replay.strip_ids(bundle)
+        folder = Path.home() / "Downloads"
+        stem = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in name)[:60] or "notebook"
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        for n in range(1, 100):
+            path = folder / f"replay-{stem}-{stamp}{'' if n == 1 else f'-{n}'}.zip"
+            try:  # created exclusively, so a file already there is never replaced
+                return replay.write(path, bundle, samples, mode="x") | {"ids_included": include_ids}
+            except FileExistsError:
+                continue
+        raise ValueError("Couldn't find a free file name in Downloads for the bundle.")
+
+    def _replay_sample(self, row: dict[str, Any]) -> Any:
+        """Up to replay.SAMPLE_ROWS rows of a table the cells read, at the version they read."""
+        from deltalake import DeltaTable
+        schema, table = row["table"].split(".", 1)
+        flat = not self._schemas_enabled(row["workspace_id"], row["lakehouse_id"])  # type: ignore[attr-defined]
+        uri = TableRef(row["workspace_id"], row["lakehouse_id"], schema, table, flat=flat).uri
+        opened = DeltaTable(uri, version=row["version"], storage_options=storage_options(self.auth.storage_token()))  # type: ignore[attr-defined]
+        return opened.to_pyarrow_dataset().head(replay.SAMPLE_ROWS)
+
+    # ---- opening a bundle and replaying it: the bundle's cells in a notebook of their own, run in
+    # the kernel's own process with the proof runtime bound (tables at the bundle's versions, writes
+    # to a sandbox under Files/_fabric_desktop/proofs/replay-.../) until the replay ends
+
+    MAX_BUNDLE_BYTES = 100 * 1024 * 1024
+
+    def replay_bundles_list(self) -> list[dict[str, Any]]:
+        """Replay bundles in the Downloads folder, newest first."""
+        rows = []
+        for path in sorted((Path.home() / "Downloads").glob("replay-*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)[:50]:
+            try:
+                b = replay.read(path)
+            except (ValueError, OSError):
+                continue
+            rows.append({"path": str(path), "file": path.name, "bytes": path.stat().st_size, "notebook": b.get("notebook"),
+                         "saved_at": b.get("saved_at"), "failed_cell": b.get("failed_cell"),
+                         "samples": len(b.get("samples") or [])})
+        return rows
+
+    def replay_bundle_open(self, path: str | None = None, content: str | None = None) -> dict[str, Any]:
+        """Open a bundle (a file's ``path``, or its ``content`` in base64) as a new notebook,
+        "<notebook> replay", that remembers the bundle. Nothing runs."""
+        data = Path(path).read_bytes() if path else base64.b64decode(content or "", validate=True)
+        if len(data) > self.MAX_BUNDLE_BYTES:
+            raise ValueError("That file is too large for a replay bundle.")
+        bundle_id = hashlib.sha256(data).hexdigest()[:16]
+        stored = self.root / "replays" / f"{bundle_id}.zip"  # type: ignore[attr-defined]
+        stored.parent.mkdir(parents=True, exist_ok=True)
+        stored.write_bytes(data)
+        try:
+            bundle = replay.read(stored)
+        except ValueError:
+            stored.unlink(missing_ok=True)
+            raise
+        store = self.notebooks  # type: ignore[attr-defined]
+        base = "".join(ch if ch.isalnum() or ch in " -_" else "_" for ch in str(bundle.get("notebook") or "Notebook"))[:60]
+        name, n = f"{base} replay", 1
+        while store.path(name).exists():
+            n += 1
+            name = f"{base} replay {n}"
+        lh = bundle.get("lakehouse") or {}
+        ref = lh if bundle.get("ids_included", True) and lh.get("lakehouse_id") else None
+        store.save(name, replay.notebook_cells(bundle), ref, "local")
+        store.set_extra(name, "replay", {"bundle": bundle_id, "notebook": bundle.get("notebook"),
+                                         "saved_at": bundle.get("saved_at"), "failed_cell": bundle["failed_cell"],
+                                         "lakehouse": lh.get("name") or "", "ids_included": bool(bundle.get("ids_included", True))})
+        return self.open_notebook(name)  # type: ignore[attr-defined]
+
+    def _replay_of(self, name: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        info = self.notebooks.extra(name, "replay")  # type: ignore[attr-defined]
+        if not info:
+            raise LookupError(f"{name} isn't a replay notebook.")
+        return info, replay.read(self.root / "replays" / f"{info['bundle']}.zip")  # type: ignore[attr-defined]
+
+    def _replay_live(self) -> dict[str, Any] | None:
+        """The replay holding the kernel, while its process (with the runtime bound) still runs."""
+        s = getattr(self, "_replay_session", None)
+        session = self.sessions.session(s["name"], create=False) if s else None  # type: ignore[attr-defined]
+        k = session.kernel if session else None
+        if s and isinstance(k, ProcessKernel) and k.alive() and k.pid == s["pid"]:
+            return s
+        self._replay_session = None
+        return None
+
+    def _replay_guard(self, notebook: str | None) -> None:
+        """Called before a cell runs: a replay notebook's cells run only inside its replay (else they
+        would read the latest tables and write to the lakehouse), and nothing else runs meanwhile."""
+        live = self._replay_live()
+        if live and notebook != live["name"]:
+            raise RuntimeError(f"The kernel is replaying {live['name']}. End the replay on that notebook first.")
+        if not live and notebook and self._is_replay(notebook):
+            raise RuntimeError("This is a replay notebook: click Replay on its banner, so tables are read at the "
+                               "bundle's versions and writes go to a sandbox. Or keep it as a normal notebook.")
+
+    def _is_replay(self, name: str) -> bool:
+        try:
+            return bool(self.notebooks.extra(name, "replay"))  # type: ignore[attr-defined]
+        except (OSError, ValueError):
+            return False
+
+    def _replay_refuse(self, name: str, what: str) -> None:
+        """Proofs, side by side and Fabric runs of a replay notebook wait until it's kept as a normal notebook."""
+        if self._is_replay(name):
+            raise RuntimeError(f"{name} is a replay notebook. Keep it as a normal notebook before {what}.")
+
+    def _replay_root(self, lakehouse_ref: dict[str, str]) -> tuple[str, Callable[[], dict[str, str]], bool]:
+        root, options = self._proof_location(lakehouse_ref)
+        flat = not self._schemas_enabled(lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"])  # type: ignore[attr-defined]
+        return root, options, flat
+
+    def replay_check(self, name: str, lakehouse_ref: dict[str, str] | None = None) -> dict[str, Any]:
+        """Before a replay: which tables it pins at which version, any it can't read at that version
+        (vacuumed or cleaned up), how this PC's environment differs from the bundle's, and what stops it."""
+        info, bundle = self._replay_of(name)
+        blockers, notes = [], []
+        if not isinstance(self.sessions.kernel(name), ProcessKernel):  # type: ignore[attr-defined]
+            blockers.append("Replay runs in the notebook's own process. Turn on Run notebooks in their own process "
+                            "in Settings > Preview features.")
+        if not lakehouse_ref:
+            blockers.append("Attach a lakehouse with Add data items. " + (
+                f"The bundle's tables are in {info['lakehouse']}." if info.get("lakehouse") else ""))
+        elif info["ids_included"] and (bundle.get("lakehouse") or {}).get("lakehouse_id") not in (None, "", lakehouse_ref["lakehouse_id"]):
+            blockers.append(f"The bundle's tables are in {info['lakehouse'] or 'another lakehouse'}. Attach that lakehouse.")
+        elif not info["ids_included"]:
+            notes.append(f"The bundle doesn't say which lakehouse it read. Its versions are from "
+                         f"{info['lakehouse'] or 'its lakehouse'}: check you attached the same one.")
+        tables: list[dict[str, Any]] = []
+        if lakehouse_ref and not blockers:
+            pin, more = replay.tables_to_pin(bundle, None if not info["ids_included"] else lakehouse_ref["lakehouse_id"])
+            notes += more
+            sampled = {s["table"].split("/", 1)[-1] for s in bundle.get("samples") or []}
+            root, options, flat = self._replay_root(lakehouse_ref)
+            for t in pin:
+                tables.append(self._replay_table(t, root, options, flat) | {"has_sample": t["table"] in sampled})
+        modules = sorted({m["module"] for c in bundle["cells"] if c["type"] == "code"
+                          for m in envprofile.imports(c["source"])["modules"]})
+        diffs = envprofile.differences(bundle.get("environment") or {}, envprofile.runtime(modules), ("Bundle", "This PC"))
+        return {"bundle": {k: bundle.get(k) for k in ("notebook", "saved_at", "failed_cell", "error", "limitations")},
+                "tables": tables, "environment": diffs, "blockers": blockers, "notes": notes,
+                "live": bool((live := self._replay_live()) and live["name"] == name),
+                "sandboxes": self.replay_sandboxes(name)}
+
+    def _replay_table(self, t: dict[str, Any], root: str, options: Callable[[], dict[str, str]], flat: bool) -> dict[str, Any]:
+        """A pinned table: whether its version can still be read, and its latest version."""
+        from deltalake import DeltaTable
+        schema, table = t["table"].split(".", 1)
+        uri = f"{root}/Tables/{table}" if flat else f"{root}/Tables/{schema}/{table}"
+        row: dict[str, Any] = {"table": t["table"], "version": t["version"], "readable": True, "latest": None, "why": ""}
+        try:
+            row["latest"] = DeltaTable(uri, storage_options=options()).version()
+            DeltaTable(uri, version=t["version"], storage_options=options()).to_pyarrow_dataset().head(1)
+        except Exception as exc:  # noqa: BLE001 - said on the banner
+            row["readable"] = False
+            row["why"] = (f"Version {t['version']} can't be read any more (vacuumed or its log was cleaned up)"
+                          if row["latest"] is not None else f"The table can't be opened: {type(exc).__name__}")
+        return row
+
+    def replay_start(self, name: str, lakehouse_ref: dict[str, str] | None = None,
+                     use: dict[str, str] | None = None) -> dict[str, Any]:
+        """Start a replay: a fresh kernel process with the proof runtime bound, so the notebook's cells
+        (run next, as usual) read tables at the bundle's versions and write to a sandbox. ``use``
+        says what to read for a table whose version can't be read: "sample" or "latest"."""
+        if self.proof_busy():
+            raise RuntimeError("A proof is using the kernel. Wait for it, or cancel it.")
+        check = self.replay_check(name, lakehouse_ref)
+        if check["blockers"]:
+            raise RuntimeError(check["blockers"][0])
+        assert lakehouse_ref is not None
+        info, bundle = self._replay_of(name)
+        use = use or {}
+        pins, marked, seeds = {}, {}, []
+        for t in check["tables"]:
+            if t["readable"]:
+                pins[t["table"]] = t["version"]
+            elif use.get(t["table"]) == "latest" and t["latest"] is not None:
+                pins[t["table"]] = t["latest"]
+                marked[t["table"]] = "latest"
+            elif use.get(t["table"]) == "sample" and t["has_sample"]:
+                seeds.append(t["table"])
+                marked[t["table"]] = "sample"
+            else:
+                raise ValueError(f"{t['table']}: {t['why']}. Choose the bundle's sample or the latest version.")
+        rid = "replay-" + time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
+        root, options, flat = self._replay_root(lakehouse_ref)
+        config = {"id": rid, "pins": pins, "flat": flat, "seed": 0, "seeded": [replay_key(t) for t in seeds]}
+        if seeds:
+            self._replay_seed(info, rid, root, options, seeds)
+        kernel = self.sessions.kernel(name)  # type: ignore[attr-defined]
+        self._attach(lakehouse_ref)  # type: ignore[attr-defined]
+        kernel.restart()
+        kernel.notebook_name = name
+        kernel.resources_dir = self._resources_dir(name)  # type: ignore[attr-defined]
+        kernel.bind_proof(config, "pc", root, options)
+        self._replay_session = {"name": name, "id": rid, "pid": kernel.pid, "marked": marked}
+        # Remembered in the notebook (kept when it becomes a normal notebook), so its writes can be deleted later.
+        store = self.notebooks  # type: ignore[attr-defined]
+        store.set_extra(name, "replay_sandboxes", (store.extra(name, "replay_sandboxes") or []) + [
+            {"id": rid, "workspace_id": lakehouse_ref["workspace_id"], "lakehouse_id": lakehouse_ref["lakehouse_id"],
+             "lakehouse": lakehouse_ref.get("name") or "", "started_at": _now()}])
+        return {"id": rid, "pins": pins, "marked": marked, "sandbox": f"{PROOF_ROOT}/{rid}/pc"}
+
+    def replay_sandboxes(self, name: str) -> list[dict[str, Any]]:
+        """The sandboxes this notebook's replays wrote to (Files/_fabric_desktop/proofs/replay-...)."""
+        return [dict(x, folder=f"{PROOF_ROOT}/{x.get('id') or '?'}") for x in self.notebooks.extra(name, "replay_sandboxes") or []]  # type: ignore[attr-defined]
+
+    def replay_delete_outputs(self, name: str) -> dict[str, Any]:
+        """Delete what this notebook's replays wrote: each replay's folder under Files/. The
+        lakehouse's tables aren't touched. A sandbox that can't be deleted stays listed."""
+        if (live := self._replay_live()) and live["name"] == name:
+            raise RuntimeError("End the replay first.")
+        deleted, left, problems = [], [], []
+        for box in self.notebooks.extra(name, "replay_sandboxes") or []:  # type: ignore[attr-defined]
+            # Never build a path or URL from anything else; an entry that isn't one stays listed.
+            if not (re.fullmatch(r"replay-[0-9]{8}-[0-9]{6}-[0-9a-f]{6}", str(box.get("id")))
+                    and all(_GUID.fullmatch(str(box.get(k))) for k in ("workspace_id", "lakehouse_id"))):
+                left.append(box)
+                problems.append("A remembered replay sandbox isn't a replay folder in a lakehouse, so it was left alone.")
+                continue
+            folder = f"{PROOF_ROOT}/{box['id']}"
+            try:
+                self._proof_delete_folder({"workspace_id": box["workspace_id"], "lakehouse_id": box["lakehouse_id"]}, folder)
+                deleted.append(folder)
+            except Exception as exc:  # noqa: BLE001 - reported, and the sandbox stays listed
+                left.append(box)
+                problems.append(f"{folder} in {box.get('lakehouse') or 'its lakehouse'}: {describe(exc)}")
+        self.notebooks.set_extra(name, "replay_sandboxes", left or None)  # type: ignore[attr-defined]
+        return {"deleted": deleted, "problems": problems}
+
+    def _replay_seed(self, info: dict[str, Any], rid: str, root: str, options: Callable[[], dict[str, str]],
+                     tables: list[str]) -> None:
+        """Write the bundle's sample of each table into the replay's sandbox, where reads then find it."""
+        import zipfile
+
+        import pyarrow.parquet as pq
+        from deltalake import write_deltalake
+        path = self.root / "replays" / f"{info['bundle']}.zip"  # type: ignore[attr-defined]
+        bundle = replay.read(path)
+        with zipfile.ZipFile(path) as z:
+            for s in bundle.get("samples") or []:
+                table = s["table"].split("/", 1)[-1]
+                if table in tables:
+                    schema, name = replay_key(table).split(".", 1)
+                    check_name("schema", schema)  # replay.read checked it too: never build a path from a bad name
+                    check_name("table", name)
+                    uri = f"{root}/{PROOF_ROOT}/{rid}/pc/tables/{schema}/{name}"
+                    write_deltalake(uri, pq.read_table(z.open(s["file"])), storage_options=options())
+
+    def replay_result(self, name: str, stopped_at: int, status: str,
+                      outputs: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        """After the replay ran to the failed cell (or stopped before it): how it ended against the
+        bundle, and what it read that differs from what the bundle's run read."""
+        live = self._replay_live()
+        if not live or live["name"] != name:
+            raise RuntimeError("This replay has ended (the kernel restarted). Replay again from the banner.")
+        _info, bundle = self._replay_of(name)
+        out = replay.outcome(bundle, int(stopped_at), status, outputs or [])
+        out["inputs"] = replay.input_differences(bundle, self.sessions.kernel(name).proof_log(), live["marked"])  # type: ignore[attr-defined]
+        out["sandbox"] = f"{PROOF_ROOT}/{live['id']}/pc"
+        return out
+
+    def replay_end(self, name: str, keep: bool = False) -> dict[str, Any]:
+        """End the replay: a fresh kernel, so later runs read the real tables again. With ``keep``
+        the notebook becomes a normal notebook (its cells then run as any other)."""
+        live = self._replay_live()
+        if live and live["name"] == name:
+            kernel = self.sessions.kernel(name)  # type: ignore[attr-defined]
+            kernel.unbind_proof()
+            kernel.restart()
+            self._replay_session = None
+        if keep:
+            self.notebooks.set_extra(name, "replay", None)  # type: ignore[attr-defined]
+        return {"ended": True, "kept": keep}
 
     # ---- the new notebook wizard and the proof contract
 
@@ -152,6 +472,25 @@ class ProveMixin:
     def prove_rules_get(self, name: str) -> dict[str, Any]:
         """The notebook's proof contract: {"default": rules, "tables": {table: rules}}."""
         return self.notebooks.extra(name, "proof") or {}  # type: ignore[attr-defined]
+
+    def notebook_debug_get(self, name: str) -> dict[str, Any]:
+        """The Variables pane's saved choices: watch expressions (not their values) and the names
+        whose hidden-state warning was ignored for this notebook."""
+        saved = self.notebooks.extra(name, "debug") or {}  # type: ignore[attr-defined]
+        return {"watches": list(saved.get("watches") or []), "ignore_hidden": list(saved.get("ignore_hidden") or [])}
+
+    def notebook_debug_set(self, name: str, watches: list[str] | None = None,
+                           ignore_hidden: list[str] | None = None) -> dict[str, Any]:
+        """Saves what's given; None keeps the saved value."""
+        saved = self.notebook_debug_get(name)
+        if watches is not None:
+            saved["watches"] = check_watches(watches)
+        if ignore_hidden is not None:
+            if not isinstance(ignore_hidden, list) or not all(isinstance(n, str) and n.isidentifier() for n in ignore_hidden):
+                raise ValueError("ignore_hidden is a list of variable names")
+            saved["ignore_hidden"] = sorted(set(ignore_hidden))
+        self.notebooks.set_extra(name, "debug", saved if saved["watches"] or saved["ignore_hidden"] else None)  # type: ignore[attr-defined]
+        return saved
 
     def prove_rules_set(self, name: str, rules: dict[str, Any]) -> dict[str, Any]:
         rules = _normalized_rules(rules)
@@ -241,6 +580,9 @@ class ProveMixin:
         (verify.py), as {"default": {...}, "tables": {"dbo.t": {...}}}."""
         if self.proof_busy():
             raise RuntimeError("A proof is already running. Wait for it, or cancel it.")
+        self._replay_refuse(name, "proving it")
+        if self._replay_live():
+            raise RuntimeError("A replay is using the kernel. End it first.")
         if any(r["state"] in ("local", "fabric", "checking") for r in self._sbs_state().values()):  # type: ignore[attr-defined]
             raise RuntimeError("A side-by-side run is going. Wait for it, or cancel it.")
         check = proof.check(cells, lakehouse_ref)
@@ -261,7 +603,8 @@ class ProveMixin:
             "id": time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6], "name": name, "state": "preparing",
             "started_at": _now(), "finished_at": None, "message": "",
             "lakehouse": {k: lakehouse_ref.get(k, "") for k in ("name", "workspace_id", "workspace_name", "lakehouse_id")},
-            "workspace_name": ws["workspace_name"], "machine": machine(), "check": check, "rules": rules,
+            "workspace_id": ws["workspace_id"], "workspace_name": ws["workspace_name"], "machine": machine(),
+            "check": check, "rules": rules,
             "parameters": parameters or {}, "code": receipts.code_revision(cells),
             "pc": {"status": "pending", "cell": None, "cells_total": len(code), "cells": {}},
             "fabric": {"status": "pending", "engine": "python"},
@@ -293,7 +636,7 @@ class ProveMixin:
             return {"cancelled": False}
         record["_cancel"] = True
         if record["state"] == "pc":
-            self.kernel.interrupt()  # type: ignore[attr-defined]
+            self.sessions.kernel(record["name"]).interrupt()  # type: ignore[attr-defined]
         elif record["state"] == "fabric" and record["fabric"].get("job_id"):
             f = record["fabric"]
             try:
@@ -387,9 +730,10 @@ class ProveMixin:
         pc = record["pc"]
         pc["status"] = "running"
         self._attach(lakehouse_ref)  # type: ignore[attr-defined]
-        kernel = self.kernel  # type: ignore[attr-defined]
+        kernel = self.sessions.kernel(record["name"])  # type: ignore[attr-defined]
         kernel.restart()
         kernel.notebook_name = record["name"]
+        kernel.resources_dir = self._resources_dir(record["name"])  # type: ignore[attr-defined]
         kernel.bind_proof(config, "pc", root, options)
         status = "ok"
         try:
@@ -400,6 +744,8 @@ class ProveMixin:
                         break
                     pc["cell"] = n
                     kernel.start(cells[i]["source"])
+                    if record["_cancel"]:  # Cancel landed while the cell was starting: its interrupt may have missed it
+                        kernel.interrupt()
                     snap = kernel.poll(-1, 0.0)
                     outputs = snap.get("outputs") or []
                     while snap["status"] == "running":
@@ -418,6 +764,10 @@ class ProveMixin:
             kernel.unbind_proof()
         pc.update(meter.result())
         pc["status"] = status
+        if getattr(kernel, "limit_hit", ""):
+            pc["stopped_by"] = f"the {kernel.limit_hit} limit"
+        if hasattr(kernel, "limits"):
+            pc["limits"] = kernel.limits()
         log = kernel.finish_proof(modules)
         pc["log"] = log
         return log
@@ -431,7 +781,7 @@ class ProveMixin:
         started = time.monotonic()
         schemas = not config["flat"]
         ipynb = json.dumps(fabric_ipynb([first] + cells + [last], lakehouse_ref, schemas)).encode()
-        item_name = f"{record['name']}{PROOF_SUFFIX}"
+        item_name = f"{leaf_name(record['name'])}{PROOF_SUFFIX}"  # Fabric names have no folders
         item = self.fabric.save_notebook(ws["workspace_id"], item_name, ipynb)  # type: ignore[attr-defined]
         if not item.get("id"):
             item = next((n for n in self.fabric.list_notebooks(ws["workspace_id"])  # type: ignore[attr-defined]
@@ -554,7 +904,8 @@ class ProveMixin:
             inputs=record.get("inputs") or {},
             environment=record.get("environment") or {},
             machine=record.get("machine"),
-            runs={"pc": side(pc, ("status", "seconds", "cpu_seconds", "peak_memory_mb", "failed_cell", "measured")),
+            runs={"pc": side(pc, ("status", "seconds", "cpu_seconds", "peak_memory_mb", "failed_cell", "measured",
+                                    "stopped_by", "limits")),
                   "fabric": side(fab, ("status", "total_seconds", "job_seconds", "run_seconds", "start_seconds",
                                        "item_name", "job_id", "workspace_id", "message"))},
             outputs=[{k: v for k, v in t.items() if k != "rules"} for t in record.get("tables") or []],
@@ -565,10 +916,18 @@ class ProveMixin:
             limitations=limits)
 
 
+def replay_key(table: str) -> str:
+    """A table as the proof runtime keys it: schema.table, lower case."""
+    schema, _, name = table.rpartition(".")
+    return f"{(schema or 'dbo').lower()}.{name.lower()}"
+
+
 def _verdict(record: dict[str, Any], rows: list[dict[str, Any]], problems: list[str]) -> dict[str, Any]:
     failed = [w for w, s in (("this PC", record["pc"]["status"]), ("Fabric", record["fabric"]["status"])) if s != "ok"]
     if failed:
-        return {"verdict": "failed", "text": f"The run failed on {' and '.join(failed)}, so the results can't be compared.",
+        stopped = record["pc"].get("stopped_by")
+        why = f" (stopped by {stopped})" if stopped and "this PC" in failed else ""
+        return {"verdict": "failed", "text": f"The run failed on {' and '.join(failed)}{why}, so the results can't be compared.",
                 "problems": problems}
     if problems:
         return {"verdict": "inconclusive", "text": "Inconclusive: " + problems[0], "problems": problems}

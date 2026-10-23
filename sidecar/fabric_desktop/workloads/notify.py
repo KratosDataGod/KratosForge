@@ -14,10 +14,12 @@ import datetime as dt
 import json
 import sqlite3
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, ContextManager, Iterator
 
+from .. import redact
 from .evaluate import describe
 
 DIGEST_OVER = 5
@@ -92,9 +94,28 @@ class Routing:
         return [default] if default and default.url else []
 
 
+def failure(exc: Exception) -> str:
+    """A failed post as text, without the webhook's signature: requests puts the URL in its errors."""
+    return redact.secrets(f"{type(exc).__name__}: {exc}")
+
+
 def single(url: str) -> Routing:
     """Every change to one webhook: the app's Teams setting, or an agent without routes."""
     return Routing([Route(DEFAULT_ROUTE, url)] if url else [])
+
+
+@contextmanager
+def transaction(path: Path) -> Iterator[sqlite3.Connection]:
+    """A connection to the SQLite file at path: commits on success, rolls back on error, then closes.
+
+    ``with sqlite3.connect(...)`` alone commits or rolls back but leaves the connection open, and an
+    open handle keeps the file locked on Windows."""
+    db = sqlite3.connect(path, timeout=30)
+    try:
+        with db:
+            yield db
+    finally:
+        db.close()
 
 
 class Outbox:
@@ -110,8 +131,8 @@ class Outbox:
             if "not_before" not in cols:
                 db.execute("ALTER TABLE outbox ADD COLUMN not_before REAL DEFAULT 0")
 
-    def _db(self) -> sqlite3.Connection:
-        return sqlite3.connect(self.path, timeout=30)
+    def _db(self) -> ContextManager[sqlite3.Connection]:
+        return transaction(self.path)
 
     def add(self, title: str, lines: list[str], error: str, route: str = DEFAULT_ROUTE,
             not_before: float = 0.0) -> None:
@@ -192,7 +213,7 @@ def send(changes: list[dict[str, Any]], routing: Routing, outbox: Outbox, source
         try:
             post(route.url, title, [first] + item["lines"])
         except Exception as exc:  # noqa: BLE001 - still unreachable: keep it
-            down[route.name] = f"{type(exc).__name__}: {exc}"
+            down[route.name] = failure(exc)
             outbox.failed(item["id"], down[route.name])
             continue
         outbox.done(item["id"])
@@ -223,7 +244,7 @@ def send(changes: list[dict[str, Any]], routing: Routing, outbox: Outbox, source
                 post(route.url, title, lines)
                 sent += 1
             except Exception as exc:  # noqa: BLE001
-                down[name] = error = f"{type(exc).__name__}: {exc}"
+                down[name] = error = failure(exc)
                 outbox.add(title, lines, error, route=name)
                 queued += 1
     return {"sent": sent, "queued": queued, "held": held, "error": error or next(iter(down.values()), None)}

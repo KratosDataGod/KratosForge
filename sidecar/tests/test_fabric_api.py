@@ -1,6 +1,6 @@
 import pytest
 
-from fabric_desktop.fabric_api import FabricClient
+from fabric_desktop.fabric_api import FabricClient, FabricError
 
 
 class Resp:
@@ -59,6 +59,26 @@ def test_list_follows_continuation_and_retries_429():
     assert len(s.calls) == 3
 
 
+def test_a_read_is_retried_on_503():
+    c, s = client([Resp(503, {}, headers={"Retry-After": "0"}), Resp(200, {"id": "lh1"})])
+    assert c.get_lakehouse("ws1", "lh1")["id"] == "lh1"
+    assert len(s.calls) == 2
+
+
+def test_a_read_gives_up_after_bounded_retries():
+    c, s = client([Resp(503, {}) for _ in range(5)])
+    with pytest.raises(FabricError) as exc:
+        c.get_lakehouse("ws1", "lh1")
+    assert exc.value.status == 503 and len(s.calls) == 5
+
+
+def test_a_write_is_not_retried_on_503():
+    c, s = client([Resp(503, {}), Resp(201, {"id": "w1"})])
+    with pytest.raises(FabricError) as exc:
+        c.create_workspace("Sales")
+    assert exc.value.status == 503 and len(s.calls) == 1
+
+
 def test_capacity_not_active_gets_a_plain_message():
     c, _ = client([Resp(404, {"errorCode": "CapacityNotActive", "message": "Capacity X is not active"})])
     try:
@@ -88,3 +108,18 @@ def test_create_lakehouse_refuses_a_name_fabric_would_reject_before_calling_fabr
     with pytest.raises(ValueError, match="For example LH_2024_sales"):
         c.create_lakehouse("ws1", "2024 sales")
     assert s.calls == []
+
+
+def test_roles_are_replaced_only_if_unchanged_since_they_were_read():
+    c, s = client([Resp(200, {"value": [{"name": "DefaultReader"}]}, headers={"ETag": '"v1"'}),
+                   Resp(200, {}), Resp(412, {"errorCode": "PreconditionFailed"})])
+    headers = []
+    request = s.request
+    s.request = lambda method, url, **kw: headers.append(kw["headers"]) or request(method, url, **kw)
+    roles, etag = c.list_data_access_roles_tagged("ws1", "lh1")
+    assert roles == [{"name": "DefaultReader"}] and etag == '"v1"'
+    c.put_data_access_roles("ws1", "lh1", roles, etag=etag)
+    assert headers[1]["If-Match"] == '"v1"' and headers[1]["Authorization"] == "Bearer tok"
+    with pytest.raises(FabricError) as exc:
+        c.put_data_access_roles("ws1", "lh1", roles, etag='"v0"')
+    assert exc.value.code == "PreconditionFailed" and len(s.calls) == 3  # a refused write isn't retried

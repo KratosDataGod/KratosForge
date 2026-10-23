@@ -19,11 +19,11 @@ The notebook must be able to run in both places. The check above the cells says 
 
 Run all goes through three steps, shown in a panel above the cells:
 
-1. **Run on this PC.** The kernel restarts, so the run starts clean as Fabric's does, and every code cell runs in order. Cell output shows in the notebook as usual. If a cell fails, the run on this PC stops there, and the comparison still goes on to Fabric, so you see which side breaks.
+1. **Run on this PC.** The kernel restarts, so the run starts clean as Fabric's does, and every code cell runs in order. Cell output shows in the notebook as usual. If a cell fails, the run on this PC stops there, and the comparison still goes on to Fabric, so you see which side breaks. The result shows this PC's error under the timings; when both sides fail, fix that one first, since the same code usually fails in Fabric for the same reason (Fabric's own message, such as *System cancelled the Spark session due to statement execution failures*, rarely says why).
 2. **Run in Fabric.** The notebook is published to its workspace (the same as **Publish to OneLake**) and started with Fabric's job scheduler, as **Run in Fabric** does. It shows in **Monitor** and in Fabric's Monitoring hub. The published copy gets two extra cells, one first and one last, that time the notebook's own cells inside Fabric. They aren't added to your notebook on this PC, and the next ordinary publish removes them.
 3. **Check the outputs.** Every table either run wrote is compared.
 
-Before a notebook that writes tables runs, Fabric Desktop by KratosBI lists the tables it writes (read from the code) and asks you to confirm, because both runs replace what's in them. If a cell does something reading the code can't follow (`exec`, `%run`, `import *`), it says so and asks too. **Use Prove instead** runs both sides from the same table versions with their writes kept in a sandbox, so your tables don't change; see [Prove this notebook](notebooks.md#prove-this-notebook-preview).
+Before a notebook that writes tables runs, KratosForge lists the tables it writes (read from the code) and asks you to confirm, because both runs replace what's in them. If a cell does something reading the code can't follow (`exec`, `%run`, `import *`), it says so and asks too. **Use Prove instead** runs both sides from the same table versions with their writes kept in a sandbox, so your tables don't change; see [Prove this notebook](notebooks.md#prove-this-notebook-preview).
 
 The runs go one after the other, not at the same moment, so they never write the same table at once. You can leave the page: the bell tells you when the comparison is ready, and the last comparison shows again when you reopen the notebook. **Cancel** stops whichever run is going.
 
@@ -32,9 +32,9 @@ The runs go one after the other, not at the same moment, so they never write the
 | Part | What it shows |
 | --- | --- |
 | The top line | **Same results in both places**, **Results differ in N tables**, or which side failed |
-| This PC | Time from the first cell to the last, and the PC's cores and memory. No capacity is used. |
+| This PC | Time from the first cell to the last, and the PC's cores and memory. No Fabric job starts; its OneLake reads and writes still use some capacity, which isn't measured. |
 | Fabric | Time from Run all to the end of the Fabric job, split into the **session start** (Fabric starting a session and queueing) and the **run** (the notebook's cells). Below it, the estimated CU-seconds and cost. |
-| Faster | Which side was faster end to end, and on run time alone with Fabric's session start left out |
+| Faster | Which side was faster end to end, and on run time alone with Fabric's session start left out. Left out when either side failed, since a run that stopped early is only shorter. |
 | Tables | Each table written: rows on each side, whether the columns match, and the result |
 
 A table's result is one of:
@@ -48,7 +48,7 @@ A table's result is one of:
 
 ### How tables are checked
 
-Fabric Desktop by KratosBI notes the Delta version of every table in the lakehouse before the PC run, after it, and after the Fabric run. A table whose version moved was written by that run, and Delta keeps each version, so both outputs can be read afterwards exactly as each run left them.
+KratosForge notes the Delta version of every table in the lakehouse before the PC run, after it, and after the Fabric run. A table whose version moved was written by that run, and Delta keeps each version, so both outputs can be read afterwards exactly as each run left them.
 
 For each table on each side it computes:
 
@@ -64,13 +64,13 @@ Write outputs with `mode="overwrite"` (the default of `lakehouse.write_table`) f
 
 The time on this PC runs from the start of the first cell to the end of the last. The Fabric time runs from Run all to the end of the job, so it includes publishing, queueing and starting a session: what someone waiting for the result sees. The session-start and run split comes from the timing cells; if they couldn't save their file, only the job time is shown.
 
-Cost is an estimate: the Fabric job's time multiplied by the CUs of a Python notebook (or a Spark notebook, for a notebook that uses Spark) and the price per CU hour. Change those numbers in **Monitor > Cost**. The Capacity Metrics app in Fabric has the billed numbers.
+Cost is an estimate: the Fabric job's time multiplied by the CUs of a Python notebook (or a Spark notebook, for a notebook that uses Spark) and the price per CU hour. Change those numbers in **Optimize > Cost and savings**. The Capacity Metrics app in Fabric has the billed numbers.
 
 ## The TPC-H benchmark
 
 To test at scale with a standard workload, use the two TPC-H notebooks. TPC-H is the industry's standard decision-support benchmark: eight tables of orders, customers, parts and suppliers, and 22 queries.
 
-Add them from the Side by side panel (**Add the TPC-H benchmark notebooks**) or the command bar (Ctrl+K, *TPC-H*). They are also in the repository, to download or share: [examples/benchmark](https://github.com/KratosDataGod/fabric-desktop/tree/main/examples/benchmark). To use a downloaded copy, put the `.ipynb` files in `%LOCALAPPDATA%\FabricDesktop\notebooks` and they show in the app.
+Add them from the Side by side panel (**Add the TPC-H benchmark notebooks**) or the command bar (Ctrl+K, *TPC-H*). They are also in the repository, to download or share: [examples/benchmark](https://github.com/KratosDataGod/KratosForge/tree/main/examples/benchmark). To use a downloaded copy, put the `.ipynb` files in `%LOCALAPPDATA%\FabricDesktop\notebooks` and they show in the app.
 
 ### 1. Make the data: TPC-H data
 
@@ -115,7 +115,7 @@ These runs follow TPC-H's data and queries but are not audited TPC-H results, an
 
 - Both runs use the same lakehouse, so anything else writing to it during the comparison (another notebook, a schedule) shows up as a difference. Run comparisons in a lakehouse nobody else is writing to.
 - The comparison doesn't look at files under `Files/`, only tables.
-- Before, between and after the runs, Fabric Desktop by KratosBI reads the version of every table in the lakehouse. In a lakehouse with hundreds of tables that adds a wait (it isn't counted in either run's time); a lakehouse just for benchmarks keeps it short.
+- Before, between and after the runs, KratosForge reads the version of every table in the lakehouse. In a lakehouse with hundreds of tables that adds a wait (it isn't counted in either run's time); a lakehouse just for benchmarks keeps it short.
 - Cell output from the Fabric run stays in Fabric; the panel links to it.
 - Only notebooks can run side by side. Metadata runs load incrementally (the second run would find nothing new to load), so they aren't compared this way.
 - While a comparison runs, the notebook's kernel is busy, so its cells can't be run one by one until it finishes or is cancelled.

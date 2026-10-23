@@ -180,6 +180,52 @@ def test_runs_at_once_never_give_two_business_keys_one_key(tmp_path):
     assert not errors and df.height == 1 + 1 + 6 * 5  # Unknown, A, and every run's keys
 
 
+WINDOWS_RACE = OSError(
+    "Generic LocalFileSystem error: Unable to open file C:\\keys\\LH_Keys\\Tables\\keys\\customer\\_delta_log"
+    "\\00000000000000000006.json#1: Access is denied. (os error 5)")
+
+
+@pytest.mark.parametrize("step", ["read_at", "merge_insert", "read"])
+def test_the_windows_delta_log_race_is_retried(tmp_path, monkeypatch, step):
+    """Runs at once on Windows: a writer is briefly refused the log file another is renaming."""
+    from fabric_desktop import retrying
+    from fabric_desktop.meta.store import Store
+    store = LocalStore(tmp_path, "dev")
+    kt = K.KeyTable("customer", {}, tmp_path / "customer.toml")
+    K.merge_keys(store, kt, pl.Series(["A"]))
+    real, calls = getattr(Store, step), []
+
+    def flaky(self, *a, **kw):
+        calls.append(1)
+        if len(calls) == 1:
+            raise WINDOWS_RACE
+        return real(self, *a, **kw)
+
+    monkeypatch.setattr(Store, step, flaky)
+    monkeypatch.setattr(retrying.time, "sleep", lambda s: None)
+    assert K.merge_keys(store, kt, pl.Series(["B"]))["inserted"] == 1
+    assert len(calls) >= 2 and retrying.is_retryable(WINDOWS_RACE)
+    keys = dict(K.read_keys(store, kt).select("customer_bk", "customer_sk").iter_rows())
+    assert keys == {"UNKNOWN": -1, "A": 1, "B": 2}
+
+
+def test_other_os_errors_are_not_retried(tmp_path, monkeypatch):
+    from fabric_desktop import retrying
+    from fabric_desktop.meta.store import Store
+    store = LocalStore(tmp_path, "dev")
+    kt = K.KeyTable("customer", {}, tmp_path / "customer.toml")
+    calls = []
+
+    def denied(self, *a, **kw):
+        calls.append(1)
+        raise OSError("Access is denied. (os error 5)")  # not a Delta log file
+
+    monkeypatch.setattr(Store, "create_if_absent", denied)
+    with pytest.raises(OSError):
+        K.ensure_key_table(store, kt)
+    assert len(calls) == 1 and not retrying.is_retryable(OSError("Access is denied. (os error 5)"))
+
+
 def test_a_key_computed_from_an_old_version_is_never_committed(tmp_path, monkeypatch):
     """The gap that let duplicates through: another run commits between reading the table and the MERGE."""
     store = LocalStore(tmp_path, "dev")
@@ -253,7 +299,7 @@ def test_the_save_gate_checks_keys(proj):
     append_entity(p.root, "silver.customers", '[[keys]]\ntable = "vendor"\nbusiness_key = "nope"\n')
     p.reload()
     errors = validate(p, DAY2)
-    assert "silver.customers: key table vendor is not defined in Metadata > Surrogate keys" in errors
+    assert "silver.customers: key table vendor is not defined in Data mesh > Design > Surrogate keys" in errors
     assert "silver.customers: business key nope is not in the source" in errors
     edit_entity(p.root, "silver.customers", 'table = "vendor"\nbusiness_key = "nope"', 'table = "customer"\nbusiness_key = "name"')
     assert "silver.customers: key table customer is listed twice" in validate(p.reload() or p, DAY2)
@@ -354,3 +400,51 @@ def test_service_keys_round_trip(tmp_path):
     call("meta_set_environment", env="test", workspace_id="ws-test2", workspace_name="Sales Test 2")
     envs = Project(tmp_path / "proj").environments["test"]
     assert envs["keys_workspace_id"] == "ws-keys" and envs["workspace_id"] == "ws-test2"
+
+
+def _both_engines(rows: dict[str, list]) -> tuple[list, list]:
+    """The composite business key of each row, from the local engine and from the template's Spark SQL
+    (translated to DuckDB with sqlglot, so its NULL and string rules are the ones that run)."""
+    import duckdb
+    import sqlglot
+    df = pl.DataFrame(rows, schema={c: pl.String for c in rows})
+    local = df.select(K.business_key(list(rows)).alias("bk"))["bk"].to_list()
+    sql = sqlglot.transpile(f"SELECT {K._spark_bk(list(rows), 'b')} AS bk FROM t b", read="spark", write="duckdb")[0]
+    con = duckdb.connect()
+    con.register("t", df.to_arrow())
+    return local, [r[0] for r in con.execute(sql).fetchall()]
+
+
+def test_a_blank_or_missing_part_gives_no_business_key_in_spark_too():
+    local, spark = _both_engines({"country": ["US", "US", "US", " "], "customer_no": [" 7 ", "  ", None, "7"]})
+    assert local == spark == ["US||7", None, None, None]
+    sql = K._spark_bk(["country", "customer_no"])
+    assert "CONCAT_WS" not in sql and sql.startswith("CONCAT(")
+
+
+def test_the_template_merge_skips_rows_without_a_business_key(tmp_path):
+    p = init_project(tmp_path / "project", "3", "Chris", True)
+    e = p.entities["silver.customers"]
+    kt = p.key_tables["customer"]
+    e.spec["keys"] = [{"table": "customer", "business_key": ["country", "customer_id"]}]
+    sql = K.merge_sql(p, e)
+    # The new keys come from rows whose business key isn't NULL, not rows whose raw columns aren't.
+    assert f"WHERE n.{kt.bk} IS NOT NULL" in sql and "country IS NOT NULL" not in sql
+    assert "CONCAT_WS" not in sql
+    assert sql.count(K._spark_bk(["country", "customer_id"])) == 1
+    assert sql.count(K._spark_bk(["country", "customer_id"], "b")) == 1  # src_keyed joins on the same key
+
+
+def test_composite_business_keys_with_the_separator_in_a_part_never_collide():
+    rows = {"a": ["A||B", "A", "A|", "A", "a\\", "x\\|", " west ", "A\\B"],
+            "b": ["C", "B||C", "|C", "||C", "b", "y", "10", "C"]}
+    local, spark = _both_engines(rows)
+    assert local == spark
+    assert len(set(local)) == len(local)  # each business key its own text, so its own surrogate key
+    assert local[:2] == ["A\\|\\|B||C", "A||B\\|\\|C"]
+    assert local[5] == "x\\\\|||y"  # the \ before an escaped | is kept as it is
+    # Parts without a | are written as before (a \ too), so keys already issued keep their text and key.
+    plain = {"a": ["a\\", " west ", "A\\B", "US"], "b": ["b", "10", "C", " 7"]}
+    assert _both_engines(plain) == (["a\\||b", "west||10", "A\\B||C", "US||7"],) * 2
+    single = pl.DataFrame({"a": ["A||B"]}).select(K.business_key(["a"]))["a"].to_list()
+    assert single == ["A||B"]  # a single-column key is never escaped

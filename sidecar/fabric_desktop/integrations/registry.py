@@ -1,4 +1,4 @@
-"""What Fabric Desktop by KratosBI can do for an external caller, in a form a machine can read.
+"""What KratosForge can do for an external caller, in a form a machine can read.
 
 Every capability is one ``Capability``: an id, plain-language text, JSON Schemas for its input and
 output, the permission category it needs, whether it changes anything, whether the person must
@@ -22,6 +22,7 @@ category, and an extension can't replace a core capability.
 
 from __future__ import annotations
 
+import logging
 import re
 import sys
 import threading
@@ -31,7 +32,11 @@ from typing import Any, Callable, Iterable, Protocol
 
 from urllib.parse import quote, unquote
 
-from .core import CallContext, IntegrationError, redact_result, run_call, validate
+from ..redact import describe
+from . import scope
+from .core import CallContext, IntegrationError, error_from, redact_result, run_call, validate
+
+_log = logging.getLogger(__name__)
 
 # Permission categories, from least to most trust. Each capability needs exactly one.
 PERMISSIONS = ("READ_METADATA", "READ_DATA", "WRITE_LOCAL_FILES", "EXECUTE_LOCAL_CODE", "WRITE_ONELAKE",
@@ -86,6 +91,14 @@ class Capability:
     public: bool = False
     # A fabric-desktop:// URI template that also serves this capability as an MCP resource.
     resource: str = ""
+    # Reads what the call will really do, once it is permitted and before the person approves it:
+    # bind(service, arguments) returns more arguments (a notebook's code cells and their hash) that
+    # the approval shows and is bound to and the handler gets. A caller can never supply them.
+    bind: Handler | None = None
+    # How a tool limited to some workspaces is kept inside them (scope.py): scope.NONE, ARGUMENT,
+    # FILTERED, UNKNOWN or a resolver (service, arguments, ctx) -> workspace ids or None. Left
+    # unset, a limited tool is refused it.
+    workspaces: Any = None
 
     @property
     def resource_params(self) -> list[str]:
@@ -106,8 +119,12 @@ class Capability:
 
 
 class Authorizer(Protocol):
-    def check(self, capability: Capability, arguments: dict[str, Any], ctx: CallContext) -> None:
-        """Raise an IntegrationError to refuse the call; return to allow it."""
+    def check(self, capability: Capability, arguments: dict[str, Any], ctx: CallContext,
+              bind: Callable[[], dict[str, Any]] | None = None,
+              workspaces: Callable[[], set[str] | None] | None = None) -> None:
+        """Raise an IntegrationError to refuse the call; return to allow it. Once the call is
+        permitted, and before any approval, ``bind()``'s arguments are added to ``arguments``.
+        ``workspaces()`` is the workspace ids the call reaches, or None if that can't be told."""
 
     def availability(self, capability: Capability, ctx: CallContext | None) -> tuple[str, str]:
         """(status, reason) for listing: whether this caller could use it now."""
@@ -119,10 +136,14 @@ class ReadOnlyAuthorizer:
 
     REASON = "Needs the permission and approval framework, which isn't switched on in this build."
 
-    def check(self, capability: Capability, arguments: dict[str, Any], ctx: CallContext) -> None:
+    def check(self, capability: Capability, arguments: dict[str, Any], ctx: CallContext,
+              bind: Callable[[], dict[str, Any]] | None = None,
+              workspaces: Callable[[], set[str] | None] | None = None) -> None:
         if not capability.read_only or capability.permission not in READ_PERMISSIONS:
             raise IntegrationError("unavailable", f"{capability.title} isn't available to external tools yet.",
                                    hint=self.REASON)
+        if bind is not None:
+            arguments.update(bind())
 
     def availability(self, capability: Capability, ctx: CallContext | None) -> tuple[str, str]:
         if not capability.read_only or capability.permission not in READ_PERMISSIONS:
@@ -142,6 +163,7 @@ class Registry:
         self._caps: dict[str, Capability] = {}
         self._lock = threading.RLock()
         self._listeners: list[Callable[[], None]] = []
+        self.version = 0  # goes up whenever capabilities are added or removed
         self.authorizer: Authorizer = authorizer or ReadOnlyAuthorizer()
         # Called once per invoke with (ctx, capability id, permission, arguments, arrived at,
         # seconds, error or None, execution id). IntegrationAudit.record in the servers.
@@ -182,6 +204,7 @@ class Registry:
         _check_schema(cap.output_schema, "output_schema", cap.id)
         if cap.resource:
             _check_resource(cap)
+        scope.check_declaration(cap)
         with self._lock:
             if cap.resource:
                 clash = next((c for c in self._caps.values() if c.id != cap.id and _pattern(c.resource) is not None
@@ -226,11 +249,12 @@ class Registry:
         return lambda: self._listeners.remove(listener) if listener in self._listeners else None
 
     def _changed(self) -> None:
+        self.version += 1
         for listener in list(self._listeners):
             try:
                 listener()
-            except Exception:  # noqa: BLE001 - a listener problem must not break registration
-                pass
+            except Exception as exc:  # noqa: BLE001 - a listener problem must not break registration
+                _log.warning("Integration registry listener failed: %s", describe(exc))
 
     # ---- reading
 
@@ -323,16 +347,30 @@ class Registry:
             raise IntegrationError("unavailable", f"{cap.title} isn't available: {cap.reason}")
         ctx.decision = ""
         args = validate(cap.input_schema, arguments)
-        self.authorizer.check(cap, args, ctx)  # may wait for the person's approval
+        bind = (lambda: self._bind(service, cap, args)) if cap.bind else None
+        workspaces = lambda: scope.targets(cap, service, args, ctx)  # noqa: E731 - read only for a limited tool
+        self.authorizer.check(cap, args, ctx, bind, workspaces=workspaces)  # may wait for the person's approval
         ctx.decision = ctx.decision or "allowed"
         ctx.started = time.monotonic()  # the time limit is for the work, not for the approval wait
         ctx.timeout = min(ctx.timeout, cap.timeout) if ctx.timeout else cap.timeout
         if cap.needs_service and service is None:
-            raise IntegrationError("unavailable", "The Fabric Desktop by KratosBI engine isn't running here.")
+            raise IntegrationError("unavailable", "The KratosForge engine isn't running here.")
         started = time.monotonic()
         result = run_call(lambda: cap.handler(service, ctx, **args), ctx)
         ctx.seconds = round(time.monotonic() - started, 3)
         return redact_result(result)
+
+    @staticmethod
+    def _bind(service: Any, cap: Capability, args: dict[str, Any]) -> dict[str, Any]:
+        if service is None:
+            raise IntegrationError("unavailable", "The KratosForge engine isn't running here.")
+        try:
+            derived = cap.bind(service, dict(args))  # type: ignore[misc]
+        except Exception as exc:  # noqa: BLE001 - the engine's message, as for a handler
+            raise error_from(exc) from exc
+        if set(derived) & (set(args) | set(cap.input_schema.get("properties", {}))):
+            raise IntegrationError("internal", f"{cap.id}: a bound argument can't also be an input.")
+        return derived
 
 
 def _shape(template: str) -> str:

@@ -29,7 +29,7 @@ Only one proof runs at a time, and the notebook kernel can't run other cells whi
 Each table's result has a **level**:
 
 - **Complete**: every row was compared. With key columns, rows are matched by key, and the result counts rows only on this PC, rows only in Fabric and changed rows, names each changed column with the largest absolute and relative difference, and lists the first 50 differing rows with both values. Without keys, rows are matched as whole rows (order doesn't matter; duplicates count). If the key isn't unique, rows are matched as whole rows and the result says so.
-- **Fingerprint**: the table has more rows than the limit (5,000,000 by default), so only row counts and an order-independent checksum of every row were compared. A matching checksum makes a difference very unlikely, not impossible; the result says so.
+- **Fingerprint**: the table has more rows than the limit (5,000,000 by default), so only row counts and an order-independent checksum of every row were compared. A matching checksum makes a difference very unlikely, not impossible; the result says so. Before hashing, decimals are rounded to 10 significant digits, so the checksum ignores differences smaller than that instead of applying the column tolerances.
 
 ## Rules
 
@@ -37,10 +37,14 @@ Each table's result has a **level**:
 | --- | --- | --- |
 | `keys` | none | Columns that identify a row. |
 | `ignore` | none | Columns left out, such as a load timestamp. |
-| `abs`, `rel` | 0, 1e-9 | Numbers match when they differ by at most `abs`, or by at most `rel` times the larger value. Two engines adding the same numbers in a different order differ around 1e-15. |
+| `abs`, `rel` | 0, 1e-9 | Numbers match when they differ by at most `abs`, or by at most `rel` times the larger value. Two engines adding the same numbers in a different order differ around 1e-15. With both at 0, whole numbers and decimals are compared exactly, digit for digit (1.50 equals 1.5); a difference too small to show as a floating-point number is counted but its size isn't shown. |
 | `columns` | none | Tolerances for one column: `{"amount": {"abs": 0.01}}`. |
 | `timestamps` | `us` | Compare timestamps to the microsecond, millisecond (`ms`) or second (`s`). Timestamps are compared in UTC. |
 | `limit_rows` | 5,000,000 | Above this, compare fingerprints only. |
+
+A column of whole numbers on one side and decimals on the other (for example an average one engine returns as an integer type) is compared as numbers under these tolerances, and the result notes it. Any other type difference makes the table differ.
+
+A key column that is text on one side and numbers on the other is matched as text, so rows still pair up; the type difference already makes the table differ. A rule that isn't valid (a negative or non-numeric tolerance, a row limit that isn't a whole number, `keys` that aren't column names) is refused with a message saying what it should be, and nothing is compared.
 
 Rules can be set for all tables and per table. A finished proof can be verified again under other rules without running anything (`prove_verify`), for example to see whether a difference is within a tolerance; that check can be saved as its own receipt pointing at the proof's.
 
@@ -54,8 +58,10 @@ Every number says what it is:
 | CPU time and peak memory on this PC | Measured | The engine process while the notebook ran in it (sampled four times a second) |
 | Fabric total, job, run and session start | Measured | Publish to finish; the job's start and end from Fabric's job API; the notebook's own run time from its log |
 | Fabric CPU and memory | Not available | Fabric doesn't report them for a notebook run. A Python notebook starts with 2 vCores and 16 GB unless `%%configure` changes it. |
-| Fabric capacity and cost | Estimate | Job time x CUs for a Python notebook x price per CU hour, from **Monitor > Cost**. The assumptions are listed. On a capacity you already pay for, this is a share of it, not an added charge. |
-| This PC's cost | Measured | No Fabric capacity used. Power and hardware aren't counted. |
+| Fabric capacity and cost | Estimate | Job time x CUs for a Python notebook x price per CU hour, from **Optimize > Cost and savings**. The assumptions are listed. On a capacity you already pay for, this is a share of it, not an added charge. |
+| This PC's cost | Not available | No Fabric job starts, so its Fabric job CU is 0 (measured). Its OneLake reads and writes still use capacity and aren't measured, so the total isn't known. Power and hardware aren't counted. |
+
+The two cost rows also carry each side's Fabric job CU as a classified measurement (Measured, Estimated, Scenario or Unknown, as in **Optimize > Cost and savings**), so a receipt's cost reads the same way as that tab. Neither side counts OneLake reads and writes. When Fabric doesn't report the job's start and end, Fabric's side is **Unknown** with no value, never 0. See [Capacity and cost evidence](../finops/cost-evidence.md).
 
 ## Receipts
 
@@ -65,7 +71,8 @@ A receipt is a JSON document whose id is the SHA-256 of its content (keys sorted
 - the inputs: tables and the versions read on each side, files and their SHA-256;
 - the environment on each side: Python and the versions of the packages the notebook imports;
 - who ran it (your user and tenant) and where (workspace and lakehouse);
-- each run's status and measurements, each table's verification with its level and rules, the scorecard, and the limitations found.
+- each run's status and measurements, each table's verification with its level and rules, the scorecard, and the limitations found;
+- the cost of each side: its Fabric job CU as a classified measurement.
 
 Receipts are kept in `%LOCALAPPDATA%\FabricDesktop\receipts`, written once and never replaced. A receipt can be exported as an HTML or Markdown report, leaving out your identity, workspace and lakehouse names, example row values, or this PC's details.
 

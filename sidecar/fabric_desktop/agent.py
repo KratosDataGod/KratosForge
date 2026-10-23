@@ -21,10 +21,11 @@ import os
 import signal
 import threading
 import time
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from typing import Any, Callable
+from urllib.parse import urlsplit
 
-from . import agent_status
+from . import agent_status, shared_schedules
 from .agent_config import AgentConfig
 from .audit import AuditLog
 from .dataops_service import post_teams
@@ -33,11 +34,12 @@ from .local_schedules import next_run
 from .logs import fields
 from .mailbox import Mailbox
 from .meta import mesh as mesh_mod
+from .meta.engine import Abandoned
 from .runtime import Runtime
 from .workloads import evaluate, model
 from .workloads.incidents import IncidentLog
 from .workloads.agents import read_status
-from .workloads.notify import DEFAULT_ROUTE, Outbox, Quiet, Route, Routing, send
+from .workloads.notify import DEFAULT_ROUTE, Outbox, Quiet, Route, Routing, failure, send, single
 
 KIND_META = "meta"
 
@@ -45,6 +47,17 @@ KIND_META = "meta"
 def _epoch(local: dt.datetime) -> float:
     return local.timestamp()  # naive datetimes are this machine's local time, as schedules are
 
+
+
+def _without_webhook(text: str, url: str) -> str:
+    """``text`` with the webhook's path and query replaced: a legacy Office 365 connector URL carries its
+    secret in the path, which requests puts in connection errors and redact.secrets doesn't know (QA-016)."""
+    parts = urlsplit(url)
+    for piece in sorted({url, parts.path + ("?" + parts.query if parts.query else ""), parts.path, parts.query},
+                        key=len, reverse=True):
+        if len(piece) > 1:
+            text = text.replace(piece, "[webhook]")
+    return text
 
 class Agent:
     def __init__(self, config: AgentConfig, runtime: Runtime | None = None, queue: JobQueue | None = None,
@@ -66,11 +79,14 @@ class Agent:
         self._mailbox_at = 0.0
         self._incidents_at = 0.0
         self._outbox: Outbox | None = None
+        self._alert_box: Outbox | None = None  # "job didn't finish" alerts Teams didn't take yet
+        self._alert_lock = threading.Lock()  # workers alert at once; one send at a time posts each just once
         self.audit = AuditLog(config.home / "audit", app="agent")
         if config.pipeline.enabled:
             p = config.pipeline
             self.mailbox = Mailbox(self, self._control, p.environments, p.entities, p.allow_backfill,
-                                   p.retention_days, known_entities=self.runtime.entity_names)
+                                   p.retention_days, known_entities=self.runtime.entity_names, claim=p.claim,
+                                   take_over=p.take_over, max_attempts=config.max_attempts)
 
     def _control(self, env: str) -> Any:
         """The environment's control files (mailbox and status records), built once."""
@@ -173,20 +189,47 @@ class Agent:
 
     def tick_schedules(self) -> list[str]:
         """Enqueue every schedule that is due. A schedule missed while the agent was down runs once
-        when it starts again, not once per missed time."""
+        when it starts again, not once per missed time. A shared schedule is written to its
+        environment's mailbox instead (shared_schedules.py), so one agent of those sharing it runs it."""
         fired = []
         now = self.clock()
         for s in self.config.schedules:
             due = self.queue.schedule_next(s.id)
             if due is None or due <= now:
                 if due is not None:
-                    self.enqueue(s.env, s.entities, s.backfill, source=f"schedule:{s.id}",
-                                 dedupe_key=f"schedule:{s.id}")
+                    if s.shared:
+                        self._submit_shared(s, due, now)
+                    else:
+                        self.enqueue(s.env, s.entities, s.backfill, source=f"schedule:{s.id}",
+                                     dedupe_key=f"schedule:{s.id}")
                     fired.append(s.id)
-                nxt = next_run(s.config, dt.datetime.fromtimestamp(now))
+                nxt = shared_schedules.next_aligned(s.when, now) if s.shared else None
+                if nxt is None:
+                    local = next_run(s.config, dt.datetime.fromtimestamp(now))
+                    nxt = _epoch(local) if local is not None else None
                 if nxt is not None:
-                    self.queue.set_schedule_next(s.id, _epoch(nxt))
+                    self.queue.set_schedule_next(s.id, nxt)
         return fired
+
+    def _submit_shared(self, s: Any, due: float, now: float) -> None:
+        """One request for this due time in the mailbox, unless another agent wrote it first or its
+        deadline passed. A mailbox that can't be reached is logged; the agents that can reach it run it."""
+        try:
+            rid, outcome = shared_schedules.submit(self._control(s.env), s, due, now, self.config.name)
+        except Exception as exc:
+            self._controls.pop(s.env, None)
+            self.log.warning("couldn't write the shared schedule's request", extra=fields(
+                schedule=s.id, env=s.env, error=f"{type(exc).__name__}: {exc}"))
+            return
+        self.log.info({"created": "shared schedule requested", "exists": "shared schedule already requested",
+                       "late": "shared schedule past its deadline; not requested"}[outcome],
+                      extra=fields(schedule=s.id, env=s.env, request_id=rid))
+
+    def has_free_worker(self) -> bool:
+        """Whether a request claimed now would start at once: fewer jobs running or queued here than workers."""
+        busy = len([f for f in self._running.values() if not f.done()])
+        queued = sum(self.queue.counts(env).get("queued", 0) for env in self.config.environments)
+        return busy + queued < self.config.concurrency
 
     # ---- doing work
 
@@ -205,9 +248,17 @@ class Agent:
         beat = threading.Thread(target=self._heartbeat, args=(job, done), daemon=True)
         beat.start()
         t0 = time.monotonic()
+        extra: dict[str, Any] = {}
+        if self.mailbox and str(job.get("source") or "").startswith("pipeline:"):
+            extra["guard"] = lambda: self._still_ours(job)
         try:
             results = self.runtime.run_environment(p["env"], p.get("entities") or None, p.get("backfill") or None,
-                                                   bool(p.get("cascade")), job=job)
+                                                   bool(p.get("cascade")), job=job, **extra)
+        except Abandoned as exc:
+            self.queue.cancel(job["id"], str(exc), owner=owner)
+            self._audit(job, "handed_over", time.monotonic() - t0, error=str(exc))
+            self.log.warning("job stopped: another agent took its request over", extra=fields(**ctx, error=str(exc)))
+            return
         except Exception as exc:
             from .retrying import is_retryable
             error = f"{type(exc).__name__}: {exc}"
@@ -250,6 +301,12 @@ class Agent:
             self.log.error("job failed", extra=fields(**ctx, seconds=seconds, error=error, **summary))
             self._alert(job, error)
 
+    def _still_ours(self, job: dict[str, Any]) -> None:
+        """Before each table: stop if another agent took this job's pipeline request over."""
+        other = self.mailbox.taken_over(job) if self.mailbox else ""
+        if other:
+            raise Abandoned(f"agent {other} took this request over")
+
     def _audit(self, job: dict[str, Any], outcome: str, seconds: float, error: str = "", **summary: Any) -> None:
         """One audit line per job run (FD-125), next to the desktop app's lines for the same actions."""
         p = job["payload"]
@@ -274,16 +331,40 @@ class Agent:
                 "rows_written": sum(r.get("rows_written") or 0 for r in results),
                 "run_ids": [r["run_id"] for r in results if r.get("run_id")]}
 
+    def _alert_outbox(self) -> Outbox:
+        if self._alert_box is None:
+            self._alert_box = Outbox(self.config.home / "job_alerts.sqlite3", clock=self.clock)
+        return self._alert_box
+
+    def send_waiting_alerts(self) -> None:
+        """Post job alerts Teams didn't take before (no network, Teams down), marked as delayed. They
+        wait in job_alerts.sqlite3 in the agent's home and are dropped after three days."""
+        url = self.config.teams_webhook
+        if not url or (self._alert_box is None and not (self.config.home / "job_alerts.sqlite3").exists()):
+            return
+        with self._alert_lock:
+            result = send([], single(url), self._alert_outbox(), f"agent {self.config.name}", post_teams)
+        if result.get("error"):
+            self.log.warning("couldn't post waiting alerts to Teams; they'll go with the next try",
+                             extra=fields(error=_without_webhook(result["error"], url)))
+
     def _alert(self, job: dict[str, Any], error: str) -> None:
         url = self.config.teams_webhook
         if not url:
             return
+        self.send_waiting_alerts()  # older alerts first
         env = str(job["payload"].get("env", "")).title()
-        try:
-            post_teams(url, f"Fabric Desktop by KratosBI agent {self.config.name}: a {env} job didn't finish",
-                       [f"Job {job['id']} ({job['source'] or 'manual'})", error[:1500]])
-        except Exception as exc:  # the log has it either way
-            self.log.warning("couldn't post the alert to Teams", extra=fields(job_id=job["id"], error=str(exc)))
+        title = f"KratosForge agent {self.config.name}: a {env} job didn't finish"
+        lines = [f"Job {job['id']} ({job['source'] or 'manual'})", error[:1500]]
+        with self._alert_lock:
+            try:
+                post_teams(url, title, lines)
+                return
+            except Exception as exc:  # kept, and sent with the next try
+                problem = _without_webhook(failure(exc), url)
+                self._alert_outbox().add(title, lines, problem)
+        self.log.warning("couldn't post the alert to Teams; it goes with the next try",
+                         extra=fields(job_id=job["id"], error=problem))
 
     # ---- the loop
 
@@ -308,12 +389,17 @@ class Agent:
         if self.clock() - self._status_at >= self.config.status_seconds:
             self._status_at = self.clock()
             self.publish_status()
+            self.send_waiting_alerts()
 
     def _guarded(self, job: dict[str, Any]) -> None:
         if self.mailbox:
             if self.mailbox.cancel_requested(job):
                 self.queue.cancel(job["id"], "the pipeline cancelled it", owner=self.config.name)
                 self.mailbox.job_changed(self.queue.get(job["id"]) or job)
+                return
+            other = self.mailbox.taken_over(job)
+            if other:  # it was taken over while this agent was away: not this agent's to run
+                self.queue.cancel(job["id"], f"agent {other} took this request over", owner=self.config.name)
                 return
             self.mailbox.job_changed(job)
         try:
@@ -339,6 +425,11 @@ class Agent:
             self.stopping.wait(self.config.poll_seconds)
         self.log.info("agent stopping: waiting for running jobs", extra=fields(running=list(self._running)))
         self.publish_status("stopping")
+        running = [f for f in self._running.values() if not f.done()]
+        while running:  # keep the record fresh, or a peer takes over a request still running here
+            running = list(wait(running, timeout=self.config.status_seconds).not_done)
+            if running:
+                self.publish_status("stopping")
         self._pool.shutdown(wait=True)
         self.publish_status("stopped")
         self.log.info("agent stopped")

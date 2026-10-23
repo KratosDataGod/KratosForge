@@ -1804,7 +1804,7 @@ function followHarness(statuses) {
       }
       return [];
     },
-    setKernel() {}, renderNotebook() {}, forgeEvent() {}, updateResults() {}, registerFeature() {}, previewShown: () => true,
+    setKernel() {}, renderNotebook() {}, forgeEvent() {}, profileEarned() {}, updateResults() {}, registerFeature() {}, previewShown: () => true,
     logActivity: (item) => calls.bell.push(item),
     toast: (text) => calls.toasts.push(text),
     document: { querySelector: () => null, querySelectorAll: () => [] },
@@ -3374,7 +3374,7 @@ test("Profile opens from the account menu and the command bar, and Validate pass
   assert.match(p, /confirmDialog\("Delete your profile data\?"[\s\S]*?\{ danger: true, typeToConfirm: "DELETE" \}/);
   assert.match(p, /aria-valuenow/, "the XP bar has no progressbar values");
   assert.match(p, /const RECORDING_ON = "Recording is on: [^"]*Turn it off in Profile > Settings\."/);
-  assert.match(p, /a\.id === "first-flame"\) \? ` \$\{RECORDING_ON\}`/, "the first achievement toast doesn't say recording is on");
+  assert.match(p, /a\.first\) \? ` \$\{RECORDING_ON\}`/, "the first achievement toast doesn't say recording is on");
   const s = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   assert.match(s, /previewShown\(\) \? \{ label: "Profile \(Preview\)"/);
   assert.match(s, /showMenu\(anchor, items\.filter\(Boolean\)\)/);
@@ -4768,7 +4768,7 @@ test("Achievement Reveal: a new award is announced and revealed once, a repeat n
   };
   vm.createContext(ctx);
   vm.runInContext(`${src}; this.profileEarned = profileEarned; this.profileForget = profileForget;`, ctx);
-  const first = { id: "first-flame", name: "First Flame", xp: 50 };
+  const first = { id: "first-flame", name: "First Flame", xp: 50, first: true };  // the engine marks the profile's first award
   const steady = { id: "steady-hand", name: "Steady Hand", xp: 100 };
   ctx.profileEarned([first, steady]);
   assert.deepStrictEqual(said, ["Achievement earned: First Flame (+50 XP), Steady Hand (+100 XP). See it in Profile. Recording is on."]);
@@ -4829,6 +4829,19 @@ test("SQL Forge events (KF-MO-005): a slow success sparks, a failure plays the e
   assert.match(q, /const SQL_SPARK_SECONDS = 2;/);
   const run = /async function run\(query[\s\S]*?\n  }\n/.exec(q)[0];
   assert.ok(run.lastIndexOf("runFx(status, allow)") > run.lastIndexOf("sqlPage.redraw?.()"), "the effect plays before the redraw replaces the pill");
+});
+
+test("Profile shows proofs, and Journey and Achievements only while progression is on (KF-DX-002)", () => {
+  const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
+  assert.match(p, /p\.settings\.progression \? tab\("journey", "Journey"\) : null/);
+  assert.match(p, /p\.settings\.progression \? tab\("achievements", "Achievements"\) : null/);
+  assert.match(p, /if \(!p\.settings\.progression && \["journey", "achievements"\]\.includes\(profilePage\.tab\)\) profilePage\.tab = "overview";/);
+  assert.match(p, /const proved = r\.type === "prove\.match";/);
+  const v = fs.readFileSync(path.join(ui, "prove.js"), "utf8");
+  assert.match(v, /toast\(`\$\{nb\.name\}: \$\{text\}`, r\.state === "failed"\);\n  if \(r\.state === "done"\) profileEarned\(r\.earned\);/);
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  const block = css.slice(css.indexOf("/* Profile (profile.js)"), css.indexOf("@media (max-width: 900px) { .profile-grid"));
+  assert.doesNotMatch(block.replace(/#fff\b/g, ""), /#[0-9a-f]{3,6}\b/i, "profile styles use tokens");
 });
 
 // Spark on this PC: NOT NULL inside a struct and names of rewritten SQL functions.

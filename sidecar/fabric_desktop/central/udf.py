@@ -294,6 +294,33 @@ def adopt_sources(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext
 
 
 @udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def list_landing_zones(sqlDB: fn.FabricSqlConnection) -> list:
+    return _run(sqlDB, "list_landing_zones")
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def save_landing_zone(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, zone: dict) -> list:
+    return _run(sqlDB, "save_landing_zone", ctx, zone=zone)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def delete_landing_zone(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, id: str) -> list:
+    return _run(sqlDB, "delete_landing_zone", ctx, id=id)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def switch_landing_reads(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext) -> list:
+    return _run(sqlDB, "switch_landing_reads", ctx)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
 @udf.context(argName="ctx")
 @udf.function()
 def request(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, kind: str, target: str,

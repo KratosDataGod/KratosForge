@@ -31,7 +31,9 @@ _REWRITE_DEF = f'''def {REWRITE_FUNCTION}(table):
     """Reads the table and writes it back, so every file is rewritten with V-Order."""
     path = spark.sql(f"DESCRIBE DETAIL {{table}}").first()["location"]
     (spark.read.format("delta").load(path).write.format("delta")
-     .mode("overwrite").option("dataChange", "false").save(path))'''
+     .mode("overwrite").option("dataChange", "false")
+     .option("parquet.vorder.enabled", "true")  # wins over the table's own setting
+     .save(path))'''
 
 
 # Prove and Side by side run every cell on this PC too, which can't run the step.

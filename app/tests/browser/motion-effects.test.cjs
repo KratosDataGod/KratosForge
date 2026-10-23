@@ -42,7 +42,8 @@ test("Settings > Appearance > Motion & effects: Refined by default, each level k
   await page.getByRole("radio", { name: /^1 Minimal/ }).check();
   await page.waitForFunction(() => document.documentElement.dataset.motionLevel === "1");
   // Below Refined the family switches have nothing to switch, so they're greyed out.
-  assert.strictEqual(await page.getByRole("checkbox", { name: "Forge sparks" }).isDisabled(), true);
+  // The level applies before Settings draws again, so wait for the redraw rather than read it at once.
+  await page.waitForFunction(() => document.querySelector('input[aria-label="Forge sparks"]')?.disabled === true);
   await page.getByRole("radio", { name: /^2 Refined/ }).check();
   await page.waitForFunction(() => document.documentElement.dataset.motionLevel === "2");
   await page.getByRole("checkbox", { name: "Forge sparks" }).uncheck();
@@ -108,7 +109,9 @@ test("Changing page slides the new page in only at Minimal and above, and never 
   const animated = () => page.evaluate(() => document.getElementById("view").getAnimations().length);
   await page.evaluate(() => go("home"));
   assert.strictEqual(await animated(), 1, "no transition on a page change");
-  await page.waitForTimeout(250);
+  // Let the transition end before the redraw, however slow the machine: finish it rather than wait a fixed time.
+  await page.evaluate(() => document.getElementById("view").getAnimations().forEach((a) => a.finish()));
+  await page.waitForFunction(() => document.getElementById("view").getAnimations().length === 0);
   await page.evaluate(() => render());
   assert.strictEqual(await animated(), 0, "a redraw of the same page animated");
   await page.evaluate(() => saveSettings({ motion_level: 0 }));

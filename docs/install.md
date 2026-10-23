@@ -88,7 +88,7 @@ These prove where a file came from; they don't replace code signing, which is st
 | The folder you put `kratosforge.exe` in | The app. The update replaces this file in place. A copy saved as `fabric-desktop.exe` (its name before KratosForge) renames itself to `kratosforge.exe` after its next update, and its shortcuts follow ([Legacy names](kratosforge.md#the-program-file)). |
 | `%LOCALAPPDATA%\FabricDesktop\engine` | The local engine: Python and its packages. |
 | `%LOCALAPPDATA%\FabricDesktop\notebooks` | Your notebooks, as `.ipynb` files. Back them up with the rest of this folder ([Back up and restore](backup.md)) or keep them in Git. |
-| `%LOCALAPPDATA%\FabricDesktop\msal_cache.bin` | Your sign-in token cache. Delete it to force a fresh sign-in. |
+| `%LOCALAPPDATA%\FabricDesktop\msal_cache.bin` | Your sign-in token cache, encrypted for your Windows account. Delete it to force a fresh sign-in. |
 | `%LOCALAPPDATA%\FabricDesktop\fabric-view-signin.bin` | The saved sign-in of the embedded Fabric pages, encrypted for your Windows account. |
 | `%LOCALAPPDATA%\FabricDesktop\app-settings.json` | What you chose in Settings. |
 | `%LOCALAPPDATA%\FabricDesktop\sidecar.log` | The engine's log. Attach it to a problem report if asked. |

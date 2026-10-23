@@ -243,7 +243,7 @@ on quality.
 | [FEAT-SHL-09](#feat-shl-09) | Self-update, channels and engine install | Implemented | Partially Verified | Startup check, Settings > Updates | Code signing (PB-001) and per-build release assets for real rollback (PB-064). |
 | [FEAT-AUTH-01](#feat-auth-01) | Sign-in with no app registration | Implemented | Partially Verified | Sign-in callout, account menu | Include in the tenant smoke test (PB-002). |
 | [FEAT-AUTH-02](#feat-auth-02) | Own app registration and tenant allow-list | Implemented | Partially Verified | Settings > Account | Keep. |
-| [FEAT-AUTH-03](#feat-auth-03) | Token cache | Partially Implemented | Partially Verified | None (background) | Encrypt with DPAPI via msal-extensions once Chris decides D-C2 (PB-005). |
+| [FEAT-AUTH-03](#feat-auth-03) | Token cache | Partially Implemented | Partially Verified | None (background) | Check the encrypted cache on Windows (HD-013). |
 | [FEAT-AUTH-04](#feat-auth-04) | Unattended credentials for the agent | Implemented | Partially Verified | agent.toml (no UI) | Verify a service principal on a tenant with the live test's --agent-config (PB-002). |
 | [FEAT-PRV-03](#feat-prv-03) | Run receipts | Implemented | Partially Verified | Prove > Receipt (Preview) | Feed receipts into the audit trail (FD-125, PR #89). |
 | [FEAT-GOV-04](#feat-gov-04) | Who can promote and separation of duties | Implemented | Partially Verified | Promote card | Keep; compare signed-in identities rather than PC login names. |
@@ -485,12 +485,12 @@ on quality.
 - **Where people reach it:** None (background)
 - **Evidence:** test: sidecar/tests/test_local.py::test_token_cache_survives_damage_and_is_swapped_in_whole (sidecar suite passed in this assessment (656 passed, 2 skipped))
 - **Source:** `sidecar/fabric_desktop/auth.py`
-- **Tests:** `sidecar/tests/test_local.py`
+- **Tests:** `sidecar/tests/test_local.py`, `sidecar/tests/test_token_cache_dpapi.py`
 - **Docs:** [docs/security.md](../security.md)
-- **Known limitations:** Plain file on Windows (not encrypted). No lock between the app and scheduled runs (inference).
+- **Known limitations:** Encrypted with DPAPI on Windows (HD-013), which code running as the same person can still decrypt; not yet checked on Windows. No lock between the app and scheduled runs (inference).
 - **Owning workstream:** Enterprise readiness (FD-131b)
 - **Backlog:** [PB-005](PRODUCT_BACKLOG.md#pb-005)
-- **Recommended next action:** Encrypt with DPAPI via msal-extensions once Chris decides D-C2 (PB-005).
+- **Recommended next action:** Check the encrypted cache on Windows: update from a build with a plain cache and stay signed in (HD-013).
 
 ### FEAT-AUTH-04
 

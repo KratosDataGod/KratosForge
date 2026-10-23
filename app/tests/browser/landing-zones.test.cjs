@@ -32,7 +32,7 @@ before(async () => {
     platform_domains: () => [{ id: "hr", name: "HR" }],
     platform_landing_setup: () => { central = true; return { ready: true, steps: [{ step: "Landing workspace", status: "done", detail: "Created Platform - Landing" }] }; },
     platform_create_landing_zone: () => ({ created: true, lakehouse: "LH_Landing_Finance_Secure", zones }),
-    platform_save_source: () => [] } });
+    platform_save_source: () => [], platform_switch_landing_reads: () => { zones[0].switched_at = "2026-10-23T10:00:00Z"; return zones; } } });
 });
 after(async () => { if (app) await app.close(); });
 
@@ -115,4 +115,17 @@ test("New landing zone asks for the board's fields, defaults to Prod only, and c
   const [call] = calls("platform_create_landing_zone");
   assert.deepStrictEqual({ ...call.params.zone, readers: undefined }, { name: "Finance-Secure", domain_id: "", readers: undefined,
     secure: true, label: "", devtest: "none" });
+});
+
+test("Shared isn't read until an admin switches reads, behind a danger confirm", { skip }, async () => {
+  await open();
+  await page().waitForSelector("text=The Shared zone isn't read yet.");
+  await page().click('button:text-is("Switch reads to the landing workspace")');
+  await page().waitForSelector("text=Switch reads to the landing workspace?");
+  assert.match(await page().textContent("[role=dialog]"), /Every environment then reads the Shared zone in Platform - Landing\. Copy the files runs still need there first: Prod's LH_Landing isn't copied for you\./);
+  assert.ok(await page().$("[role=dialog] .danger-solid"));
+  assert.strictEqual(calls("platform_switch_landing_reads").length, 0);
+  await page().click('[role=dialog] button:text-is("Switch reads")');
+  await page().waitForFunction(() => !document.body.textContent.includes("The Shared zone isn't read yet."));
+  assert.strictEqual(calls("platform_switch_landing_reads").length, 1);
 });

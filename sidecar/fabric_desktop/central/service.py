@@ -553,6 +553,11 @@ class PlatformMixin:
             "lakehouse_id": lh["id"], "lakehouse_name": lakehouse})
         return {"created": created, "lakehouse": lakehouse, "zones": zones}
 
+    def platform_switch_landing_reads(self) -> list[dict[str, Any]]:
+        """Every environment reads Shared sources from the landing workspace from now on, instead of
+        its own LH_Landing. Nothing is copied: the files runs need must be there first."""
+        return self._catalog().call("switch_landing_reads")
+
     def platform_delete_landing_zone(self, id: str) -> list[dict[str, Any]]:
         """Take a zone out of the catalog; its lakehouse and files stay in Fabric."""
         return self._catalog().call("delete_landing_zone", id=id)

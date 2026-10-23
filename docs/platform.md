@@ -130,17 +130,22 @@ Raw source data isn't per environment, so the landing zone can be one workspace 
 
 Each source is in one zone (the **Zone** column on **Platform > Landing zone**, and **Zone** in a source's Edit dialog); a source with no zone is in Shared. Zones are recorded in the catalog (`catalog.landing_zone`, and `catalog.source.zone`), and only platform admins add, change or remove one; each change is on the Audit tab.
 
-**Entities don't change.** They keep `landing = "<source>/<entity>/*.csv"`: the platform knows which zone each source is in, so a run reads that zone's lakehouse in the landing workspace, the same one in every environment. Dev on a PC still reads the local landing folder for every zone.
+**Entities don't change.** They keep `landing = "<source>/<entity>/*.csv"`: the platform knows which zone each source is in, so a run reads that zone's lakehouse in the landing workspace, the same one in every environment. Sources in a new zone (HR, HR-Secure and so on) are read there from the start. Shared sources keep reading each environment's own `LH_Landing` until reads are switched (below). Dev on a PC still reads the local landing folder for every zone.
 
 **Dev and Test read a zone only if you say so.** **New landing zone** asks *Dev and Test*: **Don't read it (Prod only)**, the default, or **Read it like Prod**. Shared is read by all three. A Dev or Test run of an entity whose source is in a Prod-only zone stops before reading anything, with *"payroll is in the secure zone HR-Secure, which Dev and Test don't read"*. Build and test such entities with made-up files in Dev's own folder (`files = ...`), or in a zone Dev reads.
 
 **Secure zones.** Tick **Secure** for PII, PHI or other sensitive data, and give its readers and sensitivity label. The app records both, but in this release it doesn't make the OneLake data access role or apply the label: set them in Fabric once the zone's lakehouse is created. On `LH_Landing_<Name>`, add a OneLake data access role that grants Read to the readers you named only, make sure workspace Viewers get nothing on it (they would through the default role), and apply the sensitivity label. The zone's card on the Landing zone tab says what to set until this is automated. Shared can't be secure.
 
-**Moving to it.** Without a landing workspace, the Landing zone tab works as before (each environment's own `LH_Landing`) and offers **Move to one landing workspace** to platform admins. It asks for the workspace name and capacity, confirms, then creates the workspace and its `LH_Landing` (or uses the ones with those names), and records the Shared zone in the catalog. In this release that's all it does:
+**Moving to it** takes two steps, so a move can never break a Prod run:
 
-- **Files aren't copied.** Files already in each environment's `LH_Landing` stay where they are. From the move on, every environment reads the landing workspace, so land new files there (point the central team's pipelines at it) or copy what runs still need before the next run.
+1. **Move to one landing workspace.** Without a landing workspace, the Landing zone tab works as before (each environment's own `LH_Landing`) and offers this to platform admins. It asks for the workspace name and capacity, confirms, then creates the workspace and its `LH_Landing` (or uses the ones with those names), and records the Shared zone in the catalog. **Runs don't change yet:** Shared sources keep reading each environment's own `LH_Landing`, exactly as before, and the tab says the Shared zone isn't read yet. New zones you add are read from the landing workspace at once.
+2. **Switch reads to the landing workspace.** Once the files runs need are in the landing workspace's `LH_Landing`, a platform admin presses this on the Landing zone tab and confirms: every environment then reads Shared sources from the landing workspace. The switch is recorded on the Shared zone in the catalog (`switched_at`, `switched_by`) and on the Audit tab.
+
+In this release:
+
+- **Files aren't copied.** Files in each environment's `LH_Landing` stay where they are. Copy what runs still need (Prod's especially), and point the central team's pipelines at the landing workspace, before you switch reads.
 - **Nothing is deleted.** The old `LH_Landing` lakehouses stay until you remove them.
-- Until the Shared zone is in the catalog, runs read each environment's `LH_Landing` as before. In Fabric, if the catalog's `UDF_Platform` is older than landing zones, choose **Finish or repair** for Prod in **Platform > Settings** first, so it has the new functions.
+- In Fabric, if the catalog's `UDF_Platform` is older than landing zones, choose **Finish or repair** for Prod in **Platform > Settings** first, so it has the new functions; until the Shared zone is in the catalog, nothing changes.
 
 Other PCs pick up the landing workspace the first time they open **Platform > Landing zone**; an organization that sets the platform in `policy.json` adds it there as `platform.landing` (`workspace_id`, `workspace_name`, `lakehouse_id`). **New landing zone** creates its lakehouse in the landing workspace and needs the workspace set up first. Creating the workspace and lakehouses uses the Fabric permissions sign-in already asks for (`Workspace.ReadWrite.All`, `Item.ReadWrite.All`), and reading and writing the zones in OneLake uses capacity.
 

@@ -316,6 +316,13 @@ def delete_landing_zone(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionC
 @udf.connection(argName="sqlDB", alias="platform")
 @udf.context(argName="ctx")
 @udf.function()
+def switch_landing_reads(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext) -> list:
+    return _run(sqlDB, "switch_landing_reads", ctx)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
 def request(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, kind: str, target: str,
             project: str = "", reason: str = "", detail: dict = None) -> dict:
     return _run(sqlDB, "request", ctx, kind=kind, target=target, project=project, reason=reason, detail=detail or {})

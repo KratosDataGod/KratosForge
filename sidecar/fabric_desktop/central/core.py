@@ -170,7 +170,8 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
                  ("last_seen", "text")],
     "landing_zone": [("id", "key"), ("name", "text"), ("domain_id", "text"), ("workspace_id", "text"),
                      ("workspace_name", "text"), ("lakehouse_id", "text"), ("lakehouse_name", "text"), ("secure", "text"),
-                     ("readers", "long"), ("label", "text"), ("devtest", "text"), ("updated_at", "text"), ("updated_by", "text")],
+                     ("readers", "long"), ("label", "text"), ("devtest", "text"), ("updated_at", "text"), ("updated_by", "text"),
+                     ("switched_at", "text"), ("switched_by", "text")],
     "shortcut_scope": [("lakehouse_id", "key"), ("first_scan", "text"), ("last_scan", "text")],
     "shortcut_change": [("id", "key"), ("at", "text"), ("kind", "text"), ("shortcut_id", "text"),
                         ("workspace_name", "text"), ("lakehouse_name", "text"), ("name", "text"),
@@ -1097,6 +1098,9 @@ def delete_source(db: Db, name: str, by: str = "") -> list[dict[str, Any]]:
 # (LH_Landing_HR_Secure) that only its readers may read. A zone's devtest says whether Dev and Test
 # read it ("read") or only Prod does ("none", the default for a new zone). The app creates each
 # lakehouse in Fabric (central/setup.py); this records it. Access roles and labels are set in Fabric.
+# Shared sources keep reading each environment's own LH_Landing until a platform admin switches reads
+# to the landing workspace (switch_landing_reads: switched_at on the Shared zone), so the move never
+# breaks a Prod run before its files are there. Every other zone is new, so it's read from the start.
 SHARED_ZONE = "shared"
 DEVTEST = ("none", "read")
 
@@ -1130,6 +1134,12 @@ def ensure_landing_zones(db: Db) -> list[str]:
         db.run(f"CREATE TABLE {db.t('catalog', 'landing_zone')} "
                f"({', '.join(_column(db, n, k) for n, k in _CATALOG['landing_zone'])})")
         added.append("catalog.landing_zone")
+    else:
+        have = _columns(db, "landing_zone")
+        for col in ("switched_at", "switched_by"):
+            if col not in have:
+                db.run(f"ALTER TABLE {db.t('catalog', 'landing_zone')} ADD {'' if db.tsql else 'COLUMN '}{_column(db, col, 'text')}")
+                added.append(f"catalog.landing_zone.{col}")
     if db.exists("catalog", "source") and "zone" not in _columns(db, "source"):
         db.run(f"ALTER TABLE {db.t('catalog', 'source')} ADD {'' if db.tsql else 'COLUMN '}{_column(db, 'zone', 'text')}")
         added.append("catalog.source.zone")
@@ -1144,6 +1154,9 @@ def _zone_out(row: dict[str, Any], sources: list[dict[str, Any]]) -> dict[str, A
     zone["readers"] = json.loads(zone.get("readers") or "[]")
     zone["devtest"] = zone.get("devtest") or ("read" if zone["id"] == SHARED_ZONE else "none")
     zone["sources"] = sorted(s["name"] for s in sources if (s.get("zone") or SHARED_ZONE) == zone["id"])
+    # Read from the landing workspace: every zone but Shared at once, Shared once reads are switched.
+    zone["switched_at"], zone["switched_by"] = zone.get("switched_at") or "", zone.get("switched_by") or ""
+    zone["read"] = zone["id"] != SHARED_ZONE or bool(zone["switched_at"])
     return zone
 
 
@@ -1195,6 +1208,22 @@ def save_landing_zone(db: Db, zone: dict[str, Any], by: str = "") -> list[dict[s
     _upsert(db, "catalog", "landing_zone", "id", row)
     _audit(db, by, "save landing zone", zid, {k: v for k, v in row.items() if k not in ("updated_at", "updated_by")})
     db.commit()
+    return list_landing_zones(db)
+
+
+def switch_landing_reads(db: Db, by: str = "") -> list[dict[str, Any]]:
+    """From now on every environment reads Shared sources from the landing workspace's LH_Landing
+    instead of its own. Done once, after the files runs need are there. Platform admins only."""
+    require_admin(db, by, "switch reads to the landing workspace")
+    ensure_landing_zones(db)
+    shared = _row(db, "landing_zone", "id", SHARED_ZONE)
+    if not shared or not shared.get("lakehouse_id"):
+        raise PlatformError("Set up the landing workspace first: it has no Shared zone yet")
+    if not shared.get("switched_at"):
+        db.run(f"UPDATE {db.t('catalog', 'landing_zone')} SET switched_at = ?, switched_by = ? WHERE id = ?",
+               (_now(), by, SHARED_ZONE))
+        _audit(db, by, "switch landing reads", SHARED_ZONE, {"lakehouse_id": shared["lakehouse_id"]})
+        db.commit()
     return list_landing_zones(db)
 
 
@@ -1570,7 +1599,7 @@ OPERATIONS = {
     "remove_admin": remove_admin, "list_key_tables": list_key_tables, "list_sources": list_sources,
     "save_source": save_source, "delete_source": delete_source, "adopt_sources": adopt_sources, "request": request, "list_requests": list_requests,
     "list_landing_zones": list_landing_zones, "save_landing_zone": save_landing_zone,
-    "delete_landing_zone": delete_landing_zone,
+    "delete_landing_zone": delete_landing_zone, "switch_landing_reads": switch_landing_reads,
     "decide_request": decide_request, "withdraw_request": withdraw_request, "list_grants": list_grants,
     "revoke_grant": revoke_grant, "record_shortcuts": record_shortcuts, "log_shortcut_change": log_shortcut_change,
     "record_shortcut_health": record_shortcut_health, "list_seen_shortcuts": list_seen_shortcuts,

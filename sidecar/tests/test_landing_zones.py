@@ -8,8 +8,10 @@ import pytest
 from fabric_desktop.central import core
 from fabric_desktop.central import setup as setup_mod
 from fabric_desktop.central.client import LocalPlatform
+from fabric_desktop.fabric_compute import bundle_files, run_bundle
 from fabric_desktop.meta.engine import CheckStop, Engine
 from fabric_desktop.meta.store import LANDING_LAKEHOUSE, LocalStore, OneLakeStore
+from fabric_desktop.meta.templates import init_project
 from fabric_desktop.service import Service
 
 from test_meta import write
@@ -201,16 +203,29 @@ def _onelake(env, tmp_path, zones=ZONES):
     return store
 
 
+def _switched(zones=ZONES):
+    shared = zones["zones"]["shared"] | {"switched_at": "2026-10-23T10:00:00+00:00"}
+    return {"zones": zones["zones"] | {"shared": shared}, "sources": zones["sources"]}
+
+
 @pytest.mark.parametrize("env", ["dev", "test", "prod"])
-def test_every_environment_reads_a_sources_zone_in_the_central_workspace(env, tmp_path):
+def test_a_new_zone_is_read_in_the_central_workspace_with_no_switch(env, tmp_path):
     store = _onelake(env, tmp_path)
     engine = Engine(None, store)
     assert engine.landing_lakehouse("workday/workers/*.csv") == "LH_Landing_HR"
     assert (store.workspace_of("LH_Landing_HR"), store.lakehouse_ids["LH_Landing_HR"]) == ("ws-landing", "lh-hr")
-    # Shared (and a source the catalog doesn't know) is the central LH_Landing, not the environment's own.
-    assert engine.landing_lakehouse("SAP/orders/*.csv") == LANDING_LAKEHOUSE
-    assert (store.workspace_of("LH_Landing"), store.lakehouse_ids["LH_Landing"]) == ("ws-landing", "lh-shared")
-    assert engine.landing_lakehouse("unknown/x/*.csv") == LANDING_LAKEHOUSE
+
+
+@pytest.mark.parametrize("env", ["dev", "test", "prod"])
+def test_shared_sources_read_their_own_lh_landing_until_reads_are_switched(env, tmp_path):
+    before = _onelake(env, tmp_path)
+    # Not switched: Shared (and a source the catalog doesn't know) is the environment's own LH_Landing.
+    for pattern in ("SAP/orders/*.csv", "unknown/x/*.csv"):
+        assert Engine(None, before).landing_lakehouse(pattern) == LANDING_LAKEHOUSE
+        assert (before.workspace_of("LH_Landing"), before.lakehouse_ids["LH_Landing"]) == (f"ws-{env}-platform", f"lh-{env}-landing")
+    after = _onelake(env, tmp_path, _switched())
+    assert Engine(None, after).landing_lakehouse("SAP/orders/*.csv") == LANDING_LAKEHOUSE
+    assert (after.workspace_of("LH_Landing"), after.lakehouse_ids["LH_Landing"]) == ("ws-landing", "lh-shared")
 
 
 def test_dev_and_test_stop_at_a_zone_they_dont_read(tmp_path):
@@ -231,6 +246,51 @@ def test_without_zones_each_environment_reads_its_own_lh_landing(tmp_path):
         store = _onelake("test", tmp_path, zones)
         assert Engine(None, store).landing_lakehouse("payroll/runs/*.csv") == LANDING_LAKEHOUSE
         assert (store.workspace_of("LH_Landing"), store.lakehouse_ids["LH_Landing"]) == ("ws-test-platform", "lh-test-landing")
+
+
+def test_switching_reads_is_admin_only_audited_and_kept(platform):
+    with pytest.raises(core.PlatformError, match="Set up the landing workspace first"):
+        platform.call("switch_landing_reads")
+    platform.call("save_landing_zone", zone={"name": "Shared", "workspace_id": "ws-landing", "lakehouse_id": "lh-shared"})
+    [shared] = platform.call("list_landing_zones")
+    assert shared["switched_at"] == "" and not shared["read"]
+    with pytest.raises(core.PlatformError, match="Only platform admins"):
+        _as(platform, "lee@example.com").call("switch_landing_reads")
+    [shared] = platform.call("switch_landing_reads")
+    assert shared["switched_at"] and shared["switched_by"] == ADMIN and shared["read"]
+    assert ("switch landing reads", "shared") in _audit(platform)
+    # Saving the zone again (setup run twice) keeps the switch.
+    [again] = platform.call("save_landing_zone", zone={"name": "Shared"})
+    assert again["switched_at"] == shared["switched_at"]
+
+
+def test_a_landing_zone_table_made_before_the_switch_gains_its_columns(tmp_path):
+    path = tmp_path / "old.sqlite"
+    LocalPlatform(path, lambda: ADMIN).call("save_landing_zone", zone={"name": "Shared"})
+    conn = sqlite3.connect(path)
+    conn.execute("ALTER TABLE catalog__landing_zone DROP COLUMN switched_at")
+    conn.execute("ALTER TABLE catalog__landing_zone DROP COLUMN switched_by")
+    conn.commit()
+    db = core.Db(conn, "sqlite")
+    assert not core.list_landing_zones(db)[0]["read"]
+    assert core.ensure_landing_zones(db) == ["catalog.landing_zone.switched_at", "catalog.landing_zone.switched_by"]
+    assert core.ensure_landing_zones(db) == []
+
+
+def test_a_run_sent_to_fabric_uses_the_zone_map_it_was_sent_with(tmp_path):
+    proj = tmp_path / "proj"
+    init_project(proj, "3", "Chris", False)
+    write(proj, "metadata/entities/bronze.payroll.toml", ENTITY.format(name="payroll", source="payroll"))
+    landing = _switched()
+    bundle = tmp_path / "bundle"
+    for rel, data in bundle_files(proj, {"env": "dev", "landing": landing}).items():
+        (bundle / rel).parent.mkdir(parents=True, exist_ok=True)
+        (bundle / rel).write_bytes(data)
+    store = LocalStore(tmp_path / "dev", "dev")
+    out = run_bundle(bundle, entities="bronze.payroll", stores=(store, store), results_dir=tmp_path / "r")
+    [res] = out["results"]
+    assert "payroll is in the secure zone HR-Secure, which Dev and Test don't read" in res["message"]
+    assert store.landing_map() == landing
 
 
 def test_a_catalog_that_cant_be_read_stops_the_landing_read(tmp_path):
@@ -273,6 +333,9 @@ def test_runs_use_the_zones_once_the_landing_workspace_is_set_up(svc):
     svc.platform_save_source({"name": "payroll", "zone": "hr_secure"})
     store = svc._store(svc._project(), "dev")
     assert store.landing_zone("payroll")["id"] == "hr_secure"
+    assert store.landing_zone("workday") is None  # Shared: this environment's own, until reads are switched
+    svc.platform_switch_landing_reads()
+    assert svc._store(svc._project(), "dev").landing_zone("workday")["id"] == "shared"
     by = {r["entity"]: r for r in svc.meta_run(["bronze.workday", "bronze.payroll"])}
     assert by["bronze.workday"]["status"] == "ok"  # Shared, read from the same local folder
     assert by["bronze.payroll"]["status"] != "ok"

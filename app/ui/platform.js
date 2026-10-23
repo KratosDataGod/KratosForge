@@ -167,6 +167,7 @@ async function platformLandingTab(body) {
       h("p", { class: "muted-text small" }, "One landing workspace, ", h("b", {}, l.where), ", read by Dev, Test and Prod. Raw source data isn't per environment, so there's no environment switch here. ",
         "Each zone is its own lakehouse; only the central team writes to a landing zone. This is the one list of source systems for every project."),
       l.problem ? h("p", { class: "fail-text small" }, l.problem) : null,
+      switchReadsLine(l, rerender),
       h("div", { class: "zone-cards" }, l.zones.map((z) => zoneCard(z, l, rerender))),
       l.sources.length ? h("table", { class: "list" },
         h("thead", {}, h("tr", {}, ["Source", "Zone", "Lands in", "Expected", "Last arrival", "Read by"].map((x) => h("th", {}, x)))),
@@ -205,12 +206,27 @@ async function platformLandingTab(body) {
     howItWorks("platform.landing", {
       reads: "The source systems and landing zones in the platform's catalog, and the files in each zone's lakehouse in the landing workspace, or, before that's set up, in this environment's LH_Landing (or this PC's landing folder). It reads when the tab opens; listing files in OneLake uses capacity.",
       changes: "Add source, Edit and Remove change a source system in the catalog, and Edit sets its zone; its files stay. " +
-        "Set up the landing workspace (Move to one landing workspace) creates the workspace and its LH_Landing in Fabric, unless they're there, and records the Shared zone in the catalog. Files in each environment's LH_Landing aren't copied, and nothing is deleted. " +
+        "Set up the landing workspace (Move to one landing workspace) creates the workspace and its LH_Landing in Fabric, unless they're there, and records the Shared zone in the catalog. Files in each environment's LH_Landing aren't copied, and nothing is deleted. Switch reads to the landing workspace records in the catalog that every environment now reads Shared sources from it; until then they read their own LH_Landing. " +
         "New landing zone creates LH_Landing_<Name> in that workspace and records the zone; a secure zone's OneLake data access role and sensitivity label aren't made here: set them in Fabric. " +
         "Remove zone takes a zone with no sources out of the catalog; its lakehouse stays. Request a source adds a request. Only platform admins make these changes.",
-      results: "Entities keep their landing paths. Once there's one landing workspace, Dev, Test and Prod read each source from its zone's lakehouse there, and a zone Dev and Test don't read stops their runs with a reason. Dev on this PC reads the local landing folder for every zone. Each change is kept on the Audit tab.",
+      results: "Entities keep their landing paths. With one landing workspace, Dev, Test and Prod read each source in a new zone from that zone's lakehouse there, and Shared sources too once reads are switched; and a zone Dev and Test don't read stops their runs with a reason. Dev on this PC reads the local landing folder for every zone. Each change is kept on the Audit tab.",
       anchor: "platform",
     })));
+}
+
+// Until an admin switches reads, Shared sources are read from each environment's own LH_Landing, so
+// the move can't break a Prod run before its files are copied. Other zones are new and read at once.
+function switchReadsLine(l, rerender) {
+  const shared = l.zones.find((z) => z.id === "shared");
+  if (!shared || shared.switched_at) return null;
+  return h("div", { class: "callout git-warn small" },
+    h("span", { class: "grow" }, h("b", {}, "The Shared zone isn't read yet. "),
+      "Dev, Test and Prod still read Shared sources from their own LH_Landing, so runs keep working while files are copied to ", l.where,
+      ". Other zones are read from the landing workspace already."),
+    adminOnly(btn("Switch reads to the landing workspace", null, async () => {
+      if (!(await confirmDialog("Switch reads to the landing workspace?", `Every environment then reads the Shared zone in ${l.where}. Copy the files runs still need there first: Prod's LH_Landing isn't copied for you.`, "Switch reads", { danger: true }))) return;
+      if (await platformCall("platform_switch_landing_reads", {}, "Reads not switched")) { toast(`Every environment now reads the Shared zone in ${l.where}`, false, { log: true }); rerender(); }
+    }, "tool outline small")));
 }
 
 function zoneDevTest(z) {
@@ -294,9 +310,9 @@ async function landingSetupDialog(l, done) {
   const name = h("input", { value: l.landing?.workspace_name || l.default_landing_name });
   const capacity = h("select", {}, h("option", { value: "" }, "Loading capacities..."));
   showDialog("Move to one landing workspace", h("div", {},
-    h("p", { class: "text" }, "Today each environment has its own LH_Landing. This creates the workspace below with one Shared zone, LH_Landing, and records it in the catalog. From then on Dev, Test and Prod read every source from it."),
+    h("p", { class: "text" }, "Today each environment has its own LH_Landing. This creates the workspace below with one Shared zone, LH_Landing, and records it in the catalog. Shared sources keep reading each environment's own LH_Landing until you choose Switch reads to the landing workspace, so runs keep working while you copy files over."),
     h("label", { class: "field" }, "Workspace", name), h("label", { class: "field" }, "Capacity", capacity),
-    h("div", { class: "callout git-warn small" }, h("span", {}, "Files already in each environment's LH_Landing aren't copied yet: they stay where they are. Land new files in the new workspace, or copy what runs still need, before the next run. Nothing is deleted: the old LH_Landing lakehouses stay until you remove them.")),
+    h("div", { class: "callout git-warn small" }, h("span", {}, "Files already in each environment's LH_Landing aren't copied yet: they stay where they are. Copy what runs still need into the new workspace before you switch reads. Nothing is deleted: the old LH_Landing lakehouses stay until you remove them.")),
     h("p", { class: "muted-text small" }, "Entities keep the same landing paths. Reading and writing OneLake uses capacity.")), [
     btn("Cancel", null, closeDialog, "tool outline"),
     btn("Move", null, async () => {
@@ -310,7 +326,7 @@ async function landingSetupDialog(l, done) {
       steps.replaceChildren(h("ul", { class: "steps-list" }, res.steps.map((st) => h("li", {},
         icon(st.status === "done" ? "ok" : "error", 14), h("b", {}, ` ${st.step}: `), st.detail))),
       h("p", { class: res.ready ? "muted-text" : "fail-text" }, res.ready
-        ? "Done. Dev, Test and Prod now read the landing workspace. Each environment's LH_Landing and its files are still there."
+        ? "Done. Shared sources still read each environment's LH_Landing until you switch reads; new zones are read from the landing workspace."
         : "Some steps didn't finish, so runs still read each environment's LH_Landing. Fix what they say, then move again."));
       if (res.ready) toast("One landing workspace is set up", false, { log: true });
     }, "tool primary")]);

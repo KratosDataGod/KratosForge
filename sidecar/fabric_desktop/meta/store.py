@@ -153,7 +153,11 @@ class Store:
         if not found or not found.get("zones"):
             return None
         zones = found["zones"]
-        return zones.get(found.get("sources", {}).get(source.lower()) or SHARED_ZONE) or zones.get(SHARED_ZONE)
+        zone = zones.get(found.get("sources", {}).get(source.lower()) or SHARED_ZONE) or zones.get(SHARED_ZONE)
+        # Shared sources read this environment's own LH_Landing until reads are switched (core.switch_landing_reads).
+        if zone and zone.get("id", SHARED_ZONE) == SHARED_ZONE and not zone.get("switched_at"):
+            return None
+        return zone
 
     def landing_lakehouse(self, zone: dict[str, Any]) -> str:
         """The lakehouse name a zone is read as, in this store."""

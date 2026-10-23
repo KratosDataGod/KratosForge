@@ -348,8 +348,13 @@ class CloudMixin:
                 try:
                     uri = TableRef(run["workspace_id"], run["lakehouse_id"], schema or "dbo", name, flat=flat).uri
                     h = maintenance.health(uri, storage_options(token))
-                    out["tables"].append({"table": table, "v_ordered": h.get("v_ordered", False) if h["exists"] else None,
-                                          "files": h.get("files"), "last_optimize": h.get("last_optimize")})
+                    entry = {"table": table, "v_ordered": None, "files": h.get("files"), "last_optimize": h.get("last_optimize")}
+                    if h["exists"]:
+                        # The files' footers say whether they're V-Ordered; the Delta log only hints.
+                        f = maintenance.vorder_files(uri, storage_options(token))
+                        entry |= {"v_ordered": f["files"] > 0 and f["v_ordered"] == f["checked"],
+                                  "files": f["files"], "checked": f["checked"], "v_ordered_files": f["v_ordered"]}
+                    out["tables"].append(entry)
                 except Exception as exc:  # one table not readable doesn't hide the others
                     out["tables"].append({"table": table, "v_ordered": None, "message": describe(exc)})
         return out

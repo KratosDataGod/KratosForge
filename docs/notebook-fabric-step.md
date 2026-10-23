@@ -33,20 +33,22 @@ You can write any Spark code in the cell instead. V-Order is turned on for the s
 2. A confirm shows the workspace, lakehouse, the tables it V-Orders, and what it writes. **Stop here** sends nothing.
 3. The cell is published as a one-cell Spark notebook, **<notebook name> (Fabric step)**, in the lakehouse's workspace, with the same lakehouse attached, and started as a Fabric job.
 4. The cell shows Queued, then Running, with a link to the run in Fabric and **Cancel**. The run is in **Monitor > Runs** too.
-5. When it ends, the cell shows what it printed, or its error, and each table it OPTIMIZEd: **V-Ordered** when the Delta log shows a Fabric OPTIMIZE since the last write.
+5. When it ends, the cell shows what it printed, or its error, and each table it OPTIMIZEd: **V-Ordered** when every file's Parquet footer carries Fabric's V-Order mark. The app reads the footers of the newest 200 files. For a table with more files than that, it says how many it checked.
 
 Scheduled runs on this PC, local pipeline runs, `%run` and `notebookutils.notebook.run` skip the marked cell; a schedule says so in its run. None of them starts a Fabric job. **Prove** and **Side by side** refuse a notebook with the mark, since their run on this PC can't run it: clear the mark to compare the notebook.
 
 ## If a table isn't V-Ordered
 
-`OPTIMIZE` rewrites only the files in its compaction scope, so files that are already large can be left as they are ([Table compaction](https://learn.microsoft.com/en-us/fabric/data-engineering/table-compaction)). Then the table shows **not V-Ordered** and **Rewrite all files**, which rewrites the cell so every file is in scope (`spark.databricks.delta.optimize.minFileSize` set to 1 TiB). Run the cell again. That rewrites the whole table, which takes longer and uses more capacity.
+`OPTIMIZE` rewrites only the files it compacts ([Table compaction](https://learn.microsoft.com/en-us/fabric/data-engineering/table-compaction)). A file it has nothing to compact with stays as it is: the only file of a small table written in one go, or files that are already large. Raising `spark.databricks.delta.optimize.minFileSize` doesn't change that for a table of one file (tested on Fabric, October 2026).
+
+Then the table shows **not V-Ordered** and a **Rewrite all files** button. The button changes the cell so it reads each table and writes it back, which is an overwrite with no data change (`dataChange` false), V-Ordered like everything the step writes. Run the cell again. That rewrites the whole table, so it takes longer and uses more capacity, and it adds a Delta version whose old files stay until VACUUM.
 
 ## How this works
 
 | | |
 | --- | --- |
-| What it reads | The marked cell's code and the attached lakehouse's table list; after the run, the job's status, the output file and each OPTIMIZEd table's Delta log. |
-| What it changes | In the workspace: creates or replaces the **<name> (Fabric step)** notebook item. In each OPTIMIZEd table: a new Delta version with rewritten files; old files stay until VACUUM. Anything else the cell's own code writes. |
+| What it reads | The marked cell's code and the attached lakehouse's table list; after the run, the job's status, the output file, and each OPTIMIZEd table's Delta log and Parquet footers. |
+| What it changes | In the workspace: creates or replaces the **<name> (Fabric step)** notebook item. In each OPTIMIZEd or rewritten table: a new Delta version with rewritten files; old files stay until VACUUM. Anything else the cell's own code writes. |
 | Where results go | `Files/_fabric_desktop/results/<run>.json` in the attached lakehouse (what the cell printed, read back into the cell), and one line in this PC's Fabric runs log, shown in Monitor > Runs. |
 
 The **<name> (Fabric step)** notebook is replaced on every run, so edits made to it in Fabric are lost. A notebook in a folder is named without its folder, so two notebooks with the same name in different folders share one step notebook in a workspace.

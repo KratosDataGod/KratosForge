@@ -104,6 +104,42 @@ def risks(rows: list[dict[str, Any]], envs: dict[str, str]) -> dict[str, list[di
     return out
 
 
+def open_risks(s: dict[str, Any]) -> list[dict[str, Any]]:
+    """The risks no platform admin has accepted."""
+    return [r for r in s.get("risks") or [] if not r.get("accepted")]
+
+
+def accept_risks(rows: list[dict[str, Any]], accepted: list[dict[str, Any]]) -> None:
+    """Mark each risk a platform admin accepted with who and why ({by, reason, at})."""
+    by = {(a["shortcut_id"], a["kind"]): a for a in accepted}
+    for s in rows:
+        for r in s.get("risks") or []:
+            a = by.get((s["id"], r["kind"]))
+            if a:
+                r["accepted"] = {"by": a.get("by") or "", "reason": a.get("reason") or "", "at": a.get("at") or ""}
+
+
+def same_env_target(s: dict[str, Any], envs: dict[str, str], lakehouses: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """For a shortcut that crosses environments: the lakehouse with the target's name in a workspace
+    the metadata project or platform says is the host's environment. Names alone don't decide this."""
+    host, name = s.get("host_env") or "", str(s.get("target_lakehouse_name") or "").lower()
+    if not (host and name and s.get("target_type") == "OneLake"):
+        return None
+    for l in lakehouses:
+        if envs.get(l.get("workspace_id") or "") == host and str(l.get("name") or "").lower() == name \
+                and l.get("lakehouse_id") != s.get("item_id"):
+            return {"workspace_id": l["workspace_id"], "workspace_name": l.get("workspace_name") or "",
+                    "lakehouse_id": l["lakehouse_id"], "lakehouse_name": l.get("name") or "", "env": host}
+    return None
+
+
+def moved_candidates(name: str, gone_id: str, lakehouses: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Lakehouses with the lost lakehouse's name (any case), other than the lost one itself."""
+    name = str(name or "").strip().lower()
+    return [l for l in lakehouses if name and str(l.get("lakehouse_name") or "").lower() == name
+            and l.get("lakehouse_id") != gone_id]
+
+
 def port_index(products: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """Where each published product port lives, keyed like a OneLake shortcut's target."""
     out = {}
@@ -164,7 +200,7 @@ def needs(rows: list[dict[str, Any]], requests: list[dict[str, Any]]) -> list[di
             out.append({"kind": "deprecated", "id": identity(s), "title": f"{s['name']} points at a deprecated product",
                         "detail": f"{product.get('name')} is deprecated. Repoint it at the product that replaces it."})
         for r in s.get("risks") or []:
-            if r["kind"] == "cross_env":
+            if r["kind"] == "cross_env" and not r.get("accepted"):
                 out.append({"kind": "cross_env", "id": identity(s), "title": f"{s['name']}: {r['text']}",
                             "detail": f"In {s.get('workspace_name')} / {s.get('lakehouse_name')}. Repoint it at the same environment."})
     for r in requests:
@@ -182,7 +218,7 @@ def counts(rows: list[dict[str, Any]], changes: list[dict[str, Any]], requests: 
             "unreachable": sum(s.get("health") == "unreachable" for s in rows),
             "not_checked": sum(s.get("health") in (None, "", "not_checked") for s in rows),
             "connection": sum(exposure(s) == "connection" for s in rows),
-            "risky": sum(bool(s.get("risks")) for s in rows),
+            "risky": sum(bool(open_risks(s)) for s in rows),
             "changed_7d": len(changes),
             "waiting": sum(r.get("kind") == "shortcut" and r.get("status") == "waiting" and bool(r.get("can_decide"))
                            for r in requests)}

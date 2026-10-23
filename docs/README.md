@@ -158,6 +158,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Capacity status | Optimize > Cost and savings, Data mesh > Environments |
 | Measured usage import | Optimize > Cost and savings |
 | OneLake shortcuts | OneLake > Shortcuts |
+| Shortcut fixes | OneLake > Shortcuts > Health and a shortcut's panel (find a lakehouse that moved, repoint many at once, accept a crossed environment; [shortcuts.md](shortcuts.md#fixing-shortcuts)) |
 | OneLake access | OneLake > Access |
 | Table history and restore | Entity page |
 | Table health | Data mesh > Quality (with Optimize) |

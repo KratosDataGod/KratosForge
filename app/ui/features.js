@@ -52,6 +52,7 @@ const PREVIEW_FEATURES = {
   capacity: "Capacity status",
   usage: "Measured usage import",
   shortcuts: "OneLake shortcuts",
+  shortcutFixes: "Shortcut fixes",
   access: "OneLake access",
   history: "Table history and restore",
   health: "Table health",

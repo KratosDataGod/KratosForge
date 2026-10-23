@@ -58,6 +58,8 @@ Every key can be fixed in the policy file ([Azure setup](azure-setup.md#4-push-s
 | Run all finishes | **Wolf Arrival**: the wolf glows once at the end and the track goes | status bar | 0.55 s |
 | A job the app started in Fabric is running | The bell and Home show the wolf trotting in place in Kratos navy on an empty track, with **Running in Fabric** beside it. Fabric reports no measurable progress, so there is no fill, percentage or time estimate; with the wolf off, the plain indeterminate bar shows | the bell, Home | while running |
 | A cell is running | A small breathing ember on **Running** (forge orange, because notebook cells run on this PC) | the cell's status | while running |
+| A SQL query succeeds after more than 2 s | **Forge Spark** on **Succeeded**. Quicker queries show nothing | the Results band | 0.4 s |
+| A SQL query fails or times out | **Controlled Failure**: the ember beside **Failed**; the error is there from the first frame | the Results band | 0.45 s |
 | A pipeline activity runs | **Energy Flow**: the link into the running activity carries a moving dash; each activity says Queued, In progress, Succeeded, Failed, Skipped or Cancelled in words | pipeline flow | while running |
 | A pipeline activity finishes | It settles with one glow (succeeded) or the failure ember | the activity | 0.45 s |
 | A pipeline run succeeds | **Anvil Strike** (shown in Preview effects until the pipeline run screen arrives) | the run's result | 0.65 s |
@@ -65,7 +67,7 @@ Every key can be fixed in the policy file ([Azure setup](azure-setup.md#4-push-s
 | Your developer profile records a milestone | **Achievement Reveal**: a ring and an offset outline reveal the badge once. Off unless you turn on **Achievement celebrations**, which appears when the developer profile ships | the badge | 0.9 s |
 
 During Run all, cells don't spark one by one; the track shows the progress instead. Stop and
-Cancel show nothing. Activities inside ForEach and Until are counted on their parent
+Cancel show nothing, on a notebook or a SQL query. Activities inside ForEach and Until are counted on their parent
 ("In progress · 4 of 9"), never animated one by one. A pipeline flow always says where it runs:
 **Local run on this PC (not run in Fabric)** for a local run.
 

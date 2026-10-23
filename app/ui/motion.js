@@ -39,6 +39,8 @@ const FORGE_EVENTS = {
   "pipeline.failed": "fail",
   "deploy.succeeded": "strike",
   "deploy.failed": "fail",
+  "sql.succeeded": "spark",
+  "sql.failed": "fail",
   "achievement.unlocked": "achieve",
 };
 // Runs shorter than this never show the progress track, so quick runs don't flash it.

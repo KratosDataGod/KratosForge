@@ -63,12 +63,17 @@ def test_local_runs_leave_the_step_out():
 # ---- the V-Order cell
 
 
-def test_vorder_source_quotes_names_and_rewrite_all_puts_every_file_in_scope():
+def test_vorder_source_quotes_names_and_rewrite_all_writes_each_table_back():
     src = fabric_step.vorder_source(["gold.fact_sales", "dim`x"])
     assert 'spark.sql("OPTIMIZE `gold`.`fact_sales` VORDER")' in src
     assert 'spark.sql("OPTIMIZE `dim``x` VORDER")' in src
-    assert "minFileSize" not in src
-    assert f'"{fabric_step.REWRITE_ALL_MIN_FILE_SIZE}"' in fabric_step.vorder_source(["t"], rewrite_all=True)
+    assert "rewrite_with_vorder" not in src
+    # OPTIMIZE left a one-file table alone on Fabric, even with minFileSize at 1 TiB, so rewrite_all
+    # reads each table and writes it back, without a data change.
+    src = fabric_step.vorder_source(["gold.t"], rewrite_all=True)
+    assert 'rewrite_with_vorder("`gold`.`t`")' in src and "OPTIMIZE `" not in src
+    assert '.mode("overwrite").option("dataChange", "false")' in src and "minFileSize" not in src
+    compile(src, "cell", "exec")
     # What the V-Order check later reads: the same tables, comments not mistaken for names.
     assert fabric_step.optimized_tables(fabric_step.vorder_source(["gold.fact_sales", "dim"], rewrite_all=True)) == [
         "gold.fact_sales", "dim"]
@@ -230,12 +235,16 @@ def test_run_publishes_the_step_starts_it_and_reads_back_output_and_vorder(svc, 
 
     import fabric_desktop.cloud_service as cs
     monkeypatch.setattr(cs, "FileStore", Files)
+    # The Delta log says not V-Ordered (Fabric's AUTOSET commit fooled it once); the footers decide.
     monkeypatch.setattr(maintenance, "health", lambda uri, options=None, local=False: {
-        "exists": True, "v_ordered": uri.endswith("/Tables/gold/t"), "files": 3, "last_optimize": "now"})
+        "exists": True, "v_ordered": False, "files": 3, "last_optimize": "now"})
+    monkeypatch.setattr(maintenance, "vorder_files", lambda uri, options=None: {
+        "files": 3, "checked": 3, "v_ordered": 3 if uri.endswith("/Tables/gold/t") else 1})
     out = call(svc, "notebook_fabric_step_result", request_id=run["request_id"])
     assert out["status"] == "Completed" and out["output"]["stdout"] == "ok\n"
     assert read["path"] == (WS, LH, f"Files/_fabric_desktop/results/{run['request_id']}.json")
-    assert out["tables"] == [{"table": "gold.t", "v_ordered": True, "files": 3, "last_optimize": "now"}]
+    assert out["tables"] == [{"table": "gold.t", "v_ordered": True, "files": 3, "last_optimize": "now",
+                              "checked": 3, "v_ordered_files": 3}]
 
 
 def test_run_refuses_a_mark_that_is_not_last(svc):
@@ -250,7 +259,7 @@ def test_vorder_cell_rpc_ticks_named_tables_then_writes_the_code(svc):
     out = call(svc, "notebook_vorder_cell", cells=c, tables=["gold.t", "gold.u"])
     assert out == {"candidates": ["gold.t"], "source": None}
     out = call(svc, "notebook_vorder_cell", cells=[], tables=[], picked=["gold.u"], rewrite_all=True)
-    assert "OPTIMIZE `gold`.`u` VORDER" in out["source"] and "minFileSize" in out["source"]
+    assert 'rewrite_with_vorder("`gold`.`u`")' in out["source"]
 
 
 def test_a_scheduled_run_skips_the_step_and_says_so(svc):
@@ -282,3 +291,45 @@ def test_prove_refuses_a_notebook_with_the_step_and_says_how_to_clear_it():
     assert not out["ok"]
     assert out["blockers"][0]["cell"] == 2 and out["blockers"][0]["text"] == fabric_step.STEP_REFUSED
     assert proof.check(cells("from fabric_desktop import lakehouse\nx = 1", step=False), LAKEHOUSE)["ok"]
+
+
+# ---- the V-Order check (maintenance.py), against a real Delta table on this PC
+
+
+def _table(tmp_path, writes=2):
+    import pyarrow as pa
+    from deltalake import write_deltalake
+    uri = str(tmp_path / "t")
+    for i in range(writes):
+        write_deltalake(uri, pa.table({"id": [i, i + 1]}), mode="append")
+    return uri
+
+
+def test_vorder_files_reads_fabrics_mark_from_each_footer(tmp_path):
+    import pyarrow.parquet as pq
+    from deltalake import DeltaTable
+    uri = _table(tmp_path)
+    assert maintenance.vorder_files(uri) == {"files": 2, "checked": 2, "v_ordered": 0}
+    # Stamp one file the way Fabric Spark does, then only that one counts.
+    path = tmp_path / "t" / DeltaTable(uri).get_add_actions(flatten=True).column("path").to_pylist()[0]
+    data = pq.read_table(path)
+    pq.write_table(data.replace_schema_metadata({maintenance.VORDER_KEY: b"true"}), path)
+    assert maintenance.vorder_files(uri) == {"files": 2, "checked": 2, "v_ordered": 1}
+    assert maintenance.vorder_files(uri, limit=1)["checked"] == 1
+
+
+def test_health_does_not_count_a_settings_only_commit_as_a_write(tmp_path, monkeypatch):
+    # The live run: OPTIMIZE ... VORDER by Fabric, then Fabric's own AUTOSET VORDER TBLPROPERTY.
+    uri = _table(tmp_path)
+    fabric = {"engineInfo": "Apache-Spark/3.5.1 Delta-Lake/3.2.0", "clientVersion": None}
+    history = [{"operation": "AUTOSET VORDER TBLPROPERTY", "timestamp": 3000, **fabric},
+               {"operation": "OPTIMIZE", "timestamp": 2000, "operationParameters": {"vorder": True}, **fabric},
+               {"operation": "WRITE", "timestamp": 1000, "clientVersion": "delta-rs.0.25"}]
+    monkeypatch.setattr(maintenance.DeltaTable, "history", lambda self, limit=None: history)
+    assert maintenance.health(uri)["v_ordered"] is True
+    history.insert(0, {"operation": "WRITE", "timestamp": 4000, "clientVersion": "delta-rs.0.25"})
+    assert maintenance.health(uri)["v_ordered"] is False
+    # A Fabric OPTIMIZE that says it left V-Order off isn't V-Order.
+    history[:] = [{"operation": "OPTIMIZE", "timestamp": 2000, "operationParameters": {"vorder": "false"}, **fabric},
+                  {"operation": "WRITE", "timestamp": 1000, "clientVersion": "delta-rs.0.25"}]
+    assert maintenance.health(uri)["v_ordered"] is False

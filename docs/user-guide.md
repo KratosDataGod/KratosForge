@@ -170,6 +170,22 @@ New items:
 - **Notebook:** a new Python notebook, saved on this PC. See [Notebooks](notebooks.md).
 - **Notebook from a template** (Preview): a notebook written from a fixed template (clean a table, join and aggregate, load a file) with key checks and the columns a proof matches rows by. See [Notebooks](notebooks.md#your-first-notebook).
 - **Lakehouse:** asks for a workspace and a name, then creates a schema-enabled lakehouse in Fabric (tables live under schemas, `dbo` by default) and opens it. Needs a workspace on a capacity, and Contributor or higher on it.
+- **Pipeline** (Preview): opens a Fabric pipeline read-only and runs it on this PC. See [Pipelines](#pipelines-preview).
+
+## Pipelines (Preview)
+
+**Create > Pipeline** opens a Fabric pipeline: one of the `.DataPipeline` folders in the repositories this PC opened (Source control), a `.DataPipeline` folder you choose, or a pipeline JSON file (`pipeline-content.json`, or a definition with parts). It opens read-only: you edit pipelines in Fabric or in your repository.
+
+The page shows the pipeline's **Graph** (each column runs after the one before it; click an activity for how it runs here), **Compatibility** (every activity, nested ones included, with whether it runs here, needs a mock or runs only in Fabric, and why), **Runs** (this pipeline's runs on this PC) and **Definition** (`pipeline-content.json`, with Copy). **Check again** reads the definition again.
+
+**Run on this PC** asks for what the run needs, and checks it as you go:
+
+- **Parameters**, filled with the pipeline's defaults or the values of the last run here.
+- **Activities that need a mock**: for each one that can't run here, whether it ends Succeeded or Failed and the output later activities read.
+- **Data steps** (Lookup, Get Metadata, Script): whether they may read lakehouses (off by default; off, they need a mock), the pipeline's workspace when a lakehouse connection doesn't name it, and for each Script whether it runs on the lakehouse (read-only) or in one of your local data projects. A Script that changes tables, or needs the SQL page's confirmation, is refused; give it a mock.
+- **Notebook steps**: the notebook saved in KratosForge each Notebook activity runs, whether notebook steps may reach the network and files on this PC, and whether to keep what they wrote.
+
+**Run** stays off until every activity can run here or has a mock. The run view shows every activity on a time line, nested ones under their loop, branch or child pipeline, and the output and error of the one you click. **Stop** ends the run: nothing new starts and running steps stop. **Run again with the same settings** opens the Run dialog with the settings that run started with. No Fabric job starts; notebook steps write only to a temporary folder in the lakehouse, and OneLake reads and writes use a little capacity. Results can differ from Fabric: see [Local pipeline runs](orchestration/local-runs.md).
 
 ## Notebook resources
 

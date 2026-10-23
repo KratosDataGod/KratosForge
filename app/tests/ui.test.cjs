@@ -4547,3 +4547,65 @@ test("Share adds another notebook to this session, and a notebook that shares on
   assert.deepStrictEqual(plain(calls.find(([m]) => m === "kernel_session_leave")[1]), { notebook: "Sales report" });
   assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /sharedSessions: "Shared notebook sessions"/);
 });
+
+// The pure helpers at the top of pipelines.js (Pipelines, Preview).
+function pipelineHelpers() {
+  const src = fs.readFileSync(path.join(ui, "pipelines.js"), "utf8");
+  const code = src.slice(src.indexOf("const PL_SETUP"), src.indexOf("// UTF-8 text as base64"));
+  const ctx = {};
+  vm.runInNewContext(`${code}; Object.assign(this, { plVerdict, plLayers, plAfter, plTimelineRows, plBar, plParamValue, plParamText });`, ctx);
+  return ctx;
+}
+
+test("pipelines: an activity runs here, needs a mock or runs only in Fabric", () => {
+  const { plVerdict } = pipelineHelpers();
+  const copy = { path: "$.a[1]", classification: "static" };
+  assert.strictEqual(plVerdict(copy, [{ path: "$.a[1]", code: "not_local" }]), "mock");
+  // What the Run dialog settles (a notebook to pick, lakehouse reads to allow) doesn't need a mock.
+  assert.strictEqual(plVerdict({ path: "$.a[3]", classification: "local" }, [{ path: "$.a[3]", code: "notebook_unmapped" }]), "here");
+  assert.strictEqual(plVerdict({ path: "$.a[3]", classification: "local" }, [{ path: "$.a[30]", code: "not_local" }]), "here");
+  assert.strictEqual(plVerdict({ path: "$.a[4]", classification: "unsupported" }, []), "fabric");
+});
+
+test("pipelines: the graph puts each activity a column after what it depends on", () => {
+  const { plLayers, plAfter } = pipelineHelpers();
+  const acts = [
+    { name: "C", depends_on: [{ activity: "A", conditions: ["Succeeded"] }, { activity: "B", conditions: ["Failed"] }] },
+    { name: "A", depends_on: [] },
+    { name: "B", depends_on: [{ activity: "A", conditions: ["Succeeded"] }] },
+    { name: "D", depends_on: [{ activity: "missing" }] },
+  ];
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(plLayers(acts).map((l) => l.map((a) => a.name)))), [["A", "D"], ["B"], ["C"]]);
+  // A cycle (validation reports it) still draws every activity, once.
+  const cycle = plLayers([{ name: "X", depends_on: [{ activity: "Y" }] }, { name: "Y", depends_on: [{ activity: "X" }] }]);
+  assert.strictEqual(cycle.flat().map((a) => a.name).sort().join(), "X,Y");
+  assert.strictEqual(plAfter(acts[0]), "after A, B fails");
+  assert.strictEqual(plAfter({ depends_on: [{ activity: "V", conditions: ["Succeeded", "Failed"] }] }), "after V or fails");
+  assert.strictEqual(plAfter(acts[1]), "");
+});
+
+test("pipelines: the run view nests iterations and child pipelines under their parent", () => {
+  const { plTimelineRows, plBar } = pipelineHelpers();
+  const record = { activities: [
+    { id: "1", name: "Loop" }, { id: "2", name: "Step", parent: "1", label: "iteration 0" },
+    { id: "3", name: "Child", child_run: { activities: [{ id: "c1", name: "Inner" }] } },
+    { id: "4", name: "Step", parent: "1", label: "iteration 1" },
+  ] };
+  const rows = plTimelineRows(record);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(rows.map((r) => [r.act.name, r.depth]))), [["Loop", 0], ["Step", 1], ["Step", 1], ["Child", 0], ["Inner", 1]]);
+  const bar = plBar({ started: "2026-10-23T10:00:05Z", ended: "2026-10-23T10:00:10Z" }, "2026-10-23T10:00:00Z", "2026-10-23T10:00:20Z");
+  assert.deepStrictEqual({ ...bar }, { left: 25, width: 25 });
+  assert.deepStrictEqual({ ...plBar({ started: "x" }, "2026-10-23T10:00:00Z", "2026-10-23T10:00:20Z") }, { left: 0, width: 0 });
+});
+
+test("pipelines: parameters are typed as Fabric declares them", () => {
+  const { plParamValue, plParamText } = pipelineHelpers();
+  assert.strictEqual(plParamValue("String", "[1]"), "[1]");
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(plParamValue("array", '["a", "b"]'))), ["a", "b"]);
+  assert.strictEqual(plParamValue("int", "3"), 3);
+  assert.strictEqual(plParamValue("int", " "), undefined);
+  assert.throws(() => plParamValue("object", "{nope"));
+  assert.strictEqual(plParamText("string", "x"), "x");
+  assert.strictEqual(plParamText("array", ["a"]), '["a"]');
+  assert.strictEqual(plParamText("int", undefined), "");
+});

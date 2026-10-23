@@ -6,16 +6,17 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 
 | Field | Value |
 | --- | --- |
-| Last updated | 2026-10-20 |
-| Base | `main` after #336 (stability round: #281, #301, #310, #311, #312, #317, #324, #336) |
-| Stage | Stages 0 to 5, FD-124 parts 1 and 2 with labels, 9A (engine and Run as screen), UX-010 and UX-014 merged, plus #205 (platform notices to Teams), #208, #215 and #216. Monitor has three tabs: Runs, Schedules, Operations. Cost moved to Optimize > Cost and savings (testing item 36). |
+| Last updated | 2026-10-23 |
+| Base | `main` after #569 |
+| Stage | Stages 0 to 5, FD-124 parts 1 and 2 with labels, 9A (engine and Run as screen), UX-010 and UX-014 merged, plus #205 (platform notices to Teams), #208, #215 and #216. Monitor has three tabs: Runs, Schedules, Operations. Cost moved to Optimize > Cost and savings (testing item 36). Since then: item 76 stage 2B (#432), platform notices UI (#450, #452), and P3 pipeline runs in Monitor > Runs (this PR). |
 
 ## Active branches and PRs
 
 | Branch | PR | What | Status |
 | --- | --- | --- | --- |
-| `claude/workload-how-this-works-4su03b` | #331 | How this works beside Queue, Incidents and Run as | Quality PASS; draft for Chris |
-| `claude/workload-capacity-use-4su03b` | #353 | Capacity use card on the workload page (`workload_capacity_use`) | Draft; with quality |
+| `claude/workload-management-plan-4su03b` | new | P3: local pipeline runs in Monitor > Runs, opening to their activities (Preview), per the Pipelines P3+P4 mockup Chris approved 2026-10-23 | Draft; with quality and UX oversight |
+
+Out of P3 (Chris's scope, 2026-10-23): Fabric pipeline runs in Monitor, rerun from failed, Open in KratosForge from Workspaces. The run view (artboard 4) belongs to the Local Fabric pipeline execution thread; Monitor's **Details** calls its `openPipelineRun(run_id)` (#578) and shows only once that is in the build.
 
 ## Completed backlog items
 

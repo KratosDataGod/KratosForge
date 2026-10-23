@@ -180,10 +180,10 @@ The page shows the pipeline's **Graph** (each column runs after the one before i
 
 **Run on this PC** asks for what the run needs, and checks it as you go:
 
-- **Parameters**, filled with the pipeline's defaults or the values of the last run here.
+- **Parameters**, filled with the pipeline's defaults or the values of the last run here. SecureString values are never kept on this PC; type them again each time.
 - **Activities that need a mock**: for each one that can't run here, whether it ends Succeeded or Failed and the output later activities read.
 - **Data steps** (Lookup, Get Metadata, Script): whether they may read lakehouses (off by default; off, they need a mock), the pipeline's workspace when a lakehouse connection doesn't name it, and for each Script whether it runs on the lakehouse (read-only) or in one of your local data projects. A Script that changes tables, or needs the SQL page's confirmation, is refused; give it a mock.
-- **Notebook steps**: the notebook saved in KratosForge each Notebook activity runs, whether notebook steps may reach the network and files on this PC, and whether to keep what they wrote.
+- **Notebook steps**: the notebook saved in KratosForge each Notebook activity runs, whether notebook steps may reach the network and files on this PC (asked again each run), and whether to keep what they wrote.
 
 **Run** stays off until every activity can run here or has a mock. The run view shows every activity on a time line, nested ones under their loop, branch or child pipeline, and the output and error of the one you click. **Stop** ends the run: nothing new starts and running steps stop. **Run again with the same settings** opens the Run dialog with the settings that run started with. No Fabric job starts; notebook steps write only to a temporary folder in the lakehouse, and OneLake reads and writes use a little capacity. Results can differ from Fabric: see [Local pipeline runs](orchestration/local-runs.md).
 

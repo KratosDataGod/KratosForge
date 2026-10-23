@@ -65,8 +65,10 @@ function plTimelineRows(record, depth = 0) {
     kids.get(key).push(a);
   }
   const rows = [];
+  const iteration = (a) => { const m = /^iteration (\d+)$/.exec(a.label || ""); return m ? Number(m[1]) : -1; };
   const walk = (parent, d) => {
-    for (const a of kids.get(parent) || []) {
+    const list = (kids.get(parent) || []).map((a, i) => [a, i]).sort(([a, i], [b, j]) => iteration(a) - iteration(b) || i - j).map(([a]) => a);
+    for (const a of list) {
       rows.push({ act: a, depth: d });
       walk(a.id, d + 1);
       if (a.child_run) rows.push(...plTimelineRows(a.child_run, d + 1));
@@ -83,6 +85,20 @@ function plBar(act, start, end) {
   if (![t0, t1, a, b].every(Number.isFinite) || t1 <= t0) return { left: 0, width: 0 };
   const left = Math.max(0, Math.min(100, ((a - t0) / (t1 - t0)) * 100));
   return { left, width: Math.max(0.5, Math.min(100 - left, ((b - a) / (t1 - t0)) * 100)) };
+}
+
+// The Run dialog's settings as kept in localStorage: no SecureString parameter values, and leave for
+// notebook steps to reach the network and files is never remembered.
+function plStorable(settings, declared) {
+  const secure = new Set((declared || []).filter((x) => String(x.type || "").toLowerCase() === "securestring").map((x) => x.name));
+  const parameters = Object.fromEntries(Object.entries(settings.parameters || {}).filter(([k]) => !secure.has(k)));
+  return { ...settings, parameters, allow_uncontained: false };
+}
+
+// Time taken: "<0.1s" for a step that took next to nothing, "—" when nothing was measured.
+function plTook(seconds) {
+  if (seconds === null || seconds === undefined || seconds === "") return "—";
+  return Number(seconds) < 0.1 ? "<0.1s" : took(seconds);
 }
 
 // A parameter's value as typed: strings as they are, everything else as JSON.
@@ -225,11 +241,12 @@ async function renderPipelines() {
   const tabs = h("div", { class: "subtabs", role: "tablist", "aria-label": "Pipeline views" }, PL_TABS.map(([id, label]) =>
     h("button", { class: `tab${plPage.tab === id ? " active" : ""}`, role: "tab", "aria-selected": plPage.tab === id ? "true" : "false",
       onclick: () => { plPage.tab = id; render(); } }, label)));
-  const summary = h("p", { class: "pl-summary" }, `${all.length} activities: `, plPill("here"), ` ${n("here")} `,
-    plPill("mock"), ` ${n("mock")} `, plPill("fabric"), ` ${n("fabric")}`,
+  const counted = [["here", "run here", "runs here"], ["mock", "need a mock", "needs a mock"], ["fabric", "Fabric only", "Fabric only"]]
+    .filter(([v]) => n(v)).map(([v, many, one]) => h("span", { class: `pill-s ${PL_PILL[v][0]}` }, `${n(v)} ${n(v) === 1 ? one : many}`));
+  const summary = h("p", { class: "pl-summary" }, `${all.length} activities: `, counted,
     params.length ? h("span", { class: "muted-text" }, ` · Parameters: ${params.map((x) => `${x.name} (${x.type})`).join(", ")}`) : null);
   const main = h("div", { class: "pl-tab" });
-  fill(body, tabs, summary, withHowItWorks(main, plHow()));
+  fill(body, tabs, summary, main, plHow());
   if (plPage.tab === "graph") fill(main, ...plGraph(p, verdicts, problems));
   else if (plPage.tab === "compat") fill(main, plCompatTable(p, verdicts, problems));
   else if (plPage.tab === "runs") plRunsTab(p, main);
@@ -306,7 +323,7 @@ async function plRunsTab(p, main) {
   fill(main, runs.length ? h("table", { class: "list" },
     h("thead", {}, h("tr", {}, h("th", {}, "Status"), h("th", {}, "Started"), h("th", { class: "n" }, "Took"), h("th", {}, "Activities"))),
     h("tbody", {}, runs.map((r) => h("tr", { class: "click", onclick: () => openPipelineRun(r.run_id) },
-      h("td", {}, plStatePill(r.state)), h("td", {}, when(r.started)), h("td", { class: "n" }, took(r.seconds)),
+      h("td", {}, plStatePill(r.state, (r.options?.mocked || []).length)), h("td", {}, when(r.started)), h("td", { class: "n" }, plTook(r.seconds)),
       h("td", { class: "muted-text" }, `${r.counts?.succeeded || 0} succeeded, ${r.counts?.failed || 0} failed${(r.options?.mocked || []).length ? `, ${r.options.mocked.length} mocked` : ""}`)))))
     : emptyState({ icon: "history", title: "No runs here yet", text: "Run on this PC and its record shows here.",
       action: btn("Run on this PC", "play", () => pipelineRunDialog(), "tool primary") }));
@@ -323,7 +340,9 @@ async function plDefinitionTab(p, main) {
     h("pre", { class: "pl-json" }, out.text)));
 }
 
-function plStatePill(s) {
+// A run's state; a run that had mocks never reads as a plain success (it wasn't all real).
+function plStatePill(s, mocked = 0) {
+  if (s === "succeeded" && mocked) return h("span", { class: "pill-s wrn" }, "Succeeded with mocks");
   const map = { succeeded: ["pass", "Succeeded"], failed: ["fail", "Failed"], cancelled: ["neu", "Cancelled"], interrupted: ["fail", "Interrupted"],
     running: ["info", "Running"], pending: ["info", "Waiting"], skipped: ["neu", "Skipped"], refused: ["fail", "Refused"] };
   const [cls, label] = map[s] || ["neu", s || "Unknown"];
@@ -508,7 +527,9 @@ async function pipelineRunDialog(again = null) {
     }
     const settings = { parameters: s.parameters, mocks: s.mocks, notebooks: s.notebooks, read_lakehouses: s.read_lakehouses,
       workspace_id: s.workspace_id, sql_projects: s.sql_projects, allow_uncontained: s.allow_uncontained, keep_outputs: s.keep_outputs };
-    plSave(p.imp.name, settings);
+    // Kept on this PC for next time without secure parameters, and without leave to reach the network
+    // and files, which is asked again each run. Run again in this session keeps both.
+    plSave(p.imp.name, plStorable(settings, p.imp.parameters));
     plStarts.set(out.run_id, settings);
     closeDialog();
     logActivity({ id: `pipeline:${out.run_id}`, status: "running", title: `${p.imp.name} · Pipeline run`, text: "Running on this PC" });
@@ -597,11 +618,11 @@ function plDrawRun(help) {
         act.wait_on_completion === false ? h("span", { class: "muted-text small" }, " · didn't wait") : null),
       act.executed_by === "mock" ? h("span", { class: "pill-s neu" }, "Mocked") : plStatePill(act.state),
       h("span", { class: "pl-track" }, act.started ? h("span", { class: `pl-bar ${color}`, style: `left:${bar.left}%;width:${bar.width}%` }) : null),
-      h("span", { class: "n" }, took(act.seconds)));
+      h("span", { class: "n" }, act.started ? plTook(act.seconds) : "—"));
   };
   setView(h("div", { class: "page pipelines" },
     h("section", { class: "card pad pl-head" },
-      h("div", { class: "pl-title" }, h("h1", {}, r.pipeline, " ", plStatePill(r.state), " ", previewTag()),
+      h("div", { class: "pl-title" }, h("h1", {}, r.pipeline, " ", plStatePill(r.state, mocked.length), " ", previewTag()),
         h("p", { class: "muted-text" }, [`Run ${r.run_id.slice(0, 8)} on this PC`, r.started ? `started ${new Date(r.started).toLocaleTimeString()}` : "",
           took(r.seconds ?? (Date.now() - Date.parse(r.started)) / 1000) + (running ? " so far" : ""), params,
           mocked.length ? `${mocked.length} mock${mocked.length === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · "), " · ", help)),
@@ -623,7 +644,7 @@ function plActDetail(a) {
   const out = a.output === undefined ? null : a.output;
   return h("section", { class: "card pad pl-detail" },
     h("div", { class: "pl-detail-head" }, h("h2", {}, a.name), a.executed_by === "mock" ? h("span", { class: "pill-s neu" }, "Mocked") : plStatePill(a.state)),
-    h("p", { class: "muted-text" }, [a.type, a.label, a.attempts > 1 ? `${a.attempts} attempts` : "", took(a.seconds)].filter(Boolean).join(" · ")),
+    h("p", { class: "muted-text" }, [a.type, plLabel(a.label || ""), a.attempts > 1 ? `${a.attempts} attempts` : "", a.started ? plTook(a.seconds) : ""].filter(Boolean).join(" · ")),
     a.error ? h("div", {}, h("b", {}, "Error"), h("pre", { class: "pl-json" }, JSON.stringify(a.error, null, 2))) : null,
     h("div", {}, h("b", {}, "Output"), out === null ? h("p", { class: "muted-text" }, PL_RUNNING.has(a.state) ? "Appears when the step ends." : "None.")
       : h("pre", { class: "pl-json" }, JSON.stringify(out, null, 2))),

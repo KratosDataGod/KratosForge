@@ -27,6 +27,8 @@ before(async () => {
 after(async () => { if (app) await app.close(); });
 
 test("Create > Pipeline opens a pipeline file and shows what runs here", { skip }, async () => {
+  // openApp waits for an earlier script; app.js (state, go) loads after it, and a cold start can be slow.
+  await page().waitForFunction(() => typeof go === "function" && typeof pipelineOpenDialog === "function" && !!document.querySelector(".rail-item"));
   await page().evaluate(() => go("create"));
   await page().click("text=Open a Fabric pipeline");
   await page().waitForSelector(".pl-open");
@@ -35,7 +37,7 @@ test("Create > Pipeline opens a pipeline file and shows what runs here", { skip 
   await page().waitForSelector(".pl-graph");
   await shot("pipelines-page");
   const summary = await page().textContent(".pl-summary");
-  assert.match(summary, /11 activities: Runs here 10 Needs a mock 1 Fabric only 0/);
+  assert.match(summary, /11 activities: 10 run here1 needs a mock · Parameters/);
   assert.match(summary, /regions \(array\), min_rows \(int\)/);
   await page().click('.pl-node[data-path="$.properties.activities[1]"]');
   await page().waitForSelector(".pl-detail");
@@ -64,16 +66,22 @@ test("the Run dialog mocks what can't run here, then the run view follows the ru
   await page().click(".dialog-actions >> text=Run");
   await page().waitForSelector(".pl-timeline");
   await page().waitForFunction(() => /Succeeded/.test(document.querySelector(".pl-head h1")?.textContent || ""), null, { timeout: 30000 });
+  // Two activities were mocked, so the run never reads as a plain success.
+  assert.match(await page().textContent(".pl-head h1"), /Succeeded with mocks/);
+  assert.doesNotMatch(await page().textContent(".pl-timeline"), /no capacity/);
   await shot("pipelines-run");
   const rows = await page().$$eval(".pl-row:not(.head) .pl-row-name", (els) => els.map((e) => e.textContent));
   assert.ok(rows.includes("Ingest orders"), rows.join(", "));
-  assert.ok(rows.some((r) => /^Settle · iteration 2/.test(r)), rows.join(", "));
+  // A loop's rows go by iteration: each iteration's steps together.
+  const loop = rows.filter((r) => / · iteration /.test(r));
+  assert.deepStrictEqual(loop, ["Settle · iteration 0", "Mark region · iteration 0", "Settle · iteration 1",
+    "Mark region · iteration 1", "Settle · iteration 2", "Mark region · iteration 2"]);
   await page().click('.pl-row:has-text("Ingest orders")');
   assert.match(await page().textContent(".pl-detail"), /Mocked[\s\S]*"rowsCopied": 120/);
   assert.ok(!(await page().isDisabled("text=Run again with the same settings")));
   // The run is listed under the pipeline's Runs tab.
   await page().click("text=Back to the pipeline");
   await page().click('[role="tab"]:has-text("Runs")');
-  await page().waitForSelector(".list >> text=Succeeded");
+  await page().waitForSelector(".list >> text=Succeeded with mocks");
   assert.deepStrictEqual(app.errors, []);
 });

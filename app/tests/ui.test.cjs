@@ -1787,7 +1787,7 @@ function followHarness(statuses) {
       }
       return [];
     },
-    setKernel() {}, renderNotebook() {}, updateResults() {}, registerFeature() {}, previewShown: () => true,
+    setKernel() {}, renderNotebook() {}, forgeEvent() {}, updateResults() {}, registerFeature() {}, previewShown: () => true,
     logActivity: (item) => calls.bell.push(item),
     toast: (text) => calls.toasts.push(text),
     document: { querySelector: () => null, querySelectorAll: () => [] },
@@ -2220,11 +2220,14 @@ test("Motion & effects settings: four levels, family switches, reduced-motion ch
   assert.match(card, /type: "radio", name: "motion_level"/);
   assert.match(card, /disabled: locked\("motion_level"\) \? true : null, onchange: \(\) => save\(\{ motion_level: n \}\)/);
   assert.match(card, /\[0, 1, 2, 3\]\.map\(levelRow\)/);
-  assert.match(card, /toggle\(key, label, s\[key\]\?\.value !== false, level < 2\)/, "family switches don't grey out below Refined");
+  assert.match(card, /toggle\(key, label, s\[key\]\?\.value \?\? key !== "motion_achievements", level < 2\)/, "family switches don't grey out below Refined");
   assert.match(card, /disabled: disabled \|\| locked\(key\) \? true : null/);
   assert.match(card, /"Respect Windows' reduced-motion setting"/);
   for (const key of ["motion_wolf", "motion_sparks", "motion_ambient"]) assert.match(s, new RegExp(`\\["${key}", "`));
-  assert.doesNotMatch(s, /\["motion_achievements", "/, "the achievements switch shows before the profile can award anything");
+  // Achievement celebrations shows only while Profile (Preview) can award something (#361).
+  assert.match(s, /const motionFamilies = \(\) => \(previewShown\(\) \? \[\.\.\.MOTION_FAMILIES, MOTION_ACHIEVEMENTS\] : MOTION_FAMILIES\);/);
+  assert.match(card, /motionFamilies\(\)\.map\(/);
+  assert.match(s, /previewShown\(\) \? row\("Achievement Reveal", [^\n]*\n\s+\(\) => forgeEvent\("achievement\.unlocked", award\)\) : null,/);
   assert.match(s, /\["motion_ambient", "Running indicators",/);
   assert.match(s, /const display = s\.motion_level \? motionSettingsCard\(s, locked\) : null;/);
   assert.match(s, /\[account, updates, display, previews,/);
@@ -2233,7 +2236,7 @@ test("Motion & effects settings: four levels, family switches, reduced-motion ch
   const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
   assert.match(css, /html\[data-motion="off"\] \.fx, html\[data-motion="off"\] \.wolf \{ display: none; \}/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{ html:not\(\[data-motion-override\]\) :is\(\.fx, \.wolf\) \{ display: none; \}/);
-  assert.match(css, /html\[data-fx-wolf="off"\] \.wolf, html\[data-fx-sparks="off"\] :is\(\.fx-spark, \.fx-fail, \.fx-strike\),/);
+  assert.match(css, /html\[data-fx-wolf="off"\] \.wolf, html\[data-fx-sparks="off"\] :is\(\.fx-spark, \.fx-fail, \.fx-strike, \.fx-cool\),/);
   // Effects animate only transform and opacity, so they never move the layout.
   const keyframes = [...css.matchAll(/@keyframes fx-[\w-]+ \{([^\n]*)\}\n/g)].map((m) => m[1]);
   assert.ok(keyframes.length >= 6, "fx keyframes not found");
@@ -4660,6 +4663,101 @@ test("pipelines: SecureString values and network leave are never kept on this PC
   assert.strictEqual(kept.allow_uncontained, false);
   assert.strictEqual(kept.keep_outputs, true);
   assert.doesNotMatch(JSON.stringify(kept), /s3cret/);
+});
+
+// The cooling spark (KF-MO-006): Validate, Prove and a confirmed publish cool; their failures are embers.
+test("Cooling spark: a passed check cools for 500 ms, then is gone; failures play the ember", () => {
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  const events = vm.runInContext("FORGE_EVENTS", ctx);
+  for (const name of ["validate.passed", "prove.matched", "publish.verified"]) assert.strictEqual(events[name], "cool", name);
+  for (const name of ["validate.failed", "prove.failed", "publish.failed"]) assert.strictEqual(events[name], "fail", name);
+  const badge = ctx.node();
+  const el = ctx.forgeEvent("validate.passed", badge);
+  assert.ok(el && el.cls.has("fx-cool") && el.attrs["aria-hidden"] === "true", "no cooling spark");
+  assert.strictEqual(ctx.live.textContent, "", "the cooling spark announced itself");
+  ctx.advance(599);
+  assert.strictEqual(badge.kids.length, 1, "removed before it finished cooling");
+  ctx.advance(1);
+  assert.strictEqual(badge.kids.length, 0, "the cooling spark stayed");
+  assert.strictEqual(motionHarness({ settings: { motion_level: { value: 2 }, motion_sparks: { value: false } } }).forgeEvent("prove.matched", ctx.node()), null,
+    "the cooling spark ignored the sparks switch");
+  assert.strictEqual(motionHarness({ settings: { motion_level: { value: 1 } } }).forgeEvent("publish.verified", ctx.node()), null, "it played at Minimal");
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  for (const rule of css.match(/@keyframes fx-cool-[a-z]+ \{[^\n]*\n/g)) assert.doesNotMatch(rule, /color|background|width|height|top|left/, "cooling animates more than transform and opacity");
+  const validate = fs.readFileSync(path.join(ui, "validate.js"), "utf8");
+  assert.match(validate, /if \(r\.state !== "cancelled"\) forgeEvent\(ok \? "validate\.passed" : "validate\.failed"/, "a cancelled clean run would play an effect");
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /if \(result\.id\) forgeEvent\("publish\.verified"/, "a publish cools before Fabric gave back the item");
+});
+
+// KF-MO-008 Achievement Reveal (profile.js profileEarned): one message and one reveal per new award,
+// nothing for an award already shown (this session or a stored one), kept per account.
+test("Achievement Reveal: a new award is announced and revealed once, a repeat never, and deleting the profile resets it", () => {
+  const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
+  const src = p.slice(p.indexOf("const PROFILE_CELEBRATED"), p.indexOf("registerFeature("));
+  const stored = {};
+  const said = [];
+  const revealed = [];
+  const toastEl = { id: "toast" };
+  const ctx = {
+    state: { user: "dev@contoso.com" }, RECORDING_ON: "Recording is on.",
+    localStorage: { getItem: (k) => stored[k] ?? null, setItem: (k, v) => { stored[k] = v; } },
+    setTimeout: (fn) => fn(),
+    toast: (text) => said.push(text),
+    forgeEvent: (name, anchor) => revealed.push([name, anchor.id]),
+    document: { getElementById: (id) => (id === "toast" ? toastEl : null) },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(`${src}; this.profileEarned = profileEarned; this.profileForget = profileForget;`, ctx);
+  const first = { id: "first-flame", name: "First Flame", xp: 50 };
+  const steady = { id: "steady-hand", name: "Steady Hand", xp: 100 };
+  ctx.profileEarned([first, steady]);
+  assert.deepStrictEqual(said, ["Achievement earned: First Flame (+50 XP), Steady Hand (+100 XP). See it in Profile. Recording is on."]);
+  assert.deepStrictEqual(revealed, [["achievement.unlocked", "toast"]], "not one reveal for the message");
+  ctx.profileEarned([first]);
+  ctx.profileEarned([]);
+  ctx.profileEarned(undefined);
+  assert.strictEqual(said.length, 1, "a repeat was announced");
+  assert.strictEqual(revealed.length, 1, "a repeat was revealed");
+  assert.deepStrictEqual(JSON.parse(stored["kf.profile.celebrated"]), ["dev@contoso.com|first-flame", "dev@contoso.com|steady-hand"]);
+  ctx.state.user = "other@contoso.com";  // another account's profile earns its own
+  ctx.profileEarned([first]);
+  assert.strictEqual(revealed.length, 2);
+  ctx.state.user = "dev@contoso.com";
+  ctx.profileForget();
+  assert.deepStrictEqual(JSON.parse(stored["kf.profile.celebrated"]), ["other@contoso.com|first-flame"], "deleting one profile forgot another's");
+  ctx.profileEarned([first]);
+  assert.strictEqual(revealed.length, 3, "an award earned again after deleting the profile stayed silent");
+  // Storage that can't be read or written still never repeats within the session.
+  ctx.localStorage.getItem = () => { throw new Error("blocked"); };
+  ctx.localStorage.setItem = () => { throw new Error("blocked"); };
+  ctx.profileEarned([first]);
+  assert.strictEqual(revealed.length, 3);
+  assert.match(p, /if \(await attempt\(\(\) => rpc\("profile_delete", \{\}\), "Could not delete your profile data"\)\) \{\n\s+profileForget\(\);/);
+});
+
+test("Remote runs (KF-MO-009): the navy wolf trots in an indeterminate bar, with no fill or count, and goes with the motion", () => {
+  const find = (n, cls) => [n, ...n.all()].find((k) => k.cls.has(cls)) || null;
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  const el = ctx.remoteProgress("Sales · Notebook run");
+  const bar = find(el, "progress");
+  assert.strictEqual(bar.attrs.role, "progressbar");
+  assert.strictEqual(bar.attrs["aria-label"], "Sales · Notebook run");
+  assert.strictEqual(bar.attrs["aria-valuetext"], "Running in Fabric");
+  for (const k of ["aria-valuenow", "aria-valuemax"]) assert.ok(!(k in bar.attrs), `an indeterminate bar has ${k}`);
+  assert.strictEqual(find(el, "wolf-idle")?.attrs["aria-hidden"], "true", "no wolf at Refined");
+  assert.ok(!find(el, "wolf-fill"), "a remote run has a fill");
+  assert.ok(find(el, "remote-where"), "nothing says where it runs");
+  for (const opts of [{ settings: { motion_level: { value: 1 } } }, { reduced: true }, { settings: { motion_level: { value: 2 }, motion_wolf: { value: false } } }]) {
+    const quiet = motionHarness(opts).remoteProgress("Sales · Notebook run");
+    assert.strictEqual(find(quiet, "wolf"), null, `a wolf trotted: ${JSON.stringify(opts)}`);
+    assert.ok(find(quiet, "indeterminate"), `the bar went with the wolf: ${JSON.stringify(opts)}`);
+    assert.ok(find(quiet, "remote-where"), "the words saying where it runs went with the wolf");
+  }
+  // The bar hides only while the wolf can show; only jobs the app started in Fabric get it.
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  assert.match(css, /\.wolf\.wolf-idle \{[^}]*animation: fx-trot/);
+  assert.match(css, /html\[data-motion="on"\]:not\(\[data-fx-wolf="off"\]\) \.progress\.remote:has\(\.wolf-idle\) > \.bar \{ display: none; \}/);
+  assert.match(fs.readFileSync(path.join(ui, "activity.js"), "utf8"), /const remoteActivity = \(i\) => String\(i\.id \|\| ""\)\.startsWith\("fabric:"\) && i\.progress === undefined;/);
 });
 
 test("SQL Forge events (KF-MO-005): a slow success sparks, a failure plays the ember, after the redraw", () => {

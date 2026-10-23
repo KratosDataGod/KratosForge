@@ -720,7 +720,7 @@ async function renderHome() {
   const live = activity.items.filter((i) => i.status === "running" && !i.stale);
   running.replaceWith(live.length ? h("div", { class: "home-list" }, live.map((i) => h("div", { class: "home-item" },
     h("div", { class: "row" }, h("b", { class: "grow" }, i.title), h("span", { class: "muted-text small" }, `started ${relTime(i.at)}`)),
-    h("div", { class: "progress" }, h("div", { class: "bar indeterminate" })),
+    remoteActivity(i) ? remoteProgress(i.title) : h("div", { class: "progress" }, h("div", { class: "bar indeterminate" })),
     i.text ? h("div", { class: "muted-text small" }, i.text) : null)))
     : h("p", { class: "muted-text" }, "Nothing is running."));
 
@@ -1985,11 +1985,16 @@ async function publishNotebook() {
   const gate = await nbFabricChangeGate(nb);  // someone changed it in Fabric: they decide first
   if (!gate) return;
   toast(`Publishing ${nb.name} to ${ws}...`);
-  const result = await attempt(() => rpc("publish_notebook", { ...publishPayload(), replace_fabric_changes: gate.replace }), "Publish failed");
+  let failed = false;
+  const result = await attempt(() => rpc("publish_notebook", { ...publishPayload(), replace_fabric_changes: gate.replace })
+    .catch((err) => { failed = !friendlyError(err).cancelled; throw err; }), "Publish failed");
+  if (failed) forgeEvent("publish.failed", document.getElementById("toast"));  // an ember beside the error (motion.js)
   if (result) {
     nb.dirty = false;
     renderChrome();
     toast(`Published ${nb.name} to ${ws} as a Fabric notebook item.`);
+    // Fabric gave back the item it saved, so the publish is confirmed: the toast cools (motion.js).
+    if (result.id) forgeEvent("publish.verified", document.getElementById("toast"));
   }
 }
 

@@ -65,6 +65,7 @@ nav = [
     { "Where to run a notebook" = "finops/placement-advice.md" },
     { "Optimize lakehouse" = "optimize/README.md" },
     { "Metadata framework" = "metadata-guide.md" },
+    { "Semantic model best practices" = "semantic-model-best-practices.md" },
     { "Source control" = "source-control.md" },
     { "Working across teams" = "teams.md" },
     { "The platform" = "platform.md" },

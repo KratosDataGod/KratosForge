@@ -298,6 +298,14 @@ def check() -> dict:
     }
 
 
+def latest() -> dict:
+    """The channel's newest build for "Check for updates", without the engine check that only
+    startup needs, plus the release page to download it from by hand."""
+    info = latest_release()
+    info["page"] = f"https://github.com/{REPO}/releases/tag/{CHANNEL_TAGS[info.get('tag') or channel()]}"
+    return info
+
+
 def install_sidecar(commit: str) -> int:
     url = sidecar_url(commit)
     pip = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--progress-bar", "off"]
@@ -394,6 +402,9 @@ def main(argv: list[str]) -> int:
     command, args = argv[0], argv[1:]
     if command == "check":
         print(json.dumps(check()))
+        return 0
+    if command == "latest":
+        print(json.dumps(latest()))
         return 0
     if command == "install-sidecar":
         return install_sidecar(args[0])

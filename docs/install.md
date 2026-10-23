@@ -59,6 +59,8 @@ KratosForge updates itself. Each time it starts it asks GitHub whether a newer b
 
 Change it in **Settings > Updates**. The change takes effect the next time the app starts. An organization can fix the channel for everyone with a policy file, or turn self-updates off and roll out builds itself ([Enterprise install](enterprise-install.md)).
 
+To update without waiting for the next start, choose **Check for updates** in the account menu or in **Settings > Updates**. It runs the same check, download and swap on demand, and its **Download manually** link opens the channel's release page ([Preview](https://github.com/KratosDataGod/KratosForge/releases/tag/latest), [Stable](https://github.com/KratosDataGod/KratosForge/releases/tag/stable)).
+
 The update check uses GitHub's public API, which allows 60 checks an hour from one internet address. In a large office behind one address you may see "Could not check for a newer build" now and then. The app keeps working on the build you have and checks again at the next start.
 
 ## Check a download yourself

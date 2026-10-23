@@ -97,6 +97,19 @@ def test_config_refuses_secrets_and_lists_every_problem(tmp_path, setup):
     assert "s3cret" not in text
 
 
+def test_agent_name_must_be_one_the_mailbox_can_take_over(tmp_path, setup, monkeypatch):
+    raw = {"agent": {"project": str(setup.project), "environments": ["dev"], "name": "etl 01"}, "auth": {"type": "user"}}
+    with pytest.raises(agent_config.ConfigError, match="agent.name: 'etl 01' isn't 1 to 64 letters"):
+        agent_config.parse(raw)
+    del raw["agent"]["name"]
+    monkeypatch.setattr(agent_config.socket, "gethostname", lambda: "Büro PC#2")
+    assert agent_config.parse(raw).name == "B-ro-PC-2"  # the default always passes
+    monkeypatch.setattr(agent_config.socket, "gethostname", lambda: "x" * 70)
+    assert agent_config.parse(raw).name == "x" * 64
+    monkeypatch.setattr(agent_config.socket, "gethostname", lambda: "")
+    assert agent_config.parse(raw).name == "agent"
+
+
 def test_webhook_comes_from_an_environment_variable(tmp_path, setup, monkeypatch):
     path = tmp_path / "a.toml"
     path.write_text(config_text(setup.project, tmp_path / "h", '[alerts]\nteams_webhook_env = "FD_HOOK"'), encoding="utf-8")
@@ -424,6 +437,32 @@ def test_schedules_fire_once_when_due_and_do_not_pile_up(tmp_path, setup):
     clock.t = agent.queue.schedule_next("every-15") + 1
     agent.tick_schedules()  # due again while the first is still queued: no second job
     assert agent.queue.counts()["queued"] == 1
+
+
+def test_every_minutes_keeps_its_times_across_a_restart(tmp_path, setup, monkeypatch):
+    import datetime as dt
+    import types
+    from fabric_desktop import local_schedules
+    path = tmp_path / "s.toml"
+    path.write_text(config_text(setup.project, tmp_path / "h3", '[[schedule]]\nid = "hourly"\nenv = "dev"\nevery_minutes = 60'),
+                    encoding="utf-8")
+
+    def load_at(when):  # agent.toml parsed at ``when``
+        fake = type("Now", (dt.datetime,), {"now": classmethod(lambda cls, tz=None: when)})
+        monkeypatch.setattr(local_schedules, "dt", types.SimpleNamespace(**{**vars(dt), "datetime": fake}))
+        cfg = agent_config.load(path)
+        monkeypatch.setattr(local_schedules, "dt", dt)
+        return cfg
+    clock = Clock(dt.datetime(2026, 10, 23, 10, 37).timestamp())
+    queue = JobQueue(setup.home / "grid.sqlite3", clock=clock)
+    Agent(load_at(dt.datetime(2026, 10, 23, 10, 37)), queue=queue, clock=clock).tick_schedules()
+    first = queue.schedule_next("hourly")
+    assert first == dt.datetime(2026, 10, 23, 11, 0).timestamp()
+    clock.t = dt.datetime(2026, 10, 23, 10, 50).timestamp()
+    agent = Agent(load_at(dt.datetime(2026, 10, 23, 10, 50)), queue=queue, clock=clock)  # restarted
+    clock.t = first
+    assert agent.tick_schedules() == ["hourly"]
+    assert queue.schedule_next("hourly") == first + 3600  # not 10:50 + 60 minutes
 
 
 def test_cli_check_enqueue_and_status(setup, capsys):

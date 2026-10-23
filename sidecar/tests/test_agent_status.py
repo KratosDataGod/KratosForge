@@ -108,6 +108,28 @@ def test_a_clean_stop_says_so(setup):
     assert record(setup)["state"] == "stopped"
 
 
+def test_a_stopping_agent_keeps_its_record_fresh_until_its_jobs_finish(setup):
+    agent = Agent(dataclasses.replace(setup, poll_seconds=0.05, status_seconds=0.05))
+    release, started = threading.Event(), threading.Event()
+    agent.runtime.run_environment = lambda *a, **k: (started.set(), release.wait(60), [])[2]
+    states = []
+    real = agent.publish_status
+    agent.publish_status = lambda state="running": (states.append(state), real(state))[1]
+    agent.enqueue("dev", ["bronze.orders"], source="cli")
+    loop = threading.Thread(target=agent.run_forever, kwargs={"install_signals": False})
+    loop.start()
+    assert started.wait(30)
+    agent.stop()
+    for _ in range(200):
+        if states.count("stopping") >= 3:
+            break
+        threading.Event().wait(0.05)
+    assert states.count("stopping") >= 3 and "stopped" not in states  # beats while the job still runs
+    release.set()
+    loop.join(30)
+    assert states[-1] == "stopped" and record(setup)["state"] == "stopped"
+
+
 def test_a_failed_publish_is_logged_and_the_loop_goes_on(setup, caplog):
     agent = Agent(setup)
 

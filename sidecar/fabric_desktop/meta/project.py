@@ -473,6 +473,10 @@ def validate(project: Project, today: dt.date | None = None) -> list[str]:
                 errors.append(f"{e.name}: key {k} is not a contract column")
         if e.mode == "incremental" and not s.get("load", {}).get("watermark") and "entity" in s.get("source", {}):
             errors.append(f"{e.name}: incremental loads need a watermark column")
+        wm, renames = s.get("load", {}).get("watermark"), s.get("source", {}).get("rename") or {}
+        if isinstance(renames, dict) and wm in renames and wm not in e.columns:
+            errors.append(f"{e.name}: the watermark is a contract column: the source renames {wm} to "
+                          f"{renames[wm]}, so use watermark = \"{renames[wm]}\"")
         if e.mode in ("scd1", "scd2"):
             if not e.surrogate_key:
                 errors.append(f"{e.name}: dimensions need [scd] surrogate_key")

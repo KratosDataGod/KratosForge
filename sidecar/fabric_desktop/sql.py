@@ -253,6 +253,14 @@ def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views
         table.replace(exp.Table(this=exp.to_identifier(views[key]), alias=alias))
 
 
+def is_local(con: duckdb.DuckDBPyConnection, name: str) -> bool:
+    """Whether ``name`` is a view or table already on ``con`` (a temp view an earlier statement made),
+    for bind_tables. Case is ignored, as identifiers are in Spark SQL and DuckDB."""
+    return bool(con.execute("SELECT 1 FROM duckdb_views() WHERE lower(view_name) = lower(?) "
+                            "UNION ALL SELECT 1 FROM duckdb_tables() WHERE lower(table_name) = lower(?)",
+                            [name, name]).fetchall())
+
+
 def superseded(views: dict[str, str]) -> list[str]:
     """Keys in ``views`` (from bind_tables) for a table's latest version that a newer version of the
     same table, registered later, replaced. A time travel point is never superseded."""
@@ -382,7 +390,7 @@ def _execute(query: str, dialect: str, sandbox: bool) -> tuple[duckdb.DuckDBPyCo
     result = None
     for statement in parse(query, dialect):
         statement = history_query(statement, con, views)
-        bind_tables(statement, con, views)
+        bind_tables(statement, con, views, lambda name: is_local(con, name))
         result = con.execute(statement.sql("duckdb"))
     return con, result
 

@@ -102,7 +102,7 @@ With no policy file at all, nothing is restricted. **Settings > Help and about**
 
 `fabric_view_sign_in_hosts` is also read by the app itself, not the engine: an unreadable file, a value that isn't a list, or an entry that isn't a host name adds no sign-in host. The last copy of the file isn't used for it.
 
-`auto_update` and `channel` are also read by the app's updater, which still treats an unreadable file or a wrongly typed `auto_update` as no setting, so the app keeps updating itself on the channel chosen in Settings (Stable unless someone picked Preview).
+`auto_update` and `channel` are also read by the app's updater, which follows the same last copy while the file can't be read. With no copy, or for a wrongly typed `auto_update`, it treats them as no setting, so the app keeps updating itself on the channel chosen in Settings (Stable unless someone picked Preview).
 
 Every key is optional. More detail is in [permissions.md: Rolling out to your organization](permissions.md#rolling-out-to-your-organization).
 

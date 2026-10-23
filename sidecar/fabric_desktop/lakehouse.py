@@ -286,9 +286,18 @@ def _open_table(table: str, record: bool = True) -> DeltaTable:
             _record_table(ref, opened.version(), "read")
         return opened
     except TableNotFoundError as e:
-        folder = ref.uri.split("/Tables/", 1)[1]
-        raise TableNotFoundError(f"No Delta table at Tables/{folder} in {_current().name}. "
-                                 f"Check the name in the Explorer. ({e})") from None
+        lh, folder = _current().name, ref.uri.split("/Tables/", 1)[1]
+        shown = ref.table if ref.flat else f"{ref.schema}.{ref.table}"
+        # Nothing there (delta-rs says "No files in log segment" for an empty or missing folder in
+        # OneLake): say so plainly. Anything else keeps delta-rs's words.
+        detail = "" if any(m in str(e) for m in _MISSING) else f" ({e})"
+        raise TableNotFoundError(f"{shown} isn't in {lh}: there's no Delta table at Tables/{folder}{detail}. "
+                                 f"Check the name in the Explorer, or run the notebook that creates it "
+                                 f"with {lh} attached first.") from None
+
+
+# delta-rs's words for a table folder with no Delta log in it.
+_MISSING = ("No files in log segment", "does not exist")
 
 
 def table_exists(table: str) -> bool:

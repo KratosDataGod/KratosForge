@@ -4547,3 +4547,14 @@ test("Share adds another notebook to this session, and a notebook that shares on
   assert.deepStrictEqual(plain(calls.find(([m]) => m === "kernel_session_leave")[1]), { notebook: "Sales report" });
   assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /sharedSessions: "Shared notebook sessions"/);
 });
+
+test("SQL Forge events (KF-MO-005): a slow success sparks, a failure plays the ember, after the redraw", () => {
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  const events = vm.runInContext("FORGE_EVENTS", ctx);
+  assert.strictEqual(events["sql.succeeded"], "spark");
+  assert.strictEqual(events["sql.failed"], "fail");
+  const q = fs.readFileSync(path.join(ui, "query.js"), "utf8");
+  assert.match(q, /const SQL_SPARK_SECONDS = 2;/);
+  const run = /async function run\(query[\s\S]*?\n  }\n/.exec(q)[0];
+  assert.ok(run.lastIndexOf("runFx(status, allow)") > run.lastIndexOf("sqlPage.redraw?.()"), "the effect plays before the redraw replaces the pill");
+});

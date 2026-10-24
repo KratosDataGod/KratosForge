@@ -259,11 +259,14 @@ class CloudMixin:
                                compute: str | None = None, workspace: dict[str, str] | None = None,
                                location_ref: dict[str, str] | None = None,
                                replace_fabric_changes: bool = False) -> dict[str, Any]:
-        """Publish the notebook, then run it on its workspace's Fabric capacity."""
+        """Publish the notebook, then run it on its workspace's Fabric capacity, with the values set in
+        its Parameters bar as the run's parameters (the published code keeps its own)."""
+        parameters = self._bar_parameters(name, cells)  # type: ignore[attr-defined]
         item = self._publish(name, cells, lakehouse_ref, compute, workspace, location_ref=location_ref,
                              replace_fabric_changes=replace_fabric_changes)
         lakehouse_ref = lakehouse_ref or location_ref
-        job_id = self.fabric_jobs.run_item_job(item["workspace_id"], item["id"], NOTEBOOK_JOB)  # type: ignore[attr-defined]
+        job_id = self.fabric_jobs.run_item_job(item["workspace_id"], item["id"], NOTEBOOK_JOB,  # type: ignore[attr-defined]
+                                               {"parameters": parameters} if parameters else None)
         # As published: a Python notebook, or Spark (what the cost view counts it as).
         engine = "python" if lakehouse_ref and uses_local_module(cells) and not uses_spark(cells) else "spark"
         return self._log_fabric_run({"kind": "Notebook run", "name": name, "workspace_id": item["workspace_id"],

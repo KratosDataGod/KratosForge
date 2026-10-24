@@ -1930,7 +1930,7 @@ async function saveNotebook() {
   if (!ok) return false;
   if (ok.changed_on_disk) {
     nb.diskConflict = true;  // autosave waits until the person decides
-    nbDiskConflict(nb, ok.disk_stamp);
+    nbDiskConflict(nb, ok);
     return false;
   }
   nb.diskStamp = ok.disk_stamp || null;
@@ -1953,31 +1953,42 @@ function markDirty() {
 }
 
 // Another program (VS Code, a Git pull, a sync tool) saved the notebook's file after the app read
-// it. Nothing was saved over it, and the engine kept that version under Versions, so either choice
-// can be undone from there.
-function nbDiskConflict(nb, stamp) {
+// it. Nothing was saved over it, and the engine kept both sides under Versions first (the file's
+// version, or a byte copy when it isn't a notebook any more, and the cells on screen as "not saved"),
+// so either choice, or closing the app without one, loses nothing.
+function nbDiskConflict(nb, out) {
   if (nb.diskConflictOpen) return;
   nb.diskConflictOpen = true;
+  const running = nbRunning(nb);
   const done = () => { nb.diskConflictOpen = false; closeDialog(); };
   const load = async () => {
+    if (nbRunning(nb)) return;  // the screen can't be replaced under a running cell
     done();
     const fresh = await attempt(() => rpc("open_notebook", { name: nb.name }), "Could not open the notebook");
     if (!fresh || state.notebook !== nb) return;
     nb.dirty = false;
     loadIntoState(fresh);
     if (state.view === "notebook") renderNotebook();
-    toast(`Loaded ${fresh.name} as it is on disk.`);
+    toast(`Loaded ${fresh.name} as it is on disk. Your edits here are under Versions, as Not saved.`);
   };
   const keep = async () => {
     done();
-    nb.diskStamp = stamp;
+    nb.diskStamp = out.disk_stamp;
     nb.diskConflict = false;
-    if (await saveNotebook()) toast(`Saved ${nb.name}. The other version is under Versions.`);
+    if (await saveNotebook()) toast(`Saved ${nb.name}. The other version is ${out.unreadable ? "copied beside its versions" : "under Versions"}.`);
   };
+  const text = out.unreadable
+    ? [`${nb.name} was changed by another program and isn't a notebook KratosForge can read any more, for example a Git merge left conflict markers in it. `
+      + "Nothing was saved over it. A copy of the file is kept, and your edits here are under Versions.",
+      out.outside_copy ? h("p", { class: "muted-text small" }, `Copy: ${out.outside_copy}`) : null]
+    : [`${nb.name} was saved by another program, such as VS Code or a Git pull, after you opened it here. `
+      + "Nothing was saved over it. Its version and yours are both kept under Versions."];
+  const loadBtn = out.unreadable ? null : btn("Load its version", null, load, "tool primary");
+  if (loadBtn && running) loadBtn.disabled = true;
   showDialog("This notebook changed outside KratosForge",
-    h("p", { class: "text" }, `${nb.name} was saved by another program, such as VS Code or a Git pull, after you opened it here. `
-      + "Nothing was saved over it. Its version is kept under Versions either way."),
-    [btn("Keep mine", null, keep, "tool outline"), btn("Load its version", null, load, "tool primary")],
+    h("div", {}, h("p", { class: "text" }, text[0]), text[1] || null,
+      running && loadBtn ? h("p", { class: "muted-text small" }, "A cell is running. Stop it to load the other version.") : null),
+    [btn("Keep mine", null, keep, loadBtn ? "tool outline" : "tool primary"), loadBtn].filter(Boolean),
     () => { nb.diskConflictOpen = false; });
 }
 

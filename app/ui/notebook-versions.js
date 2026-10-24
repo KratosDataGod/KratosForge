@@ -3,7 +3,7 @@
 // engine keeps versions outside every repository (notebook_versions.py); Restore keeps the notebook
 // as it is now first, so a restore can be undone.
 
-const NBV_KIND = { auto: "Saved", checkpoint: "Checkpoint", "before restore": "Before a restore", "changed outside": "Changed outside the app" };
+const NBV_KIND = { auto: "Saved", checkpoint: "Checkpoint", "before restore": "Before a restore", "changed outside": "Changed outside the app", "not saved": "Not saved (changed outside)" };
 
 // Versions grouped by day, newest first: [{ day, rows }].
 function nbvGroups(versions, today = new Date()) {

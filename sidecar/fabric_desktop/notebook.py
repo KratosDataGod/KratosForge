@@ -2523,6 +2523,12 @@ def disk_stamp(nb: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(cells, ensure_ascii=False).encode("utf-8")).hexdigest()[:32]
 
 
+def raw_stamp(data: bytes) -> str:
+    """The stamp of a file that isn't a notebook the app can read (a Git merge left conflict
+    markers in it, say): its bytes, so it never matches a notebook's ``disk_stamp``."""
+    return "raw-" + hashlib.sha256(data).hexdigest()[:28]
+
+
 class NotebookStore:
     # Held while a save or a metadata write reads, changes and replaces a notebook file, so one
     # doesn't write over the other's change (the local API and MCP tools call in from other threads).
@@ -2554,7 +2560,8 @@ class NotebookStore:
 
         ``expected_stamp`` is the ``disk_stamp`` the caller last read or saved. When the file's cells
         no longer match it (another program saved the notebook since), nothing is written and the
-        result has ``changed_on_disk`` and the file's stamp now. None saves without checking."""
+        result has ``changed_on_disk`` and the file's stamp now (and ``unreadable`` when the file
+        isn't a notebook any more, e.g. Git conflict markers). None saves without checking."""
         with self._write_lock:
             return self._save(name, cells, lakehouse, compute, workspace, expected_stamp)
 
@@ -2563,13 +2570,21 @@ class NotebookStore:
               expected_stamp: str | None = None) -> dict[str, Any]:
         path = self.path(name)
         before: dict[str, Any] = {}
+        raw: bytes | None = None
+        parsed = False
         if path.exists():
             try:
-                before = json.loads(path.read_text(encoding="utf-8"))
+                raw = path.read_bytes()
+                before = json.loads(raw.decode("utf-8"))
+                parsed = isinstance(before, dict)
             except (OSError, ValueError):
+                pass
+            if not parsed:
                 before = {}
-        if expected_stamp is not None and before and disk_stamp(before) != expected_stamp:
-            return {"name": name, "changed_on_disk": True, "disk_stamp": disk_stamp(before)}
+        if expected_stamp is not None and raw is not None:
+            now = disk_stamp(before) if parsed else raw_stamp(raw)
+            if now != expected_stamp:
+                return {"name": name, "changed_on_disk": True, "disk_stamp": now, "unreadable": not parsed}
         saved = from_ipynb(before) if before and (compute is None or workspace is None) else {}
         if compute is None:
             compute = saved.get("compute", "default")

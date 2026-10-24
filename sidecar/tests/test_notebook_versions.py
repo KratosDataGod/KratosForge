@@ -194,13 +194,15 @@ def test_a_save_never_writes_over_a_notebook_changed_on_disk(svc):
     assert out["changed_on_disk"] and out["disk_stamp"] != opened["disk_stamp"]
     assert svc.notebooks.load("NB")["cells"][0]["source"] == "a = 2  # from VS Code"  # nothing written
     kept = call(svc, "notebook_versions", name="NB")["versions"]
-    assert kept[0]["kind"] == "changed outside"
+    assert [v["kind"] for v in kept[:2]] == ["not saved", "changed outside"]  # both sides kept before anyone picks
+    unsaved = call(svc, "notebook_version", name="NB", version_id=kept[0]["id"])
+    assert unsaved["cells"][0]["source"] == "a = 3"
     # Keep mine: saved with the stamp it was told; the outside version stays under Versions
     again = call(svc, "save_notebook", name="NB", cells=mine, disk_stamp=out["disk_stamp"])
     assert "changed_on_disk" not in again
     assert svc.notebooks.load("NB")["cells"][0]["source"] == "a = 3"
     kinds = [v["kind"] for v in call(svc, "notebook_versions", name="NB")["versions"]]
-    assert "changed outside" in kinds and kinds[0] == "auto"
+    assert {"changed outside", "not saved"} <= set(kinds)  # the saved cells match "not saved", so no extra version
 
 
 def test_metadata_changes_and_unchecked_saves_are_not_outside_changes(svc):
@@ -213,3 +215,19 @@ def test_metadata_changes_and_unchecked_saves_are_not_outside_changes(svc):
     nb["cells"][0]["source"] = "b = 1"
     path.write_text(json.dumps(nb))
     assert "changed_on_disk" not in save(svc, "NB", "c = 1")  # callers that don't send a stamp save as before
+
+
+def test_a_file_git_left_conflict_markers_in_is_copied_not_saved_over(svc):
+    first = save(svc, "NB", "a = 1")
+    path = svc.notebooks.path("NB")
+    broken = "<<<<<<< HEAD\n" + path.read_text() + "=======\n{}\n>>>>>>> main\n"
+    path.write_text(broken)
+    mine = [{"type": "code", "source": "a = 3"}]
+    out = call(svc, "save_notebook", name="NB", cells=mine, disk_stamp=first["disk_stamp"])
+    assert out["changed_on_disk"] and out["unreadable"]
+    assert path.read_text() == broken  # nothing written
+    from pathlib import Path
+    assert Path(out["outside_copy"]).read_text() == broken
+    assert versions._entries(svc._versions_root, "NB")[0]["kind"] == "not saved"  # the listing needs a readable file
+    again = call(svc, "save_notebook", name="NB", cells=mine, disk_stamp=out["disk_stamp"])  # Keep mine
+    assert "changed_on_disk" not in again and svc.notebooks.load("NB")["cells"][0]["source"] == "a = 3"

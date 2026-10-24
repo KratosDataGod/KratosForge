@@ -35,7 +35,9 @@ Notebooks are plain `.ipynb` files, so you can open the app's notebooks folder, 
 - **Load its version** shows the file as the other program saved it. Your unsaved edits here are dropped.
 - **Keep mine** saves what you see here over it.
 
-Either way, the other program's version is kept first under **Versions** as **Changed outside the app**, so you can restore it. Closing the question keeps your edits on screen unsaved, and it's asked again at the next save. Publish, Run in Fabric and adding a Fabric schedule save first, so they never publish over an outside change either.
+Before it asks, both sides are kept under **Versions**: the other program's as **Changed outside the app**, and yours as **Not saved (changed outside)**. So whichever you pick, or if you close the app without picking, you can restore the other one. Closing the question keeps your edits on screen unsaved, and it's asked again at the next save. **Load its version** waits while a cell is running. Publish, Run in Fabric and adding a Fabric schedule save first, so they never publish over an outside change either.
+
+If the file isn't a notebook any more, for example a Git merge left conflict markers in it, only **Keep mine** is offered. A copy of the file as it was is kept beside the notebook's versions (`%LOCALAPPDATA%\FabricDesktop\notebook-versions\<notebook>\outside-<time>.ipynb`), and the question shows where.
 
 ## Delete and restore
 

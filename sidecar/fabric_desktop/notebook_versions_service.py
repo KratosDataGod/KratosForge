@@ -40,13 +40,27 @@ class NotebookVersionsMixin:
         except Exception as exc:  # noqa: BLE001 - the notebook is already saved; a version is never worth failing it
             _log.warning("Couldn't keep a version of %r: %s", name, describe(exc))
 
-    def _keep_outside_version(self, name: str) -> None:
-        """The file as another program saved it (save_notebook found it changed on disk). Kept on its
-        own, never merged into the automatic versions, so saving over it later can be undone."""
+    def _keep_both_sides(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None,
+                         compute: str | None, workspace: dict[str, str] | None, unreadable: bool) -> str | None:
+        """save_notebook found the file changed on disk, so nothing was saved. Both sides are kept
+        before anyone chooses, and never merged into the automatic versions: the file as the other
+        program left it ("changed outside"; a byte copy when it isn't a notebook any more, whose path
+        is returned) and the cells the app tried to save ("not saved"). Closing the app, or loading
+        the other version, then loses neither."""
+        copy = None
         try:
-            versions.record(self._versions_root, name, self._saved_nb(name), "changed outside")
+            if unreadable:
+                copy = str(versions.keep_copy(self._versions_root, name, self.notebooks.path(name)))  # type: ignore[attr-defined]
+            else:
+                versions.record(self._versions_root, name, self._saved_nb(name), "changed outside")
         except Exception as exc:  # noqa: BLE001 - nothing is saved over it now either way
             _log.warning("Couldn't keep the outside version of %r: %s", name, describe(exc))
+        try:
+            versions.record(self._versions_root, name, to_ipynb(cells, lakehouse_ref, compute or "default", workspace),
+                            "not saved")
+        except Exception as exc:  # noqa: BLE001 - the screen still has the cells and keeps asking
+            _log.warning("Couldn't keep the unsaved cells of %r: %s", name, describe(exc))
+        return copy
 
     def notebook_versions(self, name: str) -> dict[str, Any]:
         """The notebook's versions, newest first; ``current`` marks those matching the saved file."""

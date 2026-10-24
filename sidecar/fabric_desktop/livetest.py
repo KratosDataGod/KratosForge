@@ -375,10 +375,11 @@ class LiveTest:
             if not self.run_in_fabric:
                 self._skip("notebook.run", "Run the notebook in Fabric",
                            "skipped: needs --run-in-fabric (it spends capacity).")
-            elif published.status == "passed" or self.notebook_id:
+            elif published.status == "passed":
                 self._check("notebook.run", "Run the notebook in Fabric", self._notebook_run)
-            else:
-                self._skip("notebook.run", "Run the notebook in Fabric", "Needs the notebook, which couldn't be published.")
+            else:  # running cells that didn't publish as written would spend capacity proving nothing
+                self._skip("notebook.run", "Run the notebook in Fabric",
+                           "Needs the notebook published as written, and notebook.publish failed.")
         if "pipeline.definition" in self.extra:
             self._check("pipeline.definition", "Create a pipeline, read its definition back and re-export it",
                         self._pipeline_definition)

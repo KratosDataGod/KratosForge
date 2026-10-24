@@ -371,6 +371,15 @@ def test_changed_notebook_cells_fail_and_the_notebook_is_still_deleted(tmp_path)
     assert result["left_behind"] == []
 
 
+def test_a_notebook_whose_cells_came_back_changed_is_never_run_in_fabric(tmp_path):
+    fabric = ItemFabric(change_cells=True)
+    result = extra_harness(tmp_path, fabric, extra=(), run_in_fabric=True).run()
+    assert by_id(result)["notebook.publish"]["status"] == "failed"
+    assert by_id(result)["notebook.run"]["status"] == "skipped"
+    assert not [c for c in fabric.calls if c[0] == "run_item_job"]  # no capacity spent
+    assert fabric.items == {}
+
+
 def test_run_in_fabric_runs_the_notebook_only_with_the_flag(tmp_path):
     fabric = ItemFabric()
     result = extra_harness(tmp_path, fabric, extra=(), run_in_fabric=True).run()

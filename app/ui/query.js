@@ -410,7 +410,7 @@ function renderQuery() {
     const pill = st ? SQL_STATE[st] : ["", "Not run"];
     let msg = "Press Run to see results";
     if (st === "queued" && !ex) msg = wh ? "Starting..." : "Starting on this PC...";
-    else if (st === "queued" && wh && !ex.warehouse?.server) msg = "Finding the warehouse's SQL connection in Fabric...";
+    else if (st === "queued" && wh) msg = "Waiting to start: finding the warehouse's SQL connection in Fabric, or another query is still running";
     else if (st === "queued") msg = "Waiting for another query to finish (Settings › SQL sets how many run at once)";
     else if (st === "completed" && !r && busy) msg = "Reading the first page...";
     else if (st === "running" || st === "cancelling") {

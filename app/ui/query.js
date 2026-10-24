@@ -576,6 +576,12 @@ function renderQuery() {
     load: async () => { if (await warehouseRunOk(ref)) loadCatalog(); },
     query: (name) => queryTable(name),
     insert: (text) => insertAtCursor(text),
+    open: (name, text) => {
+      p.tabs.push({ name, sql: text, dialect: tab.dialect });
+      p.active = p.tabs.length - 1;
+      saveQueryTabs();
+      renderQuery();
+    },
   }) : null;
   p.whRedraw = wh ? () => { whTree.draw(); if (here()) editor.refresh(); } : null;
   const fabricLink = wh ? fabricItemLink({ type: ref.kind === "endpoint" ? "Lakehouse" : "Warehouse", workspace_id: ref.workspace_id, item_id: ref.item_id }) : null;

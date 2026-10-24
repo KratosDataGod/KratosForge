@@ -19,6 +19,7 @@ The left side lists the warehouse's schemas, and in each its **Tables**, **Views
 
 - Click a table or view to run `SELECT TOP (100) *` on it (in the current tab when it's empty, else a new one).
 - Open a table or view to see its columns with their T-SQL types, such as `decimal(18,2)` or `nvarchar(100)`. Click a column, procedure or function to type its quoted name in the editor.
+- **Script as** (an object's **⋯** button, or right-click): **Select top 100 rows**, **Script as CREATE**, **Script as ALTER** (views, procedures and functions) and **Script as DROP**. The script opens in a new tab and never runs: this page runs only queries that read. A table's CREATE is built from the columns already listed, so it asks Fabric nothing. A view, procedure or function's definition is read from `sys.sql_modules` (one catalog query in Fabric), and ALTER turns its leading `CREATE` or `CREATE OR ALTER` into `ALTER`. A table's CREATE carries column names, types and NULL or NOT NULL only, not constraints.
 - **Filter objects** narrows the tree by name or schema. **Refresh** lists them again.
 - The editor completes table, view and column names from the same list, without asking Fabric again.
 
@@ -33,8 +34,8 @@ How a run works underneath (states, limits, what is refused): [Running SQL queri
 | Stage | What it adds | State |
 | --- | --- | --- |
 | WH-01 | The Warehouse page and its warehouse target | Done |
-| WH-02 | Object explorer: schemas, tables, views, procedures, functions, columns for completion | This release |
-| WH-03 | Script as SELECT, CREATE, ALTER, DROP | Planned |
+| WH-02 | Object explorer: schemas, tables, views, procedures, functions, columns for completion | Done |
+| WH-03 | Script as SELECT, CREATE, ALTER, DROP | This release |
 | WH-04, WH-05 | SQL from a template, with fill-in parameters | Planned |
 | WH-06, WH-07 | Saved and shared queries, history and Fabric query insights | Planned |
 | WH-08 | Messages, several result sets and a quick chart | Planned |

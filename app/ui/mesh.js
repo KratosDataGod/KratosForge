@@ -173,17 +173,55 @@ function domainDialog(o, d, done) {
     o.domains.filter((x) => !x.parent_id && x.id !== d?.id).map((x) => h("option", { value: x.id, selected: x.id === d?.parent_id ? true : null }, x.name)));
   const description = h("input", { value: d?.description || "" });
   const owners = h("input", { value: d?.owners || "", placeholder: "Emails, separated by commas" });
+  // Only a new domain is offered to Fabric, and a subdomain only when its parent is in Fabric too.
+  const inFabric = d ? null : h("input", { type: "checkbox", checked: true });
+  const fabricNote = h("span", { class: "muted-text small" });
+  const save = btn(d ? "Save" : "Create in Fabric", "save", () => submit(), "tool primary");
+  const sync = () => {
+    if (!inFabric) return;
+    const p = o.domains.find((x) => x.id === parent.value);
+    const blocked = p && !p.fabric_domain;
+    inFabric.disabled = !!blocked;
+    if (blocked) inFabric.checked = false;
+    fabricNote.textContent = blocked ? `${p.name} isn't in Fabric, so its subdomains can't be either. Create ${p.name} in Fabric first, or import it.`
+      : "Needs a Fabric administrator. The first time, Windows asks you to allow changing your organization's Fabric settings.";
+    save.lastChild.textContent = inFabric.checked ? "Create in Fabric" : "Save";
+  };
+  if (inFabric) { parent.addEventListener("change", sync); inFabric.addEventListener("change", sync); }
+  const values = () => ({ id: d?.id, name: name.value.trim(), parent_id: parent.value, description: description.value.trim(), owners: owners.value.trim() });
+  async function submit() {
+    if (!name.value.trim()) { name.focus(); return; }
+    if (!inFabric?.checked) {
+      if (await metaCall("platform_save_domain", { domain: values() }, "Not saved")) { closeDialog(); done(); }
+      return;
+    }
+    if (!state.user && !(await signIn())) return;
+    const domain = values();
+    try {
+      await rpc("platform_create_domain", { domain, in_fabric: true });
+    } catch (e) {
+      const f = friendlyError(e);
+      if (!f.cancelled) notInFabric(domain, f.text);
+      return;
+    }
+    closeDialog(); toast(`Created ${domain.name} in Fabric`); done();
+  }
+  function notInFabric(domain, why) {
+    showDialog(`${domain.name} wasn't created in Fabric`, h("div", {},
+      h("p", { class: "card pad warn-box" }, why),
+      h("p", {}, "You can keep it in the platform only. A Fabric admin can create a domain with the same name later and choose Import from Fabric: the two are matched by name.")), [
+      btn("Cancel", null, closeDialog, "tool outline"),
+      btn("Save in the platform only", "save", async () => {
+        if (await metaCall("platform_save_domain", { domain }, "Not saved")) { closeDialog(); done(); }
+      }, "tool primary")]);
+  }
   showDialog(d ? `Edit ${d.name}` : "New domain", h("div", {},
     fromFabric ? h("p", { class: "muted-text small" }, "From Fabric. Its name and parent follow Fabric's domains; owners and description are the platform's.") : null,
     h("label", { class: "field" }, "Name", name), h("label", { class: "field" }, "Part of", parent),
-    h("label", { class: "field" }, "Description", description), h("label", { class: "field" }, "Owners", owners)), [
-    btn("Cancel", null, closeDialog, "tool outline"),
-    btn("Save", "save", async () => {
-      if (!name.value.trim()) { name.focus(); return; }
-      const res = await metaCall("platform_save_domain", { domain: { id: d?.id, name: name.value.trim(), parent_id: parent.value,
-        description: description.value.trim(), owners: owners.value.trim() } }, "Not saved");
-      if (res) { closeDialog(); done(); }
-    }, "tool primary")]);
+    h("label", { class: "field" }, "Description", description), h("label", { class: "field" }, "Owners", owners),
+    inFabric ? h("label", { class: "check" }, inFabric, h("span", {}, h("strong", {}, "Also create it in Fabric (Preview)"), " ", fabricNote)) : null), [
+    btn("Cancel", null, closeDialog, "tool outline"), save]);
+  sync();
 }
 
 // Fabric's domain list is a Fabric admin API: only a Fabric administrator can import it.

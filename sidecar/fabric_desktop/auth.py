@@ -54,6 +54,9 @@ CAPACITY_SCOPES = ["https://api.fabric.microsoft.com/Capacity.Read.All"]
 # Importing Fabric's domains and subdomains (Fabric's admin API). Only a Fabric administrator
 # can use it, and only they are asked for it, when they choose Import from Fabric.
 TENANT_READ_SCOPES = ["https://api.fabric.microsoft.com/Tenant.Read.All"]
+# Creating a domain in Fabric (Platform > Domains > New domain). Also a Fabric administrator's
+# alone, asked for only when they choose to create one there.
+TENANT_WRITE_SCOPES = ["https://api.fabric.microsoft.com/Tenant.ReadWrite.All"]
 # Adding someone to a workspace by email (Power BI's API, the same Power BI Service permission
 # as Workspace.ReadWrite.All above), so no directory permission is needed for it.
 POWERBI_WORKSPACE_SCOPES = ["https://analysis.windows.net/powerbi/api/Workspace.ReadWrite.All"]

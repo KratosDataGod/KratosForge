@@ -101,7 +101,7 @@ Complexity is S (under a day, one module), M (a few modules, new tests), L (cros
 | HD-014 | EN-3: workspace limits on every capability | Hardening | HD-006 | M |
 | HD-015 | EN-4: external SQL timeout interrupts and releases the lock | Hardening | none | S |
 | HD-016 | EN-6, AR-1: leases atomic across processes; lost lease stops the write | Hardening (agent) | none | M |
-| HD-017 | EP-3: audit chain safe across processes; head checkpoint | Hardening | open stack (`audit.py`) | S |
+| HD-017 | EP-3: audit chain safe across processes; head checkpoint (done: `audit_chain.append` re-reads the last hash under the folder's lock file; each write records the newest hash and line count in `head.json`, and `verify()` reports a trail that ends before it, also after later writes) | Hardening | open stack (`audit.py`) | S |
 | HD-020 | SH-1, UI-1: Content Security Policy; notebook output on its own origin | Hardening | a manual Windows check before merge | L |
 | HD-021 | SH-2: fail unsigned releases; verify signatures in CI and on the client | Hardening | **Chris: Trusted Signing account (D-C3)** | M |
 | HD-022 | SH-5: no downgrades; keep the previous exe until the new one starts. Must still let a Stable PC follow a deliberate rollback (an earlier build promoted to Stable, HD-028) | Hardening | open stack (`app.js`) | M |

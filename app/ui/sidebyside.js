@@ -152,9 +152,37 @@ function drawSbs(nb) {
 
 function sbsTime(s) {
   if (s === null || s === undefined) return "–";
-  if (s < 60) return `${Number(s).toFixed(1)} s`;
-  if (s < 3600) return `${Math.floor(s / 60)} min ${Math.round(s % 60)} s`;
-  return `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min`;
+  if (s < 59.95) return `${Number(s).toFixed(1)} s`;
+  const secs = Math.round(s); // rounded once, so 779.6 s is 13 min 0 s, not 12 min 60 s
+  if (secs < 3600) return `${Math.floor(secs / 60)} min ${secs % 60} s`;
+  const mins = Math.round(secs / 60);
+  return `${Math.floor(mins / 60)} h ${mins % 60} min`;
+}
+
+function sbsSize(n) {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)} GB`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e8 ? 0 : 1)} MB`;
+  return `${Math.max(1, Math.round(n / 1e3))} KB`;
+}
+
+// This PC's time as processing and waiting on OneLake uploads, and what the uploads did. Uploads that ran
+// in the background while cells computed (writes local first) cost no time, so they aren't the wait.
+function sbsLocalSplit(local) {
+  const up = local.upload || {};
+  const wait = local.upload_wait_seconds || 0;
+  const lines = [];
+  lines.push(local.processing_seconds !== undefined && wait >= 0.05
+    ? h("span", { class: "sbs-split" }, h("i", { class: "sbs-key pc" }), `Processing on this PC ${sbsTime(local.processing_seconds)}`,
+      h("i", { class: "sbs-key upload" }), `Waiting for OneLake uploads ${sbsTime(wait)}`)
+    : h("span", {}, "No wait to start"));
+  if (up.tables) {
+    const what = up.bytes ? `${sbsSize(up.bytes)} to OneLake` : `${up.rows.toLocaleString()} rows to OneLake`;
+    const rate = up.mb_per_second ? ` · about ${up.mb_per_second.toFixed(1)} MB/s` : "";
+    const skipped = up.skipped ? ` · ${up.skipped} unchanged, skipped` : "";
+    lines.push(h("span", { class: "muted", title: "Uploading time counts writes going side by side once. With writes local first, much of it ran while cells computed." },
+      `Uploaded ${what} in ${sbsTime(up.seconds)}${rate}${skipped}`));
+  }
+  return lines;
 }
 
 function sbsContent(nb) {
@@ -208,7 +236,13 @@ function sbsResult(nb, s) {
   const pill = h("span", { class: `pill-s ${verdict.same === true ? "pass" : verdict.same === false ? "fail" : "neu"}` },
     verdict.same === true ? "✓ " : verdict.same === false ? "✗ " : "", verdict.text);
   const longest = Math.max(local.seconds || 0, f.total_seconds || 0) || 1;
-  const bar = (secs, cls) => h("div", { class: `sbs-bar ${cls}`, style: `width:${Math.max(2, Math.round(100 * (secs || 0) / longest))}%` });
+  const width = (secs) => Math.max(2, Math.round(100 * (secs || 0) / longest));
+  const bar = (secs, cls) => h("div", { class: `sbs-bar ${cls}`, style: `width:${width(secs)}%` });
+  const wait = local.upload_wait_seconds || 0;
+  const pcBar = wait >= 0.05 && local.processing_seconds !== undefined
+    ? h("div", { class: "sbs-bar split", style: `width:${width(local.seconds)}%` },
+      h("div", { class: "pc", style: `flex:${local.processing_seconds}` }), h("div", { class: "upload", style: `flex:${wait}` }))
+    : bar(local.seconds, "pc");
   const money = (v) => (v === null || v === undefined ? "–" : `${f.currency === "USD" ? "$" : ""}${v.toFixed(v < 1 ? 3 : 2)}${f.currency && f.currency !== "USD" ? ` ${f.currency}` : ""}`);
   const at = s.started_at ? new Date(s.started_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "";
   const sideStatus = (status, cell) => (status === "ok" ? null
@@ -225,7 +259,7 @@ function sbsResult(nb, s) {
       h("div", { class: "sbs-side" },
         h("span", { class: "muted" }, `This PC${m.cores ? ` · ${m.cores} cores` : ""}${m.memory_gb ? ` · ${m.memory_gb} GB` : ""}`),
         h("b", { class: "sbs-big" }, sbsTime(local.seconds)), sideStatus(local.status, local.failed_cell),
-        h("span", {}, "No wait to start"), h("span", { class: "muted", title: "Its OneLake reads and writes still use some capacity." }, "No Fabric job"), bar(local.seconds, "pc")),
+        ...sbsLocalSplit(local), h("span", { class: "muted", title: "Its OneLake reads and writes still use some capacity." }, "No Fabric job"), pcBar),
       h("div", { class: "sbs-side" },
         h("span", { class: "muted" }, `Fabric · ${s.workspace_name || ""} · ${f.engine === "python" ? "Python" : "Spark"} notebook`),
         h("b", { class: "sbs-big" }, sbsTime(f.total_seconds)), sideStatus(f.status),
@@ -238,6 +272,7 @@ function sbsResult(nb, s) {
         f.url ? h("a", { href: "#", onclick: (e) => { e.preventDefault(); openInFabric(f.url); } }, "Open the run in Fabric") : null)),
     s.speed?.end_to_end ? h("b", {}, s.speed.end_to_end) : null,
     s.speed?.run ? h("span", {}, s.speed.run) : null,
+    s.speed?.processing ? h("span", {}, s.speed.processing) : null,
     local.message ? h("div", { class: "problems" }, `This PC: ${local.message}`) : null,
     f.message ? h("div", { class: "problems" }, `Fabric: ${f.message}`) : null,
     rows.length ? h("div", { class: "sbs-table" },

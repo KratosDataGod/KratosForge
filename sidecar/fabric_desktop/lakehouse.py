@@ -14,6 +14,7 @@ locally; only the input file download and the Delta write touch OneLake.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import threading
@@ -383,7 +384,10 @@ def _queue() -> Any:
 def _see_own_writes() -> None:
     """A read waits for the cell's own writes still uploading, so it sees them."""
     if (q := _queue()) is not None:
-        q.wait()
+        from . import write_queue
+        stats = write_queue.stats()
+        with stats.waiting() if stats is not None else contextlib.nullcontext():
+            q.wait()
 
 
 def _setting(key: str, default: Any) -> Any:
@@ -485,8 +489,10 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
         rows = spill.rows
     fingerprint = write_queue.fingerprint(schema, write_queue.combine(parts)) if mode == "overwrite" else None
     name_ = f"{ref.schema}.{ref.table}"
+    stats = write_queue.stats()  # the cell's, for its timing; a background write runs on another thread
 
     def commit() -> WriteResult:
+        uploading = time.monotonic()
         try:
             delta = publish(arrow if arrow is not None else spill.reader(), ref, mode, lh.storage_token(),
                             schema_mode=schema_mode, rows=fingerprint, skip_unchanged=skip_unchanged)
@@ -495,6 +501,8 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
                 spill.remove()
         skipped = bool(getattr(delta, "skipped", False))
         result = WriteResult(name_, rows, delta.version(), ref.uri, skipped)
+        if stats is not None:
+            stats.wrote(uploading, 0 if skipped else rows, getattr(delta, "written_bytes", None), skipped)
         # A table the notebook writes before reading starts, for a replay, at the version before that write.
         _record_table(ref, result.delta_version if skipped else
                       result.delta_version - 1 if result.delta_version > 0 else None, "write", lh)
@@ -511,11 +519,13 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
         return result
 
     queue = _queue()  # set for this cell when its notebook writes local first (notebook.py)
-    if queue is None or upload == "direct":
-        if queue is not None:
-            queue.wait()  # in order with the cell's writes still uploading
-        return commit()
-    future = queue.submit(ref.uri, name_, arrow.nbytes if arrow is not None else 0, commit)
+    with stats.waiting() if stats is not None else contextlib.nullcontext():
+        if queue is None or upload == "direct":
+            if queue is not None:
+                queue.wait()  # in order with the cell's writes still uploading
+            return commit()
+        # Returns at once, unless the writes already waiting hold too much of this PC's memory.
+        future = queue.submit(ref.uri, name_, arrow.nbytes if arrow is not None else 0, commit)
     return PendingWrite(name_, rows, ref.uri, future)
 
 

@@ -194,12 +194,12 @@ Only one program can write to a project's database at a time. If another KratosF
 | `local_explain(project, query, dialect, analyze, timeout)` | How the engine runs one query that reads: its plan, or with `analyze` the plan as it ran (see [Why is a query slow](#why-is-a-query-slow)). It makes `local_query`'s statement checks first, since `analyze` runs the query |
 | `sql_start(query, target="local", project, dialect, confirm, dry_run)` | The same, in the background, as a [managed SQL run](sql-execution.md#queries-in-a-local-data-project): `sql_status`, `sql_page`, `sql_cancel` and `sql_export` follow it. `DROP`, `TRUNCATE`, `CREATE OR REPLACE`, `INSERT OVERWRITE`, and `DELETE` or `UPDATE` without `WHERE` run only with `confirm`; file reads and `SET`/`PRAGMA` are refused; `dry_run` says what would run and runs nothing |
 | `local_query_start(project, query, dialect, limit, timeout, confirm)` / `local_query_status` / `local_query_cancel` | Deprecated: forward to `sql_start` and answer as before (`state` running, done, cancelled or error, and the first `limit` rows) |
-| `local_write_delta(project, table, query, mode, partition_by, schema_mode, dry_run)` | Write a query's rows to a Delta table in the project (`mode`: `create`, `append` or `overwrite`) |
-| `local_change_delta(project, query, dialect, dry_run, confirm)` | Run one `MERGE INTO`, `UPDATE` or `DELETE` on a Delta table in the project; returns rows inserted, updated and deleted. `dry_run` changes nothing; `confirm` is needed for every row |
+| `local_write_delta(project, table, query, mode, partition_by, schema_mode, dry_run)` | Write a query's rows to a Delta table in the project (`mode`: `create`, `append` or `overwrite`). The query gets `local_query`'s statement checks first |
+| `local_change_delta(project, query, dialect, dry_run, confirm)` | Run one `MERGE INTO`, `UPDATE` or `DELETE` on a Delta table in the project; returns rows inserted, updated and deleted. `dry_run` changes nothing; `confirm` is needed for every row. The statement gets `local_query`'s checks first |
 | `local_delta_history(project, table, limit)` | A Delta table's versions: time, operation, rows and files added |
 | `local_drop_delta(project, table, confirm)` | Delete one of the project's Delta tables with every version (only with `confirm`) |
 | `local_transform_plan(project)` | The project's transformation steps in run order, with what each reads, its settings and parameters, and any problems |
-| `local_transform_run(project, params, steps, dry_run)` | Run the steps in order, each making its table |
+| `local_transform_run(project, params, steps, dry_run)` | Run the steps in order, each making its table. Each step's query gets `local_query`'s statement checks first; a refused step fails the run |
 | `local_transform_runs(project, limit)` | Earlier runs, newest first |
 | `local_close_project` / `local_forget_project` | Close the database / take the project off the list (its folder stays) |
 

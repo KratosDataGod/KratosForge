@@ -1936,6 +1936,17 @@ async function saveNotebook() {
   return true;
 }
 
+// An explicit save (the Save button, Ctrl+S) gets a Forge Spark once it is written, at most one per
+// SAVE_FX_MS; autosave and the saves other flows make first (publish, run in Fabric, close) never do.
+const SAVE_FX_MS = 5000;
+let saveFxAt = -Infinity;
+async function saveExplicitly(anchor) {
+  const ok = await saveNotebook();
+  const el = ok ? anchor() : null;
+  if (el && Date.now() - saveFxAt >= SAVE_FX_MS && forgeEvent("notebook.saved", el)) saveFxAt = Date.now();
+  return ok;
+}
+
 function markDirty() {
   if (!state.notebook) return;
   const wasDirty = state.notebook.dirty;
@@ -2498,7 +2509,7 @@ registerShortcuts("Notebook", [
 document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s" && state.view === "notebook") {
     e.preventDefault();
-    saveNotebook().then((ok) => { if (ok) toast("Saved"); });
+    saveExplicitly(() => { toast("Saved"); return document.getElementById("toast"); });
   }
 });
 window.addEventListener("beforeunload", () => { if (state.notebook?.dirty) saveNotebook(); });

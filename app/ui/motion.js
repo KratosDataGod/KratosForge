@@ -40,6 +40,7 @@ const FORGE_EVENTS = {
   "pipeline.failed": "fail",
   "deploy.succeeded": "strike",
   "deploy.failed": "fail",
+  "notebook.saved": "spark",
   "sql.succeeded": "spark",
   "sql.failed": "fail",
   "achievement.unlocked": "achieve",

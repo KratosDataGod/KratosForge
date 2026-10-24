@@ -34,7 +34,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import sqlglot
 from sqlglot import exp
@@ -70,8 +70,9 @@ class Step:
 class Transforms:
     """The steps of one project, and running them on its engine."""
 
-    def __init__(self, engine: Any):
+    def __init__(self, engine: Any, check: Callable[[str, str], None] | None = None):
         self.engine = engine
+        self.check = check  # raises for a query a managed local run would refuse (localdata_service)
         self.root: Path = engine.project.root / "transforms"
 
     # Reading the steps
@@ -188,6 +189,8 @@ class Transforms:
             started = time.monotonic()
             try:
                 self._may_replace(step, state)
+                if self.check is not None:
+                    self.check(step.sql, step.dialect)
                 if dry_run:
                     waits = self._check(step, values, by_name)
                     item["status"] = "checked" if not waits else "not checked"

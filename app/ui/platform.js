@@ -682,9 +682,15 @@ async function confirmApproval(r) {
     return ok ? {} : null;
   }
   if (r.kind === "domain") {
-    const ok = await confirmDialog(`Approve the domain ${d.name || r.target}?`,
-      `As you, KratosForge saves the ${d.parent_id ? "subdomain" : "domain"} ${d.name || r.target} in the platform, where every team sees it. It isn't created in Fabric: a Fabric administrator does that in the admin portal. ${after}`,
-      "Save and approve");
+    // Created in Fabric unless its parent isn't there: a subdomain can't be in Fabric without its parent.
+    const kind = d.parent_id ? "subdomain" : "domain";
+    const name = d.name || r.target;
+    const parent = d.parent_id ? ((await reqQuietly("platform_domains")) || []).find((x) => x.id === d.parent_id) : null;
+    const inFabric = !parent || !!parent.fabric_domain;
+    const ok = await confirmDialog(`Approve the domain ${name}?`, inFabric
+      ? `As you, KratosForge creates the ${kind} ${name} in Fabric, for the whole organization, and keeps it in the platform linked to it, where every team sees it. That needs a Fabric administrator: if Fabric refuses you, nothing is made and a Fabric administrator can approve it instead, or you can create it in the platform only. ${after}`
+      : `${parent.name} isn't in Fabric, so its subdomains can't be either. As you, KratosForge saves the subdomain ${name} in the platform only, where every team sees it. ${after}`,
+      inFabric ? "Create and approve" : "Save and approve");
     return ok ? {} : null;
   }
   if (r.kind === "exception") {
@@ -754,7 +760,7 @@ async function platformRequestsTab(body) {
     requestTable(shown, rerender)),
   howItWorks("platform.requests", {
     reads: "The requests in the platform's catalog (SQL_Platform in Fabric, or a file on this PC), when the tab opens. New request also lists the domains, capacities, workspaces and policies you can see, to pick from.",
-    changes: "Sending adds a request to the catalog. Approving makes what was asked for first, as you: a key table or source in the platform; a shortcut in OneLake; a workspace in Fabric on its capacity, with its admins added; a role in a workspace; a domain saved in the platform; an exception recorded in the platform for its policy. Then the request is marked approved. If a step fails, the request stays waiting and the error names the step.",
+    changes: "Sending adds a request to the catalog. Approving makes what was asked for first, as you: a key table or source in the platform; a shortcut in OneLake; a workspace in Fabric on its capacity, with its admins added; a role in a workspace; a domain created in Fabric and kept in the platform (in the platform only when its parent isn't in Fabric; creating it in Fabric needs a Fabric administrator); an exception recorded in the platform for its policy. Then the request is marked approved. If a step fails, the request stays waiting and the error names the step.",
     results: "Everyone sees requests here and in the bell, and the platform's Teams routes get a notice (no email yet). A workspace's domain in Fabric is set by a Fabric administrator in Fabric's admin portal. Every change is on the Audit tab.",
     anchor: "platform",
   })));
@@ -974,6 +980,7 @@ function trustError(err) {
 async function renderProductTrust(p) {
   const pp = productsPage;
   const badges = h("span", { class: "row tight endorse-head" });
+  const lastScan = h("div", { class: "muted-text small trust-last-scan" });
   const endorsement = h("div", { class: "card pad trust-endorsement" }, h("b", {}, "Endorsement"), loading());
   const terms = h("div", { class: "card pad trust-terms" }, h("b", {}, "Business terms"), loading());
   setView(h("div", { class: "page monitor onelake" }, onelakeTabs(), withHowItWorks(
@@ -981,7 +988,7 @@ async function renderProductTrust(p) {
       h("section", { class: "card pad" },
         h("div", { class: "monitor-band" }, btn("All data products", null, () => { pp.open = null; render(); }, "tool link small")),
         h("div", { class: "row" }, h("h2", { class: "trust-name" }, p.name), badges, previewTag()),
-        h("div", { class: "muted-text small" }, p.description || ""), h("div", { class: "muted-text small mono" }, p.id)),
+        h("div", { class: "muted-text small" }, p.description || ""), h("div", { class: "muted-text small mono" }, p.id), lastScan),
       endorsement, terms),
     howItWorks("onelake.product-trust", {
       reads: "The product's endorsement as the last tenant scan read it, and its business terms, from the platform's catalog. Scan now reads Fabric's admin tenant scan (Power BI) of the workspaces the platform's published products live in, as you: only a Fabric administrator can. Nothing reads Purview.",
@@ -992,8 +999,14 @@ async function renderProductTrust(p) {
   const here = () => state.view === "onelake" && catalogPage.tab === "products" && pp.open === p;
   const draw = (t) => {
     if (!here()) return;
+    // Items that differ get one neutral badge here; the Endorsement card names each item's own.
     const seen = [...new Map(t.items.map((i) => [i.endorsement || "", i.endorsement])).values()];
-    badges.replaceChildren(...(seen.length ? seen : [null]).map(endorsementBadge));
+    badges.replaceChildren(...(seen.length > 1
+      ? [h("span", { class: "pill-s neu endorse-badge varies", title: "Its items' endorsements differ: each one is under Endorsement" }, "Endorsement varies")]
+      : (seen.length ? seen : [null]).map(endorsementBadge)));
+    const latest = t.items.map((i) => i.scanned_at).filter((x) => x && !Number.isNaN(Date.parse(x)))
+      .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+    lastScan.replaceChildren(...(latest ? ["Last tenant scan: ", when(latest)] : []));
     endorsement.replaceChildren(h("b", {}, "Endorsement"), ...endorsementLines(t, scan));
     terms.replaceChildren(...termLines(t, p, draw));
   };
@@ -1027,7 +1040,9 @@ function endorsementLines(t, scan) {
   if (!t.items.length) {
     return [h("p", { class: "muted-text small" }, "This product has no port in Fabric yet. Once it's published to Test or Prod, its lakehouse's endorsement can be read.")];
   }
-  return t.items.map((i) => {
+  const varies = new Set(t.items.map((i) => i.endorsement || "")).size > 1;
+  const intro = varies ? [h("p", { class: "small trust-varies" }, "Its items' endorsements differ. Each one's is below.")] : [];
+  return [...intro, ...t.items.map((i) => {
     const fabric = (label) => h("a", { href: "#", class: "trust-fabric", onclick: (e) => { e.preventDefault(); openLink(fabricItemLink({ type: i.item_type, workspace_id: i.workspace_id, item_id: i.item_id })); } }, label);
     const head = h("div", { class: "row tight" }, endorsementBadge(i.endorsement), h("span", { class: "mono small" }, i.item_name || i.item_id),
       h("span", { class: "muted-text small" }, ENV_LABEL[i.env] || i.env));
@@ -1041,7 +1056,7 @@ function endorsementLines(t, scan) {
     return h("div", { class: "trust-item" }, head, h("p", { class: "small" }, said),
       h("p", { class: "muted-text small" }, "From the tenant scan ", when(i.scanned_at), ". ", scanLink()),
       h("p", { class: "muted-text small" }, `To change it, open the ${ITEM_WORD[i.item_type] || "item"}'s settings in Fabric. KratosForge can't set endorsement. `, fabric("Open in Fabric")));
-  });
+  })];
 }
 
 function termLines(t, p, done) {

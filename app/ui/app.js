@@ -2143,6 +2143,16 @@ function computeNote(nb) {
 
 // ---------- Run in Fabric and schedules ----------
 
+// The notebook's status bar while its run in Fabric goes: the navy wolf trotting in place (motion.js
+// remoteProgress; no fill or percentage, since Fabric reports none), then how the last run ended.
+function nbFabricRunStatus(nb) {
+  const run = nb.fabricRun;
+  if (!run) return null;
+  const word = run.status === "NotStarted" ? "starting" : run.status;
+  if (FABRIC_DONE.has(run.status)) return h("span", { class: "nb-fabric-last" }, `Last Fabric run: ${word}`);
+  return h("span", { class: "nb-fabric-run" }, remoteProgress(`${nb.name} running in Fabric`, `Running in Fabric: ${word}`));
+}
+
 // The same notebook, run on the workspace's Fabric capacity: published first, then started
 // with Fabric's job scheduler. It shows in Monitor (both lists) while it runs.
 const FABRIC_DONE = new Set(["Completed", "Failed", "Cancelled", "Deduped"]);
@@ -2169,20 +2179,31 @@ async function runInFabric() {
   renderChrome();
   if (state.view === "notebook") renderNotebook();
   toast(`${nb.name} is running in Fabric. The bell follows it until it finishes.`);
+  if (state.view === "notebook" && state.notebook === nb) forgeEvent("fabric.run.started", document.querySelector("button[data-run]"));
   logActivity({ id: `fabric:${run.job_id}`, status: "running", title: `${nb.name} · Notebook run`, text: `In Fabric on ${run.workspace_name || publishWorkspaceName(nb)}`, url: run.url, monitor: true });
   trackFabricJobs();
   watchFabricRun(nb, run);
 }
 
+// How often a run in Fabric is read again while its notebook is open (a test shortens it).
+let fabricWatchMs = 10000;
 async function watchFabricRun(nb, run) {
   for (let i = 0; i < 360; i++) {  // up to an hour while the app is open
-    await new Promise((r) => setTimeout(r, 10000));
+    await new Promise((r) => setTimeout(r, fabricWatchMs));
     const runs = await rpc("fabric_runs", { limit: 50 }).catch(() => null);
     const now = runs?.find((r) => r.job_id === run.job_id);
     if (!now) continue;
     nb.fabricRun = now;
-    if (state.view === "notebook" && state.notebook === nb) renderNotebook();
-    if (FABRIC_DONE.has(now.status)) return;  // the activity tray reports how it ended
+    const here = state.view === "notebook" && state.notebook === nb;
+    if (here) renderNotebook();
+    if (FABRIC_DONE.has(now.status)) {
+      // The activity tray reports how it ended; the status bar glows once on success or shows the
+      // ember on failure (motion.js). Cancelled and deduplicated runs play nothing.
+      const last = here && document.querySelector(".statusbar .nb-fabric-last");
+      if (last && now.status === "Completed") forgeEvent("fabric.run.succeeded", last);
+      if (last && now.status === "Failed") forgeEvent("fabric.run.failed", last);
+      return;
+    }
   }
 }
 

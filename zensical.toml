@@ -38,6 +38,7 @@ nav = [
     { "Local data projects" = "local-data.md" },
     { "SQL compatibility check" = "sql-compatibility.md" },
     { "Running SQL queries" = "sql-execution.md" },
+    { "Warehouses" = "warehouse.md" },
     { "Side by side: PC vs Fabric" = "side-by-side.md" },
     { "Notebook resources" = "notebook-resources.md" },
     { "Notebook magics" = "notebook-magics.md" },

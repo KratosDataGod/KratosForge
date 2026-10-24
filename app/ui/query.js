@@ -1,4 +1,4 @@
-// The SQL query page for a lakehouse: tabs, the CodeMirror editor, running through the engine and
+// The SQL query page for a lakehouse or, as the Warehouse page, a Fabric warehouse: tabs, the CodeMirror editor, running through the engine and
 // paging results. Split out of app.js (HD-056). It loads before app.js, which registers renderQuery,
 // and uses app.js helpers (h, rpc, state) only when its functions are called.
 
@@ -7,27 +7,47 @@
 // SQL over one lakehouse's tables, run on this PC by the sidecar (DuckDB). The editor is sqleditor.js.
 const QUERY_HINT = "-- Spark SQL runs on this PC. Press Ctrl+Enter to run.\n";
 const SQL_AUTO_CHECK_LIMIT = 100000;  // characters; a longer query is checked when the person asks
+const WAREHOUSE_HINT = "-- T-SQL runs in Fabric on this warehouse and uses capacity. Only a query that reads runs here.\n";
 const sqlPage = { ref: null, tabs: [], active: 0, tables: null, cols: {}, open: {}, pending: {}, editor: null };
+// Warehouses whose first run this session the person has confirmed (a warehouse run uses capacity).
+const sqlWarehouseOk = new Set();
+
+// WH-01: a warehouse ref is { kind: "warehouse" | "endpoint", workspace_id, workspace_name, item_id,
+// name }. For "endpoint", item_id is the lakehouse's id, as sql_start's warehouse_ref takes it.
+function isWarehouseRef(ref) {
+  return ref?.kind === "warehouse" || ref?.kind === "endpoint";
+}
+
+function sqlRefKey(ref) {
+  return isWarehouseRef(ref) ? `${ref.kind}.${ref.item_id}` : ref?.lakehouse_id;
+}
 
 function openSqlQuery(ref) {
-  if (sqlPage.ref?.lakehouse_id !== ref.lakehouse_id) {
+  if (sqlRefKey(sqlPage.ref) !== sqlRefKey(ref)) {
     Object.assign(sqlPage, { ref, tabs: loadQueryTabs(ref), active: 0, tables: null, cols: {}, open: {}, pending: {} });
   }
   go("query");
 }
 
+// The Warehouse page (WH-01): the SQL query page with a warehouse or SQL analytics endpoint as its target.
+function openWarehouseQuery(ref) {
+  openSqlQuery(ref);
+}
+
 function queryTabsKey(ref) {
-  return `fabric-desktop.sql.${ref.lakehouse_id}`;
+  return isWarehouseRef(ref) ? `fabric-desktop.sql.${sqlRefKey(ref)}` : `fabric-desktop.sql.${ref.lakehouse_id}`;
 }
 
 function loadQueryTabs(ref) {
+  const wh = isWarehouseRef(ref);
   try {
     const saved = JSON.parse(localStorage.getItem(queryTabsKey(ref)));
     if (Array.isArray(saved) && saved.length) {
-      return saved.map((t) => ({ name: String(t.name), sql: String(t.sql), dialect: sqlDialect(t.dialect) }));
+      const tabs = saved.map((t) => ({ name: String(t.name), sql: String(t.sql), dialect: sqlDialect(t.dialect) }));
+      return wh ? tabs.map((t) => ({ ...t, dialect: ref.kind })) : tabs;
     }
   } catch { /* no saved tabs */ }
-  return [{ name: "Query 1", sql: QUERY_HINT, dialect: "spark" }];
+  return [wh ? { name: "Query 1", sql: WAREHOUSE_HINT, dialect: ref.kind } : { name: "Query 1", sql: QUERY_HINT, dialect: "spark" }];
 }
 
 function saveQueryTabs() {
@@ -62,6 +82,12 @@ function lakehouseSqlProvider(p, ref, changed) {
 
 // A query that succeeds after running longer than this (engine seconds) gets a spark; quicker ones don't.
 const SQL_SPARK_SECONDS = 2;
+
+// The completion provider for a warehouse. Its tables and columns come with the object explorer
+// (WH-02); until then the editor suggests keywords and functions only.
+function warehouseSqlProvider(ref) {
+  return { id: `${ref.kind}:${ref.item_id}`, label: ref.name, tables: () => [], cachedColumns: () => undefined, columns: () => Promise.resolve([]) };
+}
 
 // A managed run's state on the Results band: [pill class, label].
 const SQL_STATE = { queued: ["busy", "Queued"], running: ["busy", "Running"], cancelling: ["busy", "Stopping"],
@@ -104,16 +130,18 @@ function renderQuery() {
   if (!ref) return go("onelake");
   if (!p.tabs[p.active]) p.active = 0;
   const tab = p.tabs[p.active];
-  tab.dialect = sqlDialect(tab.dialect);
+  const wh = isWarehouseRef(ref);
+  tab.dialect = wh ? ref.kind : sqlDialect(tab.dialect);
   const here = () => state.view === "query" && p.ref === ref && p.tabs[p.active] === tab;
-  const runsHere = () => SQL_DIALECTS[tab.dialect].runsHere;
+  const runsHere = () => wh || SQL_DIALECTS[tab.dialect].runsHere;
+  const where = wh ? "in Fabric" : "on this PC";
 
   const setSql = (text) => { tab.sql = text; saveQueryTabs(); };
   p.editor?.destroy();
   const editor = p.editor = createSqlEditor({
     doc: tab.sql,
     dialect: tab.dialect,
-    provider: lakehouseSqlProvider(p, ref, () => { if (here()) editor.refresh(); }),
+    provider: wh ? warehouseSqlProvider(ref) : lakehouseSqlProvider(p, ref, () => { if (here()) editor.refresh(); }),
     on: {
       change: setSql,
       run: () => run(),
@@ -149,19 +177,30 @@ function renderQuery() {
 
   // SQL-003: each run is a managed query on this PC (sql_exec.py): queued, then running in a process
   // of its own, with Stop and the time limit in Settings › SQL. Results come a page at a time from
-  // the run's snapshot, so a large result is never loaded whole.
+  // the run's snapshot, so a large result is never loaded whole. On the Warehouse page (WH-01) the
+  // same managed run sends one query that reads to the warehouse (sql_start target "warehouse").
   async function run(query = editor.chosen(), allow = []) {
     if (!query.trim() || tab.running) return;
     if (!runsHere()) {
       toast(`${SQL_DIALECTS[tab.dialect].label} can't run on this PC. Pick Spark SQL or DuckDB to run here.`, true);
       return;
     }
+    if (wh && !sqlWarehouseOk.has(sqlRefKey(ref))) {
+      const ok = await confirmDialog(`Run this query in Fabric on ${ref.name}?`,
+        `It runs on the ${ref.kind === "endpoint" ? "SQL analytics endpoint" : "warehouse"} in ${ref.workspace_name || "its workspace"}, ` +
+        "as you, and uses capacity. Only a query that reads is sent; anything that would change the warehouse is refused before Fabric is asked. " +
+        "This asks once per warehouse each time the app starts.", "Run in Fabric");
+      if (!ok) return;
+      sqlWarehouseOk.add(sqlRefKey(ref));
+    }
     tab.running = true;
     Object.assign(tab, { error: null, errorRetry: null, result: null, exec: null, ranNotice: "" });
     drawResults();
     let status;
     try {
-      status = await rpc("sql_start", { query, lakehouse_ref: ref, dialect: tab.dialect, allow });
+      status = await rpc("sql_start", wh
+        ? { query, target: "warehouse", dialect: "tsql", warehouse_ref: { workspace_id: ref.workspace_id, item_id: ref.item_id, kind: ref.kind } }
+        : { query, lakehouse_ref: ref, dialect: tab.dialect, allow });
       Object.assign(tab, { exec: status, ranSql: query, ranDialect: tab.dialect });
       status = await followRun(tab, status);
     } catch (err) {
@@ -178,7 +217,7 @@ function renderQuery() {
       if (ok) return run(query, ["local_mutation"]);
     }
     if (status?.state === "completed") {
-      tab.ranNotice = localNotice(query);
+      tab.ranNotice = wh ? "" : localNotice(query);
       if (tab.exportAfter) { const fmt = tab.exportAfter; delete tab.exportAfter; exportResult(fmt); }
     } else if (status && !tab.errorRetry) {  // a failed engine call keeps its own message and Retry
       tab.error = status.error || `The query ${SQL_STATE[status.state]?.[1].toLowerCase() || status.state}.`;
@@ -369,14 +408,15 @@ function renderQuery() {
     const st = busy && !ex ? "queued" : ex?.state;
     const pill = st ? SQL_STATE[st] : ["", "Not run"];
     let msg = "Press Run to see results";
-    if (st === "queued" && !ex) msg = "Starting on this PC...";
+    if (st === "queued" && !ex) msg = wh ? "Starting..." : "Starting on this PC...";
+    else if (st === "queued" && wh) msg = "Waiting to start: finding the warehouse's SQL connection in Fabric, or another query is still running";
     else if (st === "queued") msg = "Waiting for another query to finish (Settings › SQL sets how many run at once)";
     else if (st === "completed" && !r && busy) msg = "Reading the first page...";
     else if (st === "running" || st === "cancelling") {
-      msg = `${ex.seconds} s on this PC${ex.rows ? ` · ${ex.rows.toLocaleString()} rows so far` : ""}`;
+      msg = `${ex.seconds} s ${where}${ex.rows ? ` · ${ex.rows.toLocaleString()} rows so far` : ""}`;
     } else if (r) {
       const last = r.offset + r.rows.length;
-      msg = `${r.total.toLocaleString()} row${r.total === 1 ? "" : "s"} · ${ex.seconds} s on this PC`;
+      msg = `${r.total.toLocaleString()} row${r.total === 1 ? "" : "s"} · ${ex.seconds} s ${where}`;
       if (r.total > r.rows.length) msg += ` · rows ${(r.offset + 1).toLocaleString()} to ${last.toLocaleString()}`;
     }
     const x = tab.exporting;
@@ -413,7 +453,9 @@ function renderQuery() {
           row.map((v) => h("td", { class: `${typeof v === "number" ? "n" : ""}${v === null ? " null" : ""}` }, cellText(v))))))));
     } else {
       grid.replaceChildren(h("p", { class: "muted-text", style: "padding:12px 16px" },
-        r ? "The query ran and returned no columns." : "Tables are named as in Fabric, so SELECT * FROM sales works here too."));
+        r ? "The query ran and returned no columns."
+          : wh ? "Write T-SQL as you would in Fabric's editor. It runs as you, with your permissions on the warehouse."
+            : "Tables are named as in Fabric, so SELECT * FROM sales works here too."));
     }
   }
   sqlPage.redraw = () => { if (here()) drawResults(); };
@@ -423,7 +465,7 @@ function renderQuery() {
     while (p.tabs.some((t) => t.name === `Query ${n}`)) n++;
     return `Query ${n}`;
   };
-  const addTab = () => { p.tabs.push({ name: nextTabName(), sql: QUERY_HINT, dialect: tab.dialect }); p.active = p.tabs.length - 1; saveQueryTabs(); renderQuery(); };
+  const addTab = () => { p.tabs.push({ name: nextTabName(), sql: wh ? WAREHOUSE_HINT : QUERY_HINT, dialect: tab.dialect }); p.active = p.tabs.length - 1; saveQueryTabs(); renderQuery(); };
   const tabs = h("div", { class: "sql-tabs", role: "tablist", "aria-label": "Queries" },
     p.tabs.map((t, i) => h("div", { class: `sql-tab${i === p.active ? " on" : ""}` },
       h("button", { class: "name", role: "tab", "aria-selected": String(i === p.active),
@@ -442,6 +484,16 @@ function renderQuery() {
   Object.entries(SQL_DIALECTS).map(([id, d]) => h("option", { value: id, selected: id === tab.dialect }, d.label)));
   const actions = h("div", { class: "sql-actions" });
   function drawActions() {
+    if (wh) {
+      actions.replaceChildren(btn("Run", "play", () => run(), "tool primary"),
+        h("span", { class: "muted-text" }, "Ctrl+Enter, or select text to run just that"),
+        h("span", { class: "sql-sep", "aria-hidden": "true" }),
+        h("span", { class: "sql-target-note" }, SQL_DIALECTS[tab.dialect].label),
+        btn("Format SQL", null, formatSql, "tool outline", { title: "Format the selection, or the whole query (Shift+Alt+F)" }),
+        h("span", { class: "spacer" }),
+        h("span", { class: "sql-capacity-note", role: "note" }, "Runs in Fabric · uses capacity · reads only"));
+      return;
+    }
     const local = runsHere();
     actions.replaceChildren(btn("Run", "play", () => run(), "tool primary", { disabled: !local }),
       h("span", { class: "muted-text" }, local ? "Ctrl+Enter, or select text to run just that"
@@ -516,7 +568,29 @@ function renderQuery() {
 
   const edit = h("div", { class: "sql-edit" });
   edit.append(editor.view.dom);
-  setView(h("div", { class: "sql-page" },
+  const fabricLink = wh ? fabricItemLink({ type: ref.kind === "endpoint" ? "Lakehouse" : "Warehouse", workspace_id: ref.workspace_id, item_id: ref.item_id }) : null;
+  setView(wh ? h("div", { class: "sql-page warehouse-page" },
+    h("div", { class: "ribbon" }, h("div", { class: "toolbar" },
+      btn("New SQL query", "add", addTab),
+      btn("Open in Fabric", "open", () => openInFabric(fabricLink)),
+      h("span", { class: "spacer" }),
+      h("span", { class: "muted-text" }, `Queries run in Fabric on ${ref.name} and use capacity. Only a query that reads runs here. `,
+        learnMore("warehouse-queries-preview")))),
+    h("div", { class: "nb-body" },
+      h("aside", { class: "explorer" }, h("div", { class: "explorer-head" }, "Explorer"),
+        h("div", { class: "tree-row", style: "margin:4px 8px 0;font-weight:600;cursor:default" },
+          itemIcon(ref.kind === "endpoint" ? "SQLEndpoint" : "Warehouse", 16), h("span", { class: "label" }, ref.name), previewTag()),
+        h("div", { class: "tree-row muted", style: "cursor:default" }, ref.kind === "endpoint" ? "SQL analytics endpoint" : "Warehouse",
+          ref.workspace_name ? ` · ${ref.workspace_name}` : ""),
+        h("div", { class: "warehouse-how" }, howItWorks("warehouse.query", {
+          reads: "The warehouse's SQL connection, from Fabric, then the rows your query asks for. It signs in as you, with a token for Azure SQL.",
+          changes: "Nothing. Only a single statement that reads is sent; DDL, DML, EXEC and variables are refused before Fabric is asked.",
+          results: "A snapshot of the rows on this PC, read a page at a time, with Copy and Export to Downloads. The query text stays on this PC.",
+          more: [["Capacity", "The query runs in Fabric, so it uses capacity on the warehouse's workspace."]],
+          anchor: "warehouse-queries-preview" }))),
+      h("section", { class: "sql-main" }, tabs,
+        h("div", { class: "sql-card" }, actions, h("div", { class: "sql-editor-row" }, edit, compat), band, grid))))
+    : h("div", { class: "sql-page" },
     h("div", { class: "ribbon" }, h("div", { class: "toolbar" },
       btn("New SQL query", "add", addTab),
       btn("New notebook", "notebook", () => newNotebook(ref)),
@@ -533,7 +607,7 @@ function renderQuery() {
   drawResults();
   drawTables();
   if (tab.autorun) { delete tab.autorun; run(tab.sql); }
-  if (!p.tables) {
+  if (!p.tables && !wh) {
     rpc("list_tables", { workspace_id: ref.workspace_id, lakehouse_id: ref.lakehouse_id })
       .then((t) => { p.tables = t; })
       .catch((err) => { p.tables = {}; toast(`Could not list tables: ${err}`, true); })

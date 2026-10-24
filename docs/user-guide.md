@@ -247,6 +247,10 @@ Opening a lakehouse shows its **Tables** (by schema) and **Files** (folders and 
 
 **New SQL query** on a lakehouse, or **SQL query** on a lakehouse row in OneLake or Workspaces, opens a query tab for it. Queries run on this PC with DuckDB, so no Fabric job starts, though reading OneLake still uses some capacity. Dialects, the compatibility check, the editor and formatting are in the [notebook and SQL guide](notebooks.md#sql-query).
 
+### Warehouse queries (Preview)
+
+**SQL query** on a **Warehouse** or **SQL analytics endpoint** row in Workspaces opens the Warehouse page: the same editor and results, with T-SQL that runs in Fabric on the warehouse. It uses capacity, so the first run on each warehouse after the app starts asks first. Only a query that reads is sent; nothing in the warehouse changes. It signs in as you, so the warehouse's own permissions apply. More in [Warehouses](warehouse.md).
+
 ## OneLake
 
 The OneLake page has four tabs: **Catalog**, and the preview tabs **Data products**, **Shortcuts** and **Access**.

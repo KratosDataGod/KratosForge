@@ -2130,6 +2130,7 @@ async function runInFabric() {
     runLabel: "Run in Fabric", alt: { label: "Run on this PC", run: () => runCells(nb.cells) } }))) return;
   const gate = await nbFabricChangeGate(nb);
   if (!gate) return;
+  await nbInputsSaved();  // nbinputs.js: the run gets the values the Parameters bar shows
   toast(`Publishing ${nb.name} and starting it in ${publishWorkspaceName(nb)}...`);
   const run = await attempt(() => rpc("run_notebook_in_fabric", { ...publishPayload(), replace_fabric_changes: gate.replace }), "Could not start the run in Fabric");
   if (!run) return;

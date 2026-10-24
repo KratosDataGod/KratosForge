@@ -60,7 +60,7 @@ class FakeFabric:
     def get_lakehouse(self, ws, lh):
         return {"properties": {"defaultSchema": "dbo"}}
 
-    def run_item_job(self, ws, item, job):
+    def run_item_job(self, ws, item, job, execution_data=None):
         return "job1"
 
 

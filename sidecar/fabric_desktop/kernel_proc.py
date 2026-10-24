@@ -478,7 +478,8 @@ class ProcessKernel:
             version = snap.get("version", version)
             if snap.get("outputs") is not None:
                 outputs = snap["outputs"]
-        return {"status": snap["status"], "execution_count": snap["execution_count"], "outputs": outputs}
+        return {"status": snap["status"], "execution_count": snap["execution_count"], "outputs": outputs,
+                **({"onelake": snap["onelake"]} if "onelake" in snap else {})}
 
     def debug(self, action: str, expression: str | None = None) -> dict[str, Any]:
         from .debugger import EVAL_SECONDS

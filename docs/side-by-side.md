@@ -32,9 +32,9 @@ The runs go one after the other, not at the same moment, so they never write the
 | Part | What it shows |
 | --- | --- |
 | The top line | **Same results in both places**, **Results differ in N tables**, or which side failed |
-| This PC | Time from the first cell to the last, and the PC's cores and memory. No Fabric job starts; its OneLake reads and writes still use some capacity, which isn't measured. |
+| This PC | Time from the first cell to the last, and the PC's cores and memory, split into processing on this PC and waiting for OneLake uploads (the striped part of the bar). Below it, what the run uploaded, how long uploads were going on and about how many MB/s they reached. No Fabric job starts; its OneLake reads and writes still use some capacity, which isn't measured. |
 | Fabric | Time from Run all to the end of the Fabric job, split into the **session start** (Fabric starting a session and queueing) and the **run** (the notebook's cells). Below it, the estimated CU-seconds and cost. |
-| Faster | Which side was faster end to end, and on run time alone with Fabric's session start left out. Left out when either side failed, since a run that stopped early is only shorter. |
+| Faster | Which side was faster end to end, on run time alone with Fabric's session start left out and, when this PC waited for uploads, on this PC's processing alone against Fabric's run time (which includes Fabric's own writes). Left out when either side failed, since a run that stopped early is only shorter. |
 | Tables | Each table written: rows on each side, whether the columns match, and the result |
 
 A table's result is one of:
@@ -61,6 +61,8 @@ When a run **overwrites** a table, the whole table is compared. When a run only 
 Write outputs with `mode="overwrite"` (the default of `lakehouse.write_table`) for the cleanest comparison.
 
 The local time includes uploading what the notebook writes, and on most lines that upload is most of it. The notebook's **Runs on > Table writes to OneLake** choice decides how: written here and uploaded in the background (the default), or straight to OneLake. A rerun whose tables come out the same uploads nothing for them, so a second run of the TPC-H data notebook is much faster than the first; it says "unchanged" for each table it skipped ([Writing to OneLake](architecture.md#writing-to-onelake)).
+
+The split shows where the time went. Waiting for uploads is only the time a cell was held up by its writes: at the end of the cell, a read of a table the cell is still uploading, or a write straight to OneLake. Uploads that ran in the background while cells computed aren't in it, so with writes local first the upload time can be longer than the wait. The MB/s is the bytes of the files the run wrote over the time uploads were going on, so on a home line it is close to the line's upload speed. Writes from threads a cell starts itself are counted as processing.
 
 ### Time and cost
 

@@ -18,7 +18,9 @@ import logging
 import os
 import tempfile
 import threading
-from collections.abc import Callable, Iterable
+import time
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
 from concurrent.futures import Future
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -140,6 +142,68 @@ class Spill:
 
 
 # ---- the queue
+
+
+class Stats:
+    """A cell's OneLake writes, for its timing: how long the cell waited on them (``wait``), how long
+    uploads were going on (``upload``: the time any write was uploading, so writes side by side count
+    once) and what they wrote. notebook.py sets one for each cell in ``cell_writes.stats``.
+
+    The cell's time less ``wait`` is the time it spent processing on this PC: with local-first
+    writes, uploads that ran while the cell computed cost it nothing."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.wait = 0.0
+        self.tables = self.rows = self.bytes = self.skipped = 0
+        self._spans: list[tuple[float, float]] = []
+        self._waiting = 0  # nested waits (a direct write waits for the queue first) count once
+
+    @contextmanager
+    def waiting(self) -> Iterator[None]:
+        """The cell is held up by its writes for as long as this block runs."""
+        with self._lock:
+            self._waiting += 1
+            outer = self._waiting == 1
+        started = time.monotonic()
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._waiting -= 1
+                if outer:
+                    self.wait += time.monotonic() - started
+
+    def wrote(self, started: float, rows: int, nbytes: int | None, skipped: bool) -> None:
+        """One write went in: it uploaded from ``started`` (time.monotonic) until now."""
+        with self._lock:
+            self.tables += 1
+            self.rows += rows
+            self.bytes += nbytes or 0
+            self.skipped += skipped
+            self._spans.append((started, time.monotonic()))
+
+    def upload(self) -> float:
+        total, end = 0.0, float("-inf")
+        with self._lock:
+            spans = sorted(self._spans)
+        for a, b in spans:
+            if b > end:
+                total += b - max(a, end)
+                end = b
+        return total
+
+    def as_dict(self) -> dict[str, Any] | None:
+        """For the cell's snapshot; None when the cell wrote and waited on nothing."""
+        if not self.tables and self.wait < 0.005:
+            return None
+        return {"wait_seconds": round(self.wait, 2), "upload_seconds": round(self.upload(), 2), "tables": self.tables,
+                "rows": self.rows, "bytes": self.bytes, "skipped": self.skipped}
+
+
+def stats() -> Stats | None:
+    """The running cell's Stats, if it has one."""
+    return getattr(cell_writes, "stats", None)
 
 
 class WriteFailed(RuntimeError):

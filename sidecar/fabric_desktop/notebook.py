@@ -309,6 +309,7 @@ class _Run:
         self._reset()
         self.debugger: Any = None  # debugger.Debugger when the cell runs with breakpoints
         self.paused: dict[str, Any] | None = None  # where a debugged cell is paused
+        self.onelake = write_queue.Stats()  # its OneLake writes: how long it waited on them, what they wrote
 
     def set_paused(self, paused: dict[str, Any] | None) -> None:
         with self.lock:
@@ -472,6 +473,8 @@ class _Run:
                 snap["progress"] = progress
             if self.debugger is not None:
                 snap["paused"] = self.paused
+            if (onelake := self.onelake.as_dict()) is not None:
+                snap["onelake"] = onelake
             return snap
 
 
@@ -972,7 +975,8 @@ class Kernel:
         assert run is not None
         run.done.wait()
         snap = run.snapshot()
-        return {"status": snap["status"], "execution_count": snap["execution_count"], "outputs": snap["outputs"]}
+        return {"status": snap["status"], "execution_count": snap["execution_count"], "outputs": snap["outputs"],
+                **({"onelake": snap["onelake"]} if "onelake" in snap else {})}
 
     def _execute(self, code: str, run: _Run, watches: list[str] | None = None) -> None:
         from .dbutils_local import RestartPython
@@ -986,6 +990,7 @@ class Kernel:
         restart = False
         history.record_input(self.namespace, run.count, code)
         writes = None
+        write_queue.cell_writes.stats = run.onelake
         try:
             writes = self._write_queue()
             try:
@@ -1015,6 +1020,7 @@ class Kernel:
             if writes is not None:
                 write_queue.cell_writes.queue = None
                 writes.flush(cancel=True)  # only left after a second Cancel: drop what hasn't started
+            write_queue.cell_writes.stats = None
             out.targets.pop(ident, None)
             err.targets.pop(ident, None)
             self._local.run = None
@@ -1041,7 +1047,8 @@ class Kernel:
         """Wait for the cell's writes to reach OneLake: the cell is done when they are, and fails if one did."""
         cancelled = status == "cancelled"
         try:
-            failed = writes.flush(cancel=cancelled)
+            with run.onelake.waiting():
+                failed = writes.flush(cancel=cancelled)
         except KeyboardInterrupt:
             failed = writes.flush(cancel=True)
             cancelled = True

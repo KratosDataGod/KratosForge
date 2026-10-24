@@ -272,7 +272,8 @@ class SideBySideMixin:
             f = record["fabric"]
             if record["local"]["status"] == "ok" and f["status"] == "ok":
                 # A run that stopped early isn't faster, it's shorter.
-                record["speed"] = sbs.speed(record["local"]["seconds"], f.get("total_seconds"), f.get("run_seconds"))
+                record["speed"] = sbs.speed(record["local"]["seconds"], f.get("total_seconds"), f.get("run_seconds"),
+                                            record["local"].get("processing_seconds"))
             record["state"] = "done"
         except _Cancelled:
             record["state"], record["message"] = "cancelled", "Cancelled."
@@ -310,6 +311,8 @@ class SideBySideMixin:
             snap = kernel.poll(-1, 0.0)  # the finished cell, with all its output
             local["cells"][str(i)] = {"status": snap["status"], "seconds": snap["seconds"],
                                       "outputs": snap.get("outputs") or outputs, "execution_count": snap.get("execution_count")}
+            if snap.get("onelake"):
+                local["cells"][str(i)]["onelake"] = snap["onelake"]
             if snap["status"] != "ok":
                 status = "cancelled" if record["_cancel"] else "failed"
                 local["failed_cell"] = i + 1
@@ -318,6 +321,7 @@ class SideBySideMixin:
                     local["message"] = f"{err.get('ename', 'Error')}: {err.get('evalue', '')}".strip()[:1000]
                 break
         local["seconds"] = round(time.monotonic() - started, 2)
+        local.update(_split(local["seconds"], [c.get("onelake") or {} for c in local["cells"].values()]))
         local["status"] = status
 
     def _sbs_fabric(self, record: dict[str, Any], cells: list[dict[str, Any]], lakehouse_ref: dict[str, str],
@@ -368,6 +372,19 @@ class SideBySideMixin:
             f["cu_seconds"] = round(f["job_seconds"] * cu, 1)
             f["cost"] = round(f["cu_seconds"] / 3600 * float(cfg["price_per_cu_hour"]), 4)
             f["currency"] = cfg["currency"]
+
+
+def _split(seconds: float, cells: list[dict[str, Any]]) -> dict[str, Any]:
+    """This PC's time as processing and waiting on OneLake writes, with what the writes uploaded.
+
+    Cells run one after another, so their waits add up; so do their upload times (each cell's own
+    writes counted once however many ran side by side)."""
+    wait = min(sum(c.get("wait_seconds", 0) for c in cells), seconds)
+    upload = sum(c.get("upload_seconds", 0) for c in cells)
+    total = {k: sum(c.get(k, 0) for c in cells) for k in ("tables", "rows", "bytes", "skipped")}
+    return {"processing_seconds": round(seconds - wait, 2), "upload_wait_seconds": round(wait, 2),
+            "upload": {"seconds": round(upload, 2), **total,
+                       "mb_per_second": round(total["bytes"] / 1e6 / upload, 2) if upload > 0 and total["bytes"] else None}}
 
 
 def _writes(cells: list[dict[str, Any]]) -> dict[str, Any]:

@@ -4952,3 +4952,20 @@ test("Check for updates says what the channel has and offers an install only for
   assert.match(dialog, /openLink\(latest\.page\)/);
   assert.match(src.slice(src.indexOf("function accountMenu"), src.indexOf("function channelLabel")), /"Check for updates".*checkForUpdates/);
 });
+
+// Side by side: This PC's time split into processing and waiting on OneLake uploads.
+test("side by side times roll over and split This PC's time into processing and uploads", () => {
+  const src = fs.readFileSync(path.join(ui, "sidebyside.js"), "utf8");
+  const ctx = { h: (tag, attrs, ...kids) => ({ tag, attrs, text: kids.flat().filter((k) => typeof k === "string").join("") }) };
+  const fn = (name) => src.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  vm.runInNewContext(`${fn("sbsTime")}${fn("sbsSize")}${fn("sbsLocalSplit")}; Object.assign(this, { sbsTime, sbsLocalSplit });`, ctx);
+  assert.strictEqual(ctx.sbsTime(779.6), "13 min 0 s");  // was "12 min 60 s"
+  assert.strictEqual(ctx.sbsTime(59.97), "1 min 0 s");
+  assert.strictEqual(ctx.sbsTime(12.34), "12.3 s");
+  assert.strictEqual(ctx.sbsTime(7199), "2 h 0 min");
+  const lines = ctx.sbsLocalSplit({ seconds: 780, processing_seconds: 130, upload_wait_seconds: 650,
+    upload: { seconds: 700, tables: 8, rows: 86000000, bytes: 3.3e9, skipped: 1, mb_per_second: 4.71 } });
+  assert.strictEqual(lines[0].text, "Processing on this PC 2 min 10 sWaiting for OneLake uploads 10 min 50 s");
+  assert.strictEqual(lines[1].text, "Uploaded 3.3 GB to OneLake in 11 min 40 s · about 4.7 MB/s · 1 unchanged, skipped");
+  assert.strictEqual(ctx.sbsLocalSplit({ seconds: 5 })[0].text, "No wait to start");  // a run from before the split
+});

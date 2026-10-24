@@ -9,6 +9,8 @@ only), so the Delta profile is checked before anything leaves the machine.
 from __future__ import annotations
 
 import json
+import shutil
+import tempfile
 import time
 from contextlib import AbstractContextManager
 from dataclasses import asdict, dataclass
@@ -39,11 +41,22 @@ class RunRecord:
 def stage_locally(data: pa.Table, staging_dir: Path) -> DeltaTable:
     """The table delta-rs would create for ``data``, on disk, so its protocol is checked against the profile
     before anything leaves the PC. Only the schema decides that, so no rows are written: copying every
-    row here cost about a second per 70 MB on each write and kept every old copy."""
-    write_deltalake(str(staging_dir), data.schema.empty_table(), mode="overwrite", schema_mode="overwrite")
-    table = DeltaTable(str(staging_dir))
-    delta_profile.check_table(table)
-    return table
+    row here cost about a second per 70 MB on each write and kept every old copy.
+
+    It is made in a folder of its own beside ``staging_dir`` and deleted once checked, so nothing stays
+    on disk (two writes to one table at once never share it). ``staging_dir`` itself, where builds
+    before #609 kept full copies of every write, is deleted too. The returned table is loaded, so its
+    protocol and schema can still be read."""
+    staging_dir.parent.mkdir(parents=True, exist_ok=True)
+    shutil.rmtree(staging_dir, ignore_errors=True)  # an old build's full copies
+    here = Path(tempfile.mkdtemp(prefix=f"{staging_dir.name}-", dir=staging_dir.parent))
+    try:
+        write_deltalake(str(here), data.schema.empty_table(), mode="overwrite", schema_mode="overwrite")
+        table = DeltaTable(str(here))
+        delta_profile.check_table(table)
+        return table
+    finally:
+        shutil.rmtree(here, ignore_errors=True)
 
 
 def resolve_target(job: Job, fabric: FabricClient) -> TableRef:

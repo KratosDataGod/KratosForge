@@ -516,6 +516,8 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
             queue.wait()  # in order with the cell's writes still uploading
         return commit()
     future = queue.submit(ref.uri, name_, arrow.nbytes if arrow is not None else 0, commit)
+    if spill is not None:  # a write cancelled before it started never runs commit(), which removes it
+        future.add_done_callback(lambda f: spill.remove() if f.cancelled() else None)
     return PendingWrite(name_, rows, ref.uri, future)
 
 

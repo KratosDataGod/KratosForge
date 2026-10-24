@@ -37,10 +37,12 @@ def test_polars_job_runs_locally():
 
 def test_staged_table_matches_fabric_profile(tmp_path):
     data = run_local(Job.load(EXAMPLES / "sales_by_region.toml"))
+    (tmp_path / "stage" / "part-0.parquet").parent.mkdir()
+    (tmp_path / "stage" / "part-0.parquet").write_bytes(b"x" * 1000)  # an old build's full copy
     table = stage_locally(data, tmp_path / "stage")
     assert table.protocol().min_reader_version == 1
     assert table.schema().to_arrow().names == data.schema.names
-    assert table.to_pyarrow_table().num_rows == 0  # the schema decides the protocol; the rows only cost time and disk
+    assert list(tmp_path.iterdir()) == []  # checked, then deleted: nothing stays on disk, old copies neither
 
 
 def test_staging_still_refuses_a_schema_outside_the_profile(tmp_path):
@@ -48,6 +50,7 @@ def test_staging_still_refuses_a_schema_outside_the_profile(tmp_path):
     data = pa.table({"at": pa.array([dt.datetime(2026, 1, 1)], pa.timestamp("us"))})  # timestamp_ntz: reader 3
     with pytest.raises(delta_profile.ProfileViolation, match="reader version 3"):
         stage_locally(data, tmp_path / "stage")
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_profile_rejects_v2_checkpoints(tmp_path):

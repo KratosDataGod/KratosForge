@@ -52,6 +52,18 @@ def test_zero_keeps_everything(tmp_path):
     assert (tmp_path / "files" / "a.csv").exists()
 
 
+def test_left_over_spill_files_go_after_a_day_whatever_the_period(tmp_path):
+    """A notebook write's spill file (write_queue.Spill) left by an engine ended mid-upload."""
+    spills = tmp_path / "staging" / "_writes"
+    stale = touch(spills / "write-a.arrow", NOW - 25 * 3600, b"1234")
+    fresh = touch(spills / "write-b.arrow", NOW - 3600)  # may still be uploading
+    assert retention.sweep(tmp_path, 0, now=NOW) == {"days": 0, "removed": ["staging/_writes/write-a.arrow"],
+                                                     "bytes": 4, "dry_run": False}
+    assert not stale.exists() and fresh.exists()
+    touch(spills / "write-c.arrow", NOW - 25 * 3600)
+    assert retention.sweep(tmp_path, 30, now=NOW)["removed"] == ["staging/_writes/write-c.arrow"]
+
+
 def test_policy_sets_the_period(monkeypatch, tmp_path):
     monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "la"))

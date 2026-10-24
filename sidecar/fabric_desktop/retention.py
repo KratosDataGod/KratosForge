@@ -30,12 +30,32 @@ def _size(path: Path) -> int:
     return path.stat().st_size if path.is_file() else sum(p.stat().st_size for p in path.rglob("*") if p.is_file())
 
 
+# A notebook write's spill file (write_queue.Spill) is deleted once its upload ends. One left behind
+# (the engine was ended mid-upload) is never needed again: it goes after a day, whatever
+# local_retention_days says. A day, because one upload of a very big table can take hours.
+SPILLS = Path("staging") / "_writes"
+SPILL_HOURS = 24
+
+
+def _stale_spills(root: Path, now: float) -> list[Path]:
+    folder = root / SPILLS
+    if not folder.is_dir():
+        return []
+    return [p for p in folder.iterdir() if p.is_file() and p.stat().st_mtime < now - SPILL_HOURS * 3600]
+
+
 def sweep(root: Path, days: int, dry_run: bool = False, now: float | None = None) -> dict[str, Any]:
-    """Delete (or with ``dry_run`` only list) local copies older than ``days``. Returns what and how much."""
-    if days <= 0:
-        return {"days": days, "removed": [], "bytes": 0, "dry_run": dry_run}
-    cutoff = (now if now is not None else time.time()) - days * DAY
-    old: list[Path] = []
+    """Delete (or with ``dry_run`` only list) local copies older than ``days``, and spill files left
+    over from uploads. Returns what and how much."""
+    now = now if now is not None else time.time()
+    old: list[Path] = _stale_spills(root, now)
+    if days <= 0:  # copies are kept, left-over spills still go
+        total = sum(_size(p) for p in old)
+        if not dry_run:
+            for p in old:
+                p.unlink(missing_ok=True)
+        return {"days": days, "removed": [p.relative_to(root).as_posix() for p in old], "bytes": total, "dry_run": dry_run}
+    cutoff = now - days * DAY
     for name in CACHE_FOLDERS:
         base = root / name
         if not base.is_dir():
@@ -47,7 +67,7 @@ def sweep(root: Path, days: int, dry_run: bool = False, now: float | None = None
                 if _newest(here) < cutoff:
                     old.append(here)
                 continue
-            old += [here / f for f in filenames if (here / f).stat().st_mtime < cutoff]
+            old += [here / f for f in filenames if (here / f).stat().st_mtime < cutoff and here / f not in old]
     total = sum(_size(p) for p in old)
     if not dry_run:
         for p in old:

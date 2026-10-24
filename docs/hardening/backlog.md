@@ -101,7 +101,7 @@ Complexity is S (under a day, one module), M (a few modules, new tests), L (cros
 | HD-014 | EN-3: workspace limits on every capability | Hardening | HD-006 | M |
 | HD-015 | EN-4: external SQL timeout interrupts and releases the lock | Hardening | none | S |
 | HD-016 | EN-6, AR-1: leases atomic across processes; lost lease stops the write (done: local takeover is one step under an OS file lock; `leases.check_held()` runs right before every leased commit in `publish.py` and `meta/store.py` and stops a write whose lease was taken over or not renewed for two thirds of its length; a streamed write is checked when it starts) | Hardening (agent) | none | M |
-| HD-017 | EP-3: audit chain safe across processes; head checkpoint | Hardening | open stack (`audit.py`) | S |
+| HD-017 | EP-3: audit chain safe across processes; head checkpoint (done: `audit_chain.append` re-reads the last hash under the folder's lock file; each write records the newest hash and line count in `head.json`, and `verify()` reports a trail that ends before it, also after later writes) | Hardening | open stack (`audit.py`) | S |
 | HD-020 | SH-1, UI-1: Content Security Policy; notebook output on its own origin | Hardening | a manual Windows check before merge | L |
 | HD-021 | SH-2: fail unsigned releases; verify signatures in CI and on the client | Hardening | **Chris: Trusted Signing account (D-C3)** | M |
 | HD-022 | SH-5: no downgrades; keep the previous exe until the new one starts. Must still let a Stable PC follow a deliberate rollback (an earlier build promoted to Stable, HD-028) | Hardening | open stack (`app.js`) | M |
@@ -110,7 +110,7 @@ Complexity is S (under a day, one module), M (a few modules, new tests), L (cros
 | HD-025 | SH-9: agent installers use constraints; ProgramData ACL | Hardening | a Windows host to verify the ACL | S |
 | HD-026 | SH-10: no bare `python` fallback in release builds | Hardening | none | S |
 | HD-027 | SH-12: navigation filter for the Fabric view | Hardening | manual Windows check | S |
-| HD-028 | Per-build release assets, so a build can be pinned and rolled back (known gap in release-readiness.md). **Partly done:** CI keeps each published build as a `build-<sha>` release (newest 20, plus every Stable build); Promote to stable takes a `build` input, so Stable rolls back by promoting an earlier build. Remaining: the app can't name a build for its engine download, and rollback hasn't been run end to end | Hardening | Chris's review (workflow); a first rollback drill on `main` | M |
+| HD-028 | Per-build release assets, so a build can be pinned and rolled back (known gap in release-readiness.md). **Partly done:** CI keeps each published build as a `build-<sha>` release (newest 20, plus every Stable build); Promote to stable takes a `build` input, so Stable rolls back by promoting an earlier build. With `"auto_update": false` the app downloads its engine only from its own build's `build-*` release (#418, `update_guard::engine_tags`), so a pinned exe gets the matching engine. Remaining: rollback hasn't been run end to end | Hardening | Chris's review (workflow); a first rollback drill on `main` | M |
 | HD-029 | Live verification (gate G1): run the existing harness on a designated non-production workspace | Chris | **Chris: workspace and OK** | S |
 | HD-030 | EP-5: separation of duties by Entra id; switch from policy or versioned files | Staged roadmap | open stack (`meta_service.py`) | M |
 | HD-031 | EP-6: label "Block" as not enforced until GOV-002 | Governance | none | S |
@@ -144,7 +144,7 @@ Acceptance for each P1 item is the fix and tests named in its finding. The ones 
 | HD-043 | UI-5: parsed name-clash test; remove duplicate test (done: V8 finds each script's top-level names; duplicate test removed) | Hardening | S |
 | HD-044 | UI-6: `aria-current`, modal palette (done: the rail sets `aria-current="page"`; the command bar is a modal dialog that keeps and returns focus and doesn't open over another dialog) | Hardening | S |
 | HD-051 | AR-3: one HTTP session with a shared retry policy (done: `http_session.session()` shared by the Fabric, OneLake, Power BI and platform clients) | Hardening | M |
-| HD-052 | UI-8: browser tests in CI; ban new raw HTML sinks | Hardening | S |
+| HD-052 | UI-8: browser tests in CI; ban new raw HTML sinks (done: the `ui-browser` CI job runs `app/tests/browser`; `ui.test.cjs` fails on a raw HTML sink or a URL attribute built from data outside a reviewed list, and image output shows only picture types) | Hardening | S |
 | HD-053 | TS-1: contract tests for OneLake writes and deletes and the Fabric client's 429/5xx/LRO paths; refuse `..` and empty OneLake file paths | Hardening | M |
 | HD-054 | TS-2: T-SQL contract harness; scheduled live job once a test workspace exists | Hardening | M |
 

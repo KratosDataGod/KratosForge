@@ -104,7 +104,7 @@ Split in two so each change is reviewable on its own.
 ### FD-104 Enterprise installation and updates (P0)
 
 - **Acceptance criteria:** a documented per-machine and silent deployment path (copy the exe and policy file with Intune or Group Policy); policy settings to turn automatic updates off or pin a version; documented rollback and recovery from a failed engine install; uninstall steps that list every folder.
-- **Remaining after #90:** releases keep only the newest build per channel and the engine always comes from the channel's current release, so pinning a build and real rollback need per-build release assets (a release workflow change for maintainer review). Since HD-022 the app keeps `fabric-desktop.exe.old` only until the new build has started (and puts it back if it doesn't), so it is not a rollback path either.
+- **Remaining after #90:** releases keep only the newest build per channel and the engine always comes from the channel's current release, so pinning a build and real rollback need per-build release assets (a release workflow change for maintainer review). Since HD-022 the app keeps the previous exe (`kratosforge.exe.old`) only until the new build has started (and puts it back if it doesn't), so it is not a rollback path either.
 - **Blocked part:** an MSI or MSIX package and a quiet Smart App Control experience need code signing (PR #28).
 
 ### FD-105 Configuration policies (P0)

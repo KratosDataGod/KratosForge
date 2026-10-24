@@ -534,12 +534,7 @@ class SqlExecutions:
             if stop is not None:
                 refused = _refusal(stop)
                 state, kind = "failed", "permission"
-                if stop.kind in run.allow and stop.confirm:
-                    error = (f"Statement {stop.statement} needs confirming ({stop.reason}), so nothing ran. "
-                             "Run it again and confirm to let it change the project.")
-                else:
-                    error = (f"Statement {stop.statement} {sql_policy.LABELS[stop.kind]} ({stop.reason}), so nothing "
-                             "ran. A local data project run reads and changes the project's own tables only.")
+                error = local_refusal_message(stop, run.allow)
             else:
                 with self._lock:
                     run.permission = sql_policy.strongest(verdicts)
@@ -729,6 +724,22 @@ def _policy_statements(query: str, dialect: str) -> list[Any]:
     from .localdata import tsql
     texts, _notes = tsql.translate(query)
     return [st for text in texts for st in sql.parse(text, "duckdb")]
+
+
+def check_local(query: str, dialect: str, confirm: bool = False) -> tuple[list[sql_policy.Verdict], sql_policy.Verdict | None]:
+    """A local data project query's statements, classed, and the first that may not run, or None.
+    The same check a managed local run makes (``target="local"``), for callers that run a query
+    in the project's engine themselves (``local_query``)."""
+    verdicts = sql_policy.classify(_policy_statements(query, dialect), "local")
+    return verdicts, sql_policy.refused(verdicts, TARGET_ALLOWS["local"], confirm)
+
+
+def local_refusal_message(stop: sql_policy.Verdict, allow: tuple[str, ...] = TARGET_ALLOWS["local"]) -> str:
+    if stop.kind in allow and stop.confirm:
+        return (f"Statement {stop.statement} needs confirming ({stop.reason}), so nothing ran. "
+                "Run it again and confirm to let it change the project.")
+    return (f"Statement {stop.statement} {sql_policy.LABELS[stop.kind]} ({stop.reason}), so nothing "
+            "ran. A local data project run reads and changes the project's own tables only.")
 
 
 def _refusal(stop: sql_policy.Verdict) -> dict[str, Any]:

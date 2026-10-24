@@ -272,7 +272,7 @@ registerFeature({
 // central lakehouse's fdten_ (Enterprise readiness) and fdcap_ (FinOps) tables. The page only reads;
 // the buttons each read Fabric once and add rows. Who changed a setting, and exactly when, aren't known.
 
-const settingsHistoryPage = { scope: "all" };
+const settingsHistoryPage = { scope: "all", overrides: false };
 
 function settingsHistoryPanel() {
   const panel = h("div", { class: "settings-history" }, h("p", { class: "muted-text" }, "Reading the settings history..."));
@@ -329,7 +329,12 @@ function settingsHistoryBody(hist) {
       lastRead("Capacities last read", last.capacity, "The capacities you can see"),
       lastRead("Tenant settings last read", last.tenant, "Fabric administrators only")),
     h("div", { class: "row wrap" },
-      btn("Read capacities now", "sync", () => settingsHistoryRead("capacity_settings_read", "Capacities"), "tool primary"),
+      btn("Read capacities now", "sync", () => settingsHistoryRead("capacity_settings_read", "Capacities",
+        settingsHistoryPage.overrides ? { admin: true } : {}), "tool primary"),
+      h("label", { class: "check", title: "Also reads the tenant settings each capacity overrides. Only a Fabric administrator can; anyone else's capacities are still read." },
+        h("input", { type: "checkbox", checked: settingsHistoryPage.overrides ? true : null,
+          onchange: (e) => { settingsHistoryPage.overrides = e.target.checked; } }),
+        "Include capacity overrides (administrators)"),
       btn("Read tenant settings (administrators)", null, () => settingsHistoryRead("tenant_settings_read", "Tenant settings"), "tool outline")),
     h("p", { class: "muted-text small" }, "Anyone who can read the central lakehouse sees this history, including the tenant settings an administrator read."));
   const failed = settingsHistoryGaps(hist.gaps);
@@ -358,7 +363,7 @@ function settingsHistoryBody(hist) {
     table,
     h("p", { class: "muted-text small" }, "A change was seen between two reads: exactly when it happened, and who made it, aren't known. A capacity you can't see isn't compared, so it's never shown as changed or deleted."));
   return [withHowItWorks(h("div", { class: "sh-stack" }, reads, gaps, changes), howItWorks("optimize.settings", {
-    reads: "The settings history tables in your central lakehouse. Read capacities calls Fabric's GET /v1/capacities (Capacity.Read.All); Read tenant settings calls GET /v1/admin/tenantsettings, which only a Fabric administrator can.",
+    reads: "The settings history tables in your central lakehouse. Read capacities calls Fabric's GET /v1/capacities (Capacity.Read.All), and with Include capacity overrides ticked also GET /v1/admin/capacities/delegatedTenantSettingOverrides (Tenant.Read.All, Fabric administrators only); Read tenant settings calls GET /v1/admin/tenantsettings, which only a Fabric administrator can.",
     changes: "Nothing in Fabric: no tenant or capacity setting is ever changed. Each read adds rows to FabricDesktop_Central: fdcap_snapshot, fdcap_change and fdcap_read for capacities, fdten_snapshot, fdten_change and fdten_read for the tenant. A snapshot row is added only when a value differs from the last one; a read row is added every time, failed reads included. The first read asks before it creates the tables. Writing to OneLake uses capacity; no Fabric job is started.",
     results: "This tab, for everyone who can read the central lakehouse: once an administrator reads the tenant settings, everyone with read access to it sees them. Nothing reads on a schedule.",
     anchor: "optimize-preview",
@@ -366,20 +371,27 @@ function settingsHistoryBody(hist) {
 }
 
 // One read: the first time, the engine says which tables it would create and this asks before
-// passing approve.
-async function settingsHistoryRead(method, label) {
+// passing approve. params adds admin: true for capacity overrides.
+async function settingsHistoryRead(method, label, params = {}) {
   let res;
   try {
-    res = await rpc(method, {});
+    res = await rpc(method, params);
   } catch (err) {
     const raw = String(err?.message || err);
     if (!/Confirm to continue\.$/.test(raw)) { attempt(() => Promise.reject(err), `${label} not read`); return; }
     const text = friendlyError(err).text.replace(/ Confirm to continue\.$/, "");
     if (!(await confirmDialog("Create the settings history tables?", text, "Create and read"))) return;
-    res = await attempt(() => rpc(method, { approve: true }), `${label} not read`);
+    res = await attempt(() => rpc(method, { ...params, approve: true }), `${label} not read`);
   }
   if (!res) return;
   if (res.outcome !== "read") toast(`${label}: ${res.reason || res.outcome}`, true);
-  else toast(res.changes.length ? `${label} read: ${res.changes.length} change${res.changes.length === 1 ? "" : "s"}` : `${label} read: nothing changed`);
+  else {
+    // The capacities were read even when the overrides weren't; say which, so a gap isn't read as "nothing changed".
+    const overrides = !params.admin || res.overrides === "read" ? ""
+      : res.overrides === "unreadable" ? "Overrides weren't read: only a Fabric administrator can read them."
+      : "Overrides couldn't be read this time.";
+    const base = res.changes.length ? `${label} read: ${res.changes.length} change${res.changes.length === 1 ? "" : "s"}` : `${label} read: nothing changed`;
+    toast(overrides ? `${base}. ${overrides}` : base, !!overrides);
+  }
   render();
 }

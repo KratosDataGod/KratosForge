@@ -132,9 +132,10 @@ class Spill:
     def remove(self) -> None:
         if self._mapped is not None:
             self._mapped.close()  # Windows won't delete a mapped file
+            self._mapped = None
         try:
-            self.path.unlink()
-        except OSError as exc:  # swept with the rest of the staging folder later
+            self.path.unlink(missing_ok=True)
+        except OSError as exc:  # in use (Windows) or gone wrong: the retention sweep removes it a day later
             _log.info("Couldn't remove a write's spill file: %s", describe(exc))
 
 

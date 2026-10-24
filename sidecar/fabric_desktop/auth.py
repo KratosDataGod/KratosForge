@@ -60,6 +60,10 @@ TENANT_WRITE_SCOPES = ["https://api.fabric.microsoft.com/Tenant.ReadWrite.All"]
 # Adding someone to a workspace by email (Power BI's API, the same Power BI Service permission
 # as Workspace.ReadWrite.All above), so no directory permission is needed for it.
 POWERBI_WORKSPACE_SCOPES = ["https://analysis.windows.net/powerbi/api/Workspace.ReadWrite.All"]
+# Reading endorsement with Power BI's admin tenant scan (api.powerbi.com, the same Power BI Service
+# Tenant.Read.All as above, asked for Power BI's address). Only a Fabric administrator can use it, and
+# only they are asked for it, when they choose Scan now on a data product (Preview).
+POWERBI_TENANT_READ_SCOPES = ["https://analysis.windows.net/powerbi/api/Tenant.Read.All"]
 # Queries on a Data warehouse or SQL analytics endpoint (SQL-004): its SQL connection takes a token for
 # Azure SQL's resource. Asked for the first time you run a query on a warehouse.
 WAREHOUSE_SCOPES = ["https://database.windows.net/user_impersonation"]

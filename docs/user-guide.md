@@ -283,6 +283,14 @@ Every team's published [data products](data-mesh.md#data-products), from the pla
 - **Request access** asks the product's owner to let your project link to it. They approve it on **Platform > Requests**; then **Link** shows here.
 - **Linked**: your project already reads it.
 
+Select a product's name to open its page: its endorsement and business terms.
+
+### Endorsement and business terms (Preview)
+
+A data product's page shows its **endorsement** badge (Certified, Promoted or Master data) next to its name, as Fabric's admin tenant scan last read it, and when. Only Fabric administrators can read endorsement, so until one has scanned, the badge is a grey **Endorsement unknown**. A platform admin who is also a Fabric administrator chooses **Scan now**; after that, everyone sees the last scan's badge. To change endorsement, open the item's settings in Fabric: KratosForge can't set it.
+
+**Business terms** list each term with **Open in Purview**. The product's owner or a platform admin chooses **Add a term**, types the term and pastes its address from Purview (an `https` link on `purview.microsoft.com` or `web.purview.azure.com`). KratosForge doesn't read Purview. The details are in [Endorsement and business terms](data-mesh.md#endorsement-and-business-terms).
+
 ### Shortcuts (Preview)
 
 Shortcuts are tables or folders in a lakehouse that point at data somewhere else, without copying it. This tab is the **shortcut command center**: every shortcut in every lakehouse you can see, in one list.
@@ -679,6 +687,6 @@ fabric-desktop audit --verify                        # exit code 1 if the chain 
 fabric-desktop audit --folder D:\agent\audit --verify # an agent's trail
 ```
 
-Each write also records the newest line and the line count in `audit\head.json`, so `--verify` also reports lines deleted from the end of the trail, which the chain alone can't show. If lines go missing before the next write, `head.json` keeps a note of it, so later lines don't hide the gap. Someone who can edit the folder can edit `head.json` too.
+Each write also records the newest line and the line count in `audit\head.json`, so `--verify` also reports lines deleted from the end of the trail, which the chain alone can't show. If lines go missing before the next write, `head.json` keeps a note of it, so later lines don't hide the gap. Someone who can edit the folder can edit `head.json` too. Each audited action writes `head.json` to disk (a small extra write and flush next to the line itself). Once you've looked into a reported gap (for example, the files were restored from an older backup on purpose), clear it by deleting `head.json`: the next write starts a new one from the trail as it is, and `--verify` stops reporting the gap.
 
 The files are plain JSON lines, so a log shipper (Azure Monitor agent, Splunk, Fluent Bit) can collect them. The trail is evidence, not a lock: someone who controls the PC can delete the whole folder, which `--verify` can't see. If that matters for you, ship the files to a store the PC can't change.

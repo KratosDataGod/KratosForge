@@ -1548,6 +1548,7 @@ test("no URL sinks built from data in app/ui outside the reviewed list", () => {
   const attr = "href|src|srcset|action|formaction|xlink:href|poster|data|ping|background";
   const sink = new RegExp(
     `\\b(?:href|src|srcset|formaction|poster|ping)\\s*:\\s*(?!["'][^"'\`$]*["'])[^\\s,}]` +  // h("a", { href: x }): only a quoted literal passes
+    `|[{,]\\s*(?:href|src|srcset|formaction|poster|ping)\\s*[,}]` +  // h("a", { href }): shorthand takes a variable
     `|\\.(?:href|src|srcset|action|formAction|poster|ping)\\s*=(?!=)` +  // node.src = x
     `|setAttribute(?:NS)?\\([^)]*["'](?:${attr})["']` +
     `|\\bwindow\\.open\\(|(?<!(?:const|let|var)\\s+)\\blocation\\s*=(?!=)|\\blocation\\.(?:href\\s*=(?!=)|assign|replace)\\b`);

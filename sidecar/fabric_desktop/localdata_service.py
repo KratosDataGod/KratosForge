@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from . import sql_exec
 from .localdata import LocalData
 from .localdata.transform import Transforms
 
@@ -81,13 +82,26 @@ class LocalDataMixin:
         return self.local_data.engine(project).set_override(table, columns)
 
     def local_query(self, project: str, query: str, dialect: str = "duckdb", limit: int = 1000,
-                    timeout: float | None = None) -> dict[str, Any]:
-        return self.local_data.engine(project).execute(query, dialect=dialect, limit=limit, timeout=timeout)
+                    timeout: float | None = None, confirm: bool = False) -> dict[str, Any]:
+        """Run a query in the project and return its first ``limit`` rows. It goes through the same
+        statement checks as a managed local run (sql_policy.py): reading files outside the project,
+        COPY, ATTACH, INSTALL, SET and the like never run, and DROP, TRUNCATE, CREATE OR REPLACE and
+        DELETE or UPDATE without WHERE run only with ``confirm``."""
+        engine = self.local_data.engine(project)  # KeyError for a project that doesn't exist
+        _verdicts, stop = sql_exec.check_local(query, dialect, bool(confirm))
+        if stop is not None:
+            raise PermissionError(sql_exec.local_refusal_message(stop))
+        return engine.execute(query, dialect=dialect, limit=limit, timeout=timeout)
 
     def local_explain(self, project: str, query: str, dialect: str = "duckdb", analyze: bool = False,
                       timeout: float | None = None) -> dict[str, Any]:
-        """How the local engine runs one query; ``analyze`` runs it and reports each operator's rows and time."""
-        return self.local_data.engine(project).explain(query, dialect=dialect, analyze=analyze, timeout=timeout)
+        """How the local engine runs one query; ``analyze`` runs it and reports each operator's rows and time.
+        The query gets local_query's statement checks first, since ``analyze`` runs it."""
+        engine = self.local_data.engine(project)
+        _verdicts, stop = sql_exec.check_local(query, dialect)
+        if stop is not None:
+            raise PermissionError(sql_exec.local_refusal_message(stop))
+        return engine.explain(query, dialect=dialect, analyze=analyze, timeout=timeout)
 
     # Deprecated (KF-DE-027): background queries run as managed SQL runs now, sql_start with
     # target="local" (sql_exec.py): one lifecycle, with paging and export. These three forward to it

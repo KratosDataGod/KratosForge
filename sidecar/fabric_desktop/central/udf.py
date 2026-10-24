@@ -476,8 +476,9 @@ def product_trust(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext
 @udf.connection(argName="sqlDB", alias="platform")
 @udf.context(argName="ctx")
 @udf.function()
-def record_endorsements(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, items: list) -> dict:
-    return _run(sqlDB, "record_endorsements", ctx, items=items)
+def record_endorsements(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, items: list,
+                        cleared: list) -> dict:
+    return _run(sqlDB, "record_endorsements", ctx, items=items, cleared=cleared)
 
 
 @udf.connection(argName="sqlDB", alias="platform")

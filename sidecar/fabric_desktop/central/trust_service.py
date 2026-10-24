@@ -90,7 +90,9 @@ class TrustMixin:
         found = endorsements_from_scan(scanned, set(items))
         rows = [{k: items[iid][k] for k in ("item_id", "workspace_id", "item_type", "item_name")} | found[iid]
                 for iid in sorted(found)]
-        recorded = call_or_repair(catalog, "record_endorsements", "keep endorsement", items=rows) if rows else {"recorded": 0}
+        # An item the scan didn't confirm loses its last reading: an old "Certified" never outlives a scan.
+        cleared = sorted(iid for iid in items if iid not in found)
+        recorded = call_or_repair(catalog, "record_endorsements", "keep endorsement", items=rows, cleared=cleared)
         missing = sorted(i["item_name"] or i["item_id"] for iid, i in items.items() if iid not in found)
         out = {"workspaces": len(workspaces), "items": len(items), "recorded": int(recorded.get("recorded") or 0),
                "not_reported": missing}

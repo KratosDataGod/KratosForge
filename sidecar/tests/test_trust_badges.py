@@ -167,6 +167,18 @@ def test_an_item_the_scan_did_not_report_stays_unknown(svc):
     assert out["trust"]["items"][0]["endorsement"] is None
 
 
+def test_a_later_scan_without_details_takes_an_old_certified_badge_away(svc, who, platform):
+    svc._scanner = lambda: FakeScanner(scan_of({"endorsement": "Certified", "certifiedBy": "Ana Lopez"}))
+    assert svc.platform_scan_endorsement(PID)["trust"]["items"][0]["endorsement"] == "Certified"
+    svc._scanner = lambda: FakeScanner(scan_of(None))  # listed again, now with no endorsementDetails
+    out = svc.platform_scan_endorsement(PID)
+    assert out["not_reported"] == ["LH_Gold"]
+    assert out["trust"]["items"][0]["endorsement"] is None
+    who.user = "bo@example.com"
+    assert svc.platform_product_trust(PID)["items"][0]["endorsement"] is None
+    assert '"cleared": 1' in (platform.call("audit", limit=5)[0]["detail"] or "")
+
+
 def test_non_admin_is_refused_a_scan_before_the_tenant_is_read(svc, who, platform):
     scanner = FakeScanner(scan_of({"endorsement": "Promoted"}))
     svc._scanner = lambda: scanner

@@ -1964,13 +1964,20 @@ def product_trust(db: Db, product_id: str, by: str = "") -> dict[str, Any]:
             "can_edit_terms": _can_edit_terms(db, product, by)}
 
 
-def record_endorsements(db: Db, items: list[dict[str, Any]], by: str = "") -> dict[str, Any]:
+def record_endorsements(db: Db, items: list[dict[str, Any]], by: str = "",
+                        cleared: list[str] | None = None) -> dict[str, Any]:
     """Keep what Fabric's admin tenant scan read for each product item, so everyone sees it. Platform
-    admins only: a badge everyone trusts can't be written by whoever calls. Only the items given
-    change; an item the scan didn't report keeps its last reading and that reading's date."""
+    admins only: a badge everyone trusts can't be written by whoever calls. `cleared` are items the
+    scan looked for but didn't confirm: their last reading goes, so they show unknown, never an old badge."""
     require_admin(db, by, "save endorsement from Fabric's tenant scan")
     ensure_trust_badges(db)
     at, counts = _now(), {}
+    gone = 0
+    for cid in cleared or []:
+        cid = str(cid or "").strip().lower()
+        if cid and len(cid) <= MAX_BK and _row(db, "endorsement", "item_id", cid) is not None:
+            db.run(f"DELETE FROM {db.t('catalog', 'endorsement')} WHERE item_id = ?", (cid,))
+            gone += 1
     for it in items or []:
         iid = str((it or {}).get("item_id") or "").strip().lower()
         if not iid or len(iid) > MAX_BK:
@@ -1983,9 +1990,10 @@ def record_endorsements(db: Db, items: list[dict[str, Any]], by: str = "") -> di
         _upsert(db, "catalog", "endorsement", "item_id", row)
         counts[label] = counts.get(label, 0) + 1
     # Who certified stays out of the audit detail: Fabric may give a sign-in name.
-    _audit(db, by, "record endorsement scan", "endorsement", {"items": sum(counts.values()), "endorsement": counts})
+    _audit(db, by, "record endorsement scan", "endorsement",
+           {"items": sum(counts.values()), "endorsement": counts, "cleared": gone})
     db.commit()
-    return {"recorded": sum(counts.values()), "scanned_at": at}
+    return {"recorded": sum(counts.values()), "cleared": gone, "scanned_at": at}
 
 
 def add_product_term(db: Db, product_id: str, term: str, url: str, by: str = "") -> list[dict[str, Any]]:

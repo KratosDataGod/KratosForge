@@ -10,6 +10,10 @@ Vega libraries it ships (app/ui/vendor/vega) in the same sandboxed frame as HTML
 nothing is fetched. ``chart.show()`` draws in the cell too, instead of starting a server for a
 browser. plotly's ``fig.show()`` (which drew nothing, as no renderer suits the engine) draws in
 the cell, as the figure does when it's a cell's last line.
+
+A plotly figure becomes a ``plotly`` output: the figure's JSON, which the app draws with plotly.js
+in the same sandboxed frame. plotly.js (about 5 MB) is read once from the engine's own plotly
+package (``plotly_js``), so it matches the figure's version and isn't copied into every output.
 """
 
 from __future__ import annotations
@@ -61,6 +65,23 @@ def altair_output(chart: Any) -> dict[str, Any]:
     if size > MAX_SPEC:
         return {"type": "text", "text": ALTAIR_TOO_BIG.format(size=size)}
     return {"type": "vegalite", "spec": spec}
+
+
+def is_plotly(value: Any) -> bool:
+    return type(value).__module__.startswith("plotly") and hasattr(value, "to_plotly_json")
+
+
+def plotly_output(fig: Any) -> dict[str, Any]:
+    """The figure (a plotly Figure or its dict) as plotly's own JSON, for the app to draw."""
+    import plotly.io as pio
+    return {"type": "plotly", "figure": json.loads(pio.to_json(fig, validate=False))}
+
+
+def plotly_js() -> dict[str, Any]:
+    """plotly.js from the engine's plotly package, the version its figures are made for."""
+    import plotly
+    from plotly.offline import get_plotlyjs
+    return {"version": plotly.__version__, "source": get_plotlyjs()}
 
 
 def _draw(output: Any, what: str) -> bool:
@@ -118,9 +139,7 @@ def _patch_plotly(module: Any) -> None:
 
     class CellRenderer(ExternalRenderer):
         def render(self, fig_dict: Any) -> None:
-            import plotly.io as pio
-            _draw(lambda: {"type": "html", "html": pio.to_html(fig_dict, include_plotlyjs=True, full_html=True,
-                                                                validate=False)}, "plotly's fig.show()")
+            _draw(lambda: plotly_output(fig_dict), "plotly's fig.show()")
 
     module.renderers["kratosforge"] = CellRenderer()
     if not os.environ.get("PLOTLY_RENDERER"):

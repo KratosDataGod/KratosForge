@@ -28,6 +28,15 @@ When you already have a notebook with the file's name, a free name is suggested.
 
 **Save a copy** on the notebook's **Home** tab, or on All notebooks, saves the notebook under a new name, in the place you pick. The copy has the same cells, lakehouse, parameters and publish workspace; the original stays as it is. The copy isn't published: its first **Publish** makes a new Fabric item under the copy's name. The original keeps its Fabric item, its schedules and its Prove history.
 
+## Edit the same notebook in VS Code or another program
+
+Notebooks are plain `.ipynb` files, so you can open the app's notebooks folder, or a notebooks repository, in VS Code, Jupyter or any other editor while KratosForge is open. KratosForge never saves over a change another program made: before each save it checks whether the file's cells changed on disk since it read them (outputs and metadata don't count). If they did, nothing is saved and it asks:
+
+- **Load its version** shows the file as the other program saved it. Your unsaved edits here are dropped.
+- **Keep mine** saves what you see here over it.
+
+Either way, the other program's version is kept first under **Versions** as **Changed outside the app**, so you can restore it. Closing the question keeps your edits on screen unsaved, and it's asked again at the next save. Publish, Run in Fabric and adding a Fabric schedule save first, so they never publish over an outside change either.
+
 ## Delete and restore
 
 **Delete** asks first, and says what else it touches:

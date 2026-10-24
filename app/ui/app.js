@@ -1845,7 +1845,7 @@ function loadIntoState(nb) {
   } else {
     state.notebook = { name: nb.name, cells: nb.cells.map(cellFrom), lakehouse: nb.lakehouse || null, place: nb.place || null, locations: nb.locations || null, dirty: false,
       compute: nb.compute || "default", workspace: nb.workspace || null, check: nb.check || null, replay: nb.replay || null,
-      onelake_writes: nb.onelake_writes || null };
+      onelake_writes: nb.onelake_writes || null, diskStamp: nb.disk_stamp || null };
     if (!state.notebook.cells.length) state.notebook.cells.push(cellFrom({ type: "code" }));
     state.notebook.cells.forEach((c) => { if (c.type === "markdown" && c.source) c.editing = false; });
     if (kept) keepOutputs(kept, state.notebook);
@@ -1926,8 +1926,15 @@ async function saveNotebook() {
   if (!state.notebook) return true;
   clearTimeout(saveTimer);
   const nb = state.notebook;
-  const ok = await attempt(() => rpc("save_notebook", notebookPayload()), "Could not save");
+  const ok = await attempt(() => rpc("save_notebook", { ...notebookPayload(), disk_stamp: nb.diskStamp || null }), "Could not save");
   if (!ok) return false;
+  if (ok.changed_on_disk) {
+    nb.diskConflict = true;  // autosave waits until the person decides
+    nbDiskConflict(nb, ok.disk_stamp);
+    return false;
+  }
+  nb.diskStamp = ok.disk_stamp || null;
+  nb.diskConflict = false;
   if (state.notebook === nb) {
     nb.dirty = false;
     if (ok.check) setComputeCheck(ok.check);
@@ -1942,7 +1949,36 @@ function markDirty() {
   state.notebook.dirty = true;
   if (!wasDirty) renderChrome();
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => { if (state.kernel !== "busy") saveNotebook(); }, 1500);
+  saveTimer = setTimeout(() => { if (state.kernel !== "busy" && !state.notebook?.diskConflict) saveNotebook(); }, 1500);
+}
+
+// Another program (VS Code, a Git pull, a sync tool) saved the notebook's file after the app read
+// it. Nothing was saved over it, and the engine kept that version under Versions, so either choice
+// can be undone from there.
+function nbDiskConflict(nb, stamp) {
+  if (nb.diskConflictOpen) return;
+  nb.diskConflictOpen = true;
+  const done = () => { nb.diskConflictOpen = false; closeDialog(); };
+  const load = async () => {
+    done();
+    const fresh = await attempt(() => rpc("open_notebook", { name: nb.name }), "Could not open the notebook");
+    if (!fresh || state.notebook !== nb) return;
+    nb.dirty = false;
+    loadIntoState(fresh);
+    if (state.view === "notebook") renderNotebook();
+    toast(`Loaded ${fresh.name} as it is on disk.`);
+  };
+  const keep = async () => {
+    done();
+    nb.diskStamp = stamp;
+    nb.diskConflict = false;
+    if (await saveNotebook()) toast(`Saved ${nb.name}. The other version is under Versions.`);
+  };
+  showDialog("This notebook changed outside KratosForge",
+    h("p", { class: "text" }, `${nb.name} was saved by another program, such as VS Code or a Git pull, after you opened it here. `
+      + "Nothing was saved over it. Its version is kept under Versions either way."),
+    [btn("Keep mine", null, keep, "tool outline"), btn("Load its version", null, load, "tool primary")],
+    () => { nb.diskConflictOpen = false; });
 }
 
 async function renameNotebook() {
@@ -2230,6 +2266,7 @@ async function scheduleNotebook() {
       added: "Scheduled. Fabric runs the published notebook on its own capacity.",
       list: () => rpc("notebook_schedules", { name: nb.name, lakehouse_ref: nbLakehouse(nb), workspace: nb.workspace }),
       add: async (schedule) => {
+        if (!(await saveNotebook())) return null;  // never publishes over a file changed outside the app
         const res = await rpc("add_notebook_schedule", { ...publishPayload(), schedule });
         nb.dirty = false; renderChrome();
         return res;

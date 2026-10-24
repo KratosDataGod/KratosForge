@@ -179,3 +179,37 @@ def test_the_index_is_rebuilt_when_it_is_torn_or_out_of_step(svc, clock):
     clock["now"] += 6 * 60
     save(svc, "NB", "a = 3")
     assert [v["current"] for v in call(svc, "notebook_versions", name="NB")["versions"]] == [True, False]
+
+
+def test_a_save_never_writes_over_a_notebook_changed_on_disk(svc):
+    first = save(svc, "NB", "a = 1")
+    opened = call(svc, "open_notebook", name="NB")
+    assert opened["disk_stamp"] == first["disk_stamp"]
+    path = svc.notebooks.path("NB")
+    nb = json.loads(path.read_text())
+    nb["cells"][0]["source"] = ["a = 2  # from VS Code"]
+    path.write_text(json.dumps(nb))  # another program saves the file
+    mine = [{"type": "code", "source": "a = 3"}]
+    out = call(svc, "save_notebook", name="NB", cells=mine, disk_stamp=opened["disk_stamp"])
+    assert out["changed_on_disk"] and out["disk_stamp"] != opened["disk_stamp"]
+    assert svc.notebooks.load("NB")["cells"][0]["source"] == "a = 2  # from VS Code"  # nothing written
+    kept = call(svc, "notebook_versions", name="NB")["versions"]
+    assert kept[0]["kind"] == "changed outside"
+    # Keep mine: saved with the stamp it was told; the outside version stays under Versions
+    again = call(svc, "save_notebook", name="NB", cells=mine, disk_stamp=out["disk_stamp"])
+    assert "changed_on_disk" not in again
+    assert svc.notebooks.load("NB")["cells"][0]["source"] == "a = 3"
+    kinds = [v["kind"] for v in call(svc, "notebook_versions", name="NB")["versions"]]
+    assert "changed outside" in kinds and kinds[0] == "auto"
+
+
+def test_metadata_changes_and_unchecked_saves_are_not_outside_changes(svc):
+    first = save(svc, "NB", "a = 1")
+    svc.notebooks.set_extra("NB", "replay", {"x": 1})  # the app's own metadata write
+    out = call(svc, "save_notebook", name="NB", cells=[{"type": "code", "source": "a = 2"}], disk_stamp=first["disk_stamp"])
+    assert "changed_on_disk" not in out
+    path = svc.notebooks.path("NB")
+    nb = json.loads(path.read_text())
+    nb["cells"][0]["source"] = "b = 1"
+    path.write_text(json.dumps(nb))
+    assert "changed_on_disk" not in save(svc, "NB", "c = 1")  # callers that don't send a stamp save as before

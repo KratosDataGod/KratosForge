@@ -40,6 +40,14 @@ class NotebookVersionsMixin:
         except Exception as exc:  # noqa: BLE001 - the notebook is already saved; a version is never worth failing it
             _log.warning("Couldn't keep a version of %r: %s", name, describe(exc))
 
+    def _keep_outside_version(self, name: str) -> None:
+        """The file as another program saved it (save_notebook found it changed on disk). Kept on its
+        own, never merged into the automatic versions, so saving over it later can be undone."""
+        try:
+            versions.record(self._versions_root, name, self._saved_nb(name), "changed outside")
+        except Exception as exc:  # noqa: BLE001 - nothing is saved over it now either way
+            _log.warning("Couldn't keep the outside version of %r: %s", name, describe(exc))
+
     def notebook_versions(self, name: str) -> dict[str, Any]:
         """The notebook's versions, newest first; ``current`` marks those matching the saved file."""
         return versions.listing(self._versions_root, name, self._saved_nb(name))

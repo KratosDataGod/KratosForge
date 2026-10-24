@@ -616,6 +616,13 @@ function renderQuery() {
 
   const edit = h("div", { class: "sql-edit" });
   edit.append(editor.view.dom);
+  // A new tab holding text from the explorer's Script as or a template (WH-03, WH-04).
+  const openTab = (name, text) => {
+    p.tabs.push({ name, sql: text, dialect: tab.dialect });
+    p.active = p.tabs.length - 1;
+    saveQueryTabs();
+    renderQuery();
+  };
   // WH-02: the object explorer, from the warehouse's catalog. It lists by itself once runs on this
   // warehouse are confirmed this session; before that it waits for List objects.
   const loadCatalog = () => whLoadCatalog(ref, () => { if (state.view === "query" && p.ref === ref) p.whRedraw?.(); });
@@ -623,18 +630,14 @@ function renderQuery() {
     load: async () => { if (await warehouseRunOk(ref)) loadCatalog(); },
     query: (name) => queryTable(name),
     insert: (text) => insertAtCursor(text),
-    open: (name, text) => {
-      p.tabs.push({ name, sql: text, dialect: tab.dialect });
-      p.active = p.tabs.length - 1;
-      saveQueryTabs();
-      renderQuery();
-    },
+    open: (name, text) => openTab(name, text),
   }) : null;
   p.whRedraw = wh ? () => { whTree.draw(); if (here()) editor.refresh(); } : null;
   const fabricLink = wh ? fabricItemLink({ type: ref.kind === "endpoint" ? "Lakehouse" : "Warehouse", workspace_id: ref.workspace_id, item_id: ref.item_id }) : null;
   setView(wh ? h("div", { class: "sql-page warehouse-page" },
     h("div", { class: "ribbon" }, h("div", { class: "toolbar" },
       btn("New SQL query", "add", addTab),
+      btn("SQL from a template", "document", () => openSqlTemplates(ref, openTab)),
       btn("Open in Fabric", "open", () => openInFabric(fabricLink)),
       h("span", { class: "spacer" }),
       h("span", { class: "muted-text" }, `Queries run in Fabric on ${ref.name} and use capacity. Only a query that reads runs here. `,

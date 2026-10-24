@@ -62,7 +62,7 @@ test("a Warehouse problem is underlined in the editor and listed in the panel", 
   await page().waitForFunction(() => document.querySelector(".sql-edit .cm-lintRange-error"));
   assert.deepStrictEqual(await underlined("cm-lintRange-error"), ["LIMIT 10"]);
   const text = await panel();
-  assert.match(text, /Fabric Warehouse \(T-SQL\) · rules 2026\.10\.2 · 1 statement/);
+  assert.match(text, /Fabric Warehouse \(T-SQL\) · rules 2026\.10\.3 · 1 statement/);
   assert.match(text, /1 error/);
   assert.match(text, /Known problems/);
   assert.match(text, /Error · Ln 4 · LIMIT isn't T-SQL/);

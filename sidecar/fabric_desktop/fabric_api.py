@@ -284,6 +284,16 @@ class FabricClient:
         runs = self._paged(f"/workspaces/{workspace_id}/items/{item_id}/jobs/instances")
         return sorted(runs, key=lambda r: r.get("startTimeUtc") or "", reverse=True)
 
+    def query_activity_runs(self, workspace_id: str, job_id: str, updated_after: str,
+                            updated_before: str) -> list[dict[str, Any]]:
+        """The activity runs of one pipeline run (its job instance id), newest first. A query, not a job:
+        it reads run history and uses no capacity. Fabric needs the time window."""
+        body = {"filters": [], "orderBy": [{"orderBy": "ActivityRunStart", "order": "DESC"}],
+                "lastUpdatedAfter": updated_after, "lastUpdatedBefore": updated_before}
+        data = self._request("POST", f"/workspaces/{workspace_id}/datapipelines/pipelineruns/{job_id}/queryactivityruns",
+                             json=body).json()
+        return data if isinstance(data, list) else (data or {}).get("value", [])
+
     def delete_schedule(self, workspace_id: str, item_id: str, job_type: str, schedule_id: str) -> None:
         self._request("DELETE", f"/workspaces/{workspace_id}/items/{item_id}/jobs/{job_type}/schedules/{schedule_id}")
 

@@ -102,6 +102,7 @@ nav = [
     { "Prove: continuation note" = "prove/continuation.md" },
     { "Orchestration plan" = "orchestration/plan.md" },
     { "Orchestration: continuation note" = "orchestration/continuation.md" },
+    { "Data Factory plan" = "orchestration/data-factory.md" },
     { "Workload operations plan" = "workloads/plan.md" },
     { "Workloads: continuation note" = "workloads/continuation.md" },
     { "Multiple workers design" = "workloads/multi-worker.md" },

@@ -106,6 +106,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/ui-guidelines.md](docs/ui-guidelines.md) | Where new features go in the UI |
 | [docs/ux/README.md](docs/ux/README.md) | UX and simplicity audit: scores, backlog and usability release gates |
 | [docs/orchestration/plan.md](docs/orchestration/plan.md) | Fabric pipelines on this PC (ORCH-001 to ORCH-010): definition engine, compatibility registry and local execution, with a [continuation note](docs/orchestration/continuation.md) |
+| [docs/orchestration/data-factory.md](docs/orchestration/data-factory.md) | Data Factory beyond pipelines (DF-1 to DF-10): Fabric pipeline runs in Monitor, copy jobs, Dataflow Gen2 and connections, read-only where they touch Fabric |
 | [docs/workloads/plan.md](docs/workloads/plan.md) | The workload operations program: inventory, ownership, health, incidents, releases and value across this PC, agents and Fabric, with all 100 backlog items and a [continuation note](docs/workloads/continuation.md) |
 | [docs/incidents.md](docs/incidents.md) | Incidents and your service desk: numbers, priorities, SLAs, reported incidents, and where incidents are kept |
 | [docs/quality/README.md](docs/quality/README.md) | Engineering quality baseline: scorecard, [findings](docs/quality/findings.md) (QA-nnn), [remediation plan](docs/quality/remediation.md) and the [PR quality gate](docs/quality/pr-review.md) |

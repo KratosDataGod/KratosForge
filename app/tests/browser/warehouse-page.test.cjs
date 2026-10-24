@@ -8,7 +8,7 @@ const { playwright, openApp, sqlRunMocks } = require("./harness.cjs");
 
 const WH = { kind: "warehouse", workspace_id: "ws1", workspace_name: "Sales Dev", item_id: "wh1", name: "WH_Gold" };
 const SHOTS = process.env.SCREENSHOT_DIR;
-const CATALOG_COLS = ["schema_name", "object_name", "column_name", "type_name", "max_length", "precision", "scale"].map((name) => ({ name, type: "varchar" }));
+const CATALOG_COLS = ["schema_name", "object_name", "column_name", "type_name", "max_length", "precision", "scale", "is_nullable"].map((name) => ({ name, type: "varchar" }));
 
 let app;
 const skip = !playwright && "Playwright is not installed";
@@ -19,8 +19,12 @@ before(async () => {
   if (skip) return;
   const runs = sqlRunMocks((p) => {
     if (p.warehouse_ref.item_id === "lh1" && p.query.includes("sys.objects")) throw new Error("Login failed for user");
-    if (p.query.includes("sys.columns")) return { columns: CATALOG_COLS, rows: [["dbo", "Sales", "Amount", "decimal", 9, 18, 2],
-      ["dbo", "Sales", "Customer Name", "nvarchar", 200, 0, 0], ["dbo", "vSales", "Amount", "decimal", 9, 18, 2]] };
+    if (p.query.includes("sys.sql_modules")) {
+      const def = p.query.includes("usp_Load") ? "CREATE PROCEDURE dbo.usp_Load\nAS\nSELECT 1;" : "CREATE VIEW dbo.vSales AS SELECT Amount FROM dbo.Sales;";
+      return { columns: [{ name: "definition", type: "varchar" }], rows: [[def]] };
+    }
+    if (p.query.includes("sys.columns")) return { columns: CATALOG_COLS, rows: [["dbo", "Sales", "Amount", "decimal", 9, 18, 2, false],
+      ["dbo", "Sales", "Customer Name", "nvarchar", 200, 0, 0, true], ["dbo", "vSales", "Amount", "decimal", 9, 18, 2, true]] };
     if (p.query.includes("sys.objects")) return { columns: CATALOG_COLS.slice(0, 3), rows: [["dbo", "Sales", "U"], ["dbo", "vSales", "V"],
       ["dbo", "usp_Load", "P"], ["dbo", "fn_Days", "IF"], ["staging", "Orders", "U"]] };
     return { columns: [{ name: "CustomerName", type: "varchar" }, { name: "Revenue", type: "decimal" }],
@@ -123,6 +127,41 @@ test("the filter narrows the tree, and clicking a table queries its top 100 rows
   assert.strictEqual(starts().at(-1).query, "SELECT TOP (100) *\nFROM [staging].[Orders];");
   assert.strictEqual(await page().locator(".dialog-actions").count(), 0, "already confirmed for this warehouse");
   await page().fill(".wh-filter", "");
+});
+
+const menuItems = () => page().locator("#menu [role=menuitem]").allTextContents();
+const tabText = () => page().evaluate(() => sqlPage.tabs[sqlPage.active].sql);
+
+test("Script as on a table: CREATE from the explorer's columns, opened in a new tab and not run", { skip }, async () => {
+  const before = starts().length;
+  await page().getByRole("button", { name: "Script Sales" }).click();
+  assert.deepStrictEqual(await menuItems(), ["Select top 100 rows", "Script as CREATE", "Script as DROP"]);
+  await page().getByRole("menuitem", { name: "Script as CREATE" }).click();
+  await page().waitForFunction(() => sqlPage.tabs[sqlPage.active].name === "Sales (CREATE)");
+  const sql = await tabText();
+  assert.match(sql, /^-- CREATE script from WH_Gold, .* UTC\.\n-- This page runs only queries that read/);
+  assert.match(sql, /CREATE TABLE \[dbo\]\.\[Sales\]\n\(\n {4}\[Amount\] decimal\(18,2\) NOT NULL,\n {4}\[Customer Name\] nvarchar\(100\) NULL\n\);/);
+  assert.strictEqual(starts().length, before, "scripting a table asks Fabric nothing and runs nothing");
+});
+
+test("Script as ALTER on a procedure reads its definition and turns CREATE into ALTER", { skip }, async () => {
+  await page().getByRole("button", { name: "Stored procedures (1)" }).click();
+  await page().getByRole("button", { name: "Script usp_Load" }).click();
+  assert.deepStrictEqual(await menuItems(), ["Script as CREATE", "Script as ALTER", "Script as DROP"]);
+  await page().getByRole("menuitem", { name: "Script as ALTER" }).click();
+  await page().waitForFunction(() => sqlPage.tabs[sqlPage.active].name === "usp_Load (ALTER)");
+  assert.match(starts().at(-1).query, /FROM sys\.sql_modules AS m\nWHERE m\.object_id = OBJECT_ID\(N'\[dbo\]\.\[usp_Load\]'\);/);
+  assert.match(await tabText(), /\nALTER PROCEDURE dbo\.usp_Load\nAS\nSELECT 1;\n$/);
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "wh-03-script-as.png") });
+});
+
+test("Script as DROP on a view, from a right-click", { skip }, async () => {
+  await page().getByRole("button", { name: "Views (1)" }).click();
+  await page().getByRole("button", { name: "vSales", exact: true }).click({ button: "right" });
+  await page().getByRole("menuitem", { name: "Script as DROP" }).click();
+  await page().waitForFunction(() => sqlPage.tabs[sqlPage.active].name === "vSales (DROP)");
+  assert.match(await tabText(), /\nDROP VIEW \[dbo\]\.\[vSales\];\n$/);
+  assert.deepStrictEqual(app.errors, []);
 });
 
 test("Workspaces offers the page on a warehouse and on an endpoint whose lakehouse is listed", { skip }, async () => {

@@ -569,6 +569,8 @@ h2.flush { margin: 0; }
 .wh-note { margin: 8px; font-size: 12px; }
 .wh-explorer .tool { margin: 0 8px 8px; align-self: flex-start; }
 .wh-indent { flex: none; width: 58px; }
+.sql-table-row .tree-row.wh-more { flex: none; width: 28px; justify-content: center; padding: 0; opacity: 0; }
+.wh-object:hover .wh-more, .wh-more:focus-visible, .wh-more[aria-expanded="true"] { opacity: 1; }
 .sql-lint-msg { display: flex; flex-direction: column; gap: 2px; max-width: 420px; font-family: var(--font, "Segoe UI", system-ui, sans-serif); font-size: 12.5px; }
 .sql-lint-msg .muted { color: #616161; }
 @media (max-width: 1100px) { .sql-compat { width: 240px; } }

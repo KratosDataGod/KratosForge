@@ -14,7 +14,7 @@ WHERE o.type IN ('U', 'V', 'P', 'FN', 'IF', 'TF') AND o.is_ms_shipped = 0
 ORDER BY s.name, o.name;`;
 
 const WH_COLUMNS_SQL = `SELECT s.name AS schema_name, o.name AS object_name, c.name AS column_name, t.name AS type_name,
-  c.max_length, c.precision, c.scale
+  c.max_length, c.precision, c.scale, c.is_nullable
 FROM sys.columns AS c
 JOIN sys.objects AS o ON o.object_id = c.object_id
 JOIN sys.schemas AS s ON s.schema_id = o.schema_id
@@ -33,9 +33,69 @@ function whTypeLabel(type, maxLength, precision, scale) {
 }
 
 // A [schema].[name] reference, escaping ] as T-SQL does.
+function whQuote(s) {
+  return `[${String(s).replace(/]/g, "]]")}]`;
+}
+
 function whName(schema, name) {
-  const q = (s) => `[${String(s).replace(/]/g, "]]")}]`;
-  return `${q(schema)}.${q(name)}`;
+  return `${whQuote(schema)}.${whQuote(name)}`;
+}
+
+// ---- Script as (WH-03): T-SQL for an object, opened in a new tab and never run.
+
+const WH_DROP_KIND = { U: "TABLE", V: "VIEW", P: "PROCEDURE", FN: "FUNCTION" };
+
+// The first line of every script: where it came from, and that this page won't run it.
+function whScriptHeader(ref, verb) {
+  return `-- ${verb} script from ${ref.name}, ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC.\n` +
+    "-- This page runs only queries that read, so it won't run this script.\n";
+}
+
+// CREATE TABLE from the explorer's columns (names, T-SQL types, NULL or NOT NULL).
+function whCreateTable(o, cols) {
+  const lines = cols.map((c) => `    ${whQuote(c.name)} ${c.type}${c.nullable === false ? " NOT NULL" : " NULL"}`);
+  return `CREATE TABLE ${whName(o.schema, o.name)}\n(\n${lines.join(",\n")}\n);\n`;
+}
+
+// A view, procedure or function's definition as ALTER: its leading CREATE (or CREATE OR ALTER) becomes ALTER.
+function whAsAlter(definition) {
+  return definition.replace(/^(\s*(?:--[^\n]*\n\s*|\/\*[\s\S]*?\*\/\s*)*)CREATE\s+(?:OR\s+ALTER\s+)?(VIEW|PROC|PROCEDURE|FUNCTION)\b/i,
+    (_, lead, kind) => `${lead}ALTER ${kind.toUpperCase()}`);
+}
+
+// The definition of a view, procedure or function, from sys.sql_modules (a catalog query in Fabric).
+async function whDefinition(ref, o) {
+  const id = whName(o.schema, o.name).replace(/'/g, "''");
+  const { rows } = await whCatalogQuery(ref, `SELECT m.definition\nFROM sys.sql_modules AS m\nWHERE m.object_id = OBJECT_ID(N'${id}');`);
+  const def = rows[0]?.[0];
+  if (typeof def !== "string" || !def.trim()) throw new Error(`Fabric returned no definition for ${o.name}.`);
+  return def.trim();
+}
+
+// The Script as menu items for an object. open(title, text) opens a script tab; query(name) runs SELECT TOP (100).
+function whScriptItems(ref, o, cols, { open, query }) {
+  const full = whName(o.schema, o.name);
+  const drop = () => open(`${o.name} (DROP)`, `${whScriptHeader(ref, "DROP")}DROP ${WH_DROP_KIND[o.type]} ${full};\n`);
+  const module = (verb) => async () => {
+    toast(`Reading the definition of ${o.name}...`);
+    try {
+      const def = await whDefinition(ref, o);
+      open(`${o.name} (${verb})`, `${whScriptHeader(ref, verb)}${verb === "ALTER" ? whAsAlter(def) : def}\n`);
+    } catch (err) {
+      toast(`Could not script ${o.name}: ${String(err).replace(/^Error: /, "")}`, true);
+    }
+  };
+  const items = [];
+  if (o.type === "U" || o.type === "V") items.push({ label: "Select top 100 rows", icon: "play", action: () => query(full) });
+  if (o.type === "U") {
+    items.push({ label: "Script as CREATE", icon: "code", action: () => open(`${o.name} (CREATE)`, `${whScriptHeader(ref, "CREATE")}${whCreateTable(o, cols || [])}`) });
+  } else {
+    items.push({ label: "Script as CREATE", icon: "code", action: module("CREATE") },
+      { label: "Script as ALTER", icon: "code", action: module("ALTER") });
+  }
+  items.push({ label: "Script as DROP", icon: "code", action: drop },
+    { info: "Scripts open in a new tab and don't run" });
+  return items;
 }
 
 // One catalog query, start to last page: { columns, rows }. Throws with the run's own error.
@@ -74,8 +134,8 @@ async function whLoadCatalog(ref, onChange) {
     const cols = await whCatalogQuery(ref, WH_COLUMNS_SQL);
     if (sqlPage.catalog !== cat) return;
     cat.objects = objs.rows.map(([schema, name, type]) => ({ schema, name, type: WH_GROUP_OF[type] || type }));
-    for (const [schema, name, col, type, len, prec, scale] of cols.rows) {
-      (cat.cols[`${schema}.${name}`] ||= []).push({ name: col, type: whTypeLabel(type, len, prec, scale) });
+    for (const [schema, name, col, type, len, prec, scale, nullable] of cols.rows) {
+      (cat.cols[`${schema}.${name}`] ||= []).push({ name: col, type: whTypeLabel(type, len, prec, scale), nullable: !!nullable });
     }
     Object.assign(cat, { state: "done", at: new Date() });
   } catch (err) {
@@ -98,7 +158,9 @@ function warehouseSqlProvider(ref) {
 }
 
 // The explorer box. actions: load() lists the objects (asking first, since it runs in Fabric),
-// query(name) opens SELECT TOP (100) on a table or view, insert(text) types a name in the editor.
+// query(name) opens SELECT TOP (100) on a table or view, insert(text) types a name in the editor,
+// open(title, text) opens a script in a new tab without running it. Each object's ⋯ button (or a
+// right-click) has Script as.
 function whExplorer(ref, actions) {
   const box = h("div", { class: "explorer-content" });
   const open = sqlPage.whOpen ||= new Set();
@@ -144,12 +206,17 @@ function whExplorer(ref, actions) {
           const cols = cat.cols[`${o.schema}.${o.name}`];
           const oid = `o:${o.schema}.${o.name}`;
           const readable = o.type === "U" || o.type === "V";
-          rows.push(h("div", { class: "sql-table-row" },
+          const menu = (e) => {
+            e.preventDefault();
+            showMenu(e.currentTarget.closest(".sql-table-row").querySelector(".wh-more"), whScriptItems(ref, o, cols, actions));
+          };
+          rows.push(h("div", { class: "sql-table-row wh-object", oncontextmenu: menu },
             readable ? h("button", { class: "tree-row chev", "aria-label": open.has(oid) ? `Hide columns of ${o.name}` : `Show columns of ${o.name}`,
               style: "padding-left:38px", onclick: () => toggle(oid) }, chevron(open.has(oid))) : h("span", { class: "wh-indent" }),
             h("button", { class: "tree-row", title: readable ? `Query ${full}` : `Insert ${full}`,
               onclick: () => (readable ? actions.query(full) : actions.insert(full)) },
-            icon(WH_ICONS[o.type] || "code", 15), h("span", { class: "label" }, o.name))));
+            icon(WH_ICONS[o.type] || "code", 15), h("span", { class: "label" }, o.name)),
+            h("button", { class: "tree-row wh-more", "aria-label": `Script ${o.name}`, "aria-haspopup": "menu", title: "Script as...", onclick: menu }, "⋯")));
           if (readable && open.has(oid)) {
             for (const c of cols || []) {
               rows.push(h("button", { class: "tree-row sql-col", style: "padding-left:70px", title: `Insert ${c.name}`,

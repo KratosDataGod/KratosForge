@@ -11,7 +11,7 @@ Rules for every PR in this plan:
 
 | PR | Title | Fixes | Priority | Owner | Depends on |
 | --- | --- | --- | --- | --- | --- |
-| PR-QA-01 | Refuse Spark and notebookutils calls the shim can't honor | QA-001, QA-009, QA-026 | P0 | Prove | (#154 for QA-026) |
+| PR-QA-01 | Refuse Spark and notebookutils calls the shim can't honor | QA-001, QA-009, QA-026 | P0 | Prove | Done: #177, #307, #547 |
 | PR-QA-02 | A failed notebook save never reports "Saved" or drops edits | QA-002 | P0 | Prove | |
 | PR-QA-03 | Destructive Fabric actions stop when a lookup fails | QA-003, QA-004, QA-007, QA-010 | P1 | Hardening | |
 | PR-QA-04 | Shortcut rules and access review fail closed | QA-005 | P1 | Governance | |
@@ -51,6 +51,8 @@ Rules for every PR in this plan:
 **Documentation.** `docs/notebooks.md`: list the supported writer options and what is refused; `runMultiple` support.
 
 **Definition of done.** Tests pass on CI; the notebooks guide matches the code; QA-001, QA-009, QA-026 marked fixed in the register with the PR number.
+
+**Status.** Done. #177 (writer allow-list, `read.schema`, `runMultiple`), #307 (`fs.exists`) and #547 (`mkdirs`); QA-001, QA-009 and QA-026 are marked fixed in the [register](findings.md).
 
 ## PR-QA-02 A failed notebook save never reports "Saved" or drops edits
 

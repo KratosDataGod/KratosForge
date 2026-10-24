@@ -50,6 +50,7 @@ import bisect
 import itertools
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -61,6 +62,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import pyarrow as pa
+from sqlglot import exp
 
 from . import app_settings, sql, sql_policy, warehouse
 from .filenames import file_stem
@@ -118,6 +120,7 @@ class Execution:
     timer: threading.Timer | None = field(default=None, repr=False)
     stop_reason: str = ""  # "cancel" or "timeout" once the engine ended the process
     time_limit_s: float = 0.0
+    time_limit_from: str = ""  # local target: "sql" (Settings › SQL), "caller" or "project" (its own setting)
     target: str = "lakehouse"  # or "local": a local data project's database
     project: str = ""  # local target: the project's id
     project_name: str = ""
@@ -140,6 +143,7 @@ class Execution:
                 "rows": self.rows, "columns": self.columns, "permission": self.permission,
                 "error": self.error, "error_kind": self.error_kind, "refused": self.refused,
                 "time_limit_minutes": round(self.time_limit_s / 60, 2),
+                **({"time_limit_from": self.time_limit_from} if self.target == "local" else {}),
                 "snapshot": self.state == "completed" and self.snapshot.exists()}
 
 
@@ -518,7 +522,16 @@ class SqlExecutions:
 
     def _launch_local(self, run: Execution, limits: dict[str, Any]) -> None:
         minutes = float(limits["sql_time_limit_minutes"] or 0)
-        run.time_limit_s = run.timeout_s if run.timeout_s is not None else minutes * 60
+        if run.timeout_s is not None:
+            run.time_limit_s, run.time_limit_from = run.timeout_s, "caller"
+        elif minutes:
+            run.time_limit_s, run.time_limit_from = minutes * 60, "sql"
+        else:  # the engine applies the project's own limit; say so in the status
+            try:
+                seconds = float(self._local_engine(run.project).project.settings.timeout_seconds or 0)  # type: ignore[misc]
+            except KeyError:  # the project went away; _run_local reports it
+                seconds = 0.0
+            run.time_limit_s, run.time_limit_from = seconds, "project" if seconds else ""
         run.state, run.started = "running", time.time()
         threading.Thread(target=self._run_local, args=(run,), daemon=True, name=f"sql-run-{run.id}").start()
 
@@ -534,12 +547,7 @@ class SqlExecutions:
             if stop is not None:
                 refused = _refusal(stop)
                 state, kind = "failed", "permission"
-                if stop.kind in run.allow and stop.confirm:
-                    error = (f"Statement {stop.statement} needs confirming ({stop.reason}), so nothing ran. "
-                             "Run it again and confirm to let it change the project.")
-                else:
-                    error = (f"Statement {stop.statement} {sql_policy.LABELS[stop.kind]} ({stop.reason}), so nothing "
-                             "ran. A local data project run reads and changes the project's own tables only.")
+                error = local_refusal_message(stop, run.allow)
             else:
                 with self._lock:
                     run.permission = sql_policy.strongest(verdicts)
@@ -559,8 +567,9 @@ class SqlExecutions:
             state, error = "cancelled", "Stopped."
         except TimeoutError as exc:
             state, kind = "timed_out", "timeout"
-            error = (f"Stopped after the time limit ({run.time_limit_s / 60:g} minutes, Settings › SQL)."
-                     if run.timeout_s is None and run.time_limit_s else str(exc))  # else the caller's or project's limit
+            error = {"sql": f"Stopped after the time limit ({run.time_limit_s / 60:g} minutes, Settings › SQL).",
+                     "project": f"Stopped after the project's time limit ({run.time_limit_s / 60:g} minutes, "
+                                "in the project's settings)."}.get(run.time_limit_from, str(exc))
         except EngineBusy as exc:
             state, kind, error = "failed", "engine", str(exc)
         except Exception as exc:  # noqa: BLE001 - the SQL's own error, shown in place of the rows
@@ -721,14 +730,41 @@ class _Stopped(Exception):
     pass
 
 
+_OUTSIDE_COMMAND = re.compile(r"(?:^|;)\s*(EXPORT|IMPORT)\s+DATABASE\b", re.IGNORECASE)
+
+
 def _policy_statements(query: str, dialect: str) -> list[Any]:
     """The statements the policy classes. T-SQL (local target only) is classed as the DuckDB SQL it
     is translated to, which is what runs."""
     if dialect != "tsql":
-        return sql.parse(query, dialect)
+        try:
+            return sql.parse(query, dialect)
+        except ValueError:
+            # sqlglot can't read DuckDB's EXPORT/IMPORT DATABASE; class it as the command it is,
+            # so it is refused as a write outside the project, not reported as a SQL error.
+            found = _OUTSIDE_COMMAND.search(query)
+            if found:
+                return [exp.Command(this=found.group(1).upper(), expression=exp.Literal.string(""))]
+            raise
     from .localdata import tsql
     texts, _notes = tsql.translate(query)
     return [st for text in texts for st in sql.parse(text, "duckdb")]
+
+
+def check_local(query: str, dialect: str, confirm: bool = False) -> tuple[list[sql_policy.Verdict], sql_policy.Verdict | None]:
+    """A local data project query's statements, classed, and the first that may not run, or None.
+    The same check a managed local run makes (``target="local"``), for callers that run a query
+    in the project's engine themselves (``local_query``)."""
+    verdicts = sql_policy.classify(_policy_statements(query, dialect), "local")
+    return verdicts, sql_policy.refused(verdicts, TARGET_ALLOWS["local"], confirm)
+
+
+def local_refusal_message(stop: sql_policy.Verdict, allow: tuple[str, ...] = TARGET_ALLOWS["local"]) -> str:
+    if stop.kind in allow and stop.confirm:
+        return (f"Statement {stop.statement} needs confirming ({stop.reason}), so nothing ran. "
+                "Run it again and confirm to let it change the project.")
+    return (f"Statement {stop.statement} {sql_policy.LABELS[stop.kind]} ({stop.reason}), so nothing "
+            "ran. A local data project run reads and changes the project's own tables only.")
 
 
 def _refusal(stop: sql_policy.Verdict) -> dict[str, Any]:

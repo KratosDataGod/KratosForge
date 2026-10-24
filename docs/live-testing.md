@@ -64,7 +64,7 @@ fabric-desktop live-test --workspace <workspace id> --all --run-in-fabric       
 | `pipeline.definition` | Creates a DataPipeline item `fdlt_<run id>_pl` with one Wait activity, reads its definition back, parses it and exports it again. Creating an item uses capacity. | The app reads Fabric's pipeline definitions and round-trips them without loss. |
 | `notebook.run` | Runs `fdlt_<run id>_nb` in Fabric the way **Run in Fabric** does and waits up to 30 minutes (then cancels it). Spends Spark capacity. | Fabric's job scheduler runs a notebook the app published. |
 
-`notebook.run` only runs with `--run-in-fabric` (which also publishes the notebook). Without it the result says `skipped: needs --run-in-fabric`. Your organization's policy can block runs in Fabric; the check then fails with that reason.
+`notebook.run` only runs with `--run-in-fabric` (which also publishes the notebook). Without it the result says `skipped: needs --run-in-fabric`. It also stays skipped when `notebook.publish` failed, for example when the cells read back differ, so no capacity is spent running a notebook that wasn't published as written. Your organization's policy can block runs in Fabric; the check then fails with that reason.
 
 Every item these checks create is named `fdlt_<run id>_...`, goes into the ledger the moment it exists, and is deleted in cleanup before the lakehouse. If an item with that name already exists, the check fails rather than overwrite it. The same production refusals apply.
 

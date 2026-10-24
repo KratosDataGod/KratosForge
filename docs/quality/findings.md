@@ -21,7 +21,7 @@ Severity:
 
 | ID | Sev | Kind | Finding | Fix |
 | --- | --- | --- | --- | --- |
-| QA-001 | Critical | Fake functionality | Spark writer options are stored and ignored; `replaceWhere` overwrites the whole table | PR-QA-01 |
+| QA-001 | Critical | Fake functionality | Spark writer options are stored and ignored; `replaceWhere` overwrites the whole table | PR-QA-01; fixed (#177) |
 | QA-002 | High | Hidden failure | A failed notebook save shows "Saved"; close and switch then drop the edits | PR-QA-02 |
 | QA-003 | High | Hidden failure | VACUUM falls back to Fabric's 7 days when the project or table setting can't be read | PR-QA-03 |
 | QA-004 | High | Hidden failure | Create model can overwrite an existing semantic model and silently leave tables out | PR-QA-03 |
@@ -29,7 +29,7 @@ Severity:
 | QA-006 | High | Duplication | A Fabric 503 or 429 isn't retryable to the agent; five transient-error rules disagree | PR-QA-05 |
 | QA-007 | Medium | Hidden failure | A failed lakehouse lookup guesses "schemas on", sending writes to the wrong folder | PR-QA-03 |
 | QA-008 | Medium | Overclaim | "0 CU-s, measured" and "no Fabric capacity used" for runs that read and write OneLake | PR-QA-10 |
-| QA-009 | Medium | Fake functionality | `notebookutils.notebook.runMultiple` ignores args, dependencies and timeouts | PR-QA-01 |
+| QA-009 | Medium | Fake functionality | `notebookutils.notebook.runMultiple` ignores args, dependencies and timeouts | PR-QA-01; fixed (#177) |
 | QA-010 | Medium | Overclaim | X-ray marks a finding fixed when the job is submitted and hides it for good | PR-QA-03 |
 | QA-011 | Medium | Duplication | 9 atomic-write copies; settings and schedules are rewritten non-atomically and read a torn file as empty | PR-QA-06 |
 | QA-012 | Medium | Duplication | Two audit-chain writers; the app's caches the chain head across processes | PR-QA-06 |
@@ -46,7 +46,7 @@ Severity:
 | QA-023 | Low | Duplication | Prove and side by side are near-clone background-run implementations | PR-QA-08 |
 | QA-024 | Low | Duplication | 13 date and time helpers with different rules for naive times and errors | PR-QA-06 |
 | QA-025 | Low | Duplication | Table URIs rebuilt by hand in four places, skipping name validation | PR-QA-08 |
-| QA-026 | Low | Fake functionality | `fs.exists` says False on 401/403, `mkdirs` does nothing, `read.schema()` is ignored | PR-QA-01 |
+| QA-026 | Low | Fake functionality | `fs.exists` says False on 401/403, `mkdirs` does nothing, `read.schema()` is ignored | PR-QA-01; fixed (#177, #307, #547) |
 | QA-027 | Low | Hidden failure | Monitor > Schedules, readiness and run lists show partial results as complete | PR-QA-07 |
 | QA-028 | Low | Configuration | Windows-only dependencies aren't pinned in `constraints.txt` | PR-QA-06 |
 | QA-029 | Low | Dead code | A dead redaction fallback, unused symbols and production code only tests call | PR-QA-09 |
@@ -76,6 +76,8 @@ w.mode("overwrite").option("replaceWhere", "date = '2026-10-01'").saveAsTable("s
 **Overlaps.** DI-8 / HD-040 (local `saveAsTable` overwrite replaces the schema) is a different path through the same writer.
 
 **Fix.** PR-QA-01: refuse any writer option outside an allow-list, with a message that names it; implement `replaceWhere` with delta-rs's predicate overwrite, or refuse it; make `insertInto` append. **Verify:** a test per option that today passes silently and must raise or behave as in Fabric.
+
+**Status.** Fixed on `main` (#177). The Spark writer takes only the options it can honor; any other option, `replaceWhere` and `partitionOverwriteMode` among them, raises `NotImplementedError` naming it (`spark_local.py`, the option allow-list), so the reproduction no longer replaces the table.
 
 ### QA-002 A failed notebook save shows "Saved", then edits are dropped (High)
 
@@ -153,6 +155,8 @@ The agent's requeue (`agent.py:212-215`) and the metadata engine (`meta/engine.p
 **Evidence: Code.** `notebookutils_local.py:247-249` takes only each activity's `path`, ignores `args` (children run with default parameters), `dependencies` (list order, not dependency order) and `timeoutPerCellInSeconds`, and writes `"exception": None` for every activity. `docs/notebooks.md:78` lists `runMultiple` as supported.
 
 **Fix.** PR-QA-01: pass `args`, order by `dependencies`, or refuse a DAG that uses them. **Verify:** tests with a two-activity DAG with a dependency and args.
+
+**Status.** Fixed on `main` (#177). `runMultiple` gives each activity its `args`, runs it after its `dependencies`, retries it `retry` times, skips an activity whose dependency failed, applies the DAG's `timeoutInSeconds`, keeps every result and raises a `RuntimeError` listing the failures after all have run (`notebookutils_local.py`, `runMultiple`).
 
 ### QA-010 X-ray marks a finding fixed when the job is only submitted (Medium)
 
@@ -301,6 +305,8 @@ The fakes themselves are good: `test_fabric_api.py:22-33` checks method, URL and
 **Open PR.** #154 (HD-003) rewrites `fs` on OneLake and changes `exists`; re-check after it merges.
 
 **Fix.** PR-QA-01.
+
+**Status.** Fixed on `main`. `fs.exists` returns False only on a 404 and raises on 401, 403, 429 and 5xx, so `put` and `mv` without overwrite can't replace a file they couldn't check (#307). `mkdirs` on OneLake creates the folder, and raises `FileExistsError` when a file is at that path (#547, #585). `spark.read.schema(...)` applies a `StructType` after reading (CSV by position, other formats by name; a value that doesn't fit is null, as in Spark's PERMISSIVE mode) and refuses a DDL string or a format it can't apply to (#177).
 
 ### QA-027 Partial results shown as complete (Low)
 

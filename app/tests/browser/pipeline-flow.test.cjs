@@ -60,11 +60,12 @@ test("A run started here pulses, its activities flow and settle once, and it str
     run("succeeded", [act("a", "Ingest orders", "Copy", "succeeded"), act("b", "Per region", "ForEach", "succeeded"), kid(0, "succeeded"), kid(1, "succeeded"), kid(2, "succeeded")]),
   ]);
   const { page, errors } = await open(walk);
-  await page.evaluate(() => { plPulse.add("run-flow-1"); openPipelineRun("run-flow-1"); });
+  await page.evaluate(() => { plPulse = "run-flow-1"; openPipelineRun("run-flow-1"); });
   await page.waitForSelector(".pl-flow .flow-node");
   assert.strictEqual(await page.textContent(".pl-flow .flow-where"), "Local run on this PC (not run in Fabric)");
   assert.deepStrictEqual(await states(page), ["Ingest orders: In progress", "Per region: Queued"]);
   await waitFor(page, () => window.__fx.some((c) => c.includes("fx-pulse")));
+  assert.strictEqual(await page.evaluate(() => plPulse), null, "the pulse was kept after the run view drew");
   walk.next();
   await waitFor(page, () => document.querySelector('.pl-flow [data-flow="b"]')?.dataset.state === "running");
   assert.deepStrictEqual(await states(page), ["Ingest orders: Succeeded", "Per region: In progress · 1 of 3"], "ForEach children aren't counted on their parent");

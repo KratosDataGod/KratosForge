@@ -40,6 +40,7 @@ from .preview_service import PreviewMixin
 from .central.service import PlatformMixin
 from .central.governance_service import GovernanceMixin
 from .central.requests_service import RequestsMixin
+from .central.trust_service import TrustMixin
 from .shortcut_service import ShortcutMixin
 from .workload_service import WorkloadMixin
 from .incident_service import IncidentMixin
@@ -91,7 +92,7 @@ def _lakehouse_key(ref: Any) -> Any:
         return ref.get("lakehouse_id") or ref.get("name") or None
     return ref or None
 
-class Service(AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, RequestsMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin):
+class Service(TrustMixin, AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, RequestsMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -584,6 +585,11 @@ class Service(AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineR
         if not isinstance(sources, list):
             raise ValueError("sources must be a list of cell sources")
         return format_cells(sources)
+
+    def notebook_plotly_js(self) -> dict[str, Any]:
+        """plotly.js for the app to draw plotly outputs with, read once per app start (chart_output.py)."""
+        from .chart_output import plotly_js
+        return plotly_js()
 
     def kernel_variable_detail(self, name: str) -> dict[str, Any]:
         return self.kernel.variable_detail(str(name))

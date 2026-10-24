@@ -77,6 +77,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/metadata-guide.md](docs/metadata-guide.md) | The metadata framework from a new project to Prod, with a reference for every setting |
 | [docs/platform.md](docs/platform.md) | The central platform: one business key system and one landing zone for every team, the catalog, and moving keys into it |
 | [docs/governance.md](docs/governance.md) | Governance policies (Preview): define standards once in the platform, publish versions that never change, apply them by enterprise, domain, project or table, and see why each applies |
+| [docs/semantic-model-ossie.md](docs/semantic-model-ossie.md) | Semantic models to and from Apache Ossie (Preview): export a model to a `.ossie.yaml` file, or import one with a preview of every change |
 | [docs/governance-guide.md](docs/governance-guide.md) | Governance guide (Preview): how a policy goes from draft to result, three worked examples, and what KratosForge, Fabric, Purview and Entra can each enforce |
 | [docs/data-mesh.md](docs/data-mesh.md) | Domains, workspace designations, data products, links between teams and catalog text |
 | [docs/shortcuts.md](docs/shortcuts.md) | The shortcut command center: every OneLake shortcut's health, who can read it, rules, change history with undo, and requests |

@@ -1541,6 +1541,52 @@ test("no raw HTML sinks in app/ui outside the reviewed list", () => {
   assert.deepStrictEqual([...allowed].filter((a) => !found.includes(a)), [], "an allowed sink is gone from the code: remove it from the list");
 });
 
+// HD-052: no href, src or other URL attribute is built from data, and nothing navigates the app's
+// window. Links open through open_link (https and mailto only) or openInFabric. A new URL sink
+// fails here unless it is reviewed and added below with why it is safe; literal values pass.
+test("no URL sinks built from data in app/ui outside the reviewed list", () => {
+  const attr = "href|src|srcset|action|formaction|xlink:href|poster|data|ping|background";
+  const sink = new RegExp(
+    `\\b(?:href|src|srcset|formaction|poster|ping)\\s*:\\s*(?!["'][^"'\`$]*["'])[^\\s,}]` +  // h("a", { href: x }): only a quoted literal passes
+    `|[{,]\\s*(?:href|src|srcset|formaction|poster|ping)\\s*[,}]` +  // h("a", { href }): shorthand takes a variable
+    `|\\.(?:href|src|srcset|action|formAction|poster|ping)\\s*=(?!=)` +  // node.src = x
+    `|setAttribute(?:NS)?\\([^)]*["'](?:${attr})["']` +
+    `|\\bwindow\\.open\\(|(?<!(?:const|let|var)\\s+)\\blocation\\s*=(?!=)|\\blocation\\.(?:href\\s*=(?!=)|assign|replace)\\b`);
+  const allowed = new Set([
+    // Image output: only the picture types imageOutputOk() accepts, with base64 data, and <img> never runs script.
+    "notebook.js: return h(\"div\", { class: \"output\" }, h(\"img\", { class: \"out-img\", alt: \"Chart from this cell\", src: `data:${o.mime};base64,${o.data}` }));",
+    // HTML output frame: the shell's fixed frame URL, no data (HD-020).
+    "notebook.js: src: window.__TAURI__.core.convertFileSrc(\"frame\", \"nbout\") });",
+    // Vega charts: a fixed file in vendor/.
+    "notebook.js: script.src = \"vendor/vega/vega-frame.js\";",
+  ]);
+  const found = [];
+  const walk = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) { if (e.name !== "vendor") walk(p); continue; }
+      if (!/\.(js|html)$/.test(e.name)) continue;
+      const rel = path.relative(ui, p).split(path.sep).join("/");
+      for (const line of fs.readFileSync(p, "utf8").split("\n")) if (sink.test(line)) found.push(`${rel}: ${line.trim()}`);
+    }
+  };
+  walk(ui);
+  assert.deepStrictEqual(found.filter((f) => !allowed.has(f)), [], "a new URL sink: use a literal, open_link or openInFabric, or review it and add it to the list");
+  assert.deepStrictEqual([...allowed].filter((a) => !found.includes(a)), [], "an allowed URL sink is gone from the code: remove it from the list");
+});
+
+test("an image output is shown only for picture types with base64 data", () => {
+  const src = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const fn = src.match(/const IMAGE_OUTPUT_TYPES[\s\S]*?\nfunction imageOutputOk[\s\S]*?\n}\n/)[0];
+  const imageOutputOk = new Function(`${fn}; return imageOutputOk;`)();
+  assert.ok(imageOutputOk({ mime: "image/png", data: "iVBORw0KGgo=" }));
+  assert.ok(imageOutputOk({ mime: "image/svg+xml", data: "PHN2Zy8+\n" }));
+  for (const bad of [{ mime: "text/html", data: "PGI+" }, { mime: "image/png;x", data: "AAAA" },
+    { mime: "image/png", data: "AAAA\" onerror=x" }, { mime: "image/png", data: 1 }, { mime: undefined, data: "AAAA" }]) {
+    assert.ok(!imageOutputOk(bad), JSON.stringify(bad));
+  }
+});
+
 // HD-020 (SH-1, UI-1): the page has a Content Security Policy, and notebook HTML output runs on
 // its own origin, never in the app's, where the Tauri API is.
 test("the app has a strict CSP and notebook HTML output stays off the app's origin", () => {
@@ -3754,6 +3800,16 @@ test("Settings history names capacities, filters by scope and asks before creati
   await ctx.read("tenant_settings_read", "Tenant settings");
   assert.strictEqual(JSON.stringify(ctx.toasts.at(-1)), '["Tenant settings: Only a Fabric administrator can read tenant settings.",true]');
   assert.strictEqual(ctx.renders, 2);
+  // Include capacity overrides passes admin, and says when the capacities were read but the overrides weren't.
+  ctx.calls.length = 0;
+  for (const [overrides, toast] of [["read", '["Capacities read: nothing changed",false]'],
+    ["unreadable", '["Capacities read: nothing changed. Overrides weren\'t read: only a Fabric administrator can read them.",true]'],
+    ["failed", '["Capacities read: nothing changed. Overrides couldn\'t be read this time.",true]']]) {
+    ctx.rpc = async (method, args) => (ctx.calls.push([method, JSON.stringify(args)]), { outcome: "read", overrides, changes: [] });
+    await ctx.read("capacity_settings_read", "Capacities", { admin: true });
+    assert.strictEqual(JSON.stringify(ctx.toasts.at(-1)), toast);
+  }
+  assert.ok(ctx.calls.every(([, a]) => a === '{"admin":true}'), JSON.stringify(ctx.calls));
 
   const how = src.match(/howItWorks\("optimize\.settings", \{[\s\S]*?\n  \}\)/)[0];
   for (const t of ["fdcap_snapshot", "fdcap_change", "fdcap_read", "fdten_snapshot", "fdten_change", "fdten_read", "no tenant or capacity setting is ever changed", "asks before it creates the tables"]) {

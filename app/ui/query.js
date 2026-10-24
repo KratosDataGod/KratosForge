@@ -24,7 +24,8 @@ function sqlRefKey(ref) {
 
 function openSqlQuery(ref) {
   if (sqlRefKey(sqlPage.ref) !== sqlRefKey(ref)) {
-    Object.assign(sqlPage, { ref, tabs: loadQueryTabs(ref), active: 0, tables: null, cols: {}, open: {}, pending: {} });
+    Object.assign(sqlPage, { ref, tabs: loadQueryTabs(ref), active: 0, tables: null, cols: {}, open: {}, pending: {},
+      catalog: null, whOpen: null, whFilter: "" });
   }
   go("query");
 }
@@ -83,10 +84,16 @@ function lakehouseSqlProvider(p, ref, changed) {
 // A query that succeeds after running longer than this (engine seconds) gets a spark; quicker ones don't.
 const SQL_SPARK_SECONDS = 2;
 
-// The completion provider for a warehouse. Its tables and columns come with the object explorer
-// (WH-02); until then the editor suggests keywords and functions only.
-function warehouseSqlProvider(ref) {
-  return { id: `${ref.kind}:${ref.item_id}`, label: ref.name, tables: () => [], cachedColumns: () => undefined, columns: () => Promise.resolve([]) };
+// Before the first warehouse run of this app session (a query or the explorer's catalog), ask: it
+// runs in Fabric and uses capacity. Resolves true to go ahead.
+async function warehouseRunOk(ref) {
+  if (sqlWarehouseOk.has(sqlRefKey(ref))) return true;
+  const ok = await confirmDialog(`Run this query in Fabric on ${ref.name}?`,
+    `It runs on the ${ref.kind === "endpoint" ? "SQL analytics endpoint" : "warehouse"} in ${ref.workspace_name || "its workspace"}, ` +
+    "as you, and uses capacity. Only a query that reads is sent; anything that would change the warehouse is refused before Fabric is asked. " +
+    "This asks once per warehouse each time the app starts.", "Run in Fabric");
+  if (ok) sqlWarehouseOk.add(sqlRefKey(ref));
+  return ok;
 }
 
 // A managed run's state on the Results band: [pill class, label].
@@ -185,14 +192,8 @@ function renderQuery() {
       toast(`${SQL_DIALECTS[tab.dialect].label} can't run on this PC. Pick Spark SQL or DuckDB to run here.`, true);
       return;
     }
-    if (wh && !sqlWarehouseOk.has(sqlRefKey(ref))) {
-      const ok = await confirmDialog(`Run this query in Fabric on ${ref.name}?`,
-        `It runs on the ${ref.kind === "endpoint" ? "SQL analytics endpoint" : "warehouse"} in ${ref.workspace_name || "its workspace"}, ` +
-        "as you, and uses capacity. Only a query that reads is sent; anything that would change the warehouse is refused before Fabric is asked. " +
-        "This asks once per warehouse each time the app starts.", "Run in Fabric");
-      if (!ok) return;
-      sqlWarehouseOk.add(sqlRefKey(ref));
-    }
+    if (wh && !(await warehouseRunOk(ref))) return;
+    if (wh && !sqlPage.catalog) loadCatalog();
     tab.running = true;
     Object.assign(tab, { error: null, errorRetry: null, result: null, exec: null, ranNotice: "" });
     drawResults();
@@ -349,7 +350,7 @@ function renderQuery() {
   const tablesBox = h("div", { class: "explorer-content" });
   function queryTable(name) {
     const text = tab.dialect === "spark" || tab.dialect === "duckdb" ? `SELECT *\nFROM ${name}\nLIMIT 100;` : `SELECT TOP (100) *\nFROM ${name};`;
-    if (!tab.sql.trim() || tab.sql === QUERY_HINT) {
+    if (!tab.sql.trim() || tab.sql === QUERY_HINT || tab.sql === WAREHOUSE_HINT) {
       editor.replace(text);
       run(text);
     } else {
@@ -568,6 +569,15 @@ function renderQuery() {
 
   const edit = h("div", { class: "sql-edit" });
   edit.append(editor.view.dom);
+  // WH-02: the object explorer, from the warehouse's catalog. It lists by itself once runs on this
+  // warehouse are confirmed this session; before that it waits for List objects.
+  const loadCatalog = () => whLoadCatalog(ref, () => { if (state.view === "query" && p.ref === ref) p.whRedraw?.(); });
+  const whTree = wh ? whExplorer(ref, {
+    load: async () => { if (await warehouseRunOk(ref)) loadCatalog(); },
+    query: (name) => queryTable(name),
+    insert: (text) => insertAtCursor(text),
+  }) : null;
+  p.whRedraw = wh ? () => { whTree.draw(); if (here()) editor.refresh(); } : null;
   const fabricLink = wh ? fabricItemLink({ type: ref.kind === "endpoint" ? "Lakehouse" : "Warehouse", workspace_id: ref.workspace_id, item_id: ref.item_id }) : null;
   setView(wh ? h("div", { class: "sql-page warehouse-page" },
     h("div", { class: "ribbon" }, h("div", { class: "toolbar" },
@@ -582,8 +592,9 @@ function renderQuery() {
           itemIcon(ref.kind === "endpoint" ? "SQLEndpoint" : "Warehouse", 16), h("span", { class: "label" }, ref.name), previewTag()),
         h("div", { class: "tree-row muted", style: "cursor:default" }, ref.kind === "endpoint" ? "SQL analytics endpoint" : "Warehouse",
           ref.workspace_name ? ` · ${ref.workspace_name}` : ""),
+        whTree.el,
         h("div", { class: "warehouse-how" }, howItWorks("warehouse.query", {
-          reads: "The warehouse's SQL connection, from Fabric, then the rows your query asks for. It signs in as you, with a token for Azure SQL.",
+          reads: "The warehouse's SQL connection, from Fabric, then the rows your query asks for. The explorer reads the warehouse's catalog views (sys.objects, sys.columns) the same way. It signs in as you, with a token for Azure SQL.",
           changes: "Nothing. Only a single statement that reads is sent; DDL, DML, EXEC and variables are refused before Fabric is asked.",
           results: "A snapshot of the rows on this PC, read a page at a time, with Copy and Export to Downloads. The query text stays on this PC.",
           more: [["Capacity", "The query runs in Fabric, so it uses capacity on the warehouse's workspace."]],
@@ -607,6 +618,7 @@ function renderQuery() {
   drawResults();
   drawTables();
   if (tab.autorun) { delete tab.autorun; run(tab.sql); }
+  if (wh && !p.catalog && sqlWarehouseOk.has(sqlRefKey(ref))) loadCatalog();
   if (!p.tables && !wh) {
     rpc("list_tables", { workspace_id: ref.workspace_id, lakehouse_id: ref.lakehouse_id })
       .then((t) => { p.tables = t; })

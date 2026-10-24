@@ -249,7 +249,7 @@ Opening a lakehouse shows its **Tables** (by schema) and **Files** (folders and 
 
 ### Warehouse queries (Preview)
 
-**SQL query** on a **Warehouse** or **SQL analytics endpoint** row in Workspaces opens the Warehouse page: the same editor and results, with T-SQL that runs in Fabric on the warehouse. It uses capacity, so the first run on each warehouse after the app starts asks first. Only a query that reads is sent; nothing in the warehouse changes. It signs in as you, so the warehouse's own permissions apply. More in [Warehouses](warehouse.md).
+**SQL query** on a **Warehouse** or **SQL analytics endpoint** row in Workspaces opens the Warehouse page: the same editor and results, with T-SQL that runs in Fabric on the warehouse. It uses capacity, so the first run on each warehouse after the app starts asks first. Only a query that reads is sent; nothing in the warehouse changes. It signs in as you, so the warehouse's own permissions apply. The explorer lists schemas, tables, views, procedures and functions from the warehouse's catalog, with column types, and completes names as you type. More in [Warehouses](warehouse.md).
 
 ## OneLake
 

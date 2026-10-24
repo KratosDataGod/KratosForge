@@ -562,6 +562,13 @@ h2.flush { margin: 0; }
 .sql-capacity-note { padding: 4px 8px; border-radius: 4px; background: #fff8eb; color: #5c3300; font-size: 12.5px; }
 .warehouse-page .explorer .preview-tag { margin-left: 6px; }
 .warehouse-how { margin: 12px 8px; }
+.warehouse-page .explorer { overflow-y: auto; }  /* the tree, then How this works, scroll together */
+.wh-explorer { display: flex; flex-direction: column; }
+.wh-explorer .explorer-content { flex: none; overflow: visible; }
+.wh-filter { margin: 8px; padding: 5px 8px; border: 1px solid var(--border-input); border-radius: 4px; font-size: 13px; }
+.wh-note { margin: 8px; font-size: 12px; }
+.wh-explorer .tool { margin: 0 8px 8px; align-self: flex-start; }
+.wh-indent { flex: none; width: 58px; }
 .sql-lint-msg { display: flex; flex-direction: column; gap: 2px; max-width: 420px; font-family: var(--font, "Segoe UI", system-ui, sans-serif); font-size: 12.5px; }
 .sql-lint-msg .muted { color: #616161; }
 @media (max-width: 1100px) { .sql-compat { width: 240px; } }

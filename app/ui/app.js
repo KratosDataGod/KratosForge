@@ -339,6 +339,17 @@ function lakehouseRef(ws, lh) {
   return { workspace_id: ws.id, workspace_name: ws.displayName, lakehouse_id: lh.id, name: lh.displayName };
 }
 
+// The Warehouse page's ref (WH-01) for a Warehouse item, or for a SQL analytics endpoint: the engine
+// finds an endpoint through its lakehouse, which Fabric gives the same name in the same workspace.
+// null for other items, and for an endpoint whose lakehouse isn't in the list.
+function warehouseRefFor(ws, it, items) {
+  const base = { workspace_id: ws.id, workspace_name: ws.displayName, name: it.displayName };
+  if (it.type === "Warehouse") return { ...base, kind: "warehouse", item_id: it.id };
+  if (it.type !== "SQLEndpoint") return null;
+  const lake = items.find((x) => x.type === "Lakehouse" && x.displayName === it.displayName);
+  return lake ? { ...base, kind: "endpoint", item_id: lake.id } : null;
+}
+
 // ---------- navigation and chrome ----------
 
 // ---------- navigation history (UX-008) ----------
@@ -566,6 +577,11 @@ function renderChrome() {
     crumbs.push(h("button", { class: "crumb", onclick: () => { monitorPage.panel = "runs"; go("monitor"); } }, "Monitor"), h("span", {}, "/"),
       h("button", { class: "crumb", onclick: backToAgents }, "Agents"), h("span", {}, "/"),
       h("span", { class: "current" }, agPage.detail.agent));
+  } else if (state.view === "query" && isWarehouseRef(sqlPage.ref)) {
+    const wh = sqlPage.ref;
+    crumbs.push(h("button", { class: "crumb", onclick: () => openWorkspace({ id: wh.workspace_id, displayName: wh.workspace_name }) },
+      wh.workspace_name || "Workspace"), h("span", {}, "/"), h("span", {}, wh.name), h("span", {}, "/"),
+    h("span", { class: "current" }, "SQL query"));
   } else if (state.view === "query" && sqlPage.ref) {
     const lh = sqlPage.ref;
     crumbs.push(h("span", {}, lh.workspace_name || "Workspace"), h("span", {}, "/"),
@@ -1146,6 +1162,7 @@ async function renderWorkspaces() {
     return h("table", { class: "list ws-items" }, h("tbody", {}, sorted.map((it) => {
       const r = { workspace_id: ws.id, item_id: it.id, type: it.type, name: it.displayName };
       const lh = it.type === "Lakehouse" ? lakehouseRef(ws, it) : null;
+      const whRef = warehouseRefFor(ws, it, items);
       const target = { kind: "item", item: { ...r, workspace_name: ws.displayName } };
       const stop = (fn) => (e) => { e.stopPropagation(); fn(); };
       return h("tr", { class: `${previewing ? "click" : ""}${isPreviewed(target) ? " selected" : ""}`,
@@ -1156,6 +1173,8 @@ async function renderWorkspaces() {
         h("td", { class: "actions" },
           lh ? btn("Open", null, stop(() => openLakehouse(lh)), "tool small link") : null,
           lh ? btn("SQL query", null, stop(() => openSqlQuery(lh)), "tool small link") : null,
+          whRef ? preview("warehouse", btn("SQL query", null, stop(() => openWarehouseQuery(whRef)), "tool small link",
+            { title: "Query it with T-SQL in Fabric (uses capacity)" })) : null,
           btn("Open in Fabric", "open", stop(() => openInFabric(fabricItemLink(r))), "tool small link")));
     })));
   }

@@ -557,6 +557,11 @@ h2.flush { margin: 0; }
 .sql-finding-detail { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 4px; }
 .sql-compat-note { margin: 0; font-size: 12px; }
 .sql-local-note { flex-basis: 100%; padding: 6px 10px; border-radius: 4px; background: #fff8eb; color: #5c3300; font-size: 12.5px; }
+/* WH-01: the Warehouse page */
+.sql-target-note { font-size: 13px; color: var(--text-2); }
+.sql-capacity-note { padding: 4px 8px; border-radius: 4px; background: #fff8eb; color: #5c3300; font-size: 12.5px; }
+.warehouse-page .explorer .preview-tag { margin-left: 6px; }
+.warehouse-how { margin: 12px 8px; }
 .sql-lint-msg { display: flex; flex-direction: column; gap: 2px; max-width: 420px; font-family: var(--font, "Segoe UI", system-ui, sans-serif); font-size: 12.5px; }
 .sql-lint-msg .muted { color: #616161; }
 @media (max-width: 1100px) { .sql-compat { width: 240px; } }

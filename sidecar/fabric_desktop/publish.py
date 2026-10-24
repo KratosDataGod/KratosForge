@@ -24,7 +24,7 @@ from deltalake import CommitProperties, DeltaTable, WriterProperties, write_delt
 from . import delta_profile
 from .fabric_api import FabricClient
 from .jobs import Job, run_local
-from .leases import LocalBackend, onelake_table_lease, table_lease
+from .leases import LocalBackend, check_held, onelake_table_lease, table_lease
 from .onelake import TableRef, storage_options
 from .redact import describe
 
@@ -138,6 +138,7 @@ def publish(data: Any, ref: TableRef, mode: str, storage_token: str, schema_mode
             return table  # type: ignore[return-value]
         meta = CommitProperties(custom_metadata={ROWS_KEY: rows}) if rows and mode == "overwrite" else None
         had = _files(table) if table is not None and mode != "overwrite" else {}
+        check_held()  # the lease is still ours, with time to commit (HD-016)
         write_deltalake(table if table is not None else ref.uri, data, mode=mode, storage_options=opts, schema_mode=how,
                         writer_properties=writer_properties(), commit_properties=meta)
         if table is None:

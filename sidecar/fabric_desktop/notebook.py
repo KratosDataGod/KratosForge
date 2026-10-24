@@ -193,8 +193,8 @@ def display(value: Any) -> dict[str, Any]:
         return chart_output.bokeh_html(value)
     if chart_output.is_altair(value):
         return chart_output.altair_output(value)
-    if module.startswith("plotly") and hasattr(value, "to_html"):
-        return {"type": "html", "html": value.to_html(include_plotlyjs=True, full_html=True)}
+    if chart_output.is_plotly(value):
+        return chart_output.plotly_output(value)
     if module.startswith("bokeh") and hasattr(value, "document"):  # a plot or layout: the page Bokeh's show() would open
         with contextlib.suppress(Exception):
             from bokeh.embed import file_html

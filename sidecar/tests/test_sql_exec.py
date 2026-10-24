@@ -598,6 +598,30 @@ def test_local_time_limit(tmp_path):
         local.close_all()
 
 
+def test_the_projects_own_time_limit_is_shown_and_named(tmp_path):
+    from fabric_desktop.localdata import LocalData
+    local = LocalData(tmp_path / "local-data")
+    pid = local.create("Slow")["id"]
+    local.set_settings(pid, {"timeout_seconds": 1})
+    manager = sql_exec.SqlExecutions(tmp_path / "data", token=lambda: "", limits=limits(sql_time_limit_minutes=0),
+                                     local_engine=local.engine)
+    try:
+        status = wait(manager, manager.start(LOCAL_SLOW, target="local", project=pid, dialect="duckdb")["id"], seconds=30)
+        assert status["state"] == "timed_out" and "project's time limit" in status["error"]
+        assert status["time_limit_minutes"] == round(1 / 60, 2) and status["time_limit_from"] == "project"
+    finally:
+        manager.shutdown()
+        local.close_all()
+
+
+def test_export_and_import_database_are_refused_as_writes_outside_the_project(local_runs, tmp_path):
+    for query in (f"EXPORT DATABASE '{(tmp_path / 'dump').as_posix()}'", "SELECT 1; IMPORT DATABASE 'x'"):
+        status = wait(local_runs, start_local(local_runs, query, confirm=True)["id"])
+        assert status["state"] == "failed" and status["error_kind"] == "permission", query
+        assert status["refused"]["permission"] == "fabric_mutation"
+    assert not (tmp_path / "dump").exists()
+
+
 def test_local_drop_asks_for_confirmation_then_runs(local_runs):
     refused = wait(local_runs, start_local(local_runs, "DROP TABLE orders")["id"])
     assert refused["state"] == "failed" and refused["error_kind"] == "permission"

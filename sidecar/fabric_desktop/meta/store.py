@@ -19,6 +19,7 @@ from deltalake import CommitProperties, DeltaTable, write_deltalake
 from deltalake.exceptions import TableNotFoundError
 
 from .. import delta_profile
+from ..leases import check_held
 from ..retrying import local_retry
 from ..onelake import FileStore, TableRef, storage_options
 
@@ -242,6 +243,7 @@ class Store:
                 extra["predicate"] = "true"
         try:
             how = extra.get("mode", mode)
+            check_held()  # the table's lease is still ours, with time to commit (HD-016)
             write_deltalake(target, df.to_arrow(), **({"mode": mode} | extra), storage_options=self.options(),
                             schema_mode={"overwrite": "overwrite", "error": None}.get(how, "merge"),
                             commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
@@ -269,6 +271,7 @@ class Store:
             target = DeltaTable(uri, storage_options=self.options(), version=int(read_version))
             extra = {"mode": "overwrite", "predicate": "true"}
         try:
+            check_held()
             write_deltalake(target, rows, **extra, storage_options=self.options(),
                             schema_mode="overwrite" if read_version is not None else None,
                             commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
@@ -328,6 +331,7 @@ class Store:
         if version is not None and current.version() != version:
             raise CommitFailedError(f"{table} changed since version {version}")
         predicate = " AND ".join(f"t.{c} = s.{c}" for c in on)
+        check_held()
         target.merge(df.to_arrow(), predicate, source_alias="s", target_alias="t") \
             .when_not_matched_insert_all().execute()
         dt_ = DeltaTable(uri, storage_options=self.options())
@@ -362,6 +366,7 @@ class Store:
             col, first = new_from
             bounds = f"(({bounds}) OR t.`{col}` >= {int(first)})"
         predicate = " AND ".join(([bounds] if bounds else []) + [f"t.`{c}` = s.`{c}`" for c in on])
+        check_held()
         metrics = target.merge(df.to_arrow(), predicate, source_alias="s", target_alias="t", merge_schema=True,
                                commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None) \
             .when_matched_update_all().when_not_matched_insert_all().execute()

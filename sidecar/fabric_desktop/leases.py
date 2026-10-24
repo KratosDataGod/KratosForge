@@ -15,6 +15,10 @@ create, ``If-Match: <etag>`` to renew, take over or delete), so agents on differ
 see the same leases with no extra service. For a local environment they are files in its
 ``.local`` folder.
 
+A writer checks its leases right before it commits (``check_held``): a lease that was taken over,
+or that went unrenewed long enough that it may expire during the commit, stops the write with
+nothing written (HD-016).
+
 Expiry times are the holder's clock, so keep agent clocks in sync (NTP); the lease length
 (default 120 s) is far longer than normal clock drift.
 """
@@ -30,6 +34,7 @@ import socket
 import threading
 import time
 import uuid
+from contextvars import ContextVar
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
@@ -46,6 +51,8 @@ from .retrying import send_with_retry
 _log = logging.getLogger(__name__)
 
 LEASE_DIR = "Files/_fabric_desktop/leases"
+
+_HELD: ContextVar[tuple["Held", ...]] = ContextVar("held_leases", default=())  # the leases this code is inside
 
 
 class LeaseBusy(RuntimeError):
@@ -301,9 +308,11 @@ class Leases:
             delay = min(delay * 2, 15)
         held = Held(self, key, etag)
         held.start()
+        token = _HELD.set(_HELD.get() + (held,))
         try:
             yield held
         finally:
+            _HELD.reset(token)
             held.stop()
         if held.lost:
             raise LeaseLost(f"The lease on {key} expired while writing, so another writer may have overlapped. "
@@ -320,6 +329,13 @@ class Held:
 
     def start(self) -> None:
         self._thread.start()
+
+    def check(self) -> None:
+        """Raises LeaseLost unless the lease is still ours with time to commit: it wasn't taken over,
+        and it was renewed within the last two thirds of its length (the renewer tries every third)."""
+        if self.lost or self.leases.clock() - self._renewed >= self.leases.ttl * 2 / 3:
+            raise LeaseLost(f"The lease on {self.key} couldn't be renewed, so another writer could take it over "
+                            f"during the commit. Nothing was written; run it again.")
 
     def _renew(self) -> None:
         while not self._stop.wait(self.leases.ttl / 3):
@@ -344,6 +360,13 @@ class Held:
                 self.leases.backend.delete(self.key, self.etag)
             except Exception as exc:  # it expires on its own
                 _log.warning("Couldn't release the lease; it expires on its own: %s", describe(exc))
+
+
+def check_held() -> None:
+    """Call right before a commit: raises LeaseLost if any lease the caller is inside may no longer be
+    its own (Held.check). Outside any lease it does nothing."""
+    for held in _HELD.get():
+        held.check()
 
 
 def table_key(lakehouse: str, schema: str, table: str) -> str:

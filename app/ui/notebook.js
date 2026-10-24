@@ -940,6 +940,12 @@ document.addEventListener("keydown", (e) => {
 
 // ---------- outputs ----------
 
+// The image types the engine sends (notebook.py _IMAGE_MIMES, plus SVG), as base64.
+const IMAGE_OUTPUT_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml"]);
+function imageOutputOk(o) {
+  return IMAGE_OUTPUT_TYPES.has(o.mime) && typeof o.data === "string" && /^[A-Za-z0-9+/=\s]*$/.test(o.data);
+}
+
 function renderOutput(o, cell) {
   if (o.type === "stream" || o.type === "text") return h("div", { class: "output" }, h("pre", {}, o.text));
   if (o.type === "widget") return renderWidgetOutput(o, cell);  // ipywidgets.js
@@ -951,6 +957,8 @@ function renderOutput(o, cell) {
   }
   if (o.type === "table") return renderTableOutput(o, cell);
   if (o.type === "image") {
+    // Only picture types become a data: URL (HD-052): a notebook file from elsewhere can carry any type.
+    if (!imageOutputOk(o)) return h("div", { class: "output" }, "This output says it is an image, but isn't one KratosForge shows.");
     return h("div", { class: "output" }, h("img", { class: "out-img", alt: "Chart from this cell", src: `data:${o.mime};base64,${o.data}` }));
   }
   if (o.type === "html") return h("div", { class: "output" }, htmlFrame(o.html));

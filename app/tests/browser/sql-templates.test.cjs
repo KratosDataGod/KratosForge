@@ -1,6 +1,7 @@
 // WH-04/05: SQL from a template on the Warehouse page, in a real browser (see harness.cjs for how to
 // run it). Every template, filled with its defaults, is read by the real engine's Fabric Warehouse
-// rules (sql_analyze); nothing runs and no warehouse is needed.
+// rules (sql_analyze); nothing runs and no warehouse is needed. Your own templates are saved by the
+// real engine, in a data folder of its own.
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const path = require("node:path");
@@ -25,7 +26,8 @@ const page = () => app.page;
 before(async () => {
   if (skip) return;
   app = await openApp({
-    engine: ["sql_format", "sql_dialects", "sql_analyze"],
+    engine: ["sql_format", "sql_dialects", "sql_analyze", "sql_templates_list", "sql_template_save", "sql_template_import",
+      "sql_template_delete", "sql_template_export"],
     mocks: { ...sqlRunMocks(() => ({ columns: [{ name: "x", type: "int" }], rows: [[1]] })) },
   });
   await page().evaluate((wh) => openWarehouseQuery(wh), WH);
@@ -118,6 +120,84 @@ test("a SQL analytics endpoint is offered only the templates that make sense the
   const groups = await dialog.locator(".sqlt-group").allTextContents();
   assert.deepStrictEqual(groups, ["Views and functions", "Stored procedures", "Security", "Accelerators"]);
   assert.match(await dialog.textContent(), /T-SQL for Fabric SQL analytics endpoint/);
+  await page().evaluate(() => closeDialog());
+});
+
+const gallery = async () => {
+  await page().getByRole("button", { name: "SQL from a template" }).click();
+  const dialog = page().locator(".sqlt-dialog");
+  await dialog.locator(".sqlt-own-note").filter({ hasText: /templates/ }).waitFor();
+  return dialog;
+};
+
+test("you can write a template of your own, with checked fields, and use it like the built-in ones", { skip }, async () => {
+  const dialog = await gallery();
+  assert.match(await dialog.locator(".sqlt-own-note").textContent(), /No templates of your own yet/);
+  await dialog.getByRole("button", { name: "New template" }).click();
+  const sql = dialog.getByLabel("Template SQL");
+  assert.match(await sql.inputValue(), /CREATE OR ALTER PROCEDURE/, "starts from the current tab's SQL");
+  await dialog.getByLabel("Title").fill("Top rows");
+  await dialog.getByLabel("Group").fill("Team checks");
+  await dialog.getByLabel(/Also offer it on SQL analytics endpoints/).check();
+  await sql.fill("SELECT TOP (<n, number, 10>) * FROM [<schema_name, sysname, dbo>].[<table_name, sysname, FactSales>];");
+  const save = dialog.getByRole("button", { name: "Save template" });
+  assert.ok(await save.isDisabled());
+  assert.match(await dialog.locator(".sqlt-editor").textContent(), /The field n has the kind number/);
+  await sql.fill("SELECT TOP (<n, int, 10>) * FROM [<schema_name, sysname, dbo>].[<table_name, sysname, FactSales>];");
+  await dialog.locator(".sqlt-check").filter({ hasText: /compatibility check says/ }).waitFor();
+  assert.match(await dialog.locator(".sqlt-fields-note").textContent(), /n \(int\), schema_name \(sysname\), table_name \(sysname\)/);
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "wh-04b-new-template.png") });
+  await save.click();
+  await dialog.locator(".sqlt-group.on", { hasText: "Team checks" }).waitFor();
+  const own = await dialog.locator(".sqlt-detail").textContent();
+  assert.match(own, /Top rows.*My templates, on this PC · Top rows\.sql/s);
+  assert.doesNotMatch(own, /null|undefined/);
+  await dialog.getByLabel("n", { exact: true }).fill("25");
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "wh-04b-own-template.png") });
+  const tabs = await page().evaluate(() => sqlPage.tabs.length);
+  await dialog.getByRole("button", { name: "Open in a new tab" }).click();
+  await page().waitForFunction((n) => sqlPage.tabs.length === n + 1, tabs);
+  assert.strictEqual(await page().evaluate(() => sqlPage.editor.text()), "SELECT TOP (25) * FROM [dbo].[FactSales];\n");
+  assert.ok(!app.calls.some((c) => c.method === "sql_start"), "nothing ran");
+  const saves = app.calls.filter((c) => c.method === "sql_template_save").map((c) => c.params);
+  assert.deepStrictEqual(saves.map((p) => [p.place, p.title, p.group, p.endpoint]), [["mine", "Top rows", "Team checks", true]]);
+});
+
+test("edit keeps the file, import adds one, and delete asks first", { skip }, async () => {
+  let dialog = await gallery();
+  await dialog.getByRole("button", { name: "Team checks" }).click();
+  await dialog.getByRole("button", { name: "Edit" }).click();
+  await dialog.getByLabel("Title").fill("Top rows of a table");
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
+  await dialog.locator(".sqlt-card b", { hasText: "Top rows of a table" }).waitFor();
+  const saves = app.calls.filter((c) => c.method === "sql_template_save").map((c) => c.params);
+  assert.strictEqual(saves.at(-1).name, "Top rows.sql", "an edit replaces the same file");
+  await dialog.locator("input[type=file]").setInputFiles({ name: "reload.sql", mimeType: "text/plain",
+    buffer: Buffer.from("-- template: Reload a dimension\n-- group: Team loads\nTRUNCATE TABLE [<table_name, sysname, DimCustomer>];\n") });
+  await dialog.locator(".sqlt-group.on", { hasText: "Team loads" }).waitFor();
+  assert.match(await dialog.locator(".sqlt-own-note").textContent(), /2 of your templates/);
+  await dialog.getByRole("button", { name: "Export" }).click();
+  await page().waitForFunction(() => /Saved a copy to .*Reload a dimension\.sql/.test(document.querySelector(".toast")?.textContent || ""));
+  await dialog.getByRole("button", { name: "Delete" }).click();
+  await page().getByRole("dialog", { name: "Delete template" }).waitFor();
+  await page().getByRole("dialog", { name: "Delete template" }).getByRole("button", { name: "Delete" }).click();
+  dialog = page().locator(".sqlt-dialog");
+  await dialog.locator(".sqlt-own-note").filter({ hasText: /1 of your templates/ }).waitFor();
+  assert.strictEqual(await dialog.locator(".sqlt-group", { hasText: "Team loads" }).count(), 0);
+  await page().evaluate(() => closeDialog());
+});
+
+test("a built-in template can start one of your own, and an endpoint gets yours that read", { skip }, async () => {
+  const dialog = await gallery();
+  await dialog.getByRole("button", { name: "Accelerators" }).click();
+  await dialog.getByRole("button", { name: /Data quality checks/ }).click();
+  await dialog.getByRole("button", { name: "Make a copy" }).click();
+  assert.match(await dialog.locator(".sqlt-editor h3").textContent(), /New template from Data quality checks/);
+  assert.match(await dialog.getByLabel("Template SQL").inputValue(), /Null keys/);
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await page().evaluate(() => closeDialog());
+  await page().evaluate(() => openSqlTemplates({ kind: "endpoint", name: "LH_Silver", workspace_id: "ws1", item_id: "lh1" }, () => {}));
+  await page().locator(".sqlt-dialog .sqlt-group", { hasText: "Team checks" }).waitFor();
   await page().evaluate(() => closeDialog());
 });
 

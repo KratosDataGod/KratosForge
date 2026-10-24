@@ -362,6 +362,38 @@ class FabricClient:
         url = f"/workspaces/{workspace_id}/sqlEndpoints/{sql_endpoint_id}/refreshMetadata"
         return self._wait(self._request("POST", url, json={}))
 
+    # ---- Power BI's admin tenant scan (endorsement)
+
+    SCAN_BATCH = 100  # workspaces per getInfo call: Power BI's limit
+
+    def admin_scan_workspaces(self, workspace_ids: list[str], poll_seconds: float = 2) -> list[dict[str, Any]]:
+        """Power BI's admin tenant scan (metadata scanning) of these workspaces: each workspace with its
+        items (datasets, reports, dataflows, datamarts and Fabric items), which carry endorsementDetails
+        when endorsed. Fabric administrators only (Tenant.Read.All on Power BI); anyone else gets 401/403.
+        Read-only: asks for no lineage, data sources, schemas, expressions or users."""
+        ids = [w for w in dict.fromkeys(str(w).strip() for w in workspace_ids) if w]
+        found: list[dict[str, Any]] = []
+        polls = max(1, int(self._poll_timeout / poll_seconds))
+        for i in range(0, len(ids), self.SCAN_BATCH):
+            started = self._request("POST", f"{POWERBI_ADMIN}/workspaces/getInfo", json={"workspaces": ids[i:i + self.SCAN_BATCH]},
+                                    params={"lineage": "false", "datasourceDetails": "false", "datasetSchema": "false",
+                                            "datasetExpressions": "false", "getArtifactUsers": "false"}).json()
+            scan = str(started.get("id") or "")
+            if not scan:
+                raise FabricError("Fabric's tenant scan didn't start: no scan id came back")
+            for n in range(polls):
+                status = self._request("GET", f"{POWERBI_ADMIN}/workspaces/scanStatus/{scan}").json()
+                state = str(status.get("status") or "")
+                if state == "Succeeded":
+                    break
+                if state == "Failed":
+                    raise FabricError(f"Fabric's tenant scan failed: {status.get('error') or 'no reason given'}")
+                if n == polls - 1:
+                    raise FabricError("Fabric's tenant scan didn't finish in time. Scan again in a few minutes.")
+                self._sleep(poll_seconds)
+            found += self._request("GET", f"{POWERBI_ADMIN}/workspaces/scanResult/{scan}").json().get("workspaces", [])
+        return found
+
     # ---- domains
 
     def list_admin_domains(self) -> list[dict[str, Any]]:

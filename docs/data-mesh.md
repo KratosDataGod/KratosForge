@@ -129,6 +129,21 @@ entity = "gold.dim_customer"
 
 The check knows which projects read a port, not which columns each one uses, so dropping any published column counts as breaking.
 
+## Endorsement and business terms
+
+Preview. **OneLake > Data products**, then select a product's name. The product's page shows two trust signals next to its name.
+
+**Endorsement** (Certified, Promoted or Master data) is set in Fabric, on the item's settings. KratosForge reads it and never sets it. The item is the lakehouse each port lives in, in the highest environment the product is published to (Prod, else Test, else Dev).
+
+- **Only Fabric administrators can read it.** Fabric shows endorsement through an API only in Power BI's admin tenant scan (`POST /v1.0/myorg/admin/workspaces/getInfo`, then `scanStatus` and `scanResult`); Fabric's Get Item doesn't return it. **Scan now** shows to platform admins. It works for one who is also a Fabric administrator; anyone else is told so and nothing is saved.
+- **What a scan reads and writes.** It scans only the workspaces the platform's published products live in, at most 100 a call, and asks for no lineage, data sources, schemas, expressions or users. It writes what it read for each product item to `catalog.endorsement` in the platform's catalog: the endorsement, who certified it when Fabric says, when, and who scanned. Each scan is in the platform's audit log, without the certifier's name.
+- **Everyone sees the last scan.** The badge shows with "From the tenant scan" and its age. Before any scan, or for an item the scan didn't report, the badge is a grey **Endorsement unknown**: KratosForge never guesses. **See it in Fabric** opens the item there.
+- **To change it,** open the item's settings in Fabric. Scan again to update the badge.
+
+**Business terms** are a term's name and a link to it in Microsoft Purview, so people can read the definition where your organization keeps it. **Add a term** asks for the term and **Link to the term in Purview**: copy the address from Purview. It must be an `https` link on `purview.microsoft.com` or `web.purview.azure.com`; anything else is refused. KratosForge doesn't read Purview: its sign-in can't get a Purview token, so the terms are what your stewards type. The product's owner or a platform admin adds and removes them (removing asks first); each change writes `catalog.product_term` and the platform's audit log. The term itself stays in Purview.
+
+An older UDF_Platform doesn't have these functions yet. The page then says: *After an update, a platform admin runs Platform > Settings > Finish or repair once.*
+
 ## Links
 
 **OneLake > Data products > Link**, **Data products > Other teams' products > Link**, or **Links > New link.** Pick a product and port, a name for it, and which of their environments each of yours reads. Dev usually reads their Prod, so you build against real data without copying it. The catalog refuses a link to a draft, to a private product, or to a domain product from another domain, unless the product's owner let your project in: **OneLake > Data products > Request access** sends them a request, and once they approve it on **Platform > Requests**, **Link** works. Approving lets the link be made; the owner still gives read access in OneLake (a data access role on their Product workspace).

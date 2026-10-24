@@ -36,14 +36,19 @@ Tables (T-SQL schema.table; SQLite schema__table):
     catalog.shortcut_scope  lakehouses scanned for shortcuts, so a first scan isn't read as "all added"
     catalog.shortcut_change every shortcut added, repointed, removed, broken or fixed, and by whom
     catalog.shortcut_risk   risks a platform admin accepted on a shortcut (Dev reading Prod), and why
+    catalog.endorsement  each data product item's endorsement (Certified, Promoted, Master data) as Fabric's
+                         admin tenant scan last read it, so everyone sees it (Preview)
+    catalog.product_term business terms on a data product: a name and a link to the term in Microsoft
+                         Purview, typed by the product's owner; nothing reads Purview (Preview)
     catalog.policy*      governance policies, their versions, assignments and history (policy.py)
 
 Who may change what (the caller is always who Fabric says it is, see udf.py):
 
     platform admins      domains, key tables, source systems, landing zones, glossary, admins, shortcut rules,
-                         accepted shortcut risks, policy exceptions, and every request
+                         accepted shortcut risks, policy exceptions, endorsement scans, every product's
+                         business terms, and every request
     domain owners        glossary terms of their domain
-    product owners       access requests to their product
+    product owners       access requests to their product, and their product's business terms
     everyone             reading, issuing keys from existing key tables, catalog text, products, links, requests
 """
 
@@ -54,6 +59,7 @@ import json
 import re
 import uuid
 from typing import Any
+from urllib.parse import urlsplit
 
 SCHEMA_VERSION = 5
 UNKNOWN_KEY = -1
@@ -190,6 +196,10 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
                         ("note", "long")],
     "shortcut_risk": [("id", "key"), ("shortcut_id", "text"), ("kind", "text"), ("reason", "long"),
                       ("target", "long"), ("accepted_by", "text"), ("accepted_at", "text")],
+    "endorsement": [("item_id", "key"), ("workspace_id", "text"), ("item_type", "text"), ("item_name", "text"),
+                    ("endorsement", "text"), ("certified_by", "text"), ("scanned_at", "text"), ("scanned_by", "text")],
+    "product_term": [("id", "key"), ("product_id", "text"), ("term", "text"), ("url", "long"), ("added_by", "text"),
+                     ("added_at", "text")],
 }
 
 
@@ -221,6 +231,7 @@ def ensure_schema(db: Db) -> dict[str, Any]:
     created += ensure_domain_columns(db)
     created += ensure_landing_zones(db)
     created += ensure_shortcut_risks(db)
+    created += ensure_trust_badges(db)
     for hook in SCHEMA_HOOKS:
         created += hook(db)
     _upsert(db, "config", "setting", "name", {"name": "schema_version", "value": str(SCHEMA_VERSION)})
@@ -1835,6 +1846,182 @@ def withdraw_shortcut_risk(db: Db, shortcut_id: str, kind: str, by: str = "") ->
     return list_shortcut_risks(db)
 
 
+# --------------------------------------------------------------------------- trust badges (Preview)
+# Endorsement (Certified, Promoted, Master data) is set in Fabric, and only Fabric administrators can
+# read it, through Power BI's admin tenant scan. A platform admin who is also a Fabric administrator
+# scans (central/trust_service.py); what the scan read is kept here, so everyone sees the last scan's
+# badge. Nothing here sets endorsement in Fabric, and an item no scan has read stays unknown.
+# Business terms are typed by a product's owner with a link to the term in Microsoft Purview; nothing
+# here reads Purview.
+
+PURVIEW_HOSTS = ("purview.microsoft.com", "web.purview.azure.com")
+MAX_TERM = 200
+MAX_URL = 2000
+_ENDORSEMENT_LABELS = {"certified": "Certified", "promoted": "Promoted", "masterdata": "Master data", "none": "None"}
+_TRUST_TABLES = ("endorsement", "product_term")
+_SPACES = re.compile(r"\s+")
+
+
+def ensure_trust_badges(db: Db) -> list[str]:
+    """Give a platform made before trust badges catalog.endorsement and catalog.product_term.
+    Additive only, and safe to run again; the operations that use them call it, so a platform in
+    Fabric gets them on first use."""
+    added = []
+    for table in _TRUST_TABLES:
+        if not db.exists("catalog", table):
+            cols = _CATALOG[table]
+            db.run(f"CREATE TABLE {db.t('catalog', table)} ({', '.join(_column(db, n, k) for n, k in cols)})")
+            added.append(f"catalog.{table}")
+    if added:
+        db.commit()
+    return added
+
+
+def endorsement_label(value: Any) -> str:
+    """Fabric's endorsement value as the app shows it: Certified, Promoted, Master data or None.
+    A value this app doesn't know is kept as Fabric wrote it, never mapped to another."""
+    text = str(value or "").strip()
+    if not text:
+        return "None"
+    return _ENDORSEMENT_LABELS.get(re.sub(r"[\s_-]", "", text.lower()), text[:MAX_BK])
+
+
+def product_items(product: dict[str, Any]) -> list[dict[str, Any]]:
+    """The Fabric items behind a published product: the lakehouses its ports live in, in the highest
+    environment it's published to (Prod, else Test, else Dev). Only items the catalog recorded."""
+    ports = [p for p in product.get("ports") or [] if p.get("lakehouse_id")]
+    here: list[dict[str, Any]] = []
+    env = ""
+    for env in ("prod", "test", "dev"):
+        here = [p for p in ports if p.get("env") == env]
+        if here:
+            break
+    items: dict[str, dict[str, Any]] = {}
+    for p in here:
+        iid = str(p["lakehouse_id"]).strip().lower()
+        items.setdefault(iid, {"item_id": iid, "workspace_id": str(p.get("workspace_id") or "").strip().lower(),
+                               "workspace_name": p.get("workspace_name") or "", "item_type": "Lakehouse",
+                               "item_name": p.get("lakehouse_name") or "", "env": env})
+    return sorted(items.values(), key=lambda i: (i["item_name"], i["item_id"]))
+
+
+def purview_url(value: Any) -> str:
+    """A link to a term in Microsoft Purview: https on purview.microsoft.com or web.purview.azure.com
+    (or a host under them), with no sign-in name or other port in it. Anything else is refused."""
+    text = str(value or "").strip()
+    problem = PlatformError("Paste the term's address from Purview: an https link on purview.microsoft.com "
+                            "or web.purview.azure.com")
+    if not text or len(text) > MAX_URL or "\\" in text or any(ord(ch) <= 0x20 or ord(ch) == 0x7F for ch in text):
+        raise problem
+    try:
+        parts = urlsplit(text)
+        port = parts.port
+    except ValueError:
+        raise problem from None
+    host = (parts.hostname or "").lower()
+    if parts.scheme.lower() != "https" or "@" in parts.netloc or port not in (None, 443):
+        raise problem
+    if not any(host == h or host.endswith(f".{h}") for h in PURVIEW_HOSTS):
+        raise problem
+    return text
+
+
+def _product(db: Db, product_id: str) -> dict[str, Any]:
+    product = _row(db, "product", "id", str(product_id or ""))
+    if product is None:
+        raise PlatformError(f"{product_id} isn't a published data product")
+    return product
+
+
+def _can_edit_terms(db: Db, product: dict[str, Any], by: str) -> bool:
+    return is_admin(db, by) or _who(by) in _product_owners(product)
+
+
+def _term_key(product_id: str, term: Any) -> str:
+    return f"{product_id}|{_SPACES.sub(' ', str(term or '')).strip().lower()}"
+
+
+def list_product_terms(db: Db, product_id: str) -> list[dict[str, Any]]:
+    ensure_trust_badges(db)
+    rows = db.rows(f"SELECT * FROM {db.t('catalog', 'product_term')} WHERE product_id = ?", (str(product_id),))
+    return sorted(({"term": r["term"], "url": r["url"], "added_by": r.get("added_by") or "",
+                    "added_at": r.get("added_at") or ""} for r in rows), key=lambda t: t["term"].lower())
+
+
+def product_trust(db: Db, product_id: str, by: str = "") -> dict[str, Any]:
+    """A product's trust badges: each Fabric item behind it with the endorsement the last tenant scan
+    read (None when no scan has read it: unknown, never guessed), and its business terms."""
+    ensure_trust_badges(db)
+    product = _product(db, product_id)
+    ports = db.rows(f"SELECT * FROM {db.t('catalog', 'port')} WHERE product_id = ?", (product["id"],))
+    items = []
+    for item in product_items({"ports": ports}):
+        seen = _row(db, "endorsement", "item_id", item["item_id"]) or {}
+        items.append(item | {"endorsement": seen.get("endorsement") or None, "certified_by": seen.get("certified_by") or "",
+                             "scanned_at": seen.get("scanned_at") or "", "scanned_by": seen.get("scanned_by") or ""})
+    return {"product_id": product["id"], "name": product.get("name") or "", "owner": product.get("owner") or "",
+            "items": items, "terms": list_product_terms(db, product["id"]), "admin": is_admin(db, by),
+            "can_edit_terms": _can_edit_terms(db, product, by)}
+
+
+def record_endorsements(db: Db, items: list[dict[str, Any]], by: str = "") -> dict[str, Any]:
+    """Keep what Fabric's admin tenant scan read for each product item, so everyone sees it. Platform
+    admins only: a badge everyone trusts can't be written by whoever calls. Only the items given
+    change; an item the scan didn't report keeps its last reading and that reading's date."""
+    require_admin(db, by, "save endorsement from Fabric's tenant scan")
+    ensure_trust_badges(db)
+    at, counts = _now(), {}
+    for it in items or []:
+        iid = str((it or {}).get("item_id") or "").strip().lower()
+        if not iid or len(iid) > MAX_BK:
+            raise PlatformError("Each scanned item needs its Fabric item id")
+        label = endorsement_label(it.get("endorsement"))
+        row = {"item_id": iid, "workspace_id": str(it.get("workspace_id") or "")[:MAX_BK],
+               "item_type": str(it.get("item_type") or "")[:MAX_BK], "item_name": str(it.get("item_name") or "")[:MAX_BK],
+               "endorsement": label, "certified_by": str(it.get("certified_by") or "").strip()[:MAX_BK],
+               "scanned_at": at, "scanned_by": _who(by)}
+        _upsert(db, "catalog", "endorsement", "item_id", row)
+        counts[label] = counts.get(label, 0) + 1
+    # Who certified stays out of the audit detail: Fabric may give a sign-in name.
+    _audit(db, by, "record endorsement scan", "endorsement", {"items": sum(counts.values()), "endorsement": counts})
+    db.commit()
+    return {"recorded": sum(counts.values()), "scanned_at": at}
+
+
+def add_product_term(db: Db, product_id: str, term: str, url: str, by: str = "") -> list[dict[str, Any]]:
+    """Put a business term on a product, with a link to the term in Microsoft Purview. The product's
+    owner or a platform admin. The same term again changes its link."""
+    ensure_trust_badges(db)
+    product = _product(db, product_id)
+    if not _can_edit_terms(db, product, by):
+        raise PlatformError("Only the product's owner or a platform admin can add business terms")
+    name = _SPACES.sub(" ", str(term or "")).strip()
+    if not name or len(name) > MAX_TERM:
+        raise PlatformError(f"A business term needs a name of up to {MAX_TERM} characters")
+    link = purview_url(url)
+    row = {"id": _term_key(product["id"], name), "product_id": product["id"], "term": name, "url": link,
+           "added_by": _who(by), "added_at": _now()}
+    _upsert(db, "catalog", "product_term", "id", row)
+    _audit(db, by, "add product term", product["id"], {"term": name, "url": link})
+    db.commit()
+    return list_product_terms(db, product["id"])
+
+
+def remove_product_term(db: Db, product_id: str, term: str, by: str = "") -> list[dict[str, Any]]:
+    """Take a business term off a product; the term stays in Purview. The product's owner or a platform admin."""
+    ensure_trust_badges(db)
+    product = _product(db, product_id)
+    if not _can_edit_terms(db, product, by):
+        raise PlatformError("Only the product's owner or a platform admin can remove business terms")
+    key = _term_key(product["id"], term)
+    if _row(db, "product_term", "id", key) is None:
+        raise PlatformError(f"{term} isn't a business term on {product['id']}")
+    db.run(f"DELETE FROM {db.t('catalog', 'product_term')} WHERE id = ?", (key,))
+    _audit(db, by, "remove product term", product["id"], {"term": _SPACES.sub(" ", str(term or "")).strip()})
+    db.commit()
+    return list_product_terms(db, product["id"])
+
+
 # Everything a caller (the app, a notebook, a report button) may ask the platform to do.
 OPERATIONS = {
     "ensure_schema": ensure_schema, "ensure_key_table": ensure_key_table, "issue_keys": issue_keys,
@@ -1859,4 +2046,6 @@ OPERATIONS = {
     "shortcut_changes": shortcut_changes, "shortcut_rules": shortcut_rules, "save_shortcut_rules": save_shortcut_rules,
     "list_shortcut_risks": list_shortcut_risks, "accept_shortcut_risk": accept_shortcut_risk,
     "withdraw_shortcut_risk": withdraw_shortcut_risk,
+    "product_trust": product_trust, "record_endorsements": record_endorsements,
+    "add_product_term": add_product_term, "remove_product_term": remove_product_term,
 }

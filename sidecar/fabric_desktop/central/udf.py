@@ -464,6 +464,38 @@ def withdraw_shortcut_risk(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFuncti
     return _run(sqlDB, "withdraw_shortcut_risk", ctx, shortcut_id=shortcut_id, kind=kind)
 
 
+# ---- trust badges: endorsement from Fabric's tenant scan, business terms linked in Purview (Preview)
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def product_trust(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, product_id: str) -> dict:
+    return _run(sqlDB, "product_trust", ctx, product_id=product_id)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def record_endorsements(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, items: list) -> dict:
+    return _run(sqlDB, "record_endorsements", ctx, items=items)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def add_product_term(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, product_id: str, term: str,
+                     url: str) -> list:
+    return _run(sqlDB, "add_product_term", ctx, product_id=product_id, term=term, url=url)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def remove_product_term(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, product_id: str,
+                        term: str) -> list:
+    return _run(sqlDB, "remove_product_term", ctx, product_id=product_id, term=term)
+
+
 # ---- governance policies (policy.py)
 
 @udf.connection(argName="sqlDB", alias="platform")

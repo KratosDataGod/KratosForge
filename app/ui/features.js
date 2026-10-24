@@ -96,6 +96,7 @@ const PREVIEW_FEATURES = {
   pipelines: "Pipelines",
   pipelineRuns: "Pipeline runs in Monitor",
   requestsCoreFour: "Workspace, domain and exception requests",
+  trustBadges: "Endorsement and business terms",
 };
 
 function previewShown() {

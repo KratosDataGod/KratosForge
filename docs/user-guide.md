@@ -283,6 +283,14 @@ Every team's published [data products](data-mesh.md#data-products), from the pla
 - **Request access** asks the product's owner to let your project link to it. They approve it on **Platform > Requests**; then **Link** shows here.
 - **Linked**: your project already reads it.
 
+Select a product's name to open its page: its endorsement and business terms.
+
+### Endorsement and business terms (Preview)
+
+A data product's page shows its **endorsement** badge (Certified, Promoted or Master data) next to its name, as Fabric's admin tenant scan last read it, and when. Only Fabric administrators can read endorsement, so until one has scanned, the badge is a grey **Endorsement unknown**. A platform admin who is also a Fabric administrator chooses **Scan now**; after that, everyone sees the last scan's badge. To change endorsement, open the item's settings in Fabric: KratosForge can't set it.
+
+**Business terms** list each term with **Open in Purview**. The product's owner or a platform admin chooses **Add a term**, types the term and pastes its address from Purview (an `https` link on `purview.microsoft.com` or `web.purview.azure.com`). KratosForge doesn't read Purview. The details are in [Endorsement and business terms](data-mesh.md#endorsement-and-business-terms).
+
 ### Shortcuts (Preview)
 
 Shortcuts are tables or folders in a lakehouse that point at data somewhere else, without copying it. This tab is the **shortcut command center**: every shortcut in every lakehouse you can see, in one list.

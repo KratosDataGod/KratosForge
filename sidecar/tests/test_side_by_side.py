@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import time
 from decimal import Decimal
 from pathlib import Path
@@ -468,3 +469,31 @@ def test_both_runs_use_the_parameters_bar_values(svc, tables):
     call(svc, "notebook_inputs_set", name="NB", cells=cells, values={"parameters": {"x": "five"}})
     refused = handle(svc, json.dumps({"id": 1, "method": "side_by_side_start", "params": payload(cells)}))
     assert "Type a whole number" in refused["error"]
+
+
+def _tpch_available() -> bool:
+    import duckdb
+    try:
+        duckdb.connect().execute("INSTALL tpch; LOAD tpch")
+        return True
+    except Exception:  # noqa: BLE001  # silent-ok: no extension site here, so the test is skipped
+        return False
+
+
+@pytest.mark.skipif(not _tpch_available(), reason="DuckDB's tpch extension can't be downloaded here")
+def test_tpch_data_parts_are_exactly_one_dbgen_and_are_deleted_after(monkeypatch):
+    """The TPC-H data notebook generates in parts on several processes: together they must be the
+    rows one dbgen call makes, and the generated data must not stay on disk."""
+    import duckdb
+    monkeypatch.setattr(os, "cpu_count", lambda: 3)
+    ns = {"scale_factor": 0.5, "TABLES": benchmark.TABLES, "schema": "tpch"}  # 3 parts
+    exec(compile(benchmark._GENERATE, "generate", "exec"), ns)
+    one = duckdb.connect()
+    one.execute("LOAD tpch")
+    one.execute("CALL dbgen(sf=0.5)")
+    for table in benchmark.TABLES:
+        query = f"SELECT count(*), sum(hash(t)) FROM {table} t"
+        assert ns["con"].execute(query).fetchone() == one.execute(query).fetchone(), table
+    work = ns["work"]
+    ns["clean_up"]()
+    assert not os.path.exists(work)

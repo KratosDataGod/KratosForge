@@ -198,3 +198,9 @@
 {"id": "sp-cast-as-string", "target": "spark", "kind": "supported", "sql": "SELECT CAST(42 AS STRING) AS x", "expect": "no_known_problems", "rules": []}
 {"id": "wh-grant-on-schema", "target": "warehouse", "kind": "false_positive", "sql": "GRANT SELECT ON SCHEMA::[sales] TO [someone@contoso.com]", "expect": "no_known_problems", "rules": []}
 {"id": "wh-update-statistics", "target": "warehouse", "kind": "false_positive", "sql": "UPDATE STATISTICS [dbo].[FactSales]", "expect": "no_known_problems", "rules": []}
+{"id": "wh-deny-on-object", "target": "warehouse", "kind": "false_positive", "sql": "DENY SELECT ON OBJECT::[dbo].[Salary] TO [someone@contoso.com]", "expect": "no_known_problems", "rules": []}
+{"id": "wh-update-table-named-statistics", "target": "warehouse", "kind": "unsupported", "sql": "UPDATE statistics SET a = 1 FROM dbo.x", "expect": "review", "rules": ["DES-003"]}
+{"id": "wh-dcolon-after-type", "target": "warehouse", "kind": "unsupported", "sql": "SELECT type::int FROM t", "expect": "known_problems", "rules": ["SYN-009"]}
+{"id": "wh-dcolon-after-user", "target": "warehouse", "kind": "unsupported", "sql": "SELECT user::varchar FROM t", "expect": "known_problems", "rules": ["SYN-009"]}
+{"id": "wh-dcolon-after-object", "target": "warehouse", "kind": "unsupported", "sql": "SELECT object::int FROM t", "expect": "known_problems", "rules": ["SYN-009"]}
+{"id": "wh-dcolon-after-schema", "target": "warehouse", "kind": "unsupported", "sql": "SELECT schema::int FROM t", "expect": "known_problems", "rules": ["SYN-009"]}

@@ -2135,3 +2135,13 @@ html[data-motion-level="0"] .mo-ghost { display: none; }
 .req-kind[aria-pressed="true"] { border: 2px solid var(--accent); padding: 9px 11px; background: var(--accent-soft); }
 .req-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .req-two[hidden] { display: none; }
+
+/* Best practices: checks and templates (governance-checks.js) */
+.gov-views { margin-bottom: 10px; }
+.bp-mark { display: inline-block; min-width: 1.2em; text-align: center; font-weight: 700; }
+.bp-mark.pass { color: var(--success, #107c10); }
+.bp-mark.fail { color: var(--danger); }
+.bp-mark.unknown { color: #8a5300; }
+.bp-findings, .bp-rows { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.bp-policy { margin-top: 10px; }
+.bp-policy.muted { opacity: 0.85; }

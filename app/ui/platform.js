@@ -564,7 +564,7 @@ const REQUEST_FORMS = {
         detail: { name: name.value.trim(), parent_id: parent.value, description: description.value.trim(), owners: owners.value.trim() } };
     };
   },
-  async exception(box) {
+  async exception(box, prefill = {}) {
     const o = (await reqQuietly("governance_overview")) || { policies: [], domains: [], projects: [] };
     const live = o.policies.filter((p) => p.current_version && p.status !== "retired");
     if (!live.length) { box.replaceChildren(h("p", { class: "muted-text" }, "No published policy to ask an exception to.")); return () => null; }
@@ -577,6 +577,14 @@ const REQUEST_FORMS = {
     };
     const where = h("div", {}, reqField("Which", targets.project));
     scope.onchange = () => where.replaceChildren(reqField("Which", targets[scope.value]));
+    // From a Check now finding (Governance > Check this project): the policy and project are filled in.
+    if (prefill.policy) pol.value = prefill.policy;
+    if (prefill.scope) { scope.value = prefill.scope; scope.onchange(); }
+    const t = targets[scope.value];
+    if (prefill.scope_target && t.tagName === "SELECT" && ![...t.options].some((x) => x.value === prefill.scope_target)) {
+      t.append(h("option", { value: prefill.scope_target }, prefill.scope_target));
+    }
+    if (prefill.scope_target) t.value = prefill.scope_target;
     const tomorrow = new Date(Date.now() + 86400000);
     const yearOn = new Date(); yearOn.setFullYear(yearOn.getFullYear() + 1);
     const month = new Date(Date.now() + 30 * 86400000);
@@ -596,14 +604,14 @@ const REQUEST_FORMS = {
 };
 
 // Platform > Requests > New request: the kind picker, then that kind's fields.
-function newRequestDialog(done, start = "workspace") {
+function newRequestDialog(done, start = "workspace", prefill = {}) {
   const shown = previewShown();
   const box = h("div", { class: "req-form" });
   let read = null;
   const pick = async (kind) => {
     grid.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.kind === kind)));
     box.replaceChildren(loading("Loading..."));
-    read = await REQUEST_FORMS[kind](box);
+    read = await REQUEST_FORMS[kind](box, kind === start ? prefill : {});
   };
   const grid = h("div", { class: "req-kinds", role: "group", "aria-label": "What you need" }, NEW_REQUEST_KINDS.map(([k, title, sub]) =>
     h("button", { class: "req-kind", "data-kind": k, "aria-pressed": "false", onclick: () => pick(k) },
@@ -982,7 +990,7 @@ async function renderProductTrust(p) {
         h("div", { class: "monitor-band" }, btn("All data products", null, () => { pp.open = null; render(); }, "tool link small")),
         h("div", { class: "row" }, h("h2", { class: "trust-name" }, p.name), badges, previewTag()),
         h("div", { class: "muted-text small" }, p.description || ""), h("div", { class: "muted-text small mono" }, p.id)),
-      endorsement, terms),
+      endorsement, terms, productChecklistCard(p)),
     howItWorks("onelake.product-trust", {
       reads: "The product's endorsement as the last tenant scan read it, and its business terms, from the platform's catalog. Scan now reads Fabric's admin tenant scan (Power BI) of the workspaces the platform's published products live in, as you: only a Fabric administrator can. Nothing reads Purview.",
       changes: "Scan now writes what the scan read to catalog.endorsement in the platform's catalog. Adding or removing a term writes catalog.product_term. Nothing changes in Fabric or Purview: KratosForge can't set endorsement, and terms stay in Purview.",

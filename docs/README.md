@@ -176,6 +176,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Platform | Platform, Settings, Data mesh > Surrogate keys (admins, landing zone, business keys, requests) |
 | Workspace, domain and exception requests | Platform > Requests > New request: a new workspace, access to a workspace, a domain, an exception to a policy ([platform.md](platform.md#requests)) |
 | Endorsement and business terms | OneLake > Data products, open a product: its endorsement from Fabric's admin tenant scan, and business terms linked to Purview ([data-mesh.md](data-mesh.md#endorsement-and-business-terms)) |
+| Best practices: checks and templates | Platform > Governance > Templates and Check this project; OneLake > Data products, open a product: its checklist ([governance.md](governance.md#best-practices-checks-and-templates-preview)) |
 | Source control | Source control |
 | Workloads | Monitor > Operations > Workloads, Home (inventory, health, ownership, the workload page, Your workloads) |
 | Incidents | Monitor > Operations > Incidents (numbers, priorities, SLAs, reported incidents, your service desk; [incidents.md](incidents.md)) |

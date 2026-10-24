@@ -955,6 +955,7 @@ function renderOutput(o, cell) {
   }
   if (o.type === "html") return h("div", { class: "output" }, htmlFrame(o.html));
   if (o.type === "vegalite") return renderVegaLite(o);
+  if (o.type === "plotly") return renderPlotly(o);
   // Markdown from %%md, IPython.display.Markdown or _repr_markdown_: the Markdown cell's escaping renderer.
   if (o.type === "markdown") return h("div", { class: "output md-view" }, markdown(o.text));
   if (o.type === "json") return h("div", { class: "output json-output" }, jsonTree(o.data, null, 0));
@@ -1032,6 +1033,31 @@ function vegaPage(source, spec) {
 function renderVegaLite(o) {
   const wrap = h("div", { class: "output" }, h("div", { class: "out-bar" }, previewMarked("altair", h("span", { class: "muted-text" }, "Altair chart"))));
   loadVega().then((source) => wrap.append(htmlFrame(vegaPage(source, o.spec))),
+    (err) => wrap.append(h("div", { class: "more", role: "alert" }, friendlyError(err))));
+  return wrap;
+}
+
+// plotly figures (chart_output.py): the figure's JSON, drawn by plotly.js inside a sandboxed output frame,
+// inline, as Vega is. plotly.js (about 5 MB) comes from the engine's own plotly package, so it matches the
+// figure's version; it's read once, when the first figure shows, rather than sent with every output.
+let plotlySource = null;
+function loadPlotly() {
+  plotlySource ||= rpc("notebook_plotly_js").then((r) => r.source, (err) => { plotlySource = null; throw err; });
+  return plotlySource;
+}
+
+function plotlyPage(source, figure) {
+  // As in vegaPage: with every < escaped, nothing in the figure can end the script tag.
+  const data = JSON.stringify(figure).replace(/</g, "\\u003c");
+  return `<!doctype html><meta charset="utf-8"><style>body{margin:0}</style><div id="chart"></div>` +
+    `<script>${source}<\/script><script>var f = ${data};` +
+    `Plotly.newPlot("chart", f.data || [], f.layout || {}, Object.assign({ responsive: true }, f.config || {}))` +
+    `.catch(function (e) { document.getElementById("chart").textContent = "This chart can't draw: " + (e && e.message || e); });<\/script>`;
+}
+
+function renderPlotly(o) {
+  const wrap = h("div", { class: "output" });
+  loadPlotly().then((source) => wrap.append(htmlFrame(plotlyPage(source, o.figure))),
     (err) => wrap.append(h("div", { class: "more", role: "alert" }, friendlyError(err))));
   return wrap;
 }

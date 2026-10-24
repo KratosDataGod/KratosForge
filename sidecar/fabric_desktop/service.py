@@ -585,6 +585,11 @@ class Service(AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineR
             raise ValueError("sources must be a list of cell sources")
         return format_cells(sources)
 
+    def notebook_plotly_js(self) -> dict[str, Any]:
+        """plotly.js for the app to draw plotly outputs with, read once per app start (chart_output.py)."""
+        from .chart_output import plotly_js
+        return plotly_js()
+
     def kernel_variable_detail(self, name: str) -> dict[str, Any]:
         return self.kernel.variable_detail(str(name))
 

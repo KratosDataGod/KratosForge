@@ -731,6 +731,17 @@ class Service(TrustMixin, AccessCacheMixin, NotebookResourcesMixin, PipelineMixi
         """Check SQL against a Fabric engine's documented rules, without running it or calling Fabric."""
         return sqlcompat.analyze(query, target)
 
+    def sql_practices(self, query: str, target: str = "warehouse",
+                      settings: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
+        """Best-practice findings for T-SQL, read on this PC without running it (sqlcompat/practices.py)."""
+        from .sqlcompat import practices
+        return practices.check(query, target, settings)
+
+    def sql_practice_rules(self) -> list[dict[str, Any]]:
+        """The SQL best-practice rules, for a template to turn on or off."""
+        from .sqlcompat import practices
+        return practices.rules()
+
     def sql_compat_profiles(self) -> dict[str, Any]:
         """What each engine supports, the rule set's version and the rules, for the panel and the docs."""
         return {"rule_version": sqlcompat.RULE_VERSION, "profiles": sqlcompat.profiles(),

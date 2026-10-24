@@ -105,3 +105,49 @@ def test_only_the_list_is_read_only_and_template_text_is_never_audited(svc):
     assert target["sql"] == target["text"] == "(given)"
     reply = server.handle(svc, json.dumps({"id": 1, "method": "sql_templates_list", "params": {}}))
     assert reply["result"]["templates"] == []
+
+
+def test_links_never_lead_a_template_call_outside_its_place(svc, tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "victim.sql").write_text("SELECT 1", encoding="utf-8")
+    folder = tmp_path / "app" / "sql-templates"
+    folder.parent.mkdir(parents=True)
+    try:
+        folder.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("this PC can't make links")
+    listed = svc.sql_templates_list()
+    assert listed["templates"] == [] and "points somewhere else" in listed["notes"][0]
+    for call in (lambda: svc.sql_template_delete("mine", "victim.sql"), lambda: svc.sql_template_export("mine", "victim.sql"),
+                 lambda: svc.sql_template_save("mine", "A", "SELECT 2"),
+                 lambda: svc.sql_template_save("mine", "A", "SELECT 2", name="victim.sql")):
+        with pytest.raises(ValueError, match="somewhere else"):
+            call()
+    assert (outside / "victim.sql").read_text(encoding="utf-8") == "SELECT 1"
+    folder.unlink()
+    folder.mkdir()
+    (folder / "link.sql").symlink_to(outside / "victim.sql")
+    (folder / "ok.sql").write_text("SELECT 3", encoding="utf-8")
+    assert [t["name"] for t in svc.sql_templates_list()["templates"]] == ["ok.sql"]
+    with pytest.raises(ValueError, match="link"):
+        svc.sql_template_delete("mine", "link.sql")
+    with pytest.raises(ValueError, match="link"):
+        svc.sql_template_save("mine", "B", "SELECT 4", name="link.sql")
+    assert (outside / "victim.sql").read_text(encoding="utf-8") == "SELECT 1"
+
+
+def test_windows_device_names_are_never_template_files(svc):
+    assert svc.sql_template_save("mine", "CON", "SELECT 1")["name"] == "CON template.sql"
+    for name in ("CON.sql", "nul.sql", "com1.sql", "LPT9.sql"):
+        with pytest.raises(ValueError, match="template file name"):
+            svc.sql_template_delete("mine", name)
+
+
+def test_a_place_with_more_templates_than_are_listed_says_so(svc, tmp_path, monkeypatch):
+    monkeypatch.setattr(st, "MAX_PER_PLACE", 2)
+    for title in ("a", "b", "c"):
+        svc.sql_template_save("mine", title, "SELECT 1")
+    listed = svc.sql_templates_list()
+    assert [t["name"] for t in listed["templates"]] == ["a.sql", "b.sql"]
+    assert listed["notes"] == ["My templates has 3 templates; the first 2 by name are listed."]

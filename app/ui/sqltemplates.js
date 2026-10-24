@@ -268,7 +268,8 @@ function openSqlTemplates(ref, open, opts = {}) {
       own = r.templates.map(sqlOwnTemplate);
       places = r.places;
       const hidden = own.filter((t) => !fits(t)).length;
-      ownNote = `${own.length ? `${own.length} of your templates` : "No templates of your own yet"}${hidden ? `, ${hidden} not for a SQL analytics endpoint` : ""}.`;
+      ownNote = [`${own.length ? `${own.length} of your templates` : "No templates of your own yet"}${hidden ? `, ${hidden} not for a SQL analytics endpoint` : ""}.`,
+        ...(r.notes || [])].join(" ");
     } catch (err) {
       ownNote = `Your templates couldn't be listed: ${String(err).replace(/^Error: /, "")}`;
     }

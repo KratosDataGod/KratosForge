@@ -25,6 +25,7 @@ from __future__ import annotations
 import os
 import re
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +43,7 @@ KINDS = ("sysname", "columns", "string", "int", "datatype", "datetime")
 _HEADER = re.compile(r"^--\s*(template|title|group|description|endpoint)\s*:\s*(.*?)\s*$", re.IGNORECASE)
 _PARAM = re.compile(r"<([A-Za-z_]\w*)\s*,\s*(\w+)\s*,\s*([^<>\n]*?)\s*>")
 _NAME = re.compile(r"^[^\\/:*?\"<>|\x00-\x1f]{1,64}\.sql$", re.IGNORECASE)
+_RESERVED = re.compile(r"^(con|prn|aux|nul|com[0-9]|lpt[0-9])$", re.IGNORECASE)  # Windows device names
 
 
 def parse(text: str, stem: str = "") -> dict[str, Any]:
@@ -97,12 +99,21 @@ def render(meta: dict[str, Any]) -> str:
 class SqlTemplatesMixin:
     def _template_places(self) -> list[dict[str, Any]]:
         """[{"id", "label", "folder": Path}]: this PC, then each Git repository opened here."""
-        places = [{"id": "mine", "label": "My templates", "folder": self.root / FOLDER}]  # type: ignore[attr-defined]
+        places = [{"id": "mine", "label": "My templates", "root": self.root, "folder": self.root / FOLDER}]  # type: ignore[attr-defined]
         for repo in self.git_repos()["repos"]:  # type: ignore[attr-defined]
             if repo.get("exists"):
                 places.append({"id": repo["path"], "label": repo.get("name") or Path(repo["path"]).name,
-                               "folder": Path(repo["path"]) / FOLDER})
+                               "root": Path(repo["path"]), "folder": Path(repo["path"]) / FOLDER})
         return places
+
+    @staticmethod
+    def _contained(p: dict[str, Any]) -> Path:
+        """The place's folder with links followed, which must still be inside the data folder or the
+        repository: a sql-templates folder that is a link to somewhere else is refused."""
+        folder, root = Path(p["folder"]).resolve(), Path(p["root"]).resolve()
+        if folder != root / FOLDER:
+            raise ValueError(f"The sql-templates folder in {p['label']} points somewhere else, so it isn't used.")
+        return folder
 
     def _template_place(self, place: str) -> dict[str, Any]:
         for p in self._template_places():
@@ -111,21 +122,33 @@ class SqlTemplatesMixin:
         raise ValueError("Pick My templates or a repository opened in Source control.")
 
     def _template_file(self, place: str, name: str) -> Path:
-        if not isinstance(name, str) or not _NAME.match(name) or name.startswith((".", " ")) or ".." in name:
+        if (not isinstance(name, str) or not _NAME.match(name) or name.startswith((".", " ")) or ".." in name
+                or _RESERVED.match(name.split(".")[0].strip())):
             raise ValueError("That isn't a template file name.")
-        return self._template_place(place)["folder"] / name
+        folder = self._contained(self._template_place(place))
+        path = folder / name
+        if path.is_symlink() or path.resolve().parent != folder:
+            raise ValueError("That template file is a link to somewhere else, so it isn't used.")
+        return path
 
     def sql_templates_list(self) -> dict[str, Any]:
         """Every template in every place, and the places a template can be saved to. A file that
         can't be read, or is too large, is listed with why, so it isn't silently left out."""
         out: list[dict[str, Any]] = []
         places = self._template_places()
+        notes: list[str] = []
         for p in places:
-            folder: Path = p["folder"]
             try:
-                files = sorted(f for f in folder.iterdir() if f.suffix.lower() == ".sql" and f.is_file())
+                folder = self._contained(p)
+                files = sorted(f for f in folder.iterdir()
+                               if f.suffix.lower() == ".sql" and not f.is_symlink() and f.is_file())
+            except ValueError as exc:
+                notes.append(str(exc))
+                continue
             except OSError:
                 continue  # no folder yet
+            if len(files) > MAX_PER_PLACE:
+                notes.append(f"{p['label']} has {len(files)} templates; the first {MAX_PER_PLACE} by name are listed.")
             for f in files[:MAX_PER_PLACE]:
                 item: dict[str, Any] = {"place": p["id"], "place_label": p["label"], "name": f.name}
                 try:
@@ -138,7 +161,7 @@ class SqlTemplatesMixin:
                            else str(exc) if isinstance(exc, ValueError) else "It couldn't be read.")
                     item.update(title=f.stem, group="", description="", endpoint=False, sql="", problem=why)
                 out.append(item)
-        return {"templates": out, "kinds": list(KINDS),
+        return {"templates": out, "kinds": list(KINDS), "notes": notes,
                 "places": [{"id": p["id"], "label": p["label"], "folder": str(p["folder"])} for p in places]}
 
     def sql_template_save(self, place: str, title: str, sql: str, group: str = "", description: str = "",
@@ -156,13 +179,18 @@ class SqlTemplatesMixin:
             path = self._template_file(place, name)
             if not path.is_file():
                 raise ValueError("That template isn't there any more. Save it as a new one.")
-            tmp = path.with_name(path.name + ".tmp")
-            tmp.write_text(text, encoding="utf-8", newline="\n")
+            tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex[:8]}.tmp")  # new: never a file or link already there
+            with open(tmp, "x", encoding="utf-8", newline="\n") as f:
+                f.write(text)
             os.replace(tmp, path)
             return {"place": place, "name": path.name, "path": str(path)}
-        folder: Path = self._template_place(place)["folder"]
-        folder.mkdir(parents=True, exist_ok=True)
+        p = self._template_place(place)
+        self._contained(p)  # before making the folder: a link in its place is refused
+        Path(p["folder"]).mkdir(parents=True, exist_ok=True)
+        folder = self._contained(p)
         base = file_stem(title, "Template")
+        if _RESERVED.match(base):
+            base += " template"
         for n in range(1, 1000):
             path = folder / (f"{base}.sql" if n == 1 else f"{base} ({n}).sql")
             try:

@@ -9,6 +9,7 @@ only), so the Delta profile is checked before anything leaves the machine.
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import tempfile
 import time
@@ -25,6 +26,9 @@ from .fabric_api import FabricClient
 from .jobs import Job, run_local
 from .leases import LocalBackend, check_held, onelake_table_lease, table_lease
 from .onelake import TableRef, storage_options
+from .redact import describe
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -133,6 +137,7 @@ def publish(data: Any, ref: TableRef, mode: str, storage_token: str, schema_mode
             table.skipped = True  # type: ignore[union-attr]
             return table  # type: ignore[return-value]
         meta = CommitProperties(custom_metadata={ROWS_KEY: rows}) if rows and mode == "overwrite" else None
+        had = _files(table) if table is not None and mode != "overwrite" else {}
         check_held()  # the lease is still ours, with time to commit (HD-016)
         write_deltalake(table if table is not None else ref.uri, data, mode=mode, storage_options=opts, schema_mode=how,
                         writer_properties=writer_properties(), commit_properties=meta)
@@ -140,7 +145,21 @@ def publish(data: Any, ref: TableRef, mode: str, storage_token: str, schema_mode
             table = DeltaTable(ref.uri, storage_options=opts)
     delta_profile.note_after_write(table)
     table.skipped = False  # type: ignore[attr-defined]
+    # What this write uploaded: the version's files it didn't have before (all of them, on overwrite).
+    now = _files(table)
+    table.written_bytes = sum(n for path, n in now.items() if path not in had) if now is not None and had is not None else None  # type: ignore[attr-defined]
     return table
+
+
+def _files(table: DeltaTable) -> dict[str, int] | None:
+    """The table's data files and their sizes, from the log delta-rs already holds; None if it can't say."""
+    try:
+        files = pa.table(table.get_add_actions(flatten=True))
+        paths, sizes = files.column("path").to_pylist(), files.column("size_bytes").to_pylist()
+    except Exception as exc:  # noqa: BLE001 - only the timing's byte count is missing
+        _log.info("Couldn't list the files of %s: %s", table.table_uri, describe(exc))
+        return None
+    return dict(zip(paths, sizes))
 
 
 WRITER = "KratosForge"

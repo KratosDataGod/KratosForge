@@ -166,7 +166,7 @@ def test_verdict_and_speed():
     s = sbs.speed(10, 40, 20)
     assert s["end_to_end"] == "This PC was 4.0x faster end to end"
     assert s["run"].startswith("This PC was 2.0x faster on run time alone")
-    assert sbs.speed(40, 10, None) == {"end_to_end": "Fabric was 4.0x faster end to end", "run": ""}
+    assert sbs.speed(40, 10, None) == {"end_to_end": "Fabric was 4.0x faster end to end", "run": "", "processing": ""}
 
 
 def test_timing_cells_write_where_the_app_reads():
@@ -289,6 +289,8 @@ def test_side_by_side_end_to_end_same_results(svc, tables):
     out = wait(svc, started["id"])
     assert out["state"] == "done", out["message"]
     assert out["local"]["status"] == "ok" and out["local"]["seconds"] is not None
+    local = out["local"]
+    assert local["processing_seconds"] + local["upload_wait_seconds"] == pytest.approx(local["seconds"], abs=0.02)
     assert out["local"]["cells"]["2"]["outputs"][0]["text"].startswith("wrote")
     f = out["fabric"]
     assert f["status"] == "ok" and f["job_seconds"] == 90 and f["run_seconds"] == 60 and f["start_seconds"] == 30
@@ -497,3 +499,17 @@ def test_tpch_data_parts_are_exactly_one_dbgen_and_are_deleted_after(monkeypatch
     work = ns["work"]
     ns["clean_up"]()
     assert not os.path.exists(work)
+
+
+def test_this_pcs_time_splits_into_processing_and_upload_wait():
+    from fabric_desktop.side_by_side_service import _split
+    cells = [{"wait_seconds": 600, "upload_seconds": 640, "tables": 8, "rows": 86_000_000, "bytes": 3_000_000_000, "skipped": 0},
+             {}, {"wait_seconds": 50, "upload_seconds": 60, "tables": 1, "rows": 10, "bytes": 290_000_000, "skipped": 1}]
+    split = _split(780.0, cells)
+    assert split["processing_seconds"] == 130.0 and split["upload_wait_seconds"] == 650.0
+    assert split["upload"] == {"seconds": 700.0, "tables": 9, "rows": 86_000_010, "bytes": 3_290_000_000, "skipped": 1,
+                               "mb_per_second": 4.7}
+    assert _split(10.0, [])["upload"]["mb_per_second"] is None
+    s = sbs.speed(780, 549, 488, 130)
+    assert s["processing"].startswith("This PC was 3.8x faster on processing alone")
+    assert sbs.speed(780, 549, 488, 780)["processing"] == ""  # no wait, nothing to add

@@ -1067,6 +1067,12 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .sbs-bar { height: 8px; border-radius: 4px; margin-top: 4px; }
 .sbs-bar.pc { background: var(--accent); }
 .sbs-bar.fabric { background: var(--brand-orange); }
+.sbs-bar.split { display: flex; overflow: hidden; }
+.sbs-bar.split > .pc, .sbs-key.pc { background: var(--accent); }
+.sbs-bar.split > .upload, .sbs-key.upload { background: repeating-linear-gradient(135deg, var(--accent) 0 3px, transparent 3px 6px); border: 1px solid var(--accent); box-sizing: border-box; }
+.sbs-split { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.sbs-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.sbs-key.upload { margin-left: 6px; }
 .sbs-table { border: 1px solid var(--border); border-radius: 8px; overflow-x: auto; font-size: 13px; }
 .sbs-table > a { display: block; padding: 6px 12px; }
 .sbs-tr { display: grid; grid-template-columns: minmax(140px, 1.4fr) 0.7fr 0.7fr minmax(80px, 1fr) minmax(160px, 1.6fr); gap: 8px; padding: 6px 12px; border-top: 1px solid var(--border-soft); align-items: center; }

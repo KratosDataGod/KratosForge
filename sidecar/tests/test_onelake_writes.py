@@ -253,3 +253,52 @@ def test_a_notebook_can_write_direct(service):
     with pytest.raises(ValueError):
         service.notebook_onelake_writes_set("nb", "fast")
     assert service.notebook_onelake_writes_set("nb", None)["effective"] == "local_first"
+
+
+# ---- timing: how long a cell waited on its writes (the side-by-side card's split)
+
+
+def test_stats_count_a_nested_wait_once_and_side_by_side_uploads_once():
+    s = write_queue.Stats()
+    assert s.as_dict() is None  # a cell that wrote nothing has nothing to say
+    with s.waiting():
+        with s.waiting():
+            time.sleep(0.05)
+    assert 0.03 <= s.wait < 0.2  # Windows' clock ticks about every 16 ms, so a 0.05 s sleep can read 0.047
+    now = time.monotonic()
+    s.wrote(now - 2, 10, 100, False)
+    s.wrote(now - 1, 5, 50, False)  # overlapped the first: the second it added counts once
+    s.wrote(now - 1, 0, None, True)
+    d = s.as_dict()
+    assert 1.9 < d["upload_seconds"] < 2.2
+    assert (d["tables"], d["rows"], d["bytes"], d["skipped"]) == (3, 15, 150, 1)
+
+
+def test_a_cell_reports_its_upload_wait_and_what_it_uploaded(service):
+    out = service.run_cell(WRITE, LH)
+    onelake = out["onelake"]
+    assert onelake["tables"] == 1 and onelake["rows"] == 2 and onelake["bytes"] > 0
+    assert onelake["wait_seconds"] >= 0.15  # the cell ended when the 0.2 s upload was in
+    assert onelake["upload_seconds"] >= 0.2
+    assert "onelake" not in service.run_cell("1 + 1", LH)  # the next cell starts at zero
+
+
+def test_a_cell_that_computes_while_it_uploads_waits_less_than_the_upload(service):
+    out = service.run_cell(WRITE + "import time\ntime.sleep(0.3)", LH)
+    assert out["onelake"]["upload_seconds"] >= 0.2
+    assert out["onelake"]["wait_seconds"] < 0.1  # the upload ran while the cell slept
+
+
+def test_a_direct_write_is_all_wait(service):
+    service.notebooks.save("nb", [{"type": "code", "source": "1"}], LH)
+    service.notebook_onelake_writes_set("nb", "direct")
+    onelake = service.run_cell(WRITE + "import time\ntime.sleep(0.3)", LH, notebook="nb")["onelake"]
+    assert onelake["wait_seconds"] >= 0.2 and onelake["tables"] == 1
+
+
+def test_publish_says_what_an_append_uploaded(tmp_path):
+    ref = Ref(str(tmp_path / "t"))
+    first = publish.publish(data(*range(1000)), ref, "overwrite", "tok")
+    assert first.written_bytes == sum(pa.table(first.get_add_actions(flatten=True)).column("size_bytes").to_pylist())
+    second = publish.publish(data(1), ref, "append", "tok")
+    assert 0 < second.written_bytes < first.written_bytes  # only the new file

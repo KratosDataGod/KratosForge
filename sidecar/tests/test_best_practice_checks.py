@@ -460,11 +460,21 @@ def test_a_setting_a_rule_cant_read_is_unknown_and_the_rest_still_run():
                        on("naming.table_name")["naming.table_name"])["passed"] == 1
 
 
-def test_a_pattern_that_can_backtrack_for_minutes_isnt_run():
+@pytest.mark.parametrize("pattern", [r"(a+)+$", r"(a|a)+$", r"(?P<g>a+)+$", r"((a+))+$", r"(\w+\w+)+$", r"(a+b?)+$"])
+def test_a_pattern_that_backtracks_in_python_still_matches_at_once(pattern):
     import time
     start = time.monotonic()
-    f = gc.naming_check(entity("gold." + "a" * 40 + "!"), on("naming.table_name", pattern="(a+)+$"))[0]
-    assert time.monotonic() - start < 1
-    assert f["outcome"] == "unknown" and "Simplify the pattern" in f["description"]
+    f = gc.naming_check(entity("gold." + "a" * 40 + "!"), on("naming.table_name", pattern=pattern))
+    assert time.monotonic() - start < 2
+    assert len(f) == 1 and "doesn't match" in f[0]["description"] and "outcome" not in f[0]
+    assert gc.naming_check(entity("gold." + "a" * 40), on("naming.table_name", pattern=pattern)) == []
+
+
+def test_patterns_re2_cant_take_are_unknown_and_long_names_arent_matched():
+    for pattern in (r"(a)\1", r"(?=dim)\w+"):
+        f = gc.naming_check(entity("gold.dim_x"), on("naming.table_name", pattern=pattern))[0]
+        assert f["outcome"] == "unknown" and "Lookarounds and backreferences" in f["description"]
+    f = gc.naming_check(entity("gold.dim_x"), on("naming.table_name", pattern="x" * 301))[0]
+    assert f["outcome"] == "unknown" and "Shorten the pattern" in f["description"]
     long = gc.naming_check(entity("gold." + "x" * 300), on("naming.table_name"))[0]
     assert "too long to check" in long["description"]

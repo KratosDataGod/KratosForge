@@ -163,3 +163,32 @@ def inputs(cells: list[dict[str, Any]], values: dict[str, Any] | None = None) ->
             widgets.append(row)
     return {"parameters": parameters, "widgets": widgets, "parameter_cell": params_cell["cell_id"] if params_cell else None,
             "suffix": suffix}
+
+
+_FABRIC_TYPES = {"str": "string", "int": "int", "float": "float", "bool": "bool"}
+
+
+def fabric_parameters(cells: list[dict[str, Any]], values: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The bar's changed parameter values as a Fabric notebook run's ``executionData.parameters``
+    (``{name: {"value": ..., "type": "string" | "int" | "float" | "bool"}}``): Fabric sets them right
+    after the parameter cell, as ``suffix`` does on this PC. Empty when nothing changed. A value the
+    bar shows in red raises ValueError, so a run in Fabric never quietly uses the code's value."""
+    shown = inputs(cells, values)
+    out: dict[str, Any] = {}
+    for p in shown["parameters"]:
+        if p["error"]:
+            raise ValueError(f"Parameters bar: {p['name']}: {p['error']} Fix it or Reset to code first. "
+                             "Nothing was sent.")
+        if p["value"] == p["default"]:
+            continue
+        text = p["value"]
+        value: Any = {"str": text, "bool": text == "True"}.get(p["type"])
+        if p["type"] == "int":
+            value = int(text.strip())
+        elif p["type"] == "float":
+            value = float(text.strip())
+            if not math.isfinite(value):
+                raise ValueError(f"Parameters bar: {p['name']} is {text.strip()}, which a run in Fabric can't be "
+                                 "given. Nothing was sent.")
+        out[p["name"]] = {"value": value, "type": _FABRIC_TYPES[p["type"]]}
+    return out

@@ -203,7 +203,8 @@ class FakeFabric:
     def get_lakehouse(self, ws, lh):
         return {"properties": {"defaultSchema": "dbo"}}
 
-    def run_item_job(self, ws, item, job):
+    def run_item_job(self, ws, item, job, execution_data=None):
+        self.execution_data = execution_data
         self.fabric_writes(self.tables)
         return "job1"
 
@@ -448,6 +449,26 @@ def test_side_by_side_runs_its_own_notebooks_kernel_not_the_open_one(svc, tables
     assert out["state"] == "done", out["message"]
     assert svc.sessions.kernel("NB").run("print(x)")["outputs"][0]["text"] == "2\n"
     assert other.run("print(y)")["outputs"][0]["text"] == "1\n"  # the open notebook wasn't restarted
+
+
+def test_both_runs_use_the_parameters_bar_values(svc, tables):
+    # Fabric's stand-in writes what Fabric would write with x = 5; this PC must use 5 too to match.
+    svc.fake = FakeFabric(tables, lambda t: t.write(pa.table({"id": [5, 1]}), "bench.q01"))
+    cells = [dict(c) | {"cell_id": f"c{i}"} for i, c in enumerate(CELLS)]
+    cells[1] = cells[1] | {"meta": {"tags": ["parameters"]}}
+    call(svc, "save_notebook", name="NB", cells=cells, lakehouse_ref=LAKEHOUSE)
+    call(svc, "notebook_inputs_set", name="NB", cells=cells, values={"parameters": {"x": "5"}})
+    out = wait(svc, call(svc, "side_by_side_start", **payload(cells))["id"])
+    assert out["state"] == "done", out["message"]
+    assert svc.fake.execution_data == {"parameters": {"x": {"value": 5, "type": "int"}}}
+    assert out["verdict"]["same"] is True
+    # The code kept its own value; the bar's was added only to the run.
+    assert svc.notebooks.load("NB")["cells"][1]["source"].endswith("x = 2")
+    assert "_parameters" not in out and "_suffixes" not in out
+    # A value the bar shows in red stops both runs before either starts.
+    call(svc, "notebook_inputs_set", name="NB", cells=cells, values={"parameters": {"x": "five"}})
+    refused = handle(svc, json.dumps({"id": 1, "method": "side_by_side_start", "params": payload(cells)}))
+    assert "Type a whole number" in refused["error"]
 
 
 def _tpch_available() -> bool:

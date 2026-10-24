@@ -160,7 +160,7 @@ def test_activity_rows_are_shaped_capped_and_redacted(svc, monkeypatch):
 
 
 def test_activity_runs_need_a_run_with_guids(svc):
-    for ws, job in ((WS, ""), ("", JOB), ("../ws", JOB), (WS, "j2/../../items")):
+    for ws, job in ((WS, ""), ("", JOB), ("../ws", JOB), (WS, "j2/../../items"), (WS + "\n", JOB)):
         with pytest.raises(ValueError):
             svc.fabric_pipeline_activity_runs(ws, job)
 

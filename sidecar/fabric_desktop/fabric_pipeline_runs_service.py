@@ -180,7 +180,7 @@ class FabricPipelineRunsMixin:
 
         ``started`` and ``ended`` are the run's times from fabric_pipeline_runs; Fabric needs a time
         window, so the query covers them with a few minutes either side (up to now while it runs)."""
-        if not _GUID.match(str(workspace_id or "")) or not _GUID.match(str(job_id or "")):
+        if not _GUID.fullmatch(str(workspace_id or "")) or not _GUID.fullmatch(str(job_id or "")):
             raise ValueError("Pick a pipeline run: its workspace id and run id are needed (Fabric GUIDs).")
         now = _now()
         start = _parse(started) or now - dt.timedelta(days=1)

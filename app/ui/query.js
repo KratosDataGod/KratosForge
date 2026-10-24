@@ -458,11 +458,17 @@ function renderQuery() {
       h("div", { class: "sql-export-menu", role: "menu" },
         h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("csv"); } }, "CSV"),
         h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("parquet"); } }, "Parquet")));
-    const view = tab.view || "results";
-    const viewTab = (id, label) => h("button", { role: "tab", class: `sql-view${view === id ? " on" : ""}`, "aria-selected": String(view === id),
-      onclick: () => { tab.view = id; drawResults(); } }, label);
+    // Messages and Chart are Preview: on the Warehouse page the whole page already is, so they carry no
+    // tag of their own there; elsewhere they carry one and go when preview features are hidden.
+    const extra = wh || previewShown() ? ["messages", "chart"] : [];
+    const view = extra.includes(tab.view) ? tab.view : "results";
+    const viewTab = (id, label) => {
+      const b = h("button", { role: "tab", class: `sql-view${view === id ? " on" : ""}`, "aria-selected": String(view === id),
+        onclick: () => { tab.view = id; drawResults(); } }, label);
+      return id === "results" || wh ? b : preview("sqlResultViews", b);
+    };
     band.replaceChildren(...[h("div", { class: "sql-views", role: "tablist", "aria-label": "Result views" },
-      viewTab("results", "Results"), viewTab("messages", "Messages"), viewTab("chart", "Chart")),
+      viewTab("results", "Results"), extra.length ? viewTab("messages", "Messages") : null, extra.length ? viewTab("chart", "Chart") : null),
       h("span", { class: `sql-pill ${pill[0]}` }, pill[1]), h("span", { class: "muted-text sql-run-msg" }, tab.error ? "" : msg),
       ex && (st === "running" || st === "queued") ? btn("Stop", "stop", stop, "tool small", { title: "Stop this query. Only its own process ends." }) : null,
       tab.ranNotice && r && !busy ? h("span", { class: "sql-local-note", role: "note" }, tab.ranNotice) : null,

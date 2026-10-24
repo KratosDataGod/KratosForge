@@ -27,11 +27,11 @@ A SQL analytics endpoint is found through its lakehouse, which Fabric gives the 
 
 ## Results, Messages and Chart
 
-Above the result, three views, on every SQL page (lakehouse, local project and warehouse):
+Above the result, three views, on every SQL page (lakehouse, local project and warehouse). Messages and Chart are Preview: on a lakehouse or local project page they carry the Preview tag and go when Settings hides preview features; on the Warehouse page the whole page is already Preview.
 
 - **Results**: the rows a page at a time, with Copy and Export, as before.
 - **Messages**: what the last run did: its target, when it was queued, started and ended, its state, rows and columns, why it was refused or failed, and its time limit. Never the SQL.
-- **Chart**: a quick bar, stacked bar, line, area, pie, scatter or histogram of the result, with X axis, values, aggregate (sum, average, count, max, min) and series. It reads the rows already on this PC from the run's snapshot, up to the first 50,000, so nothing runs again and no capacity is used. It draws the first 60 X axis values and up to 7 series (the rest as Other).
+- **Chart**: a quick bar, stacked bar, line, area, pie, scatter or histogram of the result, with X axis, values, aggregate (sum, average, count, max, min) and series. It reads the rows already on this PC from the run's snapshot, up to the first 50,000, so nothing runs again and no capacity is used. It draws the first 60 X axis values (the note says how many more there are) and up to 7 series (the rest as Other).
 
 A query that returns several result sets isn't possible yet: the page sends one statement at a time. That comes with warehouse writes and scripts, which wait on their own decision.
 

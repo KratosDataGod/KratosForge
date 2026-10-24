@@ -126,6 +126,19 @@ test("sqlChartData sums by category and series, keeps the query's order and coun
   assert.deepStrictEqual(c.series, [{ name: null, values: [2, 1] }]);
 });
 
+test("sqlChartData charts 50,000 distinct X values quickly and counts the ones left off", { skip }, async () => {
+  const d = await page().evaluate(() => {
+    const rows = Array.from({ length: 50000 }, (_, i) => [`k${i}`, i % 3, i]);
+    const t = performance.now();
+    const bar = sqlChartData([{ name: "k" }, { name: "s" }, { name: "v" }], rows, { kind: "bar", x: "k", y: "v", agg: "sum", series: "s" });
+    const hist = sqlChartData([{ name: "k" }, { name: "s" }, { name: "v" }], rows, { kind: "histogram", x: null, y: "v", agg: "sum", series: null });
+    return { ms: performance.now() - t, cats: bar.categories.length, first: bar.categories[0], truncated: bar.truncated, more: bar.more,
+      series: bar.series.length, min: hist.min, max: hist.max };
+  });
+  assert.ok(d.ms < 500, `took ${d.ms} ms`);
+  assert.deepStrictEqual({ ...d, ms: 0 }, { ms: 0, cats: 60, first: "k0", truncated: true, more: 49940, series: 3, min: 0, max: 49999 });
+});
+
 test("after the first confirmed run the explorer lists the catalog by schema and kind", { skip }, async () => {
   const sys = starts().filter((p) => p.query.includes("sys."));
   assert.strictEqual(sys.length, 2, "objects, then columns");

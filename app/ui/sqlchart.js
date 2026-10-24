@@ -37,7 +37,8 @@ function sqlChartData(columns, rows, cfg) {
   if (cfg.kind === "histogram") {
     const vals = rows.map((r) => r[yi]).filter((v) => typeof v === "number");
     if (!vals.length) return { ...out, counts: [], min: 0, max: 0 };
-    const min = Math.min(...vals), max = Math.max(...vals);
+    let min = Infinity, max = -Infinity;  // a loop: spreading 50,000 values as arguments can overflow the stack
+    for (const v of vals) { if (v < min) min = v; if (v > max) max = v; }
     const bins = Math.min(30, Math.max(1, Math.ceil(Math.sqrt(vals.length))));
     const counts = new Array(bins).fill(0);
     for (const v of vals) counts[Math.min(bins - 1, Math.floor(((v - min) / (max - min || 1)) * bins))]++;
@@ -52,11 +53,17 @@ function sqlChartData(columns, rows, cfg) {
   for (const r of rows) totals.set(seriesOf(r), (totals.get(seriesOf(r)) || 0) + 1);
   const kept = [...totals.keys()].slice(0, SQL_CHART_SERIES - (totals.size > SQL_CHART_SERIES ? 1 : 0));
   const name = (r) => (kept.includes(seriesOf(r)) ? seriesOf(r) : "Other");
-  const cats = [];
+  // The first SQL_CHART_CATS X values, in the order they come; past those only a count, for the note.
+  const cats = [], shown = new Set(), seen = new Set();
+  let extra = 0;
   const groups = new Map();  // "category\u0000series" -> [sum, count, max, min]
   for (const r of rows) {
     const c = r[xi] ?? null;
-    if (!cats.includes(c)) cats.push(c);
+    if (!seen.has(c)) {
+      seen.add(c);
+      if (cats.length < SQL_CHART_CATS) { cats.push(c); shown.add(c); } else extra++;
+    }
+    if (!shown.has(c)) continue;
     const key = `${c}\u0000${name(r)}`;
     const g = groups.get(key) || [0, 0, -Infinity, Infinity];
     const v = yi >= 0 ? r[yi] : null;
@@ -64,15 +71,14 @@ function sqlChartData(columns, rows, cfg) {
     else if (typeof v === "number") { g[0] += v; g[1]++; g[2] = Math.max(g[2], v); g[3] = Math.min(g[3], v); }
     groups.set(key, g);
   }
-  const shown = cats.slice(0, SQL_CHART_CATS);
   const value = (g) => {
     if (!g || !g[1]) return null;
     if (yi < 0 || cfg.agg === "count") return g[1];
     return { sum: g[0], avg: g[0] / g[1], max: g[2], min: g[3] }[cfg.agg] ?? g[0];
   };
   const names = [...new Set(rows.map(name))];
-  return { ...out, truncated: cats.length > SQL_CHART_CATS, categories: shown,
-    series: names.map((n) => ({ name: n, values: shown.map((c) => value(groups.get(`${c}\u0000${n}`))) })) };
+  return { ...out, truncated: extra > 0, more: extra, categories: cats,
+    series: names.map((n) => ({ name: n, values: cats.map((c) => value(groups.get(`${c}\u0000${n}`))) })) };
 }
 
 // The Chart tab: settings over the chart. load() resolves to { columns, rows, total } (the first
@@ -96,7 +102,7 @@ function sqlChartView(held, load) {
     if (cfg.kind === "histogram" || cfg.kind === "scatter") cfg.y ||= nums[0]?.[0] ?? null;
     const d = sqlChartData(columns, rows, cfg);
     const notes = [`From ${rows.length === total ? "all" : "the first"} ${rows.length.toLocaleString()} rows${rows.length === total ? "" : ` of ${total.toLocaleString()}`}.`];
-    if (d.truncated) notes.push(`Showing the first ${SQL_CHART_CATS} values of the X axis.`);
+    if (d.truncated) notes.push(`Showing the first ${SQL_CHART_CATS} of ${(SQL_CHART_CATS + d.more).toLocaleString()} values of the X axis.`);
     box.replaceChildren(h("div", { class: "chart-opts" },
       select("Chart", "kind", SQL_CHART_KINDS),
       cfg.kind !== "histogram" ? select("X axis", "x", cfg.kind === "scatter" ? nums : cols) : null,

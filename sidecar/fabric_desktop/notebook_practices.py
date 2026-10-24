@@ -101,7 +101,8 @@ def check(sources: list[str], scheduled: bool = False,
 def _finding(rule_id: str, cell: int, line: int, settings: dict[str, dict[str, Any]],
              detail: str = "") -> dict[str, Any] | None:
     rule = _BY_ID[rule_id]
-    own = settings.get(rule_id) or {}
+    own = settings.get(rule_id)
+    own = own if isinstance(own, dict) else {}
     if own.get("enabled") is False:
         return None
     severity = own.get("severity") if own.get("severity") in SEVERITIES else rule.severity
@@ -123,7 +124,7 @@ def _cell(source: str, scheduled: bool, counts: dict[str, list[tuple[int, int]]]
         if _unpinned(m.group(1)):
             yield "NB009", line
     first = source.lstrip().split("\n", 1)[0].strip().lower()
-    if first.startswith("%%"):
+    if first.startswith("%%") and first.split()[0] not in {"%%pyspark", "%%python"}:  # those cells are Python
         if first.startswith("%%sql") and _SELECT_STAR.search(source):
             yield "NB006", _line_of(source, _SELECT_STAR.search(source).start())  # type: ignore[union-attr]
         return

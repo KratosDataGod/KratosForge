@@ -64,6 +64,7 @@ def test_magics_and_broken_cells_dont_stop_the_check():
     assert ids(["%run other\nrows = df.collect()"]) == ["NB003"]
     assert ids(["def broken(:\n", "rows = df.collect()"]) == ["NB003"]
     assert ids(["%%spark\nval x = df.collect()"]) == []
+    assert ids(["%%pyspark\nrows = df.collect()"]) == ["NB003"]  # a Python cell under its magic
 
 
 def test_settings_turn_rules_off_and_change_severity():
@@ -71,6 +72,7 @@ def test_settings_turn_rules_off_and_change_severity():
                     settings={"NB003": {"severity": "Error"}})
     assert {f["severity"] for f in out["findings"]} == {"Error"}
     assert np_.check(["rows = df.collect()"], settings={"NB003": {"enabled": False}})["findings"] == []
+    assert ids(["rows = df.collect()"], settings={"NB003": "off"}) == ["NB003"]  # not a dict: ignored
 
 
 def test_rules_list_and_bad_input():

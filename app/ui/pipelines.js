@@ -531,7 +531,7 @@ async function pipelineRunDialog(again = null) {
     // and files, which is asked again each run. Run again in this session keeps both.
     plSave(p.imp.name, plStorable(settings, p.imp.parameters));
     plStarts.set(out.run_id, settings);
-    plPulse.add(out.run_id);
+    plPulse = out.run_id;
     closeDialog();
     logActivity({ id: `pipeline:${out.run_id}`, status: "running", title: `${p.imp.name} · Pipeline run`, text: "Running on this PC" });
     openPipelineRun(out.run_id);
@@ -565,10 +565,11 @@ function openPipelineRun(runId) {
 
 const plFollowing = new Set();
 // Energy Flow (KF-MO-004, motion.js pipelineFlow): one per run, kept across the run view's redraws so
-// an activity that changes state settles or fails once, not on every poll. plPulse holds runs started
-// from the Run dialog whose view hasn't drawn yet: the first draw plays the Pulse.
+// an activity that changes state settles or fails once, not on every poll. plPulse is the run just started
+// from the Run dialog: the next draw of the run view plays its Pulse, and any draw clears it, so a run
+// whose view never drew (left at once, or its status couldn't be read) doesn't pulse later.
 let plFlow = null;
-const plPulse = new Set();
+let plPulse = null;
 function plRunFlow(id) {
   if (plFlow?.id !== id) plFlow = { id, flow: pipelineFlow(document.createDocumentFragment()) };
   return plFlow.flow;
@@ -657,7 +658,9 @@ function plDrawRun(help) {
       sel ? plActDetail(sel) : h("section", { class: "card pad pl-detail" }, h("p", { class: "muted-text" }, "Click an activity for its output and error.")))));
   // After the view is on the page: effects only play over elements that are there.
   flow.update(r);
-  if (plPulse.delete(r.run_id) && running) forgeEvent("pipeline.started", document.querySelector(".pl-actions .tool.danger"));
+  const pulse = plPulse === r.run_id;
+  plPulse = null;
+  if (pulse && running) forgeEvent("pipeline.started", document.querySelector(".pl-actions .tool.danger"));
 }
 
 function plActDetail(a) {

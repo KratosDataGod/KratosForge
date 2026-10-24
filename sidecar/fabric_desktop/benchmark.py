@@ -698,7 +698,7 @@ def _md(source: str) -> dict[str, Any]:
 
 
 _GENERATE = '''
-import glob, os, shutil, subprocess, sys, tempfile, time
+import atexit, glob, os, shutil, subprocess, sys, tempfile, time
 import duckdb
 import pyarrow as pa
 from fabric_desktop import lakehouse
@@ -724,6 +724,14 @@ def load_tpch(con):
 # parts are exactly the rows one dbgen call makes. Deleted after the tables are written.
 work = tempfile.mkdtemp(prefix="tpch_")
 con = duckdb.connect(os.path.join(work, "tpch.duckdb"))
+
+def clean_up():
+    """Close the database and delete the generated data: at scale 10, several GB of this PC's disk."""
+    try:
+        con.close()
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+atexit.register(clean_up)  # if the tables are never written, the session's end still deletes it
 loader = load_tpch(con)
 parts = max(1, min(os.cpu_count() or 1, 16, int(scale_factor * 8) or 1))
 started = time.perf_counter()
@@ -731,7 +739,15 @@ part_code = ("import duckdb, sys; con = duckdb.connect(sys.argv[1]); con.execute
              "con.execute(sys.argv[2]); con.execute(f'CALL dbgen(sf={sys.argv[3]}, children={sys.argv[4]}, step={sys.argv[5]})')")
 procs = [subprocess.Popen([sys.executable, "-c", part_code, os.path.join(work, f"part{i}.duckdb"), loader,
                            str(scale_factor), str(parts), str(i)]) for i in range(parts)]
-if any(p.wait() for p in procs):
+failed = False
+for p in procs:
+    if p.wait() and not failed:  # one part failed: stop the rest rather than wait for them
+        failed = True
+        for other in procs:
+            if other.poll() is None:
+                other.kill()
+if failed:
+    clean_up()
     raise RuntimeError("Generating the TPC-H data failed; the error is above.")
 for i in range(parts):
     con.execute(f"ATTACH '{os.path.join(work, f'part{i}.duckdb')}' AS part{i} (READ_ONLY)")
@@ -745,16 +761,17 @@ def table_name(schema, table):
 '''
 
 _WRITE = '''
-for table in TABLES:
-    started = time.perf_counter()
-    result = con.execute(f"SELECT * FROM {table}")
-    reader = (getattr(result, "to_arrow_reader", None) or result.fetch_record_batch)(batch_rows)  # newer, older DuckDB
-    # The whole table as one write: one commit, its batches never all in memory at once. On this PC
-    # it uploads in the background while the next table is read; the cell ends when all are in.
-    lakehouse.write_table(reader, table_name(schema, table))
-    print(f"{table_name(schema, table)} in {time.perf_counter() - started:.1f} s")
-con.close()
-shutil.rmtree(work, ignore_errors=True)  # the generated data: at scale 10, several GB of this PC's disk
+try:
+    for table in TABLES:
+        started = time.perf_counter()
+        result = con.execute(f"SELECT * FROM {table}")
+        reader = (getattr(result, "to_arrow_reader", None) or result.fetch_record_batch)(batch_rows)  # newer, older DuckDB
+        # The whole table as one write: one commit, its batches never all in memory at once. On this PC
+        # it uploads in the background while the next table is read; the cell ends when all are in.
+        lakehouse.write_table(reader, table_name(schema, table))
+        print(f"{table_name(schema, table)} in {time.perf_counter() - started:.1f} s")
+finally:
+    clean_up()  # written or not, the generated data is deleted
 '''
 
 _LOAD = '''

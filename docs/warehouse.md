@@ -25,6 +25,16 @@ The left side lists the warehouse's schemas, and in each its **Tables**, **Views
 
 A SQL analytics endpoint is found through its lakehouse, which Fabric gives the same name in the same workspace. If the lakehouse isn't in the list, the row has no **SQL query** button; use **Open in Fabric**.
 
+## Results, Messages and Chart
+
+Above the result, three views, on every SQL page (lakehouse, local project and warehouse). Messages and Chart are Preview: on a lakehouse or local project page they carry the Preview tag and go when Settings hides preview features; on the Warehouse page the whole page is already Preview.
+
+- **Results**: the rows a page at a time, with Copy and Export, as before.
+- **Messages**: what the last run did: its target, when it was queued, started and ended, its state, rows and columns, why it was refused or failed, and its time limit. Never the SQL.
+- **Chart**: a quick bar, stacked bar, line, area, pie, scatter or histogram of the result, with X axis, values, aggregate (sum, average, count, max, min) and series. It reads the rows already on this PC from the run's snapshot, up to the first 50,000, so nothing runs again and no capacity is used. It draws the first 60 X axis values (the note says how many more there are) and up to 7 series (the rest as Other).
+
+A query that returns several result sets isn't possible yet: the page sends one statement at a time. That comes with warehouse writes and scripts, which wait on their own decision.
+
 The page is tagged Preview until a query has been run on a tenant. Settings can hide preview features.
 
 How a run works underneath (states, limits, what is refused): [Running SQL queries](sql-execution.md#queries-on-a-warehouse-preview).
@@ -35,9 +45,9 @@ How a run works underneath (states, limits, what is refused): [Running SQL queri
 | --- | --- | --- |
 | WH-01 | The Warehouse page and its warehouse target | Done |
 | WH-02 | Object explorer: schemas, tables, views, procedures, functions, columns for completion | Done |
-| WH-03 | Script as SELECT, CREATE, ALTER, DROP | This release |
+| WH-03 | Script as SELECT, CREATE, ALTER, DROP | Done |
 | WH-04, WH-05 | SQL from a template, with fill-in parameters | Planned |
 | WH-06, WH-07 | Saved and shared queries, history and Fabric query insights | Planned |
-| WH-08 | Messages, several result sets and a quick chart | Planned |
+| WH-08 | Messages and a quick chart (several result sets come with scripts) | This release |
 
 Later stages (building and deploying objects from Git, loading and managing data, Snowflake) follow the same pattern: a mockup first, then one change per feature.

@@ -96,6 +96,37 @@ async function warehouseRunOk(ref) {
   return ok;
 }
 
+// WH-08: the Messages view: what the last run did, from its status. Never the SQL.
+function sqlMessages(ex, tab, target) {
+  if (!ex) return h("p", { class: "muted-text", style: "padding:12px 16px" }, tab.error ? tab.error.replace(/^Error: /, "") : "No query has run in this tab yet.");
+  const time = (s) => (s ? new Date(s * 1000).toLocaleTimeString() : "");
+  const lines = [`Target: ${target}`];
+  if (ex.created) lines.push(`Queued at ${time(ex.created)}`);
+  if (ex.started) lines.push(`Started at ${time(ex.started)}`);
+  if (ex.ended) lines.push(`Ended at ${time(ex.ended)} after ${ex.seconds} s`);
+  lines.push(`State: ${SQL_STATE[ex.state]?.[1] || ex.state}${ex.state === "completed" ? ` · ${(ex.rows || 0).toLocaleString()} row${ex.rows === 1 ? "" : "s"}` +
+    ` · ${(ex.columns?.length || 0).toLocaleString()} column${ex.columns?.length === 1 ? "" : "s"}` : ""}`);
+  if (ex.refused) lines.push(`Refused before it ran: statement ${ex.refused.statement} ${ex.refused.label}`);
+  if (ex.error) lines.push(`Message: ${ex.error}`);
+  if (ex.time_limit_minutes) lines.push(`Time limit: ${ex.time_limit_minutes} minutes`);
+  return h("pre", { class: "sql-messages" }, lines.join("\n"));
+}
+
+// The rows the Chart view draws: the run's snapshot, a page at a time, up to SQL_CHART_ROWS.
+async function sqlChartRows(execution) {
+  const rows = [];
+  let columns = [], total = 0;
+  for (let offset = 0; rows.length < SQL_CHART_ROWS;) {
+    const page = await rpc("sql_page", { execution, offset });
+    if (page.rerun_needed) throw new Error(page.message);
+    ({ columns, total } = page);
+    rows.push(...page.rows);
+    if (!page.has_next || !page.rows.length) break;
+    offset += page.rows.length;
+  }
+  return { columns, rows: rows.slice(0, SQL_CHART_ROWS), total };
+}
+
 // A managed run's state on the Results band: [pill class, label].
 const SQL_STATE = { queued: ["busy", "Queued"], running: ["busy", "Running"], cancelling: ["busy", "Stopping"],
   completed: ["ok", "Succeeded"], failed: ["bad", "Failed"], cancelled: ["", "Stopped"], timed_out: ["bad", "Timed out"] };
@@ -195,7 +226,7 @@ function renderQuery() {
     if (wh && !(await warehouseRunOk(ref))) return;
     if (wh && !sqlPage.catalog) loadCatalog();
     tab.running = true;
-    Object.assign(tab, { error: null, errorRetry: null, result: null, exec: null, ranNotice: "" });
+    Object.assign(tab, { error: null, errorRetry: null, result: null, exec: null, ranNotice: "", chart: null });
     drawResults();
     let status;
     try {
@@ -427,7 +458,17 @@ function renderQuery() {
       h("div", { class: "sql-export-menu", role: "menu" },
         h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("csv"); } }, "CSV"),
         h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("parquet"); } }, "Parquet")));
-    band.replaceChildren(...[h("span", { style: "font-weight:600" }, "Results"),
+    // Messages and Chart are Preview: on the Warehouse page the whole page already is, so they carry no
+    // tag of their own there; elsewhere they carry one and go when preview features are hidden.
+    const extra = wh || previewShown() ? ["messages", "chart"] : [];
+    const view = extra.includes(tab.view) ? tab.view : "results";
+    const viewTab = (id, label) => {
+      const b = h("button", { role: "tab", class: `sql-view${view === id ? " on" : ""}`, "aria-selected": String(view === id),
+        onclick: () => { tab.view = id; drawResults(); } }, label);
+      return id === "results" || wh ? b : preview("sqlResultViews", b);
+    };
+    band.replaceChildren(...[h("div", { class: "sql-views", role: "tablist", "aria-label": "Result views" },
+      viewTab("results", "Results"), extra.length ? viewTab("messages", "Messages") : null, extra.length ? viewTab("chart", "Chart") : null),
       h("span", { class: `sql-pill ${pill[0]}` }, pill[1]), h("span", { class: "muted-text sql-run-msg" }, tab.error ? "" : msg),
       ex && (st === "running" || st === "queued") ? btn("Stop", "stop", stop, "tool small", { title: "Stop this query. Only its own process ends." }) : null,
       tab.ranNotice && r && !busy ? h("span", { class: "sql-local-note", role: "note" }, tab.ranNotice) : null,
@@ -441,7 +482,13 @@ function renderQuery() {
         { disabled: !r.has_next || tab.paging, "aria-label": "Next page" }) : null,
       btn("Copy", null, copyRows, "tool small", { disabled: !r, title: "Copy the rows on this page" }),
       exportMenu].filter(Boolean));
-    if (tab.error && tab.errorRetry) {
+    if (view === "messages") {
+      grid.replaceChildren(sqlMessages(ex, tab, wh ? `${ref.name}${ref.workspace_name ? ` (${ref.workspace_name})` : ""} · in Fabric` : `${ref.name} · on this PC`));
+    } else if (view === "chart") {
+      grid.replaceChildren(r && r.columns.length && ex?.state === "completed"
+        ? sqlChartView(tab.chart ||= {}, () => sqlChartRows(ex.id))
+        : h("p", { class: "muted-text", style: "padding:12px 16px" }, "Run a query to chart its result. The chart reads the rows already on this PC; nothing runs again."));
+    } else if (tab.error && tab.errorRetry) {
       // The engine call itself failed (UX-011): a sentence, Retry and the raw text under Details.
       grid.replaceChildren(h("div", { class: "output error" }, errorPanel(tab.error, { retry: tab.errorRetry })));
     } else if (tab.error) {

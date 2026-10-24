@@ -569,6 +569,12 @@ h2.flush { margin: 0; }
 .wh-note { margin: 8px; font-size: 12px; }
 .wh-explorer .tool { margin: 0 8px 8px; align-self: flex-start; }
 .wh-indent { flex: none; width: 58px; }
+/* WH-08: Results, Messages and Chart on the SQL page */
+.sql-views { display: flex; gap: 2px; }
+.sql-view { border: 0; border-bottom: 2px solid transparent; background: none; padding: 4px 8px; color: var(--muted); font-weight: 600; }
+.sql-view.on { border-bottom-color: var(--accent); color: var(--text); }
+.sql-messages { margin: 0; padding: 12px 16px; font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; }
+.sql-chart { padding: 12px 16px; }
 .sql-table-row .tree-row.wh-more { flex: none; width: 28px; justify-content: center; padding: 0; opacity: 0; }
 .wh-object:hover .wh-more, .wh-more:focus-visible, .wh-more[aria-expanded="true"] { opacity: 1; }
 .sql-lint-msg { display: flex; flex-direction: column; gap: 2px; max-width: 420px; font-family: var(--font, "Segoe UI", system-ui, sans-serif); font-size: 12.5px; }

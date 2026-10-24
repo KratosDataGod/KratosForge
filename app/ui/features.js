@@ -98,6 +98,7 @@ const PREVIEW_FEATURES = {
   requestsCoreFour: "Workspace, domain and exception requests",
   trustBadges: "Endorsement and business terms",
   warehouse: "Warehouse queries",
+  sqlResultViews: "Messages and Chart on the SQL page",
 };
 
 function previewShown() {

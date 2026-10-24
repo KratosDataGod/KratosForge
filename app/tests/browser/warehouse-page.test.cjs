@@ -95,6 +95,50 @@ test("a second run on the same warehouse doesn't ask again", { skip }, async () 
   assert.deepStrictEqual(app.errors, []);
 });
 
+test("Messages says what the last run did, without the SQL", { skip }, async () => {
+  await page().getByRole("tab", { name: "Messages" }).click();
+  const text = await page().locator(".sql-messages").textContent();
+  assert.match(text, /Target: WH_Gold \(Sales Dev\) · in Fabric/);
+  assert.match(text, /State: Succeeded · 2 rows · 2 columns/);
+  assert.doesNotMatch(text, /SELECT/);
+});
+
+test("Chart groups the result's rows and draws them without running the query again", { skip }, async () => {
+  const before = starts().length;
+  await page().getByRole("tab", { name: "Chart" }).click();
+  await page().waitForSelector(".sql-chart svg.chart");
+  assert.strictEqual(await page().locator(".sql-chart svg.chart rect").count(), 2, "one bar per customer");
+  assert.match(await page().locator(".sql-chart").textContent(), /From all 2 rows\./);
+  assert.strictEqual(await page().locator(".sql-chart select[aria-label='Values']").inputValue(), "Revenue");
+  await page().selectOption(".sql-chart select[aria-label='Chart']", "pie");
+  assert.strictEqual(await page().locator(".sql-chart svg.chart path").count(), 2);
+  assert.strictEqual(starts().length, before);
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "wh-08-chart.png") });
+  await page().getByRole("tab", { name: "Results" }).click();
+});
+
+test("sqlChartData sums by category and series, keeps the query's order and counts rows", { skip }, async () => {
+  const d = await page().evaluate(() => sqlChartData([{ name: "region" }, { name: "year" }, { name: "amt" }],
+    [["West", 2025, 10], ["East", 2025, 5], ["West", 2026, 7], ["West", 2025, 1]], { kind: "bar", x: "region", y: "amt", agg: "sum", series: "year" }));
+  assert.deepStrictEqual(d.categories, ["West", "East"]);
+  assert.deepStrictEqual(d.series, [{ name: "2025", values: [11, 5] }, { name: "2026", values: [7, null] }]);
+  const c = await page().evaluate(() => sqlChartData([{ name: "region" }], [["W"], ["W"], ["E"]], { kind: "bar", x: "region", y: null, agg: "count", series: null }));
+  assert.deepStrictEqual(c.series, [{ name: null, values: [2, 1] }]);
+});
+
+test("sqlChartData charts 50,000 distinct X values quickly and counts the ones left off", { skip }, async () => {
+  const d = await page().evaluate(() => {
+    const rows = Array.from({ length: 50000 }, (_, i) => [`k${i}`, i % 3, i]);
+    const t = performance.now();
+    const bar = sqlChartData([{ name: "k" }, { name: "s" }, { name: "v" }], rows, { kind: "bar", x: "k", y: "v", agg: "sum", series: "s" });
+    const hist = sqlChartData([{ name: "k" }, { name: "s" }, { name: "v" }], rows, { kind: "histogram", x: null, y: "v", agg: "sum", series: null });
+    return { ms: performance.now() - t, cats: bar.categories.length, first: bar.categories[0], truncated: bar.truncated, more: bar.more,
+      series: bar.series.length, min: hist.min, max: hist.max };
+  });
+  assert.ok(d.ms < 500, `took ${d.ms} ms`);
+  assert.deepStrictEqual({ ...d, ms: 0 }, { ms: 0, cats: 60, first: "k0", truncated: true, more: 49940, series: 3, min: 0, max: 49999 });
+});
+
 test("after the first confirmed run the explorer lists the catalog by schema and kind", { skip }, async () => {
   const sys = starts().filter((p) => p.query.includes("sys."));
   assert.strictEqual(sys.length, 2, "objects, then columns");

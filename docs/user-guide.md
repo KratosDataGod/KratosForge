@@ -245,7 +245,7 @@ Opening a lakehouse shows its **Tables** (by schema) and **Files** (folders and 
 
 ### SQL queries
 
-**New SQL query** on a lakehouse, or **SQL query** on a lakehouse row in OneLake or Workspaces, opens a query tab for it. Queries run on this PC with DuckDB, so no Fabric job starts, though reading OneLake still uses some capacity. Dialects, the compatibility check, the editor and formatting are in the [notebook and SQL guide](notebooks.md#sql-query).
+**New SQL query** on a lakehouse, or **SQL query** on a lakehouse row in OneLake or Workspaces, opens a query tab for it. Queries run on this PC with DuckDB, so no Fabric job starts, though reading OneLake still uses some capacity. Dialects, the compatibility check, the editor and formatting are in the [notebook and SQL guide](notebooks.md#sql-query). Above the result, **Messages** (Preview) says what the last run did and **Chart** (Preview) draws a quick chart of the rows already on this PC, without running the query again ([more](warehouse.md#results-messages-and-chart)).
 
 ### Warehouse queries (Preview)
 

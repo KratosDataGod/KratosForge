@@ -64,6 +64,22 @@ def test_left_over_spill_files_go_after_a_day_whatever_the_period(tmp_path):
     assert retention.sweep(tmp_path, 30, now=NOW)["removed"] == ["staging/_writes/write-c.arrow"]
 
 
+def test_a_file_in_use_doesnt_stop_the_sweep(tmp_path, monkeypatch):
+    """Windows can't delete a spill still memory-mapped by a long upload: the rest is still swept."""
+    busy = touch(tmp_path / "staging" / "_writes" / "write-a.arrow", NOW - 25 * 3600)
+    old = touch(tmp_path / "files" / "a.csv", OLD)
+    real = type(busy).unlink
+
+    def unlink(self, missing_ok=False):
+        if self.name == "write-a.arrow":
+            raise PermissionError("in use")
+        return real(self, missing_ok=missing_ok)
+    monkeypatch.setattr(type(busy), "unlink", unlink)
+    retention.sweep(tmp_path, 30, now=NOW)
+    retention.sweep(tmp_path, 0, now=NOW)
+    assert busy.exists() and not old.exists()
+
+
 def test_policy_sets_the_period(monkeypatch, tmp_path):
     monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "la"))

@@ -12,11 +12,14 @@ is never left half deleted. Notebooks, settings, history and receipts are never 
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import time
 from pathlib import Path
 from typing import Any
+
+_log = logging.getLogger(__name__)
 
 CACHE_FOLDERS = ("files", "staging", "onelake-cache")
 DAY = 86400
@@ -53,7 +56,10 @@ def sweep(root: Path, days: int, dry_run: bool = False, now: float | None = None
         total = sum(_size(p) for p in old)
         if not dry_run:
             for p in old:
-                p.unlink(missing_ok=True)
+                try:
+                    p.unlink(missing_ok=True)
+                except OSError as exc:  # still open: a very long upload (Windows) keeps it until the next start
+                    _log.info("Couldn't remove a left-over spill file %s: %s", p.name, exc)
         return {"days": days, "removed": [p.relative_to(root).as_posix() for p in old], "bytes": total, "dry_run": dry_run}
     cutoff = now - days * DAY
     for name in CACHE_FOLDERS:
@@ -71,7 +77,13 @@ def sweep(root: Path, days: int, dry_run: bool = False, now: float | None = None
     total = sum(_size(p) for p in old)
     if not dry_run:
         for p in old:
-            shutil.rmtree(p, ignore_errors=True) if p.is_dir() else p.unlink(missing_ok=True)
+            if p.is_dir():
+                shutil.rmtree(p, ignore_errors=True)
+                continue
+            try:
+                p.unlink(missing_ok=True)
+            except OSError as exc:  # in use (a spill still uploading on Windows): tried again next start
+                _log.info("Couldn't remove %s: %s", p.name, exc)
         for name in CACHE_FOLDERS:  # folders the sweep emptied, deepest first
             base = root / name
             if base.is_dir():

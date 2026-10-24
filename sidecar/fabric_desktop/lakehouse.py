@@ -455,7 +455,7 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
         schema = arrow.schema
     else:
         schema = streamed[0]
-    stage_locally(schema.empty_table(), lh.work_dir / "staging" / lh.lakehouse_id / ref.schema / ref.table)
+    stage_locally(schema.empty_table(), lh.work_dir / "staging", lh.lakehouse_id, ref.schema, ref.table)
     if (p := _proof()) is not None:
         if arrow is None:
             arrow = pa.concat_tables(list(streamed[1]), promote_options="none") if streamed else schema.empty_table()

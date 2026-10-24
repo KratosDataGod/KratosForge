@@ -2,6 +2,8 @@
 // values and the Databricks widgets the notebook creates, and keeps values typed here with the
 // notebook (notebook_inputs_set). The code never changes: when a cell runs on this PC, runCell adds
 // the lines the engine gives for that cell (nbInputSuffix), as Fabric does with run parameters.
+// Run in Fabric and side by side read the kept values in the engine: Fabric gets them as the run's
+// parameters, and side by side's run on this PC adds the same lines.
 
 state.nbInputs = null;           // notebook_inputs result for the open notebook
 state.nbInputsCollapsed = false;
@@ -111,7 +113,7 @@ function renderInputs(nb) {
   const head = h("div", { class: "row nb-inputs-head" },
     previewMarked("inputs", h("b", {}, got.parameters.length && got.widgets.length ? "Parameters and widgets"
       : got.parameters.length ? "Parameters" : "Widgets")),
-    h("span", { class: "muted-text grow" }, `${where}. Runs on this PC use these values; the notebook's code doesn't change.`),
+    h("span", { class: "muted-text grow" }, `${where}. Runs on this PC, in Fabric and side by side use these values; the notebook's code doesn't change.`),
     btn("Reset to code", "restart", () => queueInputs(nb, () => ({ parameters: {}, widgets: {} })), "tool small",
       { disabled: !changed.length && !got.parameters.concat(got.widgets).some((r) => r.error) }),
     h("button", { class: "tool small", "aria-expanded": String(!state.nbInputsCollapsed),

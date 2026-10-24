@@ -38,6 +38,7 @@ async function runSideBySide() {
   if (!(await ensureSignedIn())) return;
   const confirm = await confirmSbsWrites(nb);
   if (!confirm) return;
+  await nbInputsSaved();  // nbinputs.js: both runs get the values the Parameters bar shows
   const run = await attempt(() => rpc("side_by_side_start", { ...notebookPayload(), ...confirm }), "Could not start the side-by-side run");
   if (run) depsRestarted();  // it restarts the kernel (deps.js)
   if (!run) return;

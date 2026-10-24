@@ -4110,7 +4110,7 @@ test("parameters and widgets bar sits above the cells and adds its values to the
   assert.match(nb, /code: cell\.source \+ nbInputSuffix\(cell\)/);
   const bar = fs.readFileSync(path.join(ui, "nbinputs.js"), "utf8");
   assert.match(bar, /previewMarked\("inputs"/);
-  assert.match(bar, /Runs on this PC use these values; the notebook's code doesn't change\./);
+  assert.match(bar, /Runs on this PC, in Fabric and side by side use these values; the notebook's code doesn't change\./);
   assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /inputs: "Parameters and widgets bar"/);
   const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
   assert.ok(html.indexOf('<script src="nbinputs.js"></script>') > html.indexOf('<script src="notebook.js"></script>'));
@@ -4968,4 +4968,14 @@ test("side by side times roll over and split This PC's time into processing and 
   assert.strictEqual(lines[0].text, "Processing on this PC 2 min 10 sWaiting for OneLake uploads 10 min 50 s");
   assert.strictEqual(lines[1].text, "Uploaded 3.3 GB to OneLake in 11 min 40 s · about 4.7 MB/s · 1 unchanged, skipped");
   assert.strictEqual(ctx.sbsLocalSplit({ seconds: 5 })[0].text, "No wait to start");  // a run from before the split
+});
+
+// Run in Fabric and side by side wait for the bar's last save, so they get the values it shows.
+test("Run in Fabric and side by side wait for the Parameters bar's values", () => {
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"),
+    /await nbInputsSaved\(\);[^\n]*\n[^\n]*\n\s*const run = await attempt\(\(\) => rpc\("run_notebook_in_fabric"/);
+  assert.match(fs.readFileSync(path.join(ui, "sidebyside.js"), "utf8"),
+    /await nbInputsSaved\(\);[^\n]*\n\s*const run = await attempt\(\(\) => rpc\("side_by_side_start"/);
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /\*\*Run in Fabric\*\* and \*\*Side by side\*\* use the bar's values too/);
 });

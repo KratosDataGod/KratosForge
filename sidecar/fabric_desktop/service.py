@@ -940,6 +940,20 @@ class Service(TrustMixin, AccessCacheMixin, NotebookResourcesMixin, PipelineMixi
         except (OSError, ValueError):  # not saved yet, or a name no file can have
             return None
 
+    def _bar_parameters(self, name: str, cells: list[dict[str, Any]]) -> dict[str, Any]:
+        """The Parameters bar's values, kept with the notebook, as a Fabric run's parameters
+        (notebook_inputs.fabric_parameters); ValueError for a value the bar shows in red."""
+        from .notebook_inputs import fabric_parameters
+        return fabric_parameters(_with_ids(cells), self._saved_inputs(name))
+
+    def _bar_suffixes(self, name: str, cells: list[dict[str, Any]]) -> list[str]:
+        """For a run on this PC the engine starts itself (side by side): the code to add after each
+        cell, by position, as runCell adds it (nbinputs.js)."""
+        from .notebook_inputs import inputs
+        ided = _with_ids(cells)
+        suffix = inputs(ided, self._saved_inputs(name))["suffix"]
+        return [suffix.get(c["cell_id"], "") for c in ided]
+
     def notebook_inputs_set(self, name: str, cells: list[dict[str, Any]], values: dict[str, Any]) -> dict[str, Any]:
         """Keeps the bar's values with the notebook (its code doesn't change); empty values forget them."""
         from .notebook_inputs import check_values, inputs
@@ -1051,3 +1065,7 @@ def _apply_limits(kernel: ProcessKernel) -> None:
     gb = float(app_settings.value("kernel_memory_limit_gb") or 0)
     kernel.time_limit = minutes * 60 or None
     kernel.memory_limit = int(gb * 1024 ** 3) or None
+
+
+def _with_ids(cells: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [c if c.get("cell_id") else {**c, "cell_id": f"cell-{n}"} for n, c in enumerate(cells)]

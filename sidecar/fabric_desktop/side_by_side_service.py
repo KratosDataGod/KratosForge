@@ -177,6 +177,9 @@ class SideBySideMixin:
         if sorted(confirm_writes or []) != writes["tables"] or (writes["unknown"] and not confirm_unknown):
             raise PermissionError("Side by side writes this notebook's tables for real, on this PC and then in Fabric. "
                                   "Confirm the tables it writes first, or use Prove, which keeps both runs' writes in a sandbox.")
+        # Both runs use the Parameters bar's values: Fabric as the run's parameters, this PC as the
+        # lines runCell adds after the parameter cell. A value the bar shows in red stops it here.
+        parameters = self._bar_parameters(name, cells)  # type: ignore[attr-defined]
         saved = self.notebooks.save(name, cells, lakehouse_ref, compute, workspace)  # type: ignore[attr-defined]
         # The code revision a receipt would name, so a comparison counts only for the code it ran.
         revision = receipts.code_revision([dict(c) | {"cell_id": cid} for c, cid in zip(cells, saved["cell_ids"], strict=True)])
@@ -197,7 +200,8 @@ class SideBySideMixin:
             "code_revision": revision["revision"],
             "local": {"status": "pending", "seconds": None, "cell": None, "cells_total": len(code), "cells": {}},
             "fabric": {"status": "pending", "engine": "python" if uses_local_module(cells) and not uses_spark(cells) else "spark"},
-            "tables": [], "verdict": None, "speed": {}, "_cancel": False}
+            "tables": [], "verdict": None, "speed": {}, "_cancel": False,
+            "_parameters": parameters, "_suffixes": self._bar_suffixes(name, cells)}  # type: ignore[attr-defined]
         runs[record["id"]] = record
         threading.Thread(target=self._sbs_run, args=(record, cells, code, lakehouse_ref, compute, ws), daemon=True,
                          name=f"side-by-side-{record['id']}").start()
@@ -293,6 +297,8 @@ class SideBySideMixin:
         kernel.notebook_name = record["name"]
         kernel.resources_dir = self._resources_dir(record["name"])  # type: ignore[attr-defined]
         kernel.onelake_writes = self._onelake_writes(record["name"])  # type: ignore[attr-defined]
+        kernel.widget_values = dict((self._saved_inputs(record["name"]) or {}).get("widgets") or {})  # type: ignore[attr-defined]
+        suffixes = record.get("_suffixes") or []
         started = time.monotonic()
         status = "ok"
         for n, i in enumerate(code, 1):
@@ -300,7 +306,8 @@ class SideBySideMixin:
                 status = "cancelled"
                 break
             local["cell"] = n
-            kernel.start(cells[i]["source"])
+            extra = suffixes[i] if i < len(suffixes) else ""
+            kernel.start(cells[i]["source"] + (f"\n{extra}" if extra else ""))
             snap = kernel.poll(-1, 0.0)
             outputs = snap.get("outputs") or []
             while snap["status"] == "running":
@@ -333,7 +340,9 @@ class SideBySideMixin:
         started = time.monotonic()
         item = self._publish(record["name"], cells, lakehouse_ref, compute, ws,  # type: ignore[attr-defined]
                              fabric_cells=[first] + cells + [last])
-        job_id = self.fabric_jobs.run_item_job(item["workspace_id"], item["id"], NOTEBOOK_JOB)  # type: ignore[attr-defined]
+        parameters = record.get("_parameters")
+        job_id = self.fabric_jobs.run_item_job(item["workspace_id"], item["id"], NOTEBOOK_JOB,  # type: ignore[attr-defined]
+                                               {"parameters": parameters} if parameters else None)
         f.update(status="running", job_id=job_id, item_id=item["id"], workspace_id=item["workspace_id"],
                  url=item["url"], submitted_at=_now())
         self._log_fabric_run({"kind": "Notebook run", "name": record["name"], "workspace_id": item["workspace_id"],  # type: ignore[attr-defined]

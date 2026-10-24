@@ -1,4 +1,4 @@
-{"meta": {"rule_version": "2026.10.2", "about": "SQL-002 compatibility fixtures. Each line: sql, target, the expected outcome (classification), the exact set of rules expected, and where the first finding is. kind says what the case tests; false_positive cases guard against findings that would be wrong."}}
+{"meta": {"rule_version": "2026.10.3", "about": "SQL-002 compatibility fixtures. Each line: sql, target, the expected outcome (classification), the exact set of rules expected, and where the first finding is. kind says what the case tests; false_positive cases guard against findings that would be wrong."}}
 {"id": "sp-select-basic", "target": "spark", "kind": "supported", "sql": "SELECT Country, SUM(Amount) AS total FROM sales GROUP BY Country ORDER BY total DESC LIMIT 10", "expect": "no_known_problems", "rules": []}
 {"id": "sp-cte", "target": "spark", "kind": "supported", "sql": "WITH s AS (SELECT * FROM sales WHERE Year = 2024)\nSELECT Country, COUNT(*) FROM s GROUP BY Country", "expect": "no_known_problems", "rules": []}
 {"id": "sp-window", "target": "spark", "kind": "supported", "sql": "SELECT id, ROW_NUMBER() OVER (PARTITION BY Country ORDER BY Amount DESC) AS rn FROM sales", "expect": "no_known_problems", "rules": []}
@@ -196,3 +196,11 @@
 {"id": "wh-string-column", "target": "warehouse", "kind": "unsupported", "sql": "CREATE TABLE t (a STRING, b INT)", "expect": "known_problems", "rules": ["SYN-009"], "at": {"rule": "SYN-009", "line": 1, "col": 19}}
 {"id": "fp-alias-named-string", "target": "warehouse", "kind": "false_positive", "sql": "SELECT a AS string, b AS boolean FROM t", "expect": "no_known_problems", "rules": []}
 {"id": "sp-cast-as-string", "target": "spark", "kind": "supported", "sql": "SELECT CAST(42 AS STRING) AS x", "expect": "no_known_problems", "rules": []}
+{"id": "wh-grant-on-schema", "target": "warehouse", "kind": "false_positive", "sql": "GRANT SELECT ON SCHEMA::[sales] TO [someone@contoso.com]", "expect": "no_known_problems", "rules": []}
+{"id": "wh-update-statistics", "target": "warehouse", "kind": "false_positive", "sql": "UPDATE STATISTICS [dbo].[FactSales]", "expect": "no_known_problems", "rules": []}
+{"id": "wh-deny-on-object", "target": "warehouse", "kind": "false_positive", "sql": "DENY SELECT ON OBJECT::[dbo].[Salary] TO [someone@contoso.com]", "expect": "no_known_problems", "rules": []}
+{"id": "wh-update-table-named-statistics", "target": "warehouse", "kind": "unsupported", "sql": "UPDATE statistics SET a = 1 FROM dbo.x", "expect": "review", "rules": ["DES-003"]}
+{"id": "wh-dcolon-after-type", "target": "warehouse", "kind": "unsupported", "sql": "SELECT type::int FROM t", "expect": "known_problems", "rules": ["SYN-009"]}
+{"id": "wh-dcolon-after-user", "target": "warehouse", "kind": "unsupported", "sql": "SELECT user::varchar FROM t", "expect": "known_problems", "rules": ["SYN-009"]}
+{"id": "wh-dcolon-after-object", "target": "warehouse", "kind": "unsupported", "sql": "SELECT object::int FROM t", "expect": "known_problems", "rules": ["SYN-009"]}
+{"id": "wh-dcolon-after-schema", "target": "warehouse", "kind": "unsupported", "sql": "SELECT schema::int FROM t", "expect": "known_problems", "rules": ["SYN-009"]}

@@ -25,6 +25,29 @@ The left side lists the warehouse's schemas, and in each its **Tables**, **Views
 
 A SQL analytics endpoint is found through its lakehouse, which Fabric gives the same name in the same workspace. If the lakehouse isn't in the list, the row has no **SQL query** button; use **Open in Fabric**.
 
+## SQL from a template
+
+**SQL from a template** on the Warehouse page opens a gallery of T-SQL for Fabric Warehouse, in the groups Fabric's own *New SQL query from template* uses plus accelerators:
+
+| Group | Templates |
+| --- | --- |
+| Tables | Create a table, Table from a query (CTAS), Add a column, Primary key (not enforced) |
+| Load data | Load files with COPY INTO, Append from a lakehouse table, Truncate and reload |
+| Views and functions | Create or alter a view, Inline table-valued function |
+| Stored procedures | Stored procedure with parameters |
+| Time travel and clone | Query a table as it was, Clone a table |
+| Security | Grant read on a schema, Column-level security, Row-level security, Dynamic data masking |
+| Statistics | Create and update statistics |
+| Accelerators | SCD type 2 merge procedure, Incremental load with a watermark, Dimension with surrogate keys, Data quality checks |
+
+Pick a template, fill in its fields (schema, table, columns and the like) and watch the script change beside them. **Open in a new tab** puts the script in a new query tab. Opening a template runs nothing.
+
+- **Fields are checked for what they hold.** A name can't contain `]` or a line break and is written inside `[ ]`; a column list becomes `[a], [b]`; text is written inside quotes with `'` doubled; numbers, types (`varchar(50)`, `decimal(18,2)`) and dates (`yyyy-mm-ddThh:mm:ss`) must look like one. Until every field is fine, **Open in a new tab** stays off, so a half-filled script never reaches the editor.
+- **Search** finds a template by its title, description or group.
+- **On a SQL analytics endpoint**, which only reads, the gallery offers only the templates that work there: views, functions, procedures, security and data quality checks.
+- **Only a query that reads runs on this page.** Most templates create or change objects or data, which the page refuses until warehouse writes ship (a later stage, waiting on its own decision). For now, copy those scripts into Fabric's SQL editor.
+- Every template is checked against the Fabric Warehouse rules of the [compatibility check](sql-compatibility.md) by the app's tests. Two say *Review* (Truncate and reload, Dynamic data masking) and two *Not verified* (time travel's `OPTION (FOR TIMESTAMP AS OF ...)` and `CREATE SECURITY POLICY`, which the checker can't read).
+
 ## Results, Messages and Chart
 
 Above the result, three views, on every SQL page (lakehouse, local project and warehouse). Messages and Chart are Preview: on a lakehouse or local project page they carry the Preview tag and go when Settings hides preview features; on the Warehouse page the whole page is already Preview.
@@ -46,8 +69,8 @@ How a run works underneath (states, limits, what is refused): [Running SQL queri
 | WH-01 | The Warehouse page and its warehouse target | Done |
 | WH-02 | Object explorer: schemas, tables, views, procedures, functions, columns for completion | Done |
 | WH-03 | Script as SELECT, CREATE, ALTER, DROP | Done |
-| WH-04, WH-05 | SQL from a template, with fill-in parameters | Planned |
+| WH-04, WH-05 | SQL from a template, with fill-in parameters | This release |
 | WH-06, WH-07 | Saved and shared queries, history and Fabric query insights | Planned |
-| WH-08 | Messages and a quick chart (several result sets come with scripts) | This release |
+| WH-08 | Messages and a quick chart (several result sets come with scripts) | Done |
 
 Later stages (building and deploying objects from Git, loading and managing data, Snowflake) follow the same pattern: a mockup first, then one change per feature.

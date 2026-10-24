@@ -439,3 +439,32 @@ def test_rpc_methods_are_allowed_and_reads_are_not_audited():
         assert not audit.audited(m)
     for m in new - {"governance_templates", "governance_last_check", "governance_product_checklist"}:
         assert audit.audited(m)
+
+
+def test_every_item_must_be_endorsed():
+    s = on("contract.endorsed")
+    mixed = product(endorsement=[{"item_name": "LH_Gold", "endorsement": "Certified"},
+                                 {"item_name": "LH_Silver", "endorsement": "None"}])
+    f = gc.contract_check(mixed, s, now=NOW)[0]
+    assert f["rule_id"] == "contract.endorsed" and f["description"] == "1 of 2 items aren't endorsed in Fabric: LH_Silver."
+    both = product(endorsement=[{"item_name": "A", "endorsement": "Certified"}, {"item_name": "B", "endorsement": "Promoted"}])
+    assert gc.contract_check(both, s, now=NOW) == []
+
+
+def test_a_setting_a_rule_cant_read_is_unknown_and_the_rest_still_run():
+    bad = gc.settings_for(gc.find_rule("contract.row_count")[1], "medium", {"min_rows": "ten"})
+    run = gc.run_rule("contract.row_count", [product(), product(id="crm/other")], bad)
+    assert run["checked"] == 2 and run["findings"] == []
+    assert len(run["unknown"]) == 2 and all("couldn't run" in f["description"] for f in run["unknown"])
+    assert gc.run_rule("naming.table_name", [entity("gold.dim_customer")],
+                       on("naming.table_name")["naming.table_name"])["passed"] == 1
+
+
+def test_a_pattern_that_can_backtrack_for_minutes_isnt_run():
+    import time
+    start = time.monotonic()
+    f = gc.naming_check(entity("gold." + "a" * 40 + "!"), on("naming.table_name", pattern="(a+)+$"))[0]
+    assert time.monotonic() - start < 1
+    assert f["outcome"] == "unknown" and "Simplify the pattern" in f["description"]
+    long = gc.naming_check(entity("gold." + "x" * 300), on("naming.table_name"))[0]
+    assert "too long to check" in long["description"]

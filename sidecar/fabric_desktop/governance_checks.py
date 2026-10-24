@@ -140,7 +140,12 @@ def run_rule(rule_id: str, items: list[dict[str, Any]], settings: dict[str, Any]
     for item in items:
         if item.get("kind") != rule["kind"] and rule["kind"] != "*":
             continue
-        result = checker.check(item, {rule_id: settings})
+        try:
+            result = checker.check(item, {rule_id: settings})
+        except Exception as exc:  # silent-ok: one rule's bad setting or input is reported as unknown, never aborts Check now
+            result = [finding(rule, settings, str(item.get("kind") or ""), str(item.get("id") or ""),
+                              f"This rule couldn't run ({type(exc).__name__}: {exc}). Check the policy's settings.",
+                              outcome="unknown")]
         if result is None:
             continue
         checked += 1
@@ -200,6 +205,14 @@ NAMING_RULES = [
 ]
 
 
+# A naming pattern runs on this PC for every table: refuse ones that can backtrack for minutes.
+MAX_PATTERN = 300
+MAX_NAME = 256
+# A group that is only one repeated atom, itself repeated: (a+)+, ([a-z]*)*, (\\w{2,})+. A separator inside
+# the group, as in (_[a-z0-9]+)*, keeps it linear, so that stays allowed.
+_NESTED_QUANTIFIER = re.compile(r"\(\??:?(?:\\.|\[(?:[^\]\\]|\\.)*\]|[^()\[\]\\|])(?:[+*]|\{\d*,\d*\})\??\)\s*(?:[+*]|\{\d*,)")
+
+
 def naming_check(item: dict[str, Any], settings: dict[str, Any]) -> list[dict[str, Any]] | None:
     rule = NAMING_RULES[0]
     s = _on(settings, rule["id"])
@@ -209,14 +222,22 @@ def naming_check(item: dict[str, Any], settings: dict[str, Any]) -> list[dict[st
     layers = [str(x).lower() for x in (t.get("layers") or [])]
     if layers and str(item.get("layer") or "").lower() not in layers:
         return None
+    text = str(t.get("pattern") or "")
+    if len(text) > MAX_PATTERN or _NESTED_QUANTIFIER.search(text):
+        return [finding(rule, s, "entity", item["id"], "The policy's pattern is too long or repeats a repeated group "
+                        "(like (a+)+), which can take minutes to match, so names weren't checked. Simplify the pattern.",
+                        outcome="unknown")]
     try:
-        pattern = re.compile(str(t.get("pattern") or ""))
+        pattern = re.compile(text)
     except re.error as exc:
         return [finding(rule, s, "entity", item["id"], f"The policy's pattern isn't a valid regular expression ({exc}), "
                         "so names can't be checked.", outcome="unknown")]
     table = str(item.get("table") or "")
     out = []
-    if not pattern.fullmatch(table):
+    if len(table) > MAX_NAME:
+        out.append(finding(rule, s, "entity", item["id"], f"{table[:40]}... is {len(table)} characters, too long to check.",
+                           fix=_open_entity(item)))
+    elif not pattern.fullmatch(table):
         out.append(finding(rule, s, "entity", item["id"], f"{table} doesn't match the naming pattern {pattern.pattern}.",
                            fix=_open_entity(item)))
     limit = t.get("max_length")
@@ -380,8 +401,13 @@ def contract_check(item: dict[str, Any], settings: dict[str, Any],
                                    outcome="unknown"))
             elif any(x.get("endorsement") is None for x in seen):
                 out.append(finding(rule, s, "product", pid, "Unknown: needs a tenant scan.", outcome="unknown"))
-            elif not any(x.get("endorsement") in (t.get("accepted") or []) for x in seen):
-                out.append(finding(rule, s, "product", pid, "Not endorsed in Fabric."))
+            else:
+                bare = [x for x in seen if x.get("endorsement") not in (t.get("accepted") or [])]
+                if bare:
+                    names = ", ".join(str(x.get("item_name") or x.get("item_id") or "?") for x in bare)
+                    out.append(finding(rule, s, "product", pid,
+                                       f"Not endorsed in Fabric: {names}." if len(bare) == len(seen)
+                                       else f"{len(bare)} of {len(seen)} items aren't endorsed in Fabric: {names}."))
     return out if applied else None
 
 

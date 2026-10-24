@@ -130,7 +130,7 @@ Your organization's templates are kept in `catalog.policy_template` in the platf
 
 Each finding names its policy and what's wrong. Where a safe fix exists in the app it's offered: **Label it** sets a column's classification in the platform's catalog, after asking and saying what changes. Otherwise the finding links to where to fix it (**Open the entity**, **Edit the product**, **Add a term**). Renaming an entity isn't built, so a naming finding links to the entity instead. A passing policy shows a ✓ and how many objects it checked.
 
-**Never guessed.** When something a rule needs isn't recorded anywhere (a product that hasn't loaded yet, terms on a product not yet registered in the catalog, endorsement no tenant scan has read), the rule says **unknown** with the reason, never a pass.
+**Never guessed.** When something a rule needs isn't recorded anywhere (a product that hasn't loaded yet, terms on a product not yet registered in the catalog, endorsement no tenant scan has read), the rule says **unknown** with the reason, never a pass. So does a rule whose settings it can't read (a `min_rows` of "ten", say): the other rules still run. A naming pattern that repeats a repeated group, like `(a+)+`, could take minutes to match, so it isn't run and says to simplify it; names over 256 characters aren't matched either.
 
 **What it reads and writes.** It reads the project's files on this PC, the platform's catalog (policies, exceptions, catalog text, product terms and endorsement) and the run logs Monitor already reads (Test and Prod only when you're signed in). It writes only its last result, to `governance_checks.json` in the app's data folder, so "Checked ... ago" works. It runs no Fabric job.
 
@@ -146,6 +146,8 @@ Each finding names its policy and what's wrong. Where a safe fix exists in the a
 | `contract.freshness`, `contract.row_count` | The run logs: the last successful run of each of the product's port entities, in the highest environment where all of them ran. Row count is the rows that run recorded writing |
 | `contract.terms_linked`, `contract.endorsed` | `catalog.product_term` and `catalog.endorsement` ([endorsement and business terms](data-mesh.md#endorsement-and-business-terms)) |
 | `contract.description` | The product's description |
+
+`contract.endorsed` passes only when every one of the product's items is endorsed with an accepted value; a finding names the ones that aren't.
 
 **Checkers that run in Fabric** are never started by Check now. Their last stored findings show with their date, or **not run**.
 

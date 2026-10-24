@@ -767,7 +767,7 @@ async function platformDomainsTab(body) {
   if (!domains || !stillHere("domains")) return;
   const rerender = () => platformDomainsTab(body);
   const o = { domains };
-  body.replaceChildren(h("div", { class: "card pad" },
+  body.replaceChildren(withHowItWorks(h("div", { class: "card pad" },
     h("div", { class: "row" }, h("b", { class: "grow" }, "Your organization's domains"),
       adminOnly(h("span", { class: "row tight" },
         btn("Import from Fabric", "sync", () => importFabricDomains(rerender), "tool primary small",
@@ -793,7 +793,13 @@ async function platformDomainsTab(body) {
             if (!(await confirmDialog(`Delete ${d.name}?`, why, "Delete", { danger: true }))) return;
             if (await platformCall("platform_delete_domain", { id: d.id }, "Not deleted")) rerender();
           }, "tool small danger"))))))))
-      : h("p", { class: "muted-text" }, "No domains yet.")));
+      : h("p", { class: "muted-text" }, "No domains yet.")),
+  howItWorks("platform.domains", {
+    reads: "The platform's domains. Import from Fabric reads Fabric's domains and each one's admins, as a Fabric administrator.",
+    changes: "New, Edit and Delete change the platform's catalog. New domain with Also create it in Fabric ticked also creates the domain (or subdomain) in Fabric's admin portal, for the whole organization, before saving it here; that needs a Fabric administrator. Nothing here renames, moves or deletes a domain in Fabric.",
+    results: "Everyone using this platform sees the same domains. Each change is kept on the Audit tab.",
+    anchor: "platform",
+  })));
 }
 
 async function platformGlossaryTab(body) {

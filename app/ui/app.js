@@ -147,7 +147,9 @@ let dialogOnClose = null;
 function closeDialog() {
   const onClose = dialogOnClose;
   dialogOnClose = null;
-  document.getElementById("dialog-root").replaceChildren();
+  const root = document.getElementById("dialog-root");
+  motionLeave(root.querySelector(":scope > .overlay"));
+  root.replaceChildren();
   onClose?.();
 }
 
@@ -861,7 +863,8 @@ function renderCreate() {
       tile("notebook", "Notebook", "Explore, transform and write Delta tables with Python", newNotebook),
       preview("wizard", tile("notebook", "Notebook from a template", "Ten templates to load, clean, check, model and compare data, with checks and a proof contract", openWizard)),
       preview("replay", tile("history", "Open replay bundle", "Run a notebook that failed again, up to the failed cell, against the same table versions", replayOpenDialog)),
-      tile("lakehouse", "Lakehouse", "Store tables and files in OneLake, organized by schema", () => newLakehouse()))));
+      tile("lakehouse", "Lakehouse", "Store tables and files in OneLake, organized by schema", () => newLakehouse()),
+      preview("pipelines", tile("flow", "Pipeline", "Open a Fabric pipeline, check what can run here, and run it on this PC", pipelineOpenDialog)))));
 }
 
 // Filters on Monitor, kept for the session; showFabric is remembered on this PC.
@@ -1822,7 +1825,8 @@ function loadIntoState(nb) {
     state.notebook = kept;
   } else {
     state.notebook = { name: nb.name, cells: nb.cells.map(cellFrom), lakehouse: nb.lakehouse || null, place: nb.place || null, locations: nb.locations || null, dirty: false,
-      compute: nb.compute || "default", workspace: nb.workspace || null, check: nb.check || null, replay: nb.replay || null };
+      compute: nb.compute || "default", workspace: nb.workspace || null, check: nb.check || null, replay: nb.replay || null,
+      onelake_writes: nb.onelake_writes || null };
     if (!state.notebook.cells.length) state.notebook.cells.push(cellFrom({ type: "code" }));
     state.notebook.cells.forEach((c) => { if (c.type === "markdown" && c.source) c.editing = false; });
     if (kept) keepOutputs(kept, state.notebook);
@@ -2023,8 +2027,34 @@ function computeMenu(nb) {
       ? option("fabric", `Fabric${nbLakehouse(nb) ? ` (${publishWorkspaceName(nb)})` : " (attach a lakehouse first)"} · Preview`, "cloud") : null,
     option("default", `Same as ${env} (${where.envFabric ? "Fabric" : "this PC"})`, "sync"),
     { info: `Python ${state.python || "3"} on this PC. Fabric runs publish the notebook first.` },
+    ...(where.fabric ? [] : oneLakeWritesMenu(nb)),
     { label: "Restart kernel", icon: "restart", action: restartKernel },
   ].filter(Boolean);
+}
+
+// How this notebook's cells on this PC write lakehouse tables (lakehouse.write_table): its own choice,
+// kept in the notebook file, or the Settings default.
+function oneLakeWritesMenu(nb) {
+  const fallback = state.settings?.onelake_writes?.value || "local_first";
+  const label = (mode) => (ONELAKE_WRITES.find(([v]) => v === mode) || [])[1] || mode;
+  const option = (value, text, iconName) => ({ label: text, icon: (nb.onelake_writes || null) === value ? "ok" : iconName,
+    action: () => setNotebookOneLakeWrites(value) });
+  return [
+    { info: "Table writes to OneLake from this PC." },
+    option("local_first", "Write here, then upload in the background", "save"),
+    option("direct", "Straight to OneLake (fast upload line)", "cloud"),
+    option(null, `Same as Settings (${label(fallback)})`, "sync"),
+  ];
+}
+
+async function setNotebookOneLakeWrites(mode) {
+  const nb = state.notebook;
+  if (nb.dirty && !(await saveNotebook())) return;
+  const res = await attempt(() => rpc("notebook_onelake_writes_set", { name: nb.name, mode }), "Not saved");
+  if (!res) return;
+  nb.onelake_writes = res.onelake_writes;
+  toast(res.effective === "direct" ? `${nb.name} now writes straight to OneLake. Each write returns once it's uploaded.`
+    : `${nb.name} now writes here first. Uploads run in the background and each cell ends when its writes are in OneLake.`);
 }
 
 async function setNotebookCompute(value) {
@@ -2378,7 +2408,7 @@ function markdown(src) {
 // (meta.js, settings.js); features.js has the rules.
 registerFeature({ id: "home", rail: { label: "Home", icon: "home", order: 10, also: ["notebooks"] }, views: { home: renderHome } });
 registerFeature({
-  id: "create", rail: { label: "Create", icon: "create", order: 20 }, views: { create: renderCreate },
+  id: "create", rail: { label: "Create", icon: "create", order: 20, also: ["pipelines", "pipelineRun"] }, views: { create: renderCreate },
   commands: [
     { label: "New notebook", icon: "notebook", keywords: "create python", run: () => newNotebook() },
     { label: "Move this notebook to another place", icon: "folder", keywords: "repository git save in",
@@ -2543,7 +2573,7 @@ async function checkComponents(afterInstall = false) {
   else if (report.bundled && !report.python) set("app", "ok", `Build ${short(app.commit)}; checked for updates once the engine is installed`);
   else if (app.updated_to && app.updated_to !== app.commit) {
     set("app", "error", `The update didn't take: this is still build ${short(app.commit)}, not ${short(app.updated_to)}. ` +
-      "Download fabric-desktop.exe again from the latest release.");
+      "Download kratosforge.exe again from the latest release.");
   } else if (report.auto_update === false) {
     // The organization rolls out builds itself (policy auto_update: false).
     set("app", "ok", latest.commit && latest.commit !== app.commit
@@ -2596,7 +2626,7 @@ async function checkComponents(afterInstall = false) {
       // The engine just installed is still not this build's: the exe update above failed.
       set("sidecar", "error", `The latest engine is build ${sidecar.commit ? short(sidecar.commit) : "unknown"}, ` +
         `but this app is ${short(app.commit)}. ` + (report.auto_update === false
-        ? "Your organization rolls out updates: ask IT for the current build of fabric-desktop.exe."
+        ? "Your organization rolls out updates: ask IT for the current build of kratosforge.exe."
         : "Restart KratosForge to update it."));
       if (await choose("Retry", "Continue anyway") === 0) return checkComponents();
       return closeDialog();

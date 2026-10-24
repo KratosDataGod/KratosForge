@@ -170,6 +170,22 @@ New items:
 - **Notebook:** a new Python notebook, saved on this PC. See [Notebooks](notebooks.md).
 - **Notebook from a template** (Preview): a notebook written from a fixed template (clean a table, join and aggregate, load a file) with key checks and the columns a proof matches rows by. See [Notebooks](notebooks.md#your-first-notebook).
 - **Lakehouse:** asks for a workspace and a name, then creates a schema-enabled lakehouse in Fabric (tables live under schemas, `dbo` by default) and opens it. Needs a workspace on a capacity, and Contributor or higher on it.
+- **Pipeline** (Preview): opens a Fabric pipeline read-only and runs it on this PC. See [Pipelines](#pipelines-preview).
+
+## Pipelines (Preview)
+
+**Create > Pipeline** opens a Fabric pipeline: one of the `.DataPipeline` folders in the repositories this PC opened (Source control), a `.DataPipeline` folder you choose, or a pipeline JSON file (`pipeline-content.json`, or a definition with parts). It opens read-only: you edit pipelines in Fabric or in your repository.
+
+The page shows the pipeline's **Graph** (each column runs after the one before it; click an activity for how it runs here), **Compatibility** (every activity, nested ones included, with whether it runs here, needs a mock or runs only in Fabric, and why), **Runs** (this pipeline's runs on this PC) and **Definition** (`pipeline-content.json`, with Copy). **Check again** reads the definition again.
+
+**Run on this PC** asks for what the run needs, and checks it as you go:
+
+- **Parameters**, filled with the pipeline's defaults or the values of the last run here. SecureString values are never kept on this PC; type them again each time.
+- **Activities that need a mock**: for each one that can't run here, whether it ends Succeeded or Failed and the output later activities read.
+- **Data steps** (Lookup, Get Metadata, Script): whether they may read lakehouses (off by default; off, they need a mock), the pipeline's workspace when a lakehouse connection doesn't name it, and for each Script whether it runs on the lakehouse (read-only) or in one of your local data projects. A Script that changes tables, or needs the SQL page's confirmation, is refused; give it a mock.
+- **Notebook steps**: the notebook saved in KratosForge each Notebook activity runs, whether notebook steps may reach the network and files on this PC (asked again each run), and whether to keep what they wrote.
+
+**Run** stays off until every activity can run here or has a mock. The run view shows every activity on a time line, nested ones under their loop, branch or child pipeline, and the output and error of the one you click. **Stop** ends the run: nothing new starts and running steps stop. **Run again with the same settings** opens the Run dialog with the settings that run started with. No Fabric job starts; notebook steps write only to a temporary folder in the lakehouse, and OneLake reads and writes use a little capacity. Results can differ from Fabric: see [Local pipeline runs](orchestration/local-runs.md).
 
 ## Notebook resources
 
@@ -313,11 +329,15 @@ The **Data mesh** page (it was called Metadata) is where your metadata project l
 | Overview (Preview) | Domains: the page opens here. Your organization's domains and how they feed each other; open a domain to see its projects, their layers, products and readers, then a layer of the project on this PC to see each table's whole lineage, from its source files to the projects that read its products. Read only. See [Data mesh](data-mesh.md#from-domains-to-tables) |
 | Design | Entities, Layers, Surrogate keys, Source systems |
 | Runs | Every run, with its steps, rows and problems |
-| Quality | Tests and Table health |
+| Quality | Tests, Table health, and Exceptions |
 | Domains (Preview) | Domain and workspaces, Data products, Links. Domains are created and edited on **Platform > Domains** and the glossary is on **Platform > Glossary**; this tab lists the domains and links there. See [Data mesh](data-mesh.md) |
 | Deploy | Environments and promote, Semantic model |
 
 Each entity page also has an **About** card (Preview): description, tags, classification, glossary terms and steward for the table and each column, saved in the catalog so anyone can write them without a Git change.
+
+### Approved exceptions
+
+**Data mesh > Quality > Exceptions** lists every approved exception in `exceptions.toml`: the table, the rule, the table's owner, why it was approved, who approved it, and when it ends. An exception that ends within 14 days shows a banner on Data mesh and a notice on the bell, once a day, before the save gate starts failing again. One with no end date stays in force. How to write an exception is in the [metadata guide](metadata-guide.md#6-quality-checks-quarantine-and-the-four-gates).
 
 The **Environment** picker in the top bar (Dev, Test or Prod) only shows on Data mesh pages. Everything on these pages, from runs to table health, is for the environment picked there.
 
@@ -363,7 +383,7 @@ What your Fabric estate could do better, what was fixed and what it could save, 
 - **Overview:** how many problems were found and how many improvements are open, and the top recommended improvements.
 - **Opportunities:** every recommendation with its state. **Accept**, **Mark applied**, **Mark verified**, **Dismiss...** (asks why) and **Reopen** are shared: everyone on the lakehouse sees the change, who made it and why. A dismissed recommendation stays dismissed when the problem is found again. **Show dismissed and verified** brings back the closed ones. With read-only access to the lakehouse you see everything but can't change it.
 - **Cost and savings:** the capacity each run used in Fabric in capacity units (CU hours) and what that is at your price and, for runs on this PC, what they would have used in Fabric (estimated from Fabric runs of the same table, never from their time on this PC; Not known when the table hasn't run in Fabric in the last 90 days), over 7, 30 or 90 days, by item and by environment, with each environment's share of its capacity. Each figure has its evidence (Measured, Estimated, Scenario or Unknown); click a figure to see how it was worked out. A run whose time isn't known is left out of totals, not counted as 0. **Prices** sets your price per CU hour and currency, and when the [risk check](finops/risk-check.md) warns before a run. **Capacities** lists the capacity each environment is on and whether it is running, read only and marked stale after an hour; **Refresh** reads it again. See [Capacity of each environment](finops/capacity.md). **Measured usage** (Preview) imports a CSV exported from Fabric's Capacity Metrics app as measured CU, matches its rows to this app's runs and shows them beside the estimates. It also imports an Azure Cost Management cost details or FOCUS export and shows what each capacity was billed, in CU hours and money; see [Measured usage](finops/usage-import.md). See [Capacity and cost evidence](finops/cost-evidence.md). It works without a lakehouse. Fabric's Monitoring hub isn't shown here; it's under [Monitor](#monitor). This tab used to be Monitor > Cost.
-- **Settings history** (Preview): what your capacity and tenant settings were at each read, and what changed between two reads, kept in the central lakehouse. **Read capacities now** reads the capacities you can see; **Read tenant settings (administrators)** needs a Fabric administrator. The first read asks before it creates the tables. Who changed a setting, and exactly when, aren't known. See [Settings history tab](optimize/README.md#settings-history-tab).
+- **Settings history** (Preview): what your capacity and tenant settings were at each read, and what changed between two reads, kept in the central lakehouse. **Read capacities now** reads the capacities you can see, and with **Include capacity overrides (administrators)** ticked, a Fabric administrator also reads the tenant settings each capacity overrides; **Read tenant settings (administrators)** needs a Fabric administrator. The first read asks before it creates the tables. Who changed a setting, and exactly when, aren't known. See [Settings history tab](optimize/README.md#settings-history-tab).
 
 ## Monitor
 
@@ -535,7 +555,7 @@ Open Settings from the gear at the bottom of the left rail, or from the account 
 | **Usage data** (Preview) | Off unless you turn it on. Once a day it sends how often each action ran, failed and took, never your data or names. **See what's sent** shows the exact text. See [Usage data](telemetry.md). |
 | **Notifications** | **Teams alerts**: post new incidents (late and failed tables, missed objectives, agents that stopped) to a Teams channel, unless an agent already checks that environment. See [Freshness promises](metadata-guide.md#freshness-promises). **Platform notices** (Preview): Teams channels for platform requests and broken shortcuts. See [Platform notices](#platform-notices-preview). |
 | **Help and about** | This guide, **Report a problem**, the **Guide for IT admins**, the build, the engine's Python version and where the organization settings file is. |
-| **Advanced** | Folded until you open it: the App (client) ID, the notebook process and its limits, and the SQL query limits. See [Advanced settings](#advanced-settings). |
+| **Advanced** | Folded until you open it: the App (client) ID, the notebook process and its limits, OneLake writes, and the SQL query limits. See [Advanced settings](#advanced-settings). |
 
 Anything your organization has set shows "Set by your organization's policy" and can't be changed there.
 
@@ -559,6 +579,7 @@ At the bottom of **Settings > General**, folded. Click **Advanced** to open it; 
 | --- | --- |
 | **Sign-in** | The **App (client) ID**. Leave it empty: KratosForge then uses Microsoft's own Fabric sign-in and nobody registers an app. Only paste an ID if your organization gave you its own app ([Permissions](permissions.md#using-your-own-app-registration)). When an ID is in use, a note says so, where it came from and how to go back; if you set it here, **Use Microsoft's sign-in** clears it. |
 | **Notebooks** | **Run notebooks in their own process** (Preview) and, with it on, the **Cell time limit** and **Notebook memory limit**. |
+| **OneLake writes** | How notebooks on this PC write tables: **New notebooks write** (here, then upload in the background; or straight to OneLake, for a fast upload line), **Compression** (Zstandard or Snappy) and **Skip unchanged tables**. Each notebook can choose its own under **Runs on**. See [Writing to OneLake](architecture.md#writing-to-onelake). |
 | **SQL queries** | Rows per page, time limit, memory, queries at once, how long results are kept, and the **Temp folder**. See [Running SQL queries on this PC](sql-execution.md#limits). |
 
 When your organization's policy file sets one of these, or the `FABRIC_DESKTOP_CLIENT_ID` environment variable sets the App ID, the field shows the value it uses, can't be edited and says which: "Set by your organization's policy" or "Set by the FABRIC_DESKTOP_CLIENT_ID environment variable". To change an ID the variable sets, remove the variable (`setx FABRIC_DESKTOP_CLIENT_ID ""`) and restart KratosForge.
@@ -610,6 +631,8 @@ There are two channels:
 - **Stable** (the default): builds that have been checked and released.
 - **Preview**: every new build as soon as it's ready. For testers; things may change or break.
 
+To update without waiting for the next start, choose **Check for updates** in the account menu (or in **Settings > Updates**). It shows your build next to your channel's newest one. If that one is newer, **Install and restart** downloads it, saves the open notebook, closes KratosForge and starts the new build; running cells stop. If there is nothing newer it says you're up to date. **Download manually** opens the channel's release page on GitHub, where you can download `kratosforge.exe` and run it in place of the one you have.
+
 A channel change takes effect the next time KratosForge starts. More detail, including where files are kept, is in [install.md](install.md#updates).
 
 ## Preview features
@@ -655,5 +678,7 @@ fabric-desktop audit --action meta_promote           # only promotes
 fabric-desktop audit --verify                        # exit code 1 if the chain is broken
 fabric-desktop audit --folder D:\agent\audit --verify # an agent's trail
 ```
+
+Each write also records the newest line and the line count in `audit\head.json`, so `--verify` also reports lines deleted from the end of the trail, which the chain alone can't show. If lines go missing before the next write, `head.json` keeps a note of it, so later lines don't hide the gap. Someone who can edit the folder can edit `head.json` too.
 
 The files are plain JSON lines, so a log shipper (Azure Monitor agent, Splunk, Fluent Bit) can collect them. The trail is evidence, not a lock: someone who controls the PC can delete the whole folder, which `--verify` can't see. If that matters for you, ship the files to a store the PC can't change.

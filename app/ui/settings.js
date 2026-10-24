@@ -83,6 +83,7 @@ function accountMenu(anchor) {
     { label: "Help and user guide", icon: "help", action: () => invoke("open_doc", { page: "user-guide.md" }).catch(() => {}) },
     { label: "Report a problem", icon: "bug", action: reportProblem },
     { label: "What's new", icon: "rocket", action: () => showWhatsNew(true) },
+    { label: "Check for updates", icon: "sync", action: checkForUpdates },
     { info: `KratosForge build ${state.build || "unknown"} · ${channelLabel()}` },
   );
   if (state.user) items.push({ label: "Sign out", icon: "signOut", action: signOut });
@@ -160,6 +161,86 @@ function reportProblem() {
       : "Send copies all of this and opens a new issue on GitHub. Paste it there.")),
   [btn("Copy only", null, () => copyText(report(), "Report"), "tool outline"), h("span", { class: "spacer" }),
     btn("Cancel", null, closeDialog, "tool outline"), btn("Send", null, send, "tool primary")]);
+}
+
+// ---------- Check for updates ----------
+
+// What a manual update check found (check_for_update): "newer" offers Install and restart; every
+// other kind offers only the channel's release page.
+function updateCheckResult(report) {
+  const short = (c) => c.slice(0, 7);
+  const { commit, latest } = report;
+  const channel = latest.channel === "preview" ? "Preview" : "Stable";
+  if (!commit) return { kind: "local", text: "This is a local build, so it doesn't update itself." };
+  if (!latest.commit) return { kind: "error", text: `Couldn't check the ${channel} channel: ${latest.error}` };
+  if (latest.refused) return { kind: "error", text: latest.refused };
+  if (latest.commit === commit) return { kind: "current", text: `You're up to date. The ${channel} channel has nothing newer than this build.` };
+  if (report.auto_update === false) {
+    return { kind: "managed", text: `Build ${short(latest.commit)} is out. Your organization rolls out new builds, so ask IT for it.` };
+  }
+  return { kind: "newer", text: `Build ${short(latest.commit)} is out. Install it now: KratosForge downloads it, ` +
+    "saves the open notebook, closes and starts the new build." };
+}
+
+// The startup update on demand (account menu, Settings): this build next to the channel's newest,
+// installed through the same checked download and hand-over as at startup (update_app), or
+// downloaded by hand from the channel's release page.
+async function checkForUpdates() {
+  const short = (c) => (c ? c.slice(0, 7) : "unknown");
+  const show = (lines, actions) => showDialog("Check for updates", h("div", { class: "setup" }, lines), actions);
+  show([h("p", {}, "Checking for a newer build…")], []);
+  let report;
+  try {
+    report = await invoke("check_for_update");
+  } catch (err) {
+    show([h("p", { class: "error-text" }, String(err))],
+      [btn("Try again", null, checkForUpdates, "tool outline"), btn("Close", null, closeDialog, "tool primary")]);
+    return;
+  }
+  const { latest } = report;
+  const result = updateCheckResult(report);
+  const facts = h("dl", { class: "about" },
+    h("dt", {}, "This build"), h("dd", {}, report.commit ? short(report.commit) : state.build || "local build"),
+    h("dt", {}, `Latest on ${latest.channel === "preview" ? "Preview" : "Stable"}`), h("dd", {}, short(latest.commit)));
+  const manual = btn("Download manually", "arrowDownload", () => openLink(latest.page), "tool outline");
+  const note = h("p", { class: "muted-text small" }, result.kind === "newer"
+    ? "Running cells stop. Or download kratosforge.exe from the release page and run it in place of this one."
+    : result.kind === "current" ? "" : "You can download kratosforge.exe from the channel's release page and run it in place of this one.");
+  if (latest.note) note.prepend(`${latest.note} `);
+  const text = h("p", { class: result.kind === "error" ? "error-text" : "" }, result.text);
+  if (result.kind !== "newer") {
+    show([facts, text, note.textContent ? note : null], [
+      result.kind === "error" ? btn("Try again", null, checkForUpdates, "tool outline") : null,
+      latest.page ? manual : null, h("span", { class: "spacer" }), btn("Close", null, closeDialog, "tool primary")].filter(Boolean));
+    return;
+  }
+  const install = btn("Install and restart", "arrowDownload", async () => {
+    install.disabled = true;
+    later.disabled = true;
+    install.lastChild.textContent = "Downloading…";
+    if (state.notebook?.dirty && !(await saveNotebook())) {
+      install.disabled = later.disabled = false;
+      install.lastChild.textContent = "Install and restart";
+      return;
+    }
+    const unlisten = await window.__TAURI__.event.listen("component-log", (e) => {
+      const m = /^progress (\d+)/.exec(e.payload);
+      if (m) install.lastChild.textContent = m[1] === "100" ? "Restarting…" : `Downloading… ${m[1]}%`;
+    });
+    try {
+      await invoke("update_app", { commit: latest.commit });
+      install.lastChild.textContent = "Restarting…";  // the new build takes over
+    } catch (err) {
+      text.className = "error-text";
+      text.textContent = `Update to build ${short(latest.commit)} failed: ${err} You are still on ${short(report.commit)}.`;
+      install.disabled = later.disabled = false;
+      install.lastChild.textContent = "Try again";
+    } finally {
+      unlisten();
+    }
+  }, "tool primary");
+  const later = btn("Later", null, closeDialog, "tool outline");
+  show([facts, text, note], [manual, h("span", { class: "spacer" }), later, install]);
 }
 
 // ---------- What's new ----------
@@ -498,7 +579,8 @@ async function renderSettings() {
           try { localStorage.setItem(UPDATE_SPLASH_OFF, e.target.checked ? "0" : "1"); } catch { /* kept for this start */ }
           render();
         } }), h("span", {}, updateSplashOn() ? "On" : "Off"))),
-    h("div", { class: "row" }, btn("What's new in this build", "rocket", () => showWhatsNew(true), "tool link small"),
+    h("div", { class: "row" }, btn("Check for updates", "sync", checkForUpdates, "tool link small"),
+      btn("What's new in this build", "rocket", () => showWhatsNew(true), "tool link small"),
       btn("Show the update splash", "rocket", () => showUpdateSplash(true), "tool link small")));
 
   // Appearance > Motion & effects (motion.js, docs/forge-animations.md)
@@ -624,12 +706,34 @@ function advancedSection(s, locked, limitRow) {
     s.kernel_process.value && s.kernel_idle_minutes ? limitRow("kernel_idle_minutes", "Stop idle sessions after",
       "A notebook you haven't run for this long, and don't have open, has its process stopped to give back memory. Its variables are cleared.",
       [[0, "Never"], [20, "20 minutes"], [60, "1 hour"], [240, "4 hours"]]) : null) : null;
+  const onelake = s.onelake_writes ? oneLakeWritesSection(s, locked) : null;
   // SQL queries (SQL-003): the limits every SQL page query runs with on this PC.
   const sql = s.sql_page_rows ? sqlSettingsSection(s, locked) : null;
   return foldable("settings.advanced", h("h2", {}, "Advanced"), [
     h("p", { class: "muted-text small" }, "Most people never need these: your own app registration, and the limits notebooks and SQL queries run with on this PC. ",
       learnMore("advanced-settings")),
-    signInGroup, kernel, sql].filter(Boolean), { start: true, cls: "card pad advanced" });
+    signInGroup, kernel, onelake, sql].filter(Boolean), { start: true, cls: "card pad advanced" });
+}
+
+// How notebooks on this PC write lakehouse tables (lakehouse.write_table). onelake_writes is only the
+// default: each notebook can choose its own under Runs on.
+const ONELAKE_WRITES = [["local_first", "Write here, then upload"], ["direct", "Straight to OneLake"]];
+function oneLakeWritesSection(s, locked) {
+  const choice = (key, title, help, options) => settingRow(title, help,
+    h("select", { "aria-label": title, disabled: locked(key) ? true : null,
+      onchange: async (e) => { if (await saveSettings({ [key]: e.target.value })) render(); } },
+      options.map(([v, label]) => h("option", { value: v, selected: v === s[key].value ? true : null }, label))),
+    fixedBy(s, key));
+  return h("div", { class: "advanced-group" }, h("h3", {}, "OneLake writes"),
+    choice("onelake_writes", "New notebooks write", "Write here, then upload: a cell's table writes are kept on this PC and upload in the background while the cell goes on; the cell ends when they're in OneLake. Straight to OneLake: each write returns once it's uploaded, which suits a fast upload line. Each notebook can choose its own under Runs on.",
+      ONELAKE_WRITES),
+    choice("onelake_compression", "Compression", "Zstandard files are about a quarter smaller than Snappy, so they upload sooner, and cost the same to write. Fabric's SQL analytics endpoint reads both. Choose Snappy if a Fabric reader you use can't read Zstandard.",
+      [["zstd", "Zstandard"], ["snappy", "Snappy"]]),
+    settingRow("Skip unchanged tables", "A table overwritten with exactly the rows it already holds isn't uploaded again. KratosForge keeps a fingerprint of the rows in the table's Delta log to tell.",
+      h("label", { class: "switch" }, h("input", { type: "checkbox", checked: s.onelake_skip_unchanged.value ? true : null, disabled: locked("onelake_skip_unchanged") ? true : null,
+        onchange: async (e) => { await saveSettings({ onelake_skip_unchanged: e.target.checked }); render(); } }),
+      h("span", {}, s.onelake_skip_unchanged.value ? "On" : "Off")),
+      fixedBy(s, "onelake_skip_unchanged")));
 }
 
 // The SQL page's limits. Each is checked by the engine (app_settings.SQL_RANGES); a value set by the

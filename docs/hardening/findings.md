@@ -29,7 +29,7 @@ No Critical issue was confirmed. Twelve are High.
 | EP-1 | High | Engine | The attached lakehouse is one global, so a refused second cell start or an external run re-points a running cell (Dev to Prod) | HD-004 |
 | EP-2 | High | Recovery | Restore leaves the old SQLite `-wal` file, so data written after the backup comes back | HD-005 |
 | EN-1 | High | AI integration | An external tool's run-notebook approval shows no code and isn't bound to the file, which is read after approval | HD-006 |
-| SH-1 | High | Shell | No Content Security Policy, and the Tauri API is a page global | HD-020 |
+| SH-1 | High | Shell | No Content Security Policy, and the Tauri API is a page global | **Closed** by #250: strict CSP in `tauri.conf.json`; `withGlobalTauri` is still on |
 | SH-2 | High | Distribution | Updates check integrity, not authenticity. Releases publish unsigned without failing when signing isn't set up | HD-021 (blocked) |
 | DI-4 | Medium | OneLake writes | Quarantine rows are written before the table commit, so a failed write and its retry quarantine the same rows twice | HD-001 |
 | EN-5 | Medium | Logging | Agent log redaction runs on JSON text, so quoted secrets leak and lines become invalid JSON | HD-007 |
@@ -37,8 +37,8 @@ No Critical issue was confirmed. Twelve are High.
 | SH-4 | Medium | Distribution | The engine download falls back from Stable to Preview on any network error | HD-008 |
 | EP-4 | Medium | Policy | A malformed or wrongly typed `policy.json` fails open (Fabric runs allowed, any tenant) | HD-010 |
 | SH-6 | Medium | CI | Rust unit tests (update integrity, policy, watchdog) never run in CI | HD-011 |
-| EN-2 | Medium | Tokens | External-tool Python runs inherit the full environment and can read the plaintext token cache; docs say tools never get a token | HD-012, HD-013 |
-| EN-10 | Medium | Tokens | The MSAL cache is plaintext on every OS; the POSIX temp file is briefly world-readable | HD-013 (awaits D-C2) |
+| EN-2 | Medium | Tokens | External-tool Python runs inherit the full environment and can read the plaintext token cache; docs say tools never get a token | HD-012, HD-013. Partly closed: the environment is allowlisted and the cache is encrypted at rest, but code running as the person can still decrypt it |
+| EN-10 | Medium | Tokens | The MSAL cache is plaintext on every OS; the POSIX temp file is briefly world-readable | **Closed on Windows** by HD-013: DPAPI for the Windows account. Other OSes keep a 0600 file |
 | EN-3 | Medium | AI integration | The per-tool workspace limit only applies when the call names a `workspace_id` | HD-014 |
 | EN-4 | Medium | AI integration | An external SQL timeout doesn't stop the query and keeps a lock that blocks every later run | HD-015 |
 | EN-6 | Medium | Leases | Local write leases can be taken by more than one process at once | HD-016 |
@@ -63,8 +63,8 @@ No Critical issue was confirmed. Twelve are High.
 | DI-7 | Low | Fabric API | `Retry-After` in HTTP-date form crashes the client; 5xx and connection errors aren't retried on reads | HD-039 |
 | DI-8 | Low | Notebooks | Local `saveAsTable` overwrite silently replaces the schema where Fabric would refuse | HD-040 |
 | SH-10 | Low | Shell | A release build with no engine falls back to a bare `python` command | HD-026 |
-| SH-11 | Low | Shell | RPC replies aren't matched to request ids; the pipe runs one call at a time with no limit for long calls | HD-041 |
-| SH-12 | Low | Shell | The Fabric view filters new windows but not navigation, and turns SmartScreen off | HD-027 |
+| SH-11 | Low | Shell | RPC replies aren't matched to request ids; the pipe runs one call at a time with no limit for long calls | **Closed** by #264 (HD-041) |
+| SH-12 | Low | Shell | The Fabric view filters new windows but not navigation, and turns SmartScreen off | **Closed** by #259 (HD-027) |
 | UI-1 | Low | UI | (part of SH-1) Notebook HTML output frames can make network requests | HD-020 |
 | UI-4 | Low | UI | Closing a text prompt by its overlay or X never settles its promise. Done in HD-042: `showDialog` takes an `onClose` that runs once however the dialog goes (overlay, X, Escape, an action, or another dialog replacing it); `askText` and `pickWorkspace` answer null and `confirmDialog` false through it | HD-042 |
 | UI-5 | Low | UI tests | The name-clash test is a column-0 regex; one test is duplicated. Done in HD-043: the test now asks V8 which names each script declares at its top level (function, class, `var`, `let`, `const`, however indented, including destructured names) by compiling the script with `let <name>;` appended; nothing is run and no dependency is added. It covers the 37 non-vendor scripts in `index.html`. A temporary script with an indented `function esc` and `const inlineMd` failed the new test and passed the old one. Today both find the same 1,005 names and no clash. The duplicate Report a problem test is removed | HD-043 |
@@ -184,7 +184,7 @@ No Critical issue was confirmed. Twelve are High.
 - **What:** external-tool Python runs start a kernel with the parent's whole environment, as the same user, so code can read the plaintext MSAL cache (refresh tokens for Fabric, Graph and Power BI) and any secret in the environment. `credentials.getToken("storage")` returns a tenant-wide OneLake token. `docs/permissions.md:148` says an AI tool never receives a token. On POSIX the cache's temp file is created with the umask's mode before `chmod`.
 - **Evidence:** reproduced: cell code printed the cache's refresh token and an `AGENT_SP_SECRET` from the environment.
 - **Fix:** correct the docs now; start execution kernels with an allowlisted environment; encrypt the cache with DPAPI through `msal-extensions` (FD-131b); create the temp file with mode 0600.
-- **Awaiting:** the `msal-extensions` dependency decision (D-C2, Chris; recommended yes).
+- **Done:** the environment allowlist (HD-012) and, on Windows, a DPAPI-encrypted cache (HD-013, Chris approved D-C2 on 2026-10-23). It uses ctypes rather than `msal-extensions`, so nothing new ships. DPAPI ties the file to the Windows account, so a copy, a backup or another account can't use it, but code running as the same person still can: that part of EN-2 is inherent to running code as the person.
 
 ### EN-3 Medium: workspace limit bypass
 
@@ -239,7 +239,7 @@ No Critical issue was confirmed. Twelve are High.
 | DI-8 | `spark_local.py:67-86` | Refuse a schema change on overwrite unless `overwriteSchema` is set, as Fabric does |
 | SH-10 | `main.rs:161-166` | No bare `python` fallback in release builds |
 | SH-11 | `main.rs:267-325` | Check reply ids; reset the engine on a mismatch; move long calls off the shared pipe (SQL-003, merged, moved SQL page queries off it; notebooks already use `start_cell`). Done in HD-041: the shell no longer holds the engine for a whole call; a reader thread hands each reply only to the call that sent its id (`replies.rs`) and drops a reply nobody waits for, rather than resetting the engine, since a call whose time ran out has already ended it. The sidecar runs the watchdog's quick calls in their own lane (`server.QUICK`, tested to match `watchdog::QUICK`), so a long call can't hold them up or make them time out; every other call still runs one at a time in order, so writes don't overlap. Long calls still queue behind each other. Tested on Linux, not on Windows |
-| SH-12 | `main.rs:540`, `:623-630`, `:876` | Add a navigation filter with the same host check; keep SmartScreen on |
+| SH-12 | `main.rs:540`, `:623-630`, `:876` | Add a navigation filter with the same host check; keep SmartScreen on. Done in HD-027 (#259): the Fabric view and its pop-ups open only `https` Fabric and sign-in hosts (plus `fabric_view_sign_in_hosts` from the policy file), other links go to the default browser, and SmartScreen stays on. Sign-in through the view still needs a manual check on Windows |
 | UI-4 | `app/ui/app.js:135-170` | `showDialog` takes an `onClose` so every way of closing settles the prompt. Done in HD-042: closing by overlay, X or Escape answers null (`askText`, `pickWorkspace`) or false (`confirmDialog`), tested in `app/tests/ui.test.cjs` |
 | UI-5 | `app/tests/ui.test.cjs:18-32`, `:229-235`, `:296-302` | Parse instead of regex; remove the duplicate test |
 | UI-6 | `app/ui/features.js:31`, `:149`; `app/ui/app.js:2298` | `aria-current="page"`; mount the palette as a modal dialog; ignore Ctrl+K while a dialog is open. Done in HD-044: `openPalette` in `features.js` |
@@ -259,7 +259,7 @@ No Critical issue was confirmed. Twelve are High.
 
 These were tested or read closely and found sound. They're listed so later reviews don't redo them.
 
-- **UI injection.** DOM writes go through `h()` (`app/ui/app.js:29-43`), which creates text nodes, except four reviewed uses (Markdown cells, the Data mesh map links, notebook HTML output in a sandboxed frame) that `ui.test.cjs` lists and that a new raw HTML sink must join (HD-052); Markdown is escaped before formatting (`:2217-2221`); no `href` or `src` is built from data; no `eval` or `new Function`. Notebook HTML output runs in `sandbox="allow-scripts"` frames with an opaque origin.
+- **UI injection.** DOM writes go through `h()` (`app/ui/app.js:29-43`), which creates text nodes, except four reviewed uses (Markdown cells, the Data mesh map links, notebook HTML output in a sandboxed frame) that `ui.test.cjs` lists and that a new raw HTML sink must join (HD-052); Markdown is escaped before formatting (`:2217-2221`); no `href` or `src` is built from data except an image output's `data:` URL, which only picture types with base64 data get (also checked by `ui.test.cjs`, HD-052); no `eval` or `new Function`. Notebook HTML output runs in `sandbox="allow-scripts"` frames with an opaque origin.
 - **Local HTTP API.** Binds 127.0.0.1 only, checks `Host` against loopback names (DNS rebinding) and refuses any `Origin` (browser requests), caps bodies at 1 MiB, rate-limits per tool (`integrations/http_server.py:124-160`, `:394`). Tokens are stored as SHA-256 hashes and looked up by hash. Approvals are single use, bound to the argument hash and client, and expire.
 - **SQL sandbox for external tools.** One `SELECT`, then `enable_external_access=false` and `lock_configuration` (`sql.py:72-102`); reading local files, globbing, HTTP and extensions were all refused.
 - **RPC errors** carry no tracebacks and pass through redaction (`server.py:89-101`); Python's stdout is moved off the reply pipe.

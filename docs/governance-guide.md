@@ -99,7 +99,10 @@ Two things no KratosForge setting can do: stop a workspace Contributor from maki
 
 ## Exceptions
 
-When a standard genuinely doesn't fit, an exception records why, who approved it and until when. Today exceptions live in a project's `exceptions.toml` and apply to the save gate's rules (see [the metadata guide](metadata-guide.md#6-quality-checks-quarantine-and-the-four-gates)). Exception requests against registry policies, approved on Platform > Requests, come with the GOV items that follow GOV-002.
+When a standard genuinely doesn't fit, an exception records why, who approved it and until when.
+
+- **Registry policies (Preview).** Ask on **Platform > Requests > New request > An exception to a policy**: the policy, the project, domain or workspace it's for, until when (a year at most) and why. A policy whose definition doesn't allow exceptions refuses the request. A platform admin approves it; the platform records it in `catalog.policy_exception`, the audit and the policy's history. It shows on the policy's **Where it applies** tab, the policy list counts it, and **Explain** for a project it covers says **Excepted until <date>: <why>**. It ends on its own on its date. Policies don't check projects yet (GOV-002), so today an exception is a recorded, visible decision; once a policy's rule runs, an active exception turns its finding into that note instead of a violation.
+- **The save gate's rules** keep their exceptions in a project's `exceptions.toml` (see [the metadata guide](metadata-guide.md#6-quality-checks-quarantine-and-the-four-gates)).
 
 ## When the platform can't be reached
 
@@ -111,7 +114,7 @@ With a platform Teams route set (**Settings > Notifications**), KratosForge post
 
 | When | Kind | For |
 | --- | --- | --- |
-| A request is made (a key table, a source, access to a data product, a shortcut) | `request.waiting` | Platform admins, and the data product's owners when it names one |
+| A request is made (a key table, a source, access to a data product, a shortcut, a workspace, access to a workspace, a domain, an exception to a policy) | `request.waiting` | Platform admins, and the data product's owners when it names one |
 | It is approved or declined | `request.decided` | Whoever asked |
 | It is withdrawn | `request.withdrawn` | Platform admins and the product's owners |
 | A health check on **Shortcuts > Health** finds a shortcut broken, or fixed again | `shortcut.broken`, `shortcut.fixed` | Platform admins |

@@ -2,7 +2,7 @@
 
 Everything a security or IT team needs to review KratosForge before approving it, in one place. Each row links to the page or file that holds the evidence. Where something is missing or unverified, the row says so.
 
-Last checked against `main` a346145 (2026-10-18). Nothing in this pack has been verified on a live Fabric tenant yet. That is gate 3 in the [readiness checklist](hardening/readiness-checklist.md).
+Last checked against `main` c9874896 (2026-10-23). Nothing in this pack has been verified on a live Fabric tenant yet. That is gate 3 in the [readiness checklist](hardening/readiness-checklist.md).
 
 ## At a glance
 
@@ -16,7 +16,7 @@ Last checked against `main` a346145 (2026-10-18). Nothing in this pack has been 
 | Is customer data collected? | No. Usage data is off by default and never holds data, names, accounts or tenants | [Usage data](telemetry.md) |
 | Can IT control it? | Yes. A policy file fixes settings for everyone, including tenants allowed, runs in Fabric, updates, telemetry and AI tools | [Configure Azure and Fabric: policy file](azure-setup.md#4-push-settings-to-everyone) |
 | Is it signed? | **Not yet.** Waiting on a code signing account | [Release readiness, row 1](product/release-readiness.md#whats-missing-for-an-enterprise-approved-app) |
-| Is the sign-in cache encrypted? | **Not yet.** It is a plain file in the user's profile | [Security model: threats](security.md#threats-and-what-stops-them) |
+| Is the sign-in cache encrypted? | Yes, on Windows: Windows DPAPI for the person's own Windows account, so a copied file is useless on another account or PC. Programs running as that person can still read it | [Security model: threats](security.md#threats-and-what-stops-them) |
 
 ## Documents
 
@@ -42,7 +42,7 @@ Last checked against `main` a346145 (2026-10-18). Nothing in this pack has been 
 | --- | --- | --- | --- | --- |
 | The app | `login.microsoftonline.com` | Sign-in | When someone signs in or a token renews | Microsoft identity platform; Windows account broker |
 | The app | `api.fabric.microsoft.com`, `onelake.dfs.fabric.microsoft.com`, `api.powerbi.com`, `graph.microsoft.com` | Fabric items, jobs, OneLake files and tables, semantic models, people lookups | When someone uses those features | HTTPS with the person's token; writes are version-checked and ask first where they replace data |
-| The app | `app.fabric.microsoft.com` | Fabric's own pages, shown inside the app | When someone opens them | The embedded view's cookies are encrypted with Windows DPAPI |
+| The app | `app.fabric.microsoft.com`, `app.powerbi.com`, Microsoft sign-in hosts, and any identity provider hosts IT lists in `fabric_view_sign_in_hosts` | Fabric's own pages, shown inside the app | When someone opens them | The embedded view opens only those hosts over `https`; every other link opens in the default browser. SmartScreen stays on. Its cookies are encrypted with Windows DPAPI |
 | The app | `github.com` and its release hosts | Update check and downloads | Each time the app starts, unless the policy turns updates off | SHA-256 checked against the release's `version.json`; not yet signed |
 | The app | The organization's central lakehouse (`FabricDesktop_Central`) | Optimization results and other organization-wide tables | Only after someone connects it and agrees to each first write | The person's token; `allow_optimize_lakehouse: false` turns it off |
 | The app | `onelake.table.fabric.microsoft.com` | Lists of OneLake tables and their schemas | When someone browses lakehouse tables | HTTPS with the person's token; reads only |
@@ -72,12 +72,11 @@ These are the flows the app itself starts, from the hosts named in its source co
 These are the items a reviewer will raise. They are tracked in [release readiness](product/release-readiness.md#whats-missing-for-an-enterprise-approved-app):
 
 - unsigned builds;
-- the plain-text token cache;
-- no Content Security Policy;
 - no live tenant run;
-- no pinned builds or rollback;
-- no MSI or MSIX;
+- no MSI or MSIX, so the engine is installed in each person's own profile;
 - Preview features.
+
+Closed since the first version of this page: the app has a Content Security Policy, the sign-in cache is encrypted on Windows, and earlier builds are kept so IT can promote or reinstall a named build ([rollback](release-management/README.md#rollback)).
 
 A privacy statement and support terms are being drafted for KratosBI to approve as the publisher.
 

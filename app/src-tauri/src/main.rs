@@ -14,6 +14,7 @@ use tauri::webview::{NewWindowResponse, WebviewBuilder};
 use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
 
 mod engine_patch;
+mod exe_name;
 mod policy_file;
 mod replies;
 mod update_guard;
@@ -617,6 +618,44 @@ fn stop_kernel(state: tauri::State<'_, SidecarState>) -> Result<(), String> {
     Ok(())
 }
 
+/// Where this exe's file was renamed to while it runs. Windows keeps reporting the name the
+/// process started with, so an update later in the same session must use this one.
+static RENAMED_TO: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// This exe's file, under its current name.
+fn app_exe() -> std::io::Result<PathBuf> {
+    RENAMED_TO.get().cloned().map_or_else(std::env::current_exe, Ok)
+}
+
+/// Renames a fabric-desktop.exe to kratosforge.exe and points its shortcuts there
+/// (exe_name.rs), noting what happened in exe-rename.json for support. Once per process: the
+/// startup check can run again (Retry) while a first rename is under way.
+fn rename_to_kratosforge(exe: &std::path::Path) {
+    static TRIED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if TRIED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    #[cfg(windows)]
+    {
+        let note = match exe_name::migrate(exe, &mut exe_name::Windows) {
+            Ok(exe_name::Outcome::Unchanged) => return,
+            Ok(exe_name::Outcome::Renamed { to, shortcuts }) => {
+                let shortcuts: Vec<String> = shortcuts.iter().map(|l| l.display().to_string()).collect();
+                let note = json!({
+                    "from": exe.display().to_string(), "to": to.display().to_string(),
+                    "shortcuts": shortcuts, "error": null, "at": unix_now(),
+                });
+                let _ = RENAMED_TO.set(to);
+                note
+            }
+            Err(e) => json!({ "from": exe.display().to_string(), "to": null, "shortcuts": [], "error": e, "at": unix_now() }),
+        };
+        let _ = std::fs::write(data_dir().join("exe-rename.json"), note.to_string());
+    }
+    #[cfg(not(windows))]
+    let _ = exe;
+}
+
 /// Reports this exe's build, the Python and sidecar it will use, and the
 /// latest release. Fails only when Python itself cannot run.
 #[tauri::command]
@@ -630,14 +669,21 @@ async fn check_components() -> Result<Value, String> {
     // The previous exe (exe.old) is kept until now so it can be put back; it goes once its process
     // has exited. Not when this is the wrong build: the exe that started it is putting itself back.
     if updated_to.as_deref().is_none_or(|to| to == BUILD_COMMIT) {
-        std::thread::spawn(|| {
-            let Ok(exe) = std::env::current_exe() else { return };
+        let after_update = updated_to.is_some();
+        std::thread::spawn(move || {
+            let Ok(exe) = app_exe() else { return };
             let old = exe.with_extension("exe.old");
             for _ in 0..120 {
                 if !old.exists() || std::fs::remove_file(&old).is_ok() {
                     break;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+            // The previous exe has exited and gone, so nothing else holds this file's name: a copy
+            // still called fabric-desktop.exe becomes kratosforge.exe. Only after an update this PC
+            // takes itself; a managed PC's file stays where IT put it.
+            if after_update && !old.exists() && bundled() && auto_update_allowed() {
+                rename_to_kratosforge(&exe);
             }
         });
     }
@@ -670,6 +716,26 @@ async fn check_components() -> Result<Value, String> {
         "updated_to": updated_to,
     });
     Ok(report)
+}
+
+/// "Check for updates" (account menu, Settings): the channel's newest build, put through the same
+/// release rule as the startup check, so update_app will install it. Leaves the engine alone: the
+/// new build's startup check updates it.
+#[tauri::command]
+async fn check_for_update() -> Result<Value, String> {
+    let out = updater(&["latest"])?.output().map_err(|e| format!("Python was not found ({e})."))?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        return Err(format!("Python could not run the update check. {}", stderr.trim()));
+    }
+    let mut latest: Value = serde_json::from_slice(&out.stdout)
+        .map_err(|_| "Python gave an unexpected answer to the update check.".to_string())?;
+    apply_release_rule(&mut latest);
+    Ok(json!({
+        "commit": if BUILD_COMMIT.is_empty() { Value::Null } else { json!(BUILD_COMMIT) },
+        "auto_update": auto_update_allowed(),
+        "latest": latest,
+    }))
 }
 
 /// Installs the sidecar from the commit this exe was built from, so the two always match:
@@ -1019,7 +1085,7 @@ async fn update_app(app: tauri::AppHandle, state: tauri::State<'_, SidecarState>
     if !update_guard::wants_install(BUILD_COMMIT, &update_guard::Seen { commit: commit.clone(), published: None }) {
         return Err(format!("This is already build {}, or a local build that doesn't update itself.", &commit[..7]));
     }
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe = app_exe().map_err(|e| e.to_string())?;
     let new = exe.with_extension("exe.new");
     let old = exe.with_extension("exe.old");
     let dest = new.to_string_lossy().into_owned();
@@ -1794,7 +1860,7 @@ fn main() {
         .register_uri_scheme_protocol(OUTPUT_SCHEME, |ctx, _| output_frame(ctx.webview_label()))
         .on_window_event(on_window_event)
         .invoke_handler(tauri::generate_handler![
-            rpc, stop_kernel, check_components, update_sidecar, update_app,
+            rpc, stop_kernel, check_components, check_for_update, update_sidecar, update_app,
             fabric_view_show, fabric_view_hide, fabric_view_action, open_doc, fabric_view_sign_out, open_link,
             pop_out_open, pop_out_close, pop_out_on_top, pop_out_list, pop_out_open_in_fabric
         ])

@@ -361,6 +361,24 @@ test("the commit button says what it will commit, and refuses with conflicts", (
   assert.strictEqual(gitCommitLabel(gitStatus({ merging: true })), "Commit the merge to main");
 });
 
+test("an exception about to end raises one notice a day, and an ended one is a problem", () => {
+  const src = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function exceptionNotice\([\s\S]*?\n}\n/)[0]}; this.exceptionNotice = exceptionNotice;`, ctx);
+  const row = { entity: "gold.fact_sales", rule: "custom_code_test", expires: "2026-10-20", status: "expiring",
+    notice: "gold.fact_sales: the exception for custom_code_test expires in 5 days (2026-10-20)" };
+  const notice = ctx.exceptionNotice(row, "2026-10-15");
+  assert.strictEqual(notice.id, "exception:gold.fact_sales:custom_code_test:2026-10-20:2026-10-15");
+  assert.strictEqual(notice.status, "info");
+  assert.strictEqual(notice.notice, true);
+  assert.match(notice.text, /expires in 5 days/);
+  assert.strictEqual(ctx.exceptionNotice({ ...row, status: "active" }, "2026-10-15"), null);
+  const ended = ctx.exceptionNotice({ ...row, status: "expired" }, "2026-10-21");
+  assert.strictEqual(ended.status, "failed");
+  assert.strictEqual(ended.notice, false);
+  assert.match(src, /\["exceptions", "Exceptions"\]/);
+});
+
 test("side by side pairs removed and added lines and keeps context on both sides", () => {
   const { gitSideBySide, gitSplitPath } = gitHelpers();
   const rows = gitSideBySide([{ header: "@@ -1,3 +1,3 @@", lines: [
@@ -389,6 +407,7 @@ test("a cost figure shows its classification, and an unknown one never reads as 
   // Every figure in the Cost panel goes through measureFigure, which adds the badge.
   const body = src.match(/function costBody\([\s\S]*?\n}\n/)[0];
   assert.ok(!/money\(t\.(cost|saved)/.test(body) && !/cuHours\(t\./.test(body), "a raw total is shown without its classification");
+
   // FINOPS-005: savings come from Fabric runs of the same table, and runs with none are said to be left out.
   assert.ok(/never from how long it took here/.test(body) && !/Scenario: what runs on this PC/.test(body));
   assert.ok(/t\.uncalibrated_runs/.test(body) && !/scenario_cu/.test(body), "the rough scenario isn't shown as the saving");
@@ -836,7 +855,12 @@ test("the risk gate passes quietly, never runs a blocked item and needs the tick
   const ctx = { h: node, icon: () => null, measureBadge: () => null, previewMarked: (_, n) => n,
     btn: (label, _i, onClick) => ({ label, onClick }), closeDialog: () => { dialog = null; },
     showDialog: (title, body, actions) => { dialog = { title, actions }; }, toast: (t) => toasts.push(t),
-    attempt: (fn) => fn(), rpc: async (m, p) => (m === "risk_acknowledge" ? (acks.push(p), { ok: true }) : ctx.result) };
+    attempt: (fn) => fn(), friendlyError: (e) => ({ text: e.message }),
+    rpc: async (m, p) => {
+      if (m === "risk_acknowledge") return (acks.push(p), { ok: true });
+      if (ctx.result instanceof Error) throw ctx.result;
+      return ctx.result;
+    } };
   vm.runInNewContext(`${src}; Object.assign(this, { riskGate });`, ctx);
   const target = { id: "notebook:nb", action: "run_in_fabric", title: "Run?", alt: { label: "Run on this PC", run: () => ctx.ran.push("pc") } };
   ctx.ran = [];
@@ -870,6 +894,18 @@ test("the risk gate passes quietly, never runs a blocked item and needs the tick
   await press("Run anyway");
   assert.strictEqual(await gate, true);
   assert.deepStrictEqual(acks.map((a) => a.risk_id), ["r2"]);
+
+  // A check that couldn't run never goes ahead silently and never blocks: the reason, then Continue or Cancel.
+  ctx.result = new Error("This notebook has no deployment.");
+  for (const [label, expected] of [["Cancel", false], ["Continue", true]]) {
+    gate = ctx.riskGate(target);
+    await settle();
+    assert.ok(dialog, "an error shows a dialog");
+    assert.deepStrictEqual(Array.from(dialog.actions, (a) => a.label), ["Cancel", "Continue"]);
+    press(label);
+    assert.strictEqual(await gate, expected);
+  }
+  assert.deepStrictEqual(acks.map((a) => a.risk_id), ["r2"], "nothing is acknowledged when nothing was checked");
 });
 
 test("only Monitor > Runs shares the page with Fabric's hub, so Schedules and Cost get the whole page (#190)", () => {
@@ -1505,6 +1541,52 @@ test("no raw HTML sinks in app/ui outside the reviewed list", () => {
   assert.deepStrictEqual([...allowed].filter((a) => !found.includes(a)), [], "an allowed sink is gone from the code: remove it from the list");
 });
 
+// HD-052: no href, src or other URL attribute is built from data, and nothing navigates the app's
+// window. Links open through open_link (https and mailto only) or openInFabric. A new URL sink
+// fails here unless it is reviewed and added below with why it is safe; literal values pass.
+test("no URL sinks built from data in app/ui outside the reviewed list", () => {
+  const attr = "href|src|srcset|action|formaction|xlink:href|poster|data|ping|background";
+  const sink = new RegExp(
+    `\\b(?:href|src|srcset|formaction|poster|ping)\\s*:\\s*(?!["'][^"'\`$]*["'])[^\\s,}]` +  // h("a", { href: x }): only a quoted literal passes
+    `|[{,]\\s*(?:href|src|srcset|formaction|poster|ping)\\s*[,}]` +  // h("a", { href }): shorthand takes a variable
+    `|\\.(?:href|src|srcset|action|formAction|poster|ping)\\s*=(?!=)` +  // node.src = x
+    `|setAttribute(?:NS)?\\([^)]*["'](?:${attr})["']` +
+    `|\\bwindow\\.open\\(|(?<!(?:const|let|var)\\s+)\\blocation\\s*=(?!=)|\\blocation\\.(?:href\\s*=(?!=)|assign|replace)\\b`);
+  const allowed = new Set([
+    // Image output: only the picture types imageOutputOk() accepts, with base64 data, and <img> never runs script.
+    "notebook.js: return h(\"div\", { class: \"output\" }, h(\"img\", { class: \"out-img\", alt: \"Chart from this cell\", src: `data:${o.mime};base64,${o.data}` }));",
+    // HTML output frame: the shell's fixed frame URL, no data (HD-020).
+    "notebook.js: src: window.__TAURI__.core.convertFileSrc(\"frame\", \"nbout\") });",
+    // Vega charts: a fixed file in vendor/.
+    "notebook.js: script.src = \"vendor/vega/vega-frame.js\";",
+  ]);
+  const found = [];
+  const walk = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) { if (e.name !== "vendor") walk(p); continue; }
+      if (!/\.(js|html)$/.test(e.name)) continue;
+      const rel = path.relative(ui, p).split(path.sep).join("/");
+      for (const line of fs.readFileSync(p, "utf8").split("\n")) if (sink.test(line)) found.push(`${rel}: ${line.trim()}`);
+    }
+  };
+  walk(ui);
+  assert.deepStrictEqual(found.filter((f) => !allowed.has(f)), [], "a new URL sink: use a literal, open_link or openInFabric, or review it and add it to the list");
+  assert.deepStrictEqual([...allowed].filter((a) => !found.includes(a)), [], "an allowed URL sink is gone from the code: remove it from the list");
+});
+
+test("an image output is shown only for picture types with base64 data", () => {
+  const src = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const fn = src.match(/const IMAGE_OUTPUT_TYPES[\s\S]*?\nfunction imageOutputOk[\s\S]*?\n}\n/)[0];
+  const imageOutputOk = new Function(`${fn}; return imageOutputOk;`)();
+  assert.ok(imageOutputOk({ mime: "image/png", data: "iVBORw0KGgo=" }));
+  assert.ok(imageOutputOk({ mime: "image/svg+xml", data: "PHN2Zy8+\n" }));
+  for (const bad of [{ mime: "text/html", data: "PGI+" }, { mime: "image/png;x", data: "AAAA" },
+    { mime: "image/png", data: "AAAA\" onerror=x" }, { mime: "image/png", data: 1 }, { mime: undefined, data: "AAAA" }]) {
+    assert.ok(!imageOutputOk(bad), JSON.stringify(bad));
+  }
+});
+
 // HD-020 (SH-1, UI-1): the page has a Content Security Policy, and notebook HTML output runs on
 // its own origin, never in the app's, where the Tauri API is.
 test("the app has a strict CSP and notebook HTML output stays off the app's origin", () => {
@@ -1787,7 +1869,7 @@ function followHarness(statuses) {
       }
       return [];
     },
-    setKernel() {}, renderNotebook() {}, forgeEvent() {}, updateResults() {}, registerFeature() {}, previewShown: () => true,
+    setKernel() {}, renderNotebook() {}, forgeEvent() {}, profileEarned() {}, updateResults() {}, registerFeature() {}, previewShown: () => true,
     logActivity: (item) => calls.bell.push(item),
     toast: (text) => calls.toasts.push(text),
     document: { querySelector: () => null, querySelectorAll: () => [] },
@@ -1871,6 +1953,7 @@ function dialogHelpers() {
     h: node, icon: () => node("svg"), btn: (label, _i, onClick, cls) => node("button", { class: cls, onclick: onClick }, label),
     MutationObserver: class { observe() {} disconnect() {} },
     document: { getElementById: () => root, addEventListener: (t, fn) => { (docOn[t] ||= []).push(fn); } },
+    motionLeave: () => null,  // motion.js: the fade after a dialog goes
   };
   vm.runInNewContext(`${code}; Object.assign(this, { showDialog, closeDialog, askText, pickWorkspace, confirmDialog });`, ctx);
   const overlay = () => root.kids[0];
@@ -3356,7 +3439,7 @@ test("Profile opens from the account menu and the command bar, and Validate pass
   assert.match(p, /confirmDialog\("Delete your profile data\?"[\s\S]*?\{ danger: true, typeToConfirm: "DELETE" \}/);
   assert.match(p, /aria-valuenow/, "the XP bar has no progressbar values");
   assert.match(p, /const RECORDING_ON = "Recording is on: [^"]*Turn it off in Profile > Settings\."/);
-  assert.match(p, /a\.id === "first-flame"\) \? ` \$\{RECORDING_ON\}`/, "the first achievement toast doesn't say recording is on");
+  assert.match(p, /a\.first\) \? ` \$\{RECORDING_ON\}`/, "the first achievement toast doesn't say recording is on");
   const s = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   assert.match(s, /previewShown\(\) \? \{ label: "Profile \(Preview\)"/);
   assert.match(s, /showMenu\(anchor, items\.filter\(Boolean\)\)/);
@@ -3717,6 +3800,16 @@ test("Settings history names capacities, filters by scope and asks before creati
   await ctx.read("tenant_settings_read", "Tenant settings");
   assert.strictEqual(JSON.stringify(ctx.toasts.at(-1)), '["Tenant settings: Only a Fabric administrator can read tenant settings.",true]');
   assert.strictEqual(ctx.renders, 2);
+  // Include capacity overrides passes admin, and says when the capacities were read but the overrides weren't.
+  ctx.calls.length = 0;
+  for (const [overrides, toast] of [["read", '["Capacities read: nothing changed",false]'],
+    ["unreadable", '["Capacities read: nothing changed. Overrides weren\'t read: only a Fabric administrator can read them.",true]'],
+    ["failed", '["Capacities read: nothing changed. Overrides couldn\'t be read this time.",true]']]) {
+    ctx.rpc = async (method, args) => (ctx.calls.push([method, JSON.stringify(args)]), { outcome: "read", overrides, changes: [] });
+    await ctx.read("capacity_settings_read", "Capacities", { admin: true });
+    assert.strictEqual(JSON.stringify(ctx.toasts.at(-1)), toast);
+  }
+  assert.ok(ctx.calls.every(([, a]) => a === '{"admin":true}'), JSON.stringify(ctx.calls));
 
   const how = src.match(/howItWorks\("optimize\.settings", \{[\s\S]*?\n  \}\)/)[0];
   for (const t of ["fdcap_snapshot", "fdcap_change", "fdcap_read", "fdten_snapshot", "fdten_change", "fdten_read", "no tenant or capacity setting is ever changed", "asks before it creates the tables"]) {
@@ -4588,6 +4681,125 @@ test("Share adds another notebook to this session, and a notebook that shares on
   assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /sharedSessions: "Shared notebook sessions"/);
 });
 
+// The pure helpers at the top of pipelines.js (Pipelines, Preview).
+function pipelineHelpers() {
+  const src = fs.readFileSync(path.join(ui, "pipelines.js"), "utf8");
+  const code = src.slice(src.indexOf("const PL_SETUP"), src.indexOf("// UTF-8 text as base64"));
+  const ctx = {};
+  vm.runInNewContext(`${code}; Object.assign(this, { plVerdict, plLayers, plAfter, plTimelineRows, plBar, plParamValue, plParamText, plStorable });`, ctx);
+  return ctx;
+}
+
+test("pipelines: an activity runs here, needs a mock or runs only in Fabric", () => {
+  const { plVerdict } = pipelineHelpers();
+  const copy = { path: "$.a[1]", classification: "static" };
+  assert.strictEqual(plVerdict(copy, [{ path: "$.a[1]", code: "not_local" }]), "mock");
+  // What the Run dialog settles (a notebook to pick, lakehouse reads to allow) doesn't need a mock.
+  assert.strictEqual(plVerdict({ path: "$.a[3]", classification: "local" }, [{ path: "$.a[3]", code: "notebook_unmapped" }]), "here");
+  assert.strictEqual(plVerdict({ path: "$.a[3]", classification: "local" }, [{ path: "$.a[30]", code: "not_local" }]), "here");
+  assert.strictEqual(plVerdict({ path: "$.a[4]", classification: "unsupported" }, []), "fabric");
+});
+
+test("pipelines: the graph puts each activity a column after what it depends on", () => {
+  const { plLayers, plAfter } = pipelineHelpers();
+  const acts = [
+    { name: "C", depends_on: [{ activity: "A", conditions: ["Succeeded"] }, { activity: "B", conditions: ["Failed"] }] },
+    { name: "A", depends_on: [] },
+    { name: "B", depends_on: [{ activity: "A", conditions: ["Succeeded"] }] },
+    { name: "D", depends_on: [{ activity: "missing" }] },
+  ];
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(plLayers(acts).map((l) => l.map((a) => a.name)))), [["A", "D"], ["B"], ["C"]]);
+  // A cycle (validation reports it) still draws every activity, once.
+  const cycle = plLayers([{ name: "X", depends_on: [{ activity: "Y" }] }, { name: "Y", depends_on: [{ activity: "X" }] }]);
+  assert.strictEqual(cycle.flat().map((a) => a.name).sort().join(), "X,Y");
+  assert.strictEqual(plAfter(acts[0]), "after A, B fails");
+  assert.strictEqual(plAfter({ depends_on: [{ activity: "V", conditions: ["Succeeded", "Failed"] }] }), "after V or fails");
+  assert.strictEqual(plAfter(acts[1]), "");
+});
+
+test("pipelines: the run view nests iterations and child pipelines under their parent", () => {
+  const { plTimelineRows, plBar } = pipelineHelpers();
+  const record = { activities: [
+    { id: "1", name: "Loop" }, { id: "2", name: "Step", parent: "1", label: "iteration 0" },
+    { id: "3", name: "Child", child_run: { activities: [{ id: "c1", name: "Inner" }] } },
+    { id: "4", name: "Step", parent: "1", label: "iteration 1" },
+  ] };
+  const rows = plTimelineRows(record);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(rows.map((r) => [r.act.name, r.depth]))), [["Loop", 0], ["Step", 1], ["Step", 1], ["Child", 0], ["Inner", 1]]);
+  // Within a loop, rows go by iteration, then in the order they ran.
+  const loop = plTimelineRows({ activities: [{ id: "L", name: "L" },
+    { id: "a0", name: "A", parent: "L", label: "iteration 0" }, { id: "a1", name: "A", parent: "L", label: "iteration 1" },
+    { id: "b0", name: "B", parent: "L", label: "iteration 0" }, { id: "b1", name: "B", parent: "L", label: "iteration 1" }] });
+  assert.strictEqual(loop.map((r) => r.act.id).join(), "L,a0,b0,a1,b1");
+  const bar = plBar({ started: "2026-10-23T10:00:05Z", ended: "2026-10-23T10:00:10Z" }, "2026-10-23T10:00:00Z", "2026-10-23T10:00:20Z");
+  assert.deepStrictEqual({ ...bar }, { left: 25, width: 25 });
+  assert.deepStrictEqual({ ...plBar({ started: "x" }, "2026-10-23T10:00:00Z", "2026-10-23T10:00:20Z") }, { left: 0, width: 0 });
+});
+
+test("pipelines: parameters are typed as Fabric declares them", () => {
+  const { plParamValue, plParamText } = pipelineHelpers();
+  assert.strictEqual(plParamValue("String", "[1]"), "[1]");
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(plParamValue("array", '["a", "b"]'))), ["a", "b"]);
+  assert.strictEqual(plParamValue("int", "3"), 3);
+  assert.strictEqual(plParamValue("int", " "), undefined);
+  assert.throws(() => plParamValue("object", "{nope"));
+  assert.strictEqual(plParamText("string", "x"), "x");
+  assert.strictEqual(plParamText("array", ["a"]), '["a"]');
+  assert.strictEqual(plParamText("int", undefined), "");
+});
+
+test("pipelines: SecureString values and network leave are never kept on this PC", () => {
+  const { plStorable } = pipelineHelpers();
+  const kept = plStorable({ parameters: { day: "2026-10-23", token: "s3cret", Key: "k" }, allow_uncontained: true, keep_outputs: true },
+    [{ name: "day", type: "String" }, { name: "token", type: "SecureString" }, { name: "Key", type: "securestring" }]);
+  assert.strictEqual(JSON.stringify(kept.parameters), '{"day":"2026-10-23"}');
+  assert.strictEqual(kept.allow_uncontained, false);
+  assert.strictEqual(kept.keep_outputs, true);
+  assert.doesNotMatch(JSON.stringify(kept), /s3cret/);
+});
+
+// Panel and dialog transitions (KF-MO-003): Minimal and above, transform and opacity only, never at Off.
+test("Panel transitions: the fade-out card is made at Minimal, not at Off or with reduced motion, and hides from readers", () => {
+  const at = (level, opts = {}) => {
+    const ctx = motionHarness({ ...opts, settings: { motion_level: { value: level } } });
+    ctx.document.body = ctx.node();
+    const dialog = ctx.node("overlay");
+    dialog.querySelector = () => null;
+    dialog.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 });
+    return [ctx, dialog];
+  };
+  for (const [level, opts] of [[0, {}], [3, { reduced: true }]]) {
+    const [ctx, dialog] = at(level, opts);
+    assert.strictEqual(ctx.motionLeave(dialog), null, `a card faded at level ${level}${opts.reduced ? " with reduced motion" : ""}`);
+  }
+  const [ctx, dialog] = at(1);
+  const ghost = ctx.motionLeave(dialog);
+  assert.ok(ghost, "no card faded at Minimal");
+  assert.strictEqual(ghost.attrs["aria-hidden"], "true");
+  assert.ok(ghost.cls.has("mo-ghost") && !ghost.cls.has("overlay"), "the fading card can be mistaken for the dialog");
+  assert.strictEqual(ghost.parent, ctx.document.body);
+  ctx.advance(250);
+  assert.strictEqual(ghost.parent, null, "the fading card stayed");
+  assert.strictEqual(ctx.motionLeave(null), null);
+});
+
+test("Panel transitions: the dialog and tray go before anything fades, and the CSS animates only transform and opacity", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /motionLeave\(root\.querySelector\(":scope > \.overlay"\)\);\n\s*root\.replaceChildren\(\);/, "closeDialog doesn't take the dialog away at once");
+  assert.match(fs.readFileSync(path.join(ui, "activity.js"), "utf8"), /motionLeave\(root\.querySelector\(":scope > \.tray"\)\); root\.replaceChildren\(\);/);
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  const frames = [...css.matchAll(/@keyframes (mo-[\w-]+) \{(.*)\}\n/g)];
+  assert.ok(frames.length >= 6);
+  for (const [, name, body] of frames) {
+    for (const [, prop] of body.matchAll(/([\w-]+)\s*:/g)) assert.ok(["opacity", "transform"].includes(prop), `${name} animates ${prop}`);
+  }
+  assert.match(css, /html\[data-motion-level="0"\] :is\(\.mo-in, \.mo-in > \.dialog\) \{ animation: none; \}/);
+  assert.match(css, /html\[data-motion-level="0"\] \.mo-ghost \{ display: none; \}/);
+  const ins = [...css.matchAll(/\.mo-in[^{]*\{ animation: [\w-]+ (\d+)ms/g)];
+  assert.ok(ins.length >= 4);
+  for (const m of ins) assert.ok(+m[1] >= 150 && +m[1] <= 250, `${m[0]} is outside 150-250 ms`);
+});
+
 // The cooling spark (KF-MO-006): Validate, Prove and a confirmed publish cool; their failures are embers.
 test("Cooling spark: a passed check cools for 500 ms, then is gone; failures play the ember", () => {
   const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
@@ -4631,7 +4843,7 @@ test("Achievement Reveal: a new award is announced and revealed once, a repeat n
   };
   vm.createContext(ctx);
   vm.runInContext(`${src}; this.profileEarned = profileEarned; this.profileForget = profileForget;`, ctx);
-  const first = { id: "first-flame", name: "First Flame", xp: 50 };
+  const first = { id: "first-flame", name: "First Flame", xp: 50, first: true };  // the engine marks the profile's first award
   const steady = { id: "steady-hand", name: "Steady Hand", xp: 100 };
   ctx.profileEarned([first, steady]);
   assert.deepStrictEqual(said, ["Achievement earned: First Flame (+50 XP), Steady Hand (+100 XP). See it in Profile. Recording is on."]);
@@ -4692,4 +4904,51 @@ test("SQL Forge events (KF-MO-005): a slow success sparks, a failure plays the e
   assert.match(q, /const SQL_SPARK_SECONDS = 2;/);
   const run = /async function run\(query[\s\S]*?\n  }\n/.exec(q)[0];
   assert.ok(run.lastIndexOf("runFx(status, allow)") > run.lastIndexOf("sqlPage.redraw?.()"), "the effect plays before the redraw replaces the pill");
+});
+
+test("Profile shows proofs, and Journey and Achievements only while progression is on (KF-DX-002)", () => {
+  const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
+  assert.match(p, /p\.settings\.progression \? tab\("journey", "Journey"\) : null/);
+  assert.match(p, /p\.settings\.progression \? tab\("achievements", "Achievements"\) : null/);
+  assert.match(p, /if \(!p\.settings\.progression && \["journey", "achievements"\]\.includes\(profilePage\.tab\)\) profilePage\.tab = "overview";/);
+  assert.match(p, /const proved = r\.type === "prove\.match";/);
+  const v = fs.readFileSync(path.join(ui, "prove.js"), "utf8");
+  assert.match(v, /toast\(`\$\{nb\.name\}: \$\{text\}`, r\.state === "failed"\);\n  if \(r\.state === "done"\) profileEarned\(r\.earned\);/);
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  const block = css.slice(css.indexOf("/* Profile (profile.js)"), css.indexOf("@media (max-width: 900px) { .profile-grid"));
+  assert.doesNotMatch(block.replace(/#fff\b/g, ""), /#[0-9a-f]{3,6}\b/i, "profile styles use tokens");
+});
+
+// Spark on this PC: NOT NULL inside a struct and names of rewritten SQL functions.
+test("the Spark on this PC page says NOT NULL inside a struct isn't checked and SQL keeps function names", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`NOT NULL` on a field inside a struct\nis accepted in SQL but not checked/);
+  assert.match(doc, /without an alias gets a short name close to Spark's/);
+});
+
+// Spark on this PC: rewritten SQL function names are close to Spark's, not identical.
+test("the Spark on this PC page says how SQL function names differ from Spark's", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /Spark's names differ for literals \(it drops their quotes\) and add defaults such as\n`months_between`'s `roundOff`/);
+});
+
+// Check for updates (account menu, Settings): only a newer build on a self-updating PC offers
+// Install and restart; everything else says why and offers the channel's release page.
+test("Check for updates says what the channel has and offers an install only for a newer build", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function updateCheckResult\([\s\S]*?\n}\n/)[0]}; this.f = updateCheckResult;`, ctx);
+  const a = "5d69f21aa1b2c3d4e5f60718293a4b5c6d7e8f90", b = "a41c0e9aa1b2c3d4e5f60718293a4b5c6d7e8f90";
+  const kind = (report) => ctx.f(report).kind;
+  assert.strictEqual(kind({ commit: a, auto_update: true, latest: { commit: b, channel: "preview" } }), "newer");
+  assert.match(ctx.f({ commit: a, auto_update: true, latest: { commit: a, channel: "preview" } }).text, /up to date.*Preview/);
+  assert.strictEqual(kind({ commit: a, auto_update: false, latest: { commit: b, channel: "stable" } }), "managed");
+  assert.match(ctx.f({ commit: a, latest: { commit: null, error: "URLError: offline", channel: "stable" } }).text, /Stable channel: URLError/);
+  assert.strictEqual(kind({ commit: a, auto_update: true, latest: { commit: b, refused: "older than the last one", channel: "preview" } }), "error");
+  assert.strictEqual(kind({ commit: null, latest: { commit: b } }), "local");
+  const dialog = src.slice(src.indexOf("async function checkForUpdates"), src.indexOf("// ---------- What's new"));
+  assert.match(dialog, /invoke\("check_for_update"\)/);
+  assert.match(dialog, /invoke\("update_app", \{ commit: latest\.commit \}\)/);
+  assert.match(dialog, /openLink\(latest\.page\)/);
+  assert.match(src.slice(src.indexOf("function accountMenu"), src.indexOf("function channelLabel")), /"Check for updates".*checkForUpdates/);
 });

@@ -173,6 +173,11 @@ class FabricClient:
                                   f"or use another name.", exc.code) from exc
             raise
 
+    def assign_to_capacity(self, workspace_id: str, capacity_id: str) -> None:
+        """Put a workspace on a capacity. Needs the workspace's Admin role and Contributor on the capacity;
+        the same permission (Workspace.ReadWrite.All) as creating it."""
+        self._request("POST", f"/workspaces/{workspace_id}/assignToCapacity", json={"capacityId": capacity_id})
+
     def list_lakehouses(self, workspace_id: str) -> list[dict[str, Any]]:
         return self._paged(f"/workspaces/{workspace_id}/lakehouses")
 
@@ -206,6 +211,10 @@ class FabricClient:
         """Delete an item (a notebook or pipeline). Only the live test harness calls this, for
         items it created itself and recorded in its ledger."""
         self._request("DELETE", f"/workspaces/{workspace_id}/items/{item_id}")
+
+    def get_warehouse(self, workspace_id: str, warehouse_id: str) -> dict[str, Any]:
+        """A warehouse, with its SQL connection string (``properties.connectionString``)."""
+        return self._request("GET", f"/workspaces/{workspace_id}/warehouses/{warehouse_id}").json()
 
     def find_lakehouse(self, workspace_id: str, name: str) -> dict[str, Any] | None:
         return next((lh for lh in self.list_lakehouses(workspace_id) if lh["displayName"] == name), None)

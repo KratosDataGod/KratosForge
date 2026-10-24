@@ -731,26 +731,14 @@ def table_name(schema, table):
 '''
 
 _WRITE = '''
-def slices(reader):
-    """The query's rows in tables of about batch_rows, so a big table never has to fit in memory at once."""
-    batches, pending = [], 0
-    for batch in reader:
-        batches.append(batch)
-        pending += batch.num_rows
-        if pending >= batch_rows:
-            yield pa.Table.from_batches(batches)
-            batches, pending = [], 0
-    if batches:
-        yield pa.Table.from_batches(batches)
-
 for table in TABLES:
-    started, rows, mode = time.perf_counter(), 0, "overwrite"
+    started = time.perf_counter()
     result = con.execute(f"SELECT * FROM {table}")
     reader = (getattr(result, "to_arrow_reader", None) or result.fetch_record_batch)(batch_rows)  # newer, older DuckDB
-    for part in slices(reader):
-        lakehouse.write_table(part, table_name(schema, table), mode)
-        rows, mode = rows + part.num_rows, "append"
-    print(f"{table_name(schema, table)}: {rows:,} rows in {time.perf_counter() - started:.1f} s")
+    # The whole table as one write: one commit, its batches never all in memory at once. On this PC
+    # it uploads in the background while the next table is read; the cell ends when all are in.
+    lakehouse.write_table(reader, table_name(schema, table))
+    print(f"{table_name(schema, table)} in {time.perf_counter() - started:.1f} s")
 con.close()
 '''
 

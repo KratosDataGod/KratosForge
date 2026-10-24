@@ -40,6 +40,10 @@ def _say(event: str, **fields: Any) -> None:
 
 
 def run(job: dict[str, Any]) -> None:
+    if job.get("target") == "warehouse":  # SQL-004: one read query in Fabric (warehouse.py)
+        from . import warehouse
+        warehouse.run(job, lambda: str(_ask("warehouse_token") or ""), _say)
+        return
     import duckdb
     import pyarrow as pa
     import pyarrow.ipc as ipc
@@ -123,8 +127,9 @@ _asked: dict[str, Any] = {}
 
 
 def _ask(name: str) -> Any:
-    """Ask the engine, once, for something only it has: ``token`` (the storage token) or
-    ``schemas_enabled`` (the lakehouse's layout, from Fabric). Asked the first time a lakehouse
+    """Ask the engine, once, for something only it has: ``token`` (the storage token),
+    ``warehouse_token`` (a warehouse run's Azure SQL token) or ``schemas_enabled`` (the lakehouse's
+    layout, from Fabric). Asked the first time a lakehouse
     table is read, so a query that reads no table never needs a sign-in. Kept in memory only."""
     if name not in _asked:
         _say("call", name=name)

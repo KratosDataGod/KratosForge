@@ -91,6 +91,14 @@ def test_setup_cell_runs_a_notebook_against_the_mounted_lakehouse(tmp_path, monk
     assert shim.read_table("dbo.by_region").sort("region")["amount"].to_list() == [2, 4]
     assert shim.sql("SELECT sum(amount) AS total FROM by_region")["total"].to_list() == [6]
     assert shim.files() == ["Files/sales.csv"]
+    # A stream (as the TPC-H data notebook writes) goes to Delta batch by batch, as one commit.
+    import pyarrow as pa
+    big = pa.table({"id": list(range(10))})
+    seen = []
+    ns["_write_deltalake"] = lambda uri, data, **kw: (seen.append(type(data).__name__),
+                                                      real_write(local(uri), data, mode=kw["mode"], schema_mode=kw["schema_mode"]))
+    assert shim.write_table(pa.RecordBatchReader.from_batches(big.schema, big.to_batches(max_chunksize=3)), "dbo.ids") == 0
+    assert seen == ["RecordBatchReader"] and sorted(shim.read_table("dbo.ids")["id"].to_list()) == list(range(10))
 
 
 def test_setup_cell_names_tables_like_the_pc_in_a_lakehouse_without_schemas(monkeypatch):

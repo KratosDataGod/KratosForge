@@ -21,7 +21,7 @@ from .redact import describe
 from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, Authenticator
 from .fabric_api import FabricClient
-from . import app_settings, jsonfile, lakehouse, sql, sql_dialects, sql_exec, sql_format, sqlcompat
+from . import app_settings, jsonfile, lakehouse, sql, sql_dialects, sql_exec, sql_format, sqlcompat, warehouse
 from .filenames import file_stem
 from .frames import DOWNLOAD_FORMATS, GONE, FrameGone
 from .jobs import Job, run_local
@@ -39,6 +39,7 @@ from .xray_service import XRayMixin
 from .preview_service import PreviewMixin
 from .central.service import PlatformMixin
 from .central.governance_service import GovernanceMixin
+from .central.requests_service import RequestsMixin
 from .shortcut_service import ShortcutMixin
 from .workload_service import WorkloadMixin
 from .incident_service import IncidentMixin
@@ -55,6 +56,7 @@ from .optimize_service import OptimizeMixin
 from .tenant_history_service import TenantHistoryMixin
 from .capacity_history_service import CapacityHistoryMixin
 from .validate_service import ValidateMixin
+from .model_ossie_service import ModelOssieMixin
 from .environment_service import EnvironmentMixin
 from .notebook_resources_service import NotebookResourcesMixin
 from .notebook_files_service import NotebookFilesMixin
@@ -89,7 +91,7 @@ def _lakehouse_key(ref: Any) -> Any:
         return ref.get("lakehouse_id") or ref.get("name") or None
     return ref or None
 
-class Service(AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin):
+class Service(AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, RequestsMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -489,7 +491,9 @@ class Service(AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineR
                  notebook: str | None = None) -> dict[str, Any]:
         self._replay_guard(None)
         self._attach(lakehouse_ref)
-        return self.sessions.kernel(notebook).run(code)
+        kernel = self.sessions.kernel(notebook)
+        kernel.onelake_writes = self._onelake_writes(notebook)
+        return kernel.run(code)
 
     # The app runs cells with start_cell, then polls: output shows while the cell runs, and
     # interrupt_cell stops it without clearing variables.
@@ -529,6 +533,7 @@ class Service(AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineR
             # Values set in the Widgets bar, so a cell that creates a widget and reads it gets them.
             kernel.widget_values = dict((self._saved_inputs(notebook) or {}).get("widgets") or {})
             kernel.resources_dir = self._resources_dir(notebook)
+            kernel.onelake_writes = self._onelake_writes(notebook)
             if isinstance(kernel, ProcessKernel):
                 return kernel.start(code, time_limit=time_limit, watches=check_watches(watches),
                                     breakpoints=breakpoints, step=bool(step))
@@ -754,7 +759,9 @@ class Service(AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineR
             self._sql_runs = sql_exec.SqlExecutions(
                 self.root, token=lambda: self.auth.storage_token(), audit=self._audit_sql_run,
                 schemas_enabled=lambda ref: self._schemas_enabled(ref["workspace_id"], ref["lakehouse_id"]),
-                local_engine=lambda project: self.local_data.engine(project))
+                local_engine=lambda project: self.local_data.engine(project),
+                warehouse_token=lambda: self.auth.warehouse_token(),
+                resolve_warehouse=lambda ref: warehouse.resolve(self.fabric, ref))
         return self._sql_runs
 
     def _audit_sql_run(self, action: str, outcome: str, seconds: float, params: dict[str, Any]) -> None:
@@ -765,15 +772,19 @@ class Service(AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineR
 
     def sql_start(self, query: str, lakehouse_ref: dict[str, Any] | None = None, dialect: str = "spark",
                   allow: list[str] | None = None, target: str = "lakehouse", project: str = "",
-                  confirm: bool = False, dry_run: bool = False) -> dict[str, Any]:
+                  confirm: bool = False, dry_run: bool = False,
+                  warehouse_ref: dict[str, Any] | None = None) -> dict[str, Any]:
         """Queue a query on this PC. ``allow`` adds "local_mutation" after the person confirmed it;
         lakehouse writes and Fabric changes are never allowed here (sql_policy.py).
 
         ``target="local"`` runs it in local data project ``project``: it may change the project's
         own tables, and ``confirm`` lets DROP, TRUNCATE and DELETE or UPDATE without WHERE run.
+        ``target="warehouse"`` (Preview) runs one T-SQL query that only reads on ``warehouse_ref``
+        (``workspace_id``, ``item_id``, ``kind`` "warehouse" or "endpoint"), in Fabric: it uses capacity.
+
         ``dry_run`` only says what each statement would do; nothing runs."""
         return self.sql_runs.start(query, lakehouse_ref, dialect, allow, target=target, project=project,
-                                   confirm=confirm, dry_run=dry_run)
+                                   confirm=confirm, dry_run=dry_run, warehouse_ref=warehouse_ref)
 
     def sql_status(self, execution: str) -> dict[str, Any]:
         return self.sql_runs.status(execution)
@@ -887,7 +898,27 @@ class Service(AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineR
         self.sessions.active = name  # its session, if it has one, is the one Run, Stop and proofs use
         self.sessions.reap_idle()
         return self._with_place(nb) | {"check": compute_check(nb["cells"], nb["lakehouse"]),
-                                       "replay": self.notebooks.extra(name, "replay")}  # a replay notebook (prove_service)
+                                       "replay": self.notebooks.extra(name, "replay"),  # a replay notebook (prove_service)
+                                       "onelake_writes": self.notebooks.extra(name, "onelake_writes")}
+
+    def _onelake_writes(self, name: str | None) -> str:
+        """How the notebook's cells write to OneLake: its own choice, else the Settings default."""
+        mode = None
+        if name:
+            try:
+                mode = self.notebooks.extra(name, "onelake_writes")
+            except (OSError, ValueError):  # not saved yet
+                mode = None
+        return mode if mode in lakehouse.UPLOADS else app_settings.value("onelake_writes")
+
+    def notebook_onelake_writes_set(self, name: str, mode: str | None) -> dict[str, Any]:
+        """Keeps the notebook's own OneLake writes choice: "local_first" (write here, upload in the
+        background, the cell ends when it's in), "direct" (each write returns once it's in OneLake),
+        or None to follow Settings. Takes effect from the next cell run."""
+        if mode not in (None, "", *lakehouse.UPLOADS):
+            raise ValueError(f"OneLake writes must be one of {', '.join(lakehouse.UPLOADS)}")
+        self.notebooks.set_extra(name, "onelake_writes", mode or None)
+        return {"onelake_writes": mode or None, "effective": self._onelake_writes(name)}
 
     def notebook_inputs(self, name: str, cells: list[dict[str, Any]]) -> dict[str, Any]:
         """The Parameters and Widgets bar for these cells, with the values saved for the notebook."""

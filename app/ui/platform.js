@@ -7,7 +7,8 @@ const PLATFORM_TABS = [
   ["overview", "Overview"], ["landing", "Landing zone"], ["keys", "Business keys"], ["domains", "Domains"],
   ["glossary", "Glossary"], ["governance", "Governance"], ["requests", "Requests"], ["audit", "Audit"], ["settings", "Settings"],
 ];
-const REQUEST_KIND = { key_table: "Key table", source: "Source", access: "Access", shortcut: "Shortcut" };
+const REQUEST_KIND = { key_table: "Key table", source: "Source", access: "Access", shortcut: "Shortcut",
+  workspace: "Workspace", workspace_access: "Workspace access", domain: "Domain", exception: "Exception" };
 const REQUEST_STATUS = { waiting: "Waiting", approved: "Approved", declined: "Declined", withdrawn: "Withdrawn" };
 const platformPage = { tab: "overview", env: "dev", requests: "waiting", source: null, me: null };
 
@@ -42,7 +43,7 @@ async function renderPlatform() {
       h("div", {}, h("h1", {}, "Platform ", previewTag()), who),
       // Only the landing zone and business keys are kept per environment; domains, glossary, governance and
       // requests are organization-wide, so the other tabs show no environment picker (Overview has its own).
-      h("div", { class: "head-actions" }, ["landing", "keys"].includes(p.tab) && !(p.tab === "keys" && p.keysShared) ? envSeg : null,
+      h("div", { class: "head-actions" }, ["landing", "keys"].includes(p.tab) && !(p.tab === "landing" && p.landingCentral) && !(p.tab === "keys" && p.keysShared) ? envSeg : null,
         btn("Refresh", "sync", () => render(), "tool outline"))),
     h("div", { class: "subtabs" }, PLATFORM_TABS.map(([id, label]) =>
       h("button", { class: `tab${p.tab === id ? " active" : ""}`, onclick: () => { if (id === "governance") govPage.open = null; goPlatform(id); } }, label))),
@@ -107,8 +108,10 @@ async function platformOverviewTab(body) {
         h("b", {}, "Each environment's platform"), health),
       h("div", { class: "card pad" },
         h("div", { class: "row" }, h("b", { class: "grow" }, "Landing zone"),
-          h("div", { class: "seg small", role: "group", "aria-label": "Landing zone environment" }, MESH_ENVS.map((env) =>
-            h("button", { class: platformPage.env === env ? "on" : null, onclick: () => { platformPage.env = env; render(); } }, ENV_LABEL[env]))),
+          // One landing workspace is the same for every environment, so it has no environment picker.
+          o.landing.central ? h("span", { class: "muted-text small" }, "Read by Dev, Test and Prod")
+            : h("div", { class: "seg small", role: "group", "aria-label": "Landing zone environment" }, MESH_ENVS.map((env) =>
+              h("button", { class: platformPage.env === env ? "on" : null, onclick: () => { platformPage.env = env; render(); } }, ENV_LABEL[env]))),
           btn("Open", null, () => goPlatform("landing"), "tool link small")),
         late.length ? h("p", { class: "fail-text small" }, `${late.map((s) => s.name).join(", ")} ${late.length === 1 ? "is" : "are"} late.`) : null,
         (o.landing.sources || []).length ? h("table", { class: "list" },
@@ -122,7 +125,7 @@ async function platformOverviewTab(body) {
         auditList(o.recent, true)))].filter(Boolean),
   howItWorks("platform.overview", {
     reads: "Each environment's platform: its catalog in SQL_Platform in Fabric, or a file on this PC until that environment has a platform. It reads when the page opens and when you press Refresh.",
-    changes: "Requests waiting for you can be approved or declined here; approving a shortcut request creates it in OneLake. Domains, key tables and sources change on their own tabs, and only platform admins can change them.",
+    changes: "Requests waiting for you can be approved or declined here; approving one makes what it asks for first, as you: a shortcut in OneLake, a workspace or a workspace role in Fabric, a domain or a policy exception in the platform. Domains, key tables and sources change on their own tabs, and only platform admins can change them.",
     results: "Everyone who uses this platform sees the same counts, requests and recent changes. Each change is kept on the Audit tab.",
     anchor: "platform",
   })));
@@ -148,30 +151,189 @@ async function platformLandingTab(body) {
   const p = platformPage;
   const l = await platformCall("platform_landing", { env: p.env }, "Could not read the landing zone");
   if (!l || !stillHere("landing")) return;
+  if (!!l.central !== !!p.landingCentral) { p.landingCentral = !!l.central; render(); return; }  // one landing workspace: no environment picker
   if (!l.sources.find((s) => s.name === p.source)) p.source = l.sources[0]?.name || null;
   const sel = l.sources.find((s) => s.name === p.source);
   const rerender = () => platformLandingTab(body);
-  const list = h("div", { class: "card pad" },
-    h("div", { class: "row" }, h("b", { class: "grow" }, "Source systems"),
-      adminOnly(btn("Add source", "add", () => sourceDialog(null, rerender, l.system_types), "tool primary small")),
-      platformPage.me?.admin ? null : btn("Request a source", "add", () => requestDialog("source", "", rerender), "tool outline small")),
-    h("p", { class: "muted-text small" }, "Each source lands once, in ", h("span", { class: "mono" }, "Files/<source>/<entity>/"), " of LH_Landing ",
-      l.kind === "fabric" ? `in ${l.where}` : h("span", {}, "on this PC (", h("span", { class: "mono" }, l.where), ")"),
-      ". Domain teams read it in their own Bronze; only the central team writes here. ",
-      "This is the one list of source systems for every project: each keeps its id here, and projects pick theirs in Data mesh > Source systems."),
-    l.problem ? h("p", { class: "fail-text small" }, l.problem) : null,
-    l.sources.length ? h("table", { class: "list" },
-      h("thead", {}, h("tr", {}, ["Source", "Id", "Entities", "Last arrival", "Expected", "Read by"].map((x) => h("th", {}, x)))),
-      h("tbody", {}, l.sources.map((s) => h("tr", { class: `click${s.name === p.source ? " picked" : ""}`, onclick: () => { p.source = s.name; rerender(); } },
-        h("td", {}, h("b", {}, s.registered ? s.code : s.name), s.registered ? null : h("span", { class: "pill-s wrn" }, "not registered")),
-        h("td", { class: "mono" }, s.source_id ?? ""),
-        h("td", {}, s.entities.length),
-        h("td", {}, s.late ? h("span", { class: "pill-s fail" }, s.newest ? `late, ${relTime(s.newest)}` : "nothing yet") : s.newest ? when(s.newest) : h("span", { class: "muted-text" }, "nothing yet")),
-        h("td", {}, s.expected_hours ? `every ${s.expected_hours} h` : h("span", { class: "muted-text" }, "not set")),
-        h("td", {}, s.readers.length || h("span", { class: "muted-text" }, "none"))))))
-      : emptyState({ title: "The landing zone is empty",
-        text: "Add a source, then land its files in Files/<source>/<entity>/." }));
-  body.replaceChildren(h("div", { class: "keys-grid" }, list, sel ? sourceDetail(sel, l, rerender) : null));
+  const late = (s) => s.late ? h("span", { class: "pill-s fail" }, s.newest ? `late, ${relTime(s.newest)}` : "nothing yet")
+    : s.newest ? when(s.newest) : h("span", { class: "muted-text" }, "nothing yet");
+  const pick = (s) => ({ class: `click${s.name === p.source ? " picked" : ""}`, onclick: () => { p.source = s.name; rerender(); } });
+  const addSource = [adminOnly(btn("Add source", "add", () => sourceDialog(null, rerender, l.system_types, l.central ? l.zones : []), "tool outline small")),
+    platformPage.me?.admin ? null : btn("Request a source", "add", () => requestDialog("source", "", rerender), "tool outline small")];
+  let main;
+  if (l.central) {
+    main = h("div", { class: "card pad" },
+      h("div", { class: "row" }, h("b", { class: "grow" }, "Landing zones ", previewTag()), ...addSource,
+        adminOnly(btn("New landing zone", "add", () => landingZoneDialog(l, rerender), "tool primary small"))),
+      h("p", { class: "muted-text small" }, "One landing workspace, ", h("b", {}, l.where), ", read by Dev, Test and Prod. Raw source data isn't per environment, so there's no environment switch here. ",
+        "Each zone is its own lakehouse; only the central team writes to a landing zone. This is the one list of source systems for every project."),
+      l.problem ? h("p", { class: "fail-text small" }, l.problem) : null,
+      switchReadsLine(l, rerender),
+      h("div", { class: "zone-cards" }, l.zones.map((z) => zoneCard(z, l, rerender))),
+      l.sources.length ? h("table", { class: "list" },
+        h("thead", {}, h("tr", {}, ["Source", "Zone", "Lands in", "Expected", "Last arrival", "Read by"].map((x) => h("th", {}, x)))),
+        h("tbody", {}, l.sources.map((s) => h("tr", pick(s),
+          h("td", {}, h("b", {}, s.registered ? s.code : s.name), s.registered ? null : h("span", { class: "pill-s wrn" }, "not registered")),
+          h("td", {}, s.zone_name || "Shared"),
+          h("td", { class: "mono small" }, `Files/${s.name}/<entity>/`),
+          h("td", {}, s.expected_hours ? `every ${s.expected_hours} h` : h("span", { class: "muted-text" }, "not set")),
+          h("td", {}, late(s)),
+          h("td", {}, s.readers.length || h("span", { class: "muted-text" }, "none"))))))
+        : emptyState({ title: "No sources yet", text: "Add a source, pick its zone, then land its files in Files/<source>/<entity>/ of that zone's lakehouse." }),
+      h("p", { class: "muted-text small" }, "Entities keep reading ", h("span", { class: "mono" }, 'landing = "<source>/<entity>/*.csv"'),
+        ": the platform knows which zone each source is in, so nothing in a project changes when a source moves zone. Dev on this PC still reads the local copy in the platform's landing folder."));
+  } else {
+    main = h("div", { class: "card pad" },
+      h("div", { class: "row" }, h("b", { class: "grow" }, "Source systems"), ...addSource),
+      h("p", { class: "muted-text small" }, "Each source lands once, in ", h("span", { class: "mono" }, "Files/<source>/<entity>/"), " of LH_Landing ",
+        l.kind === "fabric" ? `in ${l.where}` : h("span", {}, "on this PC (", h("span", { class: "mono" }, l.where), ")"),
+        ". Domain teams read it in their own Bronze; only the central team writes here. ",
+        "This is the one list of source systems for every project: each keeps its id here, and projects pick theirs in Data mesh > Source systems."),
+      l.problem ? h("p", { class: "fail-text small" }, l.problem) : null,
+      l.sources.length ? h("table", { class: "list" },
+        h("thead", {}, h("tr", {}, ["Source", "Id", "Entities", "Last arrival", "Expected", "Read by"].map((x) => h("th", {}, x)))),
+        h("tbody", {}, l.sources.map((s) => h("tr", pick(s),
+          h("td", {}, h("b", {}, s.registered ? s.code : s.name), s.registered ? null : h("span", { class: "pill-s wrn" }, "not registered")),
+          h("td", { class: "mono" }, s.source_id ?? ""),
+          h("td", {}, s.entities.length),
+          h("td", {}, late(s)),
+          h("td", {}, s.expected_hours ? `every ${s.expected_hours} h` : h("span", { class: "muted-text" }, "not set")),
+          h("td", {}, s.readers.length || h("span", { class: "muted-text" }, "none"))))))
+        : emptyState({ title: "The landing zone is empty",
+          text: "Add a source, then land its files in Files/<source>/<entity>/." }),
+      moveLandingCard(l, rerender));
+  }
+  body.replaceChildren(withHowItWorks(h("div", { class: "keys-grid" }, main, sel ? sourceDetail(sel, l, rerender) : null),
+    howItWorks("platform.landing", {
+      reads: "The source systems and landing zones in the platform's catalog, and the files in each zone's lakehouse in the landing workspace, or, before that's set up, in this environment's LH_Landing (or this PC's landing folder). It reads when the tab opens; listing files in OneLake uses capacity.",
+      changes: "Add source, Edit and Remove change a source system in the catalog, and Edit sets its zone; its files stay. " +
+        "Set up the landing workspace (Move to one landing workspace) creates the workspace and its LH_Landing in Fabric, unless they're there, and records the Shared zone in the catalog. Files in each environment's LH_Landing aren't copied, and nothing is deleted. Switch reads to the landing workspace records in the catalog that every environment now reads Shared sources from it; until then they read their own LH_Landing. " +
+        "New landing zone creates LH_Landing_<Name> in that workspace and records the zone; a secure zone's OneLake data access role and sensitivity label aren't made here: set them in Fabric. " +
+        "Remove zone takes a zone with no sources out of the catalog; its lakehouse stays. Request a source adds a request. Only platform admins make these changes.",
+      results: "Entities keep their landing paths. With one landing workspace, Dev, Test and Prod read each source in a new zone from that zone's lakehouse there, and Shared sources too once reads are switched; and a zone Dev and Test don't read stops their runs with a reason. Dev on this PC reads the local landing folder for every zone. Each change is kept on the Audit tab.",
+      anchor: "platform",
+    })));
+}
+
+// Until an admin switches reads, Shared sources are read from each environment's own LH_Landing, so
+// the move can't break a Prod run before its files are copied. Other zones are new and read at once.
+function switchReadsLine(l, rerender) {
+  const shared = l.zones.find((z) => z.id === "shared");
+  if (!shared || shared.switched_at) return null;
+  return h("div", { class: "callout git-warn small" },
+    h("span", { class: "grow" }, h("b", {}, "The Shared zone isn't read yet. "),
+      "Dev, Test and Prod still read Shared sources from their own LH_Landing, so runs keep working while files are copied to ", l.where,
+      ". Other zones are read from the landing workspace already."),
+    adminOnly(btn("Switch reads to the landing workspace", null, async () => {
+      if (!(await confirmDialog("Switch reads to the landing workspace?", `Every environment then reads the Shared zone in ${l.where}. Copy the files runs still need there first: Prod's LH_Landing isn't copied for you.`, "Switch reads", { danger: true }))) return;
+      if (await platformCall("platform_switch_landing_reads", {}, "Reads not switched")) { toast(`Every environment now reads the Shared zone in ${l.where}`, false, { log: true }); rerender(); }
+    }, "tool outline small")));
+}
+
+function zoneDevTest(z) {
+  return z.devtest === "read" ? "Dev, Test and Prod read it." : "Prod reads it. Dev and Test don't.";
+}
+
+function zoneCard(z, l, rerender) {
+  const n = l.sources.filter((s) => (s.zone || "shared") === z.id);
+  const lateN = n.filter((s) => s.late).length;
+  return h("div", { class: `card pad zone-card${z.secure ? " secure" : ""}` },
+    h("div", { class: "row" }, h("b", { class: "grow" }, z.name), z.secure ? h("span", { class: "pill-s warn" }, "Secure") : h("span", { class: "mono small muted-text" }, z.lakehouse_name)),
+    h("div", { class: "muted-text small" }, [z.secure ? z.lakehouse_name : null, z.domain_id ? `Domain ${z.domain_id}` : z.id === "shared" ? "Every domain" : null,
+      z.readers.length ? `Readers: ${z.readers.join(", ")}` : z.id === "shared" ? "Readers: everyone with Viewer on the workspace" : null,
+      z.label ? `Label: ${z.label}` : null].filter(Boolean).join(". ")),
+    h("div", { class: "small" }, `${n.length} source${n.length === 1 ? "" : "s"}${lateN ? `, ${lateN} late` : ""}. ${zoneDevTest(z)}`),
+    z.secure ? h("p", { class: "warn-text small" }, `Set in Fabric for now: a OneLake data access role on ${z.lakehouse_name} for ${z.readers.length ? z.readers.join(", ") : "its readers"} only`,
+      z.label ? `, and the sensitivity label ${z.label} on it.` : ".") : null,
+    z.id !== "shared" && !n.length ? adminOnly(btn("Remove zone", "delete", async () => {
+      if (!(await confirmDialog(`Remove the zone ${z.name}?`, `Only the catalog's record goes. ${z.lakehouse_name} and its files stay in ${l.where}; delete them in Fabric if you don't need them.`, "Remove zone", { danger: true }))) return;
+      if (await platformCall("platform_delete_landing_zone", { id: z.id }, "Not removed")) rerender();
+    }, "tool link small")) : null);
+}
+
+function zoneLakehouse(name) {
+  return `LH_Landing_${String(name || "").trim().replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "")}`;
+}
+
+async function landingZoneDialog(l, done) {
+  const domains = (await platformCall("platform_domains", {}, "Could not read the domains")) || [];
+  const name = h("input", { placeholder: "HR-Secure" });
+  const domain = h("select", {}, h("option", { value: "" }, "None"), domains.map((d) => h("option", { value: d.id }, d.parent_id ? `  ${d.name}` : d.name)));
+  const readers = h("input", { placeholder: "HR Secure (group)" });
+  const secure = h("input", { type: "checkbox" });
+  const label = h("input", { placeholder: "Highly Confidential" });
+  const prodOnly = h("input", { type: "radio", name: "devtest", checked: true });
+  const likeProd = h("input", { type: "radio", name: "devtest" });
+  const note = h("p", { class: "muted-text small" });
+  const explain = () => {
+    const lh = name.value.trim() ? zoneLakehouse(name.value) : "LH_Landing_<Name>";
+    note.replaceChildren(`Creates ${lh} in ${l.where}. Only the central team writes to a landing zone. `,
+      secure.checked ? `Its OneLake data access role (the readers above only) and its sensitivity label aren't made here yet: set them on ${lh} in Fabric once it's created.` : "");
+  };
+  name.oninput = explain;
+  secure.onchange = explain;
+  explain();
+  showDialog("New landing zone", h("div", {},
+    h("label", { class: "field" }, "Name", name), h("label", { class: "field" }, "Domain", domain),
+    h("label", { class: "field" }, "Who reads it", readers),
+    h("label", { class: "check" }, secure, h("span", {}, h("b", {}, "Secure: PII, PHI or other sensitive data"),
+      h("div", { class: "muted-text small" }, "Its own lakehouse with a OneLake data access role for the readers above only. Nobody gets it through workspace Viewer."))),
+    h("label", { class: "field" }, "Sensitivity label", label),
+    h("div", { class: "field" }, "Dev and Test", h("div", { class: "row wrap" },
+      h("label", { class: "check" }, prodOnly, "Don't read it (Prod only)"), h("label", { class: "check" }, likeProd, "Read it like Prod"))),
+    note), [
+    btn("Cancel", null, closeDialog, "tool outline"),
+    btn("Create zone", "add", async () => {
+      if (!name.value.trim()) { name.focus(); return; }
+      const lh = zoneLakehouse(name.value);
+      const zone = { name: name.value.trim(), domain_id: domain.value, readers: readers.value, secure: secure.checked,
+        label: label.value.trim(), devtest: likeProd.checked ? "read" : "none" };
+      if (!(await confirmDialog(`Create the landing zone ${zone.name}?`, `This creates the lakehouse ${lh} in ${l.where} in Fabric (or keeps it if it's there) and records the zone in the catalog.${zone.secure ? ` Set its OneLake data access role and sensitivity label on ${lh} in Fabric afterwards.` : ""}`, "Create zone"))) return;
+      const res = await platformCall("platform_create_landing_zone", { zone }, "Zone not created");
+      if (res) { toast(`${res.created ? "Created" : "Kept"} ${res.lakehouse}; the zone ${zone.name} is in the catalog`, false, { log: true }); done(); }
+    }, "tool primary")]);
+  name.focus();
+}
+
+// The one-time move from each environment's LH_Landing to one landing workspace. In this release it
+// creates the workspace and the Shared zone only: files aren't copied and nothing is deleted.
+function moveLandingCard(l, rerender) {
+  if (l.policy) return h("p", { class: "muted-text small" }, "Your organization's policy sets the platform, so one landing workspace is added to that policy.");
+  return h("div", { class: "callout" }, icon("databaseArrowRight", 18),
+    h("span", { class: "grow" }, h("b", {}, "One landing workspace for Dev, Test and Prod ", previewTag()),
+      h("div", { class: "small" }, "Raw source data isn't per environment: one workspace with a Shared zone, plus zones per domain and secure zones for PII or PHI with their own readers.")),
+    platformPage.me?.admin ? btn("Move to one landing workspace", null, () => landingSetupDialog(l, rerender), "tool primary small")
+      : h("span", { class: "muted-text small" }, "A platform admin sets it up"));
+}
+
+async function landingSetupDialog(l, done) {
+  if (!state.user && !(await signIn())) return;
+  const name = h("input", { value: l.landing?.workspace_name || l.default_landing_name });
+  const capacity = h("select", {}, h("option", { value: "" }, "Loading capacities..."));
+  showDialog("Move to one landing workspace", h("div", {},
+    h("p", { class: "text" }, "Today each environment has its own LH_Landing. This creates the workspace below with one Shared zone, LH_Landing, and records it in the catalog. Shared sources keep reading each environment's own LH_Landing until you choose Switch reads to the landing workspace, so runs keep working while you copy files over."),
+    h("label", { class: "field" }, "Workspace", name), h("label", { class: "field" }, "Capacity", capacity),
+    h("div", { class: "callout git-warn small" }, h("span", {}, "Files already in each environment's LH_Landing aren't copied yet: they stay where they are. Copy what runs still need into the new workspace before you switch reads. Nothing is deleted: the old LH_Landing lakehouses stay until you remove them.")),
+    h("p", { class: "muted-text small" }, "Entities keep the same landing paths. Reading and writing OneLake uses capacity.")), [
+    btn("Cancel", null, closeDialog, "tool outline"),
+    btn("Move", null, async () => {
+      const ws = name.value.trim() || l.default_landing_name;
+      const cap = capacity.value;
+      if (!(await confirmDialog(`Create ${ws}?`, `This creates the workspace ${ws} in Fabric${cap ? "" : " with no capacity"} (or uses the one with that name), and its lakehouse LH_Landing, then records the Shared zone in the catalog. Files aren't copied and nothing is deleted.`, "Create"))) return;
+      const steps = h("div", {}, h("p", { class: "muted-text" }, "Setting up the landing workspace..."));
+      showDialog("Move to one landing workspace", steps, [btn("Close", null, () => { closeDialog(); done(); }, "tool primary")]);
+      const res = await attempt(() => rpc("platform_landing_setup", { workspace_name: ws, capacity_id: cap }), "Landing workspace not set up");
+      if (!res) { steps.replaceChildren(h("p", { class: "fail-text" }, "Nothing was set up.")); return; }
+      steps.replaceChildren(h("ul", { class: "steps-list" }, res.steps.map((st) => h("li", {},
+        icon(st.status === "done" ? "ok" : "error", 14), h("b", {}, ` ${st.step}: `), st.detail))),
+      h("p", { class: res.ready ? "muted-text" : "fail-text" }, res.ready
+        ? "Done. Shared sources still read each environment's LH_Landing until you switch reads; new zones are read from the landing workspace."
+        : "Some steps didn't finish, so runs still read each environment's LH_Landing. Fix what they say, then move again."));
+      if (res.ready) toast("One landing workspace is set up", false, { log: true });
+    }, "tool primary")]);
+  const caps = (await attempt(() => rpc("list_capacities"), "Could not list capacities")) || [];
+  capacity.replaceChildren(...caps.map((x) => h("option", { value: x.id }, `${x.displayName}${x.sku ? ` (${x.sku})` : ""}`)),
+    h("option", { value: "" }, "No capacity (lakehouses need one)"));
 }
 
 function sourceDetail(s, l, rerender) {
@@ -182,14 +344,16 @@ function sourceDetail(s, l, rerender) {
       h("tbody", {}, fs.map((f) => h("tr", {}, h("td", { class: "mono" }, f.path), h("td", {}, bytes(f.size)), h("td", {}, when(f.modified))))))
       : h("p", { class: "muted-text" }, "No files yet."));
   });
+  const zone = l.central ? l.zones.find((z) => z.id === (s.zone || "shared")) : null;
   return h("div", { class: "card pad side-panel" },
     h("div", { class: "row" }, h("h2", { class: "flush" }, s.title || s.name), h("span", { class: "spacer" }),
-      adminOnly(btn(s.registered ? "Edit" : "Register", null, () => sourceDialog(s, rerender, l.system_types), "tool outline small")),
+      adminOnly(btn(s.registered ? "Edit" : "Register", null, () => sourceDialog(s, rerender, l.system_types, l.central ? l.zones : []), "tool outline small")),
       adminOnly(s.registered ? btn("Remove", "delete", async () => {
         if (!(await confirmDialog(`Remove source ${s.name}?`, "Only the registration goes; files in the landing zone stay. A source a project still reads can't be removed.", "Remove", { danger: true }))) return;
         if (await platformCall("platform_delete_source", { name: s.name }, "Not removed")) rerender();
       }, "tool outline small") : null)),
     s.registered ? h("p", { class: "muted-text small" }, `${s.code} · id ${s.source_id ?? "not given yet"}${s.system_type ? ` · ${s.system_type}` : ""}`) : null,
+    zone ? h("p", { class: "muted-text small" }, `In the ${zone.secure ? "secure " : ""}zone ${zone.name}, ${zone.lakehouse_name}. ${zoneDevTest(zone)}`) : null,
     h("p", { class: "muted-text small" }, s.description || "", s.owner ? ` Owner ${s.owner}.` : ""),
     h("b", {}, "Entities"),
     s.entities.length ? h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["Entity", "Files", "Size", "Newest"].map((x) => h("th", {}, x)))),
@@ -204,7 +368,7 @@ function sourceDetail(s, l, rerender) {
     h("p", { class: "muted-text small" }, "Or Data mesh > New entity > From the landing zone."));
 }
 
-function sourceDialog(s, done, systemTypes = []) {
+function sourceDialog(s, done, systemTypes = [], zones = []) {
   const name = h("input", { value: s?.name || "", placeholder: "sap", disabled: s?.registered ? true : null });
   const title = h("input", { value: s?.title || "", placeholder: "SAP ERP" });
   const description = h("input", { value: s?.description || "" });
@@ -212,11 +376,14 @@ function sourceDialog(s, done, systemTypes = []) {
   const hours = h("input", { type: "number", min: "1", value: s?.expected_hours || "", placeholder: "24" });
   const type = h("select", {}, ["", ...systemTypes, ...(s?.system_type && !systemTypes.includes(s.system_type) ? [s.system_type] : [])]
     .map((t) => h("option", { value: t, selected: t === (s?.system_type || "") ? true : null }, t || "Not set")));
+  // With one landing workspace, each source is in a zone; Shared is stored as no zone.
+  const zone = zones.length ? h("select", {}, zones.map((z) => h("option", { value: z.id === "shared" ? "" : z.id,
+    selected: (z.id === "shared" ? "" : z.id) === (s?.zone || "") ? true : null }, `${z.name}${z.secure ? " (secure)" : ""}`))) : null;
   const secrets = MESH_ENVS.map((env) => [env, h("input", { value: s?.connections?.[env]?.secret_name || "", placeholder: "Key Vault secret name" })]);
   showDialog(s?.registered ? `Edit ${s.name}` : "Add a source", h("div", { class: "scroll" },
     h("div", { class: "form-grid" }, h("label", { class: "field" }, "Folder name", name), h("label", { class: "field" }, "Title", title),
       h("label", { class: "field" }, "Owner", owner), h("label", { class: "field" }, "Expected every (hours)", hours),
-      h("label", { class: "field" }, "System type", type)),
+      h("label", { class: "field" }, "System type", type), zone ? h("label", { class: "field" }, "Zone", zone) : null),
     h("label", { class: "field" }, "Description", description),
     h("b", {}, "Connection secret per environment"),
     h("p", { class: "muted-text small" }, "The name of the Key Vault secret its pipeline uses. Secrets themselves never go here."),
@@ -227,7 +394,7 @@ function sourceDialog(s, done, systemTypes = []) {
       const connections = Object.fromEntries(secrets.filter(([, i]) => i.value.trim()).map(([env, i]) => [env, { secret_name: i.value.trim() }]));
       const res = await platformCall("platform_save_source", { source: { name: name.value.trim().toLowerCase(), title: title.value.trim(),
         description: description.value.trim(), owner: owner.value.trim(), expected_hours: hours.value.trim(), connections,
-        system_type: type.value, ...(s?.registered ? { code: s.code, active: s.active !== false } : {}) } }, "Not saved");
+        system_type: type.value, ...(zone ? { zone: zone.value } : {}), ...(s?.registered ? { code: s.code, active: s.active !== false } : {}) } }, "Not saved");
       if (res) { closeDialog(); platformPage.source = name.value.trim().toLowerCase(); done(); }
     }, "tool primary")]);
 }
@@ -316,36 +483,252 @@ function requestDialog(kind, target, done, extra = {}) {
     }, "tool primary")]);
 }
 
+// The kinds the New request dialog offers first (Preview, "requestsCoreFour"); the older four follow under "Also here".
+const NEW_REQUEST_KINDS = [
+  ["workspace", "A new workspace", "Named, in a domain, on a capacity"],
+  ["workspace_access", "Access to a workspace", "A role for you or a group"],
+  ["domain", "A domain", "Or a subdomain"],
+  ["exception", "An exception to a policy", "For a while, with a reason"],
+];
+const WORKSPACE_ROLES = ["Viewer", "Contributor", "Member", "Admin"];
+
+const reqQuietly = (method, params = {}) => rpc(method, params).catch(() => null);
+const reqDay = (d) => d.toISOString().slice(0, 10);
+const reqField = (label, input, hint) => h("label", { class: "field" }, label, input, hint ? h("span", { class: "muted-text small" }, hint) : null);
+const reqOptions = (rows, picked) => rows.map(([v, t]) => h("option", { value: v, selected: v === picked ? true : null }, t));
+
+// Each form draws its fields into `box` and returns a function that gives the request to send, or null
+// (after focusing what's missing). The platform checks every field again when it's sent.
+const REQUEST_FORMS = {
+  async workspace(box) {
+    const [domains, capacities] = await Promise.all([reqQuietly("platform_domains"), reqQuietly("list_capacities")]);
+    const name = h("input", { placeholder: "Sales Forecasting - Dev", "aria-label": "Workspace name" });
+    const domain = h("select", { "aria-label": "Domain" }, reqOptions([["", "No domain"], ...(domains || []).map((d) => [d.id, d.parent_id ? `${(domains.find((x) => x.id === d.parent_id) || {}).name || d.parent_id} / ${d.name}` : d.name])]));
+    const caps = capacities || [];
+    const capacity = h("select", { "aria-label": "Capacity" }, reqOptions(caps.length ? caps.map((c) => [c.id, c.displayName || c.id]) : [["", "None I can see: the approver picks one"]]));
+    const admins = h("input", { placeholder: "lee@contoso.com, or a group's object ID", "aria-label": "Admins" });
+    const why = h("textarea", { rows: 2, placeholder: "What it's for", "aria-label": "Why" });
+    box.replaceChildren(reqField("Workspace name", name),
+      h("div", { class: "req-two" }, reqField("Domain", domain), reqField("Capacity", capacity)),
+      reqField("Admins", admins, "People by email or UPN, groups by object ID, separated by commas."), reqField("Why", why));
+    return () => {
+      if (!name.value.trim()) return name.focus();
+      if (!admins.value.trim()) return admins.focus();
+      if (!why.value.trim()) return why.focus();
+      const cap = caps.find((c) => c.id === capacity.value);
+      return { kind: "workspace", target: name.value.trim(), reason: why.value.trim(),
+        detail: { name: name.value.trim(), domain_id: domain.value, capacity_id: capacity.value, capacity_name: cap?.displayName || "",
+          admins: admins.value.split(/[,;]/).map((x) => x.trim()).filter(Boolean) } };
+    };
+  },
+  async workspace_access(box) {
+    const spaces = (state.workspaces || await reqQuietly("list_workspaces") || []).filter((w) => w.id);
+    const ws = h("select", { "aria-label": "Workspace" }, reqOptions([...spaces.map((w) => [w.id, w.displayName || w.id]), ["other", "Another workspace (paste its ID)"]]));
+    const otherId = h("input", { placeholder: "Its ID, from its address in Fabric", "aria-label": "Workspace ID" });
+    const otherName = h("input", { placeholder: "Its name", "aria-label": "Workspace name" });
+    const other = h("div", { class: "req-two", hidden: spaces.length ? true : null }, reqField("Workspace ID", otherId), reqField("Name", otherName));
+    if (!spaces.length) ws.value = "other";
+    ws.onchange = () => { other.hidden = ws.value !== "other"; };
+    const role = h("select", { "aria-label": "Role" }, reqOptions(WORKSPACE_ROLES.map((r) => [r, r]), "Viewer"));
+    let who = "me";
+    const groupId = h("input", { placeholder: "The group's object ID", "aria-label": "Group object ID" });
+    const groupName = h("input", { placeholder: "Sales Engineers", "aria-label": "Group name" });
+    const group = h("div", { class: "req-two", hidden: true }, reqField("Group object ID", groupId), reqField("Group name", groupName));
+    const seg = h("div", { class: "seg", role: "group", "aria-label": "Who" }, [["me", "Me"], ["group", "A group"]].map(([k, t]) =>
+      h("button", { class: k === who ? "on" : null, onclick: (e) => { who = k; seg.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === e.currentTarget)); group.hidden = k !== "group"; } }, t)));
+    const why = h("textarea", { rows: 2, placeholder: "What you need it for", "aria-label": "Why" });
+    box.replaceChildren(reqField("Workspace", ws), other, reqField("Role", role), h("div", { class: "field" }, "Who", seg), group, reqField("Why", why));
+    return () => {
+      const picked = spaces.find((w) => w.id === ws.value);
+      if (ws.value === "other" && !otherId.value.trim()) return otherId.focus();
+      if (who === "group" && !groupId.value.trim()) return groupId.focus();
+      const id = picked ? picked.id : otherId.value.trim();
+      const wsName = picked ? picked.displayName : (otherName.value.trim() || id);
+      return { kind: "workspace_access", target: wsName, reason: why.value.trim(),
+        detail: { workspace_id: id, workspace_name: wsName, role: role.value, who,
+          ...(who === "group" ? { group_id: groupId.value.trim(), group_name: groupName.value.trim() } : {}) } };
+    };
+  },
+  async domain(box) {
+    const domains = (await reqQuietly("platform_domains")) || [];
+    const name = h("input", { placeholder: "Marketing", "aria-label": "Domain name" });
+    const parent = h("select", { "aria-label": "Parent" }, reqOptions([["", "None: a top-level domain"], ...domains.filter((d) => !d.parent_id).map((d) => [d.id, d.name])]));
+    const description = h("input", { placeholder: "What it covers", "aria-label": "Description" });
+    const owners = h("input", { placeholder: "ana@contoso.com, Marketing data team", "aria-label": "Owners" });
+    const why = h("textarea", { rows: 2, placeholder: "Who needs it, and for what", "aria-label": "Why" });
+    box.replaceChildren(reqField("Name", name), reqField("Parent", parent, "Pick one to ask for a subdomain."),
+      reqField("Description", description), reqField("Owners", owners), reqField("Why", why));
+    return () => {
+      if (!name.value.trim()) return name.focus();
+      return { kind: "domain", target: name.value.trim(), reason: why.value.trim(),
+        detail: { name: name.value.trim(), parent_id: parent.value, description: description.value.trim(), owners: owners.value.trim() } };
+    };
+  },
+  async exception(box) {
+    const o = (await reqQuietly("governance_overview")) || { policies: [], domains: [], projects: [] };
+    const live = o.policies.filter((p) => p.current_version && p.status !== "retired");
+    if (!live.length) { box.replaceChildren(h("p", { class: "muted-text" }, "No published policy to ask an exception to.")); return () => null; }
+    const pol = h("select", { "aria-label": "Policy" }, reqOptions(live.map((p) => [p.id, p.name])));
+    const scope = h("select", { "aria-label": "Scope" }, reqOptions([["project", "A project"], ["domain", "A domain"], ["workspace", "A workspace"]]));
+    const targets = {
+      project: h("select", { "aria-label": "Project" }, reqOptions((o.projects || []).map((p) => [p, p]))),
+      domain: h("select", { "aria-label": "Domain" }, reqOptions((o.domains || []).map((d) => [d.id, d.name]))),
+      workspace: h("input", { placeholder: "The workspace's name", "aria-label": "Workspace" }),
+    };
+    const where = h("div", {}, reqField("Which", targets.project));
+    scope.onchange = () => where.replaceChildren(reqField("Which", targets[scope.value]));
+    const tomorrow = new Date(Date.now() + 86400000);
+    const yearOn = new Date(); yearOn.setFullYear(yearOn.getFullYear() + 1);
+    const month = new Date(Date.now() + 30 * 86400000);
+    const until = h("input", { type: "date", min: reqDay(tomorrow), max: reqDay(yearOn), value: reqDay(month), "aria-label": "Until" });
+    const why = h("textarea", { rows: 2, placeholder: "Why the policy can't be met for now", "aria-label": "Why" });
+    box.replaceChildren(reqField("Policy", pol), h("div", { class: "req-two" }, reqField("For", scope), where),
+      reqField("Until", until, "A year at most. It ends on its own on that date."), reqField("Why", why));
+    return () => {
+      const target = targets[scope.value];
+      if (!target.value.trim()) return target.focus();
+      if (!until.value) return until.focus();
+      if (!why.value.trim()) return why.focus();
+      return { kind: "exception", target: pol.value, reason: why.value.trim(),
+        detail: { policy: pol.value, scope: scope.value, scope_target: target.value.trim(), until: until.value } };
+    };
+  },
+};
+
+// Platform > Requests > New request: the kind picker, then that kind's fields.
+function newRequestDialog(done, start = "workspace") {
+  const shown = previewShown();
+  const box = h("div", { class: "req-form" });
+  let read = null;
+  const pick = async (kind) => {
+    grid.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.kind === kind)));
+    box.replaceChildren(loading("Loading..."));
+    read = await REQUEST_FORMS[kind](box);
+  };
+  const grid = h("div", { class: "req-kinds", role: "group", "aria-label": "What you need" }, NEW_REQUEST_KINDS.map(([k, title, sub]) =>
+    h("button", { class: "req-kind", "data-kind": k, "aria-pressed": "false", onclick: () => pick(k) },
+      previewMarked("requestsCoreFour", h("b", {}, title, " ")), h("span", { class: "muted-text small" }, sub))));
+  const elsewhere = (label, run) => btn(label, null, () => { closeDialog(); run(); }, "tool link small");
+  const also = h("div", { class: "row tight muted-text small" }, "Also here: ",
+    elsewhere("Key table", () => requestDialog("key_table", "", done)),
+    elsewhere("Source", () => requestDialog("source", "", done)),
+    elsewhere("Product access", () => { catalogPage.tab = "products"; go("onelake"); }),
+    elsewhere("Shortcut", () => { catalogPage.tab = "shortcuts"; scPage.view = "requests"; go("onelake"); shortcutDialog("request"); }));
+  showDialog("New request", h("div", { class: "req-dialog" }, shown ? grid : null, also, shown ? box : null), [
+    btn("Cancel", null, closeDialog, "tool outline"),
+    shown ? btn("Send request", null, async () => {
+      const req = read?.();
+      if (!req) return;
+      const res = await platformCall("platform_request", req, "Not sent");
+      if (res) { closeDialog(); toast(`Request sent: ${REQUEST_KIND[req.kind].toLowerCase()} ${res.target}`, false, { log: true }); done?.(); }
+    }, "tool primary") : null].filter(Boolean));
+  if (shown) pick(start);
+}
+
+// One line on what a request is for, beyond its target.
+function requestDetail(r) {
+  const d = r.detail || {};
+  const muted = (text) => (text ? h("span", { class: "muted-text" }, text) : null);
+  const names = (list) => (list || []).map((a) => a.name || a.email || a.id).join(", ");
+  if (r.kind === "shortcut") return [h("b", {}, d.name), muted(` in ${d.workspace_name || ""} / ${d.lakehouse_name || ""}`)];
+  if (r.kind === "workspace") {
+    return [h("b", {}, r.target), h("div", { class: "muted-text small" },
+      [d.domain_name ? `${d.domain_name} domain` : null, d.capacity_name || (d.capacity_id ? "a capacity" : "capacity: the approver picks"),
+        `admins ${names(d.admins)}`].filter(Boolean).join(", "))];
+  }
+  if (r.kind === "workspace_access") {
+    const p = d.principal || {};
+    return [h("b", {}, r.target), muted(` ${d.role} for ${p.type === "Group" ? `group ${p.name}` : p.email || p.name}`)];
+  }
+  if (r.kind === "domain") return [h("b", {}, d.name || r.target), muted(d.parent_id ? ` under ${d.parent_id}` : " (top level)"), d.owners ? h("div", { class: "muted-text small" }, `Owners: ${d.owners}`) : null];
+  if (r.kind === "exception") {
+    return [h("b", {}, d.policy_name || r.target), muted(` for ${d.scope} ${d.scope_target}`), h("div", { class: "muted-text small" }, `Until ${d.until}`)];
+  }
+  return h("b", { class: "mono" }, r.target);
+}
+
+// What approving makes, said before it's made. A request that makes something in Fabric is confirmed
+// first; null means the person cancelled. Returns extra params for platform_decide.
+async function confirmApproval(r) {
+  const d = r.detail || {};
+  const names = (list) => (list || []).map((a) => a.name || a.email || a.id).join(", ");
+  const after = "Then the request is approved. If any step fails, it stays waiting and says which.";
+  if (r.kind === "workspace") {
+    let capacity = d.capacity_id;
+    let capName = d.capacity_name || "its capacity";
+    if (!capacity) {
+      const caps = (await reqQuietly("list_capacities")) || [];
+      if (!caps.length) { toast("No capacity you can put a workspace on. Ask for Contributor on one, then approve.", true); return null; }
+      const sel = h("select", { "aria-label": "Capacity" }, reqOptions(caps.map((c) => [c.id, c.displayName || c.id])));
+      const ok = await new Promise((resolve) => showDialog(`Pick a capacity for ${r.target}`, reqField("Capacity", sel, "The request didn't name one."), [
+        btn("Cancel", null, () => { closeDialog(); resolve(false); }, "tool outline"),
+        btn("Next", null, () => { closeDialog(); resolve(true); }, "tool primary")]));
+      if (!ok) return null;
+      capacity = sel.value;
+      capName = caps.find((c) => c.id === capacity)?.displayName || "that capacity";
+    }
+    // Putting a workspace in a Fabric domain needs Fabric's admin API, which KratosForge doesn't ask
+    // for, so that step is named as the approver's to do in Fabric rather than promised.
+    const domain = d.domain_id ? ` Then put it in the ${d.domain_name || d.domain_id} domain in Fabric's admin portal.` : "";
+    const ok = await confirmDialog(`Approve and create ${r.target}?`,
+      `As you, KratosForge creates the workspace on ${capName} and makes ${names(d.admins)} its admins. ${after}${domain}`,
+      "Create and approve");
+    return ok ? { capacity_id: d.capacity_id ? "" : capacity } : null;
+  }
+  if (r.kind === "workspace_access") {
+    const p = d.principal || {};
+    const ok = await confirmDialog(`Approve ${d.role} on ${r.target}?`,
+      `As you, KratosForge gives ${p.type === "Group" ? `the group ${p.name}` : p.email} the ${d.role} role in ${r.target}. ${after}`, "Add and approve");
+    return ok ? {} : null;
+  }
+  if (r.kind === "domain") {
+    const ok = await confirmDialog(`Approve the domain ${d.name || r.target}?`,
+      `As you, KratosForge saves the ${d.parent_id ? "subdomain" : "domain"} ${d.name || r.target} in the platform, where every team sees it. It isn't created in Fabric: a Fabric administrator does that in the admin portal. ${after}`,
+      "Save and approve");
+    return ok ? {} : null;
+  }
+  if (r.kind === "exception") {
+    const ok = await confirmDialog(`Grant an exception to ${d.policy_name || r.target}?`,
+      `The platform records the exception for ${d.scope} ${d.scope_target} until ${d.until}, with its reason, and adds it to the policy's history. Where the policy is resolved there, it shows as "Excepted until ${d.until}" instead of applying. It ends on its own on that date.`,
+      "Approve");
+    return ok ? {} : null;
+  }
+  return {};
+}
+
 function requestTable(rows, rerender, compact = false) {
   if (!rows.length) return h("p", { class: "muted-text" }, "Nothing waiting.");
   const decide = async (r, approve) => {
     let note = "";
+    let extra = {};
     if (!approve) {
       const input = h("input", { placeholder: "Why, so they know what to do next" });
-      const ok = await new Promise((resolve) => showDialog(`Decline ${REQUEST_KIND[r.kind].toLowerCase()} ${r.target}?`, h("label", { class: "field" }, "Note", input), [
+      const ok = await new Promise((resolve) => showDialog(`Decline ${(REQUEST_KIND[r.kind] || "request").toLowerCase()} ${r.target}?`, h("label", { class: "field" }, "Note", input), [
         btn("Cancel", null, () => { closeDialog(); resolve(false); }, "tool outline"),
         btn("Decline", null, () => { note = input.value.trim(); closeDialog(); resolve(true); }, "tool primary")]));
       if (!ok) return;
+    } else {
+      extra = await confirmApproval(r);
+      if (!extra) return;
     }
-    const res = await platformCall("platform_decide", { id: r.id, approve, note }, "Not decided");
+    const res = await platformCall("platform_decide", { id: r.id, approve, note, ...extra }, "Not decided");
     if (!res) return;
-    toast(`${approve ? "Approved" : "Declined"} ${r.kind === "shortcut" ? `shortcut ${r.detail?.name}` : r.target}${res.problems?.length ? `; ${res.problems.join("; ")}` : ""}`, !!res.problems?.length, { log: true });
+    const tail = [...(res.problems || []), ...(res.next || [])];
+    toast(`${approve ? "Approved" : "Declined"} ${r.kind === "shortcut" ? `shortcut ${r.detail?.name}` : r.target}${tail.length ? `; ${tail.join("; ")}` : ""}`, !!res.problems?.length, { log: true });
     rerender();
   };
   return h("table", { class: "list" },
     h("thead", {}, h("tr", {}, ["Type", "Request", "From", compact ? "" : "Status", ""].map((x) => h("th", {}, x)))),
-    h("tbody", {}, rows.map((r) => h("tr", {},
-      h("td", {}, h("span", { class: "pill-s info" }, REQUEST_KIND[r.kind])),
-      h("td", {}, r.kind === "shortcut"
-        ? [h("b", {}, r.detail?.name), h("span", { class: "muted-text" }, ` in ${r.detail?.workspace_name || ""} / ${r.detail?.lakehouse_name || ""}`)]
-        : h("b", { class: "mono" }, r.target), r.project ? h("span", { class: "muted-text" }, ` for ${r.project}`) : null,
+    h("tbody", {}, rows.map((r) => h("tr", { "data-request": r.id },
+      h("td", {}, h("span", { class: "pill-s info" }, REQUEST_KIND[r.kind] || r.kind)),
+      h("td", {}, requestDetail(r), r.project ? h("span", { class: "muted-text" }, ` for ${r.project}`) : null,
         r.reason ? h("div", { class: "muted-text small" }, r.reason) : null,
         r.note ? h("div", { class: "muted-text small" }, `Note: ${r.note}`) : null),
       h("td", {}, r.requested_by || h("span", { class: "muted-text" }, "someone"), h("div", { class: "muted-text small" }, when(r.requested_at))),
       compact ? h("td", {}) : h("td", {}, h("span", { class: `pill-s ${r.status === "approved" ? "pass" : r.status === "waiting" ? "wrn" : "neu"}` }, REQUEST_STATUS[r.status]),
         r.decided_by ? h("div", { class: "muted-text small" }, `${r.decided_by}, ${relTime(r.decided_at)}`) : null),
       h("td", {}, h("span", { class: "row tight" },
-        r.can_decide ? btn("Approve", null, () => decide(r, true), "tool primary small") : null,
+        r.can_decide ? btn(r.kind === "workspace" ? "Approve and create" : "Approve", null, () => decide(r, true), "tool primary small") : null,
         r.can_decide ? btn("Decline", null, () => decide(r, false), "tool outline small") : null,
         r.mine && r.status === "waiting" ? btn("Withdraw", null, async () => {
           if (await platformCall("platform_withdraw", { id: r.id }, "Not withdrawn")) rerender();
@@ -360,16 +743,21 @@ async function platformRequestsTab(body) {
   const filters = { waiting: (r) => r.status === "waiting", decided: (r) => r.status === "approved" || r.status === "declined", mine: (r) => r.mine, all: () => true };
   const labels = { waiting: "Waiting", decided: "Decided", mine: "Sent by me", all: "All" };
   const shown = all.filter(filters[p.requests] || filters.waiting);
-  body.replaceChildren(h("div", { class: "card pad" },
+  body.replaceChildren(withHowItWorks(h("div", { class: "card pad" },
     h("div", { class: "row" },
       h("div", { class: "seg", role: "group", "aria-label": "Show" }, Object.entries(labels).map(([id, label]) =>
         h("button", { class: p.requests === id ? "on" : null, onclick: () => { p.requests = id; rerender(); } },
           label, id === "waiting" ? ` (${all.filter(filters.waiting).length})` : ""))),
       h("span", { class: "spacer" }),
-      btn("Request a key table", "add", () => requestDialog("key_table", "", rerender), "tool outline small"),
-      btn("Request a source", "add", () => requestDialog("source", "", rerender), "tool outline small")),
-    h("p", { class: "muted-text small" }, "Platform admins decide key tables and sources. A data product's owner decides who else may read it; ask from the OneLake catalog."),
-    requestTable(shown, rerender)));
+      btn("New request", "add", () => newRequestDialog(rerender), "tool primary small")),
+    h("p", { class: "muted-text small" }, "Platform admins decide key tables, sources, workspaces, workspace access, domains and policy exceptions. A data product's owner decides who else may read it; ask from the OneLake catalog."),
+    requestTable(shown, rerender)),
+  howItWorks("platform.requests", {
+    reads: "The requests in the platform's catalog (SQL_Platform in Fabric, or a file on this PC), when the tab opens. New request also lists the domains, capacities, workspaces and policies you can see, to pick from.",
+    changes: "Sending adds a request to the catalog. Approving makes what was asked for first, as you: a key table or source in the platform; a shortcut in OneLake; a workspace in Fabric on its capacity, with its admins added; a role in a workspace; a domain saved in the platform; an exception recorded in the platform for its policy. Then the request is marked approved. If a step fails, the request stays waiting and the error names the step.",
+    results: "Everyone sees requests here and in the bell, and the platform's Teams routes get a notice (no email yet). A workspace's domain in Fabric is set by a Fabric administrator in Fabric's admin portal. Every change is on the Audit tab.",
+    anchor: "platform",
+  })));
 }
 
 // ---------- domains, glossary, audit ----------

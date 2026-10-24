@@ -81,11 +81,12 @@ class Host:
 
     def start(self, code: str, notebook_name: str = "", watches: list[str] | None = None,
               widget_values: dict[str, str] | None = None, resources_dir: str = "",
-              breakpoints: list[int] | None = None, step: bool = False) -> dict[str, Any]:
+              onelake_writes: str = "local_first", breakpoints: list[int] | None = None, step: bool = False) -> dict[str, Any]:
         self.kernel.check_free()  # a shared session's running cell keeps its notebook's name and widgets
         self.kernel.notebook_name = notebook_name
         self.kernel.widget_values = dict(widget_values or {})
         self.kernel.resources_dir = resources_dir
+        self.kernel.onelake_writes = onelake_writes
         return self.kernel.start(code, watches, breakpoints, step)
 
     def debug(self, action: str, expression: str | None = None) -> dict[str, Any]:

@@ -99,6 +99,40 @@ test("A publish Fabric confirmed cools the toast; a failed publish gets the embe
   assert.deepStrictEqual(errors, []);
 });
 
+// forgeEvent counts every event it is told about, even with no anchor to play on, so an empty count
+// means the code never asked for an effect.
+const eventsNamed = (page, prefix) => page.evaluate((p) => Object.keys(motionDiagnostics().events).filter((n) => n.startsWith(p)), prefix);
+
+test("A cancelled clean run plays nothing", { skip }, async () => {
+  let polls = 0;
+  const { page, errors } = await open({
+    notebook_validate_start: () => ({ id: "v1" }),
+    notebook_validate_status: () => (polls++ < 1 ? { id: "v1", state: "running", cells: [] } : { id: "v1", state: "cancelled", cells: [] }),
+  }, VALIDATE_ENGINE);
+  await page.getByRole("button", { name: /^Validate/ }).click();
+  await page.locator(".validatepane").getByRole("button", { name: "Run clean check" }).click();
+  await page.waitForFunction(() => document.getElementById("toast").textContent === "Daily sales: cancelled");
+  await page.waitForFunction(() => state.notebook.validate.following === null);
+  assert.deepStrictEqual(await eventsNamed(page, "validate."), []);
+  assert.deepStrictEqual(await page.evaluate(() => window.__fx), []);
+  assert.deepStrictEqual(errors, []);
+});
+
+test("A publish whose sign-in was cancelled plays nothing", { skip }, async () => {
+  const { page, errors } = await open({
+    notebook_publish_check: () => ({ changed: false, known: true }),
+    publish_notebook: () => { throw new Error("SignInCancelled: the sign-in window was closed"); },
+  });
+  await page.evaluate(async () => {
+    state.user = "chris@example.com";
+    state.notebook.workspace = { workspace_id: "ws1", workspace_name: "Sales WS" };
+    await publishNotebook();
+  });
+  assert.deepStrictEqual(await eventsNamed(page, "publish."), []);
+  assert.deepStrictEqual(await page.evaluate(() => window.__fx), []);
+  assert.deepStrictEqual(errors, []);
+});
+
 test("A proof whose runs match cools its verdict; one that differs gets the ember", { skip }, async () => {
   for (const [verdict, kind, other] of [["same", "cool", "fail"], ["differs", "fail", "cool"]]) {
     let polls = 0;

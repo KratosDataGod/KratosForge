@@ -28,6 +28,7 @@ from typing import Any
 
 from ..meta import mesh
 from .policy import SETTINGS
+from .requests_service import call_or_repair
 
 GOVERNANCE_FILE = "governance.toml"
 
@@ -63,18 +64,32 @@ class GovernanceMixin:
     def _policies(self) -> Any:
         return self._catalog()  # type: ignore[attr-defined]
 
+    def _exceptions(self, policy: str = "") -> tuple[list[dict[str, Any]], str]:
+        """Exceptions that haven't ended, and a problem line when the platform can't say (an older
+        UDF_Platform has no list_policy_exceptions): the policies still show."""
+        try:
+            return call_or_repair(self._policies(), "list_policy_exceptions", "list policy exceptions",
+                                  policy=policy, active=True), ""
+        except LookupError as exc:
+            return [], str(exc)
+
     def governance_overview(self, query: str = "", category: str = "", status: str = "") -> dict[str, Any]:
-        """Policies (searchable), the fixed lists a policy form offers, and who the caller is."""
+        """Policies (searchable), the fixed lists a policy form offers, who the caller is, and the
+        exceptions in force (granted on Platform > Requests)."""
         p = self._policies()
         everything = p.call("list_policies")
+        exceptions, problem = self._exceptions()
         return {"me": self.platform_whoami(),  # type: ignore[attr-defined]
                 "options": p.call("policy_options"),
                 "policies": p.call("list_policies", query=query, category=category, status=status),
                 "counts": {s: len([x for x in everything if x["status"] == s]) for s in ("draft", "published", "deprecated", "retired")},
-                "domains": p.call("list_domains"), "projects": [x["name"] for x in p.call("list_projects")]}
+                "domains": p.call("list_domains"), "projects": [x["name"] for x in p.call("list_projects")],
+                "exceptions": exceptions, "problems": [problem] if problem else []}
 
     def governance_policy(self, id: str) -> dict[str, Any]:
-        return self._policies().call("get_policy", id=id)
+        out = self._policies().call("get_policy", id=id)
+        exceptions, problem = self._exceptions(out["id"])
+        return out | {"exceptions": exceptions} | ({"problems": [problem]} if problem else {})
 
     def governance_version(self, id: str, version: int) -> dict[str, Any]:
         return self._policies().call("policy_version", id=id, version=version)

@@ -24,6 +24,7 @@ from urllib.parse import urlsplit
 
 import msal
 
+from . import dpapi
 from .redact import describe
 
 _log = logging.getLogger(__name__)
@@ -59,6 +60,9 @@ TENANT_WRITE_SCOPES = ["https://api.fabric.microsoft.com/Tenant.ReadWrite.All"]
 # Adding someone to a workspace by email (Power BI's API, the same Power BI Service permission
 # as Workspace.ReadWrite.All above), so no directory permission is needed for it.
 POWERBI_WORKSPACE_SCOPES = ["https://analysis.windows.net/powerbi/api/Workspace.ReadWrite.All"]
+# Queries on a Data warehouse or SQL analytics endpoint (SQL-004): its SQL connection takes a token for
+# Azure SQL's resource. Asked for the first time you run a query on a warehouse.
+WAREHOUSE_SCOPES = ["https://database.windows.net/user_impersonation"]
 
 
 def resource_of(scope: str) -> str:
@@ -100,6 +104,34 @@ def default_cache_path() -> Path:
     return Path(base) / "FabricDesktop" / "msal_cache.bin"
 
 
+# A cache file that starts with this is encrypted with Windows DPAPI for the signed-in Windows account.
+# Anything else is the plain JSON earlier versions wrote, which is read once and saved encrypted.
+DPAPI_HEADER = b"KFDPAPI1\n"
+
+
+def read_cache(path: Path) -> tuple[str | None, bool]:
+    """The cache's JSON, and whether it should be written again encrypted (a plain file on Windows).
+    None when there is nothing usable: no file, or one this Windows account can't decrypt."""
+    try:
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        return None, False
+    if raw.startswith(DPAPI_HEADER):
+        if not dpapi.available():
+            return None, False
+        try:
+            return dpapi.unprotect(raw[len(DPAPI_HEADER):]).decode("utf-8"), False
+        except (OSError, UnicodeDecodeError) as exc:  # another account or PC, or damaged: sign in again
+            _log.warning("The saved sign-in can't be read by this Windows account; signing in again: %s", describe(exc))
+            return None, False
+    return raw.decode("utf-8", errors="replace"), dpapi.available()
+
+
+def cache_bytes(text: str) -> bytes:
+    """What goes on disk: encrypted for this Windows account on Windows; elsewhere the JSON in a 0600 file."""
+    data = text.encode("utf-8")
+    return DPAPI_HEADER + dpapi.protect(data) if dpapi.available() else data
+
 
 class SignInError(RuntimeError):
     """Microsoft sign-in returned no token. The message starts with Entra's code (``AADSTS50076``)
@@ -134,11 +166,17 @@ class Authenticator:
         self.interactive = interactive  # False for scheduled runs: nobody is there to sign in
         self._short_lived = False  # the tenant issues tokens with less than STORAGE_MIN_SECONDS to live
         self.cache = msal.SerializableTokenCache()
-        if self.cache_path.exists():
+        text, migrate = read_cache(self.cache_path)
+        if text is not None:
             try:
-                self.cache.deserialize(self.cache_path.read_text())
+                self.cache.deserialize(text)
             except ValueError:  # a damaged cache file: sign in again rather than fail every call
-                pass
+                migrate = False
+        if migrate:  # a plain file from an earlier version: encrypt it now
+            try:
+                self._save(force=True)
+            except OSError as exc:  # e.g. the folder is read-only: still signed in, try again next save
+                _log.warning("Couldn't encrypt the saved sign-in yet: %s", describe(exc))
         # Windows sign-in (WAM) for Microsoft's app, whose broker redirect Microsoft registered.
         # It uses the Windows work account, so there's often no prompt, and it passes
         # "compliant device" Conditional Access. Elsewhere, or if it can't start, the browser.
@@ -158,15 +196,23 @@ class Authenticator:
         whose access Microsoft sets, the resource's /.default."""
         return [default_scope(scopes)] if self.microsoft else scopes
 
-    def _save(self) -> None:
-        if self.cache.has_state_changed:
+    def _save(self, force: bool = False) -> None:
+        if self.cache.has_state_changed or force:
             self.cache_path.parent.mkdir(parents=True, exist_ok=True)
             # Write a temporary file and swap it in: the app and scheduled runs share this cache,
             # and a half-written file would stop every sign-in.
+            try:
+                data = cache_bytes(self.cache.serialize())
+            except OSError as exc:  # DPAPI refused (no user profile loaded): keep the last file, never a plain one
+                _log.warning("Couldn't encrypt the saved sign-in, so it wasn't updated: %s", describe(exc))
+                return
             tmp = self.cache_path.with_name(f"{self.cache_path.name}.{os.getpid()}.tmp")
-            tmp.write_text(self.cache.serialize())
+            # Refresh tokens: this user only, from the moment the file exists (POSIX; Windows ignores the mode).
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0), 0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
             if os.name != "nt":
-                tmp.chmod(0o600)  # refresh tokens: this user only
+                tmp.chmod(0o600)  # a temporary file left by an earlier run keeps its old mode
             os.replace(tmp, self.cache_path)
 
     def _token(self, scopes: list[str], min_seconds: int = 0) -> str:
@@ -228,6 +274,9 @@ class Authenticator:
 
     def storage_token(self) -> str:
         return self._token(STORAGE_SCOPES, STORAGE_MIN_SECONDS)
+
+    def warehouse_token(self) -> str:
+        return self._token(WAREHOUSE_SCOPES)
 
     def sign_out(self) -> None:
         for account in self.app.get_accounts():

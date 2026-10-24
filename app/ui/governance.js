@@ -56,11 +56,13 @@ async function platformGovernanceTab(body) {
         h("label", { class: "field" }, "Status", pick("status", [["", "Any status"], ...Object.entries(GOV_STATUS).map(([k, [t]]) => [k, t])], "Status")),
         govCan(o).admin ? btn("New policy", "add", () => policyDialog(o.options, null, (p) => { govPage.open = p.id; rerender(); }), "tool primary") : null),
       h("p", { class: "muted-text small" }, "Standards your organization defines once and every project is checked against: naming, schemas, quality, classification, ownership, data contracts and deployment readiness. ",
-        "A published version never changes; editing makes a new draft. ", learnMore("governance")),
+        "A published version never changes; editing makes a new draft. Exceptions are asked for on Requests. ", learnMore("governance")),
+      ...(o.problems || []).map((x) => h("p", { class: "wrn-text small" }, x)),
       o.policies.length ? h("table", { class: "list" },
         h("thead", {}, h("tr", {}, ["Policy", "Category", "Owner", "Version", "Status", "Assigned"].map((x) => h("th", {}, x)))),
         h("tbody", {}, o.policies.map((p) => h("tr", { class: "click", onclick: () => { govPage.open = p.id; govPage.sub = "definition"; govPage.version = null; rerender(); } },
-          h("td", {}, h("b", {}, p.name), h("div", { class: "muted-text small mono" }, p.id)),
+          h("td", {}, h("b", {}, p.name), h("div", { class: "muted-text small mono" }, p.id),
+            govExceptionCount((o.exceptions || []).filter((e) => e.policy_id === p.id))),
           h("td", {}, o.options.categories[p.category] || p.category), h("td", {}, p.owner || h("span", { class: "muted-text" }, "not set")),
           h("td", {}, p.current_version ? `v${p.current_version}` : h("span", { class: "muted-text" }, "none yet"),
             p.draft_version && p.current_version ? [" ", h("span", { class: "pill-s neu" }, `draft v${p.draft_version}`)] : null),
@@ -255,6 +257,27 @@ function policyDialog(options, p, done) {
 
 // ---------- where it applies, and why ----------
 
+// Exceptions in force for a policy, granted by approving a request on Platform > Requests.
+function govExceptionCount(list) {
+  return list.length ? h("div", { class: "small" }, h("span", { class: "pill-s wrn" }, `${list.length} exception${list.length === 1 ? "" : "s"} in force`)) : null;
+}
+
+function govExceptions(p) {
+  const list = p.exceptions || [];
+  return h("div", { class: "card pad gov-exceptions" },
+    h("div", { class: "row" }, h("b", { class: "grow" }, "Exceptions in force"),
+      btn("Ask for one", null, () => { closeDialog(); newRequestDialog(() => goPlatform("requests"), "exception"); }, "tool outline small")),
+    h("p", { class: "muted-text small" }, "Where an exception covers a place, the policy shows there as excepted until its date instead of applying. Each ends on its own on its date. A platform admin grants one by approving a request."),
+    ...(p.problems || []).map((x) => h("p", { class: "wrn-text small" }, x)),
+    list.length ? h("table", { class: "list" },
+      h("thead", {}, h("tr", {}, ["For", "Until", "Why", "Granted by"].map((x) => h("th", {}, x)))),
+      h("tbody", {}, list.map((e) => h("tr", {},
+        h("td", {}, h("b", {}, e.target), h("span", { class: "muted-text" }, ` (${e.scope})`)),
+        h("td", {}, govDate(e.until)), h("td", { class: "small" }, e.reason),
+        h("td", { class: "muted-text small" }, `${e.approved_by || "this PC"}, asked by ${e.requested_by || "someone"}`)))))
+      : h("p", { class: "muted-text" }, "None."));
+}
+
 async function governanceApplies(sub, p, o, can, rerender) {
   const reach = await platformCall("governance_applicability", { id: p.id }, "Could not read where it applies");
   if (!reach || govPage.sub !== "applies") return;
@@ -282,6 +305,7 @@ async function governanceApplies(sub, p, o, can, rerender) {
         s.change === "introduced" ? `introduces v${s.version}` : s.change === "mandatory" ? (s.to ? "makes it mandatory" : "makes it optional")
           : `${s.change} ${govValue(s.from)} to ${govValue(s.to)}`,
         s.outcome === "ignored" ? `. Ignored: ${s.reason}` : ""))),
+      got?.exception ? h("p", { class: "small wrn-text" }, got.exception.note) : null,
       got ? h("p", { class: "small" }, "Result: ", govPill(GOV_ENFORCEMENT, got.enforcement), ` severity ${got.severity}`,
         Object.keys(got.params).length ? `, ${Object.entries(got.params).map(([k, v]) => `${k} ${govValue(v)}`).join(", ")}` : "",
         got.deprecated ? h("span", { class: "wrn-text" }, ". Deprecated: it's going away.") : null)
@@ -315,7 +339,8 @@ async function governanceApplies(sub, p, o, can, rerender) {
             h("td", { class: "small" }, r.via.join(", ")),
             h("td", {}, r.inactive ? h("span", { class: "muted-text small" }, `Not in force: ${r.inactive}`) : [govPill(GOV_ENFORCEMENT, r.enforcement), ` v${r.version}`]),
             h("td", {}, btn("Explain", null, () => showWhy(r.project), "tool small"))))))
-          : h("p", { class: "muted-text" }, "No registered project gets it yet."))),
+          : h("p", { class: "muted-text" }, "No registered project gets it yet.")),
+      govExceptions(p)),
     h("div", { class: "gov-side" }, explain)));
   if (govPage.explain && reach.projects.some((r) => r.project === govPage.explain)) showWhy(govPage.explain);
 }

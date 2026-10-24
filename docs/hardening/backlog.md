@@ -97,11 +97,11 @@ Complexity is S (under a day, one module), M (a few modules, new tests), L (cros
 | HD-010 | EP-4: policy fails closed, one loader | Hardening | open stack (`app_settings.py`) | M |
 | HD-011 | SH-6: `cargo test` in CI | Hardening | open stack (`ci.yml`); workflow change needs Chris's review | S |
 | HD-012 | EN-2: execution kernels get an allowlisted environment | Hardening | none | S |
-| HD-013 | EN-10: encrypt the token cache (DPAPI via `msal-extensions`) | Hardening | **Chris: decision D-C2** | M |
+| HD-013 | EN-10: encrypt the token cache with DPAPI on Windows | Hardening | Done (D-C2 approved 2026-10-23); Windows check pending | M |
 | HD-014 | EN-3: workspace limits on every capability | Hardening | HD-006 | M |
 | HD-015 | EN-4: external SQL timeout interrupts and releases the lock | Hardening | none | S |
 | HD-016 | EN-6, AR-1: leases atomic across processes; lost lease stops the write | Hardening (agent) | none | M |
-| HD-017 | EP-3: audit chain safe across processes; head checkpoint | Hardening | open stack (`audit.py`) | S |
+| HD-017 | EP-3: audit chain safe across processes; head checkpoint (done: `audit_chain.append` re-reads the last hash under the folder's lock file; each write records the newest hash and line count in `head.json`, and `verify()` reports a trail that ends before it, also after later writes) | Hardening | open stack (`audit.py`) | S |
 | HD-020 | SH-1, UI-1: Content Security Policy; notebook output on its own origin | Hardening | a manual Windows check before merge | L |
 | HD-021 | SH-2: fail unsigned releases; verify signatures in CI and on the client | Hardening | **Chris: Trusted Signing account (D-C3)** | M |
 | HD-022 | SH-5: no downgrades; keep the previous exe until the new one starts. Must still let a Stable PC follow a deliberate rollback (an earlier build promoted to Stable, HD-028) | Hardening | open stack (`app.js`) | M |
@@ -110,7 +110,7 @@ Complexity is S (under a day, one module), M (a few modules, new tests), L (cros
 | HD-025 | SH-9: agent installers use constraints; ProgramData ACL | Hardening | a Windows host to verify the ACL | S |
 | HD-026 | SH-10: no bare `python` fallback in release builds | Hardening | none | S |
 | HD-027 | SH-12: navigation filter for the Fabric view | Hardening | manual Windows check | S |
-| HD-028 | Per-build release assets, so a build can be pinned and rolled back (known gap in release-readiness.md). **Partly done:** CI keeps each published build as a `build-<sha>` release (newest 20, plus every Stable build); Promote to stable takes a `build` input, so Stable rolls back by promoting an earlier build. Remaining: the app can't name a build for its engine download, and rollback hasn't been run end to end | Hardening | Chris's review (workflow); a first rollback drill on `main` | M |
+| HD-028 | Per-build release assets, so a build can be pinned and rolled back (known gap in release-readiness.md). **Partly done:** CI keeps each published build as a `build-<sha>` release (newest 20, plus every Stable build); Promote to stable takes a `build` input, so Stable rolls back by promoting an earlier build. With `"auto_update": false` the app downloads its engine only from its own build's `build-*` release (#418, `update_guard::engine_tags`), so a pinned exe gets the matching engine. Remaining: rollback hasn't been run end to end | Hardening | Chris's review (workflow); a first rollback drill on `main` | M |
 | HD-029 | Live verification (gate G1): run the existing harness on a designated non-production workspace | Chris | **Chris: workspace and OK** | S |
 | HD-030 | EP-5: separation of duties by Entra id; switch from policy or versioned files | Staged roadmap | open stack (`meta_service.py`) | M |
 | HD-031 | EP-6: label "Block" as not enforced until GOV-002 | Governance | none | S |
@@ -124,7 +124,7 @@ Acceptance for each P1 item is the fix and tests named in its finding. The ones 
 
 - **HD-010:** a `policy.json` with a syntax error denies Fabric runs and other tenants and shows the error in Settings; a wrongly typed restrictive key is treated as the most restrictive value; `integrations*` and `receipt_redactions` aren't reported as unknown.
 - **HD-012:** inside an external-tool run, `os.environ` has no variable from the parent outside an allowlist (`PATH`, `SYSTEMROOT`, `TEMP`, `TMP`, locale); `docs/permissions.md` says tools' code runs as the user and can reach their sign-in until HD-013.
-- **HD-013:** the cache file is DPAPI-encrypted on Windows; an existing plaintext cache is migrated once and removed; sign-in survives the update without a prompt. Migration documented in `docs/security.md`.
+- **HD-013:** the cache file is DPAPI-encrypted on Windows; an existing plaintext cache is encrypted in place on first start; sign-in survives the update without a prompt. Migration documented in `docs/security.md`.
 - **HD-020:** CSP set in `tauri.conf.json`; notebook HTML output, charts, the Fabric view and sign-in work on Windows (checked by hand and recorded in the PR); a UI test fails if `csp` is null or allows `unsafe-eval`.
 - **HD-021:** a push to `main` without signing configured fails the release unless an explicit unsigned-Preview variable is set; the client refuses an exe or engine whose signature doesn't name the expected publisher.
 - **HD-027:** checked by hand on Windows and recorded in the PR: sign-in inside the Fabric view; open a catalog item; sign out; a link off the allowed hosts opens in the default browser; a sign-in pop-up opened from a sign-in host can't navigate off the list (its links open in the browser) and still reports back to the view; on a federated tenant with `fabric_view_sign_in_hosts` set, sign-in finishes in the view, the identity provider's cookies survive a restart (or the provider asks again, which is acceptable but noted), and Seamless SSO, the device step and `login.windows.net` don't leave the view.
@@ -144,7 +144,7 @@ Acceptance for each P1 item is the fix and tests named in its finding. The ones 
 | HD-043 | UI-5: parsed name-clash test; remove duplicate test (done: V8 finds each script's top-level names; duplicate test removed) | Hardening | S |
 | HD-044 | UI-6: `aria-current`, modal palette (done: the rail sets `aria-current="page"`; the command bar is a modal dialog that keeps and returns focus and doesn't open over another dialog) | Hardening | S |
 | HD-051 | AR-3: one HTTP session with a shared retry policy (done: `http_session.session()` shared by the Fabric, OneLake, Power BI and platform clients) | Hardening | M |
-| HD-052 | UI-8: browser tests in CI; ban new raw HTML sinks | Hardening | S |
+| HD-052 | UI-8: browser tests in CI; ban new raw HTML sinks (done: the `ui-browser` CI job runs `app/tests/browser`; `ui.test.cjs` fails on a raw HTML sink or a URL attribute built from data outside a reviewed list, and image output shows only picture types) | Hardening | S |
 | HD-053 | TS-1: contract tests for OneLake writes and deletes and the Fabric client's 429/5xx/LRO paths; refuse `..` and empty OneLake file paths | Hardening | M |
 | HD-054 | TS-2: T-SQL contract harness; scheduled live job once a test workspace exists | Hardening | M |
 

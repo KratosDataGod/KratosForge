@@ -60,14 +60,17 @@ Every key can be fixed in the policy file ([Azure setup](azure-setup.md#4-push-s
 | A cell is running | A small breathing ember on **Running** (forge orange, because notebook cells run on this PC) | the cell's status | while running |
 | A SQL query succeeds after more than 2 s | **Forge Spark** on **Succeeded**. Quicker queries show nothing | the Results band | 0.4 s |
 | A SQL query fails or times out | **Controlled Failure**: the ember beside **Failed**; the error is there from the first frame | the Results band | 0.45 s |
-| A pipeline activity runs | **Energy Flow**: the link into the running activity carries a moving dash; each activity says Queued, In progress, Succeeded, Failed, Skipped or Cancelled in words | pipeline flow | while running |
-| A pipeline activity finishes | It settles with one glow (succeeded) or the failure ember | the activity | 0.45 s |
-| A pipeline run succeeds | **Anvil Strike** (shown in Preview effects until the pipeline run screen arrives) | the run's result | 0.65 s |
+| You start a pipeline run (Pipelines > Run on this PC) | **Pulse** on **Stop** as the run view opens | the run's Stop button | 0.35 s |
+| A pipeline activity runs | **Energy Flow** above the run's time line: the link into the running activity carries a moving dash; each activity says Queued, In progress, Succeeded, Failed, Skipped or Cancelled in words | pipeline flow | while running |
+| A pipeline activity finishes | It settles with one glow (succeeded) or the failure ember, once, while you watch | the activity | 0.45 s |
+| A pipeline run you're watching ends | **Anvil Strike** when it succeeds; a run with mocks isn't a real success and gets none. A failed run shows the one ember of the activity that failed. A run opened after it ended plays nothing | the flow | 0.65 s |
 | A Validate clean run passes (Ready, or Ready with warnings) | **Cooling spark**: the verdict glows forge orange, then cools to the success colour. A run that isn't ready gets the failure ember beside its verdict; a cancelled run plays nothing | the Validate verdict | 0.5 s |
 | Prove finds both runs made the same results | **Cooling spark** on the **Same** verdict; **Differs** or a failed proof gets the failure ember | the Prove verdict | 0.5 s |
 | Publish to Fabric, once Fabric gives back the notebook item it saved | **Cooling spark** on the "Published" message; a failed publish gets the failure ember beside the error | beside the message | 0.5 s |
 | A platform deployment succeeds (Source control) | **Anvil Strike**: a small anvil drops onto the "Deployed" message and two sparks fly. No shake, no flash | beside the message | 0.65 s |
 | Profile awards you an achievement | **Achievement Reveal**: a ring and an offset outline reveal the message naming it, once per award (never again for the same award, even after a restart). Off unless you turn on **Achievement celebrations**, shown while Preview features are on | the achievement message | 0.9 s |
+| A dialog opens or closes (Minimal and above) | The dialog rises and fades in; focus is inside it from the first frame. On close it is gone at once and a blank card fades where it was. **Escape** closes with no fade | the dialog | 0.2 s in, 0.16 s out |
+| The Activity tray or a side pane opens (Explorer, Variables, Comments, Runs, Prove, Validate; Minimal and above) | It slides 16 px in from its edge and fades in. A page that opens with its panes doesn't animate them, and redraws never replay it. The tray leaves like a dialog | the tray or pane | 0.22 s |
 
 During Run all, cells don't spark one by one; the track shows the progress instead. Stop and
 Cancel show nothing, on a notebook or a SQL query. Activities inside ForEach and Until are counted on their parent

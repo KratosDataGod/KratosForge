@@ -175,7 +175,7 @@ pub fn offered(path: &Path) -> Option<String> {
 /// exe on a synced Desktop), antivirus and the search indexer open a file that was just written
 /// or renamed for a few seconds, and Windows then refuses with "Access is denied" (5) or a
 /// sharing violation (32). Any other error, such as a missing file, fails at once.
-fn rename_retrying(from: &Path, to: &Path) -> std::io::Result<()> {
+pub fn rename_retrying(from: &Path, to: &Path) -> std::io::Result<()> {
     let mut attempt = 0;
     loop {
         match std::fs::rename(from, to) {

@@ -9,6 +9,7 @@ import pytest
 from fabric_desktop import governance_notices as notices
 from fabric_desktop.central import core, policy, requests_service
 from fabric_desktop.central.client import LocalPlatform
+from fabric_desktop.fabric_api import FabricError
 from fabric_desktop.service import Service
 from fabric_desktop.workloads.platform_notify import validate
 
@@ -280,14 +281,79 @@ def test_approving_workspace_access_adds_the_role_as_the_approver(svc, who):
     assert {r["status"] for r in svc.platform_requests()} >= {"approved"}
 
 
-def test_approving_a_domain_saves_it_in_the_platform(svc, who):
+class FabricDomains:
+    """Fabric's admin domains API: refuses with ``status`` when set, as Fabric would."""
+
+    def __init__(self, me):
+        self.me, self.status, self.created = me, None, []
+
+    def create_admin_domain(self, name, description="", parent_id=""):
+        if self.status:
+            raise FabricError(f"POST /admin/domains failed with {self.status}", status=self.status)
+        self.created.append((self.me(), name, parent_id))
+        return {"id": f"f-{name.lower()}", "displayName": name}
+
+
+@pytest.fixture
+def fabric_domains(monkeypatch, who):
+    fake = FabricDomains(lambda: who["user"])
+    monkeypatch.setattr(Service, "_fabric_admin", lambda self, write=False: fake)
+    return fake
+
+
+def test_approving_a_domain_creates_it_in_fabric_as_the_approver(svc, who, fabric_domains):
     as_user(who, DEV)
     req = svc.platform_request("domain", "EMEA", "Regional", {"name": "EMEA", "parent_id": "sales", "owners": "omar@contoso.com"})
+    top = svc.platform_request("domain", "HR", "", {"name": "HR"})
     as_user(who, ADMIN)
     out = svc.platform_decide(req["id"], True)
-    emea = next(d for d in svc.platform_domains() if d["id"] == "emea")
-    assert out["status"] == "approved" and emea["parent_id"] == "sales" and emea["owners"] == "omar@contoso.com"
-    assert emea["updated_by"] == ADMIN
+    assert out["status"] == "approved" and "next" not in out
+    svc.platform_decide(top["id"], True)
+    got = {d["id"]: d for d in svc.platform_domains()}
+    emea = got["emea"]
+    assert emea["parent_id"] == "sales" and emea["owners"] == "omar@contoso.com" and emea["fabric_domain"] == "f-emea"
+    assert emea["updated_by"] == ADMIN and got["hr"]["fabric_domain"] == "f-hr"
+    assert fabric_domains.created == [(ADMIN, "EMEA", "f-sales"), (ADMIN, "HR", "")]
+
+
+def test_a_subdomain_of_a_platform_only_domain_is_saved_in_the_platform_only(svc, who, fabric_domains):
+    svc.platform_save_domain({"name": "Ops"})
+    as_user(who, DEV)
+    req = svc.platform_request("domain", "Field", "", {"name": "Field", "parent_id": "ops"})
+    as_user(who, ADMIN)
+    out = svc.platform_decide(req["id"], True)
+    field = next(d for d in svc.platform_domains() if d["id"] == "field")
+    assert out["status"] == "approved" and not field.get("fabric_domain") and fabric_domains.created == []
+    assert "Ops isn't in Fabric" in out["next"][0]
+
+
+def test_fabric_refusing_the_approver_leaves_the_domain_request_waiting(svc, who, fabric_domains):
+    as_user(who, DEV)
+    req = svc.platform_request("domain", "HR", "", {"name": "HR"})
+    as_user(who, ADMIN)
+    fabric_domains.status = 403
+    with pytest.raises(requests_service.StepError) as err:
+        svc.platform_decide(req["id"], True)
+    text = str(err.value)
+    assert text.startswith("Create the domain HR in Fabric failed, so the request is still waiting")
+    assert "Only a Fabric administrator" in text and "A Fabric administrator can approve this request" in text
+    assert "in the platform only" in text
+    assert svc.platform_requests("waiting")[0]["id"] == req["id"] and "hr" not in {d["id"] for d in svc.platform_domains()}
+    # Created in the platform only, then approved again: found, not made twice, and nothing asked of Fabric.
+    svc.platform_save_domain({"name": "HR"})
+    fabric_domains.status = None
+    assert svc.platform_decide(req["id"], True)["status"] == "approved"
+    assert fabric_domains.created == []
+
+
+def test_a_name_fabric_already_has_says_to_import_it(svc, who, fabric_domains):
+    as_user(who, DEV)
+    req = svc.platform_request("domain", "HR", "", {"name": "HR"})
+    as_user(who, ADMIN)
+    fabric_domains.status = 409
+    with pytest.raises(requests_service.StepError, match="Fabric already has a domain called HR. Choose Import from Fabric"):
+        svc.platform_decide(req["id"], True)
+    assert [r["id"] for r in svc.platform_requests("waiting")] == [req["id"]]
 
 
 def test_the_platform_refuses_an_approval_whose_thing_was_not_made_first(svc, who):

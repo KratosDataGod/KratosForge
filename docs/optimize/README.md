@@ -177,7 +177,7 @@ A read of the capacities you can see (`GET /v1/capacities`, `Capacity.Read.All`,
 **Optimize > Settings history** (Preview) shows both histories in one list. It only reads the six tables above until you press a button:
 
 - **Capacities last read** and **Tenant settings last read**: the newest successful read of each.
-- **Read capacities now** calls `capacity_settings_read`; **Read tenant settings (administrators)** calls `tenant_settings_read`. Each reads Fabric once and adds rows. The first read in a lakehouse asks before it creates the tables.
+- **Read capacities now** calls `capacity_settings_read`, with `admin=True` when **Include capacity overrides (administrators)** is ticked (off each time the app starts). When the capacities were read but the overrides weren't, the message says so instead of only "nothing changed"; **Read tenant settings (administrators)** calls `tenant_settings_read`. Each reads Fabric once and adds rows. The first read in a lakehouse asks before it creates the tables.
 - A warning lists reads that failed since the last good one, one line per kind with how many and the latest reason: changes made then weren't seen.
 - Anyone who can read the central lakehouse sees the tab's history, including tenant settings an administrator read; the tab says so.
 - **Changes** lists each change as "between" two reads, with the scope (Tenant, or the capacity's latest name), the setting and its old and new values. **Show** filters to the tenant, all capacities or one capacity.

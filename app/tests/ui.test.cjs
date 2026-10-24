@@ -3754,6 +3754,16 @@ test("Settings history names capacities, filters by scope and asks before creati
   await ctx.read("tenant_settings_read", "Tenant settings");
   assert.strictEqual(JSON.stringify(ctx.toasts.at(-1)), '["Tenant settings: Only a Fabric administrator can read tenant settings.",true]');
   assert.strictEqual(ctx.renders, 2);
+  // Include capacity overrides passes admin, and says when the capacities were read but the overrides weren't.
+  ctx.calls.length = 0;
+  for (const [overrides, toast] of [["read", '["Capacities read: nothing changed",false]'],
+    ["unreadable", '["Capacities read: nothing changed. Overrides weren\'t read: only a Fabric administrator can read them.",true]'],
+    ["failed", '["Capacities read: nothing changed. Overrides couldn\'t be read this time.",true]']]) {
+    ctx.rpc = async (method, args) => (ctx.calls.push([method, JSON.stringify(args)]), { outcome: "read", overrides, changes: [] });
+    await ctx.read("capacity_settings_read", "Capacities", { admin: true });
+    assert.strictEqual(JSON.stringify(ctx.toasts.at(-1)), toast);
+  }
+  assert.ok(ctx.calls.every(([, a]) => a === '{"admin":true}'), JSON.stringify(ctx.calls));
 
   const how = src.match(/howItWorks\("optimize\.settings", \{[\s\S]*?\n  \}\)/)[0];
   for (const t of ["fdcap_snapshot", "fdcap_change", "fdcap_read", "fdten_snapshot", "fdten_change", "fdten_read", "no tenant or capacity setting is ever changed", "asks before it creates the tables"]) {

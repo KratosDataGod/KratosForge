@@ -7,7 +7,9 @@ these makes what was asked for first, as the person approving, and only then app
     workspace         creates the workspace on its capacity (or puts the one this request made back
                       on it), then makes the requested people and groups its admins
     workspace_access  gives the person or group the role in that workspace
-    domain            saves the domain in the platform (platform_save_domain)
+    domain            creates the domain (or subdomain) in Fabric and keeps it in the platform linked to
+                      it (platform_create_domain); one whose parent isn't in Fabric is saved in the
+                      platform only. A retry finds a domain the platform already has.
     exception         records the exception in the platform's catalog (core, through policy.py)
 
 If a step fails, the request stays waiting and the error names the step. What a workspace request
@@ -102,13 +104,7 @@ class RequestsMixin:
         elif req["kind"] == "workspace_access":
             made = self._rq_give_access(req)
         elif req["kind"] == "domain":
-            d = req["detail"]
-            # Saved in the platform only. Once PR #591 is in, this becomes
-            # platform_create_domain(domain, in_fabric), which can also create it in Fabric.
-            self._rq_step("Save the domain", lambda: self.platform_save_domain(  # type: ignore[attr-defined]
-                {"id": req["target"], "name": d["name"], "parent_id": d.get("parent_id") or "",
-                 "description": d.get("description") or req.get("reason") or "", "owners": d.get("owners") or ""}))
-            made = {"next": ["Create it in Fabric too, if it should be there: Fabric admin portal > Domains"]}
+            made = self._rq_make_domain(req)
         out = super().platform_decide(id, approve, note)  # type: ignore[misc]
         if made.get("next"):
             out["next"] = made["next"]
@@ -129,6 +125,35 @@ class RequestsMixin:
         self._rq_step("Record what was made", lambda: call_or_repair(
             self._catalog(), "record_request_progress", "carry out this request",  # type: ignore[attr-defined]
             id=req["id"], made=made))
+
+    def _rq_make_domain(self, req: dict[str, Any]) -> dict[str, Any]:
+        """Create the domain in Fabric as the approver, then keep it in the platform, as New domain
+        with Also create it in Fabric does. A subdomain whose parent isn't in Fabric can't be there
+        either, so it is saved in the platform only. A retry after a partial approval finds it."""
+        d = req["detail"]
+        name = str(d.get("name") or req["target"])
+        known = {x["id"]: x for x in self.platform_domains()}  # type: ignore[attr-defined]
+        if req["target"] in known:
+            return {}
+        parent = known.get(str(d.get("parent_id") or ""))
+        in_fabric = not parent or bool(parent.get("fabric_domain"))
+        domain = {"id": req["target"], "name": name, "parent_id": d.get("parent_id") or "",
+                  "description": d.get("description") or req.get("reason") or "", "owners": d.get("owners") or ""}
+
+        def create() -> Any:
+            try:
+                return self.platform_create_domain(domain, in_fabric=in_fabric)  # type: ignore[attr-defined]
+            except PermissionError as exc:
+                raise PermissionError(f"{exc} A Fabric administrator can approve this request, or you can create "
+                                      f"{name} in the platform only (Platform > Domains > New domain, without Also "
+                                      "create it in Fabric) and approve it again.") from exc
+
+        step = f"Create the domain {name} in Fabric" if in_fabric else f"Save the domain {name}"
+        self._rq_step(step, create)
+        if in_fabric or parent is None:
+            return {}
+        return {"next": [f"{parent['name']} isn't in Fabric, so {name} was saved in the platform only. Create "
+                         f"{parent['name']} and {name} in Fabric's admin portal, then choose Import from Fabric"]}
 
     def _rq_make_workspace(self, req: dict[str, Any], capacity_id: str = "") -> dict[str, Any]:
         d, api = req["detail"], self._rq_fabric()

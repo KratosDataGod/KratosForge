@@ -23,8 +23,9 @@ let admin = false;
 let older = false;
 let endorsement = null;
 let terms = [];
+let more = [];
 const trust = () => ({ product_id: PID, name: "customer_360", owner: "ana@example.com", admin, can_edit_terms: admin,
-  items: [{ ...item, ...(endorsement || {}) }], terms });
+  items: [{ ...item, ...(endorsement || {}) }, ...more], terms });
 const mocks = {
   platform_products: () => ({ project: null, products: [product] }),
   platform_product_trust: () => {
@@ -58,6 +59,7 @@ test("everyone else sees a grey Endorsement unknown until a Fabric admin has sca
   await openProduct();
   assert.strictEqual((await page().textContent(".endorse-head")).trim(), "Endorsement unknown");
   assert.ok(await page().$(".endorse-head .pill-s.neu"));
+  assert.strictEqual((await page().textContent(".trust-last-scan")).trim(), "", "no scan yet, so no scan date");
   const text = await page().textContent(".trust-endorsement");
   assert.match(text, /Fabric only shows endorsement to Fabric admins\. Once an admin has scanned, everyone sees the last scan's badge here\./);
   assert.strictEqual(await page().$(".trust-scan"), null, "no Scan now for someone who isn't a platform admin");
@@ -88,6 +90,28 @@ test("a platform admin scans; the badge, who certified it and the scan's age sho
   assert.ok(await page().$(".endorse-head .pill-s.pass"));
   assert.ok(await page().$('.trust-endorsement a:has-text("Open in Fabric")'));
   assert.ok(await page().$(".trust-scan"), "Scan now stays to read it again");
+  assert.strictEqual((await page().textContent(".trust-last-scan")).trim(), "Last tenant scan: 3 h ago");
+});
+
+test("items that differ show one Endorsement varies badge, each item's own below, and the newest scan's date", { skip }, async () => {
+  more = [{ ...item, item_id: "cccccccc-0000-0000-0000-000000000003", item_name: "LH_Silver", env: "test" },
+    { ...item, item_id: "dddddddd-0000-0000-0000-000000000004", item_name: "SM_Sales", item_type: "SemanticModel", endorsement: "Promoted",
+      scanned_at: new Date(Date.now() - 30 * 3600e3).toISOString(), scanned_by: "chris@example.com" }];
+  try {
+    await openProduct();
+    const head = page().locator(".endorse-head .endorse-badge");
+    assert.strictEqual(await head.count(), 1);
+    assert.strictEqual((await head.textContent()).trim(), "Endorsement varies");
+    assert.ok(await page().$(".endorse-head .pill-s.neu.varies"));
+    assert.match(await page().textContent(".trust-endorsement .trust-varies"), /Its items' endorsements differ/);
+    const own = async (name) => (await page().textContent(`.trust-endorsement .trust-item:has(.mono:text-is("${name}")) .endorse-badge`)).trim();
+    assert.strictEqual(await own("LH_Gold"), "Certified");
+    assert.strictEqual(await own("LH_Silver"), "Endorsement unknown");
+    assert.strictEqual(await own("SM_Sales"), "Promoted");
+    assert.strictEqual((await page().textContent(".trust-last-scan")).trim(), "Last tenant scan: 3 h ago", "the newest of the items' scans");
+  } finally {
+    more = [];
+  }
 });
 
 test("Add a term takes only a Purview https link, then lists it with Open in Purview", { skip }, async () => {

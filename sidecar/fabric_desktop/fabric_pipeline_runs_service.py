@@ -12,6 +12,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -25,6 +26,9 @@ RUNS_PER_PIPELINE = 20
 MAX_RUNS = 300
 TEXT_LIMIT = 16_000  # characters of one activity's input, output or error detail
 WINDOW_SLACK = dt.timedelta(minutes=5)  # around the run's start and end for the activity query
+
+_GUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+_FRACTION = re.compile(r"\.(\d+)")
 
 # Fabric job instance status -> the states local pipeline runs use (orchestration/runs.py).
 RUN_STATES = {"NotStarted": "pending", "InProgress": "running", "Completed": "succeeded", "Failed": "failed",
@@ -45,10 +49,9 @@ def _parse(value: Any) -> dt.datetime | None:
     if not isinstance(value, str) or not value:
         return None
     text = value.strip().replace("Z", "+00:00")
-    if "." in text:  # Fabric sends up to 7 fractional digits; fromisoformat takes 6
-        head, _, rest = text.partition(".")
-        digits = "".join(c for c in rest if c.isdigit())
-        text = f"{head}.{digits[:6].ljust(6, '0')}{rest[len(digits):]}"
+    # Fabric sends up to 7 fractional digits; fromisoformat takes 6. Only the digits right after the
+    # dot are the fraction, so an offset after them (+05:00) stays as it is.
+    text = _FRACTION.sub(lambda m: "." + m.group(1)[:6].ljust(6, "0"), text, count=1)
     try:
         t = dt.datetime.fromisoformat(text)
     except ValueError:
@@ -177,8 +180,8 @@ class FabricPipelineRunsMixin:
 
         ``started`` and ``ended`` are the run's times from fabric_pipeline_runs; Fabric needs a time
         window, so the query covers them with a few minutes either side (up to now while it runs)."""
-        if not workspace_id or not job_id:
-            raise ValueError("Pick a pipeline run: its workspace and run id are needed.")
+        if not _GUID.match(str(workspace_id or "")) or not _GUID.match(str(job_id or "")):
+            raise ValueError("Pick a pipeline run: its workspace id and run id are needed (Fabric GUIDs).")
         now = _now()
         start = _parse(started) or now - dt.timedelta(days=1)
         end = _parse(ended) or now

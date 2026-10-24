@@ -9,6 +9,8 @@ from fabric_desktop import schedule_service
 from fabric_desktop.fabric_api import FabricClient
 from fabric_desktop.service import Service
 
+WS = "11111111-2222-3333-4444-555555555555"
+JOB = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 TOKEN = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJl"
 
 
@@ -147,8 +149,8 @@ def test_activity_rows_are_shaped_capped_and_redacted(svc, monkeypatch):
             seen.update(ws=ws, job=job, after=after, before=before)
             return ACTIVITIES
     monkeypatch.setattr(Service, "fabric", property(lambda self: Client()))
-    out = svc.fabric_pipeline_activity_runs("ws1", "j2", "2026-10-24T06:00:00.1234567Z", "2026-10-24T06:04:12Z")
-    assert seen == {"ws": "ws1", "job": "j2", "after": "2026-10-24T05:55:00.123Z", "before": "2026-10-24T06:09:12.000Z"}
+    out = svc.fabric_pipeline_activity_runs(WS, JOB, "2026-10-24T06:00:00.1234567Z", "2026-10-24T06:04:12Z")
+    assert seen == {"ws": WS, "job": JOB, "after": "2026-10-24T05:55:00.123Z", "before": "2026-10-24T06:09:12.000Z"}
     copy, lookup = out["activities"]
     assert (copy["name"], copy["type"], copy["state"], copy["ms"]) == ("Copy customers", "Copy", "failed", 221000)
     assert copy["error"] == {"code": "SqlFailedToConnect", "message": "Cannot connect", "failure_type": "UserError"}
@@ -157,9 +159,16 @@ def test_activity_rows_are_shaped_capped_and_redacted(svc, monkeypatch):
     assert lookup["output"]["truncated"] and len(lookup["output"]["text"]) == fpr.TEXT_LIMIT
 
 
-def test_activity_runs_need_a_run(svc):
-    with pytest.raises(ValueError):
-        svc.fabric_pipeline_activity_runs("ws1", "")
+def test_activity_runs_need_a_run_with_guids(svc):
+    for ws, job in ((WS, ""), ("", JOB), ("../ws", JOB), (WS, "j2/../../items")):
+        with pytest.raises(ValueError):
+            svc.fabric_pipeline_activity_runs(ws, job)
+
+
+def test_times_keep_their_offset_and_seven_digit_fractions():
+    assert fpr._parse("2026-10-24T11:00:00.1234567+05:00") == fpr._parse("2026-10-24T06:00:00.123456Z")
+    assert fpr._seconds("2026-10-24T06:00:00Z", "2026-10-24T06:00:01.5Z") == 1.5
+    assert fpr._parse("not a time") is None and fpr._parse(None) is None
 
 
 def test_both_calls_are_read_only_and_not_quick():

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
+import tempfile
 import time
 from contextlib import AbstractContextManager
 from dataclasses import asdict, dataclass
@@ -40,14 +42,34 @@ class RunRecord:
     finished_at: str
 
 
-def stage_locally(data: pa.Table, staging_dir: Path) -> DeltaTable:
+def stage_locally(data: pa.Table, root: Path, *parts: str) -> DeltaTable:
     """The table delta-rs would create for ``data``, on disk, so its protocol is checked against the profile
     before anything leaves the PC. Only the schema decides that, so no rows are written: copying every
-    row here cost about a second per 70 MB on each write and kept every old copy."""
-    write_deltalake(str(staging_dir), data.schema.empty_table(), mode="overwrite", schema_mode="overwrite")
-    table = DeltaTable(str(staging_dir))
-    delta_profile.check_table(table)
-    return table
+    row here cost about a second per 70 MB on each write and kept every old copy.
+
+    It is made in a folder of its own under ``root`` (the staging folder) and deleted once checked, so
+    nothing stays on disk (two writes to one table at once never share it). ``root/<parts>``, where
+    builds before #609 kept full copies of every write, is deleted too. ``parts`` (a job's name, or
+    lakehouse, schema and table) must each be one plain folder name: a name such as ".." or one
+    with a separator could otherwise point the delete outside the staging folder. The returned
+    table is loaded, so its protocol and schema can still be read."""
+    for part in parts:
+        if not part or part in (".", "..", "_writes") or any(c in part for c in "/\\:") or Path(part).is_absolute():
+            raise ValueError(f"{part!r} can't be a staging folder name: use a plain name, without .. or separators, and not _writes.")
+    root = root.resolve()
+    staging_dir = root.joinpath(*parts).resolve()
+    if root not in staging_dir.parents:
+        raise ValueError(f"{staging_dir} isn't inside the staging folder {root}.")
+    staging_dir.parent.mkdir(parents=True, exist_ok=True)
+    shutil.rmtree(staging_dir, ignore_errors=True)  # an old build's full copies
+    here = Path(tempfile.mkdtemp(prefix=f"{staging_dir.name}-", dir=staging_dir.parent))
+    try:
+        write_deltalake(str(here), data.schema.empty_table(), mode="overwrite", schema_mode="overwrite")
+        table = DeltaTable(str(here))
+        delta_profile.check_table(table)
+        return table
+    finally:
+        shutil.rmtree(here, ignore_errors=True)
 
 
 def resolve_target(job: Job, fabric: FabricClient) -> TableRef:
@@ -165,7 +187,7 @@ def run_job(job: Job, fabric: FabricClient, storage_token: Callable[[], str],
         raise PermissionError(reason)
     started = time.monotonic()
     data = run_local(job)
-    stage_locally(data, work_dir / "staging" / job.name)
+    stage_locally(data, work_dir / "staging", job.name)
     ref = resolve_target(job, fabric)
     table = publish(data, ref, job.target.mode, storage_token())
     record = RunRecord(

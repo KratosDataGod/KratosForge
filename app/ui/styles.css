@@ -415,6 +415,12 @@ h2.flush { margin: 0; }
 .pill-s.neu { background: #f0f0f0; color: #424242; }
 .pill-s.cus { background: #efe6fa; color: #5c2e91; }
 .pill-s.info { background: #e8f1fb; color: #0f548c; }
+/* A data product's trust badges: endorsement from the last tenant scan, and business terms (platform.js). */
+.trust-name { margin: 0; }
+.endorse-head { gap: 4px; }
+.trust-item { padding: 8px 0; border-top: 1px solid var(--border-soft); }
+.trust-item:first-of-type { border-top: 0; }
+.trust-item p { margin: 4px 0; }
 .list td.n, .list th.n, .mini td.n { text-align: right; font-variant-numeric: tabular-nums; }
 .preset-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
 .choice.selected { border-color: var(--accent); background: var(--accent-soft); }

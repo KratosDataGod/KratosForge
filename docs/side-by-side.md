@@ -87,7 +87,7 @@ Generates the TPC-H tables with DuckDB's tpch extension and writes them to the a
 | 10 | 60 million | 10 GB | A real load |
 | 30 | 180 million | 30 GB | A PC with 64 GB of memory or more |
 
-Run it once, on this PC (Run all with Side by side off) or in Fabric. Nothing is in the repository but the code: the data is generated when you run it, at any size. The generator writes through a database file in a temporary folder, so a scale factor bigger than your memory still works, and writes each table in slices of `batch_rows`.
+Run it once, on this PC (Run all with Side by side off) or in Fabric. Nothing is in the repository but the code: the data is generated when you run it, at any size. The data is generated in parts, one process per core (up to 16), each into a database file in a temporary folder, so it uses all your cores and a scale factor bigger than your memory still works; together the parts are exactly the rows one generator call makes. Each table is written as one stream, read `batch_rows` rows at a time, and the temporary folder is deleted once the tables are written. Write the scale factor in the cell itself: the Parameters bar changes it only for runs on this PC, so a side by side run would compare different sizes.
 
 The extension comes from DuckDB's extension site; if your network blocks it, the notebook installs the same extension from PyPI (`duckdb-extension-tpch`).
 

@@ -174,6 +174,39 @@ def test_app_calls_for_transformations(tmp_path):
     svc.local_data.close_all()
 
 
+def test_app_calls_check_each_step_like_a_managed_local_run(tmp_path):
+    """local_transform_run and local_write_delta run their SQL in this process, so they make
+    local_query's statement checks (sql_exec.check_local) before a step or write runs."""
+    svc = Service(root=tmp_path / "app")
+    outside = tmp_path / "outside.csv"
+    outside.write_text("secret\n42\n")
+
+    def call(method, **params):
+        return server.handle(svc, json.dumps({"id": 1, "method": method, "params": params}))
+    pid = call("local_create_project", name="Checks")["result"]["id"]
+    engine = svc.local_data.engine(pid)
+    step(engine, "fine", "SELECT 1 AS a")
+    step(engine, "grab", f"SELECT * FROM read_csv('{outside}')")
+    for dry_run in (True, False):
+        run = call("local_transform_run", project=pid, dry_run=dry_run)["result"]
+        by_name = {s["name"]: s for s in run["steps"]}
+        assert run["status"] == "failed" and "nothing ran" in by_name["dbo.grab"]["error"]
+    assert call("local_query", project=pid, query="SELECT a FROM fine")["result"]["rows"] == [[1]]
+    assert "error" in call("local_query", project=pid, query="SELECT * FROM grab")
+    for mode in ("create", "append"):
+        reply = call("local_write_delta", project=pid, table="dbo.stolen", query=f"SELECT * FROM '{outside}'",
+                     mode=mode)
+        assert "nothing ran" in reply.get("error", ""), reply
+    assert not (engine.project.root / "Tables" / "dbo" / "stolen").exists()
+    assert "result" in call("local_write_delta", project=pid, table="dbo.t", query="SELECT 1 AS a")
+    reply = call("local_change_delta", project=pid,
+                 query=f"MERGE INTO t USING read_csv('{outside}') s ON t.a = s.secret WHEN NOT MATCHED THEN "
+                       "INSERT (a) VALUES (s.secret)")
+    assert "nothing ran" in reply.get("error", ""), reply
+    assert call("local_change_delta", project=pid, query="DELETE FROM t WHERE a = 1")["result"]["rows_deleted"] == 1
+    svc.local_data.close_all()
+
+
 def test_a_table_replaced_since_the_last_run_is_left_alone(engine):
     step(engine, "eu", "SELECT * FROM orders WHERE region = 'EU'")
     step(engine, "lake", "-- materialize: delta\nSELECT * FROM orders")

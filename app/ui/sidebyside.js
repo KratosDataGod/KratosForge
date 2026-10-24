@@ -172,7 +172,7 @@ function sbsLocalSplit(local) {
   const wait = local.upload_wait_seconds || 0;
   const lines = [];
   lines.push(local.processing_seconds !== undefined && wait >= 0.05
-    ? h("span", { class: "sbs-split" }, h("i", { class: "sbs-key pc" }), `Processing on this PC ${sbsTime(local.processing_seconds)}`,
+    ? h("span", { class: "sbs-split", title: "Waiting is the time cells were held up by their writes: at the end of a cell, a read of a table the cell was still uploading, or a write straight to OneLake." }, h("i", { class: "sbs-key pc" }), `Processing on this PC ${sbsTime(local.processing_seconds)}`,
       h("i", { class: "sbs-key upload" }), `Waiting for OneLake uploads ${sbsTime(wait)}`)
     : h("span", {}, "No wait to start"));
   if (up.tables) {

@@ -219,6 +219,30 @@ def test_a_stream_is_one_commit(service):
     assert table.version() == 0 and sorted(table.to_pyarrow_table().column("id").to_pylist()) == list(range(10))
 
 
+def test_a_write_leaves_nothing_on_this_pcs_disk(service, tmp_path):
+    code = ("import pyarrow as pa\nfrom fabric_desktop import lakehouse\n"
+            "t = pa.table({'id': list(range(10))})\n"
+            "lakehouse.write_table(pa.RecordBatchReader.from_batches(t.schema, t.to_batches(max_chunksize=3)), 'sales')\n"
+            "lakehouse.write_table(pa.table({'id': [1]}), 'broken')")
+    assert service.run_cell(code, LH)["status"] == "error"  # one upload failed, one went in
+    staging = [p for p in tmp_path.rglob("*") if p.is_file() and "staging" in p.parts]
+    assert staging == []  # no spill file and no staged table, after a failed upload too
+
+
+def test_a_cancelled_write_removes_its_spill_file(tmp_path):
+    import threading as _t
+    spill = write_queue.Spill(tmp_path, data(1).schema)
+    spill.add(data(1).to_batches()[0])
+    spill.close()
+    q, gate = Queue(workers=1), _t.Event()
+    q.submit("a", "a", 0, gate.wait)
+    later = q.submit("a", "a", 0, lambda: None)
+    later.add_done_callback(lambda f: spill.remove() if f.cancelled() else None)  # as lakehouse.write_table does
+    _t.Timer(0.2, gate.set).start()
+    q.flush(cancel=True)
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_a_notebook_can_write_direct(service):
     service.notebooks.save("nb", [{"type": "code", "source": "1"}], LH)
     assert service.notebook_onelake_writes_set("nb", "direct") == {"onelake_writes": "direct", "effective": "direct"}

@@ -48,6 +48,27 @@ Pick a template, fill in its fields (schema, table, columns and the like) and wa
 - **Only a query that reads runs on this page.** Most templates create or change objects or data, which the page refuses until warehouse writes ship (a later stage, waiting on its own decision). For now, copy those scripts into Fabric's SQL editor.
 - Every template is checked against the Fabric Warehouse rules of the [compatibility check](sql-compatibility.md) by the app's tests. Two say *Review* (Truncate and reload, Dynamic data masking) and two *Not verified* (time travel's `OPTION (FOR TIMESTAMP AS OF ...)` and `CREATE SECURITY POLICY`, which the checker can't read).
 
+### Your own templates
+
+**New template** in the gallery writes a template of your own: a title, an optional group and description, the SQL with fields marked as `<name, kind, default>` (for example `[<table_name, sysname, FactSales>]`; the kinds are `sysname`, `columns`, `string`, `int`, `datatype` and `datetime`), and whether to offer it on SQL analytics endpoints too. It starts from the current tab's SQL. As you type, the page lists the fields it found, says which kind it doesn't know, and runs the compatibility check on the template filled with its defaults. **Make a copy** on any built-in template starts one of yours from it.
+
+Your templates show in the gallery beside the built-in ones, in their group (or **My templates**), with the same fields, checks and preview. **Edit**, **Export** and **Delete** (which asks first) are on each of them.
+
+Each template is a `.sql` file you can read and edit anywhere: a few header lines, then the SQL.
+
+```sql
+-- template: Top rows
+-- group: Team checks
+-- description: The first rows of a table
+-- endpoint: yes
+SELECT TOP (<n, int, 10>) * FROM [<schema_name, sysname, dbo>].[<table_name, sysname, FactSales>];
+```
+
+- **Save to My templates** keeps it on this PC, in the `sql-templates` folder of the app's data folder.
+- **Save to a Git repository** you opened in Source control writes it to that repository's `sql-templates` folder. Commit and push it in Source control, and everyone who opens the repository gets it in their gallery. The app writes the file only; it doesn't commit.
+- **Export** writes a copy to your Downloads folder (never replacing a file), to send to someone. **Import** adds a `.sql` file you pick to My templates. A file without header lines is imported with its file name as the title.
+- A file the gallery can't use (too large, not UTF-8 text, or a field with an unknown kind) is still listed, with why, so you can fix it.
+
 ## Results, Messages and Chart
 
 Above the result, three views, on every SQL page (lakehouse, local project and warehouse). Messages and Chart are Preview: on a lakehouse or local project page they carry the Preview tag and go when Settings hides preview features; on the Warehouse page the whole page is already Preview.
@@ -69,7 +90,8 @@ How a run works underneath (states, limits, what is refused): [Running SQL queri
 | WH-01 | The Warehouse page and its warehouse target | Done |
 | WH-02 | Object explorer: schemas, tables, views, procedures, functions, columns for completion | Done |
 | WH-03 | Script as SELECT, CREATE, ALTER, DROP | Done |
-| WH-04, WH-05 | SQL from a template, with fill-in parameters | This release |
+| WH-04, WH-05 | SQL from a template, with fill-in parameters | Done |
+| WH-04b | Your own templates, on this PC or shared through Git | This release |
 | WH-06, WH-07 | Saved and shared queries, history and Fabric query insights | Planned |
 | WH-08 | Messages and a quick chart (several result sets come with scripts) | Done |
 

@@ -264,7 +264,7 @@ def test_stats_count_a_nested_wait_once_and_side_by_side_uploads_once():
     with s.waiting():
         with s.waiting():
             time.sleep(0.05)
-    assert 0.05 <= s.wait < 0.2
+    assert 0.03 <= s.wait < 0.2  # Windows' clock ticks about every 16 ms, so a 0.05 s sleep can read 0.047
     now = time.monotonic()
     s.wrote(now - 2, 10, 100, False)
     s.wrote(now - 1, 5, 50, False)  # overlapped the first: the second it added counts once

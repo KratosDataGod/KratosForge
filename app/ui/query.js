@@ -637,7 +637,7 @@ function renderQuery() {
   setView(wh ? h("div", { class: "sql-page warehouse-page" },
     h("div", { class: "ribbon" }, h("div", { class: "toolbar" },
       btn("New SQL query", "add", addTab),
-      btn("SQL from a template", "document", () => openSqlTemplates(ref, openTab)),
+      btn("SQL from a template", "document", () => openSqlTemplates(ref, openTab, { draft: () => editor.text() })),
       btn("Open in Fabric", "open", () => openInFabric(fabricLink)),
       h("span", { class: "spacer" }),
       h("span", { class: "muted-text" }, `Queries run in Fabric on ${ref.name} and use capacity. Only a query that reads runs here. `,
@@ -653,7 +653,8 @@ function renderQuery() {
           reads: "The warehouse's SQL connection, from Fabric, then the rows your query asks for. The explorer reads the warehouse's catalog views (sys.objects, sys.columns) the same way. It signs in as you, with a token for Azure SQL.",
           changes: "Nothing. Only a single statement that reads is sent; DDL, DML, EXEC and variables are refused before Fabric is asked.",
           results: "A snapshot of the rows on this PC, read a page at a time, with Copy and Export to Downloads. The query text stays on this PC.",
-          more: [["Capacity", "The query runs in Fabric, so it uses capacity on the warehouse's workspace."]],
+          more: [["Capacity", "The query runs in Fabric, so it uses capacity on the warehouse's workspace."],
+            ["Your templates", "Saving, importing or deleting a template of your own writes or removes a .sql file in My templates (the app's data folder) or in the sql-templates folder of a Git repository you opened. Export writes a new file in Downloads."]],
           anchor: "warehouse-queries-preview" }))),
       h("section", { class: "sql-main" }, tabs,
         h("div", { class: "sql-card" }, actions, h("div", { class: "sql-editor-row" }, edit, compat), band, grid))))

@@ -150,6 +150,11 @@ from .notebook_files_service import METHODS as NOTEBOOK_FILES_METHODS  # noqa: E
 
 METHODS |= NOTEBOOK_FILES_METHODS
 
+# Your own SQL templates for the Warehouse page's gallery (sql_templates_service.py).
+from .sql_templates_service import METHODS as SQL_TEMPLATE_METHODS  # noqa: E402
+
+METHODS |= SQL_TEMPLATE_METHODS
+
 # Folders for notebooks (notebook_folders_service.py): new, rename, delete when empty, move into one.
 from .notebook_folders_service import METHODS as NOTEBOOK_FOLDERS_METHODS  # noqa: E402
 

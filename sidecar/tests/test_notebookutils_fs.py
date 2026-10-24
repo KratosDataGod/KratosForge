@@ -403,3 +403,15 @@ def test_mkdirs_on_a_file_says_so(store, fs, tmp_path):
     (tmp_path / "f.txt").write_text("x")
     with pytest.raises(FileExistsError):
         fs.mkdirs(f"file:{tmp_path}/f.txt")
+
+
+def test_fastcp_copies_a_folder_by_default_as_in_fabric(store, fs, tmp_path):
+    assert fs.fastcp("Files/raw", "Files/copy")
+    assert store.files["Files/copy/a.csv"] == b"a,b\n1,2\n" and store.files["Files/copy/b.csv"] == b"x\n"
+    # azcopy's options are accepted and change nothing; recurse=False is cp's refusal for a local folder.
+    (tmp_path / "local").mkdir()
+    (tmp_path / "local" / "f.txt").write_text("hi")
+    assert fs.fastcp("Files/one.txt", "Files/two.txt", extraConfigs={"flags": "--overwrite=true"})
+    assert store.files["Files/two.txt"] == b"hello"
+    with pytest.raises(IsADirectoryError, match="Pass recurse=True"):
+        fs.fastcp(f"file:{tmp_path / 'local'}", "Files/local", recurse=False)

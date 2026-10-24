@@ -286,6 +286,11 @@ def _make_fs() -> types.SimpleNamespace:
         _write(dest, _read(src))
         return True
 
+    def fastcp(src: str, dest: str, recurse: bool = True, extraConfigs: Any = None) -> bool:  # noqa: N803, ARG001
+        """Fabric copies with azcopy here; on this PC it is cp, and copies a folder unless told not to, as
+        Fabric's fastcp does. extraConfigs are azcopy's options, so they change nothing on this PC."""
+        return cp(src, dest, recurse)
+
     def rm(path: str, recurse: bool = False) -> bool:
         where, p = _split(path)
         if where == "local":
@@ -370,9 +375,10 @@ def _make_fs() -> types.SimpleNamespace:
         raise NotImplementedError("Mounting other storage runs in Fabric. On this PC, read the attached lakehouse.")
 
     def help(*_a: Any) -> None:  # noqa: A001
-        print("notebookutils.fs on this PC: ls, head, put, append, cp, mv, rm, mkdirs, exists, getMountPath")
+        print("notebookutils.fs on this PC: ls, head, put, append, cp, fastcp (the same copy as cp), mv, rm, mkdirs, "
+              "exists, getMountPath")
 
-    return types.SimpleNamespace(ls=ls, head=head, put=put, append=append, cp=cp, fastcp=cp, mv=mv, rm=rm,
+    return types.SimpleNamespace(ls=ls, head=head, put=put, append=append, cp=cp, fastcp=fastcp, mv=mv, rm=rm,
                                  mkdirs=mkdirs, exists=exists, getMountPath=getMountPath, mount=mount,
                                  unmount=mount, mounts=lambda: [], help=help)
 

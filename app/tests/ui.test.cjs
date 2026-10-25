@@ -4980,3 +4980,15 @@ test("Run in Fabric and side by side wait for the Parameters bar's values", () =
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
   assert.match(doc, /\*\*Run in Fabric\*\* and \*\*Side by side\*\* use the bar's values too/);
 });
+
+// Add to VS Code: the page sends only the tool's id; the shell builds the vscode: link itself
+// (vscode_link.rs), so no page can make it open another link.
+test("Add to VS Code passes only the tool's id to the shell", () => {
+  const src = fs.readFileSync(path.join(ui, "integrations.js"), "utf8");
+  const calls = src.match(/invoke\("add_to_vscode", \{[^}]*\}/g) || [];
+  assert.deepStrictEqual(calls, ['invoke("add_to_vscode", { clientId: client.id, insiders }']);
+  assert.ok(!/vscode:mcp|vscode-insiders:/.test(src), "the link is built in the shell, not the page");
+  const main = fs.readFileSync(path.join(__dirname, "..", "src-tauri", "src", "main.rs"), "utf8");
+  assert.match(main, /fn add_to_vscode\(client_id: String, insiders: bool\)/);
+  assert.match(main, /generate_handler!\[[\s\S]*add_to_vscode/);
+});

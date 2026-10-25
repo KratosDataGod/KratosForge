@@ -18,6 +18,7 @@ mod exe_name;
 mod policy_file;
 mod replies;
 mod update_guard;
+mod vscode_link;
 mod watchdog;
 use watchdog::Reply;
 
@@ -1783,21 +1784,37 @@ fn open_link(url: String) -> Result<(), String> {
     let url = Url::parse(&url).map_err(|e| e.to_string())?;
     match url.scheme() {
         "https" => open_in_browser(&url),
-        "mailto" => {
-            let mut cmd = if cfg!(windows) {
-                let mut c = Command::new(system_tool("rundll32.exe"));
-                c.args(["url.dll,FileProtocolHandler", url.as_str()]);
-                c
-            } else {
-                let mut c = Command::new("xdg-open");
-                c.arg(url.as_str());
-                c
-            };
-            hide_window(&mut cmd);
-            cmd.spawn().map(|_| ()).map_err(|e| format!("Could not open the mail app: {e}"))
-        }
+        "mailto" => open_with_handler(url.as_str(), "the mail app"),
         other => Err(format!("Not opening a {other} link")),
     }
+}
+
+/// Hands a link to the app Windows has registered for its scheme (mailto:, vscode:).
+fn open_with_handler(link: &str, what: &str) -> Result<(), String> {
+    let mut cmd = if cfg!(windows) {
+        let mut c = Command::new(system_tool("rundll32.exe"));
+        c.args(["url.dll,FileProtocolHandler", link]);
+        c
+    } else {
+        let mut c = Command::new("xdg-open");
+        c.arg(link);
+        c
+    };
+    hide_window(&mut cmd);
+    cmd.spawn().map(|_| ()).map_err(|e| format!("Could not open {what}: {e}"))
+}
+
+/// "Add to VS Code" (Settings > Integrations): asks VS Code, or VS Code Insiders, to add the
+/// KratosForge MCP server for a connected tool. VS Code shows the entry and asks before adding it.
+/// The link is built here from the id and the launcher's fixed path (vscode_link.rs).
+#[tauri::command]
+fn add_to_vscode(client_id: String, insiders: bool) -> Result<(), String> {
+    let launcher = data_dir().join("bin").join(if cfg!(windows) { "fabric-desktop-mcp.cmd" } else { "fabric-desktop-mcp" });
+    if !launcher.is_file() {
+        return Err("Turn on Let AI tools connect first: that sets up the command VS Code runs.".into());
+    }
+    let link = vscode_link::install_link(&launcher, &client_id, insiders)?;
+    open_with_handler(&link, if insiders { "VS Code Insiders. Is it installed?" } else { "VS Code. Is it installed?" })
 }
 
 /// Opens one of this repository's docs pages in the default browser, such as
@@ -1861,7 +1878,7 @@ fn main() {
         .on_window_event(on_window_event)
         .invoke_handler(tauri::generate_handler![
             rpc, stop_kernel, check_components, check_for_update, update_sidecar, update_app,
-            fabric_view_show, fabric_view_hide, fabric_view_action, open_doc, fabric_view_sign_out, open_link,
+            fabric_view_show, fabric_view_hide, fabric_view_action, open_doc, fabric_view_sign_out, open_link, add_to_vscode,
             pop_out_open, pop_out_close, pop_out_on_top, pop_out_list, pop_out_open_in_fabric
         ])
         .run(tauri::generate_context!())

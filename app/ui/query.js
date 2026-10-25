@@ -227,6 +227,7 @@ function renderQuery() {
     if (wh && !(await warehouseRunOk(ref))) return;
     if (wh && !sqlPage.catalog) loadCatalog();
     tab.running = true;
+    const startedAt = Date.now();
     Object.assign(tab, { error: null, errorRetry: null, result: null, exec: null, ranNotice: "", chart: null });
     drawResults();
     let status;
@@ -254,6 +255,12 @@ function renderQuery() {
       if (tab.exportAfter) { const fmt = tab.exportAfter; delete tab.exportAfter; exportResult(fmt); }
     } else if (status && !tab.errorRetry) {  // a failed engine call keeps its own message and Retry
       tab.error = status.error || `The query ${SQL_STATE[status.state]?.[1].toLowerCase() || status.state}.`;
+    }
+    // WH-07: each run that reached the engine goes into this PC's history for the warehouse.
+    if (wh && status?.state) {
+      sqlHistoryAdd(ref, { at: startedAt, sql: query, state: status.state, seconds: status.seconds ?? null, rows: status.rows ?? null,
+        error: status.state === "completed" ? undefined : sqlHistoryError(status.error) });
+      if (p.whAside === "history") p.whRedraw?.();
     }
     sqlPage.redraw?.();
     if (here()) {
@@ -645,6 +652,15 @@ function renderQuery() {
     renderQuery();
   };
   const whSaved = wh ? whQueries(ref, { open: openSaved }) : null;
+  const whRuns = wh ? whHistory(ref, {
+    open: (name, text) => openTab(name, text),
+    insight: (name, text) => {
+      p.tabs.push({ name, sql: text, dialect: tab.dialect, autorun: true });
+      p.active = p.tabs.length - 1;
+      saveQueryTabs();
+      renderQuery();
+    },
+  }) : null;
   const saveQuery = async (asNew) => {
     const file = await saveSqlQuery(ref, tab, asNew);
     if (!file) return;
@@ -654,10 +670,10 @@ function renderQuery() {
     await sqlLoadQueries();
     if (p.ref === ref && state.view === "query") renderQuery();
   };
-  const asideView = wh && p.whAside === "queries" ? "queries" : "explorer";
+  const asideView = wh && ["queries", "history"].includes(p.whAside) ? p.whAside : "explorer";
   const asideTab = (id, label) => h("button", { role: "tab", class: `sql-view${asideView === id ? " on" : ""}`, "aria-selected": String(asideView === id),
     onclick: () => { p.whAside = id; renderQuery(); } }, label);
-  p.whRedraw = wh ? () => { whTree.draw(); whSaved.draw(); if (here()) editor.refresh(); } : null;
+  p.whRedraw = wh ? () => { whTree.draw(); whSaved.draw(); whRuns.draw(); if (here()) editor.refresh(); } : null;
   const fabricLink = wh ? fabricItemLink({ type: ref.kind === "endpoint" ? "Lakehouse" : "Warehouse", workspace_id: ref.workspace_id, item_id: ref.item_id }) : null;
   setView(wh ? h("div", { class: "sql-page warehouse-page" },
     h("div", { class: "ribbon" }, h("div", { class: "toolbar" },
@@ -671,20 +687,21 @@ function renderQuery() {
         learnMore("warehouse-queries-preview")))),
     h("div", { class: "nb-body" },
       h("aside", { class: "explorer" }, h("div", { class: "explorer-head sql-views", role: "tablist", "aria-label": "Explorer views" },
-        asideTab("explorer", "Explorer"), asideTab("queries", "Queries")),
-        asideView === "queries" ? whSaved.el : null,
-        asideView === "queries" ? null : h("div", { class: "tree-row", style: "margin:4px 8px 0;font-weight:600;cursor:default" },
+        asideTab("explorer", "Explorer"), asideTab("queries", "Queries"), asideTab("history", "History")),
+        asideView === "queries" ? whSaved.el : asideView === "history" ? whRuns.el : null,
+        asideView !== "explorer" ? null : h("div", { class: "tree-row", style: "margin:4px 8px 0;font-weight:600;cursor:default" },
           itemIcon(ref.kind === "endpoint" ? "SQLEndpoint" : "Warehouse", 16), h("span", { class: "label" }, ref.name), previewTag()),
-        asideView === "queries" ? null : h("div", { class: "tree-row muted", style: "cursor:default" }, ref.kind === "endpoint" ? "SQL analytics endpoint" : "Warehouse",
+        asideView !== "explorer" ? null : h("div", { class: "tree-row muted", style: "cursor:default" }, ref.kind === "endpoint" ? "SQL analytics endpoint" : "Warehouse",
           ref.workspace_name ? ` · ${ref.workspace_name}` : ""),
-        asideView === "queries" ? null : whTree.el,
+        asideView !== "explorer" ? null : whTree.el,
         h("div", { class: "warehouse-how" }, howItWorks("warehouse.query", {
           reads: "The warehouse's SQL connection, from Fabric, then the rows your query asks for. The explorer reads the warehouse's catalog views (sys.objects, sys.columns) the same way. It signs in as you, with a token for Azure SQL.",
           changes: "Nothing. Only a single statement that reads is sent; DDL, DML, EXEC and variables are refused before Fabric is asked.",
           results: "A snapshot of the rows on this PC, read a page at a time, with Copy and Export to Downloads. The query text stays on this PC.",
           more: [["Capacity", "The query runs in Fabric, so it uses capacity on the warehouse's workspace."],
             ["Your templates", "Saving, importing or deleting a template of your own writes or removes a .sql file in My templates (the app's data folder) or in the sql-templates folder of a Git repository you opened. Export writes a new file in Downloads."],
-            ["Saved queries", "Save query writes the tab to a .sql file in My queries (the app's data folder) or in the sql-queries folder of a Git repository you opened; Delete removes that file. Nothing is committed for you."]],
+            ["Saved queries", "Save query writes the tab to a .sql file in My queries (the app's data folder) or in the sql-queries folder of a Git repository you opened; Delete removes that file. Nothing is committed for you."],
+            ["History", "Each run here is kept with its SQL in the app's storage on this PC (up to 200 per warehouse) until you clear it. Query insights run a query on the warehouse's queryinsights views in Fabric."]],
           anchor: "warehouse-queries-preview" }))),
       h("section", { class: "sql-main" }, tabs,
         h("div", { class: "sql-card" }, actions, h("div", { class: "sql-editor-row" }, edit, compat), band, grid))))

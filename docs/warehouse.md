@@ -10,7 +10,7 @@ In **Workspaces**, open a workspace and press **SQL query** on a **Warehouse** o
 - **It only reads.** One statement that reads is sent. DDL, DML, `EXEC`, variables and anything that reaches outside the warehouse (`OPENROWSET`) are refused before Fabric is asked anything. Changing a warehouse from the app is a later stage and waits on its own decision.
 - **It runs as you.** The app signs in to Azure SQL (`https://database.windows.net`) with your account, the first time you run a warehouse query, and Fabric's permissions on the warehouse apply as they do in Fabric. See [permissions](permissions.md).
 - **Same run controls.** Stop, the time limit in Settings › SQL, results a page at a time, Copy and Export to CSV or Parquet. The `sql_execution` audit line names the workspace and warehouse, never the SQL.
-- **No risk check, by design.** The [risk check](finops/risk-check.md) looks at workloads (notebooks, pipelines, Data mesh runs) before a run. A warehouse query isn't a workload: it only reads, and the confirm, Stop and the time limit bound what it can use. The cost of warehouse queries comes with query insights (WH-07) and, later, Optimize.
+- **No risk check, by design.** The [risk check](finops/risk-check.md) looks at workloads (notebooks, pipelines, Data mesh runs) before a run. A warehouse query isn't a workload: it only reads, and the confirm, Stop and the time limit bound what it can use. Query insights on the History tab show what queries cost in time; capacity cost comes later, in Optimize.
 - **Check before you run.** The editor checks T-SQL against Fabric Warehouse (or the SQL analytics endpoint) as you type, from Microsoft's [T-SQL surface area](https://learn.microsoft.com/en-us/fabric/data-warehouse/tsql-surface-area) page. See [SQL compatibility](sql-compatibility.md).
 
 ## Explorer
@@ -91,6 +91,22 @@ SELECT Region, SUM(Amount) AS Revenue FROM dbo.FactSales GROUP BY Region;
 
 If the file changed after you opened it (a Git pull, or another editor), **Save query** leaves it alone and says so: open it again to see the change, or use **Save as new** to keep yours. The same rules as your own templates keep these files in their place: a folder or file that is a link to somewhere else is skipped, and each place lists up to 200 queries by name, saying so when there are more.
 
+## History and query insights
+
+The explorer's **History** tab has two parts.
+
+**This PC's runs** lists every query you ran on this warehouse from the app, newest first: its first line of SQL (skipping comments), when it ran, how it ended (Succeeded, Failed, Stopped, Timed out), how long it took and how many rows it returned. Hover a failed run to see why: the first line of its error, with quoted text and numbers taken out, since an error can echo values from your data. Click one to open its SQL in a new tab; it doesn't run again until you press **Run**. **Filter by text or table** narrows the list. The SQL is kept in the app's storage on this PC only (up to 200 runs per warehouse, 20,000 characters of SQL each, and about 1 MB across all warehouses: past that, or when the app's storage is full, the oldest runs go first, so open tabs always keep their room), never in the engine's logs or the audit trail. **Clear history** removes them after asking; saved queries and open tabs stay.
+
+**Query insights from Fabric** reads Fabric's own record of everyone's queries on the warehouse, from its [queryinsights views](https://learn.microsoft.com/en-us/fabric/data-warehouse/query-insights):
+
+| Button | What it runs |
+| --- | --- |
+| **Long running** | `SELECT TOP (50) * FROM queryinsights.long_running_queries ORDER BY median_total_elapsed_time_ms DESC` |
+| **Frequently run** | `SELECT TOP (50) * FROM queryinsights.frequently_run_queries ORDER BY number_of_runs DESC` |
+| **Recent requests** | `SELECT TOP (100) * FROM queryinsights.exec_requests_history ORDER BY start_time DESC` |
+
+Each opens in a new tab and runs there, so it asks first like any other run and **uses capacity**. The result is an ordinary result: page through it, chart it, export it. Fabric keeps 30 days of history and fills these views a few minutes after a query ends. What you see depends on your permissions on the warehouse.
+
 ## Results, Messages and Chart
 
 Above the result, three views, on every SQL page (lakehouse, local project and warehouse). Messages and Chart are Preview: on a lakehouse or local project page they carry the Preview tag and go when Settings hides preview features; on the Warehouse page the whole page is already Preview.
@@ -114,8 +130,8 @@ How a run works underneath (states, limits, what is refused): [Running SQL queri
 | WH-03 | Script as SELECT, CREATE, ALTER, DROP | Done |
 | WH-04, WH-05 | SQL from a template, with fill-in parameters | Done |
 | WH-04b | Your own templates, on this PC or shared through Git | Done |
-| WH-06 | Saved and shared queries, on this PC or through Git | This release |
-| WH-07 | Query history and Fabric query insights | Planned |
+| WH-06 | Saved and shared queries, on this PC or through Git | Done |
+| WH-07 | Query history and Fabric query insights | This release |
 | WH-08 | Messages and a quick chart (several result sets come with scripts) | Done |
 
 Later stages (building and deploying objects from Git, loading and managing data, Snowflake) follow the same pattern: a mockup first, then one change per feature.

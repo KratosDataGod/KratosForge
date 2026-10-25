@@ -66,6 +66,18 @@ def test_a_lakehouse_is_only_read(sql):
     assert DeltaTable(str(sql.lh / "Tables" / "dbo" / "orders")).version() == before
 
 
+def test_a_lakehouse_script_cant_read_this_pcs_files(sql, tmp_path):
+    (tmp_path / "secret.csv").write_text("a\n1\n")
+    path = (tmp_path / "secret.csv").as_posix()
+    for query in (f"SELECT * FROM read_csv('{path}')", f'SELECT * FROM "{path}"', "SELECT getenv('HOME') AS h"):
+        assert codes(sql, pipeline(script("Peek", ("Query", query))), read_lakehouses=True) == ["script_refused"], query
+    # Known only at run time: the same check stops it before it runs.
+    text = pipeline(script("Peek", ("Query", {"value": "@pipeline().parameters.sql", "type": "Expression"})),
+                    parameters={"sql": {"type": "string", "defaultValue": f"SELECT * FROM read_csv('{path}')"}})
+    r = start(sql, text)
+    assert r["state"] == "failed" and by_name(r)["Peek"]["error"]["errorCode"] == "LocalScriptRefused"
+
+
 def test_a_local_data_project_runs_its_scripts_and_keeps_its_tables(sql):
     project = sql.local_data.create("Pipeline SQL")["id"]
     text = pipeline(script("Build", ("NonQuery", "CREATE TABLE picked AS SELECT 7 AS n"),

@@ -149,6 +149,9 @@ def test_signed_out_says_so_without_a_scan(svc, monkeypatch):
     monkeypatch.setattr(Service, "auth", property(lambda self: NoAuth()))
     out = svc.fabric_connections()
     assert out["pending"] is False and "Sign in first" in out["error"] and FakeFabric.calls == []
+    # Signing in afterwards needs no Refresh: an error isn't cached.
+    monkeypatch.setattr(Service, "auth", property(lambda self: FakeAuth()))
+    assert "error" not in _settled(svc) and FakeFabric.calls
 
 
 def test_connection_ids_walks_every_level():

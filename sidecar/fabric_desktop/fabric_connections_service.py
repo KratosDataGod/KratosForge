@@ -78,8 +78,8 @@ class FabricConnectionsMixin:
         """Connections and what uses them, from a background scan ({"pending": True} meanwhile). Reads only."""
         with self._fabric_connections_lock:
             cached = self._fabric_connections
-            if cached is not None and not refresh:
-                return dict(cached)
+            if cached is not None and not refresh and not cached.get("error"):
+                return dict(cached)  # an error isn't kept: the next call tries again (after sign-in, say)
             if cached and cached.get("pending"):
                 return dict(cached)  # a scan is already going
             try:

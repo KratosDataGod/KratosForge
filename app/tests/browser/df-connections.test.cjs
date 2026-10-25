@@ -50,7 +50,7 @@ test("the Connections tab says it's reading, then lists what uses each connectio
   assert.match(rows[0], /^Unknown connection 5a1c7d2e.*pl_customer_load · pipeline—Missing$/);  // missing first
   assert.match(rows[1], /sql-erp-prod.*On-premises gateway.*cj_erp_customers · copy jobUsed by 2—$/);
   assert.match(rows[2], /web-fx-rates.*Cloud.*Nothing in these workspaces——$/);
-  assert.match(await page().locator(".df-alert").textContent(), /1 connection is missing\. pl_customer_load in Test uses a connection you can't use/);
+  assert.match(await page().locator(".df-alert").textContent(), /1 connection is missing\. pl_customer_load in Test uses a connection you can't use \(deleted, or not shared with you\), so it fails when you run it\./);
   assert.match(await page().locator(".df-conn-body").textContent(), /4 pipelines and copy jobs read in Sales Dev \(Dev\), Sales Test \(Test\) · 1 couldn't be read/);
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "df-connections.png") });
 });

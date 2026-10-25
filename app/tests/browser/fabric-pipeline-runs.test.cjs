@@ -35,10 +35,17 @@ before(async () => {
       fabric_pipeline_runs: (p) => {
         scans += 1;
         if (scans === 1) return { pending: true, runs: [] };
-        return { pending: false, missed: 1, runs: [RUN("j-1", "pl_customer_load", "failed", { message: "Copy customers failed" }),
-          RUN("j-2", "pl_refresh_models", "succeeded", { started: "2026-10-24T05:30:00" }), RUN("j-ours", "pl_ours", "succeeded")] };
+        // Until Refresh, the scan is 20 minutes old: a run read as going then is Stale now.
+        const scanned = new Date(Date.now() - (p.refresh ? 0 : 20 * 60000)).toISOString();
+        return { pending: false, missed: 1, scanned, runs: [RUN("j-1", "pl_customer_load", "failed", { message: "Copy customers failed" }),
+          RUN("j-2", "pl_refresh_models", "succeeded", { started: "2026-10-24T05:30:00" }), RUN("j-ours", "pl_ours", "succeeded"),
+          RUN("j-3", "pl_long", "running", { started: "2026-10-24T04:00:00", ended: null, seconds: null }),
+          RUN("j-4", "pl_secret", "succeeded", { started: "2026-10-24T03:00:00" })] };
       },
-      fabric_pipeline_activity_runs: () => ({ activities: ACTIVITIES }),
+      fabric_pipeline_activity_runs: (p) => {
+        if (p.job_id === "j-4") throw new Error("POST https://api.fabric.microsoft.com/... failed with 403: {}");
+        return { activities: ACTIVITIES };
+      },
     },
   });
   app.errors.length = 0;
@@ -50,9 +57,11 @@ test("Runs says it's reading, then lists Fabric pipeline runs once each", { skip
   await page().locator(".monitor-filters", { hasText: "Reading pipeline runs in Fabric" }).waitFor();
   await page().locator("tr.pl-run", { hasText: "pl_customer_load" }).waitFor({ timeout: 10000 });
   const texts = await page().locator("tr.pl-run").allTextContents();
-  assert.strictEqual(texts.length, 2, texts.join("\n"));  // pl_ours is listed from fabric_runs, not again
-  assert.ok(texts.every((t) => /Pipeline run in Fabric · scheduled/.test(t) && /Fabric · Sales Dev/.test(t)), texts.join("\n"));
+  assert.strictEqual(texts.length, 4, texts.join("\n"));  // pl_ours is listed from fabric_runs, not again
+  assert.ok(texts.every((t) => /Pipeline run in Fabric · scheduled · as of \d/.test(t) && /Fabric · Sales Dev/.test(t)), texts.join("\n"));
   assert.match(texts[0], /^Failed/);
+  // Problems first: the real failure, then the run whose status is too old to trust, then the rest.
+  assert.match(texts[1], /^Stale.*pl_long.*—/);
   assert.match(texts[0], /Copy customers failed/);
   assert.match(await page().locator(".monitor-filters").textContent(), /Runs of 1 pipeline in Fabric couldn't be read/);
   assert.strictEqual(await page().locator("tr", { hasText: "pl_ours" }).count(), 1);
@@ -77,6 +86,21 @@ test("a Fabric run opens to its activities, oldest first, with the error and inp
   assert.strictEqual(await page().locator("tr.pl-child").count(), 0);
 });
 
+test("a redraw reuses the activities read; a 403 says not authorized, never an empty list", { skip }, async () => {
+  const reads = () => app.calls.filter((c) => c.method === "fabric_pipeline_activity_runs").length;
+  const row = page().locator("tr.pl-run", { hasText: "pl_customer_load" });
+  await row.locator(".pl-toggle").click();
+  await page().locator("tr.pl-child").nth(2).waitFor();
+  const before = reads();
+  await page().evaluate(() => render());
+  await page().locator("tr.pl-child").nth(2).waitFor();
+  assert.strictEqual(reads(), before, "drawing Runs again doesn't ask Fabric again");
+  await page().locator("tr.pl-run", { hasText: "pl_customer_load" }).click();
+  await page().locator("tr.pl-run", { hasText: "pl_secret" }).click();
+  await page().locator("tr.pl-child", { hasText: "Not authorized to read activities" }).waitFor();
+  await page().locator("tr.pl-run", { hasText: "pl_secret" }).click();
+});
+
 test("Open in Fabric goes to the pipeline, and Refresh asks for a new scan", { skip }, async () => {
   await page().evaluate(() => { window.openInFabric = (url) => { window.openedUrl = url; }; });
   await page().locator("tr.pl-run", { hasText: "pl_customer_load" }).locator("button", { hasText: "Open in Fabric" }).click();
@@ -87,6 +111,8 @@ test("Open in Fabric goes to the pipeline, and Refresh asks for a new scan", { s
     await page().waitForTimeout(50);
   }
   assert.ok(app.calls.some((c) => c.method === "fabric_pipeline_runs" && c.params?.refresh === true));
+  // A fresh read: the long run shows Running again.
+  await page().locator("tr.pl-run", { hasText: "pl_long" }).filter({ hasText: /^Running/ }).waitFor();
 });
 
 test("no page errors", { skip }, () => assert.deepStrictEqual(app.errors, []));

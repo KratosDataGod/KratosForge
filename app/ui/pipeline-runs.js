@@ -49,19 +49,37 @@ const fabricUtc = (iso) => (iso && !/(Z|[+-]\d\d:?\d\d)$/.test(iso) ? `${iso}Z` 
 const FABRIC_RUN_STATUS = { succeeded: "ok", failed: "failed", running: "running", pending: "running", cancelled: "skipped", skipped: "skipped" };
 const FABRIC_INVOKE = { Scheduled: "scheduled", Manual: "started by hand", Pipeline: "started by a pipeline" };
 
+const FABRIC_STALE_MINUTES = 10;  // a run read as going longer ago than this may have finished since
+const fabricActivityCache = new Map();  // run id -> what Fabric said; read again only after Refresh
+
+// Refresh on Runs reads open Fabric runs' activities again; other redraws use what was read.
+function forgetFabricActivities() { fabricActivityCache.clear(); }
+
 // Runs rows for pipeline runs in Fabric (fabric_pipeline_runs). A run this app started is already
-// listed from fabric_runs, so it isn't listed twice.
+// listed from fabric_runs, so it isn't listed twice. A status is only as fresh as the scan: the row
+// says when it was read, and a run read as going a while ago shows Stale, not Running.
 function fabricPipelineRunRows(result, cloud) {
   const ours = new Set((cloud || []).map((r) => r.job_id).filter(Boolean));
-  return (result?.runs || []).filter((run) => run.job_id && !ours.has(run.job_id)).map((run) => ({
-    at: fabricUtc(run.started), status: FABRIC_RUN_STATUS[run.state] || "unavailable",
-    pill: run.state === "cancelled" ? h("span", { class: "pill-s neu" }, "Cancelled") : undefined,
-    activity: run.name || "Pipeline", env: "", where: "fabric", ranOn: `Fabric · ${run.workspace_name || "workspace"}`,
-    kind: "Pipeline run in Fabric", note: FABRIC_INVOKE[run.invoke] || "",
-    reason: run.state === "failed" ? run.message || "" : "",
-    envWhy: "Pipeline runs in Fabric are listed by workspace, not by the project's environments",
-    seconds: run.seconds ?? "", rows: "—", pipelineRun: `fabric:${run.job_id}`, fabricRun: run,
-  }));
+  const read = result?.scanned ? new Date(result.scanned) : null;
+  const asOf = read ? `as of ${read.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "";
+  const old = !read || Date.now() - read > FABRIC_STALE_MINUTES * 60000;
+  return (result?.runs || []).filter((run) => run.job_id && !ours.has(run.job_id)).map((run) => {
+    const going = run.state === "running" || run.state === "pending";
+    const stale = going && old;
+    const known = run.state in FABRIC_RUN_STATUS;
+    return {
+      at: fabricUtc(run.started), status: stale || !known ? "unavailable" : FABRIC_RUN_STATUS[run.state],
+      pill: stale ? h("span", { class: "pill-s neu", title: "Running when last read; press Refresh to read it again" }, "Stale")
+        : !known ? h("span", { class: "pill-s neu", title: `Fabric said ${run.native_status || "nothing"}` }, "Unknown")
+        : run.state === "cancelled" ? h("span", { class: "pill-s neu" }, "Cancelled") : undefined,
+      activity: run.name || "Pipeline", env: "", where: "fabric", ranOn: `Fabric · ${run.workspace_name || "workspace"}`,
+      kind: "Pipeline run in Fabric", note: [FABRIC_INVOKE[run.invoke], asOf].filter(Boolean).join(" · "),
+      reason: run.state === "failed" ? run.message || "" : "",
+      envWhy: "Pipeline runs in Fabric are listed by workspace, not by the project's environments",
+      seconds: run.seconds ?? "", tookText: run.seconds === null || run.seconds === undefined ? "—" : undefined,
+      rows: "—", pipelineRun: `fabric:${run.job_id}`, fabricRun: run,
+    };
+  });
 }
 
 // What Runs says about the Fabric pipeline scan: still reading, or why nothing is listed.
@@ -181,20 +199,25 @@ function pipelineActivityRow(id, a, acts) {
 async function showFabricActivities(tr, r) {
   const id = r.pipelineRun;
   const run = r.fabricRun;
-  const wait = pipelineChildRow(id, h("td", { colspan: "8", class: "muted-text small" }, "Reading activities from Fabric..."));
+  const wait = pipelineChildRow(id, h("td", { colspan: "8", class: "muted-text small" }, "Activities not loaded yet: reading them from Fabric..."));
   tr.after(wait);
-  let found = null;
-  let problem = "";
-  try {
-    found = await rpc("fabric_pipeline_activity_runs", { workspace_id: run.workspace_id, job_id: run.job_id,
-      started: run.started || "", ended: run.ended || "" });
-  } catch (err) {
-    problem = friendlyError(err).text;
+  let { found, problem } = fabricActivityCache.get(id) || {};
+  if (!found && !problem) {
+    try {
+      found = await rpc("fabric_pipeline_activity_runs", { workspace_id: run.workspace_id, job_id: run.job_id,
+        started: run.started || "", ended: run.ended || "" });
+    } catch (err) {
+      const raw = String(err?.message || err);
+      problem = /\b(401|403)\b|Unauthorized|Forbidden/i.test(raw) ? "Not authorized to read activities"
+        : `Activities not loaded: ${friendlyError(err).text.replace(/\.$/, "")}`;
+    }
+    fabricActivityCache.set(id, { found, problem });
   }
   if (!wait.isConnected || !pipelineRunsOpen.has(id)) return;
   if (!found) {
+    // A read that failed says so; it never looks like a run with no activities, or a failed one.
     wait.replaceWith(pipelineChildRow(id, h("td", { colspan: "8", class: "muted-text small" },
-      `Activities not loaded: ${problem || "Fabric didn't return them"}.`)));
+      `${problem || "Activities not loaded: Fabric didn't return them"}. Refresh tries again.`)));
     return;
   }
   const acts = [...(found.activities || [])].sort((a, b) => String(a.started || "").localeCompare(String(b.started || "")));

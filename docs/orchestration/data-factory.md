@@ -1,6 +1,6 @@
 # Data Factory in KratosForge (plan)
 
-Status: planned, Preview. Chris said go on 2026-10-24. This page is for contributors. It extends the [orchestration plan](plan.md) from pipelines to the rest of Fabric Data Factory: Dataflow Gen2, copy jobs, connections and gateways, and monitoring of Fabric runs.
+Status: Preview. Chris said go on 2026-10-24 and approved the mockup on 2026-10-25. This page is for contributors. It extends the [orchestration plan](plan.md) from pipelines to the rest of Fabric Data Factory: Dataflow Gen2, copy jobs, connections and gateways, and monitoring of Fabric runs.
 
 ## Rules for every story
 
@@ -15,7 +15,7 @@ Status: planned, Preview. Chris said go on 2026-10-24. This page is for contribu
 
 | # | Story | Status |
 | --- | --- | --- |
-| DF-1 | Fabric pipeline runs in Monitor > Runs, with activity runs when a row opens | Engine in review; screen waits on the mockup |
+| DF-1 | Fabric pipeline runs in Monitor > Runs, with activity runs when a row opens | Engine merged (#640); Monitor rows in review |
 | DF-2 | Open a pipeline from a workspace (read its definition), Open in Fabric embedded | Not started |
 | DF-3 | Copy data inside OneLake and local files (orchestration plan P5) | Not started |
 | DF-4 | Schedule a pipeline on this PC (P6), rerun from the failed activity (P7) | Not started |

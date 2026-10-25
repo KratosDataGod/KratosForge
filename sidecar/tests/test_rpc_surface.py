@@ -37,8 +37,6 @@ _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-0
 # Dropping a name from METHODS? Also drop it from the timeout list in app/src-tauri/src/watchdog.rs.
 _OSSIE = "Semantic model tab's Ossie card: engine only, the card waits on Chris's mockup review (docs/semantic-model-ossie.md)"
 
-_DF1 = "Data Factory DF-1: Fabric pipeline runs in Monitor, engine only; the rows wait on Chris's mockup review"
-
 _PRACTICES = "notebook best practices: engine only, the panel waits on Chris's mockup review (docs/notebook-best-practices.md)"
 
 _SQL_PRACTICES = "SQL best practices: engine only, the panel waits on Chris's mockup review (docs/sql-best-practices.md)"
@@ -48,8 +46,6 @@ NO_UI_CALLER: dict[str, str] = {
     "notebook_practice_rules": _PRACTICES,
     "sql_practices": _SQL_PRACTICES,
     "sql_practice_rules": _SQL_PRACTICES,
-    "fabric_pipeline_runs": _DF1,
-    "fabric_pipeline_activity_runs": _DF1,
     # Export to Ossie / Import from Ossie.
     "meta_model_ossie_models": _OSSIE,
     "meta_model_ossie_export": _OSSIE,

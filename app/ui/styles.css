@@ -2140,6 +2140,9 @@ html[data-motion-level="0"] .mo-ghost { display: none; }
 .pl-toggle { border: 0; background: none; font: inherit; width: 24px; min-height: 24px; padding: 0; margin-right: 4px; cursor: pointer; color: var(--muted); }
 .list tr.pl-child td { background: #fafafa; font-size: 13px; }
 .list tr.pl-child td.pl-indent { padding-left: 28px; }
+.list tr.pl-child details.pl-io { margin-top: 4px; }
+.list tr.pl-child details.pl-io summary { cursor: pointer; color: var(--accent); font-size: 12px; }
+.list tr.pl-child details.pl-io pre { margin: 4px 0 0; max-height: 240px; overflow: auto; padding: 8px; background: var(--surface); border: 1px solid var(--border-soft); border-radius: 4px; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-word; }
 
 /* Platform > Requests > New request: the kind picker and its two-up fields. */
 .req-dialog { display: flex; flex-direction: column; gap: 10px; min-width: min(560px, 80vw); }

@@ -767,7 +767,6 @@ h2.flush { margin: 0; }
 .page.monitor .card.popped-out .monitor-band { border-bottom: 0; }
 .page.monitor.runs-out .monitor-fabric { flex: 1; }
 /* The band's description wraps before its buttons do. */
-.page.monitor .monitor-local > .monitor-band > .muted-text { flex: 1 1 260px; }
 /* A pop-out window: just the section, with Back, Forward, the trail, Keep on top and Dock back on top. */
 body.pop-out .rail, body.pop-out .brand, body.pop-out .search-wrap, body.pop-out .topbar-right { display: none; }
 body.pop-out-fabric .nav-buttons, body.pop-out-fabric .breadcrumb { display: none; }

@@ -7,6 +7,14 @@ const PLATFORM_TABS = [
   ["overview", "Overview"], ["landing", "Landing zone"], ["keys", "Business keys"], ["domains", "Domains"],
   ["glossary", "Glossary"], ["governance", "Governance"], ["requests", "Requests"], ["audit", "Audit"], ["settings", "Settings"],
 ];
+// The tab bar (Cleaner KratosForge): five tabs, with the set-up screens and the governance screens each
+// behind one menu. Every tab above is still a page of its own, so "Platform > Business keys" still works.
+const PLATFORM_TAB_BAR = [
+  ["overview", "Overview"], ["requests", "Requests"],
+  ["setup", "Set up", ["landing", "keys", "domains", "glossary"]],
+  ["govern", "Govern", ["governance", "audit"]],
+  ["settings", "Settings"],
+];
 const REQUEST_KIND = { key_table: "Key table", source: "Source", access: "Access", shortcut: "Shortcut",
   workspace: "Workspace", workspace_access: "Workspace access", domain: "Domain", exception: "Exception" };
 const REQUEST_STATUS = { waiting: "Waiting", approved: "Approved", declined: "Declined", withdrawn: "Withdrawn" };
@@ -38,6 +46,7 @@ async function renderPlatform() {
   const envSeg = h("div", { class: "seg", role: "group", "aria-label": "Environment" },
     MESH_ENVS.map((env) => h("button", { class: p.env === env ? "on" : null, onclick: () => { p.env = env; render(); } }, ENV_LABEL[env])));
   const who = h("p", { class: "sub" }, "Loading...");
+  const waiting = h("span", { class: "tab-count", title: "Requests waiting" });
   setView(h("div", { class: "page" },
     h("div", { class: "page-head" },
       h("div", {}, h("h1", {}, "Platform ", previewTag()), who),
@@ -45,11 +54,13 @@ async function renderPlatform() {
       // requests are organization-wide, so the other tabs show no environment picker (Overview has its own).
       h("div", { class: "head-actions" }, ["landing", "keys"].includes(p.tab) && !(p.tab === "landing" && p.landingCentral) && !(p.tab === "keys" && p.keysShared) ? envSeg : null,
         btn("Refresh", "sync", () => render(), "tool outline"))),
-    h("div", { class: "subtabs" }, PLATFORM_TABS.map(([id, label]) =>
-      h("button", { class: `tab${p.tab === id ? " active" : ""}`, onclick: () => { if (id === "governance") govPage.open = null; goPlatform(id); } }, label))),
+    platformTabBar(waiting),
     body));
   p.me = await attempt(() => rpc("platform_whoami"), "Could not reach the platform");
   if (state.view !== "platform") return;
+  if (p.me) rpc("platform_requests", { status: "waiting" }).then((list) => {
+    if (Array.isArray(list) && list.length) waiting.textContent = list.length.toLocaleString();
+  }).catch(() => {});
   if (!p.me) { body.replaceChildren(h("p", { class: "muted-text" }, "The platform shows once the local engine is running.")); return; }
   who.replaceChildren(...[p.me.admin ? "You're a platform admin: you create domains, key tables and sources, write governance policies, and decide requests. "
     : p.me.can_claim ? "This platform has no admin yet. "
@@ -59,6 +70,24 @@ async function renderPlatform() {
   const tabs = { overview: platformOverviewTab, landing: platformLandingTab, keys: platformKeysTab, domains: platformDomainsTab,
     glossary: platformGlossaryTab, governance: platformGovernanceTab, requests: platformRequestsTab, audit: platformAuditTab, settings: platformSettingsTab };
   await (tabs[p.tab] || platformOverviewTab)(body);
+}
+
+function platformTabBar(waiting) {
+  const p = platformPage;
+  const label = (id) => PLATFORM_TABS.find(([t]) => t === id)[1];
+  const open = (id) => { if (id === "governance") govPage.open = null; goPlatform(id); };
+  return h("div", { class: "subtabs" }, PLATFORM_TAB_BAR.map(([id, text, items]) => {
+    if (!items) {
+      return h("button", { class: `tab${p.tab === id ? " active" : ""}`, "aria-current": p.tab === id ? "page" : null,
+        onclick: () => open(id) }, text, id === "requests" ? waiting : null);
+    }
+    // A menu tab names the page it's on, so where you are is never hidden behind the menu.
+    const here = items.includes(p.tab);
+    const b = h("button", { class: `tab tab-menu${here ? " active" : ""}`, "aria-current": here ? "page" : null, "aria-haspopup": "menu",
+      onclick: () => showMenu(b, items.map((t) => ({ label: label(t), action: () => open(t) }))) },
+    text, here ? h("span", { class: "tab-here" }, `: ${label(p.tab)}`) : null, icon("chevronDown", 14));
+    return b;
+  }));
 }
 
 async function claimAdmin() {

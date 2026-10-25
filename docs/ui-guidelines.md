@@ -71,6 +71,8 @@ body.replaceChildren(withHowItWorks(content, howItWorks("platform.overview", {
 - "What it changes" names anything that writes to Fabric or OneLake and says that it asks first.
 - The panel folds to its title and remembers that on the PC, so people who know the page can put it away.
 - It sits on the right, and moves under the content in a narrow window.
+- With **Settings > Appearance > Layout > Explanations** set to **On request**, it leaves the page and opens as a drawer from the title bar's info button. That works for any panel made with `howItWorks`, so don't build a page's own toggle for it.
+- Mark Preview features with `previewTag()` (or `preview`/`previewMarked`), never a tag of your own, so **Preview marks: Quiet dots** turns them into dots. A tag that's a direct child of an `h1` stays a full tag.
 
 ## Pop-out windows
 

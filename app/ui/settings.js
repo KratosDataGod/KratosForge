@@ -25,6 +25,7 @@ const MICROSOFT_SIGN_IN = "Microsoft's Fabric sign-in (no app registration)";
 async function loadSettings() {
   state.settings = await rpc("app_settings").catch(() => state.settings || null);
   applyMotion();  // motion.js
+  applyAppearance();  // features.js
   return state.settings;
 }
 
@@ -32,6 +33,7 @@ async function saveSettings(changes, label = "Not saved") {
   const res = await attempt(() => rpc("save_app_settings", { changes }), label);
   if (res) state.settings = res;
   applyMotion();
+  applyAppearance();  // features.js
   return res;
 }
 
@@ -434,7 +436,17 @@ function motionSettingsCard(s, locked) {
       onchange: (e) => save({ [key]: e.target.checked }) }),
     h("span", {}, on ? "On" : "Off"));
   const reduced = reducedMotion() && s.motion_follow_system?.value !== false;
+  const choice = (key) => {
+    const [title, help, options] = LAYOUT_CHOICES[key];
+    const now = layoutChoice(key);
+    return settingRow(title, help, h("div", { class: "seg", role: "group", "aria-label": title }, options.map(([value, label]) =>
+      h("button", { class: now === value ? "on" : "", "aria-pressed": String(now === value), disabled: locked(key) ? true : null,
+        onclick: () => now !== value && save({ [key]: value }) }, label))), source(key));
+  };
   return h("section", { class: "card pad motion-settings" }, h("h2", {}, "Appearance"),
+    h("h3", {}, "Layout"),
+    h("p", { class: "muted-text small" }, "How much every page shows. Nothing is removed: what you tuck away is one click from where it was."),
+    Object.keys(LAYOUT_CHOICES).map(choice),
     h("h3", {}, "Motion & effects"),
     h("p", { class: "muted-text small" }, "Effects only follow real work as it finishes; they never delay a run, take focus or cover your code. ",
       reduced ? h("b", {}, "Off now: Windows asks apps to reduce motion. ") : null, learnMore("motion-and-effects")),

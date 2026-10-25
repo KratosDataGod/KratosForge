@@ -610,6 +610,14 @@ At the bottom of **Settings > General**, folded. Click **Advanced** to open it; 
 
 When your organization's policy file sets one of these, or the `FABRIC_DESKTOP_CLIENT_ID` environment variable sets the App ID, the field shows the value it uses, can't be edited and says which: "Set by your organization's policy" or "Set by the FABRIC_DESKTOP_CLIENT_ID environment variable". To change an ID the variable sets, remove the variable (`setx FABRIC_DESKTOP_CLIENT_ID ""`) and restart KratosForge.
 
+### Layout
+
+**Settings > Appearance > Layout** sets how much every page shows. Nothing is removed by any of these:
+
+- **Explanations.** **Beside the page** (the default) keeps each page's **How this works** panel, which says what the page reads, what it changes and where results go, in a column on the right. **On request** gives the page that width back: the info button in the title bar opens the same panel as a drawer, and Escape or the button closes it. The button shows only on pages that have a panel.
+- **Preview marks.** **Tags** (the default) marks features still in preview with a Preview tag. **Quiet dots** shows a small orange dot instead; hover it for what it means. Page titles keep the full tag, so you always know when a whole page is in preview.
+- **Density.** **Comfortable** (the default) or **Compact**, which tightens tables, lists, toolbars and cards.
+
 ### Motion and effects
 
 **Settings > Appearance > Motion & effects** sets how much the app moves. **Visual intensity** is

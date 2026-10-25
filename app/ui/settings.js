@@ -25,6 +25,7 @@ const MICROSOFT_SIGN_IN = "Microsoft's Fabric sign-in (no app registration)";
 async function loadSettings() {
   state.settings = await rpc("app_settings").catch(() => state.settings || null);
   applyMotion();  // motion.js
+  applyAppearance();  // features.js
   return state.settings;
 }
 
@@ -32,6 +33,7 @@ async function saveSettings(changes, label = "Not saved") {
   const res = await attempt(() => rpc("save_app_settings", { changes }), label);
   if (res) state.settings = res;
   applyMotion();
+  applyAppearance();  // features.js
   return res;
 }
 
@@ -412,8 +414,8 @@ const MOTION_LEVEL_HELP = ["No animation at all. Progress, results and errors st
   "Quick page and panel transitions only. No branded effects.",
   "Subtle sparks, embers and the wolf on real progress. Recommended.",
   "The same moments with more character: extra sparks, halftone and offset rings."];
-const MOTION_FAMILIES = [["motion_wolf", "Wolf animations", "The wolf on run progress, its arrival and the Wolf Run after long work."],
-  ["motion_sparks", "Forge sparks", "Sparks when work succeeds, the anvil strike after a deployment, the ember when something fails."],
+const MOTION_FAMILIES = [["motion_wolf", "Wolf animations", "The wolf on run progress, its arrival, the Wolf Run after long work, and the navy wolf on work in Fabric or with a remote."],
+  ["motion_sparks", "Forge sparks", "Sparks when work succeeds, the anvil strike after a deployment or promote, the ember when something fails."],
   ["motion_ambient", "Running indicators", "The glow on a running cell, the flow into a running pipeline step, the ring when work starts."]];
 // Achievement celebrations (off by default, #361) shows only while Profile (a Preview feature) can
 // award something; a switch that does nothing would only confuse.
@@ -434,7 +436,17 @@ function motionSettingsCard(s, locked) {
       onchange: (e) => save({ [key]: e.target.checked }) }),
     h("span", {}, on ? "On" : "Off"));
   const reduced = reducedMotion() && s.motion_follow_system?.value !== false;
+  const choice = (key) => {
+    const [title, help, options] = LAYOUT_CHOICES[key];
+    const now = layoutChoice(key);
+    return settingRow(title, help, h("div", { class: "seg", role: "group", "aria-label": title }, options.map(([value, label]) =>
+      h("button", { class: now === value ? "on" : "", "aria-pressed": String(now === value), disabled: locked(key) ? true : null,
+        onclick: () => now !== value && save({ [key]: value }) }, label))), source(key));
+  };
   return h("section", { class: "card pad motion-settings" }, h("h2", {}, "Appearance"),
+    h("h3", {}, "Layout"),
+    h("p", { class: "muted-text small" }, "How much every page shows. Nothing is removed: what you tuck away is one click from where it was."),
+    Object.keys(LAYOUT_CHOICES).map(choice),
     h("h3", {}, "Motion & effects"),
     h("p", { class: "muted-text small" }, "Effects only follow real work as it finishes; they never delay a run, take focus or cover your code. ",
       reduced ? h("b", {}, "Off now: Windows asks apps to reduce motion. ") : null, learnMore("motion-and-effects")),
@@ -470,6 +482,7 @@ function showMotionGallery() {
   const lane = h("span", { class: "motion-lane" }, "Kernel idle");
   const award = sample("Achievement earned: First Flame");
   const trackHost = h("span", { class: "motion-track" });
+  const remoteHost = h("span", { class: "motion-track" });
   const flowHost = h("div", { class: "motion-flow" });
   const flowNote = h("span", { class: "muted-text small" });
   let flowing = false;
@@ -501,7 +514,7 @@ function showMotionGallery() {
   const body = h("div", { class: "motion-gallery" },
     h("p", { class: "muted-text small" }, "Each effect plays on a sample at the level and switches set now. The samples are not real work, except the pipeline, "
       + "which runs a three-step sample (two short waits and a variable) on this PC and is kept in this PC's local pipeline run history. Nothing goes to Fabric."),
-    row("Forge Spark", "A cell, query or check succeeded.", spark, () => forgeEvent("notebook.cell.succeeded", spark)),
+    row("Forge Spark", "A cell, query, save, model build or Git push succeeded.", spark, () => forgeEvent("notebook.cell.succeeded", spark)),
     row("Controlled Failure", "Something failed. The red label is there from the first frame.", failed, () => forgeEvent("notebook.cell.failed", failed)),
     row("Pulse", "Run all started.", run, () => forgeEvent("notebook.run.started", run)),
     row("Wolf track and arrival", "Run all: the wolf sits at the share of cells done (sample: 4 steps).", trackHost, () => {
@@ -512,7 +525,9 @@ function showMotionGallery() {
       const tick = setInterval(() => { i += 1; if (i < 4) t.set(i, 4); else { clearInterval(tick); t.set(4, 4); t.arrive(); } }, 450);
     }),
     row("Wolf Run", "A cell that ran 10 s or more succeeded.", lane, () => forgeEvent("notebook.long.succeeded", lane)),
-    row("Anvil Strike", "A deployment succeeded.", deployed, () => forgeEvent("deploy.succeeded", deployed)),
+    row("Navy wolf", "Work in Fabric or with a remote that has no measure: the wolf trots in place on an empty track, with no fill or percentage.",
+      remoteHost, () => { if (!remoteHost.childElementCount) { remoteHost.append(remoteProgress("Sample run in Fabric")); setTimeout(() => remoteHost.replaceChildren(), 3000); } }),
+    row("Anvil Strike", "A deployment, a promote, a pipeline run or a Data mesh run succeeded.", deployed, () => forgeEvent("deploy.succeeded", deployed)),
     row("Cooling spark", "Validate passed, a proof matched, or Fabric confirmed a publish.", passed, () => forgeEvent("validate.passed", passed)),
     previewShown() ? row("Achievement Reveal", "Profile awarded you an achievement. Plays only with Achievement celebrations on.", award,
       () => forgeEvent("achievement.unlocked", award)) : null,

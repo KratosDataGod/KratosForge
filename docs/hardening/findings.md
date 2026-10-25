@@ -50,8 +50,8 @@ No Critical issue was confirmed. Twelve are High.
 | EN-7 | Medium | Docs | `docs/security.md` says the engine has no network listener; it runs one on 127.0.0.1:47615 | HD-009 |
 | SH-5 | Medium | Distribution | Any different build installs (downgrades included), and `exe.old` is deleted before the new build proves it starts | HD-022 |
 | SH-7 | Medium | Distribution | Promote to stable promotes whatever Preview is at that moment, with no hash re-check | HD-023 |
-| SH-8 | Medium | CI | `codex-review.yml` (runs on `pull_request_target`) and `docs.yml` use tag-pinned actions; docs PR builds get `pages: write` | HD-024 |
-| SH-9 | Medium | Agent install | The Windows agent installer and `install-sidecar` don't use the pinned constraints | HD-025 |
+| SH-8 | Medium | CI | `codex-review.yml` (runs on `pull_request_target`) and `docs.yml` use tag-pinned actions; docs PR builds get `pages: write` | **Closed** by HD-024: every action is pinned by commit, `pages`/`id-token` are on the deploy job only, zensical is pinned |
+| SH-9 | Medium | Agent install | The Windows agent installer and `install-sidecar` don't use the pinned constraints | Partly closed by HD-025: both install with `constraints.txt`; the `%ProgramData%\FabricDesktop` ACL still waits on a Windows host |
 | DI-5 | Medium | Memory | Entity previews and SQL results load the whole table or result before slicing | HD-033 |
 | DI-6 | Medium | OneLake writes | Long writes use one bearer token for their whole duration (inferred) | HD-034 |
 | UI-2 | Medium | UI | Prove and side-by-side status polling never stops on errors | HD-035 |
@@ -225,7 +225,7 @@ No Critical issue was confirmed. Twelve are High.
 | EN-7, DOC-1 | `docs/security.md`, `docs/product/release-readiness.md`, `docs/permissions.md:148`, `docs/product/ai-integration-security.md:56` | Correct: the engine runs a loopback HTTP server (guarded by Host and Origin checks and a hashed token); redaction exists; scanning, SBOM, provenance and SHA pinning exist; AI-tool code can reach tokens; run-notebook approval doesn't show code; G3 to G8 PRs are merged |
 | SH-5 | `app/ui/app.js:2409-2422`, `main.rs:504-529`, `:974-976` | Refuse older builds unless the channel changes; keep `exe.old` until the new build's first health check; restore it on failure |
 | SH-7 | `.github/workflows/promote.yml` | Require the commit to promote; `sha256sum -c` against `version.json`; protected environment; copy SBOMs |
-| SH-8 | `.github/workflows/codex-review.yml:353-397`, `docs.yml:419-436` | Pin by SHA; move `pages`/`id-token` to the deploy job; pin zensical |
+| SH-8 | `.github/workflows/codex-review.yml:353-397`, `docs.yml:419-436` | Pin by SHA; move `pages`/`id-token` to the deploy job; pin zensical. Done in HD-024 |
 | SH-9 | `deploy/windows/install-agent.ps1:78`, `src/updater.py:268-275` | Install with `-c constraints.txt`; set an explicit ACL on `%ProgramData%\FabricDesktop` (unverified on Windows) |
 | DI-5 | `meta_service.py:270-272`, `:405-411`; `service.py:496-526` | Use `scan().head(n)` and a log-based count for entity previews. The desktop SQL page has paged, memory-limited execution since SQL-003 (#134, merged); `export_sql_csv` and external-tool SQL still materialize |
 | DI-6 | `onelake.py:48-50`, `meta/store.py:426-427` | Ask for a token with at least 30 minutes left before long writes (inferred, not run against OneLake). Done in HD-034: `Authenticator.storage_token()` refreshes a token with less than `STORAGE_MIN_SECONDS` (30 minutes) left, so every OneLake read and write starts with at least that long. A write that runs longer than the token can still fail at commit. With Windows sign-in, the broker decides whether a refresh returns a new token. Tested with a fake MSAL, not against OneLake |

@@ -35,8 +35,6 @@ _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-0
 # Allowlisted methods with no UI caller, each with why it stays. Remove a name when the UI starts
 # calling it or when it leaves METHODS; the test below fails until you do.
 # Dropping a name from METHODS? Also drop it from the timeout list in app/src-tauri/src/watchdog.rs.
-_OSSIE = "Semantic model tab's Ossie card: engine only, the card waits on Chris's mockup review (docs/semantic-model-ossie.md)"
-
 _PRACTICES = "notebook best practices: engine only, the panel waits on Chris's mockup review (docs/notebook-best-practices.md)"
 
 _DF7 = "Data Factory DF-7: dataflows from a workspace, engine only; the Dataflows tab follows (mockup approved 2026-10-25)"
@@ -52,14 +50,6 @@ NO_UI_CALLER: dict[str, str] = {
     "notebook_practice_rules": _PRACTICES,
     "sql_practices": _SQL_PRACTICES,
     "sql_practice_rules": _SQL_PRACTICES,
-    # Export to Ossie / Import from Ossie.
-    "meta_model_ossie_models": _OSSIE,
-    "meta_model_ossie_export": _OSSIE,
-    "meta_model_ossie_save": _OSSIE,
-    "meta_model_ossie_read": _OSSIE,
-    "meta_model_ossie_preview": _OSSIE,
-    "meta_model_ossie_import": _OSSIE,
-    "meta_model_tmdl_save": _OSSIE,
     # MCP / local HTTP API tools (in-process).
     "placement_advice": _MCP + "; Prove shows it later (docs/finops/placement-advice.md)",
     "notebook_environment": _MCP,
@@ -131,7 +121,6 @@ NO_UI_CALLER: dict[str, str] = {
     "meta_diff": _QA017,
     "meta_preview": _QA017,
     "notebook_diff": _QA017,
-    "platform_revoke": _QA017,
     "platform_sources": _QA017,
     "workload_actions": _QA017,
 }

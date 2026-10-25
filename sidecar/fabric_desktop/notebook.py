@@ -42,7 +42,7 @@ from typing import Any, Callable, Iterator
 
 import pyarrow as pa
 
-from . import chart_output
+from . import chart_output, notebook_cells
 from . import notebook_resources
 from . import magics
 from . import history
@@ -1538,10 +1538,10 @@ class Kernel:
             namespace.update(arguments)
         run = getattr(self._local, "run", None)
         for cell in cells:
-            if cell.get("type") == "markdown" or not cell.get("source", "").strip():
+            # Not frozen cells (Fabric skips them in a referenced run too), and not the Fabric step,
+            # which runs on Fabric Spark only when started from its own notebook (fabric_step.py).
+            if not notebook_cells.runs(cell, skip_fabric_step=True):
                 continue
-            if (cell.get("meta") or {}).get("fabric_step"):
-                continue  # runs on Fabric Spark only when started from its own notebook (fabric_step.py)
             try:
                 late = f"A cell of {name!r} didn't finish within {cell_timeout or 0:g} seconds."
                 with _deadline(cell_timeout, late) as fired:

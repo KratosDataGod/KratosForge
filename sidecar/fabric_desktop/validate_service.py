@@ -27,7 +27,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from . import cleanup, envprofile, lakehouse, receipts, redact, validate
+from . import cleanup, envprofile, lakehouse, notebook_cells, receipts, redact, validate
 from .kernel_proc import ProcessKernel
 from .proof_runtime import PROOF_ROOT
 
@@ -128,8 +128,7 @@ class ValidateMixin:
                 u = plan["uncontained"][0]
                 raise PermissionError(f"Confirm to continue. Cell {u['cell']}: {u['text']}")
             static = validate.check(cells, lakehouse_ref, _runs_on(runs_on), self._fabric_observed())  # type: ignore[attr-defined]
-            code = [(n, c) for n, c in enumerate(cells, 1) if c.get("type") != "markdown"
-                    and (c.get("source") or "").strip() and not (c.get("meta") or {}).get("frozen")]
+            code = [(n, c) for n, c in enumerate(cells, 1) if notebook_cells.runs(c)]
             rid = "validate-" + time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
             record: dict[str, Any] = {
                 "id": rid, "name": name,

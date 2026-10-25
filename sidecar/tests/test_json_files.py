@@ -306,3 +306,42 @@ def test_comparisons_saved_at_once_are_all_kept(svc):
     for t in threads:
         t.join()
     assert sorted(r["id"] for r in svc._sbs_saved()) == [str(i) for i in range(8)]
+
+
+@pytest.fixture
+def app_settings_file(monkeypatch, tmp_path):
+    from fabric_desktop import app_settings
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "la"))
+    monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
+    return app_settings, app_settings.user_path()
+
+
+def test_torn_app_settings_are_set_aside_not_overwritten(app_settings_file, caplog):
+    app_settings, path = app_settings_file
+    half = torn(path, {"show_preview": True, "telemetry": True, "channel": "stable"})
+    with caplog.at_level(logging.WARNING):
+        assert app_settings.load()["show_preview"]["source"] == "default"
+    [aside] = set_aside_files(path)
+    assert aside.read_bytes() == half and "could not be read" in caplog.text
+    app_settings.save({"telemetry": True})
+    assert json.loads(path.read_text()) == {"telemetry": True}
+    assert aside.read_bytes() == half  # the next save didn't take the torn copy with it
+
+
+def test_a_failed_app_settings_write_leaves_the_old_file(app_settings_file, write_fails_midway):
+    app_settings, path = app_settings_file
+    path.parent.mkdir(parents=True, exist_ok=True)
+    original = json.dumps({"show_preview": True}).encode("utf-8")
+    path.write_bytes(original)
+    with pytest.raises(OSError):
+        app_settings.save({"telemetry": True})
+    assert path.read_bytes() == original
+    assert [p.name for p in path.parent.iterdir()] == ["app-settings.json"]  # no temp file left
+
+
+def test_app_settings_with_a_byte_order_mark_still_read(app_settings_file):
+    app_settings, path = app_settings_file
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"\xef\xbb\xbf" + json.dumps({"show_preview": True}).encode())  # as PowerShell writes it
+    assert app_settings.load()["show_preview"] == {"value": True, "source": "user"}
+    assert not set_aside_files(path)

@@ -179,11 +179,11 @@ class IncidentMixin:
                 for a_id, a in self.workload_store.assignments().items()  # type: ignore[attr-defined]
                 if a_id.startswith(f"meta:{mesh_mod.project_name(project)}:") and a.get("criticality")}
         evaluated: set[str] = set()
+        not_set_up = ""
         try:
             runs = self.meta_runs(env, 2000)  # type: ignore[attr-defined]
-        except Exception as exc:  # noqa: BLE001 - can't read it: that is the finding
-            state, message = model.classify_error(exc)
-            signals = [evaluate.cant_evaluate(env, state, message)]
+        except Exception as exc:  # noqa: BLE001 - can't read it: that is the finding, unless it isn't set up
+            signals, not_set_up = evaluate.unreadable(env, exc)
         else:
             specs = {n: e.spec for n, e in project.entities.items()}
             signals = evaluate.signals(mesh_mod.project_name(project), specs, runs, env, criticality=crit,
@@ -198,6 +198,8 @@ class IncidentMixin:
         out: dict[str, Any] = {"env": env, "evaluated": bool(evaluated & evaluate.WORKLOAD_KINDS), "signals": len(signals),
                                "changes": [{"change": c["change"], "id": c["incident"]["id"], "title": c["incident"]["title"]}
                                            for c in changes]}
+        if not_set_up:
+            out["not_set_up"] = not_set_up
         if notify:
             url = self._settings().get("teams_webhook", "")  # type: ignore[attr-defined]
             outbox = Outbox(self.root / "alerts_outbox.sqlite")  # type: ignore[attr-defined]

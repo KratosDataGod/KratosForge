@@ -34,6 +34,20 @@ PLACEHOLDER_ANNOTATION = "OssieExpression"  # the converter keeps the Ossie expr
 _MODEL_KEPT = ("roles", "perspectives", "cultures", "expressions", "dataSources", "queryGroups", "annotations")
 # warnings.catch_warnings swaps process-wide state, so conversions run one at a time.
 _LOCK = threading.Lock()
+# A large real model is a few MB of YAML; this keeps a mistaken pick (a data file) from filling memory.
+MAX_CHARS = 20_000_000
+
+
+class _NoAliasLoader(yaml.SafeLoader):
+    """YAML without anchors and aliases (``*name``). Ossie files don't need them, and nested aliases let a
+    few hundred bytes expand into a model of gigabytes once it is written out as JSON."""
+
+    def compose_node(self, parent: Any, index: Any) -> Any:
+        if self.check_event(yaml.AliasEvent):
+            event = self.peek_event()
+            raise ValueError(f"This file repeats parts of itself with YAML aliases (line {event.start_mark.line + 1}); "
+                             "write them out in full")
+        return super().compose_node(parent, index)
 
 
 def _convert(fn: Any, *args: Any, **kwargs: Any) -> tuple[Any, list[dict[str, str]]]:
@@ -53,8 +67,10 @@ def _convert(fn: Any, *args: Any, **kwargs: Any) -> tuple[Any, list[dict[str, st
 
 def parse(text: str) -> dict[str, Any]:
     """An Ossie document (YAML or JSON) as a dict, refusing what isn't one, with a plain reason."""
+    if len(text) > MAX_CHARS:
+        raise ValueError(f"This file is {len(text) // 1_000_000} MB; an Ossie model is at most {MAX_CHARS // 1_000_000} MB")
     try:
-        doc = yaml.safe_load(text)
+        doc = yaml.load(text, Loader=_NoAliasLoader)  # noqa: S506 - a SafeLoader that also refuses aliases
     except yaml.YAMLError as exc:
         raise ValueError(f"This isn't valid YAML or JSON: {exc}") from exc
     if not isinstance(doc, dict):

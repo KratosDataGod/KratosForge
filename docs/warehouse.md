@@ -69,6 +69,26 @@ SELECT TOP (<n, int, 10>) * FROM [<schema_name, sysname, dbo>].[<table_name, sys
 - **Export** writes a copy to your Downloads folder (never replacing a file), to send to someone. **Import** adds a `.sql` file you pick to My templates. A file without header lines is imported with its file name as the title.
 - A file the gallery can't use (too large, not UTF-8 text, or a field with an unknown kind) is still listed, with why, so you can fix it.
 
+## Saved and shared queries
+
+**Save query** on the Warehouse page keeps the current tab as a `.sql` file. Give it a name, an optional description, and where to keep it:
+
+- **My queries**, on this PC: the `sql-queries` folder in the app's data folder.
+- **A Git repository** you opened in Source control: its `sql-queries` folder. Commit and push it in Source control, and everyone who opens the repository sees it. The app writes the file only; it doesn't commit.
+
+The explorer's **Queries** tab lists them, My queries first, then each repository's shared ones, with a filter. Click one to open it in a new tab (or in the tab that already holds it). A query saved from another warehouse says which; it opens here all the same. A tab opened from a file remembers it, so **Save query** writes back to that file without asking, and **Save as new** keeps a copy under another name. **×** on a query deletes its file after asking; tabs that hold it keep their SQL. Saving or deleting runs nothing in Fabric.
+
+A saved query is plain T-SQL with a few header lines, so any `.sql` file put in one of those folders shows up too, named after its file:
+
+```sql
+-- query: Revenue by region
+-- warehouse: WH_Gold
+-- description: Monthly review
+SELECT Region, SUM(Amount) AS Revenue FROM dbo.FactSales GROUP BY Region;
+```
+
+The same rules as your own templates keep these files in their place: a folder or file that is a link to somewhere else is skipped, and each place lists up to 200 queries by name, saying so when there are more.
+
 ## Results, Messages and Chart
 
 Above the result, three views, on every SQL page (lakehouse, local project and warehouse). Messages and Chart are Preview: on a lakehouse or local project page they carry the Preview tag and go when Settings hides preview features; on the Warehouse page the whole page is already Preview.
@@ -91,8 +111,9 @@ How a run works underneath (states, limits, what is refused): [Running SQL queri
 | WH-02 | Object explorer: schemas, tables, views, procedures, functions, columns for completion | Done |
 | WH-03 | Script as SELECT, CREATE, ALTER, DROP | Done |
 | WH-04, WH-05 | SQL from a template, with fill-in parameters | Done |
-| WH-04b | Your own templates, on this PC or shared through Git | This release |
-| WH-06, WH-07 | Saved and shared queries, history and Fabric query insights | Planned |
+| WH-04b | Your own templates, on this PC or shared through Git | Done |
+| WH-06 | Saved and shared queries, on this PC or through Git | This release |
+| WH-07 | Query history and Fabric query insights | Planned |
 | WH-08 | Messages and a quick chart (several result sets come with scripts) | Done |
 
 Later stages (building and deploying objects from Git, loading and managing data, Snowflake) follow the same pattern: a mockup first, then one change per feature.

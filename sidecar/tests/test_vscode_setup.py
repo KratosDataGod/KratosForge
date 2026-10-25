@@ -169,6 +169,22 @@ def test_a_network_path_is_refused_before_anything_reads_it(svc, tmp_path, monke
     assert not _local_path("C:/a\x00.ipynb") and not _local_path(None)
 
 
+def test_a_link_inside_a_known_folder_is_not_followed(svc, tmp_path):
+    svc.save_notebook("Daily", [{"type": "code", "source": "x = 1"}])
+    home = Path(svc.notebook_file_path("Daily")["path"])
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "Away.ipynb").write_text(home.read_text(encoding="utf-8"), encoding="utf-8")
+    try:
+        (home.parent / "Linked").symlink_to(elsewhere, target_is_directory=True)
+        (home.parent / "Alias.ipynb").symlink_to(home)
+    except OSError:
+        pytest.skip("this PC can't make symbolic links")
+    assert svc.notebook_name_for_path(str(home.parent / "Linked" / "Away.ipynb")) == {"name": None}
+    assert svc.notebook_name_for_path(str(home.parent / "Alias.ipynb")) == {"name": None}
+    assert svc.notebook_name_for_path(str(home)) == {"name": "Daily"}
+
+
 def test_open_prints_a_link_the_shell_reads(tmp_path):
     path = tmp_path / "Daily sales.ipynb"
     path.write_text('{"cells": []}', encoding="utf-8")

@@ -31,7 +31,12 @@ pub enum Link {
     NotebookName(String),
     Page(String),
     Show,
+    /// A link that wasn't opened, with why when this copy read it (none when it was handed over).
+    Refused(String),
 }
+
+/// What a copy hands the running one for a link it refused: the page says it wasn't opened.
+pub const REFUSED: &str = "kratosforge://?refused";
 
 impl Link {
     /// The link as the page receives it (the `deep-link` event).
@@ -41,6 +46,7 @@ impl Link {
             Link::NotebookName(n) => ("notebook", "name", n),
             Link::Page(p) => ("page", "page", p),
             Link::Show => return "{\"kind\":\"show\"}".into(),
+            Link::Refused(why) => ("refused", "reason", why),
         };
         format!("{{\"kind\":\"{kind}\",\"{key}\":{}}}", json_string(value))
     }
@@ -71,6 +77,9 @@ pub fn parse(url: &str) -> Result<Link, String> {
     };
     if target.is_empty() && query.is_empty() {
         return Ok(Link::Show);
+    }
+    if target.is_empty() && query == "refused" {
+        return Ok(Link::Refused(String::new()));
     }
     if target.eq_ignore_ascii_case("notebook") {
         if let Some(path) = param("path")?.filter(|p| !p.is_empty()) {
@@ -150,6 +159,26 @@ impl InstanceLock {
         }
         held.is_some()
     }
+}
+
+const HANDOVER: &str = "instance.handover";
+
+/// Marks that an update is handing the lock to a new exe, so a copy a link starts meanwhile
+/// leaves the lock for it. The new exe (or a rollback) clears it; one older than two minutes is
+/// stale (the new exe didn't start) and doesn't count.
+pub fn start_handover(data_dir: &Path) {
+    let _ = std::fs::create_dir_all(data_dir);
+    let _ = std::fs::write(data_dir.join(HANDOVER), b"");
+}
+
+pub fn end_handover(data_dir: &Path) {
+    let _ = std::fs::remove_file(data_dir.join(HANDOVER));
+}
+
+pub fn handing_over(data_dir: &Path) -> bool {
+    std::fs::metadata(data_dir.join(HANDOVER))
+        .and_then(|m| m.modified())
+        .is_ok_and(|t| t.elapsed().map_or(true, |age| age < Duration::from_secs(120)))
 }
 
 /// Hands `url` to the copy of the app that's already running. True when it took it.
@@ -333,6 +362,25 @@ mod tests {
         assert!(claim_instance(&dir).unwrap().is_none(), "a second copy is refused while the first runs");
         drop(first);
         assert!(claim_instance(&dir).unwrap().is_some(), "free again once the first has closed");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_refused_link_is_handed_over_without_its_text() {
+        assert_eq!(parse(REFUSED).unwrap(), Link::Refused(String::new()));
+        assert!(parse("kratosforge://?refused=anything").is_err(), "no text from a link reaches the page");
+        assert_eq!(Link::Refused("Too long.".into()).to_json(), r#"{"kind":"refused","reason":"Too long."}"#);
+    }
+
+    #[test]
+    fn a_link_during_an_update_waits_for_the_new_copy() {
+        let dir = std::env::temp_dir().join(format!("kf-updating-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(!handing_over(&dir));
+        start_handover(&dir);
+        assert!(handing_over(&dir), "a copy started by a link leaves the lock to the --updated-to copy");
+        end_handover(&dir);
+        assert!(!handing_over(&dir));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

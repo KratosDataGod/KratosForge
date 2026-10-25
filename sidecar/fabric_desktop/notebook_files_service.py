@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import re
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -64,7 +65,8 @@ class NotebookFilesMixin:
         The path is checked as text first, with no file system call: a network path (\\\\host\\share,
         //host/share, \\\\host@SSL\\dav) or a device path is refused, and so is anything outside those
         folders, because even looking at such a path makes Windows contact the host with the person's
-        sign-in. Only a path that passes is resolved and read."""
+        sign-in. Only a path that passes is resolved and read, and only when no folder or file below
+        the known folder is a link or junction, which could point at a share."""
         if not _local_path(path):
             return {"name": None}
         full = os.path.abspath(path)
@@ -75,6 +77,8 @@ class NotebookFilesMixin:
             if not os.path.normcase(full).startswith(os.path.normcase(top).rstrip("\\/") + os.sep):
                 continue
             name = Path(os.path.relpath(full, top)).with_suffix("").as_posix()
+            if not _no_link_below(top, full):
+                continue
             try:
                 p = Path(full).resolve()
                 if p.is_file() and self.notebooks.path(name).resolve() == p:  # type: ignore[attr-defined]
@@ -200,6 +204,21 @@ class NotebookFilesMixin:
         except Exception as exc:  # noqa: BLE001 - the notebook is saved; Publish finds the item by name
             _log.warning("Couldn't record notebook %r's Fabric item: %s", out["name"], describe(exc))
         return out
+
+
+def _no_link_below(top: str, full: str) -> bool:
+    """Whether every folder and file from ``top`` down to ``full`` is a plain one: lstat looks at
+    each without following it, and the walk stops at the first link, junction or missing part."""
+    here = top
+    for part in Path(os.path.relpath(full, top)).parts:
+        here = os.path.join(here, part)
+        try:
+            st = os.lstat(here)
+        except (OSError, ValueError):
+            return False
+        if stat.S_ISLNK(st.st_mode) or getattr(st, "st_file_attributes", 0) & 0x400:  # FILE_ATTRIBUTE_REPARSE_POINT
+            return False
+    return True
 
 
 def _local_path(path: Any) -> bool:

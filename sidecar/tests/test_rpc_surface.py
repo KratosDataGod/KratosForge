@@ -41,11 +41,15 @@ _PRACTICES = "notebook best practices: engine only, the panel waits on Chris's m
 
 _SQL_PRACTICES = "SQL best practices: engine only, the panel waits on Chris's mockup review (docs/sql-best-practices.md)"
 
+_DF2 = "Data Factory DF-2: pipelines from a workspace, engine only; the Pipelines tab follows (mockup approved 2026-10-25)"
+
 NO_UI_CALLER: dict[str, str] = {
     "notebook_practices": _PRACTICES,
     "notebook_practice_rules": _PRACTICES,
     "sql_practices": _SQL_PRACTICES,
     "sql_practice_rules": _SQL_PRACTICES,
+    "workspace_pipelines": _DF2,
+    "workspace_pipeline_definition": _DF2,
     # Export to Ossie / Import from Ossie.
     "meta_model_ossie_models": _OSSIE,
     "meta_model_ossie_export": _OSSIE,

@@ -153,6 +153,32 @@ test("a long query is checked only when asked, so typing never waits on the engi
   await setDoc("SELECT 1");
 });
 
+test("the check is a chip beside Format SQL: its panel opens by itself only for an error or a warning", { skip }, async () => {
+  const chip = page().locator(".sql-compat-chip");
+  const clean = "SELECT name FROM dbo.sales";
+  await setDoc(clean);
+  await checked(clean);
+  await page().waitForFunction(() => document.querySelector(".sql-compat-chip").textContent.startsWith("No known problems"));
+  assert.ok(await page().locator(".sql-compat").isHidden(), "no findings: the editor gets the panel's width");
+  assert.strictEqual(await chip.getAttribute("aria-expanded"), "false");
+  await chip.click();
+  await page().locator(".sql-compat").waitFor({ state: "visible" });
+  assert.match(await panel(), /No known problems/);
+  await chip.click();
+  await page().locator(".sql-compat").waitFor({ state: "hidden" });
+  const bad = "SELECT name FROM dbo.sales LIMIT 5";
+  await setDoc(bad);
+  await checked(bad);
+  await page().locator(".sql-compat").waitFor({ state: "visible" });
+  assert.match(await chip.textContent(), /^1 error/);
+  assert.match(await chip.getAttribute("class"), /\berror\b/);
+  await chip.click();  // closed by hand: it stays closed while the findings are the same
+  const same = "SELECT name  FROM dbo.sales LIMIT 5";
+  await setDoc(same);
+  await checked(same);
+  assert.ok(await page().locator(".sql-compat").isHidden());
+});
+
 test("nothing on the page threw", { skip }, async () => {
   assert.deepStrictEqual(app.errors, []);
 });

@@ -79,7 +79,8 @@ test("placeholders are listed once, checked for their kind and written safely", 
 
 test("SQL from a template opens a filled script in a new tab and runs nothing", { skip }, async () => {
   const tabs = await page().evaluate(() => sqlPage.tabs.length);
-  await page().getByRole("button", { name: "SQL from a template" }).click();
+  await page().getByRole("button", { name: "More ways to start a query" }).click();
+  await page().getByRole("menuitem", { name: "SQL from a template" }).click();
   const dialog = page().locator(".sqlt-dialog");
   await dialog.waitFor();
   assert.match(await dialog.textContent(), /For WH_Gold · T-SQL for Fabric Warehouse/);
@@ -103,7 +104,8 @@ test("SQL from a template opens a filled script in a new tab and runs nothing", 
 });
 
 test("search finds templates across groups", { skip }, async () => {
-  await page().getByRole("button", { name: "SQL from a template" }).click();
+  await page().getByRole("button", { name: "More ways to start a query" }).click();
+  await page().getByRole("menuitem", { name: "SQL from a template" }).click();
   const dialog = page().locator(".sqlt-dialog");
   await dialog.getByLabel("Search templates").fill("lakehouse");
   const cards = await dialog.locator(".sqlt-card b").allTextContents();
@@ -124,7 +126,8 @@ test("a SQL analytics endpoint is offered only the templates that make sense the
 });
 
 const gallery = async () => {
-  await page().getByRole("button", { name: "SQL from a template" }).click();
+  await page().getByRole("button", { name: "More ways to start a query" }).click();
+  await page().getByRole("menuitem", { name: "SQL from a template" }).click();
   const dialog = page().locator(".sqlt-dialog");
   await dialog.locator(".sqlt-own-note").filter({ hasText: /templates/ }).waitFor();
   return dialog;

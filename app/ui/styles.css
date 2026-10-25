@@ -560,6 +560,12 @@ h2.flush { margin: 0; }
 /* WH-01: the Warehouse page */
 .sql-target-note { font-size: 13px; color: var(--text-2); }
 .sql-capacity-note { padding: 4px 8px; border-radius: 4px; background: #fff8eb; color: #5c3300; font-size: 12.5px; }
+.sql-compat-chip { display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 0 10px; border: 1px solid var(--border-input); border-radius: 999px;
+  background: var(--surface); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+.sql-compat-chip.ok { border-color: #b7dfc2; background: #e6f4ea; color: #14532d; }
+.sql-compat-chip.warning { border-color: #f3c27a; background: #fff4e0; color: #7a4100; }
+.sql-compat-chip.error { border-color: #f1b8bd; background: #fdf3f4; color: #9b0d19; }
+.sql-compat-chip[aria-expanded="true"] svg { transform: rotate(180deg); }
 .warehouse-page .explorer .preview-tag { margin-left: 6px; }
 .warehouse-how { margin: 12px 8px; }
 .warehouse-page .explorer { overflow-y: auto; }  /* the tree, then How this works, scroll together */

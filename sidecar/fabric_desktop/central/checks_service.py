@@ -236,7 +236,9 @@ class ChecksMixin:
                 entry["passed"] += run["passed"]
                 entry["findings"] += run["findings"]
                 entry["unknown"] += run["unknown"]
-                if not run["checked"] and not run.get("disabled"):
+                if run.get("disabled"):
+                    entry.setdefault("off", []).append(rid)
+                elif not run["checked"]:
                     entry.setdefault("no_items", []).append(found[1]["kind"])
             note = (pol.get("exception") or {}).get("note")
             if note:
@@ -247,16 +249,19 @@ class ChecksMixin:
                                else "findings" if entry["findings"]
                                else "unknown" if entry["unknown"]
                                else "not_run" if entry["not_run"] and not entry["checked"]
-                               else "not_checked" if entry.get("no_items") and not entry["checked"]
+                               else "not_checked" if (entry.get("no_items") or entry.get("off")) and not entry["checked"]
                                else "pass")
             if not ids:
                 entry["note"] = "Its Checked by field names no rule, so nothing checks it yet."
             elif entry["missing"]:
                 entry["note"] = f"No checker on this PC has the rule {', '.join(entry['missing'])}."
+            elif entry["status"] == "not_checked" and not entry.get("no_items"):
+                entry["note"] = "Its parameters turn its rules off (enabled = false), so nothing checks it."
             elif entry["status"] == "not_checked":
                 kinds = ", ".join(sorted(set(entry["no_items"])))
-                entry["note"] = f"Check now found nothing its rules check ({kinds}) in this project."
+                entry["note"] = f"Check now found nothing for its {kinds} rules to check."
             entry.pop("no_items", None)
+            entry.pop("off", None)
             policies.append(entry)
         order = {"findings": 0, "unknown": 1, "excepted": 2, "not_run": 3, "not_checked": 4, "pass": 5}
         policies.sort(key=lambda p: (order[p["status"]], str(p["name"]).lower()))

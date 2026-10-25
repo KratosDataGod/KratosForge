@@ -53,10 +53,11 @@ function showGateError(err, title = "That was blocked") {
   }
 }
 
-async function metaCall(method, params, title) {
+async function metaCall(method, params, title, onError) {
   try {
     return await rpc(method, params);
   } catch (err) {
+    onError?.(err);
     showGateError(err, title);
     return undefined;
   }
@@ -1330,9 +1331,11 @@ async function renderModelTab(body) {
   const result = h("div", {});
   const build = async (replace = false) => {
     toast(`Building ${name.value} in ${plan.workspace_name || "the workspace"}...`);
-    const res = await metaCall("meta_build_model", { env: m.env, layer: plan.layer, name: name.value, replace }, "Model not built");
-    if (!res) {  // the ember beside the error (a gate's list opens as a dialog over it)
-      forgeEvent("model.build.failed", document.getElementById("toast"));  // motion.js
+    let cancelled = false;
+    const res = await metaCall("meta_build_model", { env: m.env, layer: plan.layer, name: name.value, replace }, "Model not built",
+      (err) => { cancelled = friendlyError(err).cancelled; });
+    if (!res) {  // the ember beside the error (a gate's list opens as a dialog over it); a cancelled sign-in plays nothing
+      if (!cancelled) forgeEvent("model.build.failed", document.getElementById("toast"));  // motion.js
       return;
     }
     if (res.confirm) {  // the model exists: nothing is written until the user says to replace it

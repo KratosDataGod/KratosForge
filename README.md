@@ -52,6 +52,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/notebook-resources.md](docs/notebook-resources.md) | Notebook resources: files kept beside a notebook and read as `builtin/<file>`, like Fabric's built-in resources |
 | [docs/notebook-magics.md](docs/notebook-magics.md) | Notebook magics and cell languages: `%%sql` results in `_sqldf`, `%sql` inside Python, and which magics run on this PC |
 | [docs/notebook-files.md](docs/notebook-files.md) | Notebook files: search inside notebooks, open a notebook file, save a copy, delete and restore, and edit a Fabric notebook on this PC (Preview) |
+| [docs/vscode.md](docs/vscode.md) | VS Code and KratosForge on the same notebooks: Open in VS Code, editing in both, Copilot (Preview) |
 | [docs/notebook-fabric-step.md](docs/notebook-fabric-step.md) | Run the last cell on Fabric Spark after the others run on this PC, to V-Order tables for Direct Lake |
 | [docs/notebook-best-practices.md](docs/notebook-best-practices.md) | Best-practice checks on a notebook's code, read on this PC without running it |
 | [docs/notebook-folders.md](docs/notebook-folders.md) | Notebook folders: group notebooks into folders, move a notebook into one, rename a folder, delete an empty one |

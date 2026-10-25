@@ -17,7 +17,7 @@ On a notebook's **Home** tab, **Open in VS Code** saves the notebook and opens i
 - **Open the repository folder in VS Code**, for a notebook in a notebooks repository (Source control), or **Open the notebooks folder in VS Code** for the app's own folder;
 - **Open this notebook in VS Code Insiders**.
 
-VS Code has to be installed. KratosForge asks Windows to open a `vscode://file/…` link, which VS Code handles; only an existing notebook file or folder is opened this way.
+VS Code has to be installed. KratosForge asks Windows to open a `vscode://file/…` link, which VS Code handles; only a notebook file, or a folder, in the notebooks folder or a repository opened in Source control is opened this way.
 
 ## Editing in both
 

@@ -335,7 +335,7 @@ function gitHelpers() {
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
   vm.runInNewContext(`${code}; Object.assign(this, { gitSplitPath, gitPillText, gitSideBySide, gitCommitLabel, gitGroupRepos, nbData, nbDataText,
-    platformChangeLines, platformStepText, PLATFORM_STATES });`, ctx);
+    platformChangeLines, platformStepText, PLATFORM_STATES, capacityLines, CAPACITY_STATES });`, ctx);
   return ctx;
 }
 
@@ -5001,4 +5001,16 @@ test("Add to VS Code passes only the tool's id to the shell", () => {
   const main = fs.readFileSync(path.join(__dirname, "..", "src-tauri", "src", "main.rs"), "utf8");
   assert.match(main, /fn add_to_vscode\(client_id: String, insiders: bool\)/);
   assert.match(main, /generate_handler!\[[\s\S]*add_to_vscode/);
+});
+
+test("the Capacity tab says how each capacity drifted from capacity.toml", () => {
+  const { capacityLines, CAPACITY_STATES } = gitHelpers();
+  assert.strictEqual(CAPACITY_STATES.not_visible, "not visible to you");
+  const lines = capacityLines({ state: "differs", fields: [{ field: "sku", git: "F4", fabric: "F8" }, { field: "state", git: "Active", fabric: "Paused" }],
+    workspaces: { same: 2, elsewhere: [{ id: "w1", name: "Sales", on: "F8 Dev" }, { id: "w2", name: "", on: null }],
+      not_in_git: [{ id: "w3", name: "Ad hoc" }], not_visible: [{ id: "w4", name: "Hidden" }] } });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(lines)), ["Size: Git F4, Fabric F8", "State: Git Active, Fabric Paused",
+    "Sales: Git expects it here; Fabric has it on F8 Dev", "w2: Git expects it here; Fabric has it on a capacity you can't see",
+    "Ad hoc: on this capacity in Fabric, not listed in capacity.toml", "Hidden: you can't see this workspace, so it isn't compared",
+    "2 workspaces are where Git expects"]);
 });

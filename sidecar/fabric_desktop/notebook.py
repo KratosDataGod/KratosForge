@@ -1030,6 +1030,8 @@ class Kernel:
         except KeyboardInterrupt:  # an interrupt that landed while the first one was being handled
             status = "cancelled"
         finally:
+            with run.cancel_lock:  # from here a Cancel waits for the run to finish instead of raising in it
+                run.armed = False
             if writes is not None:
                 write_queue.cell_writes.queue = None
                 writes.flush(cancel=True)  # only left after a second Cancel: drop what hasn't started

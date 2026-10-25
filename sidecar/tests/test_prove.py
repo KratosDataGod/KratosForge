@@ -425,6 +425,26 @@ def test_interrupt_before_the_cell_reaches_its_handlers_still_cancels_it(monkeyp
     monkeypatch.undo()
     assert k.run("x = 1")["status"] == "ok"  # the kernel takes the next cell
 
+
+def test_interrupt_while_a_cell_is_finishing_lets_it_finish(monkeypatch):
+    # An interrupt raised in _execute's finally (before run.finish) would end the thread with the run
+    # never finished, the same hang as an interrupt before its handlers.
+    import threading
+    from fabric_desktop import notebook
+    k = Kernel()
+    finish, entered = notebook._Run.finish, threading.Event()
+
+    def slow_finish(self, status):
+        entered.set()
+        time.sleep(0.5)  # in the finally: Cancel must not raise here
+        return finish(self, status)
+
+    monkeypatch.setattr(notebook._Run, "finish", slow_finish)
+    k.start("x = 1")
+    assert entered.wait(5)
+    assert k.interrupt() == {"interrupted": True, "stopped": True}
+    assert k.poll(-1, 0.0)["status"] == "ok"
+
 def test_the_kernel_refuses_cells_while_a_proof_runs_and_one_proof_at_a_time(svc):
     svc.fake = FakeFabric(svc)
     cells = CELLS[:2] + [{"type": "code", "source": "import time\ntime.sleep(1.5)"}]

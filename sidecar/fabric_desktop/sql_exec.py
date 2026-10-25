@@ -730,8 +730,40 @@ class _Stopped(Exception):
     pass
 
 
-_OUTSIDE_COMMAND = re.compile(r"(?:^|;)(?:\s|--[^\n]*(?:\n|$)|/\*.*?\*/)*(EXPORT|IMPORT)\s+DATABASE\b",
-                              re.IGNORECASE | re.DOTALL)  # comments may come first
+_OUTSIDE_COMMAND = re.compile(r"(EXPORT|IMPORT)\s+DATABASE\b", re.IGNORECASE)
+
+
+def _outside_command(query: str) -> str:
+    """EXPORT or IMPORT when a statement of ``query`` starts with EXPORT/IMPORT DATABASE (after any
+    comments), else ''. One pass over the text that skips strings and comments, so it stays linear."""
+    i, n, start = 0, len(query), True
+    while i < n:
+        if start:  # skip whitespace and comments before the statement's first word
+            while i < n:
+                if query[i].isspace():
+                    i += 1
+                elif query.startswith("--", i):
+                    i = n if (j := query.find("\n", i)) < 0 else j + 1
+                elif query.startswith("/*", i):
+                    i = n if (j := query.find("*/", i + 2)) < 0 else j + 2
+                else:
+                    break
+            found = _OUTSIDE_COMMAND.match(query, i)
+            if found:
+                return found.group(1).upper()
+            start = False
+            continue
+        ch = query[i]
+        if ch in "'\"":
+            i = n if (j := query.find(ch, i + 1)) < 0 else j + 1  # '' inside a string is two strings back to back
+        elif query.startswith("--", i):
+            i = n if (j := query.find("\n", i)) < 0 else j + 1
+        elif query.startswith("/*", i):
+            i = n if (j := query.find("*/", i + 2)) < 0 else j + 2
+        else:
+            start = ch == ";"
+            i += 1
+    return ""
 
 
 def _policy_statements(query: str, dialect: str) -> list[Any]:
@@ -743,9 +775,9 @@ def _policy_statements(query: str, dialect: str) -> list[Any]:
         except ValueError:
             # sqlglot can't read DuckDB's EXPORT/IMPORT DATABASE; class it as the command it is,
             # so it is refused as a write outside the project, not reported as a SQL error.
-            found = _OUTSIDE_COMMAND.search(query)
-            if found:
-                return [exp.Command(this=found.group(1).upper(), expression=exp.Literal.string(""))]
+            word = _outside_command(query)
+            if word:
+                return [exp.Command(this=word, expression=exp.Literal.string(""))]
             raise
     from .localdata import tsql
     texts, _notes = tsql.translate(query)

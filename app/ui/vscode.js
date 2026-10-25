@@ -96,6 +96,10 @@ async function vscodeSetupDialog(root, label, after) {
 // app to show a notebook or a page. A link only shows something; nothing in it is run, and unsaved
 // edits here are saved first, as when you open another notebook yourself.
 async function showLink(link) {
+  if (link?.kind === "refused") {
+    toast(`KratosForge didn't open that link.${link.reason ? ` ${link.reason}` : ""}`, true);
+    return;
+  }
   if (link?.kind === "page") {
     const page = railFeatures().concat(railFeatures(true)).map((f) => Object.keys(f.views || {})[0]).find((v) => v === link.page);
     if (page) go(page); else toast(`KratosForge has no page called ${link.page}.`, true);

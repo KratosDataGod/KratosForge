@@ -31,7 +31,12 @@ pub enum Link {
     NotebookName(String),
     Page(String),
     Show,
+    /// A link that wasn't opened, with why when this copy read it (none when it was handed over).
+    Refused(String),
 }
+
+/// What a copy hands the running one for a link it refused: the page says it wasn't opened.
+pub const REFUSED: &str = "kratosforge://?refused";
 
 impl Link {
     /// The link as the page receives it (the `deep-link` event).
@@ -41,6 +46,7 @@ impl Link {
             Link::NotebookName(n) => ("notebook", "name", n),
             Link::Page(p) => ("page", "page", p),
             Link::Show => return "{\"kind\":\"show\"}".into(),
+            Link::Refused(why) => ("refused", "reason", why),
         };
         format!("{{\"kind\":\"{kind}\",\"{key}\":{}}}", json_string(value))
     }
@@ -71,6 +77,9 @@ pub fn parse(url: &str) -> Result<Link, String> {
     };
     if target.is_empty() && query.is_empty() {
         return Ok(Link::Show);
+    }
+    if target.is_empty() && query == "refused" {
+        return Ok(Link::Refused(String::new()));
     }
     if target.eq_ignore_ascii_case("notebook") {
         if let Some(path) = param("path")?.filter(|p| !p.is_empty()) {
@@ -149,6 +158,63 @@ impl InstanceLock {
             *held = claim_instance(data_dir).ok().flatten();
         }
         held.is_some()
+    }
+}
+
+const HANDOVER: &str = "instance.handover";
+
+/// Marks that an update is handing the lock to a new exe, so a copy a link starts meanwhile
+/// leaves the lock for it. The new exe (or a rollback) clears it; one older than two minutes is
+/// stale (the new exe didn't start) and doesn't count.
+pub fn start_handover(data_dir: &Path) {
+    let _ = std::fs::create_dir_all(data_dir);
+    let _ = std::fs::write(data_dir.join(HANDOVER), b"");
+}
+
+pub fn end_handover(data_dir: &Path) {
+    let _ = std::fs::remove_file(data_dir.join(HANDOVER));
+}
+
+pub fn handing_over(data_dir: &Path) -> bool {
+    std::fs::metadata(data_dir.join(HANDOVER))
+        .and_then(|m| m.modified())
+        .is_ok_and(|t| t.elapsed().is_ok_and(|age| age < Duration::from_secs(120))) // one from the future is stale
+}
+
+/// What claim_or_forward decided.
+pub enum Claim {
+    /// This copy runs, with the lock (or without it when the lock can't be checked, or when a
+    /// copy an update started gave up waiting for the old one).
+    Run(Option<std::fs::File>),
+    /// Another copy runs (it took the link, or is still starting and holds the lock): this one stops.
+    Stop,
+}
+
+/// Makes this the one running copy, or hands `url` to the one that runs. A copy an update started
+/// (`updating`) waits for the lock. Any other copy leaves a free lock alone while an update hands
+/// it over, and once `tries` run out takes it anyway, so a link or a double-click is never lost.
+pub fn claim_or_forward(data_dir: &Path, url: &str, updating: bool, tries: u32, pause: Duration) -> Claim {
+    for _ in 0..tries {
+        match claim_instance(data_dir) {
+            Ok(Some(lock)) if updating => {
+                end_handover(data_dir);
+                return Claim::Run(Some(lock));
+            }
+            Ok(Some(lock)) if !handing_over(data_dir) => return Claim::Run(Some(lock)),
+            Ok(Some(lock)) => drop(lock), // the build an update is starting takes it
+            Ok(None) if !updating && forward(data_dir, url) => return Claim::Stop,
+            Ok(None) => {}
+            Err(_) => return Claim::Run(None),
+        }
+        std::thread::sleep(pause);
+    }
+    match claim_instance(data_dir) {
+        Ok(Some(lock)) => Claim::Run(Some(lock)),
+        Ok(None) if !updating && forward(data_dir, url) => Claim::Stop,
+        // Another copy holds the lock and doesn't answer (it is still starting): this one stops
+        // rather than run a second copy on the same data. A copy an update started runs.
+        Ok(None) if !updating => Claim::Stop,
+        _ => Claim::Run(None),
     }
 }
 
@@ -333,6 +399,48 @@ mod tests {
         assert!(claim_instance(&dir).unwrap().is_none(), "a second copy is refused while the first runs");
         drop(first);
         assert!(claim_instance(&dir).unwrap().is_some(), "free again once the first has closed");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_refused_link_is_handed_over_without_its_text() {
+        assert_eq!(parse(REFUSED).unwrap(), Link::Refused(String::new()));
+        assert!(parse("kratosforge://?refused=anything").is_err(), "no text from a link reaches the page");
+        assert_eq!(Link::Refused("Too long.".into()).to_json(), r#"{"kind":"refused","reason":"Too long."}"#);
+    }
+
+    #[test]
+    fn a_link_during_an_update_waits_for_the_new_copy() {
+        let dir = std::env::temp_dir().join(format!("kf-updating-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(!handing_over(&dir));
+        start_handover(&dir);
+        assert!(handing_over(&dir), "a copy started by a link leaves the lock to the --updated-to copy");
+        let marker = std::fs::File::options().write(true).open(dir.join(HANDOVER)).unwrap();
+        marker.set_modified(std::time::SystemTime::now() + Duration::from_secs(3600)).unwrap();
+        assert!(!handing_over(&dir), "a marker from the future doesn't hold links back");
+        marker.set_modified(std::time::SystemTime::now() - Duration::from_secs(300)).unwrap();
+        assert!(!handing_over(&dir), "nor one an update left behind");
+        drop(marker);
+        end_handover(&dir);
+        assert!(!handing_over(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_copy_takes_the_lock_once_a_handover_is_overdue() {
+        let dir = std::env::temp_dir().join(format!("kf-overdue-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        start_handover(&dir);
+        let started = std::time::Instant::now();
+        let Claim::Run(Some(lock)) = claim_or_forward(&dir, "kratosforge://", false, 4, Duration::from_millis(10)) else {
+            panic!("a link or double-click during a handover that never finishes still starts the app");
+        };
+        assert!(started.elapsed() >= Duration::from_millis(40), "it waited for the new build first");
+        assert!(matches!(claim_or_forward(&dir, "kratosforge://", false, 2, Duration::from_millis(1)), Claim::Stop));
+        drop(lock);
+        end_handover(&dir);
+        assert!(matches!(claim_or_forward(&dir, "kratosforge://", true, 1, Duration::ZERO), Claim::Run(Some(_))));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

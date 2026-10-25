@@ -38,4 +38,7 @@ test("A link to a page goes there; one KratosForge doesn't know only says so", {
   assert.strictEqual(await page().evaluate(() => state.view), view);
   await link({ kind: "page", page: "nope" });
   await page().getByText("KratosForge has no page called nope.").waitFor();
+  await link({ kind: "refused", reason: "A notebook link names an .ipynb file." });
+  await page().getByText("KratosForge didn't open that link. A notebook link names an .ipynb file.").waitFor();
+  assert.strictEqual(await page().evaluate(() => state.view), view);
 });

@@ -1038,6 +1038,7 @@ impl update_guard::Handover for ExeHandover<'_> {
 
     fn spawn(&mut self) -> Result<(), String> {
         let _ = std::fs::remove_file(&self.marker);
+        deep_link::start_handover(&data_dir());
         INSTANCE.release(); // so the new exe claims it straight away
         self.child = Some(Command::new(&self.exe).args(["--updated-to", self.commit]).spawn().map_err(|e| e.to_string())?);
         if let Some(w) = self.app.get_webview_window("main") {
@@ -1073,6 +1074,7 @@ impl update_guard::Handover for ExeHandover<'_> {
             }
             std::thread::sleep(std::time::Duration::from_millis(250));
         }
+        deep_link::end_handover(&dir); // only once it's ours again, so a link copy can't take it first
         if engine_was_running {
             // So the restored window works straight away; if this fails, the next call retries.
             if let Ok(mut guard) = self.state.sidecar.lock() {
@@ -1961,41 +1963,30 @@ fn register_link_scheme() {
     });
 }
 
-/// Makes this the one running copy of the app (deep_link::claim_instance), so two never share the
-/// sign-in cache and data. When another copy runs, hands it `url` (or just brings it to the front)
-/// and returns None: this copy stops. A copy started by an update waits for the old one to close.
 /// This copy's instance lock, kept for the life of the process except while an update hands over.
 static INSTANCE: deep_link::InstanceLock = deep_link::InstanceLock::new();
 
+/// Makes this the one running copy of the app (deep_link::claim_instance), so two never share the
+/// sign-in cache and data. When another copy runs, hands it `url` (or just brings it to the front)
+/// and returns None: this copy stops. A copy started by an update waits for the old one to let go;
+/// any other copy leaves the lock alone while an update hands it over (deep_link::handing_over).
 fn claim_single_instance(url: Option<&str>, updating: bool) -> Option<Option<std::fs::File>> {
-    let dir = data_dir();
-    let tries = if updating { 240 } else { 20 }; // 60 s (the old copy lets go as it starts this one), or 5 s while the other copy starts listening
-    for _ in 0..tries {
-        match deep_link::claim_instance(&dir) {
-            Ok(Some(lock)) => return Some(Some(lock)),
-            Ok(None) if !updating && deep_link::forward(&dir, url.unwrap_or("kratosforge://")) => return None,
-            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(250)),
-            Err(e) => {
-                eprintln!("couldn't check for another copy of KratosForge: {e}");
-                return Some(None);
-            }
-        }
+    // 60 s for a copy an update started (the old copy lets go as it starts this one), or 5 s while
+    // another copy starts listening or an update hands over.
+    let tries = if updating { 240 } else { 20 };
+    match deep_link::claim_or_forward(&data_dir(), url.unwrap_or("kratosforge://"), updating, tries, std::time::Duration::from_millis(250)) {
+        deep_link::Claim::Run(lock) => Some(lock),
+        deep_link::Claim::Stop => None,
     }
-    updating.then_some(None)
 }
 
 fn main() {
-    // A link is read before anything else: one that doesn't read as a link starts nothing.
-    let link = match deep_link::link_arg(&std::env::args().collect::<Vec<_>>()) {
-        Some(url) => match deep_link::parse(&url) {
-            Ok(parsed) => Some((url, parsed)),
-            Err(e) => {
-                eprintln!("not opened: {e}");
-                return;
-            }
-        },
-        None => None,
-    };
+    // A link is read before anything else. One that doesn't read as a link is never handed on:
+    // the app only says it wasn't opened (and why, when this copy is the one that runs).
+    let link = deep_link::link_arg(&std::env::args().collect::<Vec<_>>()).map(|url| match deep_link::parse(&url) {
+        Ok(parsed) => (url, parsed),
+        Err(e) => (deep_link::REFUSED.to_string(), deep_link::Link::Refused(e)),
+    });
     let Some(instance) = claim_single_instance(link.as_ref().map(|(url, _)| url.as_str()), updated_to_arg().is_some()) else {
         return;
     };

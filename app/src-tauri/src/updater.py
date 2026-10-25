@@ -73,6 +73,11 @@ def sidecar_url(commit: str) -> str:
     return f"https://github.com/{REPO}/archive/{commit}.zip#subdirectory=sidecar"
 
 
+def constraints_url(commit: str) -> str:
+    """The exact package versions that commit's engine was tested with (sidecar/constraints.txt)."""
+    return f"https://raw.githubusercontent.com/{REPO}/{commit}/sidecar/constraints.txt"
+
+
 def installed_sidecar() -> dict:
     """Version of the installed sidecar and the commit it was installed from, when known."""
     from importlib import metadata
@@ -312,7 +317,8 @@ def install_sidecar(commit: str) -> int:
     # The first install brings in any new dependencies. The second replaces the
     # package itself even when its version string has not changed; it is quiet,
     # because it would print the same collecting and building lines again.
-    steps = [("Installing the engine's packages", [url]),
+    # The packages come from that commit's constraints, so they are the versions CI tested (SH-9).
+    steps = [("Installing the engine's packages", ["-c", constraints_url(commit), url]),
              (f"Installing engine build {commit[:7]}", ["--quiet", "--force-reinstall", "--no-deps", url])]
     for title, args in steps:
         print(f"== {title}", flush=True)

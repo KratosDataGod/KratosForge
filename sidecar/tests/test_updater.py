@@ -283,6 +283,8 @@ def test_install_sidecar_reinstalls_from_commit(monkeypatch):
     assert updater.install_sidecar(SHA) == 0
     url = f"https://github.com/KratosDataGod/KratosForge/archive/{SHA}.zip#subdirectory=sidecar"
     assert calls[0][-1] == url and "--force-reinstall" not in calls[0]
+    constraints = f"https://raw.githubusercontent.com/KratosDataGod/KratosForge/{SHA}/sidecar/constraints.txt"
+    assert calls[0][-3:-1] == ["-c", constraints]  # the versions that commit was tested with (SH-9)
     assert calls[1][-3:] == ["--force-reinstall", "--no-deps", url]
 
 

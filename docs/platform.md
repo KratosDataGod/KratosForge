@@ -105,7 +105,7 @@ Who may decide a request is checked by the platform itself. For workspace access
 
 After this update, a platform admin runs **Platform > Settings > Finish or repair** once, so `UDF_Platform` knows the new kinds and has `record_request_progress` and `list_policy_exceptions`. Until then, sending one of these says so.
 
-Each request records who sent it, why, who decided and a note. A request can be withdrawn while it waits. A product owner can take access away again; existing links stay in the project but no new link is allowed.
+Each request records who sent it, why, who decided and a note. A request can be withdrawn while it waits. A product owner or a platform admin can take access away again on the product's page (**OneLake > Data products >** the product **> Access given > Take access away**, Preview), after a confirm. Existing links stay in the project and their runs keep reading, but no new link is allowed until the project asks again. To stop reads too, remove the project's OneLake data access role on the Product workspace.
 
 ### Notices to Teams (Preview)
 

@@ -512,7 +512,7 @@ function dataTable(preview) {
 // ---------- running ----------
 
 async function runEntities(names, opts = {}) {
-  // The button that started it, for the Pulse once the run is confirmed (Run all on the page head otherwise).
+  // The button that started it, for the Pulse once the sign-in and risk check let the run start (Run all on the page head otherwise).
   const trigger = document.activeElement?.closest?.("button");
   const p = state.meta.project;
   let label = names ? names.join(", ") : `all ${p.entities.length} entities`;
@@ -1331,7 +1331,10 @@ async function renderModelTab(body) {
   const build = async (replace = false) => {
     toast(`Building ${name.value} in ${plan.workspace_name || "the workspace"}...`);
     const res = await metaCall("meta_build_model", { env: m.env, layer: plan.layer, name: name.value, replace }, "Model not built");
-    if (!res) return;
+    if (!res) {  // the ember beside the error (a gate's list opens as a dialog over it)
+      forgeEvent("model.build.failed", document.getElementById("toast"));  // motion.js
+      return;
+    }
     if (res.confirm) {  // the model exists: nothing is written until the user says to replace it
       const c = res.confirm;
       if (await confirmDialog(`Replace ${c.name}?`,
@@ -1347,6 +1350,7 @@ async function renderModelTab(body) {
       res.relationships_left_out?.length ? ` Relationships left out because their column isn't in the model: ${res.relationships_left_out.join(", ")}.` : "",
       res.endpoint_refreshed ? "" : " The SQL endpoint refresh didn't run; if a table is missing, refresh the lakehouse in Fabric and build again.",
       res.url ? btn("Open in Fabric", "open", () => openInFabric(res.url), "tool link small") : null));
+    forgeEvent("model.built", result.firstChild);  // Forge Spark once Fabric has the model (motion.js)
   };
   body.replaceChildren(
     h("div", { class: "card pad" },

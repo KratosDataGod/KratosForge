@@ -324,6 +324,45 @@ def test_the_agent_reports_an_unreadable_run_log_without_crashing(agent_setup, m
     assert IncidentLog(agent._control("dev"), "dev").active()[0]["evidence"]["state"] == "offline"
 
 
+def test_an_environment_that_isnt_set_up_opens_no_incident_and_clears_a_cant_check_one(tmp_path, monkeypatch):
+    svc = Service(root=tmp_path / "app")
+    svc._auth = types.SimpleNamespace(signed_in_user=lambda: "chris@contoso.com", silent_token=lambda s: None,
+                                      fabric_token=lambda: None, storage_token=lambda: None)
+    svc.meta_init(str(tmp_path / "proj"), "3")
+    name = sorted(svc._project().entities)[0]
+    monkeypatch.setattr(svc, "meta_runs", lambda env, limit: [run(name, "failed", "r1")])
+    svc.incidents_evaluate("dev")
+
+    def offline(env, limit):
+        raise ConnectionError("network is unreachable")
+
+    monkeypatch.setattr(svc, "meta_runs", offline)
+    assert [c["change"] for c in svc.incidents_evaluate("dev")["changes"]] == ["opened"]
+    assert {i["kind"] for i in svc.incidents_list("dev")["incidents"] if i["state"] != "resolved"} == {"run_failed", "cant_evaluate"}
+
+    def not_set_up(env, limit):
+        raise LookupError("Assign a workspace to Dev first (Data mesh > Environments).")
+
+    monkeypatch.setattr(svc, "meta_runs", not_set_up)
+    out = svc.incidents_evaluate("dev")
+    assert out["not_set_up"].startswith("Assign a workspace") and not out["evaluated"]
+    # The "Can't check" incident clears; the workload's own incident stays, because nothing was read.
+    assert [(c["change"], c["title"]) for c in out["changes"]] == [("recovered", "Can't check Dev: offline")]
+    assert {i["kind"] for i in svc.incidents_list("dev")["incidents"] if i["state"] != "resolved"} == {"run_failed"}
+    assert svc.incidents_evaluate("dev")["changes"] == [], "checking again opens nothing"
+
+
+def test_the_agent_opens_no_incident_for_an_environment_that_isnt_set_up(agent_setup, monkeypatch):
+    agent = Agent(agent_setup, clock=Clock())
+
+    def not_set_up(env, limit):
+        raise LookupError("Assign a workspace to Dev first.")
+
+    monkeypatch.setattr(agent.runtime, "meta_runs", not_set_up)
+    assert agent.evaluate_incidents() == {"dev": []}
+    assert IncidentLog(agent._control("dev"), "dev").active() == []
+
+
 def test_the_app_and_the_agent_share_one_incident_list(tmp_path, monkeypatch):
     svc = Service(root=tmp_path / "app")
     svc._auth = types.SimpleNamespace(signed_in_user=lambda: "chris@contoso.com", silent_token=lambda s: None,

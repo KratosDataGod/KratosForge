@@ -1,6 +1,7 @@
 """Notebook files: what the app calls (notebook_files.py does the work).
 
-Reads: ``notebook_listing``, ``notebook_search``, ``notebook_import_check``, ``notebook_delete_check``,
+Reads: ``notebook_file_path`` and ``notebook_disk_stamp`` (VS Code alongside the app),
+``notebook_listing``, ``notebook_search``, ``notebook_import_check``, ``notebook_delete_check``,
 ``notebook_deleted`` and ``notebook_fabric_check`` (reads a Fabric item's definition; nothing in
 Fabric changes and no Fabric job runs).
 
@@ -11,15 +12,16 @@ Recently deleted, turning off this PC's schedules that run it), ``notebook_resto
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Any
 
 from . import notebook_files as files
-from .notebook import leaf_name
+from .notebook import disk_stamp, leaf_name
 from .redact import describe
 
-METHODS = {"notebook_listing", "notebook_search", "notebook_save_copy", "notebook_import_check", "notebook_import",
+METHODS = {"notebook_file_path", "notebook_disk_stamp", "notebook_listing", "notebook_search", "notebook_save_copy", "notebook_import_check", "notebook_import",
            "notebook_delete_check", "notebook_delete", "notebook_deleted", "notebook_restore",
            "notebook_fabric_check", "notebook_from_fabric",
            "notebook_publish_check"}  # cloud_service.py: what changed in Fabric before a Publish
@@ -31,6 +33,26 @@ class NotebookFilesMixin:
     @property
     def _published_dir(self) -> Path:
         return Path(self.root) / "published"  # type: ignore[attr-defined]
+
+    def notebook_file_path(self, name: str) -> dict[str, Any]:
+        """Where the notebook's file is, for Open in VS Code: the file, its folder, and the
+        repository holding it (None for the app's own notebooks folder)."""
+        path = self.notebooks.path(name)  # type: ignore[attr-defined]
+        if not path.is_file():
+            raise ValueError(f"There's no notebook named {name!r}.")
+        place = self.notebooks.place_of(name)  # type: ignore[attr-defined]
+        return {"path": str(path), "folder": str(path.parent),
+                "repo_root": place["root"] if place else None, "repo_label": place["label"] if place else None,
+                "notebooks_folder": str(self.notebooks.folder)}  # type: ignore[attr-defined]
+
+    def notebook_disk_stamp(self, name: str) -> dict[str, Any]:
+        """The saved file's ``disk_stamp`` (notebook.disk_stamp), so the screen can tell whether another
+        program, such as VS Code, changed it. None when the file is gone or isn't a notebook."""
+        try:
+            nb = json.loads(self.notebooks.path(name).read_text(encoding="utf-8"))  # type: ignore[attr-defined]
+            return {"disk_stamp": disk_stamp(nb) if isinstance(nb, dict) else None}
+        except (OSError, ValueError):
+            return {"disk_stamp": None}
 
     def notebook_listing(self) -> list[dict[str, Any]]:
         """Every notebook (as list_notebooks), with the Fabric workspace it was last published to."""

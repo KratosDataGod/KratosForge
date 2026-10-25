@@ -58,7 +58,7 @@ Every notebooks repository you open here is also a place to save notebooks, next
 2. Otherwise, the repository's location for the current environment. Switching the environment switches the lakehouse for the next run, and the Explorer marks it, for example **Test location**.
 3. Otherwise nothing is attached. **This PC** means that environment attaches nothing on purpose; an environment with no location shows **No location for Test**.
 
-Running cells, **Publish to OneLake**, **Run in Fabric** and Fabric schedules use the location's lakehouse when the notebook has none of its own. It is never saved into the notebook, so the notebook keeps following the environment. **Prove** and **Side by side** don't use locations yet; attach a lakehouse to the notebook for those.
+Running cells, **Prove**, **Side by side**, **Publish to OneLake**, **Run in Fabric** and Fabric schedules use the location's lakehouse when the notebook has none of its own. It is never saved into the notebook, so the notebook keeps following the environment.
 
 **Editing locations.** **Data locations** (next to the repository's name on this page, or **Edit locations** on the notebook's **Data** button) shows Dev, Test and Prod, each with a workspace, a lakehouse and an optional Fabric SQL database, picked from what you can see in Fabric. Saving writes `locations.toml` with workspace and item ids and their names, as a change to commit. Nothing in Fabric changes, and no passwords or keys are written.
 

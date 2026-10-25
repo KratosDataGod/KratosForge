@@ -41,8 +41,9 @@ def test_check_now_runs_notebook_rules_and_says_when_nothing_is_there_to_check(t
 
     svc = Service(root=tmp_path / "app")
     svc.meta_init(str(tmp_path / "crm"), "3")
-    for pid, rule in (("collect", "NB003"), ("schemas", "SQ005")):
-        svc.governance_create({"id": pid, "name": pid, "category": "quality", "rule": rule})
+    for pid, rule, params in (("collect", "NB003", {}), ("schemas", "SQ005", {}),
+                              ("off", "NB003", {"enabled": {"value": False}})):
+        svc.governance_create({"id": pid, "name": pid, "category": "quality", "rule": rule, "params": params})
         svc.governance_publish(pid)
         svc.governance_assign(pid, "enterprise")
     svc.notebooks.save("nb_sales", [{"type": "code", "source": "rows = df.collect()"},
@@ -51,4 +52,6 @@ def test_check_now_runs_notebook_rules_and_says_when_nothing_is_there_to_check(t
     assert got["collect"]["status"] == "findings" and got["collect"]["checked"] == 1
     assert [f["object"] for f in got["collect"]["findings"]] == ["nb_sales: cell 1, line 1"]
     # Check now has no SQL scripts to give the SQL rules, so the policy isn't shown as passing.
-    assert got["schemas"]["status"] == "not_checked" and "(sql)" in got["schemas"]["note"]
+    assert got["schemas"]["status"] == "not_checked" and got["schemas"]["note"] == "Check now found nothing for its sql rules to check."
+    # A policy whose parameters turn its rules off isn't shown as passing either.
+    assert got["off"]["status"] == "not_checked" and "enabled = false" in got["off"]["note"]

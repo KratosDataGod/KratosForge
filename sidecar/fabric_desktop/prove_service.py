@@ -557,8 +557,12 @@ class ProveMixin:
     # ---- what the app calls
 
     def prove_check(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
-                    compute: str | None = None, workspace: dict[str, str] | None = None) -> dict[str, Any]:
-        """The plan before a proof: what will happen, what blocks it, what it can't contain."""
+                    compute: str | None = None, workspace: dict[str, str] | None = None,
+                    location_ref: dict[str, str] | None = None) -> dict[str, Any]:
+        """The plan before a proof: what will happen, what blocks it, what it can't contain.
+        ``location_ref`` is the notebook repository's lakehouse for the current environment, used
+        when the notebook has none of its own (as a run of its cells does)."""
+        lakehouse_ref = lakehouse_ref or location_ref
         check = proof.check(cells, lakehouse_ref)
         env = envprofile.check(cells, self._fabric_observed())
         ws = None
@@ -578,9 +582,13 @@ class ProveMixin:
 
     def prove_start(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
                     compute: str | None = None, workspace: dict[str, str] | None = None,
-                    rules: dict[str, Any] | None = None, parameters: dict[str, Any] | None = None) -> dict[str, Any]:
+                    rules: dict[str, Any] | None = None, parameters: dict[str, Any] | None = None,
+                    location_ref: dict[str, str] | None = None) -> dict[str, Any]:
         """Start a proof; returns at once and prove_status follows it. ``rules`` are verification rules
-        (verify.py), as {"default": {...}, "tables": {"dbo.t": {...}}}."""
+        (verify.py), as {"default": {...}, "tables": {"dbo.t": {...}}}. ``location_ref`` is the
+        repository location's lakehouse, used when the notebook has none; it isn't saved into the
+        notebook, so the notebook keeps following the environment."""
+        saved_ref, lakehouse_ref = lakehouse_ref, lakehouse_ref or location_ref
         if self.proof_busy():
             raise RuntimeError("A proof is already running. Wait for it, or cancel it.")
         self._replay_refuse(name, "proving it")
@@ -595,7 +603,7 @@ class ProveMixin:
             raise ValueError(f"This notebook can't be proven yet: {where}{b['text']}")
         rules = _normalized_rules(rules or {})  # refuse bad rules now, not after two runs
         assert lakehouse_ref is not None
-        saved = self.notebooks.save(name, cells, lakehouse_ref, compute, workspace)  # type: ignore[attr-defined]
+        saved = self.notebooks.save(name, cells, saved_ref, compute, workspace)  # type: ignore[attr-defined]
         cells = [dict(c) | {"cell_id": cid} for c, cid in zip(cells, saved["cell_ids"])]
         ws = self._publish_workspace(name, lakehouse_ref, workspace)  # type: ignore[attr-defined]
         self.auth.storage_token()  # type: ignore[attr-defined]  # sign in now, while the app is in front

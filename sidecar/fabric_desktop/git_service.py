@@ -213,7 +213,7 @@ class GitMixin:
         caps, workspaces = self._fabric_capacities()
         try:
             out = capacity_files.write(r.root, git["capacities"], capacity_files.from_fabric(caps, workspaces),
-                                       uncommitted, confirm)
+                                       uncommitted, confirm, workspaces)
         except GitError as exc:
             if exc.kind == "confirm":
                 return {"needs_confirm": True, "message": str(exc)}

@@ -80,9 +80,15 @@ def test_writing_fabrics_state_keeps_capacities_this_person_cant_see(svc, repo):
     before = svc.git_capacity_diff(repo)["counts"]["differs"]
     out = svc.git_capacity_write(repo)
     assert out["written"] == ["capacity.toml"] and out["kept"] == ["F32 Test"] and before
+    assert out["kept_workspaces"] == ["Hidden"]
     data = tomllib.loads(Path(repo, "capacity.toml").read_text(encoding="utf-8"))
+    # State is written only where the file already set it, so a pause or resume isn't drift elsewhere.
     assert data["capacities"]["F8 Dev"] == {"capacity_id": "cap-2", "sku": "F8", "region": "West Europe", "state": "Paused",
                                             "workspaces": [{"id": "w-dev", "name": "Dev"}, {"id": "w-sales", "name": "Sales Gold"}]}
+    # A workspace this person can't see stays where the file had it; Sales Gold follows Fabric.
+    assert "state" not in data["capacities"]["F64 Prod"]
+    assert data["capacities"]["F64 Prod"]["workspaces"] == [{"id": "w-adhoc", "name": "Ad hoc"}, {"id": "w-fin", "name": "Finance Silver"},
+                                                            {"id": "w-gone", "name": "Hidden"}]
     assert data["capacities"]["F32 Test"] == {"capacity_id": "cap-3", "sku": "F32", "workspaces": []}
     after = svc.git_capacity_diff(repo)
     assert after["counts"] == {"same": 2, "differs": 0, "not_visible": 1, "not_in_git": 0}

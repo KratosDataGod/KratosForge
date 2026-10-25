@@ -114,7 +114,7 @@ The **Capacity** tab is the drift report. It reads `capacity.toml` and what Fabr
 
 It only reads. KratosForge never resizes, pauses, resumes or assigns a capacity, and never moves a workspace: fix drift in the Fabric admin portal, or edit `capacity.toml` and commit if Git is the one that's wrong. **Copy report** puts the report on the clipboard.
 
-**Write Fabric's state to capacity.toml** replaces the file with what Fabric shows you now, after you confirm, as a change to review and commit. Sections for capacities you can't see are kept as they are. If the file has changes you haven't committed, it asks again before replacing them, and a file with sections it can't read is never overwritten: fix it first.
+**Write Fabric's state to capacity.toml** replaces the file with what Fabric shows you now, after you confirm, as a change to review and commit. Capacities and workspaces you can't see stay in the file as they are. State is written only for a capacity whose section already sets it, so pausing or resuming one doesn't show as drift unless you ask for that. If the file has changes you haven't committed, it asks again before replacing them, and a file with sections it can't read is never overwritten: fix it first.
 
 ## Changes
 

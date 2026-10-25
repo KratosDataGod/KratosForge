@@ -158,16 +158,27 @@ def _section(c: dict[str, Any]) -> dict[str, Any]:
 
 
 def write(root: str | Path, git: list[dict[str, Any]], fabric: list[dict[str, Any]], uncommitted: bool,
-          confirm: bool = False) -> dict[str, Any]:
-    """Replaces capacity.toml with what Fabric shows. Sections for capacities this person can't see
-    are kept as they are. With uncommitted changes to the file, only with ``confirm``."""
+          confirm: bool = False, workspaces: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Replaces capacity.toml with what Fabric shows. What this person can't see stays as it is:
+    sections for capacities they can't see, and the file's workspaces they can't see (``workspaces``
+    is everything Fabric shows them). State is written only where the file already sets it, since a
+    pause or resume would otherwise read as drift. With uncommitted changes, only with ``confirm``."""
     root = Path(root)
     if (root / FILE).is_symlink():
         raise GitError(f"{FILE} is a link, so it wasn't written.", kind="invalid")
+    seen = {_text(w.get("id")).lower() for w in workspaces or []}
+    by_id = {c["capacity_id"].lower(): c for c in git}
     shown = {c["capacity_id"].lower() for c in fabric}
     kept = [c for c in git if c["capacity_id"].lower() not in shown]
+    hidden: list[dict[str, str]] = []
+    merged = []
+    for c in fabric:
+        before = by_id.get(c["capacity_id"].lower()) or {}
+        unseen = [w for w in before.get("workspaces", []) if w["id"].lower() not in seen]
+        hidden += unseen
+        merged.append(c | {"state": c["state"] if "state" in before else "", "workspaces": c["workspaces"] + unseen})
     sections: dict[str, Any] = {}
-    for c in [*fabric, *kept]:
+    for c in [*merged, *kept]:
         name = c["name"] if c["name"] not in sections else f"{c['name']} ({c['capacity_id']})"
         sections[name] = _section(c)
     text = dumps({"capacities": sections}, HEADER) if sections else "\n".join(f"# {x}" for x in HEADER.splitlines()) + "\n"
@@ -183,4 +194,5 @@ def write(root: str | Path, git: list[dict[str, Any]], fabric: list[dict[str, An
     if not same:
         _replace_in(root, FILE, text)
     return {"written": [] if same else [FILE], "capacities": len(fabric), "kept": [c["name"] for c in kept],
+            "kept_workspaces": [w["name"] or w["id"] for w in hidden],
             "workspaces": sum(len(c["workspaces"]) for c in fabric)}

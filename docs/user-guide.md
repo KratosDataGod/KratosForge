@@ -565,7 +565,7 @@ The banner at the top lists what to look at: a certificate that has expired or e
 
 ### Capacity repository
 
-A capacity repository holds `capacity.toml`: the capacities there should be, the size, region and state each should have, and the workspaces each should hold. Its **Capacity** tab is a drift report. It compares the file with the capacities and workspaces Fabric shows you, and for each capacity it says **same**, **differs** (which setting, or which workspace is elsewhere or not in the file), **not in Git** or **not visible to you**. It only reads: it never resizes, pauses, resumes or assigns a capacity, and it starts no Fabric job. **Write Fabric's state to capacity.toml** replaces the file with what Fabric shows, after you confirm, as a change to review and commit. Capacities you can't see keep their sections. See [Capacity repository](source-control.md#capacity-repository).
+A capacity repository holds `capacity.toml`: the capacities there should be, the size, region and state each should have, and the workspaces each should hold. Its **Capacity** tab is a drift report. It compares the file with the capacities and workspaces Fabric shows you, and for each capacity it says **same**, **differs** (which setting, or which workspace is elsewhere or not in the file), **not in Git** or **not visible to you**. It only reads: it never resizes, pauses, resumes or assigns a capacity, and it starts no Fabric job. **Write Fabric's state to capacity.toml** replaces the file with what Fabric shows, after you confirm, as a change to review and commit. Capacities and workspaces you can't see stay in the file as they are. See [Capacity repository](source-control.md#capacity-repository).
 
 ## Profile (Preview)
 

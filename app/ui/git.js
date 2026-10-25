@@ -1171,7 +1171,7 @@ function gitCapacityTab(st) {
     reads: "capacity.toml in this repository, and the capacities and workspaces Fabric shows you (GET /v1/capacities, GET /v1/workspaces). It starts no Fabric job and needs no admin role.",
     changes: "Nothing in Fabric: it never resizes, pauses, resumes or assigns a capacity. Write Fabric's state to capacity.toml replaces that one file, after you confirm, as a change to review and commit.",
     results: "On this tab. Copy report puts it on the clipboard as text.",
-    more: [["Not visible", "People see different capacities and workspaces. One Fabric doesn't show you isn't compared, and writing keeps its section as it is."]],
+    more: [["Not visible", "People see different capacities and workspaces. One Fabric doesn't show you isn't compared, and writing keeps it in the file as it is."]],
     anchor: "capacity-repository" });
   const wrap = (...kids) => withHowItWorks(h("div", { class: "git-platform" }, ...kids), how);
   if (p.error) return wrap(bar, h("div", { class: "callout git-warn" }, icon("warning", 16), p.error));
@@ -1195,7 +1195,7 @@ function gitCapacityCopy(d) {
 // Replaces capacity.toml with what Fabric shows, as a change to review. Nothing in Fabric changes.
 async function gitCapacityWrite(root) {
   if (!(await confirmDialog("Write Fabric's state to capacity.toml?",
-    "Replaces the file with the capacities, settings and workspaces Fabric shows you now. It's a change to review and commit. Nothing in Fabric changes. Capacities you can't see keep their sections as they are.",
+    "Replaces the file with the capacities, settings and workspaces Fabric shows you now. It's a change to review and commit. Nothing in Fabric changes. Capacities and workspaces you can't see stay in the file as they are.",
     "Write the file"))) return;
   let out = await attempt(() => rpc("git_capacity_write", { repo: root }), "Couldn't write capacity.toml");
   if (!out) return;
@@ -1204,7 +1204,8 @@ async function gitCapacityWrite(root) {
     out = await attempt(() => rpc("git_capacity_write", { repo: root, confirm: true }), "Couldn't write capacity.toml");
     if (!out) return;
   }
-  const kept = out.kept.length ? ` Kept ${out.kept.length} you can't see.` : "";
+  const hidden = out.kept.length + out.kept_workspaces.length;
+  const kept = hidden ? ` Kept ${out.kept.length ? `${out.kept.length} capacit${out.kept.length === 1 ? "y" : "ies"}` : ""}${out.kept.length && out.kept_workspaces.length ? " and " : ""}${out.kept_workspaces.length ? `${out.kept_workspaces.length} workspace${out.kept_workspaces.length === 1 ? "" : "s"}` : ""} you can't see.` : "";
   toast(out.written.length ? `Wrote ${out.capacities} capacit${out.capacities === 1 ? "y" : "ies"} and ${out.workspaces} workspace${out.workspaces === 1 ? "" : "s"}. Review the change, then commit.${kept}`
     : `capacity.toml already matches Fabric.${kept}`);
   await gitAfterChange(out.status);

@@ -37,6 +37,7 @@ nav = [
     { "Spark on this PC" = "notebook-spark-on-this-pc.md" },
     { "Local data projects" = "local-data.md" },
     { "SQL compatibility check" = "sql-compatibility.md" },
+    { "SQL best practices" = "sql-best-practices.md" },
     { "Running SQL queries" = "sql-execution.md" },
     { "Warehouses" = "warehouse.md" },
     { "Side by side: PC vs Fabric" = "side-by-side.md" },
@@ -134,6 +135,7 @@ nav = [
       { "Implementation review" = "product/IMPLEMENTATION_REVIEW_PROCESS.md" },
       { "Review template" = "product/reviews/TEMPLATE.md" },
       { "Competitive capability matrix" = "product/COMPETITIVE_CAPABILITY_MATRIX.md" },
+      { "Development status" = "product/DEVELOPMENT_STATUS.md" },
     ] },
   ] },
   { "Contributing" = [

@@ -40,7 +40,7 @@ No Critical issue was confirmed. Twelve are High.
 | EN-2 | Medium | Tokens | External-tool Python runs inherit the full environment and can read the plaintext token cache; docs say tools never get a token | HD-012, HD-013. Partly closed: the environment is allowlisted and the cache is encrypted at rest, but code running as the person can still decrypt it |
 | EN-10 | Medium | Tokens | The MSAL cache is plaintext on every OS; the POSIX temp file is briefly world-readable | **Closed on Windows** by HD-013: DPAPI for the Windows account. Other OSes keep a 0600 file |
 | EN-3 | Medium | AI integration | The per-tool workspace limit only applies when the call names a `workspace_id` | HD-014 |
-| EN-4 | Medium | AI integration | An external SQL timeout doesn't stop the query and keeps a lock that blocks every later run | HD-015 |
+| EN-4 | Medium | AI integration | An external SQL timeout doesn't stop the query and keeps a lock that blocks every later run | **Closed** by #253 (HD-015) |
 | EN-6 | Medium | Leases | Local write leases can be taken by more than one process at once | HD-016 |
 | AR-1 | Medium | Leases | A lease that stops renewing isn't marked lost, and loss is only checked after the commit | HD-016 |
 | EP-3 | Medium | Audit | The audit hash chain forks when the app and a scheduled run write at once; tail deletion goes unnoticed | HD-017 |
@@ -62,7 +62,7 @@ No Critical issue was confirmed. Twelve are High.
 | EN-11 | Low | Engine | `export_sql_csv` builds a path from an unsanitized lakehouse name; `receipt_save` overwrites. Done in HD-038: the CSV name goes through `service.file_stem`, the cleaning `sql_compat_export` already used (letters, digits, spaces, `-` and `_`), so a lakehouse name with separators or `..` stays in Downloads; the CSV and receipt files are opened with mode `"x"` and a name that is taken gets a number, so an existing file is never replaced. `file_stem` now lives in `filenames.py`, and the managed SQL export (`sql_exec.export`) uses it too instead of its own copy | HD-038 |
 | DI-7 | Low | Fabric API | `Retry-After` in HTTP-date form crashes the client; 5xx and connection errors aren't retried on reads | HD-039 |
 | DI-8 | Low | Notebooks | Local `saveAsTable` overwrite silently replaces the schema where Fabric would refuse | HD-040 |
-| SH-10 | Low | Shell | A release build with no engine falls back to a bare `python` command | HD-026 |
+| SH-10 | Low | Shell | A release build with no engine falls back to a bare `python` command | **Closed** by #251 (HD-026) |
 | SH-11 | Low | Shell | RPC replies aren't matched to request ids; the pipe runs one call at a time with no limit for long calls | **Closed** by #264 (HD-041) |
 | SH-12 | Low | Shell | The Fabric view filters new windows but not navigation, and turns SmartScreen off | **Closed** by #259 (HD-027) |
 | UI-1 | Low | UI | (part of SH-1) Notebook HTML output frames can make network requests | HD-020 |

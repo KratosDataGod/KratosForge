@@ -1064,8 +1064,9 @@ test("a failed save says so and keeps the notebook open and dirty", async () => 
     clearTimeout: () => {}, renderChrome: () => {}, setComputeCheck: () => {}, loadIntoState: () => { calls.push("load"); },
     go: () => {}, closeDialog: () => {}, markDirty: () => {}, saveTimer: null,
   };
-  vm.runInNewContext(["attempt", "notebookPayload", "saveNotebook", "openNotebook", "newNotebook"].map(fn).join("\n") +
-    "; this.saveNotebook = saveNotebook; this.openNotebook = openNotebook; this.newNotebook = newNotebook;", ctx);
+  vm.runInNewContext(["attempt", "notebookPayload", "saveNotebook", "openNotebook", "newNotebook", "setNotebookCompute"].map(fn).join("\n") +
+    "; this.saveNotebook = saveNotebook; this.openNotebook = openNotebook; this.newNotebook = newNotebook;" +
+    " this.setNotebookCompute = setNotebookCompute;", ctx);
   const nb = { name: "nb", cells: [], dirty: true, lakehouse: null };
   ctx.state = { notebook: nb };
   assert.strictEqual(await ctx.saveNotebook(), false);
@@ -1080,6 +1081,15 @@ test("a failed save says so and keeps the notebook open and dirty", async () => 
   assert.match(src, /const el = ok \? anchor\(\) : null;/, "Ctrl+S says Saved when the save failed");
   assert.match(src, /state\.notebook\?\.dirty && !\(await saveNotebook\(\)\)\) return false;/);
   assert.match(src, /if \(await onClose\(\) === false\) return;/);
+  // Changing where it runs doesn't say "now runs in Fabric" when that change wasn't saved.
+  Object.assign(ctx, { nbWhere: (n) => ({ fabric: n.compute === "fabric" }), renderNotebook: () => {} });
+  toasts.length = 0;
+  await ctx.setNotebookCompute("fabric");
+  assert.ok(toasts.length === 1 && toasts[0][1], JSON.stringify(toasts));
+  nb.compute = undefined;
+  // Opening a replay bundle doesn't replace a notebook whose save failed.
+  const replay = fs.readFileSync(path.join(ui, "replay.js"), "utf8");
+  assert.match(replay, /if \(state\.notebook\?\.dirty && !\(await saveNotebook\(\)\)\) return;[^\n]*\n\s*loadIntoState\(nb\);/);
   // A save that works still clears dirty.
   ctx.rpc = async () => ({});
   assert.strictEqual(await ctx.saveNotebook(), true);
@@ -1672,7 +1682,7 @@ test("the app is called KratosForge everywhere people read it, and identifiers s
   assert.match(settings, /"aria-labelledby": "splash-title", "aria-describedby": "splash-text"/);
   assert.match(settings, /label: "About the new name: KratosForge"/);
   const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
-  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\n  \.overlay\.splash/);
+  assert.match(css, /\.splash-still, \.splash-still :is\(\.splash-emblem/);  // Off, Minimal and reduced motion show the forge still
 });
 
 test("the Platform tab says what differs between Git and the platform, and what a deploy will do", () => {
@@ -2394,7 +2404,7 @@ test("the update splash lists the build's notes and each change since the build 
   assert.match(src, /const UPDATE_SPLASH_OFF = "fd\.updatesplash\.off"/);
   assert.match(src, /if \(!asked && !updateSplashOn\(\)\) \{ showWhatsNew\(\); return false; \}/);
   assert.match(src, /label: "Show the update splash"/);
-  assert.match(fs.readFileSync(path.join(ui, "styles.css"), "utf8"), /\.splash-actions, \.splash-optout \{ animation: none; \}/);
+  assert.match(fs.readFileSync(path.join(ui, "styles.css"), "utf8"), /\.splash-actions, \.splash-optout\) \{ animation: none; \}/);
 });
 
 // UX-018: every schedule Remove asks first, names what stops, and points at Off.

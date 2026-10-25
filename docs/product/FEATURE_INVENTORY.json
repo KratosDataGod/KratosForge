@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "9715e28",
-    "date": "2026-10-17",
+    "commit": "524e6a3",
+    "date": "2026-10-25",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
       "Ran the sidecar test suite (pytest) on Linux, Python 3.13",
@@ -11,9 +11,11 @@
       "Drove the engine over its stdin protocol and the fabric-desktop CLI with local data only",
       "Compared each docs/ page with the code it describes",
       "No Fabric tenant was used and the Windows app was not run",
-      "Taken at b7b04cc; refreshed at 9715e28 for the PRs merged in between (#89 to #134): only the features they touched were re-read, and four rows were added"
+      "Taken at b7b04cc; refreshed at 9715e28 for the PRs merged in between (#89 to #134): only the features they touched were re-read, and four rows were added",
+      "Refreshed at be3e45b on 2026-10-22 for the PRs merged from #135 to #559: rows were added for the features those PRs shipped, and rows whose status those PRs changed were re-read. Other rows were not re-read, so their evidence is from earlier runs",
+      "Refreshed at 524e6a3 on 2026-10-25 for the PRs merged from #560 to #650 (the 2026-10-22 refresh for #135 to #559 is included; it had not reached main). Each merge's changed files and title were read; rows those PRs changed were updated and five rows added. Other rows were not re-read."
     ],
-    "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test)"
+    "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22)."
   },
   "features": [
     {
@@ -146,7 +148,7 @@
         115
       ],
       "workstream": "Prove (FD-110)",
-      "next_action": "Run cargo test in CI (PB-071) and move long calls (sign-in, Fabric calls) off the single pipe (PB-072).",
+      "next_action": "Move long calls (sign-in, Fabric calls) off the single pipe (PB-072); cargo test runs in CI since #244.",
       "backlog": [
         "PB-071",
         "PB-072"
@@ -355,7 +357,8 @@
       ],
       "source": [
         "sidecar/fabric_desktop/app_settings.py",
-        "app/ui/settings.js"
+        "app/ui/settings.js",
+        "app/src-tauri/src/policy_file.rs"
       ],
       "tests": [
         "sidecar/tests/test_policy.py",
@@ -374,10 +377,11 @@
         "`platform` key not in azure-setup.md's key table"
       ],
       "prs": [
-        90
+        90,
+        569
       ],
       "workstream": "Enterprise readiness (FD-105)",
-      "next_action": "Add the documented-but-missing keys (allowed_hosts, local_retention_days, telemetry, three-value allowed_compute) through the enterprise program (PB-061).",
+      "next_action": "Missing keys through the enterprise program (PB-061); #569 closed the ten audit bugs #411 to #420.",
       "backlog": [
         "PB-061"
       ]
@@ -385,7 +389,7 @@
     {
       "id": "FEAT-SHL-09",
       "name": "Self-update, channels and engine install",
-      "description": "Stable and Preview channels from GitHub Releases; the exe and engine zip are checked against version.json SHA-256 and their build commit before use.",
+      "description": "Stable and Preview channels from GitHub Releases, checked against version.json SHA-256 and their build commit; Check for updates in the profile menu updates on demand or offers the download by hand; the program file is kratosforge.exe.",
       "pillar": "Platform foundation",
       "category": "Security and Enterprise Readiness",
       "status": "Implemented",
@@ -405,10 +409,6 @@
           "ref": "sidecar/tests/test_updater.py::test_no_stable_release_yet_follows_preview"
         },
         {
-          "kind": "absent",
-          "ref": "main.rs integrity_tests not run in CI or here"
-        },
-        {
           "kind": "test",
           "ref": "sidecar/tests/test_whats_new.py",
           "note": "passed in the 2026-10-17 refresh run at 9715e28"
@@ -421,15 +421,28 @@
         {
           "kind": "code",
           "ref": "app/ui/settings.js showWhatsNew"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_updater.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/update-check.test.cjs",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
         }
       ],
       "source": [
         "app/src-tauri/src/updater.py",
-        "app/src-tauri/src/main.rs"
+        "app/src-tauri/src/main.rs",
+        "app/src-tauri/src/update_guard.rs",
+        "app/src-tauri/src/exe_name.rs"
       ],
       "tests": [
         "sidecar/tests/test_updater.py",
-        "sidecar/tests/test_whats_new.py"
+        "sidecar/tests/test_whats_new.py",
+        "app/tests/browser/update-check.test.cjs"
       ],
       "docs": [
         "docs/install.md",
@@ -442,17 +455,23 @@
       },
       "limitations": [
         "Checksums come from the same release, so they don't stop someone who can publish releases",
-        "Only the newest build per channel exists, so no pinning or rollback",
-        "A release without engine_sha256 is still accepted (main.rs check_engine_zip)",
-        "Updating from Program Files fails"
+        "Unsigned until Trusted Signing exists (PB-001)",
+        "Rust update guard (OneDrive lock wait, engine folder kept while running) has no Linux test run; CI builds it on Windows"
       ],
       "prs": [
         51,
         82,
-        132
+        132,
+        565,
+        566,
+        567,
+        569,
+        594,
+        602,
+        607
       ],
       "workstream": "Fuller What's new dialog (PB-100) and Enterprise readiness",
-      "next_action": "Code signing (PB-001) and per-build release assets for real rollback (PB-064).",
+      "next_action": "Code signing (PB-001); Rust tests in CI (PB-071).",
       "backlog": [
         "PB-001",
         "PB-064",
@@ -645,23 +664,29 @@
     {
       "id": "FEAT-AUTH-03",
       "name": "Token cache",
-      "description": "MSAL cache in the user profile, written atomically; a damaged cache is ignored.",
+      "description": "MSAL cache in the user profile, written atomically and encrypted with Windows DPAPI for the signed-in Windows user; a damaged cache is ignored.",
       "pillar": "Platform foundation",
       "category": "Security and Enterprise Readiness",
-      "status": "Partially Implemented",
+      "status": "Implemented",
       "verification": "Partially Verified",
       "evidence": [
         {
           "kind": "test",
           "ref": "sidecar/tests/test_local.py::test_token_cache_survives_damage_and_is_swapped_in_whole",
           "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_token_cache_dpapi.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
         }
       ],
       "source": [
         "sidecar/fabric_desktop/auth.py"
       ],
       "tests": [
-        "sidecar/tests/test_local.py"
+        "sidecar/tests/test_local.py",
+        "sidecar/tests/test_token_cache_dpapi.py"
       ],
       "docs": [
         "docs/security.md"
@@ -671,13 +696,15 @@
         "preview": false
       },
       "limitations": [
-        "Plain file on Windows (not encrypted)",
-        "No lock between the app and scheduled runs (inference)"
+        "DPAPI is checked by tests with the Windows call faked; not yet observed on Chris's PC after the Stable promotion (3633b4a)"
       ],
       "workstream": "Enterprise readiness (FD-131b)",
-      "next_action": "Encrypt with DPAPI via msal-extensions once Chris decides D-C2 (PB-005).",
+      "next_action": "Chris restarts and signs in on Windows on Stable 3633b4a to confirm (PB-005 review).",
       "backlog": [
         "PB-005"
+      ],
+      "prs": [
+        593
       ]
     },
     {
@@ -1133,8 +1160,8 @@
         "surface": "None (listed, opened in Fabric, run-now from Monitor > Schedules)",
         "preview": false
       },
-      "workstream": "Staged roadmap (stage 4)",
-      "next_action": "Decide scope with decision D2 (who creates landing Copy jobs) before any build (PB-030).",
+      "workstream": "Build full Data Factory experience (DF-1..10)",
+      "next_action": "Data Factory plan DF-2..DF-10 (Chris's go 2026-10-24 for the program; UI waits on the mockup). Local pipeline runs are FEAT-ORC-08.",
       "backlog": [
         "PB-030",
         "PB-035"
@@ -1142,34 +1169,90 @@
     },
     {
       "id": "FEAT-FAB-11",
-      "name": "Fabric Warehouse and SQL database development",
-      "description": "Connect to a Warehouse, SQL analytics endpoint or Fabric SQL database and run T-SQL, browse objects, check dialect compatibility.",
+      "name": "Fabric Warehouse development",
+      "description": "A Warehouse page opened from Workspaces: read-only T-SQL on a Fabric warehouse or SQL analytics endpoint through Microsoft's mssql-python driver, an object explorer with Script as, Messages and a quick Chart, and SQL templates (built-in and the user's own .sql files, shareable through Git). Preview.",
       "pillar": "Local development",
       "category": "SQL, Python, and Notebook Development",
-      "status": "Planned",
-      "verification": "Unverified",
+      "status": "Partially Implemented",
+      "verification": "Partially Verified",
       "evidence": [
-        {
-          "kind": "absent",
-          "ref": "no TDS/ODBC client in sidecar/constraints.txt"
-        },
         {
           "kind": "doc",
           "ref": "SQL development sprint thread (SQL-001..006), 2026-10-17"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_warehouse_queries.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_warehouse_driver.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_sql_templates.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/warehouse-page.test.cjs",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/sql-templates.test.cjs",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
         }
       ],
-      "source": [],
+      "source": [
+        "sidecar/fabric_desktop/warehouse.py",
+        "sidecar/fabric_desktop/sql_worker.py",
+        "sidecar/fabric_desktop/sql_templates_service.py",
+        "app/ui/warehouse.js",
+        "app/ui/query.js",
+        "app/ui/sqltemplates.js",
+        "app/ui/sqlchart.js"
+      ],
       "ui": {
-        "surface": "None",
-        "preview": false
+        "surface": "Workspaces > warehouse > Warehouse page",
+        "preview": true
       },
-      "workstream": "SQL development sprint",
-      "next_action": "Owned by the SQL development sprint: SQL-004 native connectivity, SQL-005 object explorer, SQL-006 local simulation.",
+      "workstream": "Build full warehouse development experience (WH-01..21)",
+      "next_action": "WH-06 saved queries and WH-07 history, then phase 3 build and deploy after Chris's go.",
       "backlog": [
         "PB-020",
         "PB-022",
         "PB-024",
         "PB-025"
+      ],
+      "tests": [
+        "sidecar/tests/test_warehouse_queries.py",
+        "sidecar/tests/test_warehouse_driver.py",
+        "sidecar/tests/test_sql_templates.py",
+        "app/tests/browser/warehouse-page.test.cjs",
+        "app/tests/browser/sql-templates.test.cjs"
+      ],
+      "docs": [
+        "docs/warehouse.md",
+        "docs/sql-execution.md"
+      ],
+      "prs": [
+        580,
+        581,
+        636,
+        637,
+        638,
+        639,
+        641,
+        645
+      ],
+      "limitations": [
+        "Read-only: writes wait on Chris's decision D1",
+        "Not yet run against a live warehouse (decision D3)",
+        "One result set per run: the engine refuses a second statement",
+        "No build or deploy (WH-09..14), no Fabric SQL database, no Snowflake"
       ]
     },
     {
@@ -1291,7 +1374,7 @@
         "surface": "OneLake > Catalog (greyed out)",
         "preview": false
       },
-      "next_action": "Fix the reason text and troubleshooting.md, which say Fabric's catalog is embedded on the same page; it isn't.",
+      "next_action": "Endorsement now shows on data products (#627, FEAT-MESH-04); a catalog filter is still missing (PB-083).",
       "backlog": [
         "PB-083"
       ]
@@ -1299,7 +1382,7 @@
     {
       "id": "FEAT-ONE-03",
       "name": "OneLake shortcut command center",
-      "description": "Every shortcut with health checks, readers, rules (no Dev to Prod), change history with undo, repoint and requests.",
+      "description": "Every shortcut with health checks, readers, rules (no Dev to Prod), change history with undo, repoint (one or many), finding a moved lakehouse, accepting a crossed environment, and requests.",
       "pillar": "Enterprise services",
       "category": "Enterprise Shared Services",
       "status": "Implemented",
@@ -1313,6 +1396,16 @@
         {
           "kind": "test",
           "ref": "sidecar/tests/test_shortcut_center.py::test_rules_stop_dev_pointing_at_prod_and_flag_it"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_shortcut_fixes.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/shortcut-fixes.test.cjs",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
         }
       ],
       "source": [
@@ -1321,7 +1414,9 @@
         "app/ui/shortcuts.js"
       ],
       "tests": [
-        "sidecar/tests/test_shortcut_center.py"
+        "sidecar/tests/test_shortcut_center.py",
+        "sidecar/tests/test_shortcut_fixes.py",
+        "app/tests/browser/shortcut-fixes.test.cjs"
       ],
       "docs": [
         "docs/shortcuts.md"
@@ -1336,9 +1431,10 @@
         "OneLake error codes unseen on a tenant"
       ],
       "prs": [
-        53
+        53,
+        595
       ],
-      "next_action": "Scheduled health check with a Teams alert (documented as not built).",
+      "next_action": "Scheduled health check with a Teams alert (PB-053).",
       "backlog": [
         "PB-053"
       ]
@@ -1385,7 +1481,7 @@
     {
       "id": "FEAT-ONE-05",
       "name": "Fabric-safe Delta writes to OneLake",
-      "description": "Every write is staged locally, checked against the Fabric Delta profile (reader 1, writer 2, no deletion vectors or column mapping) and committed atomically with a version check.",
+      "description": "Every write is staged locally, checked against the Fabric Delta profile and committed atomically with a version check. Notebook tables can be written on this PC and uploaded in the background (zstd, unchanged rewrites skipped); the log loads once per write; nothing from a write stays on disk; Fabric runs stream batch by batch.",
       "pillar": "Local development",
       "category": "Data Engineering and Transformation",
       "status": "Implemented",
@@ -1408,16 +1504,35 @@
           "kind": "doc",
           "ref": "docs/README.md",
           "note": "writing tables to OneLake used on the maintainer's tenant"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_onelake_writes.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_delta_profile_writes.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/onelake-writes.test.cjs",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
         }
       ],
       "source": [
         "sidecar/fabric_desktop/publish.py",
         "sidecar/fabric_desktop/delta_profile.py",
-        "sidecar/fabric_desktop/meta/store.py"
+        "sidecar/fabric_desktop/meta/store.py",
+        "sidecar/fabric_desktop/write_queue.py"
       ],
       "tests": [
         "sidecar/tests/test_meta.py",
-        "sidecar/tests/test_local.py"
+        "sidecar/tests/test_local.py",
+        "sidecar/tests/test_onelake_writes.py",
+        "sidecar/tests/test_delta_profile_writes.py",
+        "app/tests/browser/onelake-writes.test.cjs"
       ],
       "docs": [
         "docs/architecture.md"
@@ -1431,9 +1546,15 @@
       ],
       "prs": [
         51,
-        54
+        54,
+        588,
+        609,
+        610,
+        612,
+        622,
+        625
       ],
-      "next_action": "Keep; verify MERGE on OneLake in the live test.",
+      "next_action": "#612 SF10 streaming in quality per memory; Direct Lake on zstd is Chris's call (Snappy fallback); verify MERGE on OneLake in the live test (PB-003).",
       "backlog": [
         "PB-002",
         "PB-003",
@@ -1462,6 +1583,11 @@
         {
           "kind": "smoke",
           "ref": "new_notebook and list_notebooks over the engine pipe"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook_publish.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
         }
       ],
       "source": [
@@ -1469,7 +1595,8 @@
         "app/ui/notebook.js"
       ],
       "tests": [
-        "sidecar/tests/test_notebook.py"
+        "sidecar/tests/test_notebook.py",
+        "sidecar/tests/test_notebook_publish.py"
       ],
       "docs": [
         "docs/notebooks.md"
@@ -1483,9 +1610,10 @@
         "No notebook-editor UI tests"
       ],
       "prs": [
-        30
+        30,
+        635
       ],
-      "next_action": "Add UI tests for the editor; outputs are never saved, say so in docs.",
+      "next_action": "The Parameters bar now applies to Fabric and side by side runs (#635), which closes Chris's 2026-10-23 'later' ask.",
       "backlog": [
         "PB-070"
       ]
@@ -1591,12 +1719,37 @@
     {
       "id": "FEAT-NB-04",
       "name": "Spark DataFrame API on this PC",
-      "description": "`spark` is DuckDB's Spark-compatible API wired to the lakehouse: read table/csv/json/parquet/text/delta, spark.sql with CTAS and INSERT, saveAsTable, createDataFrame.",
+      "description": "`spark` is DuckDB's Spark-compatible API wired to the lakehouse, with KratosForge's additions written as the Spark SQL they stand for: windows, aggregates, pivot, time travel and history, structured streaming as availableNow (Preview), and Spark's argument checks. A supported-API table is published.",
       "pillar": "Local development",
       "category": "Local Development and Execution",
       "status": "Partially Implemented",
       "verification": "Partially Verified",
       "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_spark_local.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_spark_compat.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_spark_writer.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_spark_stream.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_time_travel.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
         {
           "kind": "test",
           "ref": "sidecar/tests/test_notebook_parity.py::test_spark_reads_and_writes_lakehouse_tables",
@@ -1609,16 +1762,29 @@
         {
           "kind": "smoke",
           "ref": "SparkSession.builder.getOrCreate().createDataFrame(...).filter(...).count() ran and returned 1"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_spark_compat.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
         }
       ],
       "source": [
-        "sidecar/fabric_desktop/spark_local.py"
+        "sidecar/fabric_desktop/spark_local.py",
+        "sidecar/fabric_desktop/spark_compat.py",
+        "sidecar/fabric_desktop/spark_stream.py"
       ],
       "tests": [
-        "sidecar/tests/test_notebook_parity.py"
+        "sidecar/tests/test_notebook_parity.py",
+        "sidecar/tests/test_spark_local.py",
+        "sidecar/tests/test_spark_compat.py",
+        "sidecar/tests/test_spark_writer.py",
+        "sidecar/tests/test_spark_stream.py",
+        "sidecar/tests/test_time_travel.py"
       ],
       "docs": [
-        "docs/notebooks.md"
+        "docs/notebooks.md",
+        "docs/notebook-spark-on-this-pc.md"
       ],
       "ui": {
         "surface": "Notebook cells",
@@ -1630,23 +1796,46 @@
         "insertInto defaults to errorifexists, unlike Spark's append (inference)",
         "No RDD, UDF, streaming; Scala/R refused"
       ],
-      "next_action": "Publish a supported-API matrix generated from tests (PB-012); fix insertInto default mode.",
+      "next_action": "Close the gaps the supported-API table in notebook-spark-on-this-pc.md lists; MERGE, UPDATE and DELETE still run in Fabric only (PB-015).",
       "backlog": [
         "PB-012",
         "PB-013",
         "PB-015",
         "PB-103"
+      ],
+      "prs": [
+        177,
+        393,
+        409,
+        422,
+        488,
+        497,
+        520,
+        534,
+        551,
+        592,
+        596
       ]
     },
     {
       "id": "FEAT-NB-05",
       "name": "notebookutils and mssparkutils on this PC",
-      "description": "fs (ls, head, put, append, cp, mv, rm, mkdirs, exists), credentials.getToken/getSecret, notebook.run/exit/runMultiple, runtime.context, variableLibrary for VL_Sources.",
+      "description": "fs (ls, head, put, append, cp, mv, rm, mkdirs, exists), credentials (getToken, getSecret, isValidToken), notebook (run, exit, runMultiple, validateDAG; Fabric items read-only, Preview), runtime.context, session, lakehouse (read-only, Preview), udf.getFunctions (read-only, Preview), nbResPath and variableLibrary.",
       "pillar": "Local development",
       "category": "Local Development and Execution",
       "status": "Partially Implemented",
       "verification": "Partially Verified",
       "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebookutils_fs.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebookutils_helpers.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
         {
           "kind": "test",
           "ref": "sidecar/tests/test_notebook_parity.py::test_notebookutils_fs_runtime_and_exit",
@@ -1659,13 +1848,20 @@
         {
           "kind": "smoke",
           "ref": "notebookutils was present in a fresh kernel namespace"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebookutils_fs.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
         }
       ],
       "source": [
         "sidecar/fabric_desktop/notebookutils_local.py"
       ],
       "tests": [
-        "sidecar/tests/test_notebook_parity.py"
+        "sidecar/tests/test_notebook_parity.py",
+        "sidecar/tests/test_notebookutils_fs.py",
+        "sidecar/tests/test_notebookutils_helpers.py"
       ],
       "docs": [
         "docs/notebooks.md"
@@ -1675,22 +1871,32 @@
         "preview": false
       },
       "limitations": [
-        "session, lakehouse, warehouse, udf, connections are absent (plain AttributeError, contrary to the module docstring)",
-        "mount/unmount raise",
-        "runMultiple is sequential",
-        "notebook.run timeout ignored"
+        "mount/unmount, warehouse and connections run in Fabric",
+        "runMultiple runs one notebook at a time",
+        "Changes to Fabric items (create, update, delete) run in Fabric"
       ],
-      "next_action": "Add session, lakehouse and connections stubs that explain themselves; stop compute_check flagging variableLibrary as Fabric-only (PB-013).",
+      "next_action": "fs.mkdirs on a file raises and fs.fastcp copies folders by default, as in Fabric; run the Preview rows on a tenant.",
       "backlog": [
         "PB-012",
         "PB-013",
         "PB-103"
+      ],
+      "prs": [
+        446,
+        477,
+        481,
+        483,
+        541,
+        545,
+        547,
+        585,
+        633
       ]
     },
     {
       "id": "FEAT-NB-06",
       "name": "Run other notebooks and magics",
-      "description": "%run and notebookutils.notebook.run with parameters; %%sql, %%html, %%configure (no-op), %pip skipped with a note, %time.",
+      "description": "%run and notebookutils.notebook.run with parameters; %%sql with _sqldf, %sql inside Python, %pip into the notebook's environment, %env, %timeit, %who, %%writefile, %autoreload, %history and In/Out, and Databricks' %md/%sql/%python cells.",
       "pillar": "Local development",
       "category": "SQL, Python, and Notebook Development",
       "status": "Implemented",
@@ -1698,32 +1904,71 @@
       "evidence": [
         {
           "kind": "test",
+          "ref": "sidecar/tests/test_notebook_magics.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook_magics_windows.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook_autoreload.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook_history.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
           "ref": "sidecar/tests/test_notebook_parity.py::test_run_another_notebook_with_parameters_and_percent_run",
           "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
         }
       ],
       "source": [
-        "sidecar/fabric_desktop/notebook.py"
+        "sidecar/fabric_desktop/notebook.py",
+        "sidecar/fabric_desktop/magics.py",
+        "sidecar/fabric_desktop/pip_magic.py",
+        "sidecar/fabric_desktop/autoreload.py"
       ],
       "tests": [
-        "sidecar/tests/test_notebook_parity.py"
+        "sidecar/tests/test_notebook_parity.py",
+        "sidecar/tests/test_notebook_magics.py",
+        "sidecar/tests/test_notebook_magics_windows.py",
+        "sidecar/tests/test_notebook_autoreload.py",
+        "sidecar/tests/test_notebook_history.py"
       ],
       "docs": [
-        "docs/notebooks.md"
+        "docs/notebooks.md",
+        "docs/notebook-magics.md"
       ],
       "ui": {
         "surface": "Notebook cells",
         "preview": false
       },
       "limitations": [
-        "%pip is skipped, so a missing package fails later",
-        "!pip and %%time would be syntax errors (inference)",
-        "%%spark/%%sparkr/%%csharp refused"
+        "%%spark, %%sparkr and %%csharp run in Fabric"
       ],
-      "next_action": "Handle !pip and %%time explicitly.",
+      "next_action": "Implementation review of the magics PRs.",
       "backlog": [
         "PB-028",
         "PB-103"
+      ],
+      "prs": [
+        352,
+        440,
+        467,
+        478,
+        513,
+        514,
+        515,
+        516,
+        517,
+        518,
+        519
       ]
     },
     {
@@ -1732,9 +1977,18 @@
       "description": "A saved This PC / Fabric choice per notebook and a static check naming the cells that block each side.",
       "pillar": "Local development",
       "category": "Local Development and Execution",
-      "status": "Implemented but Unreliable",
+      "status": "Implemented",
       "verification": "Partially Verified",
       "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_fabric_compute.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "code",
+          "ref": "sidecar/fabric_desktop/fabric_run.py _FABRIC_ONLY no longer lists variableLibrary"
+        },
         {
           "kind": "test",
           "ref": "sidecar/tests/test_notebook.py::test_open_and_save_say_where_the_notebook_can_run",
@@ -1750,7 +2004,8 @@
         "app/ui/app.js"
       ],
       "tests": [
-        "sidecar/tests/test_notebook.py"
+        "sidecar/tests/test_notebook.py",
+        "sidecar/tests/test_fabric_compute.py"
       ],
       "docs": [
         "docs/notebooks.md"
@@ -1764,10 +2019,11 @@
         "No 'unknown' outcome"
       ],
       "prs": [
-        29
+        29,
+        410
       ],
       "workstream": "Prove (FD-111)",
-      "next_action": "Fix the variableLibrary false positive and move to the AST analyzer planned as FD-111 (PB-013, PB-014).",
+      "next_action": "AST analyzer with an Unknown outcome (PB-014).",
       "backlog": [
         "PB-013",
         "PB-014",
@@ -2001,8 +2257,9 @@
           "note": "passed in the 2026-10-17 refresh run at 9715e28"
         },
         {
-          "kind": "absent",
-          "ref": "app/tests/browser/*.test.cjs not run: Playwright is not installed here and CI does not run them (HD-052)"
+          "kind": "test",
+          "ref": "app/tests/browser/sql-editor.test.cjs",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
         }
       ],
       "source": [
@@ -2017,7 +2274,8 @@
       "tests": [
         "sidecar/tests/test_notebook.py",
         "sidecar/tests/test_sql_editor.py",
-        "sidecar/tests/test_sql_exec.py"
+        "sidecar/tests/test_sql_exec.py",
+        "app/tests/browser/sql-editor.test.cjs"
       ],
       "docs": [
         "docs/notebooks.md",
@@ -2036,10 +2294,11 @@
       ],
       "prs": [
         118,
-        134
+        134,
+        639
       ],
       "workstream": "SQL development sprint",
-      "next_action": "Owned by the SQL development sprint: SQL-001 editor, SQL-002 dialect analyzer, SQL-003 managed execution.",
+      "next_action": "SQL editor rows are tracked by the warehouse program now (WH-08 Messages and Chart merged).",
       "backlog": [
         "PB-021",
         "PB-022",
@@ -2303,7 +2562,7 @@
     {
       "id": "FEAT-PRV-06",
       "name": "Side by side and the TPC-H benchmark",
-      "description": "Runs a notebook on the PC and in Fabric against the real lakehouse after confirming the tables it overwrites; compares checksums, speed and cost; TPC-H data and query notebooks.",
+      "description": "Runs a notebook on the PC and in Fabric against the real lakehouse after confirming the tables it overwrites; compares checksums, speed and cost, splits This PC's time into processing and OneLake upload wait, and says plainly when a table is missing. TPC-H data generates on every core and is always deleted afterwards.",
       "pillar": "Local development",
       "category": "Reliability, Testing, and Performance",
       "status": "Implemented",
@@ -2317,6 +2576,11 @@
         {
           "kind": "test",
           "ref": "sidecar/tests/test_side_by_side.py::test_benchmark_notebooks_run_end_to_end"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_side_by_side.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
         }
       ],
       "source": [
@@ -2342,10 +2606,15 @@
       "prs": [
         44,
         81,
-        114
+        114,
+        564,
+        622,
+        625,
+        634,
+        635
       ],
       "workstream": "Prove (FD-112)",
-      "next_action": "Retire in favor of Prove for correctness; keep the benchmark. PR #114 open for its write check time limit.",
+      "next_action": "Chris's SF1 local run is 65 s vs 101 s before (1.9x); keep the benchmark and retire correctness checks into Prove (PB-076).",
       "backlog": [
         "PB-076"
       ]
@@ -3066,9 +3335,14 @@
       "description": "Where each column comes from (declared, inferred or opaque) upstream and downstream.",
       "pillar": "Enterprise services",
       "category": "Data Governance and Quality",
-      "status": "Implemented but Not Exposed",
+      "status": "Implemented",
       "verification": "Partially Verified",
       "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_lineage.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
         {
           "kind": "test",
           "ref": "sidecar/tests/test_lineage.py::test_every_column_says_where_it_comes_from",
@@ -3080,7 +3354,8 @@
         }
       ],
       "source": [
-        "sidecar/fabric_desktop/meta/lineage.py"
+        "sidecar/fabric_desktop/meta/lineage.py",
+        "app/ui/dataops.js"
       ],
       "tests": [
         "sidecar/tests/test_lineage.py"
@@ -3089,8 +3364,8 @@
         "docs/metadata-guide.md"
       ],
       "ui": {
-        "surface": "None (entity-level Reads/Feeds card only)",
-        "preview": false
+        "surface": "Entity page > Lineage > Columns",
+        "preview": true
       },
       "limitations": [
         "Python-added columns are opaque"
@@ -3100,7 +3375,7 @@
         124
       ],
       "workstream": "Staged roadmap (FD-128)",
-      "next_action": "Build the lineage view after a mockup (scale plan 8.x).",
+      "next_action": "Implementation review of PR #124.",
       "backlog": [
         "PB-081"
       ]
@@ -3238,38 +3513,50 @@
     {
       "id": "FEAT-GOV-03",
       "name": "Governance exceptions",
-      "description": "exceptions.toml with reason, approver and expiry that lets a gate pass until it expires.",
+      "description": "exceptions.toml with reason, approver and expiry that lets a gate pass until it expires; approved exceptions are shown and warned about before they end, and a policy exception can be requested and approved on the Governance tab (Preview).",
       "pillar": "Enterprise services",
       "category": "Data Governance and Quality",
-      "status": "Partially Implemented",
+      "status": "Implemented",
       "verification": "Partially Verified",
       "evidence": [
         {
           "kind": "test",
           "ref": "sidecar/tests/test_meta.py::test_05e_exceptions_expire",
           "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_meta.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_requests_core_four.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
         }
       ],
       "source": [
         "sidecar/fabric_desktop/meta/project.py"
       ],
       "tests": [
-        "sidecar/tests/test_meta.py"
+        "sidecar/tests/test_meta.py",
+        "sidecar/tests/test_requests_core_four.py"
       ],
       "docs": [
         "docs/metadata-guide.md"
       ],
       "ui": {
-        "surface": "Project file only",
-        "preview": false
+        "surface": "Metadata project, Platform > Governance > Requests",
+        "preview": true
       },
-      "limitations": [
-        "No request or approval flow, no history, no expiry view"
-      ],
       "workstream": "Enterprise governance foundation (FD-129)",
-      "next_action": "Request and approval flow with history (FD-129), built by the governance foundation thread on its policy registry.",
+      "next_action": "Implementation review of #603 and #605 (PB-059).",
       "backlog": [
         "PB-059"
+      ],
+      "prs": [
+        603,
+        605
       ]
     },
     {
@@ -3534,7 +3821,7 @@
     {
       "id": "FEAT-MESH-03",
       "name": "Landing zone and source registry",
-      "description": "One landing zone with registered sources, expected arrival and late-file flags, and who reads each.",
+      "description": "One central landing workspace for Dev, Test and Prod with one lakehouse per zone, optional domain zones and Prod-only secure zones, registered sources and late-file flags (Preview).",
       "pillar": "Enterprise services",
       "category": "Pipelines and Orchestration",
       "status": "Partially Implemented",
@@ -3544,6 +3831,16 @@
           "kind": "test",
           "ref": "sidecar/tests/test_platform.py::test_teams_build_bronze_from_the_one_landing_zone",
           "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_landing_zones.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/landing-zones.test.cjs",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
         }
       ],
       "source": [
@@ -3551,7 +3848,9 @@
         "app/ui/platform.js"
       ],
       "tests": [
-        "sidecar/tests/test_platform.py"
+        "sidecar/tests/test_platform.py",
+        "sidecar/tests/test_landing_zones.py",
+        "app/tests/browser/landing-zones.test.cjs"
       ],
       "docs": [
         "docs/platform.md"
@@ -3561,20 +3860,22 @@
         "preview": true
       },
       "limitations": [
-        "Nothing in the app writes into LH_Landing",
-        "No extractors or connectors",
-        "Direction change (Chris's unit testing, 2026-10-18, item 24): one central landing workspace in OneLake shared by Dev, Test and Prod, optionally split by domain with separate secure zones for PII and PHI (for example HR and HR-Secure); today each environment's Platform workspace has its own LH_Landing"
+        "Nothing in the app writes into landing: no extractors or connectors",
+        "Not yet set up on a tenant"
       ],
       "workstream": "Staged roadmap (FD-116)",
-      "next_action": "Enterprise governance foundation redesigns landing for one shared landing workspace with domain and secure zones (item 24); guided ingestion still waits on D2 (FD-116)",
+      "next_action": "Guided ingestion still waits on D2 (FD-116); Data Factory copy jobs (DF-6) may answer it.",
       "backlog": [
         "PB-030"
+      ],
+      "prs": [
+        597
       ]
     },
     {
       "id": "FEAT-MESH-04",
       "name": "Data mesh: domains, products, links, glossary",
-      "description": "Domains imported from Fabric, data products with ports, links between teams' products, glossary, About text and a mesh map on Home.",
+      "description": "Domains imported from and created in Fabric, data products with ports, endorsement badges and Purview term links, last scan and mixed endorsement on the product page, links between teams' products, glossary, About text and a mesh map on Home.",
       "pillar": "Enterprise services",
       "category": "Enterprise Shared Services",
       "status": "Implemented",
@@ -3588,16 +3889,41 @@
         {
           "kind": "test",
           "ref": "sidecar/tests/test_platform.py::test_mesh_map_lists_domains_projects_products_and_links"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_domain_in_fabric.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_trust_badges.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/domain-in-fabric.test.cjs",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/trust-badges.test.cjs",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
         }
       ],
       "source": [
         "sidecar/fabric_desktop/meta/mesh.py",
         "sidecar/fabric_desktop/central/service.py",
         "app/ui/mesh.js",
-        "app/ui/meshmap.js"
+        "app/ui/meshmap.js",
+        "sidecar/fabric_desktop/central/trust_service.py"
       ],
       "tests": [
-        "sidecar/tests/test_platform.py"
+        "sidecar/tests/test_platform.py",
+        "sidecar/tests/test_domain_in_fabric.py",
+        "sidecar/tests/test_trust_badges.py",
+        "app/tests/browser/domain-in-fabric.test.cjs",
+        "app/tests/browser/trust-badges.test.cjs"
       ],
       "docs": [
         "docs/data-mesh.md"
@@ -3612,9 +3938,12 @@
       ],
       "prs": [
         48,
-        50
+        50,
+        591,
+        627,
+        642
       ],
-      "next_action": "Enterprise governance foundation plans a Purview-first glossary connector (item 27); check which Purview APIs the Fabric CLI sign-in can call",
+      "next_action": "Purview and endorsement live checks wait on Chris's tenant run; implementation review of #591, #627, #642.",
       "backlog": [
         "PB-052"
       ]
@@ -3663,9 +3992,14 @@
       "description": "Notebook and metadata schedules on this PC through Windows Task Scheduler, with a lock so a run still going isn't started twice.",
       "pillar": "Local development",
       "category": "Pipelines and Orchestration",
-      "status": "Partially Implemented",
+      "status": "Implemented",
       "verification": "Partially Verified",
       "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_schedules.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
         {
           "kind": "test",
           "ref": "sidecar/tests/test_schedules.py::test_task_definition_runs_the_sidecar_quietly",
@@ -3691,12 +4025,7 @@
         "surface": "Notebook ribbon, Data mesh, Monitor > Schedules",
         "preview": true
       },
-      "limitations": [
-        "Windows only; saved but never run elsewhere",
-        "Runs only while the user is signed in",
-        "Scheduled notebook runs execute frozen cells, UI runs skip them"
-      ],
-      "next_action": "Run frozen-cell rules the same as the UI; agent schedules cover Linux.",
+      "next_action": "Agent schedules cover Linux; Windows Task Scheduler runs need a Windows check.",
       "backlog": [
         "PB-013",
         "PB-048"
@@ -3773,13 +4102,19 @@
         {
           "kind": "test",
           "ref": "sidecar/tests/test_agent.py::test_onelake_leases_use_conditional_requests"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_lease_before_commit.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
         }
       ],
       "source": [
         "sidecar/fabric_desktop/leases.py"
       ],
       "tests": [
-        "sidecar/tests/test_agent.py"
+        "sidecar/tests/test_agent.py",
+        "sidecar/tests/test_lease_before_commit.py"
       ],
       "docs": [
         "docs/agent.md"
@@ -3793,9 +4128,13 @@
         "The desktop app and Fabric runs take no leases",
         "Expiry uses the holder's clock"
       ],
-      "next_action": "Prove OneLake honors If-None-Match/If-Match in the live test (PB-003).",
+      "next_action": "HD-016: a writer checks its leases right before the commit; OneLake conditional requests still need the live test (PB-003).",
       "backlog": [
         "PB-003"
+      ],
+      "prs": [
+        624,
+        626
       ]
     },
     {
@@ -3851,7 +4190,7 @@
       "description": "Each agent publishes agents/<name>.json with state, counts, running jobs and recent jobs; stale after 3 status periods.",
       "pillar": "Enterprise services",
       "category": "Enterprise Administration and FinOps",
-      "status": "Implemented but Not Exposed",
+      "status": "Implemented",
       "verification": "Partially Verified",
       "evidence": [
         {
@@ -3882,15 +4221,15 @@
         "docs/agent.md"
       ],
       "ui": {
-        "surface": "None (read only by incident evaluation)",
-        "preview": false
+        "surface": "Monitor > Operations > Agents",
+        "preview": true
       },
       "prs": [
         66,
         133
       ],
       "workstream": "Workloads (FD-122)",
-      "next_action": "Implementation review of PR #133 (agents on Monitor, FD-122 stage 5A)",
+      "next_action": "Implementation review of PR #133.",
       "backlog": [
         "PB-077",
         "PB-091"
@@ -3899,26 +4238,59 @@
     {
       "id": "FEAT-ORC-06",
       "name": "Multiple workers",
-      "description": "Several agents sharing one queue with claims and a worker registry.",
+      "description": "Agents share schedules through the mailbox (shared = true) and can take a request only with a worker free (claim = when_free) or take over a stopped agent's request (take_over = true). All off by default.",
       "pillar": "Enterprise services",
       "category": "Pipelines and Orchestration",
-      "status": "Missing",
-      "verification": "Unverified",
+      "status": "Partially Implemented",
+      "verification": "Partially Verified",
       "evidence": [
         {
-          "kind": "absent",
-          "ref": "jobqueue.py is per machine; docs/agent.md says one queue per agent"
+          "kind": "test",
+          "ref": "sidecar/tests/test_shared_schedules.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_agent_takeover.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_agent_fleet.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
         }
       ],
-      "source": [],
+      "source": [
+        "sidecar/fabric_desktop/shared_schedules.py",
+        "sidecar/fabric_desktop/agent.py",
+        "sidecar/fabric_desktop/agent_config.py",
+        "sidecar/fabric_desktop/mailbox.py"
+      ],
       "ui": {
-        "surface": "None",
-        "preview": false
+        "surface": "agent.toml settings; no screen",
+        "preview": true
       },
       "workstream": "Workloads (FD-124)",
-      "next_action": "Workloads program (FD-124, roadmap FD-12).",
+      "next_action": "Run the mailbox on a tenant (PB-049), then build the app labels (multi-worker.md step 4).",
       "backlog": [
         "PB-045"
+      ],
+      "tests": [
+        "sidecar/tests/test_shared_schedules.py",
+        "sidecar/tests/test_agent_takeover.py",
+        "sidecar/tests/test_agent_fleet.py"
+      ],
+      "docs": [
+        "docs/agent.md",
+        "docs/workloads/multi-worker.md"
+      ],
+      "prs": [
+        146,
+        149
+      ],
+      "limitations": [
+        "Conditional requests on OneLake are unproven on a tenant (FD-2)",
+        "Step 4 of the design (app labels) is not built"
       ]
     },
     {
@@ -4082,9 +4454,10 @@
         "fabric_runs.jsonl keeps 500 entries"
       ],
       "prs": [
-        58
+        58,
+        579
       ],
-      "next_action": "Show worker, host and job for agent runs."
+      "next_action": "Fabric pipeline runs (FEAT-ORC-10) join this list after the Data Factory mockup."
     },
     {
       "id": "FEAT-OPS-04",
@@ -4107,6 +4480,11 @@
         {
           "kind": "smoke",
           "ref": "fabric-desktop live-test --help listed --dry-run, --cleanup and --agent-config"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_livetest.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
         }
       ],
       "source": [
@@ -4128,10 +4506,11 @@
         "Doesn't test leases, concurrent writers, mailbox, Run in Fabric"
       ],
       "prs": [
-        80
+        80,
+        630
       ],
       "workstream": "Enterprise readiness (FD-101)",
-      "next_action": "Chris runs it on a non-production workspace (PB-002); extend to leases and MERGE (PB-003).",
+      "next_action": "Chris runs it on a non-production workspace (PB-002); it now runs the notebook in Fabric only after it published as written.",
       "backlog": [
         "PB-002"
       ]
@@ -4205,23 +4584,31 @@
         {
           "kind": "code",
           "ref": "sidecar/fabric_desktop/audit.py"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_audit_chain.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
         }
       ],
       "source": [
         "sidecar/fabric_desktop/audit.py"
       ],
       "tests": [
-        "sidecar/tests/test_audit.py"
+        "sidecar/tests/test_audit.py",
+        "sidecar/tests/test_audit_chain.py"
       ],
       "ui": {
         "surface": "None",
         "preview": false
       },
       "prs": [
-        89
+        89,
+        623,
+        629
       ],
       "workstream": "Enterprise readiness (FD-125)",
-      "next_action": "Implementation review of PR #89; HD-007 (redaction before JSON encoding) and HD-017 (chain across processes) harden it",
+      "next_action": "HD-017: the chain notices lines deleted from the end, and the user guide says how to clear a reported gap.",
       "backlog": [
         "PB-007"
       ]
@@ -4262,6 +4649,9 @@
       "next_action": "Implementation review of PR #91; HD-005 (restore removes the stale WAL and verifies) is a P0 fix",
       "backlog": [
         "PB-066"
+      ],
+      "docs": [
+        "docs/backup.md"
       ]
     },
     {
@@ -4420,15 +4810,20 @@
     {
       "id": "FEAT-SEC-02",
       "name": "Content Security Policy",
-      "description": "A CSP as a second layer behind escaping in the main webview.",
+      "description": "A Content Security Policy in the main webview, behind escaping; notebook HTML output runs on its own origin (nbout:) so it can't reach the app.",
       "pillar": "Platform foundation",
       "category": "Security and Enterprise Readiness",
-      "status": "Missing",
-      "verification": "Unverified",
+      "status": "Implemented",
+      "verification": "Partially Verified",
       "evidence": [
         {
+          "kind": "test",
+          "ref": "app/tests/browser/csp.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
           "kind": "code",
-          "ref": "app/src-tauri/tauri.conf.json csp: null, withGlobalTauri: true"
+          "ref": "app/src-tauri/tauri.conf.json security.csp (default-src 'none', script-src 'self', frame-src nbout:)"
         }
       ],
       "source": [
@@ -4438,10 +4833,22 @@
         "surface": "None",
         "preview": false
       },
-      "workstream": "Enterprise readiness (FD-102b)",
-      "next_action": "FD-102b: move notebook HTML output to another origin, then set a CSP (PB-006).",
+      "workstream": "Codebase audit and hardening (HD-020)",
+      "next_action": "HD-052 checks URL sinks in the UI and shows only picture types as images; check under WebView2 on Windows.",
       "backlog": [
         "PB-006"
+      ],
+      "tests": [
+        "app/tests/browser/csp.test.cjs"
+      ],
+      "docs": [
+        "docs/security.md"
+      ],
+      "prs": [
+        250,
+        445,
+        618,
+        619
       ]
     },
     {
@@ -4554,16 +4961,20 @@
         ".github/workflows/docs.yml"
       ],
       "docs": [
-        "docs/README.md"
+        "docs/README.md",
+        "docs/end-user-terms.md"
       ],
       "ui": {
         "surface": "GitHub Pages",
         "preview": false
       },
       "prs": [
-        40
+        40,
+        562,
+        590,
+        617
       ],
-      "next_action": "Keep; add docs/product to the nav (this PR)."
+      "next_action": "Docs audit 3 due at about #662 (cadence every 50 merged PRs)."
     },
     {
       "id": "FEAT-GIT-01",
@@ -4753,27 +5164,56 @@
     },
     {
       "id": "FEAT-EXT-04",
-      "name": "Debugger for notebooks and pipelines",
-      "description": "Breakpoints, stepping and variable watch in an isolated kernel.",
+      "name": "Debugger for notebooks",
+      "description": "Breakpoints on notebook line numbers, F5/F10/F11 stepping, variable history and watches in the notebook's own process (Preview). Pipelines have no debugger.",
       "pillar": "Local development",
       "category": "SQL, Python, and Notebook Development",
-      "status": "Missing",
-      "verification": "Unverified",
+      "status": "Partially Implemented",
+      "verification": "Partially Verified",
       "evidence": [
         {
-          "kind": "absent",
-          "ref": "no debugger code; prove/plan.md Stage 5 backlog #44"
+          "kind": "test",
+          "ref": "sidecar/tests/test_debugger.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_debugging.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/debugger.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
         }
       ],
-      "source": [],
+      "source": [
+        "sidecar/fabric_desktop/debugger.py",
+        "app/ui/debugging.js"
+      ],
       "ui": {
-        "surface": "None",
-        "preview": false
+        "surface": "Notebook line numbers, Variables pane, View tab",
+        "preview": true
       },
       "workstream": "Prove",
-      "next_action": "Prove program Stage 5 after the process kernel is default.",
+      "next_action": "Implementation review of PR #387; decide whether pipeline runs need step-through.",
       "backlog": [
         "PB-026"
+      ],
+      "tests": [
+        "sidecar/tests/test_debugger.py",
+        "sidecar/tests/test_debugging.py",
+        "app/tests/browser/debugger.test.cjs"
+      ],
+      "docs": [
+        "docs/notebooks.md"
+      ],
+      "prs": [
+        387
+      ],
+      "limitations": [
+        "Notebooks only: pipelines have no breakpoints",
+        "Needs Run notebooks in their own process"
       ]
     },
     {
@@ -4880,6 +5320,21 @@
           "kind": "doc",
           "ref": "docs/local-data.md",
           "note": "the screens come after the mockup is agreed"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_local_data.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_local_transform.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_sql_exec.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
         }
       ],
       "source": [
@@ -4889,7 +5344,9 @@
         "sidecar/fabric_desktop/localdata_service.py"
       ],
       "tests": [
-        "sidecar/tests/test_local_data.py"
+        "sidecar/tests/test_local_data.py",
+        "sidecar/tests/test_local_transform.py",
+        "sidecar/tests/test_sql_exec.py"
       ],
       "docs": [
         "docs/local-data.md",
@@ -4900,10 +5357,13 @@
         "preview": true
       },
       "prs": [
-        126
+        126,
+        620,
+        628,
+        631
       ],
       "workstream": "Local data engine and OneLake publishing (FD-LDE-001, FD-LDE-002)",
-      "next_action": "Screens after the mockup is agreed; publishing to OneLake follows (FD-LDE-005..010)"
+      "next_action": "local_query, local_explain, Delta writes and transformation steps are checked like a managed local run; screens still wait on the mockup."
     },
     {
       "id": "FEAT-ORC-07",
@@ -4946,6 +5406,1437 @@
       ],
       "workstream": "Local Fabric pipeline execution (ORCH-001)",
       "next_action": "ORCH-002 activity registry, after Chris approves"
+    },
+    {
+      "id": "FEAT-NB-12",
+      "name": "Notebook import and export formats",
+      "description": "Import Fabric and Databricks notebook source and .dbc archives; export as .ipynb, Fabric source or Databricks source.",
+      "pillar": "Local development",
+      "category": "SQL, Python, and Notebook Development",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook_formats.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/notebook-formats.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/notebook_formats.py",
+        "sidecar/fabric_desktop/notebook_formats_service.py",
+        "app/ui/notebook-formats.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_notebook_formats.py",
+        "app/tests/browser/notebook-formats.test.cjs"
+      ],
+      "docs": [
+        "docs/notebook-import-export.md"
+      ],
+      "ui": {
+        "surface": "Home > Import; a notebook's Home tab > Export",
+        "preview": true
+      },
+      "prs": [
+        350
+      ],
+      "workstream": "Notebook development program",
+      "next_action": "Implementation review of PR #350; run on a tenant before the Preview tag comes off."
+    },
+    {
+      "id": "FEAT-NB-13",
+      "name": "Notebook folders",
+      "description": "Group notebooks into folders, move notebooks between them, rename and delete empty folders; publish names the item without its folder (Preview).",
+      "pillar": "Local development",
+      "category": "SQL, Python, and Notebook Development",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook_folders.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/notebook-folders.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/notebook_folders.py",
+        "sidecar/fabric_desktop/notebook_folders_service.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_notebook_folders.py",
+        "app/tests/browser/notebook-folders.test.cjs"
+      ],
+      "docs": [
+        "docs/notebook-folders.md"
+      ],
+      "ui": {
+        "surface": "All notebooks",
+        "preview": false
+      },
+      "prs": [
+        444
+      ],
+      "workstream": "Notebook development program",
+      "next_action": "Implementation review of PR #444."
+    },
+    {
+      "id": "FEAT-NB-14",
+      "name": "Notebook version history",
+      "description": "A version per save and named checkpoints, with Compare and Restore.",
+      "pillar": "Local development",
+      "category": "SQL, Python, and Notebook Development",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook_versions.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/notebook-versions.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/notebook_versions.py",
+        "sidecar/fabric_desktop/notebook_versions_service.py",
+        "app/ui/notebook-versions.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_notebook_versions.py",
+        "app/tests/browser/notebook-versions.test.cjs"
+      ],
+      "docs": [
+        "docs/notebook-versions.md"
+      ],
+      "ui": {
+        "surface": "Notebook ribbon > Versions",
+        "preview": false
+      },
+      "prs": [
+        346,
+        461,
+        650
+      ],
+      "workstream": "Notebook development program",
+      "next_action": "Implementation review of PR #346, #461."
+    },
+    {
+      "id": "FEAT-NB-15",
+      "name": "Notebook comments",
+      "description": "Comment threads on a cell or lines of its code, with replies, resolve and a Comments panel, kept in the notebook file.",
+      "pillar": "Local development",
+      "category": "SQL, Python, and Notebook Development",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook_comments.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/notebook-comments.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/comments_service.py",
+        "app/ui/notebook-comments.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_notebook_comments.py",
+        "app/tests/browser/notebook-comments.test.cjs"
+      ],
+      "docs": [
+        "docs/notebook-comments.md"
+      ],
+      "ui": {
+        "surface": "Notebook cells and the Comments panel",
+        "preview": false
+      },
+      "prs": [
+        388
+      ],
+      "workstream": "Notebook development program",
+      "next_action": "Implementation review of PR #388."
+    },
+    {
+      "id": "FEAT-NB-16",
+      "name": "Notebook resources",
+      "description": "Files kept beside a notebook and read as builtin/<file>, like Fabric's built-in resources.",
+      "pillar": "Local development",
+      "category": "SQL, Python, and Notebook Development",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook_resources.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/notebook-resources.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/notebook_resources.py",
+        "sidecar/fabric_desktop/notebook_resources_service.py",
+        "app/ui/nbresources.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_notebook_resources.py",
+        "app/tests/browser/notebook-resources.test.cjs"
+      ],
+      "docs": [
+        "docs/notebook-resources.md"
+      ],
+      "ui": {
+        "surface": "Notebook > Resources",
+        "preview": false
+      },
+      "prs": [
+        376
+      ],
+      "workstream": "Notebook development program",
+      "next_action": "Implementation review of PR #376."
+    },
+    {
+      "id": "FEAT-NB-17",
+      "name": "Notebook files and editing Fabric notebooks on this PC",
+      "description": "Search inside notebooks, open a notebook file, save a copy, delete and restore, and edit a Fabric notebook item on this PC (Preview).",
+      "pillar": "Local development",
+      "category": "SQL, Python, and Notebook Development",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook_files.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/notebook-files.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/notebook-disk-change.test.cjs",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook_versions.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/notebook_files.py",
+        "sidecar/fabric_desktop/notebook_files_service.py",
+        "app/ui/notebook-files.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_notebook_files.py",
+        "app/tests/browser/notebook-files.test.cjs",
+        "app/tests/browser/notebook-disk-change.test.cjs",
+        "sidecar/tests/test_notebook_versions.py"
+      ],
+      "docs": [
+        "docs/notebook-files.md"
+      ],
+      "ui": {
+        "surface": "All notebooks; Workspaces item preview > Edit on this PC",
+        "preview": true
+      },
+      "prs": [
+        320,
+        650
+      ],
+      "workstream": "Notebook development program",
+      "next_action": "Implementation review of PR #320; run on a tenant before the Preview tag comes off.",
+      "limitations": [
+        "Edits made in another program while the notebook is open are kept: the app never saves over them (#650); VS Code integration builds on this"
+      ]
+    },
+    {
+      "id": "FEAT-NB-18",
+      "name": "Notebook cell editing",
+      "description": "Select several cells to run, copy, merge, freeze or delete; run selected text; collapse heading sections, cell titles and tags; find and replace across cells; drag tables and files into cells.",
+      "pillar": "Local development",
+      "category": "Developer Experience and Productivity",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/notebook-select.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/notebook-cells.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/notebook-find.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/notebook-drag.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/notebook-folded.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        }
+      ],
+      "source": [
+        "app/ui/nbselect.js",
+        "app/ui/nbcells.js",
+        "app/ui/nbfind.js",
+        "app/ui/nbdrag.js"
+      ],
+      "tests": [
+        "app/tests/browser/notebook-select.test.cjs",
+        "app/tests/browser/notebook-cells.test.cjs",
+        "app/tests/browser/notebook-find.test.cjs",
+        "app/tests/browser/notebook-drag.test.cjs",
+        "app/tests/browser/notebook-folded.test.cjs"
+      ],
+      "docs": [
+        "docs/notebook-editor/select-and-run-parts.md",
+        "docs/notebook-editor/organise-cells.md",
+        "docs/notebook-editor/find-and-replace.md",
+        "docs/notebook-editor/load-data-items.md"
+      ],
+      "ui": {
+        "surface": "Notebook editor",
+        "preview": false
+      },
+      "prs": [
+        338,
+        347,
+        383,
+        390,
+        473
+      ],
+      "workstream": "Notebook editor",
+      "next_action": "Implementation review of PR #338, #347, #383, #390, #473."
+    },
+    {
+      "id": "FEAT-NB-19",
+      "name": "Notebook IntelliSense",
+      "description": "Hover docs, signature help, docs in autocomplete and syntax errors as you type, from the notebook's own kernel.",
+      "pillar": "Local development",
+      "category": "Developer Experience and Productivity",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_intellisense.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/notebook-intellisense.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/intellisense.py",
+        "app/ui/nbintel.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_intellisense.py",
+        "app/tests/browser/notebook-intellisense.test.cjs"
+      ],
+      "docs": [
+        "docs/notebook-editor/intellisense.md"
+      ],
+      "ui": {
+        "surface": "Notebook code cells",
+        "preview": false
+      },
+      "prs": [
+        354
+      ],
+      "workstream": "Notebook editor",
+      "next_action": "Implementation review of PR #354."
+    },
+    {
+      "id": "FEAT-NB-20",
+      "name": "Format code in notebooks",
+      "description": "Format a cell or the whole notebook: Python in Black's style with ruff, %%sql cells as Format SQL lays them out.",
+      "pillar": "Local development",
+      "category": "Developer Experience and Productivity",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_code_format.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/notebook-format.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/code_format.py",
+        "app/ui/nbformat.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_code_format.py",
+        "app/tests/browser/notebook-format.test.cjs"
+      ],
+      "docs": [
+        "docs/notebook-editor/format-code.md"
+      ],
+      "ui": {
+        "surface": "Notebook Edit tab > Format cell, Format notebook",
+        "preview": false
+      },
+      "prs": [
+        470,
+        486,
+        491
+      ],
+      "workstream": "Notebook editor",
+      "next_action": "Implementation review of PR #470, #486, #491."
+    },
+    {
+      "id": "FEAT-NB-21",
+      "name": "Notebook environments",
+      "description": "Extra Python packages per notebook, installed with pip after a confirm; the app's own packages always win; Spark packages are refused.",
+      "pillar": "Local development",
+      "category": "Local Development and Execution",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_environments.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_environment_isolation.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/environments.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/environments.py",
+        "sidecar/fabric_desktop/environment_service.py",
+        "app/ui/nbenv.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_environments.py",
+        "sidecar/tests/test_environment_isolation.py",
+        "app/tests/browser/environments.test.cjs"
+      ],
+      "docs": [
+        "docs/notebooks.md"
+      ],
+      "ui": {
+        "surface": "Notebook status bar > Environment",
+        "preview": true
+      },
+      "limitations": [
+        "Not published with the notebook: in Fabric, attach a Fabric Environment with the same packages"
+      ],
+      "prs": [
+        421,
+        539
+      ],
+      "workstream": "Notebook runtime",
+      "next_action": "Implementation review of PR #421, #539; run on a tenant before the Preview tag comes off."
+    },
+    {
+      "id": "FEAT-NB-22",
+      "name": "Notebook sessions",
+      "description": "A session per notebook, several running at once, with limits in Settings; notebooks can share one session like Fabric's high-concurrency mode (Preview).",
+      "pillar": "Local development",
+      "category": "Local Development and Execution",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_kernel_sessions.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/sessions.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_shared_sessions.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/kernel_sessions.py",
+        "app/ui/sessions.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_kernel_sessions.py",
+        "app/tests/browser/sessions.test.cjs",
+        "sidecar/tests/test_shared_sessions.py"
+      ],
+      "docs": [
+        "docs/notebooks.md"
+      ],
+      "ui": {
+        "surface": "Notebook status bar > Sessions",
+        "preview": true
+      },
+      "prs": [
+        379,
+        464,
+        490,
+        561
+      ],
+      "workstream": "Notebook runtime",
+      "next_action": "Implementation review of PR #561; run on a tenant before the Preview tag comes off."
+    },
+    {
+      "id": "FEAT-NB-23",
+      "name": "Run the last cell on Fabric",
+      "description": "Run every cell on this PC, then the last cell on Fabric Spark, so tables are V-Ordered for Direct Lake.",
+      "pillar": "Local development",
+      "category": "Fabric Integration and Deployment",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_fabric_step.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/fabric-step.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_fabric_step.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/fabric-step.test.cjs",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/fabric_step.py",
+        "app/ui/fabricstep.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_fabric_step.py",
+        "app/tests/browser/fabric-step.test.cjs"
+      ],
+      "docs": [
+        "docs/notebook-fabric-step.md"
+      ],
+      "ui": {
+        "surface": "Notebook cell ⋯ menu > Run on Fabric (Spark)",
+        "preview": true
+      },
+      "limitations": [
+        "Not yet run on a tenant: the Fabric half is tested against a faked Fabric"
+      ],
+      "prs": [
+        550,
+        570,
+        577,
+        584
+      ],
+      "workstream": "Notebook runtime",
+      "next_action": "Fabric step reads V-Order from file footers, Rewrite all asks for V-Order and its cost, risk check reads the attached workspace; run on a tenant before Preview comes off."
+    },
+    {
+      "id": "FEAT-NB-24",
+      "name": "Validate a notebook",
+      "description": "Code checks, a clean run from the top with sandboxed writes, and Clean up for imports, spacing and suggestions.",
+      "pillar": "Local development",
+      "category": "Reliability, Testing, and Performance",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_validate.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/validate.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/validate.py",
+        "sidecar/fabric_desktop/validate_service.py",
+        "app/ui/validate.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_validate.py",
+        "app/tests/browser/validate.test.cjs"
+      ],
+      "docs": [
+        "docs/validate-notebook.md"
+      ],
+      "ui": {
+        "surface": "Notebook ribbon > Validate",
+        "preview": true
+      },
+      "prs": [
+        282
+      ],
+      "workstream": "Prove",
+      "next_action": "Implementation review of PR #282; run on a tenant before the Preview tag comes off."
+    },
+    {
+      "id": "FEAT-NB-25",
+      "name": "Rich notebook outputs and charts",
+      "description": "displayHTML and IPython display (with display handles), matplotlib, plotly, bokeh, seaborn and Altair in the cell, several charts per result, the chart builder, result downloads, Data Wrangler and ipywidgets, with per-cell output caps.",
+      "pillar": "Local development",
+      "category": "SQL, Python, and Notebook Development",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_rich_outputs.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_chart_libraries.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_display_handles.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_ipywidgets.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_wrangler.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_outputs_hardening.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_output_cap.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/altair.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/ipywidgets.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/several-charts.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/result-viewer.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/plotly.test.cjs",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/ipython_display.py",
+        "sidecar/fabric_desktop/chart_output.py",
+        "sidecar/fabric_desktop/widgets.py",
+        "sidecar/fabric_desktop/wrangler.py",
+        "app/ui/charts.js",
+        "app/ui/ipywidgets.js",
+        "app/ui/wrangler.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_rich_outputs.py",
+        "sidecar/tests/test_chart_libraries.py",
+        "sidecar/tests/test_display_handles.py",
+        "sidecar/tests/test_ipywidgets.py",
+        "sidecar/tests/test_wrangler.py",
+        "sidecar/tests/test_outputs_hardening.py",
+        "sidecar/tests/test_output_cap.py",
+        "app/tests/browser/altair.test.cjs",
+        "app/tests/browser/ipywidgets.test.cjs",
+        "app/tests/browser/several-charts.test.cjs",
+        "app/tests/browser/result-viewer.test.cjs",
+        "app/tests/browser/plotly.test.cjs"
+      ],
+      "docs": [
+        "docs/notebooks.md"
+      ],
+      "ui": {
+        "surface": "Notebook cell output",
+        "preview": true
+      },
+      "limitations": [
+        "Altair, ipywidgets, Data Wrangler, the chart builder, result downloads and several charts per result carry Preview tags"
+      ],
+      "prs": [
+        385,
+        386,
+        427,
+        430,
+        448,
+        472,
+        479,
+        490,
+        546,
+        552,
+        632
+      ],
+      "workstream": "Notebook outputs",
+      "next_action": "Implementation review of PR #385, #386, #427, #430, #448, #472, #479, #490, #546, #552; run on a tenant before the Preview tag comes off."
+    },
+    {
+      "id": "FEAT-NB-26",
+      "name": "Databricks notebooks on this PC",
+      "description": "dbutils (fs, notebook, widgets, secrets from Azure Key Vault, jobs.taskValues, library, data) so Databricks notebooks run here where the same thing exists.",
+      "pillar": "Local development",
+      "category": "Local Development and Execution",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_dbutils.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/dbutils_local.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_dbutils.py"
+      ],
+      "docs": [
+        "docs/notebooks.md"
+      ],
+      "ui": {
+        "surface": "Notebook cells",
+        "preview": false
+      },
+      "limitations": [
+        "dbfs:/, /dbfs/ and /Volumes/ paths can't be reached from this PC",
+        "Databricks-backed secret scopes can't be read"
+      ],
+      "prs": [
+        371
+      ],
+      "workstream": "Fabric and Databricks unified development",
+      "next_action": "Implementation review of PR #371."
+    },
+    {
+      "id": "FEAT-ORC-08",
+      "name": "Running pipelines on this PC",
+      "description": "Runs a Fabric pipeline's control flow on the PC (dependencies, conditions, loops, variables, failure handling, child pipelines); Lookup and Get Metadata read a lakehouse and Script runs through the SQL runner; Create > Pipeline, the Pipelines page, a Run dialog and run view, and runs in Monitor > Runs (Preview). Starts no Fabric job.",
+      "pillar": "Local development",
+      "category": "Pipelines and Orchestration",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_pipeline_runs.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_pipeline_notebooks.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_pipeline_runs.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/pipelines-page.test.cjs",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/pipeline-runs.test.cjs",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/orchestration/runner.py",
+        "sidecar/fabric_desktop/orchestration/runs.py",
+        "sidecar/fabric_desktop/pipeline_notebooks.py",
+        "app/ui/pipelines.js",
+        "app/ui/pipeline-runs.js",
+        "sidecar/fabric_desktop/pipeline_service.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_pipeline_runs.py",
+        "sidecar/tests/test_pipeline_notebooks.py",
+        "app/tests/browser/pipelines-page.test.cjs",
+        "app/tests/browser/pipeline-runs.test.cjs"
+      ],
+      "docs": [
+        "docs/orchestration/local-runs.md"
+      ],
+      "ui": {
+        "surface": "Create > Pipeline, Pipelines page, Monitor > Runs",
+        "preview": true
+      },
+      "limitations": [
+        "Not yet compared with a run in Fabric (verified_against_fabric: false)",
+        "Copy data runs only in Fabric until P5",
+        "Lookup, Get Metadata, Script and notebook steps read or write OneLake, which uses capacity"
+      ],
+      "prs": [
+        218,
+        319,
+        559,
+        563,
+        568,
+        578,
+        579,
+        606
+      ],
+      "workstream": "Local Fabric pipeline execution (ORCH-004)",
+      "next_action": "P5 Copy data (pipeline thread) after Chris's go; implementation review of #563, #568, #578, #579.",
+      "backlog": [
+        "PB-037"
+      ]
+    },
+    {
+      "id": "FEAT-ORC-09",
+      "name": "Pipeline activity compatibility registry",
+      "description": "A versioned registry of Data Factory activity types saying which run on this PC, are only checked, or run only in Fabric.",
+      "pillar": "Local development",
+      "category": "Pipelines and Orchestration",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_activity_registry.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/orchestration/registry.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_activity_registry.py"
+      ],
+      "docs": [
+        "docs/orchestration/activity-registry.md"
+      ],
+      "ui": {
+        "surface": "fabric-desktop pipeline (CLI); no screen",
+        "preview": false
+      },
+      "prs": [
+        150,
+        563,
+        568
+      ],
+      "workstream": "Local Fabric pipeline execution (ORCH-002)",
+      "next_action": "Registry v7 on main; review with ORC-08.",
+      "backlog": [
+        "PB-036"
+      ]
+    },
+    {
+      "id": "FEAT-ADM-08",
+      "name": "Risk check before a run",
+      "description": "Pass, warning, blocked or unknown before a capacity-spending run, with evidence for each finding; a check that can't run asks with its reason instead of going ahead silently. Advice only, never blocks.",
+      "pillar": "Enterprise services",
+      "category": "Enterprise Administration and FinOps",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_risk.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/risk.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_risk.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/risk.test.cjs",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/risk.py",
+        "sidecar/fabric_desktop/risk_service.py",
+        "app/ui/risk.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_risk.py",
+        "app/tests/browser/risk.test.cjs"
+      ],
+      "docs": [
+        "docs/finops/risk-check.md"
+      ],
+      "ui": {
+        "surface": "Run in Fabric and Data mesh deploy confirms; Settings",
+        "preview": true
+      },
+      "prs": [
+        167,
+        459,
+        462,
+        584,
+        589
+      ],
+      "workstream": "Administration and FinOps (FINOPS-005)",
+      "next_action": "Run on a tenant before the Preview tag comes off.",
+      "backlog": [
+        "PB-090"
+      ]
+    },
+    {
+      "id": "FEAT-ADM-09",
+      "name": "Where to run a notebook (placement advice)",
+      "description": "Advice on running a notebook on this PC or in Fabric, with the evidence behind it.",
+      "pillar": "Enterprise services",
+      "category": "Enterprise Administration and FinOps",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_advisor.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/advisor.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_advisor.py"
+      ],
+      "docs": [
+        "docs/finops/placement-advice.md"
+      ],
+      "ui": {
+        "surface": "MCP and local API tool fabric_desktop_placement_advice (read only); no screen yet",
+        "preview": true
+      },
+      "prs": [
+        276
+      ],
+      "workstream": "Administration and FinOps (FINOPS-005)",
+      "next_action": "Implementation review of PR #276; run on a tenant before the Preview tag comes off.",
+      "backlog": [
+        "PB-017"
+      ]
+    },
+    {
+      "id": "FEAT-ADM-10",
+      "name": "Measured usage import",
+      "description": "Measured CU from a Capacity Metrics app export, matched to this app's runs beside their estimates, with billed CU hours.",
+      "pillar": "Enterprise services",
+      "category": "Enterprise Administration and FinOps",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_usage_import.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/usage_service.py",
+        "sidecar/fabric_desktop/usage"
+      ],
+      "tests": [
+        "sidecar/tests/test_usage_import.py"
+      ],
+      "docs": [
+        "docs/finops/usage-import.md"
+      ],
+      "ui": {
+        "surface": "Optimize > Cost and savings",
+        "preview": true
+      },
+      "prs": [
+        153
+      ],
+      "workstream": "Administration and FinOps (FINOPS-003)",
+      "next_action": "Implementation review of PR #153; run on a tenant before the Preview tag comes off.",
+      "backlog": [
+        "PB-089"
+      ]
+    },
+    {
+      "id": "FEAT-ADM-11",
+      "name": "Optimize and the central lakehouse",
+      "description": "One central lakehouse (FabricDesktop_Central) for every installation: opportunities, local run records, access and incident caches, with roles changed only through central_restrict.",
+      "pillar": "Enterprise services",
+      "category": "Enterprise Administration and FinOps",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_optimize_service.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_optimize_setup.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_optimize_roles.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_optimize_shared.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_optimize_local_runs.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/optimize.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/settings-history.test.cjs",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/optimize",
+        "sidecar/fabric_desktop/optimize_service.py",
+        "app/ui/optimize.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_optimize_service.py",
+        "sidecar/tests/test_optimize_setup.py",
+        "sidecar/tests/test_optimize_roles.py",
+        "sidecar/tests/test_optimize_shared.py",
+        "sidecar/tests/test_optimize_local_runs.py",
+        "app/tests/browser/optimize.test.cjs",
+        "app/tests/browser/settings-history.test.cjs"
+      ],
+      "docs": [
+        "docs/optimize/README.md"
+      ],
+      "ui": {
+        "surface": "Optimize",
+        "preview": true
+      },
+      "limitations": [
+        "Not a security boundary: anyone with access to the lakehouse can read it",
+        "Not yet set up on a tenant"
+      ],
+      "prs": [
+        186,
+        228,
+        262,
+        349,
+        613
+      ],
+      "workstream": "Optimize central lakehouse (PB-104)",
+      "next_action": "Settings history can include capacity overrides for administrators (#613); not yet set up on a tenant.",
+      "backlog": [
+        "PB-104"
+      ]
+    },
+    {
+      "id": "FEAT-DEV-01",
+      "name": "Profile",
+      "description": "A private record of verified work, levels and achievements, and a review-ready professional report.",
+      "pillar": "Local development",
+      "category": "Developer Experience and Productivity",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_profile.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/profile.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/profile.test.cjs",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        }
+      ],
+      "source": [
+        "app/ui/profile.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_profile.py",
+        "app/tests/browser/profile.test.cjs"
+      ],
+      "docs": [
+        "docs/profile.md"
+      ],
+      "ui": {
+        "surface": "Account menu > Profile",
+        "preview": true
+      },
+      "prs": [
+        327,
+        598
+      ],
+      "workstream": "Developer profile",
+      "next_action": "Proof Forged from Prove, Journey and Achievements tabs (KF-DX-002); implementation review of #598."
+    },
+    {
+      "id": "FEAT-DEV-02",
+      "name": "Motion and effects",
+      "description": "Four visual intensity levels (0 to 3) for the forge, wolf and ember effects on notebooks, SQL, Fabric runs, pipelines, data mesh runs, saves and deploys, with panel transitions; reduced motion and load drop honored; Achievement Reveal off by default.",
+      "pillar": "Local development",
+      "category": "Developer Experience and Productivity",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/forge-animations.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/motion-effects.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/forge-animations.test.cjs",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/cooling-spark.test.cjs",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/pipeline-flow.test.cjs",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        }
+      ],
+      "source": [
+        "app/ui/motion.js"
+      ],
+      "tests": [
+        "app/tests/browser/forge-animations.test.cjs",
+        "app/tests/browser/motion-effects.test.cjs"
+      ],
+      "docs": [
+        "docs/forge-animations.md"
+      ],
+      "ui": {
+        "surface": "Settings > Motion and effects",
+        "preview": false
+      },
+      "prs": [
+        325,
+        372,
+        571,
+        572,
+        573,
+        574,
+        575,
+        576,
+        582,
+        583,
+        600,
+        614,
+        644,
+        646,
+        647
+      ],
+      "workstream": "Forge and wolf animations",
+      "next_action": "Draft #449 style guide waits on Chris; keep effects subordinate to work (brief section 8)."
+    },
+    {
+      "id": "FEAT-DEV-03",
+      "name": "Pop-out windows",
+      "description": "Monitor's sections in windows of their own.",
+      "pillar": "Local development",
+      "category": "Developer Experience and Productivity",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/pop-out.test.cjs",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        }
+      ],
+      "source": [
+        "app/ui/popout.js"
+      ],
+      "tests": [
+        "app/tests/browser/pop-out.test.cjs"
+      ],
+      "docs": [
+        "docs/user-guide.md"
+      ],
+      "ui": {
+        "surface": "Monitor > Pop out",
+        "preview": true
+      },
+      "limitations": [
+        "Needs a check in the Windows shell: the browser test runs in Chromium"
+      ],
+      "prs": [
+        557,
+        558
+      ],
+      "workstream": "UX and simplicity oversight",
+      "next_action": "Implementation review of PR #557, #558; run on a tenant before the Preview tag comes off."
+    },
+    {
+      "id": "FEAT-EXT-05",
+      "name": "Engines and connection profiles",
+      "description": "Execution engines with honest capability levels, remote compute approval, and connection profiles for Fabric, Databricks or both.",
+      "pillar": "Local development",
+      "category": "Extensibility, APIs, CLI, and MCP",
+      "status": "Implemented but Not Exposed",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_engines.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_connprofiles.py",
+          "note": "passed in the 2026-10-22 refresh run at be3e45b"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/engines",
+        "sidecar/fabric_desktop/connprofiles.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_engines.py",
+        "sidecar/tests/test_connprofiles.py"
+      ],
+      "docs": [
+        "docs/engines.md"
+      ],
+      "ui": {
+        "surface": "None: the engine underneath; no screen yet",
+        "preview": true
+      },
+      "prs": [
+        380
+      ],
+      "workstream": "Fabric and Databricks unified development",
+      "next_action": "Screens after a mockup; never install databricks-connect into the engine (ADR-004)."
+    },
+    {
+      "id": "FEAT-ORC-10",
+      "name": "Fabric pipeline runs and activity runs",
+      "description": "Reads the Fabric pipeline runs of a workspace and each run's activity runs (queryactivityruns), in a background scan, for Monitor. Engine only (Data Factory DF-1).",
+      "pillar": "Enterprise services",
+      "category": "Pipelines and Orchestration",
+      "status": "Implemented but Not Exposed",
+      "verification": "Partially Verified",
+      "source": [
+        "sidecar/fabric_desktop/fabric_pipeline_runs_service.py",
+        "sidecar/fabric_desktop/fabric_api.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_fabric_pipeline_runs.py"
+      ],
+      "docs": [
+        "docs/orchestration/data-factory.md"
+      ],
+      "ui": {
+        "surface": "None yet: Monitor > Runs rows wait on the Data Factory mockup",
+        "preview": true
+      },
+      "prs": [
+        640
+      ],
+      "workstream": "Build full Data Factory experience (DF-1..10)",
+      "limitations": [
+        "Fabric API faked in tests; not run on a tenant"
+      ],
+      "next_action": "DF-1 screen in Monitor > Runs once Chris reacts to the Data Factory mockup.",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_fabric_pipeline_runs.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        }
+      ]
+    },
+    {
+      "id": "FEAT-GOV-08",
+      "name": "Governance requests",
+      "description": "Request a workspace, workspace access, a domain or a policy exception; approving creates it in Fabric (a domain request creates the domain), with notifications. Preview.",
+      "pillar": "Enterprise services",
+      "category": "Data Governance and Quality",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "source": [
+        "sidecar/fabric_desktop/central/requests_service.py",
+        "sidecar/fabric_desktop/central/governance_service.py",
+        "app/ui/governance.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_requests_core_four.py",
+        "app/tests/browser/requests-core-four.test.cjs"
+      ],
+      "docs": [
+        "docs/governance.md",
+        "docs/governance-guide.md",
+        "docs/platform.md"
+      ],
+      "ui": {
+        "surface": "Platform > Governance > Requests",
+        "preview": true
+      },
+      "prs": [
+        605,
+        642
+      ],
+      "workstream": "Enterprise governance foundation",
+      "limitations": [
+        "Fabric API faked in tests; not run on a tenant"
+      ],
+      "next_action": "Governance steps 8 and 12 wait on Chris's two read-only PC checks.",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_requests_core_four.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/requests-core-four.test.cjs",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        }
+      ]
+    },
+    {
+      "id": "FEAT-META-19",
+      "name": "Semantic models to and from Apache Ossie",
+      "description": "Exports a semantic model (TMSL from Fabric getDefinition) to an Apache Ossie YAML file and previews or imports one back, with Microsoft's vendored Apache-2.0 converter. Engine only.",
+      "pillar": "Enterprise services",
+      "category": "Fabric Integration and Deployment",
+      "status": "Implemented but Not Exposed",
+      "verification": "Partially Verified",
+      "source": [
+        "sidecar/fabric_desktop/model_ossie.py",
+        "sidecar/fabric_desktop/model_ossie_service.py",
+        "sidecar/fabric_desktop/_vendor/ossie_microsoft"
+      ],
+      "tests": [
+        "sidecar/tests/test_model_ossie.py"
+      ],
+      "docs": [
+        "docs/semantic-model-ossie.md"
+      ],
+      "ui": {
+        "surface": "None yet: Deploy > Semantic model card waits on the mockup",
+        "preview": true
+      },
+      "prs": [
+        599
+      ],
+      "workstream": "TMDL and OSI semantic model conversion",
+      "limitations": [
+        "Ossie spec 0.2 is a draft and still changes",
+        "TMDL only through Fabric's TMSL bridge"
+      ],
+      "next_action": "UI card after Chris reacts to the mockup and decides whether Import may create new models.",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_model_ossie.py",
+          "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        }
+      ]
     }
   ]
 }

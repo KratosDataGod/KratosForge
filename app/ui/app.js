@@ -2152,10 +2152,10 @@ async function setNotebookCompute(value) {
   const nb = state.notebook;
   const before = nbWhere(nb).fabric;
   nb.compute = value;
-  await saveNotebook();
+  const saved = await saveNotebook();
   if (state.notebook !== nb) return;
   const now = nbWhere(nb);
-  if (now.fabric !== before) toast(now.fabric ? `${nb.name} now runs in Fabric. Run all publishes it and starts it there.`
+  if (saved && now.fabric !== before) toast(now.fabric ? `${nb.name} now runs in Fabric. Run all publishes it and starts it there.`
     : `${nb.name} now runs on this PC.`);
   renderNotebook();
 }

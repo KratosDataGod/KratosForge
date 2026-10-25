@@ -100,3 +100,12 @@ def test_run_multiple_refuses_a_notebook_listed_twice():
     k = Kernel()
     out = k.run("notebookutils.notebook.runMultiple(['a', 'a'])")
     assert out["outputs"][-1]["ename"] == "ValueError" and "listed twice" in out["outputs"][-1]["evalue"], out
+
+
+def test_a_referenced_run_skips_frozen_cells_as_fabric_does(tmp_path):
+    store = NotebookStore(tmp_path)
+    store.save("child", [{"type": "code", "source": "x = 1"},
+                         {"type": "code", "source": "x = 99", "meta": {"frozen": True}},
+                         {"type": "code", "source": "notebookutils.notebook.exit(x)"}])
+    k = Kernel(load_notebook=lambda name: store.load(name)["cells"])
+    assert k.run("notebookutils.notebook.run('child')")["outputs"][-1]["text"] == "'1'"

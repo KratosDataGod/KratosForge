@@ -21,7 +21,7 @@ import logging
 import platform
 from typing import Any
 
-from .. import __version__
+from .. import __version__, notebook_cells
 from ..auth import default_cache_path
 from ..fabric_run import compute_check
 from ..redact import describe
@@ -374,8 +374,7 @@ def _notebook_code(svc: Any, name: str, workspace_id: str) -> tuple[list[str], d
     lakehouse = nb.get("lakehouse") or None
     if lakehouse and lakehouse.get("workspace_id") != workspace_id:
         raise ValueError(f"{name} reads a lakehouse in workspace {lakehouse.get('workspace_id')}; pass that as workspace_id.")
-    cells = [c.get("source") or "" for c in nb["cells"]
-             if c.get("type", "code") != "markdown" and (c.get("source") or "").strip() and not (c.get("meta") or {}).get("frozen")]
+    cells = [c.get("source") or "" for c in nb["cells"] if notebook_cells.runs(c)]
     if not cells:
         raise ValueError(f"{name} has no code to run.")
     return cells, lakehouse

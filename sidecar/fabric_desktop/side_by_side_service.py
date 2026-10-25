@@ -14,7 +14,7 @@ from typing import Any, Callable
 
 from deltalake import DeltaTable
 
-from . import depgraph, jsonfile, receipts
+from . import depgraph, jsonfile, notebook_cells, receipts
 from . import side_by_side as sbs
 from .fabric_run import TERMINAL, compute_check, uses_local_module, uses_spark
 from .fabric_step import STEP_REFUSED, is_step
@@ -191,8 +191,7 @@ class SideBySideMixin:
         # Sign in now, while the app is in front, rather than from the background.
         self.auth.storage_token()  # type: ignore[attr-defined]
         self.auth.fabric_token()  # type: ignore[attr-defined]
-        code = [i for i, c in enumerate(cells) if c.get("type") != "markdown" and c.get("source", "").strip()
-                and not (c.get("meta") or {}).get("frozen")]
+        code = [i for i, c in enumerate(cells) if notebook_cells.runs(c)]
         record: dict[str, Any] = {
             "id": time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6], "name": name, "state": "local",
             "started_at": _now(), "finished_at": None, "message": "",

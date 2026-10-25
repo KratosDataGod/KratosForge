@@ -29,7 +29,7 @@ import threading
 import time
 from typing import Any, Callable
 
-from . import redact, validate
+from . import notebook_cells, redact, validate
 from .orchestration.adapters import ActivityFailed, notebook_key
 from .orchestration.definition import Activity
 from .proof_runtime import PROOF_ROOT
@@ -44,8 +44,7 @@ _EXIT_CELL = (f"print({_EXIT_MARK!r} + __import__('json').dumps("
 def code_cells(cells: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """The cells a run runs: code that isn't empty or frozen (Fabric skips frozen cells too), and
     not the Fabric step, which runs on Fabric Spark only when started from the notebook."""
-    return [c for c in cells if c.get("type", "code") != "markdown" and (c.get("source") or "").strip()
-            and not (c.get("meta") or {}).get("frozen") and not (c.get("meta") or {}).get("fabric_step")]
+    return [c for c in cells if notebook_cells.runs(c, skip_fabric_step=True)]
 
 
 def _problem(code: str, message: str, a: Activity) -> dict[str, Any]:

@@ -7,7 +7,7 @@ const GOV_STATUS = { draft: ["Draft", "neu"], published: ["Published", "pass"], 
 const GOV_ENFORCEMENT = { off: ["Off", "neu"], advisory: ["Advisory", "info"], warn: ["Warn", "wrn"], block: ["Block (not enforced yet)", "fail"] };
 const GOV_STRICTER = { higher: "Higher", lower: "Lower", superset: "More items", subset: "Fewer items", true: "On", fixed: "Fixed" };
 const GOV_SCOPE = { enterprise: "Enterprise", domain: "Domain", project: "Project", entity: "Entity" };
-const govPage = { query: "", category: "", status: "", open: null, sub: "definition", version: null, explain: null };
+const govPage = { query: "", category: "", status: "", open: null, sub: "definition", version: null, explain: null, view: "policies" };
 
 function govPill(map, key) {
   const [label, cls] = map[key] || [key, "neu"];
@@ -33,6 +33,9 @@ function govCan(o) {
 }
 
 async function platformGovernanceTab(body) {
+  if (!previewShown()) govPage.view = "policies";
+  if (govPage.view === "templates") return governanceTemplatesTab(body);
+  if (govPage.view === "check") return governanceCheckTab(body);
   if (govPage.open) return governancePolicy(body, govPage.open);
   const g = govPage;
   const o = await platformCall("governance_overview", { query: g.query, category: g.category, status: g.status }, "Could not read the policies");
@@ -43,7 +46,8 @@ async function platformGovernanceTab(body) {
   const pick = (key, options, label) => h("select", { "aria-label": label, onchange: (e) => { g[key] = e.target.value; rerender(); } },
     options.map(([v, t]) => h("option", { value: v, selected: g[key] === v ? true : null }, t)));
   const c = o.counts;
-  body.replaceChildren(
+  body.replaceChildren(...[
+    govViewNav(body),
     h("div", { class: "tiles plat-stats" },
       platStat(c.published, "Published", "in force where assigned", () => { g.status = "published"; rerender(); }),
       platStat(c.draft, "Drafts", "waiting to publish", () => { g.status = "draft"; rerender(); }),
@@ -68,7 +72,7 @@ async function platformGovernanceTab(body) {
             p.draft_version && p.current_version ? [" ", h("span", { class: "pill-s neu" }, `draft v${p.draft_version}`)] : null),
           h("td", {}, govPill(GOV_STATUS, p.status)),
           h("td", {}, p.assignments ? `${p.assignments} place${p.assignments === 1 ? "" : "s"}` : h("span", { class: "muted-text" }, "not assigned"))))))
-        : h("p", { class: "muted-text" }, g.query || g.category || g.status ? "No policy matches." : "No policies yet.")));
+        : h("p", { class: "muted-text" }, g.query || g.category || g.status ? "No policy matches." : "No policies yet."))].filter(Boolean));
 }
 
 // ---------- one policy ----------
@@ -124,6 +128,8 @@ async function governancePolicy(body, id) {
       btn(`Publish v${p.draft_version}`, null, publish, "tool primary small"))) : null,
     !p.draft && can.admin && live && p.current_version ? h("div", { class: "row" }, h("span", { class: "grow" }),
       btn("Edit (new draft)", null, () => policyDialog(o.options, p, rerender), "tool outline small")) : null,
+    previewShown() && (can.admin || can.domains.length) ? h("div", { class: "row" }, h("span", { class: "grow" }),
+      btn("Save as template", null, () => saveAsTemplateDialog(p), "tool outline small")) : null,
     h("div", { class: "subtabs" }, tabs.map(([t, label]) => h("button", { class: `tab${govPage.sub === t ? " active" : ""}`, onclick: () => { govPage.sub = t; rerender(); } }, label))),
     sub].filter(Boolean));
   if (govPage.sub === "applies") return governanceApplies(sub, p, o, can, rerender);
@@ -178,13 +184,14 @@ function governanceDefinition(v, options) {
 
 // ---------- writing a draft ----------
 
-function policyDialog(options, p, done) {
-  const base = p ? (p.draft || p.current).definition : { severity: "medium", enforcement: "warn", scopes: ["enterprise", "domain", "project", "entity"], exception_eligible: true, params: {} };
+// ``template`` (Governance > Templates): the same form for a template, {title, id, definition, save(def) -> result}.
+function policyDialog(options, p, done, template = null) {
+  const base = template?.definition || (p ? (p.draft || p.current).definition : { severity: "medium", enforcement: "warn", scopes: ["enterprise", "domain", "project", "entity"], exception_eligible: true, params: {} });
   const input = (value, attrs = {}) => h("input", { value: value ?? "", ...attrs });
   const select = (value, pairs) => h("select", {}, pairs.map(([v, t]) => h("option", { value: v, selected: v === value ? true : null }, t)));
   const check = (on) => h("input", { type: "checkbox", checked: on ? true : null });
   const f = {
-    name: input(base.name), id: input(p?.id || "", { disabled: p ? true : null, placeholder: "made from the name" }),
+    name: input(base.name), id: input(template ? template.id || "" : p?.id || "", { disabled: (template ? template.id : p) ? true : null, placeholder: "made from the name" }),
     description: h("textarea", { rows: 2 }, base.description || ""),
     category: select(base.category || "naming", Object.entries(options.categories)), owner: input(base.owner, { placeholder: "Data office" }),
     rule: input(base.rule, { placeholder: "table_name_pattern", class: "mono" }),
@@ -233,8 +240,16 @@ function policyDialog(options, p, done) {
     govPage.version = null;
     done(res);
   };
+  const saveTemplate = async () => {
+    if (!f.name.value.trim()) return f.name.focus();
+    const res = await template.save(collect());
+    if (!res) return;
+    closeDialog();
+    toast(`Saved the template ${res.name}`, false, { log: true });
+    done(res);
+  };
   const draftNo = p ? (p.draft_version || Math.max(...p.versions.map((v) => v.version)) + 1) : 1;
-  showDialog(p ? `${p.draft ? "Edit" : "New"} draft v${draftNo}` : "New policy", h("div", { class: "gov-form" },
+  showDialog(template ? template.title : p ? `${p.draft ? "Edit" : "New"} draft v${draftNo}` : "New policy", h("div", { class: "gov-form" },
     h("div", { class: "row" }, h("label", { class: "field grow" }, "Name", f.name), h("label", { class: "field" }, "Id", f.id)),
     h("label", { class: "field" }, "Description", f.description),
     h("div", { class: "row" }, h("label", { class: "field grow" }, "Category", f.category), h("label", { class: "field grow" }, "Owner", f.owner),
@@ -249,7 +264,9 @@ function policyDialog(options, p, done) {
     h("div", { class: "row" }, h("b", { class: "grow" }, "Parameters"), btn("Add parameter", "add", () => addParam(), "tool small")),
     h("table", { class: "list" }, h("thead", {}, h("tr", {}, ["Name", "Value", "Stricter is", "What it means", ""].map((x) => h("th", {}, x)))), params),
     h("label", { class: "field" }, "How to fix (shown to developers)", f.remediation),
-    h("label", { class: "field" }, "What changed", f.note)), [
+    template ? null : h("label", { class: "field" }, "What changed", f.note)), template ? [
+    btn("Cancel", null, closeDialog, "tool outline"),
+    btn("Save template", "save", saveTemplate, "tool primary")] : [
     btn("Cancel", null, closeDialog, "tool outline"),
     btn("Save draft", "save", () => save(false), "tool outline"),
     btn(`Save and publish v${draftNo}`, null, () => save(true), "tool primary")]);

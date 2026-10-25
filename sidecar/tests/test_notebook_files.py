@@ -331,3 +331,21 @@ def test_the_reads_are_read_only_in_the_audit_trail():
             "notebook_fabric_check", "notebook_publish_check"} <= audit.READ_ONLY
     for m in ("notebook_save_copy", "notebook_import", "notebook_delete", "notebook_restore", "notebook_from_fabric"):
         assert audit.audited(m)
+
+
+def test_where_a_notebook_is_for_vs_code_and_its_disk_stamp(svc):
+    save(svc, "Sales", "x = 1")
+    where = call(svc, "notebook_file_path", name="Sales")
+    assert where["path"].endswith("Sales.ipynb") and where["repo_root"] is None
+    assert where["folder"] == where["notebooks_folder"]
+    stamp = call(svc, "notebook_disk_stamp", name="Sales")["disk_stamp"]
+    assert stamp == call(svc, "open_notebook", name="Sales")["disk_stamp"]
+    path = svc.notebooks.path("Sales")
+    nb = json.loads(path.read_text())
+    nb["cells"][0]["source"] = "x = 2"
+    path.write_text(json.dumps(nb))  # saved in VS Code
+    assert call(svc, "notebook_disk_stamp", name="Sales")["disk_stamp"] not in (None, stamp)
+    path.write_text("<<<<<<< HEAD")
+    assert call(svc, "notebook_disk_stamp", name="Sales")["disk_stamp"] is None
+    assert "no notebook" in error(svc, "notebook_file_path", name="Nope")
+    assert not audit.audited("notebook_file_path") and not audit.audited("notebook_disk_stamp")

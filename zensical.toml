@@ -48,6 +48,7 @@ nav = [
     { "Organise notebook cells" = "notebook-editor/organise-cells.md" },
     { "Notebook variables" = "notebook-editor/variables.md" },
     { "Notebook files" = "notebook-files.md" },
+    { "VS Code" = "vscode.md" },
     { "Run the last cell on Fabric" = "notebook-fabric-step.md" },
     { "Notebook best practices" = "notebook-best-practices.md" },
     { "Notebook folders" = "notebook-folders.md" },

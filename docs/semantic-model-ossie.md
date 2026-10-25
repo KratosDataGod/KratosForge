@@ -7,7 +7,7 @@ Open Semantic Interchange (OSI) until July 2026, and it is now an Apache Incubat
 Its spec, version 0.2.0.dev0, is still a draft and may change.
 
 It lives on **Data mesh > Deploy > Semantic model**, in the Open Semantic Interchange
-card. The engine methods are in; the card waits on its design review.
+card under the Direct Lake one. It shows only while Settings shows preview features.
 
 ## Export to Ossie
 
@@ -15,7 +15,7 @@ Pick a semantic model in the environment's workspace (Test or Prod). KratosForge
 definition from Fabric as TMSL (`model.bim`, a read-only getDefinition call) and converts it
 on this PC. Nothing in Fabric changes. **Save to Git** writes
 `semantic/<model>.ossie.yaml` into the metadata project's folder, where it shows in
-Changes, ready to commit.
+Changes, ready to commit. **Copy** puts the YAML on the clipboard instead.
 
 The report sorts every object into three groups:
 

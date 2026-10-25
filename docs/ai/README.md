@@ -80,7 +80,9 @@ Add this to `.cursor/mcp.json` in your project, or `~/.cursor/mcp.json` for ever
 
 ### VS Code (GitHub Copilot agent mode)
 
-Add this to `.vscode/mcp.json` in your workspace, then start the server from the file and use Copilot in agent mode. Status: **Untested**.
+After **Add a tool** with **VS Code** picked, select **Add to VS Code** (or **VS Code Insiders**). VS Code opens, shows you the KratosForge server and asks before it adds it to your user settings. Then open Copilot Chat in **Agent** mode. The button is also under **Edit** for a VS Code tool you added before. Status: **Untested**.
+
+To set it up for one workspace instead, add this to `.vscode/mcp.json` in your workspace, then start the server from the file and use Copilot in agent mode. Status: **Untested**.
 
 ```json
 {

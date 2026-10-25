@@ -50,6 +50,10 @@ class FakeFabric:
                  "connectionDetails": {"type": "AmazonS3", "path": "https://events.s3.amazonaws.com"}},
                 {"id": "web", "displayName": "web-fx-rates", "connectionDetails": {"type": "Web"}}]
 
+    def list_gateways(self):
+        assert self.token == "gw-tok"
+        return [{"id": "GW-1", "type": "OnPremises", "displayName": "gw-onprem-01", "numberOfMemberGateways": 2}]
+
     def list_items(self, ws):
         return {"ws-dev": [{"id": "pl1", "type": "DataPipeline", "displayName": "pl_customer_load"},
                            {"id": "cj1", "type": "CopyJob", "displayName": "cj_erp_customers"},
@@ -74,8 +78,7 @@ class FakeAuth:
         return "tok"
 
     def _token(self, scopes):
-        assert scopes == fcs.CONNECTION_SCOPES
-        return "conn-tok"
+        return {tuple(fcs.CONNECTION_SCOPES): "conn-tok", tuple(fcs.GATEWAY_SCOPES): "gw-tok"}[tuple(scopes)]
 
 
 @pytest.fixture
@@ -161,3 +164,22 @@ def test_connection_ids_walks_every_level():
 def test_read_only_and_not_quick():
     assert "fabric_connections" in server.METHODS and "fabric_connections" in audit.READ_ONLY
     assert "fabric_connections" not in server.QUICK
+
+
+def test_gateway_names_come_with_their_connections(svc):
+    rows = {r["name"]: r for r in _settled(svc)["connections"]}
+    sql = rows["sql-erp-prod"]
+    assert (sql["gateway_id"], sql["gateway_name"], sql["gateway_members"]) == ("gw-1", "gw-onprem-01", 2)
+    assert rows["s3-events"]["gateway_name"] == ""
+
+
+def test_without_gateway_access_the_connections_still_list(svc, monkeypatch):
+    class NoGateways(FakeAuth):
+        def _token(self, scopes):
+            if scopes == fcs.GATEWAY_SCOPES:
+                raise RuntimeError("AADSTS65001: consent declined")
+            return super()._token(scopes)
+    monkeypatch.setattr(Service, "auth", property(lambda self: NoGateways()))
+    out = _settled(svc)
+    assert len(out["connections"]) == 3 and "consent declined" in out["gateways_error"]
+    assert all(r["gateway_name"] == "" for r in out["connections"])

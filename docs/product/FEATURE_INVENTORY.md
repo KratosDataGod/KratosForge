@@ -152,7 +152,7 @@ on quality.
 | [FEAT-FAB-10](#feat-fab-10) | Data pipelines, Dataflows and Copy jobs authoring | Missing | Unverified | None (listed, opened in Fabric, run-now from Monitor > Schedules) | Data Factory plan DF-2..DF-10 (Chris's go 2026-10-24 for the program; UI waits on the mockup). Local pipeline runs are FEAT-ORC-08. |
 | [FEAT-MESH-03](#feat-mesh-03) | Landing zone and source registry | Partially Implemented | Partially Verified | Platform > Landing zone (Preview) | Guided ingestion still waits on D2 (FD-116); Data Factory copy jobs (DF-6) may answer it. |
 | [FEAT-ORC-01](#feat-orc-01) | PC schedules | Implemented | Partially Verified | Notebook ribbon, Data mesh, Monitor > Schedules (Preview) | Agent schedules cover Linux; Windows Task Scheduler runs need a Windows check. |
-| [FEAT-ORC-02](#feat-orc-02) | Headless agent | Implemented | Partially Verified | CLI and agent.toml (no UI) | Verify on a tenant; add queue pruning and requeue of dead jobs (PB-044). |
+| [FEAT-ORC-02](#feat-orc-02) | Headless agent | Implemented | Partially Verified | CLI and agent.toml (no UI) | Verify on a tenant. |
 | [FEAT-ORC-04](#feat-orc-04) | Fabric pipeline mailbox | Implemented | Partially Verified | Fabric pipeline notebook + agent (Preview) | Run once on a tenant; record the writer's identity. |
 | [FEAT-ORC-06](#feat-orc-06) | Multiple workers | Partially Implemented | Partially Verified | agent.toml settings; no screen (Preview) | Run the mailbox on a tenant (PB-049), then build the app labels (multi-worker.md step 4). |
 | [FEAT-ORC-07](#feat-orc-07) | Fabric pipeline definitions on this PC | Implemented | Partially Verified | fabric-desktop pipeline (CLI) and the external-tool capabilities; no screen | ORCH-002 activity registry, after Chris approves |
@@ -1589,10 +1589,10 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/agent.py`, `sidecar/fabric_desktop/jobqueue.py`, `sidecar/fabric_desktop/agent_config.py`, `sidecar/fabric_desktop/runtime.py`, `deploy/agent.example.toml`
 - **Tests:** `sidecar/tests/test_agent.py`
 - **Docs:** [docs/agent.md](../agent.md)
-- **Known limitations:** Never run against a live tenant. Runs metadata environments only, not notebooks or jobs. Queue never pruned (inference). No command to revive a dead job.
+- **Known limitations:** Never run against a live tenant. Runs metadata environments only, not notebooks or jobs. Finished jobs leave the queue after queue_retention_days, and `agent requeue` revives a dead or failed job (PB-044).
 - **Pull requests and issues:** [#34](https://github.com/KratosDataGod/KratosForge/pull/34)
 - **Backlog:** [PB-044](PRODUCT_BACKLOG.md#pb-044)
-- **Recommended next action:** Verify on a tenant; add queue pruning and requeue of dead jobs (PB-044).
+- **Recommended next action:** Verify on a tenant.
 
 ### FEAT-ORC-03
 

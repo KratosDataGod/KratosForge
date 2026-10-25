@@ -412,8 +412,8 @@ const MOTION_LEVEL_HELP = ["No animation at all. Progress, results and errors st
   "Quick page and panel transitions only. No branded effects.",
   "Subtle sparks, embers and the wolf on real progress. Recommended.",
   "The same moments with more character: extra sparks, halftone and offset rings."];
-const MOTION_FAMILIES = [["motion_wolf", "Wolf animations", "The wolf on run progress, its arrival and the Wolf Run after long work."],
-  ["motion_sparks", "Forge sparks", "Sparks when work succeeds, the anvil strike after a deployment, the ember when something fails."],
+const MOTION_FAMILIES = [["motion_wolf", "Wolf animations", "The wolf on run progress, its arrival, the Wolf Run after long work, and the navy wolf on work in Fabric or with a remote."],
+  ["motion_sparks", "Forge sparks", "Sparks when work succeeds, the anvil strike after a deployment or promote, the ember when something fails."],
   ["motion_ambient", "Running indicators", "The glow on a running cell, the flow into a running pipeline step, the ring when work starts."]];
 // Achievement celebrations (off by default, #361) shows only while Profile (a Preview feature) can
 // award something; a switch that does nothing would only confuse.
@@ -470,6 +470,7 @@ function showMotionGallery() {
   const lane = h("span", { class: "motion-lane" }, "Kernel idle");
   const award = sample("Achievement earned: First Flame");
   const trackHost = h("span", { class: "motion-track" });
+  const remoteHost = h("span", { class: "motion-track" });
   const flowHost = h("div", { class: "motion-flow" });
   const flowNote = h("span", { class: "muted-text small" });
   let flowing = false;
@@ -501,7 +502,7 @@ function showMotionGallery() {
   const body = h("div", { class: "motion-gallery" },
     h("p", { class: "muted-text small" }, "Each effect plays on a sample at the level and switches set now. The samples are not real work, except the pipeline, "
       + "which runs a three-step sample (two short waits and a variable) on this PC and is kept in this PC's local pipeline run history. Nothing goes to Fabric."),
-    row("Forge Spark", "A cell, query or check succeeded.", spark, () => forgeEvent("notebook.cell.succeeded", spark)),
+    row("Forge Spark", "A cell, query, save, model build or Git push succeeded.", spark, () => forgeEvent("notebook.cell.succeeded", spark)),
     row("Controlled Failure", "Something failed. The red label is there from the first frame.", failed, () => forgeEvent("notebook.cell.failed", failed)),
     row("Pulse", "Run all started.", run, () => forgeEvent("notebook.run.started", run)),
     row("Wolf track and arrival", "Run all: the wolf sits at the share of cells done (sample: 4 steps).", trackHost, () => {
@@ -512,7 +513,9 @@ function showMotionGallery() {
       const tick = setInterval(() => { i += 1; if (i < 4) t.set(i, 4); else { clearInterval(tick); t.set(4, 4); t.arrive(); } }, 450);
     }),
     row("Wolf Run", "A cell that ran 10 s or more succeeded.", lane, () => forgeEvent("notebook.long.succeeded", lane)),
-    row("Anvil Strike", "A deployment succeeded.", deployed, () => forgeEvent("deploy.succeeded", deployed)),
+    row("Navy wolf", "Work in Fabric or with a remote that has no measure: the wolf trots in place on an empty track, with no fill or percentage.",
+      remoteHost, () => { if (!remoteHost.childElementCount) { remoteHost.append(remoteProgress("Sample run in Fabric")); setTimeout(() => remoteHost.replaceChildren(), 3000); } }),
+    row("Anvil Strike", "A deployment, a promote, a pipeline run or a Data mesh run succeeded.", deployed, () => forgeEvent("deploy.succeeded", deployed)),
     row("Cooling spark", "Validate passed, a proof matched, or Fabric confirmed a publish.", passed, () => forgeEvent("validate.passed", passed)),
     previewShown() ? row("Achievement Reveal", "Profile awarded you an achievement. Plays only with Achievement celebrations on.", award,
       () => forgeEvent("achievement.unlocked", award)) : null,

@@ -25,7 +25,7 @@ At Refined and Expressive, a switch for each family turns it off:
 | --- | --- |
 | Wolf animations | The wolf on Run all progress, its arrival, the Wolf Run after long work, the navy wolf on runs in Fabric and on Git push, pull, fetch and clone |
 | Forge sparks | Forge Spark, Anvil Strike, the cooling spark, the failure ember, the sparks and embers on the forge splash |
-| Running indicators | The glow on a running cell, the flow into a running pipeline step, the ring when Run all starts |
+| Running indicators | The glow on a running cell, the flow into a running pipeline step, the ring when work starts (Run all, a pipeline run, a Data mesh run, a notebook run in Fabric) |
 
 **Preview effects** plays each effect on a sample, and runs a three-step sample pipeline on this PC
 (two short waits and a variable) to show Energy Flow. That run is kept in this PC's local pipeline

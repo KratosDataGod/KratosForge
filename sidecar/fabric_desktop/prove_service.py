@@ -25,7 +25,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from . import app_settings, depgraph, envprofile, proof, receipts, redact, replay, scorecard, verify, wizard
+from . import app_settings, depgraph, envprofile, notebook_cells, proof, receipts, redact, replay, scorecard, verify, wizard
 from .notebook import check_watches, leaf_name
 from .fabric_run import TERMINAL, fabric_ipynb
 from .kernel_proc import ProcessKernel
@@ -600,8 +600,7 @@ class ProveMixin:
         ws = self._publish_workspace(name, lakehouse_ref, workspace)  # type: ignore[attr-defined]
         self.auth.storage_token()  # type: ignore[attr-defined]  # sign in now, while the app is in front
         self.auth.fabric_token()  # type: ignore[attr-defined]
-        code = [i for i, c in enumerate(cells) if c.get("type") != "markdown" and (c.get("source") or "").strip()
-                and not (c.get("meta") or {}).get("frozen")]
+        code = [i for i, c in enumerate(cells) if notebook_cells.runs(c)]
         record: dict[str, Any] = {
             "id": time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6], "name": name, "state": "preparing",
             "started_at": _now(), "finished_at": None, "message": "",

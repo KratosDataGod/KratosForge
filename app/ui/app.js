@@ -1845,7 +1845,7 @@ function loadIntoState(nb) {
   } else {
     state.notebook = { name: nb.name, cells: nb.cells.map(cellFrom), lakehouse: nb.lakehouse || null, place: nb.place || null, locations: nb.locations || null, dirty: false,
       compute: nb.compute || "default", workspace: nb.workspace || null, check: nb.check || null, replay: nb.replay || null,
-      onelake_writes: nb.onelake_writes || null };
+      onelake_writes: nb.onelake_writes || null, diskStamp: nb.disk_stamp || null };
     if (!state.notebook.cells.length) state.notebook.cells.push(cellFrom({ type: "code" }));
     state.notebook.cells.forEach((c) => { if (c.type === "markdown" && c.source) c.editing = false; });
     if (kept) keepOutputs(kept, state.notebook);
@@ -1926,8 +1926,15 @@ async function saveNotebook() {
   if (!state.notebook) return true;
   clearTimeout(saveTimer);
   const nb = state.notebook;
-  const ok = await attempt(() => rpc("save_notebook", notebookPayload()), "Could not save");
+  const ok = await attempt(() => rpc("save_notebook", { ...notebookPayload(), disk_stamp: nb.diskStamp || null }), "Could not save");
   if (!ok) return false;
+  if (ok.changed_on_disk) {
+    nb.diskConflict = true;  // autosave waits until the person decides
+    nbDiskConflict(nb, ok);
+    return false;
+  }
+  nb.diskStamp = ok.disk_stamp || null;
+  nb.diskConflict = false;
   if (state.notebook === nb) {
     nb.dirty = false;
     if (ok.check) setComputeCheck(ok.check);
@@ -1936,13 +1943,64 @@ async function saveNotebook() {
   return true;
 }
 
+// An explicit save (the Save button, Ctrl+S) gets a Forge Spark once it is written, at most one per
+// SAVE_FX_MS; autosave and the saves other flows make first (publish, run in Fabric, close) never do.
+const SAVE_FX_MS = 5000;
+let saveFxAt = -Infinity;
+async function saveExplicitly(anchor) {
+  const ok = await saveNotebook();
+  const el = ok ? anchor() : null;
+  if (el && Date.now() - saveFxAt >= SAVE_FX_MS && forgeEvent("notebook.saved", el)) saveFxAt = Date.now();
+  return ok;
+}
+
 function markDirty() {
   if (!state.notebook) return;
   const wasDirty = state.notebook.dirty;
   state.notebook.dirty = true;
   if (!wasDirty) renderChrome();
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => { if (state.kernel !== "busy") saveNotebook(); }, 1500);
+  saveTimer = setTimeout(() => { if (state.kernel !== "busy" && !state.notebook?.diskConflict) saveNotebook(); }, 1500);
+}
+
+// Another program (VS Code, a Git pull, a sync tool) saved the notebook's file after the app read
+// it. Nothing was saved over it, and the engine kept both sides under Versions first (the file's
+// version, or a byte copy when it isn't a notebook any more, and the cells on screen as "not saved"),
+// so either choice, or closing the app without one, loses nothing.
+function nbDiskConflict(nb, out) {
+  if (nb.diskConflictOpen) return;
+  nb.diskConflictOpen = true;
+  const running = nbRunning(nb);
+  const done = () => { nb.diskConflictOpen = false; closeDialog(); };
+  const load = async () => {
+    if (nbRunning(nb)) return;  // the screen can't be replaced under a running cell
+    done();
+    const fresh = await attempt(() => rpc("open_notebook", { name: nb.name }), "Could not open the notebook");
+    if (!fresh || state.notebook !== nb) return;
+    nb.dirty = false;
+    loadIntoState(fresh);
+    if (state.view === "notebook") renderNotebook();
+    toast(`Loaded ${fresh.name} as it is on disk. Your edits here are under Versions, as Not saved.`);
+  };
+  const keep = async () => {
+    done();
+    nb.diskStamp = out.disk_stamp;
+    nb.diskConflict = false;
+    if (await saveNotebook()) toast(`Saved ${nb.name}. The other version is ${out.unreadable ? "copied beside its versions" : "under Versions"}.`);
+  };
+  const text = out.unreadable
+    ? [`${nb.name} was changed by another program and isn't a notebook KratosForge can read any more, for example a Git merge left conflict markers in it. `
+      + "Nothing was saved over it. A copy of the file is kept, and your edits here are under Versions.",
+      out.outside_copy ? h("p", { class: "muted-text small" }, `Copy: ${out.outside_copy}`) : null]
+    : [`${nb.name} was saved by another program, such as VS Code or a Git pull, after you opened it here. `
+      + "Nothing was saved over it. Its version and yours are both kept under Versions."];
+  const loadBtn = out.unreadable ? null : btn("Load its version", null, load, "tool primary");
+  if (loadBtn && running) loadBtn.disabled = true;
+  showDialog("This notebook changed outside KratosForge",
+    h("div", {}, h("p", { class: "text" }, text[0]), text[1] || null,
+      running && loadBtn ? h("p", { class: "muted-text small" }, "A cell is running. Stop it to load the other version.") : null),
+    [btn("Keep mine", null, keep, loadBtn ? "tool outline" : "tool primary"), loadBtn].filter(Boolean),
+    () => { nb.diskConflictOpen = false; });
 }
 
 async function renameNotebook() {
@@ -2251,6 +2309,7 @@ async function scheduleNotebook() {
       added: "Scheduled. Fabric runs the published notebook on its own capacity.",
       list: () => rpc("notebook_schedules", { name: nb.name, lakehouse_ref: nbLakehouse(nb), workspace: nb.workspace }),
       add: async (schedule) => {
+        if (!(await saveNotebook())) return null;  // never publishes over a file changed outside the app
         const res = await rpc("add_notebook_schedule", { ...publishPayload(), schedule });
         nb.dirty = false; renderChrome();
         return res;
@@ -2519,7 +2578,7 @@ registerShortcuts("Notebook", [
 document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s" && state.view === "notebook") {
     e.preventDefault();
-    saveNotebook().then((ok) => { if (ok) toast("Saved"); });
+    saveExplicitly(() => { toast("Saved"); return document.getElementById("toast"); });
   }
 });
 window.addEventListener("beforeunload", () => { if (state.notebook?.dirty) saveNotebook(); });

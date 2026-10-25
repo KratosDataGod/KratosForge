@@ -18,6 +18,7 @@ import ast
 import base64
 import contextlib
 import ctypes
+import hashlib
 import inspect
 import io
 import itertools
@@ -2514,6 +2515,20 @@ def _write_atomic(path: Path, text: str) -> None:
         tmp.unlink(missing_ok=True)
 
 
+def disk_stamp(nb: dict[str, Any]) -> str:
+    """A short hash of a saved notebook's cells (type and source), so a save can tell whether the
+    file was changed since the app read it, by VS Code or any other program. Metadata is left out:
+    the app's own metadata writes (comments, inputs, proofs) don't count as a change."""
+    cells = [[c["type"], c["source"]] for c in from_ipynb(nb)["cells"]]
+    return hashlib.sha256(json.dumps(cells, ensure_ascii=False).encode("utf-8")).hexdigest()[:32]
+
+
+def raw_stamp(data: bytes) -> str:
+    """The stamp of a file that isn't a notebook the app can read (a Git merge left conflict
+    markers in it, say): its bytes, so it never matches a notebook's ``disk_stamp``."""
+    return "raw-" + hashlib.sha256(data).hexdigest()[:28]
+
+
 class NotebookStore:
     # Held while a save or a metadata write reads, changes and replaces a notebook file, so one
     # doesn't write over the other's change (the local API and MCP tools call in from other threads).
@@ -2531,28 +2546,45 @@ class NotebookStore:
 
     def load(self, name: str) -> dict[str, Any]:
         nb = json.loads(self.path(name).read_text(encoding="utf-8"))
-        return {"name": name, **from_ipynb(nb)}
+        return {"name": name, **from_ipynb(nb), "disk_stamp": disk_stamp(nb)}
 
     def save(self, name: str, cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None = None,
-             compute: str | None = None, workspace: dict[str, Any] | None = None) -> dict[str, Any]:
+             compute: str | None = None, workspace: dict[str, Any] | None = None,
+             expected_stamp: str | None = None) -> dict[str, Any]:
         """Save the notebook. ``compute`` is where Run all runs it: "local" (this PC), "fabric",
         or "default" (whatever the environment picked in the top bar runs on). ``workspace`` is
         where it is published ({"workspace_id", "workspace_name"}; {} forgets it). None keeps the saved choice.
 
         Cells keep their ``cell_id``; a cell without one gets one, returned in ``cell_ids`` so the
-        app can keep it. Metadata other tools wrote into the file is kept."""
+        app can keep it. Metadata other tools wrote into the file is kept.
+
+        ``expected_stamp`` is the ``disk_stamp`` the caller last read or saved. When the file's cells
+        no longer match it (another program saved the notebook since), nothing is written and the
+        result has ``changed_on_disk`` and the file's stamp now (and ``unreadable`` when the file
+        isn't a notebook any more, e.g. Git conflict markers). None saves without checking."""
         with self._write_lock:
-            return self._save(name, cells, lakehouse, compute, workspace)
+            return self._save(name, cells, lakehouse, compute, workspace, expected_stamp)
 
     def _save(self, name: str, cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
-              compute: str | None, workspace: dict[str, Any] | None) -> dict[str, Any]:
+              compute: str | None, workspace: dict[str, Any] | None,
+              expected_stamp: str | None = None) -> dict[str, Any]:
         path = self.path(name)
         before: dict[str, Any] = {}
+        raw: bytes | None = None
+        parsed = False
         if path.exists():
             try:
-                before = json.loads(path.read_text(encoding="utf-8"))
+                raw = path.read_bytes()
+                before = json.loads(raw.decode("utf-8"))
+                parsed = isinstance(before, dict)
             except (OSError, ValueError):
+                pass
+            if not parsed:
                 before = {}
+        if expected_stamp is not None and raw is not None:
+            now = disk_stamp(before) if parsed else raw_stamp(raw)
+            if now != expected_stamp:
+                return {"name": name, "changed_on_disk": True, "disk_stamp": now, "unreadable": not parsed}
         saved = from_ipynb(before) if before and (compute is None or workspace is None) else {}
         if compute is None:
             compute = saved.get("compute", "default")
@@ -2566,7 +2598,7 @@ class NotebookStore:
             to_ipynb(cells, lakehouse, compute, workspace)
         path.parent.mkdir(parents=True, exist_ok=True)
         _write_atomic(path, json.dumps(nb, indent=1))
-        return {"name": name, "cell_ids": ids}
+        return {"name": name, "cell_ids": ids, "disk_stamp": disk_stamp(nb)}
 
     def extra(self, name: str, key: str) -> Any:
         """A value Fabric Desktop keeps in the notebook's metadata under ``fabric_desktop.<key>``

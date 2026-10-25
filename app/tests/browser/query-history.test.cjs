@@ -58,7 +58,7 @@ test("each run is kept with its SQL, state, time and rows, newest first", { skip
   await runSql("SELECT * FROM dbo.DimCustomr");
   const h = await history();
   assert.deepStrictEqual(h.map((e) => [e.state, e.rows]), [["failed", 0], ["completed", 2]]);
-  assert.match(h[0].error, /Invalid object name/);
+  assert.strictEqual(h[0].error, "Invalid object name '…'.", "an error's quoted values aren't kept");
   assert.strictEqual(h[1].sql, "-- top customers\nSELECT TOP 20 CustomerName FROM dbo.DimCustomer");
   await aside().locator(".wh-h-row").first().waitFor();
   const rows = await aside().locator(".wh-h-row").allTextContents();
@@ -111,6 +111,41 @@ test("history is capped and Clear history asks first", { skip }, async () => {
   await confirm.getByRole("button", { name: "Clear" }).click();
   await aside().getByText("No runs yet").waitFor();
   assert.deepStrictEqual(await history(), []);
+});
+
+test("every warehouse's history shares one budget, and a full storage drops the oldest runs, not the new one", { skip }, async () => {
+  const out = await page().evaluate(() => {
+    const other = (n) => `fabric-desktop.sqlhistory.other-${n}`;
+    const big = "x".repeat(SQL_HISTORY_SQL);
+    const old = (n) => Array.from({ length: 15 }, (_, i) => ({ at: 1000 * n + 100 - i, sql: big, state: "completed" }));
+    localStorage.setItem(other(1), JSON.stringify(old(1)));
+    localStorage.setItem(other(2), JSON.stringify(old(2)));
+    sqlHistoryAdd(sqlPage.ref, { at: Date.now(), sql: "SELECT 'budget'", state: "completed" });
+    let total = 0;
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k.startsWith("fabric-desktop.sqlhistory.")) total += localStorage.getItem(k).length;
+    }
+    const budget = { total, newest: sqlHistory(sqlPage.ref)[0].sql, one: sqlHistoryRead(other(1)).length, two: sqlHistoryRead(other(2)).length };
+    // Fill the rest of this PC's storage, then add a run: the oldest go and the new run is kept.
+    const fill = [];
+    try { for (let i = 0; i < 2000; i++) { localStorage.setItem(`filler.${i}`, "y".repeat(100000)); fill.push(i); } } catch { /* full */ }
+    try { for (let i = 0; i < 2000; i++) { localStorage.setItem(`filler.s${i}`, "y".repeat(1000)); fill.push(`s${i}`); } } catch { /* full to the last KB */ }
+    let threw = null;
+    try { sqlHistoryAdd(sqlPage.ref, { at: Date.now(), sql: `SELECT '${"z".repeat(5000)}'`, state: "completed" }); } catch (err) { threw = String(err); }
+    const full = { threw, newest: sqlHistory(sqlPage.ref)[0].sql.length, kept: sqlHistoryRead(other(1)).length + sqlHistoryRead(other(2)).length };
+    for (const i of fill) localStorage.removeItem(`filler.${i}`);
+    localStorage.removeItem(other(1));
+    localStorage.removeItem(other(2));
+    return { budget, full };
+  });
+  assert.ok(out.budget.total <= 500000, `history stays in its budget (${out.budget.total})`);
+  assert.strictEqual(out.budget.newest, "SELECT 'budget'");
+  assert.ok(out.budget.one < 15 && out.budget.two === 15, "the oldest runs, in the other warehouse, went first");
+  assert.strictEqual(out.full.threw, null);
+  assert.strictEqual(out.full.newest, 5009, "the new run was kept");
+  assert.ok(out.full.kept < out.budget.one + out.budget.two, "room was made from the oldest runs");
+  await page().evaluate(() => sqlHistoryClear(sqlPage.ref));
 });
 
 test("nothing on the page threw", { skip }, async () => {

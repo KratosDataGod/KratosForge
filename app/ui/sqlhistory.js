@@ -5,20 +5,62 @@
 // timings only), so this is the only copy; Clear history removes it.
 const SQL_HISTORY_MAX = 200;        // runs kept per warehouse
 const SQL_HISTORY_SQL = 20000;      // characters of SQL kept per run
+const SQL_HISTORY_BUDGET = 500000;  // characters across every warehouse's history (about 1 MB), so open tabs keep room
 
-const sqlHistoryKey = (ref) => `fabric-desktop.sqlhistory.${sqlRefKey(ref)}`;
+const SQL_HISTORY_PREFIX = "fabric-desktop.sqlhistory.";
+const sqlHistoryKey = (ref) => `${SQL_HISTORY_PREFIX}${sqlRefKey(ref)}`;
 
-function sqlHistory(ref) {
+function sqlHistoryRead(key) {
   try {
-    const list = JSON.parse(localStorage.getItem(sqlHistoryKey(ref)));
+    const list = JSON.parse(localStorage.getItem(key));
     return Array.isArray(list) ? list.filter((e) => e && typeof e.sql === "string") : [];
   } catch { return []; }
 }
 
+const sqlHistory = (ref) => sqlHistoryRead(sqlHistoryKey(ref));
+
+// An engine error can echo values from the rows, so history keeps only its first line, with quoted
+// text and numbers taken out.
+const sqlHistoryError = (err) => String(err || "").split("\n")[0]
+  .replace(/'(?:[^']|'')*'|"[^"]*"|N?'[^']*$/g, "'…'").replace(/\d[\d.,:-]*/g, "#").slice(0, 120) || undefined;
+
+// Adds a run, newest first. Every warehouse's history shares one budget: over it, or when the
+// browser's storage is full, the oldest runs anywhere go first, so history keeps recording and
+// never crowds out the open tabs.
 function sqlHistoryAdd(ref, entry) {
-  const list = [{ ...entry, sql: entry.sql.slice(0, SQL_HISTORY_SQL), cut: entry.sql.length > SQL_HISTORY_SQL || undefined },
-    ...sqlHistory(ref)].slice(0, SQL_HISTORY_MAX);
-  try { localStorage.setItem(sqlHistoryKey(ref), JSON.stringify(list)); } catch { /* storage unavailable: no history this session */ }
+  const lists = new Map();
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith(SQL_HISTORY_PREFIX)) lists.set(key, sqlHistoryRead(key));
+    }
+  } catch { return; /* storage unavailable: no history this session */ }
+  const own = sqlHistoryKey(ref);
+  lists.set(own, [{ ...entry, sql: entry.sql.slice(0, SQL_HISTORY_SQL), cut: entry.sql.length > SQL_HISTORY_SQL || undefined },
+    ...(lists.get(own) || [])].slice(0, SQL_HISTORY_MAX));
+  const changed = new Set([own]);
+  const size = () => [...lists.values()].reduce((n, l) => n + JSON.stringify(l).length, 0);
+  const dropOldest = () => {
+    let at = null;
+    for (const [key, l] of lists) if (l.length > (key === own ? 1 : 0) && (at === null || (Number(l.at(-1).at) || 0) < (Number(lists.get(at).at(-1).at) || 0))) at = key;
+    if (at === null) return false;
+    lists.get(at).pop();
+    changed.add(at);
+    return true;
+  };
+  while (size() > SQL_HISTORY_BUDGET && dropOldest()) { /* trimmed to the budget */ }
+  for (let tries = 0; tries < 500; tries++) {
+    try {
+      // The lists that shrank are written first, so they make room for the new run.
+      for (const key of [...changed].sort((a, b) => (a === own) - (b === own))) {
+        const l = lists.get(key);
+        if (l.length) localStorage.setItem(key, JSON.stringify(l)); else localStorage.removeItem(key);
+      }
+      return;
+    } catch (err) {
+      if (!/quota/i.test(err?.name || "") || !dropOldest()) return;
+    }
+  }
 }
 
 function sqlHistoryClear(ref) {

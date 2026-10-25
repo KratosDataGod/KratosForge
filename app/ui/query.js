@@ -259,7 +259,7 @@ function renderQuery() {
     // WH-07: each run that reached the engine goes into this PC's history for the warehouse.
     if (wh && status?.state) {
       sqlHistoryAdd(ref, { at: startedAt, sql: query, state: status.state, seconds: status.seconds ?? null, rows: status.rows ?? null,
-        error: status.state === "completed" ? undefined : String(status.error || "").slice(0, 300) || undefined });
+        error: status.state === "completed" ? undefined : sqlHistoryError(status.error) });
       if (p.whAside === "history") p.whRedraw?.();
     }
     sqlPage.redraw?.();

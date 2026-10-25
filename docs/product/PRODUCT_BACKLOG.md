@@ -90,7 +90,7 @@ review moves it to Accepted; a merge alone does neither.
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
 | [PB-012](#pb-012) | Published Spark API compatibility matrix for this PC | P1 | Prove | M | In review |
-| [PB-013](#pb-013) | Fix local-parity defects that give wrong answers | P1 | Master product (unassigned) | M | Proposed |
+| [PB-013](#pb-013) | Fix local-parity defects that give wrong answers | P1 | Master product (unassigned) | M | In review |
 | [PB-014](#pb-014) | AST-based compatibility analyzer with an Unknown outcome | P1 | Prove | M | Proposed |
 | [PB-015](#pb-015) | Write semantics for MERGE, UPDATE and DELETE on this PC | P2 | Prove | L | Proposed |
 | [PB-016](#pb-016) | Reproducible environments and Fabric Environment items | P2 | Prove | L | Proposed |
@@ -114,15 +114,16 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-013
 
-**Fix local-parity defects that give wrong answers** · P1 (score 2.56) · M · confidence High · Proposed
+**Fix local-parity defects that give wrong answers** · P1 (score 2.56) · M · confidence High · In review
 
 - **Problem:** Several local behaviors differ silently from Fabric or from the app's own UI: a notebook using variableLibrary is flagged Fabric-only, %%sql MERGE cells report ok, notebookutils.session is missing though documented, insertInto defaults to errorifexists, and scheduled runs execute frozen cells that UI runs skip.
 - **Proposed capability:** Each defect fixed or turned into an explicit, visible refusal, with a regression test per defect.
-- **Current-state evidence:** fabric_run.py _FABRIC_ONLY includes notebookutils.variableLibrary; notebook.py %%sql MERGE path prints a note and returns ok; notebookutils_local.py docstring names session; attribute absent; local_schedules.py runs all cells; notebook.js skips frozen cells (inference from code reading); Re-checked 2026-10-25: four of five defects fixed on main; only the Fabric-only message for session, warehouse and connections is left (pr-ready/PB-013.md)
+- **Current-state evidence:** fabric_run.py _FABRIC_ONLY includes notebookutils.variableLibrary; notebook.py %%sql MERGE path prints a note and returns ok; notebookutils_local.py docstring names session; attribute absent; local_schedules.py runs all cells; notebook.js skips frozen cells (inference from code reading); Re-checked 2026-10-25: all five defects are fixed on main (pr-ready/PB-013.md)
 - **Inventory features:** [FEAT-NB-04](FEATURE_INVENTORY.md#feat-nb-04), [FEAT-NB-05](FEATURE_INVENTORY.md#feat-nb-05), [FEAT-NB-07](FEATURE_INVENTORY.md#feat-nb-07), [FEAT-SQL-02](FEATURE_INVENTORY.md#feat-sql-02), [FEAT-ORC-01](FEATURE_INVENTORY.md#feat-orc-01)
 - **Dependencies:** none
 - **Owner:** Master product (unassigned) (FD-111 (analyzer is separate, PB-014))
 - **Mandatory (required):** Wrong-answer defects in local execution undermine the core promise and the rule that local results are never claimed equivalent without proof.
+- **Pull requests:** [#410](https://github.com/KratosDataGod/KratosForge/pull/410)
 - **Implementation package:** [pr-ready/PB-013.md](pr-ready/PB-013.md)
 - **Acceptance criteria:**
     - compute_check reports a variableLibrary notebook as able to run on the PC
@@ -346,7 +347,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Dependencies:** [PB-024](#pb-024), [PB-025](#pb-025), Decision D1 warehouse writes (Chris), Decision D3 live read query (Chris), Phases 3-5 need Chris's go
 - **Owner:** Build full warehouse development experience (WH-01..21, SF-01..06)
 - **Merged duplicates:** Absorbs PB-020 local warehouse simulation and the SQL sprint's SQL-004/005 screens
-- **Pull requests:** [#636](https://github.com/KratosDataGod/KratosForge/pull/636), [#637](https://github.com/KratosDataGod/KratosForge/pull/637), [#638](https://github.com/KratosDataGod/KratosForge/pull/638), [#639](https://github.com/KratosDataGod/KratosForge/pull/639), [#641](https://github.com/KratosDataGod/KratosForge/pull/641), [#645](https://github.com/KratosDataGod/KratosForge/pull/645)
+- **Pull requests:** [#636](https://github.com/KratosDataGod/KratosForge/pull/636), [#637](https://github.com/KratosDataGod/KratosForge/pull/637), [#638](https://github.com/KratosDataGod/KratosForge/pull/638), [#639](https://github.com/KratosDataGod/KratosForge/pull/639), [#641](https://github.com/KratosDataGod/KratosForge/pull/641), [#645](https://github.com/KratosDataGod/KratosForge/pull/645), [#660](https://github.com/KratosDataGod/KratosForge/pull/660), [#662](https://github.com/KratosDataGod/KratosForge/pull/662)
 - **Acceptance criteria:**
     - As defined in WH-01..21 by its owning thread
 
@@ -570,7 +571,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Dependencies:** [PB-037](#pb-037), Chris reacts to the Data Factory mockup before any UI, Plan decision 3 (real exports)
 - **Owner:** Build full Data Factory experience (DF-1..10, Pipelines P5-P11)
 - **Merged duplicates:** Absorbs PB-030 (Copy job scope after D2) and the pipeline-authoring half of PB-035
-- **Pull requests:** [#640](https://github.com/KratosDataGod/KratosForge/pull/640)
+- **Pull requests:** [#640](https://github.com/KratosDataGod/KratosForge/pull/640), [#653](https://github.com/KratosDataGod/KratosForge/pull/653), [#665](https://github.com/KratosDataGod/KratosForge/pull/665), [#666](https://github.com/KratosDataGod/KratosForge/pull/666), [#667](https://github.com/KratosDataGod/KratosForge/pull/667), [#668](https://github.com/KratosDataGod/KratosForge/pull/668), [#669](https://github.com/KratosDataGod/KratosForge/pull/669)
 - **Acceptance criteria:**
     - As defined in DF-1..10 by its owning thread
 
@@ -884,10 +885,10 @@ review moves it to Accepted; a merge alone does neither.
 - **Problem:** Teams have no shared, editable best-practice rules that check notebooks, SQL and semantic models before they reach Fabric.
 - **Proposed capability:** Governance owns templates (policies with Check now, user-added rules, locks, exceptions); the Best Practice Analyzer thread owns the checkers (notebook NB001-012, SQL SQ001-010, semantic model BPA through semantic-link-labs in Fabric).
 - **Current-state evidence:** Chris 2026-10-24: 'more on governance and best practices. Allow for people to add their own templates'; Draft PRs #560 (BPA engine), #643 (notebook rules), #648 (templates and Check now), #649 (SQL rules), #651 (RE2 naming checks)
-- **Inventory features:** [FEAT-GOV-05](FEATURE_INVENTORY.md#feat-gov-05), [FEAT-META-13](FEATURE_INVENTORY.md#feat-meta-13)
+- **Inventory features:** [FEAT-GOV-05](FEATURE_INVENTORY.md#feat-gov-05), [FEAT-GOV-09](FEATURE_INVENTORY.md#feat-gov-09), [FEAT-META-13](FEATURE_INVENTORY.md#feat-meta-13)
 - **Dependencies:** [PB-056](#pb-056), Chris pastes the BPA cell error from the 2026-10-23 live run, Quality verdicts on #643, #648, #649, #651
 - **Owner:** Enterprise governance foundation (NB001-012, SQ001-010, GOV templates)
-- **Pull requests:** [#560](https://github.com/KratosDataGod/KratosForge/pull/560), [#643](https://github.com/KratosDataGod/KratosForge/pull/643), [#648](https://github.com/KratosDataGod/KratosForge/pull/648), [#649](https://github.com/KratosDataGod/KratosForge/pull/649), [#651](https://github.com/KratosDataGod/KratosForge/pull/651)
+- **Pull requests:** [#560](https://github.com/KratosDataGod/KratosForge/pull/560), [#643](https://github.com/KratosDataGod/KratosForge/pull/643), [#648](https://github.com/KratosDataGod/KratosForge/pull/648), [#649](https://github.com/KratosDataGod/KratosForge/pull/649), [#651](https://github.com/KratosDataGod/KratosForge/pull/651), [#664](https://github.com/KratosDataGod/KratosForge/pull/664), [#671](https://github.com/KratosDataGod/KratosForge/pull/671)
 - **Acceptance criteria:**
     - Each rule set registers through governance_checks.register and is off unless a policy names it
     - Check now runs offline for notebooks and SQL; model checks say they run in Fabric and use capacity
@@ -1214,7 +1215,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-096](#pb-096) | Run the AI client checklist for each named tool | P1 | Bring your own AI integration | S | Proposed |
 | [PB-097](#pb-097) | Extensions | P3 | Git-native development | XL | Proposed |
 | [PB-098](#pb-098) | One list of engine methods | P1 | Bring your own AI integration | S | Proposed |
-| [PB-109](#pb-109) | VS Code developer integration | P2 | Bring VS Code developers to KratosForge | XL | Proposed |
+| [PB-109](#pb-109) | VS Code developer integration | P2 | Bring VS Code developers to KratosForge | XL | In progress |
 
 ### PB-095
 
@@ -1272,15 +1273,15 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-109
 
-**VS Code developer integration** · P2 (score 1.9) · XL · confidence Low · Proposed
+**VS Code developer integration** · P2 (score 1.9) · XL · confidence Low · In progress
 
 - **Problem:** Developers who live in VS Code can't use KratosForge's local runs without leaving their editor.
 - **Proposed capability:** Owned by the 'Bring VS Code developers to KratosForge' thread: phase 0 on-disk change guard (#650, merged), MCP in VS Code and an Add to VS Code button; later phases need Chris's go and three decisions.
 - **Current-state evidence:** Proposal 2026-10-24; #650 merged: the app never saves over a file another program changed
-- **Inventory features:** [FEAT-EXT-02](FEATURE_INVENTORY.md#feat-ext-02), [FEAT-NB-17](FEATURE_INVENTORY.md#feat-nb-17), [FEAT-EXT-01](FEATURE_INVENTORY.md#feat-ext-01)
+- **Inventory features:** [FEAT-EXT-01](FEATURE_INVENTORY.md#feat-ext-01), [FEAT-EXT-02](FEATURE_INVENTORY.md#feat-ext-02), [FEAT-EXT-06](FEATURE_INVENTORY.md#feat-ext-06), [FEAT-NB-17](FEATURE_INVENTORY.md#feat-nb-17)
 - **Dependencies:** Chris decides paired-editor runs without per-run approval, .vsix first then Marketplace (publisher account is Chris-only), DuckDB extension later
 - **Owner:** Bring VS Code developers to KratosForge (VS phases 0-4)
-- **Pull requests:** [#650](https://github.com/KratosDataGod/KratosForge/pull/650)
+- **Pull requests:** [#650](https://github.com/KratosDataGod/KratosForge/pull/650), [#652](https://github.com/KratosDataGod/KratosForge/pull/652), [#670](https://github.com/KratosDataGod/KratosForge/pull/670)
 - **Acceptance criteria:**
     - As defined in the thread's phases 0-4
 
@@ -1465,7 +1466,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Owner:** Codebase audit and hardening (HD-001..057)
 - **Mandatory (blocker):** HD-001..009 fix data-loss, security and update-integrity defects; AGENTS.md requires protecting OneLake data and update provenance.
 - **Merged duplicates:** Overlaps PB-001, PB-002, PB-003, PB-005..PB-008, PB-010, PB-042, PB-051, PB-064..PB-066, PB-068, PB-071, PB-073, PB-074 and others (noted on each item)
-- **Pull requests:** [#593](https://github.com/KratosDataGod/KratosForge/pull/593), [#618](https://github.com/KratosDataGod/KratosForge/pull/618), [#619](https://github.com/KratosDataGod/KratosForge/pull/619), [#621](https://github.com/KratosDataGod/KratosForge/pull/621), [#623](https://github.com/KratosDataGod/KratosForge/pull/623), [#624](https://github.com/KratosDataGod/KratosForge/pull/624), [#626](https://github.com/KratosDataGod/KratosForge/pull/626)
+- **Pull requests:** [#593](https://github.com/KratosDataGod/KratosForge/pull/593), [#618](https://github.com/KratosDataGod/KratosForge/pull/618), [#619](https://github.com/KratosDataGod/KratosForge/pull/619), [#621](https://github.com/KratosDataGod/KratosForge/pull/621), [#623](https://github.com/KratosDataGod/KratosForge/pull/623), [#624](https://github.com/KratosDataGod/KratosForge/pull/624), [#626](https://github.com/KratosDataGod/KratosForge/pull/626), [#659](https://github.com/KratosDataGod/KratosForge/pull/659), [#674](https://github.com/KratosDataGod/KratosForge/pull/674)
 - **Acceptance criteria:**
     - As defined in HD-001..057 by its owning thread
     - Overlapping items here follow the owner named in that backlog
@@ -1661,7 +1662,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Owner:** Engineering quality review (QA-001..030, PR-QA-01..14)
 - **Mandatory (blocker):** QA-001 (Critical) and QA-002 lose data while reporting success; AGENTS.md requires protecting OneLake data. The quality review's release decision for main is FAIL on QA-001.
 - **Merged duplicates:** Overlaps the hardening and UX backlogs where docs/quality/ cites HD- or UX- ids; those owners keep them
-- **Pull requests:** [#585](https://github.com/KratosDataGod/KratosForge/pull/585), [#616](https://github.com/KratosDataGod/KratosForge/pull/616)
+- **Pull requests:** [#585](https://github.com/KratosDataGod/KratosForge/pull/585), [#616](https://github.com/KratosDataGod/KratosForge/pull/616), [#661](https://github.com/KratosDataGod/KratosForge/pull/661)
 - **Acceptance criteria:**
     - As defined in QA-001..030 and PR-QA-01..14 by its owning thread
     - Routed items follow the owner named in docs/quality/remediation.md

@@ -2086,7 +2086,7 @@ async function publishNotebook() {
   if (result) {
     nb.dirty = false;
     renderChrome();
-    toast(`Published ${nb.name} to ${ws} as a Fabric notebook item.`);
+    toast(`Published ${nb.name} to ${ws} as a Fabric notebook item.${result.note ? ` ${result.note}` : ""}`);
     // Fabric gave back the item it saved, so the publish is confirmed: the toast cools (motion.js).
     if (result.id) forgeEvent("publish.verified", document.getElementById("toast"));
   }

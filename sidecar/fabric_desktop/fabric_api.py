@@ -35,6 +35,11 @@ def lakehouse_name_problem(name: str) -> str:
             f"starting with a letter. For example {suggestion}.")
 
 
+def _notebook_definition(ipynb: bytes) -> dict[str, Any]:
+    return {"format": "ipynb", "parts": [{"path": "notebook-content.ipynb",
+                                          "payload": base64.b64encode(ipynb).decode(), "payloadType": "InlineBase64"}]}
+
+
 class FabricError(RuntimeError):
     def __init__(self, message: str, code: str | None = None, status: int | None = None):
         super().__init__(message)
@@ -229,18 +234,30 @@ class FabricClient:
 
     def save_notebook(self, workspace_id: str, name: str, ipynb: bytes) -> dict[str, Any]:
         """Create the notebook item, or replace its definition if one with this name exists."""
-        definition = {"format": "ipynb", "parts": [{
-            "path": "notebook-content.ipynb",
-            "payload": base64.b64encode(ipynb).decode(),
-            "payloadType": "InlineBase64",
-        }]}
         existing = next((n for n in self.list_notebooks(workspace_id) if n["displayName"] == name), None)
         if existing is None:
-            body = {"displayName": name, "definition": definition}
+            body = {"displayName": name, "definition": _notebook_definition(ipynb)}
             return self._wait(self._request("POST", f"/workspaces/{workspace_id}/notebooks", json=body))
-        url = f"/workspaces/{workspace_id}/notebooks/{existing['id']}/updateDefinition"
-        self._wait(self._request("POST", url, json={"definition": definition}))
-        return existing
+        return self.update_notebook(workspace_id, existing, name, ipynb)
+
+    def get_notebook(self, workspace_id: str, item_id: str) -> dict[str, Any] | None:
+        """The notebook item ``item_id`` in that workspace, or None when it isn't there (deleted)."""
+        try:
+            item = self._request("GET", f"/workspaces/{workspace_id}/notebooks/{item_id}").json()
+        except FabricError as exc:
+            if exc.status == 404:
+                return None
+            raise
+        return item if item.get("workspaceId", workspace_id) == workspace_id else None
+
+    def update_notebook(self, workspace_id: str, item: dict[str, Any], name: str, ipynb: bytes) -> dict[str, Any]:
+        """Replace ``item``'s definition, renaming it to ``name`` first when that isn't its name."""
+        if item.get("displayName") != name:
+            self._request("PATCH", f"/workspaces/{workspace_id}/notebooks/{item['id']}", json={"displayName": name})
+            item = item | {"displayName": name}
+        url = f"/workspaces/{workspace_id}/notebooks/{item['id']}/updateDefinition"
+        self._wait(self._request("POST", url, json={"definition": _notebook_definition(ipynb)}))
+        return item
 
     # ---- Fabric's job scheduler: run an item on Fabric capacity, now or on a schedule
 

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from . import notebook_files as files
+from .notebook import leaf_name
 from .redact import describe
 
 METHODS = {"notebook_listing", "notebook_search", "notebook_save_copy", "notebook_import_check", "notebook_import",
@@ -140,7 +141,8 @@ class NotebookFilesMixin:
         definition = self.fabric.get_item_definition(workspace_id, item_id, "ipynb")  # type: ignore[attr-defined]
         item = {"workspace_id": workspace_id, "workspace_name": workspace_name, "item_id": item_id, "name": name}
         out = files.from_fabric(self.notebooks, definition, item, place, None)  # type: ignore[attr-defined]
-        files.remember_published(self._published_dir, item_id, workspace_id, files.ipynb_of(definition))
+        files.remember_published(self._published_dir, item_id, workspace_id, files.ipynb_of(definition),
+                                 name=leaf_name(out["name"]))
         try:
             self.workload_store.record_link(out["name"], workspace_id, item_id, workspace_name, how="recorded",  # type: ignore[attr-defined]
                                             by=self._wl_user())  # type: ignore[attr-defined]

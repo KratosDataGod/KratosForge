@@ -57,6 +57,15 @@ class FakeFabric:
     def list_notebooks(self, ws):
         return [{"id": i, "displayName": it["name"]} for i, it in self.items.items() if it["ws"] == ws]
 
+    def get_notebook(self, ws, item_id):
+        it = self.items.get(item_id)
+        return {"id": item_id, "displayName": it["name"], "workspaceId": ws} if it and it["ws"] == ws else None
+
+    def update_notebook(self, ws, item, name, data):
+        self.saved.append((ws, name))
+        self.items[item["id"]] = {"ws": ws, "name": name, "ipynb": json.loads(data)}
+        return {"id": item["id"], "displayName": name}
+
     def get_lakehouse(self, ws, lh):
         return {"properties": {"defaultSchema": "dbo"}}
 
@@ -291,12 +300,28 @@ def test_a_notebook_published_from_here_is_checked_too_and_a_deleted_item_is_mad
     call(svc, "publish_notebook", **args)
 
 
-def test_publish_checks_the_item_it_would_write_when_the_linked_one_was_renamed(svc):
+def test_publish_updates_the_linked_item_when_it_was_renamed_in_fabric(svc):
     svc.fake.add("item-1", "ws1", "Monthly margin", ipynb([("code", "a = 1")]))
     call(svc, "notebook_from_fabric", workspace_id="ws1", item_id="item-1", name="Monthly margin", workspace_name="WS")
     nb = svc.notebooks.load("Monthly margin")
     # In Fabric: the linked item is renamed and Dana makes a new one under the old name.
     svc.fake.items["item-1"]["name"] = "Monthly margin (old)"
+    svc.fake.add("item-2", "ws1", "Monthly margin", ipynb([("code", "dana = 'her work'")]))
+    args = {"name": "Monthly margin", "cells": [dict(nb["cells"][0], source="a = 10")], "lakehouse_ref": None,
+            "workspace": nb["workspace"]}
+    # Publish writes the item it is linked to, by id (PB-018), so Dana's notebook isn't in the way.
+    assert call(svc, "notebook_publish_check", **args)["changed"] is False
+    out = call(svc, "publish_notebook", **args)
+    assert out["id"] == "item-1" and out["item_name"] == "Monthly margin (old)"  # Fabric's rename stays
+    assert ["".join(c["source"]) for c in svc.fake.items["item-1"]["ipynb"]["cells"]] == ["a = 10"]
+    assert ["".join(c["source"]) for c in svc.fake.items["item-2"]["ipynb"]["cells"]] == ["dana = 'her work'"]
+
+
+def test_when_the_linked_item_is_gone_publish_checks_the_one_with_its_name(svc):
+    svc.fake.add("item-1", "ws1", "Monthly margin", ipynb([("code", "a = 1")]))
+    call(svc, "notebook_from_fabric", workspace_id="ws1", item_id="item-1", name="Monthly margin", workspace_name="WS")
+    nb = svc.notebooks.load("Monthly margin")
+    del svc.fake.items["item-1"]  # deleted in Fabric, and Dana makes one under the name
     svc.fake.add("item-2", "ws1", "Monthly margin", ipynb([("code", "dana = 'her work'")]))
     args = {"name": "Monthly margin", "cells": [dict(nb["cells"][0], source="a = 10")], "lakehouse_ref": None,
             "workspace": nb["workspace"]}
@@ -308,9 +333,22 @@ def test_publish_checks_the_item_it_would_write_when_the_linked_one_was_renamed(
     kept = call(svc, "notebook_from_fabric", workspace_id="ws1", item_id=check["item_id"], name="Monthly margin",
                 workspace_name="WS", copy_name="Monthly margin (Fabric)")
     assert [c["source"] for c in kept["cells"]] == ["dana = 'her work'"]
-    # Renamed with no new item under the name: Publish makes a new item, replacing nothing.
+    # Gone with no new item under the name: Publish makes a new item and says why.
     del svc.fake.items["item-2"]
     assert call(svc, "notebook_publish_check", **args)["changed"] is False
+    out = call(svc, "publish_notebook", **args)
+    assert out["id"] not in ("item-1", "item-2") and "was deleted, so a new one was made" in out["note"]
+
+
+def test_publish_renames_the_fabric_item_after_a_rename_here_and_makes_no_second_one(svc):
+    save(svc, "NB", "x = 1")
+    ws = {"workspace_id": "ws1", "workspace_name": "Sales WS"}
+    first = call(svc, "publish_notebook", name="NB", cells=[{"type": "code", "source": "x = 1"}], lakehouse_ref=None, workspace=ws)
+    call(svc, "rename_notebook", name="NB", new_name="Daily load")
+    out = call(svc, "publish_notebook", name="Daily load", cells=[{"type": "code", "source": "x = 2"}],
+               lakehouse_ref=None, workspace=ws)
+    assert out["id"] == first["id"] and out["item_name"] == "Daily load" and out["note"] == ""
+    assert [it["name"] for it in svc.fake.items.values()] == ["Daily load"]
 
 
 def test_a_failed_change_check_stops_the_publish(svc, monkeypatch):

@@ -300,6 +300,7 @@ A **Parameter cell** is the cell that pipelines and `notebookutils.notebook.run`
 1. The first time, it asks which workspace (starting from the attached lakehouse's). The choice is saved in the notebook, so later publishes go straight there.
 2. The arrow next to **Publish** shows where it goes and has **Change workspace...**.
 3. The attached lakehouse stays the notebook's default lakehouse in Fabric, even when it lives in another workspace.
+4. Later publishes update the same Fabric notebook, found by its item id, so renaming it here or in Fabric doesn't make a second one. A rename here renames the Fabric notebook too; a rename in Fabric is kept. If that notebook was deleted in Fabric, publish updates one with the notebook's name in that workspace, or makes a new one, and says so.
 
 How it is published:
 

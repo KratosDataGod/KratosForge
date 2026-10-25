@@ -74,6 +74,7 @@ def connection_row(c: dict[str, Any]) -> dict[str, Any]:
 class FabricConnectionsMixin:
     _fabric_connections: dict[str, Any] | None = None
     _fabric_connections_lock = threading.Lock()
+    _gateway_declined: str = ""  # why Gateway.Read.All wasn't given; not asked again until the app restarts
 
     def fabric_connections(self, refresh: bool = False) -> dict[str, Any]:
         """Connections and what uses them, from a background scan ({"pending": True} meanwhile). Reads only."""
@@ -91,11 +92,14 @@ class FabricConnectionsMixin:
                 self._fabric_connections = {"pending": False, "connections": [], "missing": [], "error": describe(exc)}
             else:
                 # Gateway names are extra: without Gateway.Read.All (declined, or not allowed) the tab
-                # still lists the connections, and says why the names are missing.
-                try:
-                    gw_token, gw_error = self.auth._token(GATEWAY_SCOPES), ""  # type: ignore[attr-defined]
-                except Exception as exc:  # noqa: BLE001
-                    gw_token, gw_error = "", describe(exc)
+                # still lists the connections, and says why the names are missing. A decline is kept,
+                # so Refresh doesn't bring the sign-in prompt back.
+                gw_token, gw_error = "", self._gateway_declined
+                if not gw_error:
+                    try:
+                        gw_token = self.auth._token(GATEWAY_SCOPES)  # type: ignore[attr-defined]
+                    except Exception as exc:  # noqa: BLE001
+                        gw_error = self._gateway_declined = describe(exc)
                 self._fabric_connections = {"pending": True, "connections": [], "missing": []}
                 threading.Thread(target=self._scan_fabric_connections, args=(token, conn_token, gw_token, gw_error),
                                  daemon=True).start()

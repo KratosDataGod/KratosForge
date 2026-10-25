@@ -174,12 +174,17 @@ def test_gateway_names_come_with_their_connections(svc):
 
 
 def test_without_gateway_access_the_connections_still_list(svc, monkeypatch):
+    asked = []
+
     class NoGateways(FakeAuth):
         def _token(self, scopes):
             if scopes == fcs.GATEWAY_SCOPES:
+                asked.append(1)
                 raise RuntimeError("AADSTS65001: consent declined")
             return super()._token(scopes)
     monkeypatch.setattr(Service, "auth", property(lambda self: NoGateways()))
     out = _settled(svc)
     assert len(out["connections"]) == 3 and "consent declined" in out["gateways_error"]
     assert all(r["gateway_name"] == "" for r in out["connections"])
+    # The decline is kept: Refresh doesn't ask again.
+    assert "consent declined" in _settled(svc, refresh=True)["gateways_error"] and len(asked) == 1

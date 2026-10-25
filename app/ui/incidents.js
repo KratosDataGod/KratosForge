@@ -165,9 +165,10 @@ async function checkNow(env, reload) {
   incPage.checked[env] = res.at;
   const opened = res.changes.filter((c) => c.change !== "recovered").length;
   const recovered = res.changes.length - opened;
-  toast(!res.evaluated ? `${envName(env)}'s run log couldn't be read, so nothing was marked recovered.`
+  toast(res.not_set_up ? `${envName(env)} isn't set up, so there's nothing to check: ${res.not_set_up.replace(/\.$/, "")}.`
+    : !res.evaluated ? `${envName(env)}'s run log couldn't be read, so nothing was marked recovered.`
     : res.changes.length ? `Checked ${envName(env)}: ${opened} new, ${recovered} recovered. Agents tell Teams; this check didn't.`
-    : `Checked ${envName(env)}: nothing changed.`, !res.evaluated);
+    : `Checked ${envName(env)}: nothing changed.`, !res.evaluated && !res.not_set_up);
   reload();
 }
 

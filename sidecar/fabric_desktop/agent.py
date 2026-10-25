@@ -36,7 +36,7 @@ from .mailbox import Mailbox
 from .meta import mesh as mesh_mod
 from .meta.engine import Abandoned
 from .runtime import Runtime
-from .workloads import evaluate, model
+from .workloads import evaluate
 from .workloads.incidents import IncidentLog
 from .workloads.agents import read_status
 from .workloads.notify import DEFAULT_ROUTE, Outbox, Quiet, Route, Routing, failure, send, single
@@ -139,8 +139,7 @@ class Agent:
                 project = self.runtime._project()
                 runs = self.runtime.meta_runs(env, 2000)
             except Exception as exc:
-                state, message = model.classify_error(exc)
-                signals = [evaluate.cant_evaluate(env, state, message)]
+                signals, _ = evaluate.unreadable(env, exc)
             else:
                 specs = {n: e.spec for n, e in project.entities.items()}
                 signals = evaluate.signals(mesh_mod.project_name(project), specs, runs, env, now=now,

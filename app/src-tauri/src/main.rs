@@ -1804,6 +1804,19 @@ fn open_with_handler(link: &str, what: &str) -> Result<(), String> {
     cmd.spawn().map(|_| ()).map_err(|e| format!("Could not open {what}: {e}"))
 }
 
+/// "Open in VS Code" on a notebook: opens a notebook file, or a folder of notebooks, in VS Code
+/// (or VS Code Insiders). Only an existing .ipynb file or folder, so a page can't open anything else.
+#[tauri::command]
+fn open_in_vscode(path: String, insiders: bool) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    let notebook = p.is_file() && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("ipynb"));
+    if !(notebook || p.is_dir()) || !p.is_absolute() {
+        return Err(format!("Not a notebook or folder: {path}"));
+    }
+    let link = vscode_link::open_link(&p, insiders)?;
+    open_with_handler(&link, if insiders { "VS Code Insiders. Is it installed?" } else { "VS Code. Is it installed?" })
+}
+
 /// "Add to VS Code" (Settings > Integrations): asks VS Code, or VS Code Insiders, to add the
 /// KratosForge MCP server for a connected tool. VS Code shows the entry and asks before adding it.
 /// The link is built here from the id and the launcher's fixed path (vscode_link.rs).
@@ -1878,7 +1891,7 @@ fn main() {
         .on_window_event(on_window_event)
         .invoke_handler(tauri::generate_handler![
             rpc, stop_kernel, check_components, check_for_update, update_sidecar, update_app,
-            fabric_view_show, fabric_view_hide, fabric_view_action, open_doc, fabric_view_sign_out, open_link, add_to_vscode,
+            fabric_view_show, fabric_view_hide, fabric_view_action, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode,
             pop_out_open, pop_out_close, pop_out_on_top, pop_out_list, pop_out_open_in_fabric
         ])
         .run(tauri::generate_context!())

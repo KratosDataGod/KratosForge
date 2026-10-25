@@ -1,8 +1,9 @@
-// "Add to VS Code" in Settings > Integrations: the link VS Code's own MCP installer opens,
+// VS Code links the shell opens. "Add to VS Code" in Settings > Integrations: the link VS Code's own MCP installer opens,
 // vscode:mcp/install?<URL-encoded JSON server entry> (vscode-insiders: for Insiders). VS Code
 // shows the entry and asks before it adds it. The shell builds the whole link itself from a
 // client id and the launcher's fixed path, so the page can't make it open any other link.
-// Only std, so it is tested without a window or Windows.
+// "Open in VS Code" on a notebook: vscode://file/<path> (open_link). Only std, so it is tested
+// without a window or Windows.
 
 use std::path::Path;
 
@@ -58,6 +59,25 @@ pub fn install_link(launcher: &Path, client_id: &str, insiders: bool) -> Result<
     Ok(format!("{scheme}:mcp/install?{}", encode_component(&entry)))
 }
 
+/// The link that opens a notebook file, or a folder, in VS Code: vscode://file/<path>, with "\\"
+/// as "/" and everything but letters, digits, "/", ":" and "-_.~" percent-encoded.
+pub fn open_link(path: &Path, insiders: bool) -> Result<String, String> {
+    let text = path.to_str().ok_or("The path isn't valid text.")?.replace('\\', "/");
+    if !(text.starts_with('/') || text.as_bytes().get(1) == Some(&b':')) {
+        return Err("Only a full path can be opened in VS Code.".into());
+    }
+    let mut out = String::new();
+    for b in text.bytes() {
+        if b.is_ascii_alphanumeric() || b"/:-_.~".contains(&b) {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    let scheme = if insiders { "vscode-insiders" } else { "vscode" };
+    Ok(format!("{scheme}://file/{}", out.trim_start_matches('/')))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -99,6 +119,14 @@ mod tests {
         for bad in ["", "a\"b", "a b", "a&b", "x/../y", &"a".repeat(65)] {
             assert!(install_link(&launcher, bad, false).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn file_links_use_forward_slashes_and_encode_the_rest() {
+        let link = open_link(&PathBuf::from(r"C:\Users\Chris Smith\notebooks\Sales #1.ipynb"), false).unwrap();
+        assert_eq!(link, "vscode://file/C:/Users/Chris%20Smith/notebooks/Sales%20%231.ipynb");
+        assert_eq!(open_link(&PathBuf::from("/home/c/nb"), true).unwrap(), "vscode-insiders://file/home/c/nb");
+        assert!(open_link(&PathBuf::from("notebooks/x.ipynb"), false).is_err());
     }
 
     #[test]

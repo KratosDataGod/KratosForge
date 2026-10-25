@@ -53,10 +53,11 @@ function showGateError(err, title = "That was blocked") {
   }
 }
 
-async function metaCall(method, params, title) {
+async function metaCall(method, params, title, onError) {
   try {
     return await rpc(method, params);
   } catch (err) {
+    onError?.(err);
     showGateError(err, title);
     return undefined;
   }
@@ -808,8 +809,15 @@ async function renderEnvTab(body, p) {
         btn(`Promote to ${ENV_LABEL[target]}`, "publish", async () => {
           if (!state.user && !(await signIn())) return;
           toast(`Promoting to ${ENV_LABEL[target]}...`);
-          const res = await metaCall("meta_promote", { source, target }, "Promote blocked");
-          if (res) { toast(`${ENV_LABEL[target]} is now on metadata ${res.version}`, false, { log: true }); render(); }
+          let cancelled = false;
+          const res = await metaCall("meta_promote", { source, target }, "Promote blocked", (err) => { cancelled = friendlyError(err).cancelled; });
+          // Anvil Strike on the message once the target is on the new version; the ember beside the
+          // error when the promote fails, and nothing for a cancelled sign-in (motion.js).
+          if (res) {
+            toast(`${ENV_LABEL[target]} is now on metadata ${res.version}`, false, { log: true });
+            render();
+            forgeEvent("promote.succeeded", document.getElementById("toast"));
+          } else if (!cancelled) forgeEvent("promote.failed", document.getElementById("toast"));
         }, "tool primary small")),
       h("p", { class: "muted-text" }, "Needs the project to pass the save gate, its tests to pass, and every table's last run here to be green on this exact metadata version. Lakehouses that don't exist yet are created."),
       box, promoteImpact(source, target), lastRelease(target, render));

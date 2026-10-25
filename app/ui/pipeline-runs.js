@@ -1,7 +1,10 @@
 // Monitor > Runs: local pipeline runs (P3, Preview). A run's row opens to its activities, read
 // from that run's record on this PC when you open it (pipeline_run_status), never in the
 // background. A mocked activity says Mocked and a run with any mock says "Succeeded with mocks",
-// so a mocked run is never read as a real success. Fabric pipeline runs aren't listed here yet.
+// so a mocked run is never read as a real success. Pipeline runs in Fabric (Data Factory DF-1,
+// Preview) are listed too, from the job history of the pipelines in the workspaces Schedules lists;
+// their activities are read from Fabric when you open the row, never in the background. Both are
+// reads: no Fabric job starts and no capacity is used.
 
 const PIPELINE_TYPE_LABEL = {
   Copy: "Copy data", SetVariable: "Set variable", AppendVariable: "Append variable", ForEach: "ForEach",
@@ -41,6 +44,34 @@ function pipelineRunRows(runs) {
   });
 }
 
+// Fabric's job times often carry no zone; they are UTC.
+const fabricUtc = (iso) => (iso && !/(Z|[+-]\d\d:?\d\d)$/.test(iso) ? `${iso}Z` : iso);
+const FABRIC_RUN_STATUS = { succeeded: "ok", failed: "failed", running: "running", pending: "running", cancelled: "skipped", skipped: "skipped" };
+const FABRIC_INVOKE = { Scheduled: "scheduled", Manual: "started by hand", Pipeline: "started by a pipeline" };
+
+// Runs rows for pipeline runs in Fabric (fabric_pipeline_runs). A run this app started is already
+// listed from fabric_runs, so it isn't listed twice.
+function fabricPipelineRunRows(result, cloud) {
+  const ours = new Set((cloud || []).map((r) => r.job_id).filter(Boolean));
+  return (result?.runs || []).filter((run) => run.job_id && !ours.has(run.job_id)).map((run) => ({
+    at: fabricUtc(run.started), status: FABRIC_RUN_STATUS[run.state] || "unavailable",
+    pill: run.state === "cancelled" ? h("span", { class: "pill-s neu" }, "Cancelled") : undefined,
+    activity: run.name || "Pipeline", env: "", where: "fabric", ranOn: `Fabric · ${run.workspace_name || "workspace"}`,
+    kind: "Pipeline run in Fabric", note: FABRIC_INVOKE[run.invoke] || "",
+    reason: run.state === "failed" ? run.message || "" : "",
+    envWhy: "Pipeline runs in Fabric are listed by workspace, not by the project's environments",
+    seconds: run.seconds ?? "", rows: "—", pipelineRun: `fabric:${run.job_id}`, fabricRun: run,
+  }));
+}
+
+// What Runs says about the Fabric pipeline scan: still reading, or why nothing is listed.
+function fabricPipelineRunNote(result) {
+  if (!result) return "";
+  if (result.pending) return "Reading pipeline runs in Fabric...";
+  if (result.error) return `Pipeline runs in Fabric not shown: ${String(result.error).replace(/\.$/, "")}`;
+  return result.missed ? `Runs of ${result.missed} pipeline${result.missed === 1 ? "" : "s"} in Fabric couldn't be read` : "";
+}
+
 // After Runs is drawn again (Refresh, a filter, the pop-out's timer), the runs that were open read
 // their activities again, so a run still going shows where it has got to.
 function reopenPipelineRuns(list, rows) {
@@ -55,6 +86,12 @@ function reopenPipelineRuns(list, rows) {
 // Details opens the run view (pipelines.js), where Stop and Run again live; until that view is in
 // this build, a pipeline run's row only opens to its activities.
 function pipelineRunDetails(r) {
+  if (r.fabricRun) {
+    const run = r.fabricRun;
+    return h("button", { class: "tool small link", "aria-label": `Open ${r.activity} in Fabric`,
+      onclick: (e) => { e.stopPropagation(); openInFabric(fabricItemLink({ type: "DataPipeline", workspace_id: run.workspace_id, item_id: run.item_id })); } },
+    "Open in Fabric");
+  }
   if (typeof openPipelineRun !== "function") return null;
   return h("button", { class: "tool small link", "aria-label": `Details of ${r.activity}`,
     onclick: (e) => { e.stopPropagation(); openPipelineRun(r.pipelineRun); } }, "Details");
@@ -88,6 +125,7 @@ function pipelineChildRow(id, ...cells) {
 }
 
 async function showPipelineActivities(tr, r) {
+  if (r.fabricRun) { await showFabricActivities(tr, r); return; }
   const id = r.pipelineRun;
   const wait = pipelineChildRow(id, h("td", { colspan: "8", class: "muted-text small" }, "Loading activities..."));
   tr.after(wait);
@@ -135,6 +173,51 @@ function pipelineActivityRow(id, a, acts) {
       err?.message ? h("div", { class: "reason" }, err.message) : null),
     h("td", {}), h("td", {}), h("td", {}),
     h("td", { class: "n" }, a.seconds === null || a.seconds === undefined ? "—" : took(a.seconds)),
+    h("td", { class: "n" }, "—"),
+    h("td", {}));
+}
+
+// A Fabric pipeline run's activities, oldest first, read from Fabric when the row opens.
+async function showFabricActivities(tr, r) {
+  const id = r.pipelineRun;
+  const run = r.fabricRun;
+  const wait = pipelineChildRow(id, h("td", { colspan: "8", class: "muted-text small" }, "Reading activities from Fabric..."));
+  tr.after(wait);
+  let found = null;
+  let problem = "";
+  try {
+    found = await rpc("fabric_pipeline_activity_runs", { workspace_id: run.workspace_id, job_id: run.job_id,
+      started: run.started || "", ended: run.ended || "" });
+  } catch (err) {
+    problem = friendlyError(err).text;
+  }
+  if (!wait.isConnected || !pipelineRunsOpen.has(id)) return;
+  if (!found) {
+    wait.replaceWith(pipelineChildRow(id, h("td", { colspan: "8", class: "muted-text small" },
+      `Activities not loaded: ${problem || "Fabric didn't return them"}.`)));
+    return;
+  }
+  const acts = [...(found.activities || [])].sort((a, b) => String(a.started || "").localeCompare(String(b.started || "")));
+  const ran = acts.filter((a) => a.state !== "skipped").length;
+  tr.querySelector(".pl-summary")?.replaceWith(h("span", { class: "pl-summary" }, ` · ${ran} of ${acts.length} activities ran`));
+  wait.replaceWith(...(acts.length ? acts.map((a) => fabricActivityRow(id, a)) : [pipelineChildRow(id,
+    h("td", { colspan: "8", class: "muted-text small" }, run.state === "pending" || run.state === "running"
+      ? "No activity has started yet. Refresh to see them as they run." : "Fabric has no activity records for this run."))]));
+}
+
+// One activity of a Fabric run: status, name and type, its error, and its input and output on request.
+function fabricActivityRow(id, a) {
+  const shown = (label, part) => (part?.text ? h("details", { class: "pl-io" }, h("summary", {}, label),
+    h("pre", {}, part.text), part.truncated ? h("div", { class: "muted-text small" }, "Cut short: open the run in Fabric for all of it.") : null) : null);
+  return pipelineChildRow(id,
+    h("td", { class: "pl-indent" }, statusPill(FABRIC_RUN_STATUS[a.state] || a.state)),
+    h("td", { class: "pl-indent" },
+      h("div", {}, a.name, h("span", { class: "muted-text" }, ` · ${PIPELINE_TYPE_LABEL[a.type] || a.type}`),
+        a.retry ? h("span", { class: "muted-text" }, ` · retry ${a.retry}`) : null),
+      a.error?.message ? h("div", { class: "reason" }, [a.error.code, a.error.message].filter(Boolean).join(": ")) : null,
+      shown("Input", a.input), shown("Output", a.output)),
+    h("td", {}), h("td", {}), h("td", {}, a.started ? when(fabricUtc(a.started)) : ""),
+    h("td", { class: "n" }, a.ms === null || a.ms === undefined ? "—" : took(a.ms / 1000)),
     h("td", { class: "n" }, "—"),
     h("td", {}));
 }

@@ -950,7 +950,7 @@ async function renderMonitor() {
           : monitorPage.panel === "schedules" ? "Every schedule, on this PC and in Fabric, with how its last run went"
           : "Everything this app ran or started, in every environment, on this PC and in Fabric", " ", learnMore(op ? op.anchor : "monitor")),
         h("span", { class: "spacer" }),
-        op ? null : btn("Refresh", "sync", () => render(), "tool outline"),
+        op ? null : btn("Refresh", "sync", () => { monitorPage.fabricPipelinesRefresh = true; render(); }, "tool outline"),
         popOutButton("runs")),
       op ? h("div", { class: "monitor-filters", role: "group", "aria-label": "Operations" },
         h("span", { class: "muted-text small" }, "Show"),
@@ -982,12 +982,16 @@ async function renderMonitor() {
   if (monitorPage.panel === "queue") { local.replaceWith(queuePanel()); return; }
   if (monitorPage.panel === "runas") { local.replaceWith(runAsPanel()); return; }
 
-  const [writes, meta, cloud, scheduled, pipelines] = await Promise.all([
+  const refreshFabricPipelines = monitorPage.fabricPipelinesRefresh;
+  monitorPage.fabricPipelinesRefresh = false;
+  const [writes, meta, cloud, scheduled, pipelines, fabricPipelines] = await Promise.all([
     attempt(() => rpc("history")),
     rpc("meta_runs_all", { limit: 200 }).catch(() => ({ runs: [], unavailable: {} })),
     rpc("fabric_runs", { limit: 50 }).catch(() => []),  // not signed in yet
     rpc("pc_schedule_runs", { limit: 100 }).catch(() => []),
     previewShown() ? rpc("pipeline_runs", { limit: 50 }).catch((err) => ({ runs: [], error: friendlyError(err).text })) : { runs: [] },
+    previewShown() ? rpc("fabric_pipeline_runs", { refresh: refreshFabricPipelines })
+      .catch((err) => ({ runs: [], error: friendlyError(err).text })) : null,
   ]);
   if (state.view !== "monitor") return;
   const unavailable = Object.entries(meta.unavailable || {});
@@ -995,7 +999,15 @@ async function renderMonitor() {
     meta.project_error ? `Metadata runs not shown: the metadata project couldn't be read (${meta.project_error})` : "",
     ...unavailable.map(([env, why]) => `${ENV_LABEL[env]}: ${why}`),
     pipelines.error ? `Pipeline runs not shown: they couldn't be read (${pipelines.error.replace(/\.$/, "")})` : "",
+    fabricPipelineRunNote(fabricPipelines),
   ].filter(Boolean).join(" · ");
+  // The Fabric pipeline scan runs in the background: draw Runs again when it's done.
+  clearTimeout(monitorPage.fabricPipelinesTimer);
+  if (fabricPipelines?.pending) {
+    monitorPage.fabricPipelinesTimer = setTimeout(() => {
+      if (state.view === "monitor" && monitorPage.panel === "runs") { monitorPage.refreshing = true; render(); }
+    }, 2500);
+  }
   const rows = [
     ...(meta.runs || []).map((r) => ({
       at: r.started_at, status: r.status, activity: r.entity, kind: `Metadata run${r.backfill ? ` · backfill ${r.backfill}` : ""}`,
@@ -1017,6 +1029,7 @@ async function renderMonitor() {
       open: () => { monitorPage.panel = "schedules"; render(); },
     })),
     ...pipelineRunRows(pipelines.runs),
+    ...fabricPipelineRunRows(fabricPipelines, cloud),
     ...(writes || []).map((r) => ({
       at: r.finished_at, status: "ok", activity: r.job, kind: "Notebook write", env: "", where: "local",
       seconds: r.seconds, rows: r.rows, note: `${r.table_uri.split("/Tables/")[1] || r.table_uri} (${r.mode}, v${r.delta_version})`, reason: "",

@@ -189,12 +189,17 @@ class CloudMixin:
         doc = fabric_ipynb(fabric_cells or cells, lakehouse_ref, schemas)
         item_name = leaf_name(name)  # a notebook in a folder (notebook_folders) is named without it in Fabric
         self._fabric_name_free(name, ws)
+        target, note = self._published_item(name, ws["workspace_id"])
         if not replace_fabric_changes:
-            change = self._fabric_change(name, ws["workspace_id"], doc)
+            change = self._fabric_change(name, ws["workspace_id"], doc, target=(target,))
             if change and change["changed"]:
                 raise FabricChanged(f"{name} changed in Fabric after it was last published from here, so it wasn't "
                                     "published. Publish it from the notebook to see the changes and choose.")
-        item = self.fabric.save_notebook(ws["workspace_id"], item_name, json.dumps(doc).encode())  # type: ignore[attr-defined]
+        if target is not None:  # the item it published before (by id), or the one with its name
+            item = self.fabric.update_notebook(ws["workspace_id"], target, self._fabric_item_name(name, target),  # type: ignore[attr-defined]
+                                               json.dumps(doc).encode())
+        else:
+            item = self.fabric.save_notebook(ws["workspace_id"], item_name, json.dumps(doc).encode())  # type: ignore[attr-defined]
         if not item.get("id"):  # a create can come back without the item; look it up
             item = next((n for n in self.fabric.list_notebooks(ws["workspace_id"])  # type: ignore[attr-defined]
                          if n["displayName"] == item_name), item)
@@ -202,27 +207,32 @@ class CloudMixin:
             self._record_notebook_item(name, ws["workspace_id"], item["id"], ws["workspace_name"])  # type: ignore[attr-defined]
         if item.get("id"):
             try:
-                notebook_files.remember_published(Path(self.root) / "published", item["id"], ws["workspace_id"], doc)  # type: ignore[attr-defined]
+                notebook_files.remember_published(Path(self.root) / "published", item["id"], ws["workspace_id"], doc,  # type: ignore[attr-defined]
+                                                  name=item_name)
             except (OSError, ValueError) as exc:  # the publish happened; only the next change check is lost
                 _log.warning("Couldn't keep what was published for %r: %s", name, describe(exc))
         return {"name": name, "workspace_id": ws["workspace_id"], "workspace_name": ws["workspace_name"],
-                "id": item.get("id"),
+                "id": item.get("id"), "item_name": item.get("displayName") or item_name, "note": note,
                 "url": f"{FABRIC_APP}/groups/{ws['workspace_id']}/synapsenotebooks/{item.get('id')}"
                        "?experience=fabric-developer"}
 
-    def _fabric_change(self, name: str, workspace_id: str, doc: dict[str, Any] | None) -> dict[str, Any] | None:
+    def _fabric_change(self, name: str, workspace_id: str, doc: dict[str, Any] | None,
+                       target: tuple[dict[str, Any] | None] | None = None) -> dict[str, Any] | None:
         """How the notebook's Fabric item changed since this app last published it, or None when
-        that isn't known (never published from here, or the item is gone)."""
+        that isn't known (never published from here, or the item is gone). ``target``, when given,
+        is the item Publish writes, already looked up (_published_item)."""
         link = self.workload_store.links().get(name) if hasattr(self, "workload_store") else None  # type: ignore[attr-defined]
         if not link or link["workspace_id"] != workspace_id:
             return None
-        # Publish writes the item that has this name, so check that one: when it isn't the linked item
-        # (renamed in Fabric, and someone made another under this name), Publish would replace theirs.
-        try:
-            target = self._notebook_item(name, workspace_id)
-        except FabricError as exc:
-            raise RuntimeError(f"Couldn't check whether {name} changed in Fabric ({describe(exc)}), so it wasn't "
-                               "published. Try again.") from exc
+        # Check the item Publish writes: the linked one while it is there; when it is gone, the one with
+        # this name, and if someone else made that one, Publish would replace theirs.
+        if target is None:
+            try:
+                target = (self._published_item(name, workspace_id)[0],)
+            except FabricError as exc:
+                raise RuntimeError(f"Couldn't check whether {name} changed in Fabric ({describe(exc)}), so it wasn't "
+                                   "published. Try again.") from exc
+        target = target[0]
         if target is None:
             return None  # Publish makes a new item; nothing is replaced
         if target["id"] != link["item_id"]:
@@ -362,6 +372,28 @@ class CloudMixin:
                     out["tables"].append({"table": table, "v_ordered": None, "message": describe(exc)})
         return out
 
+    def _published_item(self, name: str, workspace_id: str) -> tuple[dict[str, Any] | None, str]:
+        """The Fabric item Publish writes for notebook ``name`` (PB-018), and a note to show. It is the
+        item this app recorded for it in that workspace, found by id so a rename here or in Fabric
+        doesn't make a second item. When that one was deleted, it is the notebook with its name (None:
+        Publish creates one). With no recorded item it is None, and save_notebook matches by name as before."""
+        link = self.workload_store.links().get(name) if hasattr(self, "workload_store") else None  # type: ignore[attr-defined]
+        if link and link.get("workspace_id") == workspace_id and link.get("item_id"):
+            item = self.fabric.get_notebook(workspace_id, link["item_id"])  # type: ignore[attr-defined]
+            if item is not None:
+                return item | {"id": link["item_id"]}, ""
+            found = self._notebook_item(name, workspace_id)
+            return found, ("" if found else f"The Fabric notebook {name} was published to before was deleted, "
+                                            "so a new one was made.")
+        return None, ""
+
+    def _fabric_item_name(self, name: str, item: dict[str, Any]) -> str:
+        """The name to give ``item`` on publish: the notebook's (without its folders) when it was renamed
+        here since it was last published to that item, else the item's own, so a rename in Fabric stays."""
+        last = notebook_files.published(Path(self.root) / "published", item["id"]) or {}  # type: ignore[attr-defined]
+        local = leaf_name(name)
+        return local if last.get("name") and last["name"] != local else item.get("displayName") or local
+
     def _notebook_item(self, name: str, workspace_id: str) -> dict[str, Any] | None:
         """The notebook item Publish writes: the one named after the notebook, without its folders."""
         item_name = leaf_name(name)
@@ -384,7 +416,7 @@ class CloudMixin:
     def notebook_schedules(self, name: str, lakehouse_ref: dict[str, str] | None = None,
                            workspace: dict[str, str] | None = None) -> dict[str, Any]:
         ws = self._publish_workspace(name, lakehouse_ref, workspace)
-        item = self._notebook_item(name, ws["workspace_id"])
+        item = self._published_item(name, ws["workspace_id"])[0] or self._notebook_item(name, ws["workspace_id"])
         if item is None:
             return {"published": False, "schedules": [], "workspace_id": ws["workspace_id"],
                     "workspace_name": ws["workspace_name"]}
@@ -408,7 +440,7 @@ class CloudMixin:
     def delete_notebook_schedule(self, name: str, schedule_id: str, lakehouse_ref: dict[str, str] | None = None,
                                  workspace: dict[str, str] | None = None) -> dict[str, Any]:
         ws = self._publish_workspace(name, lakehouse_ref, workspace)
-        item = self._notebook_item(name, ws["workspace_id"])
+        item = self._published_item(name, ws["workspace_id"])[0] or self._notebook_item(name, ws["workspace_id"])
         if item is None:
             raise LookupError(f"{name} isn't published in {ws['workspace_name'] or 'that workspace'}")
         self.fabric_jobs.delete_schedule(ws["workspace_id"], item["id"], NOTEBOOK_JOB, schedule_id)  # type: ignore[attr-defined]

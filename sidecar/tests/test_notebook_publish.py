@@ -28,6 +28,12 @@ class FakeFabric:
     def list_notebooks(self, ws):
         return [v for (w, _), v in self.items.items() if w == ws]
 
+    def get_notebook(self, ws, item_id):
+        return next((v | {"workspaceId": w} for (w, _), v in self.items.items() if w == ws and v["id"] == item_id), None)
+
+    def update_notebook(self, ws, item, name, ipynb):
+        return self.save_notebook(ws, name, ipynb)
+
     def get_item_definition(self, ws, item_id, fmt=None):
         # What Publish checks first: the item as last saved (nobody edits it in Fabric here).
         nb = next(n for w, name, n in reversed(self.saved) if w == ws and self.items[(w, name)]["id"] == item_id)

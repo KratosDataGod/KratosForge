@@ -168,7 +168,7 @@ on quality.
 | [FEAT-FAB-02](#feat-fab-02) | Workspaces page and item listing | Implemented | Partially Verified | Workspaces | Keep; offer actions beyond Open for non-lakehouse items when their workstreams add them. |
 | [FEAT-FAB-03](#feat-fab-03) | Create lakehouses | Implemented | Partially Verified | Create, Home, workspace page, command bar | Keep. |
 | [FEAT-FAB-05](#feat-fab-05) | Embedded Fabric portal and Monitoring hub | Implemented | Unverified | Fabric, Monitor | Restrict in-view navigation to Fabric hosts and add cargo test to CI (PB-071). |
-| [FEAT-FAB-06](#feat-fab-06) | Publish notebooks to Fabric | Implemented | Partially Verified | Notebook ribbon > Publish to OneLake | Match the Fabric item by its recorded id, not display name, so a rename doesn't duplicate (PB-018). |
+| [FEAT-FAB-06](#feat-fab-06) | Publish notebooks to Fabric | Implemented | Partially Verified | Notebook ribbon > Publish to OneLake | Include publish after a rename in the tenant smoke test. |
 | [FEAT-FAB-07](#feat-fab-07) | Run in Fabric | Implemented | Partially Verified | Notebook ribbon (Runs on: Fabric) (Preview) | Offer Cancel in Monitor > Runs and the tray (PB-043) and include in the tenant smoke test. |
 | [FEAT-FAB-09](#feat-fab-09) | Fabric Environment items and Spark settings | Missing | Unverified | None | Plan with the Prove program's environment profiles (FD-109) once the package-source decision is made (PB-016). |
 | [FEAT-FAB-12](#feat-fab-12) | Fabric workspace Git integration | Planned | Unverified | None | Owned by the Git-native program (Phase 2). |
@@ -624,10 +624,10 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/fabric_run.py`, `sidecar/fabric_desktop/cloud_service.py`, `app/ui/app.js`
 - **Tests:** `sidecar/tests/test_notebook_publish.py`, `sidecar/tests/test_cloud.py`
 - **Docs:** [docs/notebooks.md](../notebooks.md)
-- **Known limitations:** Items matched by display name (fabric_api.py save_notebook). The setup cell pip-installs sqlglot in Fabric. notebooks.md says %%sql notebooks publish as Spark; code converts them (inference).
+- **Known limitations:** After the first publish, the item is matched by its recorded id (PB-018); not yet checked against a live tenant. The setup cell pip-installs sqlglot in Fabric. notebooks.md says %%sql notebooks publish as Spark; code converts them (inference).
 - **Pull requests and issues:** [#31](https://github.com/KratosDataGod/KratosForge/pull/31)
 - **Backlog:** [PB-002](PRODUCT_BACKLOG.md#pb-002), [PB-018](PRODUCT_BACKLOG.md#pb-018), [PB-077](PRODUCT_BACKLOG.md#pb-077)
-- **Recommended next action:** Match the Fabric item by its recorded id, not display name, so a rename doesn't duplicate (PB-018).
+- **Recommended next action:** Include publish after a rename in the tenant smoke test.
 
 ### FEAT-FAB-07
 

@@ -1,6 +1,7 @@
 // Building a Direct Lake semantic model (docs/forge-animations.md): a Forge Spark on the "Created" or
 // "Updated" message once Fabric gives back the model, the failure ember beside the error when the
-// build fails, and nothing while the app asks whether to replace a model. Fabric is mocked.
+// build fails, and nothing while the app asks whether to replace a model or when the sign-in is
+// cancelled. Fabric is mocked.
 const { test, after } = require("node:test");
 const assert = require("node:assert");
 const { playwright, openApp } = require("./harness.cjs");
@@ -71,6 +72,15 @@ test("A build that fails shows the ember beside the error; asking to replace pla
   await asks.page.waitForTimeout(300);
   assert.deepStrictEqual(await asks.page.evaluate(() => window.__fx), []);
   assert.deepStrictEqual(asks.errors, []);
+});
+
+test("A build stopped by closing the sign-in window plays nothing", { skip }, async () => {
+  const { page, errors } = await open(() => { throw new Error("SignInCancelled: the sign-in window was closed"); });
+  await create(page);
+  await page.waitForTimeout(500);
+  assert.deepStrictEqual(await page.evaluate(() => window.__fx), []);
+  assert.strictEqual(await page.locator("#model-under-test .pass-box").count(), 0);
+  assert.deepStrictEqual(errors, []);
 });
 
 test("With motion Off the model is built with no effect", { skip }, async () => {

@@ -21,7 +21,7 @@ Status: Preview. Chris said go on 2026-10-24 and approved the mockup on 2026-10-
 | DF-4 | Schedule a pipeline on this PC (P6), rerun from the failed activity (P7) | Not started |
 | DF-5 | Connections tab: connections and gateways, what uses each one, and a check before a platform deploy | Connections tab in review; the deploy check comes with DF-8 |
 | DF-6 | Copy jobs: definition, diff, local run inside OneLake, run in Fabric, run history | Not started |
-| DF-7 | Dataflow Gen2: M code and destinations, diff, refresh in Fabric, refresh history | Not started |
+| DF-7 | Dataflow Gen2: M code and destinations, diff, refresh in Fabric, refresh history | Engine (reads) in review; Dataflows tab next; refresh later, behind a confirm and the risk check |
 | DF-8 | Deploy Data Factory items through the platform repository deploy, with connection and parameter mapping | Not started |
 | DF-9 | Spark notebook steps (P8), Delete, Web and the smaller rows (P9) | Not started |
 | DF-10 | Edit a pipeline in the app (P11) | Later |
@@ -61,3 +61,15 @@ One engine call, a read (listed in `audit.READ_ONLY`):
 Nothing from a credential is read: Fabric's list has only the credential type, and the connection's path passes through `redact.secrets`. The tab sits beside Pipelines on the Pipelines page. **Manage connections in Fabric** opens Fabric's page.
 
 Not in this slice: gateway names and status, which need `Gateway.Read.All`, a new scope that waits on Chris's OK. Dataflow connections are in their M code and come with DF-7. Checking that each target environment has the connections a deploy needs comes with DF-8's connection mapping.
+
+## DF-7 engine: Dataflow Gen2 from a workspace
+
+Three engine calls, all reads (listed in `audit.READ_ONLY`). None of them starts a refresh or uses capacity:
+
+- `workspace_dataflows(workspace_id)` lists a workspace's Dataflow Gen2 items by name: item id, name, description and folder.
+- `workspace_dataflow_definition(workspace_id, item_id, name)` reads one dataflow with getDefinition. It returns each Power Query (M) query from `mashup.pq` in document order, with its M code, whether it loads, whether it's hidden, and its destination. A destination has the kind (Lakehouse, Warehouse, Azure SQL database, KQL database), workspace, item, schema, table, update method (Replace or Append) and whether it makes a new table. These come from the query's `DataDestinations` attribute and the `_DataDestination` query that attribute names. The call also returns the connections from `queryMetadata.json`, with each `DatasourceId`, so they can be matched with the Connections tab, and the whole `mashup.pq`. A definition without `mashup.pq` (a Gen1 dataflow, say) comes back with `ok: false` and the reason, not an error.
+- `fabric_dataflow_refreshes(workspace_id, item_id, name)` lists the dataflow's newest 50 refreshes in the shape Monitor > Runs uses for pipeline runs.
+
+The M text is only read, never evaluated: there's no local M engine. It passes through `redact.secrets`, because a query can carry a key inline (a `Web.Contents` header, say). Nothing is written to disk. The parser lives in `orchestration/mashup.py`. It splits the section on top-level semicolons and skips strings, comments and nested brackets.
+
+Next comes the Dataflows tab (mockup board 3). Refresh in Fabric comes after that, behind a confirm and the risk check, and no live refresh runs without Chris's OK.

@@ -78,6 +78,8 @@ The app talks to these hosts over HTTPS (port 443). Allow them through your prox
 | Host | Used for |
 | --- | --- |
 | `github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com` | The update check and downloading the exe and the engine. Not needed after the engine is installed if `auto_update` is `false` |
+| `codeload.github.com` | Only for a build without a bundled engine (built from source): the engine's source download, which `github.com` redirects to |
+| `pypi.org`, `files.pythonhosted.org` | Installing Python packages: `%pip install` in notebooks and environments, and the engine's own packages for a build without a bundled engine. Your own package index instead, if pip is set up to use one |
 | `login.microsoftonline.com` | Sign-in |
 | `login.microsoft.com`, `login.windows.net`, `device.login.microsoftonline.com`, `autologon.microsoftazuread-sso.com`, `login.live.com` | Sign-in redirects in the Fabric pages embedded in the app (device checks, Seamless SSO, guests with a personal Microsoft account) |
 | `api.fabric.microsoft.com` | Fabric workspaces, items, jobs and schedules |

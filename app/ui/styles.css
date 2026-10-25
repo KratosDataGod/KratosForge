@@ -2189,3 +2189,13 @@ html[data-motion-level="0"] .mo-ghost { display: none; }
 .bp-findings, .bp-rows { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
 .bp-policy { margin-top: 10px; }
 .bp-policy.muted { opacity: 0.85; }
+
+/* Apache Ossie card on the Semantic model tab (meta.js ossieCard) */
+.ossie-card { display: flex; flex-direction: column; gap: 10px; }
+.ossie-export, .ossie-done { display: flex; flex-direction: column; gap: 10px; }
+.ossie-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.ossie-yaml { max-height: 240px; overflow: auto; margin: 0; padding: 10px 12px; background: #faf9f8; border: 1px solid var(--border-soft); border-radius: 6px; font-size: 12px; white-space: pre; }
+.ossie-import { display: flex; flex-direction: column; gap: 12px; }
+.dialog:has(.ossie-import) { max-width: 900px; }
+.ossie-preview { display: flex; flex-direction: column; gap: 8px; }
+.ossie-preview tr.warn-row { background: #fff8e6; }

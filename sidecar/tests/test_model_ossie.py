@@ -94,6 +94,11 @@ def test_export_reports_what_only_fabric_understands_and_writes_simple_measures_
     ("semantic_model: []\n", "older Ossie layout"),
     ("version: 0.1.0\nname: x\ndatasets: [{name: a, source: b}]\n", "version 0.1.0"),
     (f"version: {model_ossie.OSSIE_VERSION}\nname: x\ndatasets: []\n", "at least one dataset"),
+    # Nested aliases: a few hundred bytes that would expand to a model of about a gigabyte.
+    ("a0: &a0 [x, x, x, x, x, x, x, x, x, x]\n"
+     + "".join(f"a{i}: &a{i} [{', '.join([f'*a{i-1}'] * 10)}]\n" for i in range(1, 8))
+     + f"version: {model_ossie.OSSIE_VERSION}\nname: x\ndatasets: [{{name: t, source: s.t, ai_context: *a7}}]\n",
+     "YAML aliases"),
 ])
 def test_files_that_arent_ossie_are_refused_with_a_reason(text, says):
     with pytest.raises((ValueError, TypeError), match=says):
@@ -300,3 +305,17 @@ def test_merge_does_not_change_its_inputs():
     before = (copy.deepcopy(current), copy.deepcopy(incoming))
     model_ossie.merge(current, incoming, remove=["dim_customer"])
     assert (current, incoming) == before
+
+
+def test_a_file_too_large_to_be_a_model_is_refused_before_parsing(monkeypatch):
+    monkeypatch.setattr(model_ossie, "MAX_CHARS", 100)
+    with pytest.raises(ValueError, match="at most"):
+        model_ossie.parse(_ossie())
+
+
+def test_reading_a_project_file_refuses_what_import_would(svc):
+    project = svc._project()
+    (project.root / "semantic").mkdir()
+    (project.root / "semantic" / "notes.yaml").write_text("just: notes\n")
+    with pytest.raises(ValueError, match="version"):
+        svc.meta_model_ossie_read("semantic/notes.yaml")

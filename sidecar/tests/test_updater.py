@@ -276,24 +276,80 @@ def test_download_app_asks_for_kratosforge_exe_first(monkeypatch, tmp_path):
     assert not any("fabric-desktop.exe" in url for url, _ in seen)
 
 
-def test_install_sidecar_reinstalls_from_commit(monkeypatch):
-    calls = []
+def source_zip(constraints=True, extra=()):
+    """A GitHub source archive: one top folder holding sidecar/."""
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        top = f"KratosForge-{SHA}/"
+        zf.writestr(top + "README.md", "readme")
+        zf.writestr(top + "sidecar/pyproject.toml", "[project]\nname = 'fabric-desktop'\n")
+        if constraints:
+            zf.writestr(top + "sidecar/constraints.txt", "msal==1.39.0\n")
+        for name, data in extra:
+            zf.writestr(name, data)
+    return buf.getvalue()
+
+
+@pytest.fixture
+def archive(monkeypatch):
+    return serve(monkeypatch, {f"/archive/{SHA}.zip": source_zip()})
+
+
+def test_install_sidecar_installs_the_commit_with_its_own_constraints(monkeypatch, archive):
+    """SH-9: the packages are the versions in that commit's constraints.txt, read from the one
+    archive the updater downloads, so no other host is needed."""
+    calls, seen_files = [], []
+
+    def call(cmd, **kwargs):
+        calls.append(cmd)
+        seen_files.append((Path(cmd[-1]) / "pyproject.toml").is_file())
+        if "-c" in cmd:
+            seen_files.append(Path(cmd[cmd.index("-c") + 1]).read_text())
+        return 0
     monkeypatch.setattr(updater, "load_error", lambda: None)
-    monkeypatch.setattr(updater.subprocess, "call", lambda cmd, **kwargs: calls.append(cmd) or 0)
+    monkeypatch.setattr(updater.subprocess, "call", call)
     assert updater.install_sidecar(SHA) == 0
-    url = f"https://github.com/KratosDataGod/KratosForge/archive/{SHA}.zip#subdirectory=sidecar"
-    assert calls[0][-1] == url and "--force-reinstall" not in calls[0]
-    assert calls[1][-3:] == ["--force-reinstall", "--no-deps", url]
+    assert [url for url, _ in archive] == [f"https://github.com/KratosDataGod/KratosForge/archive/{SHA}.zip"]
+    source = calls[0][-1]
+    assert Path(source).name == "sidecar" and "--force-reinstall" not in calls[0]
+    assert calls[0][-3:-1] == ["-c", str(Path(source) / "constraints.txt")]
+    assert calls[1][-4:] == ["--quiet", "--force-reinstall", "--no-deps", source]
+    assert seen_files == [True, "msal==1.39.0\n", True]
+    assert not Path(source).exists()  # the download is removed afterwards
 
 
-def test_install_sidecar_stops_on_failure(monkeypatch):
+def test_install_sidecar_refuses_a_download_without_constraints(monkeypatch, capsys):
+    serve(monkeypatch, {f"/archive/{SHA}.zip": source_zip(constraints=False)})
+    calls = []
+    monkeypatch.setattr(updater.subprocess, "call", lambda cmd, **kwargs: calls.append(cmd) or 0)
+    assert updater.install_sidecar(SHA) == 1
+    assert calls == [] and "constraints.txt" in capsys.readouterr().out
+
+
+def test_install_sidecar_unpacks_only_the_sidecar_folder(monkeypatch, tmp_path):
+    serve(monkeypatch, {f"/archive/{SHA}.zip": source_zip(extra=[("../outside.txt", "x")])})
+    (tmp_path / "d").mkdir()
+    source = updater.download_sidecar(SHA, str(tmp_path / "d"))
+    assert sorted(p.name for p in source.iterdir()) == ["constraints.txt", "pyproject.toml"]
+    assert not (tmp_path / "outside.txt").exists() and not (source.parent / "README.md").exists()
+
+
+def test_install_sidecar_offline_says_so(monkeypatch, capsys):
+    serve(monkeypatch, {"github": OSError("no network")})
+    assert updater.install_sidecar(SHA) == 1
+    assert "no network" in capsys.readouterr().out
+
+
+def test_install_sidecar_stops_on_failure(monkeypatch, archive):
     calls = []
     monkeypatch.setattr(updater.subprocess, "call", lambda cmd, **kwargs: calls.append(cmd) or 1)
     assert updater.install_sidecar(SHA) == 1
     assert len(calls) == 1
 
 
-def test_install_sidecar_fails_when_it_does_not_start(monkeypatch, capsys):
+def test_install_sidecar_fails_when_it_does_not_start(monkeypatch, capsys, archive):
     monkeypatch.setattr(updater.subprocess, "call", lambda cmd, **kwargs: 0)
     monkeypatch.setattr(updater, "load_error", lambda: "ModuleNotFoundError: No module named 'fabric_desktop.meta'")
     assert updater.install_sidecar(SHA) == 1
@@ -384,7 +440,7 @@ def test_sidecar_packages_follows_dependencies():
     assert {"fabric-desktop", "pyarrow", "polars", "cryptography"} <= names
 
 
-def test_install_sidecar_reports_blocked_files(monkeypatch, capsys):
+def test_install_sidecar_reports_blocked_files(monkeypatch, capsys, archive):
     blocked = {"packages": {"pyarrow": ["pyarrow/lib.pyd"]}, "by": "policy", "smart_app_control": None, "location": "x"}
     monkeypatch.setattr(updater.subprocess, "call", lambda cmd, **kwargs: 0)
     monkeypatch.setattr(updater, "load_error", lambda: "ImportError: DLL load failed while importing lib")

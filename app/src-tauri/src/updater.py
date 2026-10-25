@@ -73,6 +73,26 @@ def sidecar_url(commit: str) -> str:
     return f"https://github.com/{REPO}/archive/{commit}.zip#subdirectory=sidecar"
 
 
+def download_sidecar(commit: str, folder: str) -> Path:
+    """That commit's sidecar/ folder, downloaded once and unpacked into folder. Its constraints.txt
+    holds the exact package versions that commit was tested with (SH-9)."""
+    import zipfile
+    archive = Path(folder) / "source.zip"
+    with _get(sidecar_url(commit).split("#", 1)[0], timeout=120) as resp, open(archive, "wb") as out:
+        while chunk := resp.read(1 << 20):
+            out.write(chunk)
+    with zipfile.ZipFile(archive) as zf:
+        # GitHub's archives hold one top folder, <repo>-<commit>/.
+        members = [m for m in zf.namelist() if m.split("/")[1:2] == ["sidecar"]]
+        if not members:
+            raise ValueError("the download has no sidecar folder")
+        zf.extractall(folder, members)  # zipfile drops ".." and absolute parts of names
+    source = Path(folder) / members[0].split("/", 1)[0] / "sidecar"
+    if not (source / "constraints.txt").is_file():
+        raise ValueError("the download has no sidecar/constraints.txt")
+    return source
+
+
 def installed_sidecar() -> dict:
     """Version of the installed sidecar and the commit it was installed from, when known."""
     from importlib import metadata
@@ -307,19 +327,25 @@ def latest() -> dict:
 
 
 def install_sidecar(commit: str) -> int:
-    url = sidecar_url(commit)
-    pip = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--progress-bar", "off"]
-    # The first install brings in any new dependencies. The second replaces the
-    # package itself even when its version string has not changed; it is quiet,
-    # because it would print the same collecting and building lines again.
-    steps = [("Installing the engine's packages", [url]),
-             (f"Installing engine build {commit[:7]}", ["--quiet", "--force-reinstall", "--no-deps", url])]
-    for title, args in steps:
-        print(f"== {title}", flush=True)
-        code = subprocess.call(pip + args, stdout=sys.stdout, stderr=subprocess.STDOUT,
-                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        if code:
-            return code
+    print(f"== Downloading engine build {commit[:7]}", flush=True)
+    with tempfile.TemporaryDirectory() as folder:
+        try:
+            source = str(download_sidecar(commit, folder))
+        except Exception as exc:  # noqa: BLE001 - shown to the person as the reason
+            print(f"Couldn't download engine build {commit[:7]}: {exc}", flush=True)
+            return 1
+        pip = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--progress-bar", "off"]
+        # The first install brings in any new dependencies, at the versions in that commit's
+        # constraints.txt, which CI tested (SH-9). The second replaces the package itself even when
+        # its version string has not changed; it is quiet, because it would print the same lines again.
+        steps = [("Installing the engine's packages", ["-c", str(Path(source) / "constraints.txt"), source]),
+                 (f"Installing engine build {commit[:7]}", ["--quiet", "--force-reinstall", "--no-deps", source])]
+        for title, args in steps:
+            print(f"== {title}", flush=True)
+            code = subprocess.call(pip + args, stdout=sys.stdout, stderr=subprocess.STDOUT,
+                                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            if code:
+                return code
     error = load_error()
     if error:
         blocked = blocked_files()

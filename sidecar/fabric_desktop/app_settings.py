@@ -107,6 +107,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from . import jsonfile
 from .auth import MICROSOFT_CLIENT_ID
 
 CHANNELS = ("stable", "preview")
@@ -190,9 +191,17 @@ def user_path() -> Path:
 
 
 def _read(path: Path) -> dict[str, Any]:
+    """The person's own settings. A file that can't be parsed (a write cut short, a bad hand edit) is
+    moved aside as ``<name>.corrupt-<timestamp>`` rather than left for the next save to overwrite (QA-011)."""
     try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError):
+        data = json.loads(jsonfile.read_text(path).lstrip("\ufeff"))
+    except ValueError:  # UnicodeDecodeError too
+        try:
+            jsonfile.set_aside(path, then="your settings are back to their defaults until you change one")
+        except OSError:
+            pass
+        return {}
+    except OSError:
         return {}
     return {k: v for k, v in data.items() if k in DEFAULTS} if isinstance(data, dict) else {}
 
@@ -235,10 +244,7 @@ def _save_copy(saved: Path, text: str) -> None:
     try:
         if saved.exists() and saved.read_text(encoding="utf-8") == text:
             return
-        saved.parent.mkdir(parents=True, exist_ok=True)
-        tmp = saved.with_name(f"{saved.name}.{os.getpid()}.tmp")
-        tmp.write_text(text, encoding="utf-8")
-        os.replace(tmp, saved)
+        jsonfile.write_text(saved, text)
     except OSError:  # no copy this time; the policy itself still applies
         pass
 
@@ -516,9 +522,7 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
             user.pop(key, None)
         else:
             user[key] = new
-    path = user_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(user, indent=2), encoding="utf-8")
+    jsonfile.write_json(user_path(), user)  # readers see the old file or the new one, never half (QA-011)
     return load()
 
 

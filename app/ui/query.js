@@ -44,7 +44,8 @@ function loadQueryTabs(ref) {
   try {
     const saved = JSON.parse(localStorage.getItem(queryTabsKey(ref)));
     if (Array.isArray(saved) && saved.length) {
-      const tabs = saved.map((t) => ({ name: String(t.name), sql: String(t.sql), dialect: sqlDialect(t.dialect) }));
+      const tabs = saved.map((t) => ({ name: String(t.name), sql: String(t.sql), dialect: sqlDialect(t.dialect),
+        ...(t.file && typeof t.file.name === "string" ? { file: t.file } : {}) }));
       return wh ? tabs.map((t) => ({ ...t, dialect: ref.kind })) : tabs;
     }
   } catch { /* no saved tabs */ }
@@ -54,7 +55,7 @@ function loadQueryTabs(ref) {
 function saveQueryTabs() {
   try {
     localStorage.setItem(queryTabsKey(sqlPage.ref),
-      JSON.stringify(sqlPage.tabs.map((t) => ({ name: t.name, sql: t.sql, dialect: t.dialect || "spark" }))));
+      JSON.stringify(sqlPage.tabs.map((t) => ({ name: t.name, sql: t.sql, dialect: t.dialect || "spark", ...(t.file ? { file: t.file } : {}) }))));
     return true;
   } catch { return false; /* storage unavailable: tabs last for this session */ }
 }
@@ -632,29 +633,58 @@ function renderQuery() {
     insert: (text) => insertAtCursor(text),
     open: (name, text) => openTab(name, text),
   }) : null;
-  p.whRedraw = wh ? () => { whTree.draw(); if (here()) editor.refresh(); } : null;
+  // WH-06: saved and shared queries, on the explorer's Queries tab. A saved query opens in its own
+  // tab, or in the tab that already holds it.
+  const openSaved = (q) => {
+    const at = p.tabs.findIndex((t) => t.file?.place === q.place && t.file?.name === q.name);
+    if (at < 0) p.tabs.push({ name: q.title, sql: q.sql, dialect: tab.dialect,
+      file: { place: q.place, name: q.name, place_label: q.place_label, title: q.title, description: q.description || "",
+        warehouse: q.warehouse || "", version: q.version || "" } });
+    p.active = at < 0 ? p.tabs.length - 1 : at;
+    saveQueryTabs();
+    renderQuery();
+  };
+  const whSaved = wh ? whQueries(ref, { open: openSaved }) : null;
+  const saveQuery = async (asNew) => {
+    const file = await saveSqlQuery(ref, tab, asNew);
+    if (!file) return;
+    if (asNew || !tab.file) tab.name = file.title;
+    tab.file = file;
+    saveQueryTabs();
+    await sqlLoadQueries();
+    if (p.ref === ref && state.view === "query") renderQuery();
+  };
+  const asideView = wh && p.whAside === "queries" ? "queries" : "explorer";
+  const asideTab = (id, label) => h("button", { role: "tab", class: `sql-view${asideView === id ? " on" : ""}`, "aria-selected": String(asideView === id),
+    onclick: () => { p.whAside = id; renderQuery(); } }, label);
+  p.whRedraw = wh ? () => { whTree.draw(); whSaved.draw(); if (here()) editor.refresh(); } : null;
   const fabricLink = wh ? fabricItemLink({ type: ref.kind === "endpoint" ? "Lakehouse" : "Warehouse", workspace_id: ref.workspace_id, item_id: ref.item_id }) : null;
   setView(wh ? h("div", { class: "sql-page warehouse-page" },
     h("div", { class: "ribbon" }, h("div", { class: "toolbar" },
       btn("New SQL query", "add", addTab),
       btn("SQL from a template", "document", () => openSqlTemplates(ref, openTab, { draft: () => editor.text() })),
+      btn("Save query", "save", () => saveQuery(false), "tool", { title: tab.file ? `Save to ${tab.file.name} in ${tab.file.place === "mine" ? "My queries" : tab.file.place_label}` : "Save this tab as a .sql file in My queries or a Git repository" }),
+      tab.file ? btn("Save as new", null, () => saveQuery(true), "tool") : null,
       btn("Open in Fabric", "open", () => openInFabric(fabricLink)),
       h("span", { class: "spacer" }),
       h("span", { class: "muted-text" }, `Queries run in Fabric on ${ref.name} and use capacity. Only a query that reads runs here. `,
         learnMore("warehouse-queries-preview")))),
     h("div", { class: "nb-body" },
-      h("aside", { class: "explorer" }, h("div", { class: "explorer-head" }, "Explorer"),
-        h("div", { class: "tree-row", style: "margin:4px 8px 0;font-weight:600;cursor:default" },
+      h("aside", { class: "explorer" }, h("div", { class: "explorer-head sql-views", role: "tablist", "aria-label": "Explorer views" },
+        asideTab("explorer", "Explorer"), asideTab("queries", "Queries")),
+        asideView === "queries" ? whSaved.el : null,
+        asideView === "queries" ? null : h("div", { class: "tree-row", style: "margin:4px 8px 0;font-weight:600;cursor:default" },
           itemIcon(ref.kind === "endpoint" ? "SQLEndpoint" : "Warehouse", 16), h("span", { class: "label" }, ref.name), previewTag()),
-        h("div", { class: "tree-row muted", style: "cursor:default" }, ref.kind === "endpoint" ? "SQL analytics endpoint" : "Warehouse",
+        asideView === "queries" ? null : h("div", { class: "tree-row muted", style: "cursor:default" }, ref.kind === "endpoint" ? "SQL analytics endpoint" : "Warehouse",
           ref.workspace_name ? ` · ${ref.workspace_name}` : ""),
-        whTree.el,
+        asideView === "queries" ? null : whTree.el,
         h("div", { class: "warehouse-how" }, howItWorks("warehouse.query", {
           reads: "The warehouse's SQL connection, from Fabric, then the rows your query asks for. The explorer reads the warehouse's catalog views (sys.objects, sys.columns) the same way. It signs in as you, with a token for Azure SQL.",
           changes: "Nothing. Only a single statement that reads is sent; DDL, DML, EXEC and variables are refused before Fabric is asked.",
           results: "A snapshot of the rows on this PC, read a page at a time, with Copy and Export to Downloads. The query text stays on this PC.",
           more: [["Capacity", "The query runs in Fabric, so it uses capacity on the warehouse's workspace."],
-            ["Your templates", "Saving, importing or deleting a template of your own writes or removes a .sql file in My templates (the app's data folder) or in the sql-templates folder of a Git repository you opened. Export writes a new file in Downloads."]],
+            ["Your templates", "Saving, importing or deleting a template of your own writes or removes a .sql file in My templates (the app's data folder) or in the sql-templates folder of a Git repository you opened. Export writes a new file in Downloads."],
+            ["Saved queries", "Save query writes the tab to a .sql file in My queries (the app's data folder) or in the sql-queries folder of a Git repository you opened; Delete removes that file. Nothing is committed for you."]],
           anchor: "warehouse-queries-preview" }))),
       h("section", { class: "sql-main" }, tabs,
         h("div", { class: "sql-card" }, actions, h("div", { class: "sql-editor-row" }, edit, compat), band, grid))))

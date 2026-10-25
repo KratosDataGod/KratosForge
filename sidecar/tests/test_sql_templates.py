@@ -26,6 +26,13 @@ def test_a_template_file_reads_back_as_it_was_saved():
     assert st.parse("-- title: A\n-- endpoint: no\n-- a comment that is part of the SQL\nSELECT 1")["sql"].startswith("-- a comment")
 
 
+
+def test_comments_at_the_top_of_the_sql_stay_the_sqls():
+    sql = "-- Description: old notes\n-- group: not a header\nSELECT 1;"
+    meta = {"title": "Kept", "group": "Mine", "description": "", "endpoint": False, "sql": sql}
+    assert st.parse(st.render(meta), "x") == meta
+    assert st.parse(st.render(st.parse(st.render(meta))), "x") == meta, "a second save keeps them too"
+
 def test_problems_are_said_before_anything_is_written():
     assert st.problem({"title": "", "sql": SQL}) == "Give the template a title."
     assert "one line" in st.problem({"title": "a\nb", "sql": SQL})

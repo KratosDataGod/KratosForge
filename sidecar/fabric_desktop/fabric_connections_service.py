@@ -1,0 +1,156 @@
+"""Connections for the Data Factory page (DF-5, engine half): read-only.
+
+``fabric_connections`` lists the cloud and gateway connections the signed-in person can use and works
+out what uses each one from the pipeline and copy job definitions in each environment's workspace
+(``externalReferences.connection`` anywhere in a definition). A reference to a connection the person
+can't use (deleted, or not shared with them) is listed under ``missing``: that's what breaks a run or
+a deploy. The scan runs in the background, like Fabric schedules: ``{"pending": True}`` until it's
+done. KratosForge never stores, creates or changes a connection or its credentials; nothing from a
+credential is read (Fabric's list has none), and the connection's path passes through redact.secrets.
+See docs/orchestration/data-factory.md.
+"""
+
+from __future__ import annotations
+
+import base64
+import binascii
+import datetime as dt
+import json
+import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any
+
+from .auth import CONNECTION_SCOPES
+from .fabric_api import FabricClient
+from .redact import describe, secrets
+
+_log = logging.getLogger(__name__)
+
+ENV_ORDER = ("dev", "test", "prod")
+# Items whose definitions name connections. Dataflows keep theirs in their M code (DF-7).
+ITEM_TYPES = {"DataPipeline": "pipeline", "CopyJob": "copy job"}
+MAX_ITEMS = 500  # definitions read in one scan
+
+
+def connection_ids(value: Any) -> set[str]:
+    """Every ``externalReferences.connection`` in a definition, nested activities included."""
+    found: set[str] = set()
+    stack = [value]
+    while stack:
+        v = stack.pop()
+        if isinstance(v, dict):
+            ref = v.get("externalReferences")
+            if isinstance(ref, dict) and isinstance(ref.get("connection"), str) and ref["connection"].strip():
+                found.add(ref["connection"].strip().lower())
+            stack.extend(v.values())
+        elif isinstance(v, list):
+            stack.extend(v)
+    return found
+
+
+def definition_parts(result: dict[str, Any]) -> list[Any]:
+    """The JSON parts of a getDefinition result; parts that aren't JSON are left out."""
+    out = []
+    for part in ((result or {}).get("definition") or {}).get("parts") or []:
+        try:
+            out.append(json.loads(base64.b64decode(part.get("payload") or "").decode("utf-8")))
+        except (binascii.Error, UnicodeDecodeError, ValueError):
+            continue
+    return out
+
+
+def connection_row(c: dict[str, Any]) -> dict[str, Any]:
+    details = c.get("connectionDetails") or {}
+    cred = c.get("credentialDetails") or {}
+    return {"id": str(c.get("id") or "").lower(), "name": c.get("displayName") or c.get("id") or "",
+            "type": details.get("type") or "", "path": secrets(str(details.get("path") or "")),
+            "connectivity": c.get("connectivityType") or "", "gateway_id": c.get("gatewayId") or "",
+            "privacy": c.get("privacyLevel") or "", "credential_type": cred.get("credentialType") or "",
+            "used_by": []}
+
+
+class FabricConnectionsMixin:
+    _fabric_connections: dict[str, Any] | None = None
+    _fabric_connections_lock = threading.Lock()
+
+    def fabric_connections(self, refresh: bool = False) -> dict[str, Any]:
+        """Connections and what uses them, from a background scan ({"pending": True} meanwhile). Reads only."""
+        with self._fabric_connections_lock:
+            cached = self._fabric_connections
+            if cached is not None and not refresh:
+                return dict(cached)
+            if cached and cached.get("pending"):
+                return dict(cached)  # a scan is already going
+            try:
+                # Both tokens here: MSAL isn't thread-safe. Connection.Read.All is asked for once.
+                token = self.auth.fabric_token()  # type: ignore[attr-defined]
+                conn_token = self.auth._token(CONNECTION_SCOPES)  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001
+                self._fabric_connections = {"pending": False, "connections": [], "missing": [], "error": describe(exc)}
+            else:
+                self._fabric_connections = {"pending": True, "connections": [], "missing": []}
+                threading.Thread(target=self._scan_fabric_connections, args=(token, conn_token), daemon=True).start()
+            return dict(self._fabric_connections)
+
+    def _connection_workspaces(self, token: str) -> list[dict[str, str]]:
+        """Each environment's workspace (dev, test, prod first), else the workspaces Schedules lists."""
+        listed = {w["id"]: w["displayName"] for w in FabricClient(lambda: token).list_workspaces()}
+        try:
+            envs = dict(self._project().environments)  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001
+            _log.info("No metadata project; connections are checked in the Schedules workspaces: %s", describe(exc))
+            envs = {}
+        order = sorted(envs, key=lambda e: (ENV_ORDER.index(e) if e in ENV_ORDER else len(ENV_ORDER), e))
+        out = [{"id": envs[e]["workspace_id"], "name": listed[envs[e]["workspace_id"]], "env": e}
+               for e in order if (envs[e] or {}).get("workspace_id") in listed]
+        if out:
+            return out
+        return [{**w, "env": ""} for w in self._schedule_workspaces(False, token)]  # type: ignore[attr-defined]
+
+    def _scan_fabric_connections(self, token: str, conn_token: str) -> None:
+        client = FabricClient(lambda: token)
+        try:
+            rows = {r["id"]: r for r in map(connection_row, FabricClient(lambda: conn_token).list_connections())}
+            workspaces = self._connection_workspaces(token)
+        except Exception as exc:  # noqa: BLE001
+            self._set_connections({"pending": False, "connections": [], "missing": [], "error": describe(exc)})
+            return
+        missed: list[str] = []
+
+        def items(ws: dict[str, str]) -> list[dict[str, Any]]:
+            try:
+                return [{"workspace_id": ws["id"], "workspace_name": ws["name"], "env": ws["env"], "item_id": it.get("id") or "",
+                         "item_name": it.get("displayName") or "", "item_type": ITEM_TYPES[it["type"]]}
+                        for it in client.list_items(ws["id"]) if it.get("type") in ITEM_TYPES]
+            except Exception as exc:  # noqa: BLE001
+                missed.append(f"items in workspace {ws['id']}: {describe(exc)}")
+                return []
+
+        def uses(it: dict[str, Any]) -> tuple[dict[str, Any], set[str]]:
+            try:
+                parts = definition_parts(client.get_item_definition(it["workspace_id"], it["item_id"]))
+            except Exception as exc:  # noqa: BLE001
+                missed.append(f"definition of {it['item_id']}: {describe(exc)}")
+                return it, set()
+            return it, connection_ids(parts)
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            found = [it for chunk in pool.map(items, workspaces) for it in chunk]
+            used = list(pool.map(uses, found[:MAX_ITEMS]))
+        if missed:
+            _log.warning("Fabric connections: %d reads failed; the first was %s", len(missed), missed[0])
+        missing: dict[str, dict[str, Any]] = {}
+        for it, ids in used:
+            for cid in sorted(ids):
+                target = rows.get(cid) or missing.setdefault(cid, {"id": cid, "used_by": []})
+                target["used_by"].append(it)
+        connections = sorted(rows.values(), key=lambda r: str(r["name"]).lower())
+        self._set_connections({"pending": False, "connections": connections, "missing": list(missing.values()),
+                               "workspaces": workspaces, "items": len(found), "skipped": max(0, len(found) - MAX_ITEMS),
+                               "missed": len(missed),
+                               "scanned": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")})
+
+    def _set_connections(self, value: dict[str, Any]) -> None:
+        with self._fabric_connections_lock:
+            self._fabric_connections = value

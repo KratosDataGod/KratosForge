@@ -5,7 +5,7 @@
 // view follows the run with Stop. The engine does the work (pipeline_service.py,
 // docs/orchestration/local-runs.md); nothing here starts anything in Fabric.
 
-const plPage = { pipeline: null, tab: "graph", selected: null, runId: null, run: null, runSelected: null };
+const plPage = { area: "pipelines", pipeline: null, tab: "graph", selected: null, runId: null, run: null, runSelected: null };
 // Run id -> the settings it started with, for "Run again with the same settings".
 const plStarts = new Map();
 
@@ -239,6 +239,7 @@ async function openPipeline(source, origin) {
   }
   closeDialog();
   plPage.pipeline = { source, origin, imp, compat: null, check: null };
+  plPage.area = "pipelines";
   plPage.tab = "graph";
   plPage.selected = null;
   go("pipelines");
@@ -265,15 +266,16 @@ function plPill(verdict) {
 }
 
 async function renderPipelines() {
+  if (plPage.area === "connections") return renderDfConnections();
   const p = plPage.pipeline;
   if (!p) {
-    setView(h("div", { class: "page" }, h("h1", {}, "Pipelines ", previewTag()),
+    setView(h("div", { class: "page" }, dfAreaTabs(), h("h1", {}, "Pipelines ", previewTag()),
       emptyState({ icon: "flow", title: "No pipeline open", text: "Open a Fabric pipeline to see what can run on this PC.",
         action: btn("Open a pipeline", "folderOpen", pipelineOpenDialog, "tool primary") })));
     return;
   }
   const body = h("div", { class: "pl-body" }, loading("Checking what can run here..."));
-  setView(h("div", { class: "page pipelines" },
+  setView(h("div", { class: "page pipelines" }, dfAreaTabs(),
     h("section", { class: "card pad pl-head" },
       h("div", { class: "pl-title" }, h("h1", {}, p.imp.name || "Pipeline", " ", previewTag()),
         h("p", { class: "muted-text" }, `From ${p.origin.label} · read-only here, edit it in Fabric or in your repository · `, learnMore("pipelines-preview"))),
@@ -691,7 +693,7 @@ function plDrawRun(help) {
       h("span", { class: "pl-track" }, act.started ? h("span", { class: `pl-bar ${color}`, style: `left:${bar.left}%;width:${bar.width}%` }) : null),
       h("span", { class: "n" }, act.started ? plTook(act.seconds) : "—"));
   };
-  setView(h("div", { class: "page pipelines" },
+  setView(h("div", { class: "page pipelines" }, dfAreaTabs(),
     h("section", { class: "card pad pl-head" },
       h("div", { class: "pl-title" }, h("h1", {}, r.pipeline, " ", plStatePill(r.state, mocked.length), " ", previewTag()),
         h("p", { class: "muted-text" }, [`Run ${r.run_id.slice(0, 8)} on this PC`, r.started ? `started ${new Date(r.started).toLocaleTimeString()}` : "",
@@ -738,5 +740,7 @@ registerFeature({
   views: { pipelines: renderPipelines, pipelineRun: renderPipelineRun },
   commands: [
     { label: "Open a pipeline", icon: "flow", keywords: "pipeline fabric data factory run local datapipeline", run: () => pipelineOpenDialog() },
+    { label: "Data Factory connections", icon: "flow", keywords: "connection gateway fabric data factory used by missing",
+      run: () => { plPage.area = "connections"; go("pipelines"); } },
   ],
 });

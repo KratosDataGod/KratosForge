@@ -121,6 +121,16 @@ def test_a_definition_without_m_says_why(svc):
     assert out["ok"] is False and out["queries"] == [] and "mashup.pq" in out["problems"][0]
 
 
+@pytest.mark.parametrize("meta", ["[1, 2]", "\"text\"", "3"])
+def test_query_metadata_that_isnt_an_object_still_reads_the_queries(svc, meta):
+    parts = [{"path": "queryMetadata.json", "payload": _b64(meta), "payloadType": "InlineBase64"},
+             {"path": "mashup.pq", "payload": _b64(MASHUP), "payloadType": "InlineBase64"}]
+    svc.fake.definition = {"definition": {"parts": parts}}
+    out = svc.workspace_dataflow_definition(WS, DF)
+    assert out["ok"] and len(out["queries"]) == 4 and out["connections"] == []
+    assert "queryMetadata.json" in out["problems"][0]
+
+
 def test_refreshes_newest_first_in_the_runs_shape(svc):
     out = svc.fabric_dataflow_refreshes(WS, DF, name="df_orders")
     assert [(r["job_id"], r["state"], r["seconds"], r["kind"]) for r in out["refreshes"]] == [

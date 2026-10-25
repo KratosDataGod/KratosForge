@@ -189,6 +189,16 @@ The page shows the pipeline's **Graph** (each column runs after the one before i
 
 **Run** stays off until every activity can run here or has a mock. The run view shows every activity on a time line, nested ones under their loop, branch or child pipeline, and the output and error of the one you click. **Stop** ends the run: nothing new starts and running steps stop. **Run again with the same settings** opens the Run dialog with the settings that run started with. No Fabric job starts; notebook steps write only to a temporary folder in the lakehouse, and OneLake reads and writes use a little capacity. Results can differ from Fabric: see [Local pipeline runs](orchestration/local-runs.md).
 
+### Data Factory dataflows (Preview)
+
+The **Dataflows** tab beside **Pipelines** lists the Dataflow Gen2 items in a workspace you pick. Opening one shows:
+
+- **Queries (M)**: each query's Power Query code and where it loads. Destination and helper queries are folded under **Hidden queries**.
+- **Destinations**: each query that loads somewhere, with the item kind, table and update method (Replace or Append), plus the connections the dataflow names.
+- **Refresh history**: the dataflow's refreshes in Fabric, newest first.
+
+The tab only reads: no Fabric job starts and no capacity is used. Dataflows run in Fabric only, because nothing outside Microsoft's services can run Power Query. To change a query, **Open in Fabric** opens Fabric inside the app. Starting a refresh from here comes later.
+
 ### Data Factory connections (Preview)
 
 The **Connections** tab beside **Pipelines** lists the Fabric connections you can use: name, type and gateway, never credentials. For each one, **Used by** names the pipelines and copy jobs that use it, with one column per environment (Dev, Test, Prod) showing where it's used. Without environments, the tab checks the workspaces Monitor > Schedules lists. When an item uses a connection you can't use (deleted, or not shared with you), it shows at the top as **Missing**, because that step fails when you run it. Someone who can use the connection, such as its owner's schedule, may still run it. The tab only reads: no Fabric job starts and no capacity is used. The first time, the app asks for permission to read your connections. **Manage connections in Fabric** opens Fabric's own page to add or fix a connection. KratosForge never creates or changes one. **Refresh** reads everything again.

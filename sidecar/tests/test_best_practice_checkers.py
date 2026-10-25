@@ -34,3 +34,21 @@ def test_scheduled_only_rules_arent_run_by_check_now():
     run = gc.run_rule("NB008", [{"kind": "notebook", "id": "n", "sources": ["%pip install x==1"]}],
                       gc.settings_for(gc.find_rule("NB008")[1], "", {}))
     assert run.get("not_run") is True
+
+
+def test_check_now_runs_notebook_rules_and_says_when_nothing_is_there_to_check(tmp_path):
+    from fabric_desktop.service import Service
+
+    svc = Service(root=tmp_path / "app")
+    svc.meta_init(str(tmp_path / "crm"), "3")
+    for pid, rule in (("collect", "NB003"), ("schemas", "SQ005")):
+        svc.governance_create({"id": pid, "name": pid, "category": "quality", "rule": rule})
+        svc.governance_publish(pid)
+        svc.governance_assign(pid, "enterprise")
+    svc.notebooks.save("nb_sales", [{"type": "code", "source": "rows = df.collect()"},
+                                    {"type": "markdown", "source": "df.collect()"}], None)
+    got = {p["id"]: p for p in svc.governance_check_now()["policies"]}
+    assert got["collect"]["status"] == "findings" and got["collect"]["checked"] == 1
+    assert [f["object"] for f in got["collect"]["findings"]] == ["nb_sales: cell 1, line 1"]
+    # Check now has no SQL scripts to give the SQL rules, so the policy isn't shown as passing.
+    assert got["schemas"]["status"] == "not_checked" and "(sql)" in got["schemas"]["note"]

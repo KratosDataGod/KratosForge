@@ -2815,6 +2815,7 @@ function startMain() {
   checkComponents().finally(() => {
     state.starting = false;
     listenForPopOuts();  // popout.js
+    listenForLinks();  // vscode.js: kratosforge:// links, once the engine is up
     navRestore();  // the page you were on last time, or Home
     render();
     attempt(async () => {

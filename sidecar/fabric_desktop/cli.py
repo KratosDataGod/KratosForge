@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import uuid
 
 from .server import main as serve
@@ -130,6 +131,10 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--runs-on", choices=["pc", "fabric"],
                    help="where it will run (default: the notebook's own Runs on, if it's set)")
     p.add_argument("--json", action="store_true", help="print the whole result as JSON")
+    p = nb_sub.add_parser("open", help="show an .ipynb file in KratosForge (a kratosforge:// link; nothing runs)")
+    p.add_argument("path", nargs="?", help="an .ipynb file in the notebooks folder or a notebooks repository")
+    p.add_argument("--path-from-env", metavar="NAME", help="read the file's path from this environment variable")
+    p.add_argument("--print", action="store_true", help="print the link instead of opening it")
     args = parser.parse_args(argv)
 
     if args.command == "mcp":
@@ -146,7 +151,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "pipeline":
         raise SystemExit(_pipeline(args))
     if args.command == "nb":
-        raise SystemExit(_nb_validate(args))
+        raise SystemExit(_nb_open(args) if args.nb_command == "open" else _nb_validate(args))
     if args.command == "serve":
         serve()
         return
@@ -305,6 +310,38 @@ def _live_test(args: argparse.Namespace) -> int:
     return {"passed": 0, "failed": 1}.get(result["outcome"], 2)
 
 
+def _path_arg(args: argparse.Namespace) -> str:
+    """The file an `nb` command names: its argument, or the variable --path-from-env names (VS Code's
+    tasks pass ${file} that way, so cmd.exe never reads a name such as a&b.ipynb)."""
+    import os
+
+    raw = os.environ.get(args.path_from_env, "") if args.path_from_env else (args.path or "")
+    if not raw:
+        print("Name an .ipynb file" + (f": {args.path_from_env} isn't set." if args.path_from_env else "."), file=sys.stderr)
+    return raw
+
+
+def _nb_open(args: argparse.Namespace) -> int:
+    """Asks Windows to open a kratosforge:// link for the file; the app shows it (deep_link.rs)."""
+    import os
+    from pathlib import Path
+    from urllib.parse import quote
+
+    raw = _path_arg(args)
+    if not raw:
+        return 2
+    path = Path(raw).resolve()
+    if path.suffix.lower() != ".ipynb" or not path.is_file():
+        print(f"{path} isn't an .ipynb file.", file=sys.stderr)
+        return 2
+    link = "kratosforge://notebook?path=" + quote(path.as_posix(), safe="")
+    if args.print or os.name != "nt":
+        print(link)
+        return 0
+    os.startfile(link)  # type: ignore[attr-defined]  # Windows only
+    return 0
+
+
 def _nb_validate(args: argparse.Namespace) -> int:
     """Validate's code checks on one file (validate.check), printed the way VS Code's problem
     matcher in .vscode/tasks.json reads them (vscode_setup.PROBLEM_PATTERN). Findings point at the
@@ -315,12 +352,8 @@ def _nb_validate(args: argparse.Namespace) -> int:
     from .notebook import from_ipynb
     from .service import data_dir
 
-    import os
-    import sys
-
-    raw = os.environ.get(args.path_from_env, "") if args.path_from_env else args.path
+    raw = _path_arg(args)
     if not raw:
-        print("Name an .ipynb file" + (f": {args.path_from_env} isn't set." if args.path_from_env else "."), file=sys.stderr)
         return 2
     path = Path(raw).resolve()
     try:
@@ -477,7 +510,6 @@ def _audit(args: argparse.Namespace) -> int:
 
 def _run_schedule(schedule_id: str, trigger: str) -> None:
     """No console and no one watching: log to a file, never open a sign-in window."""
-    import sys
 
     from .server import _log_file
     if sys.stdout is None or sys.stderr is None or sys.executable.lower().endswith("pythonw.exe"):

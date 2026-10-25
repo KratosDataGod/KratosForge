@@ -13,6 +13,7 @@ use serde_json::{json, Value};
 use tauri::webview::{NewWindowResponse, WebviewBuilder};
 use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
 
+mod deep_link;
 mod engine_patch;
 mod exe_name;
 mod policy_file;
@@ -53,6 +54,13 @@ fn auto_update_allowed() -> bool {
     policy_allows_updates(&policy_text())
 }
 
+/// Whether the app registers kratosforge:// links: only `"register_link_scheme": false` in the
+/// policy file stops it.
+fn policy_allows_link_scheme(text: &str) -> bool {
+    let value: Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).unwrap_or(Value::Null);
+    value.get("register_link_scheme").and_then(Value::as_bool) != Some(false)
+}
+
 fn policy_allows_updates(text: &str) -> bool {
     let value: Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).unwrap_or(Value::Null);
     value.get("auto_update").and_then(Value::as_bool) != Some(false)
@@ -89,7 +97,15 @@ fn dns_name(host: &str) -> bool {
 
 #[cfg(test)]
 mod policy_tests {
-    use super::policy_allows_updates;
+    use super::{policy_allows_link_scheme, policy_allows_updates};
+
+    #[test]
+    fn only_policy_false_stops_the_link_scheme() {
+        assert!(policy_allows_link_scheme(""));
+        assert!(policy_allows_link_scheme("{}"));
+        assert!(policy_allows_link_scheme(r#"{"register_link_scheme": "false"}"#));
+        assert!(!policy_allows_link_scheme(r#"{"register_link_scheme": false}"#));
+    }
 
     #[test]
     fn only_policy_false_stops_updates() {
@@ -1022,6 +1038,7 @@ impl update_guard::Handover for ExeHandover<'_> {
 
     fn spawn(&mut self) -> Result<(), String> {
         let _ = std::fs::remove_file(&self.marker);
+        INSTANCE.release(); // so the new exe claims it straight away
         self.child = Some(Command::new(&self.exe).args(["--updated-to", self.commit]).spawn().map_err(|e| e.to_string())?);
         if let Some(w) = self.app.get_webview_window("main") {
             let _ = w.hide();
@@ -1048,6 +1065,14 @@ impl update_guard::Handover for ExeHandover<'_> {
 
     fn resume(&mut self, engine_was_running: bool) {
         self.state.updating.store(false, Ordering::SeqCst);
+        // The new exe has ended (only then is an update undone); it may take a moment to let go.
+        let dir = data_dir();
+        for _ in 0..20 {
+            if INSTANCE.reclaim(&dir) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
         if engine_was_running {
             // So the restored window works straight away; if this fails, the next call retries.
             if let Ok(mut guard) = self.state.sidecar.lock() {
@@ -1893,7 +1918,89 @@ fn output_frame(webview: &str) -> tauri::http::Response<Vec<u8>> {
         .unwrap()
 }
 
+/// A kratosforge:// link the app was started with, waiting for the page to ask for it (the page
+/// isn't listening yet when the app starts).
+struct PendingLink(Mutex<Option<String>>);
+
+#[tauri::command]
+fn take_pending_link(state: tauri::State<'_, PendingLink>) -> Option<String> {
+    state.0.lock().ok().and_then(|mut l| l.take())
+}
+
+/// Shows a link from another copy of the app (deep_link.rs): brings the window forward and tells
+/// the page what to show. Nothing the link says is run.
+fn show_link(app: &tauri::AppHandle, link: deep_link::Link) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+    let _ = app.emit_to("main", "deep-link", link.to_json());
+}
+
+/// Makes Windows open kratosforge:// links with this exe, for this Windows user. Release builds
+/// only, so a developer build never takes the links over. An organization that doesn't want the
+/// links sets `"register_link_scheme": false` in its policy file; the app then removes its own
+/// registration instead.
+fn register_link_scheme() {
+    if !cfg!(windows) || cfg!(debug_assertions) {
+        return;
+    }
+    let Ok(exe) = std::env::current_exe() else { return };
+    let allowed = policy_allows_link_scheme(&policy_text());
+    std::thread::spawn(move || {
+        let steps = if allowed { deep_link::register_args(&exe.to_string_lossy()) } else { vec![deep_link::unregister_args()] };
+        for args in steps {
+            let mut cmd = Command::new(system_tool("reg.exe"));
+            cmd.args(&args);
+            hide_window(&mut cmd);
+            if let Err(e) = cmd.status() {
+                eprintln!("kratosforge:// links not registered: {e}");
+                return;
+            }
+        }
+    });
+}
+
+/// Makes this the one running copy of the app (deep_link::claim_instance), so two never share the
+/// sign-in cache and data. When another copy runs, hands it `url` (or just brings it to the front)
+/// and returns None: this copy stops. A copy started by an update waits for the old one to close.
+/// This copy's instance lock, kept for the life of the process except while an update hands over.
+static INSTANCE: deep_link::InstanceLock = deep_link::InstanceLock::new();
+
+fn claim_single_instance(url: Option<&str>, updating: bool) -> Option<Option<std::fs::File>> {
+    let dir = data_dir();
+    let tries = if updating { 240 } else { 20 }; // 60 s (the old copy lets go as it starts this one), or 5 s while the other copy starts listening
+    for _ in 0..tries {
+        match deep_link::claim_instance(&dir) {
+            Ok(Some(lock)) => return Some(Some(lock)),
+            Ok(None) if !updating && deep_link::forward(&dir, url.unwrap_or("kratosforge://")) => return None,
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(250)),
+            Err(e) => {
+                eprintln!("couldn't check for another copy of KratosForge: {e}");
+                return Some(None);
+            }
+        }
+    }
+    updating.then_some(None)
+}
+
 fn main() {
+    // A link is read before anything else: one that doesn't read as a link starts nothing.
+    let link = match deep_link::link_arg(&std::env::args().collect::<Vec<_>>()) {
+        Some(url) => match deep_link::parse(&url) {
+            Ok(parsed) => Some((url, parsed)),
+            Err(e) => {
+                eprintln!("not opened: {e}");
+                return;
+            }
+        },
+        None => None,
+    };
+    let Some(instance) = claim_single_instance(link.as_ref().map(|(url, _)| url.as_str()), updated_to_arg().is_some()) else {
+        return;
+    };
+    INSTANCE.hold(instance);
+    let pending = link.map(|(_, parsed)| parsed.to_json());
     if let Ok(exe) = std::env::current_exe() {
         // Left behind by an update. exe.old is not removed here: it is kept until this exe has
         // shown its window (check_components), so a build that can't start can be put back.
@@ -1901,12 +2008,21 @@ fn main() {
         let _ = std::fs::remove_file(exe.with_extension("exe.failed"));
     }
     tauri::Builder::default()
+        .manage(PendingLink(Mutex::new(pending)))
+        .setup(|app| {
+            let handle = app.handle().clone();
+            if let Err(e) = deep_link::listen(&data_dir(), move |link| show_link(&handle, link)) {
+                eprintln!("kratosforge:// links from other copies won't arrive: {e}");
+            }
+            register_link_scheme();
+            Ok(())
+        })
         .manage(SidecarState { sidecar: Mutex::new(None), child: Mutex::new(None), updating: Default::default(), installing: Default::default() })
         .register_uri_scheme_protocol(OUTPUT_SCHEME, |ctx, _| output_frame(ctx.webview_label()))
         .on_window_event(on_window_event)
         .invoke_handler(tauri::generate_handler![
             rpc, stop_kernel, check_components, check_for_update, update_sidecar, update_app,
-            fabric_view_show, fabric_view_hide, fabric_view_action, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode,
+            fabric_view_show, fabric_view_hide, fabric_view_action, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode, take_pending_link,
             pop_out_open, pop_out_close, pop_out_on_top, pop_out_list, pop_out_open_in_fabric
         ])
         .run(tauri::generate_context!())

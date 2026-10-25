@@ -69,7 +69,7 @@ async function renderDfConnections() {
   if (out.skipped) notes.push(`${out.skipped} more not read (limit reached)`);
   const alert = missing.length ? h("div", { class: "df-alert", role: "alert" },
     h("b", {}, missing.length === 1 ? "1 connection is missing." : `${missing.length} connections are missing.`), " ",
-    missing.map((m) => `${[...new Set(m.used_by.map((u) => u.item_name))].join(", ")} in ${[...new Set(m.used_by.map((u) => dfEnvLabel(u)))].join(", ")} use${m.used_by.length === 1 ? "s" : ""} a connection you can't use (deleted, or not shared with you). Those steps fail when they run.`).join(" ")) : null;
+    missing.map((m) => `${[...new Set(m.used_by.map((u) => u.item_name))].join(", ")} in ${[...new Set(m.used_by.map((u) => dfEnvLabel(u)))].join(", ")} use${m.used_by.length === 1 ? "s" : ""} a connection you can't use (deleted, or not shared with you), so ${m.used_by.length === 1 ? "it fails when you run it" : "they fail when you run them"}.`).join(" ")) : null;
   const rows = [...missing.map((m) => ({ ...m, missing: true })), ...(out.connections || [])];
   const table = rows.length ? h("div", { class: "card table-wrap" }, h("table", { class: "list df-conn-table" },
     h("thead", {}, h("tr", {}, h("th", {}, "Connection"), h("th", {}, "Type"), h("th", {}, "Gateway"), h("th", {}, "Used by"),

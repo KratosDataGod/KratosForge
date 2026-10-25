@@ -34,7 +34,7 @@ without a schema.
 
 ## Settings
 
-Each rule can be turned off or given another severity, which is how governance templates tune them:
+A governance policy can name these rules in **Checked by**, like `SQ001, SQ005` ([governance rules](governance.md#the-rules)). Each rule can be turned off or given another severity, which is how governance templates tune them:
 `{"SQ005": {"enabled": false}, "SQ002": {"severity": "Error"}}`.
 
 ## Engine methods

@@ -431,3 +431,6 @@ register("naming", lambda: [dict(r) for r in NAMING_RULES], naming_check)
 register("ownership", lambda: [dict(r) for r in OWNERSHIP_RULES], ownership_check)
 register("classification", lambda: [dict(r) for r in CLASSIFICATION_RULES], classification_check)
 register("contract", lambda: [dict(r) for r in CONTRACT_RULES], contract_check)
+
+# The notebook and SQL checkers (best_practice_checkers.py) register themselves on import.
+from . import best_practice_checkers  # noqa: F401

@@ -170,6 +170,19 @@ class ChecksMixin:
         data = self.meta_runs_all(limit=5000)  # type: ignore[attr-defined]
         return data.get("runs") or [], data.get("unavailable") or {}
 
+    def _gc_notebook_items(self, problems: list[str]) -> list[dict[str, Any]]:
+        """This PC's notebooks, their code cells' sources, for the notebook best-practice rules."""
+        out = []
+        for nb in self.notebooks.list():  # type: ignore[attr-defined]
+            try:
+                cells = self.notebooks.load(nb["name"])["cells"]  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001 - one unreadable notebook doesn't stop the others
+                problems.append(f"The notebook {nb['name']} couldn't be read, so it wasn't checked: {describe(exc)}")
+                continue
+            out.append({"kind": "notebook", "id": nb["name"], "scheduled": False,
+                        "sources": [c.get("source") or "" for c in cells if c.get("type", "code") == "code"]})
+        return out
+
     def _gc_product_items(self, project: Any, need_load: bool, need_trust: bool) -> list[dict[str, Any]]:
         pname = mesh.project_name(project)
         runs, unavailable = self._gc_runs() if need_load and project.products else ([], {})
@@ -202,6 +215,8 @@ class ChecksMixin:
             problems.append(f"The platform's catalog text couldn't be read, so only the text in the project's files was checked: {describe(exc)}")
         items = entity_items(project, saved) + self._gc_product_items(
             project, bool(wanted & _LOAD_RULES), bool(wanted & _TERMS_RULES))
+        if "notebook" in {found[0].kind for found in map(gc.find_rule, wanted) if found}:
+            items += self._gc_notebook_items(problems)
         policies = []
         for pol in resolved["policies"]:
             ids = gc.rule_ids(pol.get("rule"))
@@ -221,6 +236,8 @@ class ChecksMixin:
                 entry["passed"] += run["passed"]
                 entry["findings"] += run["findings"]
                 entry["unknown"] += run["unknown"]
+                if not run["checked"] and not run.get("disabled"):
+                    entry.setdefault("no_items", []).append(found[1]["kind"])
             note = (pol.get("exception") or {}).get("note")
             if note:
                 for f in entry["findings"] + entry["unknown"]:
@@ -230,11 +247,16 @@ class ChecksMixin:
                                else "findings" if entry["findings"]
                                else "unknown" if entry["unknown"]
                                else "not_run" if entry["not_run"] and not entry["checked"]
+                               else "not_checked" if entry.get("no_items") and not entry["checked"]
                                else "pass")
             if not ids:
                 entry["note"] = "Its Checked by field names no rule, so nothing checks it yet."
             elif entry["missing"]:
                 entry["note"] = f"No checker on this PC has the rule {', '.join(entry['missing'])}."
+            elif entry["status"] == "not_checked":
+                kinds = ", ".join(sorted(set(entry["no_items"])))
+                entry["note"] = f"Check now found nothing its rules check ({kinds}) in this project."
+            entry.pop("no_items", None)
             policies.append(entry)
         order = {"findings": 0, "unknown": 1, "excepted": 2, "not_run": 3, "not_checked": 4, "pass": 5}
         policies.sort(key=lambda p: (order[p["status"]], str(p["name"]).lower()))

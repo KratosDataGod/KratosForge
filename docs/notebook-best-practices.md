@@ -31,7 +31,7 @@ error. Scala, R and other `%%` cells are skipped, except `%%sql`.
 
 ## Settings
 
-Each rule can be turned off or given another severity, which is how governance templates tune them:
+A governance policy can name these rules in **Checked by**, like `NB003, NB006` ([governance rules](governance.md#the-rules)). Each rule can be turned off or given another severity, which is how governance templates tune them:
 `{"NB003": {"severity": "Error"}, "NB007": {"enabled": false}}`.
 
 ## Engine methods

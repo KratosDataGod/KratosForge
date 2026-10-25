@@ -106,6 +106,8 @@ def test_local_writes_says_whats_there_and_opens_only_its_own_folders(tmp_path, 
     temp = tmp_path / "temp"
     (temp / "tpch_abc").mkdir(parents=True)
     (temp / "tpch_abc" / "part0.duckdb").write_bytes(b"x" * 300)
+    (temp / "tpch_abc" / ".kratosforge").write_text("999999999")
+    (temp / "tpch_theirs").mkdir()  # another tool's: no marker
     (temp / "other").mkdir()
     monkeypatch.setattr(tf, "gettempdir", lambda: str(temp))
     shown = []
@@ -120,11 +122,11 @@ def test_local_writes_says_whats_there_and_opens_only_its_own_folders(tmp_path, 
     (spills / "write-1.arrow").write_bytes(b"y" * 100)
     w = svc.local_writes()
     assert (w["files"], w["bytes"]) == (1, 100) and w["uploading"]["files"] == 1
-    assert [t["folder"] for t in w["tpch"]] == [str(temp / "tpch_abc")] and w["tpch"][0]["bytes"] == 300
+    assert [t["folder"] for t in w["tpch"]] == [str(temp / "tpch_abc")] and w["tpch"][0]["bytes"] == 309
     assert svc.local_writes_reveal()["shown"] == str(svc.root / "staging")
     svc.local_writes_reveal(str(temp / "tpch_abc"))
     assert shown == [svc.root / "staging", temp / "tpch_abc"]
-    for other in (str(temp / "other"), str(tmp_path), "C:\\Windows"):
+    for other in (str(temp / "other"), str(temp / "tpch_theirs"), str(tmp_path), "C:\\Windows"):
         with pytest.raises(ValueError):
             svc.local_writes_reveal(other)
 
@@ -138,13 +140,15 @@ def test_delete_left_overs_clears_staging_and_tpch_but_not_while_a_notebook_runs
     temp = tmp_path / "temp"
     (temp / "tpch_abc").mkdir(parents=True)
     (temp / "tpch_abc" / "part0.duckdb").write_bytes(b"x" * 300)
+    (temp / "tpch_abc" / ".kratosforge").write_text("999999999")  # its process has ended
+    (temp / "tpch_theirs").mkdir()  # another tool's: no marker, never touched
     (temp / "keep_me").mkdir()
     monkeypatch.setattr(tf, "gettempdir", lambda: str(temp))
     running = [True]
 
     class Svc(lw.LocalWritesMixin):
         root = tmp_path / "app"
-        sessions = type("S", (), {"any_running": lambda self: running[0]})()
+        sessions = type("S", (), {"any_running": lambda self: running[0], "kernels": lambda self: []})()
     svc = Svc()
     spills = svc.root / "staging" / "_writes"
     spills.mkdir(parents=True)
@@ -159,6 +163,42 @@ def test_delete_left_overs_clears_staging_and_tpch_but_not_while_a_notebook_runs
     real = lw._remove
     monkeypatch.setattr(lw, "_remove", lambda p: None if p.name == "write-2.arrow" else real(p))  # open elsewhere
     res = svc.local_writes_clear()
-    assert res == {"removed": 3, "bytes": 410, "in_use": [str(spills / "write-2.arrow")]}
-    assert not (temp / "tpch_abc").exists() and (temp / "keep_me").exists()
+    assert res == {"removed": 3, "bytes": 419, "in_use": [str(spills / "write-2.arrow")]}
+    assert not (temp / "tpch_abc").exists() and (temp / "keep_me").exists() and (temp / "tpch_theirs").exists()
     assert sorted(p.name for p in (svc.root / "staging").rglob("*")) == ["_writes", "write-2.arrow"]
+
+
+def test_delete_left_overs_keeps_what_another_running_process_owns(tmp_path, monkeypatch):
+    """A scheduled run is a process of its own: its spill waiting to upload, and its TPC-H data, stay."""
+    import os
+    import subprocess
+    import sys
+    import tempfile as tf
+
+    from fabric_desktop import local_writes_service as lw
+    other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        temp = tmp_path / "temp"
+        (temp / "tpch_run").mkdir(parents=True)
+        (temp / "tpch_run" / ".kratosforge").write_text(str(other.pid))
+        monkeypatch.setattr(tf, "gettempdir", lambda: str(temp))
+
+        class Svc(lw.LocalWritesMixin):
+            root = tmp_path / "app"
+            sessions = type("S", (), {"any_running": lambda self: False, "kernels": lambda self: []})()
+        svc = Svc()
+        spills = svc.root / "staging" / "_writes"
+        spills.mkdir(parents=True)
+        theirs = spills / f"write-{other.pid}-abc.arrow"
+        theirs.write_bytes(b"y")
+        mine = spills / f"write-{os.getpid()}-def.arrow"
+        mine.write_bytes(b"y")
+        ended = spills / "write-999999999-ghi.arrow"
+        ended.write_bytes(b"y")
+        res = svc.local_writes_clear()
+        assert sorted(res["in_use"]) == sorted([str(theirs), str(temp / "tpch_run")])
+        assert theirs.exists() and not mine.exists() and not ended.exists()
+        assert lw.pid_running(other.pid) and not lw.pid_running(999999999)
+    finally:
+        other.kill()
+        other.wait()

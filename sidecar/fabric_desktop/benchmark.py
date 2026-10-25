@@ -723,6 +723,8 @@ def load_tpch(con):
 # a database file of its own (files, so scale factors bigger than RAM still fit). Together the
 # parts are exactly the rows one dbgen call makes. Deleted after the tables are written.
 work = tempfile.mkdtemp(prefix="tpch_")
+with open(os.path.join(work, ".kratosforge"), "w") as f:  # KratosForge's own, and which process it's in use by
+    f.write(str(os.getpid()))
 con = duckdb.connect(os.path.join(work, "tpch.duckdb"))
 
 def clean_up():

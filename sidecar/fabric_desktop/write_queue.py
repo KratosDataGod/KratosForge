@@ -108,7 +108,7 @@ class Spill:
 
     def __init__(self, directory: Path, schema: pa.Schema):
         directory.mkdir(parents=True, exist_ok=True)
-        fd, name = tempfile.mkstemp(prefix="write-", suffix=".arrow", dir=directory)
+        fd, name = tempfile.mkstemp(prefix=f"write-{os.getpid()}-", suffix=".arrow", dir=directory)  # the pid: whose it is
         os.close(fd)
         self.path = Path(name)
         self.schema = schema

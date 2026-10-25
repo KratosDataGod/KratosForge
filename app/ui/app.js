@@ -2145,7 +2145,14 @@ function oneLakeWritesMenu(nb) {
     option("local_first", "Write here, then upload in the background", "save"),
     option("direct", "Straight to OneLake (fast upload line)", "cloud"),
     option(null, `Same as Settings (${label(fallback)})`, "sync"),
+    { label: "Open the folder of local writes", icon: "folderOpen", action: () => openLocalWrites() },
   ];
+}
+
+// Where writes kept on this PC live (settings.js, local_writes_service.py): to look, or to clear up after a failed run.
+async function openLocalWrites(folder) {
+  const res = await attempt(() => rpc("local_writes_reveal", folder ? { folder } : {}), "Couldn't open the folder");
+  if (res) toast(`Opened ${res.shown} in File Explorer.`);
 }
 
 async function setNotebookOneLakeWrites(mode) {

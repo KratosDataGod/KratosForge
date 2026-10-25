@@ -92,3 +92,73 @@ def test_policy_sets_the_period(monkeypatch, tmp_path):
         policy.write_text(json.dumps({"local_retention_days": bad}))
         assert app_settings.value("local_retention_days") == 30
         assert problem in app_settings.policy_problems()[0]
+
+
+# ---- Settings > Advanced > OneLake writes > Files on this PC (local_writes_service.py)
+
+
+def test_local_writes_says_whats_there_and_opens_only_its_own_folders(tmp_path, monkeypatch):
+    import tempfile as tf
+
+    import pytest
+
+    from fabric_desktop import local_writes_service as lw
+    temp = tmp_path / "temp"
+    (temp / "tpch_abc").mkdir(parents=True)
+    (temp / "tpch_abc" / "part0.duckdb").write_bytes(b"x" * 300)
+    (temp / "other").mkdir()
+    monkeypatch.setattr(tf, "gettempdir", lambda: str(temp))
+    shown = []
+    monkeypatch.setattr(lw, "_reveal", lambda path, select: shown.append(path))
+
+    class Svc(lw.LocalWritesMixin):
+        root = tmp_path / "app"
+    svc = Svc()
+    assert svc.local_writes()["files"] == 0  # no folder yet
+    spills = svc.root / "staging" / "_writes"
+    spills.mkdir(parents=True)
+    (spills / "write-1.arrow").write_bytes(b"y" * 100)
+    w = svc.local_writes()
+    assert (w["files"], w["bytes"]) == (1, 100) and w["uploading"]["files"] == 1
+    assert [t["folder"] for t in w["tpch"]] == [str(temp / "tpch_abc")] and w["tpch"][0]["bytes"] == 300
+    assert svc.local_writes_reveal()["shown"] == str(svc.root / "staging")
+    svc.local_writes_reveal(str(temp / "tpch_abc"))
+    assert shown == [svc.root / "staging", temp / "tpch_abc"]
+    for other in (str(temp / "other"), str(tmp_path), "C:\\Windows"):
+        with pytest.raises(ValueError):
+            svc.local_writes_reveal(other)
+
+
+def test_delete_left_overs_clears_staging_and_tpch_but_not_while_a_notebook_runs(tmp_path, monkeypatch):
+    import tempfile as tf
+
+    import pytest
+
+    from fabric_desktop import local_writes_service as lw
+    temp = tmp_path / "temp"
+    (temp / "tpch_abc").mkdir(parents=True)
+    (temp / "tpch_abc" / "part0.duckdb").write_bytes(b"x" * 300)
+    (temp / "keep_me").mkdir()
+    monkeypatch.setattr(tf, "gettempdir", lambda: str(temp))
+    running = [True]
+
+    class Svc(lw.LocalWritesMixin):
+        root = tmp_path / "app"
+        sessions = type("S", (), {"any_running": lambda self: running[0]})()
+    svc = Svc()
+    spills = svc.root / "staging" / "_writes"
+    spills.mkdir(parents=True)
+    (spills / "write-1.arrow").write_bytes(b"y" * 100)
+    (spills / "write-2.arrow").write_bytes(b"y" * 50)
+    (svc.root / "staging" / "old_job").mkdir()
+    (svc.root / "staging" / "old_job" / "part.parquet").write_bytes(b"z" * 10)
+    with pytest.raises(RuntimeError, match="notebook is running"):
+        svc.local_writes_clear()
+    assert (spills / "write-1.arrow").exists()
+    running[0] = False
+    real = lw._remove
+    monkeypatch.setattr(lw, "_remove", lambda p: None if p.name == "write-2.arrow" else real(p))  # open elsewhere
+    res = svc.local_writes_clear()
+    assert res == {"removed": 3, "bytes": 410, "in_use": [str(spills / "write-2.arrow")]}
+    assert not (temp / "tpch_abc").exists() and (temp / "keep_me").exists()
+    assert sorted(p.name for p in (svc.root / "staging").rglob("*")) == ["_writes", "write-2.arrow"]

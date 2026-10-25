@@ -259,6 +259,9 @@ function gitHeader(st) {
         gitKindOf(st.root).kind === "notebooks" ? btn("Data locations", "lakehouse",
           () => gitLocationsDialog(st.root, gitRepoName(st.root), gitAfterChange), "tool outline small",
           { title: "Where this repository's notebooks find their data in each environment" }) : null,
+        gitKindOf(st.root).kind === "notebooks" ? btn("Set up for VS Code", "code",
+          () => vscodeSetupDialog(st.root, gitRepoName(st.root), gitAfterChange), "tool outline small",
+          { title: "Add a validate task, the Copilot server and recommended extensions to this repository" }) : null,
         ...gitPage.title().slice(1)),
       h("p", { class: "sub git-sub" }, sub)),
     h("div", { class: "row wrap" }, remoteActions));

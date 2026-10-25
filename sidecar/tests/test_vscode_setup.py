@@ -1,0 +1,113 @@
+"""Set up a repository for VS Code (vscode_setup.py) and `kratosforge nb validate` (cli.py)."""
+
+from __future__ import annotations
+
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from fabric_desktop import vscode_setup
+from fabric_desktop.git.cli import GitError
+from fabric_desktop.integrations.config import cli_launcher_path
+from fabric_desktop.service import Service
+
+from test_git import git_home  # noqa: F401  (an autouse fixture)
+
+DOCS = Path(__file__).resolve().parents[2] / "docs"
+SIDECAR = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture
+def svc(tmp_path):
+    s = Service(root=tmp_path / "app")
+    yield s
+    s.kernel.shutdown() if hasattr(s.kernel, "shutdown") else None
+
+
+def repo_of(svc, tmp_path, name="sales-notebooks"):
+    svc.git_create(str(tmp_path / name), "notebooks")
+    return str((tmp_path / name).resolve())
+
+
+def test_setup_adds_only_new_files_and_commits_nothing(svc, tmp_path):
+    root = repo_of(svc, tmp_path)
+    (Path(root) / ".github").mkdir()
+    (Path(root) / ".github" / "copilot-instructions.md").write_text("Ours.\n", encoding="utf-8")
+    plan = svc.git_vscode_plan(root)
+    states = {f["path"]: f["state"] for f in plan["files"]}
+    assert states == {".vscode/tasks.json": "new", ".vscode/mcp.json": "new", ".vscode/extensions.json": "new",
+                      ".github/copilot-instructions.md": "exists"}
+    assert plan["new"] == 3 and plan["name"] == "sales-notebooks"
+    out = svc.git_vscode_apply(root, [".vscode/tasks.json", ".vscode/mcp.json", ".vscode/extensions.json",
+                                      ".github/copilot-instructions.md"])
+    assert out["added"] == [".vscode/tasks.json", ".vscode/mcp.json", ".vscode/extensions.json"]
+    assert out["skipped"] == [".github/copilot-instructions.md"]
+    assert (Path(root) / ".github" / "copilot-instructions.md").read_text(encoding="utf-8") == "Ours.\n"
+    assert out["status"]["dirty"]  # changes to review, nothing committed
+    assert cli_launcher_path(svc.root).is_file()  # the command the task runs
+    again = {f["path"]: f["state"] for f in svc.git_vscode_plan(root)["files"]}
+    assert again[".vscode/tasks.json"] == "same"
+    (Path(root) / ".vscode" / "mcp.json").write_text("{}", encoding="utf-8")
+    assert svc.git_vscode_apply(root, [".vscode/mcp.json"])["skipped"] == [".vscode/mcp.json"]  # never replaced
+    assert (Path(root) / ".vscode" / "mcp.json").read_text(encoding="utf-8") == "{}"
+
+
+def test_setup_writes_only_its_own_files_in_opened_repositories(svc, tmp_path):
+    root = repo_of(svc, tmp_path)
+    with pytest.raises(GitError, match="Only the files"):
+        svc.git_vscode_apply(root, ["../outside.json"])
+    with pytest.raises(GitError, match="Open this repository"):
+        svc.git_vscode_plan(str(tmp_path))
+    assert not (tmp_path / "outside.json").exists()
+
+
+def test_mcp_file_holds_no_connection_id():
+    mcp = json.loads(vscode_setup.FILES[".vscode/mcp.json"][2]())
+    server = mcp["servers"]["fabric-desktop"]
+    assert server["args"] == ["--client", "${input:kratosforge-client}"]
+    assert mcp["inputs"][0]["id"] == "kratosforge-client"
+    assert "cl_" not in json.dumps(mcp)
+
+
+def test_copilot_instructions_match_the_docs():
+    doc = (DOCS / "ai" / "agent-instructions.md").read_text(encoding="utf-8")
+    block = re.search(r"## The instructions\n\n```markdown\n(.*?)```", doc, re.S).group(1)
+    assert block == vscode_setup.COPILOT_INSTRUCTIONS
+
+
+def _validate(path: Path, tmp_path: Path, *extra: str) -> subprocess.CompletedProcess:
+    env = {"PYTHONPATH": str(SIDECAR), "LOCALAPPDATA": str(tmp_path / "la"), "HOME": str(tmp_path),
+           "PATH": "/usr/bin:/bin", "SYSTEMROOT": "C:\\Windows"}
+    return subprocess.run([sys.executable, "-m", "fabric_desktop.cli", "nb", "validate", str(path), *extra],
+                          capture_output=True, text=True, env=env, timeout=120)
+
+
+def test_validate_prints_what_the_task_problem_matcher_reads(tmp_path):
+    nb = {"cells": [{"cell_type": "code", "source": ["print(total)\n"], "metadata": {}, "outputs": []},
+                    {"cell_type": "code", "source": ["total = 1\n"], "metadata": {}, "outputs": []}],
+          "metadata": {}, "nbformat": 4, "nbformat_minor": 5}
+    path = tmp_path / "Daily sales.ipynb"
+    path.write_text(json.dumps(nb), encoding="utf-8")
+    run = _validate(path, tmp_path)
+    assert run.returncode == 1, run.stdout + run.stderr
+    lines = run.stdout.splitlines()
+    pattern = json.loads(vscode_setup.FILES[".vscode/tasks.json"][2]())["tasks"][0]["problemMatcher"]["pattern"]["regexp"]
+    hits = [re.match(pattern, line) for line in lines[:-1]]
+    assert hits and all(hits), lines
+    assert hits[0].group(1) == str(path.resolve()) and hits[0].group(4) == "error"
+    assert hits[0].group(5).startswith("Cell 1 uses a name defined later.")
+    assert lines[-1].startswith("1 errors")
+    out = json.loads(_validate(path, tmp_path, "--json", "--runs-on", "pc").stdout)
+    assert out["runs_on"] == "pc" and out["counts"]["error"] == 1
+
+
+def test_validate_says_when_a_file_isnt_a_notebook(tmp_path):
+    path = tmp_path / "x.ipynb"
+    path.write_text("[]", encoding="utf-8")
+    run = _validate(path, tmp_path)
+    assert run.returncode == 2
+    assert run.stdout.strip().endswith("it isn't a Jupyter notebook (.ipynb) file")

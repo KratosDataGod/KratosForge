@@ -7,6 +7,8 @@ Use VS Code and KratosForge together on the same notebooks. Notebooks are plain 
 | Open a notebook, or its folder, in VS Code | The notebook's **Home** tab: **Open in VS Code** |
 | Let Copilot in VS Code use KratosForge | **Settings › Integrations › Add a tool**, pick VS Code, then **Add to VS Code** ([Connect your AI tool](ai/README.md)) |
 | Keep edits from both editors | Nothing to do: see [Editing in both](#editing-in-both) |
+| Get a repository ready for everyone who opens it in VS Code | **Source control**, a notebooks repository: **Set up for VS Code** ([Set up a repository](#set-up-a-repository-for-vs-code)) |
+| Check a notebook from VS Code without running it | The **KratosForge: Validate notebook** task, or `kratosforge nb validate` ([Validate from VS Code](#validate-from-vs-code)) |
 
 ## Open in VS Code
 
@@ -23,6 +25,34 @@ When you come back to KratosForge and the open notebook has no unsaved edits her
 
 When both sides have changes, KratosForge doesn't save over the other one: it asks **Keep mine** or **Load its version**, and keeps both under **Versions**. See [Edit the same notebook in VS Code or another program](notebook-files.md#edit-the-same-notebook-in-vs-code-or-another-program).
 
+## Set up a repository for VS Code
+
+On the **Source control** page, a notebooks repository has **Set up for VS Code** in its header. A notebook in that repository also has it in the arrow beside **Open in VS Code**. It lists the files it would add, and adds the ones you tick:
+
+| File | What it does |
+| --- | --- |
+| `.vscode/tasks.json` | The **KratosForge: Validate notebook** task (**Terminal › Run Task**). What it finds is listed in VS Code's **Problems** panel. |
+| `.vscode/mcp.json` | Connects Copilot agent mode to KratosForge's MCP server. VS Code asks each developer for their own connection id (from **Settings › Integrations**), so no id is written in the file. |
+| `.vscode/extensions.json` | Suggests the Jupyter, Python and Copilot Chat extensions to anyone who opens the repository. |
+| `.github/copilot-instructions.md` | Tells Copilot how to use KratosForge's tools and approvals: the [instructions for your AI tool](ai/agent-instructions.md), plus a line on the Validate task. |
+
+A file that's already in the repository is never replaced: it shows as **Already there**, and for Copilot's instructions you can copy the text to add yourself. Nothing is committed or pushed; the new files show under **Changes** for you to review and commit. Nothing in Fabric, OneLake or VS Code's own settings changes.
+
+## Validate from VS Code
+
+The Validate task runs `kratosforge nb validate` on the open notebook. It's the same code check as **Validate** in KratosForge (without the clean run): names used before they're defined, what stops it running on this PC or in Fabric, missing packages, secrets in the code, side effects and parameters. It reads the notebook file and runs nothing.
+
+You can also run it in a terminal:
+
+```
+kratosforge nb validate "notebooks\Daily sales.ipynb" [--runs-on pc|fabric] [--json]
+```
+
+- Each finding is one line, `file:1:1: severity: message`. The message names the cell, because an `.ipynb` has no line per cell, so VS Code lists the finding against the notebook as a whole.
+- **--runs-on** says where the notebook will run. Without it, the notebook's own **Runs on** is used. If that isn't set, anything that stops it running in one place or the other is a warning.
+- It exits with 1 when there are errors, and 2 when the file isn't a notebook.
+- `kratosforge` is `%LOCALAPPDATA%\FabricDesktop\bin\kratosforge.cmd`. KratosForge writes it each time the app starts, pointing at the current engine.
+
 ## What runs where
 
 Opening a notebook in VS Code doesn't run anything. Cells you run in VS Code use whatever kernel you pick there; to run on this PC with KratosForge's engine, lakehouse and session, run them in KratosForge for now. A KratosForge kernel for VS Code is planned.
@@ -33,3 +63,5 @@ Opening a notebook in VS Code doesn't run anything. Cells you run in VS Code use
 | --- | --- | --- |
 | Open in VS Code | Where the notebook's file is | The notebook, saved first (as **Save**) |
 | Coming back into focus | The notebook's file, to see if its cells changed | Nothing |
+| Set up for VS Code | Which of its files the repository already has | The files you tick, only if they're not there yet |
+| Validate task, `kratosforge nb validate` | The notebook file, and the package versions Fabric runs reported | Nothing |

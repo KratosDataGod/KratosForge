@@ -621,6 +621,26 @@ def test_capabilities(tmp_path):
     assert listed["runs"][0]["run_id"] == rid
 
 
+def test_external_tools_mock_notebook_lookup_and_get_metadata(tmp_path):
+    reg = capability_registry()
+    ctx = CallContext(Caller("cl_test", "test"), timeout=5)
+    svc = Svc(tmp_path)
+    ls = {"name": "LH", "properties": {"type": "Lakehouse", "typeProperties": {"workspaceId": "w", "artifactId": "a"}}}
+    data = {"type": "LakehouseTable", "linkedService": ls, "typeProperties": {"table": "t"}}
+    text = pipeline(act("NB", "TridentNotebook", notebookId="n1", workspaceId="w"),
+                    act("LK", "Lookup", datasetSettings=data, source={}),
+                    act("GM", "GetMetadata", datasetSettings=data, fieldList=["columnCount"]))
+    checked = reg.invoke(svc, "fabric_desktop_check_pipeline_run", {"definition": text}, ctx)
+    assert [p["activity"] for p in checked["problems"]] == ["NB", "LK", "GM"]
+    # The external tool can't pass the CLI's --notebook or --read-lakehouse, so it is told to mock.
+    assert all("Give a mock for it" in p["message"] and "--" not in p["message"] for p in checked["problems"])
+    mocks = {"NB": {"output": {"exitValue": "ok"}}, "LK": {"output": {"firstRow": {"n": 1}}},
+             "GM": {"output": {"columnCount": 3}}}
+    checked = reg.invoke(svc, "fabric_desktop_check_pipeline_run", {"definition": text, "mocks": mocks}, ctx)
+    assert checked["ok"] is True and sorted(checked["mocked"]) == ["GM", "LK", "NB"]
+
+
+
 def test_registry_marks_control_flow_local():
     reg = default_registry()
     for type_ in ("SetVariable", "AppendVariable", "IfCondition", "Switch", "ForEach", "Until", "Wait", "Fail",

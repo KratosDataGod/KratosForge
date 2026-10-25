@@ -227,7 +227,7 @@ def test_without_notebooks_named_notebook_steps_need_a_mock(svc):
     text = pipeline(notebook("Filter", "nb-filter"))
     out = services.start_pipeline_run(svc, CallContext(Caller("cl_test", "test"), timeout=5), text)
     assert out["ok"] is False and [p["code"] for p in out["problems"]] == ["notebook_needs_engine"]
-    assert "--notebook" in out["problems"][0]["message"]
+    assert "Give a mock for it" in out["problems"][0]["message"] and "--notebook" not in out["problems"][0]["message"]
     assert svc.pipeline_run_check(text=text)["problems"][0]["code"] == "notebook_needs_engine"
     assert svc.pipeline_run_check(text=text, mocks={"Filter": {}})["ok"] is True
 

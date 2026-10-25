@@ -95,7 +95,28 @@ Never in a file: times, who changed what, key values, requests, decisions, grant
 
 The platform's functions must include this release's changes: if Export or Compare says they are older than the app, open Platform > Settings and choose **Finish or repair**.
 
-The capacity starting file is still a template: the capacity drift report is the next stage in the [repositories by scope plan](git-integration-plan.md#repositories-by-scope).
+### Capacity repository
+
+A capacity repository holds one file, `capacity.toml`, with a section per capacity. Ids and names only: no keys, costs or people.
+
+```toml
+[capacities."F64 Prod"]
+capacity_id = "…"
+sku = "F64"            # optional: a setting left out isn't compared
+region = "West Europe" # optional
+state = "Active"       # optional
+workspaces = [{ id = "…", name = "Sales Gold" }, "…"]   # a bare id is fine too
+```
+
+The **Capacity** tab is the drift report. It reads `capacity.toml` and what Fabric shows you (`GET /v1/capacities`, Capacity.Read.All, and `GET /v1/workspaces`, with the Workspace.ReadWrite.All granted at sign-in, used here only to read; no admin role and no new permission), matches capacities and workspaces by id, and shows for each capacity:
+
+- **same**, or **differs**: a setting the file sets that Fabric has differently, a workspace the file lists that Fabric has on another capacity, or a workspace on the capacity that the file doesn't list anywhere.
+- **not in Git**: a capacity Fabric shows you that the file doesn't have.
+- **not visible to you**: a capacity in the file that Fabric doesn't show you. It isn't compared, because people see different capacities: missing from your view says nothing about whether it changed. A workspace you can't see is listed the same way. Fabric lists the capacities you can assign workspaces to.
+
+It only reads. KratosForge never resizes, pauses, resumes or assigns a capacity, and never moves a workspace: fix drift in the Fabric admin portal, or edit `capacity.toml` and commit if Git is the one that's wrong. **Copy report** puts the report on the clipboard.
+
+**Write Fabric's state to capacity.toml** replaces the file with what Fabric shows you now, after you confirm, as a change to review and commit. Capacities and workspaces you can't see stay in the file as they are. State is written only for a capacity whose section already sets it, so pausing or resuming one doesn't show as drift unless you ask for that. If the file has changes you haven't committed, it asks again before replacing them, and a file with sections it can't read is never overwritten: fix it first.
 
 ## Changes
 

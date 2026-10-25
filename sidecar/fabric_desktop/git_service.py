@@ -22,7 +22,7 @@ from typing import Any
 from .git import cli
 from . import vscode_setup
 from .git.cli import GitError
-from .git import platform_files, scopes
+from .git import capacity_files, platform_files, scopes
 from .git.ops import Operations
 from .git.repo import Repository, _folder, init as git_init
 from .integrations.config import write_cli_launcher
@@ -174,6 +174,53 @@ class GitMixin:
         """Says what an opened repository holds, by writing its marker file (a change to commit)."""
         r = self._repo(repo)
         return {**scopes.set_kind(r, kind, confirm), "status": r.status()}
+
+    # ---- a capacity repository: capacity.toml, and a drift report against Fabric (reads only)
+
+    def _capacity_repo(self, repo: str) -> Repository:
+        r = self._repo(repo)
+        if scopes.read_kind(r.root) != "capacity":
+            raise GitError("This repository doesn't hold capacity definitions. Create a capacity repository, "
+                           "or choose what this one holds.", kind="invalid")
+        return r
+
+    def _fabric_capacities(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """The capacities and workspaces Fabric shows the signed-in person. Only reads."""
+        from .auth import CAPACITY_SCOPES
+        from .fabric_api import FabricClient
+
+        caps = FabricClient(lambda: self.auth._token(CAPACITY_SCOPES)).list_capacities()  # type: ignore[attr-defined]
+        return caps, self.fabric.list_workspaces()  # type: ignore[attr-defined]
+
+    def git_capacity_diff(self, repo: str) -> dict[str, Any]:
+        """The drift report: the repository's capacity.toml compared with what Fabric shows.
+        Reads only: nothing in the repository or in Fabric changes."""
+        r = self._capacity_repo(repo)
+        git = capacity_files.read(r.root)
+        caps, workspaces = self._fabric_capacities()
+        items = capacity_files.compare(git["capacities"], capacity_files.from_fabric(caps, workspaces), workspaces)
+        return {"items": items, "counts": capacity_files.summary(items), "problems": git["problems"],
+                "read_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+
+    def git_capacity_write(self, repo: str, confirm: bool = False) -> dict[str, Any]:
+        """Writes what Fabric shows into capacity.toml, as a change to review. Capacities this
+        person can't see keep their sections. Nothing is committed and nothing in Fabric changes."""
+        r = self._capacity_repo(repo)
+        st = r.status()
+        uncommitted = any(e["path"] == capacity_files.FILE
+                          for k in ("staged", "unstaged", "untracked", "conflicts") for e in st.get(k) or [])
+        git = capacity_files.read(r.root)
+        if git["problems"]:
+            raise GitError(f"{git['problems'][0]} Fix the file first, so nothing in it is lost.", kind="invalid")
+        caps, workspaces = self._fabric_capacities()
+        try:
+            out = capacity_files.write(r.root, git["capacities"], capacity_files.from_fabric(caps, workspaces),
+                                       uncommitted, confirm, workspaces)
+        except GitError as exc:
+            if exc.kind == "confirm":
+                return {"needs_confirm": True, "message": str(exc)}
+            raise
+        return out | {"status": r.status()}
 
     # ---- a platform repository: definitions in Git, deployed in each environment's platform
 

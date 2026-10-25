@@ -64,3 +64,44 @@ test("with reduced motion nothing animates", { skip }, async () => {
     assert.strictEqual(await page.evaluate(() => getComputedStyle(document.querySelector(".splash-embers")).display), "none");
   } finally { await app.close(); }
 });
+
+// Motion & effects, read when the splash opens: Off and Minimal show it still, Forge sparks off takes
+// out the sparks and embers, and someone who chose motion although Windows reduces it sees it move.
+async function splashWith(settings, reducedMotion = "no-preference") {
+  const app = await openApp({ storage: { "fd.rename.kratosforge.seen": "" }, mocks: { app_settings: () => settings } });
+  await app.page.emulateMedia({ reducedMotion });
+  await app.page.waitForFunction(() => typeof showRenameSplash === "function" && !!document.querySelector(".rail-item"));
+  await app.page.evaluate(async () => { closeDialog(); await loadSettings(); showRenameSplash(() => {}, true); });
+  await app.page.waitForSelector(".overlay.splash");
+  const look = await app.page.evaluate(() => ({
+    emblem: getComputedStyle(document.querySelector(".splash-emblem")).animationName,
+    sparks: getComputedStyle(document.querySelector(".splash-spark")).display,
+    embers: getComputedStyle(document.querySelector(".splash-embers")).display,
+  }));
+  return { app, look };
+}
+
+test("Motion Off and Minimal show the splash still; Forge sparks off keeps the strike without sparks", { skip }, async () => {
+  for (const [settings, want] of [
+    [{ motion_level: { value: 0 } }, { emblem: "none", sparks: "none", embers: "none" }],
+    [{ motion_level: { value: 1 } }, { emblem: "none", sparks: "none", embers: "none" }],
+    [{ motion_level: { value: 2 }, motion_sparks: { value: false } }, { emblem: "splash-strike, splash-heat", sparks: "none", embers: "none" }],
+    [{ motion_level: { value: 3 } }, { emblem: "splash-strike, splash-heat", sparks: "block", embers: "block" }],
+  ]) {
+    const { app, look } = await splashWith(settings);
+    try {
+      assert.deepStrictEqual(look, want, JSON.stringify(settings));
+      assert.deepStrictEqual(app.errors, []);
+    } finally { await app.close(); }
+  }
+});
+
+test("with reduced motion the splash moves only for someone who chose motion anyway", { skip }, async () => {
+  for (const [settings, moves] of [[{ motion_level: { value: 2 } }, false], [{ motion_level: { value: 2 }, motion_follow_system: { value: false } }, true]]) {
+    const { app, look } = await splashWith(settings, "reduce");
+    try {
+      assert.strictEqual(look.emblem !== "none", moves, JSON.stringify(settings));
+      assert.strictEqual(look.embers !== "none", moves, JSON.stringify(settings));
+    } finally { await app.close(); }
+  }
+});

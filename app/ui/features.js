@@ -99,6 +99,7 @@ const PREVIEW_FEATURES = {
   trustBadges: "Endorsement and business terms",
   warehouse: "Warehouse queries",
   sqlResultViews: "Messages and Chart on the SQL page",
+  bestPractices: "Best practices: checks and templates",
 };
 
 function previewShown() {

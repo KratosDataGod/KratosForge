@@ -48,6 +48,7 @@ nav = [
     { "Notebook variables" = "notebook-editor/variables.md" },
     { "Notebook files" = "notebook-files.md" },
     { "Run the last cell on Fabric" = "notebook-fabric-step.md" },
+    { "Notebook best practices" = "notebook-best-practices.md" },
     { "Notebook folders" = "notebook-folders.md" },
     { "Fabric and Databricks notebook formats" = "notebook-import-export.md" },
     { "Notebook version history" = "notebook-versions.md" },
@@ -133,6 +134,7 @@ nav = [
       { "Implementation review" = "product/IMPLEMENTATION_REVIEW_PROCESS.md" },
       { "Review template" = "product/reviews/TEMPLATE.md" },
       { "Competitive capability matrix" = "product/COMPETITIVE_CAPABILITY_MATRIX.md" },
+      { "Development status" = "product/DEVELOPMENT_STATUS.md" },
     ] },
   ] },
   { "Contributing" = [

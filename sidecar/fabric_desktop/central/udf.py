@@ -627,6 +627,59 @@ def list_policy_exceptions(sqlDB: fn.FabricSqlConnection, policy: str = "", acti
                            today: str = "") -> list:
     return _run(sqlDB, "list_policy_exceptions", policy=policy, active=active, today=today)
 
+
+# ---- policy templates (policy.py)
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def ensure_template_schema(sqlDB: fn.FabricSqlConnection) -> list:
+    return _run(sqlDB, "ensure_template_schema")
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def list_policy_templates(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext) -> dict:
+    return _run(sqlDB, "list_policy_templates", ctx)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def save_policy_template(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, template: dict,
+                         id: str = "") -> dict:
+    return _run(sqlDB, "save_policy_template", ctx, template=template, id=id)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def delete_policy_template(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, id: str) -> dict:
+    return _run(sqlDB, "delete_policy_template", ctx, id=id)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def use_policy_template(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, template: str,
+                        id: str = "", name: str = "") -> dict:
+    return _run(sqlDB, "use_policy_template", ctx, template=template, id=id, name=name)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def save_policy_as_template(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, policy: str,
+                            id: str = "", name: str = "") -> dict:
+    return _run(sqlDB, "save_policy_as_template", ctx, policy=policy, id=id, name=name)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def set_template_authors(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, authors: str) -> dict:
+    return _run(sqlDB, "set_template_authors", ctx, authors=authors)
+
 '''
 
 

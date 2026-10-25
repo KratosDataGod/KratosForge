@@ -96,10 +96,10 @@ Complexity is S (under a day, one module), M (a few modules, new tests), L (cros
 | --- | --- | --- | --- | --- |
 | HD-010 | EP-4: policy fails closed, one loader | Hardening | open stack (`app_settings.py`) | M |
 | HD-011 | SH-6: `cargo test` in CI | Hardening | open stack (`ci.yml`); workflow change needs Chris's review | S |
-| HD-012 | EN-2: execution kernels get an allowlisted environment | Hardening | none | S |
+| HD-012 | EN-2: execution kernels get an allowlisted environment (done in #249, plus #453 and #465: `kernel_proc.external_environment` keeps only `EXTERNAL_ENV_ALLOW`, strips proxy passwords and sets `PYTHONPATH` itself) | Hardening | none | S |
 | HD-013 | EN-10: encrypt the token cache with DPAPI on Windows | Hardening | Done (D-C2 approved 2026-10-23); Windows check pending | M |
 | HD-014 | EN-3: workspace limits on every capability | Hardening | HD-006 | M |
-| HD-015 | EN-4: external SQL timeout interrupts and releases the lock | Hardening | none | S |
+| HD-015 | EN-4: external SQL timeout interrupts and releases the lock (done in #253: tables are registered under the attach lock and the query runs after it is released; a timeout or cancel interrupts DuckDB until it stops; the SQL page's memory share and threads apply) | Hardening | none | S |
 | HD-016 | EN-6, AR-1: leases atomic across processes; lost lease stops the write (done: local takeover is one step under an OS file lock; `leases.check_held()` runs before each leased write starts in `publish.py` and `meta/store.py`, including quarantine and key writes inside an entity's lease, and stops a write whose lease was taken over or not renewed for two thirds of its length; a lease lost while the write uploads its files is still reported after it) | Hardening (agent) | none | M |
 | HD-017 | EP-3: audit chain safe across processes; head checkpoint (done: `audit_chain.append` re-reads the last hash under the folder's lock file; each write records the newest hash and line count in `head.json`, and `verify()` reports a trail that ends before it, also after later writes) | Hardening | open stack (`audit.py`) | S |
 | HD-020 | SH-1, UI-1: Content Security Policy; notebook output on its own origin | Hardening | a manual Windows check before merge | L |
@@ -108,7 +108,7 @@ Complexity is S (under a day, one module), M (a few modules, new tests), L (cros
 | HD-023 | SH-7: promote a named commit, re-check hashes, protected environment. Named commit and hash re-check come with HD-028's `build` input; the protected environment and copying the SBOMs remain | Hardening | #132 (`promote.yml`) | S |
 | HD-024 | SH-8: pin actions in `codex-review.yml` and `docs.yml`; scope permissions | Hardening | Chris's review (workflow) | S |
 | HD-025 | SH-9: agent installers use constraints; ProgramData ACL | Hardening | a Windows host to verify the ACL | S |
-| HD-026 | SH-10: no bare `python` fallback in release builds | Hardening | none | S |
+| HD-026 | SH-10: no bare `python` fallback in release builds (done in #251: `choose_python` returns a bare name only in debug builds, and a release build needs an absolute `FABRIC_DESKTOP_PYTHON`) | Hardening | none | S |
 | HD-027 | SH-12: navigation filter for the Fabric view | Hardening | manual Windows check | S |
 | HD-028 | Per-build release assets, so a build can be pinned and rolled back (known gap in release-readiness.md). **Partly done:** CI keeps each published build as a `build-<sha>` release (newest 20, plus every Stable build); Promote to stable takes a `build` input, so Stable rolls back by promoting an earlier build. With `"auto_update": false` the app downloads its engine only from its own build's `build-*` release (#418, `update_guard::engine_tags`), so a pinned exe gets the matching engine. Remaining: rollback hasn't been run end to end | Hardening | Chris's review (workflow); a first rollback drill on `main` | M |
 | HD-029 | Live verification (gate G1): run the existing harness on a designated non-production workspace | Chris | **Chris: workspace and OK** | S |

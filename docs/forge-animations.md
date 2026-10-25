@@ -24,7 +24,7 @@ At Refined and Expressive, a switch for each family turns it off:
 | Switch | Effects |
 | --- | --- |
 | Wolf animations | The wolf on Run all progress, its arrival, the Wolf Run after long work, the navy wolf on runs in Fabric and on Git push, pull, fetch and clone |
-| Forge sparks | Forge Spark, Anvil Strike, the cooling spark, the failure ember |
+| Forge sparks | Forge Spark, Anvil Strike, the cooling spark, the failure ember, the sparks and embers on the forge splash |
 | Running indicators | The glow on a running cell, the flow into a running pipeline step, the ring when Run all starts |
 
 **Preview effects** plays each effect on a sample, and runs a three-step sample pipeline on this PC
@@ -72,9 +72,11 @@ Every key can be fixed in the policy file ([Azure setup](azure-setup.md#4-push-s
 | Data mesh Run all, or a run of some tables (on this PC or in Fabric) | **Pulse** once on the button that started it. When the results come, one effect for the whole batch, never one per table: **Anvil Strike** when every table succeeded, the failure ember when any failed. A table waiting on a decision, or a Fabric run that was cancelled, plays nothing | the button, then the results' heading (or the message, away from Data mesh) | 0.35 s, then 0.65 s or 0.45 s |
 | Git push, pull, fetch or clone talks to the remote (Source control) | The band shows the navy wolf trotting in place on an empty track with what Git is doing ("Talking to the remote"), no fill or percentage; once Git counts objects, the bar shows its percentage. With the wolf off, the plain indeterminate bar shows | the Git band | while running |
 | A Git push, pull or clone finishes | **Forge Spark** on the message when it is done (a fetch only looks, so it plays nothing); the failure ember beside the error when it fails; cancelling plays nothing | beside the message | 0.4 s or 0.45 s |
+| A Direct Lake semantic model is created or updated (Data mesh > Semantic model) | **Forge Spark** once Fabric gives back the model, on the "Created" or "Updated" message. A build that fails gets the failure ember beside the error; asking whether to replace a model plays nothing | beside the message or error | 0.4 s or 0.45 s |
 | A platform deployment fails (Source control) | **Controlled Failure**: the ember beside the note saying where the deploy stopped, or beside the error when the engine refused it. A cancelled sign-in plays nothing | beside the note or error | 0.45 s |
 | You save a notebook yourself (**Save**, or **Ctrl+S**) | **Forge Spark** once the save is written: on **Save**, or on the "Saved" message for Ctrl+S. At most one every 5 s; autosave and the saves other actions make first (Publish, Run in Fabric, closing) never spark | the Save button or the message | 0.4 s |
 | Profile awards you an achievement | **Achievement Reveal**: a ring and an offset outline reveal the message naming it, once per award (never again for the same award, even after a restart). Off unless you turn on **Achievement celebrations**, shown while Preview features are on | the achievement message | 0.9 s |
+| KratosForge starts on a new build, or for the first time as KratosForge (the forge splash) | The emblem strikes the anvil, sparks fly and embers rise behind the name. Off and Minimal show it still, as does Windows' reduced motion unless you unticked **Respect Windows' reduced-motion setting**; with **Forge sparks** off the emblem strikes but no sparks fly and no embers rise. The embers wait while the window is in the background | the whole window | about 2 s, embers until you close it |
 | A dialog opens or closes (Minimal and above) | The dialog rises and fades in; focus is inside it from the first frame. On close it is gone at once and a blank card fades where it was. **Escape** closes with no fade | the dialog | 0.2 s in, 0.16 s out |
 | The Activity tray or a side pane opens (Explorer, Variables, Comments, Runs, Prove, Validate; Minimal and above) | It slides 16 px in from its edge and fades in. A page that opens with its panes doesn't animate them, and redraws never replay it. The tray leaves like a dialog | the tray or pane | 0.22 s |
 

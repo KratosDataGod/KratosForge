@@ -152,6 +152,69 @@ function withHowItWorks(main, panel) {
   return h("div", { class: "with-how" }, h("div", { class: "with-how-main" }, main), panel);
 }
 
+// ---------- Settings > Appearance > Layout ----------
+
+// Three choices (app_settings ui_explanations, ui_preview_marks, ui_density) that change how every
+// page shows the same things, as classes on <body>; styles.css does the rest. Nothing is hidden for
+// good: with explanations "on request", a page's How this works panel opens as a drawer from the
+// title bar's info button, and a Preview dot keeps the tag's words for screen readers and as its tooltip.
+const LAYOUT_CHOICES = {
+  ui_explanations: ["Explanations", "The How this works panels: what a page reads, what it changes and where results go.",
+    [["beside", "Beside the page"], ["on_request", "On request"]]],
+  ui_preview_marks: ["Preview marks", "How features still in preview are marked. Page titles keep the full tag.",
+    [["tags", "Tags"], ["dots", "Quiet dots"]]],
+  ui_density: ["Density", "Spacing in tables, lists and toolbars.", [["comfortable", "Comfortable"], ["compact", "Compact"]]],
+};
+const layoutChoice = (key) => state.settings?.[key]?.value || LAYOUT_CHOICES[key][2][0][0];
+const howView = { open: null };  // the view the drawer was opened on
+
+function applyAppearance() {
+  const body = document.body;
+  body.classList.toggle("explain-on-request", layoutChoice("ui_explanations") === "on_request");
+  body.classList.toggle("preview-dots", layoutChoice("ui_preview_marks") === "dots");
+  body.classList.toggle("density-compact", layoutChoice("ui_density") === "compact");
+  syncHowToggle();
+}
+
+function howPanel() {
+  return document.querySelector("#view .how-it-works");
+}
+
+// Shows the info button while the page has a panel to open, and keeps the drawer on the page it was
+// opened on: a re-render puts it on the new copy of the panel, another page closes it.
+function syncHowToggle() {
+  const toggle = document.getElementById("how-toggle");
+  if (!toggle) return;
+  const panel = document.body.classList.contains("explain-on-request") ? howPanel() : null;
+  toggle.hidden = !panel;
+  if (howView.open && (!panel || howView.open !== state.view)) setHowDrawer(false);
+  else if (howView.open && !panel.classList.contains("how-shown")) panel.classList.add("how-shown");
+}
+
+function setHowDrawer(open) {
+  document.querySelectorAll(".how-it-works.how-shown").forEach((p) => p.classList.remove("how-shown"));
+  const panel = open ? howPanel() : null;
+  panel?.classList.add("how-shown");
+  howView.open = panel ? state.view : null;
+  document.body.classList.toggle("how-open", !!panel);
+  document.getElementById("how-toggle")?.setAttribute("aria-expanded", String(!!panel));
+}
+
+function initAppearance() {
+  const toggle = document.getElementById("how-toggle");
+  if (!toggle) return;
+  toggle.addEventListener("click", () => setHowDrawer(!howView.open));
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && howView.open) setHowDrawer(false); });
+  let queued = false;
+  new MutationObserver(() => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; syncHowToggle(); });
+  }).observe(document.getElementById("view"), { childList: true, subtree: true });
+}
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initAppearance);
+else initAppearance();
+
 // ---------- keyboard shortcuts ----------
 
 // One registry of keyboard shortcuts. The Keyboard shortcuts dialog ("?", the command bar, Settings >

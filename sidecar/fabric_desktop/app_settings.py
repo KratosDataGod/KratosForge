@@ -28,6 +28,11 @@ Keys:
                      levels 2 and 3; motion_achievements the same, but false by default
     motion_follow_system  true (default): Windows' reduced-motion setting turns decorative motion
                      off whatever the level; false lets the chosen level apply anyway
+    ui_explanations  "beside" (default): each page's How this works panel sits beside it; "on_request":
+                     it opens from the title bar's info button instead (Settings > Appearance > Layout)
+    ui_preview_marks  "tags" (default): Preview features carry a Preview tag; "dots": a small dot,
+                     with the tag kept on page titles
+    ui_density       "comfortable" (default) or "compact": spacing in tables, lists and toolbars
     kernel_process   true to run each notebook's cells in a Python process of its own, so Stop
                      and crashes end only that process (default false while in preview)
     cell_time_limit_minutes  with kernel_process: minutes a cell may run before it's interrupted;
@@ -163,6 +168,12 @@ CHOICES = {"onelake_writes": ("local_first", "direct"), "onelake_compression": (
 DEFAULTS.update({"onelake_writes": "local_first", "onelake_compression": "zstd", "onelake_skip_unchanged": True})
 TYPES.update({"onelake_writes": str, "onelake_compression": str, "onelake_skip_unchanged": bool})
 USER_KEYS += ("onelake_writes", "onelake_compression", "onelake_skip_unchanged")
+# Layout (app/ui/features.js applyAppearance): how every page shows the same things; nothing is hidden.
+CHOICES.update({"ui_explanations": ("beside", "on_request"), "ui_preview_marks": ("tags", "dots"),
+                "ui_density": ("comfortable", "compact")})
+DEFAULTS.update({"ui_explanations": "beside", "ui_preview_marks": "tags", "ui_density": "comfortable"})
+TYPES.update({"ui_explanations": str, "ui_preview_marks": str, "ui_density": str})
+USER_KEYS += ("ui_explanations", "ui_preview_marks", "ui_density")
 # Read by integrations/policy.py, which decides what each means; listed here so the policy file has
 # one list of settings.
 INTEGRATION_KEYS = ("integrations", "integrations_max_permissions", "integrations_http", "integrations_extensions",

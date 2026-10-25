@@ -3,36 +3,33 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Cycle of 2026-10-25, main 524e6a3.** Covers the PRs merged from #135 to #650.
+**Daily check of 2026-10-25, main 5ae85e5.** Covers the PRs merged from #135 to #675.
 
 ## Summary
 
-- 86 PRs merged from #561 to #650 in about 40 hours, so roughly 40 a day from 22 to 24 October.
-- Inventory: 140 features. 115 are Implemented, 11 Partially Implemented, 6 Implemented but Not Exposed, 4 Missing and 4 Planned.
-  3 are Verified, 124 Partially Verified and 13 Unverified. None has been verified on a Fabric tenant.
-- Backlog: 98 items (5 P0, 31 P1, 49 P2, 13 P3). 52 are Proposed, 9 In progress, 37 In review and none Accepted:
+- 32 PRs merged from #643 to #675 overnight. They bring best-practice checks and templates, WH-06 saved queries and WH-07 history, Data Factory DF-1 in Monitor plus DF-2, DF-5 and the DF-7 engine, Open in VS Code, and QA-002, HD-012, HD-015, HD-026 and SH-8.
+- Inventory: 142 features. 117 are Implemented, 13 Partially Implemented, 5 Implemented but Not Exposed, 3 Missing and 4 Planned.
+  3 are Verified, 127 Partially Verified and 12 Unverified. None has been verified on a Fabric tenant.
+- Backlog: 98 items (5 P0, 31 P1, 49 P2, 13 P3). 51 are Proposed, 10 In progress, 37 In review and none Accepted:
   merged work waits on the [implementation review](IMPLEMENTATION_REVIEW_PROCESS.md).
-- CI run 2235 passed every job on main at 524e6a3.
 
 ## Workstreams
 
 | Workstream | Owner thread | Backlog | State |
 | --- | --- | --- | --- |
 | Local execution and compute | Local data engine and OneLake publishing | PB-099 | Review ready |
-| SQL and warehouse | Build full warehouse development experience | PB-106 | WH-06, WH-07 next |
-| Data Factory | Build full Data Factory experience | PB-107 | Screens wait on the mockup |
+| SQL and warehouse | Build full warehouse development experience | PB-106 | Phases 1-2 done; phase 3 needs a go |
+| Data Factory | Build full Data Factory experience | PB-107 | DF-1, 2, 5 on main; DF-6, DF-7 screen next |
 | Pipelines | Local Fabric pipeline execution | PB-037 | Review ready; P5 needs a go |
 | Semantic models | Best Practice Analyzer; TMDL and OSI conversion | PB-108, PB-110 | Wait on the product owner |
-| Governance | Enterprise governance foundation | PB-108, PB-059 | #648, #651 in quality |
-| Developer experience | UX oversight; animations; VS Code | PB-102, PB-109 | Wait on the product owner |
+| Governance | Enterprise governance foundation | PB-108, PB-059 | Best-practice checks merged; In review |
+| Developer experience | UX oversight; animations; VS Code | PB-102, PB-109 | Open in VS Code merged; phase 2 waits on the product owner |
 | Testing and security | Codebase audit; engineering quality | PB-101, PB-103 | Re-checks dispatched |
 | Release | Release management | | Working |
 
 ## Open pull requests
 
-#643, #648, #649 and #651 (best-practice checks, in quality); #560 (BPA, waits on a cell error from
-the product owner); #449 (animation style guide, waits on the product owner); fork PRs #288, #289 and
-#290 (reviewed FAIL, recommended to close).
+At 11:45 UTC there were 24 open PRs, #676 to #700, after Chris's call to get every thread working again. They are fixes and hardening (PB-018 #685, PB-044 #689, QA-011 #680, SH-9 #679), the next slices of approved plans (DF-7 Dataflows tab #700, Ossie card #681, KF-DE-001 #692), and motion and Preview UI. #677 is this product data update. #560 (BPA) and #449 (animation style guide) wait on the product owner. Fork PRs #288, #289 and #290 were reviewed FAIL and are recommended to close.
 
 ## Blocked on the product owner
 
@@ -43,6 +40,6 @@ Direct Lake on zstd, and the privacy and support details.
 
 ## Orchestration
 
-Development runs when the product owner or a thread wakes the project coordinator. No recurring
-scheduled task runs, and pull request events don't reach the threads. Quality review gates every PR,
+Development runs when the product owner or a thread wakes the project coordinator. A daily product
+check (11:42 UTC) refreshes this data and proposes assignments. Pull request events don't reach the threads. Quality review gates every PR,
 and only Release management merges.

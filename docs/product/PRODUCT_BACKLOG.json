@@ -4049,7 +4049,9 @@
         621,
         623,
         624,
-        626
+        626,
+        659,
+        674
       ]
     },
     {
@@ -4149,7 +4151,8 @@
       },
       "prs": [
         585,
-        616
+        616,
+        661
       ]
     },
     {
@@ -4294,7 +4297,9 @@
         638,
         639,
         641,
-        645
+        645,
+        660,
+        662
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -4351,7 +4356,13 @@
       "effort": "XL",
       "confidence": "Medium",
       "prs": [
-        640
+        640,
+        653,
+        665,
+        666,
+        667,
+        668,
+        669
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -4374,6 +4385,7 @@
       ],
       "features": [
         "FEAT-GOV-05",
+        "FEAT-GOV-09",
         "FEAT-META-13"
       ],
       "depends_on": [
@@ -4410,7 +4422,9 @@
         643,
         648,
         649,
-        651
+        651,
+        664,
+        671
       ],
       "mandatory": "none",
       "computed": {
@@ -4431,9 +4445,10 @@
         "#650 merged: the app never saves over a file another program changed"
       ],
       "features": [
+        "FEAT-EXT-01",
         "FEAT-EXT-02",
-        "FEAT-NB-17",
-        "FEAT-EXT-01"
+        "FEAT-EXT-06",
+        "FEAT-NB-17"
       ],
       "external_dependencies": [
         "Chris decides paired-editor runs without per-run approval",
@@ -4458,9 +4473,11 @@
       ],
       "effort": "XL",
       "confidence": "Low",
-      "state": "Proposed",
+      "state": "In progress",
       "prs": [
-        650
+        650,
+        652,
+        670
       ],
       "mandatory": "none",
       "computed": {

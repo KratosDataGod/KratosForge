@@ -258,8 +258,8 @@ RUN_INPUT = {
                  "referenceName or pipelineId."},
 }
 RUN_LIMIT = ("Runs control flow (variables, conditions, loops, waits, Fail, Filter) and child pipelines on this PC. "
-             "Copy, Notebook and other data or compute activities need a mock; cloud-only and unknown activities "
-             "refuse the run.",
+             "Copy, Notebook, Lookup, Get Metadata, Script and other data or compute activities need a mock; "
+             "cloud-only and unknown activities refuse the run.",
              "Nothing is sent to Fabric and no capacity is used. Behaviour follows Data Factory's documentation and "
              "hasn't been compared with Fabric.",
              "Activity outputs and variable values are left out; open the run in KratosForge to see them.")

@@ -258,17 +258,31 @@ def get_activity_registry(svc: Any, ctx: CallContext, activity_type: str = "") -
     return svc.pipeline_activity_registry(activity_type or None)
 
 
+# Steps the desktop app and CLI can run (naming a notebook, or with lakehouse reads on) but an external
+# tool can only mock: their problems name CLI flags the tool can't pass, so it gets this instead.
+_MOCK_ONLY = {"notebook_needs_engine": "runs a notebook", "data_needs_engine": "reads a lakehouse"}
+
+
+def _external(result: dict[str, Any]) -> dict[str, Any]:
+    for p in result.get("problems") or []:
+        what = _MOCK_ONLY.get(p.get("code"))
+        if what:
+            p["message"] = (f"{p.get('activity')} {what}, which an external tool's run can't do. Give a mock for "
+                            "it, or run the pipeline in KratosForge.")
+    return result
+
+
 def check_pipeline_run(svc: Any, ctx: CallContext, definition: str, parameters: dict | None = None,
                        mocks: dict | None = None, children: dict | None = None) -> dict[str, Any]:
-    return svc.pipeline_run_check(text=definition, parameters=parameters, mocks=mocks, children=children)
+    return _external(svc.pipeline_run_check(text=definition, parameters=parameters, mocks=mocks, children=children))
 
 
 def start_pipeline_run(svc: Any, ctx: CallContext, definition: str, parameters: dict | None = None,
                        mocks: dict | None = None, children: dict | None = None, max_parallel: int = 4,
                        wait_scale: float = 1.0, timeout_seconds: float = 0) -> dict[str, Any]:
-    return svc.pipeline_run_start(text=definition, parameters=parameters, mocks=mocks, children=children,
-                                  max_parallel=max_parallel, wait_scale=wait_scale,
-                                  timeout_seconds=timeout_seconds or None)
+    return _external(svc.pipeline_run_start(text=definition, parameters=parameters, mocks=mocks, children=children,
+                                            max_parallel=max_parallel, wait_scale=wait_scale,
+                                            timeout_seconds=timeout_seconds or None))
 
 
 def get_pipeline_run(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa: A002

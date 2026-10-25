@@ -178,7 +178,7 @@ pub fn end_handover(data_dir: &Path) {
 pub fn handing_over(data_dir: &Path) -> bool {
     std::fs::metadata(data_dir.join(HANDOVER))
         .and_then(|m| m.modified())
-        .is_ok_and(|t| t.elapsed().map_or(true, |age| age < Duration::from_secs(120)))
+        .is_ok_and(|t| t.elapsed().is_ok_and(|age| age < Duration::from_secs(120))) // one from the future is stale
 }
 
 /// Hands `url` to the copy of the app that's already running. True when it took it.
@@ -379,6 +379,12 @@ mod tests {
         assert!(!handing_over(&dir));
         start_handover(&dir);
         assert!(handing_over(&dir), "a copy started by a link leaves the lock to the --updated-to copy");
+        let marker = std::fs::File::options().write(true).open(dir.join(HANDOVER)).unwrap();
+        marker.set_modified(std::time::SystemTime::now() + Duration::from_secs(3600)).unwrap();
+        assert!(!handing_over(&dir), "a marker from the future doesn't hold links back");
+        marker.set_modified(std::time::SystemTime::now() - Duration::from_secs(300)).unwrap();
+        assert!(!handing_over(&dir), "nor one an update left behind");
+        drop(marker);
         end_handover(&dir);
         assert!(!handing_over(&dir));
         let _ = std::fs::remove_dir_all(&dir);

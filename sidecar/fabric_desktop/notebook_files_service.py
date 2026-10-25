@@ -216,9 +216,18 @@ def _no_link_below(top: str, full: str) -> bool:
             st = os.lstat(here)
         except (OSError, ValueError):
             return False
-        if stat.S_ISLNK(st.st_mode) or getattr(st, "st_file_attributes", 0) & 0x400:  # FILE_ATTRIBUTE_REPARSE_POINT
+        if _is_link(st):  # a symbolic link or junction; cloud placeholders pass
             return False
     return True
+
+
+# Windows reparse tags that point somewhere else. Others, such as OneDrive's Files On-Demand
+# placeholders, are files and folders in place and pass.
+_LINK_TAGS = (0xA000000C, 0xA0000003)  # IO_REPARSE_TAG_SYMLINK, IO_REPARSE_TAG_MOUNT_POINT (a junction)
+
+
+def _is_link(st: os.stat_result) -> bool:
+    return stat.S_ISLNK(st.st_mode) or getattr(st, "st_reparse_tag", 0) in _LINK_TAGS
 
 
 def _local_path(path: Any) -> bool:

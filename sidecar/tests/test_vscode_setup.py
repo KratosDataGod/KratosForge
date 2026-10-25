@@ -185,6 +185,18 @@ def test_a_link_inside_a_known_folder_is_not_followed(svc, tmp_path):
     assert svc.notebook_name_for_path(str(home)) == {"name": "Daily"}
 
 
+def test_only_links_and_junctions_count_as_links_not_cloud_files():
+    from types import SimpleNamespace
+    from fabric_desktop.notebook_files_service import _is_link
+    plain = 0o100644
+    assert _is_link(SimpleNamespace(st_mode=plain, st_reparse_tag=0xA000000C))  # symbolic link
+    assert _is_link(SimpleNamespace(st_mode=plain, st_reparse_tag=0xA0000003))  # junction
+    assert _is_link(SimpleNamespace(st_mode=0o120777))
+    for cloud in (0x9000001A, 0x9000101A, 0x9000601A):  # OneDrive Files On-Demand placeholders
+        assert not _is_link(SimpleNamespace(st_mode=plain, st_reparse_tag=cloud))
+    assert not _is_link(SimpleNamespace(st_mode=plain))
+
+
 def test_open_prints_a_link_the_shell_reads(tmp_path):
     path = tmp_path / "Daily sales.ipynb"
     path.write_text('{"cells": []}', encoding="utf-8")

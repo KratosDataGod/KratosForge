@@ -1661,11 +1661,18 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
 @keyframes splash-cool { to { filter: drop-shadow(0 0 6px rgba(248,153,28,0.25)); } }
 @keyframes splash-up { from { opacity: 0; transform: translateY(10px); } }
 @keyframes splash-rise { 0% { opacity: 0; transform: translate(0, 0); } 10% { opacity: .9; } 100% { opacity: 0; transform: translate(var(--drift), -105vh); } }
-@media (prefers-reduced-motion: reduce) {
-  .overlay.splash, .splash-emblem, .splash-old, .splash-letters, .splash-tag, .splash-text, .splash-actions, .splash-optout { animation: none; }
-  .splash-ring, .splash-spark, .splash-embers { display: none; }
-  .splash-letters { filter: drop-shadow(0 0 6px rgba(248,153,28,0.25)); }
+/* Motion & effects, read when the splash opens (settings.js forgeSplash): Off, Minimal or Windows'
+   reduced motion show it still; Forge sparks off takes out the sparks and the embers. Embers wait while
+   the window is in the background. */
+.splash-still, .splash-still :is(.splash-emblem, .splash-old, .splash-letters, .splash-tag, .splash-text, .splash-actions, .splash-optout) { animation: none; }
+:is(.splash-still, .splash-nosparks) :is(.splash-ring, .splash-spark, .splash-embers) { display: none; }
+.splash-still .splash-letters { filter: drop-shadow(0 0 6px rgba(248,153,28,0.25)); }
+@media (prefers-reduced-motion: reduce) {  /* Windows turned it on with the splash open */
+  html:not([data-motion-override]) :is(.overlay.splash, .splash :is(.splash-emblem, .splash-old, .splash-letters, .splash-tag, .splash-text, .splash-actions, .splash-optout)) { animation: none; }
+  html:not([data-motion-override]) .splash :is(.splash-ring, .splash-spark, .splash-embers) { display: none; }
+  html:not([data-motion-override]) .splash-letters { filter: drop-shadow(0 0 6px rgba(248,153,28,0.25)); }
 }
+html[data-motion-paused="on"] .splash-ember { animation-play-state: paused; }
 .cm-line.cm-bp { box-shadow: inset 3px 0 0 #c50f1f; background: rgba(197, 15, 31, 0.06); }
 .cm-line.cm-paused { background: rgba(255, 196, 0, 0.28); }
 .output.dbg-paused { background: #fffbea; border-left: 3px solid #c27c00; display: flex; flex-direction: column; gap: 8px; }

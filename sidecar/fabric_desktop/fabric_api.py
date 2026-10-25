@@ -522,6 +522,10 @@ class FabricClient:
         """Cloud connections the user can use (ADLS Gen2 and S3 shortcuts need one)."""
         return self._paged("/connections")
 
+    def list_gateways(self) -> list[dict[str, Any]]:
+        """On-premises and virtual network gateways the user can see. Needs Gateway.Read.All."""
+        return self._paged("/gateways")
+
     # ---- variable libraries
 
     def list_variable_libraries(self, workspace_id: str) -> list[dict[str, Any]]:

@@ -1805,7 +1805,8 @@ fn open_with_handler(link: &str, what: &str) -> Result<(), String> {
 }
 
 /// "Open in VS Code" on a notebook: opens a notebook file, or a folder of notebooks, in VS Code
-/// (or VS Code Insiders). Only an existing .ipynb file or folder, so a page can't open anything else.
+/// (or VS Code Insiders). Only an existing .ipynb file or folder inside a notebooks folder the app
+/// knows, so a page can't open anything else.
 #[tauri::command]
 fn open_in_vscode(path: String, insiders: bool) -> Result<(), String> {
     let p = PathBuf::from(&path);
@@ -1813,8 +1814,22 @@ fn open_in_vscode(path: String, insiders: bool) -> Result<(), String> {
     if !(notebook || p.is_dir()) || !p.is_absolute() {
         return Err(format!("Not a notebook or folder: {path}"));
     }
+    if !vscode_link::inside(&p, &notebook_folders()) {
+        return Err(format!("Not in the notebooks folder or a repository opened in Source control: {path}"));
+    }
     let link = vscode_link::open_link(&p, insiders)?;
     open_with_handler(&link, if insiders { "VS Code Insiders. Is it installed?" } else { "VS Code. Is it installed?" })
+}
+
+/// The folders Open in VS Code may open: the app's notebooks folder and the repositories opened
+/// in Source control (git_repos.json, as git_service.py keeps it).
+fn notebook_folders() -> Vec<PathBuf> {
+    let dir = data_dir();
+    let repos: Value = std::fs::read_to_string(dir.join("git_repos.json")).ok()
+        .and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(Value::Null);
+    let mut out = vec![dir.join("notebooks")];
+    out.extend(repos["repos"].as_array().into_iter().flatten().filter_map(|r| r["path"].as_str()).map(PathBuf::from));
+    out
 }
 
 /// "Add to VS Code" (Settings > Integrations): asks VS Code, or VS Code Insiders, to add the

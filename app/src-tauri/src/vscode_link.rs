@@ -66,6 +66,9 @@ pub fn open_link(path: &Path, insiders: bool) -> Result<String, String> {
     if !(text.starts_with('/') || text.as_bytes().get(1) == Some(&b':')) {
         return Err("Only a full path can be opened in VS Code.".into());
     }
+    if text.starts_with("//?/") || text.starts_with("//./") {
+        return Err("That kind of path can't be opened in VS Code.".into());
+    }
     let mut out = String::new();
     for b in text.bytes() {
         if b.is_ascii_alphanumeric() || b"/:-_.~".contains(&b) {
@@ -75,7 +78,16 @@ pub fn open_link(path: &Path, insiders: bool) -> Result<String, String> {
         }
     }
     let scheme = if insiders { "vscode-insiders" } else { "vscode" };
-    Ok(format!("{scheme}://file/{}", out.trim_start_matches('/')))
+    // One slash goes: C:/x is file/C:/x and /home/x is file/home/x. A network path keeps its
+    // second one, so \\server\share\x is file//server/share/x.
+    Ok(format!("{scheme}://file/{}", out.strip_prefix('/').unwrap_or(&out)))
+}
+
+/// Whether `path` may be opened in VS Code: inside one of `allowed` (the app's notebooks folder
+/// and the repositories opened in Source control). Compared after resolving links and `..`.
+pub fn inside(path: &Path, allowed: &[std::path::PathBuf]) -> bool {
+    let Ok(p) = std::fs::canonicalize(path) else { return false };
+    allowed.iter().filter_map(|a| std::fs::canonicalize(a).ok()).any(|a| p.starts_with(&a))
 }
 
 #[cfg(test)]
@@ -127,11 +139,28 @@ mod tests {
         assert_eq!(link, "vscode://file/C:/Users/Chris%20Smith/notebooks/Sales%20%231.ipynb");
         assert_eq!(open_link(&PathBuf::from("/home/c/nb"), true).unwrap(), "vscode-insiders://file/home/c/nb");
         assert!(open_link(&PathBuf::from("notebooks/x.ipynb"), false).is_err());
+        assert_eq!(open_link(&PathBuf::from(r"\\server\share\Sales.ipynb"), false).unwrap(), "vscode://file//server/share/Sales.ipynb");
+        assert!(open_link(&PathBuf::from(r"\\?\C:\x.ipynb"), false).is_err());
     }
 
     #[test]
     fn non_ascii_paths_are_encoded_as_utf8() {
         let link = install_link(&PathBuf::from(r"C:\Users\José\bin\x.cmd"), "c", false).unwrap();
         assert!(link.contains("Jos%C3%A9"));
+    }
+
+    #[test]
+    fn only_paths_inside_known_folders_open() {
+        let root = std::env::temp_dir().join(format!("kf-vsl-{}", std::process::id()));
+        let notebooks = root.join("notebooks");
+        std::fs::create_dir_all(notebooks.join("Sales")).unwrap();
+        std::fs::create_dir_all(root.join("other")).unwrap();
+        let allowed = vec![notebooks.clone()];
+        assert!(inside(&notebooks, &allowed));
+        assert!(inside(&notebooks.join("Sales"), &allowed));
+        assert!(!inside(&root.join("other"), &allowed));
+        assert!(!inside(&notebooks.join("..").join("other"), &allowed));
+        assert!(!inside(&root.join("missing"), &allowed));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

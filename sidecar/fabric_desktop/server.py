@@ -90,7 +90,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "git_compare", "git_file_at", "git_branches", "git_create_branch", "git_switch", "git_delete_branch",
            "git_restore_stash", "git_abort_merge", "git_settings", "git_set_identity", "git_add_remote",
            "git_path_info", "git_notebook_info", "git_create", "git_set_kind", "git_locations", "git_set_locations",
-           "git_platform_diff", "git_platform_export", "git_platform_deploy", "git_capacity_diff", "git_capacity_write",
+           "git_platform_diff", "git_platform_export", "git_platform_deploy", "git_capacity_diff", "git_capacity_write", "git_vscode_plan", "git_vscode_apply",
            "notebook_places", "move_notebook", "audit_log",
            "pipeline_import", "pipeline_validate", "pipeline_inspect", "pipeline_export",
            "pipeline_compatibility", "pipeline_activity_registry",
@@ -381,12 +381,13 @@ def _start_integration_http(service: Service) -> None:
 
 
 def _refresh_integration_launcher() -> None:
-    """After an update the engine is in a new folder: point the AI tools' launcher at it."""
+    """After an update the engine is in a new folder: point the AI tools' and the CLI's launchers at it."""
     try:
-        from .integrations.config import launcher_path, write_launcher
+        from .integrations.config import launcher_path, write_cli_launcher, write_launcher
         from .service import data_dir
         if launcher_path(data_dir()).exists():
             write_launcher(data_dir())
+        write_cli_launcher(data_dir())  # VS Code's Validate task runs it on every developer's PC
     except Exception as exc:  # noqa: BLE001 - never stop the engine over this
         print(f"integrations: could not update the launcher: {exc}", file=sys.stderr)
 

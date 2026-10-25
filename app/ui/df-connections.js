@@ -67,6 +67,7 @@ async function renderDfConnections() {
   const notes = [`As of ${new Date(out.scanned).toLocaleTimeString()} · ${out.items} pipelines and copy jobs read in ${envs.map((w) => `${w.name}${w.env ? ` (${dfEnvLabel(w)})` : ""}`).join(", ") || "no workspaces"}`];
   if (out.missed) notes.push(`${out.missed} couldn't be read`);
   if (out.skipped) notes.push(`${out.skipped} more not read (limit reached)`);
+  if (out.gateways_error) notes.push("Gateway names couldn't be read (they need permission to read gateways)");
   const alert = missing.length ? h("div", { class: "df-alert", role: "alert" },
     h("b", {}, missing.length === 1 ? "1 connection is missing." : `${missing.length} connections are missing.`), " ",
     missing.map((m) => `${[...new Set(m.used_by.map((u) => u.item_name))].join(", ")} in ${[...new Set(m.used_by.map((u) => dfEnvLabel(u)))].join(", ")} use${m.used_by.length === 1 ? "s" : ""} a connection you can't use (deleted, or not shared with you), so ${m.used_by.length === 1 ? "it fails when you run it" : "they fail when you run them"}.`).join(" ")) : null;
@@ -78,7 +79,9 @@ async function renderDfConnections() {
       h("td", {}, r.missing ? h("b", {}, `Unknown connection ${r.id.slice(0, 8)}`) : h("b", {}, r.name),
         h("div", { class: "muted-text small" }, r.missing ? "Not in the connections you can use" : r.path)),
       h("td", {}, r.type || "—"),
-      h("td", {}, r.missing ? "—" : DF_CONNECTIVITY[r.connectivity] || r.connectivity || "—"),
+      h("td", {}, r.missing ? "—" : DF_CONNECTIVITY[r.connectivity] || r.connectivity || "—",
+        r.gateway_name ? h("div", { class: "muted-text small" }, r.gateway_name,
+          r.gateway_members > 1 ? ` · ${r.gateway_members} members` : "") : null),
       h("td", {}, dfUsedBy(r.used_by)),
       envs.map((w) => dfEnvCell(r, w, r.missing))))))) : h("p", { class: "muted-text" }, "No connections you can use, and nothing here names one.");
   fill(body, alert, h("p", { class: "muted-text small" }, notes.join(" · ")), table);

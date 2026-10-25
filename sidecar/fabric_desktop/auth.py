@@ -48,6 +48,8 @@ ONELAKE_SCOPES = ["https://api.fabric.microsoft.com/OneLake.ReadWrite.All"]
 # out only with at least this long left (HD-034): one that has less is refreshed first.
 STORAGE_MIN_SECONDS = 30 * 60
 CONNECTION_SCOPES = ["https://api.fabric.microsoft.com/Connection.Read.All"]
+# Gateway names on the Data Factory Connections tab (Preview), asked for the first time it opens.
+GATEWAY_SCOPES = ["https://api.fabric.microsoft.com/Gateway.Read.All"]
 GRAPH_USER_SCOPES = ["https://graph.microsoft.com/User.ReadBasic.All"]
 # Listing capacities (creating a workspace, the cost view's capacity size).
 CAPACITY_SCOPES = ["https://api.fabric.microsoft.com/Capacity.Read.All"]

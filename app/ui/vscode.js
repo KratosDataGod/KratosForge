@@ -17,7 +17,8 @@ function vscodeMenu(nb) {
     { label: nb.place ? "Open the repository folder in VS Code" : "Open the notebooks folder in VS Code", icon: "folder",
       action: () => openInVsCode(nb, "folder") },
     { label: "Open this notebook in VS Code Insiders", icon: "code", action: () => openInVsCode(nb, "notebook", true) },
-  ];
+    nb.place ? { label: "Set up this repository for VS Code…", icon: "settings", action: () => vscodeSetupDialog(nb.place.root, nb.place.label) } : null,
+  ].filter(Boolean);
 }
 
 // The shell opens only an existing .ipynb file or folder (open_in_vscode in main.rs).
@@ -46,3 +47,47 @@ async function nbReloadIfChangedOutside() {
 }
 
 window.addEventListener("focus", () => { nbReloadIfChangedOutside(); });
+
+// Set up a repository for VS Code (vscode_setup.py): adds the files a developer who opens the
+// repository in VS Code needs. Files already there are never replaced; for Copilot's instructions
+// the text to paste is shown instead. Nothing is committed.
+async function vscodeSetupDialog(root, label, after) {
+  const plan = await attempt(() => rpc("git_vscode_plan", { repo: root }), "Couldn't read the repository");
+  if (!plan) return;
+  const chosen = new Set(plan.files.filter((f) => f.state === "new").map((f) => f.path));
+  const add = btn("", null, () => run(), "tool primary");
+  const count = () => {
+    add.textContent = chosen.size ? `Add ${chosen.size} file${chosen.size === 1 ? "" : "s"}` : "Nothing to add";
+    add.disabled = !chosen.size;
+  };
+  const row = (f) => {
+    const box = h("input", { type: "checkbox", checked: f.state === "new" ? true : null, disabled: f.state === "new" ? null : true,
+      "aria-label": f.path, onchange: (e) => { e.target.checked ? chosen.add(f.path) : chosen.delete(f.path); count(); } });
+    const state = { new: ["New", "info"], exists: ["Already there", "neu"], same: ["Already set up", "pass"] }[f.state];
+    const paste = f.state === "exists" && f.path.endsWith(".md")
+      ? h("details", {}, h("summary", {}, "Show the text to add"), h("pre", { class: "vscode-setup-text" }, f.text),
+        btn("Copy", "document", () => attempt(() => navigator.clipboard.writeText(f.text).then(() => toast("Copied. Paste it into the file.")), "Could not copy"), "tool outline small"))
+      : null;
+    return h("div", { class: "vscode-setup-file" }, box,
+      h("div", { class: "grow" }, h("label", {}, h("code", {}, f.path), h("div", { class: "muted-text small" }, `${f.label}. ${f.why}`
+        + (f.state === "exists" ? " It's already in the repository, so it's left as it is." : ""))), paste),
+      h("span", { class: `pill-s ${state[1]}` }, state[0]));
+  };
+  const run = async () => {
+    const out = await attempt(() => rpc("git_vscode_apply", { repo: root, files: [...chosen] }), "Couldn't add the files");
+    if (!out) return;
+    closeDialog();
+    toast(out.added.length ? `Added ${out.added.length} file${out.added.length === 1 ? "" : "s"} to ${label}. Commit them in Source control to share them.`
+      : "Nothing was added: the files are already there.");
+    if (out.skipped.length) toast(`Left as they are: ${out.skipped.join(", ")}.`, true);
+    if (after) after(out.status);
+  };
+  count();
+  showDialog(`Set up ${label} for VS Code`, h("div", { class: "scroll" },
+    h("p", {}, "Adds files that make VS Code ready for anyone who clones this repository: a task that validates the open notebook, the KratosForge server for Copilot, and the extensions to install. Files already there are never replaced."),
+    h("div", { class: "vscode-setup-files" }, plan.files.map(row)),
+    h("div", { class: "callout" }, icon("info", 20), h("span", {},
+      h("b", {}, "How this works. "), "Writes the ticked files in this repository's folder on this PC, and the kratosforge command the task runs. Nothing is committed or pushed; they show under Changes for you to review. ",
+      "Doesn't write Fabric, OneLake or VS Code's own settings. The Validate task reads the notebook file and runs nothing; Copilot's tools still ask you here before they run code."))),
+  [btn("Cancel", null, closeDialog, "tool outline"), add]);
+}

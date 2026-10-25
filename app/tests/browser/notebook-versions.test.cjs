@@ -27,7 +27,8 @@ before(async () => {
 after(async () => { if (app) await app.close(); });
 
 test("Versions lists the saved version, and a checkpoint is kept by name", { skip }, async () => {
-  await page().getByRole("button", { name: "Versions", exact: true }).click();
+  await page().getByRole("button", { name: "Share" }).click();
+  await page().getByRole("menuitem", { name: "Versions", exact: true }).click();
   const dialog = page().getByRole("dialog", { name: "Versions of Daily sales" });
   await dialog.getByText("Same as now").waitFor();
   await dialog.getByRole("button", { name: "Create checkpoint…" }).click();
@@ -42,7 +43,8 @@ test("Versions lists the saved version, and a checkpoint is kept by name", { ski
 
 test("Compare shows what changed since the checkpoint, and Restore brings it back", { skip }, async () => {
   await page().evaluate(() => { state.notebook.cells[1].source = "total = orders * 3"; markDirty(); });
-  await page().getByRole("button", { name: "Versions", exact: true }).click();
+  await page().getByRole("button", { name: "Share" }).click();
+  await page().getByRole("menuitem", { name: "Versions", exact: true }).click();
   const dialog = page().getByRole("dialog", { name: "Versions of Daily sales" });
   await dialog.getByRole("button", { name: /^Compare with Before the refactor/ }).click();
   const cmp = page().getByRole("dialog", { name: /^Now compared with Before the refactor/ });
@@ -58,7 +60,8 @@ test("Compare shows what changed since the checkpoint, and Restore brings it bac
 });
 
 test("Deleting a version asks first, in red", { skip }, async () => {
-  await page().getByRole("button", { name: "Versions", exact: true }).click();
+  await page().getByRole("button", { name: "Share" }).click();
+  await page().getByRole("menuitem", { name: "Versions", exact: true }).click();
   await page().getByRole("dialog", { name: "Versions of Daily sales" }).getByRole("button", { name: /^Delete Before the refactor/ }).click();
   const confirm = page().getByRole("dialog", { name: 'Delete the checkpoint "Before the refactor"?' });
   assert.match(await confirm.getByRole("button", { name: "Delete" }).getAttribute("class"), /danger/);

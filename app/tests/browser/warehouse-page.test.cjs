@@ -52,6 +52,8 @@ async function setDoc(text) {
 test("the page says the query runs in Fabric and uses capacity, and offers no lakehouse actions", { skip }, async () => {
   const text = await page().locator(".warehouse-page").textContent();
   assert.match(text, /Runs in Fabric · uses capacity · reads only/);
+  const chrome = await page().locator(".warehouse-page .ribbon, .warehouse-page .sql-actions").allTextContents();
+  assert.strictEqual(chrome.join(" ").match(/uses? capacity/g).length, 1, "the toolbars say it once (How this works says it again in full)");
   assert.match(text, /Fabric Warehouse \(T-SQL\)/);
   assert.match(text, /How this works/);
   assert.strictEqual(await page().getByRole("button", { name: "Save as table" }).count(), 0);

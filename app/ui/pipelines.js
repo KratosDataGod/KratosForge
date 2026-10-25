@@ -267,6 +267,7 @@ function plPill(verdict) {
 
 async function renderPipelines() {
   if (plPage.area === "connections") return renderDfConnections();
+  if (plPage.area === "dataflows") return renderDfDataflows();
   const p = plPage.pipeline;
   if (!p) {
     setView(h("div", { class: "page" }, dfAreaTabs(), h("h1", {}, "Pipelines ", previewTag()),
@@ -746,5 +747,7 @@ registerFeature({
     { label: "Open a pipeline", icon: "flow", keywords: "pipeline fabric data factory run local datapipeline", run: () => pipelineOpenDialog() },
     { label: "Data Factory connections", icon: "flow", keywords: "connection gateway fabric data factory used by missing",
       run: () => { plPage.area = "connections"; go("pipelines"); } },
+    { label: "Dataflows", icon: "flow", keywords: "dataflow gen2 power query m fabric data factory refresh",
+      run: () => { plPage.area = "dataflows"; go("pipelines"); } },
   ],
 });

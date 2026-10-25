@@ -37,15 +37,10 @@ _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-0
 # Dropping a name from METHODS? Also drop it from the timeout list in app/src-tauri/src/watchdog.rs.
 _PRACTICES = "notebook best practices: engine only, the panel waits on Chris's mockup review (docs/notebook-best-practices.md)"
 
-_DF7 = "Data Factory DF-7: dataflows from a workspace, engine only; the Dataflows tab follows (mockup approved 2026-10-25)"
-
 _SQL_PRACTICES = "SQL best practices: engine only, the panel waits on Chris's mockup review (docs/sql-best-practices.md)"
 
 
 NO_UI_CALLER: dict[str, str] = {
-    "workspace_dataflows": _DF7,
-    "workspace_dataflow_definition": _DF7,
-    "fabric_dataflow_refreshes": _DF7,
     "notebook_practices": _PRACTICES,
     "notebook_practice_rules": _PRACTICES,
     "sql_practices": _SQL_PRACTICES,

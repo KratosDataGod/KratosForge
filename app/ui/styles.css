@@ -339,8 +339,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .choice .main .n { font-size: 14px; font-weight: 600; }
 .choice .main .w { font-size: 12px; color: var(--muted); }
 .choice .tag { font-size: 12px; color: var(--accent-dark); font-weight: 600; }
-.menu { position: fixed; z-index: 20; min-width: 220px; padding: 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); box-shadow: 0 6px 20px rgba(0,0,0,0.14); }
-.menu .tool { width: 100%; justify-content: flex-start; }
+.menu { position: fixed; z-index: 20; min-width: 220px; width: max-content; max-width: min(420px, calc(100vw - 16px)); padding: 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); box-shadow: 0 6px 20px rgba(0,0,0,0.14); }
+.menu .tool { display: flex; width: 100%; justify-content: flex-start; }
 .menu .info { padding: 6px 10px; font-size: 12px; color: var(--muted); }
 .toast {
   position: fixed; left: 50%; bottom: 40px; z-index: 30; transform: translateX(-50%); max-width: min(640px, 90vw);
@@ -402,6 +402,10 @@ h2.flush { margin: 0; }
 .gate-list { margin: 6px 0 0; padding-left: 20px; font-size: 12.5px; line-height: 1.6; }
 .subtabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; overflow-x: auto; }
 .subtabs .tab { min-height: 38px; white-space: nowrap; flex: none; }
+.subtabs .tab-menu { display: inline-flex; align-items: center; gap: 4px; }
+.subtabs .tab-here { font-weight: 400; color: var(--muted); }
+.subtabs .tab-count { margin-left: 6px; padding: 0 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-dark); font-size: 11px; font-weight: 600; }
+.subtabs .tab-count:empty { display: none; }
 .meta-body { display: flex; flex-direction: column; gap: 14px; }
 .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .arrow { color: #a19f9d; }
@@ -560,6 +564,13 @@ h2.flush { margin: 0; }
 /* WH-01: the Warehouse page */
 .sql-target-note { font-size: 13px; color: var(--text-2); }
 .sql-capacity-note { padding: 4px 8px; border-radius: 4px; background: #fff8eb; color: #5c3300; font-size: 12.5px; }
+.sql-compat-chip { display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 0 10px; border: 1px solid var(--border-input); border-radius: 999px;
+  background: var(--surface); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+.sql-compat-chip.ok { border-color: #b7dfc2; background: #e6f4ea; color: #14532d; }
+.sql-compat-chip.warning { border-color: #f3c27a; background: #fff4e0; color: #7a4100; }
+.sql-compat-chip.error { border-color: #f1b8bd; background: #fdf3f4; color: #9b0d19; }
+.sql-compat-chip.unverified { border-color: #c8c8c8; background: #f0f0f0; color: #3d3d3d; border-style: dashed; }
+.sql-compat-chip[aria-expanded="true"] svg { transform: rotate(180deg); }
 .warehouse-page .explorer .preview-tag { margin-left: 6px; }
 .warehouse-how { margin: 12px 8px; }
 .warehouse-page .explorer { overflow-y: auto; }  /* the tree, then How this works, scroll together */
@@ -767,7 +778,6 @@ h2.flush { margin: 0; }
 .page.monitor .card.popped-out .monitor-band { border-bottom: 0; }
 .page.monitor.runs-out .monitor-fabric { flex: 1; }
 /* The band's description wraps before its buttons do. */
-.page.monitor .monitor-local > .monitor-band > .muted-text { flex: 1 1 260px; }
 /* A pop-out window: just the section, with Back, Forward, the trail, Keep on top and Dock back on top. */
 body.pop-out .rail, body.pop-out .brand, body.pop-out .search-wrap, body.pop-out .topbar-right { display: none; }
 body.pop-out-fabric .nav-buttons, body.pop-out-fabric .breadcrumb { display: none; }
@@ -2114,6 +2124,21 @@ html[data-fx-ambient="on"] .flow-node[data-state="running"] .flow-link::after { 
 .df-alert { background: var(--danger-soft); border: 1px solid #f0c4c8; border-radius: 8px; padding: 12px 16px; color: #5c0710; margin-bottom: 12px; }
 .df-conn-table tr.df-missing td { background: var(--danger-soft); }
 .df-used { display: flex; flex-direction: column; gap: 2px; }
+.df-ws { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.df-split { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+.df-flow-side { flex: 1 1 220px; max-width: 300px; padding: 6px; }
+.df-flow-main { flex: 999 1 480px; min-width: 0; }
+.df-flow-list { display: flex; flex-direction: column; gap: 2px; }
+.df-flow-row { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 9px 10px; border: 0; border-radius: 6px; background: none; text-align: left; cursor: pointer; }
+.df-flow-row:hover, .df-flow-row.active { background: var(--accent-soft); }
+.df-detail { display: flex; flex-direction: column; gap: 10px; }
+.df-detail-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.df-detail-head h2 { margin: 0; }
+.df-query { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; }
+.df-query summary { cursor: pointer; }
+.df-m { margin: 8px 0 0; max-height: 360px; overflow: auto; white-space: pre; font-size: 12px; }
+.df-hidden > summary { cursor: pointer; margin: 8px 0; color: var(--muted); }
+.df-conns { margin: 0; padding-left: 18px; }
 .pipelines .pl-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0 0 12px; font-size: 13px; }
 .pl-graph { overflow-x: auto; min-width: 0; max-width: 100%; }
 .pl-layers { width: max-content; }

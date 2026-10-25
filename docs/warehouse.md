@@ -27,7 +27,7 @@ A SQL analytics endpoint is found through its lakehouse, which Fabric gives the 
 
 ## SQL from a template
 
-**SQL from a template** on the Warehouse page opens a gallery of T-SQL for Fabric Warehouse, in the groups Fabric's own *New SQL query from template* uses plus accelerators:
+**SQL from a template**, under the arrow beside **New SQL query** on the Warehouse page, opens a gallery of T-SQL for Fabric Warehouse, in the groups Fabric's own *New SQL query from template* uses plus accelerators:
 
 | Group | Templates |
 | --- | --- |

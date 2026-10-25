@@ -4,7 +4,7 @@ Every notebook keeps its earlier versions on this PC, so you can see what change
 
 ## Versions and checkpoints
 
-On the notebook's **Home** tab, select **Versions**. The list shows the notebook's versions, newest first, grouped by day. **Same as now** marks the versions whose cells match the notebook as it is.
+On the notebook's **Home** tab, select **Share > Versions**. The list shows the notebook's versions, newest first, grouped by day. **Same as now** marks the versions whose cells match the notebook as it is.
 
 - **Saved:** each save keeps a version. Autosave saves a few seconds after you stop typing, so the saves within 5 minutes of each other share one version, the newest. A save that changes nothing keeps nothing. Saved versions are kept for 30 days, up to 100 per notebook.
 - **Checkpoint:** **Create checkpoint…** keeps the notebook as it is now under a name you give it, such as "Before the refactor". Checkpoints are kept until you delete them.

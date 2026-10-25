@@ -3727,7 +3727,7 @@ this.payload = nbfExportPayload; this.menu = nbfExportMenu; this.b64 = nbfBase64
     "Fabric source (.py)", "Databricks source (.py)", "Web page (.html)"]);
   const bytes = new Uint8Array(70000).map((_, i) => i % 251);
   assert.strictEqual(ctx.b64(bytes.buffer), Buffer.from(bytes).toString("base64"));
-  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /btn\("Save a copy", "add", \(\) => nbSaveCopyDialog\(nb\.name\)\),[^\n]*nbfExportButton\(\),/);
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /ribbonMenu\("Share", [^\n]*btn\("Save a copy", "add", \(\) => nbSaveCopyDialog\(nb\.name\)\),[^\n]*nbfExportButton\(menu\)\]/);
   assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /btn\("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"\)/);
   assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /nbFormats: "Notebook import and export formats"/);
   assert.match(src, /changes: "Writes one new notebook file \(\.ipynb\) for each notebook in the file/);
@@ -5023,6 +5023,21 @@ test("the Capacity tab says how each capacity drifted from capacity.toml", () =>
     "Sales: Git expects it here; Fabric has it on F8 Dev", "w2: Git expects it here; Fabric has it on a capacity you can't see",
     "Ad hoc: on this capacity in Fabric, not listed in capacity.toml", "Hidden: you can't see this workspace, so it isn't compared",
     "2 workspaces are where Git expects"]);
+});
+
+// Settings > Advanced > OneLake writes > Files on this PC: what local writes hold, and the folder.
+test("Files on this PC says what local writes hold and where", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${meta.match(/function formatBytes\([\s\S]*?\n}\n/)[0]}${src.match(/function localWritesText\([\s\S]*?\n}\n/)[0]}; this.f = localWritesText;`, ctx);
+  assert.strictEqual(ctx.f({ files: 0, folder: "C:\\x\\staging", uploading: { files: 0 } }), "Empty · C:\\x\\staging");
+  assert.strictEqual(ctx.f({ files: 2, bytes: 3 * 1024 ** 3, folder: "C:\\x\\staging", uploading: { files: 2, bytes: 3 * 1024 ** 3 } }),
+    "3.0 GB in 2 files, 2 waiting to upload or left over (3.0 GB) · C:\\x\\staging");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app.slice(app.indexOf("function oneLakeWritesMenu"), app.indexOf("async function setNotebookOneLakeWrites")), /Open the folder of local writes/);
+  const clear = src.slice(src.indexOf("async function clearLocalWrites"));
+  assert.match(clear.slice(0, clear.indexOf("\n}\n")), /confirmDialog\("Delete left-overs\?"[\s\S]*danger: true[\s\S]*rpc\("local_writes_clear"\)/);
 });
 
 test("the Ossie card exports, previews and imports only after a confirm, and hides with preview features", () => {

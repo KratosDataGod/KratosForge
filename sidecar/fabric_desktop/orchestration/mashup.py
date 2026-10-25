@@ -155,6 +155,9 @@ def describe(result: dict[str, Any]) -> dict[str, Any]:
     except ValueError:
         meta = {}
     problems = []
+    if not isinstance(meta, dict):
+        problems.append("queryMetadata.json isn't an object, so load flags and connections can't be shown.")
+        meta = {}
     if not mashup:
         problems.append("The definition has no mashup.pq, so its queries can't be shown.")
     found = queries(mashup)

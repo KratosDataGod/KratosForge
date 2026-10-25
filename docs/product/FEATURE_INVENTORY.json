@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "524e6a3",
+    "commit": "5ae85e5",
     "date": "2026-10-25",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
@@ -13,7 +13,8 @@
       "No Fabric tenant was used and the Windows app was not run",
       "Taken at b7b04cc; refreshed at 9715e28 for the PRs merged in between (#89 to #134): only the features they touched were re-read, and four rows were added",
       "Refreshed at be3e45b on 2026-10-22 for the PRs merged from #135 to #559: rows were added for the features those PRs shipped, and rows whose status those PRs changed were re-read. Other rows were not re-read, so their evidence is from earlier runs",
-      "Refreshed at 524e6a3 on 2026-10-25 for the PRs merged from #560 to #650 (the 2026-10-22 refresh for #135 to #559 is included; it had not reached main). Each merge's changed files and title were read; rows those PRs changed were updated and five rows added. Other rows were not re-read."
+      "Refreshed at 524e6a3 on 2026-10-25 for the PRs merged from #560 to #650 (the 2026-10-22 refresh for #135 to #559 is included; it had not reached main). Each merge's changed files and title were read; rows those PRs changed were updated and five rows added. Other rows were not re-read.",
+      "Daily product check 2026-10-25 at 5ae85e5: PRs #643 to #675 merged after the #654 refresh; their rows were updated and two added."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22)."
   },
@@ -1143,34 +1144,83 @@
     },
     {
       "id": "FEAT-FAB-10",
-      "name": "Data pipelines, Dataflows and Copy jobs authoring",
-      "description": "Create or edit Fabric Data pipelines, Dataflow Gen2 or Copy jobs.",
+      "name": "Data Factory items: pipelines, connections and dataflows",
+      "description": "Open a Fabric workspace's pipeline on this PC (getDefinition, DF-2), a Connections tab with what uses each connection per environment (DF-5), and Dataflow Gen2 queries, destinations and refreshes read in the engine (DF-7). Read-only; Preview.",
       "pillar": "Enterprise services",
       "category": "Pipelines and Orchestration",
-      "status": "Missing",
-      "verification": "Unverified",
+      "status": "Partially Implemented",
+      "verification": "Partially Verified",
       "evidence": [
         {
-          "kind": "absent",
-          "ref": "fabric_api.py has no pipeline, dataflow or copy job create/update"
+          "kind": "test",
+          "ref": "sidecar/tests/test_workspace_pipelines.py",
+          "note": "daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_fabric_connections.py",
+          "note": "daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_workspace_dataflows.py",
+          "note": "daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/workspace-pipelines.test.cjs",
+          "note": "daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/df-connections.test.cjs",
+          "note": "daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main"
         }
       ],
-      "source": [],
+      "source": [
+        "sidecar/fabric_desktop/workspace_pipelines_service.py",
+        "sidecar/fabric_desktop/fabric_connections_service.py",
+        "sidecar/fabric_desktop/workspace_dataflows_service.py",
+        "sidecar/fabric_desktop/orchestration/mashup.py",
+        "app/ui/df-connections.js"
+      ],
       "ui": {
-        "surface": "None (listed, opened in Fabric, run-now from Monitor > Schedules)",
-        "preview": false
+        "surface": "Pipelines page > Open from workspace, Connections tab",
+        "preview": true
       },
       "workstream": "Build full Data Factory experience (DF-1..10)",
-      "next_action": "Data Factory plan DF-2..DF-10 (Chris's go 2026-10-24 for the program; UI waits on the mockup). Local pipeline runs are FEAT-ORC-08.",
+      "next_action": "DF-6 copy jobs and the DF-7 screen; deploy through the platform repo (DF-8) later.",
       "backlog": [
         "PB-030",
         "PB-035"
+      ],
+      "tests": [
+        "sidecar/tests/test_workspace_pipelines.py",
+        "sidecar/tests/test_fabric_connections.py",
+        "sidecar/tests/test_workspace_dataflows.py",
+        "app/tests/browser/workspace-pipelines.test.cjs",
+        "app/tests/browser/df-connections.test.cjs"
+      ],
+      "docs": [
+        "docs/orchestration/data-factory.md"
+      ],
+      "prs": [
+        665,
+        666,
+        667,
+        668,
+        669
+      ],
+      "limitations": [
+        "Read-only: no authoring or deploy yet (DF-8, DF-10)",
+        "Dataflows have an engine read only, no screen",
+        "Copy jobs (DF-6) not started"
       ]
     },
     {
       "id": "FEAT-FAB-11",
       "name": "Fabric Warehouse development",
-      "description": "A Warehouse page opened from Workspaces: read-only T-SQL on a Fabric warehouse or SQL analytics endpoint through Microsoft's mssql-python driver, an object explorer with Script as, Messages and a quick Chart, and SQL templates (built-in and the user's own .sql files, shareable through Git). Preview.",
+      "description": "A Warehouse page opened from Workspaces: read-only T-SQL on a Fabric warehouse or SQL analytics endpoint through mssql-python, an object explorer with Script as, Messages and a quick Chart, SQL templates (built-in and your own), saved and shared queries, and query history with Fabric query insights. Preview.",
       "pillar": "Local development",
       "category": "SQL, Python, and Notebook Development",
       "status": "Partially Implemented",
@@ -1204,6 +1254,21 @@
           "kind": "test",
           "ref": "app/tests/browser/sql-templates.test.cjs",
           "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_sql_queries.py",
+          "note": "daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/saved-queries.test.cjs",
+          "note": "daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/query-history.test.cjs",
+          "note": "daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main"
         }
       ],
       "source": [
@@ -1213,14 +1278,16 @@
         "app/ui/warehouse.js",
         "app/ui/query.js",
         "app/ui/sqltemplates.js",
-        "app/ui/sqlchart.js"
+        "app/ui/sqlchart.js",
+        "app/ui/sqlqueries.js",
+        "app/ui/sqlhistory.js"
       ],
       "ui": {
         "surface": "Workspaces > warehouse > Warehouse page",
         "preview": true
       },
       "workstream": "Build full warehouse development experience (WH-01..21)",
-      "next_action": "WH-06 saved queries and WH-07 history, then phase 3 build and deploy after Chris's go.",
+      "next_action": "Phases 1-2 (WH-01..08) are on main; phase 3 build and deploy needs Chris's go, writes need D1.",
       "backlog": [
         "PB-020",
         "PB-022",
@@ -1232,7 +1299,10 @@
         "sidecar/tests/test_warehouse_driver.py",
         "sidecar/tests/test_sql_templates.py",
         "app/tests/browser/warehouse-page.test.cjs",
-        "app/tests/browser/sql-templates.test.cjs"
+        "app/tests/browser/sql-templates.test.cjs",
+        "sidecar/tests/test_sql_queries.py",
+        "app/tests/browser/saved-queries.test.cjs",
+        "app/tests/browser/query-history.test.cjs"
       ],
       "docs": [
         "docs/warehouse.md",
@@ -1246,7 +1316,9 @@
         638,
         639,
         641,
-        645
+        645,
+        660,
+        662
       ],
       "limitations": [
         "Read-only: writes wait on Chris's decision D1",
@@ -2611,7 +2683,8 @@
         622,
         625,
         634,
-        635
+        635,
+        673
       ],
       "workstream": "Prove (FD-112)",
       "next_action": "Chris's SF1 local run is 65 s vs 101 s before (1.9x); keep the benchmark and retire correctness checks into Prove (PB-076).",
@@ -2752,7 +2825,10 @@
       "limitations": [
         "exists_in with a missing reference table marks every row bad"
       ],
-      "next_action": "Keep."
+      "next_action": "QA-002: replay open and compute change now check the save first (#661).",
+      "prs": [
+        661
+      ]
     },
     {
       "id": "FEAT-META-04",
@@ -4886,10 +4962,11 @@
       ],
       "prs": [
         86,
-        88
+        88,
+        674
       ],
       "workstream": "Enterprise readiness (FD-103)",
-      "next_action": "Fix docs/security.md, which still says there is no scanning, SBOM or provenance; pin docs.yml and codex-review.yml actions by SHA.",
+      "next_action": "SH-8: docs and Codex review workflow actions pinned by commit (#674).",
       "backlog": [
         "PB-010",
         "PB-074"
@@ -6218,6 +6295,11 @@
           "kind": "test",
           "ref": "app/tests/browser/pipeline-runs.test.cjs",
           "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_pipeline_script.py",
+          "note": "daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main"
         }
       ],
       "source": [
@@ -6232,7 +6314,8 @@
         "sidecar/tests/test_pipeline_runs.py",
         "sidecar/tests/test_pipeline_notebooks.py",
         "app/tests/browser/pipelines-page.test.cjs",
-        "app/tests/browser/pipeline-runs.test.cjs"
+        "app/tests/browser/pipeline-runs.test.cjs",
+        "sidecar/tests/test_pipeline_script.py"
       ],
       "docs": [
         "docs/orchestration/local-runs.md"
@@ -6254,10 +6337,13 @@
         568,
         578,
         579,
-        606
+        606,
+        657,
+        663,
+        675
       ],
       "workstream": "Local Fabric pipeline execution (ORCH-004)",
-      "next_action": "P5 Copy data (pipeline thread) after Chris's go; implementation review of #563, #568, #578, #579.",
+      "next_action": "Lakehouse Script steps refuse to read this PC's files (#657) and external tools are told to mock Notebook, Lookup and Get Metadata (#663); P5 Copy data needs Chris's go.",
       "backlog": [
         "PB-037"
       ]
@@ -6628,7 +6714,11 @@
         614,
         644,
         646,
-        647
+        647,
+        655,
+        656,
+        658,
+        672
       ],
       "workstream": "Forge and wolf animations",
       "next_action": "Draft #449 style guide waits on Chris; keep effects subordinate to work (brief section 8)."
@@ -6718,35 +6808,42 @@
       "description": "Reads the Fabric pipeline runs of a workspace and each run's activity runs (queryactivityruns), in a background scan, for Monitor. Engine only (Data Factory DF-1).",
       "pillar": "Enterprise services",
       "category": "Pipelines and Orchestration",
-      "status": "Implemented but Not Exposed",
+      "status": "Implemented",
       "verification": "Partially Verified",
       "source": [
         "sidecar/fabric_desktop/fabric_pipeline_runs_service.py",
         "sidecar/fabric_desktop/fabric_api.py"
       ],
       "tests": [
-        "sidecar/tests/test_fabric_pipeline_runs.py"
+        "sidecar/tests/test_fabric_pipeline_runs.py",
+        "app/tests/browser/fabric-pipeline-runs.test.cjs"
       ],
       "docs": [
         "docs/orchestration/data-factory.md"
       ],
       "ui": {
-        "surface": "None yet: Monitor > Runs rows wait on the Data Factory mockup",
+        "surface": "Monitor > Runs (pipeline runs in Fabric, opening to their activities)",
         "preview": true
       },
       "prs": [
-        640
+        640,
+        653
       ],
       "workstream": "Build full Data Factory experience (DF-1..10)",
       "limitations": [
         "Fabric API faked in tests; not run on a tenant"
       ],
-      "next_action": "DF-1 screen in Monitor > Runs once Chris reacts to the Data Factory mockup.",
+      "next_action": "Implementation review of #640, #653; run on a tenant before Preview comes off.",
       "evidence": [
         {
           "kind": "test",
           "ref": "sidecar/tests/test_fabric_pipeline_runs.py",
           "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/fabric-pipeline-runs.test.cjs",
+          "note": "daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main"
         }
       ]
     },
@@ -6835,6 +6932,130 @@
           "kind": "test",
           "ref": "sidecar/tests/test_model_ossie.py",
           "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        }
+      ]
+    },
+    {
+      "id": "FEAT-GOV-09",
+      "name": "Best-practice checks and templates",
+      "description": "Notebook rules NB001-NB012 and T-SQL rules SQ001-SQ010 read on this PC without running anything; governance policies name the rules they check, people add their own templates, and Check now runs them with a product checklist (Preview). Naming checks use RE2, so no pattern can stall a check.",
+      "pillar": "Enterprise services",
+      "category": "Data Governance and Quality",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "source": [
+        "sidecar/fabric_desktop/notebook_practices.py",
+        "sidecar/fabric_desktop/sqlcompat/practices.py",
+        "sidecar/fabric_desktop/governance_checks.py",
+        "sidecar/fabric_desktop/best_practice_checkers.py",
+        "sidecar/fabric_desktop/central/checks_service.py",
+        "app/ui/governance-checks.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_notebook_practices.py",
+        "sidecar/tests/test_sql_practices.py",
+        "sidecar/tests/test_best_practice_checks.py",
+        "sidecar/tests/test_best_practice_checkers.py",
+        "app/tests/browser/best-practice-checks.test.cjs"
+      ],
+      "docs": [
+        "docs/notebook-best-practices.md",
+        "docs/sql-best-practices.md",
+        "docs/governance.md",
+        "docs/governance-guide.md"
+      ],
+      "ui": {
+        "surface": "Platform > Governance > Best practices; data product checklist",
+        "preview": true
+      },
+      "prs": [
+        643,
+        648,
+        649,
+        651,
+        664,
+        671
+      ],
+      "workstream": "Enterprise governance foundation; Best Practice Analyzer (checkers)",
+      "limitations": [
+        "Semantic model rules (BPA, #560) still wait on the live run's cell error",
+        "Central policies not yet set up on a tenant"
+      ],
+      "next_action": "Implementation review of #643, #648, #649, #664; BPA model checks after #560.",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook_practices.py",
+          "note": "daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_sql_practices.py",
+          "note": "daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_best_practice_checks.py",
+          "note": "daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_best_practice_checkers.py",
+          "note": "daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/best-practice-checks.test.cjs",
+          "note": "daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main"
+        }
+      ]
+    },
+    {
+      "id": "FEAT-EXT-06",
+      "name": "VS Code integration",
+      "description": "Open a notebook or its folder in VS Code (or Insiders) from the notebook's Home tab, see edits saved there without losing outputs, and Add to VS Code for the MCP tools (Preview).",
+      "pillar": "Local development",
+      "category": "Extensibility, APIs, CLI, and MCP",
+      "status": "Partially Implemented",
+      "verification": "Partially Verified",
+      "source": [
+        "app/src-tauri/src/vscode_link.rs",
+        "app/ui/vscode.js",
+        "app/ui/integrations.js"
+      ],
+      "tests": [
+        "app/tests/browser/notebook-vscode.test.cjs",
+        "app/tests/browser/notebook-disk-change.test.cjs"
+      ],
+      "docs": [
+        "docs/vscode.md",
+        "docs/ai/README.md"
+      ],
+      "ui": {
+        "surface": "Notebook Home > Open in VS Code; Settings > Integrations",
+        "preview": true
+      },
+      "prs": [
+        650,
+        652,
+        670
+      ],
+      "workstream": "Bring VS Code developers to KratosForge",
+      "limitations": [
+        "No KratosForge kernel in VS Code yet: cells run in VS Code use VS Code's kernel",
+        "vscode:// hand-off not checked on Windows by a person"
+      ],
+      "next_action": "Phase 2 VS Code extension waits on Chris's three decisions.",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/notebook-vscode.test.cjs",
+          "note": "daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/notebook-disk-change.test.cjs",
+          "note": "daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main"
         }
       ]
     }

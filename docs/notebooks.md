@@ -284,7 +284,7 @@ The ribbon has four tabs:
 
 | Tab | What's on it |
 | --- | --- |
-| **Home** | Run all, Cancel, **Runs on**, Add data items, Save, Schedule (Preview), Recent runs (Preview), **Publish to OneLake** |
+| **Home** | Run all, Cancel, **Runs on**, **Check** (Side by side, Validate, Prove), Add data items, Save, **Share** (Save a copy, Versions, Export), Open in VS Code, **Schedule** (Schedule, Recent runs), **Publish to OneLake**. The buttons under Check and Schedule are also on the Run tab |
 | **Edit** | Add Code or Markdown cells, Move up or down, Split cell, Merge with below, Delete cell, Undo delete, **Parameter cell**, **Freeze**, Find and replace (every cell), Format notebook, Clear all outputs |
 | **Run** | Run all, Run cell, Run all above, Run cell and below, Run selected cells, Cancel, Runs on, Restart kernel, Restart and run all, Schedule, Recent runs |
 | **View** | Explorer, **Outline** (Markdown headings; click to jump), **Variables** (name, type, size and value of each variable, secrets hidden; click one to display it), collapse or expand all inputs and outputs, line numbers |
@@ -300,6 +300,7 @@ A **Parameter cell** is the cell that pipelines and `notebookutils.notebook.run`
 1. The first time, it asks which workspace (starting from the attached lakehouse's). The choice is saved in the notebook, so later publishes go straight there.
 2. The arrow next to **Publish** shows where it goes and has **Change workspace...**.
 3. The attached lakehouse stays the notebook's default lakehouse in Fabric, even when it lives in another workspace.
+4. Later publishes update the same Fabric notebook, found by its item id, so renaming it here or in Fabric doesn't make a second one. A rename here renames the Fabric notebook too; a rename in Fabric is kept. If that notebook was deleted in Fabric, publish updates one with the notebook's name in that workspace, or makes a new one, and says so.
 
 How it is published:
 
@@ -337,7 +338,7 @@ For either, choose **Repeat** (Every day, Some days of the week, or Every few mi
 
 ### Recent runs (Preview)
 
-**Recent runs** (Home or Run tab, or **Show this notebook's runs** in the command bar) opens a panel beside the cells with this notebook's last 50 runs, newest first, like Fabric's Recent runs. It lists:
+**Recent runs** (Home > Schedule, the Run tab, or **Show this notebook's runs** in the command bar) opens a panel beside the cells with this notebook's last 50 runs, newest first, like Fabric's Recent runs. It lists:
 
 - **This PC:** runs of the notebook's schedules on this PC, both on schedule and from **Run now**, including runs of a schedule you've since removed. **Details** shows when the run started and ended, how many cells ran, the result (for a failed run, which cell failed and why), and whether a failure's Teams alert couldn't be sent.
 - **Fabric:** runs this app started in Fabric for the notebook: **Run in Fabric**, **Prove this notebook**, **Side by side**, and **Run now** on its Fabric schedule in Monitor > Schedules. Once the app has published the notebook, its runs are matched by the Fabric item it was published to, so they stay listed after a rename and a same-named notebook in another workspace isn't mixed in; before that, by name in the notebook's publish workspace. Each says which workspace it ran in. **Open in Fabric** opens the notebook's page in Fabric, where its run history is.
@@ -396,7 +397,7 @@ A query that runs here is not proof that it runs, or gives the same answer, in a
 
 ### Compatibility (preview)
 
-As you type, the query is checked against the engine picked in the dialect list, without running it: things that engine doesn't support are underlined, and the **Compatibility** panel beside the editor lists every finding with why, what to do, its confidence and its Microsoft source. **Export JSON** saves the report. See [SQL compatibility check](sql-compatibility.md).
+As you type, the query is checked against the engine picked in the dialect list, without running it: things that engine doesn't support are underlined, and the **Compatibility** panel beside the editor (it opens by itself for an error, a warning or SQL it couldn't verify, or from the chip beside **Format SQL**) lists every finding with why, what to do, its confidence and its Microsoft source. **Export JSON** saves the report. See [SQL compatibility check](sql-compatibility.md).
 
 ### Editor
 

@@ -91,8 +91,8 @@ async function loadWorkloads(box, refresh) {
   const again = (changes = {}) => { Object.assign(wlPage, changes); loadWorkloads(box, false); };
   const chip = (v) => h("button", { class: `chip${wlPage.view === v.id ? " on" : ""}`,
     onclick: () => again({ view: v.id, offset: 0 }) }, `${v.label} · ${v.count}`);
-  const groupSeg = h("div", { class: "seg", role: "group", "aria-label": "Group by" },
-    WL_GROUPS.map(([id, label]) => h("button", { class: wlPage.group === id ? "on" : null, onclick: () => again({ group: id, offset: 0 }) }, label)));
+  const groupSelect = h("select", { class: "group-select", "aria-label": "Group by", onchange: (e) => again({ group: e.target.value, offset: 0 }) },
+    WL_GROUPS.map(([id, label]) => h("option", { value: id, selected: wlPage.group === id }, label)));
   const sources = h("div", { class: "wl-sources" }, (data.sources || []).map((s) => h("span", { class: "wl-source" }, obsPill(s),
     " ", s.source, s.detail ? h("span", { class: "muted-text small" }, ` · ${s.detail}`) : null)),
   data.scanning ? h("span", { class: "muted-text small" }, "Reading Fabric items in the background...") : null,
@@ -123,7 +123,7 @@ async function loadWorkloads(box, refresh) {
   }[wlPage.view] || (state.query ? "No workloads match your search." : "No workloads yet. Notebooks, metadata entities and Fabric items in your workspaces show here.");
   box.replaceChildren(
     h("div", { class: "monitor-filters" }, h("div", { class: "row wrap", role: "group", "aria-label": "Show" }, (data.views || []).map(chip)),
-      h("span", { class: "spacer" }), h("span", { class: "muted-text small" }, "Group by"), groupSeg),
+      h("span", { class: "spacer" }), h("label", { class: "muted-text small row" }, "Group by", groupSelect)),
     sources,
     rows.length ? h("div", { class: "monitor-scroll" }, h("table", { class: "list wl-list" },
       h("thead", {}, h("tr", {}, ["Health", "Workload", "Owner", "Deployed to", "Last run", "Can", "Observed"].map((c) => h("th", {}, c)))),

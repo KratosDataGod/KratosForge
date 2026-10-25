@@ -530,7 +530,7 @@
         "notebook.py %%sql MERGE path prints a note and returns ok",
         "notebookutils_local.py docstring names session; attribute absent",
         "local_schedules.py runs all cells; notebook.js skips frozen cells (inference from code reading)",
-        "Re-checked 2026-10-25: four of five defects fixed on main; only the Fabric-only message for session, warehouse and connections is left (pr-ready/PB-013.md)"
+        "Re-checked 2026-10-25: all five defects are fixed on main (pr-ready/PB-013.md)"
       ],
       "features": [
         "FEAT-NB-04",
@@ -561,7 +561,7 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In review",
       "mandatory_reason": "Wrong-answer defects in local execution undermine the core promise and the rule that local results are never claimed equivalent without proof.",
       "package": "docs/product/pr-ready/PB-013.md",
       "computed": {
@@ -569,7 +569,10 @@
         "cost": 2.0,
         "score": 2.56,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        410
+      ]
     },
     {
       "id": "PB-014",
@@ -4046,7 +4049,9 @@
         621,
         623,
         624,
-        626
+        626,
+        659,
+        674
       ]
     },
     {
@@ -4146,7 +4151,8 @@
       },
       "prs": [
         585,
-        616
+        616,
+        661
       ]
     },
     {
@@ -4291,7 +4297,9 @@
         638,
         639,
         641,
-        645
+        645,
+        660,
+        662
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -4348,7 +4356,13 @@
       "effort": "XL",
       "confidence": "Medium",
       "prs": [
-        640
+        640,
+        653,
+        665,
+        666,
+        667,
+        668,
+        669
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -4371,6 +4385,7 @@
       ],
       "features": [
         "FEAT-GOV-05",
+        "FEAT-GOV-09",
         "FEAT-META-13"
       ],
       "depends_on": [
@@ -4407,7 +4422,9 @@
         643,
         648,
         649,
-        651
+        651,
+        664,
+        671
       ],
       "mandatory": "none",
       "computed": {
@@ -4428,9 +4445,10 @@
         "#650 merged: the app never saves over a file another program changed"
       ],
       "features": [
+        "FEAT-EXT-01",
         "FEAT-EXT-02",
-        "FEAT-NB-17",
-        "FEAT-EXT-01"
+        "FEAT-EXT-06",
+        "FEAT-NB-17"
       ],
       "external_dependencies": [
         "Chris decides paired-editor runs without per-run approval",
@@ -4455,9 +4473,11 @@
       ],
       "effort": "XL",
       "confidence": "Low",
-      "state": "Proposed",
+      "state": "In progress",
       "prs": [
-        650
+        650,
+        652,
+        670
       ],
       "mandatory": "none",
       "computed": {

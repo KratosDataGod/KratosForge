@@ -21,7 +21,7 @@ Status: Preview. Chris said go on 2026-10-24 and approved the mockup on 2026-10-
 | DF-4 | Schedule a pipeline on this PC (P6), rerun from the failed activity (P7) | Not started |
 | DF-5 | Connections tab: connections and gateways, what uses each one, and a check before a platform deploy | Connections tab in review; the deploy check comes with DF-8 |
 | DF-6 | Copy jobs: definition, diff, local run inside OneLake, run in Fabric, run history | Not started |
-| DF-7 | Dataflow Gen2: M code and destinations, diff, refresh in Fabric, refresh history | Engine (reads) in review; Dataflows tab next; refresh later, behind a confirm and the risk check |
+| DF-7 | Dataflow Gen2: M code and destinations, diff, refresh in Fabric, refresh history | Engine and Dataflows tab (reads); refresh next, behind a confirm and the risk check |
 | DF-8 | Deploy Data Factory items through the platform repository deploy, with connection and parameter mapping | Not started |
 | DF-9 | Spark notebook steps (P8), Delete, Web and the smaller rows (P9) | Not started |
 | DF-10 | Edit a pipeline in the app (P11) | Later |
@@ -72,4 +72,8 @@ Three engine calls, all reads (listed in `audit.READ_ONLY`). None of them starts
 
 The M text is only read, never evaluated: there's no local M engine. It passes through `redact.secrets`, because a query can carry a key inline (a `Web.Contents` header, say). Nothing is written to disk. The parser lives in `orchestration/mashup.py`. It splits the section on top-level semicolons and skips strings, comments and nested brackets.
 
-Next comes the Dataflows tab (mockup board 3). Refresh in Fabric comes after that, behind a confirm and the risk check, and no live refresh runs without Chris's OK.
+## DF-7 screen: Dataflows tab
+
+The Pipelines page's **Dataflows** tab (Preview) sits between Pipelines and Connections. You pick a workspace (the same one the open dialog remembers, `fd.pipelines.workspace`) and its dataflows are listed with `workspace_dataflows`. Opening one reads `workspace_dataflow_definition` and `fabric_dataflow_refreshes` together. Its views are **Queries (M)**, with hidden destination and helper queries folded away, **Destinations** (and the connections the dataflow names) and **Refresh history**. **Open in Fabric** opens the workspace, because the address of a dataflow's own page isn't confirmed yet. The mockup's "Changes since Git" view comes with the Git diff work (DF-8).
+
+Refresh in Fabric comes next, behind a confirm and the risk check. No live refresh runs without Chris's OK.

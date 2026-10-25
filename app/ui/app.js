@@ -241,7 +241,7 @@ function showMenu(anchor, items) {
   closeMenu();
   const rect = anchor.getBoundingClientRect();
   const menu = h("div", { class: "menu", id: "menu", role: "menu", style: `left:${rect.left}px;top:${rect.bottom + 4}px` },
-    items.map((it) => it.info ? h("div", { class: "info", role: "presentation" }, it.info)
+    items.map((it) => it instanceof Node ? menuNode(it) : it.info ? h("div", { class: "info", role: "presentation" }, it.info)
       : btn(it.label, it.icon, () => { closeMenu(); it.action(); }, "tool", { role: "menuitem", tabindex: "-1" })));
   menuOpener = anchor;
   anchor.setAttribute?.("aria-expanded", "true");
@@ -249,11 +249,21 @@ function showMenu(anchor, items) {
   // A button near the right edge (Publish options): keep the menu on screen.
   const overflow = menu.getBoundingClientRect().right - (window.innerWidth - 8);
   if (overflow > 0) menu.style.left = `${Math.max(8, rect.left - overflow)}px`;
-  menu.querySelector("[role=menuitem]")?.focus();
+  menu.querySelector("[role=menuitem], [role=menuitemcheckbox]")?.focus();
   setTimeout(() => document.addEventListener("mousedown", closeMenuOutside), 0);
 }
 
 let menuOpener = null;
+
+// A ribbon button moved into a menu as it is (its Preview tag, on state and title kept): the menu
+// closes before its own click runs, so a button that opens a menu of its own can.
+function menuNode(node) {
+  node.setAttribute("role", node.getAttribute("aria-pressed") ? "menuitemcheckbox" : "menuitem");
+  if (node.hasAttribute("aria-pressed")) node.setAttribute("aria-checked", node.getAttribute("aria-pressed"));
+  node.setAttribute("tabindex", "-1");
+  node.addEventListener("click", () => closeMenu(), true);
+  return node;
+}
 
 function closeMenuOutside(e) {
   if (!document.getElementById("menu")?.contains(e.target)) closeMenu();
@@ -273,7 +283,7 @@ function closeMenu(refocus = false) {
 document.addEventListener("keydown", (e) => {
   const menu = document.getElementById("menu");
   if (!menu) return;
-  const items = [...menu.querySelectorAll("[role=menuitem]")];
+  const items = [...menu.querySelectorAll("[role=menuitem], [role=menuitemcheckbox]")];
   const at = items.indexOf(document.activeElement);
   const move = isShortcut(e, "menu") ? { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[e.key] : undefined;
   if (isShortcut(e, "close")) { e.preventDefault(); e.stopImmediatePropagation(); closeMenu(true); }
@@ -946,15 +956,15 @@ async function renderMonitor() {
           preview("schedules", segment(monitorPage.panel === "schedules", "Schedules", show("schedules"))),
           ops.length ? segment(!!op, ["Operations", ops.every((o) => PREVIEW_FEATURES[o.feature]) ? previewTag() : null],
             show(ops.some((o) => o.panel === monitorPage.opsView) ? monitorPage.opsView : ops[0].panel)) : null),
-        h("span", { class: "muted-text" }, op ? op.text
+        op ? h("select", { class: "group-select", "aria-label": "Operations view", title: "Which Operations view to show",
+          onchange: (e) => show(e.target.value)() }, ops.map((o) => h("option", { value: o.panel, selected: o === op }, o.label))) : null,
+        // The sentence about the panel is the link's tooltip, so the controls fit on one row.
+        h("span", { class: "monitor-about", title: op ? op.text
           : monitorPage.panel === "schedules" ? "Every schedule, on this PC and in Fabric, with how its last run went"
-          : "Everything this app ran or started, in every environment, on this PC and in Fabric", " ", learnMore(op ? op.anchor : "monitor")),
+          : "Everything this app ran or started, in every environment, on this PC and in Fabric" }, learnMore(op ? op.anchor : "monitor")),
         h("span", { class: "spacer" }),
         op ? null : btn("Refresh", "sync", () => { monitorPage.fabricPipelinesRefresh = true; forgetFabricActivities(); render(); }, "tool outline"),
         popOutButton("runs")),
-      op ? h("div", { class: "monitor-filters", role: "group", "aria-label": "Operations" },
-        h("span", { class: "muted-text small" }, "Show"),
-        ops.map((o) => h("button", { class: `chip${o === op ? " on" : ""}`, "aria-pressed": String(o === op), onclick: show(o.panel) }, o.label))) : null,
       monitorPage.panel !== "runs" ? null : h("div", { class: "monitor-filters" },
         h("div", { class: "row", role: "group", "aria-label": "Environment" },
           chip("env", "all", "All"), Object.entries(ENV_LABEL).map(([id, label]) => chip("env", id, label))),
@@ -2086,7 +2096,7 @@ async function publishNotebook() {
   if (result) {
     nb.dirty = false;
     renderChrome();
-    toast(`Published ${nb.name} to ${ws} as a Fabric notebook item.`);
+    toast(`Published ${nb.name} to ${ws} as a Fabric notebook item.${result.note ? ` ${result.note}` : ""}`);
     // Fabric gave back the item it saved, so the publish is confirmed: the toast cools (motion.js).
     if (result.id) forgeEvent("publish.verified", document.getElementById("toast"));
   }
@@ -2135,7 +2145,14 @@ function oneLakeWritesMenu(nb) {
     option("local_first", "Write here, then upload in the background", "save"),
     option("direct", "Straight to OneLake (fast upload line)", "cloud"),
     option(null, `Same as Settings (${label(fallback)})`, "sync"),
+    { label: "Open the folder of local writes", icon: "folderOpen", action: () => openLocalWrites() },
   ];
+}
+
+// Where writes kept on this PC live (settings.js, local_writes_service.py): to look, or to clear up after a failed run.
+async function openLocalWrites(folder) {
+  const res = await attempt(() => rpc("local_writes_reveal", folder ? { folder } : {}), "Couldn't open the folder");
+  if (res) toast(`Opened ${res.shown} in File Explorer.`);
 }
 
 async function setNotebookOneLakeWrites(mode) {

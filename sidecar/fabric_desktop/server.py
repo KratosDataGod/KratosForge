@@ -96,7 +96,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "pipeline_compatibility", "pipeline_activity_registry",
            "pipeline_run_check", "pipeline_run_start", "pipeline_run_status", "pipeline_run_cancel", "pipeline_runs",
            "pipeline_list", "fabric_pipeline_runs", "fabric_pipeline_activity_runs",
-           "workspace_pipelines", "workspace_pipeline_definition",
+           "workspace_pipelines", "workspace_pipeline_definition", "fabric_connections",
            "git_path_info", "git_notebook_info", "audit_log", "telemetry_status", "telemetry_new_install_id"}
 
 

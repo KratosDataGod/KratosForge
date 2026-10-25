@@ -19,7 +19,7 @@ Status: Preview. Chris said go on 2026-10-24 and approved the mockup on 2026-10-
 | DF-2 | Open a pipeline from a workspace (read its definition), Open in Fabric embedded | Done, Preview (#665 engine, then the open dialog's workspace list) |
 | DF-3 | Copy data inside OneLake and local files (orchestration plan P5) | Not started |
 | DF-4 | Schedule a pipeline on this PC (P6), rerun from the failed activity (P7) | Not started |
-| DF-5 | Connections tab: connections and gateways, what uses each one, and a check before a platform deploy | Not started |
+| DF-5 | Connections tab: connections and gateways, what uses each one, and a check before a platform deploy | Connections tab in review; the deploy check comes with DF-8 |
 | DF-6 | Copy jobs: definition, diff, local run inside OneLake, run in Fabric, run history | Not started |
 | DF-7 | Dataflow Gen2: M code and destinations, diff, refresh in Fabric, refresh history | Not started |
 | DF-8 | Deploy Data Factory items through the platform repository deploy, with connection and parameter mapping | Not started |
@@ -51,3 +51,13 @@ Both calls take Fabric GUIDs only. Nothing is written to disk: the definition st
 The Pipelines page's open dialog has an **In a Fabric workspace** section (Preview) under the repository list. Signed out, it offers sign-in. Signed in, it lists the workspaces; picking one lists its pipelines with `workspace_pipelines`, and clicking one reads it with `workspace_pipeline_definition` and opens its `text` on the Pipelines page, the same way a file opens. The page header then has **Open in Fabric**.
 
 The definition text holds SecureString defaults, so the page keeps it in memory only: it is never written to localStorage or the console. Only the picked workspace id is remembered (`fd.pipelines.workspace`). The Copy jobs, Dataflows and Connections tabs from the mockup come with their stories (DF-5, DF-6, DF-7), so the page shows no empty tabs until then.
+
+## DF-5: Connections tab
+
+One engine call, a read (listed in `audit.READ_ONLY`):
+
+- `fabric_connections(refresh=False)` lists the connections the signed-in person can use (Fabric's `GET /connections`, scope `Connection.Read.All`, asked for once) and reads the pipeline and copy job definitions in each environment's workspace (Dev, Test and Prod first). Without environments, it reads the workspaces Monitor > Schedules lists. Every `externalReferences.connection` in a definition, nested activities included, counts as a use. A connection id that's used but isn't in the person's list goes under `missing`, because that step fails when it runs. The scan runs in the background and returns `{"pending": true}` until it's done, then serves the result from memory until `refresh`. It reads up to 500 definitions per scan.
+
+Nothing from a credential is read: Fabric's list has only the credential type, and the connection's path passes through `redact.secrets`. The tab sits beside Pipelines on the Pipelines page. **Manage connections in Fabric** opens Fabric's page.
+
+Not in this slice: gateway names and status, which need `Gateway.Read.All`, a new scope that waits on Chris's OK. Dataflow connections are in their M code and come with DF-7. Checking that each target environment has the connections a deploy needs comes with DF-8's connection mapping.

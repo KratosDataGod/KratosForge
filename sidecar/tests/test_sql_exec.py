@@ -615,7 +615,9 @@ def test_the_projects_own_time_limit_is_shown_and_named(tmp_path):
 
 
 def test_export_and_import_database_are_refused_as_writes_outside_the_project(local_runs, tmp_path):
-    for query in (f"EXPORT DATABASE '{(tmp_path / 'dump').as_posix()}'", "SELECT 1; IMPORT DATABASE 'x'"):
+    for query in (f"EXPORT DATABASE '{(tmp_path / 'dump').as_posix()}'", "SELECT 1; IMPORT DATABASE 'x'",
+                  f"-- back up\n/* first */ EXPORT DATABASE '{(tmp_path / 'dump').as_posix()}'",
+                  "SELECT 1; -- then\nIMPORT DATABASE 'x'"):
         status = wait(local_runs, start_local(local_runs, query, confirm=True)["id"])
         assert status["state"] == "failed" and status["error_kind"] == "permission", query
         assert status["refused"]["permission"] == "fabric_mutation"

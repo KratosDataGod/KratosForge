@@ -730,7 +730,8 @@ class _Stopped(Exception):
     pass
 
 
-_OUTSIDE_COMMAND = re.compile(r"(?:^|;)\s*(EXPORT|IMPORT)\s+DATABASE\b", re.IGNORECASE)
+_OUTSIDE_COMMAND = re.compile(r"(?:^|;)(?:\s|--[^\n]*(?:\n|$)|/\*.*?\*/)*(EXPORT|IMPORT)\s+DATABASE\b",
+                              re.IGNORECASE | re.DOTALL)  # comments may come first
 
 
 def _policy_statements(query: str, dialect: str) -> list[Any]:

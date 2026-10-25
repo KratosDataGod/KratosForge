@@ -133,6 +133,7 @@ nav = [
       { "Implementation review" = "product/IMPLEMENTATION_REVIEW_PROCESS.md" },
       { "Review template" = "product/reviews/TEMPLATE.md" },
       { "Competitive capability matrix" = "product/COMPETITIVE_CAPABILITY_MATRIX.md" },
+      { "Development status" = "product/DEVELOPMENT_STATUS.md" },
     ] },
   ] },
   { "Contributing" = [

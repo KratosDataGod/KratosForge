@@ -181,6 +181,43 @@ pub fn handing_over(data_dir: &Path) -> bool {
         .is_ok_and(|t| t.elapsed().is_ok_and(|age| age < Duration::from_secs(120))) // one from the future is stale
 }
 
+/// What claim_or_forward decided.
+pub enum Claim {
+    /// This copy runs, with the lock (or without it when the lock can't be checked, or when a
+    /// copy an update started gave up waiting for the old one).
+    Run(Option<std::fs::File>),
+    /// Another copy runs (it took the link, or is still starting and holds the lock): this one stops.
+    Stop,
+}
+
+/// Makes this the one running copy, or hands `url` to the one that runs. A copy an update started
+/// (`updating`) waits for the lock. Any other copy leaves a free lock alone while an update hands
+/// it over, and once `tries` run out takes it anyway, so a link or a double-click is never lost.
+pub fn claim_or_forward(data_dir: &Path, url: &str, updating: bool, tries: u32, pause: Duration) -> Claim {
+    for _ in 0..tries {
+        match claim_instance(data_dir) {
+            Ok(Some(lock)) if updating => {
+                end_handover(data_dir);
+                return Claim::Run(Some(lock));
+            }
+            Ok(Some(lock)) if !handing_over(data_dir) => return Claim::Run(Some(lock)),
+            Ok(Some(lock)) => drop(lock), // the build an update is starting takes it
+            Ok(None) if !updating && forward(data_dir, url) => return Claim::Stop,
+            Ok(None) => {}
+            Err(_) => return Claim::Run(None),
+        }
+        std::thread::sleep(pause);
+    }
+    match claim_instance(data_dir) {
+        Ok(Some(lock)) => Claim::Run(Some(lock)),
+        Ok(None) if !updating && forward(data_dir, url) => Claim::Stop,
+        // Another copy holds the lock and doesn't answer (it is still starting): this one stops
+        // rather than run a second copy on the same data. A copy an update started runs.
+        Ok(None) if !updating => Claim::Stop,
+        _ => Claim::Run(None),
+    }
+}
+
 /// Hands `url` to the copy of the app that's already running. True when it took it.
 pub fn forward(data_dir: &Path, url: &str) -> bool {
     let Ok(text) = std::fs::read_to_string(data_dir.join("link-port")) else { return false };
@@ -387,6 +424,23 @@ mod tests {
         drop(marker);
         end_handover(&dir);
         assert!(!handing_over(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_copy_takes_the_lock_once_a_handover_is_overdue() {
+        let dir = std::env::temp_dir().join(format!("kf-overdue-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        start_handover(&dir);
+        let started = std::time::Instant::now();
+        let Claim::Run(Some(lock)) = claim_or_forward(&dir, "kratosforge://", false, 4, Duration::from_millis(10)) else {
+            panic!("a link or double-click during a handover that never finishes still starts the app");
+        };
+        assert!(started.elapsed() >= Duration::from_millis(40), "it waited for the new build first");
+        assert!(matches!(claim_or_forward(&dir, "kratosforge://", false, 2, Duration::from_millis(1)), Claim::Stop));
+        drop(lock);
+        end_handover(&dir);
+        assert!(matches!(claim_or_forward(&dir, "kratosforge://", true, 1, Duration::ZERO), Claim::Run(Some(_))));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

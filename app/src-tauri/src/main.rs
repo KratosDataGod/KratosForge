@@ -1971,28 +1971,13 @@ static INSTANCE: deep_link::InstanceLock = deep_link::InstanceLock::new();
 /// and returns None: this copy stops. A copy started by an update waits for the old one to let go;
 /// any other copy leaves the lock alone while an update hands it over (deep_link::handing_over).
 fn claim_single_instance(url: Option<&str>, updating: bool) -> Option<Option<std::fs::File>> {
-    let dir = data_dir();
-    let tries = if updating { 240 } else { 20 }; // 60 s (the old copy lets go as it starts this one), or 5 s while the other copy starts listening
-    for _ in 0..tries {
-        match deep_link::claim_instance(&dir) {
-            Ok(Some(lock)) if updating => {
-                deep_link::end_handover(&dir);
-                return Some(Some(lock));
-            }
-            Ok(Some(lock)) if !deep_link::handing_over(&dir) => return Some(Some(lock)),
-            Ok(Some(lock)) => {
-                drop(lock); // the build an update is starting takes it
-                std::thread::sleep(std::time::Duration::from_millis(250));
-            }
-            Ok(None) if !updating && deep_link::forward(&dir, url.unwrap_or("kratosforge://")) => return None,
-            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(250)),
-            Err(e) => {
-                eprintln!("couldn't check for another copy of KratosForge: {e}");
-                return Some(None);
-            }
-        }
+    // 60 s for a copy an update started (the old copy lets go as it starts this one), or 5 s while
+    // another copy starts listening or an update hands over.
+    let tries = if updating { 240 } else { 20 };
+    match deep_link::claim_or_forward(&data_dir(), url.unwrap_or("kratosforge://"), updating, tries, std::time::Duration::from_millis(250)) {
+        deep_link::Claim::Run(lock) => Some(lock),
+        deep_link::Claim::Stop => None,
     }
-    updating.then_some(None)
 }
 
 fn main() {

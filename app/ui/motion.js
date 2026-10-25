@@ -48,6 +48,8 @@ const FORGE_EVENTS = {
   "mesh.run.failed": "fail",
   "promote.succeeded": "strike",
   "promote.failed": "fail",
+  "xray.scan.finished": "arrive",
+  "xray.scan.failed": "fail",
   "model.built": "spark",
   "model.build.failed": "fail",
   "git.op.succeeded": "spark",

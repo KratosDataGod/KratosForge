@@ -373,7 +373,12 @@ function gitWatch(op) {
     gitPage.op = now;
     if (now.status === "running") {
       const band = document.getElementById("git-op");
-      if (band) band.replaceWith(gitOpBand());
+      // While Git still gives no measure, only the words change, so the wolf keeps its stride.
+      const where = band?.dataset.measured === "no" && now.percent === null ? band.querySelector(".remote-where") : null;
+      if (where) {
+        where.textContent = gitOpSaid(now);
+        band.querySelector("[role=progressbar]").setAttribute("aria-valuetext", where.textContent);
+      } else if (band) band.replaceWith(gitOpBand());
       gitPage.opTimer = setTimeout(tick, 500);
       return;
     }
@@ -383,6 +388,10 @@ function gitWatch(op) {
       title, text: now.message, details: now.details });
     if (now.status === "ok") toast(now.kind === "clone" ? `Cloned into ${now.result?.root || now.repo}.` : now.message);
     else if (now.status === "failed") toast(now.message, true, { quiet: true, details: now.details });
+    // Forge Spark on the message when a push, pull or clone is done (a fetch only looks), the ember
+    // when one fails; cancelling plays nothing (motion.js).
+    if (now.status === "ok" && now.kind !== "fetch") forgeEvent("git.op.succeeded", document.getElementById("toast"));
+    else if (now.status === "failed") forgeEvent("git.op.failed", document.getElementById("toast"));
     if (now.kind === "clone" && now.status === "ok") {
       await gitLoadInfo().catch(() => {});
       gitPage.repo = now.result?.root || gitPage.repo;
@@ -396,14 +405,22 @@ function gitWatch(op) {
   gitPage.opTimer = setTimeout(tick, 400);
 }
 
+const gitOpSaid = (op) => (op.phase && op.phase !== "Starting" ? op.phase : "Talking to the remote");
+
+// While Git gives no measure (talking to the remote, signing in) the navy wolf trots in place on an
+// empty track, with no fill or percentage (motion.js remoteProgress); once Git counts objects the bar
+// shows its percentage.
 function gitOpBand() {
   const op = gitPage.op;
   if (!op || op.status !== "running") return h("div", { id: "git-op" });
   const pct = op.percent;
-  return h("div", { id: "git-op", class: "card pad git-op" },
-    h("div", { class: "row" }, h("b", {}, `${GIT_OP_LABEL[op.kind]}…`), h("span", { class: "muted-text" }, op.phase && op.phase !== "Starting" ? `${op.phase}${pct !== null ? ` ${pct}%` : ""}` : "Talking to the remote"),
+  const label = `${GIT_OP_LABEL[op.kind]} ${gitRepoName(op.repo)}`;
+  return h("div", { id: "git-op", class: "card pad git-op", "data-measured": pct === null ? "no" : "yes" },
+    h("div", { class: "row" }, h("b", {}, `${GIT_OP_LABEL[op.kind]}…`), pct !== null ? h("span", { class: "muted-text" }, `${gitOpSaid(op)} ${pct}%`) : null,
       h("span", { class: "spacer" }), btn("Cancel", "dismiss", () => attempt(() => rpc("git_op_cancel", { id: op.id }), "Couldn't cancel"), "tool link small")),
-    h("div", { class: "progress" }, h("div", { class: `bar${pct === null ? " indeterminate" : ""}`, style: pct === null ? "" : `width:${pct}%` })),
+    pct === null ? remoteProgress(label, gitOpSaid(op))
+      : h("div", { class: "progress", role: "progressbar", "aria-label": label, "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(pct) },
+        h("div", { class: "bar", style: `width:${pct}%` })),
     h("div", { class: "muted-text small" }, "If Git needs you to sign in, Git Credential Manager opens its own window."));
 }
 

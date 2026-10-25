@@ -74,6 +74,7 @@ class Agent:
         self._pool = ThreadPoolExecutor(max_workers=config.concurrency, thread_name_prefix="job")
         self.started_at = clock()
         self._status_at = 0.0
+        self._pruned_at: float | None = None
         self._controls: dict[str, Any] = {}
         self.mailbox: Mailbox | None = None
         self._mailbox_at = 0.0
@@ -390,6 +391,21 @@ class Agent:
             self._status_at = self.clock()
             self.publish_status()
             self.send_waiting_alerts()
+        if self._pruned_at is None or self.clock() - self._pruned_at >= 86400:
+            self._pruned_at = self.clock()
+            self.prune_queue()
+
+    def prune_queue(self) -> None:
+        """Remove finished jobs older than queue_retention_days. Last in the pass, after the mailbox has
+        brought pipeline statuses up to date. A failure is logged and tried again the next day."""
+        try:
+            gone = self.queue.prune(self.config.queue_retention_days)
+        except Exception as exc:
+            self.log.warning("couldn't prune the queue", extra=fields(error=f"{type(exc).__name__}: {exc}"))
+            return
+        if gone:
+            self.log.info("finished jobs removed from the queue",
+                          extra=fields(jobs=len(gone), older_than_days=self.config.queue_retention_days))
 
     def _guarded(self, job: dict[str, Any]) -> None:
         if self.mailbox:

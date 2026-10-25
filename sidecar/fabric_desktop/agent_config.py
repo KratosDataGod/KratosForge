@@ -7,6 +7,7 @@
     environments = ["test", "prod"]       # the environments this agent may run
     concurrency = 1                       # jobs at once
     status_seconds = 60                   # how often to publish agents/<name>.json to each LH_Meta
+    queue_retention_days = 30             # finished jobs older than this leave the queue (at start, then daily)
     workspaces = ["<workspace id>"]       # optional allowlist: refuse to write anywhere else
 
     [auth]
@@ -151,6 +152,7 @@ class AgentConfig:
     job_lease_seconds: float = 300.0
     table_lease_seconds: float = 120.0
     status_seconds: float = 60.0
+    queue_retention_days: float = 30.0
     max_attempts: int = 3
     backoff_seconds: float = 60.0
     max_backoff_seconds: float = 1800.0
@@ -365,6 +367,7 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
         job_lease_seconds=number(agent, "job_lease_seconds", 300, 30, "agent"),
         table_lease_seconds=number(agent, "table_lease_seconds", 120, 15, "agent"),
         status_seconds=number(agent, "status_seconds", 60, 5, "agent"),
+        queue_retention_days=number(agent, "queue_retention_days", 30, 1, "agent"),
         max_attempts=int(number(retry, "max_attempts", 3, 1, "retry")),
         backoff_seconds=number(retry, "backoff_seconds", 60, 0, "retry"),
         max_backoff_seconds=number(retry, "max_backoff_seconds", 1800, 0, "retry"),

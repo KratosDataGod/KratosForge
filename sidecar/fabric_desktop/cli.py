@@ -22,7 +22,7 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("run-schedule", help="run one of this PC's schedules (Windows Task Scheduler calls this)")
     p.add_argument("schedule_id")
     p.add_argument("--manual", action="store_true", help="started with Run now, not by the schedule")
-    agent = sub.add_parser("agent", help="the headless agent: run, check, enqueue, status")
+    agent = sub.add_parser("agent", help="the headless agent: run, check, enqueue, status, requeue, prune")
     agent.add_argument("--config", help="agent.toml (default: FABRIC_DESKTOP_AGENT_CONFIG, then "
                                         "%%ProgramData%%\\FabricDesktop\\agent.toml or /etc/fabric-desktop/agent.toml)")
     agent_sub = agent.add_subparsers(dest="agent_command", required=True)
@@ -34,6 +34,12 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("entities", nargs="*", help="entities to run (default: all)")
     p.add_argument("--backfill", default="", choices=["", "full"], help="full: rebuild from the whole source")
     p.add_argument("--cascade", action="store_true", help="with one entity: rebuild it and everything downstream")
+    p = agent_sub.add_parser("requeue", help="put a dead or failed job back in the queue, attempts reset")
+    p.add_argument("job_id")
+    p = agent_sub.add_parser("prune", help="remove finished jobs older than agent.queue_retention_days "
+                                           "(the agent does this at start and daily)")
+    p.add_argument("--days", type=float, help="older than this many days (default: agent.queue_retention_days)")
+    p.add_argument("--dry-run", action="store_true", help="only list what would be removed")
     p = sub.add_parser("clean-local", help="delete local copies of lakehouse data unused for a while "
                                            "(the app does this at start)")
     p.add_argument("--days", type=int, help="older than this many days (default: the local_retention_days setting)")
@@ -196,6 +202,24 @@ def _agent(args: argparse.Namespace) -> int:
         agent.audit.record(
             "agent_enqueue", "ok", 0.0, {"env": args.env, "entities": args.entities, "backfill": args.backfill,
                                          "cascade": args.cascade, "agent": config.name})
+    elif args.agent_command == "requeue":
+        by = f"{agent.audit.os_user or 'unknown'} (cli)"
+        try:
+            job = agent.queue.requeue(args.job_id, by)
+        except (LookupError, ValueError) as exc:
+            print(exc)
+            return 1
+        agent.audit.record("agent_requeue", "ok", 0.0, {"job_id": args.job_id, "agent": config.name}, who=by)
+        result = {k: job[k] for k in ("id", "state", "attempts", "requeued_by")}
+    elif args.agent_command == "prune":
+        if args.days is not None and args.days < 0:
+            print("--days: a number of at least 0")
+            return 2
+        days = config.queue_retention_days if args.days is None else args.days
+        gone = agent.queue.prune(days, dry_run=args.dry_run)
+        if not args.dry_run:
+            agent.audit.record("agent_prune", "ok", 0.0, {"jobs": len(gone), "days": days, "agent": config.name})
+        result = {"dry_run": args.dry_run, "older_than_days": days, "jobs": gone}
     else:
         result = agent.status()
     print(json.dumps(result, indent=2, default=str))

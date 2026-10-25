@@ -18,7 +18,8 @@ Tables (T-SQL schema.table; SQLite schema__table):
     catalog.project      metadata projects: domain, subdomain, team
     catalog.product      data products: access, version, status
     catalog.port         where each product port lives, per environment
-    catalog.link         which project reads which port
+    catalog.port_version each port's history: one row per environment each time its version or columns change
+    catalog.link         which project reads which port, the versions it accepts and the columns it relies on
     catalog.enrichment   description, tags, classification, glossary terms, steward of a table or column
     catalog.glossary     business terms
     catalog.audit        who changed what in the catalog
@@ -163,7 +164,10 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
              ("workspace_id", "text"), ("workspace_name", "text"), ("lakehouse_id", "text"), ("lakehouse_name", "text"),
              ("schema_name", "text"), ("table_name", "text"), ("columns", "long"), ("updated_at", "text")],
     "link": [("id", "key"), ("consumer_project", "text"), ("alias", "text"), ("product_id", "text"),
-             ("port", "text"), ("reads", "long"), ("updated_at", "text"), ("updated_by", "text")],
+             ("port", "text"), ("reads", "long"), ("updated_at", "text"), ("updated_by", "text"),
+             ("accepts", "text"), ("columns", "long")],
+    "port_version": [("id", "key"), ("product_id", "text"), ("port", "text"), ("env", "text"), ("version", "text"),
+                     ("columns", "long"), ("published_at", "text"), ("published_by", "text")],
     "enrichment": [("target", "key"), ("description", "long"), ("tags", "long"), ("classification", "text"),
                    ("terms", "long"), ("steward", "text"), ("certified", "text"), ("updated_at", "text"),
                    ("updated_by", "text")],
@@ -676,7 +680,9 @@ def list_projects(db: Db) -> list[dict[str, Any]]:
 
 
 def register_product(db: Db, product: dict[str, Any], ports: list[dict[str, Any]], env: str, by: str = "") -> dict[str, Any]:
-    """Publish a data product and where its ports live in one environment (done on promote)."""
+    """Publish a data product and where its ports live in one environment (done on promote). Each
+    port whose version or columns changed in ``env`` gets a row in its history (catalog.port_version);
+    ``history`` in the answer lists those ports, so a caller can tell an older function from none changed."""
     project = str(product.get("project") or "").strip()
     name = str(product.get("name") or "").strip()
     if not project or not name:
@@ -685,6 +691,7 @@ def register_product(db: Db, product: dict[str, Any], ports: list[dict[str, Any]
         raise PlatformError(f"access must be one of {', '.join(ACCESS)}")
     if product.get("status", "draft") not in STATUS:
         raise PlatformError(f"status must be one of {', '.join(STATUS)}")
+    ensure_contracts(db)
     pid = f"{project}/{name}"
     row = {"id": pid, "project": project, "name": name, "domain_id": product.get("domain") or None,
            "description": str(product.get("description") or ""), "owner": str(product.get("owner") or ""),
@@ -692,6 +699,7 @@ def register_product(db: Db, product: dict[str, Any], ports: list[dict[str, Any]
            "status": product.get("status", "draft"), "deprecated_on": product.get("deprecated_on") or None,
            "updated_at": _now(), "updated_by": by}
     _upsert(db, "catalog", "product", "id", row)
+    changed = []
     for p in ports:
         port = {"id": f"{pid}:{p['port']}:{env}", "product_id": pid, "port": p["port"], "entity": p.get("entity", ""),
                 "env": env, "workspace_id": p.get("workspace_id", ""), "workspace_name": p.get("workspace_name", ""),
@@ -699,9 +707,41 @@ def register_product(db: Db, product: dict[str, Any], ports: list[dict[str, Any]
                 "schema_name": p.get("schema", "dbo"), "table_name": p.get("table", ""),
                 "columns": json.dumps(p.get("columns", {})), "updated_at": _now()}
         _upsert(db, "catalog", "port", "id", port)
-    _audit(db, by, "publish product", pid, {"env": env, "ports": [p["port"] for p in ports]})
+        if _record_port_version(db, pid, p["port"], env, row["version"], p.get("columns") or {}, by):
+            changed.append(p["port"])
+    _audit(db, by, "publish product", pid, {"env": env, "ports": [p["port"] for p in ports], "history": changed})
     db.commit()
-    return row
+    return row | {"history": changed}
+
+
+def _port_versions(db: Db, product_id: str, port: str = "", env: str = "") -> list[dict[str, Any]]:
+    """A product's port history, newest first. Reads only: none before the table exists."""
+    if not db.exists("catalog", "port_version"):
+        return []
+    rows = db.rows(f"SELECT * FROM {db.t('catalog', 'port_version')} WHERE product_id = ?", (product_id,))
+    rows = [dict(r, columns=json.loads(r["columns"] or "{}")) for r in rows
+            if (not port or r["port"] == port) and (not env or r["env"] == env)]
+    # Times are kept to the microsecond and ids end in a running number, so two publishes in one second keep their order.
+    return sorted(rows, key=lambda r: (r["published_at"] or "", r["id"]), reverse=True)
+
+
+def _record_port_version(db: Db, product_id: str, port: str, env: str, version: str, columns: dict[str, Any],
+                         by: str) -> bool:
+    """Add a history row when the port's version or columns differ from its latest one in ``env``."""
+    seen = _port_versions(db, product_id, port, env)
+    if seen and seen[0]["version"] == version and seen[0]["columns"] == dict(columns):
+        return False
+    at = dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
+    db.run(f"INSERT INTO {db.t('catalog', 'port_version')} (id, product_id, port, env, version, columns, published_at, "
+           "published_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+           (f"{product_id}:{port}:{env}:{len(seen) + 1:06d}", product_id, port, env, version,
+            json.dumps(dict(columns)), at, by or ""))
+    return True
+
+
+def product_history(db: Db, product_id: str) -> list[dict[str, Any]]:
+    """Every version of every port of a product, per environment, newest first. Reads only."""
+    return _port_versions(db, str(product_id or ""))
 
 
 def list_products(db: Db) -> list[dict[str, Any]]:
@@ -712,7 +752,10 @@ def list_products(db: Db) -> list[dict[str, Any]]:
     for p in products:
         p["granted"] = sorted(g["project"] for g in grants if g["product_id"] == p["id"])
         p["ports"] = [dict(x, columns=json.loads(x["columns"] or "{}")) for x in ports if x["product_id"] == p["id"]]
-        p["consumers"] = [dict(l, reads=json.loads(l["reads"] or "{}")) for l in links if l["product_id"] == p["id"]]
+        # A catalog made before versioned contracts has no accepts or columns on its links: read as none.
+        p["consumers"] = [dict(l, reads=json.loads(l["reads"] or "{}"), accepts=l.get("accepts") or "",
+                               columns=json.loads(l.get("columns") or "{}"))
+                          for l in links if l["product_id"] == p["id"]]
     return sorted(products, key=lambda p: p["id"])
 
 
@@ -723,14 +766,38 @@ def resolve_port(db: Db, product_id: str, port: str, env: str) -> dict[str, Any]
     return found
 
 
+def _today() -> dt.date:
+    return dt.datetime.now(dt.timezone.utc).date()
+
+
+def _date(value: Any) -> dt.date | None:
+    """A deprecated_on date ("2026-12-31", or a time on that day); None when it isn't one."""
+    try:
+        return dt.date.fromisoformat(str(value or "").strip()[:10])
+    except ValueError:
+        return None
+
+
 def register_link(db: Db, consumer: str, alias: str, product_id: str, port: str, reads: dict[str, str],
-                  by: str = "") -> dict[str, Any]:
-    """A consumer project's link to a product port. Refused if the product isn't open to it."""
+                  by: str = "", accepts: str = "", columns: dict[str, Any] | None = None) -> dict[str, Any]:
+    """A consumer project's link to a product port. Refused if the product isn't open to it, or, for a
+    new link, if the product was deprecated on a date that has come. ``accepts`` is the product
+    versions the consumer can read ("2", "2-3" or "2+"); ``columns`` the ones it relies on."""
+    ensure_contracts(db)
     product = _row(db, "product", "id", product_id)
     if product is None:
         raise PlatformError(f"{product_id} isn't a published data product")
     if product["status"] == "draft":
         raise PlatformError(f"{product_id} is still a draft; its owner publishes it on promote")
+    accepts = str(accepts or "").strip()
+    if accepts and not _ACCEPTS.match(accepts):
+        raise PlatformError(f"accepts is a version (\"2\"), a range (\"2-3\") or a version and later (\"2+\"), "
+                            f"not {accepts!r}")
+    lid = f"{consumer}:{alias}"
+    stops = _date(product.get("deprecated_on"))
+    if product["status"] == "deprecated" and stops and stops <= _today() and _row(db, "link", "id", lid) is None:
+        owner = f" Ask its owner ({product['owner']}) what replaces it." if product.get("owner") else ""
+        raise PlatformError(f"{product_id} was deprecated on {stops.isoformat()} and takes no new links.{owner}")
     granted = _row(db, "grant", "id", f"{product_id}|{consumer}") is not None
     if product["access"] == "private" and product["project"] != consumer and not granted:
         raise PlatformError(f"{product_id} is private to {product['project']}. Ask its owner: Request access")
@@ -739,12 +806,43 @@ def register_link(db: Db, consumer: str, alias: str, product_id: str, port: str,
         if mine.get("domain_id") != product.get("domain_id"):
             raise PlatformError(f"{product_id} is open to the {product.get('domain_id')} domain only. "
                                 "Ask its owner: Request access")
-    row = {"id": f"{consumer}:{alias}", "consumer_project": consumer, "alias": alias, "product_id": product_id,
-           "port": port, "reads": json.dumps(reads), "updated_at": _now(), "updated_by": by}
+    columns = {str(k): str(v) for k, v in (columns or {}).items()}
+    row = {"id": lid, "consumer_project": consumer, "alias": alias, "product_id": product_id,
+           "port": port, "reads": json.dumps(reads), "updated_at": _now(), "updated_by": by,
+           "accepts": accepts or None, "columns": json.dumps(columns) if columns else None}
     _upsert(db, "catalog", "link", "id", row)
-    _audit(db, by, "link", row["id"], {"product": product_id, "port": port, "reads": reads})
+    _audit(db, by, "link", row["id"], {"product": product_id, "port": port, "reads": reads, "accepts": accepts,
+                                       "columns": sorted(columns)})
     db.commit()
     return row
+
+
+# A link's accepted product versions: "2" (one), "2-3" (a range) or "2+" (that version or later).
+_ACCEPTS = re.compile(r"^\d+(?:\s*-\s*\d+|\+)?$")
+# Columns catalog.link gained with versioned contracts.
+_LINK_ADDED = (("accepts", "text"), ("columns", "long"))
+
+
+def ensure_contracts(db: Db) -> list[str]:
+    """Give a platform made before versioned contracts catalog.port_version and catalog.link's accepts
+    and columns. Additive only, and safe to run again; publishing a product and saving a link call it,
+    so a platform in Fabric gets them on first use."""
+    added = []
+    if not db.exists("catalog", "port_version"):
+        cols = _CATALOG["port_version"]
+        db.run(f"CREATE TABLE {db.t('catalog', 'port_version')} ({', '.join(_column(db, n, k) for n, k in cols)})")
+        added.append("catalog.port_version")
+    have = _columns(db, "link")
+    for col, kind in _LINK_ADDED:
+        if col not in have:
+            db.run(f"ALTER TABLE {db.t('catalog', 'link')} ADD {'' if db.tsql else 'COLUMN '}{_column(db, col, kind)}")
+            added.append(f"catalog.link.{col}")
+    if added:
+        db.commit()
+    return added
+
+
+SCHEMA_HOOKS.append(ensure_contracts)
 
 
 def save_enrichment(db: Db, target: str, fields: dict[str, Any], by: str = "") -> dict[str, Any]:
@@ -2040,6 +2138,7 @@ OPERATIONS = {
     "import_fabric_domains": import_fabric_domains,
     "register_project": register_project, "list_projects": list_projects, "register_product": register_product,
     "list_products": list_products, "resolve_port": resolve_port, "register_link": register_link,
+    "product_history": product_history,
     "save_enrichment": save_enrichment, "enrichment": enrichment, "list_glossary": list_glossary,
     "save_term": save_term, "audit": audit, "log_workload_action": log_workload_action,
     "whoami": whoami, "list_admins": list_admins, "claim_admin": claim_admin, "add_admin": add_admin,

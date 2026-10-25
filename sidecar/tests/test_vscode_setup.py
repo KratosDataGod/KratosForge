@@ -8,6 +8,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 
@@ -175,7 +176,7 @@ def test_open_prints_a_link_the_shell_reads(tmp_path):
     run = subprocess.run([sys.executable, "-m", "fabric_desktop.cli", "nb", "open", str(path), "--print"],
                          capture_output=True, text=True, env=env, timeout=120)
     assert run.returncode == 0, run.stderr
-    assert run.stdout.strip() == "kratosforge://notebook?path=" + path.resolve().as_posix().replace("/", "%2F").replace(" ", "%20")
+    assert run.stdout.strip() == "kratosforge://notebook?path=" + quote(path.resolve().as_posix(), safe="")  # C: is C%3A
 
 
 def test_the_open_task_passes_the_file_outside_the_command_line(tmp_path):

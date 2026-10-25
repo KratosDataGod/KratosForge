@@ -176,6 +176,8 @@ New items:
 
 **Create > Pipeline** opens a Fabric pipeline: one of the `.DataPipeline` folders in the repositories this PC opened (Source control), a `.DataPipeline` folder you choose, or a pipeline JSON file (`pipeline-content.json`, or a definition with parts). It opens read-only: you edit pipelines in Fabric or in your repository.
 
+**In a Fabric workspace** (Preview) lists the pipelines of a workspace you pick, and opening one reads its definition from Fabric. That's a read: no Fabric job starts and no capacity is used. The definition stays in memory while the page is open; nothing is saved on this PC except which workspace you picked. A pipeline opened this way has **Open in Fabric** beside Check again.
+
 The page shows the pipeline's **Graph** (each column runs after the one before it; click an activity for how it runs here), **Compatibility** (every activity, nested ones included, with whether it runs here, needs a mock or runs only in Fabric, and why), **Runs** (this pipeline's runs on this PC) and **Definition** (`pipeline-content.json`, with Copy). **Check again** reads the definition again.
 
 **Run on this PC** asks for what the run needs, and checks it as you go:

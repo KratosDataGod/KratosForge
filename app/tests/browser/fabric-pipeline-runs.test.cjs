@@ -7,6 +7,9 @@ const path = require("node:path");
 const { playwright, openApp } = require("./harness.cjs");
 
 let app;
+// The scan stays pending until the first test has seen Runs say so: Monitor can be drawn more than once
+// on a slow start, so "the first call is pending" isn't enough.
+let scanDone = false;
 const SHOTS = process.env.SCREENSHOT_DIR;
 const skip = !playwright && "Playwright is not installed";
 const page = () => app.page;
@@ -26,15 +29,13 @@ const ACTIVITIES = [
 
 before(async () => {
   if (skip) return;
-  let scans = 0;
   app = await openApp({
     mocks: {
       history: () => [], meta_runs_all: () => ({ runs: [] }), pc_schedule_runs: () => [], pipeline_runs: () => ({ runs: [] }),
       fabric_runs: () => [{ name: "pl_ours", kind: "Pipeline", status: "Completed", job_id: "j-ours", started_at: "2026-10-24T05:00:00Z",
         finished_at: "2026-10-24T05:01:00Z", workspace_name: "Sales Dev" }],
       fabric_pipeline_runs: (p) => {
-        scans += 1;
-        if (scans === 1) return { pending: true, runs: [] };
+        if (!scanDone) return { pending: true, runs: [] };
         // Until Refresh, the scan is 20 minutes old: a run read as going then is Stale now.
         const scanned = new Date(Date.now() - (p.refresh ? 0 : 20 * 60000)).toISOString();
         return { pending: false, missed: 1, scanned, runs: [RUN("j-1", "pl_customer_load", "failed", { message: "Copy customers failed" }),
@@ -55,6 +56,7 @@ after(async () => { if (app) await app.close(); });
 
 test("Runs says it's reading, then lists Fabric pipeline runs once each", { skip }, async () => {
   await page().locator(".monitor-filters", { hasText: "Reading pipeline runs in Fabric" }).waitFor();
+  scanDone = true;
   await page().locator("tr.pl-run", { hasText: "pl_customer_load" }).waitFor({ timeout: 10000 });
   const texts = await page().locator("tr.pl-run").allTextContents();
   assert.strictEqual(texts.length, 4, texts.join("\n"));  // pl_ours is listed from fabric_runs, not again

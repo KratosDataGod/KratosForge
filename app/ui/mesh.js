@@ -325,6 +325,7 @@ function productDialog(p, x, done) {
   const title = h("input", { value: x?.title || "" });
   const description = h("textarea", { rows: 3 }, x?.description || "");
   const owner = h("input", { value: x?.owner || state.user || "" });
+  const steward = h("input", { value: x?.steward || "", placeholder: "Who answers for its meaning and quality" });
   const access = h("select", {}, Object.entries(ACCESS_LABEL).map(([id, label]) => h("option", { value: id, selected: (x?.access || "domain") === id ? true : null }, label)));
   const status = h("select", {}, Object.entries(STATUS_LABEL).map(([id, label]) => h("option", { value: id, selected: (x?.status || "draft") === id ? true : null }, label)));
   const deprecated = h("input", { type: "date", value: x?.deprecated_on || "" });
@@ -336,7 +337,7 @@ function productDialog(p, x, done) {
   });
   showDialog(x ? `Edit ${x.title}` : "New data product", h("div", { class: "scroll" },
     h("div", { class: "form-grid" }, h("label", { class: "field" }, "Name", name), h("label", { class: "field" }, "Title", title),
-      h("label", { class: "field" }, "Owner", owner), h("label", { class: "field" }, "Open to", access),
+      h("label", { class: "field" }, "Owner", owner), h("label", { class: "field" }, "Steward", steward), h("label", { class: "field" }, "Open to", access),
       h("label", { class: "field" }, "Status", status), h("label", { class: "field" }, "Ends on (deprecated only)", deprecated)),
     h("label", { class: "field" }, "Description", description),
     h("div", { class: "field" }, "Ports: the tables other teams may read, and the name they use", h("div", { class: "port-list" }, portRows.map((r) => r.row)))), [
@@ -348,7 +349,7 @@ function productDialog(p, x, done) {
     btn("Save", "save", async () => {
       const ports = portRows.filter((r) => r.box.checked).map((r) => ({ name: r.port.value.trim(), entity: r.e.name }));
       const res = await metaCall("mesh_save_product", { product: { name: name.value.trim(), title: title.value.trim(),
-        description: description.value.trim(), owner: owner.value.trim(), access: access.value, status: status.value,
+        description: description.value.trim(), owner: owner.value.trim(), steward: steward.value.trim(), access: access.value, status: status.value,
         deprecated_on: deprecated.value, version: x?.version || 1, ports }, original: x?.name || "" }, "Not saved");
       if (res) { closeDialog(); toast("Saved"); done(); }
     }, "tool primary")].filter(Boolean));

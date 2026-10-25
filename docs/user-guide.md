@@ -377,6 +377,12 @@ Whoever creates the platform in Fabric becomes its first admin. Admins add other
 
 **Platform > Governance** (Preview) holds the standards your organization defines once for every project: naming, schemas, data quality, classification, ownership, data contracts and deployment readiness. Platform admins choose **New policy**, edit the draft, and **Publish** it as a version that never changes afterwards; editing again makes a new draft. A policy applies where it's assigned: the whole enterprise, a domain, a project or one table. Domain owners can assign policies to their own domains. A policy marked mandatory can only be made stricter below where it's assigned. Open a policy and choose **Where it applies**, then **Explain** next to a project, to see each step that decided what it gets. A project can tighten or add policies in its own `governance.toml`. Details in [Governance policies](governance.md).
 
+### Best practices: checks and templates (Preview)
+
+**Platform > Governance > Templates** lists reusable policy definitions: four **Built in** ones (table names, product owners, sensitive column labels and a data contract) and your organization's own (**Yours**). A platform admin chooses **Use** to make a policy draft from one, and any policy can be saved with **Save as template** from its page. Platform admins add templates, and can let domain owners add them too.
+
+**Platform > Governance > Check this project** checks the open metadata project against the policies in force for it. **Check now** runs on this PC and lists what to look at, with a fix where a safe one exists (**Label it**) or a link to where to fix it. It is warn only: nothing is blocked. A finding an approved exception covers says **Excepted until <date>: <why>**, and **Ask for an exception** sends the request. A data product's page (OneLake > Data products) also shows its **Checklist**. Details in [Governance policies](governance.md#best-practices-checks-and-templates-preview).
+
 ## Fabric
 
 **Workspaces > Fabric portal** is Fabric's own portal, `app.fabric.microsoft.com`, inside the app. Links across the app (**Open in Fabric**, **Show in Fabric**) open their item here. Buttons along the top: **Back**, **Home**, **OneLake catalog**, **Monitoring hub**, **Reload**, and **Open in browser**.

@@ -307,6 +307,16 @@ def test_side_by_side_end_to_end_same_results(svc, tables):
     assert svc.fabric_runs(refresh=False)[0]["side_by_side"] == out["id"]
 
 
+def test_side_by_side_uses_the_repository_location_without_saving_it_into_the_notebook(svc, tables):
+    # A notebook in a notebooks repository with no lakehouse of its own (publishPayload's location_ref).
+    svc.fake = FakeFabric(tables, lambda t: t.write(pa.table({"id": [2, 1]}), "bench.q01"))
+    started = call(svc, "side_by_side_start", **payload() | {"lakehouse_ref": None, "location_ref": LAKEHOUSE})
+    out = wait(svc, started["id"])
+    assert out["state"] == "done", out["message"]
+    assert out["lakehouse"]["lakehouse_id"] == LAKEHOUSE["lakehouse_id"]
+    assert svc.notebooks.load("NB").get("lakehouse") is None  # it keeps following the environment
+
+
 def test_side_by_side_names_the_code_it_ran_as_a_receipt_does(svc, tables):
     from fabric_desktop import receipts
     svc.fake = FakeFabric(tables, lambda t: t.write(pa.table({"id": [2, 1]}), "bench.q01"))

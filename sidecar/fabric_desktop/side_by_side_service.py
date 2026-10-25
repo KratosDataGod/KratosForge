@@ -149,13 +149,17 @@ class SideBySideMixin:
 
     def side_by_side_start(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
                            compute: str | None = None, workspace: dict[str, str] | None = None,
-                           confirm_writes: list[str] | None = None, confirm_unknown: bool = False) -> dict[str, Any]:
+                           confirm_writes: list[str] | None = None, confirm_unknown: bool = False,
+                           location_ref: dict[str, str] | None = None) -> dict[str, Any]:
         """Run the notebook on this PC, then publish and run it in Fabric, then compare. Returns at once;
-        side_by_side_status reports progress. Takes what the notebook screen sends (notebookPayload).
+        side_by_side_status reports progress. Takes what the notebook screen sends (publishPayload):
+        ``location_ref`` is the repository location's lakehouse, used when the notebook has none and
+        never saved into it.
 
         Both runs write the attached lakehouse's real tables (Prove is the sandboxed way). So a notebook
         that writes tables runs only when the caller confirms exactly the tables side_by_side_writes
         lists, and confirm_unknown when that says reading can't tell."""
+        saved_ref, lakehouse_ref = lakehouse_ref, lakehouse_ref or location_ref
         runs = self._sbs_state()
         if any(r["state"] in ("local", "fabric", "checking") for r in runs.values()):
             raise RuntimeError("A side-by-side run is already going. Wait for it, or cancel it.")
@@ -180,7 +184,7 @@ class SideBySideMixin:
         # Both runs use the Parameters bar's values: Fabric as the run's parameters, this PC as the
         # lines runCell adds after the parameter cell. A value the bar shows in red stops it here.
         parameters = self._bar_parameters(name, cells)  # type: ignore[attr-defined]
-        saved = self.notebooks.save(name, cells, lakehouse_ref, compute, workspace)  # type: ignore[attr-defined]
+        saved = self.notebooks.save(name, cells, saved_ref, compute, workspace)  # type: ignore[attr-defined]
         # The code revision a receipt would name, so a comparison counts only for the code it ran.
         revision = receipts.code_revision([dict(c) | {"cell_id": cid} for c, cid in zip(cells, saved["cell_ids"], strict=True)])
         ws = self._publish_workspace(name, lakehouse_ref, workspace)  # type: ignore[attr-defined]
@@ -201,7 +205,7 @@ class SideBySideMixin:
             "local": {"status": "pending", "seconds": None, "cell": None, "cells_total": len(code), "cells": {}},
             "fabric": {"status": "pending", "engine": "python" if uses_local_module(cells) and not uses_spark(cells) else "spark"},
             "tables": [], "verdict": None, "speed": {}, "_cancel": False,
-            "_parameters": parameters, "_suffixes": self._bar_suffixes(name, cells)}  # type: ignore[attr-defined]
+            "_parameters": parameters, "_saved_ref": saved_ref, "_suffixes": self._bar_suffixes(name, cells)}  # type: ignore[attr-defined]
         runs[record["id"]] = record
         threading.Thread(target=self._sbs_run, args=(record, cells, code, lakehouse_ref, compute, ws), daemon=True,
                          name=f"side-by-side-{record['id']}").start()
@@ -338,8 +342,8 @@ class SideBySideMixin:
         f["status"] = "publishing"
         first, last = sbs.timing_cells(record["id"])
         started = time.monotonic()
-        item = self._publish(record["name"], cells, lakehouse_ref, compute, ws,  # type: ignore[attr-defined]
-                             fabric_cells=[first] + cells + [last])
+        item = self._publish(record["name"], cells, record.get("_saved_ref"), compute, ws,  # type: ignore[attr-defined]
+                             fabric_cells=[first] + cells + [last], location_ref=lakehouse_ref)
         parameters = record.get("_parameters")
         job_id = self.fabric_jobs.run_item_job(item["workspace_id"], item["id"], NOTEBOOK_JOB,  # type: ignore[attr-defined]
                                                {"parameters": parameters} if parameters else None)

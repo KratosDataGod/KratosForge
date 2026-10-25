@@ -116,6 +116,16 @@ def _utc(text: Any) -> str:
     return t.astimezone(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 
+def unreadable(env: str, exc: BaseException) -> tuple[list[dict[str, Any]], str]:
+    """(signals, not set up message) for an environment whose run log couldn't be read. One that
+    isn't set up (no workspace assigned) is a choice, not a problem: it opens no incident and clears
+    a "Can't check" one; its workload incidents stay as they are because nothing was read."""
+    state, message = model.classify_error(exc)
+    if state == "not_set_up":
+        return [], message
+    return [cant_evaluate(env, state, message)], ""
+
+
 def cant_evaluate(env: str, state: str, message: str) -> dict[str, Any]:
     """The signal for an environment that couldn't be read: a problem with reading, not with a workload."""
     return {"kind": "cant_evaluate", "workload": None, "name": "", "evidence_id": state,

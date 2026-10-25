@@ -739,7 +739,30 @@ function oneLakeWritesSection(s, locked) {
       h("label", { class: "switch" }, h("input", { type: "checkbox", checked: s.onelake_skip_unchanged.value ? true : null, disabled: locked("onelake_skip_unchanged") ? true : null,
         onchange: async (e) => { await saveSettings({ onelake_skip_unchanged: e.target.checked }); render(); } }),
       h("span", {}, s.onelake_skip_unchanged.value ? "On" : "Off")),
-      fixedBy(s, "onelake_skip_unchanged")));
+      fixedBy(s, "onelake_skip_unchanged")),
+    localWritesRow());
+}
+
+// The files local writes keep on this PC (local_writes_service.py), with a way to open each folder.
+function localWritesRow() {
+  const status = h("div", { class: "muted-text small" }, "Looking...");
+  const extra = h("div", { class: "local-writes" });
+  const open = btn("Open folder", "folderOpen", () => openLocalWrites(), "tool small");  // app.js
+  rpc("local_writes").then((w) => {
+    status.textContent = localWritesText(w);
+    extra.replaceChildren(...w.tpch.map((t) => h("div", { class: "row wrap" },
+      h("span", { class: "muted-text small grow" }, `TPC-H data left in the temp folder: ${formatBytes(t.bytes)}, ${t.folder}`),
+      btn("Open", "folderOpen", () => openLocalWrites(t.folder), "tool small"))));
+  }).catch(() => { status.textContent = "Couldn't read the folder."; });
+  return settingRow("Files on this PC",
+    "A write kept on this PC waits here until it has uploaded, then it's deleted, so this is normally empty. Open the folder to look, or to clear up after a run that was ended mid-upload. Don't delete files while a notebook is writing.",
+    h("div", { style: "display:flex;flex-direction:column;gap:6px" }, h("div", { class: "row" }, status, open), extra));
+}
+
+function localWritesText(w) {
+  if (!w.files) return `Empty · ${w.folder}`;
+  const up = w.uploading.files ? `, ${w.uploading.files} waiting to upload or left over (${formatBytes(w.uploading.bytes)})` : "";
+  return `${formatBytes(w.bytes)} in ${w.files.toLocaleString()} file${w.files === 1 ? "" : "s"}${up} · ${w.folder}`;
 }
 
 // The SQL page's limits. Each is checked by the engine (app_settings.SQL_RANGES); a value set by the

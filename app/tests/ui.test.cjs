@@ -5002,3 +5002,16 @@ test("Add to VS Code passes only the tool's id to the shell", () => {
   assert.match(main, /fn add_to_vscode\(client_id: String, insiders: bool\)/);
   assert.match(main, /generate_handler!\[[\s\S]*add_to_vscode/);
 });
+
+// Settings > Advanced > OneLake writes > Files on this PC: what local writes hold, and the folder.
+test("Files on this PC says what local writes hold and where", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${meta.match(/function formatBytes\([\s\S]*?\n}\n/)[0]}${src.match(/function localWritesText\([\s\S]*?\n}\n/)[0]}; this.f = localWritesText;`, ctx);
+  assert.strictEqual(ctx.f({ files: 0, folder: "C:\\x\\staging", uploading: { files: 0 } }), "Empty · C:\\x\\staging");
+  assert.strictEqual(ctx.f({ files: 2, bytes: 3 * 1024 ** 3, folder: "C:\\x\\staging", uploading: { files: 2, bytes: 3 * 1024 ** 3 } }),
+    "3.0 GB in 2 files, 2 waiting to upload or left over (3.0 GB) · C:\\x\\staging");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app.slice(app.indexOf("function oneLakeWritesMenu"), app.indexOf("async function setNotebookOneLakeWrites")), /Open the folder of local writes/);
+});

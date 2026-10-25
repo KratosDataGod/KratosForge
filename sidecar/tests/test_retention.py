@@ -92,3 +92,38 @@ def test_policy_sets_the_period(monkeypatch, tmp_path):
         policy.write_text(json.dumps({"local_retention_days": bad}))
         assert app_settings.value("local_retention_days") == 30
         assert problem in app_settings.policy_problems()[0]
+
+
+# ---- Settings > Advanced > OneLake writes > Files on this PC (local_writes_service.py)
+
+
+def test_local_writes_says_whats_there_and_opens_only_its_own_folders(tmp_path, monkeypatch):
+    import tempfile as tf
+
+    import pytest
+
+    from fabric_desktop import local_writes_service as lw
+    temp = tmp_path / "temp"
+    (temp / "tpch_abc").mkdir(parents=True)
+    (temp / "tpch_abc" / "part0.duckdb").write_bytes(b"x" * 300)
+    (temp / "other").mkdir()
+    monkeypatch.setattr(tf, "gettempdir", lambda: str(temp))
+    shown = []
+    monkeypatch.setattr(lw, "_reveal", lambda path, select: shown.append(path))
+
+    class Svc(lw.LocalWritesMixin):
+        root = tmp_path / "app"
+    svc = Svc()
+    assert svc.local_writes()["files"] == 0  # no folder yet
+    spills = svc.root / "staging" / "_writes"
+    spills.mkdir(parents=True)
+    (spills / "write-1.arrow").write_bytes(b"y" * 100)
+    w = svc.local_writes()
+    assert (w["files"], w["bytes"]) == (1, 100) and w["uploading"]["files"] == 1
+    assert [t["folder"] for t in w["tpch"]] == [str(temp / "tpch_abc")] and w["tpch"][0]["bytes"] == 300
+    assert svc.local_writes_reveal()["shown"] == str(svc.root / "staging")
+    svc.local_writes_reveal(str(temp / "tpch_abc"))
+    assert shown == [svc.root / "staging", temp / "tpch_abc"]
+    for other in (str(temp / "other"), str(tmp_path), "C:\\Windows"):
+        with pytest.raises(ValueError):
+            svc.local_writes_reveal(other)

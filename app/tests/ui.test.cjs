@@ -1672,7 +1672,7 @@ test("the app is called KratosForge everywhere people read it, and identifiers s
   assert.match(settings, /"aria-labelledby": "splash-title", "aria-describedby": "splash-text"/);
   assert.match(settings, /label: "About the new name: KratosForge"/);
   const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
-  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\n  \.overlay\.splash/);
+  assert.match(css, /\.splash-still, \.splash-still :is\(\.splash-emblem/);  // Off, Minimal and reduced motion show the forge still
 });
 
 test("the Platform tab says what differs between Git and the platform, and what a deploy will do", () => {
@@ -2394,7 +2394,7 @@ test("the update splash lists the build's notes and each change since the build 
   assert.match(src, /const UPDATE_SPLASH_OFF = "fd\.updatesplash\.off"/);
   assert.match(src, /if \(!asked && !updateSplashOn\(\)\) \{ showWhatsNew\(\); return false; \}/);
   assert.match(src, /label: "Show the update splash"/);
-  assert.match(fs.readFileSync(path.join(ui, "styles.css"), "utf8"), /\.splash-actions, \.splash-optout \{ animation: none; \}/);
+  assert.match(fs.readFileSync(path.join(ui, "styles.css"), "utf8"), /\.splash-actions, \.splash-optout\) \{ animation: none; \}/);
 });
 
 // UX-018: every schedule Remove asks first, names what stops, and points at Off.

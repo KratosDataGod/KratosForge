@@ -281,8 +281,10 @@ function showWhatsNew(asked = false) {
 // ---------- The forge splash ----------
 
 // The full-window forge: the emblem strikes the anvil, sparks fly, embers rise behind the
-// lettering. The new name and each update use it. Button, Escape or Enter closes it; with reduced
-// motion nothing moves. Returns the button so the caller can focus it once it is on screen.
+// lettering. The new name and each update use it. Button, Escape or Enter closes it. It follows
+// Motion & effects when it opens: Off, Minimal or Windows' reduced motion show it still, and with
+// Forge sparks off no sparks fly and no embers rise. Returns the button so the caller can focus it
+// once it is on screen.
 function forgeSplash({ kicker, tag, body, link, extra, done }) {
   // Sparks leave the anvil once; embers keep rising behind the name. Spread is fixed, not random,
   // so every start looks the same.
@@ -291,7 +293,11 @@ function forgeSplash({ kicker, tag, body, link, extra, done }) {
   const embers = Array.from({ length: 26 }, (_, i) => h("span", { class: "splash-ember",
     style: `--x:${(i * 41) % 100}%;--s:${2 + (i % 3)}px;--dur:${5 + (i * 7) % 6}s;--delay:${-((i * 13) % 50) / 10}s;--drift:${(i % 2 ? 1 : -1) * (10 + (i * 11) % 30)}px` }));
   const enter = btn("Enter the forge", null, done, "splash-go");
-  const overlay = h("div", { class: "overlay splash", role: "dialog", "aria-modal": "true",
+  // Decided once, from the chosen level and not the load drop, so a busy start doesn't stop it halfway.
+  const still = systemReducesMotion() || chosenMotionLevel() < 2;
+  const sparksOn = motionSetting("motion_sparks", true) === true;
+  const look = ["overlay splash", still && "splash-still", !sparksOn && "splash-nosparks"];
+  const overlay = h("div", { class: look.filter(Boolean).join(" "), role: "dialog", "aria-modal": "true",
     "aria-labelledby": "splash-title", "aria-describedby": "splash-text",
     onkeydown: (e) => {
       if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done(); }

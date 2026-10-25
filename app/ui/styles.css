@@ -586,6 +586,11 @@ h2.flush { margin: 0; }
 .wh-q-row .wh-more { flex: none; width: 28px; justify-content: center; padding: 0; opacity: 0; }
 .wh-q-row:hover .wh-more, .wh-q-row .wh-more:focus-visible { opacity: 1; }
 .wh-q-from { margin-left: auto; padding-left: 6px; font-size: 11.5px; color: var(--muted); }
+.wh-h-row { flex-direction: column; align-items: stretch; gap: 1px; height: auto; padding-top: 4px; padding-bottom: 4px; }
+.wh-h-sql { font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wh-h-meta { font-size: 11.5px; color: var(--muted); }
+.wh-h-meta.bad { color: var(--danger); }
+.wh-h-clear { margin: 6px 12px 0; }
 /* WH-04: SQL from a template */
 .sqlt-dialog { display: flex; flex-direction: column; }
 .sqlt { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }

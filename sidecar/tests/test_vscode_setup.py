@@ -105,6 +105,24 @@ def test_validate_prints_what_the_task_problem_matcher_reads(tmp_path):
     assert out["runs_on"] == "pc" and out["counts"]["error"] == 1
 
 
+def test_the_task_passes_the_file_outside_the_command_line(tmp_path):
+    task = json.loads(vscode_setup.FILES[".vscode/tasks.json"][2]())["tasks"][0]
+    assert "${file}" not in json.dumps(task["args"])  # cmd.exe would parse a name such as a&b.ipynb
+    assert task["options"]["env"] == {vscode_setup.PATH_VARIABLE: "${file}"}
+    path = tmp_path / "a&b (1).ipynb"
+    path.write_text(json.dumps({"cells": [], "metadata": {}}), encoding="utf-8")
+    env = {"PYTHONPATH": str(SIDECAR), "LOCALAPPDATA": str(tmp_path / "la"), "HOME": str(tmp_path), "PATH": "/usr/bin:/bin",
+           vscode_setup.PATH_VARIABLE: str(path)}
+    run = subprocess.run([sys.executable, "-m", "fabric_desktop.cli", *task["args"]], capture_output=True, text=True,
+                         env=env, timeout=120)
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert run.stdout.startswith(f"{path}:1:1: info: ")
+    del env[vscode_setup.PATH_VARIABLE]
+    missing = subprocess.run([sys.executable, "-m", "fabric_desktop.cli", *task["args"]], capture_output=True, text=True,
+                             env=env, timeout=120)
+    assert missing.returncode == 2 and "KRATOSFORGE_FILE isn't set" in missing.stderr
+
+
 def test_validate_says_when_a_file_isnt_a_notebook(tmp_path):
     path = tmp_path / "x.ipynb"
     path.write_text("[]", encoding="utf-8")

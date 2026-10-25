@@ -50,6 +50,7 @@ kratosforge nb validate "notebooks\Daily sales.ipynb" [--runs-on pc|fabric] [--j
 
 - Each finding is one line, `file:1:1: severity: message`. The message names the cell, because an `.ipynb` has no line per cell, so VS Code lists the finding against the notebook as a whole.
 - **--runs-on** says where the notebook will run. Without it, the notebook's own **Runs on** is used. If that isn't set, anything that stops it running in one place or the other is a warning.
+- **--path-from-env NAME** reads the file's path from an environment variable instead. The task uses it (`KRATOSFORGE_FILE`), so no shell reads the notebook's name: a name with `&` or other characters a command line treats specially can't run anything.
 - It exits with 1 when there are errors, and 2 when the file isn't a notebook.
 - `kratosforge` is `%LOCALAPPDATA%\FabricDesktop\bin\kratosforge.cmd`. KratosForge writes it each time the app starts, pointing at the current engine.
 

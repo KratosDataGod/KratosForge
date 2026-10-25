@@ -118,7 +118,9 @@ def main(argv: list[str] | None = None) -> None:
     nb_sub = nb.add_subparsers(dest="nb_command", required=True)
     p = nb_sub.add_parser("validate", help="list what Validate finds, one line per finding as file:line:column: "
                                            "severity: message; exit 1 if there are errors")
-    p.add_argument("path", help="an .ipynb file")
+    p.add_argument("path", nargs="?", help="an .ipynb file")
+    p.add_argument("--path-from-env", metavar="NAME",
+                   help="read the file's path from this environment variable (VS Code's task does, so no shell reads it)")
     p.add_argument("--runs-on", choices=["pc", "fabric"],
                    help="where it will run (default: the notebook's own Runs on, if it's set)")
     p.add_argument("--json", action="store_true", help="print the whole result as JSON")
@@ -289,7 +291,14 @@ def _nb_validate(args: argparse.Namespace) -> int:
     from .notebook import from_ipynb
     from .service import data_dir
 
-    path = Path(args.path).resolve()
+    import os
+    import sys
+
+    raw = os.environ.get(args.path_from_env, "") if args.path_from_env else args.path
+    if not raw:
+        print("Name an .ipynb file" + (f": {args.path_from_env} isn't set." if args.path_from_env else "."), file=sys.stderr)
+        return 2
+    path = Path(raw).resolve()
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(data, dict) or not isinstance(data.get("cells"), list):

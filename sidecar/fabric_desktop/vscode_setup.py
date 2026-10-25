@@ -50,6 +50,9 @@ _VALIDATE_LINE = ("\nTo check a notebook without running it, run the task \"Krat
 # What `kratosforge nb validate` prints for each finding (cli.py), as a VS Code problem matcher reads it.
 PROBLEM_PATTERN = r"^(.*\.ipynb):(\d+):(\d+): (error|warning|info): (.*)$"
 
+# Where the tasks put the open file's path for `kratosforge nb ... --path-from-env` (cli.py).
+PATH_VARIABLE = "KRATOSFORGE_FILE"
+
 
 def _json(value: Any) -> str:
     return json.dumps(value, indent=2) + "\n"
@@ -61,7 +64,10 @@ def _tasks() -> str:
         "detail": "Checks the open notebook without running it, as Validate does in KratosForge",
         "type": "shell",
         "command": _BIN + "kratosforge.cmd",
-        "args": ["nb", "validate", "${file}"],
+        # The file's path goes in an environment variable, never on the command line: cmd.exe, which
+        # runs the .cmd launcher, would read a name such as "a&b.ipynb" as two commands.
+        "args": ["nb", "validate", "--path-from-env", PATH_VARIABLE],
+        "options": {"env": {PATH_VARIABLE: "${file}"}},
         "problemMatcher": {"owner": "kratosforge", "source": "KratosForge Validate", "fileLocation": "absolute",
                            "pattern": {"regexp": PROBLEM_PATTERN, "file": 1, "line": 2, "column": 3,
                                        "severity": 4, "message": 5}},
@@ -125,10 +131,10 @@ def apply(root: Path, paths: list[str]) -> dict[str, Any]:
     top = Path(root).resolve()
     for rel in dict.fromkeys(paths):
         path = Path(root) / rel
-        path.parent.mkdir(parents=True, exist_ok=True)
         if not path.parent.resolve().is_relative_to(top):  # a linked .vscode folder pointing elsewhere
             skipped.append(rel)
             continue
+        path.parent.mkdir(parents=True, exist_ok=True)
         try:
             with open(path, "x", encoding="utf-8", newline="\n") as f:
                 f.write(FILES[rel][2]())

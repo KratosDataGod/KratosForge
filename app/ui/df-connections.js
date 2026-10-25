@@ -5,10 +5,10 @@
 // KratosForge never creates or changes a connection; Manage connections opens Fabric's own page.
 
 const DF_MANAGE_CONNECTIONS = "https://app.fabric.microsoft.com/groups/me/gateways?experience=fabric-developer";
-const DF_AREAS = [["pipelines", "Pipelines"], ["connections", "Connections"]];
+const DF_AREAS = [["pipelines", "Pipelines"], ["dataflows", "Dataflows"], ["connections", "Connections"]];
 const dfConnPage = { refresh: false, timer: null };
 
-// The tabs at the top of the Pipelines page. Copy jobs and Dataflows come with their stories (DF-6, DF-7).
+// The tabs at the top of the Pipelines page. Copy jobs come with their story (DF-6).
 function dfAreaTabs() {
   const area = plPage.area || "pipelines";
   return h("div", { class: "subtabs df-areas", role: "tablist", "aria-label": "Data Factory" }, DF_AREAS.map(([id, label]) =>

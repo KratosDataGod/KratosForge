@@ -24,6 +24,7 @@ from __future__ import annotations
 import time
 from typing import Any, Callable
 
+from . import sql, sql_policy
 from .localdata import tsql
 from .orchestration.adapters import ActivityFailed, timespan
 from .orchestration.definition import Activity
@@ -116,12 +117,21 @@ class LocalScripts:
     def _policy(self, a: Activity, i: int, text: str, project: str | None) -> dict[str, Any] | None:
         """What the SQL page's policy says of one block, without running it."""
         try:
-            plan = (self.data.svc.sql_runs.start(text, None, LOCAL_DIALECT, None, target="local", project=project,
-                                                 dry_run=True)
-                    if project else
-                    self.data.svc.sql_runs.start(lakehouse_sql(text)[0], {"workspace_id": "-", "lakehouse_id": "-",
-                                                                          "name": "-"}, "duckdb", ["read_only"],
-                                                 dry_run=True))
+            if project:
+                plan = self.data.svc.sql_runs.start(text, None, LOCAL_DIALECT, None, target="local", project=project,
+                                                    dry_run=True)
+            else:
+                duck = lakehouse_sql(text)[0]
+                # A lakehouse script reads the lakehouse's tables only: in Fabric it can't reach this PC's files,
+                # settings or SQL text run inside the statement, so neither does it here.
+                for n, st in enumerate(sql.parse(duck, "duckdb"), 1):
+                    source = sql_policy._reads_files(st)
+                    if source:
+                        return _problem("script_refused", f"{a.name}: script {i + 1}, statement {n}, {source} reads "
+                                        "a file or setting on this PC, which a lakehouse script can't. Give a mock "
+                                        "for it.", a)
+                plan = self.data.svc.sql_runs.start(duck, {"workspace_id": "-", "lakehouse_id": "-", "name": "-"},
+                                                    "duckdb", ["read_only"], dry_run=True)
         except KeyError:
             return _problem("script_project_missing", f"{a.name}: there is no local data project {project!r}.", a)
         except ValueError as exc:

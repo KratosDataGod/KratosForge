@@ -51,7 +51,7 @@ No Critical issue was confirmed. Twelve are High.
 | SH-5 | Medium | Distribution | Any different build installs (downgrades included), and `exe.old` is deleted before the new build proves it starts | HD-022 |
 | SH-7 | Medium | Distribution | Promote to stable promotes whatever Preview is at that moment, with no hash re-check | HD-023 |
 | SH-8 | Medium | CI | `codex-review.yml` (runs on `pull_request_target`) and `docs.yml` use tag-pinned actions; docs PR builds get `pages: write` | **Closed** by HD-024: every action is pinned by commit, `pages`/`id-token` are on the deploy job only, zensical is pinned |
-| SH-9 | Medium | Agent install | The Windows agent installer and `install-sidecar` don't use the pinned constraints | HD-025 |
+| SH-9 | Medium | Agent install | The Windows agent installer and `install-sidecar` don't use the pinned constraints | Partly closed by HD-025: both install with `constraints.txt`; the `%ProgramData%\FabricDesktop` ACL still waits on a Windows host |
 | DI-5 | Medium | Memory | Entity previews and SQL results load the whole table or result before slicing | HD-033 |
 | DI-6 | Medium | OneLake writes | Long writes use one bearer token for their whole duration (inferred) | HD-034 |
 | UI-2 | Medium | UI | Prove and side-by-side status polling never stops on errors | HD-035 |

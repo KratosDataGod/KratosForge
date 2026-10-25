@@ -539,6 +539,39 @@ function renderQuery() {
     onchange: (e) => { tab.dialect = sqlDialect(e.target.value); saveQueryTabs(); editor.setDialect(tab.dialect); drawActions(); } },
   Object.entries(SQL_DIALECTS).map(([id, d]) => h("option", { value: id, selected: id === tab.dialect }, d.label)));
   const actions = h("div", { class: "sql-actions" });
+  // The compatibility check as a chip beside Format SQL (Cleaner KratosForge): the counts at a glance.
+  // Its panel beside the editor opens when the chip is pressed, or by itself when the check finds an
+  // error or a warning; closing it holds until the findings change.
+  const compatChip = h("button", { class: "sql-compat-chip", "aria-controls": "sql-compat", title: "Compatibility: open or close the check's findings",
+    onclick: () => { tab.compatShown = { open: !compatOpen(), sig: compatSig() }; drawCompat(); } });
+  // The engine's outcome decides the chip, so SQL it couldn't verify or didn't check never reads as clean.
+  const compatStatus = () => {
+    const r = tab.compat;
+    if (!r || r.failed) return "";
+    if (r.outcome?.status) return r.outcome.status;
+    return r.counts.error ? "known_problems" : r.counts.warning ? "review" : "no_known_problems";
+  };
+  const compatSig = () => (tab.compat?.counts ? `${compatStatus()}/${tab.compat.counts.error}/${tab.compat.counts.warning}`
+    : tab.compat?.failed ? "failed" : "");
+  const compatOpen = () => {
+    if (tab.compatShown && tab.compatShown.sig === compatSig()) return tab.compatShown.open;
+    return !!(tab.compatLong || tab.compat?.failed || ["known_problems", "review", "unverified"].includes(compatStatus()));
+  };
+  function drawCompatChip() {
+    const r = tab.compat;
+    const c = r?.counts;
+    const n = (k, one, many) => `${c[k].toLocaleString()} ${c[k] === 1 ? one : many}`;
+    const status = compatStatus();
+    const [cls, text] = tab.compatLong ? ["", "Check SQL"] : !r ? ["", "Compatibility"] : r.failed ? ["error", "Check failed"]
+      : status === "known_problems" ? ["error", [n("error", "error", "errors"), c.warning ? n("warning", "warning", "warnings") : ""].filter(Boolean).join(", ")]
+        : status === "review" ? ["warning", n("warning", "warning", "warnings")]
+          : status === "unverified" ? ["unverified", "Not verified"]
+            : status === "not_checked" ? ["", editor.text().trim() ? "Not checked" : "Compatibility"]
+              : ["ok", "No known problems"];
+    compatChip.className = `sql-compat-chip${cls ? ` ${cls}` : ""}`;
+    compatChip.setAttribute("aria-expanded", String(compatOpen()));
+    compatChip.replaceChildren(text, previewShown() ? previewTag() : null, icon("chevronDown", 14));
+  }
   function drawActions() {
     if (wh) {
       actions.replaceChildren(btn("Run", "play", () => run(), "tool primary"),
@@ -546,8 +579,7 @@ function renderQuery() {
         h("span", { class: "sql-sep", "aria-hidden": "true" }),
         h("span", { class: "sql-target-note" }, SQL_DIALECTS[tab.dialect].label),
         btn("Format SQL", null, formatSql, "tool outline", { title: "Format the selection, or the whole query (Shift+Alt+F)" }),
-        h("span", { class: "spacer" }),
-        h("span", { class: "sql-capacity-note", role: "note" }, "Runs in Fabric · uses capacity · reads only"));
+        compatChip);
       return;
     }
     const local = runsHere();
@@ -557,6 +589,7 @@ function renderQuery() {
       h("span", { class: "sql-sep", "aria-hidden": "true" }),
       dialectPick,
       btn("Format SQL", null, formatSql, "tool outline", { title: "Format the selection, or the whole query (Shift+Alt+F)" }),
+      compatChip,
       h("span", { class: "spacer" }),
       btn("Save as table", "save", saveAsTable, "tool outline", { disabled: !local }),
       btn("Open in notebook", "notebook", openInNotebook, "tool outline", { disabled: tab.dialect !== "spark" }));
@@ -564,7 +597,7 @@ function renderQuery() {
   drawActions();
 
   // The Compatibility panel beside the editor: the last check's outcome and findings, newest SQL first.
-  const compat = h("aside", { class: "sql-compat", "aria-label": "Compatibility" });
+  const compat = h("aside", { class: "sql-compat", id: "sql-compat", "aria-label": "Compatibility" });
   const compatBody = h("div", { class: "sql-compat-body" });
   compat.append(compatBody);
   async function exportCompat() {
@@ -573,6 +606,8 @@ function renderQuery() {
     if (out) toast(`Saved the compatibility report to ${out.path}`);
   }
   function drawCompat() {
+    compat.hidden = !compatOpen();
+    drawCompatChip();
     const r = tab.compat;
     const label = SQL_DIALECTS[tab.dialect].label;
     const head = h("div", { class: "sql-compat-head" }, h("b", {}, "Compatibility"), previewShown() ? previewTag() : null,
@@ -677,14 +712,16 @@ function renderQuery() {
   const fabricLink = wh ? fabricItemLink({ type: ref.kind === "endpoint" ? "Lakehouse" : "Warehouse", workspace_id: ref.workspace_id, item_id: ref.item_id }) : null;
   setView(wh ? h("div", { class: "sql-page warehouse-page" },
     h("div", { class: "ribbon" }, h("div", { class: "toolbar" },
-      btn("New SQL query", "add", addTab),
-      btn("SQL from a template", "document", () => openSqlTemplates(ref, openTab, { draft: () => editor.text() })),
+      h("div", { class: "split" }, btn("New SQL query", "add", addTab),
+        h("button", { class: "tool split-more", "aria-label": "More ways to start a query", title: "More ways to start a query",
+          onclick: (e) => showMenu(e.currentTarget, [{ label: "SQL from a template", icon: "document",
+            action: () => openSqlTemplates(ref, openTab, { draft: () => editor.text() }) }]) }, icon("chevronDown", 14))),
       btn("Save query", "save", () => saveQuery(false), "tool", { title: tab.file ? `Save to ${tab.file.name} in ${tab.file.place === "mine" ? "My queries" : tab.file.place_label}` : "Save this tab as a .sql file in My queries or a Git repository" }),
       tab.file ? btn("Save as new", null, () => saveQuery(true), "tool") : null,
       btn("Open in Fabric", "open", () => openInFabric(fabricLink)),
       h("span", { class: "spacer" }),
-      h("span", { class: "muted-text" }, `Queries run in Fabric on ${ref.name} and use capacity. Only a query that reads runs here. `,
-        learnMore("warehouse-queries-preview")))),
+      h("span", { class: "sql-capacity-note", role: "note", title: `Queries run in Fabric on ${ref.name} and use capacity. Only a query that reads runs here.` },
+        "Runs in Fabric · uses capacity · reads only"), learnMore("warehouse-queries-preview"))),
     h("div", { class: "nb-body" },
       h("aside", { class: "explorer" }, h("div", { class: "explorer-head sql-views", role: "tablist", "aria-label": "Explorer views" },
         asideTab("explorer", "Explorer"), asideTab("queries", "Queries"), asideTab("history", "History")),

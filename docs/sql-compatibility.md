@@ -22,7 +22,7 @@ T-SQL is checked and formatted here but never run on this PC.
 
 ## Findings
 
-Findings are underlined in the editor, marked in the gutter and listed in the **Compatibility** panel beside it. Hover an underline, or pick a finding in the panel, to see:
+Findings are underlined in the editor, marked in the gutter and listed in the **Compatibility** panel beside it. A chip beside **Format SQL** shows the outcome (**No known problems**, **2 warnings**, **1 error**, **Not verified** when some of the SQL couldn't be checked, **Not checked** when the check didn't run); only **No known problems** is green. The panel opens by itself when the check finds an error or a warning or couldn't verify part of the SQL, and the chip opens or closes it at any time. Closed by hand, it stays closed until the findings change. Hover an underline, or pick a finding in the panel, to see:
 
 - the **severity** and **rule ID** (for example `SYN-001`);
 - what's wrong and **why**, in the engine's terms;

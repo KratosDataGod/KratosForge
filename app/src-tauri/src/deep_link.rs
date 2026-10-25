@@ -123,6 +123,35 @@ pub fn claim_instance(data_dir: &Path) -> std::io::Result<Option<std::fs::File>>
     }
 }
 
+/// The running copy's lock (claim_instance). An update lets go of it just before it starts the new
+/// exe, so the new one claims it at once, and takes it back if the new one ends without starting.
+pub struct InstanceLock(std::sync::Mutex<Option<std::fs::File>>);
+
+impl InstanceLock {
+    pub const fn new() -> Self {
+        InstanceLock(std::sync::Mutex::new(None))
+    }
+
+    pub fn hold(&self, lock: Option<std::fs::File>) {
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = lock;
+    }
+
+    pub fn release(&self) {
+        if let Some(file) = self.0.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            let _ = file.unlock();
+        }
+    }
+
+    /// Takes the lock back (a no-op while it is held). False when another copy has it.
+    pub fn reclaim(&self, data_dir: &Path) -> bool {
+        let mut held = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if held.is_none() {
+            *held = claim_instance(data_dir).ok().flatten();
+        }
+        held.is_some()
+    }
+}
+
 /// Hands `url` to the copy of the app that's already running. True when it took it.
 pub fn forward(data_dir: &Path, url: &str) -> bool {
     let Ok(text) = std::fs::read_to_string(data_dir.join("link-port")) else { return false };
@@ -304,6 +333,24 @@ mod tests {
         assert!(claim_instance(&dir).unwrap().is_none(), "a second copy is refused while the first runs");
         drop(first);
         assert!(claim_instance(&dir).unwrap().is_some(), "free again once the first has closed");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_update_hands_the_lock_to_the_new_copy() {
+        let dir = std::env::temp_dir().join(format!("kf-handover-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let old = InstanceLock::new();
+        old.hold(claim_instance(&dir).unwrap());
+        assert!(old.reclaim(&dir), "already held");
+        old.release();
+        let started = std::time::Instant::now();
+        let new = claim_instance(&dir).unwrap();
+        assert!(new.is_some() && started.elapsed() < Duration::from_millis(100), "the --updated-to copy doesn't wait");
+        assert!(!old.reclaim(&dir), "the old copy can't take it while the new one runs");
+        drop(new);
+        assert!(old.reclaim(&dir), "back to the old copy when the new one ended without starting");
+        assert!(claim_instance(&dir).unwrap().is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

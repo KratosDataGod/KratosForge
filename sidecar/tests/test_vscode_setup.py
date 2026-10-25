@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -79,9 +80,15 @@ def test_copilot_instructions_match_the_docs():
     assert block == vscode_setup.COPILOT_INSTRUCTIONS
 
 
+def _env(tmp_path: Path, **more: str) -> dict[str, str]:
+    """This process's environment (Windows needs SystemRoot and the rest to import polars), with
+    the engine pointed at this test's own folders."""
+    return {**os.environ, "PYTHONPATH": str(SIDECAR), "LOCALAPPDATA": str(tmp_path / "la"), "HOME": str(tmp_path),
+            "USERPROFILE": str(tmp_path)} | more
+
+
 def _validate(path: Path, tmp_path: Path, *extra: str) -> subprocess.CompletedProcess:
-    env = {"PYTHONPATH": str(SIDECAR), "LOCALAPPDATA": str(tmp_path / "la"), "HOME": str(tmp_path),
-           "PATH": "/usr/bin:/bin", "SYSTEMROOT": "C:\\Windows"}
+    env = _env(tmp_path)
     return subprocess.run([sys.executable, "-m", "fabric_desktop.cli", "nb", "validate", str(path), *extra],
                           capture_output=True, text=True, env=env, timeout=120)
 
@@ -111,8 +118,7 @@ def test_the_task_passes_the_file_outside_the_command_line(tmp_path):
     assert task["options"]["env"] == {vscode_setup.PATH_VARIABLE: "${file}"}
     path = tmp_path / "a&b (1).ipynb"
     path.write_text(json.dumps({"cells": [], "metadata": {}}), encoding="utf-8")
-    env = {"PYTHONPATH": str(SIDECAR), "LOCALAPPDATA": str(tmp_path / "la"), "HOME": str(tmp_path), "PATH": "/usr/bin:/bin",
-           vscode_setup.PATH_VARIABLE: str(path)}
+    env = _env(tmp_path, **{vscode_setup.PATH_VARIABLE: str(path)})
     run = subprocess.run([sys.executable, "-m", "fabric_desktop.cli", *task["args"]], capture_output=True, text=True,
                          env=env, timeout=120)
     assert run.returncode == 0, run.stdout + run.stderr

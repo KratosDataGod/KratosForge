@@ -241,7 +241,7 @@ function showMenu(anchor, items) {
   closeMenu();
   const rect = anchor.getBoundingClientRect();
   const menu = h("div", { class: "menu", id: "menu", role: "menu", style: `left:${rect.left}px;top:${rect.bottom + 4}px` },
-    items.map((it) => it.info ? h("div", { class: "info", role: "presentation" }, it.info)
+    items.map((it) => it instanceof Node ? menuNode(it) : it.info ? h("div", { class: "info", role: "presentation" }, it.info)
       : btn(it.label, it.icon, () => { closeMenu(); it.action(); }, "tool", { role: "menuitem", tabindex: "-1" })));
   menuOpener = anchor;
   anchor.setAttribute?.("aria-expanded", "true");
@@ -249,11 +249,21 @@ function showMenu(anchor, items) {
   // A button near the right edge (Publish options): keep the menu on screen.
   const overflow = menu.getBoundingClientRect().right - (window.innerWidth - 8);
   if (overflow > 0) menu.style.left = `${Math.max(8, rect.left - overflow)}px`;
-  menu.querySelector("[role=menuitem]")?.focus();
+  menu.querySelector("[role=menuitem], [role=menuitemcheckbox]")?.focus();
   setTimeout(() => document.addEventListener("mousedown", closeMenuOutside), 0);
 }
 
 let menuOpener = null;
+
+// A ribbon button moved into a menu as it is (its Preview tag, on state and title kept): the menu
+// closes before its own click runs, so a button that opens a menu of its own can.
+function menuNode(node) {
+  node.setAttribute("role", node.getAttribute("aria-pressed") ? "menuitemcheckbox" : "menuitem");
+  if (node.hasAttribute("aria-pressed")) node.setAttribute("aria-checked", node.getAttribute("aria-pressed"));
+  node.setAttribute("tabindex", "-1");
+  node.addEventListener("click", () => closeMenu(), true);
+  return node;
+}
 
 function closeMenuOutside(e) {
   if (!document.getElementById("menu")?.contains(e.target)) closeMenu();
@@ -273,7 +283,7 @@ function closeMenu(refocus = false) {
 document.addEventListener("keydown", (e) => {
   const menu = document.getElementById("menu");
   if (!menu) return;
-  const items = [...menu.querySelectorAll("[role=menuitem]")];
+  const items = [...menu.querySelectorAll("[role=menuitem], [role=menuitemcheckbox]")];
   const at = items.indexOf(document.activeElement);
   const move = isShortcut(e, "menu") ? { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[e.key] : undefined;
   if (isShortcut(e, "close")) { e.preventDefault(); e.stopImmediatePropagation(); closeMenu(true); }

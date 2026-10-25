@@ -147,7 +147,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Side by side | Notebook ribbon (this PC vs Fabric, and the TPC-H benchmark) |
 | Prove this notebook | Notebook ribbon (isolated PC vs Fabric runs, verification, receipts) |
 | Validate notebook | Notebook ribbon |
-| Notebook runs | Notebook ribbon > Recent runs ([notebooks.md](notebooks.md#recent-runs-preview)) |
+| Notebook runs | Notebook ribbon > Schedule > Recent runs, or the Run tab ([notebooks.md](notebooks.md#recent-runs-preview)) |
 | Profile | Account menu (private record of verified work, levels, achievements and the professional report) |
 | Edit Fabric notebooks on this PC | Workspaces, an item's preview: Edit on this PC ([notebook-files.md](notebook-files.md)) |
 | Run the last cell on Fabric | Notebook cell ⋯ menu > Run on Fabric (Spark) ([notebook-fabric-step.md](notebook-fabric-step.md)) |
@@ -156,7 +156,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Pipeline runs in Monitor | Monitor > Runs, pipeline runs on this PC and in Fabric with their activities ([user-guide.md](user-guide.md#pipeline-runs-in-monitor-preview)) |
 | Publishing notebooks from folders | All notebooks > Move to folder; Publish names the item without its folder ([notebook-folders.md](notebook-folders.md)) |
 | New notebook wizard | Create > Notebook from a template |
-| Notebook import and export formats | Home > Import from Fabric or Databricks; a notebook's Home tab > Export ([notebook-import-export.md](notebook-import-export.md)) |
+| Notebook import and export formats | Home > Import from Fabric or Databricks; a notebook's Home tab > Share > Export ([notebook-import-export.md](notebook-import-export.md)) |
 | Cell dependencies | Notebook ribbon, View and Run tabs (with Run stale cells) |
 | Parameters and widgets bar | Notebook, above the cells (parameter cell values and Databricks widgets) |
 | Failure replay bundles | Under a cell that failed on this PC; Create > Open replay bundle |

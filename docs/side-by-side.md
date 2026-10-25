@@ -8,7 +8,7 @@ Side by side runs one notebook on your PC and in Fabric, one after the other, an
 ## Turn it on
 
 1. Open a notebook and attach a lakehouse (**Add data items**). Both runs read and write that lakehouse's real tables.
-2. On the ribbon's **Home** or **Run** tab, select **Side by side**. It shows **Side by side: On**. The toggle is remembered for this notebook on this PC.
+2. Select **Side by side** on the ribbon's **Run** tab, or under **Check** on the **Home** tab. It shows **Side by side: On**. The toggle is remembered for this notebook on this PC.
 3. Select **Run all**.
 
 With the toggle off, Run all works as before. You can also find it in the command bar (Ctrl+K): type *side by side*.

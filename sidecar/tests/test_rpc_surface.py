@@ -39,9 +39,13 @@ _OSSIE = "Semantic model tab's Ossie card: engine only, the card waits on Chris'
 
 _DF1 = "Data Factory DF-1: Fabric pipeline runs in Monitor, engine only; the rows wait on Chris's mockup review"
 
+_PRACTICES = "notebook best practices: engine only, the panel waits on Chris's mockup review (docs/notebook-best-practices.md)"
+
 _SQL_PRACTICES = "SQL best practices: engine only, the panel waits on Chris's mockup review (docs/sql-best-practices.md)"
 
 NO_UI_CALLER: dict[str, str] = {
+    "notebook_practices": _PRACTICES,
+    "notebook_practice_rules": _PRACTICES,
     "sql_practices": _SQL_PRACTICES,
     "sql_practice_rules": _SQL_PRACTICES,
     "fabric_pipeline_runs": _DF1,

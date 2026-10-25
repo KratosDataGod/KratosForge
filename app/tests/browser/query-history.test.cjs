@@ -64,6 +64,7 @@ test("each run is kept with its SQL, state, time and rows, newest first", { skip
   const rows = await aside().locator(".wh-h-row").allTextContents();
   assert.match(rows[0], /SELECT \* FROM dbo\.DimCustomr.*Failed/);
   assert.match(rows[1], /SELECT TOP 20 CustomerName.*Succeeded.*2 rows/, "the first line that isn't a comment");
+  assert.ok(rows.every((r) => !/ 0\.0 s/.test(r)), `a run too short to round reads <0.1s, like Monitor: ${rows}`);
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "wh-07-history.png") });
 });
 

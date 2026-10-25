@@ -69,6 +69,9 @@ test("opening one shows it on the Pipelines page with Open in Fabric", { skip },
   const call = app.calls.find((c) => c.method === "workspace_pipeline_definition" && c.params.item_id === PL).params;
   assert.deepStrictEqual(call, { workspace_id: WS, item_id: PL, name: "pl_orders_daily" });
   assert.match(await page().textContent(".pl-head"), /pl_orders_daily[\s\S]*From Sales Dev · Fabric workspace/);
+  const graph = await page().textContent(".pl-graph");
+  assert.match(graph, /Case 1:[\s\S]*Case 2:/, "Switch cases read as people say them");
+  assert.doesNotMatch(graph, /cases\[/);
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "pipelines-from-workspace.png") });
   await page().evaluate(() => { window.openInFabric = (url) => { window.openedUrl = url; }; });
   await page().locator(".pl-actions button", { hasText: "Open in Fabric" }).click();

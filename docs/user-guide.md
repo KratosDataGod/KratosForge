@@ -488,7 +488,7 @@ Ownership, criticality, tags, links and the action log are kept on this PC in `w
 
 ### Incidents (Preview)
 
-An incident is one record per problem in an environment: a table whose last run failed, a run waiting for a decision, a late table, a missed [reliability objective](metadata-guide.md#reliability-objectives-preview), an agent that stopped reporting, or an environment that couldn't be read. The list lives in the environment's `LH_Meta`, so everyone who can read the environment, and every agent that serves it, sees the same incidents. Two people or agents seeing the same failure open one incident, not two.
+An incident is one record per problem in an environment: a table whose last run failed, a run waiting for a decision, a late table, a missed [reliability objective](metadata-guide.md#reliability-objectives-preview), an agent that stopped reporting, or an environment that couldn't be read. An environment that isn't set up yet (no workspace assigned) isn't a problem, so it opens no incident; **Check now** says it isn't set up. The list lives in the environment's `LH_Meta`, so everyone who can read the environment, and every agent that serves it, sees the same incidents. Two people or agents seeing the same failure open one incident, not two.
 
 **How this works**, beside the list, says what the page reads, which of its actions write to the shared list, when the app posts to Teams, and that an environment that can't be read is never counted as a failing workload. It folds to its title, and the app remembers that.
 
@@ -614,6 +614,14 @@ At the bottom of **Settings > General**, folded. Click **Advanced** to open it; 
 
 When your organization's policy file sets one of these, or the `FABRIC_DESKTOP_CLIENT_ID` environment variable sets the App ID, the field shows the value it uses, can't be edited and says which: "Set by your organization's policy" or "Set by the FABRIC_DESKTOP_CLIENT_ID environment variable". To change an ID the variable sets, remove the variable (`setx FABRIC_DESKTOP_CLIENT_ID ""`) and restart KratosForge.
 
+### Layout
+
+**Settings > Appearance > Layout** sets how much every page shows. Nothing is removed by any of these:
+
+- **Explanations.** **Beside the page** (the default) keeps each page's **How this works** panel, which says what the page reads, what it changes and where results go, in a column on the right. **On request** gives the page that width back: the info button in the title bar opens the same panel as a drawer, and Escape or the button closes it. The button shows only on pages that have a panel.
+- **Preview marks.** **Tags** (the default) marks features still in preview with a Preview tag. **Quiet dots** shows a small orange dot instead; hover it for what it means. Page titles keep the full tag, so you always know when a whole page is in preview.
+- **Density.** **Comfortable** (the default) or **Compact**, which tightens tables, lists, toolbars and cards.
+
 ### Motion and effects
 
 **Settings > Appearance > Motion & effects** sets how much the app moves. **Visual intensity** is
@@ -685,7 +693,7 @@ Setting KratosForge up for an organization, so nobody has to type an app ID: see
 
 ### Audit trail
 
-Every time someone runs or changes something in the app (a notebook cell, a SQL query, a metadata run, a publish, a promote, a schedule, a shortcut, a vacuum, a setting), the engine adds a line to `%LOCALAPPDATA%\FabricDesktop\audit\audit-YYYY-MM.jsonl`. On a server, the headless agent writes to `audit\` in its home folder: one line when a run is queued (`agent_enqueue`) and one when each job finishes or fails (`agent_job`, with the tables, rows written and error). Reading, listing, previewing and waiting for results aren't recorded.
+Every time someone runs or changes something in the app (a notebook cell, a SQL query, a metadata run, a publish, a promote, a schedule, a shortcut, a vacuum, a setting), the engine adds a line to `%LOCALAPPDATA%\FabricDesktop\audit\audit-YYYY-MM.jsonl`. On a server, the headless agent writes to `audit\` in its home folder: one line when a run is queued (`agent_enqueue`), requeued (`agent_requeue`) or the queue is pruned from the command line (`agent_prune`), and one when each job finishes or fails (`agent_job`, with the tables, rows written and error). Reading, listing, previewing and waiting for results aren't recorded.
 
 Each line says:
 

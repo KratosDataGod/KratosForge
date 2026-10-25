@@ -386,6 +386,8 @@ def test_service_calls():
     svc = PipelineMixin()
     imported = svc.pipeline_import(path=str(CONTENT))
     assert imported["ok"] and imported["name"] == "pl_orders_daily" and imported["activity_count"] == 18
+    switch = next(a for a in imported["activities"] if a["name"] == "Pick region job")
+    assert switch["case_values"] == ["emea", "amer"] and set(switch["children"]) == {"defaultActivities", "cases[0]", "cases[1]"}
     secure = next(p for p in imported["parameters"] if p["name"] == "api_key")
     assert secure["default"] == "(hidden)"
     assert "not-a-real-secret" not in json.dumps(svc.pipeline_inspect(path=str(CONTENT)))

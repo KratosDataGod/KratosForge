@@ -46,6 +46,8 @@ const FORGE_EVENTS = {
   "mesh.run.started": "pulse",
   "mesh.run.succeeded": "strike",
   "mesh.run.failed": "fail",
+  "promote.succeeded": "strike",
+  "promote.failed": "fail",
   "model.built": "spark",
   "model.build.failed": "fail",
   "git.op.succeeded": "spark",
@@ -249,7 +251,7 @@ function wolfTrack(where, label, unit, engine = "") {
       const wolf = el?.querySelector(".wolf");
       over = true;
       clearTimeout(timer);
-      if (!wolf || !fx(wolf, "arrive")) { stop(); return; }
+      if (!wolf || !forgeEvent("notebook.run.finished", wolf)) { stop(); return; }
       wolf.classList.add("arriving");
       const gone = el;
       el = null;

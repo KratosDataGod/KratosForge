@@ -28,6 +28,11 @@ Keys:
                      levels 2 and 3; motion_achievements the same, but false by default
     motion_follow_system  true (default): Windows' reduced-motion setting turns decorative motion
                      off whatever the level; false lets the chosen level apply anyway
+    ui_explanations  "beside" (default): each page's How this works panel sits beside it; "on_request":
+                     it opens from the title bar's info button instead (Settings > Appearance > Layout)
+    ui_preview_marks  "tags" (default): Preview features carry a Preview tag; "dots": a small dot,
+                     with the tag kept on page titles
+    ui_density       "comfortable" (default) or "compact": spacing in tables, lists and toolbars
     kernel_process   true to run each notebook's cells in a Python process of its own, so Stop
                      and crashes end only that process (default false while in preview)
     cell_time_limit_minutes  with kernel_process: minutes a cell may run before it's interrupted;
@@ -107,6 +112,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from . import jsonfile
 from .auth import MICROSOFT_CLIENT_ID
 
 CHANNELS = ("stable", "preview")
@@ -163,6 +169,12 @@ CHOICES = {"onelake_writes": ("local_first", "direct"), "onelake_compression": (
 DEFAULTS.update({"onelake_writes": "local_first", "onelake_compression": "zstd", "onelake_skip_unchanged": True})
 TYPES.update({"onelake_writes": str, "onelake_compression": str, "onelake_skip_unchanged": bool})
 USER_KEYS += ("onelake_writes", "onelake_compression", "onelake_skip_unchanged")
+# Layout (app/ui/features.js applyAppearance): how every page shows the same things; nothing is hidden.
+CHOICES.update({"ui_explanations": ("beside", "on_request"), "ui_preview_marks": ("tags", "dots"),
+                "ui_density": ("comfortable", "compact")})
+DEFAULTS.update({"ui_explanations": "beside", "ui_preview_marks": "tags", "ui_density": "comfortable"})
+TYPES.update({"ui_explanations": str, "ui_preview_marks": str, "ui_density": str})
+USER_KEYS += ("ui_explanations", "ui_preview_marks", "ui_density")
 # Read by integrations/policy.py, which decides what each means; listed here so the policy file has
 # one list of settings.
 INTEGRATION_KEYS = ("integrations", "integrations_max_permissions", "integrations_http", "integrations_extensions",
@@ -190,9 +202,17 @@ def user_path() -> Path:
 
 
 def _read(path: Path) -> dict[str, Any]:
+    """The person's own settings. A file that can't be parsed (a write cut short, a bad hand edit) is
+    moved aside as ``<name>.corrupt-<timestamp>`` rather than left for the next save to overwrite (QA-011)."""
     try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError):
+        data = json.loads(jsonfile.read_text(path).lstrip("\ufeff"))
+    except ValueError:  # UnicodeDecodeError too
+        try:
+            jsonfile.set_aside(path, then="your settings are back to their defaults until you change one")
+        except OSError:
+            pass
+        return {}
+    except OSError:
         return {}
     return {k: v for k, v in data.items() if k in DEFAULTS} if isinstance(data, dict) else {}
 
@@ -235,10 +255,7 @@ def _save_copy(saved: Path, text: str) -> None:
     try:
         if saved.exists() and saved.read_text(encoding="utf-8") == text:
             return
-        saved.parent.mkdir(parents=True, exist_ok=True)
-        tmp = saved.with_name(f"{saved.name}.{os.getpid()}.tmp")
-        tmp.write_text(text, encoding="utf-8")
-        os.replace(tmp, saved)
+        jsonfile.write_text(saved, text)
     except OSError:  # no copy this time; the policy itself still applies
         pass
 
@@ -516,9 +533,7 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
             user.pop(key, None)
         else:
             user[key] = new
-    path = user_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(user, indent=2), encoding="utf-8")
+    jsonfile.write_json(user_path(), user)  # readers see the old file or the new one, never half (QA-011)
     return load()
 
 

@@ -87,7 +87,7 @@ function renderNotebook() {
   const toolbars = {
     home: [runAllBtn, cancelBtn, computeBtn, sbsToggle(nb), validateToggle(nb), proveToggle(nb), h("div", { class: "sep" }), btn("Add data items", "lakehouse", openDataItems),
       h("div", { class: "spacer" }), notebookDataChip(nb), gitNotebookChip(nb), btn("Save", "save", () => saveExplicitly(() => document.querySelector("button[data-save]")), "tool", { "data-save": true }),
-      btn("Save a copy", "add", () => nbSaveCopyDialog(nb.name)), btn("Versions", "history", nbVersions), nbfExportButton(),
+      btn("Save a copy", "add", () => nbSaveCopyDialog(nb.name)), btn("Versions", "history", nbVersions), nbfExportButton(), vscodeButton(nb),
       preview("schedules", btn("Schedule", "history", scheduleNotebook, "tool")), runsToggle(nb),
       h("div", { class: "split" }, btn("Publish to OneLake", "publish", publishNotebook, "tool primary",
         { title: nb.workspace?.workspace_id ? `Publish to ${nb.workspace.workspace_name}` : "Publish to a Fabric workspace you pick" }),
@@ -428,7 +428,7 @@ function statusLine(cell) {
   const s = cell.status;
   const label = { queued: ["busy", "Queued"], running: cell.paused ? ["busy", "Paused"] : ["busy", "Running"], ok: ["ok", "Succeeded"],
     error: ["bad", "Failed"], stopped: ["bad", "Stopped"], cancelled: ["bad", "Cancelled"] }[s];
-  return h("div", { class: "cell-status", "data-s": s }, h("span", { class: label[0] }, label[1]),
+  return h("div", { class: "cell-status", "data-s": s, "data-where": isFabricStep(cell) ? "fabric" : null }, h("span", { class: label[0] }, label[1]),
     s === "running" && cell.seconds != null ? h("span", {}, `${cell.seconds.toFixed(1)} s`) : null,
     s === "running" && cell.progress != null ? h("span", { class: "cell-progress", title: "How far the running query is" },
       h("progress", { max: 100, value: cell.progress, "aria-label": "Query progress" }), `Query ${Math.floor(cell.progress)}%`) : null,

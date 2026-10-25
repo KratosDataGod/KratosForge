@@ -53,10 +53,11 @@ function showGateError(err, title = "That was blocked") {
   }
 }
 
-async function metaCall(method, params, title) {
+async function metaCall(method, params, title, onError) {
   try {
     return await rpc(method, params);
   } catch (err) {
+    onError?.(err);
     showGateError(err, title);
     return undefined;
   }
@@ -808,8 +809,15 @@ async function renderEnvTab(body, p) {
         btn(`Promote to ${ENV_LABEL[target]}`, "publish", async () => {
           if (!state.user && !(await signIn())) return;
           toast(`Promoting to ${ENV_LABEL[target]}...`);
-          const res = await metaCall("meta_promote", { source, target }, "Promote blocked");
-          if (res) { toast(`${ENV_LABEL[target]} is now on metadata ${res.version}`, false, { log: true }); render(); }
+          let cancelled = false;
+          const res = await metaCall("meta_promote", { source, target }, "Promote blocked", (err) => { cancelled = friendlyError(err).cancelled; });
+          // Anvil Strike on the message once the target is on the new version; the ember beside the
+          // error when the promote fails, and nothing for a cancelled sign-in (motion.js).
+          if (res) {
+            toast(`${ENV_LABEL[target]} is now on metadata ${res.version}`, false, { log: true });
+            render();
+            forgeEvent("promote.succeeded", document.getElementById("toast"));
+          } else if (!cancelled) forgeEvent("promote.failed", document.getElementById("toast"));
         }, "tool primary small")),
       h("p", { class: "muted-text" }, "Needs the project to pass the save gate, its tests to pass, and every table's last run here to be green on this exact metadata version. Lakehouses that don't exist yet are created."),
       box, promoteImpact(source, target), lastRelease(target, render));
@@ -1330,9 +1338,11 @@ async function renderModelTab(body) {
   const result = h("div", {});
   const build = async (replace = false) => {
     toast(`Building ${name.value} in ${plan.workspace_name || "the workspace"}...`);
-    const res = await metaCall("meta_build_model", { env: m.env, layer: plan.layer, name: name.value, replace }, "Model not built");
-    if (!res) {  // the ember beside the error (a gate's list opens as a dialog over it)
-      forgeEvent("model.build.failed", document.getElementById("toast"));  // motion.js
+    let cancelled = false;
+    const res = await metaCall("meta_build_model", { env: m.env, layer: plan.layer, name: name.value, replace }, "Model not built",
+      (err) => { cancelled = friendlyError(err).cancelled; });
+    if (!res) {  // the ember beside the error (a gate's list opens as a dialog over it); a cancelled sign-in plays nothing
+      if (!cancelled) forgeEvent("model.build.failed", document.getElementById("toast"));  // motion.js
       return;
     }
     if (res.confirm) {  // the model exists: nothing is written until the user says to replace it
@@ -1360,6 +1370,7 @@ async function renderModelTab(body) {
       h("p", { class: "muted-text" }, `Reads ${plan.lakehouse} in ${plan.workspace_name || plan.workspace_id} through its SQL analytics endpoint, with no import and no refresh schedule. Relationships come from the metadata. Surrogate keys and the framework's _run_id and _loaded_at columns are hidden; every fact gets a row count measure and a total measure for each numeric column, and no column sums on its own. Updating keeps every column's lineage tag, so reports built on the model keep working.`),
       h("div", { class: "row wrap" }, h("label", { class: "field" }, "Layer", layer), h("label", { class: "field grow" }, "Model name", name)),
       result),
+    ossieCard(plan),
     h("div", { class: "entity-grid" },
       h("div", { class: "card pad grow" }, h("b", {}, `Tables (${plan.tables.length})`),
         h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["Table", "Kind", "Delta table", "Entity"].map((c) => h("th", {}, c)))),
@@ -1372,6 +1383,180 @@ async function renderModelTab(body) {
             h("span", { class: "mono" }, `→ ${r.to_table}.${r.to_column}`),
             h("span", { class: "muted-text" }, r.active ? r.why : `inactive: ${r.why}`)))))))
           : h("p", { class: "muted-text" }, "None found. Facts relate to a dimension through a [[lookup]] block, or a column named like the dimension's surrogate key.")))));
+}
+
+// ---------- Apache Ossie: export and import a semantic model (model_ossie_service.py) ----------
+
+const OSSIE_MAX_BYTES = 20 * 1024 * 1024;
+const OSSIE_CHANGE = { add: ["Add", "pass"], change: ["Change", "info"], remove: ["Remove", "fail"], needs_dax: ["Needs DAX", "wrn"] };
+
+// The Open Semantic Interchange card under the Direct Lake one; null when preview features are hidden.
+function ossieCard(plan) {
+  const title = preview("ossie", h("b", {}, "Open Semantic Interchange (Apache Ossie) "));
+  if (!title) return null;
+  const m = state.meta;
+  const result = h("div", { class: "ossie-result" });
+  const model = h("select", { "aria-label": "Model to export" },
+    h("option", { value: plan.existing ? plan.name : "" }, plan.existing ? `${plan.name} (this layer's model)` : "Reading the workspace's models..."));
+  const sql = h("input", { type: "checkbox", checked: true });
+  metaCall("meta_model_ossie_models", { env: m.env }, "Models not listed").then((res) => {
+    if (!res) return;
+    const keep = model.value || plan.name;
+    model.replaceChildren(...(res.models.length ? res.models.map((x) => h("option", { value: x.name, selected: x.name === keep ? true : null },
+      x.name === plan.name ? `${x.name} (this layer's model)` : x.name)) : [h("option", { value: "" }, "No semantic models in this workspace yet")]));
+  });
+  const exportModel = async () => {
+    if (!model.value) { toast("Pick a model to export", true); return; }
+    fill(result, h("p", { class: "muted-text" }, `Reading ${model.value} from Fabric and converting it on this PC...`));
+    const out = await metaCall("meta_model_ossie_export", { env: m.env, name: model.value, translate_dax: sql.checked }, "Not exported");
+    if (!out) { fill(result); return; }
+    fill(result, ossieExportResult(out));
+  };
+  return h("div", { class: "card pad ossie-card" },
+    h("div", { class: "row wrap" }, title, h("span", { class: "spacer" }),
+      btn("Import from Ossie...", "arrowUpload", () => ossieImportDialog(plan, result), "tool outline small"),
+      btn("Export to Ossie", "arrowDownload", exportModel, "tool primary small")),
+    h("p", { class: "muted-text" }, "Ossie is the open format Snowflake, dbt, Databricks and others read for semantic models. Export reads the model's definition from Fabric and converts it on this PC; nothing in Fabric changes. A model sent to Ossie and back comes back the same, because Power BI details travel in the file's Power BI section."),
+    h("div", { class: "row wrap" }, h("label", { class: "field" }, "Model", model),
+      h("label", { class: "check" }, sql, "Also write simple measures as portable SQL")),
+    result,
+    howItWorks("ossie", {
+      reads: "The model's definition from Fabric (getDefinition, read only), or the Ossie file you pick.",
+      changes: "Export changes nothing until you save the file into the metadata project's folder. Import writes the model's definition in Fabric (or creates a new model) only after you confirm; no refresh runs. Save TMDL to Git writes the model's TMDL files under semantic/ in the project's folder.",
+      results: "Files under semantic/ in the metadata project, ready to commit in Source control.",
+      more: [["How it converts", "On this PC, with the Apache Ossie Microsoft converter. No AI is involved, and nothing leaves this PC except the Fabric calls above."]],
+    }));
+}
+
+function ossieReportList(rows) {
+  return rows.length ? h("ul", { class: "gate-list" }, rows.map((r) => h("li", {}, h("span", { class: "mono" }, r.object), ` ${r.message}`))) : null;
+}
+
+function ossieExportResult(out) {
+  const c = out.counts;
+  const kept = out.report.filter((r) => r.kind === "kept");
+  const lost = out.report.filter((r) => r.kind === "lost");
+  const path = h("input", { class: "mono", value: out.path, "aria-label": "Save in the project as" });
+  const save = btn("Save to Git", "save", async () => {
+    const res = await metaCall("meta_model_ossie_save", { path: path.value.trim(), text: out.yaml }, "Not saved");
+    if (res) toast(`Saved ${res.path}. It's in Source control, ready to commit.`);
+  }, "tool primary small");
+  const copy = btn("Copy", "copyArrowRight", () => attempt(() => navigator.clipboard.writeText(out.yaml).then(() => toast("Copied the Ossie YAML")), "Could not copy"), "tool outline small");
+  return h("div", { class: "ossie-export" },
+    h("div", { class: "pass-box" }, icon("ok", 16),
+      `Converted ${out.model}: ${c.datasets} datasets, ${c.fields} fields, ${c.metrics} measures (${c.portable_metrics} also as SQL), ${c.relationships} relationship${c.relationships === 1 ? "" : "s"}.`,
+      kept.length ? ` ${kept.length} thing${kept.length === 1 ? "" : "s"} only Power BI understands ${kept.length === 1 ? "is" : "are"} kept in the Power BI section.` : ""),
+    h("div", { class: "ossie-groups" },
+      h("div", { class: "card pad" }, h("b", {}, "Portable (any Ossie tool)"),
+        h("p", { class: "muted-text" }, `Tables, columns, keys, ${c.relationships} relationships, descriptions, and ${c.portable_metrics} measure${c.portable_metrics === 1 ? "" : "s"} as SQL.`)),
+      h("div", { class: "card pad" }, h("b", {}, `Kept for Fabric only (${kept.length})`),
+        ossieReportList(kept) || h("p", { class: "muted-text" }, "Nothing: the whole model is portable.")),
+      h("div", { class: "card pad" }, h("b", {}, `Not converted (${lost.length})`),
+        ossieReportList(lost) || h("p", { class: "muted-text" }, "Nothing. Every object is either portable or kept."))),
+    h("pre", { class: "ossie-yaml mono" }, out.yaml.split("\n").slice(0, 40).join("\n") + (out.yaml.split("\n").length > 40 ? "\n..." : "")),
+    h("div", { class: "row wrap" }, h("label", { class: "field grow" }, "Save in the project as", path), save, copy));
+}
+
+// Pick an Ossie file, choose update, replace or new, see every change, then confirm.
+function ossieImportDialog(plan, result) {
+  const m = state.meta;
+  const picked = { text: "", name: "" };
+  const input = h("input", { type: "file", accept: ".yaml,.yml,.json", "aria-label": "Ossie file" });
+  const projectPath = h("input", { class: "mono", placeholder: "semantic/model.ossie.yaml", "aria-label": "Ossie file in the project" });
+  const mode = h("select", { "aria-label": "Into" },
+    plan.existing ? h("option", { value: "update", selected: true }, `Update ${plan.name} (keeps its roles and hierarchies)`) : null,
+    plan.existing ? h("option", { value: "replace" }, `Replace ${plan.name}`) : null,
+    h("option", { value: "new", selected: plan.existing ? null : true }, `New model in ${plan.workspace_name || "the workspace"}`));
+  const name = h("input", { placeholder: "The name in the file", "aria-label": "New model name" });
+  const nameField = h("label", { class: "field grow", hidden: !!plan.existing }, "New model name", name);
+  const out = h("div", { class: "ossie-preview" });
+  const keep = new Map();  // removals the person unticked "Keep it" on
+  const go = btn("Import", "arrowUpload", null, "tool primary");
+  go.disabled = true;
+  const target = () => (mode.value === "new" ? name.value.trim() : plan.name);
+  const refresh = async () => {
+    go.disabled = true;
+    nameField.hidden = mode.value !== "new";
+    if (!picked.text) return;
+    fill(out, h("p", { class: "muted-text" }, "Checking what changes..."));
+    const res = await metaCall("meta_model_ossie_preview", { env: m.env, text: picked.text, name: target(), mode: mode.value, layer: plan.layer }, "Not checked");
+    if (!res) { fill(out); return; }
+    keep.clear();
+    const lost = res.report.filter((r) => r.kind === "lost");
+    fill(out,
+      h("b", {}, res.exists ? `What changes in ${res.name}` : `What ${res.name} gets`),
+      res.changes.length ? h("table", { class: "list" }, h("thead", {}, h("tr", {}, ["Change", "Object", "Detail"].map((c) => h("th", {}, c)))),
+        h("tbody", {}, res.changes.map((r) => {
+          const [label, cls] = OSSIE_CHANGE[r.change] || [r.change, "neu"];
+          const kept = res.removable.includes(r.object) ? h("label", { class: "check" },
+            h("input", { type: "checkbox", checked: true, onchange: (e) => { if (e.target.checked) keep.delete(r.object); else keep.set(r.object, true); } }), "Keep it") : null;
+          return h("tr", { class: r.change === "needs_dax" ? "warn-row" : null },
+            h("td", {}, h("span", { class: `pill-s ${cls}` }, label)), h("td", { class: "mono" }, r.object),
+            h("td", {}, r.change === "remove" ? h("span", {}, res.removable.includes(r.object) ? "Not in the Ossie file. " : "", kept) : r.detail));
+        }))) : h("p", { class: "muted-text" }, "Nothing changes: the model already matches the file."),
+      lost.length ? h("div", { class: "card pad warn-box" }, h("b", {}, `Can't carry over (${lost.length})`), ossieReportList(lost)) : null);
+    go.textContent = `${{ update: "Update", replace: "Replace", new: "Create" }[mode.value]} ${res.name}...`;
+    go.disabled = false;
+  };
+  input.onchange = async () => {
+    const f = input.files[0];
+    if (!f) return;
+    if (f.size > OSSIE_MAX_BYTES) { fill(out, h("p", { class: "error-text" }, "The file is larger than 20 MB, so it isn't an Ossie model.")); return; }
+    Object.assign(picked, { text: await f.text(), name: f.name });
+    projectPath.value = "";
+    refresh();
+  };
+  const readProject = btn("Read", null, async () => {
+    const res = await metaCall("meta_model_ossie_read", { path: projectPath.value.trim() }, "Not read");
+    if (!res) return;
+    Object.assign(picked, { text: res.text, name: res.path });
+    input.value = "";
+    refresh();
+  }, "tool outline small");
+  mode.onchange = refresh;
+  name.onchange = refresh;
+  go.onclick = async () => {
+    const params = { env: m.env, text: picked.text, name: target(), mode: mode.value, layer: plan.layer, remove: [...keep.keys()] };
+    const ask = await metaCall("meta_model_ossie_import", params, "Not imported");
+    if (!ask?.confirm) return;
+    const c = ask.confirm, n = c.counts || {};
+    const parts = [n.add && `${n.add} added`, n.change && `${n.change} changed`, n.remove && `${n.remove} removed`].filter(Boolean).join(", ") || "no changes";
+    const blanks = n.needs_dax ? ` ${n.needs_dax} measure${n.needs_dax === 1 ? " is" : "s are"} BLANK() until someone writes ${n.needs_dax === 1 ? "it" : "them"} in DAX.` : "";
+    const ok = await confirmDialog(`${{ update: "Update", replace: "Replace", new: "Create" }[c.mode]} ${c.name}?`,
+      c.mode === "replace"
+        ? `${c.name} in ${c.workspace_name || "the workspace"} becomes exactly what ${picked.name} holds (${parts}). Measures, roles and hierarchies added in Fabric that the file doesn't have are lost.${blanks} No refresh runs.`
+        : c.mode === "new"
+          ? `Creates ${c.name} in ${c.workspace_name || "the workspace"} from ${picked.name}.${blanks} No refresh runs.`
+          : `${c.name} in ${c.workspace_name || "the workspace"} gets ${parts} from ${picked.name}. Its roles, hierarchies and the measures you kept stay as they are.${blanks} No refresh runs.`,
+      `${{ update: "Update", replace: "Replace", new: "Create" }[c.mode]} ${c.name}`, { danger: c.mode === "replace" });
+    if (!ok) return;
+    toast(`Writing ${c.name} in Fabric...`);
+    const res = await metaCall("meta_model_ossie_import", { ...params, confirmed: true }, "Not imported");
+    if (res) fill(result, ossieImportResult(res, picked.name));
+  };
+  showDialog("Import from Ossie", h("div", { class: "scroll ossie-import" },
+    h("div", { class: "row wrap" }, h("label", { class: "field grow" }, "Ossie file on this PC", input),
+      h("label", { class: "field grow" }, "Or in the project", h("span", { class: "row tight" }, projectPath, readProject))),
+    h("div", { class: "row wrap" }, h("label", { class: "field grow" }, "Into", mode), nameField),
+    out,
+    h("p", { class: "muted-text" }, "Writes the model definition only. No refresh runs.")),
+  [btn("Cancel", null, closeDialog, "tool outline"), go]);
+}
+
+function ossieImportResult(res, file) {
+  const n = res.counts || {};
+  const saveTmdl = btn("Save TMDL to Git", "save", async () => {
+    const out = await metaCall("meta_model_tmdl_save", { env: state.meta.env, name: res.name }, "TMDL not saved");
+    if (out) toast(`Saved ${out.files} file${out.files === 1 ? "" : "s"} to ${out.folder}${out.removed.length ? `, removed ${out.removed.length} Fabric no longer has` : ""}. It's in Source control, ready to commit.`);
+  }, "tool primary small");
+  return h("div", { class: "ossie-done" },
+    h("div", { class: "pass-box" }, icon("ok", 16),
+      `${res.created ? "Created" : res.mode === "replace" ? "Replaced" : "Updated"} ${res.name} from ${file}: ${[n.add && `${n.add} added`, n.change && `${n.change} changed`, n.remove && `${n.remove} removed`].filter(Boolean).join(", ") || "no changes"}.`,
+      res.url ? btn("Open in Fabric", "open", () => openInFabric(res.url), "tool link small") : null),
+    res.needs_dax.length ? h("div", { class: "card pad warn-box" },
+      `${res.needs_dax.length} measure${res.needs_dax.length === 1 ? " needs" : "s need"} DAX before reports use ${res.needs_dax.length === 1 ? "it" : "them"}; ${res.needs_dax.length === 1 ? "it shows" : "they show"} blank until then: `,
+      h("span", { class: "mono" }, res.needs_dax.join(", "))) : null,
+    h("div", { class: "row wrap" }, h("span", { class: "muted-text grow" }, `Keep Git in step: the model's TMDL, read back from Fabric, goes to semantic/${res.name}.SemanticModel/ next to the Ossie file.`), saveTmdl));
 }
 
 // ---------- profiling ----------

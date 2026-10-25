@@ -2310,7 +2310,7 @@ test("Forge animations in the notebook: runs of several cells use the wolf track
 test("Motion & effects settings: four levels, family switches, reduced-motion choice, lockable, applied at once; CSS honours them", () => {
   const s = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   const card = s.match(/function motionSettingsCard\([\s\S]*?\n}\n/)[0];
-  assert.match(card, /h\("h2", \{\}, "Appearance"\),\n\s+h\("h3", \{\}, "Motion & effects"\)/);
+  assert.match(card, /h\("h2", \{\}, "Appearance"\),\n\s+h\("h3", \{\}, "Layout"\)[\s\S]*Object\.keys\(LAYOUT_CHOICES\)\.map\(choice\),\n\s+h\("h3", \{\}, "Motion & effects"\)/);
   assert.match(card, /type: "radio", name: "motion_level"/);
   assert.match(card, /disabled: locked\("motion_level"\) \? true : null, onchange: \(\) => save\(\{ motion_level: n \}\)/);
   assert.match(card, /\[0, 1, 2, 3\]\.map\(levelRow\)/);
@@ -4906,6 +4906,16 @@ test("Remote runs (KF-MO-009): the navy wolf trots in an indeterminate bar, with
   assert.match(fs.readFileSync(path.join(ui, "activity.js"), "utf8"), /const remoteActivity = \(i\) => String\(i\.id \|\| ""\)\.startsWith\("fabric:"\) && i\.progress === undefined;/);
 });
 
+test("Forge events: every event in the registry is fired by the app, and the Preview window shows the navy wolf (MO-011)", () => {
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  const events = Object.keys(vm.runInContext("FORGE_EVENTS", ctx));
+  const app = fs.readdirSync(ui).filter((f) => f.endsWith(".js") && f !== "settings.js")
+    .map((f) => fs.readFileSync(path.join(ui, f), "utf8").replace(/const FORGE_EVENTS = \{[\s\S]*?\n\};/, "")).join("\n");
+  for (const name of events) assert.ok(app.includes(`"${name}"`), `${name} is in FORGE_EVENTS but nothing fires it`);
+  assert.match(fs.readFileSync(path.join(ui, "motion.js"), "utf8"), /forgeEvent\("notebook\.run\.finished", wolf\)/);
+  assert.match(fs.readFileSync(path.join(ui, "settings.js"), "utf8"), /row\("Navy wolf", [^\n]*\n\s+remoteHost, \(\) => \{ if \(!remoteHost\.childElementCount\) \{ remoteHost\.append\(remoteProgress\(/);
+});
+
 test("SQL Forge events (KF-MO-005): a slow success sparks, a failure plays the ember, after the redraw", () => {
   const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
   const events = vm.runInContext("FORGE_EVENTS", ctx);
@@ -5013,4 +5023,21 @@ test("the Capacity tab says how each capacity drifted from capacity.toml", () =>
     "Sales: Git expects it here; Fabric has it on F8 Dev", "w2: Git expects it here; Fabric has it on a capacity you can't see",
     "Ad hoc: on this capacity in Fabric, not listed in capacity.toml", "Hidden: you can't see this workspace, so it isn't compared",
     "2 workspaces are where Git expects"]);
+});
+
+test("the Ossie card exports, previews and imports only after a confirm, and hides with preview features", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const card = meta.split("function ossieCard(plan)")[1].split("// ---------- profiling ----------")[0];
+  assert.match(card, /preview\("ossie", /, "the card is a Preview feature and hides with them");
+  assert.match(meta, /\n    ossieCard\(plan\),\n/, "the Semantic model tab shows the card");
+  for (const method of ["meta_model_ossie_models", "meta_model_ossie_export", "meta_model_ossie_save", "meta_model_ossie_read",
+    "meta_model_ossie_preview", "meta_model_ossie_import", "meta_model_tmdl_save"]) {
+    assert.match(card, new RegExp(`"${method}"`), `${method} has a caller`);
+  }
+  // The first import call only asks; the write carries confirmed after confirmDialog said yes, danger for Replace.
+  const go = card.split("go.onclick = async () => {")[1].split("showDialog(")[0];
+  assert.ok(go.indexOf("confirmDialog(") < go.indexOf("confirmed: true"), "confirm comes before the write");
+  assert.match(go, /\{ danger: c\.mode === "replace" \}/);
+  assert.match(go, /if \(!ok\) return;/);
+  assert.match(card, /OSSIE_MAX_BYTES/, "a file too large to be a model is refused before it's read");
 });

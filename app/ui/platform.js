@@ -997,11 +997,11 @@ async function renderProductTrust(p) {
         h("div", { class: "monitor-band" }, btn("All data products", null, () => { pp.open = null; render(); }, "tool link small")),
         h("div", { class: "row" }, h("h2", { class: "trust-name" }, p.name), badges, previewTag()),
         h("div", { class: "muted-text small" }, p.description || ""), h("div", { class: "muted-text small mono" }, p.id), lastScan),
-      endorsement, terms, productChecklistCard(p)),
+      endorsement, terms, productChecklistCard(p), productAccessCard(p)),
     howItWorks("onelake.product-trust", {
       reads: "The product's endorsement as the last tenant scan read it, and its business terms, from the platform's catalog. Scan now reads Fabric's admin tenant scan (Power BI) of the workspaces the platform's published products live in, as you: only a Fabric administrator can. Nothing reads Purview.",
-      changes: "Scan now writes what the scan read to catalog.endorsement in the platform's catalog. Adding or removing a term writes catalog.product_term. Nothing changes in Fabric or Purview: KratosForge can't set endorsement, and terms stay in Purview.",
-      results: "Everyone who opens this product sees the last scan's badge and when it was read, and each term with a link to it in Purview. Each scan and term change is in the platform's audit log.",
+      changes: "Scan now writes what the scan read to catalog.endorsement in the platform's catalog. Adding or removing a term writes catalog.product_term. Take access away deletes that project's row in catalog.grant; links it already made stay. Nothing changes in Fabric or Purview: KratosForge can't set endorsement, and terms stay in Purview.",
+      results: "Everyone who opens this product sees the last scan's badge and when it was read, and each term with a link to it in Purview. Each scan, term change and access taken away is in the platform's audit log.",
       anchor: "endorsement-and-business-terms-preview",
     }))));
   const here = () => state.view === "onelake" && catalogPage.tab === "products" && pp.open === p;
@@ -1041,6 +1041,48 @@ async function renderProductTrust(p) {
   } catch (err) {
     failed(err);
   }
+}
+
+// Who was given access to a product, and taking it away. The product's owner or a platform admin
+// can; the catalog checks that again. Links projects already made stay, so their runs keep reading.
+function productAccessCard(p) {
+  const card = h("div", { class: "card pad product-access" }, h("b", {}, "Access given"), loading());
+  const draw = async () => {
+    let me;
+    try { me = await rpc("platform_whoami", {}); } catch { me = {}; }
+    const mine = !!me.admin || String(p.owner || "").toLowerCase().split(/[,;]/).map((x) => x.trim()).includes(String(me.user || "").toLowerCase());
+    const linked = (proj) => (p.consumers || []).some((c) => c.consumer_project === proj);
+    const open = p.access === "public" ? "Everyone can link to it without being given access."
+      : p.access === "domain" ? `Projects in ${p.domain_id || "its domain"} can link to it without being given access.` : "";
+    const granted = p.granted || [];
+    card.replaceChildren(h("div", { class: "row tight" }, h("b", {}, "Access given"), previewTag()),
+      open ? h("p", { class: "muted-text small" }, open) : null,
+      granted.length ? h("table", { class: "list" },
+        h("thead", {}, h("tr", {}, ["Project", "Linked", ""].map((x) => h("th", {}, x)))),
+        h("tbody", {}, granted.map((proj) => h("tr", { "data-project": proj },
+          h("td", {}, h("b", {}, proj)),
+          h("td", {}, linked(proj) ? h("span", { class: "pill-s pass" }, "Linked") : h("span", { class: "muted-text small" }, "Not yet")),
+          h("td", {}, mine ? btn("Take access away", null, () => revoke(proj), "tool outline small") : null)))))
+        : h("p", { class: "muted-text small" }, "No project has been given access yet."),
+      mine || !granted.length ? null : h("p", { class: "muted-text small" }, "Only the product's owner or a platform admin can take access away."));
+  };
+  const revoke = async (proj) => {
+    const keeps = (p.consumers || []).some((c) => c.consumer_project === proj)
+      ? ` ${proj} already links to it: that link stays and its runs keep reading. Ask its team to remove the link if they mustn't.` : "";
+    if (!(await confirmDialog(`Take ${proj}'s access to ${p.name} away?`,
+      `${proj} can't make a new link to ${p.name}, and must ask again to get access back.${keeps} Nothing changes in OneLake.`,
+      "Take access away", { danger: true }))) return;
+    try {
+      const left = await rpc("platform_revoke", { product_id: p.id, project: proj });
+      p.granted = left.map((g) => g.project).sort();
+      toast(`${proj} no longer has access to ${p.name}.`);
+      draw();
+    } catch (err) {
+      card.append(h("p", { class: "fail-text small" }, trustError(err)));
+    }
+  };
+  draw();
+  return card;
 }
 
 function endorsementLines(t, scan) {

@@ -152,7 +152,14 @@ async function runFabricStep(cell, nb) {
   else if (res.status !== "Completed") out.push({ type: "error", ename: `Fabric step ${res.status.toLowerCase()}`, evalue: res.message || "Open the run in Fabric to see why." });
   cell.outputs = out;
   cell.finishedAt = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  if (state.notebook?.cells.includes(cell)) updateResults(cell);
+  if (state.notebook?.cells.includes(cell)) {
+    updateResults(cell);
+    // Fabric's word on the step: the label glows once when it completed, the ember when it failed;
+    // cancelled plays nothing (motion.js).
+    const label = document.querySelector(`[data-cell="${cell.id}"] .cell-status > span`);
+    if (res.status === "Completed") forgeEvent("fabric.run.succeeded", label);
+    else if (res.status === "Failed") forgeEvent("fabric.run.failed", label);
+  }
   return cell.status === "ok";
 }
 
@@ -163,7 +170,10 @@ function fabricStepOutput(o, cell) {
   const label = { Publishing: "Publishing", Queued: "Queued on Fabric", Running: "Running on Fabric", Completed: "Completed on Fabric",
     Failed: "Failed on Fabric", Cancelled: "Cancelled on Fabric", Deduped: "Skipped by Fabric" }[o.status] || o.status;
   const running = o.status === "Queued" || o.status === "Running";
-  const head = h("div", { class: "fabric-step-line" }, h("span", {}, o.text || `${label}${time}`),
+  // While Fabric runs it there is no measure: the navy wolf trots in place beside what Fabric says
+  // (motion.js remoteProgress), with no fill or percentage.
+  const head = h("div", { class: "fabric-step-line" },
+    running && !o.text ? remoteProgress("Fabric step", `${label}${time}`) : h("span", {}, o.text || `${label}${time}`),
     o.url ? h("a", { href: "#", onclick: (e) => { e.preventDefault(); openInFabric(o.url); } }, "Open the run in Fabric") : null,
     running && o.run ? btn("Cancel", null, () => attempt(() => rpc("cancel_fabric_run", { workspace_id: o.run.workspace_id, item_id: o.run.item_id, job_id: o.run.job_id }), "Could not cancel"), "tool small outline") : null);
   const counted = (t) => t.checked != null ? `${t.v_ordered_files} of ${t.checked}${t.checked < t.files ? ` newest (of ${t.files})` : ""} files V-Ordered` : "";

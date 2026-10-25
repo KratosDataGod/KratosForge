@@ -640,7 +640,6 @@ def test_external_tools_mock_notebook_lookup_and_get_metadata(tmp_path):
     assert checked["ok"] is True and sorted(checked["mocked"]) == ["GM", "LK", "NB"]
 
 
-
 def test_registry_marks_control_flow_local():
     reg = default_registry()
     for type_ in ("SetVariable", "AppendVariable", "IfCondition", "Switch", "ForEach", "Until", "Wait", "Fail",

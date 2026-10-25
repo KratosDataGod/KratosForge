@@ -306,6 +306,11 @@ class _Run:
         self.guest: str | None = None  # the notebook whose cell this is, in a shared session (Kernel.as_guest)
         self.notebook = ""  # its name, for the other notebooks in the session
         self.done = threading.Event()
+        # Cancel only interrupts the cell's thread once it is inside _execute's handlers (``armed``).
+        # A Cancel before that sets ``cancel_requested``, and the thread stops itself when it arms.
+        self.cancel_lock = threading.Lock()
+        self.armed = False
+        self.cancel_requested = False
         self.watches: list[dict[str, Any]] | None = None
         self._reset()
         self.debugger: Any = None  # debugger.Debugger when the cell runs with breakpoints
@@ -952,13 +957,14 @@ class Kernel:
         with contextlib.suppress(Exception):
             from . import spark_local
             spark_local.interrupt()
-        # A cell that was just started may not have its thread running yet (no ident): wait for it.
-        deadline = time.monotonic() + 2.0
-        while run.thread.ident is None and not run.done.is_set() and time.monotonic() < deadline:
-            time.sleep(0.01)
-        if run.thread.ident is None:
-            return {"interrupted": False}
-        ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(run.thread.ident), ctypes.py_object(KeyboardInterrupt))
+        # A cell that was just started may not be in _execute yet: an interrupt raised there (in the
+        # thread's start-up, or before the handlers) would end the thread without finishing the run.
+        # Such a cell stops itself as soon as it gets there.
+        with run.cancel_lock:
+            run.cancel_requested = True
+            armed = run.armed
+        if armed:
+            ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(run.thread.ident), ctypes.py_object(KeyboardInterrupt))
         run.done.wait(2.0)
         return {"interrupted": True, "stopped": run.done.is_set()}
 
@@ -993,6 +999,12 @@ class Kernel:
         writes = None
         write_queue.cell_writes.stats = run.onelake
         try:
+            with run.cancel_lock:
+                run.armed = True
+                cancelled = run.cancel_requested
+            if cancelled:  # Cancel came before the cell got here
+                run.add({"type": "text", "text": "Cancelled. Variables are kept."})
+                raise KeyboardInterrupt
             writes = self._write_queue()
             try:
                 if run.debugger is not None:

@@ -403,6 +403,28 @@ def test_interrupt_waits_for_a_cell_thread_that_hasnt_started_yet(monkeypatch):
     assert k.poll(-1, 0.0)["status"] == "cancelled"
 
 
+
+def test_interrupt_before_the_cell_reaches_its_handlers_still_cancels_it(monkeypatch):
+    # Windows CI: the interrupt was raised as soon as the thread had an id, which can be before
+    # _execute's handlers. The thread then died there, the run never finished and Prove waited on it.
+    import threading
+    k = Kernel()
+    execute, entered = Kernel._execute, threading.Event()
+
+    def late(self, *args, **kwargs):
+        entered.set()
+        time.sleep(0.5)  # the thread runs, but isn't in _execute yet
+        return execute(self, *args, **kwargs)
+
+    monkeypatch.setattr(Kernel, "_execute", late)
+    k.start("import time\nfor _ in range(400):\n    time.sleep(0.05)")
+    assert entered.wait(5)
+    assert k.interrupt() == {"interrupted": True, "stopped": True}
+    snap = k.poll(-1, 0.0)
+    assert snap["status"] == "cancelled" and any("Cancelled" in o.get("text", "") for o in snap["outputs"])
+    monkeypatch.undo()
+    assert k.run("x = 1")["status"] == "ok"  # the kernel takes the next cell
+
 def test_the_kernel_refuses_cells_while_a_proof_runs_and_one_proof_at_a_time(svc):
     svc.fake = FakeFabric(svc)
     cells = CELLS[:2] + [{"type": "code", "source": "import time\ntime.sleep(1.5)"}]

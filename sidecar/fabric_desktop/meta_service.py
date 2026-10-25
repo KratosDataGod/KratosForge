@@ -274,7 +274,8 @@ class MetaMixin:
                  "# keys_workspace_id is the workspace that holds LH_Keys, the surrogate keys.", ""]
         lines += ["# workspaces: a workspace per designation (ingest, product, serve, sandbox); layers pick one",
                   "# with workspace = \"...\" in layers.toml. keys = \"platform\": surrogate keys are in SQL_Platform.",
-                  "# require_commit = true: promote here only from files a pushed Git commit holds.", ""]
+                  "# require_commit: Test and Prod in OneLake only take files a pushed Git commit holds;",
+                  "# false lets a promote go ahead with a note, true asks it of an environment on this PC too.", ""]
         for name in ENVIRONMENTS:
             lines.append(f"[{name}]")
             lines += [f"{k} = {_toml(v)}" for k, v in envs.get(name, {}).items()]
@@ -687,12 +688,15 @@ class MetaMixin:
         return {"env": env, "release": out, "problem": None}
 
     def _release_gate(self, project: Project, target: str, git: dict[str, Any]) -> tuple[list[str], list[str]]:
-        """Promoting files no pushed commit holds: blocked when the target environment sets
-        ``require_commit = true`` in environments.toml, otherwise a note (decision D1)."""
+        """Promoting files no pushed commit holds. Chris decided (D1, 2026-10-25) that Test and Prod
+        only take released files, so this blocks when the target's tables are in OneLake. An environment
+        kept on this PC is a note, as is any environment with ``require_commit = false`` in
+        environments.toml; ``require_commit = true`` blocks on this PC too."""
         found = release.problems(git)
         if not found or target == "dev":
             return [], []
-        if project.environments.get(target, {}).get("require_commit"):
+        cfg = project.environments.get(target, {})
+        if cfg.get("require_commit", cfg.get("target", "onelake") != "local"):
             return [f"{target.title()} only takes released files: {p}" for p in found], []
         return [], [f"The release record can't name a pushed commit that holds these files: {'; '.join(found)}"]
 

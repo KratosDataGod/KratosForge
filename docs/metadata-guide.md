@@ -323,14 +323,15 @@ Tables keep their rows. A table whose logic changes asks whether to rebuild on i
 
 Each promote card shows the **Last release** to its target: the metadata version, the commit and whether it was pushed, the engine, who promoted it and when, and whether the stored record still matches its id (**checks out**). **Copy record** copies the whole record.
 
-If the files can't be named by a pushed commit (uncommitted changes, unpushed commits, no upstream branch, or no Git), the promote still goes ahead and the promote card says so. To require a pushed commit instead, set `require_commit = true` for that environment in `environments.toml`:
+Test and Prod in OneLake only take released files. If the files can't be named by a pushed commit (uncommitted changes, unpushed commits, no upstream branch, or no Git), a promote to an environment whose tables are in OneLake is blocked until they are committed and pushed. An environment kept on this PC goes ahead, and the promote card says so. `require_commit` in `environments.toml` changes this for one environment:
 
 ```toml
-[prod]
-require_commit = true
-```
+[test]
+require_commit = false   # go ahead with a note instead
 
-Promote to that environment is then blocked until the files are committed and pushed.
+[prod]
+require_commit = true    # block even when this environment is on this PC
+```
 
 ### Who can promote
 
@@ -531,7 +532,7 @@ One section per environment (`[dev]`, `[test]`, `[prod]`):
 | `optimize_after_run` | Optimize every table a run writes (Test and Prod) |
 | `keys` | `platform` (keys in `SQL_Platform`) or `lakehouse` (`LH_Keys`). Unset, keys come from the platform once the environment has one in Fabric, unless the project already has `LH_Keys` |
 | `workspaces` | A workspace per designation, like `{ ingest = { id = "...", name = "Sales Ingest - Test" } }` |
-| `require_commit` | `true`: promote here only from files a pushed Git commit holds ([Release records](#release-records)) |
+| `require_commit` | Whether promote here takes only files a pushed Git commit holds. On by default for an environment in OneLake, off for one on this PC; `false` or `true` overrides it ([Release records](#release-records)) |
 | `separate_promoter` | `true`: whoever promoted this version to the environment before can't promote it here ([Who can promote](#who-can-promote)) |
 
 Changing this file doesn't change the metadata version, so it never forces a re-promote.

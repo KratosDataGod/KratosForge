@@ -199,15 +199,15 @@ In a notebook, the explorer's **Resources** tab lists the notebook's **Built-in 
 
 ## Fabric and Databricks notebook formats (Preview)
 
-**Import from Fabric or Databricks** under **Start something** on Home reads Fabric or Databricks source (`.py`, `.sql`, `.scala`), a Databricks archive (`.dbc`), a percent-format script (`# %%`) or a `.ipynb`, shows each notebook it would create, and creates them as new notebooks in the app's notebooks folder. A notebook that already has the name is never replaced; the new one gets the next free name, such as `Sales (2)`, and the picked file is only read. In a notebook, **Export** on the Home tab saves it as `.ipynb` (with or without the outputs on screen), Fabric source, Databricks source or a web page, as a new file in your Downloads folder; a file already there is never replaced. Nothing is sent to Fabric. See [Fabric and Databricks notebook formats](notebook-import-export.md).
+**Import from Fabric or Databricks** under **Start something** on Home reads Fabric or Databricks source (`.py`, `.sql`, `.scala`), a Databricks archive (`.dbc`), a percent-format script (`# %%`) or a `.ipynb`, shows each notebook it would create, and creates them as new notebooks in the app's notebooks folder. A notebook that already has the name is never replaced; the new one gets the next free name, such as `Sales (2)`, and the picked file is only read. In a notebook, **Export** (Home tab > Share) saves it as `.ipynb` (with or without the outputs on screen), Fabric source, Databricks source or a web page, as a new file in your Downloads folder; a file already there is never replaced. Nothing is sent to Fabric. See [Fabric and Databricks notebook formats](notebook-import-export.md).
 
 ## Validate a notebook (Preview)
 
-In a notebook, **Validate** (Home or Run tab) opens a panel with two tabs. **Problems** lists what the code checks find, each with its cell and fix, and **Run clean check** runs every cell from the top in a fresh kernel on this PC, with table writes kept in a sandbox folder that is deleted afterwards. **Clean up** lists tidy-ups you tick and apply (unused or repeated imports, spacing, empty cells, print lines), which Undo puts back until you edit again, and suggestions such as a table read twice. See [Validate a notebook](validate-notebook.md).
+In a notebook, **Validate** (Home tab > Check, or the Run tab) opens a panel with two tabs. **Problems** lists what the code checks find, each with its cell and fix, and **Run clean check** runs every cell from the top in a fresh kernel on this PC, with table writes kept in a sandbox folder that is deleted afterwards. **Clean up** lists tidy-ups you tick and apply (unused or repeated imports, spacing, empty cells, print lines), which Undo puts back until you edit again, and suggestions such as a table read twice. See [Validate a notebook](validate-notebook.md).
 
 ## Notebook runs (Preview)
 
-In a notebook, **Recent runs** (Home or Run tab) lists the notebook's recent runs beside the cells: its scheduled runs on this PC and the runs this app started for it in Fabric, each with when, where, what started it, status and time taken. A run on this PC has **Details**, a Fabric run **Open in Fabric**. It reads the run logs Monitor > Runs reads; only **Refresh status**, for a Fabric run still going, asks Fabric, and it saves the answer in the app's run log on this PC. See [Recent runs](notebooks.md#recent-runs-preview).
+In a notebook, **Recent runs** (Home tab > Schedule, or the Run tab) lists the notebook's recent runs beside the cells: its scheduled runs on this PC and the runs this app started for it in Fabric, each with when, where, what started it, status and time taken. A run on this PC has **Details**, a Fabric run **Open in Fabric**. It reads the run logs Monitor > Runs reads; only **Refresh status**, for a Fabric run still going, asks Fabric, and it saves the answer in the app's run log on this PC. See [Recent runs](notebooks.md#recent-runs-preview).
 
 ## Notebook files
 
@@ -215,7 +215,7 @@ In a notebook, **Recent runs** (Home or Run tab) lists the notebook's recent run
 
 ## Notebook version history
 
-In a notebook, **Versions** (Home tab) lists the notebook's earlier versions on this PC: one per save (one every 5 minutes while you edit, kept 30 days) and named checkpoints you create. **Compare** shows the cells that changed, and **Restore** puts a version's cells back after keeping the notebook as it is now as a version. See [Notebook version history](notebook-versions.md).
+In a notebook, **Versions** (Home tab > Share) lists the notebook's earlier versions on this PC: one per save (one every 5 minutes while you edit, kept 30 days) and named checkpoints you create. **Compare** shows the cells that changed, and **Restore** puts a version's cells back after keeping the notebook as it is now as a version. See [Notebook version history](notebook-versions.md).
 
 ## Notebook comments
 

@@ -94,7 +94,8 @@ test("Export saves Fabric source and an escaped web page as new files, never ove
   });
   const exportOnce = async (label) => {
     await page().evaluate(() => { document.getElementById("toast").textContent = ""; });
-    await page().getByRole("button", { name: /^Export/ }).click();
+    await page().getByRole("button", { name: "Share" }).click();
+    await page().getByRole("menuitem", { name: /^Export/ }).click();
     await page().getByRole("menuitem", { name: label }).click();
     const prefix = "Saved Daily sales (2) to ";
     await page().waitForFunction((p) => document.getElementById("toast").textContent.startsWith(p), prefix);

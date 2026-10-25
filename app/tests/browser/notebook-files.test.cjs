@@ -58,7 +58,8 @@ test("All notebooks lists every notebook, and search finds code inside cells and
 });
 
 test("Save a copy keeps the original; Delete asks, keeps it in Recently deleted, and Restore puts it back", { skip }, async () => {
-  await page().getByRole("button", { name: "Save a copy", exact: true }).click();
+  await page().getByRole("button", { name: "Share" }).click();
+  await page().getByRole("menuitem", { name: "Save a copy", exact: true }).click();
   const dialog = page().getByRole("dialog", { name: "Save a copy of Daily sales" });
   assert.strictEqual(await dialog.getByRole("textbox", { name: "Name" }).inputValue(), "Daily sales 2");
   await dialog.getByRole("button", { name: "Save copy" }).click();

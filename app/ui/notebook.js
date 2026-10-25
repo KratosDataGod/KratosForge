@@ -55,6 +55,19 @@ function dropEditor(cell) {
 
 // ---------- the screen ----------
 
+// A Home ribbon menu (UX cleanup, Cleaner KratosForge): buttons that each stay one click away on
+// the Run tab or in their own place are grouped behind one button, as they are (menuNode in app.js).
+// items(menu) is called on each open, so the menu always shows the current state; the button reads as
+// on while anything in it is on, and isn't shown when none of its buttons are (Preview features hidden).
+function ribbonMenu(label, iconName, items, title) {
+  const now = items(null).filter(Boolean);
+  if (!now.length) return null;
+  const on = now.some((b) => b.getAttribute("aria-pressed") === "true");
+  return h("button", { class: `tool${on ? " toggled" : ""}`, "aria-haspopup": "menu", "aria-expanded": "false", title,
+    onclick: (e) => { const menu = e.currentTarget; showMenu(menu, items(menu).filter(Boolean)); } },
+  icon(iconName, 16), label, icon("chevronDown", 14));
+}
+
 function renderNotebook() {
   const nb = state.notebook;
   if (!nb) return go("home");
@@ -85,10 +98,15 @@ function renderNotebook() {
     btn(label, iconName, onClick, `tool${on ? " toggled" : ""}`, { "aria-pressed": String(!!on), ...attrs });
 
   const toolbars = {
-    home: [runAllBtn, cancelBtn, computeBtn, sbsToggle(nb), validateToggle(nb), proveToggle(nb), h("div", { class: "sep" }), btn("Add data items", "lakehouse", openDataItems),
+    home: [runAllBtn, cancelBtn, computeBtn, ribbonMenu("Check", "ok", () => [sbsToggle(nb), validateToggle(nb), proveToggle(nb)],
+        "Side by side, Validate and Prove (also on the Run tab)"),
+      h("div", { class: "sep" }), btn("Add data items", "lakehouse", openDataItems),
       h("div", { class: "spacer" }), notebookDataChip(nb), gitNotebookChip(nb), btn("Save", "save", () => saveExplicitly(() => document.querySelector("button[data-save]")), "tool", { "data-save": true }),
-      btn("Save a copy", "add", () => nbSaveCopyDialog(nb.name)), btn("Versions", "history", nbVersions), nbfExportButton(), vscodeButton(nb),
-      preview("schedules", btn("Schedule", "history", scheduleNotebook, "tool")), runsToggle(nb),
+      ribbonMenu("Share", "arrowUpload", (menu) => [btn("Save a copy", "add", () => nbSaveCopyDialog(nb.name)), btn("Versions", "history", nbVersions), nbfExportButton(menu)],
+        "Save a copy, Versions and Export"),
+      vscodeButton(nb),
+      ribbonMenu("Schedule", "history", () => [preview("schedules", btn("Schedule", "history", scheduleNotebook, "tool")), runsToggle(nb)],
+        "Schedule this notebook and see its recent runs (also on the Run tab)"),
       h("div", { class: "split" }, btn("Publish to OneLake", "publish", publishNotebook, "tool primary",
         { title: nb.workspace?.workspace_id ? `Publish to ${nb.workspace.workspace_name}` : "Publish to a Fabric workspace you pick" }),
       h("button", { class: "tool primary split-more", "aria-label": "Publish options", title: "Publish options",

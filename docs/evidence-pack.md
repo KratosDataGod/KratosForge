@@ -64,7 +64,7 @@ These are the flows the app itself starts, from the hosts named in its source co
 | SHA-256 checksums | `version.json` on each release | Enforced by the app for the exe and the engine |
 | Dependency scanning | `pip-audit` and `cargo audit` in CI on every pull request | In place |
 | Pinned dependencies | `sidecar/constraints.txt`, `Cargo.lock` with `--locked` | In place |
-| Pinned CI actions | Third-party actions in `ci.yml` pinned by commit | In place; two smaller workflows still pin by tag (SH-8) |
+| Pinned CI actions | Every action in every workflow pinned by commit | In place (SH-8 closed) |
 | Code signing | Authenticode via Azure Trusted Signing | **Not in place**: needs the signing account |
 
 ## Still open

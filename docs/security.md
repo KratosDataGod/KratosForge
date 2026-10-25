@@ -95,7 +95,8 @@ What this means in practice:
 - Python packages are pinned exactly in `sidecar/constraints.txt` and CI installs with it; Rust builds use `Cargo.lock` with `--locked`.
 - CI publishes SHA-256 checksums in `version.json`, which the app now enforces.
 - In place (FD-103): `pip-audit` and `cargo audit` on every pull request, CycloneDX SBOMs for the shell and the engine, build provenance attestations on releases, third-party actions in `ci.yml` pinned by commit SHA, and signing that runs only for pushes to `main`.
-- Not yet: `codex-review.yml` and `docs.yml` still pin actions by tag (SH-8); the Windows agent installer and `install-sidecar` don't install with the constraints (SH-9); nothing verifies the attestations on a PC.
+- Every workflow pins its actions by commit, and only the docs deploy job on `main` can publish Pages (SH-8).
+- Not yet: the Windows agent installer and `install-sidecar` don't install with the constraints (SH-9); nothing verifies the attestations on a PC.
 
 ## Reporting a vulnerability
 

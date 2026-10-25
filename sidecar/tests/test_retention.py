@@ -127,3 +127,38 @@ def test_local_writes_says_whats_there_and_opens_only_its_own_folders(tmp_path, 
     for other in (str(temp / "other"), str(tmp_path), "C:\\Windows"):
         with pytest.raises(ValueError):
             svc.local_writes_reveal(other)
+
+
+def test_delete_left_overs_clears_staging_and_tpch_but_not_while_a_notebook_runs(tmp_path, monkeypatch):
+    import tempfile as tf
+
+    import pytest
+
+    from fabric_desktop import local_writes_service as lw
+    temp = tmp_path / "temp"
+    (temp / "tpch_abc").mkdir(parents=True)
+    (temp / "tpch_abc" / "part0.duckdb").write_bytes(b"x" * 300)
+    (temp / "keep_me").mkdir()
+    monkeypatch.setattr(tf, "gettempdir", lambda: str(temp))
+    running = [True]
+
+    class Svc(lw.LocalWritesMixin):
+        root = tmp_path / "app"
+        sessions = type("S", (), {"any_running": lambda self: running[0]})()
+    svc = Svc()
+    spills = svc.root / "staging" / "_writes"
+    spills.mkdir(parents=True)
+    (spills / "write-1.arrow").write_bytes(b"y" * 100)
+    (spills / "write-2.arrow").write_bytes(b"y" * 50)
+    (svc.root / "staging" / "old_job").mkdir()
+    (svc.root / "staging" / "old_job" / "part.parquet").write_bytes(b"z" * 10)
+    with pytest.raises(RuntimeError, match="notebook is running"):
+        svc.local_writes_clear()
+    assert (spills / "write-1.arrow").exists()
+    running[0] = False
+    real = lw._remove
+    monkeypatch.setattr(lw, "_remove", lambda p: None if p.name == "write-2.arrow" else real(p))  # open elsewhere
+    res = svc.local_writes_clear()
+    assert res == {"removed": 3, "bytes": 410, "in_use": [str(spills / "write-2.arrow")]}
+    assert not (temp / "tpch_abc").exists() and (temp / "keep_me").exists()
+    assert sorted(p.name for p in (svc.root / "staging").rglob("*")) == ["_writes", "write-2.arrow"]

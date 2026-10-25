@@ -5014,4 +5014,6 @@ test("Files on this PC says what local writes hold and where", () => {
     "3.0 GB in 2 files, 2 waiting to upload or left over (3.0 GB) · C:\\x\\staging");
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   assert.match(app.slice(app.indexOf("function oneLakeWritesMenu"), app.indexOf("async function setNotebookOneLakeWrites")), /Open the folder of local writes/);
+  const clear = src.slice(src.indexOf("async function clearLocalWrites"));
+  assert.match(clear.slice(0, clear.indexOf("\n}\n")), /confirmDialog\("Delete left-overs\?"[\s\S]*danger: true[\s\S]*rpc\("local_writes_clear"\)/);
 });

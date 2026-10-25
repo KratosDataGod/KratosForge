@@ -748,15 +748,32 @@ function localWritesRow() {
   const status = h("div", { class: "muted-text small" }, "Looking...");
   const extra = h("div", { class: "local-writes" });
   const open = btn("Open folder", "folderOpen", () => openLocalWrites(), "tool small");  // app.js
+  const clear = btn("Delete left-overs", "delete", () => clearLocalWrites(), "tool small", { disabled: true });
   rpc("local_writes").then((w) => {
     status.textContent = localWritesText(w);
+    clear.disabled = !w.files && !w.tpch.length;
     extra.replaceChildren(...w.tpch.map((t) => h("div", { class: "row wrap" },
       h("span", { class: "muted-text small grow" }, `TPC-H data left in the temp folder: ${formatBytes(t.bytes)}, ${t.folder}`),
       btn("Open", "folderOpen", () => openLocalWrites(t.folder), "tool small"))));
   }).catch(() => { status.textContent = "Couldn't read the folder."; });
   return settingRow("Files on this PC",
-    "A write kept on this PC waits here until it has uploaded, then it's deleted, so this is normally empty. Open the folder to look, or to clear up after a run that was ended mid-upload. Don't delete files while a notebook is writing.",
-    h("div", { style: "display:flex;flex-direction:column;gap:6px" }, h("div", { class: "row" }, status, open), extra));
+    "A write kept on this PC waits here until it has uploaded, then it's deleted, so this is normally empty. Open the folder to look, or Delete left-overs to clear up after a run that was ended mid-upload.",
+    h("div", { style: "display:flex;flex-direction:column;gap:6px" }, h("div", { class: "row wrap" }, status, open, clear), extra));
+}
+
+async function clearLocalWrites() {
+  const w = await attempt(() => rpc("local_writes"), "Couldn't read the folder");
+  if (!w) return;
+  const total = w.bytes + w.tpch.reduce((n, t) => n + t.bytes, 0);
+  const what = [w.files ? `${w.files.toLocaleString()} file${w.files === 1 ? "" : "s"} in ${w.folder}` : "",
+    ...w.tpch.map((t) => `TPC-H data in ${t.folder}`)].filter(Boolean);
+  if (!(await confirmDialog("Delete left-overs?", `This deletes ${formatBytes(total)} from this PC: ${what.join("; ")}. ` +
+    "Your tables in OneLake aren't touched. A write that hasn't finished uploading is lost, so it's refused while a notebook is running.",
+  "Delete", { danger: true }))) return;
+  const res = await attempt(() => rpc("local_writes_clear"), "Not deleted");
+  if (!res) return;
+  toast(`Deleted ${formatBytes(res.bytes)}.${res.in_use.length ? ` ${res.in_use.length} still in use, left: try again when it has finished.` : ""}`);
+  render();
 }
 
 function localWritesText(w) {

@@ -223,3 +223,22 @@ def test_the_last_release_reads_back_with_its_record_checked(svc, pushed):
     store.meta_append("deployments", [dict(deps.row(-1, named=True), at="2999-01-01T00:00:00+00:00",
                                            receipt=receipts.canonical(body).decode())])
     assert svc.meta_last_release("test")["release"]["verified"] is False
+
+
+def test_test_and_prod_in_onelake_only_take_released_files_by_default(svc):
+    # D1 (2026-10-25): an environment whose tables are in OneLake blocks files no pushed commit holds,
+    # unless it sets require_commit = false. One kept on this PC stays a note.
+    project = svc._project()
+    git_status = svc.meta_git_status()
+    assert git_status["repo"] is False
+    envs = project.environments
+    for target, cfg, blocked in (("test", {"target": "onelake"}, True),
+                                 ("test", {"target": "onelake", "require_commit": False}, False),
+                                 ("prod", {"target": "local"}, False),
+                                 ("prod", {"target": "local", "require_commit": True}, True)):
+        project.environments = envs | {target: dict(envs.get(target, {})) | cfg}
+        errors, notes = svc._release_gate(project, target, git_status)
+        assert bool(errors) is blocked, (target, cfg)
+        assert bool(notes) is not blocked, (target, cfg)
+        if blocked:
+            assert errors[0].startswith(f"{target.title()} only takes released files: ")

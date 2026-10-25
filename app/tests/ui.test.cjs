@@ -5044,3 +5044,16 @@ test("the Ossie card exports, previews and imports only after a confirm, and hid
   assert.match(go, /if \(!ok\) return;/);
   assert.match(card, /OSSIE_MAX_BYTES/, "a file too large to be a model is refused before it's read");
 });
+
+// kratosforge:// links (deep_link.rs): a link only shows a notebook or a page. The page's handler
+// opens or goes, and never runs, saves elsewhere, or publishes.
+test("A kratosforge:// link only shows something", () => {
+  const src = fs.readFileSync(path.join(ui, "vscode.js"), "utf8");
+  const body = src.slice(src.indexOf("async function showLink"), src.indexOf("async function listenForLinks"));
+  const calls = [...body.matchAll(/rpc\("([a-z_]+)"/g)].map((m) => m[1]).sort();
+  assert.deepStrictEqual(calls, ["list_notebooks", "notebook_name_for_path"]);
+  assert.ok(!/run|publish|execute/i.test(body.replace(/\/\/.*$/gm, "")), "the handler names nothing that runs");
+  const main = fs.readFileSync(path.join(__dirname, "..", "src-tauri", "src", "main.rs"), "utf8");
+  assert.match(main, /generate_handler!\[[\s\S]*take_pending_link/);
+  assert.match(main, /fn register_link_scheme\(\) \{\n    if !cfg!\(windows\) \|\| cfg!\(debug_assertions\)/);
+});

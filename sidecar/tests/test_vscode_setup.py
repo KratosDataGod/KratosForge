@@ -135,3 +135,40 @@ def test_validate_says_when_a_file_isnt_a_notebook(tmp_path):
     run = _validate(path, tmp_path)
     assert run.returncode == 2
     assert run.stdout.strip().endswith("it isn't a Jupyter notebook (.ipynb) file")
+
+
+def test_a_file_path_names_its_notebook_only_in_places_the_app_knows(svc, tmp_path):
+    svc.save_notebook("Sales/Daily", [{"type": "code", "source": "x = 1"}])
+    home = svc.notebook_file_path("Sales/Daily")["path"]
+    assert svc.notebook_name_for_path(home) == {"name": "Sales/Daily"}
+    root = repo_of(svc, tmp_path)
+    nb = svc.new_notebook(place=root)
+    assert svc.notebook_name_for_path(svc.notebook_file_path(nb["name"])["path"]) == {"name": nb["name"]}
+    stray = tmp_path / "elsewhere" / "Daily.ipynb"
+    stray.parent.mkdir()
+    stray.write_text(Path(home).read_text(encoding="utf-8"), encoding="utf-8")
+    assert svc.notebook_name_for_path(str(stray)) == {"name": None}
+    assert svc.notebook_name_for_path(str(tmp_path / "missing.ipynb")) == {"name": None}
+    assert svc.notebook_name_for_path(home.replace(".ipynb", ".py")) == {"name": None}
+
+
+def test_open_prints_a_link_the_shell_reads(tmp_path):
+    path = tmp_path / "Daily sales.ipynb"
+    path.write_text('{"cells": []}', encoding="utf-8")
+    env = _env(tmp_path)
+    run = subprocess.run([sys.executable, "-m", "fabric_desktop.cli", "nb", "open", str(path), "--print"],
+                         capture_output=True, text=True, env=env, timeout=120)
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.strip() == "kratosforge://notebook?path=" + path.resolve().as_posix().replace("/", "%2F").replace(" ", "%20")
+
+
+def test_the_open_task_passes_the_file_outside_the_command_line(tmp_path):
+    task = json.loads(vscode_setup.FILES[".vscode/tasks.json"][2]())["tasks"][1]
+    assert task["args"][:2] == ["nb", "open"] and "${file}" not in json.dumps(task["args"])
+    path = tmp_path / "a&b.ipynb"
+    path.write_text('{"cells": []}', encoding="utf-8")
+    env = _env(tmp_path, **{vscode_setup.PATH_VARIABLE: str(path)})
+    run = subprocess.run([sys.executable, "-m", "fabric_desktop.cli", *task["args"], "--print"], capture_output=True,
+                         text=True, env=env, timeout=120)
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.strip().endswith("a%26b.ipynb")

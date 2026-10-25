@@ -91,3 +91,34 @@ async function vscodeSetupDialog(root, label, after) {
       "Doesn't write Fabric, OneLake or VS Code's own settings. The Validate task reads the notebook file and runs nothing; Copilot's tools still ask you here before they run code."))),
   [btn("Cancel", null, closeDialog, "tool outline"), add]);
 }
+
+// kratosforge:// links (deep_link.rs, docs/vscode.md): VS Code, a terminal or a browser asks the
+// app to show a notebook or a page. A link only shows something; nothing in it is run, and unsaved
+// edits here are saved first, as when you open another notebook yourself.
+async function showLink(link) {
+  if (link?.kind === "page") {
+    const page = railFeatures().concat(railFeatures(true)).map((f) => Object.keys(f.views || {})[0]).find((v) => v === link.page);
+    if (page) go(page); else toast(`KratosForge has no page called ${link.page}.`, true);
+    return;
+  }
+  if (link?.kind !== "notebook") return;
+  const name = link.name ?? (await rpc("notebook_name_for_path", { path: link.path }).catch(() => ({}))).name;
+  const known = name && (await rpc("list_notebooks").catch(() => [])).some((n) => n.name === name);
+  if (!known) {
+    toast(link.path ? `${link.path} isn't in the notebooks folder or a notebooks repository KratosForge knows. Import it, or open its repository in Source control.`
+      : `There's no notebook named ${name}.`, true);
+    return;
+  }
+  if (state.notebook?.name === name && state.view === "notebook") return;
+  await openNotebook(name);
+}
+
+async function listenForLinks() {
+  if (!window.__TAURI__?.event) return;
+  await window.__TAURI__.event.listen("deep-link", ({ payload }) => {
+    try { showLink(JSON.parse(payload)); } catch { /* not a link the shell made */ }
+  });
+  const pending = await invoke("take_pending_link").catch(() => null);
+  if (pending) showLink(JSON.parse(pending));
+}
+

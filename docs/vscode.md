@@ -9,6 +9,7 @@ Use VS Code and KratosForge together on the same notebooks. Notebooks are plain 
 | Keep edits from both editors | Nothing to do: see [Editing in both](#editing-in-both) |
 | Get a repository ready for everyone who opens it in VS Code | **Source control**, a notebooks repository: **Set up for VS Code** ([Set up a repository](#set-up-a-repository-for-vs-code)) |
 | Check a notebook from VS Code without running it | The **KratosForge: Validate notebook** task, or `kratosforge nb validate` ([Validate from VS Code](#validate-from-vs-code)) |
+| Jump from VS Code back to the notebook in KratosForge | The **KratosForge: Open notebook in KratosForge** task, or a `kratosforge://` link ([Links into KratosForge](#links-into-kratosforge)) |
 
 ## Open in VS Code
 
@@ -31,7 +32,7 @@ On the **Source control** page, a notebooks repository has **Set up for VS Code*
 
 | File | What it does |
 | --- | --- |
-| `.vscode/tasks.json` | The **KratosForge: Validate notebook** task (**Terminal › Run Task**). What it finds is listed in VS Code's **Problems** panel. |
+| `.vscode/tasks.json` | Two tasks (**Terminal › Run Task**): **KratosForge: Validate notebook**, which lists what it finds in VS Code's **Problems** panel, and **KratosForge: Open notebook in KratosForge**. |
 | `.vscode/mcp.json` | Connects Copilot agent mode to KratosForge's MCP server. VS Code asks each developer for their own connection id (from **Settings › Integrations**), so no id is written in the file. |
 | `.vscode/extensions.json` | Suggests the Jupyter, Python and Copilot Chat extensions to anyone who opens the repository. |
 | `.github/copilot-instructions.md` | Tells Copilot how to use KratosForge's tools and approvals: the [instructions for your AI tool](ai/agent-instructions.md), plus a line on the Validate task. |
@@ -54,6 +55,21 @@ kratosforge nb validate "notebooks\Daily sales.ipynb" [--runs-on pc|fabric] [--j
 - It exits with 1 when there are errors, and 2 when the file isn't a notebook.
 - `kratosforge` is `%LOCALAPPDATA%\FabricDesktop\bin\kratosforge.cmd`. KratosForge writes it each time the app starts, pointing at the current engine.
 
+## Links into KratosForge
+
+A `kratosforge://` link shows a notebook or a page in KratosForge, from VS Code, a terminal, a browser or a document:
+
+| Link | Shows |
+| --- | --- |
+| `kratosforge://notebook?path=<file>` | The notebook saved in that `.ipynb` file. The file has to be in the app's notebooks folder or a notebooks repository opened in Source control. |
+| `kratosforge://notebook?name=Sales%2FDaily%20load` | The notebook with that name. |
+| `kratosforge://page/<page>` | A page from the left rail, such as `kratosforge://page/monitor`. |
+
+- If KratosForge is open, the link goes to that window and brings it to the front. If it isn't open, the link starts it.
+- A link only shows something. Nothing in it runs, publishes or changes anything. Unsaved edits in the open notebook are saved first, as when you open another notebook yourself.
+- `kratosforge nb open <file>` opens the link for a file, and `--print` prints it instead. The **Open notebook in KratosForge** task runs this command.
+- KratosForge registers `kratosforge://` for your Windows user (under `HKCU\Software\Classes`) each time it starts. A copy that was started for a link hands the link to the open window over `127.0.0.1` and then closes.
+
 ## What runs where
 
 Opening a notebook in VS Code doesn't run anything. Cells you run in VS Code use whatever kernel you pick there; to run on this PC with KratosForge's engine, lakehouse and session, run them in KratosForge for now. A KratosForge kernel for VS Code is planned.
@@ -66,3 +82,4 @@ Opening a notebook in VS Code doesn't run anything. Cells you run in VS Code use
 | Coming back into focus | The notebook's file, to see if its cells changed | Nothing |
 | Set up for VS Code | Which of its files the repository already has | The files you tick, only if they're not there yet |
 | Validate task, `kratosforge nb validate` | The notebook file, and the package versions Fabric runs reported | Nothing |
+| A `kratosforge://` link, `kratosforge nb open` | Which notebook the file is | Unsaved edits in the open notebook, saved first (as **Save**) |

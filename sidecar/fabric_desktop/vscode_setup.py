@@ -72,6 +72,15 @@ def _tasks() -> str:
                            "pattern": {"regexp": PROBLEM_PATTERN, "file": 1, "line": 2, "column": 3,
                                        "severity": 4, "message": 5}},
         "presentation": {"reveal": "silent", "clear": True},
+    }, {
+        "label": "KratosForge: Open notebook in KratosForge",
+        "detail": "Shows the open notebook in KratosForge, to run it on this PC, side by side with Fabric, or publish it",
+        "type": "shell",
+        "command": _BIN + "kratosforge.cmd",
+        "args": ["nb", "open", "--path-from-env", PATH_VARIABLE],
+        "options": {"env": {PATH_VARIABLE: "${file}"}},
+        "problemMatcher": [],
+        "presentation": {"reveal": "never"},
     }]})
 
 
@@ -90,8 +99,9 @@ def _extensions() -> str:
 
 # path in the repository: (label, what it does, its text)
 FILES: dict[str, tuple[str, str, Any]] = {
-    ".vscode/tasks.json": ("Validate task",
-                           "A task that validates the open notebook and lists what it finds in the Problems panel.",
+    ".vscode/tasks.json": ("Tasks",
+                           "Validate notebook, which lists what it finds in the Problems panel, and Open notebook "
+                           "in KratosForge.",
                            _tasks),
     ".vscode/mcp.json": ("MCP server",
                          "Connects Copilot agent mode to KratosForge. VS Code asks each developer for their own "

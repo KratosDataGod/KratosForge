@@ -13,6 +13,7 @@ use serde_json::{json, Value};
 use tauri::webview::{NewWindowResponse, WebviewBuilder};
 use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
 
+mod deep_link;
 mod engine_patch;
 mod exe_name;
 mod policy_file;
@@ -1893,7 +1894,52 @@ fn output_frame(webview: &str) -> tauri::http::Response<Vec<u8>> {
         .unwrap()
 }
 
+/// A kratosforge:// link the app was started with, waiting for the page to ask for it (the page
+/// isn't listening yet when the app starts).
+struct PendingLink(Mutex<Option<String>>);
+
+#[tauri::command]
+fn take_pending_link(state: tauri::State<'_, PendingLink>) -> Option<String> {
+    state.0.lock().ok().and_then(|mut l| l.take())
+}
+
+/// Shows a link from another copy of the app (deep_link.rs): brings the window forward and tells
+/// the page what to show. Nothing the link says is run.
+fn show_link(app: &tauri::AppHandle, link: deep_link::Link) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+    let _ = app.emit_to("main", "deep-link", link.to_json());
+}
+
+/// Makes Windows open kratosforge:// links with this exe, for this Windows user. Release builds
+/// only, so a developer build never takes the links over.
+fn register_link_scheme() {
+    if !cfg!(windows) || cfg!(debug_assertions) {
+        return;
+    }
+    let Ok(exe) = std::env::current_exe() else { return };
+    std::thread::spawn(move || {
+        for args in deep_link::register_args(&exe.to_string_lossy()) {
+            let mut cmd = Command::new(system_tool("reg.exe"));
+            cmd.args(&args);
+            hide_window(&mut cmd);
+            if let Err(e) = cmd.status() {
+                eprintln!("kratosforge:// links not registered: {e}");
+                return;
+            }
+        }
+    });
+}
+
 fn main() {
+    // Started for a link while the app is already open: hand it over and stop here.
+    let link = deep_link::link_arg(&std::env::args().collect::<Vec<_>>());
+    if link.as_deref().is_some_and(|url| deep_link::forward(&data_dir(), url)) {
+        return;
+    }
+    let pending = link.and_then(|url| deep_link::parse(&url).ok()).map(|l| l.to_json());
     if let Ok(exe) = std::env::current_exe() {
         // Left behind by an update. exe.old is not removed here: it is kept until this exe has
         // shown its window (check_components), so a build that can't start can be put back.
@@ -1901,12 +1947,21 @@ fn main() {
         let _ = std::fs::remove_file(exe.with_extension("exe.failed"));
     }
     tauri::Builder::default()
+        .manage(PendingLink(Mutex::new(pending)))
+        .setup(|app| {
+            let handle = app.handle().clone();
+            if let Err(e) = deep_link::listen(&data_dir(), move |link| show_link(&handle, link)) {
+                eprintln!("kratosforge:// links from other copies won't arrive: {e}");
+            }
+            register_link_scheme();
+            Ok(())
+        })
         .manage(SidecarState { sidecar: Mutex::new(None), child: Mutex::new(None), updating: Default::default(), installing: Default::default() })
         .register_uri_scheme_protocol(OUTPUT_SCHEME, |ctx, _| output_frame(ctx.webview_label()))
         .on_window_event(on_window_event)
         .invoke_handler(tauri::generate_handler![
             rpc, stop_kernel, check_components, check_for_update, update_sidecar, update_app,
-            fabric_view_show, fabric_view_hide, fabric_view_action, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode,
+            fabric_view_show, fabric_view_hide, fabric_view_action, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode, take_pending_link,
             pop_out_open, pop_out_close, pop_out_on_top, pop_out_list, pop_out_open_in_fabric
         ])
         .run(tauri::generate_context!())

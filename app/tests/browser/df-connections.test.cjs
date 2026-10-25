@@ -29,6 +29,7 @@ before(async () => {
           missing: [{ id: "5a1c7d2e-0000-4000-8000-0000000000ff", used_by: [use(TEST, "test", "pl_customer_load")] }],
           connections: [
             { id: "s1", name: "sql-erp-prod", type: "SQL", path: "erp.contoso.local", connectivity: "OnPremisesGateway", gateway_id: "gw-1",
+              gateway_name: "gw-onprem-01", gateway_members: 2,
               used_by: [use(DEV, "dev", "pl_customer_load"), use(DEV, "dev", "cj_erp_customers", "copy job")] },
             { id: "w1", name: "web-fx-rates", type: "Web", path: "", connectivity: "ShareableCloud", gateway_id: "", used_by: [] }] };
       },
@@ -48,7 +49,7 @@ test("the Connections tab says it's reading, then lists what uses each connectio
   const rows = await page().locator(".df-conn-table tbody tr").allTextContents();
   assert.strictEqual(rows.length, 3);
   assert.match(rows[0], /^Unknown connection 5a1c7d2e.*pl_customer_load · pipeline—Missing$/);  // missing first
-  assert.match(rows[1], /sql-erp-prod.*On-premises gateway.*cj_erp_customers · copy jobUsed by 2—$/);
+  assert.match(rows[1], /sql-erp-prod.*On-premises gatewaygw-onprem-01 · 2 members.*cj_erp_customers · copy jobUsed by 2—$/);
   assert.match(rows[2], /web-fx-rates.*Cloud.*Nothing in these workspaces——$/);
   assert.match(await page().locator(".df-alert").textContent(), /1 connection is missing\. pl_customer_load in Test uses a connection you can't use \(deleted, or not shared with you\), so it fails when you run it\./);
   assert.match(await page().locator(".df-conn-body").textContent(), /4 pipelines and copy jobs read in Sales Dev \(Dev\), Sales Test \(Test\) · 1 couldn't be read/);

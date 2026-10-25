@@ -22,7 +22,7 @@ Severity:
 | ID | Sev | Kind | Finding | Fix |
 | --- | --- | --- | --- | --- |
 | QA-001 | Critical | Fake functionality | Spark writer options are stored and ignored; `replaceWhere` overwrites the whole table | PR-QA-01; fixed (#177) |
-| QA-002 | High | Hidden failure | A failed notebook save shows "Saved"; close and switch then drop the edits | PR-QA-02; fixed (#178, NEXTPR) |
+| QA-002 | High | Hidden failure | A failed notebook save shows "Saved"; close and switch then drop the edits | PR-QA-02; fixed (#178, #661) |
 | QA-003 | High | Hidden failure | VACUUM falls back to Fabric's 7 days when the project or table setting can't be read | PR-QA-03 |
 | QA-004 | High | Hidden failure | Create model can overwrite an existing semantic model and silently leave tables out | PR-QA-03 |
 | QA-005 | High | Fail open | Shortcut rules and the access review treat a failed call as "nothing to enforce" and "no readers" | PR-QA-04; fix #247 (PASS), closed once merged |
@@ -87,7 +87,7 @@ w.mode("overwrite").option("replaceWhere", "date = '2026-10-01'").saveAsTable("s
 
 **Fix.** PR-QA-02. **Verify:** a UI test where `save_notebook` rejects: no "Saved" toast, the notebook stays open and dirty.
 
-**Status.** Fixed on `main` (#178): `saveNotebook` returns whether it saved, and Ctrl+S, close and switch act on that. Opening a replay bundle and changing where a notebook runs were left: the first replaced the notebook after a failed save, dropping the unsaved cells, and the second said "now runs in..." anyway. Both now check the save (NEXTPR).
+**Status.** Fixed on `main` (#178): `saveNotebook` returns whether it saved, and Ctrl+S, close and switch act on that. Opening a replay bundle and changing where a notebook runs were left: the first replaced the notebook after a failed save, dropping the unsaved cells, and the second said "now runs in..." anyway. Both now check the save (#661).
 
 ### QA-003 VACUUM drops the promised history on any error (High)
 

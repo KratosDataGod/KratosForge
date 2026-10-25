@@ -108,7 +108,7 @@ async function replayOpenDialog() {
     const nb = await attempt(() => rpc("replay_bundle_open", params), "Could not open the replay bundle");
     if (!nb) return;
     closeDialog();
-    if (state.notebook?.dirty) await saveNotebook();
+    if (state.notebook?.dirty && !(await saveNotebook())) return;  // a failed save keeps the unsaved cells open (QA-002)
     loadIntoState(nb);
     go("notebook");
   };

@@ -153,7 +153,7 @@ test("a long query is checked only when asked, so typing never waits on the engi
   await setDoc("SELECT 1");
 });
 
-test("the check is a chip beside Format SQL: its panel opens by itself only for an error or a warning", { skip }, async () => {
+test("the check is a chip beside Format SQL: its panel opens by itself for an error or a warning", { skip }, async () => {
   const chip = page().locator(".sql-compat-chip");
   const clean = "SELECT name FROM dbo.sales";
   await setDoc(clean);
@@ -177,6 +177,32 @@ test("the check is a chip beside Format SQL: its panel opens by itself only for 
   await setDoc(same);
   await checked(same);
   assert.ok(await page().locator(".sql-compat").isHidden());
+});
+
+test("SQL the check couldn't verify says Not verified, never green, and opens its panel", { skip }, async () => {
+  const chip = page().locator(".sql-compat-chip");
+  await page().locator("select.sql-dialect").selectOption("spark");
+  const sql = "WITH RECURSIVE r AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM r WHERE n < 5) SELECT * FROM r";
+  await setDoc(sql);
+  await checked(sql);
+  await page().waitForFunction(() => sqlPage.tabs[sqlPage.active].compat?.outcome?.status === "unverified");
+  assert.match(await chip.textContent(), /^Not verified/);
+  assert.match(await chip.getAttribute("class"), /\bunverified\b/);
+  assert.doesNotMatch(await chip.getAttribute("class"), /\bok\b/);
+  await page().locator(".sql-compat").waitFor({ state: "visible" });
+  assert.match(await panel(), /Not verified: some of this SQL couldn't be checked/);
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "sql-compat-unverified.png") });
+  // An outcome of not_checked (here, from a mock of the engine's answer) says Not checked, not green.
+  await page().evaluate(() => {
+    const t = sqlPage.tabs[sqlPage.active];
+    t.compat = { ...t.compat, counts: { error: 0, warning: 0, information: 0, unverified: 0 }, diagnostics: [],
+      outcome: { status: "not_checked", text: "This SQL is too long to check." } };
+    document.querySelector(".sql-compat-chip").click();
+  });
+  assert.match(await chip.textContent(), /^Not checked/);
+  assert.doesNotMatch(await chip.getAttribute("class"), /\bok\b/);
+  await page().locator("select.sql-dialect").selectOption("warehouse");
+  await setDoc("SELECT 1");
 });
 
 test("nothing on the page threw", { skip }, async () => {

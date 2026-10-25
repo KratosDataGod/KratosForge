@@ -565,6 +565,7 @@ h2.flush { margin: 0; }
 .sql-compat-chip.ok { border-color: #b7dfc2; background: #e6f4ea; color: #14532d; }
 .sql-compat-chip.warning { border-color: #f3c27a; background: #fff4e0; color: #7a4100; }
 .sql-compat-chip.error { border-color: #f1b8bd; background: #fdf3f4; color: #9b0d19; }
+.sql-compat-chip.unverified { border-color: #c8c8c8; background: #f0f0f0; color: #3d3d3d; border-style: dashed; }
 .sql-compat-chip[aria-expanded="true"] svg { transform: rotate(180deg); }
 .warehouse-page .explorer .preview-tag { margin-left: 6px; }
 .warehouse-how { margin: 12px 8px; }

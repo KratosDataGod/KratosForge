@@ -396,7 +396,7 @@ A query that runs here is not proof that it runs, or gives the same answer, in a
 
 ### Compatibility (preview)
 
-As you type, the query is checked against the engine picked in the dialect list, without running it: things that engine doesn't support are underlined, and the **Compatibility** panel beside the editor (it opens by itself for an error or warning, or from the chip beside **Format SQL**) lists every finding with why, what to do, its confidence and its Microsoft source. **Export JSON** saves the report. See [SQL compatibility check](sql-compatibility.md).
+As you type, the query is checked against the engine picked in the dialect list, without running it: things that engine doesn't support are underlined, and the **Compatibility** panel beside the editor (it opens by itself for an error, a warning or SQL it couldn't verify, or from the chip beside **Format SQL**) lists every finding with why, what to do, its confidence and its Microsoft source. **Export JSON** saves the report. See [SQL compatibility check](sql-compatibility.md).
 
 ### Editor
 

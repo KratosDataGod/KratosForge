@@ -544,19 +544,30 @@ function renderQuery() {
   // error or a warning; closing it holds until the findings change.
   const compatChip = h("button", { class: "sql-compat-chip", "aria-controls": "sql-compat", title: "Compatibility: open or close the check's findings",
     onclick: () => { tab.compatShown = { open: !compatOpen(), sig: compatSig() }; drawCompat(); } });
-  const compatSig = () => (tab.compat?.counts ? `${tab.compat.counts.error}/${tab.compat.counts.warning}` : tab.compat?.failed ? "failed" : "");
+  // The engine's outcome decides the chip, so SQL it couldn't verify or didn't check never reads as clean.
+  const compatStatus = () => {
+    const r = tab.compat;
+    if (!r || r.failed) return "";
+    if (r.outcome?.status) return r.outcome.status;
+    return r.counts.error ? "known_problems" : r.counts.warning ? "review" : "no_known_problems";
+  };
+  const compatSig = () => (tab.compat?.counts ? `${compatStatus()}/${tab.compat.counts.error}/${tab.compat.counts.warning}`
+    : tab.compat?.failed ? "failed" : "");
   const compatOpen = () => {
     if (tab.compatShown && tab.compatShown.sig === compatSig()) return tab.compatShown.open;
-    const c = tab.compat?.counts;
-    return !!(tab.compatLong || tab.compat?.failed || (c && c.error + c.warning));
+    return !!(tab.compatLong || tab.compat?.failed || ["known_problems", "review", "unverified"].includes(compatStatus()));
   };
   function drawCompatChip() {
     const r = tab.compat;
     const c = r?.counts;
     const n = (k, one, many) => `${c[k].toLocaleString()} ${c[k] === 1 ? one : many}`;
+    const status = compatStatus();
     const [cls, text] = tab.compatLong ? ["", "Check SQL"] : !r ? ["", "Compatibility"] : r.failed ? ["error", "Check failed"]
-      : c.error ? ["error", [n("error", "error", "errors"), c.warning ? n("warning", "warning", "warnings") : ""].filter(Boolean).join(", ")]
-        : c.warning ? ["warning", n("warning", "warning", "warnings")] : ["ok", "No known problems"];
+      : status === "known_problems" ? ["error", [n("error", "error", "errors"), c.warning ? n("warning", "warning", "warnings") : ""].filter(Boolean).join(", ")]
+        : status === "review" ? ["warning", n("warning", "warning", "warnings")]
+          : status === "unverified" ? ["unverified", "Not verified"]
+            : status === "not_checked" ? ["", editor.text().trim() ? "Not checked" : "Compatibility"]
+              : ["ok", "No known problems"];
     compatChip.className = `sql-compat-chip${cls ? ` ${cls}` : ""}`;
     compatChip.setAttribute("aria-expanded", String(compatOpen()));
     compatChip.replaceChildren(text, previewShown() ? previewTag() : null, icon("chevronDown", 14));

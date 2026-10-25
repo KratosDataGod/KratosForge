@@ -22,13 +22,13 @@ Severity:
 | ID | Sev | Kind | Finding | Fix |
 | --- | --- | --- | --- | --- |
 | QA-001 | Critical | Fake functionality | Spark writer options are stored and ignored; `replaceWhere` overwrites the whole table | PR-QA-01; fixed (#177) |
-| QA-002 | High | Hidden failure | A failed notebook save shows "Saved"; close and switch then drop the edits | PR-QA-02 |
+| QA-002 | High | Hidden failure | A failed notebook save shows "Saved"; close and switch then drop the edits | PR-QA-02; fixed (#178, NEXTPR) |
 | QA-003 | High | Hidden failure | VACUUM falls back to Fabric's 7 days when the project or table setting can't be read | PR-QA-03 |
 | QA-004 | High | Hidden failure | Create model can overwrite an existing semantic model and silently leave tables out | PR-QA-03 |
 | QA-005 | High | Fail open | Shortcut rules and the access review treat a failed call as "nothing to enforce" and "no readers" | PR-QA-04; fix #247 (PASS), closed once merged |
-| QA-006 | High | Duplication | A Fabric 503 or 429 isn't retryable to the agent; five transient-error rules disagree | PR-QA-05 |
-| QA-007 | Medium | Hidden failure | A failed lakehouse lookup guesses "schemas on", sending writes to the wrong folder | PR-QA-03 |
-| QA-008 | Medium | Overclaim | "0 CU-s, measured" and "no Fabric capacity used" for runs that read and write OneLake | PR-QA-10 |
+| QA-006 | High | Duplication | A Fabric 503 or 429 isn't retryable to the agent; five transient-error rules disagree | PR-QA-05; fixed (#179) |
+| QA-007 | Medium | Hidden failure | A failed lakehouse lookup guesses "schemas on", sending writes to the wrong folder | PR-QA-03; fixed (#180) |
+| QA-008 | Medium | Overclaim | "0 CU-s, measured" and "no Fabric capacity used" for runs that read and write OneLake | PR-QA-10; fixed (#200, #202, #221) |
 | QA-009 | Medium | Fake functionality | `notebookutils.notebook.runMultiple` ignores args, dependencies and timeouts | PR-QA-01; fixed (#177) |
 | QA-010 | Medium | Overclaim | X-ray marks a finding fixed when the job is submitted and hides it for good | PR-QA-03 |
 | QA-011 | Medium | Duplication | 9 atomic-write copies; settings and schedules are rewritten non-atomically and read a torn file as empty | PR-QA-06 |
@@ -36,7 +36,7 @@ Severity:
 | QA-013 | Medium | Error handling | 237 broad exception handlers, 98 silent; "not set up" and "the call failed" share one branch | PR-QA-07; partly fixed by #263 (HD-055: CI blocks do-nothing handlers, 56 now log); 51 handlers that only set a default remain (101 on main by this definition) |
 | QA-014 | Medium | Architecture | `Service` is 347 public methods and 385 `type: ignore`; clients built at 43 sites; private `_token` is the real API | PR-QA-08 |
 | QA-015 | Medium | Architecture | Three hand-kept method lists make every feature PR touch the same files | PR-QA-09 |
-| QA-016 | Medium | Duplication | Four redactors; the shared one passes a token embedded in a URL | PR-QA-06 |
+| QA-016 | Medium | Duplication | Four redactors; the shared one passes a token embedded in a URL | PR-QA-06; fixed (#181, #303) |
 | QA-017 | Medium | Disconnected | 17 callable RPC methods with no screen, some destructive; local data is documented as usable with no screen | PR-QA-09 |
 | QA-018 | Medium | Weak tests | 22 of 41 Fabric client methods and every OneLake upload and delete never run, even against a fake | PR-QA-14 |
 | QA-019 | Medium | UI duplication | Confirm, tabs, pills, grids, polling and error handling re-built per page | PR-QA-11 to PR-QA-13 |
@@ -86,6 +86,8 @@ w.mode("overwrite").option("replaceWhere", "date = '2026-10-01'").saveAsTable("s
 **Impact.** A full disk, a locked file or an engine restart loses notebook work while the app says it was saved.
 
 **Fix.** PR-QA-02. **Verify:** a UI test where `save_notebook` rejects: no "Saved" toast, the notebook stays open and dirty.
+
+**Status.** Fixed on `main` (#178): `saveNotebook` returns whether it saved, and Ctrl+S, close and switch act on that. Opening a replay bundle and changing where a notebook runs were left: the first replaced the notebook after a failed save, dropping the unsaved cells, and the second said "now runs in..." anyway. Both now check the save (NEXTPR).
 
 ### QA-003 VACUUM drops the promised history on any error (High)
 

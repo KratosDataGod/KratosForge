@@ -90,6 +90,8 @@ Keys:
     fabric_view_sign_in_hosts  IT only, read by the shell: exact host names of the organization's
                      own identity provider (AD FS, Okta, Ping), which the Fabric view may open during
                      sign-in, e.g. ["adfs.contoso.com"] (default: none)
+    register_link_scheme  IT only, read by the shell: false stops the app registering kratosforge://
+                     links for the Windows user, and removes a registration it made (default true)
 
 The same file also holds the integrations_* and receipt_redactions keys; integrations/policy.py
 reads them through read_policy() here, so both read the file by the same rules.
@@ -181,7 +183,7 @@ INTEGRATION_KEYS = ("integrations", "integrations_max_permissions", "integration
                     "receipt_redactions")
 # Read only by the shell (main.rs), which applies them itself; listed so the file has one list of
 # settings and policy_problems() can say what the shell will skip.
-SHELL_KEYS = ("fabric_view_sign_in_hosts",)
+SHELL_KEYS = ("fabric_view_sign_in_hosts", "register_link_scheme")
 POLICY_KEYS = (*DEFAULTS, *INTEGRATION_KEYS, *SHELL_KEYS)
 # No real tenant has the nil GUID, so allowed_tenants of just this lets no account sign in.
 NO_TENANT = "00000000-0000-0000-0000-000000000000"
@@ -320,6 +322,10 @@ def policy_problems() -> list[str]:
             continue  # integrations/policy.py checks these, below
         elif key == "fabric_view_sign_in_hosts":
             problems.extend(_sign_in_host_problems(value))
+        elif key == "register_link_scheme":
+            if not isinstance(value, bool):
+                problems.append(f"register_link_scheme should be bool, not {type(value).__name__}, so the app keeps "
+                                "registering kratosforge:// links")
         elif not _typed(key, value):
             kind = TYPES[key]
             name = " or ".join(t.__name__ for t in kind) if isinstance(kind, tuple) else kind.__name__

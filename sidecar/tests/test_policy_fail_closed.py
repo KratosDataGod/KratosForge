@@ -263,3 +263,10 @@ def test_a_damaged_copy_fails_closed(files):
 def test_the_windows_check_runs(files):
     files({})
     assert USER_CAN_CHANGE(files.path) in (True, False)  # CI's account is an administrator, so usually False
+
+
+def test_register_link_scheme_is_a_setting_the_shell_reads(files):
+    files({"register_link_scheme": False})
+    assert app_settings.policy_problems() == []
+    files({"register_link_scheme": "false"})
+    assert app_settings.policy_problems()[0].startswith("register_link_scheme should be bool")

@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -57,21 +59,25 @@ class NotebookFilesMixin:
 
     def notebook_name_for_path(self, path: str) -> dict[str, Any]:
         """The notebook a file is, for a kratosforge://notebook?path=... link: its name when the file is
-        in the app's notebooks folder or a notebooks repository this PC opened, else None."""
-        try:
-            p = Path(path).resolve()
-        except (OSError, ValueError, TypeError):
+        in the app's notebooks folder or a notebooks repository this PC opened, else None.
+
+        The path is checked as text first, with no file system call: a network path (\\\\host\\share,
+        //host/share, \\\\host@SSL\\dav) or a device path is refused, and so is anything outside those
+        folders, because even looking at such a path makes Windows contact the host with the person's
+        sign-in. Only a path that passes is resolved and read."""
+        if not _local_path(path):
             return {"name": None}
-        if p.suffix.lower() != ".ipynb" or not p.is_file():
+        full = os.path.abspath(path)
+        if not full.lower().endswith(".ipynb"):
             return {"name": None}
         for _place, folder in self.notebooks._folders():  # type: ignore[attr-defined]
-            try:
-                rel = p.relative_to(Path(folder).resolve())
-            except ValueError:
+            top = os.path.abspath(folder)
+            if not os.path.normcase(full).startswith(os.path.normcase(top).rstrip("\\/") + os.sep):
                 continue
-            name = rel.with_suffix("").as_posix()
+            name = Path(os.path.relpath(full, top)).with_suffix("").as_posix()
             try:
-                if self.notebooks.path(name).resolve() == p:  # type: ignore[attr-defined]
+                p = Path(full).resolve()
+                if p.is_file() and self.notebooks.path(name).resolve() == p:  # type: ignore[attr-defined]
                     return {"name": name}
             except (OSError, ValueError):
                 pass
@@ -194,3 +200,13 @@ class NotebookFilesMixin:
         except Exception as exc:  # noqa: BLE001 - the notebook is saved; Publish finds the item by name
             _log.warning("Couldn't record notebook %r's Fabric item: %s", out["name"], describe(exc))
         return out
+
+
+def _local_path(path: Any) -> bool:
+    """A full path on a drive (C:\\... or C:/...); off Windows, an absolute path that isn't //host.
+    Never a network or device path: \\\\host\\share, //host/share, \\\\?\\, \\\\.\\."""
+    if not isinstance(path, str) or "\x00" in path:
+        return False
+    if os.name == "nt":
+        return bool(re.match(r"[A-Za-z]:[\\/]", path))
+    return path.startswith("/") and not path.startswith(("//", "/\\"))

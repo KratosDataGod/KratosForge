@@ -54,6 +54,13 @@ fn auto_update_allowed() -> bool {
     policy_allows_updates(&policy_text())
 }
 
+/// Whether the app registers kratosforge:// links: only `"register_link_scheme": false` in the
+/// policy file stops it.
+fn policy_allows_link_scheme(text: &str) -> bool {
+    let value: Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).unwrap_or(Value::Null);
+    value.get("register_link_scheme").and_then(Value::as_bool) != Some(false)
+}
+
 fn policy_allows_updates(text: &str) -> bool {
     let value: Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).unwrap_or(Value::Null);
     value.get("auto_update").and_then(Value::as_bool) != Some(false)
@@ -90,7 +97,15 @@ fn dns_name(host: &str) -> bool {
 
 #[cfg(test)]
 mod policy_tests {
-    use super::policy_allows_updates;
+    use super::{policy_allows_link_scheme, policy_allows_updates};
+
+    #[test]
+    fn only_policy_false_stops_the_link_scheme() {
+        assert!(policy_allows_link_scheme(""));
+        assert!(policy_allows_link_scheme("{}"));
+        assert!(policy_allows_link_scheme(r#"{"register_link_scheme": "false"}"#));
+        assert!(!policy_allows_link_scheme(r#"{"register_link_scheme": false}"#));
+    }
 
     #[test]
     fn only_policy_false_stops_updates() {
@@ -1914,14 +1929,18 @@ fn show_link(app: &tauri::AppHandle, link: deep_link::Link) {
 }
 
 /// Makes Windows open kratosforge:// links with this exe, for this Windows user. Release builds
-/// only, so a developer build never takes the links over.
+/// only, so a developer build never takes the links over. An organization that doesn't want the
+/// links sets `"register_link_scheme": false` in its policy file; the app then removes its own
+/// registration instead.
 fn register_link_scheme() {
     if !cfg!(windows) || cfg!(debug_assertions) {
         return;
     }
     let Ok(exe) = std::env::current_exe() else { return };
+    let allowed = policy_allows_link_scheme(&policy_text());
     std::thread::spawn(move || {
-        for args in deep_link::register_args(&exe.to_string_lossy()) {
+        let steps = if allowed { deep_link::register_args(&exe.to_string_lossy()) } else { vec![deep_link::unregister_args()] };
+        for args in steps {
             let mut cmd = Command::new(system_tool("reg.exe"));
             cmd.args(&args);
             hide_window(&mut cmd);
@@ -1933,13 +1952,42 @@ fn register_link_scheme() {
     });
 }
 
-fn main() {
-    // Started for a link while the app is already open: hand it over and stop here.
-    let link = deep_link::link_arg(&std::env::args().collect::<Vec<_>>());
-    if link.as_deref().is_some_and(|url| deep_link::forward(&data_dir(), url)) {
-        return;
+/// Makes this the one running copy of the app (deep_link::claim_instance), so two never share the
+/// sign-in cache and data. When another copy runs, hands it `url` (or just brings it to the front)
+/// and returns None: this copy stops. A copy started by an update waits for the old one to close.
+fn claim_single_instance(url: Option<&str>, updating: bool) -> Option<Option<std::fs::File>> {
+    let dir = data_dir();
+    let tries = if updating { 240 } else { 20 }; // 60 s, or 5 s while the other copy starts listening
+    for _ in 0..tries {
+        match deep_link::claim_instance(&dir) {
+            Ok(Some(lock)) => return Some(Some(lock)),
+            Ok(None) if !updating && deep_link::forward(&dir, url.unwrap_or("kratosforge://")) => return None,
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(250)),
+            Err(e) => {
+                eprintln!("couldn't check for another copy of KratosForge: {e}");
+                return Some(None);
+            }
+        }
     }
-    let pending = link.and_then(|url| deep_link::parse(&url).ok()).map(|l| l.to_json());
+    updating.then_some(None)
+}
+
+fn main() {
+    // A link is read before anything else: one that doesn't read as a link starts nothing.
+    let link = match deep_link::link_arg(&std::env::args().collect::<Vec<_>>()) {
+        Some(url) => match deep_link::parse(&url) {
+            Ok(parsed) => Some((url, parsed)),
+            Err(e) => {
+                eprintln!("not opened: {e}");
+                return;
+            }
+        },
+        None => None,
+    };
+    let Some(_instance) = claim_single_instance(link.as_ref().map(|(url, _)| url.as_str()), updated_to_arg().is_some()) else {
+        return;
+    };
+    let pending = link.map(|(_, parsed)| parsed.to_json());
     if let Ok(exe) = std::env::current_exe() {
         // Left behind by an update. exe.old is not removed here: it is kept until this exe has
         // shown its window (check_components), so a build that can't start can be put back.

@@ -152,6 +152,22 @@ def test_a_file_path_names_its_notebook_only_in_places_the_app_knows(svc, tmp_pa
     assert svc.notebook_name_for_path(home.replace(".ipynb", ".py")) == {"name": None}
 
 
+def test_a_network_path_is_refused_before_anything_reads_it(svc, tmp_path, monkeypatch):
+    svc.save_notebook("Daily", [{"type": "code", "source": "x = 1"}])
+    touched = []
+    real_resolve, real_is_file = Path.resolve, Path.is_file
+    monkeypatch.setattr(Path, "resolve", lambda self, *a, **k: touched.append(str(self)) or real_resolve(self, *a, **k))
+    monkeypatch.setattr(Path, "is_file", lambda self: touched.append(str(self)) or real_is_file(self))
+    for remote in [r"\\host\share\x.ipynb", "//host/share/x.ipynb", r"\\host@SSL\dav\x.ipynb", r"/\host\share\x.ipynb",
+                   r"\\?\UNC\host\share\x.ipynb", r"\\.\C:\x.ipynb", "x.ipynb", "notebooks/x.ipynb", "", None, 3,
+                   str(tmp_path / "app" / "notebooks" / ".." / ".." / "outside.ipynb")]:
+        touched.clear()
+        assert svc.notebook_name_for_path(remote) == {"name": None}, remote
+        assert not any("host" in t or "outside" in t for t in touched), (remote, touched)
+    from fabric_desktop.notebook_files_service import _local_path
+    assert not _local_path("C:/a\x00.ipynb") and not _local_path(None)
+
+
 def test_open_prints_a_link_the_shell_reads(tmp_path):
     path = tmp_path / "Daily sales.ipynb"
     path.write_text('{"cells": []}', encoding="utf-8")

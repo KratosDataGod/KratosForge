@@ -1817,6 +1817,8 @@ html[data-motion-paused="on"] .flow-node[data-state="running"] .flow-link::after
 html[data-fx-ambient="on"] .cell-status[data-s="running"] > span:first-child::before {
   content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; vertical-align: 1px;
   background: var(--brand-orange); animation: fx-breathe 1.4s ease-in-out infinite alternate; }
+/* A Fabric step runs in Fabric, not on this PC: its ember is Kratos navy */
+html[data-fx-ambient="on"] .cell-status[data-s="running"][data-where="fabric"] > span:first-child::before { background: var(--accent); }
 @keyframes fx-breathe { from { opacity: .35; transform: scale(.8); } to { opacity: 1; transform: scale(1); } }
 /* Settle: a finished pipeline activity glows once and settles */
 .fx-settle { inset: -2px; border-radius: 6px; box-shadow: 0 0 0 2px rgba(248,153,28,.7), 0 0 10px rgba(248,153,28,.5); animation: fx-settle .45s ease-out both; }
@@ -2068,6 +2070,8 @@ html[data-fx-ambient="on"] .flow-node[data-state="running"] .flow-link::after { 
 .cell-head .fabric-step-tag { background: var(--accent); color: #ffffff; }
 .fabric-step-output { display: flex; flex-direction: column; gap: 8px; }
 .fabric-step-line { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; font-size: 13px; }
+.fabric-step-line .remote-progress { flex: 0 1 360px; }
+.fabric-step-line .remote-progress .progress.remote { min-width: 96px; }
 .vorder-chips { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .vorder-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 10px; border: 1px solid var(--border-input); border-radius: 10px; font-size: 12px; color: var(--text-2); }
 .vorder-chip.ok { border-color: #1b6e3a; color: #1b6e3a; }

@@ -61,6 +61,10 @@ def _activity(a: Activity, deep: bool) -> dict[str, Any]:
         row["type_properties"] = sorted(a.type_properties)
     if a.children:
         row["children"] = {branch: [_activity(k, deep) for k in kids] for branch, kids in a.children.items()}
+    if isinstance(a.type_properties.get("cases"), list):
+        # A Switch's case values, by position, so cases[0] can read as its value; None when it has no text value.
+        row["case_values"] = [c.get("value") if isinstance(c, dict) and isinstance(c.get("value"), str) else None
+                              for c in a.type_properties["cases"]]
     return row
 
 

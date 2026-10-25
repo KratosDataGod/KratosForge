@@ -327,7 +327,7 @@ function plGraph(p, verdicts, problems) {
       onclick: () => { plPage.selected = a.path; render(); } },
       h("b", {}, a.name), h("span", { class: "muted-text" }, entry.title || a.type),
       plAfter(a) ? h("span", { class: "muted-text small" }, plAfter(a)) : null,
-      kids.map(([branch, list]) => h("span", { class: "pl-inner" }, h("span", { class: "muted-text small" }, plBranch(branch)),
+      kids.map(([branch, list]) => h("span", { class: "pl-inner" }, h("span", { class: "muted-text small" }, plBranch(branch, a.case_values)),
         list.map((k) => h("span", { class: "pl-inner-row" }, k.name, " ", plPill(verdicts.get(k.path) || "here"))))),
       a.inactive ? h("span", { class: "pill-s neu" }, "Inactive") : plPill(verdicts.get(a.path) || "here"));
   };
@@ -341,10 +341,12 @@ function plGraph(p, verdicts, problems) {
 }
 
 // A container's branch as people say it. Switch cases come from the engine as cases[0], cases[1] ...
-function plBranch(branch) {
+// and read as their value, as in Fabric: Case "emea". A case with no text value reads Case 1.
+function plBranch(branch, values = []) {
   const c = /^cases\[(\d+)\]$/.exec(branch);
+  const value = c ? values[Number(c[1])] : null;
   return { activities: "Each item:", ifTrueActivities: "If true:", ifFalseActivities: "If false:", defaultActivities: "Default:" }[branch]
-    || (c ? `Case ${Number(c[1]) + 1}:` : `${branch}:`);
+    || (c ? (typeof value === "string" ? `Case "${value}":` : `Case ${Number(c[1]) + 1}:`) : `${branch}:`);
 }
 
 function plDetail(a, verdict, problems) {

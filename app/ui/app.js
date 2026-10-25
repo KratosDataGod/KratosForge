@@ -956,15 +956,15 @@ async function renderMonitor() {
           preview("schedules", segment(monitorPage.panel === "schedules", "Schedules", show("schedules"))),
           ops.length ? segment(!!op, ["Operations", ops.every((o) => PREVIEW_FEATURES[o.feature]) ? previewTag() : null],
             show(ops.some((o) => o.panel === monitorPage.opsView) ? monitorPage.opsView : ops[0].panel)) : null),
-        h("span", { class: "muted-text" }, op ? op.text
+        op ? h("select", { class: "group-select", "aria-label": "Operations view", title: "Which Operations view to show",
+          onchange: (e) => show(e.target.value)() }, ops.map((o) => h("option", { value: o.panel, selected: o === op }, o.label))) : null,
+        // The sentence about the panel is the link's tooltip, so the controls fit on one row.
+        h("span", { class: "monitor-about", title: op ? op.text
           : monitorPage.panel === "schedules" ? "Every schedule, on this PC and in Fabric, with how its last run went"
-          : "Everything this app ran or started, in every environment, on this PC and in Fabric", " ", learnMore(op ? op.anchor : "monitor")),
+          : "Everything this app ran or started, in every environment, on this PC and in Fabric" }, learnMore(op ? op.anchor : "monitor")),
         h("span", { class: "spacer" }),
         op ? null : btn("Refresh", "sync", () => { monitorPage.fabricPipelinesRefresh = true; forgetFabricActivities(); render(); }, "tool outline"),
         popOutButton("runs")),
-      op ? h("div", { class: "monitor-filters", role: "group", "aria-label": "Operations" },
-        h("span", { class: "muted-text small" }, "Show"),
-        ops.map((o) => h("button", { class: `chip${o === op ? " on" : ""}`, "aria-pressed": String(o === op), onclick: show(o.panel) }, o.label))) : null,
       monitorPage.panel !== "runs" ? null : h("div", { class: "monitor-filters" },
         h("div", { class: "row", role: "group", "aria-label": "Environment" },
           chip("env", "all", "All"), Object.entries(ENV_LABEL).map(([id, label]) => chip("env", id, label))),

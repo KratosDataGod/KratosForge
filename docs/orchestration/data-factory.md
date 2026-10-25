@@ -15,8 +15,8 @@ Status: Preview. Chris said go on 2026-10-24 and approved the mockup on 2026-10-
 
 | # | Story | Status |
 | --- | --- | --- |
-| DF-1 | Fabric pipeline runs in Monitor > Runs, with activity runs when a row opens | Engine merged (#640); Monitor rows in review |
-| DF-2 | Open a pipeline from a workspace (read its definition), Open in Fabric embedded | Not started |
+| DF-1 | Fabric pipeline runs in Monitor > Runs, with activity runs when a row opens | Done, Preview (#640 engine, #653 Monitor rows) |
+| DF-2 | Open a pipeline from a workspace (read its definition), Open in Fabric embedded | Engine in review; Pipelines tab next |
 | DF-3 | Copy data inside OneLake and local files (orchestration plan P5) | Not started |
 | DF-4 | Schedule a pipeline on this PC (P6), rerun from the failed activity (P7) | Not started |
 | DF-5 | Connections tab: connections and gateways, what uses each one, and a check before a platform deploy | Not started |
@@ -36,3 +36,12 @@ Two engine calls, both reads (listed in `audit.READ_ONLY`):
 Run states use the names local pipeline runs use (`pending`, `running`, `succeeded`, `failed`, `cancelled`, plus `skipped` for activities), so Monitor > Runs can show both kinds the same way.
 
 Not tested yet: a live tenant. The activity-run query follows Microsoft's [pipeline REST API page](https://learn.microsoft.com/fabric/data-factory/pipeline-rest-api).
+
+## DF-2 engine: pipelines from a workspace
+
+Two engine calls, both reads (listed in `audit.READ_ONLY`):
+
+- `workspace_pipelines(workspace_id)` lists a workspace's pipelines by name: item id, name, description and folder.
+- `workspace_pipeline_definition(workspace_id, item_id, name)` reads one pipeline with getDefinition. It returns `text`, the getDefinition result, which the existing pipeline calls take as they are (`pipeline_inspect`, `pipeline_compatibility`, `pipeline_run_check`, `pipeline_run_start`). It also returns `pipeline`, which is what `pipeline_import` says about it. A SecureString default shows as `(hidden)`. A definition this version can't read comes back with `ok: false` and the reason, not an error.
+
+Both calls take Fabric GUIDs only. Nothing is written to disk: the definition stays in memory, as a pasted one does. The Pipelines tab of the Data Factory page uses them next.

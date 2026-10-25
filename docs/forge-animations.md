@@ -23,7 +23,7 @@ At Refined and Expressive, a switch for each family turns it off:
 
 | Switch | Effects |
 | --- | --- |
-| Wolf animations | The wolf on Run all progress, its arrival, the Wolf Run after long work, the navy wolf on runs in Fabric and on Git push, pull, fetch and clone |
+| Wolf animations | The wolf on Run all progress, its arrival, the Wolf Run after long work, the navy wolf on runs in Fabric, on a notebook's Fabric step, and on Git push, pull, fetch and clone |
 | Forge sparks | Forge Spark, Anvil Strike, the cooling spark, the failure ember, the sparks and embers on the forge splash |
 | Running indicators | The glow on a running cell, the flow into a running pipeline step, the ring when Run all starts |
 
@@ -59,6 +59,7 @@ Every key can be fixed in the policy file ([Azure setup](azure-setup.md#4-push-s
 | A job the app started in Fabric is running | The bell and Home show the wolf trotting in place in Kratos navy on an empty track, with **Running in Fabric** beside it. Fabric reports no measurable progress, so there is no fill, percentage or time estimate; with the wolf off, the plain indeterminate bar shows | the bell, Home | while running |
 | A cell is running | A small breathing ember on **Running** (forge orange, because notebook cells run on this PC) | the cell's status | while running |
 | A notebook runs in Fabric (Runs on: Fabric, Run all) | **Pulse** on Run all once Fabric has the run; the status bar shows the navy wolf trotting in place with "Running in Fabric" and Fabric's state, no fill or percentage; the status bar's "Last Fabric run" glows once when it completes, or shows the failure ember when it fails. Cancelled plays nothing | Run all, then the status bar | 0.35 s, while running, 0.55 s |
+| A notebook's Fabric step runs (the last cell, marked Run on Fabric) | Its output line shows the navy wolf trotting in place beside "Queued on Fabric" or "Running on Fabric", no fill or percentage, and the breathing ember on **Running** is navy, since the cell runs in Fabric, not on this PC. When Fabric completes it, **Succeeded** glows once; a failed step gets the failure ember beside **Failed**; cancelled plays nothing | the cell's output and status | while running, then 0.55 s or 0.45 s |
 | A SQL query succeeds after more than 2 s | **Forge Spark** on **Succeeded**. Quicker queries show nothing | the Results band | 0.4 s |
 | A SQL query fails or times out | **Controlled Failure**: the ember beside **Failed**; the error is there from the first frame | the Results band | 0.45 s |
 | You start a pipeline run (Pipelines > Run on this PC) | **Pulse** on **Stop** as the run view opens | the run's Stop button | 0.35 s |

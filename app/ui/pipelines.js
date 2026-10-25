@@ -157,9 +157,11 @@ async function pipelineOpenDialog() {
     const f = file.files?.[0];
     if (f) await openPipeline({ text: await f.text() }, { label: f.name });
   });
+  const fabric = plWorkspaceSource(fail);
   showDialog("Open a pipeline", h("div", { class: "pl-open" },
     h("p", { class: "muted-text" }, "Pipelines open read-only. You edit them in Fabric or in your repository, and KratosForge checks and runs them here."),
     h("b", {}, "In your repositories"), list, problem,
+    h("b", {}, "In a Fabric workspace ", previewTag()), fabric,
     h("div", { class: "pl-open-files" },
       btn("Choose a .DataPipeline folder", "folderOpen", () => folder.click(), "tool outline"),
       btn("Choose a pipeline JSON file", "file", () => file.click(), "tool outline"), folder, file)),
@@ -175,6 +177,57 @@ async function pipelineOpenDialog() {
       onclick: () => openPipeline({ path: p.path }, { label: `${p.repo} · ${p.relative}` }) },
       h("b", {}, p.name), h("span", { class: "muted-text" }, p.problem ? "Can't be read" : `${p.activity_count} activities · ${p.repo}`), lastRun(p.last_run))))
     : h("p", { class: "muted-text" }, "No .DataPipeline folders in the repositories this PC opened. Open a repository in Source control, or choose a folder or file below."));
+}
+
+// Data Factory DF-2: a workspace's pipelines, read with getDefinition. Reads only: no Fabric job, no
+// capacity. The definition text holds SecureString defaults, so it stays in memory (plPage) and is
+// never logged or kept in localStorage; only the chosen workspace id is remembered.
+const PL_WORKSPACE_KEY = "fd.pipelines.workspace";
+
+function plWorkspaceSource(fail) {
+  const box = h("div", { class: "pl-open-fabric" });
+  const rows = h("div", { class: "pl-open-list" });
+  const listIn = async (ws) => {
+    try { localStorage.setItem(PL_WORKSPACE_KEY, ws.id); } catch { /* this session only */ }
+    fill(rows, loading(`Reading the pipelines in ${ws.displayName}...`));
+    const found = await rpc("workspace_pipelines", { workspace_id: ws.id })
+      .catch((err) => { fill(rows, h("p", { class: "muted-text" }, friendlyError(err).text)); return null; });
+    if (!found || !rows.isConnected) return;
+    fill(rows, found.pipelines.length
+      ? h("div", { class: "pl-open-rows" }, found.pipelines.map((p) => h("button", { class: "pl-open-row", title: p.description || p.name,
+        onclick: () => openWorkspacePipeline(ws, p, fail) },
+        h("b", {}, p.name), h("span", { class: "muted-text" }, p.description || ws.displayName), h("span", { class: "pill-s neu" }, "In Fabric"))))
+      : h("p", { class: "muted-text" }, `${ws.displayName} has no pipelines.`));
+  };
+  const show = async () => {
+    fill(box, loading("Listing your workspaces..."));
+    const workspaces = await loadWorkspaces();
+    if (!box.isConnected) return;
+    if (!workspaces.length) { fill(box, h("p", { class: "muted-text" }, "No workspaces to list. Sign in, or ask for access to a workspace.")); return; }
+    let saved = "";
+    try { saved = localStorage.getItem(PL_WORKSPACE_KEY) || ""; } catch { /* none */ }
+    const pick = h("select", { "aria-label": "Workspace" },
+      h("option", { value: "" }, "Choose a workspace"),
+      workspaces.map((w) => h("option", { value: w.id, selected: w.id === saved || null }, w.displayName)));
+    pick.addEventListener("change", () => {
+      const ws = workspaces.find((w) => w.id === pick.value);
+      if (ws) listIn(ws); else fill(rows);
+    });
+    fill(box, pick, rows);
+    const ws = workspaces.find((w) => w.id === saved);
+    if (ws) listIn(ws);
+  };
+  if (state.user) show();
+  else fill(box, btn("Sign in to list workspace pipelines", "person", show, "tool outline"));
+  return box;
+}
+
+async function openWorkspacePipeline(ws, p, fail) {
+  const res = await rpc("workspace_pipeline_definition", { workspace_id: ws.id, item_id: p.item_id, name: p.name })
+    .catch((err) => { fail(`Could not read ${p.name} from Fabric: ${friendlyError(err).text}`); return null; });
+  if (!res) return;
+  await openPipeline({ text: res.text }, { label: `${ws.displayName} · Fabric workspace`,
+    fabric: { type: "DataPipeline", workspace_id: ws.id, item_id: p.item_id } });
 }
 
 async function openPipeline(source, origin) {
@@ -225,6 +278,7 @@ async function renderPipelines() {
       h("div", { class: "pl-title" }, h("h1", {}, p.imp.name || "Pipeline", " ", previewTag()),
         h("p", { class: "muted-text" }, `From ${p.origin.label} · read-only here, edit it in Fabric or in your repository · `, learnMore("pipelines-preview"))),
       h("div", { class: "pl-actions" },
+        p.origin.fabric ? btn("Open in Fabric", "open", () => openInFabric(fabricItemLink(p.origin.fabric)), "tool outline") : null,
         btn("Check again", "sync", () => { p.compat = null; render(); }, "tool outline"),
         btn("Run on this PC", "play", () => pipelineRunDialog(), "tool primary"))),
     body));

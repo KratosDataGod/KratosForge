@@ -2103,6 +2103,8 @@ html[data-fx-ambient="on"] .flow-node[data-state="running"] .flow-link::after { 
 .pl-open-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 10px 12px; text-align: left;
   background: var(--surface); border: 0; border-bottom: 1px solid var(--border-soft); font: inherit; color: inherit; cursor: pointer; }
 .pl-open-row:hover { background: #f5f8fc; }
+.pl-open-fabric { display: flex; flex-direction: column; gap: 8px; }
+.pl-open-fabric select { max-width: 360px; }
 .pl-open-files { display: flex; flex-wrap: wrap; gap: 8px; }
 .pl-run-dialog { display: flex; flex-direction: column; gap: 14px; max-height: 70vh; overflow: auto; padding-right: 4px; }
 .pl-section { display: flex; flex-direction: column; gap: 8px; }

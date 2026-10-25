@@ -458,6 +458,17 @@ def test_bad_rules_are_refused_before_anything_runs(svc):
     assert "Unknown comparison rule" in out["error"] and svc.fake.saved == []
 
 
+def test_a_proof_uses_the_repository_location_without_saving_it_into_the_notebook(svc):
+    # A notebook in a notebooks repository with no lakehouse of its own (publishPayload's location_ref).
+    svc.fake = FakeFabric(svc)
+    given = payload(lakehouse_ref=None, location_ref=LAKEHOUSE)
+    assert call(svc, "prove_check", **given)["check"]["ok"]
+    out = wait(svc, call(svc, "prove_start", **given)["id"])
+    assert out["state"] == "done", out["message"]
+    assert out["lakehouse"]["lakehouse_id"] == LAKEHOUSE["lakehouse_id"]
+    assert svc.notebooks.load("Order values").get("lakehouse") is None  # it keeps following the environment
+
+
 def test_prove_check_describes_the_plan(svc):
     plan = call(svc, "prove_check", **payload())
     assert plan["check"]["ok"] and "Order values_proof" in plan["plan"]["fabric"]

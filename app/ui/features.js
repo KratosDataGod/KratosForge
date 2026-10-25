@@ -57,6 +57,7 @@ const PREVIEW_FEATURES = {
   history: "Table history and restore",
   health: "Table health",
   model: "Semantic model",
+  ossie: "Semantic models and Apache Ossie",
   tests: "Tests",
   xray: "Estate X-ray",
   optimize: "Optimize",

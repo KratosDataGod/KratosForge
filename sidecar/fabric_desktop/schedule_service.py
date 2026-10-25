@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from . import notebook_cells
 from .fabric_api import FabricClient
 from .fabric_run import TERMINAL, describe_schedule
 from .fabric_step import is_step
@@ -216,9 +217,9 @@ class ScheduleMixin:
         self.kernel.resources_dir = self._resources_dir(name)  # type: ignore[attr-defined]  # builtin/ paths
         self.kernel.onelake_writes = self._onelake_writes(name)  # type: ignore[attr-defined]
         # As Run all: code cells with something in them, and never a frozen one.
-        code = [c for c in nb["cells"] if c.get("type") != "markdown" and c.get("source", "").strip()]
-        frozen = sum(1 for c in code if (c.get("meta") or {}).get("frozen"))
-        code = [c for c in code if not (c.get("meta") or {}).get("frozen")]
+        frozen = sum(1 for c in nb["cells"] if notebook_cells.frozen(c) and c.get("type") != "markdown"
+                     and (c.get("source") or "").strip())
+        code = [c for c in nb["cells"] if notebook_cells.runs(c)]
         skipped = f", {frozen} frozen cell{'s' if frozen != 1 else ''} skipped" if frozen else ""
         if any(is_step(c) for c in code):  # it runs on Fabric Spark only when started from the notebook
             code = [c for c in code if not is_step(c)]

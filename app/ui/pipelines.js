@@ -340,9 +340,11 @@ function plGraph(p, verdicts, problems) {
   return [graph, sel ? plDetail(sel, verdicts.get(sel.path), problems) : null];
 }
 
+// A container's branch as people say it. Switch cases come from the engine as cases[0], cases[1] ...
 function plBranch(branch) {
+  const c = /^cases\[(\d+)\]$/.exec(branch);
   return { activities: "Each item:", ifTrueActivities: "If true:", ifFalseActivities: "If false:", defaultActivities: "Default:" }[branch]
-    || (branch.startsWith("case ") ? `${branch}:` : `${branch}:`);
+    || (c ? `Case ${Number(c[1]) + 1}:` : `${branch}:`);
 }
 
 function plDetail(a, verdict, problems) {

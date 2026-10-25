@@ -5017,3 +5017,20 @@ test("Files on this PC says what local writes hold and where", () => {
   const clear = src.slice(src.indexOf("async function clearLocalWrites"));
   assert.match(clear.slice(0, clear.indexOf("\n}\n")), /confirmDialog\("Delete left-overs\?"[\s\S]*danger: true[\s\S]*rpc\("local_writes_clear"\)/);
 });
+
+test("the Ossie card exports, previews and imports only after a confirm, and hides with preview features", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const card = meta.split("function ossieCard(plan)")[1].split("// ---------- profiling ----------")[0];
+  assert.match(card, /preview\("ossie", /, "the card is a Preview feature and hides with them");
+  assert.match(meta, /\n    ossieCard\(plan\),\n/, "the Semantic model tab shows the card");
+  for (const method of ["meta_model_ossie_models", "meta_model_ossie_export", "meta_model_ossie_save", "meta_model_ossie_read",
+    "meta_model_ossie_preview", "meta_model_ossie_import", "meta_model_tmdl_save"]) {
+    assert.match(card, new RegExp(`"${method}"`), `${method} has a caller`);
+  }
+  // The first import call only asks; the write carries confirmed after confirmDialog said yes, danger for Replace.
+  const go = card.split("go.onclick = async () => {")[1].split("showDialog(")[0];
+  assert.ok(go.indexOf("confirmDialog(") < go.indexOf("confirmed: true"), "confirm comes before the write");
+  assert.match(go, /\{ danger: c\.mode === "replace" \}/);
+  assert.match(go, /if \(!ok\) return;/);
+  assert.match(card, /OSSIE_MAX_BYTES/, "a file too large to be a model is refused before it's read");
+});

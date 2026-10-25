@@ -99,7 +99,7 @@ function whHistory(ref, actions) {
         onclick: () => actions.open(`Run at ${when(e.at)}`, e.sql) },
       h("span", { class: "wh-h-sql" }, first.trim()),
       h("span", { class: `wh-h-meta${["failed", "timed_out"].includes(e.state) ? " bad" : ""}` },
-        [when(e.at), state, e.seconds != null ? `${Number(e.seconds).toFixed(1)} s` : null,
+        [when(e.at), state, e.seconds != null ? took(e.seconds) : null,
           e.state === "completed" ? `${(e.rows || 0).toLocaleString()} row${e.rows === 1 ? "" : "s"}` : null].filter(Boolean).join(" · "))));
     }
     if (all.length) rows.push(btn("Clear history", null, async () => {

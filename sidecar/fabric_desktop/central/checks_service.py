@@ -170,6 +170,19 @@ class ChecksMixin:
         data = self.meta_runs_all(limit=5000)  # type: ignore[attr-defined]
         return data.get("runs") or [], data.get("unavailable") or {}
 
+    def _gc_notebook_items(self, problems: list[str]) -> list[dict[str, Any]]:
+        """This PC's notebooks, their code cells' sources, for the notebook best-practice rules."""
+        out = []
+        for nb in self.notebooks.list():  # type: ignore[attr-defined]
+            try:
+                cells = self.notebooks.load(nb["name"])["cells"]  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001 - one unreadable notebook doesn't stop the others
+                problems.append(f"The notebook {nb['name']} couldn't be read, so it wasn't checked: {describe(exc)}")
+                continue
+            out.append({"kind": "notebook", "id": nb["name"], "scheduled": False,
+                        "sources": [c.get("source") or "" for c in cells if c.get("type", "code") == "code"]})
+        return out
+
     def _gc_product_items(self, project: Any, need_load: bool, need_trust: bool) -> list[dict[str, Any]]:
         pname = mesh.project_name(project)
         runs, unavailable = self._gc_runs() if need_load and project.products else ([], {})
@@ -202,6 +215,8 @@ class ChecksMixin:
             problems.append(f"The platform's catalog text couldn't be read, so only the text in the project's files was checked: {describe(exc)}")
         items = entity_items(project, saved) + self._gc_product_items(
             project, bool(wanted & _LOAD_RULES), bool(wanted & _TERMS_RULES))
+        if "notebook" in {found[0].kind for found in map(gc.find_rule, wanted) if found}:
+            items += self._gc_notebook_items(problems)
         policies = []
         for pol in resolved["policies"]:
             ids = gc.rule_ids(pol.get("rule"))

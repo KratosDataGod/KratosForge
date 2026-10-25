@@ -20,10 +20,12 @@ from pathlib import Path
 from typing import Any
 
 from .git import cli
+from . import vscode_setup
 from .git.cli import GitError
 from .git import platform_files, scopes
 from .git.ops import Operations
 from .git.repo import Repository, _folder, init as git_init
+from .integrations.config import write_cli_launcher
 
 MAX_REPOS = 50
 
@@ -415,6 +417,22 @@ class GitMixin:
 
     def git_add_remote(self, repo: str, url: str, name: str = "origin") -> dict[str, Any]:
         return {"remotes": self._repo(repo).add_remote(name, url)}
+
+    def git_vscode_plan(self, repo: str) -> dict[str, Any]:
+        """The files Set up for VS Code would add to ``repo`` (vscode_setup.py). Reads only."""
+        r = self._repo(repo)
+        return {"name": r.root.name} | vscode_setup.plan(r.root)
+
+    def git_vscode_apply(self, repo: str, files: list[str]) -> dict[str, Any]:
+        """Adds the chosen files that aren't there yet, and the ``kratosforge`` launcher their task
+        runs. Nothing is committed: they show as changes in Source control."""
+        r = self._repo(repo)
+        try:
+            out = vscode_setup.apply(r.root, files)
+        except ValueError as exc:
+            raise GitError(str(exc), kind="invalid") from exc
+        write_cli_launcher(self.root)
+        return out | {"status": r.status()}
 
     def git_path_info(self, path: str) -> dict[str, Any] | None:
         """Which opened repository holds ``path``, its branch and the file's state; None when none does.

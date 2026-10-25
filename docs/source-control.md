@@ -62,6 +62,8 @@ Running cells, **Prove**, **Side by side**, **Publish to OneLake**, **Run in Fab
 
 **Editing locations.** **Data locations** (next to the repository's name on this page, or **Edit locations** on the notebook's **Data** button) shows Dev, Test and Prod, each with a workspace, a lakehouse and an optional Fabric SQL database, picked from what you can see in Fabric. Saving writes `locations.toml` with workspace and item ids and their names, as a change to commit. Nothing in Fabric changes, and no passwords or keys are written.
 
+**VS Code.** **Set up for VS Code** (next to the repository's name) adds a validate task, the Copilot server and recommended extensions to the repository, as changes to commit. See [Set up a repository for VS Code](vscode.md#set-up-a-repository-for-vs-code).
+
 ### Platform repository
 
 For platform definitions, Git is the source of truth and each environment's platform holds what is deployed. A platform repository has a **Platform** tab next to **Changes**.

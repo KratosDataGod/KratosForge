@@ -120,6 +120,16 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--sql-project", action="append", default=[], metavar="KEY=PROJECT",
                    help="run a Script activity (by activity or connection name) in a local data project")
     p.add_argument("--json", action="store_true", help="print the whole run record as JSON")
+    nb = sub.add_parser("nb", help="notebooks: check an .ipynb file on this PC (nothing runs)")
+    nb_sub = nb.add_subparsers(dest="nb_command", required=True)
+    p = nb_sub.add_parser("validate", help="list what Validate finds, one line per finding as file:line:column: "
+                                           "severity: message; exit 1 if there are errors")
+    p.add_argument("path", nargs="?", help="an .ipynb file")
+    p.add_argument("--path-from-env", metavar="NAME",
+                   help="read the file's path from this environment variable (VS Code's task does, so no shell reads it)")
+    p.add_argument("--runs-on", choices=["pc", "fabric"],
+                   help="where it will run (default: the notebook's own Runs on, if it's set)")
+    p.add_argument("--json", action="store_true", help="print the whole result as JSON")
     args = parser.parse_args(argv)
 
     if args.command == "mcp":
@@ -135,6 +145,8 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(serve_http(args.port, args.parent_pid))
     if args.command == "pipeline":
         raise SystemExit(_pipeline(args))
+    if args.command == "nb":
+        raise SystemExit(_nb_validate(args))
     if args.command == "serve":
         serve()
         return
@@ -291,6 +303,53 @@ def _live_test(args: argparse.Namespace) -> int:
     print(livetest.summary(result))
     print("\n".join(result["files"]))
     return {"passed": 0, "failed": 1}.get(result["outcome"], 2)
+
+
+def _nb_validate(args: argparse.Namespace) -> int:
+    """Validate's code checks on one file (validate.check), printed the way VS Code's problem
+    matcher in .vscode/tasks.json reads them (vscode_setup.PROBLEM_PATTERN). Findings point at the
+    file's first line and name the cell in the message, since an .ipynb has no line per cell."""
+    from pathlib import Path
+
+    from . import validate
+    from .notebook import from_ipynb
+    from .service import data_dir
+
+    import os
+    import sys
+
+    raw = os.environ.get(args.path_from_env, "") if args.path_from_env else args.path
+    if not raw:
+        print("Name an .ipynb file" + (f": {args.path_from_env} isn't set." if args.path_from_env else "."), file=sys.stderr)
+        return 2
+    path = Path(raw).resolve()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or not isinstance(data.get("cells"), list):
+            raise ValueError("it isn't a Jupyter notebook (.ipynb) file")
+        nb = from_ipynb(data)
+    except (OSError, UnicodeDecodeError, ValueError, AttributeError, TypeError) as exc:
+        print(f"{path}:1:1: error: KratosForge can't read this notebook: {exc}")
+        return 2
+    try:
+        observed = json.loads((data_dir() / "fabric_environment.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        observed = {}
+    runs_on = args.runs_on or {"local": "pc", "fabric": "fabric"}.get(nb["compute"])
+    result = validate.check(nb["cells"], nb["lakehouse"], runs_on, observed)
+    if args.json:
+        print(json.dumps({"path": str(path), "runs_on": runs_on} | result, indent=2, default=str))
+    else:
+        for f in result["findings"]:
+            title = f["title"] + (f" (line {f['line']})" if f.get("line") else "")
+            if f.get("cell") and not title.startswith(f"Cell {f['cell']}"):
+                title = f"Cell {f['cell']}: {title}"
+            text = " ".join(t for t in (title + ".", f["text"], f["fix"]) if t)
+            print(f"{path}:1:1: {f['severity']}: {' '.join(text.split())}")
+        c = result["counts"]
+        print(f"{c.get('error', 0)} errors, {c.get('warning', 0)} warnings, {c.get('info', 0)} notes"
+              + ("" if runs_on else " (Runs on isn't set, so what stops either place is a warning)"))
+    return 1 if result["counts"].get("error") else 0
 
 
 def _pipeline(args: argparse.Namespace) -> int:

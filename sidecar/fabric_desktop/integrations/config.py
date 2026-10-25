@@ -3,7 +3,8 @@
 On a release install the engine lives in ``%LOCALAPPDATA%\\FabricDesktop\\engine\\<build>\\`` and
 that folder changes with every update, so a tool can't be pointed at it. Instead the app keeps a
 launcher with a fixed path, ``%LOCALAPPDATA%\\FabricDesktop\\bin\\fabric-desktop-mcp.cmd``,
-rewritten to point at the current engine each time the app's engine starts.
+rewritten to point at the current engine each time the app's engine starts. ``kratosforge.cmd``
+beside it does the same for the command line.
 
 The snippets are examples in each tool's documented configuration format. Which of them has been
 tried is recorded in docs/product/ai-integration-compatibility.md; none is a runtime integration
@@ -34,15 +35,28 @@ def launcher_path(root: Path) -> Path:
     return Path(root) / "bin" / ("fabric-desktop-mcp.cmd" if os.name == "nt" else "fabric-desktop-mcp")
 
 
+def cli_launcher_path(root: Path) -> Path:
+    """The command line's launcher, ``kratosforge``, next to the MCP one (VS Code's Validate task runs it)."""
+    return Path(root) / "bin" / ("kratosforge.cmd" if os.name == "nt" else "kratosforge")
+
+
 def write_launcher(root: Path) -> Path:
     """(Re)write the launcher so it runs this engine's Python. Called when the app's engine starts
     and when integrations are switched on."""
-    path = launcher_path(root)
+    return _write_script(launcher_path(root), "mcp ")
+
+
+def write_cli_launcher(root: Path) -> Path:
+    """(Re)write ``kratosforge``, which runs any CLI command with this engine's Python."""
+    return _write_script(cli_launcher_path(root), "")
+
+
+def _write_script(path: Path, command: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     if os.name == "nt":
-        text = f'@echo off\r\n"{sys.executable}" -m fabric_desktop.cli mcp %*\r\n'
+        text = f'@echo off\r\n"{sys.executable}" -m fabric_desktop.cli {command}%*\r\n'
     else:
-        text = f'#!/bin/sh\nexec "{sys.executable}" -m fabric_desktop.cli mcp "$@"\n'
+        text = f'#!/bin/sh\nexec "{sys.executable}" -m fabric_desktop.cli {command}"$@"\n'
     if not path.exists() or path.read_text(encoding="utf-8", errors="replace") != text:
         tmp = path.with_suffix(".tmp")
         tmp.write_text(text, encoding="utf-8", newline="")

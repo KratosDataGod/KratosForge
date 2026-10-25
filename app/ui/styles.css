@@ -1491,6 +1491,10 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
 .integ-tool.selected { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .integ-vscode { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--accent-soft); }
 .integ-vscode .grow { flex: 1 1 260px; min-width: 0; }
+.vscode-setup-files { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 12px; }
+.vscode-setup-file { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; }
+.vscode-setup-file .grow { flex: 1; min-width: 0; }
+.vscode-setup-text { max-height: 180px; overflow: auto; white-space: pre-wrap; font-size: 12px; }
 .integ-scroll { max-height: min(70vh, 640px); overflow: auto; }
 .integrations > .card { margin-top: 16px; }
 .choice-row b .pill-s { margin-left: 6px; vertical-align: 1px; }

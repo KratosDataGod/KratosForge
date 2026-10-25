@@ -594,6 +594,17 @@ class Service(TrustMixin, AccessCacheMixin, NotebookResourcesMixin, PipelineMixi
         from .chart_output import plotly_js
         return plotly_js()
 
+    def notebook_practices(self, sources: list[str], scheduled: bool = False,
+                           settings: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
+        """Best-practice findings for a notebook's code cells, read on this PC without running them."""
+        from .notebook_practices import check
+        return check(sources, bool(scheduled), settings)
+
+    def notebook_practice_rules(self) -> list[dict[str, Any]]:
+        """The notebook best-practice rules, for a template to turn on or off."""
+        from .notebook_practices import rules
+        return rules()
+
     def kernel_variable_detail(self, name: str) -> dict[str, Any]:
         return self.kernel.variable_detail(str(name))
 

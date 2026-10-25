@@ -48,6 +48,7 @@ nav = [
     { "Notebook variables" = "notebook-editor/variables.md" },
     { "Notebook files" = "notebook-files.md" },
     { "Run the last cell on Fabric" = "notebook-fabric-step.md" },
+    { "Notebook best practices" = "notebook-best-practices.md" },
     { "Notebook folders" = "notebook-folders.md" },
     { "Fabric and Databricks notebook formats" = "notebook-import-export.md" },
     { "Notebook version history" = "notebook-versions.md" },

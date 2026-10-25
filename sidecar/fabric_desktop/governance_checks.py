@@ -205,12 +205,24 @@ NAMING_RULES = [
 ]
 
 
-# A naming pattern runs on this PC for every table: refuse ones that can backtrack for minutes.
+# A naming pattern runs on this PC for every table. It's matched with RE2 (through DuckDB, already in the
+# engine), which runs in time linear in the name, so no pattern can backtrack for minutes as Python's re can.
 MAX_PATTERN = 300
 MAX_NAME = 256
-# A group that is only one repeated atom, itself repeated: (a+)+, ([a-z]*)*, (\\w{2,})+. A separator inside
-# the group, as in (_[a-z0-9]+)*, keeps it linear, so that stays allowed.
-_NESTED_QUANTIFIER = re.compile(r"\(\??:?(?:\\.|\[(?:[^\]\\]|\\.)*\]|[^()\[\]\\|])(?:[+*]|\{\d*,\d*\})\??\)\s*(?:[+*]|\{\d*,)")
+_re2: Any = None
+
+
+def _full_match(pattern: str, text: str) -> bool:
+    """Whether text matches pattern as a whole, with RE2. Raises ValueError for a pattern RE2 doesn't take
+    (lookarounds, backreferences) or that isn't valid."""
+    global _re2
+    import duckdb
+    if _re2 is None:
+        _re2 = duckdb.connect()
+    try:
+        return bool(_re2.cursor().execute("SELECT regexp_full_match(?, ?)", [text, pattern]).fetchone()[0])
+    except duckdb.Error as exc:
+        raise ValueError(str(exc).replace("Invalid Input Error: ", "")) from exc
 
 
 def naming_check(item: dict[str, Any], settings: dict[str, Any]) -> list[dict[str, Any]] | None:
@@ -223,23 +235,23 @@ def naming_check(item: dict[str, Any], settings: dict[str, Any]) -> list[dict[st
     if layers and str(item.get("layer") or "").lower() not in layers:
         return None
     text = str(t.get("pattern") or "")
-    if len(text) > MAX_PATTERN or _NESTED_QUANTIFIER.search(text):
-        return [finding(rule, s, "entity", item["id"], "The policy's pattern is too long or repeats a repeated group "
-                        "(like (a+)+), which can take minutes to match, so names weren't checked. Simplify the pattern.",
-                        outcome="unknown")]
-    try:
-        pattern = re.compile(text)
-    except re.error as exc:
-        return [finding(rule, s, "entity", item["id"], f"The policy's pattern isn't a valid regular expression ({exc}), "
-                        "so names can't be checked.", outcome="unknown")]
+    if len(text) > MAX_PATTERN:
+        return [finding(rule, s, "entity", item["id"], f"The policy's pattern is over {MAX_PATTERN} characters, so names "
+                        "weren't checked. Shorten the pattern.", outcome="unknown")]
     table = str(item.get("table") or "")
     out = []
     if len(table) > MAX_NAME:
         out.append(finding(rule, s, "entity", item["id"], f"{table[:40]}... is {len(table)} characters, too long to check.",
                            fix=_open_entity(item)))
-    elif not pattern.fullmatch(table):
-        out.append(finding(rule, s, "entity", item["id"], f"{table} doesn't match the naming pattern {pattern.pattern}.",
-                           fix=_open_entity(item)))
+    else:
+        try:
+            matched = _full_match(text, table)
+        except ValueError as exc:
+            return [finding(rule, s, "entity", item["id"], f"The policy's pattern can't be used ({exc}), so names "
+                            "can't be checked. Lookarounds and backreferences aren't supported.", outcome="unknown")]
+        if not matched:
+            out.append(finding(rule, s, "entity", item["id"], f"{table} doesn't match the naming pattern {text}.",
+                               fix=_open_entity(item)))
     limit = t.get("max_length")
     if isinstance(limit, (int, float)) and not isinstance(limit, bool) and len(table) > limit:
         out.append(finding(rule, s, "entity", item["id"], f"{table} is {len(table)} characters; at most {limit:g}.",

@@ -4906,6 +4906,16 @@ test("Remote runs (KF-MO-009): the navy wolf trots in an indeterminate bar, with
   assert.match(fs.readFileSync(path.join(ui, "activity.js"), "utf8"), /const remoteActivity = \(i\) => String\(i\.id \|\| ""\)\.startsWith\("fabric:"\) && i\.progress === undefined;/);
 });
 
+test("Forge events: every event in the registry is fired by the app, and the Preview window shows the navy wolf (MO-011)", () => {
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  const events = Object.keys(vm.runInContext("FORGE_EVENTS", ctx));
+  const app = fs.readdirSync(ui).filter((f) => f.endsWith(".js") && f !== "settings.js")
+    .map((f) => fs.readFileSync(path.join(ui, f), "utf8").replace(/const FORGE_EVENTS = \{[\s\S]*?\n\};/, "")).join("\n");
+  for (const name of events) assert.ok(app.includes(`"${name}"`), `${name} is in FORGE_EVENTS but nothing fires it`);
+  assert.match(fs.readFileSync(path.join(ui, "motion.js"), "utf8"), /forgeEvent\("notebook\.run\.finished", wolf\)/);
+  assert.match(fs.readFileSync(path.join(ui, "settings.js"), "utf8"), /row\("Navy wolf", [^\n]*\n\s+remoteHost, \(\) => \{ if \(!remoteHost\.childElementCount\) \{ remoteHost\.append\(remoteProgress\(/);
+});
+
 test("SQL Forge events (KF-MO-005): a slow success sparks, a failure plays the ember, after the redraw", () => {
   const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
   const events = vm.runInContext("FORGE_EVENTS", ctx);

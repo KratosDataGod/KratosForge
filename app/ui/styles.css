@@ -1910,6 +1910,7 @@ html[data-fx-ambient="on"] .flow-node[data-state="running"] .flow-link::after { 
 .motion-sample.badge { padding: 4px 10px; border-radius: 12px; background: var(--accent-soft); color: var(--accent); }
 .motion-lane { position: relative; font-size: 12px; color: var(--muted); }
 .motion-track .wolf-track { gap: 8px; } .motion-track .wolf-bar { width: 96px; }
+.motion-track .remote-progress { gap: 8px; } .motion-track .progress.remote { flex: none; width: 96px; }
 
 /* Notebook files (notebook-files.js) */
 .nbf-page .nbf-bar { gap: 8px; align-items: center; }

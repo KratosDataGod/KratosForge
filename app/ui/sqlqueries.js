@@ -71,13 +71,15 @@ function whQueries(ref, actions) {
 // Save query: writes the tab back to the file it came from, or (asNew, or a tab with no file) asks
 // for a name, a description and where to keep it. Resolves to the saved file, or null.
 async function saveSqlQuery(ref, tab, asNew = false) {
-  const write = (place, title, description, name) => rpc("sql_query_save", { place, title, sql: tab.sql, warehouse: ref.name, description,
-    ...(name ? { name } : {}) });
+  const write = (place, title, description, warehouse, file) => rpc("sql_query_save", { place, title, sql: tab.sql, warehouse, description,
+    ...(file ? { name: file.name, expect: file.version || "" } : {}) });
   if (tab.file && !asNew) {
+    // Save keeps the file's own warehouse, and refuses a file that changed since it was opened.
+    const f = tab.file;
     try {
-      await write(tab.file.place, tab.file.title || tab.name, tab.file.description || "", tab.file.name);
-      toast(`Saved ${tab.file.title || tab.name} to ${tab.file.place === "mine" ? "My queries" : tab.file.place_label}.`);
-      return tab.file;
+      const out = await write(f.place, f.title || tab.name, f.description || "", f.warehouse ?? ref.name, f);
+      toast(`Saved ${f.title || tab.name} to ${f.place === "mine" ? "My queries" : f.place_label}.`);
+      return { ...f, version: out.version };
     } catch (err) {
       toast(`Couldn't save the query: ${String(err).replace(/^Error: /, "")}`, true);
       return null;
@@ -95,10 +97,11 @@ async function saveSqlQuery(ref, tab, asNew = false) {
     const save = btn("Save", null, async () => {
       save.disabled = true;
       try {
-        const out = await write(place.value, name.value, description.value);
+        const out = await write(place.value, name.value, description.value, ref.name);
         const label = sqlQueries.places.find((p) => p.id === out.place)?.label || "";
         toast(`Saved ${name.value.trim()} to ${out.place === "mine" ? "My queries" : label}.`);
-        finish({ place: out.place, name: out.name, place_label: label, title: name.value.trim(), description: description.value.trim() });
+        finish({ place: out.place, name: out.name, place_label: label, title: name.value.trim(), description: description.value.trim(),
+          warehouse: ref.name, version: out.version });
         closeDialog();
       } catch (err) { why.textContent = String(err).replace(/^Error: /, ""); save.disabled = false; }
     }, "tool primary");

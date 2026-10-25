@@ -52,7 +52,10 @@ test("Save query names the tab's SQL and keeps it in My queries", { skip }, asyn
   await aside().locator(".wh-q-row", { hasText: "Revenue by region" }).waitFor();
   const tab = await page().evaluate(() => sqlPage.tabs[sqlPage.active]);
   assert.strictEqual(tab.name, "Revenue by region");
-  assert.deepStrictEqual({ ...tab.file }, { place: "mine", name: "Revenue by region.sql", place_label: "My queries", title: "Revenue by region", description: "Monthly review" });
+  const { version, ...file } = tab.file;
+  assert.deepStrictEqual(file, { place: "mine", name: "Revenue by region.sql", place_label: "My queries", title: "Revenue by region",
+    description: "Monthly review", warehouse: "WH_Gold" });
+  assert.match(version, /^[0-9a-f]{16}$/);
   const q = (await saved()).queries[0];
   assert.deepStrictEqual([q.title, q.warehouse, q.description, q.sql], ["Revenue by region", "WH_Gold", "Monthly review",
     "SELECT Region, SUM(Amount) AS Revenue FROM dbo.FactSales GROUP BY Region"]);
@@ -94,6 +97,25 @@ test("delete asks first and removes the file; the open tab keeps its SQL", { ski
   await page().waitForFunction(() => !document.querySelector(".wh-queries")?.textContent.includes("Revenue 2026"));
   assert.deepStrictEqual((await saved()).queries.map((q) => q.title), ["Revenue by region"]);
   assert.ok(await page().evaluate(() => sqlPage.tabs.some((t) => t.name === "Revenue 2026")));
+});
+
+test("Save keeps the query's own warehouse and never overwrites a file changed since it was opened", { skip }, async () => {
+  await page().evaluate(() => rpc("sql_query_save", { place: "mine", title: "From prod", sql: "-- Warehouse: WH_Gold (prod copy)\nSELECT 1", warehouse: "WH_Prod" }));
+  await page().evaluate(async () => { await sqlLoadQueries(); sqlPage.whRedraw(); });
+  await aside().locator(".wh-q-row", { hasText: "From prod" }).locator("button:not(.wh-more)").click();
+  assert.strictEqual(await page().evaluate(() => sqlPage.tabs[sqlPage.active].sql), "-- Warehouse: WH_Gold (prod copy)\nSELECT 1", "the SQL's own comments stay");
+  await setDoc("-- Warehouse: WH_Gold (prod copy)\nSELECT 2");
+  await page().getByRole("button", { name: "Save query" }).click();
+  await page().waitForFunction(() => /Saved From prod/.test(document.querySelector(".toast")?.textContent || ""));
+  const q = (await saved()).queries.find((q) => q.title === "From prod");
+  assert.deepStrictEqual([q.warehouse, q.sql], ["WH_Prod", "-- Warehouse: WH_Gold (prod copy)\nSELECT 2"]);
+  // Someone else changes the file (a Git pull): Save leaves it alone and says why.
+  await page().evaluate(() => rpc("sql_query_save", { place: "mine", title: "From prod", sql: "SELECT 'pulled'", warehouse: "WH_Prod", name: "From prod.sql" }));
+  await setDoc("SELECT 3");
+  await page().getByRole("button", { name: "Save query" }).click();
+  await page().waitForFunction(() => /changed since you opened it/.test(document.querySelector(".toast")?.textContent || ""));
+  assert.strictEqual((await saved()).queries.find((q) => q.title === "From prod").sql, "SELECT 'pulled'");
+  app.errors.length = 0;
 });
 
 test("nothing on the page threw", { skip }, async () => {

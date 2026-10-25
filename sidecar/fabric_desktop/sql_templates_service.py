@@ -60,6 +60,8 @@ def parse(text: str, stem: str = "") -> dict[str, Any]:
         value = m.group(2)
         meta[key] = value.lower() in ("yes", "true", "1") if key == "endpoint" else value
         i += 1
+    if i and i < len(lines) and not lines[i].strip():
+        i += 1  # the blank line render() puts after the header, so the SQL's own comments stay the SQL's
     meta["sql"] = "\n".join(lines[i:]).strip("\n")
     meta["title"] = meta["title"] or stem
     return meta
@@ -93,7 +95,7 @@ def render(meta: dict[str, Any]) -> str:
     if str(meta.get("description") or "").strip():
         head.append(f"-- description: {meta['description'].strip()}")
     head.append(f"-- endpoint: {'yes' if meta.get('endpoint') else 'no'}")
-    return "\n".join(head) + "\n" + str(meta["sql"]).strip("\n") + "\n"
+    return "\n".join(head) + "\n\n" + str(meta["sql"]).strip("\n") + "\n"
 
 
 class SqlTemplatesMixin:

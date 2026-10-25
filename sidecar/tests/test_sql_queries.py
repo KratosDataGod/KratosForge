@@ -25,6 +25,25 @@ def test_a_saved_query_reads_back_and_any_sql_file_is_one():
     assert sq.problem({"title": "A", "sql": ""}) == "There's no SQL to save."
 
 
+
+def test_comments_at_the_top_of_the_sql_stay_the_sqls():
+    sql = "-- Warehouse: WH_Gold (prod copy)\n-- Description: old notes\nSELECT 1"
+    meta = {"title": "Kept", "warehouse": "WH_Dev", "description": "", "sql": sql}
+    assert sq.parse(sq.render(meta), "x") == meta
+    assert sq.parse(sq.render(sq.parse(sq.render(meta))), "x") == meta, "a second save keeps them too"
+
+
+def test_save_never_overwrites_a_file_that_changed_since_it_was_opened(svc, tmp_path):
+    saved = svc.sql_query_save("mine", "Open orders", "SELECT 1", warehouse="WH_Gold")
+    opened = svc.sql_queries_list()["queries"][0]["version"]
+    assert opened == saved["version"]
+    again = svc.sql_query_save("mine", "Open orders", "SELECT 2", warehouse="WH_Gold", name=saved["name"], expect=opened)
+    path = tmp_path / "app" / "sql-queries" / saved["name"]
+    path.write_text(path.read_text(encoding="utf-8") + "-- from a Git pull\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="changed since you opened it"):
+        svc.sql_query_save("mine", "Open orders", "SELECT 3", name=saved["name"], expect=again["version"])
+    assert path.read_text(encoding="utf-8").endswith("-- from a Git pull\n")
+
 def test_save_list_save_again_and_delete_in_my_queries(svc, tmp_path):
     first = svc.sql_query_save("mine", "Revenue by region", SQL, warehouse="WH_Gold")
     second = svc.sql_query_save("mine", "Revenue by region", "SELECT 1")

@@ -638,7 +638,8 @@ function renderQuery() {
   const openSaved = (q) => {
     const at = p.tabs.findIndex((t) => t.file?.place === q.place && t.file?.name === q.name);
     if (at < 0) p.tabs.push({ name: q.title, sql: q.sql, dialect: tab.dialect,
-      file: { place: q.place, name: q.name, place_label: q.place_label, title: q.title, description: q.description || "" } });
+      file: { place: q.place, name: q.name, place_label: q.place_label, title: q.title, description: q.description || "",
+        warehouse: q.warehouse || "", version: q.version || "" } });
     p.active = at < 0 ? p.tabs.length - 1 : at;
     saveQueryTabs();
     renderQuery();
@@ -647,7 +648,8 @@ function renderQuery() {
   const saveQuery = async (asNew) => {
     const file = await saveSqlQuery(ref, tab, asNew);
     if (!file) return;
-    if (asNew || !tab.file) { tab.file = file; tab.name = file.title; }
+    if (asNew || !tab.file) tab.name = file.title;
+    tab.file = file;
     saveQueryTabs();
     await sqlLoadQueries();
     if (p.ref === ref && state.view === "query") renderQuery();

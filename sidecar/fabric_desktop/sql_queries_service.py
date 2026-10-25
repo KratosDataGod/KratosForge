@@ -17,6 +17,7 @@ shown in the list; a query can be opened on any warehouse. Nothing here runs SQL
 
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Any
 
@@ -43,6 +44,8 @@ def parse(text: str, stem: str = "") -> dict[str, Any]:
             break
         meta["title" if m.group(1).lower() == "query" else m.group(1).lower()] = m.group(2)
         i += 1
+    if i and i < len(lines) and not lines[i].strip():
+        i += 1  # the blank line render() puts after the header, so the SQL's own comments stay the SQL's
     meta["sql"] = "\n".join(lines[i:]).strip("\n")
     meta["title"] = meta["title"] or stem
     return meta
@@ -68,7 +71,13 @@ def render(meta: dict[str, Any]) -> str:
     for key in ("warehouse", "description"):
         if str(meta.get(key) or "").strip():
             head.append(f"-- {key}: {meta[key].strip()}")
-    return "\n".join(head) + "\n" + str(meta["sql"]).strip("\n") + "\n"
+    return "\n".join(head) + "\n\n" + str(meta["sql"]).strip("\n") + "\n"
+
+
+def version(data: bytes) -> str:
+    """A short fingerprint of a file's bytes: Save checks it, so a file changed since it was opened
+    (a Git pull, another editor) isn't overwritten."""
+    return hashlib.sha256(data).hexdigest()[:16]
 
 
 class SqlQueriesMixin:
@@ -82,20 +91,22 @@ class SqlQueriesMixin:
             try:
                 if f.stat().st_size > MAX_BYTES:
                     raise ValueError(f"It is larger than {MAX_BYTES // 1024} KB.")
-                meta = parse(f.read_text(encoding="utf-8"), f.stem)
-                item.update(meta, problem="" if meta["sql"].strip() else "The file has no SQL.")
+                data = f.read_bytes()
+                meta = parse(data.decode("utf-8"), f.stem)
+                item.update(meta, version=version(data), problem="" if meta["sql"].strip() else "The file has no SQL.")
             except (OSError, ValueError) as exc:  # UnicodeDecodeError is a ValueError
                 why = ("It couldn't be read as UTF-8 text." if isinstance(exc, UnicodeDecodeError)
                        else str(exc) if isinstance(exc, ValueError) else "It couldn't be read.")
-                item.update(title=f.stem, warehouse="", description="", sql="", problem=why)
+                item.update(title=f.stem, warehouse="", description="", sql="", version="", problem=why)
             out.append(item)
         return {"queries": out, "notes": notes,
                 "places": [{"id": p["id"], "label": p["label"], "folder": str(p["folder"])} for p in places]}
 
     def sql_query_save(self, place: str, title: str, sql: str, warehouse: str = "", description: str = "",
-                       name: str | None = None) -> dict[str, Any]:
+                       name: str | None = None, expect: str = "") -> dict[str, Any]:
         """Writes a saved query. ``name`` replaces that file in the place (Save on a tab opened from
-        it); without it the file is new, named after the title, and a name that is taken gets a number."""
+        it); without it the file is new, named after the title, and a name that is taken gets a number.
+        ``expect`` is the version the tab opened: a file that has changed since is left alone."""
         meta = {"title": title, "warehouse": warehouse, "description": description, "sql": sql}
         why = problem(meta)
         if why:
@@ -107,10 +118,13 @@ class SqlQueriesMixin:
             path = self._template_file(place, name, FOLDER, MINE, "query")  # type: ignore[attr-defined]
             if not path.is_file():
                 raise ValueError("That query's file isn't there any more. Save it as a new one.")
+            if expect and version(path.read_bytes()) != expect:
+                raise ValueError("That query's file changed since you opened it, perhaps from a Git pull. "
+                                 "Open it again to see the change, or use Save as new to keep yours.")
             self._write_over(path, text)  # type: ignore[attr-defined]
         else:
             path = self._write_new(self._template_place(place, FOLDER, MINE), title, text, "Query")  # type: ignore[attr-defined]
-        return {"place": place, "name": path.name, "path": str(path)}
+        return {"place": place, "name": path.name, "path": str(path), "version": version(text.encode("utf-8"))}
 
     def sql_query_delete(self, place: str, name: str) -> dict[str, Any]:
         path = self._template_file(place, name, FOLDER, MINE, "query")  # type: ignore[attr-defined]

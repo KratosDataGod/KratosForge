@@ -12,7 +12,9 @@ ends; one is only left when the engine was ended mid-run. Spill files left over 
 from __future__ import annotations
 
 import logging
+import os
 import shutil
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -42,12 +44,53 @@ def _usage(folder: Path, now: float, stale_after: float | None = None) -> dict[s
     return out
 
 
+MARKER = ".kratosforge"  # in a TPC-H temp folder (benchmark._GENERATE): the pid of the process using it
+
+
 def _tpch_folders() -> list[Path]:
+    """The TPC-H data notebook's temp folders: named tpch_* and holding its marker, so another
+    tool's tpch_ folder is never listed or deleted."""
     temp = Path(tempfile.gettempdir())
     try:
-        return sorted(p for p in temp.iterdir() if p.is_dir() and p.name.startswith(TPCH_PREFIX))
+        return sorted(p for p in temp.iterdir() if p.is_dir() and p.name.startswith(TPCH_PREFIX) and (p / MARKER).is_file())
     except OSError:  # no temp folder to list
         return []
+
+
+def _owner(path: Path) -> int | None:
+    """The pid of the process a spill file (write-<pid>-*.arrow) or TPC-H folder belongs to; None
+    for one from a build before it was named."""
+    try:
+        if path.is_dir():
+            return int((path / MARKER).read_text().strip())
+        parts = path.name.split("-")
+        return int(parts[1]) if len(parts) > 2 else None
+    except (OSError, ValueError):
+        return None
+
+
+def pid_running(pid: int) -> bool:
+    """Whether a process with this id is running (a scheduled run or another engine still writing)."""
+    if pid == os.getpid():
+        return True
+    if sys.platform == "win32":
+        import ctypes
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return ctypes.get_last_error() == 5  # access denied: it exists
+        try:
+            code = ctypes.c_ulong()
+            return not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)) or code.value == 259  # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def _remove(path: Path) -> int | None:
@@ -94,11 +137,13 @@ class LocalWritesMixin:
 
     def local_writes_clear(self) -> dict[str, Any]:
         """Settings' Delete left-overs: everything in the staging folder and the TPC-H temp folders.
-        Refused while a notebook cell runs (its writes may be uploading from here); a file another
-        process still has open (a scheduled run's upload) is left and counted as in use."""
+        Refused while a notebook cell runs (its writes may be uploading from here). A spill file or
+        TPC-H folder of another process still running is left and counted as in use, and so is a
+        file Windows won't delete because something has it open."""
         if self.sessions.any_running():
             raise RuntimeError("A notebook is running, and its writes may still be uploading from this folder. "
                                "Delete left-overs once it has finished.")
+        idle = self._idle_kernel_pids()
         staging = self.root / "staging"
         targets = sorted(staging.iterdir()) if staging.is_dir() else []
         if (staging / "_writes") in targets:  # its files one by one, so a spill in use doesn't keep the rest
@@ -107,6 +152,13 @@ class LocalWritesMixin:
         targets += _tpch_folders()
         removed, freed, in_use = 0, 0, []
         for path in targets:
+            # A spill or TPC-H folder of a process still running (a scheduled run, which runs in a
+            # process of its own, or a kernel mid-cell) may still be needed. This engine's own idle
+            # kernels hold none: a cell's writes are uploaded or deleted before it ends.
+            owner = _owner(path)
+            if owner is not None and owner != os.getpid() and pid_running(owner) and owner not in idle:
+                in_use.append(str(path))
+                continue
             size = _remove(path)
             if size is None:
                 in_use.append(str(path))
@@ -114,3 +166,13 @@ class LocalWritesMixin:
                 removed += 1
                 freed += size
         return {"removed": removed, "bytes": freed, "in_use": in_use}
+
+    def _idle_kernel_pids(self) -> set[int]:
+        """This engine's notebook processes: none is running a cell (checked above), so what they
+        left can go."""
+        pids = set()
+        for kernel in self.sessions.kernels():
+            pid = getattr(getattr(kernel, "_proc", None), "pid", None)
+            if pid:
+                pids.add(pid)
+        return pids

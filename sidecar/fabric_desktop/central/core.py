@@ -721,7 +721,7 @@ def _port_versions(db: Db, product_id: str, port: str = "", env: str = "") -> li
     rows = db.rows(f"SELECT * FROM {db.t('catalog', 'port_version')} WHERE product_id = ?", (product_id,))
     rows = [dict(r, columns=json.loads(r["columns"] or "{}")) for r in rows
             if (not port or r["port"] == port) and (not env or r["env"] == env)]
-    # Times are kept to the microsecond and ids end in a running number, so two publishes in one second keep their order.
+    # Times are kept to the microsecond, and ids end in a random part so two publishes at once never collide.
     return sorted(rows, key=lambda r: (r["published_at"] or "", r["id"]), reverse=True)
 
 
@@ -734,7 +734,7 @@ def _record_port_version(db: Db, product_id: str, port: str, env: str, version: 
     at = dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
     db.run(f"INSERT INTO {db.t('catalog', 'port_version')} (id, product_id, port, env, version, columns, published_at, "
            "published_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-           (f"{product_id}:{port}:{env}:{len(seen) + 1:06d}", product_id, port, env, version,
+           (f"{product_id}:{port}:{env}:{at}:{uuid.uuid4().hex[:12]}", product_id, port, env, version,
             json.dumps(dict(columns)), at, by or ""))
     return True
 

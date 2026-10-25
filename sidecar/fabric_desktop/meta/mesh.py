@@ -400,6 +400,12 @@ def _plural(n: int, one: str, many: str) -> str:
     return one if n == 1 else many
 
 
+def utc_today() -> dt.date:
+    """Today in UTC, the day the catalog (central/core.py) judges deprecation dates by, so this PC and
+    the platform agree near midnight."""
+    return dt.datetime.now(dt.timezone.utc).date()
+
+
 def _stops(product: dict[str, Any]) -> dt.date | None:
     """When a catalog product deprecated with a date stops; None when it isn't, or the date can't be read."""
     if product.get("status") != "deprecated":
@@ -431,7 +437,7 @@ def breaking_changes(project: Project, published: list[dict[str, Any]], env: str
 
     Returns (errors, notes): an error blocks the promote; a note says what a new version breaks."""
     me = project_name(project)
-    today = today or dt.date.today()
+    today = today or utc_today()
     errors, notes = [], []
     by_id = {p["id"]: p for p in published}
     for p in project.products.values():
@@ -504,7 +510,7 @@ def deprecated_links(project: Project, published: list[dict[str, Any]],
     """Promote's rule for a project's links: a link to a product deprecated on a date that has come
     blocks the promote; one deprecated with a date still ahead is a note saying when. Runs aren't
     checked here: a running pipeline keeps reading until its team moves it."""
-    today = today or dt.date.today()
+    today = today or utc_today()
     by_id = {p["id"]: p for p in published}
     errors, notes = [], []
     for l in project.links.values():
@@ -512,8 +518,11 @@ def deprecated_links(project: Project, published: list[dict[str, Any]],
         if product.get("status") != "deprecated":
             continue
         stops = _stops(product)
-        if stops is None:
-            notes.append(f"links/{l.alias}: {l.product} is deprecated (its stop date {product.get('deprecated_on') or '?'} "
+        if stops is None and not str(product.get("deprecated_on") or "").strip():
+            notes.append(f"links/{l.alias}: {l.product} is deprecated, with no stop date set yet; "
+                         "ask its owner what replaces it")
+        elif stops is None:
+            notes.append(f"links/{l.alias}: {l.product} is deprecated (its stop date {product['deprecated_on']} "
                          "can't be read); ask its owner what replaces it")
         elif stops <= today:
             errors.append(f"links/{l.alias}: {l.product} was deprecated on {stops.isoformat()} and its owner no longer "

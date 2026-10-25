@@ -756,7 +756,7 @@ class MetaMixin:
             published = self._catalog().call("list_products")  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001 - the promote itself doesn't need the catalog
             return [], [f"couldn't check what other projects read ({exc}); check the products' consumers before promoting"]
-        return mesh.breaking_changes(project, published, target, dt.date.today())
+        return mesh.breaking_changes(project, published, target, mesh.utc_today())
 
     def _deprecation_gate(self, project: Project) -> tuple[list[str], list[str]]:
         """A link to a product deprecated on a date that has come blocks the promote; one with a date
@@ -767,7 +767,7 @@ class MetaMixin:
             published = self._catalog().call("list_products")  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001 - the promote itself doesn't need the catalog
             return [], [f"couldn't check whether the products this project links to are deprecated ({exc})"]
-        return mesh.deprecated_links(project, published, dt.date.today())
+        return mesh.deprecated_links(project, published, mesh.utc_today())
 
     def _product_gate(self, project: Project) -> list[str]:
         """Products other teams read must be documented and owned before they move on."""

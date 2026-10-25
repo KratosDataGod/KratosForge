@@ -36,6 +36,14 @@ _log = logging.getLogger(__name__)
 CATALOG_ENV = "prod"  # domains, glossary and catalog text don't depend on the environment: they live in Prod's
 
 
+def _unknown_argument(exc: Exception) -> bool:
+    """Whether register_link was refused for naming accepts or columns, as a function older than
+    versioned contracts does. The catalog's own accepts refusal is checked on this PC first, so it
+    never gets here; any other refusal is real and is raised."""
+    message = str(exc)
+    return ("accepts" in message or "columns" in message) and "accepts is a version" not in message
+
+
 class PlatformMixin:
     root: Path
 
@@ -1066,6 +1074,8 @@ class PlatformMixin:
         try:
             out = catalog.call("register_link", **kwargs, **extra)
         except core.PlatformError as exc:
+            if not _unknown_argument(exc):
+                raise  # the catalog's own refusal (deprecated, private, not published): never saved without it
             _log.info("register_link with accepts and columns: %s", describe(exc))
             catalog.call("register_link", **kwargs)
             return [repair]

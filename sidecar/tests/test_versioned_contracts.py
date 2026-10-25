@@ -310,7 +310,7 @@ class _OlderFunction:
     def call(self, op, **kw):
         self.calls.append((op, sorted(kw)))
         if op == "register_link" and ({"accepts", "columns"} & set(kw)):
-            raise core.PlatformError("The platform couldn't register link: unexpected arguments")
+            raise core.PlatformError("The platform couldn't register link: unexpected keyword argument 'accepts'")
         out = self.inner.call(op, **kw)
         if op == "register_product":
             out = {k: v for k, v in out.items() if k != "history"}
@@ -330,3 +330,44 @@ def test_an_older_function_still_publishes_and_links_and_says_to_repair(svc, mon
     # A real refusal is still a refusal.
     with pytest.raises(core.PlatformError, match="isn't a published data product"):
         svc.mesh_save_link({"alias": "nope", "product": "crm/nothing", "port": "x", "accepts": "1"})
+
+
+def test_only_an_unknown_argument_is_retried_without_accepts(svc, monkeypatch):
+    calls = []
+
+    class Refusing:
+        def call(self, op, **kw):
+            calls.append(op)
+            raise core.PlatformError("The platform couldn't register link: crm/customers was deprecated on "
+                                     "2026-01-01 and takes no new links.")
+
+    monkeypatch.setattr(svc, "_catalog", lambda: Refusing())
+    with pytest.raises(core.PlatformError, match="takes no new links"):
+        svc.mesh_save_link({"alias": "late", "product": "crm/customers", "port": "customers", "accepts": "1"})
+    assert calls == ["register_link"]  # the catalog's refusal stands: no second call without accepts
+    assert "late" not in svc._project().links
+
+
+def test_two_publishes_in_the_same_microsecond_keep_both_history_rows(platform, monkeypatch):
+    import datetime as real
+    from types import SimpleNamespace
+    fixed = real.datetime(2026, 10, 25, 12, 0, 0, 123456, tzinfo=real.timezone.utc)
+    monkeypatch.setattr(core, "dt", SimpleNamespace(datetime=SimpleNamespace(now=lambda tz=None: fixed),
+                                                    timezone=real.timezone, date=real.date))
+    with platform._db() as db:  # as two PCs publishing at once would: the same port, the same instant
+        core.ensure_contracts(db)
+        assert core._record_port_version(db, "p/x", "main", "dev", "1", {"a": "int"}, "ada")
+        assert core._record_port_version(db, "p/x", "main", "dev", "2", {"a": "int"}, "linus")
+        rows = core._port_versions(db, "p/x")
+    assert len({r["id"] for r in rows}) == 2 and sorted(r["version"] for r in rows) == ["1", "2"]
+
+
+def test_a_deprecated_product_without_a_date_says_none_is_set(tmp_path):
+    from types import SimpleNamespace
+    from fabric_desktop.meta import mesh as m
+    link = m.Link("cust", {"product": "crm/customers", "port": "customers"}, tmp_path / "cust.toml")
+    project = SimpleNamespace(links={"cust": link})
+    _, notes = m.deprecated_links(project, [{"id": "crm/customers", "status": "deprecated", "deprecated_on": ""}])
+    assert notes == ["links/cust: crm/customers is deprecated, with no stop date set yet; ask its owner what replaces it"]
+    _, notes = m.deprecated_links(project, [{"id": "crm/customers", "status": "deprecated", "deprecated_on": "soon"}])
+    assert "its stop date soon can't be read" in notes[0]

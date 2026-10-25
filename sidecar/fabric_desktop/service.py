@@ -64,6 +64,7 @@ from .notebook_resources_service import NotebookResourcesMixin
 from .notebook_files_service import NotebookFilesMixin
 from .notebook_folders_service import NotebookFoldersMixin
 from .notebook_formats_service import NotebookFormatsMixin
+from .sql_templates_service import SqlTemplatesMixin
 from .notebook_versions_service import NotebookVersionsMixin
 from . import notebook_versions
 from .progress_service import ProgressMixin
@@ -93,7 +94,7 @@ def _lakehouse_key(ref: Any) -> Any:
         return ref.get("lakehouse_id") or ref.get("name") or None
     return ref or None
 
-class Service(TrustMixin, AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, RequestsMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin):
+class Service(TrustMixin, AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, RequestsMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, SqlTemplatesMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -991,9 +992,19 @@ class Service(TrustMixin, AccessCacheMixin, NotebookResourcesMixin, PipelineMixi
         return self.notebooks.move(name, place)
 
     def save_notebook(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
-                      compute: str | None = None, workspace: dict[str, str] | None = None) -> dict[str, Any]:
-        """Save the notebook, and say whether it can run on this PC and in Fabric as it now stands."""
-        out = self.notebooks.save(name, cells, lakehouse_ref, compute, workspace)
+                      compute: str | None = None, workspace: dict[str, str] | None = None,
+                      disk_stamp: str | None = None) -> dict[str, Any]:
+        """Save the notebook, and say whether it can run on this PC and in Fabric as it now stands.
+
+        ``disk_stamp`` (from open_notebook or the last save): when another program, such as VS Code,
+        changed the file since, nothing is saved and ``changed_on_disk`` comes back. Both the file's
+        version and these cells are kept under Versions first, so whichever the person picks, or
+        if they pick neither, nothing is lost. ``outside_copy`` is where a file that isn't a
+        notebook any more (Git conflict markers) was copied."""
+        out = self.notebooks.save(name, cells, lakehouse_ref, compute, workspace, disk_stamp)
+        if out.get("changed_on_disk"):
+            copy = self._keep_both_sides(name, cells, lakehouse_ref, compute, workspace, bool(out.get("unreadable")))
+            return out | ({"outside_copy": copy} if copy else {})
         self._keep_version(name)
         return out | {"check": compute_check(cells, lakehouse_ref)}
 

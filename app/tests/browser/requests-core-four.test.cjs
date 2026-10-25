@@ -26,6 +26,10 @@ const requests = [
   { id: "r4", kind: "domain", target: "emea", status: "approved", can_decide: false, requested_by: "lee@contoso.com",
     requested_at: "2026-10-21T12:00:00Z", decided_by: "ana@contoso.com", decided_at: "2026-10-21T13:00:00Z",
     detail: { name: "EMEA", parent_id: "sales", owners: "ana@contoso.com" } },
+  { id: "r5", kind: "domain", target: "apac", status: "waiting", can_decide: true, requested_by: "lee@contoso.com",
+    requested_at: "2026-10-22T13:00:00Z", reason: "", detail: { name: "APAC", parent_id: "sales" } },
+  { id: "r6", kind: "domain", target: "field", status: "waiting", can_decide: true, requested_by: "lee@contoso.com",
+    requested_at: "2026-10-22T14:00:00Z", reason: "", detail: { name: "Field", parent_id: "ops" } },
 ];
 
 before(async () => {
@@ -35,7 +39,8 @@ before(async () => {
     platform_requests: () => requests,
     platform_request: (p) => { sent.push(p); return { id: "new", status: "waiting", ...p }; },
     platform_decide: (p) => { decided.push(p); return { ...requests.find((r) => r.id === p.id), status: "approved", next: ["Put it in the Sales domain in Fabric's admin portal"] }; },
-    platform_domains: () => [{ id: "sales", name: "Sales" }, { id: "emea", name: "EMEA", parent_id: "sales" }],
+    platform_domains: () => [{ id: "sales", name: "Sales", fabric_domain: "f-sales" }, { id: "ops", name: "Ops" },
+      { id: "emea", name: "EMEA", parent_id: "sales" }],
     list_capacities: () => [{ id: CAP, displayName: "Shared F64" }],
     list_workspaces: () => [{ id: "w1", displayName: "Sales Prod" }],
     governance_overview: () => ({ policies: [{ id: "no-pii-in-dev", name: "No PII in Dev", current_version: 1, status: "published" }],
@@ -56,7 +61,7 @@ test("the request rows say what each new kind asks for", { skip }, async () => {
 
 test("How this works names each write an approval makes", { skip }, async () => {
   const text = await page().textContent(".how-it-works");
-  for (const part of ["a workspace in Fabric on its capacity", "a role in a workspace", "a domain saved in the platform",
+  for (const part of ["a workspace in Fabric on its capacity", "a role in a workspace", "a domain created in Fabric and kept in the platform", "needs a Fabric administrator",
     "an exception recorded in the platform", "stays waiting", "no email yet"]) assert.ok(text.includes(part), part);
 });
 
@@ -86,6 +91,25 @@ test("approving workspace access and an exception is confirmed too", { skip }, a
   await page().waitForSelector("text=Grant an exception to No PII in Dev?");
   assert.match(await page().textContent("[role=dialog]"), /Excepted until 2026-11-30.*ends on its own/s);
   await page().click('[role=dialog] >> button:text-is("Cancel")');
+});
+
+test("approving a domain says it is created in Fabric as you, or in the platform only when its parent isn't there", { skip }, async () => {
+  await page().click('tr[data-request="r5"] >> button:text-is("Approve")');
+  await page().waitForSelector("text=Approve the domain APAC?");
+  let text = await page().textContent("[role=dialog]");
+  assert.match(text, /As you, KratosForge creates the subdomain APAC in Fabric, for the whole organization, and keeps it in the platform linked to it/);
+  assert.match(text, /needs a Fabric administrator: if Fabric refuses you, nothing is made and a Fabric administrator can approve it instead, or you can create it in the platform only/);
+  assert.ok(await page().isVisible('[role=dialog] >> button:text-is("Create and approve")'));
+  await page().click('[role=dialog] >> button:text-is("Cancel")');
+  await page().waitForFunction(() => document.querySelector("[role=dialog]") === null);
+  await page().click('tr[data-request="r6"] >> button:text-is("Approve")');
+  await page().waitForSelector("text=Approve the domain Field?");
+  text = await page().textContent("[role=dialog]");
+  assert.match(text, /Ops isn't in Fabric, so its subdomains can't be either\. As you, KratosForge saves the subdomain Field in the platform only/);
+  assert.ok(await page().isVisible('[role=dialog] >> button:text-is("Save and approve")'));
+  await page().click('[role=dialog] >> button:text-is("Cancel")');
+  await page().waitForFunction(() => document.querySelector("[role=dialog]") === null);
+  assert.ok(!decided.some((p) => p.id === "r5" || p.id === "r6"));
 });
 
 test("New request picks the kind, tags the new ones Preview and keeps the older four", { skip }, async () => {

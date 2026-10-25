@@ -763,7 +763,8 @@ def test_service_round_trip(tmp_path):
     layers = proj["layers"] + [{"name": "semantic", "drift": "strict", "required_checks": ["key_unique"]}]
     assert len(call("meta_set_layers", layers=layers)["result"]["layers"]) == 4
     check = call("meta_promote_check", source="dev", target="test")["result"]
-    unreleased = "Test only takes released files: The project folder isn't in a Git repository, so releases can't name a commit."
+    unreleased = ("Test only takes released files: The project folder isn't in a Git repository, so releases can't name "
+                  "a commit. To promote without a pushed commit, set require_commit = false under [test] in environments.toml")
     assert check["errors"] == ["gold.dim_product: has never run in dev",
                                "Pick a Keys workspace for Test first (Data mesh > Design > Surrogate keys)", unreleased]
     call("meta_set_keys_workspace", env="test", workspace_id="ws-keys", workspace_name="Keys - Test")

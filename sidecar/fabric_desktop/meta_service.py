@@ -697,7 +697,11 @@ class MetaMixin:
             return [], []
         cfg = project.environments.get(target, {})
         if cfg.get("require_commit", cfg.get("target", "onelake") != "local"):
-            return [f"{target.title()} only takes released files: {p}" for p in found], []
+            errors = [f"{target.title()} only takes released files: {p}" for p in found]
+            if "require_commit" not in cfg:  # the default, not the team's own choice: say how to go ahead without Git
+                errors[-1] = errors[-1].rstrip(".") + (f". To promote without a pushed commit, set require_commit = false under [{target}] "
+                               "in environments.toml")
+            return errors, []
         return [], [f"The release record can't name a pushed commit that holds these files: {'; '.join(found)}"]
 
     def _duties_gate(self, project: Project, source: str, target: str,

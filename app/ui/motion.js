@@ -48,6 +48,8 @@ const FORGE_EVENTS = {
   "mesh.run.failed": "fail",
   "model.built": "spark",
   "model.build.failed": "fail",
+  "git.op.succeeded": "spark",
+  "git.op.failed": "fail",
   "notebook.saved": "spark",
   "sql.succeeded": "spark",
   "sql.failed": "fail",

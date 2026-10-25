@@ -84,7 +84,11 @@ class ModelOssieMixin:
         """An Ossie file from the project's folder, for Import."""
         project = self._project()  # type: ignore[attr-defined]
         target = self._ossie_path(project, path, (".yaml", ".yml", ".json"))
-        return {"path": target.relative_to(project.root).as_posix(), "text": target.read_text(encoding="utf-8")}
+        if target.stat().st_size > model_ossie.MAX_CHARS * 4:  # UTF-8 is at most 4 bytes a character
+            raise ValueError(f"{path} is too large for an Ossie model")
+        text = target.read_text(encoding="utf-8")
+        model_ossie.parse(text)  # refuse here what Import would refuse, before the UI shows it
+        return {"path": target.relative_to(project.root).as_posix(), "text": text}
 
     def _ossie_import_plan(self, env: str, text: str, name: str, mode: str, remove: list[str] | None,
                            layer: str | None) -> dict[str, Any]:

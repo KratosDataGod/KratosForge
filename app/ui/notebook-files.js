@@ -652,6 +652,7 @@ async function nbEditFromFabric(item) {
 // Resolves to {replace} to go on (replace: true when the person chose to replace Fabric's
 // changes), or null to stop.
 async function nbFabricChangeGate(nb) {
+  if (!(await saveNotebook())) return null;  // saved first, so a file changed outside the app is never published over
   const payload = publishPayload();
   const check = await attempt(() => rpc("notebook_publish_check", { name: payload.name, cells: payload.cells, lakehouse_ref: payload.lakehouse_ref,
     workspace: payload.workspace, location_ref: payload.location_ref }), `Couldn't check whether ${nb.name} changed in Fabric`);

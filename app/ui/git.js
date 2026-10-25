@@ -1161,8 +1161,14 @@ async function gitPlatformDeploy(root) {
   };
   const run = async () => {
     go.disabled = true;
-    const out = await attempt(() => rpc("git_platform_deploy", { repo: root, remove: [...ticked].map((k) => JSON.parse(k)), confirm: plan.plan_id }), "Deploy failed");
-    if (!out) { go.disabled = false; return; }
+    let failed = false;
+    const out = await attempt(() => rpc("git_platform_deploy", { repo: root, remove: [...ticked].map((k) => JSON.parse(k)), confirm: plan.plan_id })
+      .catch((err) => { failed = !friendlyError(err).cancelled; throw err; }), "Deploy failed");
+    if (!out) {
+      go.disabled = false;
+      if (failed) forgeEvent("deploy.failed", document.getElementById("toast"));  // an ember beside the error (motion.js)
+      return;
+    }
     if (out.deployed) {
       closeDialog();
       toast(`Deployed ${out.done.length} step${out.done.length === 1 ? "" : "s"}.`);
@@ -1172,6 +1178,7 @@ async function gitPlatformDeploy(root) {
       const note = `Stopped at ${platformStepText(out.failed, out.labels)}: ${out.message} ${out.done.length} of ${out.total} steps applied; the rest didn't run.`;
       plan = (await rpc("git_platform_deploy", { repo: root, remove: [...ticked].map((k) => JSON.parse(k)) }).catch(() => null)) || { ...out, steps: [] };
       draw(`${note} What is left is below. Fix the file and commit, then deploy again.`);
+      forgeEvent("deploy.failed", body.querySelector(".callout.git-warn"));  // the ember beside where it stopped
       gitPlatformReload();
     } else {
       plan = out;

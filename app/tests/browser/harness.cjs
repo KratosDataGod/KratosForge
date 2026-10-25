@@ -42,6 +42,7 @@ function startEngine() {
         proc.stdin.write(JSON.stringify({ id, method, params }) + "\n");
       });
     },
+    home,
     stop() { proc.kill(); fs.rmSync(home, { recursive: true, force: true }); },
   };
 }
@@ -147,7 +148,7 @@ async function openApp({ mocks = {}, engine = [], storage = {}, viewport = { wid
   await page.goto((csp ? await serveWithCsp(page) : `file://${INDEX}`) + search);
   await page.waitForFunction(() => typeof openSqlQuery === "function");
   return {
-    page, calls, errors, violations,
+    page, calls, errors, violations, engineHome: real?.home,
     async close() { await browser.close(); real?.stop(); },
   };
 }

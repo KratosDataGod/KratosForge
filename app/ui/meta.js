@@ -512,6 +512,8 @@ function dataTable(preview) {
 // ---------- running ----------
 
 async function runEntities(names, opts = {}) {
+  // The button that started it, for the Pulse once the run is confirmed (Run all on the page head otherwise).
+  const trigger = document.activeElement?.closest?.("button");
   const p = state.meta.project;
   let label = names ? names.join(", ") : `all ${p.entities.length} entities`;
   const env = state.meta.env;
@@ -525,13 +527,27 @@ async function runEntities(names, opts = {}) {
   } else {
     toast(`Running ${label} in ${ENV_LABEL[env]}...`);
   }
+  forgeEvent("mesh.run.started", trigger?.isConnected ? trigger : document.querySelector(".page-head .head-actions .tool.primary"));
   const results = await metaCall("meta_run", { names: only, env, backfill: opts.backfill || null, cascade: !!opts.cascade }, "Run blocked");
   if (!results) return;
   if (results[0]?.status === "submitted") return watchMetaFabricRun(results[0], only ? label : "Run all");
   const decision = results.find((r) => r.status === "needs_decision");
   logRunActivity(`${only ? label : "Run all"} · ${ENV_LABEL[env]}`, results, "on this PC", env);
   showRunResults(results, decision);
+  metaRunFx(results, metaResultsHead());
   render();
+}
+
+// One effect for the whole batch (motion.js), never one per table: the Anvil Strike when every table
+// succeeded, the ember when any failed. A batch waiting on a decision plays nothing; so does a stop.
+function metaRunFx(results, anchor) {
+  if (results.some((r) => r.status === "failed")) forgeEvent("mesh.run.failed", anchor);
+  else if (results.length && results.every((r) => r.status === "ok")) forgeEvent("mesh.run.succeeded", anchor);
+}
+
+// The results dialog's heading ("3 of 3 succeeded"), where the batch's effect plays.
+function metaResultsHead() {
+  return document.querySelector("#dialog-root .dialog-head");
 }
 
 // The risk check (FINOPS-004) for the entities in the run, read in one batch, shown as one dialog
@@ -593,12 +609,14 @@ async function watchMetaFabricRun(run, label) {
       logRunActivity(title, res.results, "in Fabric", run.env, id);
       if (here) showRunResults(res.results, res.results.find((r) => r.status === "needs_decision"));
       else toast(`${title} finished in Fabric. The bell has the results.`, false);
+      metaRunFx(res.results, here ? metaResultsHead() : document.getElementById("toast"));
     } else {
       logActivity({ id, status: "failed", text: res.message || `The run ${res.status.toLowerCase()} before it saved any results.` });
       if (here) showDialog(`The Fabric run ${res.status.toLowerCase()}`, h("div", { class: "scroll" },
         h("p", { class: "text" }, res.message || "The runner stopped before it saved any results."),
         h("p", { class: "muted-text" }, "Open it from Monitor to see the notebook's output in Fabric.")),
       [btn("Close", null, closeDialog, "tool primary")]);
+      if (here && res.status === "Failed") forgeEvent("mesh.run.failed", metaResultsHead());
     }
     if (here) render();
     return;

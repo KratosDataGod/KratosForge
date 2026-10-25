@@ -1076,7 +1076,8 @@ test("a failed save says so and keeps the notebook open and dirty", async () => 
   assert.deepStrictEqual(calls, ["save_notebook", "save_notebook", "save_notebook"]);
   assert.ok(toasts.length === 3 && toasts.every(([t, err]) => err && t.includes("disk full")));
   // Ctrl+S and closing the notebook use the result.
-  assert.match(src, /saveNotebook\(\)\.then\(\(ok\) => \{ if \(ok\) toast\("Saved"\); \}\)/);
+  assert.match(src, /saveExplicitly\(\(\) => \{ toast\("Saved"\);/);
+  assert.match(src, /const el = ok \? anchor\(\) : null;/, "Ctrl+S says Saved when the save failed");
   assert.match(src, /state\.notebook\?\.dirty && !\(await saveNotebook\(\)\)\) return false;/);
   assert.match(src, /if \(await onClose\(\) === false\) return;/);
   // A save that works still clears dirty.

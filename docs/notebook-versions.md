@@ -9,6 +9,8 @@ On the notebook's **Home** tab, select **Versions**. The list shows the notebook
 - **Saved:** each save keeps a version. Autosave saves a few seconds after you stop typing, so the saves within 5 minutes of each other share one version, the newest. A save that changes nothing keeps nothing. Saved versions are kept for 30 days, up to 100 per notebook.
 - **Checkpoint:** **Create checkpoint…** keeps the notebook as it is now under a name you give it, such as "Before the refactor". Checkpoints are kept until you delete them.
 - **Before a restore:** what the notebook was just before you restored another version. Restore keeps it automatically.
+- **Changed outside the app:** the notebook as another program, such as VS Code or a Git pull, saved it, kept when KratosForge found the change before saving.
+- **Not saved (changed outside):** your edits from that moment, which weren't saved over the other program's change. See [Edit the same notebook in VS Code or another program](notebook-files.md#edit-the-same-notebook-in-vs-code-or-another-program).
 
 The command bar (Ctrl+K) also finds **Version history** and **Create a checkpoint**.
 

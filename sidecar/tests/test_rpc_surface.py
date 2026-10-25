@@ -131,7 +131,6 @@ NO_UI_CALLER: dict[str, str] = {
     "meta_diff": _QA017,
     "meta_preview": _QA017,
     "notebook_diff": _QA017,
-    "platform_revoke": _QA017,
     "platform_sources": _QA017,
     "workload_actions": _QA017,
 }

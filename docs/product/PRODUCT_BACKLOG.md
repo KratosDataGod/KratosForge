@@ -90,7 +90,7 @@ review moves it to Accepted; a merge alone does neither.
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
 | [PB-012](#pb-012) | Published Spark API compatibility matrix for this PC | P1 | Prove | M | In review |
-| [PB-013](#pb-013) | Fix local-parity defects that give wrong answers | P1 | Master product (unassigned) | M | Proposed |
+| [PB-013](#pb-013) | Fix local-parity defects that give wrong answers | P1 | Master product (unassigned) | M | In review |
 | [PB-014](#pb-014) | AST-based compatibility analyzer with an Unknown outcome | P1 | Prove | M | Proposed |
 | [PB-015](#pb-015) | Write semantics for MERGE, UPDATE and DELETE on this PC | P2 | Prove | L | Proposed |
 | [PB-016](#pb-016) | Reproducible environments and Fabric Environment items | P2 | Prove | L | Proposed |
@@ -114,15 +114,16 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-013
 
-**Fix local-parity defects that give wrong answers** · P1 (score 2.56) · M · confidence High · Proposed
+**Fix local-parity defects that give wrong answers** · P1 (score 2.56) · M · confidence High · In review
 
 - **Problem:** Several local behaviors differ silently from Fabric or from the app's own UI: a notebook using variableLibrary is flagged Fabric-only, %%sql MERGE cells report ok, notebookutils.session is missing though documented, insertInto defaults to errorifexists, and scheduled runs execute frozen cells that UI runs skip.
 - **Proposed capability:** Each defect fixed or turned into an explicit, visible refusal, with a regression test per defect.
-- **Current-state evidence:** fabric_run.py _FABRIC_ONLY includes notebookutils.variableLibrary; notebook.py %%sql MERGE path prints a note and returns ok; notebookutils_local.py docstring names session; attribute absent; local_schedules.py runs all cells; notebook.js skips frozen cells (inference from code reading); Re-checked 2026-10-25: four of five defects fixed on main; only the Fabric-only message for session, warehouse and connections is left (pr-ready/PB-013.md)
+- **Current-state evidence:** fabric_run.py _FABRIC_ONLY includes notebookutils.variableLibrary; notebook.py %%sql MERGE path prints a note and returns ok; notebookutils_local.py docstring names session; attribute absent; local_schedules.py runs all cells; notebook.js skips frozen cells (inference from code reading); Re-checked 2026-10-25: all five defects are fixed on main (pr-ready/PB-013.md)
 - **Inventory features:** [FEAT-NB-04](FEATURE_INVENTORY.md#feat-nb-04), [FEAT-NB-05](FEATURE_INVENTORY.md#feat-nb-05), [FEAT-NB-07](FEATURE_INVENTORY.md#feat-nb-07), [FEAT-SQL-02](FEATURE_INVENTORY.md#feat-sql-02), [FEAT-ORC-01](FEATURE_INVENTORY.md#feat-orc-01)
 - **Dependencies:** none
 - **Owner:** Master product (unassigned) (FD-111 (analyzer is separate, PB-014))
 - **Mandatory (required):** Wrong-answer defects in local execution undermine the core promise and the rule that local results are never claimed equivalent without proof.
+- **Pull requests:** [#410](https://github.com/KratosDataGod/KratosForge/pull/410)
 - **Implementation package:** [pr-ready/PB-013.md](pr-ready/PB-013.md)
 - **Acceptance criteria:**
     - compute_check reports a variableLibrary notebook as able to run on the PC

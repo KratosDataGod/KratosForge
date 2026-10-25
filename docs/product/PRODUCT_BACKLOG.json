@@ -530,7 +530,7 @@
         "notebook.py %%sql MERGE path prints a note and returns ok",
         "notebookutils_local.py docstring names session; attribute absent",
         "local_schedules.py runs all cells; notebook.js skips frozen cells (inference from code reading)",
-        "Re-checked 2026-10-25: four of five defects fixed on main; only the Fabric-only message for session, warehouse and connections is left (pr-ready/PB-013.md)"
+        "Re-checked 2026-10-25: all five defects are fixed on main (pr-ready/PB-013.md)"
       ],
       "features": [
         "FEAT-NB-04",
@@ -561,7 +561,7 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In review",
       "mandatory_reason": "Wrong-answer defects in local execution undermine the core promise and the rule that local results are never claimed equivalent without proof.",
       "package": "docs/product/pr-ready/PB-013.md",
       "computed": {
@@ -569,7 +569,10 @@
         "cost": 2.0,
         "score": 2.56,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        410
+      ]
     },
     {
       "id": "PB-014",

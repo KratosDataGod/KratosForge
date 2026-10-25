@@ -10,7 +10,7 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
 - 86 PRs merged from #561 to #650 in about 40 hours, so roughly 40 a day from 22 to 24 October.
 - Inventory: 140 features. 115 are Implemented, 11 Partially Implemented, 6 Implemented but Not Exposed, 4 Missing and 4 Planned.
   3 are Verified, 124 Partially Verified and 13 Unverified. None has been verified on a Fabric tenant.
-- Backlog: 98 items (5 P0, 31 P1, 49 P2, 13 P3). 54 are Proposed, 9 In progress, 35 In review and none Accepted:
+- Backlog: 98 items (5 P0, 31 P1, 49 P2, 13 P3). 53 are Proposed, 9 In progress, 36 In review and none Accepted:
   merged work waits on the [implementation review](IMPLEMENTATION_REVIEW_PROCESS.md).
 - CI run 2235 passed every job on main at 524e6a3.
 

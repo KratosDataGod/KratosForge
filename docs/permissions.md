@@ -179,7 +179,9 @@ Each connected tool gets some of these categories, in alphabetical order:
 | `WRITE_LOCAL_FILES` | Create and change notebooks in the notebook folder on the PC | Offered; asks first unless pre-approved |
 | `WRITE_ONELAKE` | Write tables and files in OneLake | Not offered |
 
-Policy keys `integrations`, `integrations_http`, `integrations_max_permissions` and `integrations_extensions` ([azure-setup.md](azure-setup.md#4-push-settings-to-everyone)) turn integrations off, cap the categories or limit which extensions can be turned on. Extensions add capabilities in these same categories; they add no new ones. The threat model is in [ai-integration-security.md](product/ai-integration-security.md).
+Policy keys `integrations`, `integrations_http`, `integrations_editors`, `integrations_max_permissions` and `integrations_extensions` ([azure-setup.md](azure-setup.md#4-push-settings-to-everyone)) turn integrations off, cap the categories or limit which extensions can be turned on. Extensions add capabilities in these same categories; they add no new ones. The threat model is in [ai-integration-security.md](product/ai-integration-security.md).
+
+A paired VS Code window ([Run cells from VS Code](vscode.md#run-cells-from-vs-code)) runs cells as you, with your sign-in, in notebooks inside the folder it paired from. The OneLake write question it gets is a guard rail, not a control; `integrations_editors: false` is the control, and it ends every pairing at the next call.
 
 ## Keeping this page right
 

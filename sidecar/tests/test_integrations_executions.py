@@ -166,9 +166,9 @@ def test_python_gets_only_an_allowlisted_environment(svc, monkeypatch):
     assert "FABRIC_DESKTOP_TEST_SECRET" not in names and "PATH" in names
     from fabric_desktop.kernel_proc import EXTERNAL_ENV_ALLOW, EXTERNAL_ENV_PREFIXES, EXTERNAL_ENV_SET
     allowed = {n.upper() for n in EXTERNAL_ENV_ALLOW} | set(EXTERNAL_ENV_SET)
-    # Set inside the kernel by its own imports (notebook.py's matplotlib backend, polars' allocator),
-    # in the engine too, so they show up on both sides without being passed down.
-    set_by_imports = {"MPLBACKEND", "_RJEM_MALLOC_CONF"}
+    # Set inside the kernel by its own imports (notebook.py's matplotlib backend, polars' allocator,
+    # onelake.py's upload limits), in the engine too, so they show up on both sides without being passed down.
+    set_by_imports = {"MPLBACKEND", "_RJEM_MALLOC_CONF", "DELTARS_MAX_CONCURRENCY_TASKS", "DELTARS_MAX_IN_FLIGHT_UPLOAD_BYTES"}
     from_parent = [n for n in names if n in os.environ and n not in set_by_imports]
     leaked = [n for n in from_parent if n.upper() not in allowed and not n.upper().startswith(EXTERNAL_ENV_PREFIXES)]
     assert leaked == []

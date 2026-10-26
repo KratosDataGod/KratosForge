@@ -2,8 +2,18 @@
 
 Each session is its own in-memory database, so nothing one notebook creates is visible to another
 and closing the session frees everything. A session can also open an existing DuckDB or SQLite
-file as its database, always read-only. (SQL the person writes, such as COPY ... TO or ATTACH, works
-with files as that engine allows, as it would anywhere else.)
+file as its database, always read-only.
+
+A session never reaches past its own database (the same refusals the SQL page makes, sql_policy):
+
+- DuckDB refuses COPY, EXPORT, ATTACH, INSTALL, LOAD and the other statements sql_policy classes as
+  changing something outside the run, before anything runs. Its connection also has external access
+  turned off, so no statement can read or write a file on this PC, load an extension or reach the
+  network, whatever the classifier makes of it.
+- SQLite refuses ATTACH and DETACH (an authorizer on the connection), so a cell can't create or open
+  another database file; Python's sqlite3 already refuses loading extensions.
+- Polars has no statement that writes outside the session. Its read_parquet and read_csv read files
+  the person names; they never change one.
 
 The result of the last statement comes back as a table (the first ``preview_rows`` rows, with the
 exact total counted by reading the rest in batches), the same shape the notebook already shows.
@@ -162,8 +172,35 @@ DUCKDB = EngineDescriptor(
     },
     requirements=("duckdb (ships with KratosForge)",),
     limitations=("Not Fabric's or Databricks' Spark: results can differ where engines differ (use Prove to compare).",
-                 "A database file the session opens is read-only."),
+                 "A database file the session opens is read-only.",
+                 "No files on this PC, extensions or network: COPY, ATTACH, INSTALL and LOAD are refused."),
 )
+
+
+# A DuckDB session reads and writes only its own database: no files, extensions or network.
+_DUCKDB_CLOSED = {"enable_external_access": False, "autoinstall_known_extensions": False,
+                  "autoload_known_extensions": False}
+
+
+class OutsideSession(PermissionError):
+    """A statement would change something outside the session's own database."""
+
+
+def _refuse_outside(code: str, dialect: str | None) -> None:
+    """Refuse COPY, ATTACH, INSTALL and the rest before anything runs (sql_policy's fabric_mutation).
+
+    A cell sqlglot can't read is left to DuckDB, whose closed connection still can't reach outside."""
+    from .. import sql, sql_policy
+    try:
+        statements = sql.parse(code, dialect or "duckdb")
+    except ValueError:
+        return
+    for verdict in sql_policy.classify(statements, "lakehouse"):
+        if verdict.kind == "fabric_mutation":
+            word = (statements[verdict.statement - 1].sql(dialect="duckdb").split(None, 1) or ["This"])[0].upper()
+            raise OutsideSession(f"{word} isn't allowed in a DuckDB engine session (statement {verdict.statement}). "
+                                 "A session reads and writes only its own tables, never files, extensions or other "
+                                 "databases.")
 
 
 class DuckDBSession(_SqlSession):
@@ -172,10 +209,8 @@ class DuckDBSession(_SqlSession):
     def __init__(self, config: SessionConfig) -> None:
         super().__init__(config)
         import duckdb
-        if config.database:
-            self._con = duckdb.connect(str(Path(config.database)), read_only=True)
-        else:
-            self._con = duckdb.connect(":memory:")
+        target = str(Path(config.database)) if config.database else ":memory:"
+        self._con = duckdb.connect(target, read_only=bool(config.database), config=dict(_DUCKDB_CLOSED))
 
     def _sql(self, code: str, dialect: str | None) -> str:
         if (dialect or "duckdb") == "duckdb":
@@ -186,6 +221,7 @@ class DuckDBSession(_SqlSession):
         return ";\n".join(s.sql(dialect="duckdb") for s in sql.parse(code, "spark"))
 
     def _run(self, request: CellRequest) -> tuple[pa.Table | None, int]:
+        _refuse_outside(request.code, request.dialect)
         cur = self._con.execute(self._sql(request.code, request.dialect))
         if cur.description is None:
             return None, 0
@@ -197,6 +233,7 @@ class DuckDBSession(_SqlSession):
 
     def plan(self, code: str, dialect: str | None = None) -> str:
         self._check_open()
+        _refuse_outside(code, dialect)
         rows = self._con.execute("EXPLAIN " + self._sql(code, dialect)).fetchall()
         return "\n".join(str(r[-1]) for r in rows)
 
@@ -239,7 +276,8 @@ SQLITE = EngineDescriptor(
         "compat": Support("native", "The language and dialect are checked before running.", _T),
     },
     requirements=("Python's sqlite3 (built in)",),
-    limitations=("SQLite's types and functions are not Spark's or T-SQL's.", "A database file the session opens is read-only."),
+    limitations=("SQLite's types and functions are not Spark's or T-SQL's.", "A database file the session opens is read-only.",
+                 "ATTACH and DETACH are refused."),
 )
 
 
@@ -260,6 +298,11 @@ def _statements(code: str) -> list[str]:
     return [s for s in out if s.strip(" ;\n\t")]
 
 
+def _sqlite_authorizer(action: int, *_args: Any) -> int:
+    """ATTACH and DETACH would open or create another database file; everything else is the session's own."""
+    return sqlite3.SQLITE_DENY if action in (sqlite3.SQLITE_ATTACH, sqlite3.SQLITE_DETACH) else sqlite3.SQLITE_OK
+
+
 class SQLiteSession(_SqlSession):
     engine = SQLITE.id
 
@@ -270,6 +313,7 @@ class SQLiteSession(_SqlSession):
             self._con = sqlite3.connect(uri, uri=True, check_same_thread=False)
         else:
             self._con = sqlite3.connect(":memory:", check_same_thread=False)
+        self._con.set_authorizer(_sqlite_authorizer)
 
     def _run(self, request: CellRequest) -> tuple[pa.Table | None, int]:
         if (request.dialect or "sqlite") != "sqlite":

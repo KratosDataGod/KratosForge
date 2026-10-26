@@ -72,15 +72,15 @@ _DEFINES = re.compile(r"^\s*(?:CREATE|ALTER|CREATE\s+OR\s+ALTER)\s+(PROC|PROCEDU
 # quoted names unwrapped, so [sys].[sp_executesql] is still sp_executesql.
 _TRANSACTION = "the run is one transaction the app commits: leave out BEGIN TRAN, COMMIT and ROLLBACK"
 _PERMISSIONS = "permissions, roles and users are managed in Fabric"
-_AS_NAME = "; a column or table with that name is written in brackets, such as [{}]"
+_AS_NAME = "; a column or table with that name is written in brackets, such as [{}]"  # {}: the word found
 _DYNAMIC = "it runs SQL made from text, which can't be checked before it runs"
 _NEVER_WORDS = [(re.compile(p, re.IGNORECASE), why) for p, why in (
     (r"\b(?:BEGIN\s+TRAN(?:SACTION)?|BEGIN\s+DISTRIBUTED|COMMIT|ROLLBACK|SAVE\s+TRAN(?:SACTION)?)\b", _TRANSACTION),
     (r"\bEXEC(?:UTE)?\s*\(|\bEXEC(?:UTE)?\s+(?:@\w+\s*=\s*)?@\w+\b(?!\s*=)", _DYNAMIC),
     (r"\bEXEC(?:UTE)?\s+AS\b|\bREVERT\b|\bSETUSER\b", "it runs as someone else; it runs as you"),
-    (r"\b(?:GRANT|REVOKE|DENY|AUTHORIZATION)\b", _PERMISSIONS + _AS_NAME.format("Grant")),
+    (r"\b(?:GRANT|REVOKE|DENY|AUTHORIZATION)\b", _PERMISSIONS + _AS_NAME),
     (r"\b(?:CREATE|ALTER|DROP)\s+(?:ROLE|USER|LOGIN|APPLICATION\s+ROLE)\b", _PERMISSIONS),
-    (r"\bUSE\b", "USE switches to another database: open that warehouse instead" + _AS_NAME.format("Use")),
+    (r"\bUSE\b", "USE switches to another database: open that warehouse instead" + _AS_NAME),
     (r"\bCOPY\s+INTO\b", "COPY INTO loads files, which comes with loading data"),
     (r"\b(?:CREATE|ALTER|DROP)\s+DATABASE\b", "a database is created, changed or removed in Fabric"),
 )]
@@ -190,7 +190,7 @@ def _change_verdicts(query: str) -> list[sql_policy.Verdict]:
         if outside:
             out.append(sql_policy.Verdict(n, "fabric_mutation", f"{outside.upper()} reads outside the warehouse"))
             continue
-        never = next((why for rule, why in _NEVER_WORDS if rule.search(bare)), "") or next(
+        never = next((why.format(m.group().capitalize()) for rule, why in _NEVER_WORDS if (m := rule.search(bare))), "") or next(
             (why for rule, why in _NEVER_NAMES if rule.search(names)), "")
         if never:
             out.append(sql_policy.Verdict(n, "fabric_mutation", never))

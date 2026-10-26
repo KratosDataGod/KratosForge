@@ -1091,10 +1091,13 @@ function rememberWrite(row, target) {
   } catch { /* not remembered */ }
 }
 
+// Whether Home shows Ready to work: until someone hides it.
+function readinessShown() {
+  try { return localStorage.getItem("fd.ready.hidden") !== "1"; } catch { return true; }
+}
+
 function readinessCard() {
-  let hidden = false;
-  try { hidden = localStorage.getItem("fd.ready.hidden") === "1"; } catch { /* shown */ }
-  if (hidden) return null;
+  if (!readinessShown()) return null;
   const box = h("section", { class: "card pad ready", "aria-labelledby": "ready-title" });
   let writeRow = null;
   try { writeRow = savedWriteRow(JSON.parse(localStorage.getItem("fd.ready.write") || "null"), state.user, state.tenant || null); } catch { /* ask again */ }
@@ -1150,11 +1153,12 @@ function getStarted(project, notebookCount) {
   try { hidden = localStorage.getItem("fd.getstarted.hidden") === "1"; } catch { /* shown */ }
   if (hidden || project?.path) return null;
   const steps = [
-    [!!state.user, "Sign in with your work account", "So the app can see your Fabric workspaces.", () => signIn().then((ok) => ok && render())],
+    // Signing in is asked once on Home: by Ready to work while it shows, else here.
+    readinessShown() ? null : [!!state.user, "Sign in with your work account", "So the app can see your Fabric workspaces.", () => signIn().then((ok) => ok && render())],
     [done("lakehouse"), "Open a lakehouse", "Browse its tables and files, or query them with SQL.", () => go("onelake")],
     [notebookCount > 0, "Run a notebook on this PC", "Python and Spark-style code, run on your own processor.", () => newNotebook()],
     [false, "Set up a metadata project", "Describe your medallion tables once and let KratosForge build and run them.", () => go("metadata")],
-  ];
+  ].filter(Boolean);
   const box = h("section", { class: "card pad get-started" },
     h("div", { class: "row" }, h("h2", { class: "grow" }, "Get started"),
       btn("Hide", null, () => { try { localStorage.setItem("fd.getstarted.hidden", "1"); } catch { /* */ } box.remove(); }, "tool link small")),

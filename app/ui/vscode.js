@@ -126,3 +126,103 @@ async function listenForLinks() {
   if (pending) showLink(JSON.parse(pending));
 }
 
+
+// Run cells from VS Code (editor_service.py, docs/vscode.md): a VS Code window asks to pair, the
+// person pairs it here, and its cells then run in each notebook's own session on this PC without
+// asking each time. Writing to OneLake from such a cell still asks here, every time.
+
+const editorPair = { status: null, shown: new Set(), watching: false, timer: 0 };
+const KEEP_LABEL = { session: "Until KratosForge closes", "8h": "8 hours", "7d": "7 days" };
+
+function vscodeRunCard(status, refresh) {
+  const toggle = h("label", { class: "switch" },
+    h("input", { type: "checkbox", checked: status.enabled ? true : null, disabled: status.blocked ? true : null,
+      "aria-label": "Let VS Code run notebooks",
+      onchange: async (e) => {
+        const res = await attempt(() => rpc("editor_set_enabled", { enabled: e.target.checked }), "Not changed");
+        if (res) toast(res.enabled ? "VS Code windows can ask to pair" : "VS Code can't run notebooks here now. Every pairing ended.");
+        refresh();
+        watchEditorRequests();
+      } }), h("span", {}, status.enabled ? "On" : "Off"));
+  const end = async (p) => {
+    if (await attempt(() => rpc("editor_end_pairing", { pairing_id: p.id }), "Couldn't end it")) toast(`${p.window} isn't paired any more`);
+    refresh();
+  };
+  const rows = status.pairings || [];
+  return h("section", { class: "card pad" },
+    h("div", { class: "row" }, h("h2", {}, "VS Code"), previewTag()),
+    settingRow("Let VS Code run notebooks",
+      status.blocked || "A VS Code window you pair runs cells in each notebook's own session on this PC, without asking each time. Writing to OneLake still asks here, every time.",
+      toggle, status.blocked ? "policy" : null),
+    status.enabled ? (rows.length
+      ? h("table", { class: "list" },
+        h("thead", {}, h("tr", {}, h("th", {}, "Paired window"), h("th", {}, "Kept"), h("th", {}, "Last used"), h("th", {}, ""))),
+        h("tbody", {}, rows.map((p) => h("tr", {},
+          h("td", {}, h("code", {}, p.window), h("div", { class: "muted-text small" }, p.client)),
+          h("td", {}, p.expires ? `Until ${new Date(p.expires * 1000).toLocaleString()}` : KEEP_LABEL.session),
+          h("td", {}, p.last_used ? integWhen(p.last_used) : "Not yet"),
+          h("td", { class: "n" }, btn("End", null, () => end(p), "tool outline small", { "aria-label": `End pairing with ${p.window}` }))))))
+      : h("p", { class: "muted-text" }, "No VS Code window is paired. In VS Code, pick KratosForge as a notebook's kernel to pair it.")) : null,
+    h("p", { class: "muted-text small" }, "AI tools such as Copilot still ask before every run; pairing is only for the notebooks you run yourself. Every run from VS Code is in the audit trail. ",
+      learnMore("run-cells-from-vs-code")));
+}
+
+function pairingDialog(req) {
+  const keep = h("select", { "aria-label": "Keep this pairing for" },
+    Object.entries(KEEP_LABEL).map(([v, label]) => h("option", { value: v }, v === "session" ? "until KratosForge closes" : label)));
+  const answer = async (approve) => {
+    closeDialog();
+    const res = await attempt(() => rpc("editor_decide_pairing", { request_id: req.id, approve, keep: keep.value }), "Couldn't answer");
+    if (res) toast(approve ? `Paired ${req.window}. Its cells run here now.` : "Denied. That VS Code window isn't paired.");
+  };
+  const list = (title, items) => h("div", { class: "editor-pair-list" }, h("b", {}, title), h("ul", {}, items.map((t) => h("li", {}, t))));
+  showDialog("Let VS Code run notebooks on this PC?", h("div", { class: "scroll editor-pair" },
+    h("dl", { class: "about" },
+      h("dt", {}, "Asked by"), h("dd", {}, req.client, h("span", { class: "muted-text small" }, " (as it names itself)")),
+      h("dt", {}, "Window"), h("dd", {}, h("code", {}, req.window)),
+      h("dt", {}, "Pairing code"), h("dd", {}, h("code", { class: "editor-pair-code" }, req.code))),
+    h("p", { class: "muted-text small" }, "Check VS Code shows the same code. If you didn't just pick KratosForge in VS Code, deny."),
+    h("div", { class: "editor-pair-lists" },
+      list("Without asking again", ["Run cells on this PC in each notebook's own session, as you", "Read lakehouse tables the notebook can open", "Show results, variables and errors"]),
+      list("Still asks you here, every time", ["Write tables or files to OneLake", "Publish to Fabric and Run in Fabric are done here, not from VS Code"])),
+    h("label", { class: "row" }, "Keep this pairing ", keep),
+    h("p", { class: "muted-text small" }, "AI tools such as Copilot still ask before every run. Paired windows are listed in Settings > Integrations, where you can end them.")),
+  [btn("Deny", null, () => answer(false), "tool outline"), h("span", { class: "spacer" }), btn("Pair this window", null, () => answer(true), "tool primary")]);
+}
+
+function writeDialog(ask) {
+  const answer = async (approve) => {
+    closeDialog();
+    await attempt(() => rpc("editor_decide_write", { ask_id: ask.id, approve }), "Couldn't answer");
+  };
+  showDialog("VS Code wants to write to OneLake", h("div", {},
+    h("p", {}, "A cell in ", h("b", {}, ask.notebook), ", run from the VS Code window ", h("code", {}, ask.window), ", writes ", h("code", {}, ask.target), "."),
+    h("p", { class: "muted-text small" }, "Allow once lets this cell write that table or file. The cell waits up to 5 minutes for your answer.")),
+  [btn("Deny", null, () => answer(false), "tool outline"), h("span", { class: "spacer" }), btn("Allow once", null, () => answer(true), "tool primary")]);
+}
+
+// Polls while VS Code may pair, from any page: a request shows over whatever the person is doing.
+async function watchEditorRequests() {
+  if (editorPair.watching) return;
+  editorPair.watching = true;
+  let wait = 30000;
+  try {
+    const res = await rpc("editor_pending");
+    wait = res.enabled ? 2000 : 30000;
+    const fresh = [...res.pairing.map((r) => ["pair", r]), ...res.writes.map((w) => ["write", w])].filter(([, r]) => !editorPair.shown.has(r.id));
+    if (fresh.length) {
+      const [kind, r] = fresh[0];
+      if (document.getElementById("dialog-root")?.children.length) {
+        toast(kind === "pair" ? "A VS Code window is asking to pair. Close this dialog to answer." : "VS Code is waiting to write to OneLake. Close this dialog to answer.", false, { log: true });
+      } else {
+        editorPair.shown.add(r.id);
+        (kind === "pair" ? pairingDialog : writeDialog)(r);
+      }
+    }
+  } catch { /* the engine isn't up yet */ }
+  editorPair.watching = false;
+  clearTimeout(editorPair.timer);
+  editorPair.timer = setTimeout(watchEditorRequests, wait);
+}
+
+setTimeout(watchEditorRequests, 5000);

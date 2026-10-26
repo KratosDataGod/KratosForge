@@ -1441,7 +1441,7 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/duties.py`, `sidecar/fabric_desktop/meta_service.py`
 - **Tests:** `sidecar/tests/test_duties.py`
 - **Docs:** [docs/metadata-guide.md](../metadata-guide.md)
-- **Known limitations:** Not a security boundary. Group roles become notes. separate_promoter treats a matching Entra object id or PC login name as the same person (HD-030); it can be switched off in environments.toml.
+- **Known limitations:** Not a security boundary. Group roles become notes. separate_promoter treats a matching Entra object id or PC login name as the same person (HD-030); environments.toml can switch it off unless the policy file's separate_promoter_envs requires it.
 - **Pull requests and issues:** [#93](https://github.com/KratosDataGod/KratosForge/pull/93)
 - **Owning workstream:** Enterprise readiness (FD-130)
 - **Backlog:** [PB-065](PRODUCT_BACKLOG.md#pb-065)

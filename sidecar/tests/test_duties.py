@@ -1,8 +1,10 @@
 """FD-130: workspace roles before a promote writes to Test or Prod, and a separate promoter for Prod."""
 
+import json
+
 import pytest
 
-from fabric_desktop import duties
+from fabric_desktop import app_settings, duties
 from fabric_desktop.meta.project import GateError
 from fabric_desktop.service import Service
 
@@ -157,3 +159,23 @@ def test_promote_checks_roles_in_every_target_workspace(svc, monkeypatch):
     errors, notes = svc._duties_gate(svc._project(), "test", "prod")
     assert errors == [] and len(notes) == 2
     assert svc._duties_gate(svc._project(), "dev", "test") == ([], [])  # Test is on this PC
+
+
+def test_the_organizations_policy_requires_a_separate_promoter_whatever_the_project_says(svc, monkeypatch, tmp_path):
+    policy = tmp_path / "policy.json"
+    monkeypatch.setattr(app_settings, "policy_path", lambda: policy)
+    monkeypatch.setattr(duties, "current_user", lambda: "pat")
+    monkeypatch.setattr("fabric_desktop.meta.release._user", lambda: "pat")
+    project = svc._project()
+    envs = {k: dict(v) for k, v in project.environments.items()}
+    envs["prod"]["separate_promoter"] = False  # the project turns it off ...
+    svc._write_environments(project, envs)
+    svc.meta_promote("dev", "test")
+    assert not any("someone else" in e for e in svc.meta_promote_check("test", "prod")["errors"])
+    policy.write_text(json.dumps({"separate_promoter_envs": ["Prod"]}))  # ... the organization doesn't
+    errors = svc.meta_promote_check("test", "prod")["errors"]
+    assert any("someone else" in e and "your organization's policy" in e for e in errors)
+    with pytest.raises(GateError, match="someone else"):
+        svc.meta_promote("test", "prod")
+    monkeypatch.setattr(duties, "current_user", lambda: "ann")
+    assert not any("someone else" in e for e in svc.meta_promote_check("test", "prod")["errors"])

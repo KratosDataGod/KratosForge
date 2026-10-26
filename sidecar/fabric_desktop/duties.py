@@ -49,9 +49,11 @@ def role_problems(workspace: str, assignments: list[dict[str, Any]] | None, me: 
 
 
 def separation_problem(source_env: str, target_env: str, version: Any, promoted_by: str | None,
-                       me: str | None, promoted_by_id: str | None = None, my_id: str | None = None) -> str | None:
-    """With ``separate_promoter = true`` on the target environment: whoever promoted ``version``
-    to ``source_env`` may not also promote it to ``target_env``.
+                       me: str | None, promoted_by_id: str | None = None, my_id: str | None = None,
+                       rule: str = "separate_promoter in environments.toml") -> str | None:
+    """With ``separate_promoter = true`` on the target environment (or the organization's
+    ``separate_promoter_envs`` naming it, see ``rule``): whoever promoted ``version`` to
+    ``source_env`` may not also promote it to ``target_env``.
 
     It's the same person when the Microsoft Entra object ids match (the release record's and the
     signed-in one's, EP-5), which catches one person with two PC logins, or when the PC login names
@@ -67,7 +69,7 @@ def separation_problem(source_env: str, target_env: str, version: Any, promoted_
     same_login = bool(me) and promoted_by.lower() == me.lower()  # type: ignore[union-attr]
     if same_id or same_login:
         return (f"You promoted metadata {version} to {source_env.title()}, so someone else has to promote it to "
-                f"{target_env.title()} (separate_promoter in environments.toml).")
+                f"{target_env.title()} ({rule}).")
     return None
 
 

@@ -95,6 +95,9 @@ Keys:
                      sign-in, e.g. ["adfs.contoso.com"] (default: none)
     register_link_scheme  IT only, read by the shell: false stops the app registering kratosforge://
                      links for the Windows user, and removes a registration it made (default true)
+    separate_promoter_envs  IT only: environments, such as ["prod"], where whoever promoted a metadata
+                     version to the environment before can't also promote it there, whatever the
+                     project's environments.toml says (default: none, so environments.toml decides)
 
 The same file also holds the integrations_* and receipt_redactions keys; integrations/policy.py
 reads them through read_policy() here, so both read the file by the same rules.
@@ -155,6 +158,10 @@ SQL_RANGES: dict[str, tuple[int, int]] = {"sql_page_rows": (100, 10_000), "sql_t
 DEFAULTS.update({"sql_page_rows": 1000, "sql_time_limit_minutes": 10, "sql_memory_limit_percent": 60,
                  "sql_max_concurrent": 2, "sql_temp_dir": "", "sql_result_retention_hours": 24})
 DEFAULTS["sql_warehouse_writes"] = True
+# Separation of duties for metadata promotes (HD-030, duties.py): the organization's switch, which a
+# project's environments.toml can add to but not turn off.
+DEFAULTS["separate_promoter_envs"] = []
+TYPES["separate_promoter_envs"] = list
 TYPES.update({key: int for key in SQL_RANGES} | {"sql_temp_dir": str, "sql_warehouse_writes": bool})
 USER_KEYS += (*SQL_RANGES, "sql_temp_dir", "sql_warehouse_writes")
 
@@ -194,7 +201,8 @@ NO_TENANT = "00000000-0000-0000-0000-000000000000"
 # The restrictions among DEFAULTS, and the value each takes when the policy file or that key can't
 # be read. Updates (auto_update, channel) are enforced by the shell, which reads the file itself.
 RESTRICTED: dict[str, Any] = {"allow_fabric_runs": False, "allowed_tenants": [NO_TENANT], "show_preview": False,
-                              "telemetry": False, "sql_warehouse_writes": False}
+                              "telemetry": False, "sql_warehouse_writes": False,
+                              "separate_promoter_envs": ["test", "prod"]}
 
 
 def policy_path() -> Path:
@@ -292,7 +300,8 @@ def _restricted(key: str, policy: dict[str, Any], error: str | None) -> bool:
     if key not in policy:
         return False
     v = policy[key]
-    return not _typed(key, v) or (key == "allowed_tenants" and not all(isinstance(t, str) for t in v))
+    return not _typed(key, v) or (key in ("allowed_tenants", "separate_promoter_envs")
+                                   and not all(isinstance(t, str) for t in v))
 
 
 def built_in_client_id() -> str:
@@ -352,6 +361,9 @@ def policy_problems() -> list[str]:
         elif key == "telemetry_connection_string" and value and not _telemetry_target(value):
             problems.append("telemetry_connection_string isn't an Application Insights connection string "
                             "(InstrumentationKey=...;IngestionEndpoint=https://...)")
+        elif key == "separate_promoter_envs" and not all(isinstance(e, str) for e in value):
+            problems.append("separate_promoter_envs must list environment names, like [\"prod\"], so Test and Prod "
+                            "both need a separate promoter until it's fixed")
         elif key == "allowed_tenants" and not all(isinstance(t, str) and valid_client_id(t) for t in value):
             problems.append("allowed_tenants must list tenant ids, like 11111111-2222-3333-4444-555555555555"
                             + ("; with other values in it, no account can sign in"

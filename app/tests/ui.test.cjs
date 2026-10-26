@@ -1367,6 +1367,8 @@ test("engine messages point to Data mesh and Platform tabs that exist", () => {
   const mesh = new Set();
   for (const [, group, tabs] of groups) for (const [, tab] of tabs) mesh.add(`${group} > ${tab}`);
   const plat = new Set(platform.map(([, label]) => label));
+  // A page behind the Set up or Govern menu is named with its menu: "Platform > Set up > Business keys".
+  const bar = vm.runInNewContext(`${/const PLATFORM_TAB_BAR = \[[\s\S]*?\n\];/.exec(read("platform.js"))[0].replace("const ", "")}; PLATFORM_TAB_BAR`);
   const engine = path.join(__dirname, "..", "..", "sidecar", "fabric_desktop");
   const files = [];
   const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) {
@@ -1380,7 +1382,11 @@ test("engine messages point to Data mesh and Platform tabs that exist", () => {
       const where = `${m[1]} > ${m[2]}`;
       if (![...mesh].some((t) => t.startsWith(where))) bad.push(`${path.basename(f)}: Data mesh > ${where}`);
     }
-    for (const m of src.matchAll(/Platform > ([A-Z][\w ]*?)(?=[).,"'\n])/g)) if (!plat.has(m[1])) bad.push(`${path.basename(f)}: Platform > ${m[1]}`);
+    for (const m of src.matchAll(/Platform > (?:(Set up|Govern) > )?([A-Z][\w ]*?)(?=[).,"'\n]| > )/g)) {
+      const menu = bar.find(([, label]) => label === m[1]);
+      const ok = m[1] ? menu?.[2].some((id) => platform.find(([t]) => t === id)[1] === m[2]) : bar.some(([, label, items]) => items && label === m[2]) || plat.has(m[2]) && !bar.some(([, , items]) => items?.some((id) => platform.find(([t]) => t === id)[1] === m[2]));
+      if (!ok) bad.push(`${path.basename(f)}: Platform > ${m[1] ? `${m[1]} > ` : ""}${m[2]}`);
+    }
   }
   assert.deepStrictEqual(bad, []);
 });
@@ -2841,8 +2847,9 @@ test("every page links to its section of the user guide", () => {
   const views = new Map();
   for (const [, list] of all.matchAll(/views: \{([^}]*)\}/g)) for (const [, view, fn] of list.matchAll(/(\w+): (\w+)/g)) views.set(view, fn);
   assert.ok(views.size > 15, `only ${views.size} pages found`);
-  // The notebook's help belongs to its own guide; an agent's page has its link in the advice under its state.
-  const elsewhere = { notebook: null, agent: "agAdvice" };
+  // The notebook's help belongs to its own guide; an agent's page has its link in the advice under its state,
+  // and Monitor's is in monitorAbout beside its tabs.
+  const elsewhere = { notebook: null, agent: "agAdvice", monitor: "monitorAbout" };
   const missing = [...views].filter(([view, fn]) => {
     if (view in elsewhere) return elsewhere[view] && !(body(fn).includes(`${elsewhere[view]}(`) && body(elsewhere[view]).includes("learnMore("));
     return !/learnMore\(|howItWorks\(/.test(body(fn));
@@ -4204,10 +4211,10 @@ test("a workload page says whether its actions reached the platform's audit", ()
   const ctx = { h: (tag, attrs, ...kids) => kids.join("") };
   vm.runInNewContext(`${fn}this.f = platformAuditNote;`, ctx);
   assert.strictEqual(ctx.f(null), null);
-  assert.strictEqual(ctx.f({ platform: "this_pc", waiting: 0 }), "Each one is also on Platform > Audit.");
+  assert.strictEqual(ctx.f({ platform: "this_pc", waiting: 0 }), "Each one is also on Platform > Govern > Audit.");
   assert.match(ctx.f({ platform: "fabric", waiting: 2, error: "Signed out." }),
-    /^2 actions or changes haven't reached Platform > Audit yet: Signed out\. This PC keeps them/);
-  assert.match(ctx.f({ platform: "fabric", waiting: 1, error: "" }), /^1 action or change hasn't reached Platform > Audit yet\. /);
+    /^2 actions or changes haven't reached Platform > Govern > Audit yet: Signed out\. This PC keeps them/);
+  assert.match(ctx.f({ platform: "fabric", waiting: 1, error: "" }), /^1 action or change hasn't reached Platform > Govern > Audit yet\. /);
   assert.match(ctx.f({ platform: "none", waiting: 3 }), /^Kept on this PC only: there's no platform yet\. 3 actions/);
   assert.strictEqual(ctx.f({ platform: "none", waiting: 0 }), "Kept on this PC only: there's no platform yet.");
 });

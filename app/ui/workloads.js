@@ -71,7 +71,7 @@ function workloadsPanel() {
   return h("div", { class: "mon-how" }, withHowItWorks(box, howItWorks("monitor.workloads", {
     reads: "Your project's metadata entities, notebooks on this PC, and the pipelines, notebooks and Spark job definitions in the workspaces the app works in (pinned, your environments' and the ones your notebooks publish to), with their run records and Fabric's job history. Never your whole tenant. It reads when this view opens and when you press Refresh.",
     changes: "Nothing from the list. On a workload's page, Edit changes its owner, criticality and tags on this PC, and Run, Retry and Cancel the run first say which environment, where it runs, as whom and what it writes.",
-    results: "Ownership, tags, links and the action log stay on this PC in workloads.sqlite and aren't shared with your team yet. When there's a platform, each action and change is also written to its audit (Platform > Audit) with who, where, before, after and how it ended; until the platform takes a line, this PC keeps it and sends it again. A run you start writes where that environment's runs always write.",
+    results: "Ownership, tags, links and the action log stay on this PC in workloads.sqlite and aren't shared with your team yet. When there's a platform, each action and change is also written to its audit (Platform > Govern > Audit) with who, where, before, after and how it ended; until the platform takes a line, this PC keeps it and sends it again. A run you start writes where that environment's runs always write.",
     more: [["Not observed is not failing", "When your sign-in has expired or a workspace refuses access, a workload shows Not observed with the reason, never Failing. Its last reading shows as Cached, then Stale after an hour."]],
     anchor: "workloads-preview",
   })));
@@ -208,9 +208,9 @@ function platformAuditNote(a) {
   if (!a) return null;
   const n = a.waiting === 1 ? "1 action or change hasn't" : `${a.waiting} actions or changes haven't`;
   const text = a.platform === "none"
-    ? (a.waiting ? `Kept on this PC only: there's no platform yet. ${n} reached an audit; they go to Platform > Audit once a platform is set up.` : "Kept on this PC only: there's no platform yet.")
-    : a.waiting ? `${n} reached Platform > Audit yet${a.error ? `: ${a.error.replace(/\.$/, "")}` : ""}. This PC keeps them and sends them again.`
-      : "Each one is also on Platform > Audit.";
+    ? (a.waiting ? `Kept on this PC only: there's no platform yet. ${n} reached an audit; they go to Platform > Govern > Audit once a platform is set up.` : "Kept on this PC only: there's no platform yet.")
+    : a.waiting ? `${n} reached Platform > Govern > Audit yet${a.error ? `: ${a.error.replace(/\.$/, "")}` : ""}. This PC keeps them and sends them again.`
+      : "Each one is also on Platform > Govern > Audit.";
   return h("p", { class: "muted-text small" }, text);
 }
 

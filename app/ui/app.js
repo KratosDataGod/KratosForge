@@ -261,7 +261,22 @@ function menuNode(node) {
   node.setAttribute("role", node.getAttribute("aria-pressed") ? "menuitemcheckbox" : "menuitem");
   if (node.hasAttribute("aria-pressed")) node.setAttribute("aria-checked", node.getAttribute("aria-pressed"));
   node.setAttribute("tabindex", "-1");
-  node.addEventListener("click", () => closeMenu(), true);
+  node.addEventListener("click", () => {
+    // Focus goes back to the menu's button. The item may draw the page again, so find the new button by
+    // its data-menu-key; anything the item opened that took focus (a dialog, a panel's field) keeps it.
+    const key = menuOpener?.dataset?.menuKey;
+    closeMenu(true);
+    // The page may be drawn again a little later (a panel loading), so keep it up for a moment.
+    if (key) {
+      const until = performance.now() + 1000;
+      const keep = () => {
+        if (!document.activeElement || document.activeElement === document.body) document.querySelector(`[data-menu-key="${CSS.escape(key)}"]`)?.focus();
+        else if (!document.activeElement.matches(`[data-menu-key="${CSS.escape(key)}"]`)) return;  // something else took focus
+        if (performance.now() < until) requestAnimationFrame(keep);
+      };
+      requestAnimationFrame(keep);
+    }
+  }, true);
   return node;
 }
 
@@ -915,6 +930,15 @@ const MONITOR_OPS = [
 ];
 try { monitorPage.showFabric = localStorage.getItem("fd.monitor.fabric") !== "hidden"; } catch { /* default: shown */ }
 
+// The sentence about a Monitor panel is its Learn more link's tooltip, so the controls fit on one row;
+// the link is described by it too, so keyboard and screen reader users get it.
+function monitorAbout(text, anchor) {
+  const link = learnMore(anchor);
+  link.title = text;
+  link.setAttribute("aria-describedby", "monitor-about-text");
+  return h("span", { class: "monitor-about" }, link, h("span", { id: "monitor-about-text", class: "sr-only" }, text));
+}
+
 async function renderMonitor() {
   // Cost moved to Optimize > Cost and savings (testing item 36); an old link to it lands there.
   if (monitorPage.panel === "cost") { monitorPage.panel = "runs"; optimizePage.tab = "cost"; go("optimize"); return; }
@@ -958,10 +982,8 @@ async function renderMonitor() {
             show(ops.some((o) => o.panel === monitorPage.opsView) ? monitorPage.opsView : ops[0].panel)) : null),
         op ? h("select", { class: "group-select", "aria-label": "Operations view", title: "Which Operations view to show",
           onchange: (e) => show(e.target.value)() }, ops.map((o) => h("option", { value: o.panel, selected: o === op }, o.label))) : null,
-        // The sentence about the panel is the link's tooltip, so the controls fit on one row.
-        h("span", { class: "monitor-about", title: op ? op.text
-          : monitorPage.panel === "schedules" ? "Every schedule, on this PC and in Fabric, with how its last run went"
-          : "Everything this app ran or started, in every environment, on this PC and in Fabric" }, learnMore(op ? op.anchor : "monitor")),
+        monitorAbout(op ? op.text : monitorPage.panel === "schedules" ? "Every schedule, on this PC and in Fabric, with how its last run went"
+          : "Everything this app ran or started, in every environment, on this PC and in Fabric", op ? op.anchor : "monitor"),
         h("span", { class: "spacer" }),
         op ? null : btn("Refresh", "sync", () => { monitorPage.fabricPipelinesRefresh = true; forgetFabricActivities(); render(); }, "tool outline"),
         popOutButton("runs")),

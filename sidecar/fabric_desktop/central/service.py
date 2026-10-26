@@ -351,7 +351,7 @@ class PlatformMixin:
         except FabricError as exc:
             if re.search(r"failed with 40[13]\b", str(exc)):
                 raise PermissionError("Only a Fabric administrator can read Fabric's domains. Ask one to open "
-                                      "Platform > Domains and choose Import from Fabric; after that, everyone "
+                                      "Platform > Set up > Domains and choose Import from Fabric; after that, everyone "
                                       "sees the domains here.") from exc
             raise
         unread = self._read_domain_admins(admin, fabric)
@@ -609,7 +609,7 @@ class PlatformMixin:
         self._require_platform_admin("create landing zones")
         cfg = self._central_landing()
         if not cfg:
-            raise LookupError("Set up the landing workspace first (Platform > Landing zone).")
+            raise LookupError("Set up the landing workspace first (Platform > Set up > Landing zone).")
         name = str(zone.get("name") or "").strip()
         if core.zone_key(name) == core.SHARED_ZONE:
             raise ValueError("Shared is made with the landing workspace; give the new zone another name")

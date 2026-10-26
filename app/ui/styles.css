@@ -1623,7 +1623,7 @@ body.explain-on-request .how-it-works.how-shown.folded > .fold-body { display: b
 body.explain-on-request .how-it-works.how-shown .chev { display: none; }
 body.preview-dots :not(h1):not(.dialog-head) > .preview-tag {
   width: 7px; height: 7px; margin-left: 4px; padding: 0; border: 0; font-size: 0; line-height: 0;
-  vertical-align: super; background: #f8991c;
+  vertical-align: super; background: var(--brand-orange);
 }
 body.density-compact .list td, body.density-compact .list th { padding: 5px 10px; }
 body.density-compact .tool { min-height: 28px; padding: 0 8px; }

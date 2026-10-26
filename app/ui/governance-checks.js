@@ -1,6 +1,6 @@
 // Best practices: checks and templates (Preview). Three places:
-//   Platform > Governance > Templates   reusable policy definitions: built in, or your organization's
-//   Platform > Governance > Check this project   Check now runs the open project's policies on this PC (warn only)
+//   Platform > Govern > Governance > Templates   reusable policy definitions: built in, or your organization's
+//   Platform > Govern > Governance > Check this project   Check now runs the open project's policies on this PC (warn only)
 //   OneLake > Data products > a product  its checklist, from the contract template it follows
 // The platform (central/policy.py) decides who may add templates; the checks are governance_checks.py.
 
@@ -25,7 +25,7 @@ function govBestPracticeHow() {
   return howItWorks("platform.best-practices", {
     reads: "Templates: the built-in ones in the app, and your organization's from the platform's catalog. Check now: the open project's files on this PC (entities, products, governance.toml), the platform's catalog (policies, assignments, exceptions, catalog text, product terms and endorsement) and the run logs Monitor already reads.",
     changes: "Template create, edit and delete write catalog.policy_template in the platform's catalog, and Save as template does too. Use writes a policy draft (catalog.policy and catalog.policy_version). Who can add templates is a platform setting (config.setting). Check now writes only its last result, to governance_checks.json on this PC. Label it writes the column's classification to catalog.enrichment, after you confirm. Nothing changes in Fabric.",
-    results: "Template changes are in Platform > Audit. Check now is warn only: nothing is blocked, and Block policies aren't enforced yet. Checkers that run in Fabric are never started here: their last stored findings show, or not run.",
+    results: "Template changes are in Platform > Govern > Audit. Check now is warn only: nothing is blocked, and Block policies aren't enforced yet. Checkers that run in Fabric are never started here: their last stored findings show, or not run.",
     anchor: "best-practices-checks-and-templates-preview",
   });
 }

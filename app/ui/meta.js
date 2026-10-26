@@ -968,7 +968,7 @@ async function renderKeysTab(body) {
       if (!k.local && !state.user && !(await signIn())) return;
       const res = await metaCall("meta_keys_sync", { env: k.env }, "Not synced");
       if (res) {
-        if (res.missing?.length) toast(`Not in the platform yet: ${res.missing.map((n) => `sk.${n}`).join(", ")}. Request them in Platform > Business keys.`, true);
+        if (res.missing?.length) toast(`Not in the platform yet: ${res.missing.map((n) => `sk.${n}`).join(", ")}. Request them in Platform > Set up > Business keys.`, true);
         else toast(res.platform ? `Every key table is in the platform${res.created.length ? `; created ${res.created.map((n) => `sk.${n}`).join(", ")}` : ""}`
           : `Synced: ${res.config.source_system} source systems${res.created.length ? `, created ${res.created.map((n) => `sk.${n}`).join(", ")}` : ""}`);
         rerender();
@@ -1162,7 +1162,7 @@ async function renderSourcesTab(body) {
       btn(fromPlatform ? "Save connection" : "Save", "save", save, "tool primary small")),
     h("b", {}, "General"),
     fromPlatform ? h("div", { class: "row" },
-      h("p", { class: "muted-text small grow" }, "Name, id, owner and type are kept once for every project in Platform > Landing zone > Sources. Only the connection is this project's own."),
+      h("p", { class: "muted-text small grow" }, "Name, id, owner and type are kept once for every project in Platform > Set up > Landing zone > Sources. Only the connection is this project's own."),
       btn("Edit in Platform", "building", () => { platformPage.source = current.platform.name; goPlatform("landing"); }, "tool link small")) : null,
     h("div", { class: "form-grid" },
       field("Source system id (never changes)", draft.id, (v) => { draft.id = v; }, { type: "number", min: "1", readonly: m.source === "new" ? null : true }),
@@ -1206,8 +1206,8 @@ function readSourceDialog(plat, env, pick) {
           if (res) { closeDialog(); toast(`This project now reads ${p.code}`); pick(p.source_id); }
         }, "tool outline small"))))))
       : h("p", { class: "muted-text" }, plat.length ? "This project already reads every source in the platform." : "The platform has no sources yet."),
-    h("p", { class: "muted-text small" }, "Missing one? Platform admins add sources on Platform > Landing zone; anyone can request one there.")), [
-    btn("Open Platform > Landing zone", "building", () => { closeDialog(); goPlatform("landing"); }, "tool outline"),
+    h("p", { class: "muted-text small" }, "Missing one? Platform admins add sources on Platform > Set up > Landing zone; anyone can request one there.")), [
+    btn("Open Platform > Set up > Landing zone", "building", () => { closeDialog(); goPlatform("landing"); }, "tool outline"),
     btn("Close", null, closeDialog, "tool primary")]);
 }
 

@@ -291,7 +291,7 @@ The ribbon has four tabs:
 
 **Run all** is the solid button: running is what you do most in a notebook. **Publish to OneLake** stays on the Home tab with its options arrow.
 
-**After a run.** When you run two or more cells on this PC, a line under the ribbon says how many ran and how long it took, or how many ran before the run stopped. It then offers the next step from what the run showed, with a button for each: **Go to the failed cell** when a cell failed, **Review warnings** (or **Review errors**) when Validate found some, **Save the notebook** when there are unsaved changes, and **Publish to OneLake** when every cell ran. It recommends nothing it has no evidence for. Close the line with its **x**; the next run shows it again.
+**After a run.** When you run two or more cells on this PC, a line under the ribbon says how many ran and how long it took, or how many ran before the run stopped. It then offers the next step from what the run showed, with a button for each: **Go to the failed cell** when a cell failed, **Review warnings** (or **Review errors**) when Validate found some, **Save the notebook** when there are unsaved changes, and **Publish to OneLake** when a run of the whole notebook finished with every cell run. It recommends nothing it has no evidence for. Close the line with its **x**; the next run shows it again.
 
 The notebook's actions are in the command bar (Ctrl+K) too: Run all, Run the selected cell, Restart the kernel and run all, Validate, Save the notebook, Publish to OneLake, Run in Fabric and Go to the failed cell (Validate and Run in Fabric when Preview features are shown). One that can't run just now says why.
 

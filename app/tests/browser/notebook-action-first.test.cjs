@@ -86,3 +86,15 @@ test("Validate's warnings put Review warnings before Publish, as the evidence sa
   const buttons = await line.locator("button:not(.nb-next-close)").allTextContents();
   assert.deepStrictEqual(buttons.map((b) => b.trim()), ["Review warnings", "Publish to OneLake"]);
 });
+
+test("after running only some cells, the line doesn't say every cell ran or offer Publish", { skip }, async () => {
+  await open([code("c1", "a = 1"), code("c2", "b = a + 1"), code("c3", "c = b + 1")]);
+  await page().evaluate(() => { state.notebook.dirty = false; runCells(state.notebook.cells.slice(0, 2)); });
+  await page().waitForFunction(() => state.kernel !== "busy" && state.notebook.lastRun, null, { timeout: 60000 });
+  await page().evaluate(() => { state.notebook.dirty = false; refreshNbNextLine(state.notebook); });
+  const line = page().locator(".nb-next");
+  assert.match(await line.textContent(), /^Ran 2 cells on this PC/);
+  assert.doesNotMatch(await line.textContent(), /Every cell ran/);
+  assert.strictEqual(await line.locator('button:has-text("Publish to OneLake")').count(), 0);
+  assert.strictEqual(await line.locator('[role="status"]').count(), 1);
+});

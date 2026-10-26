@@ -56,7 +56,7 @@ defineRecommendation({ id: "notebook.findings", contexts: ["notebook"], reason: 
 defineRecommendation({ id: "notebook.unsaved", contexts: ["notebook"], reason: "unfinished", basis: "verified", action: "notebook.save",
   when: (ctx) => (ctx.nb?.dirty ? true : null), why: () => "It has unsaved changes." });
 defineRecommendation({ id: "notebook.ran_clean", contexts: ["notebook"], reason: "continue", basis: "verified", action: "notebook.publish",
-  when: (ctx) => { const r = ctx.nb?.lastRun; return r && r.ran === r.of && !nbFailedCell(ctx.nb) ? r : null; },
+  when: (ctx) => { const r = ctx.nb?.lastRun; return r?.whole && r.ran === r.of && !nbFailedCell(ctx.nb) ? r : null; },
   why: () => "Every cell ran." });
 
 // The line under the ribbon after a run of several cells: what happened, and the next steps with a
@@ -67,8 +67,9 @@ function nbNextLine(nb) {
   // runCells runs on this PC only; a Fabric run reports in the status bar (nbFabricRunStatus).
   const head = r.ran === r.of ? `Ran ${r.of} cells on this PC in ${r.seconds.toFixed(1)} s.` : `Ran ${r.ran} of ${r.of} cells on this PC; the run stopped.`;
   const { items } = recommend({ view: "notebook", nb, busy: state.kernel === "busy" });
-  return h("div", { class: "nb-next", role: "status" },
-    h("b", {}, head),
+  // Only the headline is a live region, so the buttons aren't read out again on every redraw.
+  return h("div", { class: "nb-next" },
+    h("b", { role: "status" }, head),
     ...items.map((it) => h("span", { class: "nb-next-why", "data-recommendation": it.id }, it.why)),
     h("span", { class: "spacer" }),
     ...items.map((it) => btn(it.label, null, () => runAction(it.state.action.id), "tool outline small")),

@@ -1523,7 +1523,9 @@ async function runCells(cells) {
   const started = performance.now();
   const done = (ran) => {
     if (code.length < 2) return;
-    nb.lastRun = { ran, of: code.length, seconds: (performance.now() - started) / 1000 };
+    // whole: the run covered every cell Run all would run, not a selection (nbnext.js offers Publish only then).
+    const whole = nb.cells.filter((c) => c.type === "code" && c.source.trim() && !c.meta?.frozen).length === code.length;
+    nb.lastRun = { ran, of: code.length, seconds: (performance.now() - started) / 1000, whole };
     const el = state.notebook === nb && document.querySelector(".statusbar .last-run");
     if (el) el.textContent = nbLastRunText(nb.lastRun);
     refreshNbNextLine(nb);  // nbnext.js: the next step after the run

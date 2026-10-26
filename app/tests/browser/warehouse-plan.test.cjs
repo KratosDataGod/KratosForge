@@ -48,14 +48,14 @@ after(async () => { await app?.close(); });
 test("Estimated plan asks Fabric without running the query and draws the operators", { skip }, async () => {
   await page().getByRole("button", { name: "Estimated plan" }).click();
   await page().getByRole("dialog").getByRole("button", { name: "Run in Fabric" }).click();  // it uses a little capacity
-  const tree = page().getByRole("tree", { name: "Plan for statement 1" });
+  const tree = page().getByRole("list", { name: "Plan for statement 1" });
   await tree.waitFor();
   const sent = starts().at(-1);
   assert.ok(sent.estimated_plan && !sent.allow && !sent.confirm, "a read, asked for its plan");
-  const ops = await tree.getByRole("treeitem").allTextContents();
+  const ops = await tree.getByRole("listitem").allTextContents();
   assert.strictEqual(ops.length, 4);
   assert.match(ops[0], /^Hash Match \(Aggregate\).*4 rows10%$/);
-  assert.match(ops[2], /^Table Scan.*dbo\.FactSales.*1,200,000 rows65%$/);
+  assert.match(ops[2], /^Level \d+: Table Scan.*dbo\.FactSales.*1,200,000 rows65%$/);
   assert.match(ops[1], /warning/);
   assert.match(await page().locator(".sql-plan-op.heavy").textContent(), /FactSales/, "the heaviest operator stands out");
   assert.match(await page().locator(".sql-plan-stmt-head").textContent(), /Statement 1 · 4 rows · cost 10/);

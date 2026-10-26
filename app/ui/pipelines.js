@@ -643,7 +643,7 @@ async function renderPipelineRun() {
   if (!plPage.run || plPage.run.run_id !== id) {
     setView(h("div", { class: "page" }, loading("Reading the run...")));
     const run = await attempt(() => rpc("pipeline_run_status", { run_id: id }), "Could not read the run");
-    if (!run || plPage.runId !== id) return;
+    if (!run || plPage.runId !== id) { if (plPulse === id) plPulse = null; return; }  // a run never drawn never pulses later
     plPage.run = run;
     if (state.view !== "pipelineRun") return;
   }

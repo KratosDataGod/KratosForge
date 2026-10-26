@@ -7,8 +7,10 @@ registry (governance_checks.py) on this PC, and turns a finding an active except
 "Excepted until <date>: <why>". It is warn only: nothing is blocked.
 
 What it reads: the project's files on this PC, the platform's catalog (policies, exceptions, catalog
-text, product terms and endorsement) and the run logs the app already reads for Monitor. What it
-writes: only ``governance_checks.json`` in the app's data folder, the last result per project, so
+text, product terms and endorsement) and the run logs the app already reads for Monitor; when a policy
+names notebook or SQL rules, also this PC's notebooks and its schedules (so a notebook a schedule runs
+gets the scheduled-only rules), and its SQL scripts: saved queries and the .sql files of the warehouse
+projects in the repositories opened in Source control. What it writes: only ``governance_checks.json`` in the app's data folder, the last result per project, so
 "Checked on this PC 5 min ago" can show. Checkers that run in Fabric are never started here.
 """
 
@@ -16,6 +18,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+from pathlib import Path
 from typing import Any
 
 from .. import governance_checks as gc
@@ -202,16 +205,63 @@ class ChecksMixin:
         return data.get("runs") or [], data.get("unavailable") or {}
 
     def _gc_notebook_items(self, problems: list[str]) -> list[dict[str, Any]]:
-        """This PC's notebooks, their code cells' sources, for the notebook best-practice rules."""
+        """This PC's notebooks, their code cells' sources, for the notebook best-practice rules. A notebook
+        an enabled schedule on this PC runs is marked scheduled, so the scheduled-only rules check it."""
         out = []
+        try:
+            scheduled = self.pc_schedules.notebooks()  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001 - notebooks are still checked, without the scheduled-only rules
+            scheduled = set()
+            problems.append(f"This PC's schedules couldn't be read, so no notebook was checked as scheduled: {describe(exc)}")
         for nb in self.notebooks.list():  # type: ignore[attr-defined]
             try:
                 cells = self.notebooks.load(nb["name"])["cells"]  # type: ignore[attr-defined]
             except Exception as exc:  # noqa: BLE001 - one unreadable notebook doesn't stop the others
                 problems.append(f"The notebook {nb['name']} couldn't be read, so it wasn't checked: {describe(exc)}")
                 continue
-            out.append({"kind": "notebook", "id": nb["name"], "scheduled": False,
+            out.append({"kind": "notebook", "id": nb["name"], "scheduled": nb["name"] in scheduled,
                         "sources": [c.get("source") or "" for c in cells if c.get("type", "code") == "code"]})
+        return out
+
+    def _gc_sql_items(self, problems: list[str]) -> list[dict[str, Any]]:
+        """This PC's SQL scripts, for the SQL best-practice rules: saved queries (My queries and the
+        repositories' sql-queries folders) and the .sql files of the warehouse projects in the
+        repositories opened in Source control. Nothing is run; the scripts are only read."""
+        from ..warehouse_project_service import MAX_FILE
+
+        out: list[dict[str, Any]] = []
+        try:
+            saved = self.sql_queries_list()  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001 - the warehouse projects are still checked
+            problems.append(f"The saved queries couldn't be listed, so they weren't checked: {describe(exc)}")
+            saved = {"queries": [], "notes": []}
+        problems += [f"Saved queries: {n}" for n in saved.get("notes") or []]
+        for q in saved["queries"]:
+            name = f"{q['place_label']}/{q['name']}"
+            if q.get("problem"):
+                problems.append(f"The saved query {name} wasn't checked: {q['problem']}")
+            else:
+                out.append({"kind": "sql", "id": name, "query": q["sql"], "target": "warehouse"})
+        try:
+            projects = self.wh_projects_list()["projects"]  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001 - the saved queries are still checked
+            problems.append(f"The warehouse projects couldn't be listed, so they weren't checked: {describe(exc)}")
+            projects = []
+        for p in projects:
+            folder = Path(p["repo"]).resolve() / p["folder"]
+            files, cut = self._wh_walk(folder)  # type: ignore[attr-defined]
+            if cut:
+                problems.append(f"The warehouse project {p['name']} has more .sql files than are read; the first {len(files)} were checked.")
+            for f in files:
+                name = f"{p['name']}/{f.relative_to(folder).as_posix()}"
+                try:
+                    if f.stat().st_size > MAX_FILE:
+                        raise ValueError(f"It is larger than {MAX_FILE // 1024} KB.")
+                    text = f.read_bytes().decode("utf-8-sig")
+                except (OSError, ValueError) as exc:  # UnicodeDecodeError is a ValueError
+                    problems.append(f"The SQL file {name} couldn't be read, so it wasn't checked: {describe(exc)}")
+                    continue
+                out.append({"kind": "sql", "id": name, "query": text, "target": "warehouse"})
         return out
 
     def _gc_model_items(self, project: Any, saved: dict[str, dict[str, Any]],
@@ -261,6 +311,8 @@ class ChecksMixin:
         kinds = {found[0].kind for found in map(gc.find_rule, wanted) if found}
         if "notebook" in kinds:
             items += self._gc_notebook_items(problems)
+        if "sql" in kinds:
+            items += self._gc_sql_items(problems)
         if "model" in kinds:
             items += self._gc_model_items(project, saved, problems)
         policies = []
@@ -285,7 +337,7 @@ class ChecksMixin:
                 if run.get("disabled"):
                     entry.setdefault("off", []).append(rid)
                 elif not run["checked"]:
-                    entry.setdefault("no_items", []).append(found[1]["kind"])
+                    entry.setdefault("no_items", []).append(("scheduled " if found[1].get("scheduled_only") else "") + found[1]["kind"])
             note = (pol.get("exception") or {}).get("note")
             if note:
                 for f in entry["findings"] + entry["unknown"]:

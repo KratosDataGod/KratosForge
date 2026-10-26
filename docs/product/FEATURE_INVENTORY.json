@@ -7114,8 +7114,7 @@
       ],
       "workstream": "Enterprise governance foundation; Best Practice Analyzer (checkers)",
       "limitations": [
-        "Check now has no SQL scripts to give the SQL rules yet (PB-111)",
-        "NB004 and NB008 run only in scheduled runs, which Check now doesn't check yet (PB-111)",
+        "Check now reads only this PC's schedules, so NB004 and NB008 don't run on a notebook only a Fabric schedule runs",
         "Semantic model rules (BPA, #560) aren't registered yet (PB-112)",
         "Central policies not yet set up on a tenant"
       ],

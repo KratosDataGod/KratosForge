@@ -230,7 +230,12 @@ function syncHowToggle() {
   const toggle = document.getElementById("how-toggle");
   if (!toggle) return;
   const panel = document.body.classList.contains("explain-on-request") ? howIntro() : null;
-  if (!panel) document.querySelectorAll("#view .how-intro-only").forEach((p) => p.remove());
+  if (!panel) document.querySelectorAll("#view .how-intro-only").forEach((p) => {
+    // The page's own Learn more goes back under its title with the line it came from.
+    const link = p.querySelector(":scope > .learn-more");
+    if (link) document.querySelector("#view .page-intro")?.append(link);
+    p.remove();
+  });
   document.querySelectorAll("#view .how-page").forEach((p) => p !== panel && p.classList.remove("how-page"));
   panel?.classList.add("how-page");
   toggle.hidden = !panel;

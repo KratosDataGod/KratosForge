@@ -82,6 +82,12 @@ test("a page's explanation line folds into the drawer; a page with only that lin
   await drawer.getByRole("link", { name: "Learn more" }).click();
   assert.strictEqual(await page().evaluate(() => window.__learned), 1, "the page's own Learn more still works from the drawer");
   await page().keyboard.press("Escape");
+  // Beside the page again, without a redraw: the link goes back under the title.
+  await page().evaluate(() => { state.settings.ui_explanations = { value: "beside" }; applyAppearance(); });
+  assert.strictEqual(await page().locator("#view .how-intro-only").count(), 0);
+  await page().locator(".page-intro .learn-more").click();
+  assert.strictEqual(await page().evaluate(() => window.__learned), 2, "Learn more is back on the page");
+  await page().evaluate(() => { state.settings.ui_explanations = { value: "on_request" }; applyAppearance(); });
   // A page with a panel shows the line above it, and the page keeps no copy once help sits beside the page again.
   await page().evaluate(() => setView(h("div", { class: "page" }, h("h1", {}, "Sample"), pageIntro("Why you would come here."),
     withHowItWorks(h("div", {}, "list"), howItWorks("sample", { reads: "a", changes: "b", results: "c" })))));
@@ -94,6 +100,20 @@ test("a page's explanation line folds into the drawer; a page with only that lin
   assert.ok(await page().isVisible(".page-intro"));
   assert.strictEqual(await page().locator("#view .how-intro-only").count(), 0);
   assert.ok(await page().isHidden("#how-toggle"));
+});
+
+test("a dialog's How this works opens unfolded on request, and its toggle says so and still folds it", { skip }, async () => {
+  await page().evaluate(() => { state.settings.ui_explanations = { value: "on_request" }; applyAppearance();
+    try { localStorage.removeItem("fd.fold.how.sampleDialog"); } catch { /* */ }
+    showDialog("Sample", h("div", {}, howItWorks("sampleDialog", { reads: "a", changes: "Writes one file.", results: "c" }))); });
+  const how = page().locator(".dialog .how-it-works");
+  await how.getByText("Writes one file.").waitFor({ state: "visible" });
+  const toggle = how.locator(".fold-toggle");
+  assert.strictEqual(await toggle.getAttribute("aria-expanded"), "true");
+  await toggle.click();
+  assert.strictEqual(await toggle.getAttribute("aria-expanded"), "false");
+  assert.ok(await how.getByText("Writes one file.").isHidden(), "the toggle folds it");
+  await page().evaluate(() => closeDialog());
 });
 
 test("Preview marks as dots keep the word for screen readers, and page titles keep the tag", { skip }, async () => {

@@ -2722,7 +2722,7 @@ test("a fold can start closed, and the choice made on this PC wins after that", 
   const localStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
   const h = (tag, attrs = {}, ...kids) => ({ tag, attrs, kids, classes: new Set(String(attrs.class || "").split(" ").filter(Boolean)),
     append(...k) { this.kids.push(...k); }, setAttribute(k, v) { this.attrs[k] = v; },
-    get classList() { const c = this.classes; return { toggle: (n, on) => (on ? c.add(n) : c.delete(n)) }; } });
+    get classList() { const c = this.classes; return { toggle: (n, on) => (on ? c.add(n) : c.delete(n)), contains: (n) => c.has(n) }; } });
   const ctx = { h, localStorage };
   vm.runInNewContext(`${src.match(/function foldable\([\s\S]*?\n}\n/)[0]}; this.f = foldable;`, ctx);
   assert.ok(!ctx.f("x", "Head", []).classes.has("folded"), "folds open unless asked");

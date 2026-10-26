@@ -1714,9 +1714,6 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
 .how-toggle[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }
 body.explain-on-request .with-how { grid-template-columns: minmax(0, 1fr); }
 body.explain-on-request .how-it-works.how-page { display: none; }
-/* A dialog's panel says what pressing its button changes, so it never folds. */
-body.explain-on-request .dialog .how-it-works.folded > .fold-body { display: block; }
-body.explain-on-request .dialog .how-it-works .chev { display: none; }
 body.explain-on-request .page-intro { display: none; }
 .how-it-works .how-about { display: none; }
 body.explain-on-request .how-it-works .how-about { display: block; margin: 0 0 12px; color: var(--text); }

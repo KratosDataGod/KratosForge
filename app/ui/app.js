@@ -206,6 +206,13 @@ function showDialog(title, body, actions = [], onClose = null) {
   const previous = dialogOnClose;
   dialogOnClose = onClose;
   document.getElementById("dialog-root").replaceChildren(overlay);
+  // A dialog's How this works says what its button changes, so it opens unfolded.
+  overlay.querySelectorAll(".how-it-works.folded").forEach((p) => {
+    p.classList.remove("folded");
+    const toggle = p.querySelector(":scope > .fold-head > .fold-toggle");
+    toggle?.setAttribute("aria-expanded", "true");
+    if (toggle) toggle.title = "Hide";
+  });
   previous?.();
   overlay.querySelector("input, select")?.focus();
   return overlay;
@@ -669,7 +676,7 @@ function foldable(id, head, body, { cls = "card pad", always = null, start = fal
   const box = h("section", { class: `${cls} foldable${folded ? " folded" : ""}` });
   const toggle = h("button", { class: "fold-toggle", "aria-expanded": String(!folded), title: folded ? "Show" : "Hide",
     onclick: () => {
-      folded = !folded;
+      folded = !box.classList.contains("folded");
       try { localStorage.setItem(`fd.fold.${id}`, folded ? "1" : "0"); } catch { /* this session only */ }
       box.classList.toggle("folded", folded);
       toggle.setAttribute("aria-expanded", String(!folded));

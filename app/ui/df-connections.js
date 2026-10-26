@@ -1,12 +1,13 @@
 // Data Factory connections (DF-5, Preview): the Connections tab beside Pipelines. Read-only: it lists
 // the connections the signed-in person can use and what uses each one in each environment's workspace,
-// from the pipeline and copy job definitions there (fabric_connections, a background scan). A
+// from the pipeline, copy job and dataflow definitions there (fabric_connections, a background scan). A
 // reference to a connection nobody here can use is shown first: that breaks a run or a deploy.
 // KratosForge never creates or changes a connection; Manage connections opens Fabric's own page.
 
 const DF_MANAGE_CONNECTIONS = "https://app.fabric.microsoft.com/groups/me/gateways?experience=fabric-developer";
 const DF_AREAS = [["pipelines", "Pipelines"], ["copyjobs", "Copy jobs"], ["dataflows", "Dataflows"], ["connections", "Connections"]];
 const dfConnPage = { refresh: false, timer: null };
+const DF_ITEM_TYPES = { pipeline: "DataPipeline", "copy job": "CopyJob", dataflow: "Dataflow" };
 
 // The tabs at the top of the Pipelines page.
 function dfAreaTabs() {
@@ -27,7 +28,7 @@ function dfUsedBy(used) {
   if (!used.length) return h("span", { class: "muted-text" }, "Nothing in these workspaces");
   return h("div", { class: "df-used" }, used.map((u) => h("div", {},
     h("button", { class: "name-link", title: "Open in Fabric",
-      onclick: () => openInFabric(fabricItemLink({ type: u.item_type === "pipeline" ? "DataPipeline" : "CopyJob", workspace_id: u.workspace_id, item_id: u.item_id })) },
+      onclick: () => openInFabric(fabricItemLink({ type: DF_ITEM_TYPES[u.item_type] || "CopyJob", workspace_id: u.workspace_id, item_id: u.item_id })) },
     u.item_name), h("span", { class: "muted-text small" }, ` · ${u.item_type}`))));
 }
 
@@ -47,7 +48,7 @@ async function renderDfConnections() {
         btn("Refresh", "sync", () => { dfConnPage.refresh = true; render(); }, "tool outline"),
         btn("Manage connections in Fabric", "open", () => openInFabric(DF_MANAGE_CONNECTIONS), "tool primary"))),
     withHowItWorks(body, howItWorks("df-connections", {
-      reads: "The connections you can use (names, types and gateways, never credentials), and the pipeline and copy job definitions in each environment's workspace, to see which connections they name. No Fabric job starts and no capacity is used.",
+      reads: "The connections you can use (names, types and gateways, never credentials), and the pipeline, copy job and dataflow definitions in each environment's workspace, to see which connections they name. No Fabric job starts and no capacity is used.",
       changes: "Nothing. KratosForge never stores, creates or changes a connection or its credentials. Manage connections in Fabric opens Fabric's own page to add or fix one.",
       results: "Shown here only, kept in memory until Refresh.",
       anchor: "data-factory-connections-preview",
@@ -64,7 +65,7 @@ async function renderDfConnections() {
   if (out.error) { fill(body, h("p", { class: "error-text" }, `Could not read connections: ${out.error}`)); return; }
   const envs = out.workspaces || [];
   const missing = out.missing || [];
-  const notes = [`As of ${new Date(out.scanned).toLocaleTimeString()} · ${out.items} pipelines and copy jobs read in ${envs.map((w) => `${w.name}${w.env ? ` (${dfEnvLabel(w)})` : ""}`).join(", ") || "no workspaces"}`];
+  const notes = [`As of ${new Date(out.scanned).toLocaleTimeString()} · ${out.items} pipelines, copy jobs and dataflows read in ${envs.map((w) => `${w.name}${w.env ? ` (${dfEnvLabel(w)})` : ""}`).join(", ") || "no workspaces"}`];
   if (out.missed) notes.push(`${out.missed} couldn't be read`);
   if (out.skipped) notes.push(`${out.skipped} more not read (limit reached)`);
   if (out.gateways_error) notes.push("Gateway names couldn't be read (they need permission to read gateways)");

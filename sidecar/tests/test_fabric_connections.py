@@ -206,3 +206,25 @@ def test_a_passing_gateway_sign_in_failure_asks_again(svc, monkeypatch, failure)
     assert _settled(svc)["gateways_error"]
     out = _settled(svc, refresh=True)
     assert out["gateways_error"] == "" and {r["gateway_name"] for r in out["connections"]} == {"gw-onprem-01", ""}
+
+
+def _dataflow_definition(*ids):
+    meta = {"queriesMetadata": {}, "connections": [
+        {"path": "erp", "kind": "SQL", "connectionId": json.dumps({"ClusterId": "c", "DatasourceId": i})} for i in ids]}
+    return {"definition": {"parts": [
+        {"path": "queryMetadata.json", "payload": base64.b64encode(json.dumps(meta).encode()).decode(), "payloadType": "InlineBase64"},
+        {"path": "mashup.pq", "payload": base64.b64encode(b"section Section1;\nshared Q = 1;").decode(), "payloadType": "InlineBase64"}]}}
+
+
+def test_a_dataflow_counts_as_using_the_connections_its_metadata_names(svc, monkeypatch):
+    items = FakeFabric.list_items
+    definition = FakeFabric.get_item_definition
+    monkeypatch.setattr(FakeFabric, "list_items", lambda self, ws: items(self, ws) + (
+        [{"id": "df1", "type": "Dataflow", "displayName": "df_products"}] if ws == "ws-dev" else []))
+    monkeypatch.setattr(FakeFabric, "get_item_definition", lambda self, ws, item, fmt=None: _dataflow_definition(
+        S3.upper(), "5a1c7d2e-0000-4000-8000-0000000000ee") if item == "df1" else definition(self, ws, item, fmt))
+    out = _settled(svc)
+    rows = {r["name"]: r for r in out["connections"]}
+    assert [(u["item_name"], u["item_type"]) for u in rows["s3-events"]["used_by"]][-1] == ("df_products", "dataflow")
+    # An id a dataflow names that isn't a connection here isn't called missing (unverified mapping).
+    assert [m["id"] for m in out["missing"]] == [GONE] and out["items"] == 5

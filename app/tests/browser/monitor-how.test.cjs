@@ -18,6 +18,8 @@ before(async () => {
     agents_list: () => ({ agents: [], envs: [] }),
     readiness_check: () => [],
   } });
+  // These check the panel beside the page, the layout people get from Settings > Appearance > Explanations.
+  await app.page.evaluate(() => { state.settings = { ...(state.settings || {}), ui_explanations: { value: "beside" } }; applyAppearance(); });
 });
 after(async () => { if (app) await app.close(); });
 

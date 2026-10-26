@@ -1713,7 +1713,10 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
 .how-toggle[hidden] { display: none; }
 .how-toggle[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }
 body.explain-on-request .with-how { grid-template-columns: minmax(0, 1fr); }
-body.explain-on-request .how-it-works { display: none; }
+body.explain-on-request .how-it-works.how-page { display: none; }
+body.explain-on-request .page-intro { display: none; }
+.how-it-works .how-about { display: none; }
+body.explain-on-request .how-it-works .how-about { display: block; margin: 0 0 12px; color: var(--text); }
 body.explain-on-request.how-open .how-it-works.how-shown {
   display: flex; position: fixed; top: 56px; right: 12px; bottom: 12px; z-index: 9; width: min(360px, calc(100vw - 24px));
   overflow-y: auto; box-shadow: -8px 0 24px rgba(0,0,0,0.12);

@@ -32,7 +32,7 @@ engine is tested against fakes of Databricks' documented APIs, and stays Preview
 | Engine | Where it runs | Languages | SQL | Cancel | Plan | Variables | Billed | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Python (this PC) | This PC, its own process | Python native; PySpark simulated | (use a SQL engine) | Native | No | Native | Nothing | Tested |
-| DuckDB (this PC) | This PC | SQL | DuckDB native; Spark SQL translated | Native | Native | No | Nothing | Tested |
+| DuckDB (this PC) | This PC | SQL | DuckDB native; Spark SQL and Databricks SQL translated | Native | Native | No | Nothing | Tested |
 | SQLite (this PC) | This PC | SQL | SQLite native | Native | Native | No | Nothing | Tested |
 | Polars SQL (this PC) | This PC | SQL | Polars SQL partial | **No** (the query finishes) | Native | No | Nothing | Tested |
 | Apache Spark (this PC) | This PC | none yet | none yet | | | | Nothing | Planned |
@@ -73,7 +73,14 @@ warehouse. **Plan** runs EXPLAIN on the warehouse.
   `databricks auth login`, or holding a service principal or personal access token), browser
   sign-in through the Databricks CLI, or a service principal whose secret is an `env:` or `credman:`
   reference. The token stays in memory for the session and is never written anywhere.
-- **Limits:** results come back inline, so the warehouse refuses one over 25 MB (add a LIMIT), and
+- **Cells can change data.** Once the session is open, a cell's CREATE, INSERT, MERGE or DROP runs
+  on the warehouse with no further confirm, as in a Databricks notebook. The confirm is for starting
+  the session, not for each statement.
+- **Try it on this PC first.** The DuckDB engine runs Databricks SQL translated by sqlglot, so you can
+  write and test a warehouse query against local tables without starting the warehouse. Unity
+  Catalog three-part names need that catalog and schema in the local session, and Delta-only
+  commands don't run there.
+- **Limits:** a statement still running after two hours is cancelled. Results come back inline, so the warehouse refuses one over 25 MB (add a LIMIT), and
   only the first result chunk is previewed. Billed DBUs are in Databricks' system billing tables,
   per warehouse and hour, so the engine reports measured seconds only.
 

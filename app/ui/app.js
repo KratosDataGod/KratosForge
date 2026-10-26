@@ -732,13 +732,27 @@ async function renderHome() {
   const envSection = h("section", {}, h("h2", {}, "Environments"), envCards);
   let notebookCount = 0;
   const stamp = h("span", { class: "muted-text small" }, "Updated just now");
+  // Continue opens the notebook changed last; it appears once the list is read and there is one.
+  const resume = h("span", { class: "home-continue" });
+  const start = h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"), resume,
+    btn("New notebook", "notebook", newNotebook, "tool outline"),
+    btn("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"),
+    btn("New lakehouse", "lakehouse", () => newLakehouse(), "tool outline"),
+    btn("OneLake catalog", "onelake", () => go("onelake"), "tool outline"));
+  const recent = foldable("home.notebooks", h("h2", {}, "Recent notebooks"), h("div", {}, list,
+    btn("All notebooks", "notebook", () => go("notebooks"), "tool link small")));
+  const ready = readinessCard();
   const page = h("div", { class: "page home" },
     h("div", { class: "row home-head" },
       h("h1", { class: "grow" }, name ? `Welcome back, ${name}` : "Welcome to KratosForge"),
       stamp, btn("Refresh", null, () => { homeCache.done = false; render(); }, "tool link small"), learnMore("home")),
     summary,
-    readinessCard(),
-    signInCallout(),
+    // What people come to Home for first (AF-2, docs/ux/action-first.md): pick up the last notebook or
+    // start something; then readiness, problems and what is running.
+    start,
+    recent,
+    ready,
+    ready ? null : signInCallout(),  // the readiness card asks to sign in; only one place asks
     attention,
     h("div", { class: "home-attention", id: "home-fresh" }),
     yours,
@@ -747,13 +761,6 @@ async function renderHome() {
       h("section", { class: "card pad" }, h("h2", {}, "Coming up"), upcoming)),
     meshMapCard(),
     envSection,
-    h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"),
-      btn("New notebook", "notebook", newNotebook, "tool outline"),
-      btn("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"),
-      btn("New lakehouse", "lakehouse", () => newLakehouse(), "tool outline"),
-      btn("OneLake catalog", "onelake", () => go("onelake"), "tool outline")),
-    foldable("home.notebooks", h("h2", {}, "Recent notebooks"), h("div", {}, list,
-      btn("All notebooks", "notebook", () => go("notebooks"), "tool link small"))),
     xray);
   Object.assign(homeCache, { page, key: homeKey(), at: Date.now(), stamp, done: false });
   setView(page);
@@ -771,6 +778,8 @@ async function renderHome() {
   const notebooksDone = rpc("list_notebooks").catch(() => null).then((notebooks) => {
     if (!onHome()) return;
     notebookCount = (notebooks || []).length;
+    const last = (notebooks || []).reduce((a, n) => (!a || n.modified > a.modified ? n : a), null);
+    if (last) resume.replaceWith(btn(`Continue: ${last.name}`, "notebook", () => openNotebook(last.name), "tool primary"));
     const shown = (notebooks || []).filter((n) => matches(n.name)).slice(0, 8);
     list.replaceWith(shown.length ? h("table", { class: "list" },
       h("thead", {}, h("tr", {}, h("th", {}, "Name"), shown.some((n) => n.place) ? h("th", {}, "Saved in") : null, h("th", {}, "Modified"))),
@@ -845,9 +854,11 @@ async function renderHome() {
       const total = problems + late;
       summary.textContent = [
         total ? `${total} ${total === 1 ? "thing needs" : "things need"} your attention`
+          // Signed out, Fabric wasn't checked at all: say how to change that, not that all is well.
+          : !state.user ? "Sign in so KratosForge can check Fabric. Notebooks run on this PC either way"
           : unread.length ? "Nothing found that needs your attention" : "Nothing needs your attention",
         live.length ? `${live.length} running` : "",
-        unread.length ? `couldn't check ${unread.join(", ")}` : "",
+        unread.length && state.user ? `couldn't check ${unread.join(", ")}` : "",
       ].filter(Boolean).join(" · ") + ".";
     };
     state.homeSummary();

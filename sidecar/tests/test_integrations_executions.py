@@ -315,6 +315,25 @@ def test_proof_lakehouse_changed_during_approval_starts_nothing(svc, monkeypatch
         cap.handler(svc, limited, name="nb")  # only invoke's bind supplies the hash
 
 
+def test_proof_approval_shows_the_bar_values_and_refuses_changed_ones(svc, monkeypatch):
+    # Both of a proof's runs use the Parameters bar's values, so the approval shows them and is bound to them.
+    started = []
+    monkeypatch.setattr(svc, "prove_start", lambda *a: started.append(a) or {"id": "p1"}, raising=False)
+    cap = reg().get("fabric_desktop_start_proof")
+    svc.notebooks.set_extra("nb", "inputs", {"parameters": {"x": "5"}})
+    bound = cap.bind(svc, {"name": "nb"})
+    assert bound["inputs"] == {"parameters": {"x": "5"}}
+    svc.notebooks.set_extra("nb", "inputs", {"parameters": {"x": "500"}})
+    with pytest.raises(IntegrationError, match="changed after it was approved"):
+        cap.handler(svc, ctx(), name="nb", **bound)
+    # Bound values that don't match their own hash are refused the same way.
+    fresh = cap.bind(svc, {"name": "nb"})
+    with pytest.raises(IntegrationError, match="changed after it was approved"):
+        cap.handler(svc, ctx(), name="nb", **(fresh | {"inputs": {"parameters": {"x": "5"}}}))
+    assert started == []
+    assert cap.handler(svc, ctx(), name="nb", **fresh)["id"] == "p1"
+
+
 def test_external_notebook_cant_run_other_notebooks(svc):
     # %run and notebookutils.notebook.run would run code the person wasn't shown.
     svc.notebooks.save("outer", [{"type": "code", "source": "%run nb"}], LH)

@@ -180,6 +180,14 @@ test("a SQL analytics endpoint has no Project tab", { skip }, async () => {
   assert.strictEqual(await projectTab().count(), 0);
 });
 
+test("a call whose sign-in window was closed shows no error; any other failure says what failed", { skip }, async () => {
+  const toasts = () => page().evaluate(() => [...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" "));
+  await page().evaluate(() => whFailed("Could not compare", new Error("SignInCancelled: closed")));
+  assert.doesNotMatch(await toasts(), /Could not compare/);
+  await page().evaluate(() => whFailed("Could not compare", new Error("The warehouse didn't answer.")));
+  await page().waitForFunction(() => /Could not compare: The warehouse didn't answer/.test([...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" ")));
+});
+
 test("nothing on the page threw", { skip }, async () => {
   assert.deepStrictEqual(app.errors, []);
 });

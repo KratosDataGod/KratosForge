@@ -117,7 +117,7 @@ test("New request picks the kind, tags the new ones Preview and keeps the older 
   await page().waitForSelector('[role=dialog] >> text="A new workspace"');
   const kinds = await page().$$eval(".req-kind", (bs) => bs.map((b) => b.textContent));
   assert.deepStrictEqual(kinds.map((k) => k.split(" Preview")[0].trim()),
-    ["A new workspace", "Access to a workspace", "A domain", "An exception to a policy"]);
+    ["A new workspace", "Access to a workspace", "A domain", "An exception to a policy", "Data from another team"]);
   assert.ok(kinds.every((k) => k.includes("Preview")));
   const also = await page().textContent(".req-dialog .row");
   for (const k of ["Key table", "Source", "Product access", "Shortcut"]) assert.ok(also.includes(k), k);

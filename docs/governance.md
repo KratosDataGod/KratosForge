@@ -182,7 +182,7 @@ The desktop calls these engine methods (JSON-RPC, see [architecture](architectur
 
 ### The rules
 
-Checks come from one registry, `sidecar/fabric_desktop/governance_checks.py`. The built-in checkers (naming, ownership, classification, contract) are registered there, and the notebook and SQL best-practice checkers are registered the same way (below). The semantic model check (the Best Practice Analyzer, which runs in Fabric) isn't registered yet, so a policy can't name its rules. A policy points at rules by id in **Checked by**.
+Checks come from one registry, `sidecar/fabric_desktop/governance_checks.py`. The built-in checkers (naming, ownership, classification, contract) are registered there, and the notebook, SQL and semantic model best-practice checkers are registered the same way (below). The Best Practice Analyzer rules that need a model's VertiPaq statistics run only in Fabric and aren't registered, so a policy can't name them. A policy points at rules by id in **Checked by**.
 
 ```python
 register(kind, rules, check, runs_in="local")   # runs_in: "local" (this PC) or "fabric"
@@ -212,9 +212,9 @@ def check(item, settings):
 gc.register("notebook-example", lambda: RULES, check)
 ```
 
-A policy whose **Checked by** is `notebook.no_print` then runs it on every item of that kind Check now is given. Check now builds entity and product items, and notebook items (this PC's notebooks, their code cells) when a policy names a notebook rule.
+A policy whose **Checked by** is `notebook.no_print` then runs it on every item of that kind Check now is given. Check now builds entity and product items, notebook items (this PC's notebooks, their code cells) when a policy names a notebook rule, and the model Update model writes for the last layer when a policy names a semantic model rule.
 
-The notebook rules `NB001` to `NB012` ([notebook best practices](notebook-best-practices.md)) and the SQL rules `SQ001` to `SQ010` ([SQL best practices](sql-best-practices.md)) are registered this way (`best_practice_checkers.py`), so a policy can name them in **Checked by**, like `NB003, NB006`. Each runs only the rules its policy names, with the policy's severity, or `severity` and `enabled` parameters. `NB004` and `NB008` are for scheduled runs, so Check now doesn't run them. Check now has no SQL scripts to give the SQL rules yet, so a policy naming only those shows as not checked, never as passing. The same holds for any policy whose rules found nothing of their kind (for notebook rules, among this PC's notebooks), and for one whose parameters turn its rules off (`enabled = false`).
+The notebook rules `NB001` to `NB012` ([notebook best practices](notebook-best-practices.md)) the SQL rules `SQ001` to `SQ010` ([SQL best practices](sql-best-practices.md)) and the semantic model rules `SM001` to `SM007` ([semantic model rules](semantic-model-rules.md)) are registered this way (`best_practice_checkers.py`), so a policy can name them in **Checked by**, like `NB003, NB006`. Each runs only the rules its policy names, with the policy's severity, or `severity` and `enabled` parameters. `NB004` and `NB008` are for scheduled runs, so Check now doesn't run them. Check now has no SQL scripts to give the SQL rules yet, so a policy naming only those shows as not checked, never as passing. The same holds for any policy whose rules found nothing of their kind (for notebook rules, among this PC's notebooks), and for one whose parameters turn its rules off (`enabled = false`).
 
 ## What isn't built yet
 

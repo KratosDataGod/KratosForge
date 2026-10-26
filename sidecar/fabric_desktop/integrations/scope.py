@@ -219,10 +219,17 @@ def execution(service: Any, arguments: dict[str, Any], ctx: CallContext | None) 
 
 
 def metadata_of(meta: dict[str, Any]) -> set[str] | None:
-    """The open metadata project: the workspaces its environments and entities name."""
+    """The open metadata project: the workspaces its environments (with their designations') and
+    entities name."""
     if not meta.get("path"):
         return set()
-    return located(meta.get("environments") or {}, meta.get("entities") or [])
+    found = located(meta.get("entities") or [])
+    for cfg in (meta.get("environments") or {}).values():
+        here = environment_of(cfg or {})
+        if found is None or here is None:
+            return None
+        found |= here
+    return found
 
 
 def project(service: Any, arguments: dict[str, Any], ctx: CallContext | None) -> set[str] | None:
@@ -230,6 +237,31 @@ def project(service: Any, arguments: dict[str, Any], ctx: CallContext | None) ->
     if arguments.get("id", "metadata") == "notebooks":
         return set()
     return metadata_of(service.meta_project())
+
+
+def environment_of(cfg: dict[str, Any]) -> set[str] | None:
+    """The workspaces a metadata environment's lakehouses live in: its own and each designation's
+    (``workspaces: {designation: {id, name}}``, as meta_service._env_workspaces). None when any of
+    them is named without its id."""
+    found = located(cfg)
+    for ws in (cfg.get("workspaces") or {}).values():
+        if not isinstance(ws, dict):
+            continue
+        if ws.get("id"):
+            found = None if found is None else found | {str(ws["id"])}
+        elif ws.get("name"):
+            return None
+    return found
+
+
+def environment(service: Any, arguments: dict[str, Any], ctx: CallContext | None) -> set[str] | None:
+    """One environment of the open metadata project (``env``). None when no project is open or the
+    environment names a place without its workspace id. ``env`` defaults to test, as the semantic model
+    tools' schema does (models live in Fabric, and Dev usually keeps its tables on this PC); the risk
+    check's dev default is its own."""
+    meta = service.meta_project()
+    env = (meta.get("environments") or {}).get(arguments.get("env") or "test") if meta.get("path") else None
+    return environment_of(env) if env else None
 
 
 def workload_of(service: Any, record: dict[str, Any], action: str, env: str) -> set[str] | None:
@@ -249,7 +281,7 @@ def workload_of(service: Any, record: dict[str, Any], action: str, env: str) -> 
         found.add(str(loc["workspace_id"]))
     if record.get("kind") == "meta_entity" and action == "run":
         envs = service.meta_project().get("environments") or {}
-        inputs = located(envs.get(env or "dev") or {})
+        inputs = environment_of(envs.get(env or "dev") or {})
         if inputs is None:
             return None
         found |= inputs

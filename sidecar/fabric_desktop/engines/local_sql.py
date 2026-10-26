@@ -21,7 +21,7 @@ Results arrive when the statement finishes; none of these engines stream rows to
 
 What runs where, honestly (see each descriptor):
 
-- DuckDB runs DuckDB SQL natively and Spark SQL translated by sqlglot (the same translation the SQL
+- DuckDB runs DuckDB SQL natively, and Spark SQL and Databricks SQL translated by sqlglot (the same translation the SQL
   page and ``%%sql`` cells use, sql.parse). It is not Fabric's or Databricks' Spark.
 - SQLite runs SQLite's SQL. Python's own sqlite3; nothing to install.
 - Polars runs the SQL subset Polars implements over its own tables; its plan is Polars' optimized plan.
@@ -157,7 +157,11 @@ DUCKDB = EngineDescriptor(
     languages={"sql": Support("native", evidence=_T)},
     dialects={"duckdb": Support("native", evidence=_T),
               "spark": Support("translated", "Spark SQL is rewritten for DuckDB by sqlglot. Most queries match; "
-                               "Spark-only functions and Delta commands (OPTIMIZE, VACUUM) don't.", _T)},
+                               "Spark-only functions and Delta commands (OPTIMIZE, VACUUM) don't.", _T),
+              "databricks": Support("translated", "Databricks SQL is rewritten for DuckDB by sqlglot, so warehouse "
+                                    "queries can be written and tried on this PC without starting a warehouse. "
+                                    "Most queries match; Unity Catalog three-part names need the catalog and schema "
+                                    "in the session, and Delta-only commands don't run.", _T)},
     capabilities={
         "session": Support("native", "An in-memory database per session; an existing file opens read-only.", _T),
         "execute": Support("native", evidence=_T),
@@ -192,7 +196,7 @@ def _refuse_outside(code: str, dialect: str | None) -> None:
     A cell sqlglot can't read is left to DuckDB, whose closed connection still can't reach outside."""
     from .. import sql, sql_policy
     try:
-        statements = sql.parse(code, dialect or "duckdb")
+        statements = _databricks(code) if dialect == "databricks" else sql.parse(code, dialect or "duckdb")
     except ValueError:
         return
     for verdict in sql_policy.classify(statements, "lakehouse"):
@@ -201,6 +205,24 @@ def _refuse_outside(code: str, dialect: str | None) -> None:
             raise OutsideSession(f"{word} isn't allowed in a DuckDB engine session (statement {verdict.statement}). "
                                  "A session reads and writes only its own tables, never files, extensions or other "
                                  "databases.")
+
+
+def _databricks(code: str) -> list[Any]:
+    """Databricks SQL statements read by sqlglot's Databricks dialect, with the same Spark fixes
+    sql.parse makes for Spark SQL (substring from 0, date_add returning a date, trunc, unix_timestamp,
+    Spark's column names), so a query answers here as it does on the warehouse. ValueError when
+    it can't be read."""
+    import sqlglot
+    from sqlglot.errors import ParseError
+
+    from .. import sql
+    try:
+        statements = [s for s in sqlglot.parse(code, read="databricks") if s is not None]
+    except ParseError as exc:
+        raise ValueError(f"Could not read the query: {exc}") from None
+    if not statements:
+        raise ValueError("The query is empty.")
+    return [sql.spark_substring(sql._spark_dates(sql._spark_names(s))) for s in statements]
 
 
 class DuckDBSession(_SqlSession):
@@ -215,10 +237,11 @@ class DuckDBSession(_SqlSession):
     def _sql(self, code: str, dialect: str | None) -> str:
         if (dialect or "duckdb") == "duckdb":
             return code
-        if dialect != "spark":
-            raise Unsupported(f"DuckDB doesn't run the {dialect} dialect. Use Spark SQL or DuckDB SQL.")
+        if dialect not in ("spark", "databricks"):
+            raise Unsupported(f"DuckDB doesn't run the {dialect} dialect. Use Spark SQL, Databricks SQL or DuckDB SQL.")
         from .. import sql
-        return ";\n".join(s.sql(dialect="duckdb") for s in sql.parse(code, "spark"))
+        statements = _databricks(code) if dialect == "databricks" else sql.parse(code, "spark")
+        return ";\n".join(s.sql(dialect="duckdb") for s in statements)
 
     def _run(self, request: CellRequest) -> tuple[pa.Table | None, int]:
         _refuse_outside(request.code, request.dialect)

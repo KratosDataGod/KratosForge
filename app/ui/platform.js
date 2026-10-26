@@ -16,7 +16,7 @@ const PLATFORM_TAB_BAR = [
   ["settings", "Settings"],
 ];
 const REQUEST_KIND = { key_table: "Key table", source: "Source", access: "Access", shortcut: "Shortcut",
-  workspace: "Workspace", workspace_access: "Workspace access", domain: "Domain", exception: "Exception" };
+  workspace: "Workspace", workspace_access: "Workspace access", domain: "Domain", exception: "Exception", data: "Data" };
 const REQUEST_STATUS = { waiting: "Waiting", approved: "Approved", declined: "Declined", withdrawn: "Withdrawn" };
 const platformPage = { tab: "overview", env: "dev", requests: "waiting", source: null, me: null };
 
@@ -63,6 +63,8 @@ async function renderPlatform() {
     rpc("platform_requests", { status: "waiting" }).then((list) => { if (Array.isArray(list)) showWaiting(list.length); }).catch(() => {});
   }
   if (!p.me) { body.replaceChildren(h("p", { class: "muted-text" }, "The platform shows once the local engine is running.")); return; }
+  // What the page is for folds into the info drawer; the claim link stays on the page.
+  who.classList.toggle("page-intro", !p.me.can_claim);
   who.replaceChildren(...[p.me.admin ? "You're a platform admin: you create domains, key tables and sources, write governance policies, and decide requests. "
     : p.me.can_claim ? "This platform has no admin yet. "
       : "Domain teams see everything here and ask for what they need in Requests. ",
@@ -526,6 +528,7 @@ const NEW_REQUEST_KINDS = [
   ["workspace_access", "Access to a workspace", "A role for you or a group"],
   ["domain", "A domain", "Or a subdomain"],
   ["exception", "An exception to a policy", "For a while, with a reason"],
+  ["data", "Data from another team", "A new data product, or a change to one"],
 ];
 const WORKSPACE_ROLES = ["Viewer", "Contributor", "Member", "Admin"];
 
@@ -640,6 +643,34 @@ const REQUEST_FORMS = {
   },
 };
 
+// Asking another team for data (Preview): a new product from a domain, or a change to a product.
+// prefill.product asks for a change to that product (from its page).
+REQUEST_FORMS.data = async function data(box, prefill = {}) {
+  const [domains, listed] = await Promise.all([reqQuietly("platform_domains"), reqQuietly("platform_products")]);
+  const products = (listed?.products || []).filter((p) => p.status !== "draft");
+  let what = prefill.product ? "change" : "new";
+  const domain = h("select", { "aria-label": "Domain" }, reqOptions((domains || []).map((d) => [d.id, d.parent_id ? `${(domains.find((x) => x.id === d.parent_id) || {}).name || d.parent_id} / ${d.name}` : d.name])));
+  const product = h("select", { "aria-label": "Data product" }, reqOptions(products.map((p) => [p.id, `${p.name} (${p.id})`]), prefill.product));
+  const needs = h("textarea", { rows: 3, placeholder: "What you need and what it's for, e.g. daily churn by region for the retention dashboard", "aria-label": "What the data is for" });
+  const tomorrow = new Date(Date.now() + 86400000);
+  const by = h("input", { type: "date", min: reqDay(tomorrow), "aria-label": "Needed by" });
+  const which = h("div", {});
+  const draw = () => which.replaceChildren(what === "new"
+    ? reqField("From the domain", domain, "Its owners decide. A platform admin can too.")
+    : reqField("Data product", product, "Its owner decides. A platform admin can too."));
+  const seg = h("div", { class: "seg", role: "group", "aria-label": "What kind" }, [["new", "A new data product"], ["change", "A change to one"]].map(([k, t]) =>
+    h("button", { class: k === what ? "on" : null, onclick: (e) => { what = k; seg.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === e.currentTarget)); draw(); } }, t)));
+  draw();
+  box.replaceChildren(h("div", { class: "field" }, "What kind", seg), which, reqField("What you need", needs),
+    reqField("Needed by", by, "Optional. The team answers with how and when."));
+  return () => {
+    const target = what === "new" ? domain.value : product.value;
+    if (!target) return (what === "new" ? domain : product).focus();
+    if (!needs.value.trim()) return needs.focus();
+    return { kind: "data", target, reason: needs.value.trim(), detail: { what, needed_by: by.value } };
+  };
+};
+
 // Platform > Requests > New request: the kind picker, then that kind's fields.
 function newRequestDialog(done, start = "workspace", prefill = {}) {
   const shown = previewShown();
@@ -688,6 +719,10 @@ function requestDetail(r) {
   if (r.kind === "domain") return [h("b", {}, d.name || r.target), muted(d.parent_id ? ` under ${d.parent_id}` : " (top level)"), d.owners ? h("div", { class: "muted-text small" }, `Owners: ${d.owners}`) : null];
   if (r.kind === "exception") {
     return [h("b", {}, d.policy_name || r.target), muted(` for ${d.scope} ${d.scope_target}`), h("div", { class: "muted-text small" }, `Until ${d.until}`)];
+  }
+  if (r.kind === "data") {
+    return [h("b", {}, d.what === "change" ? `Change to ${d.product_name || r.target}` : `New data product from ${d.domain_name || r.target}`),
+      d.needed_by ? h("div", { class: "muted-text small" }, `Needed by ${d.needed_by}`) : null];
   }
   return h("b", { class: "mono" }, r.target);
 }
@@ -758,6 +793,14 @@ function requestTable(rows, rerender, compact = false) {
         btn("Cancel", null, () => { closeDialog(); resolve(false); }, "tool outline"),
         btn("Decline", null, () => { note = input.value.trim(); closeDialog(); resolve(true); }, "tool primary")]));
       if (!ok) return;
+    } else if (r.kind === "data") {
+      const input = h("textarea", { rows: 2, placeholder: "How and when you'll do it, e.g. in Prod by 30 November", "aria-label": "Reply" });
+      const ok = await new Promise((resolve) => showDialog(`Accept the data request from ${r.requested_by || "them"}?`,
+        h("div", {}, h("p", { class: "text" }, "Accepting tells them your team will do it. Nothing is built or changed now."),
+          h("label", { class: "field" }, "Reply", input)), [
+        btn("Cancel", null, () => { closeDialog(); resolve(false); }, "tool outline"),
+        btn("Accept", null, () => { if (!input.value.trim()) { input.focus(); return; } note = input.value.trim(); closeDialog(); resolve(true); }, "tool primary")]));
+      if (!ok) return;
     } else {
       extra = await confirmApproval(r);
       if (!extra) return;
@@ -779,7 +822,7 @@ function requestTable(rows, rerender, compact = false) {
       compact ? h("td", {}) : h("td", {}, h("span", { class: `pill-s ${r.status === "approved" ? "pass" : r.status === "waiting" ? "wrn" : "neu"}` }, REQUEST_STATUS[r.status]),
         r.decided_by ? h("div", { class: "muted-text small" }, `${r.decided_by}, ${relTime(r.decided_at)}`) : null),
       h("td", {}, h("span", { class: "row tight" },
-        r.can_decide ? btn(r.kind === "workspace" ? "Approve and create" : "Approve", null, () => decide(r, true), "tool primary small") : null,
+        r.can_decide ? btn(r.kind === "workspace" ? "Approve and create" : r.kind === "data" ? "Accept" : "Approve", null, () => decide(r, true), "tool primary small") : null,
         r.can_decide ? btn("Decline", null, () => decide(r, false), "tool outline small") : null,
         r.mine && r.status === "waiting" ? btn("Withdraw", null, async () => {
           if (await platformCall("platform_withdraw", { id: r.id }, "Not withdrawn")) rerender();
@@ -802,7 +845,7 @@ async function platformRequestsTab(body) {
           label, id === "waiting" ? ` (${all.filter(filters.waiting).length})` : ""))),
       h("span", { class: "spacer" }),
       btn("New request", "add", () => newRequestDialog(rerender), "tool primary small")),
-    h("p", { class: "muted-text small" }, "Platform admins decide key tables, sources, workspaces, workspace access, domains and policy exceptions. A data product's owner decides who else may read it; ask from the OneLake catalog."),
+    h("p", { class: "muted-text small" }, "Platform admins decide key tables, sources, workspaces, workspace access, domains and policy exceptions. A data product's owner decides who else may read it; ask from the OneLake catalog. A domain's owners answer requests for a new data product from their domain, and a product's owner requests for a change to it."),
     requestTable(shown, rerender)),
   howItWorks("platform.requests", {
     reads: "The requests in the platform's catalog (SQL_Platform in Fabric, or a file on this PC), when the tab opens. New request also lists the domains, capacities, workspaces and policies you can see, to pick from.",
@@ -934,7 +977,7 @@ registerFeature({
 
 // ---------- OneLake > Data products: every team's products, for everyone ----------
 
-const productsPage = { query: "", domain: "all", open: null };
+const productsPage = { query: "", domain: "all", open: null, following: false };
 
 async function renderDataProducts() {
   const pp = productsPage;
@@ -946,11 +989,12 @@ async function renderDataProducts() {
     h("section", { class: "card pad" },
       h("div", { class: "monitor-band" }, h("h2", {}, "Data products"),
         h("span", { class: "muted-text" }, "What every team shares, from the platform's catalog"), h("span", { class: "spacer" }), search,
+        previewShown() ? btn("Ask for data", null, () => newRequestDialog(null, "data"), "tool outline") : null,
         btn("Refresh", "sync", () => render(), "tool outline")),
       list),
     howItWorks("onelake.products", {
       reads: "Every team's published data products, their ports and readers, from the platform's catalog (SQL_Platform in Fabric, or the file on this PC). It reads when the tab opens and when you press Refresh.",
-      changes: "Link writes a link file in your open metadata project on this PC and records your project as a reader in the platform's catalog. Request access adds a request to the platform's catalog for the product's owner. Neither touches the product's tables in OneLake, and nothing else here writes.",
+      changes: "Link writes a link file in your open metadata project on this PC and records your project as a reader in the platform's catalog. Request access adds a request to the platform's catalog for the product's owner, and Ask for data adds one for the domain's or product's owners. None of them touches the product's tables in OneLake, and nothing else here writes.",
       results: "The product's owner sees your request on Platform > Requests and decides it, and sees your project among the product's readers. A link shows on your project's Links tab.",
       anchor: "data-products-preview",
     }))));
@@ -959,7 +1003,7 @@ async function renderDataProducts() {
   const domains = [...new Set(out.products.map((p) => p.domain_id).filter(Boolean))].sort();
   const draw = () => {
     const q = pp.query.toLowerCase();
-    const shown = out.products.filter((p) => (pp.domain === "all" || p.domain_id === pp.domain)
+    const shown = out.products.filter((p) => (pp.domain === "all" || p.domain_id === pp.domain) && (!pp.following || p.following)
       && (!q || `${p.name} ${p.description} ${p.owner} ${p.project} ${p.ports.map((x) => x.port).join(" ")}`.toLowerCase().includes(q)));
     const action = (p) => p.linked ? h("span", { class: "pill-s pass" }, "Linked")
       : p.can_link ? btn("Link", "databaseLink", async () => {
@@ -970,7 +1014,9 @@ async function renderDataProducts() {
           : p.why === "requested" ? h("span", { class: "pill-s wrn" }, "Requested") : h("span", { class: "muted-text small" }, p.why);
     list.replaceChildren(...[
       h("div", { class: "row", role: "group", "aria-label": "Domain" },
-        ["all", ...domains].map((d) => h("button", { class: `chip${pp.domain === d ? " on" : ""}`, onclick: () => { pp.domain = d; draw(); } }, d === "all" ? "All domains" : d))),
+        ["all", ...domains].map((d) => h("button", { class: `chip${pp.domain === d ? " on" : ""}`, onclick: () => { pp.domain = d; draw(); } }, d === "all" ? "All domains" : d)),
+        out.can_follow && previewShown() ? h("button", { class: `chip follow-chip${pp.following ? " on" : ""}`, "aria-pressed": String(pp.following),
+          onclick: () => { pp.following = !pp.following; draw(); } }, `Following (${out.products.filter((p) => p.following).length})`) : null),
       out.project ? null : h("p", { class: "muted-text small" }, "Open a metadata project to link to a product or ask for access."),
       shown.length ? h("table", { class: "list" },
         h("thead", {}, h("tr", {}, ["Product", "Domain", "Owner", "Open to", "Ports", "Readers", ""].map((x) => h("th", {}, x)))),
@@ -1018,6 +1064,31 @@ function purviewUrlProblem(text) {
   return PURVIEW_HOSTS.some((x) => host === x || host.endsWith(`.${x}`)) ? "" : bad;
 }
 
+// Follow a product to hear in Teams when it's deprecated, gets a new version or its columns change in Prod.
+// Whoever links a project to it hears too. A platform older than following shows no button.
+function followButton(p) {
+  if (p.following === undefined) return null;
+  const b = btn("", null, async () => {
+    b.disabled = true;
+    try {
+      const res = await rpc("platform_follow", { product_id: p.id, follow: !p.following });
+      p.following = res.following.includes(p.id);
+      toast(p.following ? `Following ${p.name}: you'll hear when it changes in Prod.` : `Stopped following ${p.name}.`);
+    } catch (err) {
+      toast(trustError(err), true);
+    }
+    b.disabled = false;
+    paint();
+  }, "tool outline small follow-button");
+  const paint = () => {
+    b.textContent = p.following ? "Following" : "Follow";
+    b.setAttribute("aria-pressed", String(!!p.following));
+    b.title = p.following ? "Stop following" : "Hear in Teams when it's deprecated, gets a new version or its columns change";
+  };
+  paint();
+  return b;
+}
+
 function trustError(err) {
   const raw = String((err && typeof err === "object" ? err.message : err) || "");
   return raw.replace(/^[A-Za-z]*Error: /, "") || "The platform didn't answer.";
@@ -1032,14 +1103,15 @@ async function renderProductTrust(p) {
   setView(h("div", { class: "page monitor onelake" }, onelakeTabs(), withHowItWorks(
     h("div", {},
       h("section", { class: "card pad" },
-        h("div", { class: "monitor-band" }, btn("All data products", null, () => { pp.open = null; render(); }, "tool link small")),
+        h("div", { class: "monitor-band" }, btn("All data products", null, () => { pp.open = null; render(); }, "tool link small"),
+          h("span", { class: "spacer" }), followButton(p), btn("Ask for a change", null, () => newRequestDialog(null, "data", { product: p.id }), "tool outline small")),
         h("div", { class: "row" }, h("h2", { class: "trust-name" }, p.name), badges, previewTag()),
         h("div", { class: "muted-text small" }, p.description || ""), h("div", { class: "muted-text small mono" }, p.id), lastScan),
       endorsement, terms, productChecklistCard(p), productAccessCard(p)),
     howItWorks("onelake.product-trust", {
       reads: "The product's endorsement as the last tenant scan read it, and its business terms, from the platform's catalog. Scan now reads Fabric's admin tenant scan (Power BI) of the workspaces the platform's published products live in, as you: only a Fabric administrator can. Nothing reads Purview.",
-      changes: "Scan now writes what the scan read to catalog.endorsement in the platform's catalog. Adding or removing a term writes catalog.product_term. Take access away deletes that project's row in catalog.grant; links it already made stay. Nothing changes in Fabric or Purview: KratosForge can't set endorsement, and terms stay in Purview.",
-      results: "Everyone who opens this product sees the last scan's badge and when it was read, and each term with a link to it in Purview. Each scan, term change and access taken away is in the platform's audit log.",
+      changes: "Scan now writes what the scan read to catalog.endorsement in the platform's catalog. Adding or removing a term writes catalog.product_term. Take access away deletes that project's row in catalog.grant; links it already made stay. Ask for a change adds a request to catalog.request for the product's owner. Follow adds you to catalog.follow (Following takes you off). Nothing changes in Fabric or Purview: KratosForge can't set endorsement, and terms stay in Purview.",
+      results: "Everyone who opens this product sees the last scan's badge and when it was read, and each term with a link to it in Purview. Each scan, term change and access taken away is in the platform's audit log. When a promote to Prod deprecates the product, changes its version or changes a port's columns, its followers and the people who linked a project to it are named in a Teams notice that says what changed.",
       anchor: "endorsement-and-business-terms-preview",
     }))));
   const here = () => state.view === "onelake" && catalogPage.tab === "products" && pp.open === p;

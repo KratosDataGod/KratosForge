@@ -23,6 +23,7 @@ function sqlRefKey(ref) {
 }
 
 function openSqlQuery(ref) {
+  sqlPracticePolicies = null;  // policies may have changed since the last visit
   if (sqlRefKey(sqlPage.ref) !== sqlRefKey(ref)) {
     Object.assign(sqlPage, { ref, tabs: loadQueryTabs(ref), active: 0, tables: null, cols: {}, open: {}, pending: {},
       catalog: null, whOpen: null, whFilter: "" });
@@ -33,6 +34,33 @@ function openSqlQuery(ref) {
 // The Warehouse page (WH-01): the SQL query page with a warehouse or SQL analytics endpoint as its target.
 function openWarehouseQuery(ref) {
   openSqlQuery(ref);
+}
+
+// SQL best practices (Preview): SQ001 to SQ010 (sqlcompat/practices.py) on T-SQL, read on this PC with
+// the compatibility check as you type; nothing runs. The project's governance policies tune the rules
+// (governance_practice_settings), read once per visit to the page.
+const SQL_PRACTICE_TARGETS = ["warehouse", "endpoint", "sqldb"];
+let sqlPracticePolicies = null;  // a promise of { settings, policies, note }
+
+function sqlPracticeSettings() {
+  if (!sqlPracticePolicies) {
+    sqlPracticePolicies = rpc("governance_practice_settings", { kind: "sql" }).catch((err) => ({ settings: {}, policies: [],
+      note: `The policies couldn't be read, so every rule is on as built: ${String(err.message || err).replace(/^Error: /, "")}` }));
+  }
+  return sqlPracticePolicies;
+}
+
+function sqlPracticeLabel(r) {
+  const n = r?.findings?.length || 0;
+  return n ? `Best practices · ${n}` : "Best practices";
+}
+
+// A finding's place in the text, in code points as the engine counts them: line and col start at 1.
+function sqlPracticeOffset(text, line, col) {
+  const lines = text.split("\n");
+  let at = 0;
+  for (let i = 0; i < Math.min(line - 1, lines.length); i++) at += [...lines[i]].length + 1;
+  return at + Math.max(col - 1, 0);
 }
 
 function queryTabsKey(ref) {
@@ -203,19 +231,26 @@ function renderQuery() {
   async function checkSql(text, dialect) {
     tab.compatLong = text.length > SQL_AUTO_CHECK_LIMIT && !tab.checkLong;
     if (!text.trim() || tab.running || tab.compatLong) {
-      if (!text.trim()) tab.compat = null;
+      if (!text.trim()) tab.compat = tab.practices = null;
       if (here()) drawCompat();
       return null;
     }
     tab.checkLong = false;
-    let report;
-    try {
-      report = await rpc("sql_analyze", { query: text, target: dialect });
-    } catch (err) {
-      report = { failed: String(err).replace(/^Error: /, "") };
-    }
+    const failed = (err) => ({ failed: String(err).replace(/^Error: /, "") });
+    const practices = async () => {
+      if (!SQL_PRACTICE_TARGETS.includes(dialect)) return null;
+      const pol = await sqlPracticeSettings();
+      try {
+        const out = await rpc("sql_practices", { query: text, target: dialect, settings: pol.settings || {} });
+        return { ...out, policies: pol.policies || [], note: pol.note || "" };
+      } catch (err) {
+        return failed(err);
+      }
+    };
+    const [report, bp] = await Promise.all([rpc("sql_analyze", { query: text, target: dialect }).catch(failed), practices()]);
     if (!here() || editor.text() !== text) return null;
     tab.compat = report;
+    tab.practices = bp;
     tab.compatText = text;
     drawCompat();
     return report.failed ? null : report;
@@ -591,14 +626,32 @@ function renderQuery() {
 
   const dialectPick = h("select", { class: "sql-dialect", "aria-label": "SQL dialect",
     title: "The SQL you are writing and the engine it's checked against. It sets highlighting, suggestions, formatting and the compatibility check; only Spark SQL and DuckDB run on this PC.",
-    onchange: (e) => { tab.dialect = sqlDialect(e.target.value); saveQueryTabs(); editor.setDialect(tab.dialect); drawActions(); } },
+    onchange: (e) => { tab.dialect = sqlDialect(e.target.value); saveQueryTabs(); editor.setDialect(tab.dialect); drawActions(); drawCompat(); } },
   Object.entries(SQL_DIALECTS).map(([id, d]) => h("option", { value: id, selected: id === tab.dialect }, d.label)));
   const actions = h("div", { class: "sql-actions" });
   // The compatibility check as a chip beside Format SQL (Cleaner KratosForge): the counts at a glance.
   // Its panel beside the editor opens when the chip is pressed, or by itself when the check finds an
   // error or a warning; closing it holds until the findings change.
+  // Compatibility and Best practices share the panel; each chip opens it on its own tab, or closes it.
+  const showPane = (pane) => {
+    const open = compatOpen() && (tab.sqlPane || "compat") === pane;
+    tab.sqlPane = pane;
+    tab.compatShown = { open: !open, sig: compatSig() };
+    drawCompat();
+  };
   const compatChip = h("button", { class: "sql-compat-chip", "aria-controls": "sql-compat", title: "Compatibility: open or close the check's findings",
-    onclick: () => { tab.compatShown = { open: !compatOpen(), sig: compatSig() }; drawCompat(); } });
+    onclick: () => showPane("compat") });
+  const practicesChip = h("button", { class: "sql-practices-chip", "aria-controls": "sql-compat", "data-practices": true,
+    title: "Best practices: what may be slow or fragile even when it runs. Read on this PC; nothing runs.",
+    onclick: () => showPane("practices") });
+  function drawPracticesChip() {
+    const r = tab.practices;
+    practicesChip.hidden = !SQL_PRACTICE_TARGETS.includes(tab.dialect) || !previewShown();  // Preview: hidden with the previews
+    const worst = r?.counts?.Error ? "error" : r?.counts?.Warning ? "warning" : "";
+    practicesChip.className = `sql-practices-chip${worst ? ` ${worst}` : ""}`;
+    practicesChip.setAttribute("aria-expanded", String(compatOpen() && tab.sqlPane === "practices"));
+    practicesChip.replaceChildren(r?.failed ? "Best practices: check failed" : sqlPracticeLabel(r), previewTag(), icon("chevronDown", 14));
+  }
   // The engine's outcome decides the chip, so SQL it couldn't verify or didn't check never reads as clean.
   const compatStatus = () => {
     const r = tab.compat;
@@ -664,7 +717,7 @@ function renderQuery() {
         h("span", { class: "sql-sep", "aria-hidden": "true" }),
         h("span", { class: "sql-target-note" }, SQL_DIALECTS[tab.dialect].label),
         btn("Format SQL", null, formatSql, "tool outline", { title: "Format the selection, or the whole query (Shift+Alt+F)" }),
-        compatChip);
+        compatChip, practicesChip);
       return;
     }
     const local = runsHere();
@@ -674,7 +727,7 @@ function renderQuery() {
       h("span", { class: "sql-sep", "aria-hidden": "true" }),
       dialectPick,
       btn("Format SQL", null, formatSql, "tool outline", { title: "Format the selection, or the whole query (Shift+Alt+F)" }),
-      compatChip,
+      compatChip, practicesChip,
       h("span", { class: "spacer" }),
       btn("Save as table", "save", saveAsTable, "tool outline", { disabled: !local }),
       btn("Open in notebook", "notebook", openInNotebook, "tool outline", { disabled: tab.dialect !== "spark" }));
@@ -693,6 +746,9 @@ function renderQuery() {
   function drawCompat() {
     compat.hidden = !compatOpen();
     drawCompatChip();
+    drawPracticesChip();
+    if (practicesChip.hidden) tab.sqlPane = "compat";
+    if (tab.sqlPane === "practices") { drawPractices(); return; }
     const r = tab.compat;
     const label = SQL_DIALECTS[tab.dialect].label;
     const head = h("div", { class: "sql-compat-head" }, h("b", {}, "Compatibility"), previewShown() ? previewTag() : null,
@@ -738,6 +794,39 @@ function renderQuery() {
       list.length ? h("div", { class: "sql-findings" }, list) : null,
       r.truncated ? h("p", { class: "muted-text" }, `Showing the first ${r.diagnostics.length.toLocaleString()} findings; the counts include all of them.`) : null,
       h("p", { class: "muted-text sql-compat-note" }, "Static check: the SQL was read, not run. No findings isn't proof it runs in Fabric.")]
+      .filter(Boolean));
+  }
+  // The Best practices tab of the panel: findings worst first, each with Line n to select it.
+  function drawPractices() {
+    const r = tab.practices;
+    const head = h("div", { class: "sql-compat-head" }, h("b", {}, "Best practices"), previewShown() ? previewTag() : null);
+    const intro = h("p", { class: "muted-text sql-compat-note" },
+      "Read on this PC as you type; nothing runs. What may be slow or fragile even when it runs. It never changes the compatibility result.");
+    if (!r) {
+      compatBody.replaceChildren(head, intro, h("p", { class: "muted-text" }, "Write T-SQL to check it."));
+      return;
+    }
+    if (r.failed) {
+      compatBody.replaceChildren(head, h("p", { class: "output error" }, `Could not check the SQL: ${r.failed}`));
+      return;
+    }
+    const chip = (n, label, cls) => h("span", { class: `sql-chip ${cls}` }, `${n.toLocaleString()} ${label}${n === 1 || label === "info" ? "" : "s"}`);
+    const list = r.findings.map((f) => h("div", { class: "sql-practice", "data-rule": f.rule_id },
+      h("div", {}, h("b", { class: `sql-practice-sev ${f.severity.toLowerCase()}` }, f.severity), ` · ${f.rule}`),
+      h("div", { class: "muted-text" }, f.description),
+      h("div", {}, h("button", { class: "link-btn", onclick: () => {
+        const text = editor.text();
+        if (text !== tab.compatText) return;
+        const at = sqlPracticeOffset(text, f.line, f.col);
+        editor.reveal(sqlUtf16Offset(text, at), sqlUtf16Offset(text, at + 1));
+      } }, `Line ${f.line}`), h("span", { class: "muted-text" }, ` · ${f.rule_id} · ${f.category}`))));
+    compatBody.replaceChildren(...[head, intro,
+      h("div", { class: "sql-chips" }, chip(r.counts.Error, "error", "error"), chip(r.counts.Warning, "warning", "warning"), chip(r.counts.Info, "info", "information")),
+      r.note ? h("p", { class: "muted-text" }, r.note) : null,
+      list.length ? h("div", { class: "sql-findings" }, list) : h("p", { class: "muted-text" }, "Nothing to look at. Every rule that's on passes."),
+      h("p", { class: "muted-text sql-compat-note" }, r.policies.length
+        ? `Tuned by ${r.policies.join(", ")}: a rule a policy turns off isn't shown.`
+        : "No policy for this project names a SQL rule, so every rule is on as built. A governance policy can name them in Checked by.")]
       .filter(Boolean));
   }
   drawCompat();

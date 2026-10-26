@@ -3718,6 +3718,25 @@ test("notebook best practices: cell numbers, counts and wiring", () => {
   assert.ok(html.indexOf('src="nbpractices.js"') > html.indexOf('src="notebook-comments.js"'));
 });
 
+// SQL best practices on the SQL page (query.js): a finding's line and column (code points, from 1)
+// become an offset in the text, and the chip's label counts the findings.
+test("SQL best practices: finding offsets and the chip label", () => {
+  const src = fs.readFileSync(path.join(ui, "query.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  for (const name of ["sqlPracticeOffset", "sqlPracticeLabel"]) {
+    vm.runInContext(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`).exec(src)[0], ctx);
+  }
+  const text = "SELECT *\nFROM sales\nWHERE YEAR(d) = 1";
+  assert.strictEqual(text.slice(ctx.sqlPracticeOffset(text, 3, 7)).slice(0, 4), "YEAR");
+  assert.strictEqual(ctx.sqlPracticeOffset(text, 1, 8), 7);
+  assert.strictEqual(ctx.sqlPracticeOffset("-- \u{1F600}\nSELECT *", 2, 8), 12, "an emoji is one code point, as the engine counts");
+  assert.strictEqual(ctx.sqlPracticeLabel({ findings: [{}, {}] }), "Best practices · 2");
+  assert.strictEqual(ctx.sqlPracticeLabel(null), "Best practices");
+  assert.match(src, /rpc\("governance_practice_settings", \{ kind: "sql" \}\)/);
+  assert.match(src, /SQL_PRACTICE_TARGETS = \["warehouse", "endpoint", "sqldb"\]/);
+});
+
 // Notebook parity L3: a notebook's Runs panel lists this PC's scheduled runs and its Fabric runs.
 test("the notebook Runs panel labels each run and offers Refresh status only for Fabric runs still going", () => {
   const src = fs.readFileSync(path.join(ui, "runs.js"), "utf8");

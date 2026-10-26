@@ -358,7 +358,14 @@ def test_a_failed_run_is_recorded_as_failed(svc, project, monkeypatch):
     assert last["status"] == "failed" and "engine stopped" in last["detail"]
 
 
-def test_a_fabric_run_stays_submitted_until_fabric_says_how_it_ended(svc, monkeypatch):
+@pytest.fixture
+def no_capacity_read(monkeypatch):
+    """The risk check in a Fabric run's preflight reads the workspace's capacity from Fabric; with the
+    fake token that went to the real API and waited out its retries (about 150 s, or a timeout)."""
+    monkeypatch.setattr(Service, "_risk_capacity_read", lambda self, *a: None)
+
+
+def test_a_fabric_run_stays_submitted_until_fabric_says_how_it_ended(svc, monkeypatch, no_capacity_read):
     signed_in(svc)
     scan(svc, monkeypatch)
     wid = model.fabric_id("ws1", "pl1")

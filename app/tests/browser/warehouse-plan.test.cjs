@@ -77,6 +77,20 @@ test("an answer that isn't a showplan is shown as it came", { skip }, async () =
   answer = PLAN;
 });
 
+test("names in the plan are text, never markup", { skip }, async () => {
+  const evil = "&lt;img src=x onerror=&quot;window.planPwned=1&quot;&gt;";
+  answer = PLAN.replace('PhysicalOp="Table Scan" LogicalOp="Table Scan" EstimateRows="18484"', `PhysicalOp="${evil}" LogicalOp="${evil}" EstimateRows="18484"`)
+    .replace('Table="[DimCustomer]"', `Table="${evil}"`);
+  await page().getByRole("button", { name: "Estimated plan" }).click();
+  await page().waitForFunction(() => /<img src=x/.test(document.querySelector(".sql-plan-tree")?.textContent || ""));
+  await page().waitForTimeout(200);
+  assert.strictEqual(await page().locator(".sql-plan img").count(), 0, "no element was made from a name");
+  assert.strictEqual(await page().evaluate(() => window.planPwned), undefined);
+  assert.match(await page().locator(".sql-plan-op").last().locator(".sql-plan-name").textContent(), /^<img src=x onerror="window\.planPwned=1">/);
+  assert.match(await page().locator(".sql-plan-op").last().locator(".sql-plan-object").textContent(), /<img src=x/);
+  answer = PLAN;
+});
+
 test("nothing on the page threw", { skip }, async () => {
   assert.deepStrictEqual(app.errors, []);
 });

@@ -497,7 +497,9 @@ def test_what_a_change_may_do(query, kind, says):
 
 def test_a_word_refused_as_a_name_says_how_to_write_it():
     assert "written in brackets, such as [Use]" in warehouse.verdicts("SELECT Use FROM dbo.t", writes=True)[0].reason
-    assert "such as [Grant]" in warehouse.verdicts("SELECT Deny FROM dbo.t", writes=True)[0].reason
+    for word in ("Grant", "Revoke", "Deny", "Authorization"):
+        reason = warehouse.verdicts(f"SELECT {word.upper()} FROM dbo.t", writes=True)[0].reason
+        assert reason.endswith(f"such as [{word}]"), reason
 
 
 def test_go_lines_split_a_script_into_batches():

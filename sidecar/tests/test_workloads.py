@@ -452,6 +452,39 @@ def test_a_refused_start_says_not_authorized_and_records_no_run(svc, monkeypatch
     assert len(svc._read_fabric_runs()) == before
 
 
+def test_an_item_the_inventory_doesnt_list_is_refused_with_a_code(svc, monkeypatch):
+    signed_in(svc)
+    scan(svc, monkeypatch)
+    pre = svc.workload_preflight(model.fabric_id("ws9", "cj9"), "run_item")
+    assert pre == {"allowed": False, "code": "not_in_inventory", "reason": pre["reason"]} and "isn't in the inventory" in pre["reason"]
+    with pytest.raises(PermissionError, match="isn't in the inventory"):
+        svc.workload_act(model.fabric_id("ws9", "cj9"), "run_item")
+
+
+def test_a_refresh_during_a_scan_scans_once_more_so_a_new_pin_is_read(svc, monkeypatch):
+    signed_in(svc)
+    started, release = [], __import__("threading").Event()
+
+    def slow_scan(token, client=None):
+        started.append(token)
+        if len(started) == 1:
+            release.wait(5)
+        with svc._wl_scan_lock:
+            svc._wl_scan = {"pending": False, "collected_at": "now"}
+        return svc._wl_scan
+
+    monkeypatch.setattr(svc, "_wl_scan_items", slow_scan)
+    svc._wl_start_scan("tok")
+    svc._wl_start_scan("tok2")  # a pin while the first scan runs
+    svc._wl_start_scan("tok3")  # asking twice still means one more scan, with the newest token
+    release.set()
+    deadline = time.monotonic() + 5
+    while (len(started) < 2 or svc._wl_scan.get("pending")) and time.monotonic() < deadline:
+        time.sleep(0.01)
+    time.sleep(0.05)
+    assert started == ["tok", "tok3"] and not svc._wl_scan["pending"] and not svc._wl_scan_again
+
+
 def test_unsupported_or_unsafe_actions_are_refused(svc, project, monkeypatch):
     wid = model.meta_id("proj", sorted(project.entities)[0])
     assert not svc.workload_preflight(wid, "cancel", "dev")["allowed"]

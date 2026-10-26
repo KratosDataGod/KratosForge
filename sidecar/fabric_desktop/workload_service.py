@@ -46,10 +46,15 @@ _ACTION_LABELS = {"run": "Run", "run_in_fabric": "Run in Fabric", "run_item": "R
                   "run_schedule": "Run the schedule now", "cancel": "Cancel the run"}
 
 
+class NotInInventory(LookupError):
+    """The workload isn't in the inventory: renamed, deleted, or in a workspace this app doesn't read."""
+
+
 class WorkloadMixin:
     root: Path
     _wl_scan: dict[str, Any] | None = None
     _wl_scan_lock = threading.Lock()
+    _wl_scan_again = ""  # a refresh's token, asked for while a scan runs: scan once more when it ends (a new pin)
     _wl_records: dict[str, dict[str, Any]] | None = None
     _wl_audit_lock = threading.Lock()
 
@@ -165,7 +170,7 @@ class WorkloadMixin:
             scanning = bool(scan and scan.get("pending"))
         cached = self.workload_store.cache_get("fabric_items")
         token = self._wl_token(FABRIC_SCOPES)
-        if token and not scanning and (refresh or cached is None):
+        if token and (refresh or (cached is None and not scanning)):
             self._wl_start_scan(token)
             scanning = True
         source = "Fabric items in the workspaces you work in"
@@ -186,9 +191,21 @@ class WorkloadMixin:
     def _wl_start_scan(self, token: str) -> None:
         with self._wl_scan_lock:
             if self._wl_scan and self._wl_scan.get("pending"):
+                # It may have listed the workspaces before a new pin. The token is taken here, on the
+                # caller's thread (MSAL isn't thread-safe), so the next pass doesn't reuse an old one.
+                self._wl_scan_again = token
                 return
             self._wl_scan = {"pending": True}
-        threading.Thread(target=self._wl_scan_items, args=(token,), daemon=True).start()
+        threading.Thread(target=self._wl_scan_until_settled, args=(token,), daemon=True).start()
+
+    def _wl_scan_until_settled(self, token: str) -> None:
+        while True:
+            self._wl_scan_items(token)
+            with self._wl_scan_lock:
+                if not self._wl_scan_again:
+                    return
+                token, self._wl_scan_again = self._wl_scan_again, ""
+                self._wl_scan = {"pending": True}
 
     def _wl_scan_items(self, token: str, client: FabricClient | None = None) -> dict[str, Any]:
         client = client or FabricClient(lambda: token)
@@ -279,8 +296,8 @@ class WorkloadMixin:
             self._wl_collect(refresh)
         record = (self._wl_records or {}).get(wid)
         if record is None:
-            raise LookupError("That workload isn't in the inventory any more. It may have been renamed, "
-                              "deleted, or be in a workspace this app no longer reads.")
+            raise NotInInventory("That workload isn't in the inventory any more. It may have been renamed, "
+                                 "deleted, or be in a workspace this app no longer reads.")
         return record
 
     def workload_detail(self, id: str, refresh: bool = False) -> dict[str, Any]:
@@ -475,8 +492,12 @@ class WorkloadMixin:
 
     def workload_preflight(self, id: str, action: str, env: str | None = None, assess: bool = True) -> dict[str, Any]:
         """What an action will do before it does it: environment, identity, target, consequence, and
-        the risk check's findings (FINOPS-004) unless ``assess`` is false."""
-        w = self._wl_record(id)
+        the risk check's findings (FINOPS-004) unless ``assess`` is false. A workload the inventory
+        doesn't list is refused with ``code`` "not_in_inventory", so a caller can offer to read again."""
+        try:
+            w = self._wl_record(id)
+        except NotInInventory as exc:
+            return {"allowed": False, "code": "not_in_inventory", "reason": str(exc)}
         allowed = [a for a in self._wl_available(w) if a["action"] == action and (a.get("env") or None) == (env or None)]
         if not allowed:
             return {"allowed": False, "reason": f"{w['name']} doesn't support that here."}

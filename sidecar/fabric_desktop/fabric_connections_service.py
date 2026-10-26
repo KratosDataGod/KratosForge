@@ -168,12 +168,14 @@ class FabricConnectionsMixin:
         def uses(it: dict[str, Any]) -> tuple[dict[str, Any], set[str]]:
             try:
                 result = client.get_item_definition(it["workspace_id"], it["item_id"])
+                # Parsed here too: a definition in a shape this version doesn't expect is one item
+                # that couldn't be read, never the end of the scan.
+                if it["item_type"] == "dataflow":
+                    return it, dataflow_connection_ids(result)
+                return it, connection_ids(definition_parts(result))
             except Exception as exc:  # noqa: BLE001
                 missed.append(f"definition of {it['item_id']}: {describe(exc)}")
                 return it, set()
-            if it["item_type"] == "dataflow":
-                return it, dataflow_connection_ids(result)
-            return it, connection_ids(definition_parts(result))
 
         with ThreadPoolExecutor(max_workers=8) as pool:
             found = [it for chunk in pool.map(items, workspaces) for it in chunk]

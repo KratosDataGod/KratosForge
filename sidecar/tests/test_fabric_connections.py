@@ -228,3 +228,22 @@ def test_a_dataflow_counts_as_using_the_connections_its_metadata_names(svc, monk
     assert [(u["item_name"], u["item_type"]) for u in rows["s3-events"]["used_by"]][-1] == ("df_products", "dataflow")
     # An id a dataflow names that isn't a connection here isn't called missing (unverified mapping).
     assert [m["id"] for m in out["missing"]] == [GONE] and out["items"] == 5
+
+
+@pytest.mark.parametrize("broken", [
+    {"definition": {"parts": "not a list"}},
+    {"definition": {"parts": [{"path": "queryMetadata.json", "payloadType": "InlineBase64",
+                               "payload": base64.b64encode(json.dumps({"connections": 3}).encode()).decode()},
+                              {"path": "mashup.pq", "payloadType": "InlineBase64", "payload": base64.b64encode(b"section S;").decode()}]}},
+])
+def test_a_definition_in_an_odd_shape_is_counted_not_the_end_of_the_scan(svc, monkeypatch, broken):
+    items = FakeFabric.list_items
+    definition = FakeFabric.get_item_definition
+    monkeypatch.setattr(FakeFabric, "list_items", lambda self, ws: items(self, ws) + (
+        [{"id": "df1", "type": "Dataflow", "displayName": "df_odd"}, {"id": "pl9", "type": "DataPipeline", "displayName": "pl_odd"}]
+        if ws == "ws-dev" else []))
+    monkeypatch.setattr(FakeFabric, "get_item_definition",
+                        lambda self, ws, item, fmt=None: broken if item in ("df1", "pl9") else definition(self, ws, item, fmt))
+    out = _settled(svc)
+    assert "error" not in out and len(out["connections"]) == 3
+    assert out["missed"] == 1 + (2 if isinstance(broken["definition"]["parts"], str) else 1)  # pl3's 403, then the odd ones

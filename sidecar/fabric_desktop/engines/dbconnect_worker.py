@@ -1,7 +1,8 @@
 """The Databricks Connect process: runs a notebook's cells with ``spark`` on a Databricks cluster.
 
 Started by dbconnect.py as ``python -I dbconnect_worker.py <site-packages>``, where the folder holds
-databricks-connect and its own pyspark. ``-I`` keeps this folder, the user's site-packages and
+databricks-connect and its own pyspark. The folder is added as a site directory, so its .pth files
+run, and its entries go ahead of the engine's own site-packages. ``-I`` keeps this folder, the user's site-packages and
 PYTHON* variables off ``sys.path``, so the engine's modules and its local Spark stand-in can't load
 here, and databricks-connect's pyspark is the only one. This file imports nothing from KratosForge.
 
@@ -94,7 +95,12 @@ class Worker:
 
 
 def main() -> None:
-    sys.path.insert(0, sys.argv[1])
+    # addsitedir, not sys.path.insert: the folder's .pth files must run (setuptools' distutils
+    # shim is one, and pyspark 3.5 imports distutils on Python 3.12). Its entries then go first.
+    import site
+    n = len(sys.path)
+    site.addsitedir(sys.argv[1])
+    sys.path[:] = sys.path[n:] + sys.path[:n]
     worker = Worker()
     for line in sys.stdin:
         try:

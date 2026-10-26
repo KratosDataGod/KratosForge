@@ -44,14 +44,14 @@ import pyarrow as pa
 from .authorization import require
 from .capabilities import EngineDescriptor, Support
 from .contract import CellRequest, CellResult, OutputSink, SessionClosed, SessionConfig, Unsupported
-from .databricks_auth import DatabricksAuthError, check_host, resolve_secret
+from .databricks_auth import DatabricksAuthError, check_host, find_cli, resolve_secret
 
 _T = "unit_tests"
 INSTALL_SECONDS = 20 * 60
 START_SECONDS = 15 * 60          # connecting can wait for a terminated cluster to start
 WORKER = Path(__file__).with_name("dbconnect_worker.py")
 # The Python each Databricks Runtime line runs (Databricks' release notes); a client must use the same.
-RUNTIME_PYTHON = {13: "3.10", 14: "3.10", 15: "3.11", 16: "3.12", 17: "3.12"}
+RUNTIME_PYTHON = {13: "3.10", 14: "3.10", 15: "3.11", 16: "3.12", 17: "3.12", 18: "3.12", 19: "3.12"}
 _RUNTIME = re.compile(r"^(\d+)\.(\d+)\.")
 _CLUSTER = re.compile(r"^[A-Za-z0-9-]{1,64}$")
 
@@ -108,7 +108,10 @@ def check(spark_version: str, client: str | None, python: str = "%d.%d" % sys.ve
     line = f"{major}.{minor}"
     problems = []
     needs = RUNTIME_PYTHON.get(major)
-    if needs is None:
+    if needs is None and major > max(RUNTIME_PYTHON):
+        problems.append(f"Databricks Runtime {line} is newer than this version of KratosForge knows. Update "
+                        "KratosForge, or use a cluster on an earlier runtime.")
+    elif needs is None:
         problems.append(f"Databricks Runtime {line} isn't supported by Databricks Connect here (13.3 and later).")
     elif needs != python:
         problems.append(f"Databricks Runtime {line} runs Python {needs}; KratosForge's Python is {python}. Use a "
@@ -162,12 +165,17 @@ def worker_env(connection: dict[str, Any], cluster_id: str, base: Mapping[str, s
                environ: Mapping[str, str] | None = None) -> dict[str, str]:
     """The process's environment: this PC's, minus any DATABRICKS_* or PYTHON* variable, plus the
     connection's sign-in and the cluster. A service principal's secret is read from its reference here."""
+    # SPARK_REMOTE too: databricks-connect connects to it before reading the SDK's settings.
     env = {k: v for k, v in (os.environ if base is None else base).items()
-           if not k.upper().startswith(("DATABRICKS_", "PYTHON"))}
+           if not k.upper().startswith(("DATABRICKS_", "PYTHON", "SPARK_REMOTE"))}
     host = check_host(connection.get("host") or "")
     cred = connection.get("credential") or {}
     method = cred.get("method") or "oauth-u2m"
     env |= {"DATABRICKS_HOST": host, "DATABRICKS_CLUSTER_ID": cluster_id}
+    # The SDK finds the CLI itself, current folder included; give it the one find_cli trusts.
+    cli = find_cli(base)
+    if cli:
+        env["DATABRICKS_CLI_PATH"] = cli
     if method == "cli-profile":
         if not cred.get("profile"):
             raise DatabricksAuthError("Name the Databricks CLI profile to use.")
@@ -203,7 +211,7 @@ class DatabricksConnectSession:
     engine = DATABRICKS_CONNECT.id
 
     def __init__(self, config: SessionConfig, command: list[str], env: dict[str, str],
-                 start_seconds: float = START_SECONDS):
+                 start_seconds: float = START_SECONDS, cwd: str | None = None):
         self.notebook = config.notebook
         self._closed = False
         self._lock = threading.Lock()
@@ -211,7 +219,8 @@ class DatabricksConnectSession:
         self._lines: queue.Queue[dict[str, Any] | None] = queue.Queue()
         self._n = 0
         self.proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                     text=True, encoding="utf-8", env=env, start_new_session=sys.platform != "win32",
+                                     text=True, encoding="utf-8", env=env, cwd=cwd,
+                                     start_new_session=sys.platform != "win32",
                                      creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         threading.Thread(target=self._read, daemon=True, name=f"dbconnect-{config.notebook}").start()
         self._send({"op": "start"})
@@ -343,8 +352,10 @@ class DatabricksConnectAdapter:
         problems = check(str(info.get("spark_version") or ""), self.runtimes.installed(line))
         if problems:
             raise Unsupported(" ".join(problems))
-        command = [self._python, "-I", str(WORKER), str(self.runtimes.folder(line))]
-        return DatabricksConnectSession(config, command, worker_env(conn, cluster))
+        folder = self.runtimes.folder(line)
+        command = [self._python, "-I", str(WORKER), str(folder)]
+        # Run in the runtime's folder, not wherever the app was started from.
+        return DatabricksConnectSession(config, command, worker_env(conn, cluster), cwd=str(folder))
 
 
 def _read_cluster(connection: dict[str, Any], cluster_id: str) -> dict[str, Any]:

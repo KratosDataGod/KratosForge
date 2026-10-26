@@ -104,6 +104,8 @@ def test_versions_are_checked_before_anything_starts():
     assert "isn't installed" in dbc.check("16.4.x-scala2.12", None, "3.12")[0]
     assert "needs 16.4.x" in dbc.check("16.4.x-scala2.12", "16.3.0", "3.12")[0]
     assert "13.3 and later" in dbc.check("12.2.x-scala2.12", "12.2.0", "3.12")[0]
+    assert dbc.check("18.0.x-scala2.13", "18.0.1", "3.12") == [] and dbc.check("19.1.x-scala2.13", "19.1.0", "3.12") == []
+    assert "Update KratosForge" in dbc.check("42.0.x-scala2.13", "42.0.0", "3.12")[0]
     with pytest.raises(Unsupported):
         dbc.runtime_line("custom:latest")
 
@@ -124,8 +126,10 @@ def test_installs_go_to_their_own_folder_with_pip_target(tmp_path):
 
 
 def test_the_process_gets_the_connections_sign_in_and_nothing_inherited():
-    base = {"PATH": "/bin", "DATABRICKS_TOKEN": "x", "databricks_host": "y", "PYTHONPATH": "/evil"}
+    base = {"PATH": "/bin", "DATABRICKS_TOKEN": "x", "databricks_host": "y", "PYTHONPATH": "/evil",
+            "SPARK_REMOTE": "sc://evil:443"}
     env = dbc.worker_env(CONN, "c1", base)
+    assert "SPARK_REMOTE" not in env
     assert env["DATABRICKS_CONFIG_PROFILE"] == "dev" and env["DATABRICKS_CLUSTER_ID"] == "c1"
     assert "DATABRICKS_TOKEN" not in env and "databricks_host" not in env and "PYTHONPATH" not in env
     env = dbc.worker_env({**CONN, "credential": {"method": "oauth-u2m"}}, "c1", base)
@@ -227,6 +231,37 @@ def test_a_cluster_that_fails_to_connect_reports_and_leaves_no_process(runtimes,
     conn = {**CONN, "compute": {"cluster_id": "fail"}}
     with pytest.raises(RuntimeError, match="cluster not found"):
         adapter(runtimes).open_session(SessionConfig("nb", options={"connection": conn}), ok("fail"))
+
+
+def test_the_sdk_gets_the_cli_find_cli_trusts_never_one_in_the_current_folder(tmp_path):
+    import os
+    name = "databricks.exe" if sys.platform == "win32" else "databricks"
+    real = tmp_path / "bin"
+    real.mkdir()
+    (real / name).write_text("")
+    (real / name).chmod(0o755)
+    env = dbc.worker_env({**CONN, "credential": {"method": "oauth-u2m"}}, "c1",
+                         {"PATH": os.pathsep.join([".", str(real)]), "PATHEXT": ".EXE"})
+    assert env["DATABRICKS_CLI_PATH"] == str(real / name)
+    assert "DATABRICKS_CLI_PATH" not in dbc.worker_env(CONN, "c1", {"PATH": "."})
+
+
+def test_the_folders_pth_files_run_and_its_packages_come_first(runtimes, monkeypatch, tmp_path):
+    folder = runtimes.folder("16.4")
+    extra = tmp_path / "shim"
+    extra.mkdir()
+    (extra / "distutils_shim_probe.py").write_text("FOUND = True\n")
+    (folder / "shim.pth").write_text(str(extra) + "\n")
+    (folder / "json_probe_marker.py").write_text("WHERE = 'folder'\n")
+    monkeypatch.setattr(dbc, "RUNTIME_PYTHON", {16: PY})
+    s = adapter(runtimes).open_session(SessionConfig("nb", options={"connection": CONN}), ok())
+    try:
+        r = s.execute(CellRequest("import sys, os, distutils_shim_probe\n"
+                                  "(distutils_shim_probe.FOUND, sys.path[0] == %r, os.getcwd() == %r)"
+                                  % (str(folder), str(folder)), "python"))
+        assert r.outputs == [{"type": "text", "text": "(True, True, True)"}]
+    finally:
+        s.close()
 
 
 def test_the_worker_never_loads_the_engines_modules(runtimes, monkeypatch):

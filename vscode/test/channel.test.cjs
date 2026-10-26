@@ -119,3 +119,26 @@ test("a window reaches only notebooks in the folder it paired from", async () =>
   await paired;
   await assert.rejects(ch.start(file, "print(1)"), (err) => err.status === 403 && /paired from/.test(err.message));
 });
+
+test("a program that took the port gets neither the hello nor a token", async () => {
+  const fake = fs.mkdtempSync(path.join(os.tmpdir(), "kf-fake-"));
+  const seen = [];
+  const http = require("node:http");
+  const server = http.createServer((req, res) => {
+    seen.push(req.headers);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true, result: { proof: "00".repeat(32), id: "pq_x", code: "AAA-BBB", expires_in: 1 } }));
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  fs.writeFileSync(path.join(fake, "editor-port"), `${server.address().port} the-real-hello`);
+  const ch = new Channel(fake);
+  ch.token = "kfp_secret";
+  await assert.rejects(ch.ask("C:\\repos", "t"), (err) => err.code === "not_kratosforge");
+  await assert.rejects(ch.status(), (err) => err.code === "not_kratosforge");
+  server.close();
+  assert.ok(seen.length >= 1);
+  for (const h of seen) {
+    assert.strictEqual(h["x-kratosforge-hello"], undefined);
+    assert.strictEqual(h.authorization, undefined);
+  }
+});

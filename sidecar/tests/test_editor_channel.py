@@ -318,3 +318,15 @@ def test_refused_calls_while_off_turn_it_off_once(svc):  # noqa: F811
     assert [svc.editor_channel_open() for _ in range(5)] == [False] * 5
     time.sleep(0.2)
     assert started == [1]
+
+
+def test_the_channel_proves_it_knows_the_hello_without_giving_it_away(paired):
+    import hashlib
+    import hmac
+    svc, window, _ = paired
+    nonce = "n" * 32
+    status, res = window.call("GET", f"/v1/hello?nonce={nonce}")
+    assert status == 200
+    assert res["result"]["proof"] == hmac.new(window.hello.encode(), nonce.encode(), hashlib.sha256).hexdigest()
+    assert window.hello not in json.dumps(res)
+    assert window.call("GET", "/v1/hello?nonce=short")[0] == 400

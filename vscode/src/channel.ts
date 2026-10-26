@@ -2,6 +2,7 @@
 // window pairs with KratosForge and runs cells in a notebook's session there. No VS Code API here,
 // so it's tested against the real engine without VS Code.
 
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as path from "node:path";
@@ -39,45 +40,73 @@ export function readPortFile(dir: string): { port: number; hello: string } | nul
 }
 
 export const NOT_LISTENING = "KratosForge isn't running, or Let VS Code run notebooks is off in its Settings > Integrations.";
+export const NOT_KRATOSFORGE = "Something other than KratosForge is listening on the editor channel's port, so this window "
+  + "sent it nothing. Restart KratosForge, then try again.";
+
+interface Reply { status: number; payload: { ok?: boolean; result?: unknown; error?: { code?: string; message?: string } } | null }
+
+function send(port: number, method: string, url: string, headers: Record<string, string | number>, data?: Buffer): Promise<Reply> {
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: "127.0.0.1", port, method, path: url, headers: { Host: `127.0.0.1:${port}`, ...headers },
+      timeout: 60_000 }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (c: Buffer) => chunks.push(c));
+      res.on("end", () => {
+        try {
+          resolve({ status: res.statusCode || 0, payload: JSON.parse(Buffer.concat(chunks).toString("utf8")) });
+        } catch {
+          resolve({ status: res.statusCode || 0, payload: null });
+        }
+      });
+    });
+    req.on("timeout", () => req.destroy(new Error("KratosForge didn't answer in time.")));
+    req.on("error", (err: NodeJS.ErrnoException) =>
+      reject(err.code === "ECONNREFUSED" ? new ChannelError(0, "not_listening", NOT_LISTENING) : err));
+    if (data) req.write(data);
+    req.end();
+  });
+}
 
 export class Channel {
   token = "";
 
   constructor(private readonly dir: string = dataDir()) {}
 
-  private request(method: string, url: string, body?: unknown, hello = false): Promise<unknown> {
+  private proven = ""; // the "port hello" last proven to be KratosForge
+
+  /** Before the hello or a token goes anywhere: whatever listens on the port must show it knows
+   * the hello (another user on this PC could have taken the port after the app stopped). */
+  private async prove(where: { port: number; hello: string }): Promise<void> {
+    const key = `${where.port} ${where.hello}`;
+    if (this.proven === key) return;
+    const nonce = crypto.randomBytes(24).toString("hex");
+    const reply = await send(where.port, "GET", `/v1/hello?nonce=${nonce}`, {});
+    const proof = reply.payload?.ok ? String((reply.payload.result as { proof?: unknown })?.proof ?? "") : "";
+    const want = crypto.createHmac("sha256", where.hello).update(nonce).digest();
+    const got = Buffer.from(proof, "hex");
+    if (got.length !== want.length || !crypto.timingSafeEqual(got, want)) {
+      if (reply.payload?.error?.code === "off") throw new ChannelError(reply.status, "off", reply.payload.error.message || NOT_LISTENING);
+      throw new ChannelError(0, "not_kratosforge", NOT_KRATOSFORGE);
+    }
+    this.proven = key;
+  }
+
+  private async request(method: string, url: string, body?: unknown, hello = false): Promise<unknown> {
     const where = readPortFile(this.dir);
-    if (!where) return Promise.reject(new ChannelError(0, "not_listening", NOT_LISTENING));
+    if (!where) throw new ChannelError(0, "not_listening", NOT_LISTENING);
+    await this.prove(where);
     const data = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
-    const headers: Record<string, string | number> = { Host: `127.0.0.1:${where.port}` };
+    const headers: Record<string, string | number> = {};
     if (data) {
       headers["Content-Type"] = "application/json";
       headers["Content-Length"] = data.length;
     }
     if (hello) headers["X-KratosForge-Hello"] = where.hello;
     else if (this.token) headers.Authorization = `Bearer ${this.token}`;
-    return new Promise((resolve, reject) => {
-      const req = http.request({ host: "127.0.0.1", port: where.port, method, path: url, headers, timeout: 60_000 }, (res) => {
-        const chunks: Buffer[] = [];
-        res.on("data", (c: Buffer) => chunks.push(c));
-        res.on("end", () => {
-          let payload: { ok?: boolean; result?: unknown; error?: { code?: string; message?: string } };
-          try {
-            payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-          } catch {
-            reject(new ChannelError(res.statusCode || 0, "bad_reply", "KratosForge sent a reply this extension can't read."));
-            return;
-          }
-          if (payload.ok) resolve(payload.result);
-          else reject(new ChannelError(res.statusCode || 0, payload.error?.code || "failed", payload.error?.message || "KratosForge refused it."));
-        });
-      });
-      req.on("timeout", () => req.destroy(new Error("KratosForge didn't answer in time.")));
-      req.on("error", (err: NodeJS.ErrnoException) =>
-        reject(err.code === "ECONNREFUSED" ? new ChannelError(0, "not_listening", NOT_LISTENING) : err));
-      if (data) req.write(data);
-      req.end();
-    });
+    const { status, payload } = await send(where.port, method, url, headers, data);
+    if (!payload) throw new ChannelError(status, "bad_reply", "KratosForge sent a reply this extension can't read.");
+    if (payload.ok) return payload.result;
+    throw new ChannelError(status, payload.error?.code || "failed", payload.error?.message || "KratosForge refused it.");
   }
 
   /** Asks to pair; the app shows the request with ``code``, which this window shows too. */

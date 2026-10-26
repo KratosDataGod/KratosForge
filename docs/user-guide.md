@@ -374,7 +374,7 @@ Each entity page also has an **About** card (Preview): description, tags, classi
 
 ### Direct Lake check
 
-**Data mesh > Deploy > Semantic model** has a **Direct Lake check** card (Preview). Pick a model and a capacity, then **Check now**: it lists what would make the model fall back to DirectQuery, or fail, before anyone queries it. That covers tables past the capacity's Direct Lake limits, columns the Delta table no longer has, types Direct Lake can't read, and, when you tick the box, relationship keys that aren't unique. It reads the model's definition from Fabric and each table's Delta log from OneLake and checks on this PC: it starts no Fabric job, though reading from OneLake uses capacity. Every check and the limits per capacity are in [Direct Lake check](direct-lake-check.md).
+**Data mesh > Deploy > Semantic model** has a **Direct Lake check** card (Preview). Pick a model and a capacity, then **Check now**: it lists what would make the model fall back to DirectQuery, or fail, before anyone queries it. That covers tables past the capacity's Direct Lake limits, columns the Delta table no longer has, types Direct Lake can't read, and, when you tick the box, relationship keys that aren't unique and fact rows whose key has no match. It reads the model's definition from Fabric and each table's Delta log from OneLake and checks on this PC: it starts no Fabric job, though reading from OneLake uses capacity. Every check and the limits per capacity are in [Direct Lake check](direct-lake-check.md).
 
 ### Approved exceptions
 

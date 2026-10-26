@@ -72,6 +72,9 @@ POWERBI_TENANT_READ_SCOPES = ["https://analysis.windows.net/powerbi/api/Tenant.R
 # Queries on a Data warehouse or SQL analytics endpoint (SQL-004): its SQL connection takes a token for
 # Azure SQL's resource. Asked for the first time you run a query on a warehouse.
 WAREHOUSE_SCOPES = ["https://database.windows.net/user_impersonation"]
+# Reading a workspace's monitoring KQL database (WH-19): a Fabric Eventhouse takes a token for
+# Kusto's resource. Asked for the first time a warehouse's Monitoring tab reads it.
+KUSTO_SCOPES = ["https://kusto.kusto.windows.net/user_impersonation"]
 
 
 def resource_of(scope: str) -> str:
@@ -288,6 +291,9 @@ class Authenticator:
 
     def warehouse_token(self) -> str:
         return self._token(WAREHOUSE_SCOPES)
+
+    def kusto_token(self) -> str:
+        return self._token(KUSTO_SCOPES)
 
     def sign_out(self) -> None:
         for account in self.app.get_accounts():

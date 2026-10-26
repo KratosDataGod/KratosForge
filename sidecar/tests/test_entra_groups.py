@@ -195,3 +195,55 @@ def test_search_without_directory_rights_says_to_paste_the_id(svc):
     # Linking by ID still works: the name is the ID until someone names it.
     svc.platform_entra_link("sales", "stewards", "", GID)
     assert svc.platform_entra_groups("sales")["rows"][-1]["name"] == GID
+
+
+_QUOTES = "'‘’‚‛"
+
+
+def _code_outside_literals(script):
+    """The PowerShell a script runs outside its quoted strings and comments, the way PowerShell's tokenizer
+    reads single-quoted strings (any of the five single quotes opens or closes one; two in a row are one)."""
+    out = []
+    for line in script.splitlines():
+        i, n, code = 0, len(line), []
+        while i < n:
+            c = line[i]
+            if c == "#":
+                break
+            if c in _QUOTES:
+                i += 1
+                while i < n:
+                    if line[i] in _QUOTES:
+                        if i + 1 < n and line[i + 1] in _QUOTES:
+                            i += 2
+                            continue
+                        break
+                    i += 1
+                i += 1
+                continue
+            if c == '"':
+                i = line.find('"', i + 1)
+                i = n if i < 0 else i + 1
+                continue
+            code.append(c)
+            i += 1
+        out.append("".join(code))
+    return "\n".join(out)
+
+
+@pytest.mark.parametrize("q", list(_QUOTES))
+def test_no_single_quote_of_any_kind_leaves_a_powershell_string(platform, q):
+    payload = f"x{q}; Start-Process calc; {q}"
+    platform.call("save_domain", domain={"id": "sales", "name": f"Sales{q} + (Start-Process calc) + {q}", "owners": OWNER})
+    platform.call("link_entra_group", domain="sales", role="viewers", env="prod", group_id=GID, group_name=payload)
+    platform.call("link_entra_group", domain="sales", role="creators", env="dev", group_id=GID,
+                  group_name=f"Chris{q} HR Start-Process calc")
+    rows = _plan(platform)
+    for r in rows:
+        r["fabric_domain"] = "0f6a7b1c-0000-4000-8000-000000000001"
+    spaces = {e: [{"id": "11111111-1111-1111-1111-111111111111", "name": f"WS{q}; Start-Process calc; {q}"}]
+              for e in ("dev", "test", "prod")}
+    for script in (entra.powershell(rows, [OWNER]), entra.roles(rows, spaces)):
+        assert "Start-Process" in script
+        assert "Start-Process" not in _code_outside_literals(script)
+    assert entra._ps(payload) == f"'x{q}{q}; Start-Process calc; {q}{q}'"

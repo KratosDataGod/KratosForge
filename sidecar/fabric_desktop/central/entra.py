@@ -132,9 +132,14 @@ def plan(domains: list[dict[str, Any]], domain_id: str, links: list[dict[str, An
 
 # --------------------------------------------------------------------------- scripts
 
+# PowerShell takes the typographic single quotes as quotes too (CharTraits.IsSingleQuote), so each is doubled.
+_PS_QUOTE = re.compile("['\u2018\u2019\u201a\u201b]")
+_LINE_BREAKS = re.compile("[\r\n\x85\u2028\u2029]+")
+
+
 def _ps(text: str) -> str:
-    """A PowerShell single-quoted string."""
-    return "'" + str(text).replace("'", "''").replace("\r", " ").replace("\n", " ") + "'"
+    """A PowerShell single-quoted string: nothing in it is expanded or run."""
+    return "'" + _PS_QUOTE.sub(lambda m: m.group(0) * 2, _LINE_BREAKS.sub(" ", str(text))) + "'"
 
 
 def _sh(text: str) -> str:
@@ -143,7 +148,7 @@ def _sh(text: str) -> str:
 
 
 def _comment(text: str) -> str:
-    return re.sub(r"[\r\n]+", " ", str(text))
+    return _LINE_BREAKS.sub(" ", str(text))
 
 
 def _header(rows: list[dict[str, Any]], by: str, at: str, mark: str = "#") -> list[str]:

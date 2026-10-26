@@ -2410,3 +2410,32 @@ html[data-motion-level="0"] .mo-ghost { display: none; }
 @media (max-width: 640px) { .entra-grid { grid-template-columns: minmax(0, 1fr); } }
 .entra-roles td .mono { white-space: nowrap; }
 .entra-create .seg { align-self: flex-start; flex-wrap: wrap; }
+
+/* WH-19: a warehouse's Monitoring tab (whmonitor.js). */
+.wh-mon { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; overflow: auto; padding: 12px 16px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 6px; }
+.wh-mon-head, .wh-mon-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wh-mon-head .spacer { flex: 1; }
+.wh-mon-on { margin: 0; padding: 8px 12px; border-radius: 4px; background: #e6f2e6; color: #0e5c0e; font-size: 13px; }
+.wh-mon-off { display: flex; flex-direction: column; gap: 6px; max-width: 640px; font-size: 13px; }
+.wh-mon-off p { margin: 0; }
+.wh-mon-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.wh-mon-tile { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 4px; }
+.wh-mon-tile span, .wh-mon-tile small { color: var(--muted); font-size: 12px; }
+.wh-mon-tile b { font-size: 22px; font-weight: 600; }
+.wh-mon-tile.warn b { color: #8a4b00; }
+.wh-mon-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 12px; min-height: 0; }
+.wh-mon-card { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 4px; font-size: 13px; }
+.wh-mon-card p { margin: 0; }
+.wh-mon-card ul { margin: 0; padding-left: 18px; }
+.wh-mon-scroll { overflow: auto; max-height: 420px; }
+.wh-mon-table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.wh-mon-table th, .wh-mon-table td { padding: 5px 8px; border-bottom: 1px solid var(--border-soft); text-align: left; white-space: nowrap; }
+.wh-mon-table th { font-weight: 600; background: var(--canvas); position: sticky; top: 0; }
+.wh-mon-table td.num { text-align: right; color: inherit; }
+.wh-mon-table td .tool { margin-left: 6px; }
+.wh-mon-build { display: flex; flex-direction: column; gap: 10px; max-width: 600px; font-size: 13px; }
+.wh-mon-build p { margin: 0; }
+@media (max-width: 1100px) { .wh-mon-grid { grid-template-columns: minmax(0, 1fr); } }
+.wh-mon-auto { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.wh-mon-auto li { display: flex; align-items: center; gap: 8px; }

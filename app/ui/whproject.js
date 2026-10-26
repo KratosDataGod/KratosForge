@@ -329,6 +329,7 @@ async function whProjectCompare(ref, project) {
     const first = result.objects.findIndex((o) => o.state !== "same");
     sqlPage.whCompare = { key: sqlRefKey(ref), project, result, at: new Date(), filter: "all", picked: Math.max(0, first), objects };
     sqlPage.whCompareShown = true;
+    sqlPage.whMonitorShown = false;
     renderQuery();
   } catch (err) {
     whFailed("Could not compare", err);

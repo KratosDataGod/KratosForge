@@ -180,12 +180,32 @@ test("a SQL analytics endpoint has no Project tab", { skip }, async () => {
   assert.strictEqual(await projectTab().count(), 0);
 });
 
-test("a call whose sign-in window was closed shows no error; any other failure says what failed", { skip }, async () => {
+test("Compare with its sign-in window closed shows no error; any other failure says what failed", { skip }, async () => {
   const toasts = () => page().evaluate(() => [...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" "));
-  await page().evaluate(() => whFailed("Could not compare", new Error("SignInCancelled: closed")));
-  assert.doesNotMatch(await toasts(), /Could not compare/);
-  await page().evaluate(() => whFailed("Could not compare", new Error("The warehouse didn't answer.")));
-  await page().waitForFunction(() => /Could not compare: The warehouse didn't answer/.test([...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" ")));
+  // The engine's answer to wh_project_compare, swapped for an error on its way to the page.
+  const failCompare = (message) => page().evaluate((m) => {
+    window.realCall ??= window.__fdCall;
+    window.compareAsked = 0;
+    window.__fdCall = async (method, params) => {
+      if (method !== "wh_project_compare") return window.realCall(method, params);
+      window.compareAsked++;
+      return { error: m };
+    };
+  }, message);
+  try {
+    await page().evaluate((wh) => openWarehouseQuery(wh), WH);
+    await projectTab().click();
+    await failCompare("SignInCancelled: closed");
+    await panel().getByRole("button", { name: "Compare with WH_Gold" }).click();
+    await page().waitForFunction(() => window.compareAsked === 1);
+    await page().waitForTimeout(200);
+    assert.doesNotMatch(await toasts(), /Could not compare/);
+    await failCompare("The warehouse didn't answer.");
+    await panel().getByRole("button", { name: "Compare with WH_Gold" }).click();
+    await page().waitForFunction(() => /Could not compare: The warehouse didn't answer/.test([...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" ")));
+  } finally {
+    await page().evaluate(() => { if (window.realCall) window.__fdCall = window.realCall; });
+  }
 });
 
 test("nothing on the page threw", { skip }, async () => {

@@ -497,6 +497,23 @@ def remove_product_term(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionC
     return _run(sqlDB, "remove_product_term", ctx, product_id=product_id, term=term)
 
 
+# ---- access reviews (Preview)
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def access_reviews(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext) -> dict:
+    return _run(sqlDB, "access_reviews", ctx)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def confirm_access(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, product_id: str,
+                   projects: list) -> dict:
+    return _run(sqlDB, "confirm_access", ctx, product_id=product_id, projects=projects)
+
+
 # ---- governance policies (policy.py)
 
 @udf.connection(argName="sqlDB", alias="platform")

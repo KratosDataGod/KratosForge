@@ -934,7 +934,7 @@ registerFeature({
 
 // ---------- OneLake > Data products: every team's products, for everyone ----------
 
-const productsPage = { query: "", domain: "all", open: null };
+const productsPage = { query: "", domain: "all", open: null, reviewDue: false };
 
 async function renderDataProducts() {
   const pp = productsPage;
@@ -949,17 +949,19 @@ async function renderDataProducts() {
         btn("Refresh", "sync", () => render(), "tool outline")),
       list),
     howItWorks("onelake.products", {
-      reads: "Every team's published data products, their ports and readers, from the platform's catalog (SQL_Platform in Fabric, or the file on this PC). It reads when the tab opens and when you press Refresh.",
+      reads: "Every team's published data products, their ports and readers, from the platform's catalog (SQL_Platform in Fabric, or the file on this PC), and, for the products you own, which grants are due for their access review. It reads when the tab opens and when you press Refresh.",
       changes: "Link writes a link file in your open metadata project on this PC and records your project as a reader in the platform's catalog. Request access adds a request to the platform's catalog for the product's owner. Neither touches the product's tables in OneLake, and nothing else here writes.",
       results: "The product's owner sees your request on Platform > Requests and decides it, and sees your project among the product's readers. A link shows on your project's Links tab.",
       anchor: "data-products-preview",
     }))));
-  const out = await platformCall("platform_products", {}, "Could not read the catalog");
+  const [out, reviews] = await Promise.all([platformCall("platform_products", {}, "Could not read the catalog"),
+    previewShown() ? rpc("platform_access_reviews", {}).catch(() => null) : null]);
   if (!out || state.view !== "onelake" || catalogPage.tab !== "products") return;
+  const dueFor = new Set((reviews?.grants || []).filter((g) => g.due).map((g) => g.product_id));
   const domains = [...new Set(out.products.map((p) => p.domain_id).filter(Boolean))].sort();
   const draw = () => {
     const q = pp.query.toLowerCase();
-    const shown = out.products.filter((p) => (pp.domain === "all" || p.domain_id === pp.domain)
+    const shown = out.products.filter((p) => (pp.domain === "all" || p.domain_id === pp.domain) && (!pp.reviewDue || dueFor.has(p.id))
       && (!q || `${p.name} ${p.description} ${p.owner} ${p.project} ${p.ports.map((x) => x.port).join(" ")}`.toLowerCase().includes(q)));
     const action = (p) => p.linked ? h("span", { class: "pill-s pass" }, "Linked")
       : p.can_link ? btn("Link", "databaseLink", async () => {
@@ -969,6 +971,10 @@ async function renderDataProducts() {
         : p.why === "request" ? btn("Request access", null, () => requestDialog("access", p.id, draw, { title: p.name, owner: p.owner }), "tool outline small")
           : p.why === "requested" ? h("span", { class: "pill-s wrn" }, "Requested") : h("span", { class: "muted-text small" }, p.why);
     list.replaceChildren(...[
+      reviews?.due ? h("div", { class: "row tight access-review-band" }, icon("shield", 16),
+        h("span", { class: "grow" }, `Access review: ${reviews.due} grant${reviews.due === 1 ? "" : "s"} on your products ${reviews.due === 1 ? "hasn't" : "haven't"} been confirmed for ${reviews.every_days} days. Open each product and confirm who still needs it, or take access away.`),
+        h("button", { class: `chip review-chip${pp.reviewDue ? " on" : ""}`, "aria-pressed": String(pp.reviewDue),
+          onclick: () => { pp.reviewDue = !pp.reviewDue; draw(); } }, `Review due (${dueFor.size})`)) : null,
       h("div", { class: "row", role: "group", "aria-label": "Domain" },
         ["all", ...domains].map((d) => h("button", { class: `chip${pp.domain === d ? " on" : ""}`, onclick: () => { pp.domain = d; draw(); } }, d === "all" ? "All domains" : d))),
       out.project ? null : h("p", { class: "muted-text small" }, "Open a metadata project to link to a product or ask for access."),
@@ -1038,7 +1044,7 @@ async function renderProductTrust(p) {
       endorsement, terms, productChecklistCard(p), productAccessCard(p)),
     howItWorks("onelake.product-trust", {
       reads: "The product's endorsement as the last tenant scan read it, and its business terms, from the platform's catalog. Scan now reads Fabric's admin tenant scan (Power BI) of the workspaces the platform's published products live in, as you: only a Fabric administrator can. Nothing reads Purview.",
-      changes: "Scan now writes what the scan read to catalog.endorsement in the platform's catalog. Adding or removing a term writes catalog.product_term. Take access away deletes that project's row in catalog.grant; links it already made stay. Nothing changes in Fabric or Purview: KratosForge can't set endorsement, and terms stay in Purview.",
+      changes: "Scan now writes what the scan read to catalog.endorsement in the platform's catalog. Adding or removing a term writes catalog.product_term. Take access away deletes that project's row in catalog.grant; links it already made stay. Still needed records your confirmation in catalog.grant_review. Nothing changes in Fabric or Purview: KratosForge can't set endorsement, and terms stay in Purview.",
       results: "Everyone who opens this product sees the last scan's badge and when it was read, and each term with a link to it in Purview. Each scan, term change and access taken away is in the platform's audit log.",
       anchor: "endorsement-and-business-terms-preview",
     }))));
@@ -1085,10 +1091,20 @@ async function renderProductTrust(p) {
 // can; the catalog checks that again. Links projects already made stay, so their runs keep reading.
 function productAccessCard(p) {
   const card = h("div", { class: "card pad product-access" }, h("b", {}, "Access given"), loading());
+  let reviews = null;
   const draw = async () => {
     let me;
     try { me = await rpc("platform_whoami", {}); } catch { me = {}; }
     const mine = !!me.admin || String(p.owner || "").toLowerCase().split(/[,;]/).map((x) => x.trim()).includes(String(me.user || "").toLowerCase());
+    if (mine && previewShown() && !reviews) reviews = await rpc("platform_access_reviews", {}).catch(() => null);
+    const review = (proj) => (reviews?.grants || []).find((g) => g.product_id === p.id && g.project === proj);
+    const confirmed = (proj) => {
+      const r = review(proj);
+      if (!r) return null;
+      const text = r.reviewed_at ? `Confirmed ${relTime(r.reviewed_at)}` : `Given ${r.granted_at ? relTime(r.granted_at) : ""}, never confirmed`;
+      return h("span", {}, r.due ? h("span", { class: "pill-s wrn" }, "Review due") : null, " ", h("span", { class: "muted-text small" }, text));
+    };
+    const reviewing = !!reviews && reviews.available !== false;
     const linked = (proj) => (p.consumers || []).some((c) => c.consumer_project === proj);
     const open = p.access === "public" ? "Everyone can link to it without being given access."
       : p.access === "domain" ? `Projects in ${p.domain_id || "its domain"} can link to it without being given access.` : "";
@@ -1096,13 +1112,27 @@ function productAccessCard(p) {
     card.replaceChildren(h("div", { class: "row tight" }, h("b", {}, "Access given"), previewTag()),
       open ? h("p", { class: "muted-text small" }, open) : null,
       granted.length ? h("table", { class: "list" },
-        h("thead", {}, h("tr", {}, ["Project", "Linked", ""].map((x) => h("th", {}, x)))),
+        h("thead", {}, h("tr", {}, ["Project", "Linked", reviewing ? "Review" : null, ""].filter((x) => x !== null).map((x) => h("th", {}, x)))),
         h("tbody", {}, granted.map((proj) => h("tr", { "data-project": proj },
           h("td", {}, h("b", {}, proj)),
           h("td", {}, linked(proj) ? h("span", { class: "pill-s pass" }, "Linked") : h("span", { class: "muted-text small" }, "Not yet")),
-          h("td", {}, mine ? btn("Take access away", null, () => revoke(proj), "tool outline small") : null)))))
+          reviewing ? h("td", { class: "access-review" }, confirmed(proj)) : null,
+          h("td", {}, mine ? h("span", { class: "row tight" }, reviewing ? btn("Still needed", null, () => confirm([proj]), "tool outline small") : null,
+            btn("Take access away", null, () => revoke(proj), "tool outline small")) : null)))))
         : h("p", { class: "muted-text small" }, "No project has been given access yet."),
+      reviewing && granted.length > 1 ? h("div", { class: "row tight" }, btn("All still needed", null, () => confirm(granted), "tool outline small"),
+        h("span", { class: "muted-text small" }, `Confirm every ${reviews.every_days} days who still needs access. Nothing is taken away by itself.`)) : null,
+      reviews?.available === false ? h("p", { class: "muted-text small" }, reviews.problem) : null,
       mine || !granted.length ? null : h("p", { class: "muted-text small" }, "Only the product's owner or a platform admin can take access away."));
+  };
+  const confirm = async (projects) => {
+    try {
+      reviews = await rpc("platform_confirm_access", { product_id: p.id, projects });
+      toast(projects.length === 1 ? `Confirmed ${projects[0]} still needs ${p.name}.` : `Confirmed all ${projects.length} projects still need ${p.name}.`);
+      draw();
+    } catch (err) {
+      card.append(h("p", { class: "fail-text small" }, trustError(err)));
+    }
   };
   const revoke = async (proj) => {
     const keeps = (p.consumers || []).some((c) => c.consumer_project === proj)
@@ -1113,6 +1143,7 @@ function productAccessCard(p) {
     try {
       const left = await rpc("platform_revoke", { product_id: p.id, project: proj });
       p.granted = left.map((g) => g.project).sort();
+      if (reviews?.grants) reviews.grants = reviews.grants.filter((g) => !(g.product_id === p.id && g.project === proj));
       toast(`${proj} no longer has access to ${p.name}.`);
       draw();
     } catch (err) {

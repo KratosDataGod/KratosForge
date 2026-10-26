@@ -816,3 +816,39 @@ def test_listing_sources_on_a_platform_not_yet_repaired_changes_nothing(tmp_path
     with sqlite3.connect(path) as conn:
         cols = {r[1] for r in conn.execute('PRAGMA table_info("catalog__source")')}
     assert not cols & set(core._SOURCE_ADDED), "a read added columns"
+
+
+def test_access_reviews_flag_old_grants_for_their_owners_and_take_nothing_away(platform):
+    platform.call("save_domain", domain={"name": "Sales"})
+    platform.call("register_project", project={"name": "crm", "domain": "sales"})
+    platform.call("register_product", product={"project": "crm", "name": "c360", "domain": "sales", "access": "private",
+                                               "status": "published", "owner": "Bo@example.com"}, ports=[], env="prod")
+    bo, ana = _as(platform, "bo@example.com"), _as(platform, "ana@example.com")
+    for project in ("ledger", "billing"):
+        req = ana.call("request", kind="access", target="crm/c360", project=project, reason="Invoices")
+        bo.call("decide_request", id=req["id"], approve=True)
+    fresh = bo.call("access_reviews")
+    assert (fresh["due"], [g["project"] for g in fresh["grants"]]) == (0, ["billing", "ledger"])
+    assert ana.call("access_reviews")["grants"] == [], "only owners and admins review"
+    assert len(platform.call("access_reviews")["grants"]) == 2, "a platform admin sees every product's"
+
+    # Granted 100 days ago: due, and still there.
+    old = (core.dt.datetime.now(core.dt.timezone.utc) - core.dt.timedelta(days=100)).isoformat(timespec="seconds")
+    with platform._db() as db:
+        db.run(f"UPDATE {db.t('catalog', 'grant')} SET granted_at = ?", (old,))
+        db.commit()
+    due = bo.call("access_reviews")
+    assert due["due"] == 2 and all(g["due"] and g["days"] >= 100 for g in due["grants"])
+    assert sorted(g["project"] for g in bo.call("list_grants", product_id="crm/c360")) == ["billing", "ledger"]
+
+    with pytest.raises(core.PlatformError, match="owner or a platform admin"):
+        ana.call("confirm_access", product_id="crm/c360", projects=["ledger"])
+    with pytest.raises(core.PlatformError, match="nope has no access"):
+        bo.call("confirm_access", product_id="crm/c360", projects=["nope"])
+    after = bo.call("confirm_access", product_id="crm/c360", projects=["ledger"])
+    ledger = next(g for g in after["grants"] if g["project"] == "ledger")
+    assert (after["due"], ledger["due"], ledger["reviewed_by"]) == (1, False, "bo@example.com")
+    assert after["grants"][0]["project"] == "billing", "the longest unconfirmed comes first"
+
+    bo.call("revoke_grant", product_id="crm/c360", project="ledger")
+    assert [g["project"] for g in bo.call("access_reviews")["grants"]] == ["billing"]

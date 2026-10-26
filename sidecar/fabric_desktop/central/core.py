@@ -200,6 +200,9 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
                     ("endorsement", "text"), ("certified_by", "text"), ("scanned_at", "text"), ("scanned_by", "text")],
     "product_term": [("id", "key"), ("product_id", "text"), ("term", "text"), ("url", "long"), ("added_by", "text"),
                      ("added_at", "text")],
+    # The last time a product's owner confirmed a project's access still stands (keyed like catalog.grant).
+    "grant_review": [("id", "key"), ("product_id", "text"), ("project", "text"), ("reviewed_by", "text"),
+                     ("reviewed_at", "text")],
 }
 
 
@@ -232,6 +235,7 @@ def ensure_schema(db: Db) -> dict[str, Any]:
     created += ensure_landing_zones(db)
     created += ensure_shortcut_risks(db)
     created += ensure_trust_badges(db)
+    created += ensure_grant_reviews(db)
     for hook in SCHEMA_HOOKS:
         created += hook(db)
     _upsert(db, "config", "setting", "name", {"name": "schema_version", "value": str(SCHEMA_VERSION)})
@@ -1567,9 +1571,72 @@ def revoke_grant(db: Db, product_id: str, project: str, by: str = "") -> list[di
     if not (is_admin(db, by) or _who(by) in _product_owners(product)):
         raise PlatformError("Only the product's owner or a platform admin can take access away")
     db.run(f"DELETE FROM {db.t('catalog', 'grant')} WHERE id = ?", (f"{product_id}|{project}",))
+    if db.exists("catalog", "grant_review"):
+        db.run(f"DELETE FROM {db.t('catalog', 'grant_review')} WHERE id = ?", (f"{product_id}|{project}",))
     _audit(db, by, "revoke access", product_id, {"project": project})
     db.commit()
     return list_grants(db, product_id)
+
+
+# --------------------------------------------------------------------------- access reviews
+# Every quarter a product's owner confirms that each project given access still needs it, or takes
+# it away. A grant nobody confirmed is flagged, never taken away by itself.
+
+REVIEW_DAYS = 90
+
+
+def ensure_grant_reviews(db: Db) -> list[str]:
+    """catalog.grant_review, added after grants: additive, safe to run again; the review operations call it."""
+    if db.exists("catalog", "grant_review"):
+        return []
+    db.run(f"CREATE TABLE {db.t('catalog', 'grant_review')} ({', '.join(_column(db, n, k) for n, k in _CATALOG['grant_review'])})")
+    db.commit()
+    return ["catalog.grant_review"]
+
+
+def access_reviews(db: Db, by: str = "") -> dict[str, Any]:
+    """The grants the caller reviews (their own products', or every product's for a platform admin),
+    oldest confirmation first, each with when it was last confirmed and whether it's due."""
+    ensure_grant_reviews(db)
+    admin, who = is_admin(db, by), _who(by)
+    products = {p["id"]: p for p in db.rows(f"SELECT id, name, owner FROM {db.t('catalog', 'product')}")}
+    reviews = {r["id"]: r for r in db.rows(f"SELECT * FROM {db.t('catalog', 'grant_review')}")}
+    now = dt.datetime.now(dt.timezone.utc)
+    out = []
+    for g in db.rows(f"SELECT * FROM {db.t('catalog', 'grant')}"):
+        product = products.get(g["product_id"]) or {}
+        if not (admin or (who and who in _product_owners(product))):
+            continue
+        review = reviews.get(g["id"]) or {}
+        since = review.get("reviewed_at") or g.get("granted_at") or ""
+        try:
+            age = (now - dt.datetime.fromisoformat(since)).days
+        except ValueError:
+            age = REVIEW_DAYS
+        out.append({"product_id": g["product_id"], "product_name": product.get("name") or g["product_id"],
+                    "project": g["project"], "granted_by": g.get("granted_by") or "", "granted_at": g.get("granted_at") or "",
+                    "reviewed_by": review.get("reviewed_by") or "", "reviewed_at": review.get("reviewed_at") or "",
+                    "days": age, "due": age >= REVIEW_DAYS})
+    out.sort(key=lambda r: (-r["days"], r["product_id"], r["project"]))
+    return {"every_days": REVIEW_DAYS, "grants": out, "due": sum(r["due"] for r in out)}
+
+
+def confirm_access(db: Db, product_id: str, projects: list[str], by: str = "") -> dict[str, Any]:
+    """The product's owner (or a platform admin) confirms these projects still need access."""
+    ensure_grant_reviews(db)
+    product = _row(db, "product", "id", product_id) or {}
+    if not (is_admin(db, by) or _who(by) in _product_owners(product)):
+        raise PlatformError("Only the product's owner or a platform admin can confirm access")
+    granted = {g["project"] for g in list_grants(db, product_id)}
+    missing = sorted(set(projects or []) - granted)
+    if missing:
+        raise PlatformError(f"{', '.join(missing)} {'has' if len(missing) == 1 else 'have'} no access to {product_id} to confirm")
+    for project in sorted(set(projects or [])):
+        _upsert(db, "catalog", "grant_review", "id", {"id": f"{product_id}|{project}", "product_id": product_id,
+                                                      "project": project, "reviewed_by": _who(by), "reviewed_at": _now()})
+    _audit(db, by, "confirm access", product_id, {"projects": sorted(set(projects or []))})
+    db.commit()
+    return access_reviews(db, by)
 
 
 # --------------------------------------------------------------------------- shortcuts
@@ -2056,4 +2123,5 @@ OPERATIONS = {
     "withdraw_shortcut_risk": withdraw_shortcut_risk,
     "product_trust": product_trust, "record_endorsements": record_endorsements,
     "add_product_term": add_product_term, "remove_product_term": remove_product_term,
+    "access_reviews": access_reviews, "confirm_access": confirm_access,
 }

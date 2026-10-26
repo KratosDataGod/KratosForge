@@ -131,11 +131,17 @@ def test_fabric_view_sign_in_hosts_is_a_setting_and_bad_entries_are_reported(fil
     assert "fabric_view_sign_in_hosts" not in app_settings.load()  # the shell applies it, not the engine
 
 
-def test_engine_download_url_is_a_setting_used_only_for_managed_updates(files):
+def test_engine_download_url_is_a_setting_used_only_for_managed_updates(files, monkeypatch):
     """An IT-hosted engine folder for networks that can't reach GitHub; the shell reads the key."""
     files({"auto_update": False, "engine_download_url": "https://files.contoso.com/kratosforge/build-1/"})
     assert app_settings.policy_problems() == []
     assert "engine_download_url" not in app_settings.load()  # the shell applies it, not the engine
+    monkeypatch.setenv("FABRIC_DESKTOP_ENGINE_URL_IGNORED", "someone other than SYSTEM and Administrators can change it")
+    assert app_settings.policy_problems() == [
+        "engine_download_url is ignored, so the engine comes from GitHub: someone other than SYSTEM and "
+        "Administrators can change it. Push policy.json as SYSTEM (Intune, Group Policy) or from an elevated "
+        "prompt, so only administrators can change it"]
+    monkeypatch.delenv("FABRIC_DESKTOP_ENGINE_URL_IGNORED")
     files({"engine_download_url": "https://files.contoso.com/kratosforge"})
     assert app_settings.policy_problems() == ['engine_download_url is used only with "auto_update": false, '
                                               "so the engine comes from GitHub"]

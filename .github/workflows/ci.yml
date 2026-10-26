@@ -123,6 +123,10 @@ jobs:
     # Smart App Control blocks those packages' DLLs unless they are signed, so they are
     # signed here once a Trusted Signing account is set up (see README, "Code signing").
     runs-on: windows-latest
+    # The shell bakes these into the exe, so it installs only this engine (main.rs check_pinned_engine).
+    outputs:
+      engine_sha256: ${{ steps.zip.outputs.engine_sha256 }}
+      engine_update_sha256: ${{ steps.zip.outputs.engine_update_sha256 }}
     env:
       PYTHON_VERSION: "3.12.10"
       # From https://www.python.org/downloads/release/python-31210/ (Windows embeddable package, 64-bit).
@@ -197,6 +201,7 @@ jobs:
           path: sbom-engine.cdx.json
           if-no-files-found: error
       - name: Zip the engine
+        id: zip
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -214,6 +219,8 @@ jobs:
           if ($LASTEXITCODE) { exit 1 }
           Pop-Location
           "Engine $((Get-Item fabric-desktop-engine.zip).Length) bytes, update $((Get-Item $out).Length) bytes"
+          "engine_sha256=$((Get-FileHash fabric-desktop-engine.zip -Algorithm SHA256).Hash.ToLower())" >> $env:GITHUB_OUTPUT
+          "engine_update_sha256=$((Get-FileHash $out -Algorithm SHA256).Hash.ToLower())" >> $env:GITHUB_OUTPUT
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fabric-desktop-engine
@@ -224,6 +231,8 @@ jobs:
 
   shell:
     runs-on: windows-latest
+    # After the engine, whose zips' checksums the exe carries.
+    needs: engine
     defaults:
       run:
         working-directory: app/src-tauri
@@ -242,6 +251,8 @@ jobs:
           # Builds of main carry their commit, so the app can tell when a newer release exists.
           FABRIC_RELEASE_COMMIT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha || '' }}
           FABRIC_CLIENT_ID: ${{ vars.FABRIC_CLIENT_ID }}
+          FABRIC_ENGINE_SHA256: ${{ needs.engine.outputs.engine_sha256 }}
+          FABRIC_ENGINE_UPDATE_SHA256: ${{ needs.engine.outputs.engine_update_sha256 }}
       # The shell's unit tests (update checksums, update policy, sign-in cookies, engine time
       # limits), before the exe is signed or published. Same profile and environment as the build
       # above, so the build script doesn't rerun and the compiled crates are reused.
@@ -250,6 +261,8 @@ jobs:
         env:
           FABRIC_RELEASE_COMMIT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha || '' }}
           FABRIC_CLIENT_ID: ${{ vars.FABRIC_CLIENT_ID }}
+          FABRIC_ENGINE_SHA256: ${{ needs.engine.outputs.engine_sha256 }}
+          FABRIC_ENGINE_UPDATE_SHA256: ${{ needs.engine.outputs.engine_update_sha256 }}
       - name: Sign the exe
         # Only builds of main are signed: pull request code never runs next to the signing secrets.
         if: vars.TRUSTED_SIGNING_ACCOUNT != '' && github.event_name == 'push' && github.ref == 'refs/heads/main'

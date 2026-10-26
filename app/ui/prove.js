@@ -167,6 +167,7 @@ async function startProof(nb) {
   const p = nb.prove;
   if (!(await ensureSignedIn())) return;
   const rules = p.rules || {};
+  await nbInputsSaved();  // nbinputs.js: both runs get the values the Parameters bar shows
   const run = await attempt(() => rpc("prove_start", { ...publishPayload(), rules }), "Could not start the proof");
   if (run) depsRestarted();  // it restarts the kernel (deps.js)
   if (!run) return;

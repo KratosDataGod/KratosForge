@@ -111,6 +111,22 @@ def windows_log_race(exc: BaseException) -> bool:
     return isinstance(exc, OSError) and "_delta_log" in text and ("os error 5)" in text or "os error 32)" in text)
 
 
+_DROPPED = ("error sending request", "timed out", "connection reset", "connection closed", "broken pipe",
+            "status code: 500", "status code: 502", "status code: 503", "status code: 504", "status code: 408",
+            "status code: 429")
+
+
+def data_upload_dropped(exc: BaseException) -> bool:
+    """A table write that failed uploading one of its data files, after object_store's own retries,
+    on a dropped connection, a timeout or a 5xx. Nothing was committed (the Delta log is written only
+    after every data file is in), so writing the table again is safe; the files already sent are
+    never in the table. A failure writing the log itself isn't this: the commit may have gone in."""
+    text = str(exc)
+    low = text.lower()
+    return ("Error performing PUT" in text and ".parquet" in text and "_delta_log" not in text
+            and any(d in low for d in _DROPPED))
+
+
 T = TypeVar("T")
 
 

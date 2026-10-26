@@ -453,23 +453,33 @@ def cancel_execution(svc: Any, ctx: CallContext, execution_id: str) -> dict[str,
 
 # ---- Prove this notebook: actions that ask the person first
 
-def _proof_inputs(nb: dict[str, Any]) -> str:
-    """SHA-256 of what a proof uses: the cells, the lakehouse, the compute and where it publishes."""
-    used = [nb.get("cells"), nb.get("lakehouse"), nb.get("compute"), nb.get("workspace")]
+def _proof_inputs(nb: dict[str, Any], inputs: dict[str, Any]) -> str:
+    """SHA-256 of what a proof uses: the cells, the lakehouse, the compute, where it publishes and
+    the Parameters bar's values, which both of its runs use."""
+    used = [nb.get("cells"), nb.get("lakehouse"), nb.get("compute"), nb.get("workspace"), inputs]
     return hashlib.sha256(json.dumps(used, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _bar_inputs(svc: Any, name: str) -> dict[str, Any]:
+    """The Parameters and Widgets bar's values kept with the notebook, as the person set them."""
+    return svc._saved_inputs(name) or {}
 
 
 def bind_proof(svc: Any, arguments: dict[str, Any]) -> dict[str, Any]:
     """Read before the person approves a proof, so the approval is bound to this version of the
-    notebook and its lakehouse (Capability.bind), as bind_notebook does for a run."""
-    return {"notebook_sha256": _proof_inputs(svc.notebooks.load(arguments["name"]))}
+    notebook, its lakehouse and the bar's values it runs with (Capability.bind), as bind_notebook
+    does for a run. The values are shown with the approval."""
+    inputs = _bar_inputs(svc, arguments["name"])
+    return {"notebook_sha256": _proof_inputs(svc.notebooks.load(arguments["name"]), inputs), "inputs": inputs}
 
 
-def start_proof(svc: Any, ctx: CallContext, name: str, *, notebook_sha256: str) -> dict[str, Any]:
-    """Starts only if the saved notebook still matches what was checked and approved: a lakehouse
-    changed during the approval wait would reach a workspace the tool's limit never saw."""
+def start_proof(svc: Any, ctx: CallContext, name: str, *, notebook_sha256: str, inputs: dict[str, Any]) -> dict[str, Any]:
+    """Starts only if the saved notebook and the bar's values still match what was checked and
+    approved: a lakehouse changed during the approval wait would reach a workspace the tool's limit
+    never saw, and a changed value would run something the person wasn't shown."""
     nb = svc.notebooks.load(name)
-    if _proof_inputs(nb) != notebook_sha256:
+    current = _bar_inputs(svc, name)
+    if _proof_inputs(nb, current) != notebook_sha256 or _proof_inputs(nb, inputs) != notebook_sha256:
         raise IntegrationError("approval_required", NOTEBOOK_CHANGED, retryable=True,
                                hint="Call again so the person can approve the notebook as it is now.")
     scope.enforce_on(ctx, scope.notebook_of(nb))

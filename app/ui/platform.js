@@ -57,6 +57,8 @@ async function renderPlatform() {
     platformTabBar(waiting),
     body));
   p.me = await attempt(() => rpc("platform_whoami"), "Could not reach the platform");
+  // Owner coverage's last-used date, only where policy turns on platform_presence; the engine notes it in the background.
+  if (p.me && !platformPage.seenNoted) { platformPage.seenNoted = true; rpc("platform_note_seen", {}).catch(() => {}); }
   if (state.view !== "platform") return;
   // Overview and Requests read the count with their own data; another tab reads it once, then keeps it.
   if (p.me && p.waiting === undefined && !["overview", "requests"].includes(p.tab)) {
@@ -183,12 +185,14 @@ function ownerCoverageCard() {
       h("span", { class: "muted-text small" }, `${c.covered} of ${c.checked} covered`));
     if (!c.gaps.length) {
       card.replaceChildren(head, h("p", { class: "muted-text small" }, c.checked
-        ? "Every domain, data product and source has two owners who have used the platform lately."
+        ? (c.presence === false ? "Every domain, data product and source has two owners." : "Every domain, data product and source has two owners who have used the platform lately.")
         : "No domains, data products or sources yet."));
       return;
     }
     card.replaceChildren(head,
-      h("p", { class: "muted-text small" }, `Each should have an owner and a second one to cover, who have used the platform in the last ${c.quiet_days} days.`),
+      h("p", { class: "muted-text small" }, c.presence === false
+        ? "Each should have an owner and a second one to cover. Whether owners have gone quiet isn't checked: your organization hasn't turned on platform_presence."
+        : `Each should have an owner and a second one to cover, who have used the platform in the last ${c.quiet_days} days.`),
       h("table", { class: "list" },
         h("thead", {}, h("tr", {}, ["What", "Owners", "Why it's listed", ""].map((x) => h("th", {}, x)))),
         h("tbody", {}, c.gaps.map((g) => h("tr", { "data-owned": `${g.kind}:${g.id}` },

@@ -2,6 +2,7 @@
 
 import json
 import threading
+import types
 
 import polars as pl
 import pytest
@@ -845,3 +846,37 @@ def test_owner_coverage_lists_what_has_no_owner_no_backup_or_a_quiet_owner(platf
                     ("product", "crm/orders"): ["No second owner to cover"]}
     assert next(g for g in c["gaps"] if g["id"] == "crm/orders")["unchecked"] == ["sales team"]
     assert (c["checked"], c["covered"], c["no_owner"]) == (5, 1, 1), "drafts aren't checked; shopify is covered"
+    off = platform.call("owner_coverage", presence=False)
+    assert off["presence"] is False and ("domain", "sales") not in {(g["kind"], g["id"]) for g in off["gaps"]}
+    assert not any("used the platform" in p for g in off["gaps"] for p in g["problems"]), "no quiet check without presence"
+
+
+def test_owner_coverage_reads_without_creating_catalog_person(platform):
+    with platform._db() as db:
+        db.run(f"DROP TABLE {db.t('catalog', 'person')}")
+        db.commit()
+    platform.call("save_domain", domain={"name": "Sales", "owners": "dee@example.com"})
+    c = platform.call("owner_coverage")
+    assert c["gaps"][0]["problems"] == ["No second owner to cover", "dee@example.com hasn't used the platform yet"]
+    with platform._db() as db:
+        assert not db.exists("catalog", "person"), "a read created the table"
+
+
+def test_presence_is_noted_in_the_background_only_when_policy_turns_it_on(tmp_path, monkeypatch):
+    from fabric_desktop import app_settings
+    from fabric_desktop.central import service as central_service
+    s = Service(root=tmp_path / "app")
+    monkeypatch.setattr(s, "_user", lambda: "dee@example.com")
+    started = []
+    monkeypatch.setattr(central_service.threading, "Thread",
+                        lambda target, args, **kw: types.SimpleNamespace(start=lambda: started.append(target(*args))))
+    assert app_settings.DEFAULTS["platform_presence"] is False and app_settings.RESTRICTED["platform_presence"] is False
+    monkeypatch.setattr(app_settings, "value", lambda key: False if key == "platform_presence" else app_settings.DEFAULTS[key])
+    assert s.platform_note_seen() == {"noted": False, "reason": "off"} and not started
+    assert s.platform_owner_coverage()["presence"] is False
+    monkeypatch.setattr(app_settings, "value", lambda key: True if key == "platform_presence" else app_settings.DEFAULTS[key])
+    assert s.platform_note_seen() == {"noted": True} and len(started) == 1
+    assert s.platform_note_seen() == {"noted": False, "reason": "already"}, "once a day per run"
+    with s._catalog()._db() as db:
+        assert [r["user_name"] for r in db.rows(f"SELECT * FROM {db.t('catalog', 'person')}")] == ["dee@example.com"]
+    assert s.platform_owner_coverage()["presence"] is True

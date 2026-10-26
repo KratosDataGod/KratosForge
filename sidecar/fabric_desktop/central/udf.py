@@ -508,8 +508,8 @@ def note_seen(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext) ->
 
 @udf.connection(argName="sqlDB", alias="platform")
 @udf.function()
-def owner_coverage(sqlDB: fn.FabricSqlConnection) -> dict:
-    return _run(sqlDB, "owner_coverage")
+def owner_coverage(sqlDB: fn.FabricSqlConnection, presence: bool = True) -> dict:
+    return _run(sqlDB, "owner_coverage", presence=presence)
 
 
 # ---- governance policies (policy.py)

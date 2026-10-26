@@ -1608,7 +1608,8 @@ def note_seen(db: Db, by: str = "") -> dict[str, Any]:
 
 
 def _last_seen(db: Db) -> dict[str, str]:
-    seen = {r["user_name"]: str(r["last_seen"] or "") for r in db.rows(f"SELECT * FROM {db.t('catalog', 'person')}")}
+    seen = ({r["user_name"]: str(r["last_seen"] or "") for r in db.rows(f"SELECT * FROM {db.t('catalog', 'person')}")}
+            if db.exists("catalog", "person") else {})  # a read never creates the table
     for r in db.rows(f"SELECT by_user, MAX(at) AS at FROM {db.t('catalog', 'audit')} GROUP BY by_user"):
         who = _who(r["by_user"])
         if who and str(r["at"] or "") > seen.get(who, ""):
@@ -1616,15 +1617,15 @@ def _last_seen(db: Db) -> dict[str, str]:
     return seen
 
 
-def owner_coverage(db: Db) -> dict[str, Any]:
+def owner_coverage(db: Db, presence: bool = True) -> dict[str, Any]:
     """Each domain, published data product and source with an owner problem: none, no second owner, or
     an owner the platform hasn't seen for QUIET_DAYS. Owners written as names, not sign-ins, can't be
-    checked for being quiet, and are said to be so. Only reads (the catalog is open to everyone)."""
-    ensure_people(db)
-    seen, now = _last_seen(db), dt.datetime.now(dt.timezone.utc)
+    checked for being quiet, and are said to be so. Without ``presence`` (the organization hasn't turned
+    on platform_presence) nobody is checked for being quiet. Only reads (the catalog is open to everyone)."""
+    seen, now = _last_seen(db) if presence else {}, dt.datetime.now(dt.timezone.utc)
 
     def quiet(owner: str) -> int | None:
-        if not _UPN_LIKE.match(owner):
+        if not presence or not _UPN_LIKE.match(owner):
             return None
         last = seen.get(owner)
         if not last:
@@ -1661,7 +1662,7 @@ def owner_coverage(db: Db) -> dict[str, Any]:
     gaps = [r for r in rows if r["problems"]]
     order = {"No owner": 0}
     gaps.sort(key=lambda r: (min(order.get(p, 1) for p in r["problems"]), r["kind"], r["name"].lower()))
-    return {"quiet_days": QUIET_DAYS, "checked": len(rows), "covered": len(rows) - len(gaps),
+    return {"quiet_days": QUIET_DAYS, "presence": presence, "checked": len(rows), "covered": len(rows) - len(gaps),
             "no_owner": sum("No owner" in r["problems"] for r in gaps), "gaps": gaps}
 
 

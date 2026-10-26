@@ -166,6 +166,10 @@ DEFAULTS.update({"motion_level": 2} | {key: key != "motion_achievements" for key
 TYPES.update({"motion_level": int} | {key: bool for key in MOTION_SWITCHES})
 USER_KEYS += ("motion_level", *MOTION_SWITCHES)
 
+# Owner coverage's last-used dates (central/core.py note_seen): personal data everyone who reads the
+# platform's catalog sees, so it stays off until IT turns it on in the policy file. Policy only.
+DEFAULTS["platform_presence"] = False
+TYPES["platform_presence"] = bool
 # Incident SLA targets (workloads/sla.py checks the shape and says what it ignored).
 DEFAULTS["incident_sla"] = {}
 TYPES["incident_sla"] = dict
@@ -194,7 +198,8 @@ NO_TENANT = "00000000-0000-0000-0000-000000000000"
 # The restrictions among DEFAULTS, and the value each takes when the policy file or that key can't
 # be read. Updates (auto_update, channel) are enforced by the shell, which reads the file itself.
 RESTRICTED: dict[str, Any] = {"allow_fabric_runs": False, "allowed_tenants": [NO_TENANT], "show_preview": False,
-                              "telemetry": False, "sql_warehouse_writes": False}
+                              "telemetry": False, "sql_warehouse_writes": False,
+                              "platform_presence": False}
 
 
 def policy_path() -> Path:

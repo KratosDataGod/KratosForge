@@ -78,7 +78,7 @@ Opening a notebook in VS Code doesn't run anything. Cells you run in VS Code use
 
 ## Run cells from VS Code
 
-Preview. The KratosForge extension for VS Code, which picks this up in VS Code's kernel picker, is on its way; this is the app's side of it.
+Preview. This needs the KratosForge extension for VS Code, which adds **KratosForge · This PC** to VS Code's kernel picker. It isn't published yet: until a `.vsix` is released, build it from `vscode/` in the repository (`npm ci`, then `npx @vscode/vsce package`) and install it with **Extensions: Install from VSIX…**.
 
 1. In **Settings > Integrations > VS Code**, turn on **Let VS Code run notebooks**. It's off until you do, and your organization can keep it off (`integrations_editors` in the [policy file](azure-setup.md#4-push-settings-to-everyone)).
 2. In VS Code, pick KratosForge as the notebook's kernel. KratosForge asks **Let VS Code run notebooks on this PC?** with the window's folder and a pairing code. Check VS Code shows the same code, choose how long to keep the pairing, and **Pair this window**.
@@ -94,7 +94,7 @@ What a paired window can and can't do:
 | Read the tables the notebook's lakehouse has | Publish, Run in Fabric and Side by side are done in KratosForge, not from VS Code |
 | See the cell's output and the notebook's variables | |
 
-- A pairing is bound to the folder it paired from: that window can't reach a notebook outside it, even with its token.
+- A pairing is bound to the folder it paired from (the workspace folder holding the notebook, or the notebook's own folder): that window can't reach a notebook outside it, even with its token. A whole drive, or no folder, can't be paired.
 - A pairing lasts until KratosForge closes (kept in memory only), 8 hours or 7 days, as you choose. Settings lists paired windows; **End** stops one at once, and turning the switch off ends them all. When the organization sets `integrations_editors` to `false`, the next call from any window is refused, every pairing ends and the engine stops listening.
 - Every run, Stop, pairing and OneLake answer is in the [audit trail](user-guide.md#audit-trail).
 - AI tools such as Copilot never pair: they keep asking before every run ([External AI tools](user-guide.md#external-ai-tools)).

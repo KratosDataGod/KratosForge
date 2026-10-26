@@ -16,6 +16,7 @@ AI tools are not paired windows: they keep asking before every run (integrations
 
 from __future__ import annotations
 
+import ntpath
 import os
 import secrets
 import threading
@@ -39,6 +40,12 @@ def _inside(path: str, folder: str) -> bool:
         return False
     top = os.path.normcase(os.path.abspath(folder)).rstrip("\\/")
     return os.path.normcase(os.path.abspath(path)).startswith(top + os.sep)
+
+
+def _absolute(folder: str) -> bool:
+    """A full path (Windows' form too, so a test on another OS can stand in for a PC), never one
+    relative to wherever the engine happens to run."""
+    return os.path.isabs(folder) or ntpath.isabs(folder)
 
 
 def _is_root(folder: str) -> bool:
@@ -179,7 +186,7 @@ class EditorMixin:
     def editor_channel_pair(self, window: str | None, client: str | None) -> dict[str, Any]:
         if not self._editor_enabled():
             raise PermissionError("VS Code can't run notebooks in KratosForge: it's switched off in Settings > Integrations.")
-        if not isinstance(window, str) or not window.strip() or _is_root(window):
+        if not isinstance(window, str) or not _absolute(window) or _is_root(window):
             raise PermissionError("Pair from a folder with notebooks in it, not a whole drive or no folder: "
                                   "open the notebooks folder or repository in VS Code first.")
         out = self.editor_pairings.request(window, client)

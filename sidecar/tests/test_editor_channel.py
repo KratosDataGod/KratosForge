@@ -303,7 +303,7 @@ def test_policy_can_keep_it_off(svc, tmp_path, monkeypatch):  # noqa: F811
     assert call(svc, "editor_status")["blocked"]
 
 
-@pytest.mark.parametrize("folder", ["", "   ", "/", "C:\\" if __import__("os").name == "nt" else "//"])
+@pytest.mark.parametrize("folder", ["", "   ", ".", "notebooks", "/", "C:\\" if __import__("os").name == "nt" else "//"])
 def test_a_window_cant_pair_a_whole_drive_or_no_folder(paired, folder):
     svc, window, _ = paired
     status, res = window.call("POST", "/v1/pair", {"window": folder, "client": "t"}, {"X-KratosForge-Hello": window.hello})

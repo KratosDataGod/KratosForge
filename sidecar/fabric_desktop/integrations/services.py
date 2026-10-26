@@ -240,6 +240,22 @@ def export_pipeline(svc: Any, ctx: CallContext, definition: str, format: str = "
     return svc.pipeline_export(text=definition, format=format or None)
 
 
+def list_semantic_models(svc: Any, ctx: CallContext, env: str = "test") -> dict[str, Any]:
+    """The semantic models in a metadata environment's workspace."""
+    return svc.meta_model_ossie_models(env)
+
+
+def export_semantic_model_ossie(svc: Any, ctx: CallContext, env: str, name: str, translate_dax: bool = True) -> dict[str, Any]:
+    """A semantic model as Apache Ossie YAML, with counts and what isn't portable. Writes no file."""
+    return svc.meta_model_ossie_export(env, name, translate_dax)
+
+
+def preview_ossie_import(svc: Any, ctx: CallContext, env: str, text: str, name: str = "", mode: str = "update",
+                         remove: list[str] | None = None) -> dict[str, Any]:
+    """What importing an Ossie document would change in a semantic model. Writes nothing."""
+    return svc.meta_model_ossie_preview(env, text, name, mode, remove or [])
+
+
 def check_run_risk(svc: Any, ctx: CallContext, workload_id: str, action: str, env: str = "") -> dict[str, Any]:
     """The predeployment risk check (FINOPS-004) for one action on one workload."""
     return svc.risk_check(workload_id, action, env or None)

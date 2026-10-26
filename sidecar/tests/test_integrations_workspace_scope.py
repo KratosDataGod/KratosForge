@@ -119,7 +119,7 @@ class FakeService:
 
     def meta_project(self):
         return {"path": "C:/mesh", "project": {"name": "Mesh"}, "entities": [], "layers": [], "errors": [],
-                "environments": {"dev": {"workspace_id": self.meta_ws, "workspace_name": self.meta_ws.title()}}}
+                "environments": {env: {"workspace_id": self.meta_ws, "workspace_name": self.meta_ws.title()} for env in ("dev", "test")}}
 
     def prove_list(self, name=None, limit=20):
         return [proof_record("p-allowed"), proof_record("p-other")]
@@ -174,7 +174,7 @@ def arguments(cap: Capability, inside: bool) -> dict:
     values = {"workspace_id": ws, "lakehouse_id": "lh-" + ws, "item_id": "item-1", "table": "dbo.orders",
               "name": "nb_allowed" if inside else "nb_other", "id": RECEIPT_IN if inside else RECEIPT_OUT,
               "execution_id": EXEC_IN if inside else EXEC_OUT, "query": "select 1", "code": "x = 1",
-              "definition": "{}", "workload_id": "w-allowed" if inside else "w-other", "action": "run"}
+              "definition": "{}", "text": "name: m", "workload_id": "w-allowed" if inside else "w-other", "action": "run"}
     props = cap.input_schema.get("properties", {})
     out = {}
     optional = [k for k in ("workspace_id", "lakehouse_id") if k in props]  # a lakehouse to attach, say

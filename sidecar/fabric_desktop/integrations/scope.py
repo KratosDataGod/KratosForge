@@ -232,6 +232,14 @@ def project(service: Any, arguments: dict[str, Any], ctx: CallContext | None) ->
     return metadata_of(service.meta_project())
 
 
+def environment(service: Any, arguments: dict[str, Any], ctx: CallContext | None) -> set[str] | None:
+    """One environment of the open metadata project (``env``): its workspace and its lakehouses'. None
+    when no project is open or the environment names a place without its workspace id."""
+    meta = service.meta_project()
+    env = (meta.get("environments") or {}).get(arguments.get("env") or "test") if meta.get("path") else None
+    return located(env) if env else None
+
+
 def workload_of(service: Any, record: dict[str, Any], action: str, env: str) -> set[str] | None:
     """What the risk check reads for one action on a workload (risk_service._risk_facts): the
     capacity of the workspace its deployment in ``env`` runs in, and for a Data mesh entity's run,

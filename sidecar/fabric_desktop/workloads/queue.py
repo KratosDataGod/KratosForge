@@ -116,7 +116,7 @@ def pc_rows(pc: list[dict[str, Any]], now: dt.datetime, until: dt.datetime) -> l
         if not s.get("enabled", True) or at is None or at > until:
             continue
         target = s.get("target") or {}
-        rows.append({"state": "next", "what": target.get("name") if target.get("kind") == "notebook"
+        rows.append({"state": "next", "what": target.get("name") if target.get("kind") in ("notebook", "pipeline")
                      else _what(target.get("entities"), "Every table"),
                      "env": target.get("env"), "where": {"kind": "pc", "name": "This PC"},
                      "owner": "Windows Task Scheduler", "at": _iso(at), "text": s.get("text") or "",

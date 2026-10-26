@@ -58,9 +58,14 @@ _REGISTRY: dict[str, Checker] = {}
 def register(kind: str, rules: Callable[[], list[dict[str, Any]]],
              check: Callable[[dict[str, Any], dict[str, Any]], list[dict[str, Any]] | None],
              runs_in: str = "local") -> Checker:
-    """Add (or replace) a checker. Its rules are checked for the fields every rule needs."""
+    """Add (or replace) a checker. Its rules are checked for the fields every rule needs. A checker that
+    runs somewhere else can't take over a kind: the local model rules and the BPA that runs in Fabric
+    would otherwise replace each other, so the one in Fabric needs a kind of its own."""
     if runs_in not in RUNS_IN:
         raise ValueError(f"runs_in is one of {', '.join(RUNS_IN)}")
+    if kind in _REGISTRY and _REGISTRY[kind].runs_in != runs_in:
+        raise ValueError(f"{kind} rules already run in {_REGISTRY[kind].runs_in}; give the checker that runs in "
+                         f"{runs_in} a kind of its own")
     for r in rules():
         missing = [f for f in RULE_FIELDS if not r.get(f)]
         if missing:

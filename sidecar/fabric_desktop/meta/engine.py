@@ -46,6 +46,9 @@ APPEND_KEY = "fabric_desktop_append"
 # Columns the quarantine adds to each held row: why, which run, when, and the row's own id.
 QUARANTINE_COLUMNS = ["_check", "_run_id", "_loaded_at", "_qid"]
 FAR_PAST = dt.date(1900, 1, 1)
+# The Unknown member's date in a dimension that is the semantic model's date table ([model] date_column):
+# Power BI refuses a date table with a blank date. It's day 0 of Excel and Power BI's date serials.
+UNKNOWN_DATE = dt.date(1899, 12, 30)
 FAR_FUTURE = dt.date(9999, 12, 31)
 _SIMPLE_TYPES: dict[str, pl.DataType] = {
     "string": pl.String, "str": pl.String, "int64": pl.Int64, "bigint": pl.Int64, "int32": pl.Int32,
@@ -1124,6 +1127,9 @@ class Engine:
             return changed
         if df.select(bk).is_duplicated().any():
             return f"rewrote the table because new rows repeat a key ({', '.join(bk)})"
+        if needs_unknown_date(lf, e):
+            # The MERGE never touches the Unknown member, so the one rewrite that gives it a date is a full one.
+            return f"rewrote the table once to give the Unknown member the date {UNKNOWN_DATE}, for the model's date table"
         arrived = df.height
         near = lf  # range filters skip files by their statistics; semi joins keep exactly the keys asked for
         keys = df.select(bk).unique().drop_nulls()
@@ -1217,6 +1223,7 @@ class Engine:
             info = f"rebuilt: {df.height} rows from the full source"
         else:
             out, info = df, f"replaced with {plural(df.height, 'row')}"
+        out = with_unknown_date(out, e)
         if why:
             info = f"{info}; {why}"
         version = self.store.write(lh, e.schema, e.table, out, mode="overwrite", metadata=metadata,
@@ -1307,9 +1314,34 @@ def unknown_member(schema: pl.Schema, e: Entity) -> pl.DataFrame:
     for c, t in schema.items():
         row[c] = "Unknown" if t == pl.String and c not in e.keys and not c.startswith("_") else None
     row[e.surrogate_key] = -1
+    if e.date_column in schema:
+        row[e.date_column] = _unknown_date(schema[e.date_column])
     if "valid_from" in schema:
         row |= {"valid_from": FAR_PAST, "valid_to": FAR_FUTURE, "is_current": True}
     return pl.DataFrame([row], schema=schema)
+
+
+def _unknown_date(dtype: Any) -> Any:
+    return dt.datetime.combine(UNKNOWN_DATE, dt.time()) if isinstance(dtype, pl.Datetime) else UNKNOWN_DATE
+
+
+def needs_unknown_date(df: pl.DataFrame | pl.LazyFrame | None, e: Entity) -> bool:
+    """Whether the table's Unknown member has no date yet, though the entity is the model's date table."""
+    col, sk = e.date_column, e.surrogate_key
+    if df is None or not col or not sk or col not in df.collect_schema():
+        return False
+    rows = df.lazy().filter((pl.col(sk) == -1) & pl.col(col).is_null()).select(pl.len()).collect().item()
+    return bool(rows)
+
+
+def with_unknown_date(df: pl.DataFrame, e: Entity) -> pl.DataFrame:
+    """The table with its Unknown member's date filled in, when the entity is the model's date table."""
+    col, sk = e.date_column, e.surrogate_key
+    if not col or not sk or col not in df.columns:
+        return df
+    return df.with_columns(pl.when((pl.col(sk) == -1) & pl.col(col).is_null())
+                           .then(pl.lit(_unknown_date(df.schema[col]), dtype=df.schema[col]))
+                           .otherwise(pl.col(col)).alias(col))
 
 
 def _ordered(df: pl.DataFrame, e: Entity) -> pl.DataFrame:

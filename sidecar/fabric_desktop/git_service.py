@@ -28,6 +28,25 @@ from .git.repo import Repository, _folder, init as git_init
 from .integrations.config import write_cli_launcher
 
 MAX_REPOS = 50
+_OLDER_FUNCTIONS = ("The platform's functions are older than this app. Open Platform > Settings, choose "
+                    "Finish or repair, then try again.")
+
+
+def _newer_op(cat: Any, op: str, **kwargs: Any) -> Any:
+    """A platform read that came with an update (landing zones, policy templates). A UDF_Platform made
+    before it has no such function: Fabric answers 404 (LookupError), or the platform says it has no
+    such operation. Either way, say what to do."""
+    from .central.core import PlatformError
+
+    try:
+        return cat.call(op, **kwargs)
+    except LookupError:
+        raise GitError(_OLDER_FUNCTIONS, kind="invalid") from None
+    except PlatformError as exc:
+        text = str(exc).lower()
+        if op in str(exc) and ("not found" in text or "no operation" in text):
+            raise GitError(_OLDER_FUNCTIONS, kind="invalid") from None
+        raise
 
 
 class GitMixin:
@@ -253,15 +272,16 @@ class GitMixin:
         try:
             ready = cat.call("policies_ready")
         except LookupError:  # a platform whose functions predate this check
-            raise GitError("The platform's functions are older than this app. Open Platform > Settings, choose "
-                           "Finish or repair, then try again.", kind="invalid") from None
-        policies = None
-        if ready:
+            raise GitError(_OLDER_FUNCTIONS, kind="invalid") from None
+        policies = templates = None
+        if ready:  # templates sit with policies: reading them on a platform without policies would make their table
             policies = [cat.call("get_policy", id=p["id"]) for p in cat.call("list_policies")]
+            templates = _newer_op(cat, "list_policy_templates")["templates"]
         return platform_files.from_platform({
             "domains": cat.call("list_domains"), "sources": cat.call("list_sources"), "key_tables": tables,
+            "landing_zones": _newer_op(cat, "list_landing_zones"),
             "glossary": cat.call("list_glossary"), "admins": admins, "shortcut_rules": cat.call("shortcut_rules"),
-            "policies": policies, "projects": cat.call("list_projects")})
+            "policies": policies, "policy_templates": templates, "projects": cat.call("list_projects")})
 
     def git_platform_diff(self, repo: str, env: str = "prod") -> dict[str, Any]:
         """The platform repository's files compared with what ``env``'s platform has deployed.
@@ -349,7 +369,10 @@ class GitMixin:
         for step in p["steps"]:
             client = clients[step["env"] or cat_env]
             try:
-                res = client.call(step["op"], **step["args"])
+                if step["op"] in platform_files.APP_OPS:  # the app's own create path: a zone's lakehouse first
+                    res = getattr(self, step["op"])(**step["args"])
+                else:
+                    res = client.call(step["op"], **step["args"])
                 if step["op"] == "adopt_sources" and res.get("conflicts"):  # reported, not raised: stop here
                     raise GitError("; ".join(res["conflicts"]), kind="invalid")
             except Exception as exc:  # noqa: BLE001 - stop at the first refusal and say where

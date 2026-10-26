@@ -6,7 +6,8 @@ is committed and nothing in Fabric changes. Diff compares the files with one env
 and writes nothing. The file shapes are in docs/source-control.md (Platform repository).
 
 Only content goes in a file: no times, no who-changed-it, no key values, requests, grants, audit,
-readers, shortcut health, connections or anything secret.
+a source's readers, shortcut health, connections, people's emails as zone readers, lakehouse ids or
+anything secret.
 """
 
 from __future__ import annotations
@@ -19,16 +20,24 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..central.core import PlatformError
-from ..central.policy import clean_definition
+from ..central.policy import BUILTIN_TEMPLATES, clean_definition
 from .cli import GitError
 from .scopes import _replace_in
 
 # Each kind of object: its folder (or single file), in the order a deploy would apply them.
-FOLDERS = {"domains": "domains", "sources": "sources", "key_tables": "key_tables", "policies": "policies"}
+FOLDERS = {"domains": "domains", "landing_zones": "landing_zones", "sources": "sources", "key_tables": "key_tables",
+           "policy_templates": "policy_templates", "policies": "policies"}
 FILES = {"admins": "admins.toml", "glossary": "glossary.toml", "shortcut_rules": "shortcut_rules.toml"}
-ORDER = ("admins", "domains", "sources", "key_tables", "glossary", "shortcut_rules", "policies")
-LABELS = {"admins": "Admins", "domains": "Domain", "sources": "Source system", "key_tables": "Key table",
-          "glossary": "Glossary term", "shortcut_rules": "Shortcut rules", "policies": "Policy"}
+# Zones before sources (a source names its zone); templates before policies.
+ORDER = ("admins", "domains", "landing_zones", "sources", "key_tables", "glossary", "shortcut_rules",
+         "policy_templates", "policies")
+LABELS = {"admins": "Admins", "domains": "Domain", "landing_zones": "Landing zone", "sources": "Source system",
+          "key_tables": "Key table", "glossary": "Glossary term", "shortcut_rules": "Shortcut rules",
+          "policy_templates": "Policy template", "policies": "Policy"}
+# Steps a deploy runs through the app rather than the platform's own functions: a new landing zone
+# needs its lakehouse made in Fabric first, which is the app's existing create path.
+APP_OPS = frozenset({"platform_create_landing_zone"})
+SHARED_ZONE = "shared"
 # A file name made from an object's identity: lowercase letters, digits, - _ and ., starting with a
 # letter or digit. Anything else is reported, never written.
 _FILE_NAME = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
@@ -77,10 +86,40 @@ def source_record(s: dict[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError):
         sid = _s(sid)  # kept as written, so the diff shows it and a deploy refuses it
     active = s.get("active", True)
-    return {"source_id": sid, "code": _s(s.get("code")) or _s(s.get("name")).upper(), "title": _s(s.get("title")),
-            "description": _s(s.get("description")), "owner": _s(s.get("owner")),
-            "system_type": _s(s.get("system_type")), "active": active is not False and active != "0",
-            "expected_hours": _s(s.get("expected_hours"))}
+    rec = {"source_id": sid, "code": _s(s.get("code")) or _s(s.get("name")).upper(), "title": _s(s.get("title")),
+           "description": _s(s.get("description")), "owner": _s(s.get("owner")),
+           "system_type": _s(s.get("system_type")), "active": active is not False and active != "0",
+           "expected_hours": _s(s.get("expected_hours"))}
+    zone = _s(s.get("zone")).lower()
+    if zone and zone != SHARED_ZONE:  # no zone is the Shared zone, so it isn't written
+        rec["zone"] = zone
+    return rec
+
+
+def _is_email(v: str) -> bool:
+    return "@" in v
+
+
+def zone_record(z: dict[str, Any]) -> dict[str, Any]:
+    """A landing zone's content: never where it lives (workspace, lakehouse), when reads were switched,
+    or who changed it. Readers are groups, by name or object id; a person's email is left out."""
+    zid = _s(z.get("id")).lower()
+    secure = z.get("secure", False)
+    return {"id": zid, "name": _s(z.get("name")), "domain": _s(z.get("domain", z.get("domain_id"))),
+            "secure": secure is True or secure == "1",
+            "readers": [r for r in _people(z.get("readers")) if not _is_email(r)],
+            "label": _s(z.get("label")),
+            "devtest": _s(z.get("devtest")) or ("read" if zid == SHARED_ZONE else "none")}
+
+
+def template_record(t: dict[str, Any]) -> dict[str, Any]:
+    """One of your organization's policy templates, from list_policy_templates or a file: its name,
+    category and description, and the rest of its definition. Raises PlatformError when it isn't valid."""
+    d = dict(t.get("definition") or {})
+    d.update({k: t[k] for k in ("name", "category", "description") if k in t})
+    d = clean_definition(d)
+    return {"id": _s(t.get("id")), "name": d.pop("name"), "category": d.pop("category"),
+            "description": d.pop("description"), "definition": _sorted(d)}
 
 
 def key_table_record(t: dict[str, Any]) -> dict[str, Any]:
@@ -112,18 +151,23 @@ def policy_record(p: dict[str, Any]) -> dict[str, Any]:
 
 def from_platform(raw: dict[str, Any]) -> dict[str, Any]:
     """What a platform has deployed, as records. ``raw`` holds the platform's own reads:
-    domains, sources, key_tables ({where: list}), glossary, admins, shortcut_rules and policies
-    (get_policy results; None when the platform has no policy tables)."""
-    out: dict[str, Any] = {"domains": {}, "sources": {}, "key_tables": {}, "glossary": {}, "policies": {},
+    domains, landing_zones, sources, key_tables ({where: list}), glossary, admins, shortcut_rules,
+    policies (get_policy results; None when the platform has no policy tables) and policy_templates
+    (list_policy_templates' list; None likewise)."""
+    out: dict[str, Any] = {"domains": {}, "landing_zones": {}, "sources": {}, "key_tables": {}, "glossary": {},
+                           "policies": {}, "policy_templates": {},
                            "admins": sorted({_s(a.get("user_name")) for a in raw.get("admins") or []} - {""}, key=str.lower),
                            "shortcut_rules": _sorted(dict(raw.get("shortcut_rules") or {})), "skipped": [],
                            # the platform's own rows, which a deploy needs beside the records
                            "raw": {"domains": {_s(d.get("id")): d for d in raw.get("domains") or []},
                                    "sources": {_s(s.get("name")): s for s in raw.get("sources") or []},
+                                   "landing_zones": {_s(z.get("id")): z for z in raw.get("landing_zones") or []},
                                    "policies": {_s(p.get("id")): p for p in raw.get("policies") or []},
                                    "projects": list(raw.get("projects") or [])}}
     for d in raw.get("domains") or []:
         out["domains"][_s(d.get("id"))] = domain_record(d)
+    for z in raw.get("landing_zones") or []:
+        out["landing_zones"][_s(z.get("id"))] = zone_record(z)
     for s in raw.get("sources") or []:
         out["sources"][_s(s.get("name")) or _s(s.get("code")).lower()] = source_record(s)
     # Key tables: {where: list}. Once keys have moved, one list from the shared keys database;
@@ -152,6 +196,15 @@ def from_platform(raw: dict[str, Any]) -> dict[str, Any]:
             out["policies"][_s(p.get("id"))] = policy_record(p)
         except PlatformError as e:  # a version this app can't read: shown, never compared or exported
             out["skipped"].append({"kind": "policies", "id": p.get("id"), "why": f"can't be read: {e}"})
+    if raw.get("policy_templates") is None:
+        out["policy_templates"] = None  # not set up on this platform, like policies
+    for t in raw.get("policy_templates") or []:
+        if t.get("builtin"):
+            continue  # built-in templates ship with the app and never change: not the organization's own
+        try:
+            out["policy_templates"][_s(t.get("id"))] = template_record(t)
+        except PlatformError as e:  # shown, never compared or exported
+            out["skipped"].append({"kind": "policy_templates", "id": t.get("id"), "why": f"can't be read: {e}"})
     return out
 
 
@@ -301,11 +354,12 @@ def read_repo(root: str | Path, committed: tuple[dict[str, str], list[str]] | No
         src = texts[rel]
         return _load(src, problems, rel) if isinstance(src, Path) else _parse(src, problems, rel)
 
-    out: dict[str, Any] = {"domains": {}, "sources": {}, "key_tables": {}, "glossary": None, "policies": {},
-                           "admins": None, "shortcut_rules": None}
+    out: dict[str, Any] = {"domains": {}, "landing_zones": {}, "sources": {}, "key_tables": {}, "glossary": None,
+                           "policies": {}, "policy_templates": {}, "admins": None, "shortcut_rules": None}
     makers: dict[str, tuple[Callable[[dict[str, Any]], dict[str, Any]], str]] = {
-        "domains": (domain_record, "id"), "sources": (source_record, "code"),
-        "key_tables": (key_table_record, "name"), "policies": (policy_record, "id")}
+        "domains": (domain_record, "id"), "landing_zones": (zone_record, "id"), "sources": (source_record, "code"),
+        "key_tables": (key_table_record, "name"), "policy_templates": (template_record, "id"),
+        "policies": (policy_record, "id")}
     for kind, folder in FOLDERS.items():
         make, field = makers[kind]
         for rel in sorted(r for r in texts if r.startswith(folder + "/")):
@@ -315,6 +369,9 @@ def read_repo(root: str | Path, committed: tuple[dict[str, str], list[str]] | No
             ident = rel[len(folder) + 1:-len(".toml")]
             if _s(data.get(field)).lower() != ident:
                 problems.append(f"{rel}: its {field} should be {ident!r}, the file's name.")
+                continue
+            if kind == "landing_zones" and any(_is_email(r) for r in _people(data.get("readers"))):
+                problems.append(f"{rel}: readers are groups, by name or object id. A person's email doesn't go in a file.")
                 continue
             try:
                 out[kind][ident] = make(data)
@@ -579,6 +636,38 @@ def plan(git: dict[str, Any], envs: dict[str, dict[str, Any]], catalog_env: str,
             removed.add(ident)
             removals.append(_step("domains", ident, "remove", "delete_domain", {"did": ident}))
 
+    # landing zones: a new one through the app's create path (it makes the zone's lakehouse in Fabric);
+    # a changed one through the platform. Never removed, and reads are never switched here.
+    gz, dz = git.get("landing_zones") or {}, cat.get("landing_zones") or {}
+    raw_zones = cat["raw"].get("landing_zones") or {}
+    for ident, rec in sorted(gz.items()):
+        dep = dz.get(ident)
+        zone = {"id": ident, "name": rec["name"], "domain_id": rec["domain"], "secure": rec["secure"],
+                "readers": rec["readers"], "label": rec["label"], "devtest": rec["devtest"]}
+        if dep is None:
+            if ident == SHARED_ZONE:
+                why = ("is made with the landing workspace. Set it up on Platform > Set up > Landing zone, then "
+                       "deploy again.")
+            elif SHARED_ZONE not in dz:
+                why = ("needs the landing workspace, which this platform doesn't have yet. Set it up on "
+                       "Platform > Set up > Landing zone, then deploy again.")
+            elif rec["domain"] and rec["domain"] not in gd and rec["domain"] not in dd:
+                why = f"is in domain {rec['domain']}, which isn't in Git or the platform."
+            else:
+                steps.append(_step("landing_zones", ident, "create", "platform_create_landing_zone", {"zone": zone},
+                                   what="create it, and its lakehouse in the landing workspace"))
+                continue
+            blocked.append({"kind": "landing_zones", "id": ident, "why": why})
+        elif rec != dep:
+            # A person named as a reader in the platform isn't in the file: keep them as they are.
+            people = [r for r in (raw_zones.get(ident) or {}).get("readers") or [] if _is_email(_s(r))]
+            steps.append(_step("landing_zones", ident, "update", "save_landing_zone",
+                               {"zone": zone | {"readers": sorted(set(rec["readers"]) | set(people))}}))
+    for ident in sorted(set(dz) - set(gz)):
+        notes.append(f"Landing zone {ident} is in the platform but not in Git. A deploy never removes a landing "
+                     "zone: once no source is in it, remove it on Platform > Set up > Landing zone.")
+    zones_after = set(dz) | {s["id"] for s in steps if s["op"] == "platform_create_landing_zone"}
+
     # sources: an id is never changed, and a new source keeps the id its file gives it
     gs, ds = git.get("sources") or {}, cat["sources"]
     ids = {s["source_id"]: n for n, s in ds.items()}
@@ -591,10 +680,13 @@ def plan(git: dict[str, Any], envs: dict[str, dict[str, Any]], catalog_env: str,
                          "in the platform. Ids are never renumbered: put the platform's id back in the file.")
         elif dep is None and rec["source_id"] in ids:
             stops.append(f"sources/{ident}.toml: id {rec['source_id']} is already {ids[rec['source_id']]} in the platform.")
+        elif rec != dep and rec.get("zone") and rec["zone"] not in zones_after:
+            blocked.append({"kind": "sources", "id": ident, "why": f"is in landing zone {rec['zone']}, which this "
+                            "deploy can't make. Add the zone's file, or set up the zone first."})
         elif rec != dep:
             fields = {"name": ident, "code": rec["code"], "title": rec["title"], "description": rec["description"],
                       "owner": rec["owner"], "system_type": rec["system_type"], "active": rec["active"],
-                      "expected_hours": rec["expected_hours"],
+                      "expected_hours": rec["expected_hours"], "zone": rec.get("zone", ""),
                       # connections stay per environment in the platform; a deploy keeps them as they are
                       "connections": (cat["raw"]["sources"].get(ident) or {}).get("connections") or {}}
             if dep is None:
@@ -646,6 +738,24 @@ def plan(git: dict[str, Any], envs: dict[str, dict[str, Any]], catalog_env: str,
     if git.get("shortcut_rules") is not None and git["shortcut_rules"] != cat["shortcut_rules"]:
         steps.append(_step("shortcut_rules", FILES["shortcut_rules"], "update", "save_shortcut_rules",
                            {"rules": git["shortcut_rules"]}))
+
+    # policy templates: the organization's own, added or changed; never removed
+    gt, dt = git.get("policy_templates") or {}, cat.get("policy_templates") or {}
+    for ident, rec in sorted(gt.items()):
+        template = rec["definition"] | {"name": rec["name"], "category": rec["category"],
+                                        "description": rec["description"]}
+        if ident in BUILTIN_TEMPLATES:
+            blocked.append({"kind": "policy_templates", "id": ident, "why": "is a built-in template's id. Built-in "
+                            "templates ship with the app: give yours another id."})
+        elif ident not in dt:
+            steps.append(_step("policy_templates", ident, "create", "save_policy_template",
+                               {"template": template | {"id": ident}, "id": ""}))
+        elif dt[ident] != rec:
+            steps.append(_step("policy_templates", ident, "update", "save_policy_template",
+                               {"template": template, "id": ident}))
+    for ident in sorted(set(dt) - set(gt)):
+        notes.append(f"Policy template {ident} isn't in Git. A deploy never removes a template: delete it on Platform > Govern > "
+                     "Governance > Templates if it should go.")
 
     _policies_plan(git, cat, note, steps, blocked)
     retire = []  # a removed policy is retired, never deleted: its versions stay readable

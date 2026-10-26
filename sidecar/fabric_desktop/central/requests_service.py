@@ -145,7 +145,7 @@ class RequestsMixin:
                 return self.platform_create_domain(domain, in_fabric=in_fabric)  # type: ignore[attr-defined]
             except PermissionError as exc:
                 raise PermissionError(f"{exc} A Fabric administrator can approve this request, or you can create "
-                                      f"{name} in the platform only (Platform > Domains > New domain, without Also "
+                                      f"{name} in the platform only (Platform > Set up > Domains > New domain, without Also "
                                       "create it in Fabric) and approve it again.") from exc
 
         step = f"Create the domain {name} in Fabric" if in_fabric else f"Save the domain {name}"

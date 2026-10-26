@@ -1,4 +1,4 @@
-// Governance plan step 5: Platform > Domains > New domain creates it in Fabric, and says plainly when
+// Governance plan step 5: Platform > Set up > Domains > New domain creates it in Fabric, and says plainly when
 // this account can't (see harness.cjs for how to run it).
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");

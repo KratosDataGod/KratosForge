@@ -863,7 +863,7 @@ class MetaMixin:
             central = {t["name"] for t in self._keys_platform(env).call("list_key_tables")}  # type: ignore[attr-defined]
             if name not in central:
                 raise GateError("save", [f"{name} isn't one of the platform's key tables. Request it in "
-                                         "Platform > Business keys, or pick one from the list."])
+                                         "Platform > Set up > Business keys, or pick one from the list."])
         owner = ""
         try:
             owner = self.auth.signed_in_user() or ""  # type: ignore[attr-defined]

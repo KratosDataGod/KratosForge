@@ -149,6 +149,8 @@ An older UDF_Platform doesn't have these functions yet. The page then says: *Aft
 
 **OneLake > Data products > Link**, **Data products > Other teams' products > Link**, or **Links > New link.** Pick a product and port, a name for it, and which of their environments each of yours reads. Dev usually reads their Prod, so you build against real data without copying it. The catalog refuses a link to a draft, to a private product, or to a domain product from another domain, unless the product's owner let your project in: **OneLake > Data products > Request access** sends them a request, and once they approve it on **Platform > Requests**, **Link** works. Approving lets the link be made; the owner still gives read access in OneLake (a data access role on their Product workspace). The owner can take that access away later on the product's page under **Access given**; a link already made stays.
 
+**Ask for data (Preview).** When the product you need doesn't exist yet, or needs a change, ask the team that would make it: **OneLake > Data products > Ask for data**, or **Ask for a change** on a product's page. Say what you need it for and, if it matters, by when. A new product goes to its domain's owners, a change to the product's owner, and either can be answered by a platform admin. Whoever accepts replies with how and when, and you see the answer on **Platform > Requests**. Nothing is built for you: accepting is the team's promise, recorded in the platform's audit log.
+
 An entity reads a link like any source:
 
 ```toml
@@ -164,6 +166,8 @@ table = "abfss://<workspace id>@onelake.dfs.fabric.microsoft.com/<lakehouse id>/
 ```
 
 The **Links** tab shows where each link points in the picked environment, and which entities use it. A link that an entity still reads can't be removed.
+
+When a table behind a product has an incident, the incident page lists the products built on it, the projects linked to them and who to tell, with **Tell them** to post it in Teams. See [Who's affected](user-guide.md#whos-affected-preview).
 
 ## Catalog text (About)
 

@@ -9,6 +9,7 @@ detail stay in the app, and people are named by UPN or by role.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import re
 from typing import Any
 
@@ -17,7 +18,7 @@ from .redact import secrets
 _UPN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _KIND = {"key_table": "New key table", "source": "New source", "access": "Access to", "shortcut": "New shortcut",
          "workspace": "New workspace", "workspace_access": "Workspace access to", "domain": "New domain",
-         "exception": "Exception to"}
+         "exception": "Exception to", "data": "Data request to"}
 _DECIDED = {"approved": "approved", "declined": "declined"}
 
 
@@ -35,8 +36,18 @@ def _title(req: dict[str, Any]) -> str:
 
 def _product(req: dict[str, Any], products: list[dict[str, Any]]) -> dict[str, Any]:
     """The data product a request is about: access to it, or a shortcut pointing at it."""
-    pid = req.get("target") if req.get("kind") == "access" else (req.get("detail") or {}).get("product_id")
+    d = req.get("detail") or {}
+    named = req.get("kind") == "access" or (req.get("kind") == "data" and d.get("what") == "change")
+    pid = req.get("target") if named else d.get("product_id")
     return next((p for p in products if pid and p.get("id") == pid), {})
+
+
+def _deciders(req: dict[str, Any], product: dict[str, Any]) -> list[str]:
+    """Who decides it besides platform admins: the product's owners, or for a new data product the
+    domain's owners as the request recorded them."""
+    if req.get("kind") == "data" and (req.get("detail") or {}).get("what") == "new":
+        return _upns((req.get("detail") or {}).get("owners"))
+    return _upns(product.get("owner"))
 
 
 def _domain(req: dict[str, Any], product: dict[str, Any]) -> str:
@@ -50,6 +61,8 @@ def _domain(req: dict[str, Any], product: dict[str, Any]) -> str:
         return str(d.get("parent_id") or req.get("target") or "")
     if kind == "exception" and d.get("scope") == "domain":
         return str(d.get("scope_target") or "")
+    if kind == "data":
+        return str(d.get("domain_id") or product.get("domain_id") or "")
     return product.get("domain_id") or ""
 
 
@@ -58,7 +71,7 @@ def request_waiting(req: dict[str, Any], products: list[dict[str, Any]]) -> dict
     product = _product(req, products)
     return {"kind": "request.waiting", "id": req["id"], "title": _title(req), "at": req.get("requested_at") or _now(),
             "domain": _domain(req, product),
-            "to": {"people": _upns(product.get("owner")), "roles": ["platform_admin"]},
+            "to": {"people": _deciders(req, product), "roles": ["platform_admin"]},
             "open": {"view": "platform", "tab": "requests", "target": req["id"]}}
 
 
@@ -74,7 +87,7 @@ def request_closed(req: dict[str, Any], products: list[dict[str, Any]]) -> dict[
                        "to": {"people": asker, "roles": [] if asker else ["requester"]}}
     if status == "withdrawn":
         return base | {"kind": "request.withdrawn", "title": _title(req),
-                       "to": {"people": _upns(product.get("owner")), "roles": ["platform_admin"]}}
+                       "to": {"people": _deciders(req, product), "roles": ["platform_admin"]}}
     return None
 
 
@@ -93,3 +106,19 @@ def shortcut_events(changes: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "to": {"people": [], "roles": ["platform_admin"]},
                     "open": {"view": "shortcuts", "tab": "health", "target": c["shortcut_id"]}})
     return out
+
+
+def incident_impact(inc: dict[str, Any], found: dict[str, Any]) -> dict[str, Any]:
+    """An incident's reach (workloads/impact.py) for the people downstream of it: product owners,
+    the people who linked a project to one, and followers. Posted once per incident and set of
+    people, so telling again only posts when someone new is reached."""
+    upns = sorted(p["upn"] for p in found["people"])
+    products = ", ".join(p["name"] for p in found["products"])
+    domains = {p["domain_id"] for p in found["products"] if p.get("domain_id")}
+    return {"kind": "incident.impact", "id": inc["id"], "title": secrets(str(inc.get("title") or inc.get("name") or "Incident")),
+            "at": _now(), "env": str(inc.get("env") or ""), "severity": "warn",
+            "domain": next(iter(domains)) if len(domains) == 1 else "",
+            "detail": secrets(f"Data products affected: {products}." if products else ""),
+            "to": {"people": upns, "roles": []},
+            "open": {"view": "incident", "tab": "detail", "target": inc["id"]},
+            "dedupe": f"incident.impact:{inc['id']}:{hashlib.sha1('|'.join(upns).encode()).hexdigest()[:12]}"}

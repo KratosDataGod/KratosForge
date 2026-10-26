@@ -72,13 +72,10 @@ export class Channel {
 
   constructor(private readonly dir: string = dataDir()) {}
 
-  private proven = ""; // the "port hello" last proven to be KratosForge
-
-  /** Before the hello or a token goes anywhere: whatever listens on the port must show it knows
-   * the hello (another user on this PC could have taken the port after the app stopped). */
+  /** Before each call that sends the hello or a token: whatever listens on the port must show it
+   * knows the hello. Every call, not once: if the app stops and leaves editor-port behind, another
+   * user on this PC could take the same port, and a remembered proof would still match. */
   private async prove(where: { port: number; hello: string }): Promise<void> {
-    const key = `${where.port} ${where.hello}`;
-    if (this.proven === key) return;
     const nonce = crypto.randomBytes(24).toString("hex");
     const reply = await send(where.port, "GET", `/v1/hello?nonce=${nonce}`, {});
     const proof = reply.payload?.ok ? String((reply.payload.result as { proof?: unknown })?.proof ?? "") : "";
@@ -88,7 +85,6 @@ export class Channel {
       if (reply.payload?.error?.code === "off") throw new ChannelError(reply.status, "off", reply.payload.error.message || NOT_LISTENING);
       throw new ChannelError(0, "not_kratosforge", NOT_KRATOSFORGE);
     }
-    this.proven = key;
   }
 
   private async request(method: string, url: string, body?: unknown, hello = false): Promise<unknown> {

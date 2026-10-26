@@ -142,3 +142,32 @@ test("a program that took the port gets neither the hello nor a token", async ()
     assert.strictEqual(h.authorization, undefined);
   }
 });
+
+test("a proof isn't remembered: a program that takes the port later gets no token", async () => {
+  const fake = fs.mkdtempSync(path.join(os.tmpdir(), "kf-swap-"));
+  const crypto = require("node:crypto");
+  const http = require("node:http");
+  const hello = "the-real-hello";
+  let impostor = false;
+  const tokens = [];
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url, "http://x");
+    let result = { app: "KratosForge" };
+    if (url.pathname === "/v1/hello") {
+      // Until the swap it answers as the app would; after it, as a program that only has the file.
+      const key = impostor ? "guess" : hello;
+      result = { proof: crypto.createHmac("sha256", key).update(url.searchParams.get("nonce")).digest("hex") };
+    } else if (impostor) tokens.push(req.headers.authorization);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true, result }));
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  fs.writeFileSync(path.join(fake, "editor-port"), `${server.address().port} ${hello}`);
+  const ch = new Channel(fake);
+  ch.token = "kfp_secret";
+  await ch.status(); // proven against "the app"
+  impostor = true; // same port, same file
+  await assert.rejects(ch.status(), (err) => err.code === "not_kratosforge");
+  server.close();
+  assert.deepStrictEqual(tokens, []);
+});

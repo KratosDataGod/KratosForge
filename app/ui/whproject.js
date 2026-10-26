@@ -432,14 +432,15 @@ async function whRunChange(ref, sql) {
   return status;
 }
 
-// Test and Prod deploy only what Git has: every change's file committed, and the commits pushed.
-function whDeployGate(env, plan, ticked) {
-  if (!["test", "prod", "none"].includes(env)) return "";
-  const dirty = ticked.filter((c) => c.git).map((c) => c.path);
-  if (dirty.length) return `${ENV_NAMES[env] || "This environment"} deploys only what's committed. Commit ${dirty.length === 1 ? dirty[0] : `${dirty.length} files`} in Source control first.`;
-  if (!plan.upstream) return `${ENV_NAMES[env] || "This environment"} deploys only what's pushed, and ${plan.branch || "this branch"} has no remote branch yet. Push it in Source control first.`;
-  if (plan.ahead) return `${ENV_NAMES[env] || "This environment"} deploys only what's pushed. Push ${plan.ahead} commit${plan.ahead === 1 ? "" : "s"} in Source control first.`;
-  return "";
+// Test and Prod deploy only what Git has: the engine holds back (held) each change whose file isn't
+// committed, and every change while the branch isn't pushed. This says what to do about it.
+function whDeployGate(env, plan) {
+  if (!plan.gated || !plan.changes.some((c) => c.held)) return "";
+  const where = ENV_NAMES[env] || "This environment";
+  const dirty = plan.changes.filter((c) => c.held && !c.committed).map((c) => c.path);
+  if (dirty.length) return `${where} deploys only what's committed. Commit ${dirty.length === 1 ? dirty[0] : `${dirty.length} files`} in Source control first.`;
+  if (!plan.upstream) return `${where} deploys only what's pushed, and ${plan.branch || "this branch"} has no remote branch yet. Push it in Source control first.`;
+  return `${where} deploys only what's pushed. Push ${plan.ahead} commit${plan.ahead === 1 ? "" : "s"} in Source control first.`;
 }
 
 async function whProjectDeploy(ref, project) {
@@ -449,7 +450,7 @@ async function whProjectDeploy(ref, project) {
   let plan;
   try {
     const objects = await whScriptWarehouse(ref);
-    plan = await rpc("wh_project_deploy_plan", { repo: project.repo, folder: project.folder, objects });
+    plan = await rpc("wh_project_deploy_plan", { repo: project.repo, folder: project.folder, objects, environment: whEnv(ref) });
     // The engine's check on each change, before anything is sent: one it would refuse isn't offered.
     const whRef = { workspace_id: ref.workspace_id, item_id: ref.item_id, kind: ref.kind };
     for (const c of plan.changes.filter((x) => x.offered)) {
@@ -492,7 +493,7 @@ async function whProjectDeploy(ref, project) {
   }
   function update() {
     const ticked = plan.changes.filter((c) => c.offered && c.ticked);
-    const gate = whDeployGate(env, plan, ticked);
+    const gate = whDeployGate(env, plan);
     gateNote.textContent = gate;
     gateNote.hidden = !gate;
     const dirty = ticked.filter((c) => c.git).length;

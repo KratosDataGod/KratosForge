@@ -142,7 +142,8 @@ test("Prod deploys only what's committed and pushed, and asks for the name", { s
   const dialog = await openDeploy();
   assert.match(await dialog.locator(".wh-dep-gate").textContent(), /Prod deploys only what's committed\. Commit 3 files in Source control first\./);
   await dialog.getByRole("textbox", { name: "Warehouse name" }).fill("WH_Gold");
-  assert.ok(await dialog.getByRole("button", { name: "Deploy 3 changes to Prod" }).isDisabled());
+  assert.ok(await dialog.getByRole("button", { name: "Deploy 0 changes to Prod" }).isDisabled(), "the engine held every uncommitted change");
+  assert.strictEqual(await dialog.getByRole("checkbox", { name: "CREATE TABLE dbo.FactTargets" }).isDisabled(), true);
   await dialog.getByRole("button", { name: "Cancel" }).click();
 });
 

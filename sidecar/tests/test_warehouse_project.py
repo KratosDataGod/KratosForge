@@ -271,12 +271,74 @@ def test_a_table_change_that_would_rebuild_it_isnt_offered(project):
     assert not c["offered"] and not c["ticked"] and c["why"] == wc.REBUILD
 
 
+@pytest.mark.parametrize("state,kind,text", [
+    ("only_project", "view", "CREATE VIEW dbo.vw_Sales AS SELECT 1 AS x\nGO\nDROP TABLE dbo.FactSales"),
+    ("changed", "view", "CREATE VIEW dbo.vw_Sales AS SELECT 2 AS x\nGO\nDROP TABLE dbo.FactSales\nGO\n"),
+    ("changed", "procedure", "CREATE PROCEDURE dbo.usp_Load AS SELECT 1;\nGO\nEXEC dbo.usp_Load;"),
+    ("only_project", "table", "CREATE TABLE dbo.FactSales (a int NULL);\nTRUNCATE TABLE dbo.FactSales;"),
+    ("only_project", "table", "CREATE TABLE dbo.FactSales (a int NULL);\nGO\nTRUNCATE TABLE dbo.FactSales;"),
+    ("only_project", "table", "CREATE TABLE dbo.FactSales AS SELECT * FROM dbo.Staging;"),
+    ("only_project", "schema", "CREATE SCHEMA staging CREATE TABLE t (a int);"),
+])
+def test_a_file_with_more_than_its_object_isnt_offered(state, kind, text):
+    (c,) = wc.deploy_plan([_row(state, kind, "x", text, "CREATE VIEW dbo.x AS SELECT 0 AS x" if state == "changed" else "")])
+    assert not c["offered"] and not c["ticked"] and c["sql"] == "" and c["why"] in (wc.ONE_DEFINITION, wc.ONE_TABLE)
+
+
+def test_a_file_that_only_defines_its_object_runs_without_its_go_line():
+    (c,) = wc.deploy_plan([_row("only_project", "view", "v", "-- note\nCREATE VIEW dbo.v AS SELECT 'a\nGO\nb' AS x;\nGO\n\n")])
+    assert c["offered"] and c["sql"] == "-- note\nCREATE VIEW dbo.v AS SELECT 'a\nGO\nb' AS x;"
+    (t,) = wc.deploy_plan([_row("only_project", "table", "t", "CREATE TABLE [dbo].[t] (a decimal(18,2) NULL);\nGO\n")])
+    assert t["offered"] and t["sql"] == "CREATE TABLE [dbo].[t] (a decimal(18,2) NULL);"
+
+
+def _git(repo, *args):
+    import subprocess
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args], cwd=repo, check=True, capture_output=True)
+
+
 def test_the_deploy_plan_says_which_files_arent_committed(svc, repo):
     svc.wh_project_write(str(repo), objs(("view", "dbo", "vw_Sales", VIEW)), create="WH_Gold")
-    out = svc.wh_project_deploy_plan(str(repo), "WH_Gold.Warehouse", objs(("view", "dbo", "vw_Old", "CREATE VIEW dbo.vw_Old AS SELECT 1 AS y;")))
-    assert [(c["action"], c["name"], c["git"]) for c in out["changes"]] == [("create", "vw_Sales", "A"), ("drop", "vw_Old", "")]
-    assert out["uncommitted"] == ["dbo/Views/vw_Sales.sql"] and out["branch"] == "main"
+    out = svc.wh_project_deploy_plan(str(repo), "WH_Gold.Warehouse", objs(("view", "dbo", "vw_Old", "CREATE VIEW dbo.vw_Old AS SELECT 1 AS y;")),
+                                     environment="dev")
+    assert [(c["action"], c["name"], c["git"], c["offered"]) for c in out["changes"]] == [
+        ("create", "vw_Sales", "A", True), ("drop", "vw_Old", "", True)], "Dev deploys files as they are"
+    assert out["uncommitted"] == ["dbo/Views/vw_Sales.sql"] and out["branch"] == "main" and not out["gated"]
     assert not audit.audited("wh_project_deploy_plan")
+
+
+@pytest.mark.parametrize("environment", ["prod", "test", "none", ""])
+def test_outside_dev_only_committed_and_pushed_files_deploy(svc, repo, tmp_path, environment):
+    svc.wh_project_write(str(repo), objs(("view", "dbo", "vw_Sales", VIEW)), create="WH_Gold")
+    remote = tmp_path / "remote.git"
+    _git(tmp_path, "init", "-q", "--bare", str(remote))
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "project")
+    _git(repo, "remote", "add", "origin", str(remote))
+    _git(repo, "push", "-q", "-u", "origin", "HEAD")
+    plan = lambda: {c["name"]: c for c in svc.wh_project_deploy_plan(  # noqa: E731
+        str(repo), "WH_Gold.Warehouse", objs(("view", "dbo", "vw_Old", "CREATE VIEW dbo.vw_Old AS SELECT 1 AS y;")),
+        environment=environment)["changes"]}
+    assert plan()["vw_Sales"]["offered"] and plan()["vw_Sales"]["committed"]
+
+    # Ignored by Git: git status doesn't list it, but it isn't committed, so it's held.
+    (repo / ".gitignore").write_text("dbo/Tables/\n", encoding="utf-8")
+    _git(repo, "add", ".gitignore")
+    _git(repo, "commit", "-qm", "ignore")
+    _git(repo, "push", "-q")
+    svc.wh_project_write(str(repo), objs(("table", "dbo", "FactSales", "CREATE TABLE dbo.FactSales (a int NULL);")), folder="WH_Gold.Warehouse")
+    c = plan()["FactSales"]
+    assert not c["committed"] and c["held"] and not c["offered"] and not c["ticked"] and c["git"]
+    assert plan()["vw_Sales"]["offered"], "a committed file still deploys"
+
+    # Edited since the commit: held. Committed but not pushed: everything is held.
+    view = repo / "WH_Gold.Warehouse" / "dbo" / "Views" / "vw_Sales.sql"
+    view.write_text(VIEW.replace("1 AS x", "2 AS x"), encoding="utf-8")
+    assert plan()["vw_Sales"]["held"]
+    _git(repo, "commit", "-qam", "edit")
+    assert all(not c["offered"] for c in plan().values())
+    _git(repo, "push", "-q")
+    assert plan()["vw_Sales"]["offered"] and plan()["vw_Old"]["offered"]
 
 
 @pytest.mark.parametrize("sql", [

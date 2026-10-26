@@ -277,7 +277,7 @@ on quality.
 | [FEAT-AUTH-03](#feat-auth-03) | Token cache | Implemented | Partially Verified | None (background) | Chris restarts and signs in on Windows on Stable 3633b4a to confirm (PB-005 review). |
 | [FEAT-AUTH-04](#feat-auth-04) | Unattended credentials for the agent | Implemented | Partially Verified | agent.toml (no UI) | Verify a service principal on a tenant with the live test's --agent-config (PB-002). |
 | [FEAT-PRV-03](#feat-prv-03) | Run receipts | Implemented | Partially Verified | Prove > Receipt (Preview) | Feed receipts into the audit trail (FD-125, PR #89). |
-| [FEAT-GOV-04](#feat-gov-04) | Who can promote and separation of duties | Implemented | Partially Verified | Promote card | HD-030: the separate promoter rule compares Entra object ids (#721). |
+| [FEAT-GOV-04](#feat-gov-04) | Who can promote and separation of duties | Implemented | Partially Verified | Promote card | The HD-030 switch still lives in each project's environments.toml, where a project can turn it off (#744 moves it to the organization's policy); test the same Entra user promoting from two PCs. |
 | [FEAT-ADM-02](#feat-adm-02) | Audit trail | Implemented | Partially Verified | None | HD-017: the chain notices lines deleted from the end, and the user guide says how to clear a reported gap. |
 | [FEAT-ADM-05](#feat-adm-05) | Local data retention | Implemented | Partially Verified | None | Implementation review of PR #95 |
 | [FEAT-SEC-01](#feat-sec-01) | Code signing | Planned | Unverified | None | Chris creates the Azure Trusted Signing account (D-C3) (PB-001). |
@@ -1448,7 +1448,7 @@ on quality.
 - **Pull requests and issues:** [#93](https://github.com/KratosDataGod/KratosForge/pull/93), [#721](https://github.com/KratosDataGod/KratosForge/pull/721)
 - **Owning workstream:** Enterprise readiness (FD-130)
 - **Backlog:** [PB-065](PRODUCT_BACKLOG.md#pb-065)
-- **Recommended next action:** HD-030: the separate promoter rule compares Entra object ids (#721).
+- **Recommended next action:** The HD-030 switch still lives in each project's environments.toml, where a project can turn it off (#744 moves it to the organization's policy); test the same Entra user promoting from two PCs.
 
 ### FEAT-GOV-05
 
@@ -1506,8 +1506,8 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/central/core.py`, `sidecar/fabric_desktop/central/service.py`, `sidecar/fabric_desktop/central/setup.py`, `sidecar/fabric_desktop/central/udf.py`, `app/ui/platform.js`
 - **Tests:** `sidecar/tests/test_platform.py`
 - **Docs:** [docs/platform.md](../platform.md)
-- **Known limitations:** T-SQL tested on SQLite only. Whether UDF context exposes executing_user is unverified. setup()/join() have no tests. platform_revoke has no UI.
-- **Pull requests and issues:** [#48](https://github.com/KratosDataGod/KratosForge/pull/48), [#50](https://github.com/KratosDataGod/KratosForge/pull/50), [#705](https://github.com/KratosDataGod/KratosForge/pull/705)
+- **Known limitations:** T-SQL tested on SQLite only. Whether UDF context exposes executing_user is unverified. setup()/join() have no tests. No screen lists the source registry (PB-054's other half).
+- **Pull requests and issues:** [#48](https://github.com/KratosDataGod/KratosForge/pull/48), [#50](https://github.com/KratosDataGod/KratosForge/pull/50), [#694](https://github.com/KratosDataGod/KratosForge/pull/694), [#705](https://github.com/KratosDataGod/KratosForge/pull/705)
 - **Backlog:** [PB-052](PRODUCT_BACKLOG.md#pb-052), [PB-054](PRODUCT_BACKLOG.md#pb-054)
 - **Recommended next action:** Verify setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified).
 

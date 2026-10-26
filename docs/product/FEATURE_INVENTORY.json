@@ -3771,7 +3771,7 @@
         721
       ],
       "workstream": "Enterprise readiness (FD-130)",
-      "next_action": "HD-030: the separate promoter rule compares Entra object ids (#721).",
+      "next_action": "The HD-030 switch still lives in each project's environments.toml, where a project can turn it off (#744 moves it to the organization's policy); test the same Entra user promoting from two PCs.",
       "backlog": [
         "PB-065"
       ]
@@ -3933,11 +3933,12 @@
         "T-SQL tested on SQLite only",
         "Whether UDF context exposes executing_user is unverified",
         "setup()/join() have no tests",
-        "platform_revoke has no UI"
+        "No screen lists the source registry (PB-054's other half)"
       ],
       "prs": [
         48,
         50,
+        694,
         705
       ],
       "next_action": "Verify setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified).",

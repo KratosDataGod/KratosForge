@@ -25,6 +25,7 @@ import json
 import os
 import sys
 import threading
+import time
 import traceback
 
 _OUT = sys.stdout
@@ -47,6 +48,37 @@ def _preview(df, rows: int) -> dict:
 
 def _is_frame(value) -> bool:
     return hasattr(value, "toPandas") and hasattr(value, "limit") and hasattr(value, "schema")
+
+
+def _protocol_lines(stream):
+    """Lines from the engine. On Windows a read left waiting on a pipe blocks every other call on
+    that pipe (GetFileType, fstat, isatty) until a line comes, so a cell whose imports check stdin
+    (pandas does) would hang while the main loop waits. There the loop asks PeekNamedPipe what has
+    arrived and reads only that, so no read is ever left waiting."""
+    if sys.platform != "win32":
+        yield from stream
+        return
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+    peek = ctypes.WinDLL("kernel32", use_last_error=True).PeekNamedPipe
+    peek.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD, ctypes.c_void_p,
+                     ctypes.POINTER(wintypes.DWORD), ctypes.c_void_p]
+    peek.restype = wintypes.BOOL
+    fd = stream.fileno()
+    handle = msvcrt.get_osfhandle(fd)
+    ready = wintypes.DWORD()
+    pending = b""
+    while True:
+        if not peek(handle, None, 0, None, ctypes.byref(ready), None):
+            return  # the engine closed its end
+        if not ready.value:
+            time.sleep(0.02)
+            continue
+        pending += os.read(fd, ready.value)
+        *lines, pending = pending.split(b"\n")
+        for line in lines:
+            yield line.decode("utf-8", "replace")
 
 
 class Worker:
@@ -108,7 +140,7 @@ def main() -> None:
     site.addsitedir(sys.argv[1])
     sys.path[:] = sys.path[n:] + sys.path[:n]
     worker = Worker()
-    for line in sys.stdin:
+    for line in _protocol_lines(sys.stdin):
         try:
             msg = json.loads(line)
         except ValueError:

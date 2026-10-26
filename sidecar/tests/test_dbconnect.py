@@ -88,9 +88,11 @@ def runtimes(tmp_path):
     return r
 
 
-def adapter(runtimes, version="16.4.x-scala2.12"):
+def adapter(runtimes, version="16.4.x-scala2.12", cell_seconds=60):
+    # A cell limit, so a worker that stops answering fails the test instead of hanging the run.
     return dbc.DatabricksConnectAdapter(runtimes, cluster_of=lambda conn, cid: {"spark_version": version,
-                                                                                 "state": "RUNNING"})
+                                                                                 "state": "RUNNING"},
+                                        cell_seconds=cell_seconds)
 
 
 def ok(cluster="0123-456789-abcdefgh"):
@@ -114,8 +116,8 @@ def test_versions_are_checked_before_anything_starts():
     assert dbc.check("17.3.x-scala2.13", "17.3.0", "3.12") == []
     assert "Python 3.11" in dbc.check("15.4.x-scala2.12", "15.4.1", "3.12")[0]
     assert dbc.check("16.3.x-scala2.12", None, "3.12") == [
-        "Databricks Connect for Databricks Runtime 16.3 isn't supported in this version of KratosForge. "
-        "Supported: 16.4, 17.3."]
+        ("Databricks Connect for Databricks Runtime 16.3 isn't supported in this version of KratosForge. "
+         "Supported: 16.4, 17.3.")]
     assert "isn't installed" in dbc.check("16.4.x-scala2.12", None, "3.12")[0]
     assert "needs 16.4.x" in dbc.check("16.4.x-scala2.12", "16.3.0", "3.12")[0]
     assert "13.3 and later" in dbc.check("12.2.x-scala2.12", "12.2.0", "3.12")[0]
@@ -350,3 +352,22 @@ def test_a_service_principals_secret_is_gone_from_the_process_once_signed_in(run
         assert r.outputs == [{"type": "text", "text": "[]"}]
     finally:
         s.close()
+
+
+def test_a_cell_past_the_limit_is_cancelled_and_the_session_ends(runtimes, monkeypatch):
+    monkeypatch.setattr(dbc, "RUNTIME_PYTHON", {16: PY})
+    monkeypatch.setattr(dbc, "STOP_SECONDS", 1)
+    s = adapter(runtimes, cell_seconds=1).open_session(SessionConfig("nb", options={"connection": CONN}), ok())
+    try:
+        # Plain Python ignores the cancel, so the process is ended.
+        with pytest.raises(SessionClosed, match="still running"):
+            s.execute(CellRequest("import time\ntime.sleep(30)", "python"))
+        assert s.closed and s.proc.poll() is not None
+    finally:
+        s.close()
+
+
+def test_cells_that_import_pandas_or_check_stdin_run_while_the_worker_waits(session):
+    # On Windows a read left waiting on stdin blocks these calls; the worker never leaves one waiting.
+    r = session.execute(CellRequest("import os, sys, pandas\n(os.isatty(0), sys.stdin.isatty())", "python"))
+    assert r.status == "ok" and r.outputs == [{"type": "text", "text": "(False, False)"}]

@@ -49,6 +49,8 @@ from .databricks_auth import DatabricksAuthError, check_host, find_cli, resolve_
 _T = "unit_tests"
 INSTALL_SECONDS = 20 * 60
 START_SECONDS = 15 * 60          # connecting can wait for a terminated cluster to start
+CELL_SECONDS = 2 * 60 * 60       # as the SQL warehouse engine's statement limit; then the cell is cancelled
+STOP_SECONDS = 10                # after a cancel, before the process is ended
 WORKER = Path(__file__).with_name("dbconnect_worker.py")
 # The Python each Databricks Runtime line runs (Databricks' release notes); a client must use the same.
 RUNTIME_PYTHON = {13: "3.10", 14: "3.10", 15: "3.11", 16: "3.12", 17: "3.12", 18: "3.12", 19: "3.12"}
@@ -275,8 +277,9 @@ class DatabricksConnectSession:
     engine = DATABRICKS_CONNECT.id
 
     def __init__(self, config: SessionConfig, command: list[str], env: dict[str, str],
-                 start_seconds: float = START_SECONDS, cwd: str | None = None):
+                 start_seconds: float = START_SECONDS, cwd: str | None = None, cell_seconds: float = CELL_SECONDS):
         self.notebook = config.notebook
+        self._cell_seconds = cell_seconds
         self._closed = False
         self._lock = threading.Lock()
         self._running = False
@@ -342,7 +345,18 @@ class DatabricksConnectSession:
             self._n += 1
             cid = self._n
             self._send({"op": "exec", "id": cid, "code": request.code, "preview_rows": request.preview_rows})
-            reply = self._wait(lambda m: m.get("op") in ("result", "error") and m.get("id", cid) == cid, None)
+            def mine(m: dict[str, Any]) -> bool:
+                return m.get("op") in ("result", "error") and m.get("id", cid) == cid
+            reply = self._wait(mine, self._cell_seconds)
+            if reply.get("op") == "error" and "no answer" in str(reply.get("evalue")):
+                # Too long: cancel its Spark jobs, give it a moment to stop, then end the process.
+                with contextlib.suppress(SessionClosed):  # silent-ok: close() below ends it either way
+                    self._send({"op": "interrupt"})
+                reply = self._wait(mine, STOP_SECONDS)
+                if reply.get("op") != "result":
+                    self.close()
+                    raise SessionClosed(f"The cell was still running after {self._cell_seconds / 60:.0f} minutes, "
+                                        "so it was cancelled and the session ended. Start the engine again.")
         finally:
             self._running = False
             self._lock.release()
@@ -392,12 +406,13 @@ class DatabricksConnectAdapter:
 
     def __init__(self, runtimes: Runtimes | None = None,
                  cluster_of: Callable[[dict[str, Any], str], dict[str, Any]] | None = None,
-                 python: str | None = None):
+                 python: str | None = None, cell_seconds: float = CELL_SECONDS):
         if runtimes is None:
             from ..service import data_dir
             runtimes = Runtimes(data_dir())
         self.runtimes = runtimes
         self._cluster_of = cluster_of or _read_cluster
+        self.cell_seconds = cell_seconds
         self._python = python or sys.executable
 
     def describe(self) -> EngineDescriptor:
@@ -419,7 +434,8 @@ class DatabricksConnectAdapter:
         folder = self.runtimes.folder(line)
         command = [self._python, "-I", str(WORKER), str(folder)]
         # Run in the runtime's folder, not wherever the app was started from.
-        return DatabricksConnectSession(config, command, worker_env(conn, cluster), cwd=str(folder))
+        return DatabricksConnectSession(config, command, worker_env(conn, cluster), cwd=str(folder),
+                                        cell_seconds=self.cell_seconds)
 
 
 def _read_cluster(connection: dict[str, Any], cluster_id: str) -> dict[str, Any]:

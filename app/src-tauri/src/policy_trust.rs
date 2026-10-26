@@ -89,7 +89,8 @@ mod win {
                     if header.AceType == ACCESS_DENIED || header.AceType > 17 || header.AceFlags & INHERIT_ONLY != 0 {
                         continue;
                     }
-                    // Audit and alarm entries (types 2, 3, 7, 8, 13-17) grant nothing.
+                    // Deny entries (6, 10, 12), audit and alarm entries (2, 3, 7, 8, 13, 14, 15, 16)
+                    // and the mandatory label (17) grant nothing.
                     if matches!(header.AceType, 2 | 3 | 6 | 7 | 8 | 10 | 12 | 13 | 14 | 15 | 16 | 17) {
                         continue;
                     }

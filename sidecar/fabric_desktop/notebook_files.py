@@ -152,7 +152,7 @@ def _parse(content: str) -> dict[str, Any]:
         raise ValueError(f"The file is over {MAX_FILE_BYTES // (1024 * 1024)} MB, so it isn't opened.")
     try:
         nb = json.loads(content)
-    except ValueError:
+    except (ValueError, RecursionError):  # RecursionError: nested too deep to be a notebook
         raise ValueError("This file isn't a notebook: it isn't JSON.") from None
     return checked(nb)
 

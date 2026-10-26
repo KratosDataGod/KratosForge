@@ -182,7 +182,7 @@ The desktop calls these engine methods (JSON-RPC, see [architecture](architectur
 
 ### The rules
 
-Checks come from one registry, `sidecar/fabric_desktop/governance_checks.py`. The built-in checkers (naming, ownership, classification, contract) are registered there; other checkers (the Best Practice Analyzer's semantic model, notebook and SQL checks) plug in the same way. A policy points at rules by id in **Checked by**.
+Checks come from one registry, `sidecar/fabric_desktop/governance_checks.py`. The built-in checkers (naming, ownership, classification, contract) are registered there, and the notebook and SQL best-practice checkers are registered the same way (below). The semantic model check (the Best Practice Analyzer, which runs in Fabric) isn't registered yet, so a policy can't name its rules. A policy points at rules by id in **Checked by**.
 
 ```python
 register(kind, rules, check, runs_in="local")   # runs_in: "local" (this PC) or "fabric"

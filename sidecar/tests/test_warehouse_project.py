@@ -176,9 +176,25 @@ from fabric_desktop import warehouse_compare as wc  # noqa: E402
 def test_formatting_case_and_brackets_dont_make_a_difference():
     fabric = "CREATE TABLE [dbo].[DimCustomer] (\n    [CustomerKey] INT NOT NULL,\n    [Segment] VARCHAR (20) NULL\n);\n\n\nGO\n"
     assert wc.same(TABLE, fabric)
-    assert wc.same("CREATE VIEW v AS SELECT 'A' AS x -- note", "create view [v]\nas select 'A' as [x];")
+    assert wc.same("CREATE VIEW v AS SELECT 'A' AS x -- note", "create view [v]\nAS Select 'A' as [x];")
     assert not wc.same("SELECT 'A'", "SELECT 'a'"), "strings are compared as written"
     assert not wc.same("CREATE VIEW v AS SELECT [a b] FROM t", "CREATE VIEW v AS SELECT [a c] FROM t")
+
+
+def test_names_keep_their_case_as_the_warehouse_collation_does():
+    # Fabric's BIN2 collation: [Region] and [region] are different columns, dbo.Sales and dbo.sales different tables.
+    assert not wc.same("CREATE VIEW v AS SELECT [Region] FROM t", "CREATE VIEW v AS SELECT [region] FROM t")
+    assert not wc.same("CREATE VIEW v AS SELECT Region FROM dbo.Sales", "CREATE VIEW v AS SELECT Region FROM dbo.sales")
+    assert wc.same("CREATE VIEW v AS SELECT CAST(Region AS VARCHAR(5)) FROM t", "create view v as select cast(Region as varchar(5)) from t")
+    project = TABLE.replace("[Segment] varchar(20) NULL", "[segment] varchar(20) NULL")
+    assert wc.table_detail(TABLE, project) == ["column segment is only in the project", "column Segment is only in the warehouse"]
+
+
+def test_a_go_line_inside_a_string_or_comment_is_kept():
+    view = "CREATE VIEW v AS SELECT 'a\nGO\nb' AS x\nGO\n"
+    assert not wc.same(view, "CREATE VIEW v AS SELECT 'a\nb' AS x\nGO\n"), "the string's own GO line counts"
+    assert wc.same(view, "CREATE VIEW v AS SELECT 'a\nGO\nb' AS x;")
+    assert wc.tokens("/* one\nGO\ntwo */ SELECT 1\n go ;\n") == ["select", "1"]
 
 
 def test_a_changed_table_says_which_columns_differ():
@@ -201,11 +217,11 @@ def test_compare_lists_every_object_on_either_side(svc, repo):
                                          ("procedure", "dbo", "usp_New", "CREATE PROCEDURE dbo.usp_New AS SELECT 1;")),
                          create="WH_Gold")
     (repo / "WH_Gold.Warehouse" / "notes.sql").write_text("-- just notes\n", encoding="utf-8")
-    warehouse = objs(("table", "dbo", "DimCustomer", TABLE), ("view", "dbo", "VW_SALES", VIEW.lower()),
+    warehouse = objs(("table", "dbo", "DimCustomer", TABLE), ("view", "dbo", "vw_Sales", VIEW.replace("SELECT", "select")),
                      ("view", "dbo", "vw_Old", "CREATE VIEW dbo.vw_Old AS SELECT 2 AS y;"))
     out = svc.wh_project_compare(str(repo), "WH_Gold.Warehouse", warehouse)
     states = {(r["kind"], r["name"]): r["state"] for r in out["objects"]}
-    assert states == {("table", "DimCustomer"): "changed", ("view", "VW_SALES"): "same",
+    assert states == {("table", "DimCustomer"): "changed", ("view", "vw_Sales"): "same",
                       ("view", "vw_Old"): "only_warehouse", ("procedure", "usp_New"): "only_project"}
     assert out["counts"] == {"changed": 1, "only_project": 1, "only_warehouse": 1, "same": 1}
     changed = next(r for r in out["objects"] if r["state"] == "changed")
@@ -255,12 +271,74 @@ def test_a_table_change_that_would_rebuild_it_isnt_offered(project):
     assert not c["offered"] and not c["ticked"] and c["why"] == wc.REBUILD
 
 
+@pytest.mark.parametrize("state,kind,text", [
+    ("only_project", "view", "CREATE VIEW dbo.vw_Sales AS SELECT 1 AS x\nGO\nDROP TABLE dbo.FactSales"),
+    ("changed", "view", "CREATE VIEW dbo.vw_Sales AS SELECT 2 AS x\nGO\nDROP TABLE dbo.FactSales\nGO\n"),
+    ("changed", "procedure", "CREATE PROCEDURE dbo.usp_Load AS SELECT 1;\nGO\nEXEC dbo.usp_Load;"),
+    ("only_project", "table", "CREATE TABLE dbo.FactSales (a int NULL);\nTRUNCATE TABLE dbo.FactSales;"),
+    ("only_project", "table", "CREATE TABLE dbo.FactSales (a int NULL);\nGO\nTRUNCATE TABLE dbo.FactSales;"),
+    ("only_project", "table", "CREATE TABLE dbo.FactSales AS SELECT * FROM dbo.Staging;"),
+    ("only_project", "schema", "CREATE SCHEMA staging CREATE TABLE t (a int);"),
+])
+def test_a_file_with_more_than_its_object_isnt_offered(state, kind, text):
+    (c,) = wc.deploy_plan([_row(state, kind, "x", text, "CREATE VIEW dbo.x AS SELECT 0 AS x" if state == "changed" else "")])
+    assert not c["offered"] and not c["ticked"] and c["sql"] == "" and c["why"] in (wc.ONE_DEFINITION, wc.ONE_TABLE)
+
+
+def test_a_file_that_only_defines_its_object_runs_without_its_go_line():
+    (c,) = wc.deploy_plan([_row("only_project", "view", "v", "-- note\nCREATE VIEW dbo.v AS SELECT 'a\nGO\nb' AS x;\nGO\n\n")])
+    assert c["offered"] and c["sql"] == "-- note\nCREATE VIEW dbo.v AS SELECT 'a\nGO\nb' AS x;"
+    (t,) = wc.deploy_plan([_row("only_project", "table", "t", "CREATE TABLE [dbo].[t] (a decimal(18,2) NULL);\nGO\n")])
+    assert t["offered"] and t["sql"] == "CREATE TABLE [dbo].[t] (a decimal(18,2) NULL);"
+
+
+def _git(repo, *args):
+    import subprocess
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args], cwd=repo, check=True, capture_output=True)
+
+
 def test_the_deploy_plan_says_which_files_arent_committed(svc, repo):
     svc.wh_project_write(str(repo), objs(("view", "dbo", "vw_Sales", VIEW)), create="WH_Gold")
-    out = svc.wh_project_deploy_plan(str(repo), "WH_Gold.Warehouse", objs(("view", "dbo", "vw_Old", "CREATE VIEW dbo.vw_Old AS SELECT 1 AS y;")))
-    assert [(c["action"], c["name"], c["git"]) for c in out["changes"]] == [("create", "vw_Sales", "A"), ("drop", "vw_Old", "")]
-    assert out["uncommitted"] == ["dbo/Views/vw_Sales.sql"] and out["branch"] == "main"
+    out = svc.wh_project_deploy_plan(str(repo), "WH_Gold.Warehouse", objs(("view", "dbo", "vw_Old", "CREATE VIEW dbo.vw_Old AS SELECT 1 AS y;")),
+                                     environment="dev")
+    assert [(c["action"], c["name"], c["git"], c["offered"]) for c in out["changes"]] == [
+        ("create", "vw_Sales", "A", True), ("drop", "vw_Old", "", True)], "Dev deploys files as they are"
+    assert out["uncommitted"] == ["dbo/Views/vw_Sales.sql"] and out["branch"] == "main" and not out["gated"]
     assert not audit.audited("wh_project_deploy_plan")
+
+
+@pytest.mark.parametrize("environment", ["prod", "test", "none", ""])
+def test_outside_dev_only_committed_and_pushed_files_deploy(svc, repo, tmp_path, environment):
+    svc.wh_project_write(str(repo), objs(("view", "dbo", "vw_Sales", VIEW)), create="WH_Gold")
+    remote = tmp_path / "remote.git"
+    _git(tmp_path, "init", "-q", "--bare", str(remote))
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "project")
+    _git(repo, "remote", "add", "origin", str(remote))
+    _git(repo, "push", "-q", "-u", "origin", "HEAD")
+    plan = lambda: {c["name"]: c for c in svc.wh_project_deploy_plan(  # noqa: E731
+        str(repo), "WH_Gold.Warehouse", objs(("view", "dbo", "vw_Old", "CREATE VIEW dbo.vw_Old AS SELECT 1 AS y;")),
+        environment=environment)["changes"]}
+    assert plan()["vw_Sales"]["offered"] and plan()["vw_Sales"]["committed"]
+
+    # Ignored by Git: git status doesn't list it, but it isn't committed, so it's held.
+    (repo / ".gitignore").write_text("dbo/Tables/\n", encoding="utf-8")
+    _git(repo, "add", ".gitignore")
+    _git(repo, "commit", "-qm", "ignore")
+    _git(repo, "push", "-q")
+    svc.wh_project_write(str(repo), objs(("table", "dbo", "FactSales", "CREATE TABLE dbo.FactSales (a int NULL);")), folder="WH_Gold.Warehouse")
+    c = plan()["FactSales"]
+    assert not c["committed"] and c["held"] and not c["offered"] and not c["ticked"] and c["git"]
+    assert plan()["vw_Sales"]["offered"], "a committed file still deploys"
+
+    # Edited since the commit: held. Committed but not pushed: everything is held.
+    view = repo / "WH_Gold.Warehouse" / "dbo" / "Views" / "vw_Sales.sql"
+    view.write_text(VIEW.replace("1 AS x", "2 AS x"), encoding="utf-8")
+    assert plan()["vw_Sales"]["held"]
+    _git(repo, "commit", "-qam", "edit")
+    assert all(not c["offered"] for c in plan().values())
+    _git(repo, "push", "-q")
+    assert plan()["vw_Sales"]["offered"] and plan()["vw_Old"]["offered"]
 
 
 @pytest.mark.parametrize("sql", [

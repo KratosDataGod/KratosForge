@@ -77,3 +77,18 @@ The M text is only read, never evaluated: there's no local M engine. It passes t
 The Pipelines page's **Dataflows** tab (Preview) sits between Pipelines and Connections. You pick a workspace (the same one the open dialog remembers, `fd.pipelines.workspace`) and its dataflows are listed with `workspace_dataflows`. Opening one reads `workspace_dataflow_definition` and `fabric_dataflow_refreshes` together. Its views are **Queries (M)**, with hidden destination and helper queries folded away, **Destinations** (and the connections the dataflow names) and **Refresh history**. **Open in Fabric** opens the workspace, because the address of a dataflow's own page isn't confirmed yet. The mockup's "Changes since Git" view comes with the Git diff work (DF-8).
 
 Refresh in Fabric comes next, behind a confirm and the risk check. No live refresh runs without Chris's OK.
+
+## DF-6 engine: copy jobs from a workspace
+
+Three engine calls, all reads (listed in `audit.READ_ONLY`). None of them starts a run or uses capacity. The Copy jobs tab that shows them comes next.
+
+- `workspace_copy_jobs(workspace_id)` lists a workspace's copy jobs by name: item id, name, description and folder.
+- `workspace_copy_job_definition(workspace_id, item_id, name)` reads one copy job with getDefinition (`copyjob-content.json`) and returns:
+  - the job mode (Batch or CDC), timeout and retry
+  - the job's source and destination: type, connection type, connection id (lowercased, so it matches the Connections tab), and the lakehouse workspace, item and root folder when there is one
+  - one row per table: source and destination schema, table or folder, write behavior (Append, Overwrite, Upsert, ...), upsert keys, table option, incremental read method and columns, how many columns are mapped, and staging
+  - `local_check`, which says whether a run on this PC could take the job, with the reasons when it can't. That's only when both ends are a lakehouse (OneLake) and the job is Batch. An external source needs Fabric's connections and gateways, and CDC runs in Fabric only.
+  - A definition it can't read (no `copyjob-content.json`, an unknown job mode, `activities` that isn't a list) comes back with the reason under `problems`, not an error.
+- `fabric_copy_job_runs(workspace_id, item_id, name)` lists the copy job's newest 50 runs, in the shape Monitor > Runs uses for pipeline runs.
+
+The field names follow the examples in Microsoft's Copy job definition article. They haven't been checked against a real export yet (plan decision 4). Database names and folders pass through `redact.secrets`, and nothing is written to disk. The reader lives in `orchestration/copyjob.py`. Running a copy job on this PC needs the pipeline thread's copy module (DF-3), and running one in Fabric needs a confirm and the risk check.

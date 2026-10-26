@@ -21,7 +21,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from .auth import CONNECTION_SCOPES, GATEWAY_SCOPES
+from .auth import CONNECTION_SCOPES, GATEWAY_SCOPES, SignInError
 from .fabric_api import FabricClient
 from .redact import describe, secrets
 
@@ -31,6 +31,13 @@ ENV_ORDER = ("dev", "test", "prod")
 # Items whose definitions name connections. Dataflows keep theirs in their M code (DF-7).
 ITEM_TYPES = {"DataPipeline": "pipeline", "CopyJob": "copy job"}
 MAX_ITEMS = 500  # definitions read in one scan
+# Sign-in answers that say "try again later", not "no": they aren't kept as a decline.
+TRANSIENT_SIGN_IN = {"temporarily_unavailable", "server_error", "unknown_error"}
+
+
+def declined(exc: Exception) -> bool:
+    """Microsoft sign-in said no (declined, cancelled, or not allowed), rather than failing for now."""
+    return isinstance(exc, SignInError) and not {exc.code, exc.error} & TRANSIENT_SIGN_IN
 
 
 def connection_ids(value: Any) -> set[str]:
@@ -74,7 +81,7 @@ def connection_row(c: dict[str, Any]) -> dict[str, Any]:
 class FabricConnectionsMixin:
     _fabric_connections: dict[str, Any] | None = None
     _fabric_connections_lock = threading.Lock()
-    _gateway_declined: str = ""  # why Gateway.Read.All wasn't given; not asked again until the app restarts
+    _gateway_declined: str = ""  # why Gateway.Read.All was declined; not asked again until the app restarts
 
     def fabric_connections(self, refresh: bool = False) -> dict[str, Any]:
         """Connections and what uses them, from a background scan ({"pending": True} meanwhile). Reads only."""
@@ -99,7 +106,9 @@ class FabricConnectionsMixin:
                     try:
                         gw_token = self.auth._token(GATEWAY_SCOPES)  # type: ignore[attr-defined]
                     except Exception as exc:  # noqa: BLE001
-                        gw_error = self._gateway_declined = describe(exc)
+                        gw_error = describe(exc)
+                        if declined(exc):  # a network blip asks again on the next Refresh
+                            self._gateway_declined = gw_error
                 self._fabric_connections = {"pending": True, "connections": [], "missing": []}
                 threading.Thread(target=self._scan_fabric_connections, args=(token, conn_token, gw_token, gw_error),
                                  daemon=True).start()

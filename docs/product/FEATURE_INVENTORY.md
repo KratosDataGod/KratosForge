@@ -152,7 +152,7 @@ on quality.
 | [FEAT-FAB-10](#feat-fab-10) | Data Factory items: pipelines, connections and dataflows | Partially Implemented | Partially Verified | Pipelines page > Open from workspace, Connections tab (Preview) | DF-6 copy jobs and the DF-7 screen; deploy through the platform repo (DF-8) later. |
 | [FEAT-MESH-03](#feat-mesh-03) | Landing zone and source registry | Partially Implemented | Partially Verified | Platform > Landing zone (Preview) | Guided ingestion still waits on D2 (FD-116); Data Factory copy jobs (DF-6) may answer it. |
 | [FEAT-ORC-01](#feat-orc-01) | PC schedules | Implemented | Partially Verified | Notebook ribbon, Data mesh, Monitor > Schedules (Preview) | Agent schedules cover Linux; Windows Task Scheduler runs need a Windows check. |
-| [FEAT-ORC-02](#feat-orc-02) | Headless agent | Implemented | Partially Verified | CLI and agent.toml (no UI) | Verify on a tenant. |
+| [FEAT-ORC-02](#feat-orc-02) | Headless agent | Implemented | Partially Verified | CLI and agent.toml (no UI) | Verify on a tenant; add queue pruning and requeue of dead jobs (PB-044). |
 | [FEAT-ORC-04](#feat-orc-04) | Fabric pipeline mailbox | Implemented | Partially Verified | Fabric pipeline notebook + agent (Preview) | Run once on a tenant; record the writer's identity. |
 | [FEAT-ORC-06](#feat-orc-06) | Multiple workers | Partially Implemented | Partially Verified | agent.toml settings; no screen (Preview) | Run the mailbox on a tenant (PB-049), then build the app labels (multi-worker.md step 4). |
 | [FEAT-ORC-07](#feat-orc-07) | Fabric pipeline definitions on this PC | Implemented | Partially Verified | fabric-desktop pipeline (CLI) and the external-tool capabilities; no screen | ORCH-002 activity registry, after Chris approves |
@@ -168,7 +168,7 @@ on quality.
 | [FEAT-FAB-02](#feat-fab-02) | Workspaces page and item listing | Implemented | Partially Verified | Workspaces | Keep; offer actions beyond Open for non-lakehouse items when their workstreams add them. |
 | [FEAT-FAB-03](#feat-fab-03) | Create lakehouses | Implemented | Partially Verified | Create, Home, workspace page, command bar | Keep. |
 | [FEAT-FAB-05](#feat-fab-05) | Embedded Fabric portal and Monitoring hub | Implemented | Unverified | Fabric, Monitor | Restrict in-view navigation to Fabric hosts and add cargo test to CI (PB-071). |
-| [FEAT-FAB-06](#feat-fab-06) | Publish notebooks to Fabric | Implemented | Partially Verified | Notebook ribbon > Publish to OneLake | Include publish after a rename in the tenant smoke test. |
+| [FEAT-FAB-06](#feat-fab-06) | Publish notebooks to Fabric | Implemented | Partially Verified | Notebook ribbon > Publish to OneLake | Match the Fabric item by its recorded id, not display name, so a rename doesn't duplicate (PB-018). |
 | [FEAT-FAB-07](#feat-fab-07) | Run in Fabric | Implemented | Partially Verified | Notebook ribbon (Runs on: Fabric) (Preview) | Offer Cancel in Monitor > Runs and the tray (PB-043) and include in the tenant smoke test. |
 | [FEAT-FAB-09](#feat-fab-09) | Fabric Environment items and Spark settings | Missing | Unverified | None | Plan with the Prove program's environment profiles (FD-109) once the package-source decision is made (PB-016). |
 | [FEAT-FAB-12](#feat-fab-12) | Fabric workspace Git integration | Planned | Unverified | None | Owned by the Git-native program (Phase 2). |
@@ -211,7 +211,7 @@ on quality.
 | [FEAT-GOV-07](#feat-gov-07) | Reliability objectives | Implemented but Not Exposed | Partially Verified | None (agent incidents only) | Show in the workload page with incidents (PB-047). |
 | [FEAT-MESH-05](#feat-mesh-05) | Breaking-change check for data products | Implemented | Partially Verified | Promote card | Consumer declarations and deprecation (scale plan 8.2). |
 | [FEAT-GOV-08](#feat-gov-08) | Governance requests | Implemented | Partially Verified | Platform > Governance > Requests (Preview) | Governance steps 8 and 12 wait on Chris's two read-only PC checks. |
-| [FEAT-GOV-09](#feat-gov-09) | Best-practice checks and templates | Implemented | Partially Verified | Platform > Governance > Best practices; data product checklist (Preview) | Implementation review of #643, #648, #649, #664; BPA model checks after #560. |
+| [FEAT-GOV-09](#feat-gov-09) | Best-practice checks and templates | Implemented | Partially Verified | Platform > Governance > Best practices; data product checklist (Preview) | PB-111 (SQL scripts and scheduled notebooks in Check now); PB-112 (BPA model checks after #560). |
 
 ### Developer Experience and Productivity
 
@@ -626,10 +626,10 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/fabric_run.py`, `sidecar/fabric_desktop/cloud_service.py`, `app/ui/app.js`
 - **Tests:** `sidecar/tests/test_notebook_publish.py`, `sidecar/tests/test_cloud.py`
 - **Docs:** [docs/notebooks.md](../notebooks.md)
-- **Known limitations:** After the first publish, the item is matched by its recorded id (PB-018); not yet checked against a live tenant. The setup cell pip-installs sqlglot in Fabric. notebooks.md says %%sql notebooks publish as Spark; code converts them (inference).
+- **Known limitations:** Items matched by display name (fabric_api.py save_notebook). The setup cell pip-installs sqlglot in Fabric. notebooks.md says %%sql notebooks publish as Spark; code converts them (inference).
 - **Pull requests and issues:** [#31](https://github.com/KratosDataGod/KratosForge/pull/31)
 - **Backlog:** [PB-002](PRODUCT_BACKLOG.md#pb-002), [PB-018](PRODUCT_BACKLOG.md#pb-018), [PB-077](PRODUCT_BACKLOG.md#pb-077)
-- **Recommended next action:** Include publish after a rename in the tenant smoke test.
+- **Recommended next action:** Match the Fabric item by its recorded id, not display name, so a rename doesn't duplicate (PB-018).
 
 ### FEAT-FAB-07
 
@@ -1441,7 +1441,7 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/duties.py`, `sidecar/fabric_desktop/meta_service.py`
 - **Tests:** `sidecar/tests/test_duties.py`
 - **Docs:** [docs/metadata-guide.md](../metadata-guide.md)
-- **Known limitations:** Not a security boundary. Group roles become notes. separate_promoter compares PC login names.
+- **Known limitations:** Not a security boundary. Group roles become notes. separate_promoter treats a matching Entra object id or PC login name as the same person (HD-030); it can be switched off in environments.toml.
 - **Pull requests and issues:** [#93](https://github.com/KratosDataGod/KratosForge/pull/93)
 - **Owning workstream:** Enterprise readiness (FD-130)
 - **Backlog:** [PB-065](PRODUCT_BACKLOG.md#pb-065)
@@ -1597,10 +1597,10 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/agent.py`, `sidecar/fabric_desktop/jobqueue.py`, `sidecar/fabric_desktop/agent_config.py`, `sidecar/fabric_desktop/runtime.py`, `deploy/agent.example.toml`
 - **Tests:** `sidecar/tests/test_agent.py`
 - **Docs:** [docs/agent.md](../agent.md)
-- **Known limitations:** Never run against a live tenant. Runs metadata environments only, not notebooks or jobs. Finished jobs leave the queue after queue_retention_days, and `agent requeue` revives a dead or failed job (PB-044).
+- **Known limitations:** Never run against a live tenant. Runs metadata environments only, not notebooks or jobs. Queue never pruned (inference). No command to revive a dead job.
 - **Pull requests and issues:** [#34](https://github.com/KratosDataGod/KratosForge/pull/34)
 - **Backlog:** [PB-044](PRODUCT_BACKLOG.md#pb-044)
-- **Recommended next action:** Verify on a tenant.
+- **Recommended next action:** Verify on a tenant; add queue pruning and requeue of dead jobs (PB-044).
 
 ### FEAT-ORC-03
 
@@ -2479,14 +2479,15 @@ on quality.
 - **Pillar and category:** Enterprise services; Data Governance and Quality
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Platform > Governance > Best practices; data product checklist (Preview)
-- **Evidence:** test: sidecar/tests/test_notebook_practices.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: sidecar/tests/test_sql_practices.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: sidecar/tests/test_best_practice_checks.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: sidecar/tests/test_best_practice_checkers.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: app/tests/browser/best-practice-checks.test.cjs (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main)
+- **Evidence:** test: sidecar/tests/test_notebook_practices.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: sidecar/tests/test_sql_practices.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: sidecar/tests/test_best_practice_checks.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: sidecar/tests/test_best_practice_checkers.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: app/tests/browser/best-practice-checks.test.cjs (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); doc: docs/product/reviews/PB-108-643.md (implementation review: Accepted with Documented Limitations, 2026-10-26)
 - **Source:** `sidecar/fabric_desktop/notebook_practices.py`, `sidecar/fabric_desktop/sqlcompat/practices.py`, `sidecar/fabric_desktop/governance_checks.py`, `sidecar/fabric_desktop/best_practice_checkers.py`, `sidecar/fabric_desktop/central/checks_service.py`, `app/ui/governance-checks.js`
 - **Tests:** `sidecar/tests/test_notebook_practices.py`, `sidecar/tests/test_sql_practices.py`, `sidecar/tests/test_best_practice_checks.py`, `sidecar/tests/test_best_practice_checkers.py`, `app/tests/browser/best-practice-checks.test.cjs`
 - **Docs:** [docs/notebook-best-practices.md](../notebook-best-practices.md), [docs/sql-best-practices.md](../sql-best-practices.md), [docs/governance.md](../governance.md), [docs/governance-guide.md](../governance-guide.md)
-- **Known limitations:** Semantic model rules (BPA, #560) still wait on the live run's cell error. Central policies not yet set up on a tenant.
+- **Known limitations:** Check now has no SQL scripts to give the SQL rules yet (PB-111). NB004 and NB008 run only in scheduled runs, which Check now doesn't check yet (PB-111). Semantic model rules (BPA, #560) aren't registered yet (PB-112). Central policies not yet set up on a tenant.
 - **Pull requests and issues:** [#643](https://github.com/KratosDataGod/KratosForge/pull/643), [#648](https://github.com/KratosDataGod/KratosForge/pull/648), [#649](https://github.com/KratosDataGod/KratosForge/pull/649), [#651](https://github.com/KratosDataGod/KratosForge/pull/651), [#664](https://github.com/KratosDataGod/KratosForge/pull/664), [#671](https://github.com/KratosDataGod/KratosForge/pull/671)
 - **Owning workstream:** Enterprise governance foundation; Best Practice Analyzer (checkers)
-- **Recommended next action:** Implementation review of #643, #648, #649, #664; BPA model checks after #560.
+- **Backlog:** [PB-108](PRODUCT_BACKLOG.md#pb-108), [PB-111](PRODUCT_BACKLOG.md#pb-111), [PB-112](PRODUCT_BACKLOG.md#pb-112)
+- **Recommended next action:** PB-111 (SQL scripts and scheduled notebooks in Check now); PB-112 (BPA model checks after #560).
 
 ### FEAT-EXT-06
 

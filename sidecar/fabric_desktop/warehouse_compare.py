@@ -2,8 +2,9 @@
 
 Both sides are T-SQL: the project's files, and the scripts the page makes from the warehouse's
 catalog (the same scripts Import writes). Two scripts are the same when they read the same as
-T-SQL in a case-insensitive warehouse: comments, GO lines, semicolons, spacing, letter case
-outside strings, and brackets or quotes around plain names don't count. For a table, the
+T-SQL: comments, GO lines, semicolons, spacing, the letter case of keywords, and brackets or
+quotes around plain names don't count. A Fabric warehouse's collation (Latin1_General_100_BIN2_UTF8
+by default) makes names case-sensitive, so the case of a name, quoted or not, does count. For a table, the
 columns that differ are named, since that is what a deploy (WH-13) can change with ALTER TABLE.
 Nothing here reads files, runs SQL or calls Fabric.
 """
@@ -16,29 +17,44 @@ from typing import Any
 
 MAX_ROWS = 3000   # side-by-side rows returned for one object
 
-_GO = re.compile(r"^[ \t]*GO[ \t]*;?[ \t]*$", re.IGNORECASE | re.MULTILINE)
-_TOKEN = re.compile(r"--[^\n]*|/\*.*?\*/|N?'(?:[^']|'')*'|\[(?:[^\]]|\]\])*\]|\"(?:[^\"]|\"\")*\"|[\w@#$]+|[^\s\w]",
-                    re.DOTALL)
+# A GO line is a token here, so a "GO" inside a string or a comment stays part of it.
+_TOKEN = re.compile(r"(?P<go>(?:^|\n)[ \t]*GO[ \t]*;?[ \t]*(?=\n|$))|--[^\n]*|/\*.*?\*/|N?'(?:[^']|'')*'|\[(?:[^\]]|\]\])*\]"
+                    r"|\"(?:[^\"]|\"\")*\"|[\w@#$]+|[^\s\w]", re.DOTALL | re.IGNORECASE)
 _PLAIN = re.compile(r"^[A-Za-z_][\w@#$]*$")
 _NOT_COLUMN = {"constraint", "primary", "unique", "foreign", "check", "index"}
+# Words T-SQL reads the same in any case: keywords, built-in types and common built-in functions.
+# Every other word is a name and keeps its case.
+KEYWORDS = frozenset("""
+add all alter and any as asc authorization begin between bigint binary bit by cascade case cast char
+check close clustered coalesce collate column commit constraint contains convert count create cross
+current current_date current_timestamp cursor date datetime2 datetimeoffset dateadd datediff datepart
+datetime decimal declare default delete desc distinct distribution double drop else end enforced
+escape except exec execute exists fetch float for foreign from full function go grant group hash
+having identity if iif in index inner insert int intersect into is isnull join key left like max
+merge min money nchar nonclustered not null nullif numeric nvarchar of off on open option or order
+outer over partition percent pivot primary print proc procedure real references replicate return
+returns revoke right round_robin rollback row_number rows schema select set smallint some sum
+sysdatetime table then time tinyint top tran transaction truncate try_cast try_convert union unique
+uniqueidentifier unpivot update use values varbinary varchar view when where while with within
+""".split())
 
 
 def tokens(text: str, fold: bool = True) -> list[str]:
-    """The script as T-SQL reads it: comments, GO lines and semicolons left out, words in lower case
-    (unless ``fold`` is False), [Name] and "Name" as name when plain (letters, digits, _), strings
-    exactly as written."""
-    low = str.lower if fold else str
+    """The script as T-SQL reads it: comments, GO lines and semicolons left out, keywords in lower
+    case (unless ``fold`` is False), [Name] and "Name" as Name when plain (letters, digits, _),
+    names and strings exactly as written."""
     out: list[str] = []
-    for t in _TOKEN.findall(_GO.sub(" ", text)):
-        if t.startswith("--") or t.startswith("/*") or t == ";":
+    for m in _TOKEN.finditer(text):
+        t = m.group()
+        if m.group("go") or t.startswith("--") or t.startswith("/*") or t == ";":
             continue
         if t[0] in "[\"":
             inner = t[1:-1].replace("]]", "]") if t[0] == "[" else t[1:-1].replace('""', '"')
-            out.append(low(inner) if _PLAIN.match(inner) else f"[{low(inner)}]")
+            out.append(inner if _PLAIN.match(inner) else f"[{inner}]")
         elif t[0] == "'" or t[:2].upper() == "N'":
             out.append(t)
         else:
-            out.append(low(t))
+            out.append(t.lower() if fold and t.lower() in KEYWORDS else t)
     return out
 
 
@@ -47,8 +63,8 @@ def same(a: str, b: str) -> bool:
 
 
 def columns(text: str) -> dict[str, tuple[str, str]] | None:
-    """A CREATE TABLE's columns, {name in lower case: (name, "type and options")}, or None when it
-    isn't one. Names keep their case for messages; compare the options in lower case."""
+    """A CREATE TABLE's columns, {name: (name, "type and options")}, or None when it isn't one.
+    Names are case-sensitive, as the warehouse reads them; compare the options in lower case."""
     t = tokens(text, fold=False)
     low = [x.lower() for x in t]
     try:
@@ -75,7 +91,7 @@ def columns(text: str) -> dict[str, tuple[str, str]] | None:
     out: dict[str, tuple[str, str]] = {}
     for p in parts:
         if p and p[0].lower() not in _NOT_COLUMN:
-            out[p[0].lower()] = (p[0], " ".join(p[1:]).replace(" ( ", "(").replace(" , ", ",").replace(" )", ")"))
+            out[p[0]] = (p[0], " ".join(p[1:]).replace(" ( ", "(").replace(" , ", ",").replace(" )", ")"))
     return out
 
 
@@ -148,6 +164,10 @@ _ORDER = {("create", "schema"): 0, ("create", "table"): 1, ("add_columns", "tabl
           ("drop", "table"): 8, ("drop", "schema"): 9}
 _LEADING_CREATE = re.compile(r"^((?:\s|--[^\n]*\n|/\*.*?\*/)*)CREATE\s+(?:OR\s+ALTER\s+)?(VIEW|PROC|PROCEDURE|FUNCTION)\b",
                              re.IGNORECASE | re.DOTALL)
+ONE_DEFINITION = ("the file holds more than the object's own CREATE (another batch after GO), so a deploy doesn't "
+                  "offer it: keep one object per file")
+ONE_TABLE = ("the file holds more than CREATE TABLE with its columns (another statement, or AS SELECT), so a deploy "
+             "doesn't offer it: keep one table per file")
 REBUILD = ("Changing a column's type or nullability, removing a column or adding one that isn't NULL or isn't last "
            "would rebuild the table, so a deploy doesn't offer it. Write that change as a script and run it yourself.")
 
@@ -158,6 +178,47 @@ def _quote(name: str) -> str:
 
 def _full(o: dict[str, Any]) -> str:
     return _quote(o["name"]) if o["kind"] == "schema" else f"{_quote(o['schema'])}.{_quote(o['name'])}"
+
+
+def batches(text: str) -> list[str]:
+    """The script's batches, split on GO lines outside strings and comments, leaving out batches
+    with nothing but comments and spacing."""
+    out, start = [], 0
+    for m in _TOKEN.finditer(text):
+        if m.group("go"):
+            out.append(text[start:m.start()])
+            start = m.end()
+    out.append(text[start:])
+    return [b.strip("\n") for b in out if tokens(b)]
+
+
+def _one_definition(kind: str, text: str) -> str | None:
+    """The script when it is one batch that only defines one object of ``kind``, else None. T-SQL
+    makes CREATE VIEW, PROCEDURE and FUNCTION the only statement of its batch, so one batch is enough
+    for those. A table is only CREATE TABLE name (columns); a schema only CREATE SCHEMA name, with an
+    optional AUTHORIZATION: nothing that copies, removes or changes data rides along."""
+    parts = batches(text)
+    if len(parts) != 1:
+        return None
+    t = tokens(parts[0])
+    if kind in ("view", "procedure", "function"):
+        return parts[0] if _LEADING_CREATE.match(parts[0]) else None
+    if t[:2] != ["create", kind] or kind not in ("table", "schema"):
+        return None
+    i = 2
+    while i + 1 < len(t) and t[i + 1] == ".":  # schema.name
+        i += 2
+    if kind == "schema":
+        rest = t[i + 1:]
+        return parts[0] if not rest or (len(rest) == 2 and rest[0] == "authorization") else None
+    if i + 1 >= len(t) or t[i + 1] != "(":
+        return None
+    depth = 0
+    for j in range(i + 1, len(t)):
+        depth += {"(": 1, ")": -1}.get(t[j], 0)
+        if depth == 0:
+            return parts[0] if j == len(t) - 1 else None
+    return None
 
 
 def _as_create_or_alter(text: str) -> str | None:
@@ -184,19 +245,27 @@ def _added_columns(warehouse: str, project: str) -> list[tuple[str, str]] | None
 def deploy_plan(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """The changes, in the order a deploy runs them, from compare() rows. Each is {kind, schema, name,
     path, action (create, alter, add_columns, drop), sql, ticked, offered, why}. A drop is offered but
-    never ticked; a change that would rebuild a table isn't offered."""
+    never ticked; a change that would rebuild a table isn't offered. A file's script is offered only
+    when it is one batch that only defines its object (_one_definition), so nothing else in the file
+    runs with it."""
     out: list[dict[str, Any]] = []
     for r in rows:
         base = {"kind": r["kind"], "schema": r["schema"], "name": r["name"], "path": r.get("path", ""),
                 "detail": r.get("detail") or []}
-        if r["state"] == "only_project":
-            out.append({**base, "action": "create", "sql": r["project_text"], "ticked": True, "offered": True,
+        own = _one_definition(r["kind"], r["project_text"]) if r["state"] in ("only_project", "changed") else None
+        if r["state"] in ("only_project", "changed") and r["kind"] != "table" and own is None:
+            out.append({**base, "action": "create" if r["state"] == "only_project" else "alter", "sql": "",
+                        "ticked": False, "offered": False, "why": ONE_DEFINITION})
+        elif r["state"] == "only_project" and own is None:
+            out.append({**base, "action": "create", "sql": "", "ticked": False, "offered": False, "why": ONE_TABLE})
+        elif r["state"] == "only_project":
+            out.append({**base, "action": "create", "sql": own, "ticked": True, "offered": True,
                         "why": "new" if r["kind"] != "table" else "new table, empty"})
         elif r["state"] == "only_warehouse":
             out.append({**base, "action": "drop", "sql": f"DROP {_DROP_WORD[r['kind']]} {_full(r)};", "ticked": False,
                         "offered": True, "why": "only in the warehouse. Drops are never ticked for you."})
         elif r["state"] == "changed" and r["kind"] in ("view", "procedure", "function"):
-            sql = _as_create_or_alter(r["project_text"])
+            sql = _as_create_or_alter(own)
             out.append({**base, "action": "alter", "sql": sql or "", "ticked": bool(sql), "offered": bool(sql),
                         "why": "definition changes" if sql else "the file doesn't start with CREATE, so it can't be applied"})
         elif r["state"] == "changed" and r["kind"] == "table":

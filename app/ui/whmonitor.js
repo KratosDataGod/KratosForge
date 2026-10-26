@@ -15,6 +15,17 @@ const whMonAutoChecked = new Set();  // warehouses whose views were checked when
 
 const whMonKey = (ref) => sqlRefKey(ref);
 const whMonQueryset = (name) => `${(String(name || "").trim().replace(/[^A-Za-z0-9_.-]/g, "_") || "warehouse").slice(0, 200)}_monitoring`;
+// Names of the workspaces said yes to, kept on this PC so Settings can show them (the setting holds ids).
+function whMonWorkspaceName(ws) {
+  try { return JSON.parse(localStorage.getItem("fd.whmon.names") || "{}")[ws] || ws; } catch { return ws; }
+}
+function whMonRememberName(ws, name) {
+  try {
+    const names = JSON.parse(localStorage.getItem("fd.whmon.names") || "{}");
+    names[String(ws).toLowerCase()] = name;
+    localStorage.setItem("fd.whmon.names", JSON.stringify(names));
+  } catch { /* the id shows instead */ }
+}
 const whMonAutoOn = (ws) => (state.settings?.wh_monitoring_auto?.value || []).map((w) => String(w).toLowerCase()).includes(String(ws).toLowerCase());
 // Monitoring names a SQL analytics endpoint by its own id, not its lakehouse's.
 async function whMonItemId(ref) {
@@ -102,7 +113,7 @@ async function whMonitorBuild(ref) {
       exists: !!built[whMonQueryset(i.displayName)] }))
     .sort((a, b) => (b.id === m.item) - (a.id === m.item) || a.name.localeCompare(b.name));
   const boxes = all.map((w) => h("input", { type: "checkbox", checked: w.id === m.item || !w.exists || null, "aria-label": w.name }));
-  const auto = h("input", { type: "checkbox", checked: true });
+  const auto = h("input", { type: "checkbox" });  // automatic writes are opt-in
   const go = btn("Build", null, () => finish(true), "tool primary");
   const update = () => {
     const n = boxes.filter((b) => b.checked).length;
@@ -121,14 +132,14 @@ async function whMonitorBuild(ref) {
       h("td", {}, h("label", {}, boxes[i], ` ${w.name}`), w.kind === "SQL analytics endpoint" ? h("span", { class: "muted-text" }, " (SQL analytics endpoint)") : null),
       h("td", { class: "muted-text" }, w.exists ? `update: ${whMonQueryset(w.name)} (your own tabs stay)` : `new: ${whMonQueryset(w.name)}`))))),
     h("p", { class: "muted-text" }, "Writes: one KQL queryset item per ticked warehouse in this workspace. Nothing changes in the warehouses or the monitoring database. Opening a view runs a small KQL query, billed at Eventhouse rates."),
-    h("label", { class: "check" }, auto, " Build them for new warehouses in this workspace without asking again")),
+    h("label", { class: "check" }, auto, " Build them for new warehouses in this workspace without asking again (Settings > Advanced lists these workspaces)")),
   [btn("Not now", null, () => finish(false), "tool outline"), go]);
   if (!(await answer)) return;
   const picked = all.filter((_, i) => boxes[i].checked).map((w) => ({ id: w.id, name: w.name }));
   const out = await attempt(() => rpc("wh_monitoring_build", { workspace_id: ref.workspace_id, database_workspace_id: db.workspace_id,
     database_id: db.item_id, warehouses: picked, confirm: true, auto: auto.checked }), "Could not build the monitoring views");
   if (!out) return;
-  if (auto.checked) await loadSettings();
+  if (auto.checked) { whMonRememberName(ref.workspace_id, ref.workspace_name || ref.workspace_id); await loadSettings(); }
   const failed = out.results.filter((r) => r.state === "failed");
   if (failed.length) toast(`Built ${out.results.length - failed.length} of ${out.results.length}. ${failed.map((r) => `${r.queryset}: ${r.error}`).join(" ")}`, true);
   else toast(`Built monitoring views for ${out.results.length} warehouse${out.results.length === 1 ? "" : "s"} in Fabric.`);
@@ -210,6 +221,7 @@ function whMonitorView(ref, actions) {
         builtId ? h("p", {}, "KQL queryset ", h("code", {}, qname), " in this workspace: a tab per view, each filtered to ", ref.name, ". Anyone in the workspace can open it, pin it to a dashboard or set an alert from it.")
           : h("p", {}, `Not built yet. Building adds a KQL queryset, ${qname}, to this workspace, with a tab per view.`),
         h("ul", { class: "muted-text small" }, WH_MON_VIEWS.map(([, name]) => h("li", {}, name))),
+        h("p", { class: "muted-text small" }, "Who runs what lists each person's sign-in name with their queries and CPU time, as Fabric records them."),
         h("div", { class: "wh-mon-row" },
           s.build_allowed ? btn(builtId ? "Update views…" : "Build views…", null, () => whMonitorBuild(ref), builtId ? "tool outline small" : "tool primary small")
             : h("span", { class: "muted-text small" }, "Your organization turned off building monitoring views."),

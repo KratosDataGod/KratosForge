@@ -137,7 +137,11 @@ def test_a_fabric_eventhouse_is_a_cluster(uri):
 @pytest.mark.parametrize("uri", ["http://trd-a.kusto.fabric.microsoft.com", "https://kusto.fabric.microsoft.com.evil.com",
                                  "https://evil.com", "https://trd-a.kusto.fabric.microsoft.com/db",
                                  "https://trd-a.kusto.fabric.microsoft.com:444", "https://me@trd-a.kusto.fabric.microsoft.com",
-                                 "https://trd-a.kusto.fabric.microsoft.com?x=1", "https://help.kusto.windows.net", "", None])
+                                 "https://trd-a.kusto.fabric.microsoft.com?x=1", "https://help.kusto.windows.net", "", None,
+                                 "https://evil.com\\.kusto.fabric.microsoft.com", "https://evil.com%2F.kusto.fabric.microsoft.com",
+                                 "https://evil.com@trd-a.kusto.fabric.microsoft.com", "https://trd-a.kusto.fabric.microsoft.com.",
+                                 "https://trd-a.kusto.fabric.microsoft.com#x", "https://trd_a.kusto.fabric.microsoft.com",
+                                 "https://.kusto.fabric.microsoft.com", "https://trd-a.kusto.fabric.microsoft.com\n"])
 def test_no_token_goes_anywhere_but_a_fabric_eventhouse(uri):
     with pytest.raises(ValueError):
         wm.cluster(uri)
@@ -261,7 +265,8 @@ def test_build_is_refused_when_the_organization_turned_it_off(svc):
 
 
 def test_build_creates_one_queryset_per_warehouse_and_updates_an_existing_one(svc):
-    svc.fake.querysets = [{"id": "WH_Silver_monitoring", "displayName": "WH_Silver_monitoring"}]
+    svc.fake.querysets = [{"id": "WH_Silver_monitoring", "displayName": "WH_Silver_monitoring",
+                           "description": wms.QUERYSET_NOTE.format(name="WH_Silver")}]
     svc.fake.definitions["WH_Silver_monitoring"] = wm.queryset_definition(WH2, URI, "old")
     out = svc.wh_monitoring_build(WS, WS, DB, [{"id": WH, "name": "WH_Gold"}, {"id": WH2, "name": "WH_Silver"}], confirm=True)
     assert [(r["queryset"], r["state"]) for r in out["results"]] == [("WH_Gold_monitoring", "created"),
@@ -307,3 +312,19 @@ def test_methods_and_audit():
 def test_settings_have_safe_defaults():
     assert app_settings.DEFAULTS["wh_monitoring_views"] is True and app_settings.DEFAULTS["wh_monitoring_auto"] == []
     assert app_settings.RESTRICTED["wh_monitoring_views"] is False
+
+
+def test_a_queryset_someone_else_named_the_same_is_left_alone(svc):
+    svc.fake.querysets = [{"id": "theirs", "displayName": "WH_Gold_monitoring", "description": "Dana's queries"}]
+    out = svc.wh_monitoring_build(WS, WS, DB, [{"id": WH, "name": "WH_Gold"}], confirm=True)
+    assert out["results"][0]["state"] == "failed" and "didn't make it" in out["results"][0]["error"]
+    assert not [c for c in svc.fake.calls if c[0] in ("get_item_definition", "update_item_definition", "create_kql_queryset")]
+    assert svc.wh_monitoring_status(WS)["querysets"] == {}, "only the app's own querysets count as built"
+
+
+def test_a_definition_nested_too_deep_fails_that_warehouse_only(svc):
+    svc.fake.querysets = [{"id": "q1", "displayName": "A_monitoring", "description": wms.QUERYSET_NOTE.format(name="A")}]
+    deep = "[" * 100000 + "]" * 100000
+    svc.fake.definitions["q1"] = {"parts": [{"path": "RealTimeQueryset.json", "payload": base64.b64encode(deep.encode()).decode()}]}
+    out = svc.wh_monitoring_build(WS, WS, DB, [{"id": WH, "name": "A"}, {"id": WH2, "name": "B"}], confirm=True)
+    assert [r["state"] for r in out["results"]] == ["failed", "created"]

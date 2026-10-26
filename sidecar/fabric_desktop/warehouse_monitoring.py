@@ -111,15 +111,18 @@ def probe_kql(workspace_id: str) -> str:
     return PROBE.replace("{workspace}", guid(workspace_id, "workspace"))
 
 
+_CLUSTER = re.compile(r"https://((?:[a-z0-9-]+\.)+kusto\.fabric\.microsoft\.com)/?", re.IGNORECASE)
+
+
 def cluster(uri: Any) -> str:
-    """A KQL database's query URI, when it is a Fabric Eventhouse's; else ValueError, and no token is sent."""
-    text = str(uri or "").strip().rstrip("/")
-    parts = urlsplit(text)
-    host = (parts.hostname or "").lower()
-    if (parts.scheme != "https" or not host.endswith(HOST_SUFFIX) or parts.path or parts.query or parts.fragment
-            or parts.port or parts.username or parts.password):
+    """A KQL database's query URI, when it is a Fabric Eventhouse's; else ValueError, and no token is
+    sent. The whole text must be https://<labels>.kusto.fabric.microsoft.com: no other character
+    (\\, %, @, :, a path or a trailing dot), so no client can read another host out of it."""
+    text = str(uri or "")
+    m = _CLUSTER.fullmatch(text)
+    if not m:
         raise ValueError(f"{text!r} isn't a Fabric Eventhouse, so nothing was sent to it.")
-    return f"https://{host}"
+    return f"https://{m.group(1).lower()}"
 
 
 def queryset_name(warehouse_name: str) -> str:
@@ -161,7 +164,7 @@ def read_queryset(definition: dict[str, Any]) -> dict[str, Any]:
         if part.get("path") == "RealTimeQueryset.json":
             try:
                 body = json.loads(base64.b64decode(part.get("payload") or ""))
-            except ValueError as exc:
+            except (ValueError, RecursionError) as exc:
                 raise ValueError(f"The queryset's definition couldn't be read, so it was left as it is: {exc}") from None
             q = body.get("queryset") if isinstance(body, dict) else None
             if isinstance(q, dict):

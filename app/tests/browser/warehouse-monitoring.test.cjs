@@ -124,6 +124,9 @@ test("Build views asks first, lists the workspace's warehouses and builds the ti
     await page().screenshot({ path: path.join(SHOTS, "wh-19-build.png") });
   }
   await dialog.getByRole("checkbox", { name: "WH_Silver" }).uncheck();
+  const auto = dialog.getByRole("checkbox", { name: /without asking again/ });
+  assert.strictEqual(await auto.isChecked(), false, "building without asking is opt-in");
+  await auto.check();
   await dialog.getByRole("button", { name: "Build 2 querysets" }).click();
   await page().waitForFunction(() => /Open in Fabric/.test(document.querySelector(".wh-mon-card.side")?.textContent || ""));
   const sent = calls("wh_monitoring_build").at(-1);
@@ -148,6 +151,23 @@ test("a warehouse in a yes-workspace gets its views when the page opens it, with
   assert.deepStrictEqual(built[0].warehouses, [{ id: "dddddddd-bbbb-cccc-dddd-eeeeeeeeeeee", name: "WH_New" }]);
   assert.strictEqual(built[0].confirm, true);
   assert.strictEqual(await page().getByRole("dialog").count(), 0);
+});
+
+test("Settings lists the workspace said yes to, and Remove makes the app ask again", { skip }, async () => {
+  await page().evaluate(() => {  // the SQL part of Settings > Advanced, with this test's settings
+    const s = { ...state.settings, sql_temp_dir: { value: "" }, sql_warehouse_writes: { value: true } };
+    for (const [key] of SQL_SETTINGS) s[key] = { value: 1 };
+    const box = document.createElement("div");
+    box.id = "mon-settings";
+    box.append(sqlSettingsSection(s, () => false));
+    document.body.append(box);
+  });
+  const row = page().getByRole("button", { name: "Remove Sales Prod" });
+  await row.waitFor();
+  await row.click();
+  await page().waitForFunction(() => (state.settings?.wh_monitoring_auto?.value || []).length === 0);
+  assert.deepStrictEqual(calls("save_app_settings").at(-1), { changes: { wh_monitoring_auto: [] } });
+  await page().evaluate(() => document.getElementById("mon-settings").remove());
 });
 
 test("with monitoring off, the tab says how to turn it on and builds nothing", { skip }, async () => {

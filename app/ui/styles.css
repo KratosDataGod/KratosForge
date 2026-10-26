@@ -2421,3 +2421,5 @@ html[data-motion-level="0"] .mo-ghost { display: none; }
 .wh-mon-build { display: flex; flex-direction: column; gap: 10px; max-width: 600px; font-size: 13px; }
 .wh-mon-build p { margin: 0; }
 @media (max-width: 1100px) { .wh-mon-grid { grid-template-columns: minmax(0, 1fr); } }
+.wh-mon-auto { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.wh-mon-auto li { display: flex; align-items: center; gap: 8px; }

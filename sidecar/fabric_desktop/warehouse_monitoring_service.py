@@ -21,6 +21,14 @@ METHODS = {"wh_monitoring_status", "wh_monitoring_view", "wh_monitoring_build"}
 
 PROBES = 10  # KQL databases tried, at most, when looking for a workspace's monitoring database
 QUERYSET_NOTE = "Monitoring views for {name}, built by KratosForge from workspace monitoring (WarehouseExecutions)."
+TAKEN = ("A KQL queryset named {queryset} is already in the workspace and KratosForge didn't make it, so it "
+         "was left as it is. Rename it, or delete it in Fabric, and build again.")
+
+
+def _ours(queryset: dict[str, Any]) -> bool:
+    """Whether a queryset is one the app built: its description is the app's (QUERYSET_NOTE)."""
+    note = str(queryset.get("description") or "")
+    return note.startswith("Monitoring views for ") and note.endswith(QUERYSET_NOTE.split("{name}")[1])
 
 
 class WarehouseMonitoringMixin:
@@ -62,7 +70,7 @@ class WarehouseMonitoringMixin:
         views = {}
         if found:
             views = {q.get("displayName"): q.get("id") for q in self.fabric.list_kql_querysets(ws)  # type: ignore[attr-defined]
-                     if str(q.get("displayName") or "").endswith("_monitoring")}
+                     if str(q.get("displayName") or "").endswith("_monitoring") and _ours(q)}
         return {"workspace_id": ws, "monitored": bool(found), "database": found, "querysets": views,
                 "problems": problems[:3], "build_allowed": bool(app_settings.value("wh_monitoring_views")),
                 "auto": ws in [str(w).lower() for w in app_settings.value("wh_monitoring_auto") or []]}
@@ -101,22 +109,25 @@ class WarehouseMonitoringMixin:
         if len(picked) != len(warehouses) or any(not name for _, name in picked):
             raise ValueError("Each warehouse needs its id and name.")
         db = self._wm_database(wm.guid(database_workspace_id, "workspace"), wm.guid(database_id, "KQL database"))
-        existing = {q.get("displayName"): q.get("id") for q in self.fabric.list_kql_querysets(ws)}  # type: ignore[attr-defined]
+        existing = {q.get("displayName"): q for q in self.fabric.list_kql_querysets(ws)}  # type: ignore[attr-defined]
         done = []
         for item, name in picked:
             qname = wm.queryset_name(name)
             try:
-                if existing.get(qname):
-                    current = self.fabric.get_item_definition(ws, existing[qname])  # type: ignore[attr-defined]
-                    self.fabric.update_item_definition(ws, existing[qname],  # type: ignore[attr-defined]
+                found = existing.get(qname)
+                if found and not _ours(found):
+                    raise ValueError(TAKEN.format(queryset=qname))
+                if found:
+                    current = self.fabric.get_item_definition(ws, found["id"])  # type: ignore[attr-defined]
+                    self.fabric.update_item_definition(ws, found["id"],  # type: ignore[attr-defined]
                                                        wm.queryset_definition(item, db["cluster"], db["name"], current))
-                    done.append({"warehouse_id": item, "queryset": qname, "item_id": existing[qname], "state": "updated"})
+                    done.append({"warehouse_id": item, "queryset": qname, "item_id": found["id"], "state": "updated"})
                 else:
                     made = self.fabric.create_kql_queryset(  # type: ignore[attr-defined]
                         ws, qname, wm.queryset_definition(item, db["cluster"], db["name"]), QUERYSET_NOTE.format(name=name))
                     done.append({"warehouse_id": item, "queryset": qname, "item_id": str((made or {}).get("id") or ""),
                                  "state": "created"})
-            except (ValueError, FabricError) as exc:
+            except (ValueError, RecursionError, FabricError) as exc:
                 done.append({"warehouse_id": item, "queryset": qname, "state": "failed", "error": str(exc)})
         if auto:
             remembered = [str(w).lower() for w in app_settings.value("wh_monitoring_auto") or []]

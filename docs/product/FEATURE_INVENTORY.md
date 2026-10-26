@@ -1441,7 +1441,7 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/duties.py`, `sidecar/fabric_desktop/meta_service.py`
 - **Tests:** `sidecar/tests/test_duties.py`
 - **Docs:** [docs/metadata-guide.md](../metadata-guide.md)
-- **Known limitations:** Not a security boundary. Group roles become notes. separate_promoter compares PC login names.
+- **Known limitations:** Not a security boundary. Group roles become notes. separate_promoter treats a matching Entra object id or PC login name as the same person (HD-030); it can be switched off in environments.toml.
 - **Pull requests and issues:** [#93](https://github.com/KratosDataGod/KratosForge/pull/93)
 - **Owning workstream:** Enterprise readiness (FD-130)
 - **Backlog:** [PB-065](PRODUCT_BACKLOG.md#pb-065)
@@ -1515,7 +1515,7 @@ on quality.
 - **Pillar and category:** Enterprise services; Enterprise Shared Services
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Settings > Platform > Keys (Create, Join existing, Move keys in); Data mesh > Surrogate keys > Move keys; Platform > Business keys (Preview)
-- **Evidence:** test: sidecar/tests/test_platform.py::test_keys_are_issued_in_batches (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_platform.py::test_keys_move_to_the_platform_with_their_numbers; code: sidecar/fabric_desktop/central/keys_home.py (PR #293) (test_shared_keys.py not run in this check)
+- **Evidence:** test: sidecar/tests/test_platform.py::test_keys_are_issued_in_batches (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_platform.py::test_keys_move_to_the_platform_with_their_numbers; test: sidecar/tests/test_shared_keys.py (PR #293) (18 passed when run on 2026-10-26 against main bb084c6b; SQLite stand-in, no tenant)
 - **Source:** `sidecar/fabric_desktop/central/core.py`, `sidecar/fabric_desktop/central/client.py`, `sidecar/fabric_desktop/central/migrate.py`, `sidecar/fabric_desktop/central/keys_home.py`
 - **Tests:** `sidecar/tests/test_platform.py`, `sidecar/tests/test_shared_keys.py`
 - **Docs:** [docs/platform.md](../platform.md)

@@ -3671,7 +3671,7 @@
       "limitations": [
         "Not a security boundary",
         "Group roles become notes",
-        "separate_promoter compares PC login names"
+        "separate_promoter treats a matching Entra object id or PC login name as the same person (HD-030); it can be switched off in environments.toml"
       ],
       "prs": [
         93
@@ -3870,9 +3870,9 @@
           "ref": "sidecar/tests/test_platform.py::test_keys_move_to_the_platform_with_their_numbers"
         },
         {
-          "kind": "code",
-          "ref": "sidecar/fabric_desktop/central/keys_home.py (PR #293)",
-          "note": "test_shared_keys.py not run in this check"
+          "kind": "test",
+          "ref": "sidecar/tests/test_shared_keys.py (PR #293)",
+          "note": "18 passed when run on 2026-10-26 against main bb084c6b; SQLite stand-in, no tenant"
         }
       ],
       "source": [

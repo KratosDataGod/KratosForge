@@ -399,6 +399,8 @@ class WarehouseProjectMixin:
                 owner = taken.setdefault(rel.lower(), _key(kind, schema, name))
                 if owner != _key(kind, schema, name) and where.get(_key(kind, schema, name)) != rel:
                     other = owner[2] if owner[0] == "schema" else f"{owner[1]}.{owner[2]}"
+                    if where.get(owner) == rel:
+                        raise ValueError(f"Its file would be {rel}, which already defines {other}.")
                     raise ValueError(f"Its file would be {rel}, which is {other}'s file apart from letter case, and "
                                      "Windows keeps only one of them. Rename one of the two objects.")
                 f = self._wh_file(project, rel) if project is not None else None

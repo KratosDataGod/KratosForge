@@ -449,6 +449,56 @@ def test_domain_owners_keep_their_own_glossary(platform):
             ana.call("save_term", term=term)
 
 
+def test_data_requests_go_to_the_domain_or_product_owners(platform):
+    platform.call("save_domain", domain={"name": "Sales", "owners": "Dee@example.com"})
+    platform.call("save_domain", domain={"name": "Finance"})
+    platform.call("register_project", project={"name": "crm", "domain": "sales"})
+    port = [{"port": "customers", "entity": "gold.dim_customer", "workspace_id": "w", "lakehouse_id": "l", "table": "dim_customer"}]
+    platform.call("register_product", product={"project": "crm", "name": "c360", "domain": "sales", "access": "public",
+                                               "status": "published", "owner": "Bo@example.com"}, ports=port, env="prod")
+    ana, bo, dee = (_as(platform, f"{n}@example.com") for n in ("ana", "bo", "dee"))
+
+    # A new product: the domain's owners decide; nothing is checked against a product.
+    new = ana.call("request", kind="data", target="Sales", project="ledger", reason="Churn by region",
+                   detail={"what": "new", "needed_by": "2026-11-30"})
+    assert (new["target"], new["detail"]["domain_name"], new["detail"]["owners"]) == ("sales", "Sales", "Dee@example.com")
+    with pytest.raises(core.PlatformError, match="already a request waiting"):
+        ana.call("request", kind="data", target="sales", project="ledger", reason=" churn  by REGION ",
+                 detail={"what": "new"})
+    assert [r["can_decide"] for r in dee.call("list_requests", status="waiting")] == [True]
+    assert [r["can_decide"] for r in bo.call("list_requests", status="waiting")] == [False]
+    with pytest.raises(core.PlatformError, match="domain's owners or a platform admin"):
+        bo.call("decide_request", id=new["id"], approve=True)
+    done = dee.call("decide_request", id=new["id"], approve=True, note="In Prod by 30 November")
+    assert (done["status"], done["note"]) == ("approved", "In Prod by 30 November")
+
+    # A change to a product: its owner decides.
+    chg = ana.call("request", kind="data", target="crm/c360", project="ledger", reason="Add a region column",
+                   detail={"what": "change"})
+    assert chg["detail"]["product_name"] == "c360"
+    with pytest.raises(core.PlatformError, match="product's owner or a platform admin"):
+        dee.call("decide_request", id=chg["id"], approve=True)
+    assert bo.call("decide_request", id=chg["id"], approve=False, note="Region is in geo/regions")["status"] == "declined"
+
+    for kwargs, why in (({"target": "sales", "reason": "x", "detail": {"what": "both"}}, "new data product or a change"),
+                        ({"target": "sales", "reason": " ", "detail": {"what": "new"}}, "Say what you need"),
+                        ({"target": "nowhere", "reason": "x", "detail": {"what": "new"}}, "Pick the domain"),
+                        ({"target": "crm/none", "reason": "x", "detail": {"what": "change"}}, "isn't a published"),
+                        ({"target": "sales", "reason": "x", "detail": {"what": "new", "needed_by": "30/11"}}, "Needed by")):
+        with pytest.raises(core.PlatformError, match=why):
+            ana.call("request", kind="data", **kwargs)
+
+
+def test_data_request_notices_name_who_decides():
+    from fabric_desktop import governance_notices as gn
+    new = {"id": "r1", "kind": "data", "target": "sales", "detail": {"what": "new", "domain_id": "sales", "owners": "Dee@example.com"}}
+    event = gn.request_waiting(new, [])
+    assert (event["title"], event["domain"], event["to"]["people"]) == ("Data request to sales", "sales", ["dee@example.com"])
+    chg = {"id": "r2", "kind": "data", "target": "crm/c360", "detail": {"what": "change", "domain_id": "sales"}}
+    event = gn.request_waiting(chg, [{"id": "crm/c360", "owner": "bo@example.com", "domain_id": "sales"}])
+    assert event["to"]["people"] == ["bo@example.com"]
+
+
 def test_requests_for_key_tables_sources_and_access(platform):
     for d in ("sales", "finance"):
         platform.call("save_domain", domain={"name": d})

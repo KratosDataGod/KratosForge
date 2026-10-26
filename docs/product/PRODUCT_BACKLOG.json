@@ -571,7 +571,8 @@
         "priority": "P1"
       },
       "prs": [
-        410
+        410,
+        692
       ]
     },
     {
@@ -771,7 +772,8 @@
       "capability": "Record the Fabric item id on first publish and update that item afterwards.",
       "evidence": [
         "fabric_api.py save_notebook matches an existing notebook by displayName",
-        "workload_service.py _record_notebook_item already records the item id after publish, but publish doesn't use it"
+        "workload_service.py _record_notebook_item already records the item id after publish, but publish doesn't use it",
+        "PR #685: publish updates the Fabric notebook it published before, even after a rename"
       ],
       "features": [
         "FEAT-FAB-06"
@@ -793,14 +795,17 @@
       "owner": "Master product (unassigned)",
       "effort": "S",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In review",
       "package": "docs/product/pr-ready/PB-018.md",
       "computed": {
         "benefit": 2.7,
         "cost": 2.0,
         "score": 2.16,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        685
+      ]
     },
     {
       "id": "PB-019",
@@ -1625,7 +1630,8 @@
       "capability": "Release-level rollback from meta.deployments and decision D1 enforced.",
       "evidence": [
         "meta/release.py",
-        "docs/scale-and-operations-plan.md D1"
+        "docs/scale-and-operations-plan.md D1",
+        "PR #707 (D1): Test and Prod in OneLake take only files a pushed commit holds; rollback is still open"
       ],
       "features": [
         "FEAT-META-09",
@@ -1658,7 +1664,8 @@
       "confidence": "Medium",
       "state": "Proposed",
       "prs": [
-        113
+        113,
+        707
       ],
       "computed": {
         "benefit": 3.25,
@@ -1715,7 +1722,8 @@
       "capability": "Retention for finished jobs and an agent requeue command.",
       "evidence": [
         "jobqueue.py has no prune (inference from code reading)",
-        "agent CLI has no requeue"
+        "agent CLI has no requeue",
+        "PR #689: finished agent jobs are pruned and `agent requeue` revives a dead job"
       ],
       "features": [
         "FEAT-ORC-02"
@@ -1738,14 +1746,17 @@
       "owner": "Master product (unassigned)",
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In review",
       "package": "docs/product/pr-ready/PB-044.md",
       "computed": {
         "benefit": 2.3,
         "cost": 1.0,
         "score": 2.3,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        689
+      ]
     },
     {
       "id": "PB-045",
@@ -2116,7 +2127,8 @@
       "problem": "Platform admins can't revoke a grant or list sources from the app though the engine supports both.",
       "capability": "Revoke in Platform > Access and a sources list.",
       "evidence": [
-        "platform_revoke and platform_sources have no caller in app/ui"
+        "platform_revoke and platform_sources have no caller in app/ui",
+        "PR #694: a product's page takes a project's access away (Preview); the source list screen is not checked here"
       ],
       "features": [
         "FEAT-MESH-01"
@@ -2137,13 +2149,16 @@
       "owner": "Master product (unassigned)",
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In review",
       "computed": {
         "benefit": 2.3,
         "cost": 1.5,
         "score": 2.07,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        694
+      ]
     },
     {
       "id": "PB-056",
@@ -2513,7 +2528,8 @@
       "problem": "separate_promoter compares PC login names, not signed-in identities.",
       "capability": "Compare Entra object ids.",
       "evidence": [
-        "duties.py"
+        "duties.py",
+        "PR #721 (HD-030): the separate promoter compares Entra object ids"
       ],
       "features": [
         "FEAT-GOV-04"
@@ -2537,7 +2553,7 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In review",
       "external_dependencies": [
         "Overlaps HD-030 separation of duties by Entra id (staged roadmap) (Codebase audit and hardening backlog, PB-101)"
       ],
@@ -2546,7 +2562,10 @@
         "cost": 1.0,
         "score": 2.05,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        721
+      ]
     },
     {
       "id": "PB-066",
@@ -2601,7 +2620,8 @@
       "capability": "A run dialog showing the estimate and choices, and cleanup of files a stopped batch wrote.",
       "evidence": [
         "meta_preflight has no caller in app/ui",
-        "meta/batches.py"
+        "meta/batches.py",
+        "Delete left-overs in Settings and Runs on (#687, #706) removes orphan local write files; the run dialog is still open"
       ],
       "features": [
         "FEAT-META-06"
@@ -2636,7 +2656,11 @@
         "cost": 2.5,
         "score": 2.52,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        687,
+        706
+      ]
     },
     {
       "id": "PB-068",
@@ -4051,7 +4075,16 @@
         624,
         626,
         659,
-        674
+        674,
+        676,
+        679,
+        689,
+        691,
+        698,
+        708,
+        715,
+        717,
+        721
       ]
     },
     {
@@ -4100,7 +4133,16 @@
         "cost": 2.5,
         "score": 2.66,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        684,
+        699,
+        702,
+        703,
+        704,
+        705,
+        719
+      ]
     },
     {
       "id": "PB-103",
@@ -4152,7 +4194,11 @@
       "prs": [
         585,
         616,
-        661
+        661,
+        680,
+        711,
+        733,
+        738
       ]
     },
     {
@@ -4299,7 +4345,13 @@
         641,
         645,
         660,
-        662
+        662,
+        723,
+        727,
+        728,
+        729,
+        730,
+        731
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -4362,7 +4414,18 @@
         666,
         667,
         668,
-        669
+        669,
+        700,
+        709,
+        714,
+        724,
+        732,
+        735,
+        736,
+        737,
+        739,
+        740,
+        741
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -4568,7 +4631,10 @@
       "prs": [
         650,
         652,
-        670
+        670,
+        695,
+        710,
+        712
       ],
       "mandatory": "none",
       "computed": {
@@ -4615,7 +4681,9 @@
       "confidence": "Medium",
       "state": "In progress",
       "prs": [
-        599
+        599,
+        681,
+        716
       ],
       "mandatory": "none",
       "computed": {
@@ -4623,6 +4691,51 @@
         "cost": 3.0,
         "score": 1.65,
         "priority": "P3"
+      }
+    },
+    {
+      "id": "PB-113",
+      "title": "Action-first experience program",
+      "category": "Developer Experience and Productivity",
+      "problem": "Pages open on information and settings, so people hunt for the next thing to do.",
+      "capability": "Owned and specified by the action-first thread (AF-1..AF-5); not restated here. AF-1 adds a shared action framework, the action-first standard and a baseline.",
+      "evidence": [
+        "AF-1 merged as #722"
+      ],
+      "features": [
+        "FEAT-SHL-04"
+      ],
+      "depends_on": [
+        "PB-102"
+      ],
+      "acceptance": [
+        "As defined in AF-1..AF-5 by its owning thread"
+      ],
+      "scores": {
+        "developer_value": 5,
+        "cu_reduction": 1,
+        "enterprise_value": 3,
+        "differentiation": 4,
+        "strategic_alignment": 5,
+        "complexity": 3,
+        "risk": 2
+      },
+      "owner": "Action-first experience",
+      "source_refs": [
+        "AF-1..AF-5"
+      ],
+      "effort": "L",
+      "confidence": "Medium",
+      "prs": [
+        722
+      ],
+      "mandatory": "none",
+      "state": "In progress",
+      "computed": {
+        "benefit": 3.55,
+        "cost": 2.5,
+        "score": 2.48,
+        "priority": "P2"
       }
     }
   ]

@@ -353,11 +353,11 @@ function whCompareView(ref, actions) {
     }
     if (sqlPage.whCompare !== c || r.objects[c.picked] !== o) return;
     const cell = (text, op) => h("div", { class: `wh-cmp-line ${text === null ? "none" : op}` }, text ?? "");
-    pane.replaceChildren(head,
+    pane.replaceChildren(...[head,
       o.detail?.length ? h("ul", { class: "wh-cmp-detail" }, o.detail.map((d) => h("li", {}, d))) : null,
       h("div", { class: "wh-cmp-diff", role: "table", "aria-label": `Difference for ${whObjLabel(o)}` },
         rows.map((x) => h("div", { class: "wh-cmp-row", role: "row" }, cell(x.left, x.op), cell(x.right, x.op)))),
-      paneActions(o));
+      paneActions(o)].filter(Boolean));
   }
 
   function paneActions(o) {

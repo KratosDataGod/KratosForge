@@ -142,6 +142,9 @@ test("Compare lists each object's state, shows the difference and can take the w
   assert.strictEqual(await view.locator(".wh-cmp-line.changed").count(), 2, "one changed line, both sides");
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "wh-12-compare.png") });
 
+  await view.getByRole("option", { name: /dbo\.vw_Targets/ }).click();
+  await view.locator(".wh-cmp-diff").waitFor();
+  assert.doesNotMatch(await view.locator(".wh-cmp-pane").textContent(), /null/, "no empty part shows as text");
   await view.getByRole("option", { name: /dbo\.vw_Sales/ }).click();
   await view.getByRole("button", { name: "Take the warehouse's version" }).click();
   await page().waitForFunction(() => /Wrote dbo\/Views\/vw_Sales\.sql from WH_Gold/.test(document.querySelector(".toast")?.textContent || ""));

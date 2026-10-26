@@ -4,7 +4,7 @@ FEATURE_INVENTORY.json and PRODUCT_BACKLOG.json are the source of truth. The Mar
 keep their own prose; the tables between <!-- BEGIN GENERATED: name --> and
 <!-- END GENERATED: name --> markers are written by this script, so never edit those by hand.
 
-    python docs/product/tools/product_data.py check     # schema and cross-reference checks
+    python docs/product/tools/product_data.py check     # schema, cross-reference and generated-table checks
     python docs/product/tools/product_data.py score     # recompute every backlog item's score
     python docs/product/tools/product_data.py render    # rewrite the generated tables
     python docs/product/tools/product_data.py all       # score, render, then check
@@ -120,6 +120,8 @@ def check() -> list[str]:
         if i.get("computed") != expected:
             errors.append(f"{where}: computed scores are stale; run `product_data.py score`")
     errors += _cycles(items)
+    if not errors:
+        errors += _render_drift()
     return errors
 
 
@@ -195,13 +197,36 @@ def _pr(n: int) -> str:
     return f"[#{n}](https://github.com/KratosDataGod/KratosForge/pull/{n})"
 
 
+# While check() compares the pages with a fresh render, rendered pages are kept here instead of written.
+_pending: dict[Path, str] | None = None
+
+
 def _replace(path: Path, name: str, body: str) -> None:
-    text = path.read_text(encoding="utf-8")
+    text = _pending.get(path, path.read_text(encoding="utf-8")) if _pending is not None else path.read_text(encoding="utf-8")
     begin, end = f"<!-- BEGIN GENERATED: {name} -->", f"<!-- END GENERATED: {name} -->"
     pattern = re.compile(re.escape(begin) + r".*?" + re.escape(end), re.S)
     if not pattern.search(text):
         raise SystemExit(f"{path.name} has no {begin} marker")
-    path.write_text(pattern.sub(lambda _: f"{begin}\n{body.rstrip()}\n{end}", text), encoding="utf-8")
+    text = pattern.sub(lambda _: f"{begin}\n{body.rstrip()}\n{end}", text)
+    if _pending is not None:
+        _pending[path] = text
+    else:
+        path.write_text(text, encoding="utf-8")
+
+
+def _render_drift() -> list[str]:
+    """Generated tables that differ from what the JSON renders to, such as a hand edit render would revert."""
+    global _pending
+    _pending = {}
+    try:
+        render_inventory()
+        render_backlog()
+        render_roadmap()
+        rendered = _pending
+    finally:
+        _pending = None
+    return [f"{path.relative_to(REPO).as_posix()}: generated tables differ from the JSON; edit the JSON, then run `product_data.py render`"
+            for path, text in rendered.items() if text != path.read_text(encoding="utf-8")]
 
 
 def render_inventory() -> None:

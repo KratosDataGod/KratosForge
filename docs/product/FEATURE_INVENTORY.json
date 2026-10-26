@@ -3671,10 +3671,11 @@
       "limitations": [
         "Not a security boundary",
         "Group roles become notes",
-        "separate_promoter compares PC login names"
+        "separate_promoter treats a matching Entra object id or PC login name as the same person (HD-030); it can be switched off in environments.toml"
       ],
       "prs": [
-        93
+        93,
+        721
       ],
       "workstream": "Enterprise readiness (FD-130)",
       "next_action": "Keep; compare signed-in identities rather than PC login names.",

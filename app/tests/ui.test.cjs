@@ -5002,13 +5002,15 @@ test("side by side times roll over and split This PC's time into processing and 
 });
 
 // Run in Fabric and side by side wait for the bar's last save, so they get the values it shows.
-test("Run in Fabric and side by side wait for the Parameters bar's values", () => {
+test("Run in Fabric, side by side and Prove wait for the Parameters bar's values", () => {
   assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"),
     /await nbInputsSaved\(\);[^\n]*\n[^\n]*\n\s*const run = await attempt\(\(\) => rpc\("run_notebook_in_fabric"/);
   assert.match(fs.readFileSync(path.join(ui, "sidebyside.js"), "utf8"),
     /await nbInputsSaved\(\);[^\n]*\n\s*const run = await attempt\(\(\) => rpc\("side_by_side_start"/);
+  assert.match(fs.readFileSync(path.join(ui, "prove.js"), "utf8"),
+    /await nbInputsSaved\(\);[^\n]*\n\s*const run = await attempt\(\(\) => rpc\("prove_start"/);
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
-  assert.match(doc, /\*\*Run in Fabric\*\* and \*\*Side by side\*\* use the bar's values too/);
+  assert.match(doc, /\*\*Run in Fabric\*\*, \*\*Side by side\*\* and \*\*Prove this notebook\*\* use the bar's values too/);
 });
 
 // Add to VS Code: the page sends only the tool's id; the shell builds the vscode: link itself

@@ -364,19 +364,22 @@ def test_cancel_that_lands_while_a_cell_is_starting_stops_it(svc, monkeypatch):
     # Windows CI: Cancel landed after the proof moved to the next cell but before that cell's
     # thread ran, and interrupt failed on the thread's missing id (TypeError), or found the last
     # cell already done and the long cell then ran to its end.
+    # The patch goes in before the proof starts: patched after, the proof's thread could reach the
+    # long cell first (Windows CI, #728), so nothing cancelled it and it ran to its end.
     svc.fake = FakeFabric(svc)
     cells = CELLS[:2] + [{"type": "code", "source": "import time\nfor _ in range(400):\n    time.sleep(0.05)"}] + CELLS[3:]
-    started = call(svc, "prove_start", **payload(cells))
-    start = Kernel.start
+    start, started, cancelled = Kernel.start, {}, []
 
     def cancel_first(self, code, *args, **kwargs):
         if "range(400)" in code:
-            assert call(svc, "prove_cancel", id=started["id"]) == {"cancelled": True}
+            cancelled.append(call(svc, "prove_cancel", id=started["id"]))
         return start(self, code, *args, **kwargs)
 
     monkeypatch.setattr(Kernel, "start", cancel_first)
     began = time.monotonic()
+    started.update(call(svc, "prove_start", **payload(cells)))
     out = wait(svc, started["id"])
+    assert cancelled == [{"cancelled": True}]
     assert out["state"] == "cancelled" and time.monotonic() - began < 15, out["pc"]  # the cell alone takes 20 s
     assert out["pc"]["cells"]["2"]["status"] != "ok" and svc.fake.saved == []
 

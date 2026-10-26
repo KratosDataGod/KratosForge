@@ -85,6 +85,10 @@ A warehouse run may also **change** the warehouse, when it's started as a change
 - **Settings › Advanced › SQL queries › Warehouse changes** (`sql_warehouse_writes`, on by default) turns every change off on this PC. Your IT team can set it in the policy file; a policy file that can't be read turns changes off.
 - The audit line adds `affected` and `committed`, and still never has the SQL.
 
+### Estimated plan (WH-09)
+
+`estimated_plan = true` on a warehouse run that reads asks Fabric for the plan instead of the rows: the engine runs `SET SHOWPLAN_XML ON`, the query, then `SET SHOWPLAN_XML OFF`, on the same connection and in the same rolled-back transaction, so the query itself doesn't run. The result is the showplan XML, and the status adds `plan: true`. It's refused for a change (`allow`) or a target other than a warehouse: "An estimated plan is for a warehouse query that reads."
+
 ## Limits
 
 Set them in **Settings › Advanced › SQL queries**. Your IT team can set any of them in the policy file (see [Azure setup](azure-setup.md#4-push-settings-to-everyone)); a value they set shows as *Set by your organization's policy* and can't be edited.

@@ -173,6 +173,15 @@ The explorer's **History** tab has two parts.
 
 Each opens in a new tab and runs there, so it asks first like any other run and **uses capacity**. The result is an ordinary result: page through it, chart it, export it. Fabric keeps 30 days of history and fills these views a few minutes after a query ends. What you see depends on your permissions on the warehouse.
 
+## Estimated plan
+
+**Estimated plan** in the editor's toolbar shows how Fabric would run the query, without running it. It works on a warehouse or SQL analytics endpoint, for one statement that reads (the same check as a run that reads); a change has no plan here.
+
+- **Fabric works it out, the query doesn't run.** The engine turns on `SET SHOWPLAN_XML ON`, sends the query, and gets Fabric's showplan back instead of rows. It uses a little capacity, and the first one on each warehouse after the app starts asks first, like a run.
+- **The Plan view** draws the plan as a tree of operators (scans, joins, aggregates), each with the objects it reads, Fabric's estimated rows, and its share of the statement's estimated cost. The heaviest operator is highlighted, and an operator Fabric flagged with a warning says so.
+- **Copy XML** copies the showplan as Fabric sent it, to open in SSMS or another plan viewer.
+- Rows and cost are Fabric's estimates, not measurements. The audit line is the usual `sql_execution` one, with `plan`; never the SQL.
+
 ## Results, Messages and Chart
 
 Above the result, three views, on every SQL page (lakehouse, local project and warehouse). Messages and Chart are Preview: on a lakehouse or local project page they carry the Preview tag and go when Settings hides preview features; on the Warehouse page the whole page is already Preview.
@@ -203,5 +212,6 @@ How a run works underneath (states, limits, what is refused): [Running SQL queri
 | WH-11 | The warehouse as files in Fabric's Git layout: Import, edit, New object | Done |
 | WH-12 | Compare the project with the warehouse, object by object | Done |
 | WH-13 | Deploy the project to the warehouse after a preview: create, CREATE OR ALTER, add NULL columns, drops never ticked; Test and Prod from Git only | This release |
+| WH-09 | Estimated plan: Fabric's showplan as a tree of operators with rows and cost, without running the query | This release |
 
-Next: the estimated plan (WH-09). Later stages (loading and managing data, Snowflake) follow the same pattern: a mockup first, then one change per feature.
+Phase 3 (WH-09 to WH-13) is complete. Later stages (loading and managing data, Snowflake) follow the same pattern: a mockup first, then one change per feature.

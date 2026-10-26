@@ -586,5 +586,6 @@ def test_an_estimated_plan_is_only_for_a_warehouse_query_that_reads(runs):
     assert refused["state"] == "failed" and refused["error_kind"] == "permission", "still only reads"
     status = wait(runs, start(runs, "SELECT id FROM dbo.sales", estimated_plan=True)["id"])
     assert status["state"] == "completed" and status["plan"] is True
+    assert runs.audit_lines[-1][3]["plan"] is True and "sales" not in repr(runs.audit_lines[-1][3])
     seen = json.loads(runs.log.read_text())
     assert "committed" not in seen and seen["rolled_back"]

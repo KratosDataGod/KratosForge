@@ -642,6 +642,7 @@ class SqlExecutions:
                              **({"workspace_id": run.warehouse.get("workspace_id", ""),
                                  "warehouse_id": run.warehouse.get("item_id", ""),
                                  "warehouse": run.warehouse.get("database", ""),
+                                 **({"plan": True} if run.plan else {}),
                                  **({"affected": run.affected, "committed": run.committed}
                                     if "warehouse_write" in run.allow else {})} if run.target == "warehouse" else {})})
             except Exception as exc:  # noqa: BLE001 - an audit problem never fails the run

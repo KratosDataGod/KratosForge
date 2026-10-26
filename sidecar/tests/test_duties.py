@@ -46,12 +46,14 @@ def test_separation_rule():
 
 
 
-def test_separation_compares_entra_ids_when_both_are_known():
+def test_separation_matches_on_the_entra_id_or_the_login():
     other = "22222222-2222-2222-2222-222222222222"
-    # Same PC login, different people: the ids decide.
-    assert duties.separation_problem("test", "prod", 3, "admin", "admin", other, ME) is None
-    # One person on two PCs with different logins.
+    # One person on two PCs with different logins: the ids catch it.
     assert "You promoted metadata 3" in duties.separation_problem("test", "prod", 3, "pat", "patricia", ME.upper(), ME)
+    # Same login signed in with a second account (an admin one): still the same person.
+    assert "You promoted metadata 3" in duties.separation_problem("test", "prod", 3, "pat", "pat", ME, other)
+    # Different login and different account: someone else.
+    assert duties.separation_problem("test", "prod", 3, "pat", "ann", ME, other) is None
     # Not signed in, or an old record: back to login names, and a note says so.
     assert "You promoted metadata 3" in duties.separation_problem("test", "prod", 3, "pat", "pat", ME, None)
     assert "you aren't signed in" in duties.separation_note(ME, None)
@@ -67,8 +69,8 @@ def test_the_release_record_names_the_promoters_entra_id(svc, monkeypatch):
     envs = {k: dict(v) for k, v in project.environments.items()}
     envs["prod"]["separate_promoter"] = True
     svc._write_environments(project, envs)
-    monkeypatch.setattr(duties, "current_user", lambda: "admin")  # a shared login: only the ids tell people apart
-    monkeypatch.setattr("fabric_desktop.meta.release._user", lambda: "admin")
+    monkeypatch.setattr(duties, "current_user", lambda: "pat")
+    monkeypatch.setattr("fabric_desktop.meta.release._user", lambda: "pat")
     svc._auth = _Auth()
     svc.meta_promote("dev", "test")
     row = svc._store(svc._project(), "test").meta("deployments").row(-1, named=True)
@@ -79,10 +81,16 @@ def test_the_release_record_names_the_promoters_entra_id(svc, monkeypatch):
         def signed_in_object_id(self):
             return "22222222-2222-2222-2222-222222222222"
 
-    svc._auth = _Ann()
+    svc._auth = _Ann()  # pat's login, another account: still pat
     check = svc.meta_promote_check("test", "prod")
-    assert not any("someone else" in e for e in check["errors"])
-    assert not any("compared PC login names" in n for n in check["notes"])
+    assert any("someone else" in e for e in check["errors"])
+    assert not any("compare PC login names" in n for n in check["notes"])
+    monkeypatch.setattr(duties, "current_user", lambda: "ann")  # Ann on her own login and account
+    assert not any("someone else" in e for e in svc.meta_promote_check("test", "prod")["errors"])
+    monkeypatch.setattr(duties, "current_user", lambda: "patricia")  # pat on another PC login: the id catches it
+    svc._auth = _Auth()
+    assert any("someone else" in e for e in svc.meta_promote_check("test", "prod")["errors"])
+    monkeypatch.setattr(duties, "current_user", lambda: "pat")
     svc._auth = None  # signed out: login names, with a note
     check = svc.meta_promote_check("test", "prod")
     assert any("someone else" in e for e in check["errors"])

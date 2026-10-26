@@ -53,32 +53,31 @@ def separation_problem(source_env: str, target_env: str, version: Any, promoted_
     """With ``separate_promoter = true`` on the target environment: whoever promoted ``version``
     to ``source_env`` may not also promote it to ``target_env``.
 
-    People are compared by their Microsoft Entra object ids when the release record has one and
-    this person is signed in (EP-5), since two PCs can share a login name and one person can have
-    two. Otherwise by PC login name, as releases recorded before object ids were."""
+    It's the same person when the Microsoft Entra object ids match (the release record's and the
+    signed-in one's, EP-5), which catches one person with two PC logins, or when the PC login names
+    match, so signing in with a second account on the same login doesn't pass either. A shared
+    login therefore counts as one person."""
     if source_env == "dev":
         return None  # nothing was promoted into Dev; the rule is about the second pair of eyes after Test
     if not promoted_by:
         return (f"{target_env.title()} needs someone other than whoever promoted metadata {version} to "
                 f"{source_env.title()}, and {source_env.title()}'s record doesn't say who that was. "
                 f"Promote it to {source_env.title()} again so the record names them.")
-    if promoted_by_id and my_id:
-        same = promoted_by_id.lower() == my_id.lower()
-    else:
-        same = bool(me) and promoted_by.lower() == me.lower()  # type: ignore[union-attr]
-    if same:
+    same_id = bool(promoted_by_id and my_id) and promoted_by_id.lower() == my_id.lower()  # type: ignore[union-attr]
+    same_login = bool(me) and promoted_by.lower() == me.lower()  # type: ignore[union-attr]
+    if same_id or same_login:
         return (f"You promoted metadata {version} to {source_env.title()}, so someone else has to promote it to "
                 f"{target_env.title()} (separate_promoter in environments.toml).")
     return None
 
 
 def separation_note(promoted_by_id: str | None, my_id: str | None) -> str | None:
-    """Says so when the separate-promoter check fell back to PC login names."""
+    """Says so when the separate-promoter check could only compare PC login names."""
     if promoted_by_id and my_id:
         return None
     why = "you aren't signed in" if promoted_by_id else "its release record has no Microsoft Entra id"
-    return ("The separate promoter check compared PC login names, because " + why + ". It's a team check, "
-            "not a security boundary: the workspace roles decide who can write.")
+    return ("The separate promoter check could only compare PC login names, because " + why + ". It's a team "
+            "check, not a security boundary: the workspace roles decide who can write.")
 
 
 def recorded_object_id(receipt: str | None) -> str | None:

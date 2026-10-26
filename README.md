@@ -45,6 +45,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/notebooks.md](docs/notebooks.md) | Notebooks and SQL on your PC, Fabric code that works here, publishing, Run in Fabric and schedules |
 | [docs/notebook-spark-on-this-pc.md](docs/notebook-spark-on-this-pc.md) | Which PySpark methods and Spark settings work in a notebook on this PC |
 | [docs/sql-compatibility.md](docs/sql-compatibility.md) | The SQL compatibility check: what each Fabric SQL engine supports, findings, export, rules |
+| [docs/semantic-model-rules.md](docs/semantic-model-rules.md) | Best Practice Analyzer rules for the semantic model Update model writes, checked on this PC from the metadata project |
 | [docs/sql-best-practices.md](docs/sql-best-practices.md) | Best-practice checks on Warehouse and SQL endpoint T-SQL, read on this PC without running it |
 | [docs/warehouse.md](docs/warehouse.md) | Warehouses (Preview): the Warehouse page, T-SQL on a Fabric warehouse or SQL analytics endpoint (runs in Fabric, uses capacity), changes after a preview and confirm, the warehouse project in Git with compare and deploy, and the plan |
 | [docs/sql-execution.md](docs/sql-execution.md) | Running SQL page queries on this PC: states, Stop, limits, paging, export, what a query may do |

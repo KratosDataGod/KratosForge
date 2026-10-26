@@ -166,6 +166,7 @@ function bpFix(fix, recheck) {
   if (fix.action === "label") return btn(fix.label, null, () => labelDialog(fix, recheck), "tool outline small");
   if (fix.action === "open_entity") return btn(fix.label, null, () => openEntity(fix.entity), "tool link small");
   if (fix.action === "edit_product") return btn(fix.label, null, () => goMeta("products"), "tool link small");
+  if (fix.action === "open_model") return btn(fix.label, null, () => goMeta("model"), "tool link small");
   if (fix.action === "open_product_page") {
     return btn(fix.label, null, async () => {
       const out = await platformCall("platform_products", {}, "Could not read the catalog");

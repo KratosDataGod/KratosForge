@@ -183,6 +183,18 @@ class ChecksMixin:
                         "sources": [c.get("source") or "" for c in cells if c.get("type", "code") == "code"]})
         return out
 
+    def _gc_model_items(self, project: Any, saved: dict[str, dict[str, Any]],
+                        problems: list[str]) -> list[dict[str, Any]]:
+        """The model Update model writes for the project's model layer (the last one), for the model rules."""
+        from .. import model_practices
+
+        try:
+            layer = self._model_layer(project, None)  # type: ignore[attr-defined]
+            return [model_practices.model_item(project, layer, saved)]
+        except Exception as exc:  # noqa: BLE001 - the other rules still run
+            problems.append(f"The semantic model couldn't be planned, so it wasn't checked: {describe(exc)}")
+            return []
+
     def _gc_product_items(self, project: Any, need_load: bool, need_trust: bool) -> list[dict[str, Any]]:
         pname = mesh.project_name(project)
         runs, unavailable = self._gc_runs() if need_load and project.products else ([], {})
@@ -215,8 +227,11 @@ class ChecksMixin:
             problems.append(f"The platform's catalog text couldn't be read, so only the text in the project's files was checked: {describe(exc)}")
         items = entity_items(project, saved) + self._gc_product_items(
             project, bool(wanted & _LOAD_RULES), bool(wanted & _TERMS_RULES))
-        if "notebook" in {found[0].kind for found in map(gc.find_rule, wanted) if found}:
+        kinds = {found[0].kind for found in map(gc.find_rule, wanted) if found}
+        if "notebook" in kinds:
             items += self._gc_notebook_items(problems)
+        if "model" in kinds:
+            items += self._gc_model_items(project, saved, problems)
         policies = []
         for pol in resolved["policies"]:
             ids = gc.rule_ids(pol.get("rule"))

@@ -184,7 +184,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-006](PRODUCT_BACKLOG.md#pb-006) | Content Security Policy for the main window | 1 | 1 | 5 | 1 | 4 | 3 | 3 | 2.45 | 3.0 | 1.47 | required | M | Medium | none | Enterprise readiness |
 | [PB-104](PRODUCT_BACKLOG.md#pb-104) | Optimize central lakehouse program | 3 | 5 | 4 | 5 | 5 | 5 | 4 | 4.25 | 4.5 | 1.27 | none | XL | Low | none | Optimize central lakehouse |
 
-### P2 (51 items)
+### P2 (52 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
@@ -192,6 +192,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-088](PRODUCT_BACKLOG.md#pb-088) | Capacity inventory and health | 2 | 4 | 5 | 3 | 4 | 3 | 2 | 3.6 | 2.5 | 2.52 | none | M | Medium | PB-050 | Administration and FinOps sprint |
 | [PB-106](PRODUCT_BACKLOG.md#pb-106) | Warehouse development program | 5 | 3 | 4 | 4 | 5 | 4 | 2 | 4.2 | 3.0 | 2.52 | none | XL | Medium | PB-024, PB-025 | Build full warehouse development experience |
 | [PB-094](PRODUCT_BACKLOG.md#pb-094) | Measure the process kernel, not the engine | 3 | 3 | 2 | 2 | 4 | 2 | 1 | 2.75 | 1.5 | 2.48 | none | S | Medium | none | Prove |
+| [PB-113](PRODUCT_BACKLOG.md#pb-113) | Action-first experience program | 5 | 1 | 3 | 4 | 5 | 3 | 2 | 3.55 | 2.5 | 2.48 | none | L | Medium | PB-102 | Action-first experience |
 | [PB-043](PRODUCT_BACKLOG.md#pb-043) | Cancel a Fabric run from the app | 3 | 3 | 2 | 1 | 3 | 1 | 1 | 2.45 | 1.0 | 2.45 | none | S | High | none | Master product (unassigned) |
 | [PB-077](PRODUCT_BACKLOG.md#pb-077) | User and agent docs match the code | 3 | 1 | 3 | 1 | 4 | 1 | 1 | 2.45 | 1.0 | 2.45 | none | S | High | none | Master product (unassigned) |
 | [PB-111](PRODUCT_BACKLOG.md#pb-111) | Check now covers SQL scripts and scheduled notebooks | 3 | 1 | 4 | 2 | 3 | 2 | 1 | 2.7 | 1.5 | 2.43 | none | S | Medium | PB-108 | Enterprise governance foundation |
@@ -272,3 +273,4 @@ are sequenced by those programs; the order here is what the master product view 
 | 2026-10-18 | PB-105 Simplified incident management added (unit testing item 33); best-practice actions, in-app guidance and a docs page per area noted as a theme on PB-077 and PB-102 | Master product thread |
 | 2026-10-20 | Business keys: one keys database in a dedicated workspace for all environments (unit testing item 25). Reverses the 2026-10-16 decision to keep keys per environment, so Dev and Test issue the same key numbers as Prod. Recorded on FEAT-MESH-02 and PB-068 | Chris |
 | 2026-10-25 | Product data refreshed for PRs #135 to #650 (the 2026-10-22 refresh had not reached main). Five programs added with their owners' ids: PB-106 Warehouse (WH), PB-107 Data Factory (DF), PB-108 best-practice checks and governance templates, PB-109 VS Code integration, PB-110 Apache Ossie. Merged work moved to In review: PB-005, PB-008, PB-024, PB-025, PB-059 | Product management thread |
+| 2026-10-26 | Product check for PRs #676 to #741. PB-113 action-first program added (AF-1, #722). Chris accepted PB-018, PB-044, PB-054 and PB-065 with documented limitations ("I accept all 4") | Chris |

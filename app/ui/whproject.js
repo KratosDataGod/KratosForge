@@ -17,6 +17,12 @@ async function whLoadProjects() {
   }
 }
 
+// A failed call says so; one the person cancelled (a sign-in window closed) says nothing.
+function whFailed(what, err) {
+  const f = friendlyError(err);
+  if (!f.cancelled) toast(`${what}: ${f.text}`, true);
+}
+
 const WH_KIND_LABELS = { schema: "Schema", table: "Table", view: "View", procedure: "Stored procedure", function: "Function" };
 const WH_KIND_ICONS = { schema: "folder", table: "table", view: "windowDatabase", procedure: "flash", function: "braces" };
 const WH_KIND_OF = { U: "table", V: "view", P: "procedure", FN: "function", IF: "function", TF: "function" };
@@ -202,14 +208,14 @@ async function whProjectImport(ref, project, done) {
   toast(`Scripting ${ref.name} from its catalog...`);
   let objects;
   try { objects = await whScriptWarehouse(ref); } catch (err) {
-    toast(`Could not script ${ref.name}: ${friendlyError(err).text}`, true);
+    whFailed(`Could not script ${ref.name}`, err);
     return;
   }
   const repoPick = project ? null : h("select", { "aria-label": "Repository" }, whProjects.repos.map((r) => h("option", { value: r.repo }, r.label)));
   const target = () => (project ? { repo: project.repo, folder: project.folder } : { repo: repoPick.value, create: ref.name });
   let plan;
   try { plan = await rpc("wh_project_write", { ...target(), objects, dry_run: true }); } catch (err) {
-    toast(`Could not read the project: ${friendlyError(err).text}`, true);
+    whFailed("Could not read the project", err);
     return;
   }
   const replace = h("input", { type: "checkbox" });
@@ -248,7 +254,7 @@ async function whProjectImport(ref, project, done) {
     toast(`Imported ${ref.name}: ${c.added} new, ${replace.checked ? c.changed : 0} replaced, ${c.same} the same${c.skipped ? `, ${c.skipped} skipped` : ""}.`);
     if (out.created) sqlPage.whProjectPick[sqlRefKey(ref)] = `${out.repo}|${out.folder}`;
   } catch (err) {
-    toast(`Could not import: ${friendlyError(err).text}`, true);
+    whFailed("Could not import", err);
   }
   await done();
 }
@@ -296,7 +302,7 @@ async function whProjectSave(tab) {
     toast(`Saved ${f.path} in ${f.folder}.`);
     return true;
   } catch (err) {
-    toast(`Could not save the file: ${friendlyError(err).text}`, true);
+    whFailed("Could not save the file", err);
     return false;
   }
 }
@@ -318,7 +324,7 @@ async function whProjectCompare(ref, project) {
     sqlPage.whCompareShown = true;
     renderQuery();
   } catch (err) {
-    toast(`Could not compare: ${friendlyError(err).text}`, true);
+    whFailed("Could not compare", err);
   }
 }
 
@@ -458,7 +464,7 @@ async function whProjectDeploy(ref, project) {
       if (dry.refused) Object.assign(c, { offered: false, ticked: false, why: `the engine refuses it: ${dry.refused.reason}` });
     }
   } catch (err) {
-    toast(`Could not plan the deploy: ${friendlyError(err).text}`, true);
+    whFailed("Could not plan the deploy", err);
     return;
   }
   if (!plan.changes.length) { toast(`${ref.name} already matches ${project.folder}: nothing to deploy.`); return; }

@@ -55,9 +55,9 @@ WH_Gold.Warehouse/
 **Compare with WH_Gold** on the Project tab reads the warehouse's catalog (catalog queries in Fabric, as Import does) and opens a **Compare** tab beside your queries. Nothing changes on either side.
 
 - Each object is **Changed**, **Only in project**, **Only in warehouse** or **Same**, with a count for each; pick one to see only those. Changed objects come first.
-- Two scripts are the **same** when they read the same as T-SQL: comments, `GO` lines, semicolons, spacing, letter case outside strings, and brackets around plain names don't count. Strings are compared as written.
+- Two scripts are the **same** when they read the same as T-SQL: comments, `GO` lines, semicolons, spacing, the letter case of keywords, and brackets around plain names don't count. Names keep their case, since a warehouse's default `Latin1_General_100_BIN2_UTF8` collation makes `dbo.Sales` and `dbo.sales` two tables. Strings are compared as written, and a `GO` line inside a string or comment stays part of it.
 - Pick an object to see the warehouse's script beside the project's file, line by line. For a table, the columns that differ are listed above it, such as *column Segment: varchar(20) NULL in the warehouse, varchar(40) NULL in the project*. A table in the project with constraints the warehouse's catalog script doesn't carry shows as *the table's options differ*.
-- **Open file** opens the project's file in a tab. **Take the warehouse's version** writes the warehouse's script into the project (asking first when it replaces a file); commit it in Source control.
+- **Open file** opens the project's file in a tab. **Take the warehouse's version** writes the warehouse's script into the project (asking first when it replaces the object's file, and never writing over a file that holds another script); commit it in Source control.
 - A file that doesn't create an object, or defines one already defined in another file, is listed as not compared.
 - **Compare again** reads the catalog again. Closing the Compare tab forgets the comparison.
 

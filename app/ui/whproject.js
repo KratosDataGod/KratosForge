@@ -341,7 +341,7 @@ function whCompareView(ref, actions) {
       h("div", {}, `In the project${branch ? ` (${branch})` : ""}`));
     let rows;
     if (o.state === "same") {
-      pane.replaceChildren(head, h("p", { class: "muted-text wh-note" }, `${whObjLabel(o)} reads the same on both sides (formatting, comments and letter case aside).`), paneActions(o));
+      pane.replaceChildren(head, h("p", { class: "muted-text wh-note" }, `${whObjLabel(o)} reads the same on both sides (formatting, comments and the case of keywords aside).`), paneActions(o));
       return;
     }
     if (o.state === "changed") {
@@ -371,12 +371,16 @@ function whCompareView(ref, actions) {
 
   async function takeWarehouse(o) {
     if (o.state === "changed" && !(await confirmDialog("Take the warehouse's version",
-      `Replace ${o.path} with ${whObjLabel(o)} as it is in ${ref.name}? Your version stays in Git history only if it was committed.`, "Replace"))) return;
-    const out = await attempt(() => rpc("wh_project_write", { repo: c.project.repo, folder: c.project.folder, replace: true,
+      `Replace ${o.path} with ${whObjLabel(o)} as it is in ${ref.name}? Your version stays in Git history only if it was committed.`, "Replace", { danger: true }))) return;
+    const out = await attempt(() => rpc("wh_project_write", { repo: c.project.repo, folder: c.project.folder, replace: o.state === "changed",
       objects: [{ kind: o.kind, schema: o.schema, name: o.name, text: o.warehouse_text }] }), "Could not write the file");
     if (!out) return;
     const row = out.added[0] || out.changed[0] || out.same[0];
     if (!row) { toast(`Could not write ${whObjLabel(o)}: ${out.skipped[0]?.why || "it was skipped"}`, true); return; }
+    if (row.replaced === "no") {
+      toast(`${row.path} already holds another script, so ${whObjLabel(o)} wasn't written. Open the file to see what's there.`, true);
+      return;
+    }
     r.counts[o.state] -= 1;
     r.counts.same += 1;
     Object.assign(o, { state: "same", path: row.path, project_text: o.warehouse_text, rows: null, detail: [] });

@@ -70,13 +70,13 @@ from, and keep the stricter acceptance criteria. In this first pass:
 | [Pipelines and Orchestration](#pipelines-and-orchestration) | 0 | 1 | 4 | 4 | 9 |
 | [Fabric Integration and Deployment](#fabric-integration-and-deployment) | 0 | 1 | 5 | 1 | 7 |
 | [Enterprise Shared Services](#enterprise-shared-services) | 0 | 1 | 2 | 1 | 4 |
-| [Data Governance and Quality](#data-governance-and-quality) | 0 | 3 | 6 | 0 | 9 |
+| [Data Governance and Quality](#data-governance-and-quality) | 0 | 3 | 8 | 0 | 11 |
 | [Developer Experience and Productivity](#developer-experience-and-productivity) | 0 | 3 | 5 | 1 | 9 |
 | [Enterprise Administration and FinOps](#enterprise-administration-and-finops) | 0 | 4 | 5 | 2 | 11 |
 | [Extensibility, APIs, CLI, and MCP](#extensibility-apis-cli-and-mcp) | 0 | 2 | 2 | 1 | 5 |
 | [Security and Enterprise Readiness](#security-and-enterprise-readiness) | 2 | 7 | 2 | 0 | 11 |
 | [Reliability, Testing, and Performance](#reliability-testing-and-performance) | 2 | 5 | 5 | 0 | 12 |
-| **Total** | **5** | **31** | **49** | **13** | **98** |
+| **Total** | **5** | **31** | **51** | **13** | **100** |
 <!-- END GENERATED: summary -->
 
 States: Proposed (not yet approved), Approved (the product owner said go), In progress, In review
@@ -768,7 +768,9 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-082](#pb-082) | Versioned data contracts with consumer declarations | P2 | Staged roadmap | M | Proposed |
 | [PB-083](#pb-083) | Endorsed items scope in the catalog | P2 | Master product (unassigned) | S | Proposed |
 | [PB-084](#pb-084) | One late-table alert, not two | P2 | Workload management | S | In review |
-| [PB-108](#pb-108) | Best-practice checks and governance templates | P1 | Enterprise governance foundation | L | In review |
+| [PB-108](#pb-108) | Best-practice checks and governance templates | P1 | Enterprise governance foundation | L | Accepted |
+| [PB-111](#pb-111) | Check now covers SQL scripts and scheduled notebooks | P2 | Enterprise governance foundation | S | Proposed |
+| [PB-112](#pb-112) | Semantic model best-practice checks in governance policies | P2 | Best Practice Analyzer | M | Proposed |
 
 ### PB-056
 
@@ -880,18 +882,46 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-108
 
-**Best-practice checks and governance templates** · P1 (score 2.83) · L · confidence Medium · In review
+**Best-practice checks and governance templates** · P1 (score 2.83) · L · confidence Medium · Accepted
 
 - **Problem:** Teams have no shared, editable best-practice rules that check notebooks, SQL and semantic models before they reach Fabric.
 - **Proposed capability:** Governance owns templates (policies with Check now, user-added rules, locks, exceptions); the Best Practice Analyzer thread owns the checkers (notebook NB001-012, SQL SQ001-010, semantic model BPA through semantic-link-labs in Fabric).
-- **Current-state evidence:** Chris 2026-10-24: 'more on governance and best practices. Allow for people to add their own templates'; Draft PRs #560 (BPA engine), #643 (notebook rules), #648 (templates and Check now), #649 (SQL rules), #651 (RE2 naming checks)
-- **Inventory features:** [FEAT-GOV-05](FEATURE_INVENTORY.md#feat-gov-05), [FEAT-GOV-09](FEATURE_INVENTORY.md#feat-gov-09), [FEAT-META-13](FEATURE_INVENTORY.md#feat-meta-13)
-- **Dependencies:** [PB-056](#pb-056), Chris pastes the BPA cell error from the 2026-10-23 live run, Quality verdicts on #643, #648, #649, #651
+- **Current-state evidence:** Chris 2026-10-24: 'more on governance and best practices. Allow for people to add their own templates'; Draft PRs #560 (BPA engine), #643 (notebook rules), #648 (templates and Check now), #649 (SQL rules), #651 (RE2 naming checks); Implementation review docs/product/reviews/PB-108-643.md: Accepted with Documented Limitations (Chris 'Go on all', 2026-10-26); limitations tracked in PB-111 and PB-112
+- **Inventory features:** [FEAT-GOV-05](FEATURE_INVENTORY.md#feat-gov-05), [FEAT-GOV-09](FEATURE_INVENTORY.md#feat-gov-09)
+- **Dependencies:** [PB-056](#pb-056)
 - **Owner:** Enterprise governance foundation (NB001-012, SQ001-010, GOV templates)
-- **Pull requests:** [#560](https://github.com/KratosDataGod/KratosForge/pull/560), [#643](https://github.com/KratosDataGod/KratosForge/pull/643), [#648](https://github.com/KratosDataGod/KratosForge/pull/648), [#649](https://github.com/KratosDataGod/KratosForge/pull/649), [#651](https://github.com/KratosDataGod/KratosForge/pull/651), [#664](https://github.com/KratosDataGod/KratosForge/pull/664), [#671](https://github.com/KratosDataGod/KratosForge/pull/671)
+- **Pull requests:** [#643](https://github.com/KratosDataGod/KratosForge/pull/643), [#648](https://github.com/KratosDataGod/KratosForge/pull/648), [#649](https://github.com/KratosDataGod/KratosForge/pull/649), [#651](https://github.com/KratosDataGod/KratosForge/pull/651), [#664](https://github.com/KratosDataGod/KratosForge/pull/664), [#671](https://github.com/KratosDataGod/KratosForge/pull/671), [#713](https://github.com/KratosDataGod/KratosForge/pull/713)
 - **Acceptance criteria:**
     - Each rule set registers through governance_checks.register and is off unless a policy names it
     - Check now runs offline for notebooks and SQL; model checks say they run in Fabric and use capacity
+
+### PB-111
+
+**Check now covers SQL scripts and scheduled notebooks** · P2 (score 2.43) · S · confidence Medium · Proposed
+
+- **Problem:** Check now has no SQL scripts to give the SQL rules SQ001-SQ010, and checks notebooks as unscheduled, so a policy naming SQ rules or NB004/NB008 always shows not checked.
+- **Proposed capability:** Check now collects this PC's SQL scripts (project .sql files and saved queries) for the SQL rules, and marks notebooks that have a schedule so the scheduled-only rules NB004 and NB008 run on them.
+- **Current-state evidence:** PB-108 implementation review, findings 2 and 5 (docs/product/reviews/PB-108-643.md); docs/governance.md: Check now has no SQL scripts yet; NB004 and NB008 are for scheduled runs
+- **Inventory features:** [FEAT-GOV-09](FEATURE_INVENTORY.md#feat-gov-09)
+- **Dependencies:** [PB-108](#pb-108)
+- **Owner:** Enterprise governance foundation (central/checks_service.py governance_check_now)
+- **Acceptance criteria:**
+    - A policy naming SQ rules shows pass or findings from this PC's SQL scripts, never not checked when scripts exist
+    - NB004 and NB008 run in Check now on notebooks that have a schedule
+
+### PB-112
+
+**Semantic model best-practice checks in governance policies** · P2 (score 1.8) · M · confidence Medium · Proposed
+
+- **Problem:** No semantic model checker is registered, so a policy can't name Best Practice Analyzer rules and Check now can't run them.
+- **Proposed capability:** The BPA engine (#560) registers through governance_checks.register with runs_in="fabric"; Check now says those checks run in Fabric and use capacity, and stores their findings with store_fabric_findings.
+- **Current-state evidence:** PB-108 implementation review, finding 1 (docs/product/reviews/PB-108-643.md); #560 is an open draft
+- **Inventory features:** [FEAT-GOV-09](FEATURE_INVENTORY.md#feat-gov-09), [FEAT-META-13](FEATURE_INVENTORY.md#feat-meta-13)
+- **Dependencies:** [PB-108](#pb-108), Chris pastes the BPA cell error from the 2026-10-23 live run
+- **Owner:** Best Practice Analyzer (#560 model_bpa)
+- **Pull requests:** [#560](https://github.com/KratosDataGod/KratosForge/pull/560)
+- **Acceptance criteria:**
+    - A policy can name semantic model rules; Check now says they run in Fabric and use capacity before running them
 
 ## Developer Experience and Productivity
 

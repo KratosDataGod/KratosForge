@@ -57,6 +57,12 @@ test("explanations on request: the panel leaves the page and opens as a drawer f
   assert.strictEqual(await page().getAttribute("#how-toggle", "aria-expanded"), "true");
   assert.match(await page().textContent(".how-it-works.how-shown"), /What it reads[\s\S]*What it changes[\s\S]*Where results go/);
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "appearance-how-drawer.png") });
+  // Escape with a dialog open closes the dialog, not the drawer behind it.
+  await page().evaluate(() => { confirmDialog("Keep the drawer?", "Escape closes this first."); });
+  await page().locator(".overlay").waitFor();
+  await page().keyboard.press("Escape");
+  await page().locator(".overlay").waitFor({ state: "detached" });
+  assert.ok(await page().isVisible(".how-it-works.how-shown"), "the drawer stayed open");
   await page().keyboard.press("Escape");
   await page().waitForSelector(".mon-how .how-it-works", { state: "hidden" });
   await page().click("#how-toggle");

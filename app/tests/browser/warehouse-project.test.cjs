@@ -146,8 +146,15 @@ test("Compare lists each object's state, shows the difference and can take the w
   await view.locator(".wh-cmp-diff").waitFor();
   assert.doesNotMatch(await view.locator(".wh-cmp-pane").textContent(), /null/, "no empty part shows as text");
   await view.getByRole("option", { name: /dbo\.vw_Sales/ }).click();
+  // A file that came in since the compare, at the place vw_Sales would go, is never overwritten without asking.
+  const decoy = "CREATE VIEW dbo.vw_Other AS SELECT 9 AS z\n";
+  fs.writeFileSync(file("dbo", "Views", "vw_Sales.sql"), decoy);
   await view.getByRole("button", { name: "Take the warehouse's version" }).click();
-  await page().waitForFunction(() => /Wrote dbo\/Views\/vw_Sales\.sql from WH_Gold/.test(document.querySelector(".toast")?.textContent || ""));
+  await page().waitForFunction(() => /already holds another script, so dbo\.vw_Sales wasn't written/.test([...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" ")));
+  assert.strictEqual(fs.readFileSync(file("dbo", "Views", "vw_Sales.sql"), "utf8"), decoy);
+  fs.rmSync(file("dbo", "Views", "vw_Sales.sql"));
+  await view.getByRole("button", { name: "Take the warehouse's version" }).dispatchEvent("click");  // under the error toast
+  await page().waitForFunction(() => /Wrote dbo\/Views\/vw_Sales\.sql from WH_Gold/.test([...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" ")));
   assert.ok(fs.existsSync(file("dbo", "Views", "vw_Sales.sql")));
   await page().waitForFunction(() => /Only in warehouse 0.*Same 3/.test(document.querySelector(".wh-cmp-chips")?.textContent || ""));
 
@@ -155,6 +162,10 @@ test("Compare lists each object's state, shows the difference and can take the w
   assert.strictEqual(await view.getByRole("option").count(), 3);
   await view.getByRole("button", { name: "Changed 1" }).click();
   await view.getByRole("option", { name: /dbo\.DimCustomer/ }).click();
+  await view.getByRole("button", { name: "Take the warehouse's version" }).click();
+  const replace = page().getByRole("dialog", { name: "Take the warehouse's version" });
+  assert.match(await replace.getByRole("button", { name: "Replace" }).getAttribute("class"), /danger/, "replacing a file is a danger confirm");
+  await replace.getByRole("button", { name: "Cancel" }).click();
   await view.getByRole("button", { name: "Open file" }).click();
   await page().waitForFunction(() => !document.querySelector(".wh-cmp") && sqlPage.tabs[sqlPage.active].proj?.path === "dbo/Tables/DimCustomer.sql");
   await page().getByRole("tab", { name: "Compare" }).click();

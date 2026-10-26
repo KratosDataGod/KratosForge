@@ -176,9 +176,25 @@ from fabric_desktop import warehouse_compare as wc  # noqa: E402
 def test_formatting_case_and_brackets_dont_make_a_difference():
     fabric = "CREATE TABLE [dbo].[DimCustomer] (\n    [CustomerKey] INT NOT NULL,\n    [Segment] VARCHAR (20) NULL\n);\n\n\nGO\n"
     assert wc.same(TABLE, fabric)
-    assert wc.same("CREATE VIEW v AS SELECT 'A' AS x -- note", "create view [v]\nas select 'A' as [x];")
+    assert wc.same("CREATE VIEW v AS SELECT 'A' AS x -- note", "create view [v]\nAS Select 'A' as [x];")
     assert not wc.same("SELECT 'A'", "SELECT 'a'"), "strings are compared as written"
     assert not wc.same("CREATE VIEW v AS SELECT [a b] FROM t", "CREATE VIEW v AS SELECT [a c] FROM t")
+
+
+def test_names_keep_their_case_as_the_warehouse_collation_does():
+    # Fabric's BIN2 collation: [Region] and [region] are different columns, dbo.Sales and dbo.sales different tables.
+    assert not wc.same("CREATE VIEW v AS SELECT [Region] FROM t", "CREATE VIEW v AS SELECT [region] FROM t")
+    assert not wc.same("CREATE VIEW v AS SELECT Region FROM dbo.Sales", "CREATE VIEW v AS SELECT Region FROM dbo.sales")
+    assert wc.same("CREATE VIEW v AS SELECT CAST(Region AS VARCHAR(5)) FROM t", "create view v as select cast(Region as varchar(5)) from t")
+    project = TABLE.replace("[Segment] varchar(20) NULL", "[segment] varchar(20) NULL")
+    assert wc.table_detail(TABLE, project) == ["column segment is only in the project", "column Segment is only in the warehouse"]
+
+
+def test_a_go_line_inside_a_string_or_comment_is_kept():
+    view = "CREATE VIEW v AS SELECT 'a\nGO\nb' AS x\nGO\n"
+    assert not wc.same(view, "CREATE VIEW v AS SELECT 'a\nb' AS x\nGO\n"), "the string's own GO line counts"
+    assert wc.same(view, "CREATE VIEW v AS SELECT 'a\nGO\nb' AS x;")
+    assert wc.tokens("/* one\nGO\ntwo */ SELECT 1\n go ;\n") == ["select", "1"]
 
 
 def test_a_changed_table_says_which_columns_differ():
@@ -201,11 +217,11 @@ def test_compare_lists_every_object_on_either_side(svc, repo):
                                          ("procedure", "dbo", "usp_New", "CREATE PROCEDURE dbo.usp_New AS SELECT 1;")),
                          create="WH_Gold")
     (repo / "WH_Gold.Warehouse" / "notes.sql").write_text("-- just notes\n", encoding="utf-8")
-    warehouse = objs(("table", "dbo", "DimCustomer", TABLE), ("view", "dbo", "VW_SALES", VIEW.lower()),
+    warehouse = objs(("table", "dbo", "DimCustomer", TABLE), ("view", "dbo", "vw_Sales", VIEW.replace("SELECT", "select")),
                      ("view", "dbo", "vw_Old", "CREATE VIEW dbo.vw_Old AS SELECT 2 AS y;"))
     out = svc.wh_project_compare(str(repo), "WH_Gold.Warehouse", warehouse)
     states = {(r["kind"], r["name"]): r["state"] for r in out["objects"]}
-    assert states == {("table", "DimCustomer"): "changed", ("view", "VW_SALES"): "same",
+    assert states == {("table", "DimCustomer"): "changed", ("view", "vw_Sales"): "same",
                       ("view", "vw_Old"): "only_warehouse", ("procedure", "usp_New"): "only_project"}
     assert out["counts"] == {"changed": 1, "only_project": 1, "only_warehouse": 1, "same": 1}
     changed = next(r for r in out["objects"] if r["state"] == "changed")

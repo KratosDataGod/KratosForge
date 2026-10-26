@@ -1,7 +1,7 @@
 """Fabric pipeline runs for Monitor > Runs (Data Factory DF-1, engine half).
 
-Two reads, no writes, no capacity: ``fabric_pipeline_runs`` lists the job history of every pipeline
-in the chosen workspaces (a background scan, like Fabric schedules: ``{"pending": True}`` until it's
+Two reads, no writes, no capacity: ``fabric_pipeline_runs`` lists the job history of every pipeline,
+copy job and dataflow (DF-6, DF-7; each row's ``kind`` says which) in the chosen workspaces (a background scan, like Fabric schedules: ``{"pending": True}`` until it's
 done), and ``fabric_pipeline_activity_runs`` reads one run's activities when its row is opened, never
 in the background. Activity input, output and errors pass through redact.secrets and are capped, so a
 large Lookup output can't flood the reply.
@@ -22,7 +22,9 @@ from .redact import describe, secrets
 
 _log = logging.getLogger(__name__)
 
-RUNS_PER_PIPELINE = 20
+RUNS_PER_PIPELINE = 20  # per item, whatever its kind
+# The Data Factory items whose runs Monitor lists, and the kind each row carries.
+RUN_KINDS = {"DataPipeline": "pipeline", "CopyJob": "copy job", "Dataflow": "dataflow"}
 MAX_RUNS = 300
 TEXT_LIMIT = 16_000  # characters of one activity's input, output or error detail
 WINDOW_SLACK = dt.timedelta(minutes=5)  # around the run's start and end for the activity query
@@ -106,7 +108,8 @@ class FabricPipelineRunsMixin:
 
     def fabric_pipeline_runs(self, refresh: bool = False, all_workspaces: bool = False,
                              workspace_ids: list[str] | None = None) -> dict[str, Any]:
-        """Pipeline runs in Fabric, newest first, from a background scan ({"pending": True} meanwhile).
+        """Pipeline, copy job and dataflow runs in Fabric, newest first, from a background scan
+        ({"pending": True} meanwhile).
 
         Workspaces: ``workspace_ids`` when given, else the ones Schedules lists (pinned, environments,
         notebooks), or every one with ``all_workspaces``. Reads only: no job starts."""
@@ -145,7 +148,7 @@ class FabricPipelineRunsMixin:
         def pipelines(ws: dict[str, str]) -> list[dict[str, Any]]:
             try:
                 return [{"workspace_id": ws["id"], "workspace_name": ws["name"], **it}
-                        for it in client.list_items(ws["id"]) if it.get("type") == "DataPipeline"]
+                        for it in client.list_items(ws["id"]) if it.get("type") in RUN_KINDS]
             except Exception as exc:  # noqa: BLE001
                 missed.append(f"items in workspace {ws['id']}: {describe(exc)}")
                 return []
@@ -154,9 +157,9 @@ class FabricPipelineRunsMixin:
             try:
                 jobs = client.list_job_instances(p["workspace_id"], p["id"])
             except Exception as exc:  # noqa: BLE001
-                missed.append(f"runs of pipeline {p['id']}: {describe(exc)}")
+                missed.append(f"runs of {RUN_KINDS[p['type']]} {p['id']}: {describe(exc)}")
                 return []
-            return [run_row(j, p) for j in jobs[:RUNS_PER_PIPELINE]]
+            return [{**run_row(j, p), "kind": RUN_KINDS[p["type"]]} for j in jobs[:RUNS_PER_PIPELINE]]
 
         with ThreadPoolExecutor(max_workers=8) as pool:
             found = [p for chunk in pool.map(pipelines, workspaces) for p in chunk]
@@ -165,7 +168,8 @@ class FabricPipelineRunsMixin:
             _log.warning("Fabric pipeline runs: %d reads failed; the first was %s", len(missed), missed[0])
         rows.sort(key=lambda r: str(r.get("started") or ""), reverse=True)
         self._set_pipeline_runs({"pending": False, "runs": rows[:MAX_RUNS], "scope": scope,
-                                 "workspaces": len(workspaces), "pipelines": len(found), "missed": len(missed),
+                                 "workspaces": len(workspaces), "items": len(found),
+                                 "pipelines": sum(p["type"] == "DataPipeline" for p in found), "missed": len(missed),
                                  "scanned": _iso(_now())})
 
     def _set_pipeline_runs(self, value: dict[str, Any]) -> None:

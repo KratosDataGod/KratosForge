@@ -96,3 +96,7 @@ The field names follow the examples in Microsoft's Copy job definition article. 
 ## DF-6 screen: Copy jobs tab
 
 The Pipelines page's **Copy jobs** tab (Preview) sits between Pipelines and Dataflows. It works like the Dataflows tab: you pick a workspace (the same remembered `fd.pipelines.workspace`), its copy jobs are listed with `workspace_copy_jobs`, and opening one reads `workspace_copy_job_definition` and `fabric_copy_job_runs` together. The summary shows source, destination, mode, timeout, connection count and the `local_check` line. Its views are **Tables** and **Run history**. **Open in Fabric** opens the workspace until a copy job's own page address is confirmed. There are no run buttons yet. Run on this PC needs the copy engine (DF-3), and Run in Fabric needs a confirm and the risk check.
+
+## Copy job and dataflow runs in Monitor
+
+`fabric_pipeline_runs` reads the run history of copy jobs (`CopyJob`) and Dataflow Gen2 items (`Dataflow`) as well as pipelines, in the same background scan and the same workspaces, with the same 20 newest runs per item. Each row carries `kind` (`pipeline`, `copy job` or `dataflow`). The reply adds `items`, the count of all three, and `pipelines` still counts pipelines alone. Monitor > Runs labels the rows **Copy job run in Fabric** and **Dataflow refresh in Fabric**. Only pipeline runs open to their activities. Still reads only: no job starts and no capacity is used.

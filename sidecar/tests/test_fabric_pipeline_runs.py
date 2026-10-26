@@ -70,6 +70,19 @@ def test_runs_of_the_pinned_workspaces_pipelines_newest_first_with_secrets_remov
     assert (out["workspaces"], out["pipelines"], out["missed"]) == (1, 1, 0)
 
 
+def test_copy_job_and_dataflow_runs_are_listed_with_their_kind(svc, monkeypatch):
+    items = [{"id": "pl2", "type": "DataPipeline", "displayName": "pl_other"},
+             {"id": "cj1", "type": "CopyJob", "displayName": "cj_erp"},
+             {"id": "df1", "type": "Dataflow", "displayName": "df_products"},
+             {"id": "lh1", "type": "Lakehouse", "displayName": "LH"}]
+    monkeypatch.setattr(FakeFabric, "list_items", lambda self, ws: items if ws == "ws2" else [])
+    out = _settled(svc, workspace_ids=["ws2"])
+    assert {(r["name"], r["kind"]) for r in out["runs"]} == {
+        ("cj_erp", "copy job"), ("df_products", "dataflow"), ("pl_other", "pipeline")}
+    assert (out["items"], out["pipelines"]) == (3, 1)
+    assert ("runs", "lh1") not in FakeFabric.calls
+
+
 def test_chosen_workspaces_and_all_workspaces(svc):
     assert [r["job_id"] for r in _settled(svc, workspace_ids=["ws2"])["runs"]] == ["j3"]
     assert [r["job_id"] for r in _settled(svc, all_workspaces=True)["runs"]] == ["j3", "j2", "j1"]

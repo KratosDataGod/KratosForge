@@ -453,8 +453,9 @@ function actionsTable(w) {
 
 // verb is how the button that led here put it ("Retry"); otherwise the action's own name.
 // recheck reads the capacity again for the risk check (FINOPS-004) instead of using the last reading.
-async function confirmWorkloadAction(w, a, verb = "", recheck = false) {
-  const pre = await attempt(() => rpc("workload_preflight", { id: w.id, action: a.action, env: a.env || null }), "Couldn't check that action");
+// opts.pre is a preflight the caller already has; opts.done(res) runs after the action is sent.
+async function confirmWorkloadAction(w, a, verb = "", recheck = false, opts = {}) {
+  const pre = opts.pre || await attempt(() => rpc("workload_preflight", { id: w.id, action: a.action, env: a.env || null }), "Couldn't check that action");
   if (!pre) return;
   if (recheck && pre.risk) pre.risk = await rpc("risk_check", { id: w.id, action: a.action, env: a.env || null, refresh: true }).catch(() => pre.risk);
   if (!pre.allowed) {
@@ -478,6 +479,7 @@ async function confirmWorkloadAction(w, a, verb = "", recheck = false) {
     toast(s === "submitted" ? `${verb}: submitted. This page shows how it ends when the run finishes.`
       : s === "failed" ? `${verb} failed: ${res.action.detail || "see the run"}` : `${verb}: done.`, s === "failed", { log: true });
     wlPage.detail = null;
+    if (opts.done) opts.done(res);
     if (state.view === "workload") render();
   };
   showDialog(a.action === "cancel" ? `Cancel the running job of ${pre.workload}?` : `${verb} ${pre.workload}${inEnv}?`, h("div", { class: "wl-confirm" },
@@ -488,10 +490,10 @@ async function confirmWorkloadAction(w, a, verb = "", recheck = false) {
       row("Target", pre.target),
       row("What happens", pre.consequence))),
     (pre.warnings || []).map((t) => h("div", { class: "callout wl-warning" }, icon("warning", 18), h("span", {}, t))),
-    riskPanel(pre.risk, { box, onRecheck: () => { closeDialog(); confirmWorkloadAction(w, a, verb, true); } }),
+    riskPanel(pre.risk, { box, onRecheck: () => { closeDialog(); confirmWorkloadAction(w, a, verb, true, { done: opts.done }); } }),
     h("p", { class: "muted-text small" }, pre.risk?.note ? `${pre.risk.note} ` : "", pre.recorded)),
   pre.risk?.result === "blocked"
-    ? [btn("Check again", null, () => { closeDialog(); confirmWorkloadAction(w, a, verb, true); }, "tool outline"),
+    ? [btn("Check again", null, () => { closeDialog(); confirmWorkloadAction(w, a, verb, true, { done: opts.done }); }, "tool outline"),
       btn("Close", null, closeDialog, "tool primary")]
     : [btn("Cancel", null, closeDialog, "tool outline"),
       btn(`${verb}${inEnv}`, null, go_, "tool primary")]);

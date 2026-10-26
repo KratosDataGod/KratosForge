@@ -1,8 +1,9 @@
 // Data Factory copy jobs (DF-6, Preview): the Copy jobs tab beside Pipelines. Read-only: it lists a
 // workspace's copy jobs, and for the one picked shows where it copies from and to, each table, whether
 // a run on this PC could take it, and its runs in Fabric (workspace_copy_jobs,
-// workspace_copy_job_definition, fabric_copy_job_runs). Running one, here or in Fabric, comes later:
-// on this PC with the pipeline copy engine (DF-3), in Fabric behind a confirm and the risk check.
+// workspace_copy_job_definition, fabric_copy_job_runs). Run in Fabric starts one through Workloads
+// (dfRunInFabric), behind its confirm and the risk check. Running one on this PC comes with the
+// pipeline copy engine (DF-3).
 
 const DF_COPY_TABS = [["tables", "Tables"], ["runs", "Run history"]];
 const dfCopyPage = { workspace: null, list: null, selected: null, detail: null, runs: null, tab: "tables" };
@@ -56,7 +57,7 @@ function dfCopySummary(detail, ws) {
       h("dt", {}, "Timeout"), h("dd", {}, detail.timeout || "—"),
       h("dt", {}, "Connections"), h("dd", {}, conns.length ? `${conns.length} (see the Connections tab)` : "None (OneLake only)")),
     h("p", { class: "muted-text small df-local-check" }, check.possible
-      ? "Both ends are lakehouses, so a run on this PC will be able to take it once local copy jobs arrive. It will write to a sandbox, never the real table."
+      ? "Both ends are lakehouses, so a run on this PC will be able to take it once local copy jobs arrive. It will write to a sandbox, never the real table. Run in Fabric writes to the real destination."
       : check.reasons.join(" ")));
 }
 
@@ -108,6 +109,7 @@ function dfCopyDetail(ws) {
       detail && detail.local_check ? h("span", { class: `pill-s ${detail.local_check.possible ? "info" : "neu"}` },
         detail.local_check.possible ? "OneLake only" : "Runs in Fabric") : null,
       h("span", { class: "spacer" }),
+      btn("Run in Fabric…", "play", () => dfRunInFabric(ws, c, "Run in Fabric", () => dfOpenCopyJob(ws, c)), "tool outline"),
       btn("Open in Fabric", "open", () => openInFabric(fabricItemLink({ type: "CopyJob", workspace_id: ws.id, item_id: c.item_id })), "tool outline")),
     c.description ? h("p", { class: "muted-text" }, c.description) : null, body);
 }
@@ -117,8 +119,8 @@ async function renderDfCopyJobs() {
   setView(h("div", { class: "page df-copy-jobs" }, dfAreaTabs(),
     h("div", { class: "df-conn-head" }, h("h1", {}, "Copy jobs ", previewTag())),
     withHowItWorks(body, howItWorks("df-copy-jobs", {
-      reads: "The copy jobs in the workspace you pick, the definition of the one you open (its source, destination and tables) and its run history. No Fabric job starts and no capacity is used.",
-      changes: "Nothing. Running a copy job from here comes later: in Fabric it will ask first and run the risk check, because it uses capacity.",
+      reads: "The copy jobs in the workspace you pick, the definition of the one you open (its source, destination and tables) and its run history. Reading starts no Fabric job.",
+      changes: "Nothing until you press Run in Fabric, which starts the copy job in Fabric after a confirm and the risk check: it uses capacity and copies each of its tables into the destination. Running one on this PC comes later. If Workloads doesn't list the workspace yet, Pin and read again pins it on this PC first.",
       results: "Shown here only, kept in memory while the page is open. Only the workspace you pick is remembered.",
       anchor: "data-factory-copy-jobs-preview",
     }))));

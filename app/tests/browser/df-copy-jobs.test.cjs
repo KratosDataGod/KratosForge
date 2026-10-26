@@ -1,5 +1,6 @@
 // Data Factory copy jobs (DF-6, Preview): the Copy jobs tab lists a workspace's copy jobs and shows the
-// one picked: source, destination, each table, whether this PC could run it, and its runs. Reads only.
+// one picked: source, destination, each table, whether this PC could run it, and its runs. Run in Fabric
+// goes through the Workloads confirm (workload_preflight, then workload_act); nothing here reaches Fabric.
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const path = require("node:path");
@@ -13,8 +14,20 @@ const SQL = "cccccccc-bbbb-cccc-dddd-eeeeeeeeeeee";
 const lakehouse = (item) => ({ type: "LakehouseTable", connection_type: "Lakehouse", connection_id: "", workspace_id: WS, item_id: item,
   root_folder: "Tables", database: "" });
 
+const acted = [];
+const pinned = [];
+const PRE = { allowed: true, label: "Run in Fabric", workload: "cj_bronze_orders", env_label: "", where: "Fabric · Sales Dev",
+  identity: "You (chris@contoso.com): a run started here runs as the person who starts it", target: "cj_bronze_orders in Sales Dev",
+  consequence: "Starts copy job cj_bronze_orders in Fabric now, on its workspace's capacity, exactly as Fabric's own Run does. It moves data.",
+  warnings: [], risk: null, recorded: "Recorded on this workload as submitted, then as succeeded or failed when the run finishes." };
+
 let app;
 const page = () => app.page;
+async function until(ok, ms = 5000) {
+  for (const end = Date.now() + ms; !ok(); await new Promise((r) => setTimeout(r, 25))) {
+    if (Date.now() > end) throw new Error("timed out waiting");
+  }
+}
 
 before(async () => {
   if (skip) return;
@@ -48,6 +61,13 @@ before(async () => {
         }
         throw new Error("GET https://api.fabric.microsoft.com/... failed with 403: {}");
       },
+      workload_preflight: (p) => {
+        if (p.id === `fabric:${WS}:${CJ}`) return PRE;
+        throw new Error("That workload isn't in the inventory any more. It may have been renamed, deleted, or be in a workspace this app no longer reads.");
+      },
+      workload_act: (p) => { acted.push(p); return { action: { status: "submitted" }, result: { job_id: "j3" } }; },
+      set_workspace_mark: (p) => { pinned.push(p); return { favorites: [], pins: [p.workspace_id] }; },
+      workloads_list: () => ({ rows: [], scanning: true }),
       fabric_copy_job_runs: () => ({ workspace_id: WS, item_id: CJ, runs: [
         { job_id: "j2", state: "failed", native_status: "Failed", started: "2026-10-25T06:00:00Z", seconds: 75, invoke: "Scheduled", message: "Source not found" },
         { job_id: "j1", state: "succeeded", native_status: "Completed", started: "2026-10-24T06:00:00Z", seconds: 30, invoke: "Manual", message: "" }] }),
@@ -103,7 +123,34 @@ test("a copy job Fabric won't give says why; Open in Fabric goes to its workspac
   await page().evaluate(() => { window.openInFabric = (url) => { window.openedUrl = url; }; });
   await page().locator(".df-detail-head button", { hasText: "Open in Fabric" }).click();
   assert.match(await page().evaluate(() => window.openedUrl), new RegExp(`/groups/${WS}/`));
-  assert.ok(!app.calls.some((c) => /run_item|copy_job_run$|job_start/.test(c.method)), "nothing runs");
+  assert.ok(!app.calls.some((c) => /workload_act|run_item|job_start/.test(c.method)), "nothing runs");
+});
+
+test("Run in Fabric asks first through the Workloads confirm, then starts it and reads the runs again", { skip }, async () => {
+  await page().locator(".df-flow-row", { hasText: "cj_bronze_orders" }).click();
+  await page().locator(".df-copy-table").waitFor();
+  const runsBefore = app.calls.filter((c) => c.method === "fabric_copy_job_runs").length;
+  await page().locator(".df-detail-head button", { hasText: "Run in Fabric…" }).click();
+  const dialog = page().locator(".wl-confirm");
+  await dialog.waitFor();
+  assert.match(await dialog.textContent(), /Runs onFabric · Sales Dev.*AsYou.*Targetcj_bronze_orders in Sales Dev.*What happensStarts copy job cj_bronze_orders.*It moves data/);
+  assert.strictEqual(acted.length, 0, "nothing starts before the confirm");
+  await page().locator(".dialog button", { hasText: /^Run in Fabric$/ }).click();
+  await page().waitForFunction(() => document.querySelectorAll(".wl-confirm").length === 0);
+  assert.deepStrictEqual(acted, [{ id: `fabric:${WS}:${CJ}`, action: "run_item", env: null, schedule_id: "", job_id: "" }]);
+  await until(() => app.calls.filter((c) => c.method === "fabric_copy_job_runs").length > runsBefore);  // the runs are read again
+});
+
+test("a copy job Workloads doesn't list yet offers to pin its workspace, and starts nothing", { skip }, async () => {
+  await page().locator(".df-flow-row", { hasText: "cj_erp_customers" }).click();
+  await page().locator(".df-copy-table tbody", { hasText: "dbo.customers" }).waitFor();
+  await page().locator(".df-detail-head button", { hasText: "Run in Fabric…" }).click();
+  await page().locator(".dialog", { hasText: "doesn't list cj_erp_customers yet" }).waitFor();
+  await page().locator(".dialog button", { hasText: "Pin and read again" }).click();
+  await until(() => app.calls.some((c) => c.method === "workloads_list"));
+  assert.deepStrictEqual(pinned, [{ workspace_id: WS, mark: "pins", on: true }]);
+  assert.ok(app.calls.some((c) => c.method === "workloads_list" && c.params.refresh === true), "it reads the items again");
+  assert.strictEqual(acted.length, 1, "nothing more started");
 });
 
 test("no page errors", { skip }, () => assert.deepStrictEqual(app.errors, []));

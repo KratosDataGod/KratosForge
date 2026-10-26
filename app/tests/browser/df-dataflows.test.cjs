@@ -1,5 +1,6 @@
 // Data Factory dataflows (DF-7, Preview): the Dataflows tab lists a workspace's dataflows and shows the
-// one picked: its M queries (hidden ones folded away), where each loads, and its refreshes. Reads only.
+// one picked: its M queries (hidden ones folded away), where each loads, and its refreshes. Refresh in
+// Fabric goes through the Workloads confirm; nothing here reaches Fabric.
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const path = require("node:path");
@@ -21,6 +22,14 @@ const DETAIL = {
   ],
 };
 
+const acted = [];
+let risk = null;
+const PRE = { allowed: true, label: "Run in Fabric", workload: "df_products_clean", env_label: "", where: "Fabric · Sales Dev",
+  identity: "You (chris@contoso.com): a run started here runs as the person who starts it", target: "df_products_clean in Sales Dev",
+  consequence: "Starts dataflow Gen2 df_products_clean in Fabric now, on its workspace's capacity, exactly as Fabric's own Run does. "
+    + "The refresh writes its results to every destination the dataflow has.",
+  warnings: [], recorded: "Recorded on this workload as submitted, then as succeeded or failed when the run finishes." };
+
 let app;
 const page = () => app.page;
 
@@ -38,6 +47,8 @@ before(async () => {
         if (p.item_id !== DF) throw new Error("GET https://api.fabric.microsoft.com/... failed with 403: {}");
         return { workspace_id: WS, item_id: DF, name: p.name, ...DETAIL };
       },
+      workload_preflight: () => ({ ...PRE, risk }),
+      workload_act: (p) => { acted.push(p); return { action: { status: "submitted" }, result: { job_id: "j3" } }; },
       fabric_dataflow_refreshes: () => ({ workspace_id: WS, item_id: DF, refreshes: [
         { job_id: "j2", state: "failed", native_status: "Failed", started: "2026-10-25T06:00:00Z", seconds: 134, invoke: "Scheduled",
           message: "Credentials expired" },
@@ -81,6 +92,30 @@ test("Refresh history lists Fabric's refreshes, newest first", { skip }, async (
   assert.match(rows[1], /^Succeeded.*2m 2s.*manual/);
 });
 
+test("Refresh in Fabric asks first, shows the risk check, and a blocked check starts nothing", { skip }, async () => {
+  risk = { id: "r-blocked", result: "blocked", label: "Blocked", summary: "This run can't start: fabcapdev is paused", can_proceed: false,
+    needs_acknowledgement: false, note: "Read only: nothing was started.", reads: [],
+    findings: [{ check: "capacity", outcome: "blocked", label: "Blocked", title: "The capacity is paused", detail: "Fabric refuses new jobs until an admin resumes it.",
+      evidence: [], remedy: "", source: "", observed_at: null, essential: false, measurement: null, can_override: false }] };
+  await page().locator(".df-detail-head button", { hasText: "Refresh in Fabric…" }).click();
+  const dialog = page().locator(".dialog", { hasText: "Refresh in Fabric df_products_clean?" });
+  await dialog.waitFor();
+  assert.match(await dialog.textContent(), /What happensStarts dataflow Gen2 df_products_clean.*every destination the dataflow has/);
+  assert.match(await dialog.textContent(), /The capacity is paused/);
+  assert.strictEqual(await dialog.locator("button", { hasText: /^Refresh in Fabric$/ }).count(), 0, "a blocked check offers no start");
+  await dialog.locator("button", { hasText: "Close" }).last().click();
+  assert.strictEqual(acted.length, 0);
+});
+
+test("with the check clear, Refresh in Fabric starts the refresh once", { skip }, async () => {
+  risk = null;
+  await page().locator(".df-detail-head button", { hasText: "Refresh in Fabric…" }).click();
+  await page().locator(".wl-confirm").waitFor();
+  await page().locator(".dialog button", { hasText: /^Refresh in Fabric$/ }).click();
+  await page().waitForFunction(() => !document.querySelector(".wl-confirm"));
+  assert.deepStrictEqual(acted, [{ id: `fabric:${WS}:${DF}`, action: "run_item", env: null, schedule_id: "", job_id: "" }]);
+});
+
 test("a dataflow Fabric won't give says why; Open in Fabric goes to its workspace", { skip }, async () => {
   await page().locator('[role="tab"]', { hasText: "Queries (M)" }).click();
   await page().locator(".df-flow-row", { hasText: "df_broken" }).click();
@@ -88,7 +123,7 @@ test("a dataflow Fabric won't give says why; Open in Fabric goes to its workspac
   await page().evaluate(() => { window.openInFabric = (url) => { window.openedUrl = url; }; });
   await page().locator(".df-detail-head button", { hasText: "Open in Fabric" }).click();
   assert.match(await page().evaluate(() => window.openedUrl), new RegExp(`/groups/${WS}/`));
-  assert.ok(!app.calls.some((c) => /refresh_start|run_item|dataflow_refresh$/.test(c.method)), "nothing refreshes");
+  assert.strictEqual(app.calls.filter((c) => c.method === "workload_act").length, 1, "only the refresh asked for");
 });
 
 test("no page errors", { skip }, () => assert.deepStrictEqual(app.errors, []));

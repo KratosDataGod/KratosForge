@@ -196,7 +196,7 @@ The **Copy jobs** tab beside **Pipelines** lists the copy jobs in a workspace yo
 - **Tables**: each table it copies, with the source and destination table, the write behavior (Append, Overwrite, Upsert with its keys) and whether it copies incrementally, and on which columns.
 - **Run history**: the copy job's runs in Fabric, newest first.
 
-A line under the summary says whether a run on this PC will be able to take the job. That needs both ends to be lakehouses and a Batch job, because other sources need Fabric's connections and gateways. The tab only reads: no Fabric job starts and no capacity is used. Running a copy job from here comes later. **Open in Fabric** opens the job's workspace inside the app.
+A line under the summary says whether a run on this PC will be able to take the job. That needs both ends to be lakehouses and a Batch job, because other sources need Fabric's connections and gateways. Reading starts no Fabric job. **Run in Fabric…** starts the copy job in Fabric. It uses capacity and copies each table into the real destination, so it first shows what will happen and the risk check, and starts only when you confirm. If the workspace isn't one the app works in yet, it offers to pin it and read it again first. Running one on this PC comes later. **Open in Fabric** opens the job's workspace inside the app.
 
 ### Data Factory dataflows (Preview)
 
@@ -206,7 +206,7 @@ The **Dataflows** tab beside **Pipelines** lists the Dataflow Gen2 items in a wo
 - **Destinations**: each query that loads somewhere, with the item kind, table and update method (Replace or Append), plus the connections the dataflow names.
 - **Refresh history**: the dataflow's refreshes in Fabric, newest first.
 
-The tab only reads: no Fabric job starts and no capacity is used. Dataflows run in Fabric only, because nothing outside Microsoft's services can run Power Query. To change a query, **Open in Fabric** opens Fabric inside the app. Starting a refresh from here comes later.
+Reading starts no Fabric job. Dataflows run in Fabric only, because nothing outside Microsoft's services can run Power Query. **Refresh in Fabric…** starts a refresh. It uses capacity and writes to every destination the dataflow has, so it first shows what will happen and the risk check, and starts only when you confirm. To change a query, **Open in Fabric** opens Fabric inside the app.
 
 ### Data Factory connections (Preview)
 

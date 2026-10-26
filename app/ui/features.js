@@ -45,6 +45,7 @@ const PREVIEW_FEATURES = {
   fabricEdit: "Edit Fabric notebooks on this PC",
   wizard: "New notebook wizard",
   deps: "Cell dependencies",
+  practices: "Notebook best practices",
   debug: "Breakpoints, variable history and watches",
   replay: "Failure replay bundles",
   inputs: "Parameters and widgets bar",

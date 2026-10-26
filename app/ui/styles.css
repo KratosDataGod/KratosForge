@@ -117,9 +117,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tool.outline { border-color: var(--border-input); }
 .tool.primary { background: var(--accent); color: #fff; }
 .tool.primary:hover:not(:disabled) { background: var(--accent-dark); }
-/* A primary button with a chevron for its options (Publish to OneLake). */
+/* A button with a chevron for its options (Publish to OneLake). */
 .split { display: inline-flex; gap: 1px; }
-.split > .tool.primary:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.split > .tool:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .split > .split-more { border-top-left-radius: 0; border-bottom-left-radius: 0; padding-left: 6px; padding-right: 6px; }
 .tool.link { color: var(--accent); }
 .tool.small { min-height: 26px; padding: 0 6px; }
@@ -2379,3 +2379,7 @@ html[data-motion-level="0"] .mo-ghost { display: none; }
 .next-step { display: flex; align-items: center; gap: 10px; }
 .action-bar { gap: 8px; }
 .tool[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
+
+/* The notebook's next step after a run (nbnext.js, AF-4): one line under the ribbon. */
+.nb-next { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin: 8px 16px 0; padding: 6px 14px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
+.nb-next-why { color: var(--text); }

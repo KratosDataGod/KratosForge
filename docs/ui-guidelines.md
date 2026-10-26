@@ -112,6 +112,7 @@ defineRecommendation({
 - A page tells the framework what it knows with `provideActionContext(view, () => ({ ... }))`.
 - Every action is found by the command bar. `actionBar(ctx)` draws the primary button and a More menu; `nextSteps(ctx)` draws up to three recommendations; `runAction(id)` runs one with the checks above; `doneToast(text, nextIds)` ends with the next step.
 - Recommendations are ranked by `reason` alone (failure, safety, validation, unfinished, local, continue). Never add a score.
+- A recommendation's button says the action's `label` unless the recommendation gives its own `label` (text, or a function of the evidence), such as "Review warnings" for Validate.
 
 ## Words and help
 

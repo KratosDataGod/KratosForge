@@ -2254,3 +2254,12 @@ html[data-motion-level="0"] .mo-ghost { display: none; }
 .dialog:has(.ossie-import) { max-width: 900px; }
 .ossie-preview { display: flex; flex-direction: column; gap: 8px; }
 .ossie-preview tr.warn-row { background: #fff8e6; }
+
+/* Direct Lake check on the Semantic model tab (meta.js directLakeCard) */
+.dl-out { display: flex; flex-direction: column; gap: 10px; }
+.dl-tiles { display: flex; flex-wrap: wrap; gap: 10px; }
+.dl-tile { flex: 1 1 160px; display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border: 1px solid var(--border-soft); border-radius: 6px; font-size: 12px; }
+.dl-tile b { font-size: 18px; }
+.info-text { color: #0f548c; }
+.mini td.n.over { color: var(--danger); font-weight: 600; }
+.mini td.n.near { color: #8a5300; font-weight: 600; }

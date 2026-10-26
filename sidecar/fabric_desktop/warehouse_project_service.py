@@ -33,9 +33,11 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 from xml.sax.saxutils import escape
 
+from . import warehouse_compare
 from .git.repo import Repository
 
-METHODS = {"wh_projects_list", "wh_project_files", "wh_project_read", "wh_project_save", "wh_project_write"}
+METHODS = {"wh_projects_list", "wh_project_files", "wh_project_read", "wh_project_save", "wh_project_write",
+           "wh_project_compare", "wh_project_diff"}
 
 SUFFIX = ".Warehouse"
 MAX_FILE = 1024 * 1024        # one object's file
@@ -276,25 +278,31 @@ class WarehouseProjectMixin:
     def _wh_write(f: Path, text: str) -> None:
         """Replaces or creates ``f`` in one step, through a fresh temp file beside it."""
         tmp = f.with_name(f"{f.name}.{uuid.uuid4().hex[:8]}.tmp")
-        with open(tmp, "x", encoding="utf-8", newline="\n") as out:
-            out.write(text)
-        os.replace(tmp, f)
+        try:
+            with open(tmp, "x", encoding="utf-8", newline="\n") as out:
+                out.write(text)
+            os.replace(tmp, f)
+        except BaseException:
+            tmp.unlink(missing_ok=True)  # a locked file (Windows) mustn't leave a .tmp for Git to show
+            raise
 
     def _wh_mkdirs(self, project: Path, f: Path) -> None:
         f.parent.mkdir(parents=True, exist_ok=True)
         if f.parent.resolve() != f.parent or not str(f.parent).startswith(str(project)):
             raise ValueError("A folder in that path is a link to somewhere else, so nothing is written there.")
 
-    def wh_project_save(self, repo: str, folder: str, path: str, text: str, expect: str = "") -> dict[str, Any]:
+    def wh_project_save(self, repo: str, folder: str, path: str, text: str, expect: str) -> dict[str, Any]:
         """Writes a file the page opened from the project. ``expect`` is the version it opened: a file
         that has changed since is left alone."""
+        if not isinstance(expect, str) or not expect:
+            raise ValueError("Open the file again before saving it, so a newer version isn't overwritten.")
         if len(str(text).encode("utf-8")) > MAX_FILE:
             raise ValueError(f"A project file can be up to {MAX_FILE // 1024} KB.")
         project = self._wh_project_dir(repo, folder)
         f = self._wh_file(project, path)
         if not f.is_file():
             raise ValueError("That file isn't in the project any more. Import or New object makes it again.")
-        if expect and version(f.read_bytes()) != expect:
+        if version(f.read_bytes()) != expect:
             raise ValueError("That file changed since you opened it, perhaps from a Git pull. Open it again to see the change.")
         self._wh_write(f, text)
         return {"path": path, "version": version(str(text).encode("utf-8"))}
@@ -382,3 +390,49 @@ class WarehouseProjectMixin:
                 result["skipped"].append({**row, "why": str(exc) if isinstance(exc, ValueError) else "It couldn't be written."})
         return {"repo": repo, "folder": folder, "dry_run": dry_run, "created": created,
                 **result, "counts": {k: len(v) for k, v in result.items()}}
+
+    # ---- compare (WH-12)
+
+    def wh_project_compare(self, repo: str, folder: str, objects: list[dict[str, Any]]) -> dict[str, Any]:
+        """Compares the project's files with the warehouse's objects ([{kind, schema, name, text}],
+        scripted by the page from the catalog). Writes nothing. Files that can't be read, or define
+        no object, are listed under ``unread``."""
+        if not isinstance(objects, list) or len(objects) > MAX_OBJECTS:
+            raise ValueError(f"Send up to {MAX_OBJECTS} objects at a time.")
+        project = self._wh_project_dir(repo, folder)
+        mine: dict[tuple[str, str, str], dict[str, str]] = {}
+        unread: list[dict[str, str]] = []
+        for f in self._wh_walk(project)[0]:
+            rel = f.relative_to(project).as_posix()
+            try:
+                if f.stat().st_size > MAX_FILE:
+                    raise ValueError(f"It is larger than {MAX_FILE // 1024} KB.")
+                text = f.read_text(encoding="utf-8-sig")
+            except (OSError, ValueError) as exc:
+                unread.append({"path": rel, "why": str(exc) if isinstance(exc, ValueError) and not isinstance(exc, UnicodeDecodeError)
+                               else "It couldn't be read as UTF-8 text."})
+                continue
+            obj = defines(text)
+            if not obj:
+                unread.append({"path": rel, "why": "It doesn't create a table, view, procedure, function or schema."})
+                continue
+            key = _key(obj["kind"], obj["schema"], obj["name"])
+            if key in mine:
+                unread.append({"path": rel, "why": f"{obj['schema']}.{obj['name']} is also defined in {mine[key]['path']}."})
+                continue
+            mine[key] = {**obj, "text": text, "path": rel}
+        theirs = {}
+        for o in objects:
+            kind, schema, name = str(o.get("kind") or ""), str(o.get("schema") or ""), str(o.get("name") or "")
+            if kind in KINDS and name and (schema or kind == "schema"):
+                theirs[_key(kind, schema or name, name)] = {"kind": kind, "schema": schema or name, "name": name,
+                                                            "text": str(o.get("text") or "")}
+        rows = warehouse_compare.compare(mine, theirs)
+        counts = {s: sum(1 for r in rows if r["state"] == s) for s in ("changed", "only_project", "only_warehouse", "same")}
+        return {"repo": repo, "folder": folder, "objects": rows, "counts": counts, "unread": unread}
+
+    def wh_project_diff(self, warehouse_text: str, project_text: str) -> dict[str, Any]:
+        """Side-by-side rows for one object: the warehouse's script left, the project's file right."""
+        if len(str(warehouse_text)) + len(str(project_text)) > 2 * MAX_FILE:
+            raise ValueError(f"Each side can be up to {MAX_FILE // 1024} KB.")
+        return warehouse_compare.side_by_side(str(warehouse_text or ""), str(project_text or ""))

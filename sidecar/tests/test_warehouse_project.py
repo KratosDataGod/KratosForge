@@ -112,7 +112,21 @@ def test_save_reads_back_and_refuses_a_file_changed_since_it_was_opened(svc, rep
     with pytest.raises(ValueError, match="changed since you opened it"):
         svc.wh_project_save(str(repo), "WH_Gold.Warehouse", "dbo/Views/vw_Sales.sql", "x", expect=saved["version"])
     with pytest.raises(ValueError, match="isn't in the project"):
-        svc.wh_project_save(str(repo), "WH_Gold.Warehouse", "dbo/Views/gone.sql", "x")
+        svc.wh_project_save(str(repo), "WH_Gold.Warehouse", "dbo/Views/gone.sql", "x", expect="0123456789abcdef")
+    with pytest.raises(ValueError, match="Open the file again"):
+        svc.wh_project_save(str(repo), "WH_Gold.Warehouse", "dbo/Views/vw_Sales.sql", "x", expect="")
+
+
+def test_a_write_that_fails_leaves_no_temp_file(svc, repo, monkeypatch):
+    svc.wh_project_write(str(repo), objs(("view", "dbo", "vw_Sales", VIEW)), create="WH_Gold")
+    opened = svc.wh_project_read(str(repo), "WH_Gold.Warehouse", "dbo/Views/vw_Sales.sql")
+
+    def locked(src, dst):
+        raise PermissionError("The process cannot access the file because it is being used by another process")
+    monkeypatch.setattr(wp.os, "replace", locked)
+    with pytest.raises(PermissionError):
+        svc.wh_project_save(str(repo), "WH_Gold.Warehouse", "dbo/Views/vw_Sales.sql", "x", expect=opened["version"])
+    assert sorted(p.name for p in (repo / "WH_Gold.Warehouse" / "dbo" / "Views").iterdir()) == ["vw_Sales.sql"]
 
 
 def test_paths_stay_inside_the_project(svc, repo, tmp_path):
@@ -152,3 +166,52 @@ def test_only_reads_are_read_only_and_the_sql_is_never_audited():
     assert audit.audited("wh_project_save") and audit.audited("wh_project_write")
     assert audit.target({"repo": "r", "text": TABLE})["text"] == "(given)"
     assert audit.target({"repo": "r", "objects": objs(("table", "dbo", "t", TABLE))})["objects"] == "(given)"
+
+
+# ---- compare (WH-12)
+
+from fabric_desktop import warehouse_compare as wc  # noqa: E402
+
+
+def test_formatting_case_and_brackets_dont_make_a_difference():
+    fabric = "CREATE TABLE [dbo].[DimCustomer] (\n    [CustomerKey] INT NOT NULL,\n    [Segment] VARCHAR (20) NULL\n);\n\n\nGO\n"
+    assert wc.same(TABLE, fabric)
+    assert wc.same("CREATE VIEW v AS SELECT 'A' AS x -- note", "create view [v]\nas select 'A' as [x];")
+    assert not wc.same("SELECT 'A'", "SELECT 'a'"), "strings are compared as written"
+    assert not wc.same("CREATE VIEW v AS SELECT [a b] FROM t", "CREATE VIEW v AS SELECT [a c] FROM t")
+
+
+def test_a_changed_table_says_which_columns_differ():
+    project = TABLE.replace("[Segment] varchar(20) NULL", "[Segment] varchar(40) NULL,\n    [Region] nvarchar(50) NULL")
+    assert wc.table_detail(TABLE, project) == ["column Region is only in the project",
+                                               "column Segment: varchar(20) NULL in the warehouse, varchar(40) NULL in the project"]
+    with_key = TABLE.replace("NULL\n);", "NULL,\n    CONSTRAINT pk PRIMARY KEY NONCLUSTERED ([CustomerKey]) NOT ENFORCED\n);")
+    assert wc.table_detail(TABLE, with_key) == ["the table's options differ"], "a constraint isn't a column"
+
+
+def test_side_by_side_rows_pair_changed_lines():
+    rows = wc.side_by_side("a\nb\nc\n", "a\nB\nc\nd")["rows"]
+    assert [r["op"] for r in rows] == ["same", "changed", "same", "added"]
+    assert rows[3] == {"op": "added", "left": None, "right": "d"}
+
+
+def test_compare_lists_every_object_on_either_side(svc, repo):
+    svc.wh_project_write(str(repo), objs(("table", "dbo", "DimCustomer", TABLE.replace("varchar(20)", "varchar(40)")),
+                                         ("view", "dbo", "vw_Sales", VIEW),
+                                         ("procedure", "dbo", "usp_New", "CREATE PROCEDURE dbo.usp_New AS SELECT 1;")),
+                         create="WH_Gold")
+    (repo / "WH_Gold.Warehouse" / "notes.sql").write_text("-- just notes\n", encoding="utf-8")
+    warehouse = objs(("table", "dbo", "DimCustomer", TABLE), ("view", "dbo", "VW_SALES", VIEW.lower()),
+                     ("view", "dbo", "vw_Old", "CREATE VIEW dbo.vw_Old AS SELECT 2 AS y;"))
+    out = svc.wh_project_compare(str(repo), "WH_Gold.Warehouse", warehouse)
+    states = {(r["kind"], r["name"]): r["state"] for r in out["objects"]}
+    assert states == {("table", "DimCustomer"): "changed", ("view", "VW_SALES"): "same",
+                      ("view", "vw_Old"): "only_warehouse", ("procedure", "usp_New"): "only_project"}
+    assert out["counts"] == {"changed": 1, "only_project": 1, "only_warehouse": 1, "same": 1}
+    changed = next(r for r in out["objects"] if r["state"] == "changed")
+    assert changed["path"] == "dbo/Tables/DimCustomer.sql" and changed["detail"] == [
+        "column Segment: varchar(20) NULL in the warehouse, varchar(40) NULL in the project"]
+    assert out["unread"] == [{"path": "notes.sql", "why": "It doesn't create a table, view, procedure, function or schema."}]
+    rows = svc.wh_project_diff(changed["warehouse_text"], changed["project_text"])["rows"]
+    assert [r["op"] for r in rows].count("changed") == 1
+    assert not audit.audited("wh_project_compare") and not audit.audited("wh_project_diff")

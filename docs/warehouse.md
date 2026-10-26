@@ -47,8 +47,19 @@ WH_Gold.Warehouse/
 - **A table is scripted from its columns**: names, T-SQL types, and NULL or NOT NULL. Views, procedures and functions come from `sys.sql_modules` as written.
 - **Open a file** to edit it in its own tab, with the same checks and completion as a query. **Save file** (or Ctrl+S) writes it back. A file changed since you opened it, for example by a Git pull or VS Code, isn't overwritten.
 - **New object** writes a short starting script for a table, view, procedure, function or schema where the layout puts it, and opens it.
-- **Nothing is committed and nothing runs.** Files change on this PC. Review and commit them in Source control, and Fabric's Git integration reads them when the workspace syncs. Compare and deploy come next (WH-12, WH-13).
+- **Nothing is committed and nothing runs.** Files change on this PC. Review and commit them in Source control, and Fabric's Git integration reads them when the workspace syncs. Deploy comes next (WH-13).
 - A SQL analytics endpoint has no Project tab: it isn't kept in Git, its lakehouse is.
+
+### Compare the project with the warehouse
+
+**Compare with WH_Gold** on the Project tab reads the warehouse's catalog (catalog queries in Fabric, as Import does) and opens a **Compare** tab beside your queries. Nothing changes on either side.
+
+- Each object is **Changed**, **Only in project**, **Only in warehouse** or **Same**, with a count for each; pick one to see only those. Changed objects come first.
+- Two scripts are the **same** when they read the same as T-SQL: comments, `GO` lines, semicolons, spacing, letter case outside strings, and brackets around plain names don't count. Strings are compared as written.
+- Pick an object to see the warehouse's script beside the project's file, line by line. For a table, the columns that differ are listed above it, such as *column Segment: varchar(20) NULL in the warehouse, varchar(40) NULL in the project*. A table in the project with constraints the warehouse's catalog script doesn't carry shows as *the table's options differ*.
+- **Open file** opens the project's file in a tab. **Take the warehouse's version** writes the warehouse's script into the project (asking first when it replaces a file); commit it in Source control.
+- A file that doesn't create an object, or defines one already defined in another file, is listed as not compared.
+- **Compare again** reads the catalog again. Closing the Compare tab forgets the comparison.
 
 ## Explorer
 
@@ -171,6 +182,7 @@ How a run works underneath (states, limits, what is refused): [Running SQL queri
 | WH-07 | Query history and Fabric query insights | Done |
 | WH-10 | Changes to a warehouse (DDL, DML, EXEC) after a preview and confirm, in every environment; Prod asks you to type the warehouse's name | This release |
 | WH-08 | Messages and a quick chart (several result sets come with scripts) | Done |
-| WH-11 | The warehouse as files in Fabric's Git layout: Import, edit, New object | This release |
+| WH-11 | The warehouse as files in Fabric's Git layout: Import, edit, New object | Done |
+| WH-12 | Compare the project with the warehouse, object by object | This release |
 
-Next: compare (WH-12), deploy with a preview (WH-13) and the estimated plan (WH-09). Later stages (loading and managing data, Snowflake) follow the same pattern: a mockup first, then one change per feature.
+Next: deploy with a preview (WH-13) and the estimated plan (WH-09). Later stages (loading and managing data, Snowflake) follow the same pattern: a mockup first, then one change per feature.

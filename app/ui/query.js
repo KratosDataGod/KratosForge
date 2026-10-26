@@ -558,17 +558,24 @@ function renderQuery() {
     while (p.tabs.some((t) => t.name === `Query ${n}`)) n++;
     return `Query ${n}`;
   };
-  const addTab = () => { p.tabs.push({ name: nextTabName(), sql: wh ? WAREHOUSE_HINT : QUERY_HINT, dialect: tab.dialect }); p.active = p.tabs.length - 1; saveQueryTabs(); renderQuery(); };
+  const addTab = () => { p.whCompareShown = false; p.tabs.push({ name: nextTabName(), sql: wh ? WAREHOUSE_HINT : QUERY_HINT, dialect: tab.dialect }); p.active = p.tabs.length - 1; saveQueryTabs(); renderQuery(); };
+  // WH-12: the compare view, when one was made for this warehouse, has a tab of its own.
+  const compare = wh && p.whCompare?.key === sqlRefKey(ref) ? p.whCompare : null;
+  const compareOn = !!(compare && p.whCompareShown);
   const tabs = h("div", { class: "sql-tabs", role: "tablist", "aria-label": "Queries" },
-    p.tabs.map((t, i) => h("div", { class: `sql-tab${i === p.active ? " on" : ""}` },
-      h("button", { class: "name", role: "tab", "aria-selected": String(i === p.active),
-        onclick: () => { p.active = i; renderQuery(); },
+    p.tabs.map((t, i) => h("div", { class: `sql-tab${i === p.active && !compareOn ? " on" : ""}` },
+      h("button", { class: "name", role: "tab", "aria-selected": String(i === p.active && !compareOn),
+        onclick: () => { p.active = i; p.whCompareShown = false; renderQuery(); },
         ondblclick: async () => {
           const name = await askText("Rename query", "Name", t.name, "Rename");
           if (name) { t.name = name; saveQueryTabs(); renderQuery(); }
         } }, icon("code", 14), t.name),
       p.tabs.length > 1 ? h("button", { class: "close", "aria-label": `Close ${t.name}`,
         onclick: () => { p.tabs.splice(i, 1); p.active = Math.min(p.active, p.tabs.length - 1); saveQueryTabs(); renderQuery(); } }, "×") : null)),
+    compare ? h("div", { class: `sql-tab wh-cmp-tab${compareOn ? " on" : ""}` },
+      h("button", { class: "name", role: "tab", "aria-selected": String(compareOn), onclick: () => { p.whCompareShown = true; renderQuery(); } },
+        icon("branchCompare", 14), "Compare"),
+      h("button", { class: "close", "aria-label": "Close Compare", onclick: () => { p.whCompare = null; p.whCompareShown = false; renderQuery(); } }, "×")) : null,
     h("button", { class: "sql-tab add", "aria-label": "New query", onclick: addTab }, "+"));
 
   const dialectPick = h("select", { class: "sql-dialect", "aria-label": "SQL dialect",
@@ -698,6 +705,7 @@ function renderQuery() {
   edit.append(editor.view.dom);
   // A new tab holding text from the explorer's Script as or a template (WH-03, WH-04).
   const openTab = (name, text) => {
+    p.whCompareShown = false;
     p.tabs.push({ name, sql: text, dialect: tab.dialect });
     p.active = p.tabs.length - 1;
     saveQueryTabs();
@@ -715,6 +723,7 @@ function renderQuery() {
   // WH-06: saved and shared queries, on the explorer's Queries tab. A saved query opens in its own
   // tab, or in the tab that already holds it.
   const openSaved = (q) => {
+    p.whCompareShown = false;
     const at = p.tabs.findIndex((t) => t.file?.place === q.place && t.file?.name === q.name);
     if (at < 0) p.tabs.push({ name: q.title, sql: q.sql, dialect: tab.dialect,
       file: { place: q.place, name: q.name, place_label: q.place_label, title: q.title, description: q.description || "",
@@ -727,6 +736,7 @@ function renderQuery() {
   const whRuns = wh ? whHistory(ref, {
     open: (name, text) => openTab(name, text),
     insight: (name, text) => {
+      p.whCompareShown = false;
       p.tabs.push({ name, sql: text, dialect: tab.dialect, autorun: true });
       p.active = p.tabs.length - 1;
       saveQueryTabs();
@@ -745,6 +755,7 @@ function renderQuery() {
   // WH-11: the warehouse's project in Git, on the explorer's Project tab. A file opens in its own
   // tab, or in the tab that already holds it; Save writes it back.
   const openProjectFile = async (f, project) => {
+    p.whCompareShown = false;
     const at = p.tabs.findIndex((t) => t.proj?.repo === project.repo && t.proj?.folder === project.folder && t.proj?.path === f.path);
     if (at < 0) {
       const file = await attempt(() => rpc("wh_project_read", { repo: project.repo, folder: project.folder, path: f.path }), "Could not open the file");
@@ -796,11 +807,12 @@ function renderQuery() {
           more: [["Capacity", "The query runs in Fabric, so it uses capacity on the warehouse's workspace."],
             ["Your templates", "Saving, importing or deleting a template of your own writes or removes a .sql file in My templates (the app's data folder) or in the sql-templates folder of a Git repository you opened. Export writes a new file in Downloads."],
             ["Saved queries", "Save query writes the tab to a .sql file in My queries (the app's data folder) or in the sql-queries folder of a Git repository you opened; Delete removes that file. Nothing is committed for you."],
-            ["Project", "The Project tab reads and writes .sql files in a <warehouse>.Warehouse folder of a Git repository you opened, in Fabric's Git layout. Import from the warehouse runs catalog queries in Fabric, then writes new files and, only if you tick it, replaces files that differ. Nothing is committed and no file is removed."],
+            ["Project", "The Project tab reads and writes .sql files in a <warehouse>.Warehouse folder of a Git repository you opened, in Fabric's Git layout. Import from the warehouse and Compare run catalog queries in Fabric. Import writes new files and, only if you tick it, replaces files that differ; Compare writes nothing unless you take the warehouse's version of an object. Nothing is committed and no file is removed."],
             ["History", "Each run here is kept with its SQL in the app's storage on this PC (up to 200 per warehouse) until you clear it. Query insights run a query on the warehouse's queryinsights views in Fabric."]],
           anchor: "warehouse-queries-preview" }))),
       h("section", { class: "sql-main" }, tabs,
-        h("div", { class: "sql-card" }, actions, h("div", { class: "sql-editor-row" }, edit, compat), band, grid))))
+        compareOn ? whCompareView(ref, { open: openProjectFile })
+          : h("div", { class: "sql-card" }, actions, h("div", { class: "sql-editor-row" }, edit, compat), band, grid))))
     : h("div", { class: "sql-page" },
     h("div", { class: "ribbon" }, h("div", { class: "toolbar" },
       btn("New SQL query", "add", addTab),

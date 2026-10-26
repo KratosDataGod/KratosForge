@@ -29,6 +29,9 @@ test("Run all is the one solid button and Publish to OneLake is still on the rib
   await open([code("c1", "a = 1"), code("c2", "b = a + 1")]);
   const solid = await page().$$eval(".ribbon .toolbar button.primary", (bs) => bs.map((b) => b.textContent.trim()));
   assert.deepStrictEqual(solid, ["Run all"]);
+  // Its play icon shows on the solid button, not navy on navy.
+  const [fg, bg] = await page().$eval(".ribbon .toolbar button.primary", (b) => [getComputedStyle(b.querySelector("svg")).color, getComputedStyle(b).backgroundColor]);
+  assert.notStrictEqual(fg, bg);
   assert.ok(await page().$('.ribbon .split button:has-text("Publish to OneLake")'));
   assert.ok(await page().$(".ribbon .split .split-more"));
   assert.strictEqual(await page().$(".nb-next"), null);  // nothing to say before a run

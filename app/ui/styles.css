@@ -124,6 +124,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tool.link { color: var(--accent); }
 .tool.small { min-height: 26px; padding: 0 6px; }
 .tool .play { color: var(--accent); }
+.tool.primary .play { color: inherit; }  /* white on the solid Run all (AF-4) */
 .sep { width: 1px; height: 24px; margin: 0 6px; background: var(--border); }
 .spacer { flex: 1; }
 

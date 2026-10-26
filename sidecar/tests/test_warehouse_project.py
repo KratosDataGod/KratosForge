@@ -102,6 +102,20 @@ def test_an_object_goes_to_the_file_that_already_defines_it(svc, repo):
     assert [r["path"] for r in out["added"]] == ["dbo/Stored Procedures/usp_New.sql"], "the project's own folder name"
 
 
+def test_objects_whose_names_differ_only_in_case_never_share_a_file(svc, repo):
+    # Fabric's BIN2 collation keeps dbo.Sales and dbo.sales apart; Windows file names don't.
+    sales = "CREATE TABLE dbo.Sales (a int NULL);"
+    out = svc.wh_project_write(str(repo), objs(("table", "dbo", "Sales", sales), ("table", "dbo", "sales", "CREATE TABLE dbo.sales (b int NULL);")),
+                               create="WH_Gold")
+    assert [r["path"] for r in out["added"]] == ["dbo/Tables/Sales.sql"]
+    assert [r["name"] for r in out["skipped"]] == ["dbo.sales"] and "apart from letter case" in out["skipped"][0]["why"]
+    again = svc.wh_project_write(str(repo), objs(("table", "dbo", "sales", "CREATE TABLE dbo.sales (b int NULL);")),
+                                 folder="WH_Gold.Warehouse", replace=True)
+    assert again["counts"]["skipped"] == 1, "a later import doesn't write over dbo.Sales's file either"
+    assert (repo / "WH_Gold.Warehouse" / "dbo" / "Tables" / "Sales.sql").read_text(encoding="utf-8").startswith(sales)
+    assert svc.wh_project_write(str(repo), objs(("table", "dbo", "Sales", sales)), folder="WH_Gold.Warehouse")["counts"]["same"] == 1
+
+
 def test_save_reads_back_and_refuses_a_file_changed_since_it_was_opened(svc, repo):
     svc.wh_project_write(str(repo), objs(("view", "dbo", "vw_Sales", VIEW)), create="WH_Gold")
     opened = svc.wh_project_read(str(repo), "WH_Gold.Warehouse", "dbo/Views/vw_Sales.sql")

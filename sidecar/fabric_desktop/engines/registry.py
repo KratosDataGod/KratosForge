@@ -13,10 +13,11 @@ from typing import Any
 
 from .capabilities import EngineDescriptor
 from .contract import EngineAdapter
+from .databricks_sql import DATABRICKS_SQL, DatabricksSqlAdapter
 from .local_python import PYTHON, NotebookSessionsAdapter, PythonAdapter
 from .local_sql import DUCKDB, POLARS, SQLITE, DuckDBAdapter, PolarsAdapter, SQLiteAdapter
 
-REGISTRY_VERSION = "2"
+REGISTRY_VERSION = "3"
 
 LOCAL_SPARK = EngineDescriptor(
     id="local-spark", label="Apache Spark (this PC)", location="local", platform="local", billing="none",
@@ -42,16 +43,9 @@ DATABRICKS_CONNECT = EngineDescriptor(
     requirements=("Unity Catalog-enabled workspace", "Cluster on Databricks Runtime 16.4+ or serverless v3+ "
                   "(the engine's Python is 3.12)", "databricks-connect matching the runtime, in its own environment"),
 )
-DATABRICKS_SQL = EngineDescriptor(
-    id="databricks-sql", label="Databricks SQL warehouse (remote)", location="remote", platform="databricks",
-    billing="databricks_dbu", adapter=False, family="databricks-sql", preview=True,
-    planned="Phase 3: SQL cells on a Databricks SQL warehouse through the Statement Execution API, with cancel "
-            "and the warehouse's query profile. A stopped warehouse is started only after a confirm or policy.",
-    requirements=("A SQL warehouse", "CAN USE on the warehouse", "Unity Catalog privileges on the data"),
-)
-
 _ADAPTERS: dict[str, type] = {
     PYTHON.id: PythonAdapter, DUCKDB.id: DuckDBAdapter, SQLITE.id: SQLiteAdapter, POLARS.id: PolarsAdapter,
+    DATABRICKS_SQL.id: DatabricksSqlAdapter,
 }
 ENGINES: dict[str, EngineDescriptor] = {d.id: d for d in (
     PYTHON, DUCKDB, SQLITE, POLARS, LOCAL_SPARK, FABRIC_SPARK, DATABRICKS_CONNECT, DATABRICKS_SQL)}

@@ -319,3 +319,33 @@ def test_reading_a_project_file_refuses_what_import_would(svc):
     (project.root / "semantic" / "notes.yaml").write_text("just: notes\n")
     with pytest.raises(ValueError, match="version"):
         svc.meta_model_ossie_read("semantic/notes.yaml")
+
+
+def test_ai_tools_only_read_and_pass_their_arguments_through():
+    from fabric_desktop.integrations.capabilities import register_core
+    from fabric_desktop.integrations.core import CallContext, Caller
+    from fabric_desktop.integrations.registry import ReadOnlyAuthorizer, Registry
+
+    class Svc:
+        def __init__(self):
+            self.calls = []
+
+        def meta_model_ossie_export(self, env, name, translate_dax):
+            self.calls.append(("export", env, name, translate_dax))
+            return {"yaml": "", "counts": {}, "report": []}
+
+        def meta_model_ossie_preview(self, env, text, name, mode, remove):
+            self.calls.append(("preview", env, text, name, mode, remove))
+            return {"changes": [], "report": []}
+
+    reg = Registry(ReadOnlyAuthorizer())
+    register_core(reg)
+    ids = ("fabric_desktop_list_semantic_models", "fabric_desktop_export_semantic_model_ossie",
+           "fabric_desktop_preview_ossie_import")
+    caps = {c.id: c for c in reg.all()}
+    assert all(caps[i].read_only and caps[i].approval == "never" and caps[i].permission == "READ_METADATA" for i in ids)
+    assert not any("import" in c.id and "ossie" in c.id and not c.read_only for c in reg.all())  # writes stay in the app
+    svc, ctx = Svc(), CallContext(Caller("c", "test"), timeout=10)
+    reg.invoke(svc, ids[1], {"env": "prod", "name": "SM_Gold"}, ctx)
+    reg.invoke(svc, ids[2], {"env": "test", "text": "name: m", "mode": "replace"}, ctx)
+    assert svc.calls == [("export", "prod", "SM_Gold", True), ("preview", "test", "name: m", "", "replace", [])]

@@ -189,7 +189,7 @@ on quality.
 | [FEAT-META-05](#feat-meta-05) | Surrogate keys | Implemented | Partially Verified | Data mesh > Surrogate keys | Stop reading whole key tables on every keyed run (FD-115). |
 | [FEAT-META-15](#feat-meta-15) | Variable library and source systems | Implemented | Partially Verified | Data mesh > Source systems | Keep. |
 | [FEAT-MESH-01](#feat-mesh-01) | Central platform | Implemented | Partially Verified | Platform (Preview) | Verify setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified). |
-| [FEAT-MESH-02](#feat-mesh-02) | Central business keys | Implemented | Partially Verified | Data mesh > Surrogate keys > Move keys, Platform > Business keys (Preview) | Staged roadmap moves keys to one shared keys database in a dedicated workspace, keeping existing key numbers (item 25, decided 2026-10-20) |
+| [FEAT-MESH-02](#feat-mesh-02) | Central business keys | Implemented | Partially Verified | Settings > Platform > Keys (Create, Join existing, Move keys in); Data mesh > Surrogate keys > Move keys; Platform > Business keys (Preview) | Move keys into the shared Keys workspace on a live tenant (PB-002); user docs that still say one LH_Keys per environment (azure-setup.md, metadata-guide.md) need updating |
 | [FEAT-MESH-04](#feat-mesh-04) | Data mesh: domains, products, links, glossary | Implemented | Partially Verified | Data mesh > Domains, OneLake > Data products, Home (Preview) | Purview and endorsement live checks wait on Chris's tenant run; implementation review of #591, #627, #642. |
 
 ### Data Governance and Quality
@@ -1513,18 +1513,19 @@ on quality.
 
 ### FEAT-MESH-02
 
-**Central business keys.** Keys issued in batches by SQL_Platform UDFs with numbers kept when moved from LH_Keys.
+**Central business keys.** Keys issued in batches by SQL database UDFs, either per environment (SQL_Platform) or one keys database shared by Dev, Test and Prod (SQL_Keys in a Keys workspace), with numbers kept when moved.
 
 - **Pillar and category:** Enterprise services; Enterprise Shared Services
 - **Status:** Implemented. **Verification:** Partially Verified.
-- **Where people reach it:** Data mesh > Surrogate keys > Move keys, Platform > Business keys (Preview)
-- **Evidence:** test: sidecar/tests/test_platform.py::test_keys_are_issued_in_batches (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_platform.py::test_keys_move_to_the_platform_with_their_numbers
-- **Source:** `sidecar/fabric_desktop/central/core.py`, `sidecar/fabric_desktop/central/client.py`, `sidecar/fabric_desktop/central/migrate.py`
-- **Tests:** `sidecar/tests/test_platform.py`
+- **Where people reach it:** Settings > Platform > Keys (Create, Join existing, Move keys in); Data mesh > Surrogate keys > Move keys; Platform > Business keys (Preview)
+- **Evidence:** test: sidecar/tests/test_platform.py::test_keys_are_issued_in_batches (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_platform.py::test_keys_move_to_the_platform_with_their_numbers; test: sidecar/tests/test_shared_keys.py (PR #293) (18 passed when run on 2026-10-26 against main bb084c6b; SQLite stand-in, no tenant)
+- **Source:** `sidecar/fabric_desktop/central/core.py`, `sidecar/fabric_desktop/central/client.py`, `sidecar/fabric_desktop/central/migrate.py`, `sidecar/fabric_desktop/central/keys_home.py`
+- **Tests:** `sidecar/tests/test_platform.py`, `sidecar/tests/test_shared_keys.py`
 - **Docs:** [docs/platform.md](../platform.md)
-- **Known limitations:** Moving back to LH_Keys refused once new keys are issued. Direction change (Chris's unit testing, 2026-10-18, item 25): keys live in one Fabric SQL database in a dedicated workspace, shared by all environments (Chris chose one for all on 2026-10-20, reversing the 2026-10-16 decision to keep keys per environment); today each environment has its own SQL_Platform.
+- **Known limitations:** Moving back to LH_Keys refused once new keys are issued. One keys database for Dev, Test and Prod (Chris's unit testing item 25, chosen 2026-10-20) is built in PR #293: Settings > Platform > Keys creates or joins the Keys workspace (SQL_Keys, UDF_Keys) and Move keys in brings existing keys over. Built and tested against SQLite only; the move on a live tenant has not been done.
+- **Pull requests and issues:** [#293](https://github.com/KratosDataGod/KratosForge/pull/293)
 - **Backlog:** [PB-052](PRODUCT_BACKLOG.md#pb-052)
-- **Recommended next action:** Staged roadmap moves keys to one shared keys database in a dedicated workspace, keeping existing key numbers (item 25, decided 2026-10-20)
+- **Recommended next action:** Move keys into the shared Keys workspace on a live tenant (PB-002); user docs that still say one LH_Keys per environment (azure-setup.md, metadata-guide.md) need updating
 
 ### FEAT-MESH-03
 

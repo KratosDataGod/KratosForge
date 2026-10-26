@@ -187,7 +187,7 @@ INTEGRATION_KEYS = ("integrations", "integrations_max_permissions", "integration
                     "receipt_redactions")
 # Read only by the shell (main.rs), which applies them itself; listed so the file has one list of
 # settings and policy_problems() can say what the shell will skip.
-SHELL_KEYS = ("fabric_view_sign_in_hosts", "register_link_scheme")
+SHELL_KEYS = ("fabric_view_sign_in_hosts", "register_link_scheme", "engine_download_url")
 POLICY_KEYS = (*DEFAULTS, *INTEGRATION_KEYS, *SHELL_KEYS)
 # No real tenant has the nil GUID, so allowed_tenants of just this lets no account sign in.
 NO_TENANT = "00000000-0000-0000-0000-000000000000"
@@ -326,6 +326,8 @@ def policy_problems() -> list[str]:
             continue  # integrations/policy.py checks these, below
         elif key == "fabric_view_sign_in_hosts":
             problems.extend(_sign_in_host_problems(value))
+        elif key == "engine_download_url":
+            problems.extend(_engine_url_problems(value, data.get("auto_update")))
         elif key == "register_link_scheme":
             if not isinstance(value, bool):
                 problems.append(f"register_link_scheme should be bool, not {type(value).__name__}, so the app keeps "
@@ -383,6 +385,27 @@ def _sign_in_host_problems(value: Any) -> list[str]:
     bad = [v for v in value if not (isinstance(v, str) and dns_name(v))]
     return [f"fabric_view_sign_in_hosts: {json.dumps(v)} isn't a host name like adfs.contoso.com "
             "(no *, https://, port or path), so it's skipped" for v in bad]
+
+
+def engine_url_ok(url: str) -> bool:
+    """An engine folder as the shell's policy_engine_url() in main.rs accepts it: https, a host name
+    with an optional port, and no user name, query, fragment, backslash, space or % escape."""
+    if not url.startswith("https://") or not url.isascii() or any(c in url for c in " ?#@\\%"):
+        return False
+    if any(ord(c) < 32 or ord(c) == 127 for c in url):
+        return False
+    host, _, port = url[len("https://"):].split("/", 1)[0].partition(":")
+    return dns_name(host) and (not _ or (port.isdigit() and len(port) <= 5))
+
+
+def _engine_url_problems(value: Any, auto_update: Any) -> list[str]:
+    """What the shell skips in engine_download_url (it reads the key itself)."""
+    if not (isinstance(value, str) and engine_url_ok(value.strip())):
+        return [f"engine_download_url: {json.dumps(value)} isn't an https folder address like "
+                "https://files.contoso.com/kratosforge (no user name, ? or #), so the engine comes from GitHub"]
+    if auto_update is not False:
+        return ['engine_download_url is used only with "auto_update": false, so the engine comes from GitHub']
+    return []
 
 
 def user_can_change(path: Path) -> bool:

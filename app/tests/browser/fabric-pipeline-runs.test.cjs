@@ -41,7 +41,9 @@ before(async () => {
         return { pending: false, missed: 1, scanned, runs: [RUN("j-1", "pl_customer_load", "failed", { message: "Copy customers failed" }),
           RUN("j-2", "pl_refresh_models", "succeeded", { started: "2026-10-24T05:30:00" }), RUN("j-ours", "pl_ours", "succeeded"),
           RUN("j-3", "pl_long", "running", { started: "2026-10-24T04:00:00", ended: null, seconds: null }),
-          RUN("j-4", "pl_secret", "succeeded", { started: "2026-10-24T03:00:00" })] };
+          RUN("j-4", "pl_secret", "succeeded", { started: "2026-10-24T03:00:00" }),
+          RUN("j-5", "cj_erp_customers", "succeeded", { kind: "copy job", started: "2026-10-24T02:00:00" }),
+          RUN("j-6", "df_products", "failed", { kind: "dataflow", started: "2026-10-24T01:00:00", message: "Credentials expired" })] };
       },
       fabric_pipeline_activity_runs: (p) => {
         if (p.job_id === "j-4") throw new Error("POST https://api.fabric.microsoft.com/... failed with 403: {}");
@@ -55,7 +57,7 @@ before(async () => {
 after(async () => { if (app) await app.close(); });
 
 test("Runs says it's reading, then lists Fabric pipeline runs once each", { skip }, async () => {
-  await page().locator(".monitor-filters", { hasText: "Reading pipeline runs in Fabric" }).waitFor();
+  await page().locator(".monitor-filters", { hasText: "Reading pipeline, copy job and dataflow runs in Fabric" }).waitFor();
   // While the scan runs, only the scan is asked again: the other sources wait for the redraw.
   const count = (m) => app.calls.filter((c) => c.method === m).length;
   const others = count("meta_runs_all");
@@ -72,8 +74,17 @@ test("Runs says it's reading, then lists Fabric pipeline runs once each", { skip
   // Problems first: the real failure, then the run whose status is too old to trust, then the rest.
   assert.match(texts[1], /^Stale.*pl_long.*—/);
   assert.match(texts[0], /Copy customers failed/);
-  assert.match(await page().locator(".monitor-filters").textContent(), /Runs of 1 pipeline in Fabric couldn't be read/);
+  assert.match(await page().locator(".monitor-filters").textContent(), /Runs of 1 item in Fabric couldn't be read/);
   assert.strictEqual(await page().locator("tr", { hasText: "pl_ours" }).count(), 1);
+  // Copy job and dataflow runs are listed too, by their kind; only pipeline runs open to activities.
+  assert.match(await page().locator("tr", { hasText: "cj_erp_customers" }).textContent(), /Copy job run in Fabric · scheduled/);
+  const dataflow = page().locator("tr", { hasText: "df_products" });
+  assert.match(await dataflow.textContent(), /^Failed.*Dataflow refresh in Fabric.*Credentials expired/);
+  assert.strictEqual(await dataflow.locator(".pl-toggle").count(), 0);
+  await page().evaluate(() => { window.realOpenInFabric = window.openInFabric; window.openInFabric = (url) => { window.openedUrl = url; }; });
+  await dataflow.click();
+  assert.match(await page().evaluate(() => window.openedUrl), new RegExp(`/groups/${WS}/`));  // the workspace, until the page address is known
+  await page().evaluate(() => { window.openInFabric = window.realOpenInFabric; });
 });
 
 test("a Fabric run opens to its activities, oldest first, with the error and input on request", { skip }, async () => {

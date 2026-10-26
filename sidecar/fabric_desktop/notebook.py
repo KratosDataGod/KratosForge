@@ -960,11 +960,11 @@ class Kernel:
         # A cell that was just started may not be in _execute yet: an interrupt raised there (in the
         # thread's start-up, or before the handlers) would end the thread without finishing the run.
         # Such a cell stops itself as soon as it gets there.
+        # The interrupt is sent under the lock, so the cell can't disarm between the check and the send.
         with run.cancel_lock:
             run.cancel_requested = True
-            armed = run.armed
-        if armed:
-            ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(run.thread.ident), ctypes.py_object(KeyboardInterrupt))
+            if run.armed:
+                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(run.thread.ident), ctypes.py_object(KeyboardInterrupt))
         run.done.wait(2.0)
         return {"interrupted": True, "stopped": run.done.is_set()}
 
@@ -1030,8 +1030,11 @@ class Kernel:
         except KeyboardInterrupt:  # an interrupt that landed while the first one was being handled
             status = "cancelled"
         finally:
-            with run.cancel_lock:  # from here a Cancel waits for the run to finish instead of raising in it
-                run.armed = False
+            try:
+                with run.cancel_lock:  # from here a Cancel waits for the run to finish instead of raising in it
+                    run.armed = False
+            except KeyboardInterrupt:  # one sent just before the disarm, raised as the cell takes the lock
+                status = "cancelled"
             if writes is not None:
                 write_queue.cell_writes.queue = None
                 writes.flush(cancel=True)  # only left after a second Cancel: drop what hasn't started

@@ -167,6 +167,7 @@ nav = [
       { "Documentation coverage" = "ux/documentation-coverage.md" },
       { "Backlog" = "ux/backlog.md" },
       { "Release gates and reviews" = "ux/release-review.md" },
+      { "Action-first experience" = "ux/action-first.md" },
     ] },
   ] },
 ]

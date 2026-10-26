@@ -184,7 +184,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-006](PRODUCT_BACKLOG.md#pb-006) | Content Security Policy for the main window | 1 | 1 | 5 | 1 | 4 | 3 | 3 | 2.45 | 3.0 | 1.47 | required | M | Medium | none | Enterprise readiness |
 | [PB-104](PRODUCT_BACKLOG.md#pb-104) | Optimize central lakehouse program | 3 | 5 | 4 | 5 | 5 | 5 | 4 | 4.25 | 4.5 | 1.27 | none | XL | Low | none | Optimize central lakehouse |
 
-### P2 (49 items)
+### P2 (51 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
@@ -194,6 +194,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-094](PRODUCT_BACKLOG.md#pb-094) | Measure the process kernel, not the engine | 3 | 3 | 2 | 2 | 4 | 2 | 1 | 2.75 | 1.5 | 2.48 | none | S | Medium | none | Prove |
 | [PB-043](PRODUCT_BACKLOG.md#pb-043) | Cancel a Fabric run from the app | 3 | 3 | 2 | 1 | 3 | 1 | 1 | 2.45 | 1.0 | 2.45 | none | S | High | none | Master product (unassigned) |
 | [PB-077](PRODUCT_BACKLOG.md#pb-077) | User and agent docs match the code | 3 | 1 | 3 | 1 | 4 | 1 | 1 | 2.45 | 1.0 | 2.45 | none | S | High | none | Master product (unassigned) |
+| [PB-111](PRODUCT_BACKLOG.md#pb-111) | Check now covers SQL scripts and scheduled notebooks | 3 | 1 | 4 | 2 | 3 | 2 | 1 | 2.7 | 1.5 | 2.43 | none | S | Medium | PB-108 | Enterprise governance foundation |
 | [PB-021](PRODUCT_BACKLOG.md#pb-021) | SQL editor with IntelliSense and formatting | 5 | 2 | 3 | 3 | 4 | 3 | 2 | 3.45 | 2.5 | 2.42 | none | M | High | none | SQL development sprint |
 | [PB-068](PRODUCT_BACKLOG.md#pb-068) | Key lookups without reading whole key tables | 3 | 4 | 4 | 2 | 4 | 3 | 2 | 3.45 | 2.5 | 2.42 | none | M | High | none | Staged roadmap |
 | [PB-034](PRODUCT_BACKLOG.md#pb-034) | Start the notebook wizard from a table | 3 | 2 | 2 | 2 | 3 | 1 | 1 | 2.4 | 1.0 | 2.4 | none | S | High | none | Prove |
@@ -237,6 +238,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-084](PRODUCT_BACKLOG.md#pb-084) | One late-table alert, not two | 2 | 1 | 3 | 1 | 3 | 2 | 1 | 2.05 | 1.5 | 1.84 | none | S | High | none | Workload management |
 | [PB-060](PRODUCT_BACKLOG.md#pb-060) | Sensitive data classification that complements Purview | 2 | 1 | 5 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | L | Low | PB-056 | Enterprise readiness |
 | [PB-076](PRODUCT_BACKLOG.md#pb-076) | Retire side by side into Prove | 2 | 2 | 3 | 1 | 3 | 2 | 2 | 2.25 | 2.0 | 1.8 | none | S | Medium | none | Prove |
+| [PB-112](PRODUCT_BACKLOG.md#pb-112) | Semantic model best-practice checks in governance policies | 3 | 1 | 4 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | M | Medium | PB-108 | Best Practice Analyzer |
 
 ### P3 (13 items)
 

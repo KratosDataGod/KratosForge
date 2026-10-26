@@ -11,6 +11,7 @@ Fabric refuses a write the person's role doesn't allow whatever this module says
 from __future__ import annotations
 
 import getpass
+import json
 import logging
 from typing import Any
 
@@ -48,19 +49,44 @@ def role_problems(workspace: str, assignments: list[dict[str, Any]] | None, me: 
 
 
 def separation_problem(source_env: str, target_env: str, version: Any, promoted_by: str | None,
-                       me: str | None) -> str | None:
+                       me: str | None, promoted_by_id: str | None = None, my_id: str | None = None) -> str | None:
     """With ``separate_promoter = true`` on the target environment: whoever promoted ``version``
-    to ``source_env`` may not also promote it to ``target_env``."""
+    to ``source_env`` may not also promote it to ``target_env``.
+
+    It's the same person when the Microsoft Entra object ids match (the release record's and the
+    signed-in one's, EP-5), which catches one person with two PC logins, or when the PC login names
+    match, so signing in with a second account on the same login doesn't pass either. A shared
+    login therefore counts as one person."""
     if source_env == "dev":
         return None  # nothing was promoted into Dev; the rule is about the second pair of eyes after Test
     if not promoted_by:
         return (f"{target_env.title()} needs someone other than whoever promoted metadata {version} to "
                 f"{source_env.title()}, and {source_env.title()}'s record doesn't say who that was. "
                 f"Promote it to {source_env.title()} again so the record names them.")
-    if me and promoted_by.lower() == me.lower():
+    same_id = bool(promoted_by_id and my_id) and promoted_by_id.lower() == my_id.lower()  # type: ignore[union-attr]
+    same_login = bool(me) and promoted_by.lower() == me.lower()  # type: ignore[union-attr]
+    if same_id or same_login:
         return (f"You promoted metadata {version} to {source_env.title()}, so someone else has to promote it to "
                 f"{target_env.title()} (separate_promoter in environments.toml).")
     return None
+
+
+def separation_note(promoted_by_id: str | None, my_id: str | None) -> str | None:
+    """Says so when the separate-promoter check could only compare PC login names."""
+    if promoted_by_id and my_id:
+        return None
+    why = "you aren't signed in" if promoted_by_id else "its release record has no Microsoft Entra id"
+    return ("The separate promoter check could only compare PC login names, because " + why + ". It's a team "
+            "check, not a security boundary: the workspace roles decide who can write.")
+
+
+def recorded_object_id(receipt: str | None) -> str | None:
+    """The promoter's Entra object id in a deployment row's release receipt, if it has one."""
+    try:
+        oid = (json.loads(receipt or "{}").get("identity") or {}).get("object_id")
+    except (ValueError, AttributeError):
+        return None
+    return oid if isinstance(oid, str) and oid else None
 
 
 def current_user() -> str | None:

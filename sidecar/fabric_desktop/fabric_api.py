@@ -261,6 +261,20 @@ class FabricClient:
 
     # ---- Fabric's job scheduler: run an item on Fabric capacity, now or on a schedule
 
+    # Items Fabric runs through their own "execute" job, at a path of their own type (the job type is
+    # in the path, not the jobType query): copy jobs and Dataflow Gen2.
+    EXECUTE_PATHS = {"CopyJob": "copyJobs", "Dataflow": "dataflows"}
+
+    def run_item_execute(self, workspace_id: str, item_id: str, item_type: str) -> str:
+        """Start a copy job or a Dataflow Gen2 refresh and return the job instance id."""
+        _check_fabric_runs_allowed("starting jobs in Fabric")
+        path = self.EXECUTE_PATHS[item_type]
+        resp = self._request("POST", f"/workspaces/{workspace_id}/{path}/{item_id}/jobs/execute/instances")
+        location = resp.headers.get("Location", "")
+        if not location:
+            raise FabricError(f"Fabric accepted the {item_type} run but returned no job instance")
+        return location.rstrip("/").rsplit("/", 1)[-1]
+
     def run_item_job(self, workspace_id: str, item_id: str, job_type: str,
                      execution_data: dict[str, Any] | None = None, item_path: str = "items") -> str:
         """Start a job instance and return its id (the last part of the Location header)."""

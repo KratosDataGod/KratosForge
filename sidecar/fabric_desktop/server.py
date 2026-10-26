@@ -98,6 +98,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "pipeline_list", "fabric_pipeline_runs", "fabric_pipeline_activity_runs",
            "workspace_pipelines", "workspace_pipeline_definition", "fabric_connections",
            "workspace_dataflows", "workspace_dataflow_definition", "fabric_dataflow_refreshes",
+           "workspace_copy_jobs", "workspace_copy_job_definition", "fabric_copy_job_runs",
            "git_path_info", "git_notebook_info", "audit_log", "telemetry_status", "telemetry_new_install_id"}
 
 
@@ -172,6 +173,10 @@ METHODS |= SQL_TEMPLATE_METHODS
 from .sql_queries_service import METHODS as SQL_QUERY_METHODS  # noqa: E402
 
 METHODS |= SQL_QUERY_METHODS
+# A warehouse as files in Fabric's Git layout (warehouse_project_service.py).
+from .warehouse_project_service import METHODS as WH_PROJECT_METHODS  # noqa: E402
+
+METHODS |= WH_PROJECT_METHODS
 
 # Folders for notebooks (notebook_folders_service.py): new, rename, delete when empty, move into one.
 from .notebook_folders_service import METHODS as NOTEBOOK_FOLDERS_METHODS  # noqa: E402

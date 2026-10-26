@@ -1,5 +1,8 @@
 blank_issues_enabled: true
 contact_links:
+  - name: Report a security problem
+    url: https://github.com/KratosDataGod/KratosForge/security/advisories/new
+    about: Privately, never as a public issue. See SECURITY.md.
   - name: Suggest an idea
     url: https://github.com/KratosDataGod/KratosForge/discussions/categories/ideas
     about: Ideas and feature requests go to the Ideas forum, where people vote on them. See docs/ideas.md.

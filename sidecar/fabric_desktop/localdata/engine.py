@@ -209,6 +209,7 @@ class LocalEngine:
         # the reader is used up or closed, and may be closed on another thread.
         self._lock = threading.Lock()
         self._meta_lock = threading.Lock()    # project.json and the catalog
+        self._allowed: list[str] = []          # the open connection's allowed_directories
         self._running: dict[str, dict[str, Any]] = {}
         # Cancelled before they started (a background query whose thread hadn't reached DuckDB yet).
         self._cancel_first: set[str] = set()
@@ -227,7 +228,27 @@ class LocalEngine:
         with self._lock:
             self._open_locked()
 
+    def _allowed_directories(self) -> list[str]:
+        """What the project's connection may read and write: its own folder (database, Tables, tmp)
+        and its source folders. Nothing else on the PC, and nothing on the network."""
+        roots = [self.project.root, *(Path(s.path) for s in self.project.sources)]
+        return sorted({os.path.join(str(r.resolve()), "") for r in roots})
+
+    def _lock_down(self, con: duckdb.DuckDBPyConnection) -> None:
+        """A second line behind the statement checks (sql_exec.check_local): DuckDB itself refuses
+        any file outside ``_allowed_directories``, URLs, ATTACH elsewhere and extension installs.
+        Once external access is off, DuckDB won't turn it back on or change the folders while the
+        connection is open, so a SET in a query can't undo this; a new folder means a new connection."""
+        con.execute("SET autoinstall_known_extensions = false")
+        con.execute("SET autoload_known_extensions = false")
+        con.execute(f"SET allowed_directories = [{', '.join(lit(d) for d in self._allowed)}]")
+        con.execute("SET enable_external_access = false")
+
     def _open_locked(self) -> duckdb.DuckDBPyConnection:
+        if self._con is not None and self._allowed != self._allowed_directories():
+            # A folder was added or removed: the locked connection can't change its folders.
+            # Temporary tables don't survive this; the database's own tables and views do.
+            self._close_locked()
         if self._con is None:
             p = self.project
             p.root.mkdir(parents=True, exist_ok=True)
@@ -243,6 +264,8 @@ class LocalEngine:
             # dbo.orders can be written orders.
             con.execute("CREATE SCHEMA IF NOT EXISTS dbo")
             con.execute("SET search_path = 'dbo,main'")
+            self._allowed = self._allowed_directories()
+            self._lock_down(con)
             self._con = con
             self.apply_settings()
             self.opened_at = time.time()
@@ -264,13 +287,16 @@ class LocalEngine:
 
     def close(self) -> None:
         with self._lock:
-            if self._con is not None:
-                try:
-                    if self.project.storage == "persistent":
-                        self._con.execute("CHECKPOINT")  # fold the write-ahead log into the file
-                finally:
-                    self._con.close()
-                    self._con = None
+            self._close_locked()
+
+    def _close_locked(self) -> None:
+        if self._con is not None:
+            try:
+                if self.project.storage == "persistent":
+                    self._con.execute("CHECKPOINT")  # fold the write-ahead log into the file
+            finally:
+                self._con.close()
+                self._con = None
 
     @property
     def is_open(self) -> bool:

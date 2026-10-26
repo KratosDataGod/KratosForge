@@ -101,4 +101,4 @@ What this means in practice:
 
 ## Reporting a vulnerability
 
-Please don't open a public issue. Use GitHub's **Report a vulnerability** on the repository's Security tab, or contact KratosBI directly.
+Please don't open a public issue. Use GitHub's **Report a vulnerability** on the repository's Security tab, or contact KratosBI directly. What to include and how a report is handled: [SECURITY.md](https://github.com/KratosDataGod/KratosForge/blob/main/SECURITY.md).

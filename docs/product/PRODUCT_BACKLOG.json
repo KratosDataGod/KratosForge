@@ -773,7 +773,8 @@
       "evidence": [
         "fabric_api.py save_notebook matches an existing notebook by displayName",
         "workload_service.py _record_notebook_item already records the item id after publish, but publish doesn't use it",
-        "PR #685: publish updates the Fabric notebook it published before, even after a rename"
+        "PR #685: publish updates the Fabric notebook it published before, even after a rename",
+        "Implementation review docs/product/reviews/PB-018-685.md: Accepted with Documented Limitations (Chris 'I accept all 4', 2026-10-26, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpREfN9JPWyocAdUEQR2tzj9); limitations: publish after a rename not yet run on a tenant"
       ],
       "features": [
         "FEAT-FAB-06"
@@ -795,7 +796,7 @@
       "owner": "Master product (unassigned)",
       "effort": "S",
       "confidence": "Medium",
-      "state": "In review",
+      "state": "Accepted",
       "package": "docs/product/pr-ready/PB-018.md",
       "computed": {
         "benefit": 2.7,
@@ -1723,7 +1724,8 @@
       "evidence": [
         "jobqueue.py has no prune (inference from code reading)",
         "agent CLI has no requeue",
-        "PR #689: finished agent jobs are pruned and `agent requeue` revives a dead job"
+        "PR #689: finished agent jobs are pruned and `agent requeue` revives a dead job",
+        "Implementation review docs/product/reviews/PB-044-689.md: Accepted with Documented Limitations (Chris 'I accept all 4', 2026-10-26, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpREfN9JPWyocAdUEQR2tzj9); limitations: the package's manual requeue check and a live agent run are still to do"
       ],
       "features": [
         "FEAT-ORC-02"
@@ -1746,7 +1748,7 @@
       "owner": "Master product (unassigned)",
       "effort": "S",
       "confidence": "High",
-      "state": "In review",
+      "state": "Accepted",
       "package": "docs/product/pr-ready/PB-044.md",
       "computed": {
         "benefit": 2.3,
@@ -2128,7 +2130,8 @@
       "capability": "Revoke in Platform > Access and a sources list.",
       "evidence": [
         "platform_revoke and platform_sources have no caller in app/ui",
-        "PR #694: a product's page takes a project's access away (Preview); the source list screen is not checked here"
+        "PR #694: a product's page takes a project's access away (Preview); the source list screen is not checked here",
+        "Implementation review docs/product/reviews/PB-054-694.md: Accepted with Documented Limitations (Chris 'I accept all 4', 2026-10-26, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpREfN9JPWyocAdUEQR2tzj9); limitations: the sources list isn't built and revoke hasn't run against a tenant's UDF_Platform"
       ],
       "features": [
         "FEAT-MESH-01"
@@ -2149,7 +2152,7 @@
       "owner": "Master product (unassigned)",
       "effort": "S",
       "confidence": "High",
-      "state": "In review",
+      "state": "Accepted",
       "computed": {
         "benefit": 2.3,
         "cost": 1.5,
@@ -2529,7 +2532,8 @@
       "capability": "Compare Entra object ids.",
       "evidence": [
         "duties.py",
-        "PR #721 (HD-030): the separate promoter compares Entra object ids"
+        "PR #721 (HD-030): the separate promoter compares Entra object ids",
+        "Implementation review docs/product/reviews/PB-065-721.md: Accepted with Documented Limitations (Chris 'I accept all 4', 2026-10-26, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpREfN9JPWyocAdUEQR2tzj9); limitations: not a security boundary, the switch is still in environments.toml, not tried with two PCs and one Entra account"
       ],
       "features": [
         "FEAT-GOV-04"
@@ -2553,7 +2557,7 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "In review",
+      "state": "Accepted",
       "external_dependencies": [
         "Overlaps HD-030 separation of duties by Entra id (staged roadmap) (Codebase audit and hardening backlog, PB-101)"
       ],

@@ -14,8 +14,8 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   PB-018, PB-044, HD-030, QA-011 and SH-9.
 - Inventory: 142 features. 119 are Implemented, 12 Partially Implemented, 4 Implemented but Not Exposed, 3 Missing and 4 Planned.
   3 are Verified, 127 Partially Verified and 12 Unverified. None has been verified on a Fabric tenant.
-- Backlog: 101 items (5 P0, 31 P1, 52 P2, 13 P3). 49 are Proposed, 11 In progress, 40 In review and 1 Accepted
-  (PB-108, with documented limitations). Merged work waits on the [implementation review](IMPLEMENTATION_REVIEW_PROCESS.md).
+- Backlog: 101 items (5 P0, 31 P1, 52 P2, 13 P3). 49 are Proposed, 11 In progress, 36 In review and 5 Accepted
+  (PB-108, PB-018, PB-044, PB-054 and PB-065, each with documented limitations). Merged work waits on the [implementation review](IMPLEMENTATION_REVIEW_PROCESS.md).
 
 ## Workstreams
 

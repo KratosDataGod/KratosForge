@@ -440,7 +440,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-035](#pb-035) | Pipeline definition engine | P2 | Local Fabric pipeline execution | L | In review |
 | [PB-036](#pb-036) | Pipeline activity compatibility registry | P1 | Local Fabric pipeline execution | M | In review |
 | [PB-037](#pb-037) | Local DAG execution engine | P3 | Local Fabric pipeline execution | XL | In review |
-| [PB-044](#pb-044) | Agent queue pruning and dead-job requeue | P2 | Master product (unassigned) | S | In review |
+| [PB-044](#pb-044) | Agent queue pruning and dead-job requeue | P2 | Master product (unassigned) | S | Accepted |
 | [PB-045](#pb-045) | Shared queue for several workers | P3 | Workload management | L | In review |
 | [PB-048](#pb-048) | Schedule editing and safer schedule removal | P2 | Master product (unassigned) | M | Proposed |
 | [PB-049](#pb-049) | Run the pipeline mailbox once on a tenant | P2 | Staged roadmap | S | Proposed |
@@ -504,11 +504,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-044
 
-**Agent queue pruning and dead-job requeue** · P2 (score 2.3) · S · confidence High · In review
+**Agent queue pruning and dead-job requeue** · P2 (score 2.3) · S · confidence High · Accepted
 
 - **Problem:** The agent's SQLite queue is never pruned and a dead job can't be revived without editing the database.
 - **Proposed capability:** Retention for finished jobs and an agent requeue command.
-- **Current-state evidence:** jobqueue.py has no prune (inference from code reading); agent CLI has no requeue; PR #689: finished agent jobs are pruned and `agent requeue` revives a dead job
+- **Current-state evidence:** jobqueue.py has no prune (inference from code reading); agent CLI has no requeue; PR #689: finished agent jobs are pruned and `agent requeue` revives a dead job; Implementation review docs/product/reviews/PB-044-689.md: Accepted with Documented Limitations (Chris 'I accept all 4', 2026-10-26, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpREfN9JPWyocAdUEQR2tzj9); limitations: the package's manual requeue check and a live agent run are still to do
 - **Inventory features:** [FEAT-ORC-02](FEATURE_INVENTORY.md#feat-orc-02)
 - **Dependencies:** none
 - **Owner:** Master product (unassigned)
@@ -581,7 +581,7 @@ review moves it to Accepted; a merge alone does neither.
 
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
-| [PB-018](#pb-018) | Publish matches Fabric items by id, not display name | P2 | Master product (unassigned) | S | In review |
+| [PB-018](#pb-018) | Publish matches Fabric items by id, not display name | P2 | Master product (unassigned) | S | Accepted |
 | [PB-040](#pb-040) | Fabric workspace Git integration | P2 | Git-native development | L | Proposed |
 | [PB-041](#pb-041) | Deployment preview and item deploy | P2 | Git-native development | L | Proposed |
 | [PB-042](#pb-042) | Release rollback and the committed-revision rule | P2 | Staged roadmap | M | Proposed |
@@ -591,11 +591,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-018
 
-**Publish matches Fabric items by id, not display name** · P2 (score 2.16) · S · confidence Medium · In review
+**Publish matches Fabric items by id, not display name** · P2 (score 2.16) · S · confidence Medium · Accepted
 
 - **Problem:** Publishing finds the Fabric notebook by display name, so a rename in either place makes a duplicate.
 - **Proposed capability:** Record the Fabric item id on first publish and update that item afterwards.
-- **Current-state evidence:** fabric_api.py save_notebook matches an existing notebook by displayName; workload_service.py _record_notebook_item already records the item id after publish, but publish doesn't use it; PR #685: publish updates the Fabric notebook it published before, even after a rename
+- **Current-state evidence:** fabric_api.py save_notebook matches an existing notebook by displayName; workload_service.py _record_notebook_item already records the item id after publish, but publish doesn't use it; PR #685: publish updates the Fabric notebook it published before, even after a rename; Implementation review docs/product/reviews/PB-018-685.md: Accepted with Documented Limitations (Chris 'I accept all 4', 2026-10-26, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpREfN9JPWyocAdUEQR2tzj9); limitations: publish after a rename not yet run on a tenant
 - **Inventory features:** [FEAT-FAB-06](FEATURE_INVENTORY.md#feat-fab-06)
 - **Dependencies:** none
 - **Owner:** Master product (unassigned)
@@ -699,7 +699,7 @@ review moves it to Accepted; a merge alone does neither.
 | --- | --- | --- | --- | --- | --- |
 | [PB-052](#pb-052) | Verify the central platform on a tenant | P1 | Master product (unassigned) | M | Proposed |
 | [PB-053](#pb-053) | Scheduled shortcut health check with alerts | P2 | Master product (unassigned) | S | Proposed |
-| [PB-054](#pb-054) | Screens for platform revoke and source list | P2 | Master product (unassigned) | S | In review |
+| [PB-054](#pb-054) | Screens for platform revoke and source list | P2 | Master product (unassigned) | S | Accepted |
 | [PB-105](#pb-105) | Simplified incident management | P3 | Simplified incident management | L | In progress |
 
 ### PB-052
@@ -734,11 +734,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-054
 
-**Screens for platform revoke and source list** · P2 (score 2.07) · S · confidence High · In review
+**Screens for platform revoke and source list** · P2 (score 2.07) · S · confidence High · Accepted
 
 - **Problem:** Platform admins can't revoke a grant or list sources from the app though the engine supports both.
 - **Proposed capability:** Revoke in Platform > Access and a sources list.
-- **Current-state evidence:** platform_revoke and platform_sources have no caller in app/ui; PR #694: a product's page takes a project's access away (Preview); the source list screen is not checked here
+- **Current-state evidence:** platform_revoke and platform_sources have no caller in app/ui; PR #694: a product's page takes a project's access away (Preview); the source list screen is not checked here; Implementation review docs/product/reviews/PB-054-694.md: Accepted with Documented Limitations (Chris 'I accept all 4', 2026-10-26, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpREfN9JPWyocAdUEQR2tzj9); limitations: the sources list isn't built and revoke hasn't run against a tenant's UDF_Platform
 - **Inventory features:** [FEAT-MESH-01](FEATURE_INVENTORY.md#feat-mesh-01)
 - **Dependencies:** none
 - **Owner:** Master product (unassigned)
@@ -1348,7 +1348,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-010](#pb-010) | Security and network docs match the shipped app | P1 | Codebase audit and hardening | S | Proposed |
 | [PB-061](#pb-061) | Missing policy keys | P2 | Enterprise readiness | M | Proposed |
 | [PB-063](#pb-063) | Assistive technology audit | P1 | Enterprise readiness | M | Proposed |
-| [PB-065](#pb-065) | Separation of duties by signed-in identity | P2 | Enterprise readiness | S | In review |
+| [PB-065](#pb-065) | Separation of duties by signed-in identity | P2 | Enterprise readiness | S | Accepted |
 | [PB-101](#pb-101) | Codebase audit and hardening program | P0 | Codebase audit and hardening | XL | In progress |
 
 ### PB-001
@@ -1493,11 +1493,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-065
 
-**Separation of duties by signed-in identity** · P2 (score 2.05) · S · confidence High · In review
+**Separation of duties by signed-in identity** · P2 (score 2.05) · S · confidence High · Accepted
 
 - **Problem:** separate_promoter compares PC login names, not signed-in identities.
 - **Proposed capability:** Compare Entra object ids.
-- **Current-state evidence:** duties.py; PR #721 (HD-030): the separate promoter compares Entra object ids
+- **Current-state evidence:** duties.py; PR #721 (HD-030): the separate promoter compares Entra object ids; Implementation review docs/product/reviews/PB-065-721.md: Accepted with Documented Limitations (Chris 'I accept all 4', 2026-10-26, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpREfN9JPWyocAdUEQR2tzj9); limitations: not a security boundary, the switch is still in environments.toml, not tried with two PCs and one Entra account
 - **Inventory features:** [FEAT-GOV-04](FEATURE_INVENTORY.md#feat-gov-04)
 - **Dependencies:** Overlaps HD-030 separation of duties by Entra id (staged roadmap) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-130)

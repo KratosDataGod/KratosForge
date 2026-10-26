@@ -1713,7 +1713,10 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
 .how-toggle[hidden] { display: none; }
 .how-toggle[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }
 body.explain-on-request .with-how { grid-template-columns: minmax(0, 1fr); }
-body.explain-on-request .how-it-works { display: none; }
+body.explain-on-request .how-it-works.how-page { display: none; }
+body.explain-on-request .page-intro { display: none; }
+.how-it-works .how-about { display: none; }
+body.explain-on-request .how-it-works .how-about { display: block; margin: 0 0 12px; color: var(--text); }
 body.explain-on-request.how-open .how-it-works.how-shown {
   display: flex; position: fixed; top: 56px; right: 12px; bottom: 12px; z-index: 9; width: min(360px, calc(100vw - 24px));
   overflow-y: auto; box-shadow: -8px 0 24px rgba(0,0,0,0.12);
@@ -2363,6 +2366,22 @@ html[data-motion-level="0"] .mo-ghost { display: none; }
 .dialog:has(.ossie-import) { max-width: 900px; }
 .ossie-preview { display: flex; flex-direction: column; gap: 8px; }
 .ossie-preview tr.warn-row { background: #fff8e6; }
+
+/* Data dictionary on the Semantic model tab (meta.js dictionaryCard) */
+.dict-out, .dict-preview { display: flex; flex-direction: column; gap: 10px; }
+.dict-counts { gap: 16px; font-size: 13px; }
+.dialog:has(.dict-import) { max-width: 820px; }
+.dict-import { gap: 12px; }
+.dict-import td { overflow-wrap: anywhere; }
+
+/* Direct Lake check on the Semantic model tab (meta.js directLakeCard) */
+.dl-out { display: flex; flex-direction: column; gap: 10px; }
+.dl-tiles { display: flex; flex-wrap: wrap; gap: 10px; }
+.dl-tile { flex: 1 1 160px; display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border: 1px solid var(--border-soft); border-radius: 6px; font-size: 12px; }
+.dl-tile b { font-size: 18px; }
+.info-text { color: #0f548c; }
+.mini td.n.over { color: var(--danger); font-weight: 600; }
+.mini td.n.near { color: #8a5300; font-weight: 600; }
 
 /* Action-first framework (actions.js): next steps and the primary action with its More menu. */
 .next-steps { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; margin-bottom: 16px; border: 1px solid var(--border-soft); border-radius: 8px; background: #fff; }

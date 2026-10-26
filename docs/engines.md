@@ -26,7 +26,8 @@ refuses to register an engine that claims more than it has an adapter and tests 
 ### Compatibility matrix
 
 "Tested" means automated tests in this repository, on Linux and Windows CI, with no cloud. Nothing
-here has run against a Fabric tenant or a Databricks workspace.
+here has run against a Fabric tenant or a Databricks workspace yet: the Databricks SQL warehouse
+engine is tested against fakes of Databricks' documented APIs, and stays Preview until it has.
 
 | Engine | Where it runs | Languages | SQL | Cancel | Plan | Variables | Billed | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -37,7 +38,7 @@ here has run against a Fabric tenant or a Databricks workspace.
 | Apache Spark (this PC) | This PC | none yet | none yet | | | | Nothing | Planned |
 | Fabric Spark (remote) | Fabric capacity | none yet | none yet | | | | Fabric capacity | Planned, Preview |
 | Databricks Connect (remote) | Databricks compute | none yet | none yet | | | | DBUs | Planned, Preview |
-| Databricks SQL warehouse (remote) | Databricks | none yet | none yet | | | | DBUs | Planned, Preview |
+| Databricks SQL warehouse (remote) | Your Databricks SQL warehouse | SQL | Databricks SQL native | Native | Partial (EXPLAIN on the warehouse) | No | DBUs | Preview, tested against fakes |
 
 Engines on this PC bill nothing themselves. **Reading or writing OneLake from this PC still uses
 Fabric capacity**, so "runs on this PC" never means "uses no capacity".
@@ -56,6 +57,25 @@ The Python engine uses the notebook's own session (the same process **Stop** end
 **Run notebooks in their own process** turned on in Settings. With it off every notebook shares one
 kernel, and a notebook sharing another notebook's session shares its process too; in both cases the
 engine says what to change instead of running.
+
+## Databricks SQL warehouse (Preview)
+
+SQL cells can run on a Databricks SQL warehouse in your workspace, through Databricks' documented
+Statement Execution API. A cell may hold several statements; they run in order and the last one's
+result is shown, with the warehouse's exact row count. **Cancel** stops the statement on the
+warehouse. **Catalog** lists Unity Catalog catalogs, schemas and tables without starting the
+warehouse. **Plan** runs EXPLAIN on the warehouse.
+
+- **It bills DBUs.** A statement sent to a stopped warehouse starts it, and a running warehouse
+  bills Databricks units until its own auto-stop. KratosForge never stops your warehouse and never
+  sends a cell there without your confirmation or your profile's policy.
+- **Sign-in** comes from where you already keep it: a Databricks CLI profile (signed in with
+  `databricks auth login`, or holding a service principal or personal access token), browser
+  sign-in through the Databricks CLI, or a service principal whose secret is an `env:` or `credman:`
+  reference. The token stays in memory for the session and is never written anywhere.
+- **Limits:** results come back inline, so the warehouse refuses one over 25 MB (add a LIMIT), and
+  only the first result chunk is previewed. Billed DBUs are in Databricks' system billing tables,
+  per warehouse and hour, so the engine reports measured seconds only.
 
 ## Switching engines
 

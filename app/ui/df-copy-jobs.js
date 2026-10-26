@@ -95,15 +95,14 @@ function dfCopyDetail(ws) {
   const tabs = h("div", { class: "subtabs", role: "tablist", "aria-label": "Copy job views" }, DF_COPY_TABS.map(([id, label]) =>
     h("button", { class: `tab${dfCopyPage.tab === id ? " active" : ""}`, role: "tab", "aria-selected": dfCopyPage.tab === id ? "true" : "false",
       onclick: () => { dfCopyPage.tab = id; render(); } }, label)));
+  // As on the Dataflows tab, Run history shows even when the definition couldn't be read.
   let body;
   if (!detail) body = loading(`Reading ${c.name} from Fabric...`);
-  else if (detail.error) body = h("p", { class: "error-text" }, `Could not read ${c.name}: ${detail.error}`);
-  else {
-    const view = dfCopyPage.tab === "runs"
-      ? (dfCopyPage.runs.error ? h("p", { class: "error-text" }, `Could not read runs: ${dfCopyPage.runs.error}`) : dfCopyRuns(dfCopyPage.runs.runs || []))
-      : dfCopyTables(detail);
-    body = h("div", {}, (detail.problems || []).map((p) => h("p", { class: "muted-text" }, p)), dfCopySummary(detail, ws), tabs, view);
-  }
+  else if (dfCopyPage.tab === "runs") {
+    body = h("div", {}, detail.error ? null : dfCopySummary(detail, ws), tabs,
+      dfCopyPage.runs.error ? h("p", { class: "error-text" }, `Could not read runs: ${dfCopyPage.runs.error}`) : dfCopyRuns(dfCopyPage.runs.runs || []));
+  } else if (detail.error) body = h("div", {}, tabs, h("p", { class: "error-text" }, `Could not read ${c.name}: ${detail.error}`));
+  else body = h("div", {}, (detail.problems || []).map((p) => h("p", { class: "muted-text" }, p)), dfCopySummary(detail, ws), tabs, dfCopyTables(detail));
   return h("div", { class: "df-detail" },
     h("div", { class: "df-detail-head" }, h("h2", {}, c.name),
       detail && detail.local_check ? h("span", { class: `pill-s ${detail.local_check.possible ? "info" : "neu"}` },

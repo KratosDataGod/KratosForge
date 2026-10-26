@@ -2110,7 +2110,7 @@ test("A scheduled run whose Teams alert didn't go out says so in Runs and Schedu
 });
 
 // motion.js with a small stand-in DOM and clock: what Forge animations make, and when they don't.
-function motionHarness({ setting = true, reduced = false, hidden = false, settings = null } = {}) {
+function motionHarness({ setting = true, reduced = false, hidden = false, settings = null, appLoaded = true } = {}) {
   let clock = 0;
   let timers = [];
   let watch = null;
@@ -2153,6 +2153,7 @@ function motionHarness({ setting = true, reduced = false, hidden = false, settin
       return n;
     },
   };
+  if (!appLoaded) delete ctx.state;  // app.js, which declares state, loads after motion.js
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path.join(ui, "motion.js"), "utf8"), ctx);
   ctx.advance = (ms) => {
@@ -2627,6 +2628,15 @@ test("Motion budget: at most three effects at once, each removed on time, the co
   assert.ok(strike && strike.kids.length >= 2, "the Wolf Run has no runner or trail");
 });
 
+test("Motion under load: a long task before app.js has loaded doesn't throw", () => {
+  // The load watch starts in motion.js, which loads before app.js declares state; a busy start-up
+  // (or a test run under parallel load) reported long tasks in between: "state is not defined".
+  const ctx = motionHarness({ appLoaded: false });
+  assert.doesNotThrow(() => ctx.longTasks(600));
+  assert.strictEqual(ctx.motionDiagnostics().drop, 1);
+  assert.doesNotThrow(() => ctx.advance(30000));  // the cooldown's applyMotion, still before app.js
+});
+
 test("Motion under load: long tasks past the budget drop effects a level for the cooldown, then it comes back", () => {
   const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
   ctx.longTasks(300);
@@ -2722,7 +2732,7 @@ test("a fold can start closed, and the choice made on this PC wins after that", 
   const localStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
   const h = (tag, attrs = {}, ...kids) => ({ tag, attrs, kids, classes: new Set(String(attrs.class || "").split(" ").filter(Boolean)),
     append(...k) { this.kids.push(...k); }, setAttribute(k, v) { this.attrs[k] = v; },
-    get classList() { const c = this.classes; return { toggle: (n, on) => (on ? c.add(n) : c.delete(n)) }; } });
+    get classList() { const c = this.classes; return { toggle: (n, on) => (on ? c.add(n) : c.delete(n)), contains: (n) => c.has(n) }; } });
   const ctx = { h, localStorage };
   vm.runInNewContext(`${src.match(/function foldable\([\s\S]*?\n}\n/)[0]}; this.f = foldable;`, ctx);
   assert.ok(!ctx.f("x", "Head", []).classes.has("folded"), "folds open unless asked");
@@ -5067,6 +5077,39 @@ test("the Ossie card exports, previews and imports only after a confirm, and hid
   assert.match(go, /\{ danger: c\.mode === "replace" \}/);
   assert.match(go, /if \(!ok\) return;/);
   assert.match(card, /OSSIE_MAX_BYTES/, "a file too large to be a model is refused before it's read");
+});
+
+test("the Direct Lake check is a Preview card that only reads, with fixes that open where the change is made", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const card = meta.split("function directLakeCard(plan, updateModel)")[1].split("// ---------- Apache Ossie")[0];
+  assert.match(card, /preview\("directLakeCheck", /, "the card is a Preview feature and hides with them");
+  assert.match(meta, /\n    directLakeCard\(plan, \(\) => build\(\)\),\n/, "the Semantic model tab shows the card");
+  for (const method of ["meta_model_directlake_setup", "meta_model_directlake_check"]) {
+    assert.match(card, new RegExp(`"${method}"`), `${method} has a caller`);
+  }
+  const calls = [...card.matchAll(/metaCall\("([a-z_]+)"/g)].map((x) => x[1]).sort();
+  assert.deepStrictEqual(calls, ["meta_model_directlake_check", "meta_model_directlake_setup", "meta_model_ossie_models"], "it calls nothing that writes");
+  assert.match(card, /reading from OneLake uses capacity/, "capacity wording (QA-008)");
+  assert.match(card, /goMeta\("health"\)/, "compacting happens in Table health");
+  const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  assert.match(features, /directLakeCheck: "Direct Lake check"/);
+});
+
+test("the data dictionary is a Preview card whose import saves only from its preview", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const card = meta.split("function dictionaryCard(plan)")[1].split("// ---------- Apache Ossie")[0];
+  assert.match(card, /preview\("dataDictionary", /, "the card is a Preview feature and hides with them");
+  assert.match(meta, /\n    dictionaryCard\(plan\),\n/, "the Semantic model tab shows the card");
+  for (const method of ["meta_model_dictionary", "meta_model_dictionary_export", "meta_model_dictionary_save",
+    "meta_model_dictionary_preview", "meta_model_dictionary_import"]) {
+    assert.match(card, new RegExp(`"${method}"`), `${method} has a caller`);
+  }
+  // The save happens only from the button the preview turns on, and only with something to save.
+  const dialog = card.split("function dictionaryImportDialog(plan, reload)")[1];
+  assert.ok(dialog.indexOf('"meta_model_dictionary_preview"') < dialog.indexOf('"meta_model_dictionary_import"'));
+  assert.match(dialog, /go\.disabled = !res\.changes\.length \|\| !!res\.problem;/);
+  assert.match(dialog, /DICTIONARY_MAX_BYTES/, "a file too large to be a dictionary is refused before it's read");
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /dataDictionary: "Data dictionary"/);
 });
 
 // kratosforge:// links (deep_link.rs): a link only shows a notebook or a page. The page's handler

@@ -66,6 +66,15 @@ Files Fabric no longer returns are removed from that folder.
 - KratosForge doesn't ship Microsoft's Tabular Object Model libraries, so TMDL goes through
   Fabric's own TMSL format rather than being converted offline.
 
+## From an AI tool
+
+A connected AI tool ([Connect your AI tool](ai/README.md)) can list an environment's semantic
+models (`fabric_desktop_list_semantic_models`), export one as Ossie YAML
+(`fabric_desktop_export_semantic_model_ossie`) and preview what importing a document would change
+(`fabric_desktop_preview_ossie_import`). All three only read, and a tool limited to some workspaces
+reaches only environments in them. Importing writes the model, so it stays on this tab, where you
+see the preview and confirm.
+
 ## Engine methods
 
 | Method | What it does | Writes |

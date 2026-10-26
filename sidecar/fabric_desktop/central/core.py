@@ -68,7 +68,7 @@ MAX_BK = 400
 ACCESS = ("public", "domain", "private")
 STATUS = ("draft", "published", "deprecated")
 CLASSIFICATIONS = ("public", "internal", "confidential", "restricted")
-REQUEST_KINDS = ("key_table", "source", "access", "shortcut", "workspace", "workspace_access", "domain", "exception")
+REQUEST_KINDS = ("key_table", "source", "access", "shortcut", "workspace", "workspace_access", "domain", "exception", "data")
 # Kinds whose approval the app carries out in Fabric first, as the person approving (central/requests_service.py).
 FABRIC_KINDS = ("shortcut", "workspace", "workspace_access")
 WORKSPACE_ROLES = ("Viewer", "Contributor", "Member", "Admin")
@@ -1373,6 +1373,40 @@ def _check_domain(db: Db, target: str, detail: dict[str, Any]) -> tuple[str, dic
                  "owners": str(detail.get("owners") or "").strip()}
 
 
+DATA_ASKS = ("new", "change")
+_DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _check_data_request(db: Db, target: str, detail: dict[str, Any], reason: str) -> tuple[str, dict[str, Any]]:
+    """Ask another team for data: a new data product from a domain (its owners decide), or a change to
+    a product (its owner decides). Accepting records that the producing team will do it; nothing is made."""
+    what = str(detail.get("what") or "")
+    if what not in DATA_ASKS:
+        raise PlatformError("Say whether you need a new data product or a change to one")
+    if not str(reason or "").strip():
+        raise PlatformError("Say what you need, so the team can answer")
+    needed_by = str(detail.get("needed_by") or "").strip()
+    if needed_by:
+        try:
+            if not _DAY.match(needed_by):
+                raise ValueError(needed_by)
+            dt.date.fromisoformat(needed_by)
+        except ValueError:
+            raise PlatformError("Needed by is a date like 2026-11-30") from None
+    if what == "change":
+        product = _row(db, "product", "id", target)
+        if product is None or product.get("status") == "draft":
+            raise PlatformError(f"{target} isn't a published data product")
+        out = {"what": what, "needed_by": needed_by, "product_name": product.get("name") or target,
+               "domain_id": product.get("domain_id") or "", "owners": product.get("owner") or ""}
+        return target, out
+    domain = _row(db, "domain", "id", domain_id(target)) if target else None
+    if domain is None:
+        raise PlatformError("Pick the domain that should make it")
+    return domain["id"], {"what": what, "needed_by": needed_by, "domain_name": domain.get("name") or domain["id"],
+                          "domain_id": domain["id"], "owners": domain.get("owners") or ""}
+
+
 def request(db: Db, kind: str, target: str, project: str = "", reason: str = "", detail: dict[str, Any] | None = None,
             by: str = "") -> dict[str, Any]:
     """Ask for something only someone else may give: a key table, source, workspace, domain or policy
@@ -1404,6 +1438,8 @@ def request(db: Db, kind: str, target: str, project: str = "", reason: str = "",
         target, detail = _check_workspace_access(db, target, detail, by)
     elif kind == "domain":
         target, detail = _check_domain(db, target, detail)
+    elif kind == "data":
+        target, detail = _check_data_request(db, target, detail, reason)
     elif kind in REQUEST_HOOKS:
         target, detail = REQUEST_HOOKS[kind]["check"](db, target, detail, reason, by)
     elif kind == "exception":
@@ -1445,6 +1481,8 @@ def _duplicate_key(req: dict[str, Any]) -> str:
         return f"{d.get('workspace_id')}|{p.get('id') or p.get('email')}"
     if kind == "exception":
         return f"{target}|{d.get('scope')}|{str(d.get('scope_target') or '').lower()}"
+    if kind == "data":
+        return f"{target}|{req.get('project') or ''}|{' '.join(str(req.get('reason') or '').lower().split())}"
     return target
 
 
@@ -1475,6 +1513,10 @@ def _deciders(db: Db, req: dict[str, Any]) -> set[str]:
         return _product_owners(product)
     if req["kind"] == "shortcut" and req["detail"].get("product_id"):
         return _product_owners(_row(db, "product", "id", req["detail"]["product_id"]) or {})
+    if req["kind"] == "data":
+        if req["detail"].get("what") == "change":
+            return _product_owners(_row(db, "product", "id", req["target"]) or {})
+        return _names((_row(db, "domain", "id", req["target"]) or {}).get("owners"))
     return set()
 
 
@@ -1504,6 +1546,9 @@ def decide_request(db: Db, id: str, approve: bool, note: str = "", by: str = "")
     if not (is_admin(db, by) or _who(by) in _deciders(db, req)):
         who = ("the product's owner or a platform admin" if req["kind"] == "access" or _deciders(db, req)
                else "a platform admin")
+        if req["kind"] == "data":
+            who = ("the product's owner or a platform admin" if req["detail"].get("what") == "change"
+                   else "the domain's owners or a platform admin")
         raise PlatformError(f"Only {who} can decide this request")
     if approve:
         d = req["detail"]
@@ -1517,6 +1562,8 @@ def decide_request(db: Db, id: str, approve: bool, note: str = "", by: str = "")
             _put_source(db, _source_row({"name": req["target"], **d}, _who(by)))
         elif req["kind"] == "shortcut":
             pass  # the app creates the shortcut in Fabric first, as the person approving, then approves
+        elif req["kind"] == "data":
+            pass  # accepting says the producing team will do it; the note says how and when
         elif req["kind"] == "workspace":
             # The app makes it in Fabric first, as the person approving (central/requests_service.py).
             if not (d.get("made") or {}).get("workspace_id"):

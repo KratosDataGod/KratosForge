@@ -76,6 +76,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "agents_list", "queue_list", "run_as_list", "incidents_list", "incidents_summary", "incidents_watch", "incidents_evaluate", "incident_acknowledge", "incident_assign", "incident_note",
            "incident_resolve",
            "incidents_board", "incident_sla_policy", "incident_report", "incident_set_priority", "incidents_history_sync", "incidents_history",
+           "incident_impact", "incident_tell_impacted",
            "notebook_environment", "receipts_list", "receipt_get", "receipt_export", "receipt_redactions",
            "prove_check", "prove_start", "prove_status", "prove_list", "prove_cancel", "prove_verify",
            "prove_delete_outputs", "prove_rules_get", "prove_rules_set", "receipt_save",
@@ -147,6 +148,16 @@ METHODS |= NOTEBOOK_RESOURCE_METHODS
 from .model_ossie_service import METHODS as MODEL_OSSIE_METHODS  # noqa: E402
 
 METHODS |= MODEL_OSSIE_METHODS
+
+# Semantic model tab: the Direct Lake check (model_directlake_service.py).
+from .model_directlake_service import METHODS as MODEL_DIRECTLAKE_METHODS  # noqa: E402
+
+METHODS |= MODEL_DIRECTLAKE_METHODS
+
+# Semantic model tab: the data dictionary (model_dictionary_service.py).
+from .model_dictionary_service import METHODS as MODEL_DICTIONARY_METHODS  # noqa: E402
+
+METHODS |= MODEL_DICTIONARY_METHODS
 
 # Validate notebook (validate_service.py): code checks and a clean run in a fresh kernel.
 from .validate_service import METHODS as VALIDATE_METHODS  # noqa: E402

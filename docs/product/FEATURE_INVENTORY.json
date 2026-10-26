@@ -3671,7 +3671,7 @@
       "limitations": [
         "Not a security boundary",
         "Group roles become notes",
-        "separate_promoter compares PC login names"
+        "separate_promoter treats a matching Entra object id or PC login name as the same person (HD-030); it can be switched off in environments.toml"
       ],
       "prs": [
         93
@@ -3854,7 +3854,7 @@
     {
       "id": "FEAT-MESH-02",
       "name": "Central business keys",
-      "description": "Keys issued in batches by SQL_Platform UDFs with numbers kept when moved from LH_Keys.",
+      "description": "Keys issued in batches by SQL database UDFs, either per environment (SQL_Platform) or one keys database shared by Dev, Test and Prod (SQL_Keys in a Keys workspace), with numbers kept when moved.",
       "pillar": "Enterprise services",
       "category": "Enterprise Shared Services",
       "status": "Implemented",
@@ -3868,30 +3868,40 @@
         {
           "kind": "test",
           "ref": "sidecar/tests/test_platform.py::test_keys_move_to_the_platform_with_their_numbers"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_shared_keys.py (PR #293)",
+          "note": "18 passed when run on 2026-10-26 against main bb084c6b; SQLite stand-in, no tenant"
         }
       ],
       "source": [
         "sidecar/fabric_desktop/central/core.py",
         "sidecar/fabric_desktop/central/client.py",
-        "sidecar/fabric_desktop/central/migrate.py"
+        "sidecar/fabric_desktop/central/migrate.py",
+        "sidecar/fabric_desktop/central/keys_home.py"
       ],
       "tests": [
-        "sidecar/tests/test_platform.py"
+        "sidecar/tests/test_platform.py",
+        "sidecar/tests/test_shared_keys.py"
       ],
       "docs": [
         "docs/platform.md"
       ],
       "ui": {
-        "surface": "Data mesh > Surrogate keys > Move keys, Platform > Business keys",
+        "surface": "Settings > Platform > Keys (Create, Join existing, Move keys in); Data mesh > Surrogate keys > Move keys; Platform > Business keys",
         "preview": true
       },
       "limitations": [
         "Moving back to LH_Keys refused once new keys are issued",
-        "Direction change (Chris's unit testing, 2026-10-18, item 25): keys live in one Fabric SQL database in a dedicated workspace, shared by all environments (Chris chose one for all on 2026-10-20, reversing the 2026-10-16 decision to keep keys per environment); today each environment has its own SQL_Platform"
+        "One keys database for Dev, Test and Prod (Chris's unit testing item 25, chosen 2026-10-20) is built in PR #293: Settings > Platform > Keys creates or joins the Keys workspace (SQL_Keys, UDF_Keys) and Move keys in brings existing keys over. Built and tested against SQLite only; the move on a live tenant has not been done"
       ],
-      "next_action": "Staged roadmap moves keys to one shared keys database in a dedicated workspace, keeping existing key numbers (item 25, decided 2026-10-20)",
+      "next_action": "Move keys into the shared Keys workspace on a live tenant (PB-002); user docs that still say one LH_Keys per environment (azure-setup.md, metadata-guide.md) need updating",
       "backlog": [
         "PB-052"
+      ],
+      "prs": [
+        293
       ]
     },
     {

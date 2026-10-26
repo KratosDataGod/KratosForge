@@ -72,6 +72,8 @@ def test_fabric_runs_can_be_turned_off(policy):
     with pytest.raises(FabricError, match="doesn't allow starting jobs") as exc:
         client.run_item_job("ws", "nb", "RunNotebook")
     assert exc.value.code == POLICY_BLOCKED
+    with pytest.raises(FabricError, match="doesn't allow starting jobs"):
+        client.run_item_execute("ws", "cj", "CopyJob")
     with pytest.raises(FabricError, match="scheduling"):
         client.create_schedule("ws", "nb", "RunNotebook", {})
     with pytest.raises(FabricError, match="scheduling"):

@@ -73,6 +73,8 @@ def parse(text: str) -> dict[str, Any]:
         doc = yaml.load(text, Loader=_NoAliasLoader)  # noqa: S506 - a SafeLoader that also refuses aliases
     except yaml.YAMLError as exc:
         raise ValueError(f"This isn't valid YAML or JSON: {exc}") from exc
+    except RecursionError:
+        raise ValueError("This file is nested too deeply to be an Ossie model") from None
     if not isinstance(doc, dict):
         raise TypeError("This isn't an Ossie semantic model: it should be one object with version, name and datasets")
     if "semantic_model" in doc:

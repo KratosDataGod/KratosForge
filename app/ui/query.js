@@ -7,7 +7,7 @@
 // SQL over one lakehouse's tables, run on this PC by the sidecar (DuckDB). The editor is sqleditor.js.
 const QUERY_HINT = "-- Spark SQL runs on this PC. Press Ctrl+Enter to run.\n";
 const SQL_AUTO_CHECK_LIMIT = 100000;  // characters; a longer query is checked when the person asks
-const WAREHOUSE_HINT = "-- T-SQL runs in Fabric on this warehouse and uses capacity. Only a query that reads runs here.\n";
+const WAREHOUSE_HINT = "-- T-SQL runs in Fabric on this warehouse and uses capacity. It only reads unless you tick Allow changes.\n";
 const sqlPage = { ref: null, tabs: [], active: 0, tables: null, cols: {}, open: {}, pending: {}, editor: null };
 // Warehouses whose first run this session the person has confirmed (a warehouse run uses capacity).
 const sqlWarehouseOk = new Set();
@@ -45,7 +45,8 @@ function loadQueryTabs(ref) {
     const saved = JSON.parse(localStorage.getItem(queryTabsKey(ref)));
     if (Array.isArray(saved) && saved.length) {
       const tabs = saved.map((t) => ({ name: String(t.name), sql: String(t.sql), dialect: sqlDialect(t.dialect),
-        ...(t.file && typeof t.file.name === "string" ? { file: t.file } : {}) }));
+        ...(t.file && typeof t.file.name === "string" ? { file: t.file } : {}),
+        ...(t.proj && typeof t.proj.path === "string" ? { proj: t.proj } : {}) }));
       return wh ? tabs.map((t) => ({ ...t, dialect: ref.kind })) : tabs;
     }
   } catch { /* no saved tabs */ }
@@ -55,7 +56,8 @@ function loadQueryTabs(ref) {
 function saveQueryTabs() {
   try {
     localStorage.setItem(queryTabsKey(sqlPage.ref),
-      JSON.stringify(sqlPage.tabs.map((t) => ({ name: t.name, sql: t.sql, dialect: t.dialect || "spark", ...(t.file ? { file: t.file } : {}) }))));
+      JSON.stringify(sqlPage.tabs.map((t) => ({ name: t.name, sql: t.sql, dialect: t.dialect || "spark", ...(t.file ? { file: t.file } : {}),
+        ...(t.proj ? { proj: t.proj } : {}) }))));
     return true;
   } catch { return false; /* storage unavailable: tabs last for this session */ }
 }
@@ -107,6 +109,7 @@ function sqlMessages(ex, tab, target) {
   if (ex.ended) lines.push(`Ended at ${time(ex.ended)} after ${ex.seconds} s`);
   lines.push(`State: ${SQL_STATE[ex.state]?.[1] || ex.state}${ex.state === "completed" ? ` · ${(ex.rows || 0).toLocaleString()} row${ex.rows === 1 ? "" : "s"}` +
     ` · ${(ex.columns?.length || 0).toLocaleString()} column${ex.columns?.length === 1 ? "" : "s"}` : ""}`);
+  if (ex.change) lines.push(`Change: ${(ex.affected || 0).toLocaleString()} row${ex.affected === 1 ? "" : "s"} affected · ${ex.committed ? "committed" : "nothing kept"}`);
   if (ex.refused) lines.push(`Refused before it ran: statement ${ex.refused.statement} ${ex.refused.label}`);
   if (ex.error) lines.push(`Message: ${ex.error}`);
   if (ex.time_limit_minutes) lines.push(`Time limit: ${ex.time_limit_minutes} minutes`);
@@ -184,7 +187,11 @@ function renderQuery() {
     on: {
       change: setSql,
       run: () => run(),
-      save: () => { const ok = saveQueryTabs(); toast(ok ? `Saved ${tab.name}` : "Could not save the query: this PC's app storage is unavailable", !ok); },
+      save: () => {
+        if (tab.proj) { whProjectSave(tab).then((ok) => { if (ok) { saveQueryTabs(); p.whProjectView?.refresh(); } }); return; }
+        const ok = saveQueryTabs();
+        toast(ok ? `Saved ${tab.name}` : "Could not save the query: this PC's app storage is unavailable", !ok);
+      },
       format: () => formatSql(),
     },
     check: (text, dialect) => checkSql(text, dialect),
@@ -224,7 +231,30 @@ function renderQuery() {
       toast(`${SQL_DIALECTS[tab.dialect].label} can't run on this PC. Pick Spark SQL or DuckDB to run here.`, true);
       return;
     }
-    if (wh && !(await warehouseRunOk(ref))) return;
+    // WH-10b: with Allow changes ticked, ask the engine what the script does first; a change has its own confirm.
+    const whRef = wh ? { workspace_id: ref.workspace_id, item_id: ref.item_id, kind: ref.kind } : null;
+    let change = false;
+    if (wh && whChangesTicked(ref)) {
+      let plan;
+      try {
+        plan = await rpc("sql_start", { query, target: "warehouse", dialect: "tsql", warehouse_ref: whRef, allow: ["warehouse_write"], dry_run: true });
+      } catch (err) {
+        Object.assign(tab, { error: String(err), errorRetry: () => run(query), result: null, exec: null });
+        sqlPage.redraw?.();
+        return;
+      }
+      if (plan.refused) {
+        Object.assign(tab, { error: `Statement ${plan.refused.statement} was refused (${plan.refused.reason}), so nothing was sent. A warehouse change can't do this.`,
+          errorRetry: null, result: null, exec: null });
+        sqlPage.redraw?.();
+        return;
+      }
+      if (plan.permission === "warehouse_write") {
+        if (!(await whChangeConfirm(ref, plan))) return;
+        change = true;
+      }
+    }
+    if (wh && !change && !(await warehouseRunOk(ref))) return;
     if (wh && !sqlPage.catalog) loadCatalog();
     tab.running = true;
     const startedAt = Date.now();
@@ -233,7 +263,8 @@ function renderQuery() {
     let status;
     try {
       status = await rpc("sql_start", wh
-        ? { query, target: "warehouse", dialect: "tsql", warehouse_ref: { workspace_id: ref.workspace_id, item_id: ref.item_id, kind: ref.kind } }
+        ? { query, target: "warehouse", dialect: "tsql", warehouse_ref: whRef,
+          ...(change ? { allow: ["warehouse_write"], confirm: true, confirm_name: ref.name } : {}) }
         : { query, lakehouse_ref: ref, dialect: tab.dialect, allow });
       Object.assign(tab, { exec: status, ranSql: query, ranDialect: tab.dialect });
       status = await followRun(tab, status);
@@ -255,10 +286,16 @@ function renderQuery() {
       if (tab.exportAfter) { const fmt = tab.exportAfter; delete tab.exportAfter; exportResult(fmt); }
     } else if (status && !tab.errorRetry) {  // a failed engine call keeps its own message and Retry
       tab.error = status.error || `The query ${SQL_STATE[status.state]?.[1].toLowerCase() || status.state}.`;
+      if (wh && !change && status.refused && whChangesAllowed()) tab.error += " To change the warehouse, tick Allow changes at the top of the page.";
+    }
+    if (change && status?.state === "completed") {
+      toast(`Changed ${ref.name}: ${(status.affected || 0).toLocaleString()} row${status.affected === 1 ? "" : "s"} affected, committed.`);
+      if (sqlPage.catalog) loadCatalog();  // tables, views or procedures may have changed
     }
     // WH-07: each run that reached the engine goes into this PC's history for the warehouse.
     if (wh && status?.state) {
       sqlHistoryAdd(ref, { at: startedAt, sql: query, state: status.state, seconds: status.seconds ?? null, rows: status.rows ?? null,
+        change: change || undefined, affected: change ? status.affected ?? null : undefined,
         error: status.state === "completed" ? undefined : sqlHistoryError(status.error) });
       if (p.whAside === "history") p.whRedraw?.();
     }
@@ -468,7 +505,7 @@ function renderQuery() {
         h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("parquet"); } }, "Parquet")));
     // Messages and Chart are Preview: on the Warehouse page the whole page already is, so they carry no
     // tag of their own there; elsewhere they carry one and go when preview features are hidden.
-    const extra = wh || previewShown() ? ["messages", "chart"] : [];
+    const extra = [...(wh || previewShown() ? ["messages", "chart"] : []), ...(wh ? ["plan"] : [])];
     const view = extra.includes(tab.view) ? tab.view : "results";
     const viewTab = (id, label) => {
       const b = h("button", { role: "tab", class: `sql-view${view === id ? " on" : ""}`, "aria-selected": String(view === id),
@@ -476,7 +513,8 @@ function renderQuery() {
       return id === "results" || wh ? b : preview("sqlResultViews", b);
     };
     band.replaceChildren(...[h("div", { class: "sql-views", role: "tablist", "aria-label": "Result views" },
-      viewTab("results", "Results"), extra.length ? viewTab("messages", "Messages") : null, extra.length ? viewTab("chart", "Chart") : null),
+      viewTab("results", "Results"), extra.length ? viewTab("messages", "Messages") : null, extra.length ? viewTab("chart", "Chart") : null,
+      wh ? viewTab("plan", "Plan") : null),
       h("span", { class: `sql-pill ${pill[0]}` }, pill[1]), h("span", { class: "muted-text sql-run-msg" }, tab.error ? "" : msg),
       ex && (st === "running" || st === "queued") ? btn("Stop", "stop", stop, "tool small", { title: "Stop this query. Only its own process ends." }) : null,
       tab.ranNotice && r && !busy ? h("span", { class: "sql-local-note", role: "note" }, tab.ranNotice) : null,
@@ -490,7 +528,10 @@ function renderQuery() {
         { disabled: !r.has_next || tab.paging, "aria-label": "Next page" }) : null,
       btn("Copy", null, copyRows, "tool small", { disabled: !r, title: "Copy the rows on this page" }),
       exportMenu].filter(Boolean));
-    if (view === "messages") {
+    if (view === "plan") {
+      grid.replaceChildren(tab.planning ? h("p", { class: "muted-text", style: "padding:12px 16px" }, "Asking Fabric for the estimated plan...")
+        : sqlPlanView(tab.plan));
+    } else if (view === "messages") {
       grid.replaceChildren(sqlMessages(ex, tab, wh ? `${ref.name}${ref.workspace_name ? ` (${ref.workspace_name})` : ""} · in Fabric` : `${ref.name} · on this PC`));
     } else if (view === "chart") {
       grid.replaceChildren(r && r.columns.length && ex?.state === "completed"
@@ -521,17 +562,24 @@ function renderQuery() {
     while (p.tabs.some((t) => t.name === `Query ${n}`)) n++;
     return `Query ${n}`;
   };
-  const addTab = () => { p.tabs.push({ name: nextTabName(), sql: wh ? WAREHOUSE_HINT : QUERY_HINT, dialect: tab.dialect }); p.active = p.tabs.length - 1; saveQueryTabs(); renderQuery(); };
+  const addTab = () => { p.whCompareShown = false; p.tabs.push({ name: nextTabName(), sql: wh ? WAREHOUSE_HINT : QUERY_HINT, dialect: tab.dialect }); p.active = p.tabs.length - 1; saveQueryTabs(); renderQuery(); };
+  // WH-12: the compare view, when one was made for this warehouse, has a tab of its own.
+  const compare = wh && p.whCompare?.key === sqlRefKey(ref) ? p.whCompare : null;
+  const compareOn = !!(compare && p.whCompareShown);
   const tabs = h("div", { class: "sql-tabs", role: "tablist", "aria-label": "Queries" },
-    p.tabs.map((t, i) => h("div", { class: `sql-tab${i === p.active ? " on" : ""}` },
-      h("button", { class: "name", role: "tab", "aria-selected": String(i === p.active),
-        onclick: () => { p.active = i; renderQuery(); },
+    p.tabs.map((t, i) => h("div", { class: `sql-tab${i === p.active && !compareOn ? " on" : ""}` },
+      h("button", { class: "name", role: "tab", "aria-selected": String(i === p.active && !compareOn),
+        onclick: () => { p.active = i; p.whCompareShown = false; renderQuery(); },
         ondblclick: async () => {
           const name = await askText("Rename query", "Name", t.name, "Rename");
           if (name) { t.name = name; saveQueryTabs(); renderQuery(); }
         } }, icon("code", 14), t.name),
       p.tabs.length > 1 ? h("button", { class: "close", "aria-label": `Close ${t.name}`,
         onclick: () => { p.tabs.splice(i, 1); p.active = Math.min(p.active, p.tabs.length - 1); saveQueryTabs(); renderQuery(); } }, "×") : null)),
+    compare ? h("div", { class: `sql-tab wh-cmp-tab${compareOn ? " on" : ""}` },
+      h("button", { class: "name", role: "tab", "aria-selected": String(compareOn), onclick: () => { p.whCompareShown = true; renderQuery(); } },
+        icon("branchCompare", 14), "Compare"),
+      h("button", { class: "close", "aria-label": "Close Compare", onclick: () => { p.whCompare = null; p.whCompareShown = false; renderQuery(); } }, "×")) : null,
     h("button", { class: "sql-tab add", "aria-label": "New query", onclick: addTab }, "+"));
 
   const dialectPick = h("select", { class: "sql-dialect", "aria-label": "SQL dialect",
@@ -572,9 +620,39 @@ function renderQuery() {
     compatChip.setAttribute("aria-expanded", String(compatOpen()));
     compatChip.replaceChildren(text, previewShown() ? previewTag() : null, icon("chevronDown", 14));
   }
+  // WH-09: Fabric's estimated plan for the query (or the selection), without running it. It has a
+  // run of its own, so the tab's results stay as they were.
+  async function estimatedPlan(query = editor.chosen()) {
+    if (!query.trim() || tab.planning) return;
+    if (!(await warehouseRunOk(ref))) return;
+    Object.assign(tab, { planning: true, plan: null, view: "plan" });
+    drawResults();
+    try {
+      let status = await rpc("sql_start", { query, target: "warehouse", dialect: "tsql",
+        warehouse_ref: { workspace_id: ref.workspace_id, item_id: ref.item_id, kind: ref.kind }, estimated_plan: true });
+      let wait = 150;
+      while (["queued", "running", "cancelling"].includes(status.state)) {
+        await new Promise((r) => setTimeout(r, wait));
+        wait = Math.min(1000, wait * 1.5);
+        status = await rpc("sql_status", { execution: status.id });
+      }
+      if (status.state !== "completed") tab.plan = { error: status.error || `The estimated plan ${status.state}.` };
+      else {
+        const page = await rpc("sql_page", { execution: status.id, offset: 0 });
+        tab.plan = { xml: String(page.rows?.[0]?.[0] ?? ""), at: new Date() };
+      }
+    } catch (err) {
+      tab.plan = { error: String(err) };
+    } finally {
+      tab.planning = false;
+      sqlPage.redraw?.();
+    }
+  }
   function drawActions() {
     if (wh) {
       actions.replaceChildren(btn("Run", "play", () => run(), "tool primary"),
+        btn("Estimated plan", "flowchart", () => estimatedPlan(), "tool outline",
+          { title: "How Fabric would run the query (or the selection), without running it. Uses a little capacity." }),
         h("span", { class: "muted-text" }, "Ctrl+Enter, or select text to run just that"),
         h("span", { class: "sql-sep", "aria-hidden": "true" }),
         h("span", { class: "sql-target-note" }, SQL_DIALECTS[tab.dialect].label),
@@ -661,6 +739,7 @@ function renderQuery() {
   edit.append(editor.view.dom);
   // A new tab holding text from the explorer's Script as or a template (WH-03, WH-04).
   const openTab = (name, text) => {
+    p.whCompareShown = false;
     p.tabs.push({ name, sql: text, dialect: tab.dialect });
     p.active = p.tabs.length - 1;
     saveQueryTabs();
@@ -678,6 +757,7 @@ function renderQuery() {
   // WH-06: saved and shared queries, on the explorer's Queries tab. A saved query opens in its own
   // tab, or in the tab that already holds it.
   const openSaved = (q) => {
+    p.whCompareShown = false;
     const at = p.tabs.findIndex((t) => t.file?.place === q.place && t.file?.name === q.name);
     if (at < 0) p.tabs.push({ name: q.title, sql: q.sql, dialect: tab.dialect,
       file: { place: q.place, name: q.name, place_label: q.place_label, title: q.title, description: q.description || "",
@@ -690,6 +770,7 @@ function renderQuery() {
   const whRuns = wh ? whHistory(ref, {
     open: (name, text) => openTab(name, text),
     insight: (name, text) => {
+      p.whCompareShown = false;
       p.tabs.push({ name, sql: text, dialect: tab.dialect, autorun: true });
       p.active = p.tabs.length - 1;
       saveQueryTabs();
@@ -705,10 +786,27 @@ function renderQuery() {
     await sqlLoadQueries();
     if (p.ref === ref && state.view === "query") renderQuery();
   };
-  const asideView = wh && ["queries", "history"].includes(p.whAside) ? p.whAside : "explorer";
+  // WH-11: the warehouse's project in Git, on the explorer's Project tab. A file opens in its own
+  // tab, or in the tab that already holds it; Save writes it back.
+  const openProjectFile = async (f, project) => {
+    p.whCompareShown = false;
+    const at = p.tabs.findIndex((t) => t.proj?.repo === project.repo && t.proj?.folder === project.folder && t.proj?.path === f.path);
+    if (at < 0) {
+      const file = await attempt(() => rpc("wh_project_read", { repo: project.repo, folder: project.folder, path: f.path }), "Could not open the file");
+      if (!file) return;
+      p.tabs.push({ name: f.path.slice(f.path.lastIndexOf("/") + 1).replace(/\.sql$/i, ""), sql: file.text, dialect: tab.dialect,
+        proj: { repo: project.repo, folder: project.folder, path: f.path, version: file.version } });
+    }
+    p.active = at < 0 ? p.tabs.length - 1 : at;
+    saveQueryTabs();
+    renderQuery();
+  };
+  const whProj = wh && ref.kind === "warehouse" ? (p.whProjectView = whProject(ref, { open: openProjectFile })) : null;
+  const saveFile = async () => { if (await whProjectSave(tab)) { saveQueryTabs(); whProj?.refresh(); } };
+  const asideView = wh && ["queries", "history", ...(whProj ? ["project"] : [])].includes(p.whAside) ? p.whAside : "explorer";
   const asideTab = (id, label) => h("button", { role: "tab", class: `sql-view${asideView === id ? " on" : ""}`, "aria-selected": String(asideView === id),
     onclick: () => { p.whAside = id; renderQuery(); } }, label);
-  p.whRedraw = wh ? () => { whTree.draw(); whSaved.draw(); whRuns.draw(); if (here()) editor.refresh(); } : null;
+  p.whRedraw = wh ? () => { whTree.draw(); whSaved.draw(); whRuns.draw(); whProj?.draw(); if (here()) editor.refresh(); } : null;
   const fabricLink = wh ? fabricItemLink({ type: ref.kind === "endpoint" ? "Lakehouse" : "Warehouse", workspace_id: ref.workspace_id, item_id: ref.item_id }) : null;
   setView(wh ? h("div", { class: "sql-page warehouse-page" },
     h("div", { class: "ribbon" }, h("div", { class: "toolbar" },
@@ -716,16 +814,21 @@ function renderQuery() {
         h("button", { class: "tool split-more", "aria-label": "More ways to start a query", title: "More ways to start a query",
           onclick: (e) => showMenu(e.currentTarget, [{ label: "SQL from a template", icon: "document",
             action: () => openSqlTemplates(ref, openTab, { draft: () => editor.text() }) }]) }, icon("chevronDown", 14))),
-      btn("Save query", "save", () => saveQuery(false), "tool", { title: tab.file ? `Save to ${tab.file.name} in ${tab.file.place === "mine" ? "My queries" : tab.file.place_label}` : "Save this tab as a .sql file in My queries or a Git repository" }),
-      tab.file ? btn("Save as new", null, () => saveQuery(true), "tool") : null,
+      tab.proj ? btn("Save file", "save", saveFile, "tool", { title: `Save to ${tab.proj.path} in ${tab.proj.folder} (Ctrl+S). Commit it in Source control.` })
+        : btn("Save query", "save", () => saveQuery(false), "tool", { title: tab.file ? `Save to ${tab.file.name} in ${tab.file.place === "mine" ? "My queries" : tab.file.place_label}` : "Save this tab as a .sql file in My queries or a Git repository" }),
+      tab.file && !tab.proj ? btn("Save as new", null, () => saveQuery(true), "tool") : null,
       btn("Open in Fabric", "open", () => openInFabric(fabricLink)),
       h("span", { class: "spacer" }),
-      h("span", { class: "sql-capacity-note", role: "note", title: `Queries run in Fabric on ${ref.name} and use capacity. Only a query that reads runs here.` },
-        "Runs in Fabric · uses capacity · reads only"), learnMore("warehouse-queries-preview"))),
+      whChangesSwitch(ref, () => renderQuery()),
+      h("span", { class: `sql-capacity-note${whChangesTicked(ref) ? " changes" : ""}`, role: "note",
+        title: whChangesTicked(ref) ? `Queries run in Fabric on ${ref.name} and use capacity. A change runs only after it shows what it changes and you confirm.`
+          : `Queries run in Fabric on ${ref.name} and use capacity. Only a query that reads runs here.` },
+        whChangesTicked(ref) ? "Runs in Fabric · uses capacity · changes after you confirm" : "Runs in Fabric · uses capacity · reads only"),
+      learnMore("warehouse-queries-preview"))),
     h("div", { class: "nb-body" },
       h("aside", { class: "explorer" }, h("div", { class: "explorer-head sql-views", role: "tablist", "aria-label": "Explorer views" },
-        asideTab("explorer", "Explorer"), asideTab("queries", "Queries"), asideTab("history", "History")),
-        asideView === "queries" ? whSaved.el : asideView === "history" ? whRuns.el : null,
+        asideTab("explorer", "Explorer"), asideTab("queries", "Queries"), asideTab("history", "History"), whProj ? asideTab("project", "Project") : null),
+        asideView === "queries" ? whSaved.el : asideView === "history" ? whRuns.el : asideView === "project" ? whProj.el : null,
         asideView !== "explorer" ? null : h("div", { class: "tree-row", style: "margin:4px 8px 0;font-weight:600;cursor:default" },
           itemIcon(ref.kind === "endpoint" ? "SQLEndpoint" : "Warehouse", 16), h("span", { class: "label" }, ref.name), previewTag()),
         asideView !== "explorer" ? null : h("div", { class: "tree-row muted", style: "cursor:default" }, ref.kind === "endpoint" ? "SQL analytics endpoint" : "Warehouse",
@@ -733,15 +836,17 @@ function renderQuery() {
         asideView !== "explorer" ? null : whTree.el,
         h("div", { class: "warehouse-how" }, howItWorks("warehouse.query", {
           reads: "The warehouse's SQL connection, from Fabric, then the rows your query asks for. The explorer reads the warehouse's catalog views (sys.objects, sys.columns) the same way. It signs in as you, with a token for Azure SQL.",
-          changes: "Nothing. Only a single statement that reads is sent; DDL, DML, EXEC and variables are refused before Fabric is asked.",
+          changes: "Nothing, until you tick Allow changes. Then a script that changes the warehouse (DDL, DML, EXEC) runs only after it shows what it changes and you confirm, typing the warehouse's name in Prod; it runs in one transaction, so a failure keeps nothing.",
           results: "A snapshot of the rows on this PC, read a page at a time, with Copy and Export to Downloads. The query text stays on this PC.",
           more: [["Capacity", "The query runs in Fabric, so it uses capacity on the warehouse's workspace."],
             ["Your templates", "Saving, importing or deleting a template of your own writes or removes a .sql file in My templates (the app's data folder) or in the sql-templates folder of a Git repository you opened. Export writes a new file in Downloads."],
             ["Saved queries", "Save query writes the tab to a .sql file in My queries (the app's data folder) or in the sql-queries folder of a Git repository you opened; Delete removes that file. Nothing is committed for you."],
+            ["Project", "The Project tab reads and writes .sql files in a <warehouse>.Warehouse folder of a Git repository you opened, in Fabric's Git layout. Import from the warehouse and Compare run catalog queries in Fabric. Import writes new files and, only if you tick it, replaces files that differ; Compare writes nothing unless you take the warehouse's version of an object. Nothing is committed and no file is removed. Deploy changes the warehouse: it previews each change and runs only the ones you tick, each as a confirmed change; Test and Prod deploy only committed, pushed files."],
             ["History", "Each run here is kept with its SQL in the app's storage on this PC (up to 200 per warehouse) until you clear it. Query insights run a query on the warehouse's queryinsights views in Fabric."]],
           anchor: "warehouse-queries-preview" }))),
       h("section", { class: "sql-main" }, tabs,
-        h("div", { class: "sql-card" }, actions, h("div", { class: "sql-editor-row" }, edit, compat), band, grid))))
+        compareOn ? whCompareView(ref, { open: openProjectFile })
+          : h("div", { class: "sql-card" }, actions, h("div", { class: "sql-editor-row" }, edit, compat), band, grid))))
     : h("div", { class: "sql-page" },
     h("div", { class: "ribbon" }, h("div", { class: "toolbar" },
       btn("New SQL query", "add", addTab),

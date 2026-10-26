@@ -6978,10 +6978,12 @@
       ],
       "workstream": "Enterprise governance foundation; Best Practice Analyzer (checkers)",
       "limitations": [
-        "Semantic model rules (BPA, #560) still wait on the live run's cell error",
+        "Check now has no SQL scripts to give the SQL rules yet (PB-111)",
+        "NB004 and NB008 run only in scheduled runs, which Check now doesn't check yet (PB-111)",
+        "Semantic model rules (BPA, #560) aren't registered yet (PB-112)",
         "Central policies not yet set up on a tenant"
       ],
-      "next_action": "Implementation review of #643, #648, #649, #664; BPA model checks after #560.",
+      "next_action": "PB-111 (SQL scripts and scheduled notebooks in Check now); PB-112 (BPA model checks after #560).",
       "evidence": [
         {
           "kind": "test",
@@ -7007,7 +7009,17 @@
           "kind": "test",
           "ref": "app/tests/browser/best-practice-checks.test.cjs",
           "note": "daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main"
+        },
+        {
+          "kind": "doc",
+          "ref": "docs/product/reviews/PB-108-643.md",
+          "note": "implementation review: Accepted with Documented Limitations, 2026-10-26"
         }
+      ],
+      "backlog": [
+        "PB-108",
+        "PB-111",
+        "PB-112"
       ]
     },
     {

@@ -255,3 +255,26 @@ def test_a_page_that_is_throttled_is_retried_and_the_list_completes():
                       Reply(200, {"value": [{"id": "2"}]})])
     assert [w["id"] for w in c.list_workspaces()] == ["1", "2"]
     assert [r.url for r in t.sent][1:] == [page2, page2]
+
+
+# ---- starting a copy job or a dataflow (their own "execute" job path)
+
+
+@pytest.mark.parametrize("item_type,path", [("CopyJob", "copyJobs"), ("Dataflow", "dataflows")])
+def test_execute_posts_once_to_the_items_own_path_and_returns_the_job_id(item_type, path):
+    c, t, _ = client([Reply(202, None, {"Location": f"{API}/workspaces/{WS}/items/cj1/jobs/instances/job-7/"})])
+    assert c.run_item_execute(WS, "cj1", item_type) == "job-7"
+    assert [(r.method, r.url) for r in t.sent] == [("POST", f"{API}/workspaces/{WS}/{path}/cj1/jobs/execute/instances")]
+
+
+def test_execute_without_a_location_is_an_error_not_a_blank_job():
+    c, _, _ = client([Reply(202)])
+    with pytest.raises(FabricError, match="no job instance"):
+        c.run_item_execute(WS, "cj1", "CopyJob")
+
+
+def test_execute_5xx_is_not_sent_twice():
+    c, t, _ = client([Reply(500, {"errorCode": "InternalError"})])
+    with pytest.raises(FabricError):
+        c.run_item_execute(WS, "df1", "Dataflow")
+    assert len(t.sent) == 1

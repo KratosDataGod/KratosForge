@@ -423,7 +423,7 @@ def parse_ipynb(text: str) -> dict[str, Any]:
         raise ValueError("The file is larger than 32 MB, so it wasn't read.")
     try:
         nb = json.loads(text)
-    except ValueError:
+    except (ValueError, RecursionError):  # RecursionError: nested too deep to be a notebook
         raise ValueError("This .ipynb file isn't valid JSON, so it can't be imported.") from None
     if not isinstance(nb, dict) or not isinstance(nb.get("cells"), list):
         raise ValueError("This .ipynb file has no cells list, so it isn't a Jupyter notebook.")

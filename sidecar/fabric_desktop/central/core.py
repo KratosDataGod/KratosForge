@@ -307,7 +307,7 @@ def _register_key_table(db: Db, name: str, business_key: str, description: str, 
 
 def _missing_key_table(name: str) -> PlatformError:
     return PlatformError(f"keys.{name} isn't one of the platform's key tables. Ask a platform admin for it: "
-                         "Platform > Business keys > Request a key table")
+                         "Platform > Set up > Business keys > Request a key table")
 
 
 def _clean_bks(business_keys: list[Any]) -> list[str]:
@@ -1036,7 +1036,7 @@ def _put_source(db: Db, row: dict[str, Any], source_id: Any = None) -> None:
     if row.get("zone") is None:
         row = row | {"zone": (before or {}).get("zone") or ""}
     if row["zone"] and not _row(db, "landing_zone", "id", row["zone"]):
-        raise PlatformError(f"{row['zone']} isn't a landing zone: pick one from Platform > Landing zone")
+        raise PlatformError(f"{row['zone']} isn't a landing zone: pick one from Platform > Set up > Landing zone")
     if before:
         row = row | {"source_id": before["source_id"]}
     else:
@@ -1214,7 +1214,7 @@ def save_landing_zone(db: Db, zone: dict[str, Any], by: str = "") -> list[dict[s
     if domain:
         domain = domain_id(domain)
         if not _row(db, "domain", "id", domain):
-            raise PlatformError(f"domain {domain} doesn't exist: add it first in Platform > Domains")
+            raise PlatformError(f"domain {domain} doesn't exist: add it first in Platform > Set up > Domains")
     readers = zone["readers"] if "readers" in zone else json.loads(before.get("readers") or "[]")
     if isinstance(readers, str):
         readers = re.split(r"[,;\n]", readers)

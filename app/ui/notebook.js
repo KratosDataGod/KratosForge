@@ -63,7 +63,7 @@ function ribbonMenu(label, iconName, items, title) {
   const now = items(null).filter(Boolean);
   if (!now.length) return null;
   const on = now.some((b) => b.getAttribute("aria-pressed") === "true");
-  return h("button", { class: `tool${on ? " toggled" : ""}`, "aria-haspopup": "menu", "aria-expanded": "false", title,
+  return h("button", { class: `tool${on ? " toggled" : ""}`, "aria-haspopup": "menu", "aria-expanded": "false", title, "data-menu-key": `ribbon-${label}`,
     onclick: (e) => { const menu = e.currentTarget; showMenu(menu, items(menu).filter(Boolean)); } },
   icon(iconName, 16), label, icon("chevronDown", 14));
 }

@@ -129,8 +129,10 @@ def engine() -> dict[str, Any]:
             "lock_hash": hashlib.sha256(lock.encode()).hexdigest()}
 
 
-def record(project: Project, source_env: str, target_env: str, git: dict[str, Any]) -> dict[str, Any]:
-    """The release receipt for promoting ``project`` from ``source_env`` to ``target_env``."""
+def record(project: Project, source_env: str, target_env: str, git: dict[str, Any],
+           object_id: str | None = None) -> dict[str, Any]:
+    """The release receipt for promoting ``project`` from ``source_env`` to ``target_env``.
+    ``object_id`` is the promoter's Microsoft Entra object id, when they're signed in."""
     entities = [{"name": e.name, "path": e.path.relative_to(project.root).as_posix(),
                  "sha256": hashlib.sha256(e.path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()}
                 for e in project.entities.values()]
@@ -142,8 +144,11 @@ def record(project: Project, source_env: str, target_env: str, git: dict[str, An
         "release",
         project={"name": project.root.name, "metadata_version": project.version,
                  "source_env": source_env, "target_env": target_env},
-        code=code, entities=entities, environment=engine(),
-        identity={"user": _user()})
+        code=code, entities=entities, environment=engine(), identity=_identity(_user(), object_id))
+
+
+def _identity(user: str | None, object_id: str | None) -> dict[str, Any]:
+    return {"user": user} | ({"object_id": object_id} if object_id else {})
 
 
 def _user() -> str | None:
@@ -172,7 +177,7 @@ def verified(receipt: str | None, rid: str | None) -> bool:
 
 
 def rollback_record(project: Project, env: str, version: str, current: dict[str, Any], earlier: dict[str, Any],
-                    by: str | None = None) -> dict[str, Any]:
+                    by: str | None = None, object_id: str | None = None) -> dict[str, Any]:
     """The release receipt for rolling ``env`` back to ``version`` (``project`` is that release's
     files). The code is the earlier release's, as it recorded it; ``rollback`` names both releases."""
     entities = [{"name": e.name, "path": e.path.relative_to(project.root).as_posix(),
@@ -186,7 +191,7 @@ def rollback_record(project: Project, env: str, version: str, current: dict[str,
                  "source_env": env, "target_env": env},
         rollback={"from_version": current["version"], "from_receipt_id": current.get("receipt_id"),
                   "to_receipt_id": earlier.get("receipt_id")},
-        code=code, entities=entities, environment=engine(), identity={"user": by or _user()})
+        code=code, entities=entities, environment=engine(), identity=_identity(by or _user(), object_id))
 
 
 def committed(root: Path | str, folder: str, suffix: str = "") -> dict[str, str] | None:

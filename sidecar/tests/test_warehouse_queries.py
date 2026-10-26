@@ -433,14 +433,30 @@ def test_the_setting_is_on_by_default_and_a_broken_policy_turns_it_off(tmp_path,
     ("DECLARE @n INT = 1", "read_only", "sets a variable"),
     ("SELECT 'BEGIN TRAN; USE other' AS x -- COMMIT", "read_only", "reads"),
     ("SELECT [Use], Deny FROM dbo.t", "read_only", "reads"),
-    ("CREATE OR ALTER PROCEDURE dbo.p AS BEGIN BEGIN TRAN; UPDATE dbo.t SET a = 1; COMMIT; END", "warehouse_write",
+    ("CREATE OR ALTER PROCEDURE dbo.p AS BEGIN UPDATE dbo.t SET a = 1; SELECT 1 AS done; END", "warehouse_write",
      "defines PROCEDURE dbo.p"),
+    ("CREATE PROCEDURE dbo.p AS BEGIN COMMIT; GRANT CONTROL TO someone; END", "fabric_mutation", "one transaction"),
+    ("CREATE PROCEDURE dbo.p AS GRANT CONTROL TO someone", "fabric_mutation", "permissions, roles and users"),
+    ("CREATE PROCEDURE dbo.p WITH EXECUTE AS OWNER AS SELECT 1", "fabric_mutation", "runs as someone else"),
+    ("UPDATE dbo.t SET a = 1; EXEC('COMMIT')", "fabric_mutation", "SQL made from text"),
+    ("EXEC('GRANT CONTROL TO someone')", "fabric_mutation", "SQL made from text"),
+    ("EXECUTE (@sql)", "fabric_mutation", "SQL made from text"),
+    ("EXEC @proc", "fabric_mutation", "SQL made from text"),
+    ("EXEC sp_executesql N'USE other'", "fabric_mutation", "SQL made from text"),
+    ("EXEC @rc = dbo.load", "warehouse_write", "EXEC"),
+    ("EXECUTE AS USER = 'someone'", "fabric_mutation", "runs as someone else"),
+    ("REVERT", "fabric_mutation", "runs as someone else"),
+    ("ALTER ROLE db_owner ADD MEMBER [someone]", "fabric_mutation", "permissions, roles and users"),
+    ("CREATE USER [someone] FROM EXTERNAL PROVIDER", "fabric_mutation", "permissions, roles and users"),
+    ("CREATE ROLE loaders", "fabric_mutation", "permissions, roles and users"),
+    ("ALTER AUTHORIZATION ON SCHEMA::dbo TO someone", "fabric_mutation", "permissions, roles and users"),
+    ("EXEC sp_addrolemember 'db_owner', 'someone'", "fabric_mutation", "permissions, roles and users"),
     ("IF 1 = 1 UPDATE dbo.t SET a = 1", "warehouse_write", "runs as written"),
     ("BEGIN TRAN", "fabric_mutation", "the run is one transaction"),
     ("IF 1 = 1 BEGIN COMMIT END", "fabric_mutation", "the run is one transaction"),
     ("USE OtherWH", "fabric_mutation", "open that warehouse instead"),
     ("IF 1 = 1 BEGIN USE OtherWH END", "fabric_mutation", "open that warehouse instead"),
-    ("GRANT SELECT ON dbo.t TO someone", "fabric_mutation", "permissions are managed in Fabric"),
+    ("GRANT SELECT ON dbo.t TO someone", "fabric_mutation", "permissions, roles and users are managed in Fabric"),
     ("COPY INTO dbo.t FROM 'https://x/y.csv'", "fabric_mutation", "COPY INTO loads files"),
     ("DROP DATABASE WH_Gold", "fabric_mutation", "database"),
     ("UPDATE OtherWH.dbo.t SET a = 1", "fabric_mutation", "OtherWH.dbo.t is in another database"),
@@ -499,3 +515,8 @@ def test_every_result_set_of_a_batch_is_read_and_the_last_is_shown(tmp_path, mon
     assert said[-1] == ("done", {"rows": 2, "batches": [2], "columns": [{"name": "b", "type": "string"}],
                                  "affected": 5, "committed": True})
     assert con.events == ["commit", "close"]
+
+
+def test_a_procedure_that_commits_is_refused_even_when_the_script_calls_it_later():
+    v = warehouse.verdicts("CREATE PROCEDURE dbo.p AS BEGIN COMMIT; GRANT CONTROL TO someone; END\nGO\nEXEC dbo.p", writes=True)
+    assert v[0].kind == "fabric_mutation" and sql_exec.sql_policy.refused(v, ("read_only", "warehouse_write")) is v[0]

@@ -21,9 +21,14 @@ several statements, in batches split at ``GO`` lines like SSMS: DDL, DML, EXEC, 
 refused, before anything is sent: BEGIN TRAN, COMMIT and ROLLBACK (the run is the transaction),
 USE (another database), GRANT, REVOKE and DENY (permissions belong in Fabric), COPY INTO (loading
 files comes with data loading), CREATE, ALTER or DROP DATABASE, and OPENROWSET, OPENQUERY and
-OPENDATASOURCE. A batch sqlglot can't read in full (a procedure's body, say) is checked by its text
-for the same words. Every batch runs on one connection in one transaction: committed once all of
-them succeeded, rolled back when one fails or the run is stopped, so a failed change keeps nothing.
+OPENDATASOURCE. Also refused: dynamic SQL (EXEC of a string or a variable, sp_executesql), since
+what it runs can't be checked first; EXECUTE AS and REVERT; and roles, users and ALTER
+AUTHORIZATION. Every batch is checked by its text for these, procedure and function bodies
+included, since a procedure the change creates could be called by the same script; a batch sqlglot
+can't read in full then runs as written. A procedure already in the warehouse runs as it was
+written; the page says so. Every batch runs on one connection in one transaction: committed once
+all of them succeeded, rolled back when one fails or the run is stopped, so a failed change keeps
+nothing.
 
 The run is a process of its own (sql_worker.py, like a lakehouse run), so Stop and the time limit
 end that process, which closes the connection; Fabric stops the query when its connection closes.
@@ -57,21 +62,25 @@ _GO = re.compile(r"^[ \t]*GO[ \t]*;?[ \t]*$", re.IGNORECASE | re.MULTILINE)
 _COMMENTS_AND_TEXT = re.compile(r"--[^\n]*|/\*.*?\*/|N?'(?:[^']|'')*'|\[[^\]]*\]|\"[^\"]*\"", re.DOTALL)
 _DEFINES = re.compile(r"^\s*(?:CREATE|ALTER|CREATE\s+OR\s+ALTER)\s+(PROC|PROCEDURE|FUNCTION|TRIGGER|VIEW)\b\s*([^\s(]*)",
                       re.IGNORECASE)
-# Words a change may never use: transaction control anywhere, the rest where a statement starts
-# (the script's start, after ; or a line break, or after BEGIN, ELSE or THEN).
-_NEVER = re.compile(r"\b(BEGIN\s+TRAN(?:SACTION)?|BEGIN\s+DISTRIBUTED|COMMIT|ROLLBACK|SAVE\s+TRAN(?:SACTION)?)\b|"
-                    r"(?:^|;|\n|\bBEGIN\b|\bELSE\b|\bTHEN\b)\s*(USE|GRANT|REVOKE|DENY|COPY\s+INTO|"
-                    r"(?:CREATE|ALTER|DROP)\s+DATABASE)\b", re.IGNORECASE)
-_NEVER_WHY = {"BEGIN": "the run is one transaction the app commits: leave out BEGIN TRAN, COMMIT and ROLLBACK",
-              "COMMIT": "the run is one transaction the app commits: leave out BEGIN TRAN, COMMIT and ROLLBACK",
-              "ROLLBACK": "the run is one transaction the app commits: leave out BEGIN TRAN, COMMIT and ROLLBACK",
-              "SAVE": "the run is one transaction the app commits: leave out BEGIN TRAN, COMMIT and ROLLBACK",
-              "USE": "USE switches to another database: open that warehouse instead",
-              "GRANT": "permissions are managed in Fabric", "REVOKE": "permissions are managed in Fabric",
-              "DENY": "permissions are managed in Fabric",
-              "COPY": "COPY INTO loads files, which comes with loading data",
-              "CREATE": "a database is created or removed in Fabric", "ALTER": "a database is changed in Fabric",
-              "DROP": "a database is created or removed in Fabric"}
+# What a change may never do, looked for in each batch's text with comments, strings and quoted
+# names taken out, procedure and function bodies included (they run the same way when called).
+# Words that start a statement count at the script's start, after ; or a line break, or after
+# AS, BEGIN, ELSE or THEN; the rest count anywhere.
+_START = r"(?:^|;|\n|\bAS\b|\bBEGIN\b|\bELSE\b|\bTHEN\b)\s*"
+_TRANSACTION = "the run is one transaction the app commits: leave out BEGIN TRAN, COMMIT and ROLLBACK"
+_PERMISSIONS = "permissions, roles and users are managed in Fabric"
+_NEVER = [(re.compile(p, re.IGNORECASE), why) for p, why in (
+    (r"\b(?:BEGIN\s+TRAN(?:SACTION)?|BEGIN\s+DISTRIBUTED|COMMIT|ROLLBACK|SAVE\s+TRAN(?:SACTION)?)\b", _TRANSACTION),
+    (r"\bEXEC(?:UTE)?\s*\(|\bEXEC(?:UTE)?\s+@\w+\b(?!\s*=)|\bsp_executesql\b",
+     "it runs SQL made from text, which can't be checked before it runs"),
+    (r"\bEXEC(?:UTE)?\s+AS\b|\bREVERT\b|\bSETUSER\b", "it runs as someone else; it runs as you"),
+    (r"\b(?:CREATE|ALTER|DROP)\s+(?:ROLE|USER|LOGIN|APPLICATION\s+ROLE)\b|\bALTER\s+AUTHORIZATION\b|"
+     r"\bsp_(?:add|drop)(?:srv)?rolemember\b|\bsp_(?:add|drop)user\b", _PERMISSIONS),
+    (_START + r"(?:GRANT|REVOKE|DENY)\b", _PERMISSIONS),
+    (_START + r"USE\b", "USE switches to another database: open that warehouse instead"),
+    (_START + r"COPY\s+INTO\b", "COPY INTO loads files, which comes with loading data"),
+    (r"\b(?:CREATE|ALTER|DROP)\s+DATABASE\b", "a database is created, changed or removed in Fabric"),
+)]
 SQL_COPT_SS_ACCESS_TOKEN = 1256
 
 
@@ -158,15 +167,14 @@ def _change_verdicts(query: str) -> list[sql_policy.Verdict]:
         if outside:
             out.append(sql_policy.Verdict(n, "fabric_mutation", f"{outside.upper()} reads outside the warehouse"))
             continue
+        never = next((why for rule, why in _NEVER if rule.search(bare)), "")
+        if never:
+            out.append(sql_policy.Verdict(n, "fabric_mutation", never))
+            continue
         defines = _DEFINES.match(bare)
-        if defines:  # a procedure's or function's body runs when it's called, so only its definition is checked
+        if defines:  # its body was checked above; sqlglot can't read most bodies, so it isn't parsed
             out.append(sql_policy.Verdict(n, "warehouse_write", f"defines {defines.group(1).upper()} {defines.group(2)}"
                                           .rstrip()))
-            continue
-        never = _NEVER.search(bare)
-        if never:
-            word = (never.group(1) or never.group(2)).split()[0].upper()
-            out.append(sql_policy.Verdict(n, "fabric_mutation", _NEVER_WHY[word]))
             continue
         try:
             statements = [st for st in sqlglot.parse(batch, read="tsql", error_level=ErrorLevel.RAISE) if st is not None]

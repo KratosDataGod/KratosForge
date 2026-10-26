@@ -93,6 +93,7 @@ test("a change shows what it changes, then runs confirmed and named, in one tran
   assert.match(text, /Statement 1: UPDATE dbo\.DimCustomer changes the warehouse.*Statement 2: EXEC dbo\.usp_RefreshSegments/s);
   assert.match(text, /one transaction/);
   assert.strictEqual(await dialog.getByRole("textbox", { name: "Warehouse name" }).count(), 0, "Dev doesn't ask for the name");
+  assert.strictEqual(await page().evaluate(() => document.activeElement?.textContent), "Cancel", "Enter doesn't run the change");
   assert.strictEqual(starts().length, before + 1, "only the dry run so far");
   assert.ok(starts().at(-1).dry_run && starts().at(-1).allow[0] === "warehouse_write");
   await dialog.getByRole("button", { name: "Run the change" }).click();

@@ -44,6 +44,7 @@ function whChangeConfirm(ref, plan) {
       oninput: () => { go.disabled = typed.value !== ref.name; } });
     const go = btn(env === "prod" ? "Run in Prod" : "Run the change", null, () => { finish(true); closeDialog(); }, "tool danger-solid");
     go.disabled = named;
+    const cancel = btn("Cancel", null, () => { finish(false); closeDialog(); }, "tool outline");
     showDialog(`Change ${ref.name}${env === "prod" ? " in Prod" : ""}?`, h("div", { class: "wh-change" },
       h("p", {}, `This runs in Fabric as you and uses capacity.`),
       h("dl", { class: "wh-change-where" },
@@ -57,7 +58,7 @@ function whChangeConfirm(ref, plan) {
       h("p", { class: "muted-text small" }, "It all runs in one transaction. If a statement fails, or you press Stop, nothing is kept. " +
         "A procedure's body isn't checked here, since what it does depends on the procedure. The audit log records who changed which warehouse and how many rows, never the SQL or the data."),
       named ? h("label", { class: "field" }, h("span", {}, "Type ", h("code", {}, ref.name), ` to change ${env === "prod" ? "Prod" : "it"}`), typed) : null),
-    [btn("Cancel", null, () => { finish(false); closeDialog(); }, "tool outline"), go], () => finish(false));
-    (named ? typed : go).focus();
+    [cancel, go], () => finish(false));
+    (named ? typed : cancel).focus();  // as confirmDialog does: Enter never runs the change by itself
   });
 }

@@ -21,7 +21,6 @@ from __future__ import annotations
 import configparser
 import json
 import os
-import shutil
 import subprocess
 import sys
 import threading
@@ -134,9 +133,26 @@ def _cfg_section(profile: str, path: Path | None) -> dict[str, str]:
     return {k: v.strip() for k, v in parser.items(profile)}
 
 
+def find_cli(environ: Mapping[str, str] | None = None) -> str | None:
+    """The Databricks CLI from PATH's absolute folders only. ``shutil.which`` also looks in the
+    current folder on Windows, where a planted databricks.exe would then get the person's sign-in."""
+    env = os.environ if environ is None else environ
+    names = ["databricks"]
+    if sys.platform == "win32":
+        names = ["databricks" + ext.lower() for ext in (env.get("PATHEXT") or ".EXE;.CMD;.BAT").split(";") if ext]
+    for folder in (env.get("PATH") or "").split(os.pathsep):
+        if not folder or not os.path.isabs(folder):
+            continue
+        for name in names:
+            path = os.path.join(folder, name)
+            if os.path.isfile(path) and os.access(path, os.X_OK):
+                return path
+    return None
+
+
 def _cli_token(args: list[str], run: Callable[..., Any]) -> tuple[str, float | None]:
     """``databricks auth token ...``: the CLI's own token cache, refreshed by the CLI."""
-    cli = shutil.which("databricks")
+    cli = find_cli()
     if not cli:
         raise DatabricksAuthError("The Databricks CLI isn't installed or isn't on PATH. Install it from "
                                   "https://docs.databricks.com/dev-tools/cli/install.html, then sign in.")

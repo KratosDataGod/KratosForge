@@ -261,7 +261,22 @@ function menuNode(node) {
   node.setAttribute("role", node.getAttribute("aria-pressed") ? "menuitemcheckbox" : "menuitem");
   if (node.hasAttribute("aria-pressed")) node.setAttribute("aria-checked", node.getAttribute("aria-pressed"));
   node.setAttribute("tabindex", "-1");
-  node.addEventListener("click", () => closeMenu(), true);
+  node.addEventListener("click", () => {
+    // Focus goes back to the menu's button. The item may draw the page again, so find the new button by
+    // its data-menu-key; anything the item opened that took focus (a dialog, a panel's field) keeps it.
+    const key = menuOpener?.dataset?.menuKey;
+    closeMenu(true);
+    // The page may be drawn again a little later (a panel loading), so keep it up for a moment.
+    if (key) {
+      const until = performance.now() + 1000;
+      const keep = () => {
+        if (!document.activeElement || document.activeElement === document.body) document.querySelector(`[data-menu-key="${CSS.escape(key)}"]`)?.focus();
+        else if (!document.activeElement.matches(`[data-menu-key="${CSS.escape(key)}"]`)) return;  // something else took focus
+        if (performance.now() < until) requestAnimationFrame(keep);
+      };
+      requestAnimationFrame(keep);
+    }
+  }, true);
   return node;
 }
 
@@ -915,6 +930,15 @@ const MONITOR_OPS = [
 ];
 try { monitorPage.showFabric = localStorage.getItem("fd.monitor.fabric") !== "hidden"; } catch { /* default: shown */ }
 
+// The sentence about a Monitor panel is its Learn more link's tooltip, so the controls fit on one row;
+// the link is described by it too, so keyboard and screen reader users get it.
+function monitorAbout(text, anchor) {
+  const link = learnMore(anchor);
+  link.title = text;
+  link.setAttribute("aria-describedby", "monitor-about-text");
+  return h("span", { class: "monitor-about" }, link, h("span", { id: "monitor-about-text", class: "sr-only" }, text));
+}
+
 async function renderMonitor() {
   // Cost moved to Optimize > Cost and savings (testing item 36); an old link to it lands there.
   if (monitorPage.panel === "cost") { monitorPage.panel = "runs"; optimizePage.tab = "cost"; go("optimize"); return; }
@@ -958,10 +982,8 @@ async function renderMonitor() {
             show(ops.some((o) => o.panel === monitorPage.opsView) ? monitorPage.opsView : ops[0].panel)) : null),
         op ? h("select", { class: "group-select", "aria-label": "Operations view", title: "Which Operations view to show",
           onchange: (e) => show(e.target.value)() }, ops.map((o) => h("option", { value: o.panel, selected: o === op }, o.label))) : null,
-        // The sentence about the panel is the link's tooltip, so the controls fit on one row.
-        h("span", { class: "monitor-about", title: op ? op.text
-          : monitorPage.panel === "schedules" ? "Every schedule, on this PC and in Fabric, with how its last run went"
-          : "Everything this app ran or started, in every environment, on this PC and in Fabric" }, learnMore(op ? op.anchor : "monitor")),
+        monitorAbout(op ? op.text : monitorPage.panel === "schedules" ? "Every schedule, on this PC and in Fabric, with how its last run went"
+          : "Everything this app ran or started, in every environment, on this PC and in Fabric", op ? op.anchor : "monitor"),
         h("span", { class: "spacer" }),
         op ? null : btn("Refresh", "sync", () => { monitorPage.fabricPipelinesRefresh = true; forgetFabricActivities(); render(); }, "tool outline"),
         popOutButton("runs")),
@@ -1011,13 +1033,20 @@ async function renderMonitor() {
     pipelines.error ? `Pipeline runs not shown: they couldn't be read (${pipelines.error.replace(/\.$/, "")})` : "",
     fabricPipelineRunNote(fabricPipelines),
   ].filter(Boolean).join(" · ");
-  // The Fabric pipeline scan runs in the background: draw Runs again when it's done.
+  // The Fabric pipeline scan runs in the background: ask only for it until it's done, then draw Runs again.
   clearTimeout(monitorPage.fabricPipelinesTimer);
-  if (fabricPipelines?.pending) {
-    monitorPage.fabricPipelinesTimer = setTimeout(() => {
-      if (state.view === "monitor" && monitorPage.panel === "runs") { monitorPage.refreshing = true; render(); }
+  const wait = monitorPage.fabricPipelinesWait = (monitorPage.fabricPipelinesWait || 0) + 1;  // a newer draw takes over
+  const onRuns = () => wait === monitorPage.fabricPipelinesWait && state.view === "monitor" && monitorPage.panel === "runs";
+  const waitForScan = () => {
+    monitorPage.fabricPipelinesTimer = setTimeout(async () => {
+      if (!onRuns()) return;
+      const out = await rpc("fabric_pipeline_runs", {}).catch(() => ({ pending: false }));
+      if (!onRuns()) return;
+      if (out.pending) waitForScan();
+      else { monitorPage.refreshing = true; render(); }
     }, 2500);
-  }
+  };
+  if (fabricPipelines?.pending) waitForScan();
   const rows = [
     ...(meta.runs || []).map((r) => ({
       at: r.started_at, status: r.status, activity: r.entity, kind: `Metadata run${r.backfill ? ` · backfill ${r.backfill}` : ""}`,
@@ -1062,7 +1091,7 @@ async function renderMonitor() {
         r.reason ? h("div", { class: "reason" }, r.reason) : null),
       h("td", {}, runEnvCell(r)), h("td", {}, r.ranOn || (r.where === "fabric" ? "Fabric" : "This PC")),
       h("td", {}, when(r.at)), h("td", { class: "n" }, r.tookText ?? took(r.seconds)), h("td", { class: "n" }, r.rows ?? ""),
-      h("td", { class: "n" }, r.open ? h("span", { class: "link-text" }, "Details") : r.pipelineRun ? pipelineRunDetails(r) : null)))))) :
+      h("td", { class: "n" }, r.open ? h("span", { class: "link-text" }, r.openLabel || "Details") : r.pipelineRun ? pipelineRunDetails(r) : null)))))) :
     h("p", { class: "muted-text monitor-empty" }, monitorPage.env !== "all" || monitorPage.where !== "any"
       ? "Nothing matches these filters." : "Nothing has run yet. Run a metadata entity or write a table from a notebook.");
   local.replaceWith(list);
@@ -2831,6 +2860,7 @@ function startMain() {
       render();
       trackFabricJobs();
       checkFreshness();
+      scheduleUpdateWatch();  // settings.js: the new build banner, every 4 hours while open
       // After an update the engine lives in a new folder: point this PC's scheduled runs at it.
       rpc("sync_pc_schedules").then((r) => r.error && toast(`Scheduled runs on this PC: ${friendlyError(r.error).text}`, true)).catch(() => {});
     }, "Could not start the Python sidecar");

@@ -1,8 +1,9 @@
 """Connections for the Data Factory page (DF-5, engine half): read-only.
 
 ``fabric_connections`` lists the cloud and gateway connections the signed-in person can use and works
-out what uses each one from the pipeline and copy job definitions in each environment's workspace
-(``externalReferences.connection`` anywhere in a definition). A reference to a connection the person
+out what uses each one from the pipeline, copy job and dataflow definitions in each environment's
+workspace (``externalReferences.connection`` anywhere in a pipeline or copy job, ``DatasourceId`` in a
+dataflow's queryMetadata.json). A reference to a connection the person
 can't use (deleted, or not shared with them) is listed under ``missing``: that's what breaks a run or
 a deploy. The scan runs in the background, like Fabric schedules: ``{"pending": True}`` until it's
 done. KratosForge never stores, creates or changes a connection or its credentials; nothing from a
@@ -21,16 +22,24 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from .auth import CONNECTION_SCOPES, GATEWAY_SCOPES
+from .auth import CONNECTION_SCOPES, GATEWAY_SCOPES, SignInError
 from .fabric_api import FabricClient
+from .orchestration import mashup
 from .redact import describe, secrets
 
 _log = logging.getLogger(__name__)
 
 ENV_ORDER = ("dev", "test", "prod")
-# Items whose definitions name connections. Dataflows keep theirs in their M code (DF-7).
-ITEM_TYPES = {"DataPipeline": "pipeline", "CopyJob": "copy job"}
+# Items whose definitions name connections. A dataflow names its own in queryMetadata.json.
+ITEM_TYPES = {"DataPipeline": "pipeline", "CopyJob": "copy job", "Dataflow": "dataflow"}
 MAX_ITEMS = 500  # definitions read in one scan
+# Sign-in answers that say "try again later", not "no": they aren't kept as a decline.
+TRANSIENT_SIGN_IN = {"temporarily_unavailable", "server_error", "unknown_error"}
+
+
+def declined(exc: Exception) -> bool:
+    """Microsoft sign-in said no (declined, cancelled, or not allowed), rather than failing for now."""
+    return isinstance(exc, SignInError) and not {exc.code, exc.error} & TRANSIENT_SIGN_IN
 
 
 def connection_ids(value: Any) -> set[str]:
@@ -60,6 +69,15 @@ def definition_parts(result: dict[str, Any]) -> list[Any]:
     return out
 
 
+def dataflow_connection_ids(result: dict[str, Any]) -> set[str]:
+    """The connection ids a Dataflow Gen2 definition names (queryMetadata.json's ``DatasourceId``).
+    A definition the reader can't fully read raises, so the scan counts it as missed, not as using none."""
+    out = mashup.describe(result)
+    if out["problems"]:
+        raise ValueError(out["problems"][0])
+    return {c["connection_id"].strip().lower() for c in out["connections"] if c["connection_id"].strip()}
+
+
 def connection_row(c: dict[str, Any]) -> dict[str, Any]:
     details = c.get("connectionDetails") or {}
     cred = c.get("credentialDetails") or {}
@@ -74,7 +92,7 @@ def connection_row(c: dict[str, Any]) -> dict[str, Any]:
 class FabricConnectionsMixin:
     _fabric_connections: dict[str, Any] | None = None
     _fabric_connections_lock = threading.Lock()
-    _gateway_declined: str = ""  # why Gateway.Read.All wasn't given; not asked again until the app restarts
+    _gateway_declined: str = ""  # why Gateway.Read.All was declined; not asked again until the app restarts
 
     def fabric_connections(self, refresh: bool = False) -> dict[str, Any]:
         """Connections and what uses them, from a background scan ({"pending": True} meanwhile). Reads only."""
@@ -99,7 +117,9 @@ class FabricConnectionsMixin:
                     try:
                         gw_token = self.auth._token(GATEWAY_SCOPES)  # type: ignore[attr-defined]
                     except Exception as exc:  # noqa: BLE001
-                        gw_error = self._gateway_declined = describe(exc)
+                        gw_error = describe(exc)
+                        if declined(exc):  # a network blip asks again on the next Refresh
+                            self._gateway_declined = gw_error
                 self._fabric_connections = {"pending": True, "connections": [], "missing": []}
                 threading.Thread(target=self._scan_fabric_connections, args=(token, conn_token, gw_token, gw_error),
                                  daemon=True).start()
@@ -151,11 +171,15 @@ class FabricConnectionsMixin:
 
         def uses(it: dict[str, Any]) -> tuple[dict[str, Any], set[str]]:
             try:
-                parts = definition_parts(client.get_item_definition(it["workspace_id"], it["item_id"]))
+                result = client.get_item_definition(it["workspace_id"], it["item_id"])
+                # Parsed here too: a definition in a shape this version doesn't expect is one item
+                # that couldn't be read, never the end of the scan.
+                if it["item_type"] == "dataflow":
+                    return it, dataflow_connection_ids(result)
+                return it, connection_ids(definition_parts(result))
             except Exception as exc:  # noqa: BLE001
                 missed.append(f"definition of {it['item_id']}: {describe(exc)}")
                 return it, set()
-            return it, connection_ids(parts)
 
         with ThreadPoolExecutor(max_workers=8) as pool:
             found = [it for chunk in pool.map(items, workspaces) for it in chunk]
@@ -165,6 +189,10 @@ class FabricConnectionsMixin:
         missing: dict[str, dict[str, Any]] = {}
         for it, ids in used:
             for cid in sorted(ids):
+                if cid not in rows and it["item_type"] == "dataflow":
+                    # Not checked against a real export yet that a dataflow's DatasourceId is always
+                    # the connection's id, so an unmatched one isn't called missing.
+                    continue
                 target = rows.get(cid) or missing.setdefault(cid, {"id": cid, "used_by": []})
                 target["used_by"].append(it)
         connections = sorted(rows.values(), key=lambda r: str(r["name"]).lower())

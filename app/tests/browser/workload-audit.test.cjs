@@ -29,13 +29,13 @@ const card = (audit) => page().evaluate((a) => {
 
 test("lines the platform hasn't taken are counted with the reason", { skip }, async () => {
   const text = await card({ platform: "fabric", waiting: 2, error: "a platform admin may need to run Platform > Settings > Finish or repair once, so the platform records workload actions. UDF_Platform wasn't found." });
-  assert.ok(text.includes("2 actions or changes haven't reached Platform > Audit yet"));
+  assert.ok(text.includes("2 actions or changes haven't reached Platform > Govern > Audit yet"));
   assert.ok(text.includes("Finish or repair once, so the platform records workload actions. UDF_Platform wasn't found. This PC keeps them and sends them again."));
   if (SHOTS) await page().locator(".wl-audit-shot").screenshot({ path: path.join(SHOTS, "workload-audit-waiting.png") });
 });
 
 test("sent, and no platform yet", { skip }, async () => {
-  assert.ok((await card({ platform: "this_pc", waiting: 0, error: "" })).includes("Each one is also on Platform > Audit."));
+  assert.ok((await card({ platform: "this_pc", waiting: 0, error: "" })).includes("Each one is also on Platform > Govern > Audit."));
   assert.ok((await card({ platform: "none", waiting: 0, error: "" })).includes("Kept on this PC only: there's no platform yet."));
 });
 

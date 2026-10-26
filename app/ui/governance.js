@@ -1,4 +1,4 @@
-// Platform > Governance: the enterprise policy registry. Platform admins write a policy as a draft,
+// Platform > Govern > Governance: the enterprise policy registry. Platform admins write a policy as a draft,
 // publish it as a numbered version that never changes, and apply it at enterprise, domain, project
 // or entity scope; domain owners apply policies to their own domains, tightening only. The platform
 // (central/policy.py) enforces all of it; this page only hides buttons a person can't use.

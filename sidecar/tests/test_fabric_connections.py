@@ -10,6 +10,7 @@ import pytest
 from fabric_desktop import audit, server
 from fabric_desktop import fabric_connections_service as fcs
 from fabric_desktop import schedule_service
+from fabric_desktop.auth import SignInError, sign_in_error
 from fabric_desktop.service import Service
 
 SQL = "5a1c7d2e-0000-4000-8000-000000000001"
@@ -180,7 +181,7 @@ def test_without_gateway_access_the_connections_still_list(svc, monkeypatch):
         def _token(self, scopes):
             if scopes == fcs.GATEWAY_SCOPES:
                 asked.append(1)
-                raise RuntimeError("AADSTS65001: consent declined")
+                raise SignInError("AADSTS65001", "consent declined")
             return super()._token(scopes)
     monkeypatch.setattr(Service, "auth", property(lambda self: NoGateways()))
     out = _settled(svc)
@@ -188,3 +189,61 @@ def test_without_gateway_access_the_connections_still_list(svc, monkeypatch):
     assert all(r["gateway_name"] == "" for r in out["connections"])
     # The decline is kept: Refresh doesn't ask again.
     assert "consent declined" in _settled(svc, refresh=True)["gateways_error"] and len(asked) == 1
+
+
+@pytest.mark.parametrize("failure", [RuntimeError("connection reset"), SignInError("temporarily_unavailable", "busy"),
+                                     sign_in_error({"error": "server_error", "error_description": "AADSTS90033: busy"})])
+def test_a_passing_gateway_sign_in_failure_asks_again(svc, monkeypatch, failure):
+    asked = []
+
+    class Flaky(FakeAuth):
+        def _token(self, scopes):
+            if scopes == fcs.GATEWAY_SCOPES and not asked:
+                asked.append(1)
+                raise failure
+            return super()._token(scopes)
+    monkeypatch.setattr(Service, "auth", property(lambda self: Flaky()))
+    assert _settled(svc)["gateways_error"]
+    out = _settled(svc, refresh=True)
+    assert out["gateways_error"] == "" and {r["gateway_name"] for r in out["connections"]} == {"gw-onprem-01", ""}
+
+
+def _dataflow_definition(*ids):
+    meta = {"queriesMetadata": {}, "connections": [
+        {"path": "erp", "kind": "SQL", "connectionId": json.dumps({"ClusterId": "c", "DatasourceId": i})} for i in ids]}
+    return {"definition": {"parts": [
+        {"path": "queryMetadata.json", "payload": base64.b64encode(json.dumps(meta).encode()).decode(), "payloadType": "InlineBase64"},
+        {"path": "mashup.pq", "payload": base64.b64encode(b"section Section1;\nshared Q = 1;").decode(), "payloadType": "InlineBase64"}]}}
+
+
+def test_a_dataflow_counts_as_using_the_connections_its_metadata_names(svc, monkeypatch):
+    items = FakeFabric.list_items
+    definition = FakeFabric.get_item_definition
+    monkeypatch.setattr(FakeFabric, "list_items", lambda self, ws: items(self, ws) + (
+        [{"id": "df1", "type": "Dataflow", "displayName": "df_products"}] if ws == "ws-dev" else []))
+    monkeypatch.setattr(FakeFabric, "get_item_definition", lambda self, ws, item, fmt=None: _dataflow_definition(
+        S3.upper(), "5a1c7d2e-0000-4000-8000-0000000000ee") if item == "df1" else definition(self, ws, item, fmt))
+    out = _settled(svc)
+    rows = {r["name"]: r for r in out["connections"]}
+    assert [(u["item_name"], u["item_type"]) for u in rows["s3-events"]["used_by"]][-1] == ("df_products", "dataflow")
+    # An id a dataflow names that isn't a connection here isn't called missing (unverified mapping).
+    assert [m["id"] for m in out["missing"]] == [GONE] and out["items"] == 5
+
+
+@pytest.mark.parametrize("broken", [
+    {"definition": {"parts": "not a list"}},
+    {"definition": {"parts": [{"path": "queryMetadata.json", "payloadType": "InlineBase64",
+                               "payload": base64.b64encode(json.dumps({"connections": 3}).encode()).decode()},
+                              {"path": "mashup.pq", "payloadType": "InlineBase64", "payload": base64.b64encode(b"section S;").decode()}]}},
+])
+def test_a_definition_in_an_odd_shape_is_counted_not_the_end_of_the_scan(svc, monkeypatch, broken):
+    items = FakeFabric.list_items
+    definition = FakeFabric.get_item_definition
+    monkeypatch.setattr(FakeFabric, "list_items", lambda self, ws: items(self, ws) + (
+        [{"id": "df1", "type": "Dataflow", "displayName": "df_odd"}, {"id": "pl9", "type": "DataPipeline", "displayName": "pl_odd"}]
+        if ws == "ws-dev" else []))
+    monkeypatch.setattr(FakeFabric, "get_item_definition",
+                        lambda self, ws, item, fmt=None: broken if item in ("df1", "pl9") else definition(self, ws, item, fmt))
+    out = _settled(svc)
+    assert "error" not in out and len(out["connections"]) == 3
+    assert out["missed"] == 1 + (2 if isinstance(broken["definition"]["parts"], str) else 1)  # pl3's 403, then the odd ones

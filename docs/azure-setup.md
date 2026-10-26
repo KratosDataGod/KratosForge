@@ -90,6 +90,7 @@ A policy file that sets everything an organization usually wants:
 | `sql_memory_limit_percent` | 10 to 90 (default `60`) | Share of the PC's memory one SQL page query may use; more spills to the temp folder |
 | `sql_page_rows` | 100 to 10000 (default `1000`) | Rows per page of SQL page results |
 | `sql_result_retention_hours` | 0 to 168 (default `24`; `0` keeps them until the app closes) | How long a finished SQL page query's result is kept for paging and export |
+| `sql_warehouse_writes` | `true` or `false` (default `true`) | Whether the Warehouse page may change a warehouse (DDL, DML, EXEC). Each change still shows what it changes and asks first; `false` makes every warehouse read-only in the app |
 | `sql_temp_dir` | A full folder path (default: the app's data folder) | Where SQL page queries spill data and keep results |
 | `sql_time_limit_minutes` | 0 to 1440 (default `10`; `0` for no limit) | Minutes an SQL page query may run before it's stopped |
 | `support_url` | An `https://` link or a `mailto:` address | Where **Report a problem** sends people, instead of GitHub |

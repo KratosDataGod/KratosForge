@@ -55,7 +55,11 @@ const fabricActivityCache = new Map();  // run id -> what Fabric said; read agai
 // Refresh on Runs reads open Fabric runs' activities again; other redraws use what was read.
 function forgetFabricActivities() { fabricActivityCache.clear(); }
 
-// Runs rows for pipeline runs in Fabric (fabric_pipeline_runs). A run this app started is already
+// What each kind of Fabric run is called in Runs. Only a pipeline run opens to its activities.
+const FABRIC_RUN_KIND = { pipeline: ["Pipeline", "Pipeline run in Fabric"], "copy job": ["Copy job", "Copy job run in Fabric"],
+  dataflow: ["Dataflow", "Dataflow refresh in Fabric"] };
+
+// Runs rows for pipeline, copy job and dataflow runs in Fabric (fabric_pipeline_runs). A run this app started is already
 // listed from fabric_runs, so it isn't listed twice. A status is only as fresh as the scan: the row
 // says when it was read, and a run read as going a while ago shows Stale, not Running.
 function fabricPipelineRunRows(result, cloud) {
@@ -67,17 +71,22 @@ function fabricPipelineRunRows(result, cloud) {
     const going = run.state === "running" || run.state === "pending";
     const stale = going && old;
     const known = run.state in FABRIC_RUN_STATUS;
+    const [noun, kind] = FABRIC_RUN_KIND[run.kind] || FABRIC_RUN_KIND.pipeline;
+    const pipeline = !run.kind || run.kind === "pipeline";
     return {
       at: fabricUtc(run.started), status: stale || !known ? "unavailable" : FABRIC_RUN_STATUS[run.state],
       pill: stale ? h("span", { class: "pill-s neu", title: "Running when last read; press Refresh to read it again" }, "Stale")
         : !known ? h("span", { class: "pill-s neu", title: `Fabric said ${run.native_status || "nothing"}` }, "Unknown")
         : run.state === "cancelled" ? h("span", { class: "pill-s neu" }, "Cancelled") : undefined,
-      activity: run.name || "Pipeline", env: "", where: "fabric", ranOn: `Fabric · ${run.workspace_name || "workspace"}`,
-      kind: "Pipeline run in Fabric", note: [FABRIC_INVOKE[run.invoke], asOf].filter(Boolean).join(" · "),
+      activity: run.name || noun, env: "", where: "fabric", ranOn: `Fabric · ${run.workspace_name || "workspace"}`,
+      kind, note: [FABRIC_INVOKE[run.invoke], asOf].filter(Boolean).join(" · "),
       reason: run.state === "failed" ? run.message || "" : "",
-      envWhy: "Pipeline runs in Fabric are listed by workspace, not by the project's environments",
+      envWhy: "Runs in Fabric are listed by workspace, not by the project's environments",
       seconds: run.seconds ?? "", tookText: run.seconds === null || run.seconds === undefined ? "—" : undefined,
-      rows: "—", pipelineRun: `fabric:${run.job_id}`, fabricRun: run,
+      rows: "—", pipelineRun: pipeline ? `fabric:${run.job_id}` : undefined, fabricRun: run,
+      open: pipeline ? undefined : () => openInFabric(fabricItemLink({ type: run.kind === "copy job" ? "CopyJob" : "Dataflow",
+        workspace_id: run.workspace_id, item_id: run.item_id })),
+      openLabel: pipeline ? undefined : "Open in Fabric",
     };
   });
 }
@@ -85,9 +94,9 @@ function fabricPipelineRunRows(result, cloud) {
 // What Runs says about the Fabric pipeline scan: still reading, or why nothing is listed.
 function fabricPipelineRunNote(result) {
   if (!result) return "";
-  if (result.pending) return "Reading pipeline runs in Fabric...";
-  if (result.error) return `Pipeline runs in Fabric not shown: ${String(result.error).replace(/\.$/, "")}`;
-  return result.missed ? `Runs of ${result.missed} pipeline${result.missed === 1 ? "" : "s"} in Fabric couldn't be read` : "";
+  if (result.pending) return "Reading pipeline, copy job and dataflow runs in Fabric...";
+  if (result.error) return `Runs in Fabric not shown: ${String(result.error).replace(/\.$/, "")}`;
+  return result.missed ? `Runs of ${result.missed} item${result.missed === 1 ? "" : "s"} in Fabric couldn't be read` : "";
 }
 
 // After Runs is drawn again (Refresh, a filter, the pop-out's timer), the runs that were open read

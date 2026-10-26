@@ -36,6 +36,14 @@ Data warehouse or a lakehouse's SQL analytics endpoint, in Fabric, so it uses ca
 process of its own like a lakehouse run (Stop and the time limit end it, which closes the
 connection), and asks the engine for an Azure SQL token. warehouse.py says what it checks first.
 
+A warehouse **change** (WH-10) is a warehouse run with ``allow=["warehouse_write"]``, ``confirm``
+and ``confirm_name``: the page showed what the script changes and the person confirmed it, naming
+the warehouse. The engine checks that name against the one Fabric gives for the item before it
+connects, so a change never reaches a warehouse the person didn't name, and refuses every change
+while the ``sql_warehouse_writes`` setting is off (Settings › SQL, or the organization's policy).
+Its batches run in one transaction (warehouse.py). Its status adds ``affected`` (rows changed) and
+``committed``.
+
 ``dry_run`` classifies the statements and says what would run, and what needs confirming, without
 running anything, for every target.
 
@@ -76,7 +84,7 @@ LOCAL_BATCH_ROWS = 65_536
 # What each target may ever allow. A local run allows all of its classes unless the caller narrows it.
 TARGET_ALLOWS = {"lakehouse": ("read_only", "local_mutation"),
                  "local": ("read_only", "local_mutation", "local_project_write"),
-                 "warehouse": ("read_only",)}
+                 "warehouse": ("read_only", "warehouse_write")}
 LOCAL_DIALECTS = ("duckdb", "spark", "tsql")
 
 
@@ -127,6 +135,10 @@ class Execution:
     confirm: bool = False  # local target: DROP, TRUNCATE, DELETE/UPDATE without WHERE may run
     timeout_s: float | None = None  # local target: a caller's own time limit, in seconds
     warehouse: dict[str, Any] = field(default_factory=dict)  # warehouse target: the item, its server and database
+    confirm_name: str = ""  # warehouse change: the warehouse the person confirmed, checked against Fabric's name
+    affected: int = 0  # warehouse change: rows its statements changed
+    plan: bool = False  # warehouse target: the estimated plan, not the rows (WH-09)
+    committed: bool = False
 
     @property
     def snapshot(self) -> Path:
@@ -144,6 +156,9 @@ class Execution:
                 "error": self.error, "error_kind": self.error_kind, "refused": self.refused,
                 "time_limit_minutes": round(self.time_limit_s / 60, 2),
                 **({"time_limit_from": self.time_limit_from} if self.target == "local" else {}),
+                **({"change": True, "affected": self.affected, "committed": self.committed}
+                   if "warehouse_write" in self.allow else {}),
+                **({"plan": True} if self.plan else {}),
                 "snapshot": self.state == "completed" and self.snapshot.exists()}
 
 
@@ -206,13 +221,17 @@ class SqlExecutions:
     def start(self, query: str, lakehouse_ref: dict[str, Any] | None = None, dialect: str = "spark",
               allow: list[str] | None = None, target: str = "lakehouse", project: str = "",
               confirm: bool = False, dry_run: bool = False, timeout: float | None = None,
-              warehouse_ref: dict[str, Any] | None = None) -> dict[str, Any]:
+              warehouse_ref: dict[str, Any] | None = None, confirm_name: str = "",
+              estimated_plan: bool = False) -> dict[str, Any]:
         """Queue a run. ``target="local"`` runs it in local data project ``project`` instead of
         against ``lakehouse_ref``; ``confirm`` lets its DROP, TRUNCATE and DELETE or UPDATE without
         WHERE run; ``timeout`` (seconds, local only) replaces the SQL page's time limit.
 
         ``target="warehouse"`` runs one T-SQL query that reads on ``warehouse_ref``
-        (``workspace_id``, ``item_id``, ``kind`` "warehouse" or "endpoint"), in Fabric."""
+        (``workspace_id``, ``item_id``, ``kind`` "warehouse" or "endpoint"), in Fabric. With
+        ``allow=["warehouse_write"]`` it is a change: it runs only with ``confirm`` and
+        ``confirm_name``, the warehouse's name as the person confirmed it. With ``estimated_plan``
+        (WH-09) a query that reads isn't run: Fabric returns how it would run it, as showplan XML."""
         if not isinstance(query, str) or not query.strip():
             raise ValueError("The query is empty.")
         if target not in TARGET_ALLOWS:
@@ -244,8 +263,18 @@ class SqlExecutions:
                 raise PermissionError("A local data project run can read and change the project's own tables, "
                                       "never files elsewhere on this PC, extensions or Fabric.")
             if target == "warehouse":
-                raise PermissionError("A warehouse run on the SQL page only reads; nothing in the warehouse changes.")
+                raise PermissionError("A warehouse run reads, or changes the warehouse after you confirm it; "
+                                      "nothing else is allowed.")
             raise PermissionError("The SQL page can only read tables and change a run's own session on this PC.")
+        change = target == "warehouse" and "warehouse_write" in allowed
+        if estimated_plan and (target != "warehouse" or change):
+            raise ValueError("An estimated plan is for a warehouse query that reads.")
+        writes_setting = app_settings.load()["sql_warehouse_writes"] if change else {}
+        if change and not writes_setting["value"]:
+            raise PermissionError("Warehouse changes are turned off in Settings › SQL"
+                                  + (" by your organization." if writes_setting["source"] == "policy" else "."))
+        if change and not dry_run and not (confirm and isinstance(confirm_name, str) and confirm_name.strip()):
+            raise PermissionError("A warehouse change runs only after you confirm it, naming the warehouse.")
         if dry_run:
             return self._plan(query, dialect, target, allowed, confirm)
         if not self._cleaned_at_start:
@@ -259,7 +288,9 @@ class SqlExecutions:
         if target == "warehouse":
             assert warehouse_ref is not None
             run.warehouse = {k: warehouse_ref[k] for k in ("workspace_id", "item_id", "kind")}
-            stop = sql_policy.refused(warehouse.verdicts(query), allowed)  # before Fabric is asked anything
+            run.confirm_name = confirm_name.strip() if change else ""
+            run.plan = bool(estimated_plan)
+            stop = sql_policy.refused(warehouse.verdicts(query, writes=change), allowed)  # before Fabric is asked anything
             if stop is not None:
                 return self._refuse(run, stop)
             if self._resolve_warehouse is None:
@@ -288,13 +319,21 @@ class SqlExecutions:
                     self._finished(run)
             return
         with self._lock:
+            if run.confirm_name and run.confirm_name != endpoint.database:
+                if run.state == "queued":
+                    run.state, run.ended, run.error_kind = "failed", time.time(), "permission"
+                    run.permission = "warehouse_write"
+                    run.error = (f"You confirmed a change to {run.confirm_name}, but Fabric names this warehouse "
+                                 f"{endpoint.database}, so nothing was sent. Check which warehouse the page is on.")
+                    self._finished(run)
+                return
             run.warehouse.update(server=endpoint.server, database=endpoint.database)
         self._pump()
 
     def _plan(self, query: str, dialect: str, target: str, allowed: tuple[str, ...], confirm: bool) -> dict[str, Any]:
         """A dry run: what each statement is and whether the run would be refused or need
         confirming. Nothing runs and no run is kept."""
-        verdicts = (warehouse.verdicts(query) if target == "warehouse"
+        verdicts = (warehouse.verdicts(query, writes="warehouse_write" in allowed) if target == "warehouse"
                     else sql_policy.classify(_policy_statements(query, dialect), target))
         stop = sql_policy.refused(verdicts, allowed, bool(confirm))
         return {"dry_run": True, "target": target, "dialect": dialect,
@@ -309,7 +348,8 @@ class SqlExecutions:
         run.state, run.error_kind, run.permission = "failed", "permission", stop.kind
         run.started = run.ended = time.time()
         run.error = (f"Statement {stop.statement} was refused ({stop.reason}), so nothing was sent. "
-                     "A warehouse run only reads.")
+                     + ("A warehouse change can't do this." if "warehouse_write" in run.allow
+                        else "A warehouse run only reads."))
         run.refused = {"permission": stop.kind, "statement": stop.statement, "label": sql_policy.LABELS.get(stop.kind, "")}
         with self._lock:
             self._runs[run.id] = run
@@ -381,7 +421,8 @@ class SqlExecutions:
         if run.target == "warehouse":
             job: dict[str, Any] = {"target": "warehouse", "query": run.query, "out": str(run.snapshot),
                                    "warehouse": {k: run.warehouse[k] for k in ("server", "database")},
-                                   "time_limit_s": minutes * 60}
+                                   "time_limit_s": minutes * 60, "writes": "warehouse_write" in run.allow,
+                                   "plan": run.plan}
         else:
             job = {"query": run.query, "dialect": run.dialect, "allow": list(run.allow),
                    "lakehouse": {k: lh[k] for k in ("workspace_id", "lakehouse_id", "name", "workspace_name") if k in lh},
@@ -502,6 +543,7 @@ class SqlExecutions:
                 run.batches = [int(n) for n in outcome.get("batches") or []]
                 run.offsets = list(itertools.accumulate([0, *run.batches[:-1]])) if run.batches else []
                 run.columns = list(outcome.get("columns") or [])
+                run.affected, run.committed = int(outcome.get("affected") or 0), bool(outcome.get("committed"))
             elif outcome.get("event") == "error":
                 run.state, run.error_kind = "failed", str(outcome.get("kind") or "sql")
                 run.error = str(outcome.get("message") or "The query failed.")
@@ -599,7 +641,10 @@ class SqlExecutions:
                              "lakehouse": lh.get("name", ""), "project": run.project_name,
                              **({"workspace_id": run.warehouse.get("workspace_id", ""),
                                  "warehouse_id": run.warehouse.get("item_id", ""),
-                                 "warehouse": run.warehouse.get("database", "")} if run.target == "warehouse" else {})})
+                                 "warehouse": run.warehouse.get("database", ""),
+                                 **({"plan": True} if run.plan else {}),
+                                 **({"affected": run.affected, "committed": run.committed}
+                                    if "warehouse_write" in run.allow else {})} if run.target == "warehouse" else {})})
             except Exception as exc:  # noqa: BLE001 - an audit problem never fails the run
                 print(f"audit: could not record sql_execution: {type(exc).__name__}", file=sys.stderr)
         run.query = ""  # the SQL isn't kept once the run is over

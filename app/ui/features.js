@@ -58,6 +58,7 @@ const PREVIEW_FEATURES = {
   health: "Table health",
   model: "Semantic model",
   ossie: "Semantic models and Apache Ossie",
+  directLakeCheck: "Direct Lake check",
   dataDictionary: "Data dictionary",
   tests: "Tests",
   xray: "Estate X-ray",
@@ -102,6 +103,7 @@ const PREVIEW_FEATURES = {
   warehouse: "Warehouse queries",
   sqlResultViews: "Messages and Chart on the SQL page",
   bestPractices: "Best practices: checks and templates",
+  updateBanner: "New build banner",
 };
 
 function previewShown() {
@@ -206,7 +208,10 @@ function initAppearance() {
   const toggle = document.getElementById("how-toggle");
   if (!toggle) return;
   toggle.addEventListener("click", () => setHowDrawer(!howView.open));
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && howView.open) setHowDrawer(false); });
+  // Escape closes the drawer, unless a dialog or menu is open: that Escape is theirs.
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && howView.open && !document.querySelector(".overlay, #menu")) setHowDrawer(false);
+  });
   let queued = false;
   new MutationObserver(() => {
     if (queued) return;

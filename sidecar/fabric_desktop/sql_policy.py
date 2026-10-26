@@ -25,6 +25,10 @@ On the local target (a local data project, KF-DE-027) there is a fifth class:
                          Reading files or other databases (read_csv, FROM 'file', glob, ...) and
                          SET/RESET/PRAGMA/LOAD/INSTALL are refused on the local target.
 
+The warehouse target (warehouse.py) has its own class, warehouse_write: DDL, DML and EXEC in a
+Fabric warehouse, allowed only for a run started as a change the person confirmed, naming the
+warehouse (WH-10). warehouse.py classifies T-SQL for that target itself.
+
 The lakehouse target never allows local_project_write (its writes stay onelake_write), and the
 local target never allows fabric_mutation (COPY, ATTACH, INSTALL, ...), so neither target's
 refusals depend on the other.
@@ -42,12 +46,13 @@ from dataclasses import dataclass
 
 from sqlglot import exp
 
-CLASSES = ("read_only", "local_mutation", "local_project_write", "onelake_write", "fabric_mutation")
+CLASSES = ("read_only", "local_mutation", "local_project_write", "warehouse_write", "onelake_write", "fabric_mutation")
 TARGETS = ("lakehouse", "local")
 LABELS = {
     "read_only": "reads tables",
     "local_mutation": "changes this run's own DuckDB session on this PC",
     "local_project_write": "changes the local data project's own tables",
+    "warehouse_write": "changes the warehouse in Fabric",
     "onelake_write": "would change a lakehouse table in OneLake",
     "fabric_mutation": "would change something outside this run: Fabric, files on this PC or extensions",
 }

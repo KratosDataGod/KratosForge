@@ -53,6 +53,7 @@ from .pipeline_service import PipelineMixin, PipelineRunMixin
 from .fabric_pipeline_runs_service import FabricPipelineRunsMixin
 from .workspace_pipelines_service import WorkspacePipelinesMixin
 from .fabric_connections_service import FabricConnectionsMixin
+from .workspace_copy_jobs_service import WorkspaceCopyJobsMixin
 from .workspace_dataflows_service import WorkspaceDataflowsMixin
 from .integrations.app_service import IntegrationsMixin
 from .localdata_service import LocalDataMixin
@@ -63,6 +64,7 @@ from .tenant_history_service import TenantHistoryMixin
 from .capacity_history_service import CapacityHistoryMixin
 from .validate_service import ValidateMixin
 from .model_ossie_service import ModelOssieMixin
+from .model_directlake_service import ModelDirectLakeMixin
 from .model_dictionary_service import ModelDictionaryMixin
 from .environment_service import EnvironmentMixin
 from .local_writes_service import LocalWritesMixin
@@ -72,6 +74,7 @@ from .notebook_folders_service import NotebookFoldersMixin
 from .notebook_formats_service import NotebookFormatsMixin
 from .sql_templates_service import SqlTemplatesMixin
 from .sql_queries_service import SqlQueriesMixin
+from .warehouse_project_service import WarehouseProjectMixin
 from .notebook_versions_service import NotebookVersionsMixin
 from . import notebook_versions
 from .progress_service import ProgressMixin
@@ -101,7 +104,7 @@ def _lakehouse_key(ref: Any) -> Any:
         return ref.get("lakehouse_id") or ref.get("name") or None
     return ref or None
 
-class Service(TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, RequestsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, SqlTemplatesMixin, SqlQueriesMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDictionaryMixin):
+class Service(TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, RequestsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -810,7 +813,8 @@ class Service(TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesM
     def sql_start(self, query: str, lakehouse_ref: dict[str, Any] | None = None, dialect: str = "spark",
                   allow: list[str] | None = None, target: str = "lakehouse", project: str = "",
                   confirm: bool = False, dry_run: bool = False,
-                  warehouse_ref: dict[str, Any] | None = None) -> dict[str, Any]:
+                  warehouse_ref: dict[str, Any] | None = None, confirm_name: str = "",
+                  estimated_plan: bool = False) -> dict[str, Any]:
         """Queue a query on this PC. ``allow`` adds "local_mutation" after the person confirmed it;
         lakehouse writes and Fabric changes are never allowed here (sql_policy.py).
 
@@ -818,10 +822,14 @@ class Service(TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesM
         own tables, and ``confirm`` lets DROP, TRUNCATE and DELETE or UPDATE without WHERE run.
         ``target="warehouse"`` (Preview) runs one T-SQL query that only reads on ``warehouse_ref``
         (``workspace_id``, ``item_id``, ``kind`` "warehouse" or "endpoint"), in Fabric: it uses capacity.
+        With ``allow=["warehouse_write"]``, ``confirm`` and ``confirm_name`` (the warehouse's name, as
+        the person confirmed it) it may change the warehouse (WH-10, sql_exec.py).
 
-        ``dry_run`` only says what each statement would do; nothing runs."""
+        ``dry_run`` only says what each statement would do; nothing runs. ``estimated_plan`` (warehouse,
+        a query that reads) returns Fabric's estimated plan as showplan XML instead of running it."""
         return self.sql_runs.start(query, lakehouse_ref, dialect, allow, target=target, project=project,
-                                   confirm=confirm, dry_run=dry_run, warehouse_ref=warehouse_ref)
+                                   confirm=confirm, dry_run=dry_run, warehouse_ref=warehouse_ref,
+                                   confirm_name=confirm_name, estimated_plan=estimated_plan)
 
     def sql_status(self, execution: str) -> dict[str, Any]:
         return self.sql_runs.status(execution)

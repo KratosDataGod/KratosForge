@@ -22,10 +22,11 @@ _NS = uuid.UUID("2b0e1b9c-6a51-4f0e-9b4d-6b8f3f1d7c11")
 _PLAIN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _NUMERIC = {"int64", "double", "decimal"}
 
-# Delta type names (as delta-rs reports them) to TMDL data types.
+# Delta type names (as delta-rs reports them) to TMDL data types. Binary isn't here: Direct Lake can't read it
+# (https://learn.microsoft.com/fabric/fundamentals/direct-lake-overview), so left_out reports it instead.
 _TYPES = {"string": "string", "long": "int64", "integer": "int64", "short": "int64", "byte": "int64",
           "double": "double", "float": "double", "boolean": "boolean", "date": "dateTime",
-          "timestamp": "dateTime", "timestamp_ntz": "dateTime", "binary": "binary"}
+          "timestamp": "dateTime", "timestamp_ntz": "dateTime"}
 
 
 def tmdl_type(delta_type: str) -> str | None:

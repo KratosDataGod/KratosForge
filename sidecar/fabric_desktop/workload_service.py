@@ -38,14 +38,23 @@ ITEMS_STALE_AFTER = 24 * 3600      # Fabric item listings
 RUN_LIMIT = 2000
 AUDIT_RETRY_AFTER = 600            # seconds before lines the platform didn't take are tried again on their own
 AUDIT_BATCH = 50
+_RUN_ITEM_EFFECT = {
+    "CopyJob": "It moves data: each of its tables is copied from the source into the destination, as the job is set to write.",
+    "Dataflow": "The refresh writes its results to every destination the dataflow has.",
+}
 _ACTION_LABELS = {"run": "Run", "run_in_fabric": "Run in Fabric", "run_item": "Run in Fabric",
                   "run_schedule": "Run the schedule now", "cancel": "Cancel the run"}
+
+
+class NotInInventory(LookupError):
+    """The workload isn't in the inventory: renamed, deleted, or in a workspace this app doesn't read."""
 
 
 class WorkloadMixin:
     root: Path
     _wl_scan: dict[str, Any] | None = None
     _wl_scan_lock = threading.Lock()
+    _wl_scan_again = ""  # a refresh's token, asked for while a scan runs: scan once more when it ends (a new pin)
     _wl_records: dict[str, dict[str, Any]] | None = None
     _wl_audit_lock = threading.Lock()
 
@@ -161,7 +170,7 @@ class WorkloadMixin:
             scanning = bool(scan and scan.get("pending"))
         cached = self.workload_store.cache_get("fabric_items")
         token = self._wl_token(FABRIC_SCOPES)
-        if token and not scanning and (refresh or cached is None):
+        if token and (refresh or (cached is None and not scanning)):
             self._wl_start_scan(token)
             scanning = True
         source = "Fabric items in the workspaces you work in"
@@ -182,9 +191,21 @@ class WorkloadMixin:
     def _wl_start_scan(self, token: str) -> None:
         with self._wl_scan_lock:
             if self._wl_scan and self._wl_scan.get("pending"):
+                # It may have listed the workspaces before a new pin. The token is taken here, on the
+                # caller's thread (MSAL isn't thread-safe), so the next pass doesn't reuse an old one.
+                self._wl_scan_again = token
                 return
             self._wl_scan = {"pending": True}
-        threading.Thread(target=self._wl_scan_items, args=(token,), daemon=True).start()
+        threading.Thread(target=self._wl_scan_until_settled, args=(token,), daemon=True).start()
+
+    def _wl_scan_until_settled(self, token: str) -> None:
+        while True:
+            self._wl_scan_items(token)
+            with self._wl_scan_lock:
+                if not self._wl_scan_again:
+                    return
+                token, self._wl_scan_again = self._wl_scan_again, ""
+                self._wl_scan = {"pending": True}
 
     def _wl_scan_items(self, token: str, client: FabricClient | None = None) -> dict[str, Any]:
         client = client or FabricClient(lambda: token)
@@ -275,8 +296,8 @@ class WorkloadMixin:
             self._wl_collect(refresh)
         record = (self._wl_records or {}).get(wid)
         if record is None:
-            raise LookupError("That workload isn't in the inventory any more. It may have been renamed, "
-                              "deleted, or be in a workspace this app no longer reads.")
+            raise NotInInventory("That workload isn't in the inventory any more. It may have been renamed, "
+                                 "deleted, or be in a workspace this app no longer reads.")
         return record
 
     def workload_detail(self, id: str, refresh: bool = False) -> dict[str, Any]:
@@ -471,8 +492,12 @@ class WorkloadMixin:
 
     def workload_preflight(self, id: str, action: str, env: str | None = None, assess: bool = True) -> dict[str, Any]:
         """What an action will do before it does it: environment, identity, target, consequence, and
-        the risk check's findings (FINOPS-004) unless ``assess`` is false."""
-        w = self._wl_record(id)
+        the risk check's findings (FINOPS-004) unless ``assess`` is false. A workload the inventory
+        doesn't list is refused with ``code`` "not_in_inventory", so a caller can offer to read again."""
+        try:
+            w = self._wl_record(id)
+        except NotInInventory as exc:
+            return {"allowed": False, "code": "not_in_inventory", "reason": str(exc)}
         allowed = [a for a in self._wl_available(w) if a["action"] == action and (a.get("env") or None) == (env or None)]
         if not allowed:
             return {"allowed": False, "reason": f"{w['name']} doesn't support that here."}
@@ -504,8 +529,8 @@ class WorkloadMixin:
             where, needs_sign_in = dep["location"]["label"], True
         elif action == "run_item":
             target = f"{w['name']} in {d.get('workspace_name')}"
-            consequence = (f"Starts {w['kind_label'].lower()} {w['name']} in Fabric now, on its workspace's capacity, "
-                           "exactly as Fabric's own Run does. Whatever it writes, it writes.")
+            consequence = (f"Starts {w['kind_label'][:1].lower() + w['kind_label'][1:]} {w['name']} in Fabric now, on its workspace's capacity, "
+                           "exactly as Fabric's own Run does. " + _RUN_ITEM_EFFECT.get(d.get("item_type", ""), "Whatever it writes, it writes."))
             where, needs_sign_in = dep["location"]["label"], True
         elif action == "run_schedule":
             target = f"the notebook {w['name']} on this PC"
@@ -523,7 +548,7 @@ class WorkloadMixin:
                 "env": env, "env_label": dep.get("env_label") or "", "where": where, "identity": identity,
                 "target": target, "consequence": consequence, "warnings": warnings,
                 "recorded": "Recorded on this workload as submitted, then as succeeded or failed when the run finishes"
-                            + (", and on Platform > Audit." if self.workload_audit_state()["platform"] != "none" else "."),
+                            + (", and on Platform > Govern > Audit." if self.workload_audit_state()["platform"] != "none" else "."),
                 "risk": self._risk_for_preflight(w, action, env) if assess else None}  # type: ignore[attr-defined]
 
     def workload_act(self, id: str, action: str, env: str | None = None, schedule_id: str = "",
@@ -562,7 +587,7 @@ class WorkloadMixin:
                 outcome = out
             elif action == "run_item":
                 out = self.run_fabric_item_now(d["workspace_id"], d["item_id"], d["job_type"], w["name"],  # type: ignore[attr-defined]
-                                               d.get("workspace_name", ""))
+                                               d.get("workspace_name", ""), d.get("item_type", ""))
                 record = store.update_action(record["id"], ref={"job_id": out.get("job_id")})
                 outcome = out
             elif action == "run_schedule":
@@ -578,7 +603,11 @@ class WorkloadMixin:
             else:
                 raise ValueError(f"unknown action {action}")
         except Exception as exc:
-            failed = store.update_action(record["id"], "failed", detail=f"{type(exc).__name__}: {exc}")
+            detail = f"{type(exc).__name__}: {exc}"
+            if action == "run_item" and model.classify_error(exc)[0] == "unauthorized":
+                detail = ("Not authorized: Fabric refused to start it, so no run happened. Starting items needs the "
+                          "Item.Execute.All permission for your sign-in and Contributor or higher in the workspace. " + detail)
+            failed = store.update_action(record["id"], "failed", detail=detail)
             self._wl_audit_action(failed, w["name"])
             self._wl_records = None
             raise

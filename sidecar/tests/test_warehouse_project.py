@@ -190,6 +190,17 @@ def test_names_keep_their_case_as_the_warehouse_collation_does():
     assert wc.table_detail(TABLE, project) == ["column segment is only in the project", "column Segment is only in the warehouse"]
 
 
+def test_a_column_named_like_a_type_keeps_its_case():
+    assert not wc.same("CREATE VIEW v AS SELECT Date, Count FROM t", "CREATE VIEW v AS SELECT date, count FROM t")
+    assert not wc.same("CREATE VIEW v AS SELECT a AS Date FROM t", "CREATE VIEW v AS SELECT a AS date FROM t")
+    assert wc.same("CREATE VIEW v AS SELECT CAST(Date AS DATE), MAX(Count) FROM t",
+                   "create view v as select cast(Date as date), max(Count) from t")
+    assert wc.same("CREATE TABLE t ([Date] DATE NOT NULL, Count INT NULL)", "CREATE TABLE t ([Date] date NOT NULL, Count int NULL)")
+    assert not wc.same("CREATE TABLE t ([Date] date NULL)", "CREATE TABLE t ([date] date NULL)")
+    assert wc.same("CREATE FUNCTION f(@d DATE) RETURNS INT AS BEGIN RETURN CONVERT(INT, @d) END",
+                   "create function f(@d date) returns int as begin return convert(int, @d) end")
+
+
 def test_a_go_line_inside_a_string_or_comment_is_kept():
     view = "CREATE VIEW v AS SELECT 'a\nGO\nb' AS x\nGO\n"
     assert not wc.same(view, "CREATE VIEW v AS SELECT 'a\nb' AS x\nGO\n"), "the string's own GO line counts"
@@ -279,6 +290,8 @@ def test_a_table_change_that_would_rebuild_it_isnt_offered(project):
     ("only_project", "table", "CREATE TABLE dbo.FactSales (a int NULL);\nGO\nTRUNCATE TABLE dbo.FactSales;"),
     ("only_project", "table", "CREATE TABLE dbo.FactSales AS SELECT * FROM dbo.Staging;"),
     ("only_project", "schema", "CREATE SCHEMA staging CREATE TABLE t (a int);"),
+    ("changed", "view", "CREATE VIEW dbo.x AS SELECT 1 AS x; DROP TABLE dbo.FactSales;"),
+    ("only_project", "function", "CREATE FUNCTION dbo.x() RETURNS TABLE AS RETURN SELECT 1 AS a; TRUNCATE TABLE dbo.t"),
 ])
 def test_a_file_with_more_than_its_object_isnt_offered(state, kind, text):
     (c,) = wc.deploy_plan([_row(state, kind, "x", text, "CREATE VIEW dbo.x AS SELECT 0 AS x" if state == "changed" else "")])
@@ -286,8 +299,8 @@ def test_a_file_with_more_than_its_object_isnt_offered(state, kind, text):
 
 
 def test_a_file_that_only_defines_its_object_runs_without_its_go_line():
-    (c,) = wc.deploy_plan([_row("only_project", "view", "v", "-- note\nCREATE VIEW dbo.v AS SELECT 'a\nGO\nb' AS x;\nGO\n\n")])
-    assert c["offered"] and c["sql"] == "-- note\nCREATE VIEW dbo.v AS SELECT 'a\nGO\nb' AS x;"
+    (c,) = wc.deploy_plan([_row("only_project", "view", "v", "-- note\nCREATE VIEW dbo.v AS SELECT 'a\nGO\nb' AS x; -- done\nGO\n\n")])
+    assert c["offered"] and c["sql"] == "-- note\nCREATE VIEW dbo.v AS SELECT 'a\nGO\nb' AS x; -- done"
     (t,) = wc.deploy_plan([_row("only_project", "table", "t", "CREATE TABLE [dbo].[t] (a decimal(18,2) NULL);\nGO\n")])
     assert t["offered"] and t["sql"] == "CREATE TABLE [dbo].[t] (a decimal(18,2) NULL);"
 

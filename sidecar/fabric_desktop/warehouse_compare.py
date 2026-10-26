@@ -22,39 +22,56 @@ _TOKEN = re.compile(r"(?P<go>(?:^|\n)[ \t]*GO[ \t]*;?[ \t]*(?=\n|$))|--[^\n]*|/\
                     r"|\"(?:[^\"]|\"\")*\"|[\w@#$]+|[^\s\w]", re.DOTALL | re.IGNORECASE)
 _PLAIN = re.compile(r"^[A-Za-z_][\w@#$]*$")
 _NOT_COLUMN = {"constraint", "primary", "unique", "foreign", "check", "index"}
-# Words T-SQL reads the same in any case: keywords, built-in types and common built-in functions.
-# Every other word is a name and keeps its case.
-KEYWORDS = frozenset("""
-add all alter and any as asc authorization begin between bigint binary bit by cascade case cast char
-check close clustered coalesce collate column commit constraint contains convert count create cross
-current current_date current_timestamp cursor date datetime2 datetimeoffset dateadd datediff datepart
-datetime decimal declare default delete desc distinct distribution double drop else end enforced
-escape except exec execute exists fetch float for foreign from full function go grant group hash
-having identity if iif in index inner insert int intersect into is isnull join key left like max
-merge min money nchar nonclustered not null nullif numeric nvarchar of off on open option or order
-outer over partition percent pivot primary print proc procedure real references replicate return
-returns revoke right round_robin rollback row_number rows schema select set smallint some sum
-sysdatetime table then time tinyint top tran transaction truncate try_cast try_convert union unique
-uniqueidentifier unpivot update use values varbinary varchar view when where while with within
+# Words T-SQL reads the same in any case. RESERVED can't be a name unless it's quoted, so it always
+# folds. SOFT (built-in types and functions) can also be a column's name, such as Date or Count, so
+# it folds only where it's a type or a call (soft_place); anywhere else it is a name and keeps its case.
+RESERVED = frozenset("""
+add all alter and any as asc authorization begin between by cascade case check close clustered
+coalesce collate column commit constraint contains convert create cross current current_date
+current_timestamp cursor declare default delete desc distinct distribution double drop else end
+enforced escape except exec execute exists fetch for foreign from full function grant group hash
+having identity if in index inner insert intersect into is join key left like merge nonclustered not
+null nullif of off on open option or order outer over percent pivot primary print proc procedure
+references return returns revoke right round_robin rollback schema select set some table then top
+tran transaction truncate union unique unpivot update use values view when where while with within
 """.split())
+SOFT = frozenset("""
+bigint binary bit cast char count date datetime datetime2 datetimeoffset dateadd datediff datepart
+decimal float iif int isnull max min money nchar numeric nvarchar real replicate row_number rows
+smallint sum sysdatetime time tinyint try_cast try_convert uniqueidentifier varbinary varchar
+""".split())
+
+
+def soft_place(prev2: str, prev: str, nxt: str) -> bool:
+    """Whether a SOFT word, between these tokens, is a type or a call: max(, CAST(x AS int),
+    CONVERT(date, ...), RETURNS int, DECLARE @x int, or a column's type in CREATE TABLE (a, b int)."""
+    return (nxt == "(" or (prev == "as" and nxt == ")") or (prev == "(" and nxt == ",") or prev == "returns"
+            or prev.startswith("@") or prev2 in ("(", ","))
 
 
 def tokens(text: str, fold: bool = True) -> list[str]:
     """The script as T-SQL reads it: comments, GO lines and semicolons left out, keywords in lower
-    case (unless ``fold`` is False), [Name] and "Name" as Name when plain (letters, digits, _),
-    names and strings exactly as written."""
-    out: list[str] = []
+    case (unless ``fold`` is False; see RESERVED and SOFT), [Name] and "Name" as Name when plain
+    (letters, digits, _), names and strings exactly as written."""
+    raw: list[tuple[str, bool]] = []  # (token, a bare word that may be a keyword)
     for m in _TOKEN.finditer(text):
         t = m.group()
         if m.group("go") or t.startswith("--") or t.startswith("/*") or t == ";":
             continue
         if t[0] in "[\"":
             inner = t[1:-1].replace("]]", "]") if t[0] == "[" else t[1:-1].replace('""', '"')
-            out.append(inner if _PLAIN.match(inner) else f"[{inner}]")
+            raw.append((inner if _PLAIN.match(inner) else f"[{inner}]", False))
         elif t[0] == "'" or t[:2].upper() == "N'":
-            out.append(t)
+            raw.append((t, False))
         else:
-            out.append(t.lower() if fold and t.lower() in KEYWORDS else t)
+            raw.append((t, True))
+    out: list[str] = []
+    for i, (t, word) in enumerate(raw):
+        low = t.lower()
+        if fold and word and (low in RESERVED or (low in SOFT and soft_place(
+                out[i - 2] if i > 1 else "", out[i - 1] if i else "", raw[i + 1][0].lower() if i + 1 < len(raw) else ""))):
+            t = low
+        out.append(t)
     return out
 
 
@@ -202,7 +219,14 @@ def _one_definition(kind: str, text: str) -> str | None:
         return None
     t = tokens(parts[0])
     if kind in ("view", "procedure", "function"):
-        return parts[0] if _LEADING_CREATE.match(parts[0]) else None
+        if not _LEADING_CREATE.match(parts[0]):
+            return None
+        # A view, or a function with no BEGIN ... END body, ends at its first ";": nothing may follow.
+        if kind == "view" or "begin" not in t:
+            words = [m.group() for m in _TOKEN.finditer(parts[0]) if not m.group().startswith(("--", "/*"))]
+            if ";" in words and any(w != ";" for w in words[words.index(";"):]):
+                return None
+        return parts[0]
     if t[:2] != ["create", kind] or kind not in ("table", "schema"):
         return None
     i = 2

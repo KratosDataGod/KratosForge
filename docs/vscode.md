@@ -74,7 +74,30 @@ A `kratosforge://` link shows a notebook or a page in KratosForge, from VS Code,
 
 ## What runs where
 
-Opening a notebook in VS Code doesn't run anything. Cells you run in VS Code use whatever kernel you pick there; to run on this PC with KratosForge's engine, lakehouse and session, run them in KratosForge for now. A KratosForge kernel for VS Code is planned.
+Opening a notebook in VS Code doesn't run anything. Cells you run in VS Code use whatever kernel you pick there. With a paired window (below), they run in KratosForge's session for that notebook on this PC.
+
+## Run cells from VS Code
+
+Preview. The KratosForge extension for VS Code, which picks this up in VS Code's kernel picker, is on its way; this is the app's side of it.
+
+1. In **Settings > Integrations > VS Code**, turn on **Let VS Code run notebooks**. It's off until you do, and your organization can keep it off (`integrations_editors` in the [policy file](azure-setup.md#4-push-settings-to-everyone)).
+2. In VS Code, pick KratosForge as the notebook's kernel. KratosForge asks **Let VS Code run notebooks on this PC?** with the window's folder and a pairing code. Check VS Code shows the same code, choose how long to keep the pairing, and **Pair this window**.
+3. Cells you run in that window run in the notebook's own session here: the same variables, `spark`, default lakehouse and limits as running them in KratosForge. Stop in VS Code stops the cell.
+
+What a paired window can and can't do:
+
+| Without asking again | Still asks in KratosForge, every time |
+| --- | --- |
+| Run cells of notebooks in the app's notebooks folder or a notebooks repository opened in Source control | Write a table or file to OneLake: **Allow once** covers that table for the rest of the cell; nobody answering in 5 minutes means no |
+| Read the tables the notebook's lakehouse has | Publish, Run in Fabric and Side by side are done in KratosForge, not from VS Code |
+| See the cell's output and the notebook's variables | |
+
+- A pairing lasts until KratosForge closes (kept in memory only), 8 hours or 7 days, as you choose. Settings lists paired windows; **End** stops one at once, and turning the switch off ends them all.
+- Every run, Stop, pairing and OneLake answer is in the [audit trail](user-guide.md#audit-trail).
+- AI tools such as Copilot never pair: they keep asking before every run ([External AI tools](user-guide.md#external-ai-tools)).
+- The OneLake question is a check on KratosForge's own write paths, not a sandbox: a cell runs as you, as your own cells here do.
+
+How it connects: while the switch is on, the engine listens on `127.0.0.1` on a port it picks, and writes the port with a random value (the "hello") to `editor-port` in your data folder (`%LOCALAPPDATA%\FabricDesktop`). Asking to pair needs the hello, so only programs that can read your data folder can ask, and you still have to say yes. A paired window sends a token with every call; only a hash of the token is kept. Requests from a web page, or with a `Host` that isn't this PC's loopback address, are refused.
 
 ## What it reads and writes
 
@@ -85,3 +108,6 @@ Opening a notebook in VS Code doesn't run anything. Cells you run in VS Code use
 | Set up for VS Code | Which of its files the repository already has | The files you tick, only if they're not there yet |
 | Validate task, `kratosforge nb validate` | The notebook file, and the package versions Fabric runs reported | Nothing |
 | A `kratosforge://` link, `kratosforge nb open` | Which notebook the file is | Unsaved edits in the open notebook, saved first (as **Save**) |
+| Let VS Code run notebooks | Nothing | `editor-port` while it's on; `editor\settings.json` |
+| Pairing a window | The window's folder and name, as it sends them | `editor\pairings.json` (a hash of the token) for 8-hour and 7-day pairings |
+| A cell run from a paired window | What the cell reads | What the cell writes on this PC; OneLake only after you allow it |

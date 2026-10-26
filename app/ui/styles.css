@@ -1598,6 +1598,11 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
 .integ-vscode .grow { flex: 1 1 260px; min-width: 0; }
 .vscode-setup-files { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 12px; }
 .vscode-setup-file { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; }
+.editor-pair { display: flex; flex-direction: column; gap: 12px; max-width: 620px; }
+.editor-pair-code { font-size: 16px; font-weight: 600; letter-spacing: 0.15em; }
+.editor-pair-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.editor-pair-list { border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+.editor-pair-list ul { margin: 6px 0 0; padding-left: 18px; }
 .vscode-setup-file .grow { flex: 1; min-width: 0; }
 .vscode-setup-text { max-height: 180px; overflow: auto; white-space: pre-wrap; font-size: 12px; }
 .integ-scroll { max-height: min(70vh, 640px); overflow: auto; }

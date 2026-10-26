@@ -50,9 +50,10 @@ function untestedTag(kind) {
 
 async function renderIntegrationsTab(box) {
   box.replaceChildren(loading());
-  const [status, activity] = await Promise.all([
+  const [status, activity, editor] = await Promise.all([
     rpc("integrations_status").catch((err) => ({ error: friendlyError(err).text })),
     rpc("integrations_activity", { limit: 50 }).catch(() => []),
+    rpc("editor_status").catch(() => null),
   ]);
   if (!box.isConnected) return;
   integ.status = status;
@@ -64,6 +65,7 @@ async function renderIntegrationsTab(box) {
   const refresh = () => renderIntegrationsTab(box);
   box.replaceChildren(...[
     switchCard(status, refresh),
+    editor ? vscodeRunCard(editor, refresh) : null,
     status.enabled ? connectCard(status, refresh) : null,
     status.enabled ? toolsCard(status, refresh) : null,
     status.enabled && (status.extensions || []).length ? extensionsCard(status, refresh) : null,

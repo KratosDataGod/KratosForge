@@ -19,6 +19,7 @@ import json
 import logging
 import threading
 import time
+import weakref
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -142,6 +143,21 @@ def _proof() -> Any:
 # Set by the service when a metadata project is open: returns why a table may not be
 # written from a notebook (it is managed by the framework), or None.
 write_guard: Callable[[str, str, str], str | None] | None = None
+
+# Checks for the writes of one cell, by the thread the engine's own kernel runs it on: a cell a
+# paired VS Code window started asks in the app before each write (editor_service.py). A process
+# kernel asks the engine through its write_guard call instead (kernel_proc.ProcessKernel.write_check).
+cell_write_checks: "weakref.WeakKeyDictionary[threading.Thread, Callable[[str, str, str], str | None]]" = \
+    weakref.WeakKeyDictionary()
+
+
+def write_refusal(name: str, schema: str, table: str) -> str | None:
+    """Why this write may not happen (the open metadata project, or the cell's own check), or None."""
+    reason = write_guard(name, schema, table) if write_guard else None
+    if reason:
+        return reason
+    check = cell_write_checks.get(threading.current_thread())
+    return check(name, schema, table) if check else None
 
 
 def attach(context: Attached | None) -> None:
@@ -449,7 +465,7 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
     started = time.monotonic()
     lh = _current()
     ref = table_ref(table)
-    reason = write_guard(lh.name, ref.schema, ref.table) if write_guard else None
+    reason = write_refusal(lh.name, ref.schema, ref.table)
     if reason:
         raise PermissionError(reason)
     streamed = _stream(data)

@@ -98,6 +98,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "pipeline_list", "fabric_pipeline_runs", "fabric_pipeline_activity_runs",
            "workspace_pipelines", "workspace_pipeline_definition", "fabric_connections",
            "workspace_dataflows", "workspace_dataflow_definition", "fabric_dataflow_refreshes",
+           "workspace_copy_jobs", "workspace_copy_job_definition", "fabric_copy_job_runs",
            "git_path_info", "git_notebook_info", "audit_log", "telemetry_status", "telemetry_new_install_id"}
 
 

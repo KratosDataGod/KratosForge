@@ -10,7 +10,7 @@ import pytest
 from fabric_desktop import audit, server
 from fabric_desktop import fabric_connections_service as fcs
 from fabric_desktop import schedule_service
-from fabric_desktop.auth import SignInError
+from fabric_desktop.auth import SignInError, sign_in_error
 from fabric_desktop.service import Service
 
 SQL = "5a1c7d2e-0000-4000-8000-000000000001"
@@ -191,7 +191,8 @@ def test_without_gateway_access_the_connections_still_list(svc, monkeypatch):
     assert "consent declined" in _settled(svc, refresh=True)["gateways_error"] and len(asked) == 1
 
 
-@pytest.mark.parametrize("failure", [RuntimeError("connection reset"), SignInError("temporarily_unavailable", "busy")])
+@pytest.mark.parametrize("failure", [RuntimeError("connection reset"), SignInError("temporarily_unavailable", "busy"),
+                                     sign_in_error({"error": "server_error", "error_description": "AADSTS90033: busy"})])
 def test_a_passing_gateway_sign_in_failure_asks_again(svc, monkeypatch, failure):
     asked = []
 

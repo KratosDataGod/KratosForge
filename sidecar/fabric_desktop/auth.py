@@ -143,8 +143,10 @@ class SignInError(RuntimeError):
     """Microsoft sign-in returned no token. The message starts with Entra's code (``AADSTS50076``)
     when there is one, so the app can say what happened and what to do; see docs/troubleshooting.md."""
 
-    def __init__(self, code: str, description: str):
-        self.code, self.description = code, description
+    def __init__(self, code: str, description: str, error: str = ""):
+        # ``error`` is the OAuth error (``server_error``, ``temporarily_unavailable``, ...), kept
+        # when ``code`` is Entra's AADSTS code, so a passing failure can be told from a refusal.
+        self.code, self.description, self.error = code, description, error or code
         super().__init__(f"{code}: {description}" if description else code)
 
 
@@ -162,7 +164,7 @@ def sign_in_error(result: dict) -> SignInError:
         return SignInCancelled("cancelled", "The sign-in window was closed before signing in.")
     code = re.search(r"\bAADSTS\d+\b", description)
     return SignInError(code.group(0) if code else error,
-                       description[code.end():].lstrip(": ").strip() if code and code.start() == 0 else description)
+                       description[code.end():].lstrip(": ").strip() if code and code.start() == 0 else description, error)
 
 class Authenticator:
     def __init__(self, client_id: str = "", cache_path: Path | None = None, interactive: bool = True):

@@ -1534,15 +1534,15 @@ function directLakeCard(plan, updateModel) {
   };
   return h("div", { class: "card pad dl-card" },
     h("div", { class: "row wrap" }, title, h("span", { class: "spacer" }), checkBtn),
-    h("p", { class: "muted-text" }, "Finds what would make the model fall back to DirectQuery, or fail, before people query it: tables past the capacity's Direct Lake limits, columns the Delta table no longer has, and relationship keys that aren't unique. It reads the model's definition from Fabric and each table's Delta log from OneLake, then checks on this PC. It starts no Fabric job; reading from OneLake uses capacity."),
+    h("p", { class: "muted-text" }, "Finds what would make the model fall back to DirectQuery, or fail, before people query it: tables past the capacity's Direct Lake limits, columns the Delta table no longer has, relationship keys that aren't unique, and fact rows whose key has no match, which Power BI shows under (Blank). It reads the model's definition from Fabric and each table's Delta log from OneLake, then checks on this PC. It starts no Fabric job; reading from OneLake uses capacity."),
     h("div", { class: "row wrap" }, h("label", { class: "field grow" }, "Model", model), h("label", { class: "field" }, "Limits for capacity", sku),
-      h("label", { class: "check" }, keys, " Also check relationship keys are unique (reads those columns from OneLake)")),
+      h("label", { class: "check" }, keys, " Also check relationship keys: unique, and a match for every row (reads those columns from OneLake)")),
     result,
     howItWorks("directLakeCheck", {
-      reads: "The model's definition from Fabric (getDefinition, read only), each table's Delta log and Parquet footers from OneLake, and the key columns when you tick the box.",
+      reads: "The model's definition from Fabric (getDefinition, read only), each table's Delta log and Parquet footers from OneLake, and both key columns of each relationship when you tick the box.",
       changes: "Nothing. Fixes open where you make them: Update model, or Table health to compact a table.",
       results: "Shown here only.",
-      more: [["Where the limits come from", "Microsoft's Direct Lake guardrails for the capacity you pick. The idea comes from Microsoft's semantic-link-labs (MIT); the check is written for this PC and needs no notebook."]],
+      more: [["Where the limits come from", "Microsoft's Direct Lake guardrails for the capacity you pick. The idea comes from Microsoft's semantic-link-labs (MIT) and Elegant BI's blank row finder for Tabular Editor (MIT); the check is written for this PC and needs no notebook."]],
       anchor: "direct-lake-check",
     }));
 }

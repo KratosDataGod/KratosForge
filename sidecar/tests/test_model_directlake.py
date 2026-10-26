@@ -12,7 +12,7 @@ from deltalake import write_deltalake
 from fabric_desktop import model_directlake as dl
 from fabric_desktop import semantic
 from fabric_desktop.meta.store import OneLakeStore
-from fabric_desktop.model_directlake_service import duplicate_values, table_stats
+from fabric_desktop.model_directlake_service import duplicate_values, table_stats, unmatched_rows
 from fabric_desktop.service import Service
 
 
@@ -134,6 +134,16 @@ def test_relationship_keys_must_match_in_type_and_be_unique():
     assert dl.unique_keys(_bim()) == [("DimCustomer", "customer_sk")]
 
 
+def test_fact_rows_with_no_match_show_under_blank():
+    out = dl.check(_bim(), _stats(), None, unmatched={"FactSales.customer_sk": {"rows": 12, "values": 2, "empty": 1}})
+    f = _by(out, "Rows with no match")[0]
+    assert (f["severity"], f["table"], f["column"], f["fix"]) == ("info", "FactSales", "customer_sk", "show_rows")
+    assert "12 rows with a customer_sk that isn't in DimCustomer (2 values) and 1 row with no customer_sk" in f["message"]
+    assert "(Blank)" in f["message"]
+    assert not _by(dl.check(_bim(), _stats(), None, unmatched={"FactSales.customer_sk": {"rows": 0, "values": 0, "empty": 0}}),
+                   "Rows with no match")
+
+
 def test_a_missing_delta_table_fails_and_unread_tables_are_skipped():
     out = dl.check(_bim(), {"FactSales": None}, None)
     assert [f["check"] for f in out["findings"]] == ["Table missing"]
@@ -173,6 +183,14 @@ def test_duplicate_values_counts_repeated_non_empty_keys(tmp_path):
     write_deltalake(uri, pa.table({"k": [1, 1, 2, 3, 3, 3, None, None]}))
     assert duplicate_values(uri, None, "k") == 2
     assert duplicate_values(str(tmp_path / "none"), None, "k") == 0
+
+
+def test_unmatched_rows_reads_both_keys(tmp_path):
+    fact, dim = str(tmp_path / "f"), str(tmp_path / "d")
+    write_deltalake(fact, pa.table({"k": [1, 2, 3, 3, 4, None]}))
+    write_deltalake(dim, pa.table({"k": [1, 2, None]}))
+    assert unmatched_rows((fact, None, "k"), (dim, None, "k")) == {"rows": 3, "values": 2, "empty": 1}
+    assert unmatched_rows((fact, None, "k"), (str(tmp_path / "none"), None, "k")) == {"rows": 0, "values": 0, "empty": 0}
 
 
 # ---- the service
@@ -241,10 +259,15 @@ def test_the_check_reads_onelake_and_reports_drift_and_duplicate_keys(svc):
     checks = {(f["check"], f["column"]) for f in out["findings"]}
     assert ("Column missing", "discount_pct") in checks and ("New column", "channel") in checks
     assert ("Key not unique", "customer_sk") in checks
+    blank = next(f for f in out["findings"] if f["check"] == "Rows with no match")
+    assert blank["table"] == "FactSales" and "1 row with a customer_sk that isn't in DimCustomer (1 value)" in blank["message"]
     assert all(f["fix"] != "update_model" or f["check"] in ("Column missing", "New column") for f in out["findings"])
+    missing = next(f for f in out["findings"] if f["check"] == "Column missing")
+    assert missing["fix"] == "update_model", "checking keys keeps the Update model fix for the layer's own model"
     assert {t["table"]: t["rows"] for t in out["tables"]} == {"FactSales": 3, "DimCustomer": 3}
     without = svc.meta_model_directlake_check("test", "SM_Gold", sku="F64")
-    assert not without["keys_checked"] and not [f for f in without["findings"] if f["check"] == "Key not unique"]
+    assert not without["keys_checked"]
+    assert not [f for f in without["findings"] if f["check"] in ("Key not unique", "Rows with no match")]
     assert without["sku"] == "F64"
 
 

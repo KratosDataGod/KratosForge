@@ -26,6 +26,30 @@ Some things are never run, even when changes are allowed: `BEGIN TRAN`, `COMMIT`
 
 **Settings › Advanced › SQL queries › Warehouse changes** turns changes off for this PC, which leaves **Allow changes** greyed out; your organization can turn them off for everyone. The audit log records who changed which warehouse and how many rows, never the SQL or the data.
 
+## The project in Git
+
+A warehouse's schema can live in Git the way Fabric's own Git integration keeps it: a SQL database project in a `<warehouse>.Warehouse` folder, with `.platform`, `<warehouse>.sqlproj` and one `.sql` file per object. The **Project** tab beside **History** works with that folder in any repository you opened in Source control.
+
+```
+WH_Gold.Warehouse/
+    .platform
+    WH_Gold.sqlproj
+    dbo/Tables/DimCustomer.sql
+    dbo/Views/vw_SalesBySegment.sql
+    dbo/StoredProcedures/usp_RefreshSegments.sql
+    dbo/Functions/fn_FiscalYear.sql
+    Security/staging.sql
+```
+
+- **Finding it.** The tab looks for a folder named after the warehouse, or whose `.platform` names it, up to four folders deep in each repository. With several, a list picks one. The header shows the folder, the repository and the branch, and each file new or changed since the last commit is marked **A** or **M**.
+- **Import from the warehouse** scripts every table, view, procedure, function and schema from the warehouse's catalog (catalog queries in Fabric, so it uses a little capacity and asks first, as the explorer does) and shows what it would do: new files, files that differ from the warehouse, and files already the same. New files are written. A file that differs is kept unless you tick **Replace**. No file is ever removed, so an object that's only in the project stays. With no project yet, Import makes `<warehouse>.Warehouse` in the repository you pick, with its `.platform` and `.sqlproj`.
+- **Each object goes to the file that already defines it**, found by the file's first `CREATE`, so a project laid out another way (for example `Stored Procedures` with a space) is read and written the same way. New files go where the project already keeps that kind of object, or else in the layout above.
+- **A table is scripted from its columns**: names, T-SQL types, and NULL or NOT NULL. Views, procedures and functions come from `sys.sql_modules` as written.
+- **Open a file** to edit it in its own tab, with the same checks and completion as a query. **Save file** (or Ctrl+S) writes it back. A file changed since you opened it, for example by a Git pull or VS Code, isn't overwritten.
+- **New object** writes a short starting script for a table, view, procedure, function or schema where the layout puts it, and opens it.
+- **Nothing is committed and nothing runs.** Files change on this PC. Review and commit them in Source control, and Fabric's Git integration reads them when the workspace syncs. Compare and deploy come next (WH-12, WH-13).
+- A SQL analytics endpoint has no Project tab: it isn't kept in Git, its lakehouse is.
+
 ## Explorer
 
 The left side lists the warehouse's schemas, and in each its **Tables**, **Views**, **Stored procedures** and **Functions**, read from the warehouse's own catalog views (`sys.objects`, `sys.columns`, `sys.types`). Listing runs two catalog queries in Fabric, so it uses a little capacity: it starts by itself once you have confirmed a run on that warehouse this session, otherwise **List objects** asks first.
@@ -147,5 +171,6 @@ How a run works underneath (states, limits, what is refused): [Running SQL queri
 | WH-07 | Query history and Fabric query insights | Done |
 | WH-10 | Changes to a warehouse (DDL, DML, EXEC) after a preview and confirm, in every environment; Prod asks you to type the warehouse's name | This release |
 | WH-08 | Messages and a quick chart (several result sets come with scripts) | Done |
+| WH-11 | The warehouse as files in Fabric's Git layout: Import, edit, New object | This release |
 
-Next: the warehouse as files in Git (WH-11), compare (WH-12), deploy with a preview (WH-13) and the estimated plan (WH-09). Later stages (loading and managing data, Snowflake) follow the same pattern: a mockup first, then one change per feature.
+Next: compare (WH-12), deploy with a preview (WH-13) and the estimated plan (WH-09). Later stages (loading and managing data, Snowflake) follow the same pattern: a mockup first, then one change per feature.

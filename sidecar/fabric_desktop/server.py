@@ -168,6 +168,10 @@ METHODS |= SQL_TEMPLATE_METHODS
 from .sql_queries_service import METHODS as SQL_QUERY_METHODS  # noqa: E402
 
 METHODS |= SQL_QUERY_METHODS
+# A warehouse as files in Fabric's Git layout (warehouse_project_service.py).
+from .warehouse_project_service import METHODS as WH_PROJECT_METHODS  # noqa: E402
+
+METHODS |= WH_PROJECT_METHODS
 
 # Folders for notebooks (notebook_folders_service.py): new, rename, delete when empty, move into one.
 from .notebook_folders_service import METHODS as NOTEBOOK_FOLDERS_METHODS  # noqa: E402

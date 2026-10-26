@@ -45,7 +45,8 @@ function loadQueryTabs(ref) {
     const saved = JSON.parse(localStorage.getItem(queryTabsKey(ref)));
     if (Array.isArray(saved) && saved.length) {
       const tabs = saved.map((t) => ({ name: String(t.name), sql: String(t.sql), dialect: sqlDialect(t.dialect),
-        ...(t.file && typeof t.file.name === "string" ? { file: t.file } : {}) }));
+        ...(t.file && typeof t.file.name === "string" ? { file: t.file } : {}),
+        ...(t.proj && typeof t.proj.path === "string" ? { proj: t.proj } : {}) }));
       return wh ? tabs.map((t) => ({ ...t, dialect: ref.kind })) : tabs;
     }
   } catch { /* no saved tabs */ }
@@ -55,7 +56,8 @@ function loadQueryTabs(ref) {
 function saveQueryTabs() {
   try {
     localStorage.setItem(queryTabsKey(sqlPage.ref),
-      JSON.stringify(sqlPage.tabs.map((t) => ({ name: t.name, sql: t.sql, dialect: t.dialect || "spark", ...(t.file ? { file: t.file } : {}) }))));
+      JSON.stringify(sqlPage.tabs.map((t) => ({ name: t.name, sql: t.sql, dialect: t.dialect || "spark", ...(t.file ? { file: t.file } : {}),
+        ...(t.proj ? { proj: t.proj } : {}) }))));
     return true;
   } catch { return false; /* storage unavailable: tabs last for this session */ }
 }
@@ -185,7 +187,11 @@ function renderQuery() {
     on: {
       change: setSql,
       run: () => run(),
-      save: () => { const ok = saveQueryTabs(); toast(ok ? `Saved ${tab.name}` : "Could not save the query: this PC's app storage is unavailable", !ok); },
+      save: () => {
+        if (tab.proj) { whProjectSave(tab).then((ok) => { if (ok) { saveQueryTabs(); p.whProjectView?.refresh(); } }); return; }
+        const ok = saveQueryTabs();
+        toast(ok ? `Saved ${tab.name}` : "Could not save the query: this PC's app storage is unavailable", !ok);
+      },
       format: () => formatSql(),
     },
     check: (text, dialect) => checkSql(text, dialect),
@@ -736,10 +742,26 @@ function renderQuery() {
     await sqlLoadQueries();
     if (p.ref === ref && state.view === "query") renderQuery();
   };
-  const asideView = wh && ["queries", "history"].includes(p.whAside) ? p.whAside : "explorer";
+  // WH-11: the warehouse's project in Git, on the explorer's Project tab. A file opens in its own
+  // tab, or in the tab that already holds it; Save writes it back.
+  const openProjectFile = async (f, project) => {
+    const at = p.tabs.findIndex((t) => t.proj?.repo === project.repo && t.proj?.folder === project.folder && t.proj?.path === f.path);
+    if (at < 0) {
+      const file = await attempt(() => rpc("wh_project_read", { repo: project.repo, folder: project.folder, path: f.path }), "Could not open the file");
+      if (!file) return;
+      p.tabs.push({ name: f.path.slice(f.path.lastIndexOf("/") + 1).replace(/\.sql$/i, ""), sql: file.text, dialect: tab.dialect,
+        proj: { repo: project.repo, folder: project.folder, path: f.path, version: file.version } });
+    }
+    p.active = at < 0 ? p.tabs.length - 1 : at;
+    saveQueryTabs();
+    renderQuery();
+  };
+  const whProj = wh && ref.kind === "warehouse" ? (p.whProjectView = whProject(ref, { open: openProjectFile })) : null;
+  const saveFile = async () => { if (await whProjectSave(tab)) { saveQueryTabs(); whProj?.refresh(); } };
+  const asideView = wh && ["queries", "history", ...(whProj ? ["project"] : [])].includes(p.whAside) ? p.whAside : "explorer";
   const asideTab = (id, label) => h("button", { role: "tab", class: `sql-view${asideView === id ? " on" : ""}`, "aria-selected": String(asideView === id),
     onclick: () => { p.whAside = id; renderQuery(); } }, label);
-  p.whRedraw = wh ? () => { whTree.draw(); whSaved.draw(); whRuns.draw(); if (here()) editor.refresh(); } : null;
+  p.whRedraw = wh ? () => { whTree.draw(); whSaved.draw(); whRuns.draw(); whProj?.draw(); if (here()) editor.refresh(); } : null;
   const fabricLink = wh ? fabricItemLink({ type: ref.kind === "endpoint" ? "Lakehouse" : "Warehouse", workspace_id: ref.workspace_id, item_id: ref.item_id }) : null;
   setView(wh ? h("div", { class: "sql-page warehouse-page" },
     h("div", { class: "ribbon" }, h("div", { class: "toolbar" },
@@ -747,8 +769,9 @@ function renderQuery() {
         h("button", { class: "tool split-more", "aria-label": "More ways to start a query", title: "More ways to start a query",
           onclick: (e) => showMenu(e.currentTarget, [{ label: "SQL from a template", icon: "document",
             action: () => openSqlTemplates(ref, openTab, { draft: () => editor.text() }) }]) }, icon("chevronDown", 14))),
-      btn("Save query", "save", () => saveQuery(false), "tool", { title: tab.file ? `Save to ${tab.file.name} in ${tab.file.place === "mine" ? "My queries" : tab.file.place_label}` : "Save this tab as a .sql file in My queries or a Git repository" }),
-      tab.file ? btn("Save as new", null, () => saveQuery(true), "tool") : null,
+      tab.proj ? btn("Save file", "save", saveFile, "tool", { title: `Save to ${tab.proj.path} in ${tab.proj.folder} (Ctrl+S). Commit it in Source control.` })
+        : btn("Save query", "save", () => saveQuery(false), "tool", { title: tab.file ? `Save to ${tab.file.name} in ${tab.file.place === "mine" ? "My queries" : tab.file.place_label}` : "Save this tab as a .sql file in My queries or a Git repository" }),
+      tab.file && !tab.proj ? btn("Save as new", null, () => saveQuery(true), "tool") : null,
       btn("Open in Fabric", "open", () => openInFabric(fabricLink)),
       h("span", { class: "spacer" }),
       whChangesSwitch(ref, () => renderQuery()),
@@ -759,8 +782,8 @@ function renderQuery() {
       learnMore("warehouse-queries-preview"))),
     h("div", { class: "nb-body" },
       h("aside", { class: "explorer" }, h("div", { class: "explorer-head sql-views", role: "tablist", "aria-label": "Explorer views" },
-        asideTab("explorer", "Explorer"), asideTab("queries", "Queries"), asideTab("history", "History")),
-        asideView === "queries" ? whSaved.el : asideView === "history" ? whRuns.el : null,
+        asideTab("explorer", "Explorer"), asideTab("queries", "Queries"), asideTab("history", "History"), whProj ? asideTab("project", "Project") : null),
+        asideView === "queries" ? whSaved.el : asideView === "history" ? whRuns.el : asideView === "project" ? whProj.el : null,
         asideView !== "explorer" ? null : h("div", { class: "tree-row", style: "margin:4px 8px 0;font-weight:600;cursor:default" },
           itemIcon(ref.kind === "endpoint" ? "SQLEndpoint" : "Warehouse", 16), h("span", { class: "label" }, ref.name), previewTag()),
         asideView !== "explorer" ? null : h("div", { class: "tree-row muted", style: "cursor:default" }, ref.kind === "endpoint" ? "SQL analytics endpoint" : "Warehouse",
@@ -773,6 +796,7 @@ function renderQuery() {
           more: [["Capacity", "The query runs in Fabric, so it uses capacity on the warehouse's workspace."],
             ["Your templates", "Saving, importing or deleting a template of your own writes or removes a .sql file in My templates (the app's data folder) or in the sql-templates folder of a Git repository you opened. Export writes a new file in Downloads."],
             ["Saved queries", "Save query writes the tab to a .sql file in My queries (the app's data folder) or in the sql-queries folder of a Git repository you opened; Delete removes that file. Nothing is committed for you."],
+            ["Project", "The Project tab reads and writes .sql files in a <warehouse>.Warehouse folder of a Git repository you opened, in Fabric's Git layout. Import from the warehouse runs catalog queries in Fabric, then writes new files and, only if you tick it, replaces files that differ. Nothing is committed and no file is removed."],
             ["History", "Each run here is kept with its SQL in the app's storage on this PC (up to 200 per warehouse) until you clear it. Query insights run a query on the warehouse's queryinsights views in Fabric."]],
           anchor: "warehouse-queries-preview" }))),
       h("section", { class: "sql-main" }, tabs,

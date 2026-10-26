@@ -16,6 +16,7 @@ AI tools are not paired windows: they keep asking before every run (integrations
 
 from __future__ import annotations
 
+import os
 import secrets
 import threading
 import time
@@ -30,6 +31,14 @@ METHODS = {"editor_status", "editor_set_enabled", "editor_pending", "editor_deci
 
 WRITE_WAIT_SECONDS = 300
 FROM_EDITOR = "VS Code"
+
+
+def _inside(path: str, folder: str) -> bool:
+    """Whether ``path`` is ``folder`` or below it, by text alone (no file system call)."""
+    if not isinstance(path, str) or not folder or "\x00" in path:
+        return False
+    top = os.path.normcase(os.path.abspath(folder)).rstrip("\\/")
+    return os.path.normcase(os.path.abspath(path)).startswith(top + os.sep)
 
 
 class _WriteAsk:
@@ -92,7 +101,23 @@ class EditorMixin:
                 state["channel"].stop()
                 state["channel"] = None
 
+    def editor_channel_open(self) -> bool:
+        """For each channel call: is it still switched on and allowed? When the organization has
+        turned it off since, every pairing ends and the channel stops (in the background, as this
+        runs on one of its own threads)."""
+        if self._editor_enabled():
+            return True
+        threading.Thread(target=self._editor_turned_off, daemon=True, name="editor-off").start()
+        return False
+
+    def _editor_turned_off(self) -> None:
+        self.editor_pairings.end_all()
+        self._editor_deny_all()
+        self.editor_sync()
+
     def editor_status(self) -> dict[str, Any]:
+        if self._editor_state()["channel"] is not None and not self._editor_enabled():
+            self._editor_turned_off()  # the policy changed while it listened
         channel = self._editor_state()["channel"]
         return {"enabled": self._editor_enabled(), "blocked": self._editor_allowed(),
                 "listening": channel is not None, "port": channel.port if channel else None,
@@ -109,6 +134,8 @@ class EditorMixin:
         return self.editor_status()
 
     def editor_pending(self) -> dict[str, Any]:
+        if self._editor_state()["channel"] is not None and not self._editor_enabled():
+            self._editor_turned_off()
         asks = self._editor_state()["asks"]
         return {"enabled": self._editor_enabled(), "pairing": self.editor_pairings.waiting(),
                 "writes": [a.view() for a in list(asks.values()) if not a.done.is_set()]}
@@ -150,7 +177,12 @@ class EditorMixin:
         self._editor_audit("editor_unpair", {"window": pairing["window"]}, {"result": True})
         return {"ended": True}
 
-    def editor_channel_notebook(self, path: str) -> str:
+    def editor_channel_notebook(self, pairing: dict[str, Any], path: str) -> str:
+        """The notebook a file is, for a paired window: only a file inside the folder the window
+        paired from (checked as text first, as notebook_name_for_path does), and only one the app knows."""
+        if not _inside(path, pairing.get("window") or ""):
+            raise PermissionError(f"{path} isn't in {pairing.get('window')}, the folder this VS Code window was paired "
+                                  "from. Pair the window that has it open.")
         name = self.notebook_name_for_path(path)["name"]  # type: ignore[attr-defined]
         if name is None:
             raise LookupError(f"{path} isn't in KratosForge's notebooks folder or a notebooks repository it has open. "
@@ -160,7 +192,7 @@ class EditorMixin:
     def editor_channel_run(self, pairing: dict[str, Any], path: str, code: str) -> dict[str, Any]:
         if not self._editor_enabled():
             raise PermissionError("VS Code can't run notebooks in KratosForge: it's switched off in Settings > Integrations.")
-        name = self.editor_channel_notebook(path)
+        name = self.editor_channel_notebook(pairing, path)
         started = time.monotonic()
         reply: dict[str, Any]
         try:
@@ -176,17 +208,17 @@ class EditorMixin:
             self._editor_audit("editor_run", {"notebook": name, "window": pairing["window"]}, reply,
                                time.monotonic() - started)
 
-    def editor_channel_poll(self, path: str, version: int, wait: float) -> dict[str, Any]:
-        return self.poll_cell(version, wait, self.editor_channel_notebook(path))  # type: ignore[attr-defined]
+    def editor_channel_poll(self, pairing: dict[str, Any], path: str, version: int, wait: float) -> dict[str, Any]:
+        return self.poll_cell(version, wait, self.editor_channel_notebook(pairing, path))  # type: ignore[attr-defined]
 
     def editor_channel_interrupt(self, pairing: dict[str, Any], path: str) -> dict[str, Any]:
-        name = self.editor_channel_notebook(path)
+        name = self.editor_channel_notebook(pairing, path)
         out = self.interrupt_cell(name)  # type: ignore[attr-defined]
         self._editor_audit("editor_interrupt", {"notebook": name, "window": pairing["window"]}, {"result": out})
         return out
 
-    def editor_channel_variables(self, path: str) -> list[dict[str, Any]]:
-        return self.kernel_variables(self.editor_channel_notebook(path))  # type: ignore[attr-defined]
+    def editor_channel_variables(self, pairing: dict[str, Any], path: str) -> list[dict[str, Any]]:
+        return self.kernel_variables(self.editor_channel_notebook(pairing, path))  # type: ignore[attr-defined]
 
     # ----
 

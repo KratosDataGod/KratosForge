@@ -179,6 +179,8 @@ Each connected tool gets some of these categories, in alphabetical order:
 
 Policy keys `integrations`, `integrations_http`, `integrations_editors`, `integrations_max_permissions` and `integrations_extensions` ([azure-setup.md](azure-setup.md#4-push-settings-to-everyone)) turn integrations off, cap the categories or limit which extensions can be turned on. Extensions add capabilities in these same categories; they add no new ones. The threat model is in [ai-integration-security.md](product/ai-integration-security.md).
 
+A paired VS Code window ([Run cells from VS Code](vscode.md#run-cells-from-vs-code)) runs cells as you, with your sign-in, in notebooks inside the folder it paired from. The OneLake write question it gets is a guard rail, not a control; `integrations_editors: false` is the control, and it ends every pairing at the next call.
+
 ## Keeping this page right
 
 When code asks for a new scope (`sidecar/fabric_desktop/auth.py`) or the agent needs a new role, add it to the tables here in its alphabetical place, in the same pull request, and say whether Microsoft's sign-in is expected to cover it.

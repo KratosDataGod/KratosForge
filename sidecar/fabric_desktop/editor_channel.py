@@ -91,30 +91,39 @@ class Channel:
 
     # ---- routes
 
-    def route(self, method: str, path: str, query: dict[str, str], headers: Any, body: Any) -> Any:
+    def authorize(self, method: str, path: str, headers: Any) -> dict[str, Any] | None:
+        """Who is calling, checked before the body is read: the hello for asking to pair, else a
+        pairing that's still valid while the switch is on and the policy allows it."""
+        if not self.service.editor_channel_open():
+            raise Refused(403, "off", "VS Code can't run notebooks in KratosForge now: it's switched off in "
+                          "Settings > Integrations, or your organization doesn't allow it.")
+        if (method == "POST" and path == "/v1/pair") or (method == "GET" and path.startswith("/v1/pair/")):
+            self._hello(headers)
+            return None
+        return self._paired(headers)
+
+    def route(self, method: str, path: str, query: dict[str, str], pairing: dict[str, Any] | None, body: Any) -> Any:
         svc = self.service
         if method == "POST" and path == "/v1/pair":
-            self._hello(headers)
             return svc.editor_channel_pair(_field(body, "window", required=False), _field(body, "client", required=False))
         if method == "GET" and path.startswith("/v1/pair/"):
-            self._hello(headers)
             return svc.editor_channel_collect(path[len("/v1/pair/"):])
-        pairing = self._paired(headers)
+        assert pairing is not None  # authorize() let only the two calls above through without one
         if method == "DELETE" and path == "/v1/pair":
             return svc.editor_channel_unpair(pairing)
         if method == "GET" and path == "/v1/status":
             return {"app": "KratosForge", "version": __version__, "pairing": pairing}
         if method == "POST" and path == "/v1/notebook":
-            return {"name": svc.editor_channel_notebook(_field(body, "path"))}
+            return {"name": svc.editor_channel_notebook(pairing, _field(body, "path"))}
         if method == "POST" and path == "/v1/run":
             return svc.editor_channel_run(pairing, _field(body, "path"), _field(body, "code", limit=MAX_BODY_BYTES))
         if method == "GET" and path == "/v1/run":
-            return svc.editor_channel_poll(_field(query, "path"), _int(query.get("version"), -1),
+            return svc.editor_channel_poll(pairing, _field(query, "path"), _int(query.get("version"), -1),
                                            min(max(_float(query.get("wait"), 0.0), 0.0), MAX_WAIT_SECONDS))
         if method == "POST" and path == "/v1/interrupt":
             return svc.editor_channel_interrupt(pairing, _field(body, "path"))
         if method == "GET" and path == "/v1/variables":
-            return svc.editor_channel_variables(_field(query, "path"))
+            return svc.editor_channel_variables(pairing, _field(query, "path"))
         raise Refused(404, "not_found", f"{method} {path} isn't something the editor channel does.")
 
     def _hello(self, headers: Any) -> None:
@@ -157,6 +166,7 @@ class _Handler(BaseHTTPRequestHandler):
     owner: Channel
     server_version = "KratosForge-editor"
     sys_version = ""
+    timeout = 30  # seconds a connection may sit without sending
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - BaseHTTPRequestHandler's name
         pass  # no request lines on the engine's stderr
@@ -173,10 +183,11 @@ class _Handler(BaseHTTPRequestHandler):
     def _serve(self, method: str) -> None:
         try:
             self._guard()
-            body = self._body() if method == "POST" else None
             url = urlsplit(self.path)
+            pairing = self.owner.authorize(method, url.path, self.headers)  # before any body is read
+            body = self._body() if method == "POST" else None
             query = {k: v[0] for k, v in parse_qs(url.query).items()}
-            result = self.owner.route(method, url.path, query, self.headers, body)
+            result = self.owner.route(method, url.path, query, pairing, body)
             self._reply(200, {"ok": True, "result": result})
         except Refused as exc:
             self._reply(exc.status, {"ok": False, "error": {"code": exc.code, "message": exc.message}})
@@ -205,6 +216,8 @@ class _Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
             raise Refused(400, "invalid_input", "Content-Length isn't a number.") from None
+        if length < 0:
+            raise Refused(400, "invalid_input", "Content-Length can't be negative.")
         if length > MAX_BODY_BYTES:
             raise Refused(413, "too_large", "Requests are at most 1 MiB.")
         if "application/json" not in (self.headers.get("Content-Type") or ""):

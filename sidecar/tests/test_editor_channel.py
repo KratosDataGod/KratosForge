@@ -93,8 +93,8 @@ class Window:
         con.close()
         return res.status, payload
 
-    def pair(self, svc, keep="session"):
-        status, req = self.call("POST", "/v1/pair", {"window": "C:\\repos\\sales", "client": "test"},
+    def pair(self, svc, keep="session", window=None):
+        status, req = self.call("POST", "/v1/pair", {"window": window or str(svc.root), "client": "test"},
                                 {"X-KratosForge-Hello": self.hello})
         assert status == 200, req
         [waiting] = call(svc, "editor_pending")["pairing"]
@@ -181,11 +181,49 @@ def test_a_paired_window_runs_cells_in_the_notebooks_own_session(paired):
 def test_a_file_the_app_doesnt_know_isnt_run(paired, tmp_path):
     svc, window, _ = paired
     window.pair(svc)
-    stray = tmp_path / "elsewhere.ipynb"
+    stray = svc.root / "elsewhere.ipynb"
     stray.write_text('{"cells": []}', encoding="utf-8")
     status, res = window.call("POST", "/v1/run", {"path": str(stray), "code": "print('no')"})
     assert status == 404 and "isn't in KratosForge's notebooks folder" in res["error"]["message"]
-    assert window.call("POST", "/v1/run", {"path": r"\\host\share\x.ipynb", "code": "1"})[0] == 404
+    assert window.call("POST", "/v1/run", {"path": r"\\host\share\x.ipynb", "code": "1"})[0] == 403
+
+
+def test_a_window_reaches_only_notebooks_in_the_folder_it_paired_from(paired, tmp_path):
+    svc, window, path = paired
+    other = tmp_path / "other-repo"
+    other.mkdir()
+    window.pair(svc, window=str(other))
+    for method, url, body in (("POST", "/v1/notebook", {"path": path}), ("POST", "/v1/run", {"path": path, "code": "1"}),
+                              ("GET", f"/v1/run?path={_q(path)}", None), ("POST", "/v1/interrupt", {"path": path}),
+                              ("GET", f"/v1/variables?path={_q(path)}", None)):
+        status, res = window.call(method, url, body)
+        assert status == 403 and "the folder this VS Code window was paired from" in res["error"]["message"], (url, res)
+    # A sibling whose name starts the same isn't inside.
+    window.pair(svc, window=str(svc.root)[:-1])
+    assert window.call("POST", "/v1/notebook", {"path": path})[0] == 403
+
+
+def test_a_negative_length_is_refused_and_an_unpaired_body_is_never_read(paired):
+    svc, window, path = paired
+    hello = {"X-KratosForge-Hello": window.hello, "Content-Type": "application/json"}
+    con = http.client.HTTPConnection("127.0.0.1", window.port, timeout=10)
+    con.putrequest("POST", "/v1/pair", skip_host=True)
+    for k, v in {"Host": f"127.0.0.1:{window.port}", **hello, "Content-Length": "-1"}.items():
+        con.putheader(k, v)
+    con.endheaders()
+    res = con.getresponse()
+    assert res.status == 400 and b"negative" in res.read()
+    con.close()
+    # Not paired: refused on the headers, before a (claimed) 1 MiB body is read.
+    con = http.client.HTTPConnection("127.0.0.1", window.port, timeout=10)
+    con.putrequest("POST", "/v1/run", skip_host=True)
+    for k, v in {"Host": f"127.0.0.1:{window.port}", "Content-Type": "application/json",
+                 "Content-Length": str(1024 * 1024)}.items():
+        con.putheader(k, v)
+    con.endheaders()
+    res = con.getresponse()
+    assert res.status == 401
+    con.close()
 
 
 WRITE = "from fabric_desktop import lakehouse\nprint(lakehouse.write_refusal('LH_Gold', 'dbo', 'daily'))"
@@ -226,6 +264,30 @@ def test_a_write_from_vs_code_asks_in_the_app_and_the_apps_own_doesnt(paired, pr
     while snap["status"] == "running" and time.monotonic() < deadline:
         snap = call(svc, "poll_cell", notebook="Daily", wait=0.5)
     assert out(snap) == "None\n" and call(svc, "editor_pending")["writes"] == []
+
+
+@pytest.mark.parametrize("route", ["status", "variables", "poll", "notebook"])
+def test_turning_it_off_by_policy_stops_paired_windows_at_once(paired, tmp_path, monkeypatch, route):
+    svc, window, path = paired
+    window.pair(svc, keep="8h")
+    assert window.call("POST", "/v1/run", {"path": path, "code": "secret = 'abc'"})[0] == 200
+    time.sleep(0.5)
+    policy = tmp_path / "pd" / "FabricDesktop" / "policy.json"
+    policy.parent.mkdir(parents=True, exist_ok=True)
+    policy.write_text(json.dumps({"integrations_editors": False}), encoding="utf-8")
+    from fabric_desktop import app_settings
+    monkeypatch.setattr(app_settings, "policy_path", lambda: policy)
+    method, url, body = {"status": ("GET", "/v1/status", None),
+                         "variables": ("GET", f"/v1/variables?path={_q(path)}", None),
+                         "poll": ("GET", f"/v1/run?path={_q(path)}", None),
+                         "notebook": ("POST", "/v1/notebook", {"path": path})}[route]
+    status, res = window.call(method, url, body)
+    assert status == 403 and res["error"]["code"] == "off" and "abc" not in json.dumps(res)
+    deadline = time.monotonic() + 10
+    while (svc.root / "editor-port").exists() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not (svc.root / "editor-port").exists()  # the channel stopped listening
+    assert svc.editor_pairings.list() == [] and call(svc, "editor_status")["listening"] is False
 
 
 def test_policy_can_keep_it_off(svc, tmp_path, monkeypatch):  # noqa: F811

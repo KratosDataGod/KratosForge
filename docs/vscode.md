@@ -90,14 +90,15 @@ What a paired window can and can't do:
 
 | Without asking again | Still asks in KratosForge, every time |
 | --- | --- |
-| Run cells of notebooks in the app's notebooks folder or a notebooks repository opened in Source control | Write a table or file to OneLake: **Allow once** covers that table for the rest of the cell; nobody answering in 5 minutes means no |
+| Run cells of notebooks inside the folder the window paired from, and only ones in the app's notebooks folder or a notebooks repository opened in Source control | Write a table or file to OneLake: **Allow once** covers that table for the rest of the cell; nobody answering in 5 minutes means no |
 | Read the tables the notebook's lakehouse has | Publish, Run in Fabric and Side by side are done in KratosForge, not from VS Code |
 | See the cell's output and the notebook's variables | |
 
-- A pairing lasts until KratosForge closes (kept in memory only), 8 hours or 7 days, as you choose. Settings lists paired windows; **End** stops one at once, and turning the switch off ends them all.
+- A pairing is bound to the folder it paired from: that window can't reach a notebook outside it, even with its token.
+- A pairing lasts until KratosForge closes (kept in memory only), 8 hours or 7 days, as you choose. Settings lists paired windows; **End** stops one at once, and turning the switch off ends them all. When the organization sets `integrations_editors` to `false`, the next call from any window is refused, every pairing ends and the engine stops listening.
 - Every run, Stop, pairing and OneLake answer is in the [audit trail](user-guide.md#audit-trail).
 - AI tools such as Copilot never pair: they keep asking before every run ([External AI tools](user-guide.md#external-ai-tools)).
-- The OneLake question is a check on KratosForge's own write paths, not a sandbox: a cell runs as you, as your own cells here do.
+- The OneLake question is a guard rail, not a security control. It covers KratosForge's own write paths in the cell's thread; code that starts its own threads or processes, or calls OneLake directly with your sign-in, isn't asked about. A cell runs as you, as your own cells here do. To stop VS Code running cells at all, turn the switch off, or set `integrations_editors` to `false` in the policy file: that is the control.
 
 How it connects: while the switch is on, the engine listens on `127.0.0.1` on a port it picks, and writes the port with a random value (the "hello") to `editor-port` in your data folder (`%LOCALAPPDATA%\FabricDesktop`). Asking to pair needs the hello, so only programs that can read your data folder can ask, and you still have to say yes. A paired window sends a token with every call; only a hash of the token is kept. Requests from a web page, or with a `Host` that isn't this PC's loopback address, are refused.
 

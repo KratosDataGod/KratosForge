@@ -232,7 +232,7 @@ function renderMetaSetup(p) {
   const openPath = h("input", { id: "meta-open-path", placeholder: "C:\\Users\\you\\Documents\\metadata" });
   setView(h("div", { class: "page narrow" },
     h("h1", {}, "Set up a metadata project"),
-    h("p", { class: "sub" }, "A metadata project is a folder you keep in Git. Each table is one file that says where its data comes from, how to clean and check it, and how to load it. Each layer gets its own lakehouse, so layers never mix."),
+    pageIntro("A metadata project is a folder you keep in Git. Each table is one file that says where its data comes from, how to clean and check it, and how to load it. Each layer gets its own lakehouse, so layers never mix."),
     h("div", { class: "card pad" },
       h("h2", { class: "flush" }, "Create a new project"),
       h("label", { class: "field" }, "Folder", path),

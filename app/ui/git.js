@@ -201,7 +201,7 @@ async function renderSourceControl() {
   }
   if (!gitCurrent()) {
     setView(h("div", { class: "page narrow" }, head,
-      h("p", { class: "sub" }, "Keep notebooks, SQL and metadata projects in Git: see every change, work on branches, and push to GitHub, Azure DevOps or any Git server. Everything here runs with your own Git on this PC."),
+      pageIntro("Keep notebooks, SQL and metadata projects in Git: see every change, work on branches, and push to GitHub, Azure DevOps or any Git server. Everything here runs with your own Git on this PC."),
       h("div", { class: "tiles" },
         tile("arrowDownload", "Clone a repository", "Copy a repository from GitHub, Azure DevOps or another Git server to this PC.", gitCloneDialog),
         tile("folderOpen", "Open a folder", "Use a repository that is already on this PC.", gitOpenDialog),

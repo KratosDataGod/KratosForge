@@ -28,8 +28,9 @@ Keys:
                      levels 2 and 3; motion_achievements the same, but false by default
     motion_follow_system  true (default): Windows' reduced-motion setting turns decorative motion
                      off whatever the level; false lets the chosen level apply anyway
-    ui_explanations  "beside" (default): each page's How this works panel sits beside it; "on_request":
-                     it opens from the title bar's info button instead (Settings > Appearance > Layout)
+    ui_explanations  "on_request" (default): each page's How this works panel and its one-line
+                     explanation open from the title bar's info button; "beside": they show on the
+                     page (Settings > Appearance > Layout)
     ui_preview_marks  "tags" (default): Preview features carry a Preview tag; "dots": a small dot,
                      with the tag kept on page titles
     ui_density       "comfortable" (default) or "compact": spacing in tables, lists and toolbars
@@ -178,7 +179,7 @@ USER_KEYS += ("onelake_writes", "onelake_compression", "onelake_skip_unchanged")
 # Layout (app/ui/features.js applyAppearance): how every page shows the same things; nothing is hidden.
 CHOICES.update({"ui_explanations": ("beside", "on_request"), "ui_preview_marks": ("tags", "dots"),
                 "ui_density": ("comfortable", "compact")})
-DEFAULTS.update({"ui_explanations": "beside", "ui_preview_marks": "tags", "ui_density": "comfortable"})
+DEFAULTS.update({"ui_explanations": "on_request", "ui_preview_marks": "tags", "ui_density": "comfortable"})
 TYPES.update({"ui_explanations": str, "ui_preview_marks": str, "ui_density": str})
 USER_KEYS += ("ui_explanations", "ui_preview_marks", "ui_density")
 # Read by integrations/policy.py, which decides what each means; listed here so the policy file has

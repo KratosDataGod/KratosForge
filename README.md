@@ -45,6 +45,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/notebooks.md](docs/notebooks.md) | Notebooks and SQL on your PC, Fabric code that works here, publishing, Run in Fabric and schedules |
 | [docs/notebook-spark-on-this-pc.md](docs/notebook-spark-on-this-pc.md) | Which PySpark methods and Spark settings work in a notebook on this PC |
 | [docs/sql-compatibility.md](docs/sql-compatibility.md) | The SQL compatibility check: what each Fabric SQL engine supports, findings, export, rules |
+| [docs/semantic-model-rules.md](docs/semantic-model-rules.md) | Best Practice Analyzer rules for the semantic model Update model writes, checked on this PC from the metadata project |
 | [docs/sql-best-practices.md](docs/sql-best-practices.md) | Best-practice checks on Warehouse and SQL endpoint T-SQL, read on this PC without running it |
 | [docs/warehouse.md](docs/warehouse.md) | Warehouses (Preview): the Warehouse page, T-SQL on a Fabric warehouse or SQL analytics endpoint (runs in Fabric, uses capacity), changes after a preview and confirm, the warehouse project in Git with compare and deploy, and the plan |
 | [docs/sql-execution.md](docs/sql-execution.md) | Running SQL page queries on this PC: states, Stop, limits, paging, export, what a query may do |
@@ -82,6 +83,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/platform.md](docs/platform.md) | The central platform: one business key system and one landing zone for every team, the catalog, and moving keys into it |
 | [docs/governance.md](docs/governance.md) | Governance policies (Preview): define standards once in the platform, publish versions that never change, apply them by enterprise, domain, project or table, and see why each applies |
 | [docs/direct-lake-check.md](docs/direct-lake-check.md) | The Direct Lake check (Preview): what would make a semantic model fall back to DirectQuery or fail, checked on this PC against the capacity's limits |
+| [docs/data-dictionary.md](docs/data-dictionary.md) | The data dictionary (Preview): every table, column and measure of a layer's model with its description, exported to Excel and imported back with a preview of each change |
 | [docs/semantic-model-ossie.md](docs/semantic-model-ossie.md) | Semantic models to and from Apache Ossie (Preview): export a model to a `.ossie.yaml` file, or import one with a preview of every change |
 | [docs/governance-guide.md](docs/governance-guide.md) | Governance guide (Preview): how a policy goes from draft to result, three worked examples, and what KratosForge, Fabric, Purview and Entra can each enforce |
 | [docs/data-mesh.md](docs/data-mesh.md) | Domains, workspace designations, data products, links between teams and catalog text |
@@ -298,7 +300,9 @@ Changing settings in `environments.toml` no longer changes the metadata version,
 
 **Open Semantic Interchange** on the same tab (Preview) converts a semantic model to and from [Apache Ossie](https://ossie.apache.org/), the open semantic model format Snowflake, dbt and Databricks read: export a model to a `.ossie.yaml` file in Git, or import one with a preview of every change before it's written. Power BI details Ossie can't hold (roles, hierarchies, DAX) travel in the file's Power BI section, so a round trip comes back the same. See [docs/semantic-model-ossie.md](docs/semantic-model-ossie.md).
 
-**Direct Lake check** on the same tab (Preview) finds what would make a model fall back to DirectQuery, or fail, before anyone queries it: tables past the capacity's Direct Lake limits (Parquet files, row groups, rows), columns the Delta table no longer has, types Direct Lake can't read, and relationship keys that aren't unique. It reads the model's definition from Fabric and each table's Delta log from OneLake, and checks on this PC; it starts no Fabric job, though reading from OneLake uses capacity. See [docs/direct-lake-check.md](docs/direct-lake-check.md).
+**Direct Lake check** on the same tab (Preview) finds what would make a model fall back to DirectQuery, or fail, before anyone queries it: tables past the capacity's Direct Lake limits (Parquet files, row groups, rows), columns the Delta table no longer has, types Direct Lake can't read, relationship keys that aren't unique, and fact rows whose key has no match, which Power BI shows under (Blank). It reads the model's definition from Fabric and each table's Delta log from OneLake, and checks on this PC; it starts no Fabric job, though reading from OneLake uses capacity. See [docs/direct-lake-check.md](docs/direct-lake-check.md).
+
+**Data dictionary** on the same tab (Preview) lists every table, column and measure of the model with its description from the catalog. Export it to a CSV, edit it in Excel and import it back with a preview of every change; Update model then writes the descriptions into the model, where Power BI shows them. See [docs/data-dictionary.md](docs/data-dictionary.md).
 
 ### Compare, schema drift, quarantine replay and freshness
 

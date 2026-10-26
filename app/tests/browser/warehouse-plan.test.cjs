@@ -86,7 +86,7 @@ test("names in the plan are text, never markup", { skip }, async () => {
   await page().waitForTimeout(200);
   assert.strictEqual(await page().locator(".sql-plan img").count(), 0, "no element was made from a name");
   assert.strictEqual(await page().evaluate(() => window.planPwned), undefined);
-  assert.match(await page().locator(".sql-plan-op").last().locator(".sql-plan-name").textContent(), /^<img src=x onerror="window\.planPwned=1">/);
+  assert.match(await page().locator(".sql-plan-op").last().locator(".sql-plan-name").textContent(), /^(?:Level \d+: )?<img src=x onerror="window\.planPwned=1">/);
   assert.match(await page().locator(".sql-plan-op").last().locator(".sql-plan-object").textContent(), /<img src=x/);
   answer = PLAN;
 });

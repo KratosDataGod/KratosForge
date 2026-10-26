@@ -35,7 +35,7 @@ You can write any Spark code in the cell instead. V-Order is turned on for the s
 4. The cell shows Queued, then Running, with a link to the run in Fabric and **Cancel**. The run is in **Monitor > Runs** too.
 5. When it ends, the cell shows what it printed, or its error, and each table it OPTIMIZEd: **V-Ordered** when every file's Parquet footer carries Fabric's V-Order mark. The app reads the footers of the newest 200 files. For a table with more files than that, it says how many it checked.
 
-Scheduled runs on this PC, local pipeline runs, `%run` and `notebookutils.notebook.run` skip the marked cell; a schedule says so in its run. None of them starts a Fabric job. **Prove** and **Side by side** refuse a notebook with the mark, since their run on this PC can't run it: clear the mark to compare the notebook.
+Scheduled runs on this PC, local pipeline runs, `%run`, `notebookutils.notebook.run`, **Validate**'s clean run and notebook runs started by an external tool skip the marked cell; a schedule, a validation and an external tool's run say so in their result. None of them starts a Fabric job. **Prove** and **Side by side** refuse a notebook with the mark, since their run on this PC can't run it: clear the mark to compare the notebook.
 
 ## If a table isn't V-Ordered
 

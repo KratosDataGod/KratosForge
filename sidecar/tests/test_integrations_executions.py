@@ -252,6 +252,18 @@ def test_notebook_runs_cell_by_cell(svc):
     assert out["result"]["cells"][1]["outputs"][0]["text"].strip() == "42"
 
 
+def test_notebook_run_skips_the_run_on_fabric_cell_and_says_so(svc):
+    svc.notebooks.save("step", [{"type": "code", "source": "print('here')"},
+                                {"type": "code", "source": "1 / 0", "meta": {"fabric_step": True}}], LH)
+    out = call(svc, "fabric_desktop_run_notebook", name="step", workspace_id="ws1")
+    assert out["state"] == "succeeded" and out["result"]["cells_run"] == 1
+    assert out["result"]["skipped"].startswith("Cell 2 is marked Run on Fabric")
+    # A notebook whose only code is the step has nothing to run here, and says why.
+    svc.notebooks.save("only", [{"type": "code", "source": "1 / 0", "meta": {"fabric_step": True}}], LH)
+    with pytest.raises(ValueError, match="only has no code to run. Cell 1 is marked Run on Fabric"):
+        call(svc, "fabric_desktop_run_notebook", name="only", workspace_id="ws1")
+
+
 def test_notebook_stops_at_first_error(svc):
     out = call(svc, "fabric_desktop_run_notebook", name="broken", workspace_id="ws1")
     assert out["state"] == "failed" and out["result"]["cells_run"] == 1

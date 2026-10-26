@@ -9,6 +9,7 @@ detail stay in the app, and people are named by UPN or by role.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import re
 from typing import Any
 
@@ -90,6 +91,19 @@ def request_closed(req: dict[str, Any], products: list[dict[str, Any]]) -> dict[
     return None
 
 
+def product_changed(product: dict[str, Any], changes: list[str], followers: list[str], env: str) -> dict[str, Any] | None:
+    """A publish that changed a product, for its followers and the projects that link to it. Its
+    changes are named (versions and column names), as they are what readers act on."""
+    people = _upns(";".join(followers or []))
+    if not changes or not people:
+        return None
+    at = _now()
+    return {"kind": "product.changed", "id": product["id"], "title": secrets(str(product.get("name") or product["id"])),
+            "at": at, "detail": secrets("; ".join(changes)), "domain": str(product.get("domain_id") or ""), "env": env,
+            "dedupe": f"product.changed:{product['id']}:{env}:{at}",
+            "to": {"people": people, "roles": []}, "open": {"view": "onelake", "tab": "products", "target": product["id"]}}
+
+
 def shortcut_events(changes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """A health check's changes ("broke", "fixed") as events for platform admins. The dedupe key is
     the shortcut, so one that stays broken is posted once and its fix closes that break."""
@@ -105,3 +119,19 @@ def shortcut_events(changes: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "to": {"people": [], "roles": ["platform_admin"]},
                     "open": {"view": "shortcuts", "tab": "health", "target": c["shortcut_id"]}})
     return out
+
+
+def incident_impact(inc: dict[str, Any], found: dict[str, Any]) -> dict[str, Any]:
+    """An incident's reach (workloads/impact.py) for the people downstream of it: product owners,
+    the people who linked a project to one, and followers. Posted once per incident and set of
+    people, so telling again only posts when someone new is reached."""
+    upns = sorted(p["upn"] for p in found["people"])
+    products = ", ".join(p["name"] for p in found["products"])
+    domains = {p["domain_id"] for p in found["products"] if p.get("domain_id")}
+    return {"kind": "incident.impact", "id": inc["id"], "title": secrets(str(inc.get("title") or inc.get("name") or "Incident")),
+            "at": _now(), "env": str(inc.get("env") or ""), "severity": "warn",
+            "domain": next(iter(domains)) if len(domains) == 1 else "",
+            "detail": secrets(f"Data products affected: {products}." if products else ""),
+            "to": {"people": upns, "roles": []},
+            "open": {"view": "incident", "tab": "detail", "target": inc["id"]},
+            "dedupe": f"incident.impact:{inc['id']}:{hashlib.sha1('|'.join(upns).encode()).hexdigest()[:12]}"}

@@ -160,20 +160,29 @@ def _summed(t: ModelTable) -> list[tuple[str, str]]:
     return out
 
 
-def _table_tmdl(t: ModelTable, expression: str) -> str:
-    lines = [f"table {quote(t.name)}", f"\tlineageTag: {tag('table', t.entity)}", ""]
+def _about(text: str, indent: str) -> list[str]:
+    """TMDL description lines (``///``), which go right before the object they describe."""
+    return [f"{indent}/// {line}".rstrip() for line in str(text or "").strip().splitlines()] if str(text or "").strip() else []
+
+
+def _table_tmdl(t: ModelTable, expression: str, about: dict[str, str] | None = None) -> str:
+    """``about`` maps "" (the table) or a column's name to its description, from the catalog. Measures are
+    described here: what they add up, then the column's own description."""
+    about = about or {}
+    lines = [*_about(about.get(""), ""), f"table {quote(t.name)}", f"\tlineageTag: {tag('table', t.entity)}", ""]
     if not t.is_dimension:
-        lines += [f"\tmeasure {quote(t.name + ' rows')} = COUNTROWS({quote(t.name)})",
+        lines += [*_about(f"Rows in {t.name}.", "\t"), f"\tmeasure {quote(t.name + ' rows')} = COUNTROWS({quote(t.name)})",
                   "\t\tformatString: #,0", f"\t\tlineageTag: {tag('measure', t.entity)}", ""]
     for col, dtype in _summed(t):
-        lines += [f"\tmeasure {quote(f'{t.name} total {col}')} = SUM({quote(t.name)}[{col.replace(']', ']]')}])",
+        lines += [*_about(f"Sum of {col}." + (f" {about[col]}" if about.get(col) else ""), "\t"),
+                  f"\tmeasure {quote(f'{t.name} total {col}')} = SUM({quote(t.name)}[{col.replace(']', ']]')}])",
                   f"\t\tformatString: {'#,0' if dtype == 'int64' else '#,0.00'}",
                   f"\t\tlineageTag: {tag('measure', t.entity, col)}", ""]
     for col, delta_type in t.columns:
         dtype = tmdl_type(delta_type)
         if dtype is None:
             continue  # arrays, maps and structs, which Direct Lake can't read; reported by left_out
-        lines.append(f"\tcolumn {quote(col)}")
+        lines += [*_about(about.get(col), "\t"), f"\tcolumn {quote(col)}"]
         lines.append(f"\t\tdataType: {dtype}")
         if _hidden(t, col):
             lines.append("\t\tisHidden")
@@ -186,8 +195,10 @@ def _table_tmdl(t: ModelTable, expression: str) -> str:
     return "\n".join(lines)
 
 
-def build(tables: list[ModelTable], rels: list[Relationship], sql_server: str, sql_endpoint_id: str) -> dict[str, str]:
-    """TMDL definition parts, keyed by path, for Fabric's semantic model API."""
+def build(tables: list[ModelTable], rels: list[Relationship], sql_server: str, sql_endpoint_id: str,
+          descriptions: dict[str, dict[str, str]] | None = None) -> dict[str, str]:
+    """TMDL definition parts, keyed by path, for Fabric's semantic model API. ``descriptions`` maps an entity
+    to {"": its table's description, column: the column's} (model_dictionary.descriptions)."""
     expression = "DatabaseQuery"
     parts = {
         "definition.pbism": json.dumps({"version": "4.0", "settings": {}}, indent=2),
@@ -202,7 +213,7 @@ def build(tables: list[ModelTable], rels: list[Relationship], sql_server: str, s
             f"\tlineageTag: {tag('expression', sql_endpoint_id)}", ""]),
     }
     for t in tables:
-        parts[f"definition/tables/{t.name}.tmdl"] = _table_tmdl(t, expression)
+        parts[f"definition/tables/{t.name}.tmdl"] = _table_tmdl(t, expression, (descriptions or {}).get(t.entity))
     if rels:
         lines = []
         for r in rels:

@@ -60,7 +60,7 @@ One engine call, a read (listed in `audit.READ_ONLY`):
 
 Nothing from a credential is read: Fabric's list has only the credential type, and the connection's path passes through `redact.secrets`. The tab sits beside Pipelines on the Pipelines page. **Manage connections in Fabric** opens Fabric's page.
 
-Gateway names come from `GET /gateways` with `Gateway.Read.All` (Chris said yes on 2026-10-25), asked for once when the tab first opens. If it is declined or fails, the connections still list, and `gateways_error` says why the names are missing. Fabric's gateway API has no online/offline status, so the tab shows the name and member count, and status stays on Fabric's Manage connections page. Dataflow connections are in their M code and come with DF-7. Checking that each target environment has the connections a deploy needs comes with DF-8's connection mapping.
+Gateway names come from `GET /gateways` with `Gateway.Read.All` (Chris said yes on 2026-10-25), asked for once when the tab first opens. If it is declined or fails, the connections still list, and `gateways_error` says why the names are missing. Fabric's gateway API has no online/offline status, so the tab shows the name and member count, and status stays on Fabric's Manage connections page. Dataflows count too: a dataflow uses the connections its `queryMetadata.json` names by `DatasourceId`. It hasn't been checked against a real export that a `DatasourceId` is always the connection's id, so a dataflow's id that matches none of your connections isn't listed as missing. Checking that each target environment has the connections a deploy needs comes with DF-8's connection mapping.
 
 ## DF-7 engine: Dataflow Gen2 from a workspace
 

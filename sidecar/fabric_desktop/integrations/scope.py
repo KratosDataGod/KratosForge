@@ -219,10 +219,17 @@ def execution(service: Any, arguments: dict[str, Any], ctx: CallContext | None) 
 
 
 def metadata_of(meta: dict[str, Any]) -> set[str] | None:
-    """The open metadata project: the workspaces its environments and entities name."""
+    """The open metadata project: the workspaces its environments (with their designations') and
+    entities name."""
     if not meta.get("path"):
         return set()
-    return located(meta.get("environments") or {}, meta.get("entities") or [])
+    found = located(meta.get("entities") or [])
+    for cfg in (meta.get("environments") or {}).values():
+        here = environment_of(cfg or {})
+        if found is None or here is None:
+            return None
+        found |= here
+    return found
 
 
 def project(service: Any, arguments: dict[str, Any], ctx: CallContext | None) -> set[str] | None:

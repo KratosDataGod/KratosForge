@@ -46,15 +46,15 @@ _ACTION_LABELS = {"run": "Run", "run_in_fabric": "Run in Fabric", "run_item": "R
                   "run_schedule": "Run the schedule now", "cancel": "Cancel the run"}
 
 
-
 class NotInInventory(LookupError):
     """The workload isn't in the inventory: renamed, deleted, or in a workspace this app doesn't read."""
+
 
 class WorkloadMixin:
     root: Path
     _wl_scan: dict[str, Any] | None = None
     _wl_scan_lock = threading.Lock()
-    _wl_scan_again = False  # a refresh asked for while a scan runs: scan once more when it ends (a new pin)
+    _wl_scan_again = ""  # a refresh's token, asked for while a scan runs: scan once more when it ends (a new pin)
     _wl_records: dict[str, dict[str, Any]] | None = None
     _wl_audit_lock = threading.Lock()
 
@@ -191,7 +191,9 @@ class WorkloadMixin:
     def _wl_start_scan(self, token: str) -> None:
         with self._wl_scan_lock:
             if self._wl_scan and self._wl_scan.get("pending"):
-                self._wl_scan_again = True  # it may have listed the workspaces before a new pin
+                # It may have listed the workspaces before a new pin. The token is taken here, on the
+                # caller's thread (MSAL isn't thread-safe), so the next pass doesn't reuse an old one.
+                self._wl_scan_again = token
                 return
             self._wl_scan = {"pending": True}
         threading.Thread(target=self._wl_scan_until_settled, args=(token,), daemon=True).start()
@@ -202,7 +204,7 @@ class WorkloadMixin:
             with self._wl_scan_lock:
                 if not self._wl_scan_again:
                     return
-                self._wl_scan_again = False
+                token, self._wl_scan_again = self._wl_scan_again, ""
                 self._wl_scan = {"pending": True}
 
     def _wl_scan_items(self, token: str, client: FabricClient | None = None) -> dict[str, Any]:

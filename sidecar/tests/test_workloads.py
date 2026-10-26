@@ -475,14 +475,14 @@ def test_a_refresh_during_a_scan_scans_once_more_so_a_new_pin_is_read(svc, monke
 
     monkeypatch.setattr(svc, "_wl_scan_items", slow_scan)
     svc._wl_start_scan("tok")
-    svc._wl_start_scan("tok")  # a pin while the first scan runs
-    svc._wl_start_scan("tok")  # asking twice still means one more scan
+    svc._wl_start_scan("tok2")  # a pin while the first scan runs
+    svc._wl_start_scan("tok3")  # asking twice still means one more scan, with the newest token
     release.set()
     deadline = time.monotonic() + 5
     while (len(started) < 2 or svc._wl_scan.get("pending")) and time.monotonic() < deadline:
         time.sleep(0.01)
     time.sleep(0.05)
-    assert len(started) == 2 and not svc._wl_scan["pending"] and not svc._wl_scan_again
+    assert started == ["tok", "tok3"] and not svc._wl_scan["pending"] and not svc._wl_scan_again
 
 
 def test_unsupported_or_unsafe_actions_are_refused(svc, project, monkeypatch):

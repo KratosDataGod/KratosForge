@@ -183,6 +183,10 @@ METHODS |= SQL_QUERY_METHODS
 from .warehouse_project_service import METHODS as WH_PROJECT_METHODS  # noqa: E402
 
 METHODS |= WH_PROJECT_METHODS
+# Workspace monitoring views for a warehouse (warehouse_monitoring_service.py).
+from .warehouse_monitoring_service import METHODS as WH_MONITORING_METHODS  # noqa: E402
+
+METHODS |= WH_MONITORING_METHODS
 
 # Folders for notebooks (notebook_folders_service.py): new, rename, delete when empty, move into one.
 from .notebook_folders_service import METHODS as NOTEBOOK_FOLDERS_METHODS  # noqa: E402

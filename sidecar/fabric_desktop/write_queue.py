@@ -127,7 +127,10 @@ class Spill:
         self._sink.close()
 
     def reader(self) -> pa.RecordBatchReader:
+        """The spilled batches from the start (again, for a write that's tried again)."""
         import pyarrow as pa
+        if self._mapped is not None:
+            self._mapped.close()
         self._mapped = pa.memory_map(str(self.path))
         return pa.ipc.open_stream(self._mapped)
 

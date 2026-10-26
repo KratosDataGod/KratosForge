@@ -33,6 +33,7 @@ from deltalake.exceptions import TableNotFoundError
 from .onelake import FileStore, TableRef, storage_options
 from .publish import publish, resolve_schema_mode, stage_locally
 from .redact import describe
+from .retrying import data_upload_dropped
 
 _log = logging.getLogger(__name__)
 
@@ -438,6 +439,12 @@ def _stream(data: Any) -> tuple[pa.Schema, Iterator[pa.Table]] | None:
     return first.schema, chain()
 
 
+# A table write whose data file upload was dropped (retrying.data_upload_dropped) is written again,
+# whole: nothing of it was committed. On top of object_store's own retries of each part.
+UPLOAD_ATTEMPTS = 3
+UPLOAD_RETRY_WAIT = 15.0  # seconds, then twice that
+
+
 def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str | None = "auto",
                 upload: str | None = None, skip_unchanged: bool | None = None) -> WriteResult | PendingWrite:
     """Write ``data`` to the attached lakehouse as the Delta table ``schema.table``.
@@ -510,8 +517,17 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
     def commit() -> WriteResult:
         uploading = time.monotonic()
         try:
-            delta = publish(arrow if arrow is not None else spill.reader(), ref, mode, lh.storage_token(),
-                            schema_mode=schema_mode, rows=fingerprint, skip_unchanged=skip_unchanged)
+            for attempt in range(UPLOAD_ATTEMPTS):
+                try:
+                    delta = publish(arrow if arrow is not None else spill.reader(), ref, mode, lh.storage_token(),
+                                    schema_mode=schema_mode, rows=fingerprint, skip_unchanged=skip_unchanged)
+                    break
+                except Exception as exc:  # noqa: BLE001 - only a dropped data file upload is tried again
+                    if attempt == UPLOAD_ATTEMPTS - 1 or not data_upload_dropped(exc):
+                        raise
+                    wait = UPLOAD_RETRY_WAIT * (attempt + 1)
+                    _log.warning("Writing %s again in %.0f s: a data file's upload was dropped (%s)", name_, wait, describe(exc))
+                    time.sleep(wait)
         finally:
             if spill is not None:
                 spill.remove()

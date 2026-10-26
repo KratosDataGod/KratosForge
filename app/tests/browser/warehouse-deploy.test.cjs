@@ -84,7 +84,7 @@ async function openDeploy() {
   const confirm = page().getByRole("dialog").getByRole("button", { name: "Run in Fabric" });
   if (await confirm.isVisible().catch(() => false)) await confirm.click();
   await page().locator(".wh-cmp").waitFor();
-  await page().getByRole("button", { name: "Deploy to WH_Gold..." }).click();
+  await page().getByRole("button", { name: "Deploy to WH_Gold…" }).click();
   const dialog = page().getByRole("dialog", { name: "Deploy WH_Gold.Warehouse" });
   await dialog.waitFor();
   return dialog;

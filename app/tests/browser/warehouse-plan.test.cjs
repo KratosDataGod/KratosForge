@@ -48,14 +48,14 @@ after(async () => { await app?.close(); });
 test("Estimated plan asks Fabric without running the query and draws the operators", { skip }, async () => {
   await page().getByRole("button", { name: "Estimated plan" }).click();
   await page().getByRole("dialog").getByRole("button", { name: "Run in Fabric" }).click();  // it uses a little capacity
-  const tree = page().getByRole("tree", { name: "Plan for statement 1" });
+  const tree = page().getByRole("list", { name: "Plan for statement 1" });
   await tree.waitFor();
   const sent = starts().at(-1);
   assert.ok(sent.estimated_plan && !sent.allow && !sent.confirm, "a read, asked for its plan");
-  const ops = await tree.getByRole("treeitem").allTextContents();
+  const ops = await tree.getByRole("listitem").allTextContents();
   assert.strictEqual(ops.length, 4);
   assert.match(ops[0], /^Hash Match \(Aggregate\).*4 rows10%$/);
-  assert.match(ops[2], /^Table Scan.*dbo\.FactSales.*1,200,000 rows65%$/);
+  assert.match(ops[2], /^Level \d+: Table Scan.*dbo\.FactSales.*1,200,000 rows65%$/);
   assert.match(ops[1], /warning/);
   assert.match(await page().locator(".sql-plan-op.heavy").textContent(), /FactSales/, "the heaviest operator stands out");
   assert.match(await page().locator(".sql-plan-stmt-head").textContent(), /Statement 1 · 4 rows · cost 10/);
@@ -74,6 +74,20 @@ test("an answer that isn't a showplan is shown as it came", { skip }, async () =
   await page().getByRole("button", { name: "Estimated plan" }).click();
   await page().waitForFunction(() => /isn't a showplan/.test(document.querySelector(".sql-plan")?.textContent || ""));
   assert.match(await page().locator(".sql-plan-xml").textContent(), /<something\/>/);
+  answer = PLAN;
+});
+
+test("names in the plan are text, never markup", { skip }, async () => {
+  const evil = "&lt;img src=x onerror=&quot;window.planPwned=1&quot;&gt;";
+  answer = PLAN.replace('PhysicalOp="Table Scan" LogicalOp="Table Scan" EstimateRows="18484"', `PhysicalOp="${evil}" LogicalOp="${evil}" EstimateRows="18484"`)
+    .replace('Table="[DimCustomer]"', `Table="${evil}"`);
+  await page().getByRole("button", { name: "Estimated plan" }).click();
+  await page().waitForFunction(() => /<img src=x/.test(document.querySelector(".sql-plan-tree")?.textContent || ""));
+  await page().waitForTimeout(200);
+  assert.strictEqual(await page().locator(".sql-plan img").count(), 0, "no element was made from a name");
+  assert.strictEqual(await page().evaluate(() => window.planPwned), undefined);
+  assert.match(await page().locator(".sql-plan-op").last().locator(".sql-plan-name").textContent(), /^(?:Level \d+: )?<img src=x onerror="window\.planPwned=1">/);
+  assert.match(await page().locator(".sql-plan-op").last().locator(".sql-plan-object").textContent(), /<img src=x/);
   answer = PLAN;
 });
 

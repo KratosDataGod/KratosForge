@@ -34,7 +34,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "platform_delete_source", "platform_landing", "platform_landing_files", "platform_landing_setup",
            "platform_create_landing_zone", "platform_delete_landing_zone", "platform_switch_landing_reads", "platform_requests", "platform_request",
            "platform_decide", "platform_withdraw", "platform_revoke", "platform_overview", "platform_products",
-           "platform_product_trust", "platform_scan_endorsement", "platform_add_product_term", "platform_remove_product_term",
+           "platform_product_trust", "platform_scan_endorsement", "platform_add_product_term", "platform_remove_product_term", "platform_follow",
            "governance_overview", "governance_policy", "governance_version", "governance_create", "governance_save_draft",
            "governance_discard_draft", "governance_publish", "governance_set_status", "governance_assign",
            "governance_unassign", "governance_applicability", "governance_resolve",
@@ -76,6 +76,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "agents_list", "queue_list", "run_as_list", "incidents_list", "incidents_summary", "incidents_watch", "incidents_evaluate", "incident_acknowledge", "incident_assign", "incident_note",
            "incident_resolve",
            "incidents_board", "incident_sla_policy", "incident_report", "incident_set_priority", "incidents_history_sync", "incidents_history",
+           "incident_impact", "incident_tell_impacted",
            "notebook_environment", "receipts_list", "receipt_get", "receipt_export", "receipt_redactions",
            "prove_check", "prove_start", "prove_status", "prove_list", "prove_cancel", "prove_verify",
            "prove_delete_outputs", "prove_rules_get", "prove_rules_set", "receipt_save",
@@ -148,6 +149,16 @@ from .model_ossie_service import METHODS as MODEL_OSSIE_METHODS  # noqa: E402
 
 METHODS |= MODEL_OSSIE_METHODS
 
+# Semantic model tab: the Direct Lake check (model_directlake_service.py).
+from .model_directlake_service import METHODS as MODEL_DIRECTLAKE_METHODS  # noqa: E402
+
+METHODS |= MODEL_DIRECTLAKE_METHODS
+
+# Semantic model tab: the data dictionary (model_dictionary_service.py).
+from .model_dictionary_service import METHODS as MODEL_DICTIONARY_METHODS  # noqa: E402
+
+METHODS |= MODEL_DICTIONARY_METHODS
+
 # Validate notebook (validate_service.py): code checks and a clean run in a fresh kernel.
 from .validate_service import METHODS as VALIDATE_METHODS  # noqa: E402
 
@@ -172,6 +183,10 @@ METHODS |= SQL_QUERY_METHODS
 from .warehouse_project_service import METHODS as WH_PROJECT_METHODS  # noqa: E402
 
 METHODS |= WH_PROJECT_METHODS
+# Workspace monitoring views for a warehouse (warehouse_monitoring_service.py).
+from .warehouse_monitoring_service import METHODS as WH_MONITORING_METHODS  # noqa: E402
+
+METHODS |= WH_MONITORING_METHODS
 
 # Folders for notebooks (notebook_folders_service.py): new, rename, delete when empty, move into one.
 from .notebook_folders_service import METHODS as NOTEBOOK_FOLDERS_METHODS  # noqa: E402

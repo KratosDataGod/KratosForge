@@ -76,9 +76,9 @@ function sqlPlanView(plan) {
     if (st.root) find(st.root);
     const row = (op, depth) => {
       const share = total > 0 && op.own !== null ? Math.round((op.own / total) * 100) : null;
-      return [h("div", { class: `sql-plan-op${op === heaviest && share ? " heavy" : ""}`, role: "treeitem", "aria-level": String(depth + 1),
+      return [h("div", { class: `sql-plan-op${op === heaviest && share ? " heavy" : ""}`, role: "listitem",
         style: `padding-left:${12 + depth * 18}px` },
-      h("span", { class: "sql-plan-name" }, op.physical, op.logical && op.logical !== op.physical ? h("span", { class: "muted-text" }, ` (${op.logical})`) : null),
+      h("span", { class: "sql-plan-name" }, depth ? h("span", { class: "sr-only" }, `Level ${depth + 1}: `) : null, op.physical, op.logical && op.logical !== op.physical ? h("span", { class: "muted-text" }, ` (${op.logical})`) : null),
       h("span", { class: "sql-plan-object", title: op.object }, op.object),
       h("span", { class: "sql-plan-warn", title: op.warnings ? "Fabric flagged a warning on this operator; copy the XML to see it" : null }, op.warnings ? "warning" : ""),
       h("span", { class: "sql-plan-rows", title: "Estimated rows" }, `${sqlPlanNumber(op.rows)} rows`),
@@ -88,7 +88,7 @@ function sqlPlanView(plan) {
     parts.push(h("div", { class: "sql-plan-stmt" },
       h("div", { class: "sql-plan-stmt-head" }, `Statement ${i + 1}`,
         h("span", { class: "muted-text" }, ` · ${sqlPlanNumber(st.rows)} rows · cost ${sqlPlanNumber(total, 4)}`)),
-      st.root ? h("div", { class: "sql-plan-tree", role: "tree", "aria-label": `Plan for statement ${i + 1}` }, row(st.root, 0))
+      st.root ? h("div", { class: "sql-plan-tree", role: "list", "aria-label": `Plan for statement ${i + 1}` }, row(st.root, 0))
         : h("p", { class: "muted-text wh-note" }, "This statement has no operators to show.")));
   }
   if (!parsed.statements.length) parts.push(h("p", { class: "muted-text wh-note" }, "Fabric returned a plan with no statements."));

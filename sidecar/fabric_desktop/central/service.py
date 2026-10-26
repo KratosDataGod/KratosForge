@@ -30,6 +30,7 @@ from . import setup as setup_mod
 from .client import FabricPlatform, LocalPlatform, PlatformKeys
 from .core import domain_id
 from .migrate import migrate
+from .requests_service import call_or_repair
 
 _log = logging.getLogger(__name__)
 
@@ -761,7 +762,7 @@ class PlatformMixin:
             return
 
         def events() -> list[dict[str, Any]]:
-            kinds = ("access", "shortcut")
+            kinds = ("access", "shortcut", "data")
             products = self._catalog().call("list_products") if req.get("kind") in kinds else []
             event = build(req, products)
             return [event] if event else []
@@ -871,7 +872,27 @@ class PlatformMixin:
                 p["can_link"] = False
                 p["why"] = "requested" if (p["id"], me["name"]) in waiting else "request"
             p["linked"] = bool(me) and any(c["consumer_project"] == me["name"] for c in p.get("consumers", []))
-        return {"project": me, "products": products}
+        follows = self._my_follows()
+        for p in products:
+            p["following"] = p["id"] in (follows or [])
+        return {"project": me, "products": products, "can_follow": follows is not None}
+
+    def _my_follows(self) -> list[str] | None:
+        """The products the signed-in person follows; None when the platform is older than following."""
+        try:
+            return self._catalog().call("list_follows")
+        except LookupError:
+            return None
+        except core.PlatformError as exc:
+            if "list_follows" in str(exc):
+                return None
+            raise
+
+    def platform_follow(self, product_id: str, follow: bool = True) -> dict[str, Any]:
+        """Follow a product, or stop. Writes catalog.follow; returns the products you follow."""
+        op = "follow_product" if follow else "unfollow_product"
+        follows = call_or_repair(self._catalog(), op, "follow data products", product_id=product_id)
+        return {"following": follows}
 
     # ---- the open project in the mesh
 
@@ -962,15 +983,21 @@ class PlatformMixin:
         if problems:
             raise GateError("promote", problems)
         name = mesh.project_name(project)
-        done = []
+        done, unsent = [], []
         for p in project.products.values():
             if p.status == "draft":
                 continue
             ports = [{"port": port["name"], **self._port_location(project, env, port["entity"])} for port in p.ports]
             info = p.summary() | {"project": name, "domain": project.info.get("domain", "")}
-            self._catalog().call("register_product", product=info, ports=ports, env=env)
+            out = self._catalog().call("register_product", product=info, ports=ports, env=env)
             done.append(p.name)
-        return {"env": env, "published": done}
+            if env == "prod" and out.get("changes"):
+                # Readers hear about Prod, the environment their own projects read.
+                problem = self._governance_notify(  # type: ignore[attr-defined]
+                    lambda out=out: [e for e in [notices.product_changed(out, out["changes"], out.get("followers") or [], env)] if e])
+                if problem:
+                    unsent.append(problem)
+        return {"env": env, "published": done, **({"problems": unsent} if unsent else {})}
 
     def mesh_save_link(self, link: dict[str, Any]) -> dict[str, Any]:
         """Write metadata/links/<alias>.toml and tell the producer's catalog entry who reads it."""

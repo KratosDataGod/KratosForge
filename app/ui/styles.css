@@ -117,13 +117,14 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tool.outline { border-color: var(--border-input); }
 .tool.primary { background: var(--accent); color: #fff; }
 .tool.primary:hover:not(:disabled) { background: var(--accent-dark); }
-/* A primary button with a chevron for its options (Publish to OneLake). */
+/* A button with a chevron for its options (Publish to OneLake). */
 .split { display: inline-flex; gap: 1px; }
-.split > .tool.primary:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.split > .tool:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .split > .split-more { border-top-left-radius: 0; border-bottom-left-radius: 0; padding-left: 6px; padding-right: 6px; }
 .tool.link { color: var(--accent); }
 .tool.small { min-height: 26px; padding: 0 6px; }
 .tool .play { color: var(--accent); }
+.tool.primary .play { color: inherit; }  /* white on the solid Run all (AF-4) */
 .sep { width: 1px; height: 24px; margin: 0 6px; background: var(--border); }
 .spacer { flex: 1; }
 
@@ -1718,7 +1719,10 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
 .how-toggle[hidden] { display: none; }
 .how-toggle[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }
 body.explain-on-request .with-how { grid-template-columns: minmax(0, 1fr); }
-body.explain-on-request .how-it-works { display: none; }
+body.explain-on-request .how-it-works.how-page { display: none; }
+body.explain-on-request .page-intro { display: none; }
+.how-it-works .how-about { display: none; }
+body.explain-on-request .how-it-works .how-about { display: block; margin: 0 0 12px; color: var(--text); }
 body.explain-on-request.how-open .how-it-works.how-shown {
   display: flex; position: fixed; top: 56px; right: 12px; bottom: 12px; z-index: 9; width: min(360px, calc(100vw - 24px));
   overflow-y: auto; box-shadow: -8px 0 24px rgba(0,0,0,0.12);
@@ -2369,9 +2373,58 @@ html[data-motion-level="0"] .mo-ghost { display: none; }
 .ossie-preview { display: flex; flex-direction: column; gap: 8px; }
 .ossie-preview tr.warn-row { background: #fff8e6; }
 
+/* Data dictionary on the Semantic model tab (meta.js dictionaryCard) */
+.dict-out, .dict-preview { display: flex; flex-direction: column; gap: 10px; }
+.dict-counts { gap: 16px; font-size: 13px; }
+.dialog:has(.dict-import) { max-width: 820px; }
+.dict-import { gap: 12px; }
+.dict-import td { overflow-wrap: anywhere; }
+
+/* Direct Lake check on the Semantic model tab (meta.js directLakeCard) */
+.dl-out { display: flex; flex-direction: column; gap: 10px; }
+.dl-tiles { display: flex; flex-wrap: wrap; gap: 10px; }
+.dl-tile { flex: 1 1 160px; display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border: 1px solid var(--border-soft); border-radius: 6px; font-size: 12px; }
+.dl-tile b { font-size: 18px; }
+.info-text { color: #0f548c; }
+.mini td.n.over { color: var(--danger); font-weight: 600; }
+.mini td.n.near { color: #8a5300; font-weight: 600; }
+
 /* Action-first framework (actions.js): next steps and the primary action with its More menu. */
 .next-steps { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; margin-bottom: 16px; border: 1px solid var(--border-soft); border-radius: 8px; background: #fff; }
 .next-steps-head { font-weight: 600; font-size: 13px; }
 .next-step { display: flex; align-items: center; gap: 10px; }
 .action-bar { gap: 8px; }
 .tool[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
+
+/* The notebook's next step after a run (nbnext.js, AF-4): one line under the ribbon. */
+.nb-next { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin: 8px 16px 0; padding: 6px 14px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
+.nb-next-why { color: var(--text); }
+
+/* WH-19: a warehouse's Monitoring tab (whmonitor.js). */
+.wh-mon { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; overflow: auto; padding: 12px 16px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 6px; }
+.wh-mon-head, .wh-mon-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wh-mon-head .spacer { flex: 1; }
+.wh-mon-on { margin: 0; padding: 8px 12px; border-radius: 4px; background: #e6f2e6; color: #0e5c0e; font-size: 13px; }
+.wh-mon-off { display: flex; flex-direction: column; gap: 6px; max-width: 640px; font-size: 13px; }
+.wh-mon-off p { margin: 0; }
+.wh-mon-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.wh-mon-tile { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 4px; }
+.wh-mon-tile span, .wh-mon-tile small { color: var(--muted); font-size: 12px; }
+.wh-mon-tile b { font-size: 22px; font-weight: 600; }
+.wh-mon-tile.warn b { color: #8a4b00; }
+.wh-mon-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 12px; min-height: 0; }
+.wh-mon-card { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 4px; font-size: 13px; }
+.wh-mon-card p { margin: 0; }
+.wh-mon-card ul { margin: 0; padding-left: 18px; }
+.wh-mon-scroll { overflow: auto; max-height: 420px; }
+.wh-mon-table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.wh-mon-table th, .wh-mon-table td { padding: 5px 8px; border-bottom: 1px solid var(--border-soft); text-align: left; white-space: nowrap; }
+.wh-mon-table th { font-weight: 600; background: var(--canvas); position: sticky; top: 0; }
+.wh-mon-table td.num { text-align: right; color: inherit; }
+.wh-mon-table td .tool { margin-left: 6px; }
+.wh-mon-build { display: flex; flex-direction: column; gap: 10px; max-width: 600px; font-size: 13px; }
+.wh-mon-build p { margin: 0; }
+@media (max-width: 1100px) { .wh-mon-grid { grid-template-columns: minmax(0, 1fr); } }
+.wh-mon-auto { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.wh-mon-auto li { display: flex; align-items: center; gap: 8px; }

@@ -1,13 +1,14 @@
-"""The notebook and SQL best-practice checkers, registered with governance_checks.
+"""The notebook, SQL and semantic model best-practice checkers, registered with governance_checks.
 
 A governance policy names rule ids (NB003, SQ005, ...) in its Checked by field; Check now hands each
 checker the items of its kind with settings for only those rules. These adapters run the checks in
-notebook_practices and sqlcompat/practices with every other rule off, so a policy reports only the
+notebook_practices, sqlcompat/practices and model_practices with every other rule off, so a policy reports only the
 rules it names.
 
 Items:
     notebook  {kind: "notebook", id: <notebook name>, sources: [code cell sources], scheduled: bool}
     sql       {kind: "sql", id: <script name>, query: <T-SQL>, target: "warehouse"|"endpoint"|"sqldb"}
+    model     model_practices.model_item: the layer's model as Update model writes it
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from collections.abc import Callable
 from typing import Any
 
 from . import governance_checks as gc
-from . import notebook_practices
+from . import model_practices, notebook_practices
 from .sqlcompat import practices as sql_practices
 
 
@@ -56,9 +57,14 @@ def _sql(item: dict[str, Any], settings: dict[str, dict[str, Any]]) -> list[dict
     return sql_practices.check(str(item.get("query") or ""), target, settings)["findings"]
 
 
+def _model(item: dict[str, Any], settings: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    return model_practices.check(item, settings)["findings"]
+
+
 def _ids(rules: Callable[[], list[dict[str, Any]]]) -> Callable[[], list[str]]:
     return lambda: [r["id"] for r in rules()]
 
 
 gc.register("notebook", notebook_practices.rules, _adapter("notebook", _ids(notebook_practices.rules), _notebook))
 gc.register("sql", sql_practices.rules, _adapter("sql", _ids(sql_practices.rules), _sql))
+gc.register("model", model_practices.rules, _adapter("model", _ids(model_practices.rules), _model))

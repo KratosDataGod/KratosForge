@@ -105,6 +105,36 @@ def test_a_failed_pipeline_read_is_counted_not_raised(svc, monkeypatch):
     assert out["runs"] == [] and out["missed"] == 2 and "error" not in out
 
 
+ODD = [None, 1, "x", True, 1.5, [], {}, [1], {"a": 1}]
+P = {"workspace_id": "ws1", "workspace_name": "Sales Dev", "id": "pl1", "type": "DataPipeline", "displayName": "pl"}
+
+
+@pytest.mark.parametrize("odd", ODD)
+def test_a_job_with_odd_fields_is_still_a_row(odd):
+    row = fpr.run_row({"id": odd, "status": odd, "invokeType": odd, "startTimeUtc": odd, "endTimeUtc": odd,
+                       "failureReason": odd}, P | {"displayName": odd})
+    assert all(isinstance(row[k], str) for k in ("job_id", "native_status", "invoke", "message", "name"))
+    assert row["state"] == "unknown" and row["started"] in (None, "x") and row["seconds"] is None
+    assert fpr.run_row(odd, P)["state"] == "unknown"
+
+
+@pytest.mark.parametrize("odd", ODD)
+def test_an_activity_with_odd_fields_is_still_a_row(odd):
+    row = fpr.activity_row({"activityName": odd, "activityType": odd, "status": odd, "error": odd, "input": odd,
+                            "activityRunStart": odd, "durationInMs": odd, "retryAttempt": odd, "activityRunId": odd})
+    assert all(isinstance(row[k], str) for k in ("name", "type", "native_status", "run_id", "iteration"))
+    assert row["ms"] in (None, 1, 1.5) and row["retry"] in (None, 1, 1.5) and row["state"] == "unknown"
+    assert fpr.activity_row(odd)["state"] == "unknown"
+
+
+def test_a_history_that_cant_be_read_is_one_missed_read_and_the_scan_finishes(svc, monkeypatch):
+    jobs = FakeFabric.list_job_instances
+    monkeypatch.setattr(FakeFabric, "list_job_instances",
+                        lambda self, ws, item: 5 if item == "pl2" else jobs(self, ws, item))  # not a list
+    out = _settled(svc, all_workspaces=True)
+    assert out["missed"] == 1 and [r["job_id"] for r in out["runs"]] == ["j2", "j1"] and "error" not in out
+
+
 def test_signed_out_says_so(svc, monkeypatch):
     def no_token(_s):
         raise RuntimeError("Sign in first")

@@ -111,16 +111,16 @@ From the top:
 
 | Section | What it shows |
 | --- | --- |
-| **Summary line** | "Nothing needs your attention", or how many things do, and how many are running. When run history, an environment or Fabric jobs couldn't be read, it says "Nothing found that needs your attention" and names what it couldn't check, since unknown isn't the same as fine. |
-| **Ready to work** | Whether this PC can do real work yet, with a fix for anything that's missing. See [Ready to work](#ready-to-work). |
+| **Summary line** | "Nothing needs your attention", or how many things do, and how many are running. When run history, an environment or Fabric jobs couldn't be read, it says "Nothing found that needs your attention" and names what it couldn't check, since unknown isn't the same as fine. Signed out, it says to sign in so KratosForge can check Fabric. |
+| **Start something** | **Continue** (the notebook you changed last), New notebook, Import from Fabric or Databricks, New lakehouse, OneLake catalog. |
+| **Recent notebooks** | Your last eight notebooks. Click to open. The section folds with its arrow. |
+| **Ready to work** | Whether this PC can do real work yet, with a fix for anything that's missing. While it shows, it's the one place Home asks you to sign in. See [Ready to work](#ready-to-work). |
 | **Needs your attention** | Tables whose latest run failed or is waiting for a decision, in any environment, with **Open entity** and **Open run**. Fabric runs that failed in the last day, with **Open in Fabric**. Tables that are late for their [freshness promise](metadata-guide.md#freshness-promises). |
 | **Your workloads** (Preview) | What you own, by health, with the ones that need attention and how many workloads have no owner. See [Workloads](#workloads-preview). |
 | **Running now** | What this app is running, here or in Fabric. |
 | **Coming up** | The next scheduled runs, on this PC and in Fabric. **All schedules** opens Monitor > Schedules. |
 | **Data mesh** (Preview) | A map of the whole mesh: each domain and subdomain, the projects in it, the data products they publish (colored by who may read them) and arrows from each product to the projects that read it. Your open project is outlined; click it to open Data mesh > Domains. The section folds with its arrow. |
 | **Environments** | Dev, Test and Prod: where each runs, and "All green", "2 failed", "Running" or "Never run". Click one to see its runs. Before you have a metadata project, this space shows **Get started** instead. |
-| **Start something** | New notebook, New lakehouse, OneLake catalog. |
-| **Recent notebooks** | Your last eight notebooks. Click to open. The section folds with its arrow. |
 | **Estate X-ray** (Preview) | See below. |
 
 ### All notebooks
@@ -210,7 +210,7 @@ Reading starts no Fabric job. Dataflows run in Fabric only, because nothing outs
 
 ### Data Factory connections (Preview)
 
-The **Connections** tab beside **Pipelines** lists the Fabric connections you can use: name, type and gateway, never credentials. For each one, **Used by** names the pipelines, copy jobs and dataflows that use it, with one column per environment (Dev, Test, Prod) showing where it's used. Without environments, the tab checks the workspaces Monitor > Schedules lists. When an item uses a connection you can't use (deleted, or not shared with you), it shows at the top as **Missing**, because that step fails when you run it. Someone who can use the connection, such as its owner's schedule, may still run it. The tab only reads: no Fabric job starts and no capacity is used. The first time, the app asks for permission to read your connections and gateways. Gateway names show under the gateway type, and if you decline the gateway permission, the tab still lists the connections without them. **Manage connections in Fabric** opens Fabric's own page to add or fix a connection. KratosForge never creates or changes one. **Refresh** reads everything again.
+The **Connections** tab beside **Pipelines** lists the Fabric connections you can use: name, type and gateway, never credentials. For each one, **Used by** names the pipelines, copy jobs and dataflows that use it, with one column per environment (Dev, Test, Prod) showing where it's used. Without environments, the tab checks the workspaces Monitor > Schedules lists. When an item uses a connection you can't use (deleted, or not shared with you), it shows at the top as **Missing**, because that step fails when you run it. Someone who can use the connection, such as its owner's schedule, may still run it. The tab only reads: no Fabric job starts and no capacity is used. The first time, the app asks for permission to read your connections and gateways. Gateway names show under the gateway type, and if you decline the gateway permission, the tab still lists the connections without them and doesn't ask again until you restart KratosForge. If reading the gateways fails for another reason, such as the network, **Refresh** tries again. **Manage connections in Fabric** opens Fabric's own page to add or fix a connection. KratosForge never creates or changes one. **Refresh** reads everything again.
 
 ## Notebook resources
 
@@ -275,6 +275,10 @@ Opening a lakehouse shows its **Tables** (by schema) and **Files** (folders and 
 ### Warehouse queries (Preview)
 
 **SQL query** on a **Warehouse** or **SQL analytics endpoint** row in Workspaces opens the Warehouse page: the same editor and results, with T-SQL that runs in Fabric on the warehouse. It uses capacity, so the first run on each warehouse after the app starts asks first. It only reads until you tick **Allow changes**; then a script that changes the warehouse shows what it changes and runs after you confirm, in one transaction, and in Prod you type the warehouse's name first. It signs in as you, so the warehouse's own permissions apply. The explorer lists schemas, tables, views, procedures and functions from the warehouse's catalog, with column types, and completes names as you type. **SQL from a template** (the arrow beside **New SQL query**) opens T-SQL templates (tables, loads, views, procedures, time travel, security, statistics and accelerators such as an SCD type 2 merge) with fields to fill in; the script opens in a new tab and runs nothing. **New template** adds your own, kept on this PC or in a Git repository's `sql-templates` folder for your team, and **Import** and **Export** share them as `.sql` files. **Save query** keeps a tab as a `.sql` file in My queries or in a Git repository's `sql-queries` folder, and the explorer's **Queries** tab opens them again. The **History** tab lists your runs on this PC and opens Fabric's query insights (long running, frequently run, recent requests). The **Project** tab keeps the warehouse as `.sql` files in a Git repository, in the layout Fabric's Git integration uses: **Import** scripts the warehouse into it, and you edit, save and commit the files. **Estimated plan** shows how Fabric would run a query as a tree of operators with estimated rows and cost, without running it. **Compare** shows which objects differ between the project and the warehouse, side by side, and **Deploy** previews and runs the changes that make the warehouse match, with Test and Prod deploying only what's committed and pushed. More in [Warehouses](warehouse.md).
+
+### Warehouse monitoring (Preview)
+
+**Monitoring** on the Warehouse page shows Fabric's workspace monitoring for the warehouse: queries, typical and slowest times, failures and who runs what, from the workspace's monitoring KQL database. It needs a workspace admin to turn on monitoring in Fabric first. **Build views** creates a KQL queryset with the same views in the workspace, after you confirm, and can do it for new warehouses there without asking again. See [Warehouse: Monitoring](warehouse.md#monitoring-preview).
 
 ## OneLake
 
@@ -371,6 +375,14 @@ The **Data mesh** page (it was called Metadata) is where your metadata project l
 | Deploy | Environments and promote, Semantic model |
 
 Each entity page also has an **About** card (Preview): description, tags, classification, glossary terms and steward for the table and each column, saved in the catalog so anyone can write them without a Git change.
+
+### Direct Lake check
+
+**Data mesh > Deploy > Semantic model** has a **Direct Lake check** card (Preview). Pick a model and a capacity, then **Check now**: it lists what would make the model fall back to DirectQuery, or fail, before anyone queries it. That covers tables past the capacity's Direct Lake limits, columns the Delta table no longer has, types Direct Lake can't read, and, when you tick the box, relationship keys that aren't unique and fact rows whose key has no match. It reads the model's definition from Fabric and each table's Delta log from OneLake and checks on this PC: it starts no Fabric job, though reading from OneLake uses capacity. Every check and the limits per capacity are in [Direct Lake check](direct-lake-check.md).
+
+### Data dictionary
+
+**Data mesh > Deploy > Semantic model** has a **Data dictionary** card (Preview): every table, column and measure of the layer's model with its description and classification from the catalog. **Export CSV** saves it to Downloads to edit in Excel; **Import descriptions** reads it back and shows every change before saving it to the catalog, as the About card does. A blank cell never erases text. **Update model** then writes the descriptions into the model. Details in [Data dictionary](data-dictionary.md).
 
 ### Approved exceptions
 
@@ -521,6 +533,12 @@ An incident is one record per problem in an environment: a table whose last run 
 
 **The incident page** shows what happened with its evidence and **Open run**, who is told (owner, criticality, and for each agent which Teams route it posts to, its quiet hours and when it escalates), and the history: opened, escalated, acknowledged, notes and resolved.
 
+#### Who's affected (Preview)
+
+For an incident about a metadata table, the incident page shows **Who's affected**: each published data product whose ports in that environment carry the table, the projects linked to those ports, and the people to tell, with why (owns the product, linked a project to it, or follows it). It is one hop: what those projects build from the data isn't traced further. Names that aren't emails are listed but can't be sent a message.
+
+**Tell them** posts one Teams message through the platform's Teams routes (**Settings > Notifications**, kind *Incident reaching data products*) naming those people and products. The message has the incident's title and the products' names, never its notes. A note on the incident records who was told and when. Telling again only posts when someone new is reached. With no platform Teams route set, nothing is posted: **Copy emails** copies the addresses so you can tell them yourself.
+
 **On a workload's page**, **Incidents** lists its active incidents in every environment.
 
 **Numbers, priorities and SLAs.** Every incident now gets a number (`INC-PROD-0042`), a priority from P1 to P4, a timeline, and SLA targets for acknowledging and resolving it; people can also report a problem the app can't see. The list doesn't show these yet. How they work, and how IT sets its own SLA targets: [Incidents and your service desk](incidents.md).
@@ -637,7 +655,7 @@ When your organization's policy file sets one of these, or the `FABRIC_DESKTOP_C
 
 **Settings > Appearance > Layout** sets how much every page shows. Nothing is removed by any of these:
 
-- **Explanations.** **Beside the page** (the default) keeps each page's **How this works** panel, which says what the page reads, what it changes and where results go, in a column on the right. **On request** gives the page that width back: the info button in the title bar opens the same panel as a drawer, and Escape or the button closes it. The button shows only on pages that have a panel.
+- **Explanations.** **On request** (the default) keeps the help out of the way: each page's one-line explanation and its **How this works** panel, which says what the page reads, what it changes and where results go, open together as a drawer from the info button in the title bar. Escape or the button closes it. The button shows only on pages that have help. **Beside the page** puts the explanation under the title and the panel in a column on the right, as before. Confirms before a change always say what they change, whichever you pick.
 - **Preview marks.** **Tags** (the default) marks features still in preview with a Preview tag. **Quiet dots** shows a small orange dot instead; hover it for what it means. Page titles keep the full tag, so you always know when a whole page is in preview.
 - **Density.** **Comfortable** (the default) or **Compact**, which tightens tables, lists, toolbars and cards.
 

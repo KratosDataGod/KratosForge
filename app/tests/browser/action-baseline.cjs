@@ -15,7 +15,7 @@ const SCREENS = [
   { view: "monitor", main: [] },
   { view: "platform", main: [] },
 ];
-const COMMANDS = ["Run all", "Run cell", "Validate", "Publish", "Run in Fabric", "Schedule"];
+const COMMANDS = ["Run all", "Run the selected cell", "Validate", "Publish", "Run in Fabric", "Schedule"];
 
 (async () => {
   const app = await openApp({ engine: { length: 1, includes: (m) => m !== "sign_in" } });
@@ -42,10 +42,10 @@ const COMMANDS = ["Run all", "Run cell", "Validate", "Publish", "Run in Fabric",
         })),
       };
     }, s.main);
+    // Asked from the notebook, where those actions belong.
+    if (s.view === "notebook") out.commandBar = await p.evaluate((labels) => Object.fromEntries(labels.map((l) =>
+      [l, paletteItems(l).some((i) => i.group === "Actions" && i.label.toLowerCase().startsWith(l.toLowerCase()))])), COMMANDS);
   }
-  // Asked from the notebook, where those actions belong.
-  out.commandBar = await p.evaluate((labels) => Object.fromEntries(labels.map((l) =>
-    [l, paletteItems(l).some((i) => i.group === "Actions" && i.label.toLowerCase().startsWith(l.toLowerCase()))])), COMMANDS);
   console.log(JSON.stringify(out, null, 2));
   await app.close();
   process.exit(0);

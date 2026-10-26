@@ -637,6 +637,40 @@ h2.flush { margin: 0; }
 .wh-p-plan { margin: 6px 0; padding-left: 20px; display: flex; flex-direction: column; gap: 2px; }
 .wh-p-import { display: flex; flex-direction: column; gap: 8px; max-width: 520px; }
 .wh-p-import p { margin: 0; }
+/* WH-12: compare the project with the warehouse */
+.wh-cmp { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; padding: 12px 16px; background: var(--surface, #fff);
+  border: 1px solid var(--border); border-radius: 6px; }
+.wh-cmp-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.wh-cmp-head h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.wh-cmp-head .spacer { flex: 1; }
+.wh-cmp-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.wh-cmp-chip { border: 1px solid var(--border-input); background: none; border-radius: 12px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+.wh-cmp-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.wh-cmp-body { display: flex; gap: 12px; flex: 1; min-height: 0; }
+.wh-cmp-list { width: 340px; flex: none; overflow: auto; border: 1px solid var(--border); border-radius: 4px; }
+.wh-cmp-list-head, .wh-cmp-item { display: grid; grid-template-columns: 1fr 130px; gap: 8px; padding: 6px 10px; font-size: 13px; }
+.wh-cmp-list-head { font-weight: 600; color: var(--text-2); border-bottom: 1px solid var(--border); background: var(--bg-2, #faf9f8); }
+.wh-cmp-item { width: 100%; border: 0; border-bottom: 1px solid var(--border); background: none; text-align: left; cursor: pointer; color: inherit; }
+.wh-cmp-item .label { display: inline-flex; gap: 6px; align-items: center; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wh-cmp-item.on { background: var(--accent-soft, #e9eef7); }
+.wh-cmp-state.changed { color: #8a4b00; }
+.wh-cmp-state.only_project { color: var(--success, #107c10); }
+.wh-cmp-state.only_warehouse { color: var(--danger); }
+.wh-cmp-state.same { color: var(--muted); }
+.wh-cmp-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 4px; min-height: 0; }
+.wh-cmp-cols { display: grid; grid-template-columns: 1fr 1fr; font-size: 12px; font-weight: 600; color: var(--text-2); border-bottom: 1px solid var(--border); }
+.wh-cmp-cols > div { padding: 6px 12px; }
+.wh-cmp-cols > div:first-child { border-right: 1px solid var(--border); }
+.wh-cmp-detail { margin: 6px 12px; padding-left: 18px; font-size: 12.5px; }
+.wh-cmp-diff { flex: 1; overflow: auto; font-family: var(--mono); font-size: 12.5px; line-height: 19px; padding: 6px 0; }
+.wh-cmp-row { display: grid; grid-template-columns: 1fr 1fr; }
+.wh-cmp-line { padding: 0 12px; white-space: pre; overflow: hidden; text-overflow: ellipsis; min-height: 19px; }
+.wh-cmp-line:first-child { border-right: 1px solid var(--border); }
+.wh-cmp-line.changed, .wh-cmp-line.added { background: #e6f2e6; }
+.wh-cmp-line.changed:first-child, .wh-cmp-line.removed { background: #fde7e9; }
+.wh-cmp-line.none { background: repeating-linear-gradient(135deg, transparent 0 6px, rgba(0,0,0,.04) 6px 12px); }
+.wh-cmp-actions { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-top: 1px solid var(--border); font-size: 12px; }
+.warehouse-page .sql-main > .wh-cmp { margin-top: 0; }
 /* WH-04: SQL from a template */
 .sqlt-dialog { display: flex; flex-direction: column; }
 .sqlt { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }

@@ -8,7 +8,8 @@ const { playwright, openApp, sqlRunMocks } = require("./harness.cjs");
 
 const WH = { kind: "warehouse", workspace_id: "ws1", workspace_name: "Sales Dev", item_id: "wh1", name: "WH_Gold" };
 const SHOTS = process.env.SCREENSHOT_DIR;
-const PROJECT_METHODS = ["git_init", "wh_projects_list", "wh_project_files", "wh_project_read", "wh_project_save", "wh_project_write"];
+const PROJECT_METHODS = ["git_init", "wh_projects_list", "wh_project_files", "wh_project_read", "wh_project_save", "wh_project_write",
+  "wh_project_compare", "wh_project_diff"];
 
 let app;
 let root;
@@ -124,6 +125,53 @@ test("New object writes a starting script where the layout puts it and opens it"
   await dialog.getByRole("button", { name: "Create file" }).click();
   await dialog.getByText("dbo.vw_Sales is already in the project, in dbo/Views/vw_Sales.sql.").waitFor();
   await dialog.getByRole("button", { name: "Cancel" }).click();
+});
+
+test("Compare lists each object's state, shows the difference and can take the warehouse's version", { skip }, async () => {
+  fs.writeFileSync(file("dbo", "Tables", "DimCustomer.sql"), fs.readFileSync(file("dbo", "Tables", "DimCustomer.sql"), "utf8").replace("varchar(20)", "varchar(40)"));
+  fs.rmSync(file("dbo", "Views", "vw_Sales.sql"));
+  await panel().getByRole("button", { name: "Refresh" }).click();
+  await panel().getByRole("button", { name: "Compare with WH_Gold" }).click();
+  const view = page().locator(".wh-cmp");
+  await view.waitFor();
+  assert.match(await view.locator("h2").textContent(), /Compare the project with WH_Gold \(Dev\)/);
+  assert.match(await view.locator(".wh-cmp-chips").textContent(), /All 5.*Changed 1.*Only in project 1.*Only in warehouse 1.*Same 2/);
+  assert.strictEqual(await page().getByRole("tab", { name: "Compare" }).getAttribute("aria-selected"), "true");
+  await view.locator(".wh-cmp-diff").waitFor();
+  assert.match(await view.locator(".wh-cmp-detail").textContent(), /column Segment: varchar\(20\) NULL in the warehouse, varchar\(40\) NULL in the project/);
+  assert.strictEqual(await view.locator(".wh-cmp-line.changed").count(), 2, "one changed line, both sides");
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "wh-12-compare.png") });
+
+  await view.getByRole("option", { name: /dbo\.vw_Targets/ }).click();
+  await view.locator(".wh-cmp-diff").waitFor();
+  assert.doesNotMatch(await view.locator(".wh-cmp-pane").textContent(), /null/, "no empty part shows as text");
+  await view.getByRole("option", { name: /dbo\.vw_Sales/ }).click();
+  // A file that came in since the compare, at the place vw_Sales would go, is never overwritten without asking.
+  const decoy = "CREATE VIEW dbo.vw_Other AS SELECT 9 AS z\n";
+  fs.writeFileSync(file("dbo", "Views", "vw_Sales.sql"), decoy);
+  await view.getByRole("button", { name: "Take the warehouse's version" }).click();
+  await page().waitForFunction(() => /already holds another script, so dbo\.vw_Sales wasn't written/.test([...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" ")));
+  assert.strictEqual(fs.readFileSync(file("dbo", "Views", "vw_Sales.sql"), "utf8"), decoy);
+  fs.rmSync(file("dbo", "Views", "vw_Sales.sql"));
+  await view.getByRole("button", { name: "Take the warehouse's version" }).dispatchEvent("click");  // under the error toast
+  await page().waitForFunction(() => /Wrote dbo\/Views\/vw_Sales\.sql from WH_Gold/.test([...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" ")));
+  assert.ok(fs.existsSync(file("dbo", "Views", "vw_Sales.sql")));
+  await page().waitForFunction(() => /Only in warehouse 0.*Same 3/.test(document.querySelector(".wh-cmp-chips")?.textContent || ""));
+
+  await view.getByRole("button", { name: "Same 3" }).click();
+  assert.strictEqual(await view.getByRole("option").count(), 3);
+  await view.getByRole("button", { name: "Changed 1" }).click();
+  await view.getByRole("option", { name: /dbo\.DimCustomer/ }).click();
+  await view.getByRole("button", { name: "Take the warehouse's version" }).click();
+  const replace = page().getByRole("dialog", { name: "Take the warehouse's version" });
+  assert.match(await replace.getByRole("button", { name: "Replace" }).getAttribute("class"), /danger/, "replacing a file is a danger confirm");
+  await replace.getByRole("button", { name: "Cancel" }).click();
+  await view.getByRole("button", { name: "Open file" }).click();
+  await page().waitForFunction(() => !document.querySelector(".wh-cmp") && sqlPage.tabs[sqlPage.active].proj?.path === "dbo/Tables/DimCustomer.sql");
+  await page().getByRole("tab", { name: "Compare" }).click();
+  await view.waitFor();
+  await page().getByRole("button", { name: "Close Compare" }).click();
+  assert.strictEqual(await page().getByRole("tab", { name: "Compare" }).count(), 0);
 });
 
 test("a SQL analytics endpoint has no Project tab", { skip }, async () => {

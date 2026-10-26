@@ -162,6 +162,8 @@ function whProject(ref, actions) {
       if (f.data.note) rows.push(h("p", { class: "muted-text wh-note" }, f.data.note));
     }
     rows.push(h("div", { class: "wh-p-actions" },
+      btn(`Compare with ${ref.name}`, "branchCompare", () => whProjectCompare(ref, project), "tool outline small",
+        { title: "Compare the project's files with the warehouse, object by object. Runs catalog queries in Fabric (uses capacity); nothing changes." }),
       btn("New object", "add", () => whProjectNewObject(ref, project, actions, refresh), "tool outline small"),
       btn(`Import from ${ref.name}`, "arrowDownload", () => whProjectImport(ref, project, refresh), "tool outline small",
         { title: "Script the warehouse's objects into the project. Runs catalog queries in Fabric (uses capacity)." }),
@@ -297,4 +299,114 @@ async function whProjectSave(tab) {
     toast(`Couldn't save the file: ${String(err).replace(/^Error: /, "")}`, true);
     return false;
   }
+}
+
+// ---- Compare (WH-12): the project's files beside the warehouse, object by object.
+
+const WH_STATES = [["all", "All"], ["changed", "Changed"], ["only_project", "Only in project"], ["only_warehouse", "Only in warehouse"], ["same", "Same"]];
+const WH_STATE_LABEL = { changed: "Changed", only_project: "Only in project", only_warehouse: "Only in warehouse", same: "Same" };
+
+// Scripts the warehouse and compares it with the project, then shows the compare view.
+async function whProjectCompare(ref, project) {
+  if (!(await warehouseRunOk(ref))) return;
+  toast(`Reading ${ref.name}'s catalog to compare...`);
+  try {
+    const objects = await whScriptWarehouse(ref);
+    const result = await rpc("wh_project_compare", { repo: project.repo, folder: project.folder, objects });
+    const first = result.objects.findIndex((o) => o.state !== "same");
+    sqlPage.whCompare = { key: sqlRefKey(ref), project, result, at: new Date(), filter: "all", picked: Math.max(0, first), objects };
+    sqlPage.whCompareShown = true;
+    renderQuery();
+  } catch (err) {
+    toast(`Could not compare: ${String(err).replace(/^Error: /, "")}`, true);
+  }
+}
+
+const whObjLabel = (o) => (o.kind === "schema" ? o.name : `${o.schema}.${o.name}`);
+
+// The compare view, in place of the editor. actions.open(file, project) opens a project file.
+function whCompareView(ref, actions) {
+  const c = sqlPage.whCompare;
+  const r = c.result;
+  const env = whEnv(ref);
+  const shown = r.objects.map((o, i) => [o, i]).filter(([o]) => c.filter === "all" || o.state === c.filter);
+  const count = (s) => (s === "all" ? r.objects.length : r.counts[s]);
+  const pane = h("div", { class: "wh-cmp-pane" });
+  const branch = sqlPage.whProjectFiles?.[whProjectId(c.project)]?.data?.branch;
+
+  async function drawPane() {
+    const o = r.objects[c.picked];
+    if (!o) { pane.replaceChildren(h("p", { class: "muted-text wh-note" }, "Nothing to show.")); return; }
+    const head = h("div", { class: "wh-cmp-cols" }, h("div", {}, `In ${ref.name} now`),
+      h("div", {}, `In the project${branch ? ` (${branch})` : ""}`));
+    let rows;
+    if (o.state === "same") {
+      pane.replaceChildren(head, h("p", { class: "muted-text wh-note" }, `${whObjLabel(o)} reads the same on both sides (formatting, comments and the case of keywords aside).`), paneActions(o));
+      return;
+    }
+    if (o.state === "changed") {
+      o.rows ||= (await attempt(() => rpc("wh_project_diff", { warehouse_text: o.warehouse_text, project_text: o.project_text }), "Could not show the difference"))?.rows || [];
+      rows = o.rows;
+    } else {
+      const text = (o.state === "only_project" ? o.project_text : o.warehouse_text).replace(/\n+$/, "").split("\n");
+      rows = text.map((line) => (o.state === "only_project" ? { op: "added", left: null, right: line } : { op: "removed", left: line, right: null }));
+    }
+    if (sqlPage.whCompare !== c || r.objects[c.picked] !== o) return;
+    const cell = (text, op) => h("div", { class: `wh-cmp-line ${text === null ? "none" : op}` }, text ?? "");
+    pane.replaceChildren(...[head,
+      o.detail?.length ? h("ul", { class: "wh-cmp-detail" }, o.detail.map((d) => h("li", {}, d))) : null,
+      h("div", { class: "wh-cmp-diff", role: "table", "aria-label": `Difference for ${whObjLabel(o)}` },
+        rows.map((x) => h("div", { class: "wh-cmp-row", role: "row" }, cell(x.left, x.op), cell(x.right, x.op)))),
+      paneActions(o)].filter(Boolean));
+  }
+
+  function paneActions(o) {
+    const p = c.project;
+    return h("div", { class: "wh-cmp-actions" },
+      o.path ? btn("Open file", null, () => actions.open({ path: o.path }, p), "tool small") : null,
+      o.state === "changed" || o.state === "only_warehouse" ? btn("Take the warehouse's version", null, () => takeWarehouse(o), "tool small",
+        { title: o.state === "changed" ? `Replace ${o.path} with ${ref.name}'s version` : `Write ${whObjLabel(o)} into the project` }) : null,
+      o.state === "only_project" ? h("span", { class: "muted-text" }, "Deploy (coming next) can create it in the warehouse.") : null);
+  }
+
+  async function takeWarehouse(o) {
+    if (o.state === "changed" && !(await confirmDialog("Take the warehouse's version",
+      `Replace ${o.path} with ${whObjLabel(o)} as it is in ${ref.name}? Your version stays in Git history only if it was committed.`, "Replace", { danger: true }))) return;
+    const out = await attempt(() => rpc("wh_project_write", { repo: c.project.repo, folder: c.project.folder, replace: o.state === "changed",
+      objects: [{ kind: o.kind, schema: o.schema, name: o.name, text: o.warehouse_text }] }), "Could not write the file");
+    if (!out) return;
+    const row = out.added[0] || out.changed[0] || out.same[0];
+    if (!row) { toast(`Could not write ${whObjLabel(o)}: ${out.skipped[0]?.why || "it was skipped"}`, true); return; }
+    if (row.replaced === "no") {
+      toast(`${row.path} already holds another script, so ${whObjLabel(o)} wasn't written. Open the file to see what's there.`, true);
+      return;
+    }
+    r.counts[o.state] -= 1;
+    r.counts.same += 1;
+    Object.assign(o, { state: "same", path: row.path, project_text: o.warehouse_text, rows: null, detail: [] });
+    toast(`Wrote ${row.path} from ${ref.name}. Commit it in Source control.`);
+    await sqlPage.whProjectView?.refresh();
+    renderQuery();
+  }
+
+  const list = h("div", { class: "wh-cmp-list", role: "listbox", "aria-label": "Objects" },
+    h("div", { class: "wh-cmp-list-head" }, h("span", {}, "Object"), h("span", {}, "State")),
+    shown.length ? shown.map(([o, i]) => h("button", { class: `wh-cmp-item${i === c.picked ? " on" : ""}`, role: "option", "aria-selected": String(i === c.picked),
+      onclick: () => { c.picked = i; renderQuery(); } },
+    h("span", { class: "label", title: WH_KIND_LABELS[o.kind] }, icon(WH_KIND_ICONS[o.kind] || "document", 14), whObjLabel(o)),
+    h("span", { class: `wh-cmp-state ${o.state}` }, o.state === "changed" && o.detail?.length && o.kind === "table" ? "Changed: columns" : WH_STATE_LABEL[o.state])))
+      : h("p", { class: "muted-text wh-note" }, "Nothing in this group."));
+
+  drawPane();
+  return h("div", { class: "wh-cmp" },
+    h("div", { class: "wh-cmp-head" },
+      h("h2", {}, `Compare the project with ${ref.name}${env !== "none" ? ` (${ENV_NAMES[env] || env})` : ""}`),
+      h("span", { class: "muted-text" }, `${c.project.folder} · read from the warehouse catalog at ${c.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · nothing changes`),
+      h("span", { class: "spacer" }),
+      btn("Compare again", "sync", () => whProjectCompare(ref, c.project), "tool outline small")),
+    h("div", { class: "wh-cmp-chips", role: "group", "aria-label": "Show" }, WH_STATES.map(([s, label]) =>
+      h("button", { class: `wh-cmp-chip ${s}${c.filter === s ? " on" : ""}`, "aria-pressed": String(c.filter === s),
+        onclick: () => { c.filter = s; renderQuery(); } }, `${label} ${count(s)}`))),
+    r.unread.length ? h("p", { class: "muted-text wh-note" }, `Not compared: ${r.unread.slice(0, 3).map((u) => `${u.path} (${u.why})`).join("; ")}${r.unread.length > 3 ? `, and ${r.unread.length - 3} more` : ""}.`) : null,
+    h("div", { class: "wh-cmp-body" }, list, pane));
 }

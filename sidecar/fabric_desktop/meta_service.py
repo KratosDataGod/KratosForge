@@ -581,7 +581,7 @@ class MetaMixin:
         uses_keys = bool(project.key_tables or project.source_systems)
         keys_store = self._keys_store(project, target, create=True) if uses_keys else None  # fails before promoting
         result = promote(project, src, target_store, dt.date.today(),
-                         release=release.record(project, source, target, git))
+                         release=release.record(project, source, target, git, self._signed_in_object_id()))
         if keys_store is not None:
             # Each environment issues its own keys; promote copies the source systems and seeds new key tables.
             result["keys"] = keys_mod.sync(project, keys_store)
@@ -657,7 +657,7 @@ class MetaMixin:
         if errors:
             raise GateError("rollback", errors)
         store = self._store(project, env)
-        result = rollback(project, store, version, duties.current_user())
+        result = rollback(project, store, version, duties.current_user(), self._signed_in_object_id())
         released = result.pop("project")
         if self._compute(project, env) == "fabric":  # type: ignore[attr-defined]
             try:  # so scheduled runs in Fabric run the release rolled back to
@@ -704,6 +704,16 @@ class MetaMixin:
             return errors, []
         return [], [f"The release record can't name a pushed commit that holds these files: {'; '.join(found)}"]
 
+    def _signed_in_object_id(self) -> str | None:
+        """The signed-in person's Entra object id, for release records; None when not signed in.
+        Never starts a sign-in."""
+        auth = getattr(self, "_auth", None)
+        try:
+            return getattr(auth, "signed_in_object_id", lambda: None)()
+        except Exception as exc:  # noqa: BLE001 - the record then names the PC login only
+            _log.info("No signed-in object id for the release record: %s", describe_error(exc))
+            return None
+
     def _duties_gate(self, project: Project, source: str, target: str,
                      src: Any = None, separation: bool = True) -> tuple[list[str], list[str]]:
         """Before writing to Test or Prod: the person's workspace roles there, and with
@@ -722,10 +732,14 @@ class MetaMixin:
                         if r.get("env") == source and r.get("version") == project.version] if deps.height else []
             except Exception:  # noqa: BLE001 - promote_checks already says when the source can't be read
                 rows = []
-            problem = duties.separation_problem(source, target, project.version,
-                                                rows[-1].get("by") if rows else None, duties.current_user())
+            last = rows[-1] if rows else {}
+            their_id, my_id = duties.recorded_object_id(last.get("receipt")), self._signed_in_object_id()
+            problem = duties.separation_problem(source, target, project.version, last.get("by"),
+                                                duties.current_user(), their_id, my_id)
             if problem:
                 errors.append(problem)
+            if last and (note := duties.separation_note(their_id, my_id)):
+                notes.append(note)
         if cfg.get("target", "onelake") == "local":
             return errors, notes  # tables on this PC: no workspace roles to check
         auth = getattr(self, "_auth", None)  # already signed in by the store; never start a sign-in here

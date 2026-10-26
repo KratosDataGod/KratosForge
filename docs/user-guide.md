@@ -240,6 +240,10 @@ In a notebook, **Versions** (Home tab > Share) lists the notebook's earlier vers
 
 In a notebook, select lines of a cell's code (or none, for the whole cell) and choose **Add comment** in the cell's **...** menu. **Comments** on the View tab opens a panel with every thread, filtered by **Open** or **Resolved**, with **Go to cell**, **Reply**, **Resolve** and **Reopen**, and **Edit** and **Delete** on your own comments. A badge on a cell counts its open threads. Comments are written into the notebook file on this PC, so they go through Git with it; they aren't published to Fabric, and **@name** only highlights a name (nobody is notified). Each comment keeps its author's account email in the notebook file, so it goes into Git when the notebook is committed. See [Notebook comments](notebook-comments.md).
 
+## Notebook best practices (Preview)
+
+**Best practices** on a notebook's View tab opens a panel that checks the notebook's code cells against the notebook rules (NB001 to NB012) as you type: secrets in code, collect() without a limit, CSV read without a schema, unpinned %pip and the rest. Each finding has its severity, what to do, and **Go to cell** (to the line). Nothing runs and no capacity is used. The governance policies in force for the open project tune the rules: one a policy turns off isn't shown, and a policy can change a rule's severity. See [Notebook best practices](notebook-best-practices.md).
+
 ## Workspaces
 
 Every Fabric workspace you can open. Workspaces has two tabs: **Your workspaces**, below, and **Fabric portal**, which is [Fabric's own portal](#fabric) inside the app.

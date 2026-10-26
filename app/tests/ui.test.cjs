@@ -3687,6 +3687,37 @@ test("cell comments: mentions, selected lines and the panel's rows", () => {
   for (const hook of ["commentBadge(cell)", "commentMenuItems(cell)", "commentsToggle(nb)", "commentsPanel(nb)"]) assert.ok(nb.includes(hook), hook);
 });
 
+// The notebook's Best practices panel (nbpractices.js): the engine's cell numbers map back to the
+// notebook's cells (markdown cells aren't sent), counts by severity, and the panel is wired in.
+test("notebook best practices: cell numbers, counts and wiring", () => {
+  const src = fs.readFileSync(path.join(ui, "nbpractices.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(/const PRACTICE_SEVERITIES = .*\n/.exec(src)[0].replace("const ", "var "), ctx);
+  for (const name of ["practiceSources", "practiceRows", "practiceLabel"]) {
+    vm.runInContext(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`).exec(src)[0], ctx);
+  }
+  const plain = (v) => JSON.parse(JSON.stringify(v));
+  const cells = [{ type: "markdown", source: "# Load" }, { type: "code", source: "rows = df.collect()" },
+    { type: "markdown", source: "note" }, { type: "code", source: "" }];
+  const { sources, at } = ctx.practiceSources(cells);
+  assert.deepStrictEqual(plain(sources), ["rows = df.collect()", ""]);
+  const got = ctx.practiceRows({ findings: [{ rule_id: "NB003", severity: "Warning", cell: 1, line: 1 },
+    { rule_id: "NB001", severity: "Error", cell: 2, line: 3 }] }, at);
+  assert.deepStrictEqual(plain(got.rows.map((f) => [f.rule_id, f.n])), [["NB003", 2], ["NB001", 4]], "engine cell 1 is notebook cell 2");
+  assert.deepStrictEqual(plain(got.counts), { Error: 1, Warning: 1, Info: 0 });
+  assert.strictEqual(ctx.practiceLabel({ open: true, rows: got.rows }), "Best practices · 2");
+  assert.strictEqual(ctx.practiceLabel({ open: false, rows: got.rows }), "Best practices");
+  assert.strictEqual(ctx.practiceLabel(undefined), "Best practices");
+  // Read only: it never runs a cell or writes; findings only ever become text nodes.
+  assert.doesNotMatch(src, /innerHTML|runCell|markDirty|rpc\("(save|run)/);
+  assert.match(src, /rpc\("governance_practice_settings", \{ kind: "notebook" \}\)/);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  for (const hook of ["practicesToggle(nb)", "practicesPanel(nb)"]) assert.ok(nb.includes(hook), hook);
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="nbpractices.js"') > html.indexOf('src="notebook-comments.js"'));
+});
+
 // Notebook parity L3: a notebook's Runs panel lists this PC's scheduled runs and its Fabric runs.
 test("the notebook Runs panel labels each run and offers Refresh status only for Fabric runs still going", () => {
   const src = fs.readFileSync(path.join(ui, "runs.js"), "utf8");

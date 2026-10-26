@@ -2110,7 +2110,7 @@ test("A scheduled run whose Teams alert didn't go out says so in Runs and Schedu
 });
 
 // motion.js with a small stand-in DOM and clock: what Forge animations make, and when they don't.
-function motionHarness({ setting = true, reduced = false, hidden = false, settings = null } = {}) {
+function motionHarness({ setting = true, reduced = false, hidden = false, settings = null, appLoaded = true } = {}) {
   let clock = 0;
   let timers = [];
   let watch = null;
@@ -2153,6 +2153,7 @@ function motionHarness({ setting = true, reduced = false, hidden = false, settin
       return n;
     },
   };
+  if (!appLoaded) delete ctx.state;  // app.js, which declares state, loads after motion.js
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path.join(ui, "motion.js"), "utf8"), ctx);
   ctx.advance = (ms) => {
@@ -2625,6 +2626,15 @@ test("Motion budget: at most three effects at once, each removed on time, the co
   assert.ok(made.slice(0, 3).every((el) => !el.isConnected), "an effect element stayed on the page");
   const strike = ctx.fx(ctx.node(), "wolfrun");
   assert.ok(strike && strike.kids.length >= 2, "the Wolf Run has no runner or trail");
+});
+
+test("Motion under load: a long task before app.js has loaded doesn't throw", () => {
+  // The load watch starts in motion.js, which loads before app.js declares state; a busy start-up
+  // (or a test run under parallel load) reported long tasks in between: "state is not defined".
+  const ctx = motionHarness({ appLoaded: false });
+  assert.doesNotThrow(() => ctx.longTasks(600));
+  assert.strictEqual(ctx.motionDiagnostics().drop, 1);
+  assert.doesNotThrow(() => ctx.advance(30000));  // the cooldown's applyMotion, still before app.js
 });
 
 test("Motion under load: long tasks past the budget drop effects a level for the cooldown, then it comes back", () => {

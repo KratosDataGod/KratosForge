@@ -182,6 +182,10 @@ CHOICES.update({"ui_explanations": ("beside", "on_request"), "ui_preview_marks":
 DEFAULTS.update({"ui_explanations": "on_request", "ui_preview_marks": "tags", "ui_density": "comfortable"})
 TYPES.update({"ui_explanations": str, "ui_preview_marks": str, "ui_density": str})
 USER_KEYS += ("ui_explanations", "ui_preview_marks", "ui_density")
+# Databricks Connect (engines/dbconnect.py): whether the app may install its client from the
+# hash-pinned lock files, and the package index to fetch them from (empty: the default index).
+DEFAULTS.update({"allow_dbconnect_install": True, "dbconnect_index_url": ""})
+TYPES.update({"allow_dbconnect_install": bool, "dbconnect_index_url": str})
 # Read by integrations/policy.py, which decides what each means; listed here so the policy file has
 # one list of settings.
 INTEGRATION_KEYS = ("integrations", "integrations_max_permissions", "integrations_http", "integrations_extensions",
@@ -195,7 +199,8 @@ NO_TENANT = "00000000-0000-0000-0000-000000000000"
 # The restrictions among DEFAULTS, and the value each takes when the policy file or that key can't
 # be read. Updates (auto_update, channel) are enforced by the shell, which reads the file itself.
 RESTRICTED: dict[str, Any] = {"allow_fabric_runs": False, "allowed_tenants": [NO_TENANT], "show_preview": False,
-                              "telemetry": False, "sql_warehouse_writes": False}
+                              "telemetry": False, "sql_warehouse_writes": False,
+                              "allow_dbconnect_install": False}
 
 
 def policy_path() -> Path:

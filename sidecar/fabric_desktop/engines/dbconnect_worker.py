@@ -8,6 +8,7 @@ here, and databricks-connect's pyspark is the only one. This file imports nothin
 
 Sign-in and the cluster come from DATABRICKS_* variables the engine sets (a CLI profile name, the
 host and auth type, or a service principal), read by the Databricks SDK inside databricks-connect.
+Once the session has signed in, any secret among them is removed from os.environ, so cells can't read it.
 
 Protocol, one JSON object per line. In: {"op": "start"}, {"op": "exec", "id", "code", "preview_rows"},
 {"op": "interrupt"}, {"op": "quit"}. Out: {"op": "started", "client", "python"} or {"op": "error"},
@@ -21,12 +22,14 @@ import ast
 import contextlib
 import io
 import json
+import os
 import sys
 import threading
 import traceback
 
 _OUT = sys.stdout
 _SEND = threading.Lock()
+_SECRETS = ("DATABRICKS_CLIENT_SECRET", "DATABRICKS_TOKEN", "DATABRICKS_PASSWORD")
 
 
 def send(message: dict) -> None:
@@ -56,6 +59,9 @@ class Worker:
         import databricks.connect as dbc
         from databricks.connect import DatabricksSession
         self.spark = DatabricksSession.builder.getOrCreate()
+        # The SDK has read its settings; cells needn't see a secret in os.environ.
+        for name in _SECRETS:
+            os.environ.pop(name, None)
         shown: list = []
         self.namespace.update({"spark": self.spark, "display": shown.append})
         self._shown = shown

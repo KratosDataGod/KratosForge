@@ -11,7 +11,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from fabric_desktop import app_settings, connprofiles
 from fabric_desktop.engines import authorization as auth
+from fabric_desktop.engines import databricks_auth as dba
 from fabric_desktop.engines import dbconnect as dbc
 from fabric_desktop.engines import registry
 from fabric_desktop.engines.capabilities import CAPABILITIES, check_cell
@@ -63,6 +65,16 @@ class DatabricksSession:
 '''
 
 
+@pytest.fixture(autouse=True)
+def signed_in(tmp_path, monkeypatch):
+    """A ~/.databrickscfg with the "dev" profile signed in through the CLI, and the CLI on PATH."""
+    cfg = tmp_path / ".databrickscfg"
+    cfg.write_text(f"[dev]\nhost = {HOST}\nauth_type = databricks-cli\n")
+    monkeypatch.setattr(connprofiles, "databricks_config_path", lambda: cfg)
+    monkeypatch.setattr(dbc, "find_cli", lambda environ=None: "/opt/databricks/databricks")
+    return cfg
+
+
 @pytest.fixture
 def runtimes(tmp_path):
     r = dbc.Runtimes(tmp_path)
@@ -101,35 +113,77 @@ def test_versions_are_checked_before_anything_starts():
     assert dbc.check("16.4.x-scala2.12", "16.4.2", "3.12") == []
     assert dbc.check("17.3.x-scala2.13", "17.3.0", "3.12") == []
     assert "Python 3.11" in dbc.check("15.4.x-scala2.12", "15.4.1", "3.12")[0]
+    assert dbc.check("16.3.x-scala2.12", None, "3.12") == [
+        "Databricks Connect for Databricks Runtime 16.3 isn't supported in this version of KratosForge. "
+        "Supported: 16.4, 17.3."]
     assert "isn't installed" in dbc.check("16.4.x-scala2.12", None, "3.12")[0]
     assert "needs 16.4.x" in dbc.check("16.4.x-scala2.12", "16.3.0", "3.12")[0]
     assert "13.3 and later" in dbc.check("12.2.x-scala2.12", "12.2.0", "3.12")[0]
-    assert dbc.check("18.0.x-scala2.13", "18.0.1", "3.12") == [] and dbc.check("19.1.x-scala2.13", "19.1.0", "3.12") == []
+    assert "isn't supported in this version" in dbc.check("18.0.x-scala2.13", "18.0.1", "3.12")[0]
     assert "Update KratosForge" in dbc.check("42.0.x-scala2.13", "42.0.0", "3.12")[0]
     with pytest.raises(Unsupported):
         dbc.runtime_line("custom:latest")
 
 
-def test_installs_go_to_their_own_folder_with_pip_target(tmp_path):
+def test_installs_are_hash_pinned_wheels_from_the_lock_file_in_their_own_folder(tmp_path, monkeypatch):
     seen = []
     r = dbc.Runtimes(tmp_path, python="py", run=lambda cmd, **kw: seen.append((cmd, kw)) or SimpleNamespace(
         returncode=0, stdout="ok", stderr=""))
-    out = r.install("16.4")
+    base = {"PATH": "/bin", "TEMP": "/tmp", "PIP_INDEX_URL": "https://evil.example.com", "PIP_CONFIG_FILE": "/x",
+            "PYTHONPATH": "/evil", "DATABRICKS_TOKEN": "x", "HTTPS_PROXY": "http://proxy:8080"}
+    out = r.install("16.4", base)
     cmd, kw = seen[0]
-    assert cmd[:4] == ["py", "-m", "pip", "install"] and cmd[-1] == "databricks-connect==16.4.*"
-    assert cmd[cmd.index("--target") + 1] == str(tmp_path / "runtimes" / "dbconnect-16.4" / "site-packages")
+    assert cmd[:6] == ["py", "-I", "-m", "pip", "install", "--isolated"]
+    for flag in ("--require-hashes", "--only-binary=:all:", "--no-deps"):
+        assert flag in cmd
+    assert cmd[cmd.index("-r") + 1] == str(dbc.LOCKS / "16.4.txt") and "--index-url" not in cmd
+    folder = str(tmp_path / "runtimes" / "dbconnect-16.4" / "site-packages")
+    assert cmd[cmd.index("--target") + 1] == folder and kw["cwd"] == folder
+    assert kw["env"] == {"PATH": "/bin", "TEMP": "/tmp", "HTTPS_PROXY": "http://proxy:8080"}
     assert kw["timeout"] and out["ok"] and out["version"] is None
     with pytest.raises(ValueError):
         r.folder("../16.4")
+    with pytest.raises(Unsupported, match="Supported: 16.4, 17.3"):
+        r.install("16.3", base)
     slow = dbc.Runtimes(tmp_path, run=lambda *a, **k: (_ for _ in ()).throw(subprocess.TimeoutExpired("pip", 1)))
     assert not slow.install("16.4")["ok"]
 
 
+def test_policy_can_point_installs_at_a_mirror_or_turn_them_off(tmp_path, monkeypatch):
+    seen = []
+    r = dbc.Runtimes(tmp_path, python="py", run=lambda cmd, **kw: seen.append(cmd) or SimpleNamespace(
+        returncode=0, stdout="", stderr=""))
+    values = {"allow_dbconnect_install": True, "dbconnect_index_url": "https://pkgs.contoso.com/pypi/simple"}
+    monkeypatch.setattr(app_settings, "value", lambda key: values[key])
+    r.install("17.3")
+    assert seen[0][seen[0].index("--index-url") + 1] == values["dbconnect_index_url"]
+    assert "--require-hashes" in seen[0]
+    for bad in ("http://pkgs.contoso.com/simple", "https://user:pw@pkgs.contoso.com/simple"):
+        values["dbconnect_index_url"] = bad
+        with pytest.raises(ValueError):
+            r.install("17.3")
+    values["allow_dbconnect_install"] = False
+    with pytest.raises(PermissionError):
+        r.install("17.3")
+    assert len(seen) == 1
+    assert app_settings.RESTRICTED["allow_dbconnect_install"] is False
+
+
+@pytest.mark.parametrize("line", dbc.supported_lines())
+def test_every_lock_file_pins_each_package_to_one_version_with_a_hash(line):
+    text = (dbc.LOCKS / f"{line}.txt").read_text()
+    reqs = [r for r in text.replace("\\\n", " ").splitlines() if r.strip() and not r.lstrip().startswith("#")]
+    assert reqs and any(r.startswith(f"databricks-connect=={line}.") for r in reqs)
+    for r in reqs:
+        name = r.split()[0]
+        assert "==" in name and "--hash=sha256:" in r, name
+
+
 def test_the_process_gets_the_connections_sign_in_and_nothing_inherited():
     base = {"PATH": "/bin", "DATABRICKS_TOKEN": "x", "databricks_host": "y", "PYTHONPATH": "/evil",
-            "SPARK_REMOTE": "sc://evil:443"}
+            "SPARK_REMOTE": "sc://evil:443", "SPARK_CONNECT_USER_AGENT": "x"}
     env = dbc.worker_env(CONN, "c1", base)
-    assert "SPARK_REMOTE" not in env
+    assert "SPARK_REMOTE" not in env and "SPARK_CONNECT_USER_AGENT" not in env
     assert env["DATABRICKS_CONFIG_PROFILE"] == "dev" and env["DATABRICKS_CLUSTER_ID"] == "c1"
     assert "DATABRICKS_TOKEN" not in env and "databricks_host" not in env and "PYTHONPATH" not in env
     env = dbc.worker_env({**CONN, "credential": {"method": "oauth-u2m"}}, "c1", base)
@@ -233,8 +287,9 @@ def test_a_cluster_that_fails_to_connect_reports_and_leaves_no_process(runtimes,
         adapter(runtimes).open_session(SessionConfig("nb", options={"connection": conn}), ok("fail"))
 
 
-def test_the_sdk_gets_the_cli_find_cli_trusts_never_one_in_the_current_folder(tmp_path):
+def test_the_sdk_gets_the_cli_find_cli_trusts_never_one_in_the_current_folder(tmp_path, monkeypatch, signed_in):
     import os
+    monkeypatch.setattr(dbc, "find_cli", dba.find_cli)
     name = "databricks.exe" if sys.platform == "win32" else "databricks"
     real = tmp_path / "bin"
     real.mkdir()
@@ -243,7 +298,15 @@ def test_the_sdk_gets_the_cli_find_cli_trusts_never_one_in_the_current_folder(tm
     env = dbc.worker_env({**CONN, "credential": {"method": "oauth-u2m"}}, "c1",
                          {"PATH": os.pathsep.join([".", str(real)]), "PATHEXT": ".EXE"})
     assert env["DATABRICKS_CLI_PATH"] == str(real / name)
+    # A sign-in through the CLI doesn't start without one find_cli trusts.
+    for cred in ({"method": "oauth-u2m"}, CONN["credential"]):
+        with pytest.raises(DatabricksAuthError, match="Databricks CLI"):
+            dbc.worker_env({**CONN, "credential": cred}, "c1", {"PATH": "."})
+    # A profile with its own token or service principal doesn't need the CLI.
+    signed_in.write_text(f"[dev]\nhost = {HOST}\nclient_id = abc\nclient_secret = s\n")
     assert "DATABRICKS_CLI_PATH" not in dbc.worker_env(CONN, "c1", {"PATH": "."})
+    m2m = {**CONN, "credential": {"method": "oauth-m2m", "client_id": "abc", "secret": "env:SP"}}
+    assert "DATABRICKS_CLI_PATH" not in dbc.worker_env(m2m, "c1", {"PATH": "."}, environ={"SP": "s"})
 
 
 def test_the_folders_pth_files_run_and_its_packages_come_first(runtimes, monkeypatch, tmp_path):
@@ -272,6 +335,18 @@ def test_the_worker_never_loads_the_engines_modules(runtimes, monkeypatch):
             import sys
             sorted(m for m in sys.modules if m.startswith(('fabric_desktop', 'pyspark')) or m in ('contract', 'registry'))
             """), "python"))
+        assert r.outputs == [{"type": "text", "text": "[]"}]
+    finally:
+        s.close()
+
+
+def test_a_service_principals_secret_is_gone_from_the_process_once_signed_in(runtimes, monkeypatch):
+    monkeypatch.setattr(dbc, "RUNTIME_PYTHON", {16: PY})
+    monkeypatch.setenv("SP_SECRET_FOR_TEST", "s3cret")
+    m2m = {**CONN, "credential": {"method": "oauth-m2m", "client_id": "abc", "secret": "env:SP_SECRET_FOR_TEST"}}
+    s = adapter(runtimes).open_session(SessionConfig("nb", options={"connection": m2m}), ok())
+    try:
+        r = s.execute(CellRequest("import os\n[k for k, v in os.environ.items() if 's3cret' in v]", "python"))
         assert r.outputs == [{"type": "text", "text": "[]"}]
     finally:
         s.close()

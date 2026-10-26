@@ -94,6 +94,12 @@ the rest of the cell's Python runs on this PC.
   KratosForge. You install it once per Databricks Runtime line (for example 16.4); KratosForge
   downloads it with pip into a folder of its own and runs each session as a separate process there.
   Opening a session never installs anything.
+- **Pinned packages only.** Each supported runtime line (16.4 and 17.3 in this version) has a lock
+  file in the app naming every package, its exact version and its hash. pip installs only those
+  files, as prebuilt wheels, and refuses any whose hash differs, so a changed or look-alike package
+  never installs. Other runtime lines say they aren't supported in this version. Your organization
+  can point the download at its own package mirror (`dbconnect_index_url`) or turn installs off
+  (`allow_dbconnect_install`) in the [policy file](azure-setup.md).
 - **Checked first.** Before anything starts, KratosForge reads the cluster's runtime and checks it
   against the installed client and this PC's Python. KratosForge's Python is 3.12, so clusters on
   Databricks Runtime 16 and later work. 13.3 to 15.4 need Python 3.10 or 3.11, and the check says so.
@@ -102,7 +108,10 @@ the rest of the cell's Python runs on this PC.
   cluster, or your profile's policy. Closing the session ends the process on this PC, not the cluster.
 - **Sign-in** goes to the process as the Databricks SDK's own settings: your CLI profile's name, or
   the workspace address with the CLI's sign-in, or a service principal whose secret is read from its
-  reference. Databricks variables already set on this PC are left out.
+  reference. Databricks variables already set on this PC are left out. A sign-in through the CLI
+  needs the Databricks CLI on PATH; without it the session doesn't start. A service principal's
+  secret is removed from the process once the session has signed in, but cells still run with that
+  principal's rights in the workspace, so give it only the access the notebook needs.
 - **Limits:** Spark Connect has no RDDs or SparkContext. Results show the first rows only, because
   counting them all would run another Spark job. Cancel stops the session's Spark jobs, not plain
   Python. Serverless compute isn't offered yet.

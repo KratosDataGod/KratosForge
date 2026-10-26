@@ -62,6 +62,8 @@ include = ["fabric_desktop*"]
 [tool.setuptools.package-data]
 # Vendored third-party code ships with its license and notice.
 "fabric_desktop._vendor.ossie_microsoft" = ["LICENSE", "NOTICE", "README.md"]
+# Hash-pinned Databricks Connect requirements, one file per runtime line.
+"fabric_desktop.engines" = ["dbconnect_locks/*.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

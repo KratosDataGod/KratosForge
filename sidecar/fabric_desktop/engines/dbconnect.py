@@ -116,6 +116,10 @@ def check(spark_version: str, client: str | None, python: str = "%d.%d" % sys.ve
     elif needs != python:
         problems.append(f"Databricks Runtime {line} runs Python {needs}; KratosForge's Python is {python}. Use a "
                         "cluster on Databricks Runtime 16 or later.")
+    elif line not in supported_lines():
+        # No pinned lock file, so nothing to install: saying "install it" would be a dead end.
+        return [f"Databricks Connect for Databricks Runtime {line} isn't supported in this version of "
+                f"KratosForge. Supported: {', '.join(supported_lines())}."]
     if not client:
         problems.append(f"databricks-connect {line} isn't installed yet. Install it for this runtime first.")
     elif ".".join(client.split(".")[:2]) != line:
@@ -123,8 +127,26 @@ def check(spark_version: str, client: str | None, python: str = "%d.%d" % sys.ve
     return problems
 
 
+LOCKS = Path(__file__).with_name("dbconnect_locks")
+# What pip may see of this PC: enough to find a temp folder and a proxy, nothing that changes what it
+# installs (PIP_*, PYTHON*, a config file) or that it could pass on.
+_PIP_ENV = ("SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATH", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY")
+
+
+def supported_lines() -> list[str]:
+    """Runtime lines this version can install: each has a hash-pinned requirements file."""
+    return sorted(p.stem for p in LOCKS.glob("*.txt") if re.fullmatch(r"\d{1,2}\.\d{1,2}", p.stem))
+
+
 class Runtimes:
-    """databricks-connect, one folder per runtime line, under ``<data>/runtimes``."""
+    """databricks-connect, one folder per runtime line, under ``<data>/runtimes``.
+
+    Installs are hash-pinned: every package and dependency in ``dbconnect_locks/<line>.txt`` with its
+    sha256, wheels only, no dependency resolution, pip isolated from this PC's pip settings and
+    environment. A changed or substituted file on the index fails the install instead of landing in a
+    folder whose code later runs with the person's Databricks sign-in. A line without a pinned file
+    isn't installable in this version. IT can point installs at an internal mirror
+    (``dbconnect_index_url``; the hashes still apply) or turn them off (``allow_dbconnect_install``)."""
 
     def __init__(self, root: Path, python: str | None = None, run: Callable[..., Any] = subprocess.run):
         self.root = Path(root) / "runtimes"
@@ -145,29 +167,62 @@ class Runtimes:
                 return dist.version
         return None
 
-    def install_command(self, line: str) -> list[str]:
-        return [self.python, "-m", "pip", "install", "--target", str(self.folder(line)), "--upgrade", "--no-input",
-                "--disable-pip-version-check", f"databricks-connect=={line}.*"]
+    def lock(self, line: str) -> Path:
+        self.folder(line)
+        path = LOCKS / f"{line}.txt"
+        if not path.is_file():
+            raise Unsupported(f"Databricks Connect for Databricks Runtime {line} isn't supported in this version of "
+                              f"KratosForge. Supported: {', '.join(supported_lines())}.")
+        return path
 
-    def install(self, line: str) -> dict[str, Any]:
-        """Download databricks-connect for ``line`` from PyPI (or the PC's pip index). Takes minutes."""
-        self.folder(line).mkdir(parents=True, exist_ok=True)
+    def install_command(self, line: str, index_url: str = "") -> list[str]:
+        cmd = [self.python, "-I", "-m", "pip", "install", "--isolated", "--require-hashes", "--only-binary=:all:",
+               "--no-deps", "--upgrade", "--no-input", "--disable-pip-version-check",
+               "--target", str(self.folder(line)), "-r", str(self.lock(line))]
+        if index_url:
+            if not re.fullmatch(r"https://[^\s@]+", index_url):
+                raise ValueError("dbconnect_index_url must be an https address with no user name or password.")
+            cmd += ["--index-url", index_url]
+        return cmd
+
+    def install(self, line: str, base: Mapping[str, str] | None = None) -> dict[str, Any]:
+        """Download databricks-connect for ``line``, hash-checked. Takes minutes."""
+        from .. import app_settings
+        if app_settings.value("allow_dbconnect_install") is False:
+            raise PermissionError("Your organization doesn't allow installing Databricks Connect from KratosForge.")
+        command = self.install_command(line, str(app_settings.value("dbconnect_index_url") or ""))
+        folder = self.folder(line)
+        folder.mkdir(parents=True, exist_ok=True)
+        env = {k: v for k, v in (os.environ if base is None else base).items() if k.upper() in _PIP_ENV}
         try:
-            done = self._run(self.install_command(line), capture_output=True, text=True, timeout=INSTALL_SECONDS,
+            done = self._run(command, capture_output=True, text=True, timeout=INSTALL_SECONDS, env=env, cwd=str(folder),
                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), check=False)
         except subprocess.TimeoutExpired:
             return {"ok": False, "log": f"pip didn't finish within {INSTALL_SECONDS // 60} minutes, so it was stopped."}
+        from .. import redact
         return {"ok": done.returncode == 0, "version": self.installed(line),
-                "log": ((done.stdout or "") + (done.stderr or ""))[-20000:]}
+                "log": redact.secrets(((done.stdout or "") + (done.stderr or ""))[-20000:])}
+
+
+def _uses_cli(cred: dict[str, Any], cfg_path: Path | None = None) -> bool:
+    """Whether this sign-in gets its token from the Databricks CLI (so the CLI must be found first)."""
+    method = cred.get("method") or "oauth-u2m"
+    if method == "oauth-u2m":
+        return True
+    if method != "cli-profile":
+        return False
+    from .databricks_auth import _cfg_section
+    section = _cfg_section(str(cred.get("profile") or ""), cfg_path)
+    return not (section.get("token") or (section.get("client_id") and section.get("client_secret")))
 
 
 def worker_env(connection: dict[str, Any], cluster_id: str, base: Mapping[str, str] | None = None,
-               environ: Mapping[str, str] | None = None) -> dict[str, str]:
+               environ: Mapping[str, str] | None = None, cfg_path: Path | None = None) -> dict[str, str]:
     """The process's environment: this PC's, minus any DATABRICKS_* or PYTHON* variable, plus the
     connection's sign-in and the cluster. A service principal's secret is read from its reference here."""
-    # SPARK_REMOTE too: databricks-connect connects to it before reading the SDK's settings.
+    # SPARK_REMOTE and SPARK_CONNECT_* too: databricks-connect reads them before the SDK's settings.
     env = {k: v for k, v in (os.environ if base is None else base).items()
-           if not k.upper().startswith(("DATABRICKS_", "PYTHON", "SPARK_REMOTE"))}
+           if not k.upper().startswith(("DATABRICKS_", "PYTHON", "SPARK_REMOTE", "SPARK_CONNECT_"))}
     host = check_host(connection.get("host") or "")
     cred = connection.get("credential") or {}
     method = cred.get("method") or "oauth-u2m"
@@ -176,6 +231,10 @@ def worker_env(connection: dict[str, Any], cluster_id: str, base: Mapping[str, s
     cli = find_cli(base)
     if cli:
         env["DATABRICKS_CLI_PATH"] = cli
+    elif method in ("oauth-u2m", "cli-profile") and _uses_cli(cred, cfg_path):
+        # Without it the SDK would look for the CLI itself, current folder included.
+        raise DatabricksAuthError("This sign-in uses the Databricks CLI, which isn't installed or isn't on PATH. "
+                                  "Install it from https://docs.databricks.com/dev-tools/cli/install.html.")
     if method == "cli-profile":
         if not cred.get("profile"):
             raise DatabricksAuthError("Name the Databricks CLI profile to use.")
@@ -187,6 +246,11 @@ def worker_env(connection: dict[str, Any], cluster_id: str, base: Mapping[str, s
             raise DatabricksAuthError("OAuth machine-to-machine needs client_id and a secret reference.")
         env |= {"DATABRICKS_AUTH_TYPE": "oauth-m2m", "DATABRICKS_CLIENT_ID": str(cred["client_id"]),
                 "DATABRICKS_CLIENT_SECRET": resolve_secret(str(cred["secret"]), environ)}
+        # The variable the reference names would otherwise reach the cells, where the worker can't
+        # know to remove it.
+        kind, _, name = str(cred["secret"]).partition(":")
+        if kind == "env":
+            env = {k: v for k, v in env.items() if k.upper() != name.upper()}
     else:
         raise DatabricksAuthError(f"Unknown Databricks sign-in method {method!r}.")
     return env

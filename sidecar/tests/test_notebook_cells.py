@@ -30,3 +30,12 @@ def test_every_run_path_uses_the_shared_test():
         text = (root / path).read_text(encoding="utf-8")
         assert "notebook_cells.runs(" in text, path
         assert '.get("frozen")]' not in text, path
+
+
+def test_the_skipped_step_is_named_by_its_cell_number():
+    cells = [{"type": "markdown", "source": "# T"}, {"source": "x = 1"},
+             {"source": "spark.sql('...')", "meta": {"fabric_step": True}}]
+    assert notebook_cells.step_cell(cells) == 3
+    assert notebook_cells.skipped_step(cells).startswith("Cell 3 is marked Run on Fabric")
+    cells[2]["meta"]["frozen"] = True  # a frozen step runs nowhere, so nothing is skipped for it
+    assert notebook_cells.step_cell(cells) is None and notebook_cells.skipped_step(cells) == ""

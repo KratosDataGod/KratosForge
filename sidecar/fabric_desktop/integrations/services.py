@@ -240,6 +240,22 @@ def export_pipeline(svc: Any, ctx: CallContext, definition: str, format: str = "
     return svc.pipeline_export(text=definition, format=format or None)
 
 
+def list_semantic_models(svc: Any, ctx: CallContext, env: str = "test") -> dict[str, Any]:
+    """The semantic models in a metadata environment's workspace."""
+    return svc.meta_model_ossie_models(env)
+
+
+def export_semantic_model_ossie(svc: Any, ctx: CallContext, env: str, name: str, translate_dax: bool = True) -> dict[str, Any]:
+    """A semantic model as Apache Ossie YAML, with counts and what isn't portable. Writes no file."""
+    return svc.meta_model_ossie_export(env, name, translate_dax)
+
+
+def preview_ossie_import(svc: Any, ctx: CallContext, env: str, text: str, name: str = "", mode: str = "update",
+                         remove: list[str] | None = None) -> dict[str, Any]:
+    """What importing an Ossie document would change in a semantic model. Writes nothing."""
+    return svc.meta_model_ossie_preview(env, text, name, mode, remove or [])
+
+
 def check_run_risk(svc: Any, ctx: CallContext, workload_id: str, action: str, env: str = "") -> dict[str, Any]:
     """The predeployment risk check (FINOPS-004) for one action on one workload."""
     return svc.risk_check(workload_id, action, env or None)
@@ -368,16 +384,17 @@ def execute_python(svc: Any, ctx: CallContext, code: str, workspace_id: str = ""
 NOTEBOOK_CHANGED = "The notebook changed after it was approved. Ask again."
 
 
-def _notebook_code(svc: Any, name: str, workspace_id: str) -> tuple[list[str], dict[str, Any] | None]:
-    """The code cells a run of the saved notebook would run, and its lakehouse."""
+def _notebook_code(svc: Any, name: str, workspace_id: str) -> tuple[list[str], dict[str, Any] | None, str]:
+    """The code cells a run of the saved notebook would run, its lakehouse, and what it skips (a
+    cell marked Run on Fabric runs only on Fabric Spark)."""
     nb = svc.notebooks.load(name)
     lakehouse = nb.get("lakehouse") or None
     if lakehouse and lakehouse.get("workspace_id") != workspace_id:
         raise ValueError(f"{name} reads a lakehouse in workspace {lakehouse.get('workspace_id')}; pass that as workspace_id.")
-    cells = [c.get("source") or "" for c in nb["cells"] if notebook_cells.runs(c)]
+    cells = [c.get("source") or "" for c in nb["cells"] if notebook_cells.runs(c, skip_fabric_step=True)]
     if not cells:
         raise ValueError(f"{name} has no code to run.")
-    return cells, lakehouse
+    return cells, lakehouse, notebook_cells.skipped_step(nb["cells"])
 
 
 def _cells_sha256(cells: list[str]) -> str:
@@ -387,7 +404,7 @@ def _cells_sha256(cells: list[str]) -> str:
 def bind_notebook(svc: Any, arguments: dict[str, Any]) -> dict[str, Any]:
     """Read before the person approves a run: the code cells, their SHA-256 and the lakehouse, so
     the approval shows the code and is bound to this version of the notebook (Capability.bind)."""
-    cells, lakehouse = _notebook_code(svc, arguments["name"], arguments.get("workspace_id", ""))
+    cells, lakehouse, _ = _notebook_code(svc, arguments["name"], arguments.get("workspace_id", ""))
     return {"cells": cells, "cells_sha256": _cells_sha256(cells), "lakehouse_id": (lakehouse or {}).get("lakehouse_id", "")}
 
 
@@ -399,14 +416,14 @@ def run_notebook(svc: Any, ctx: CallContext, name: str, workspace_id: str = "", 
     read and the person approved: exactly those cells run, and only if the saved notebook still
     matches them."""
     from .executions import Execution
-    current, lakehouse = _notebook_code(svc, name, workspace_id)
+    current, lakehouse, skipped = _notebook_code(svc, name, workspace_id)
     if (_cells_sha256(cells) != cells_sha256 or _cells_sha256(current) != cells_sha256
             or (lakehouse or {}).get("lakehouse_id", "") != lakehouse_id):
         raise IntegrationError("approval_required", NOTEBOOK_CHANGED, retryable=True,
                                hint="Call again so the person can approve the notebook as it is now.")
     mgr = _executions(svc)
     run = Execution("notebook", ctx.caller.client_id, name, {"notebook": name, "workspace_id": workspace_id}, timeout_seconds)
-    return mgr.start(run, lambda r: mgr.run_cells(r, list(cells), lakehouse, notebook=name), ctx, wait_seconds)
+    return mgr.start(run, lambda r: mgr.run_cells(r, list(cells), lakehouse, notebook=name, skipped=skipped), ctx, wait_seconds)
 
 
 def get_execution_status(svc: Any, ctx: CallContext, execution_id: str, wait_seconds: float = 0) -> dict[str, Any]:

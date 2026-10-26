@@ -92,13 +92,13 @@ def test_motion_level_defaults_to_refined_saved_checked_and_lockable(dirs):
     assert "motion_level must be between 0 and 3" in app_settings.policy_problems()
 
 
-def test_layout_choices_default_to_everything_showing_and_take_only_their_choices(dirs):
+def test_layout_choices_default_to_help_on_request_and_take_only_their_choices(dirs):
     loaded = app_settings.load()
     assert [loaded[k] for k in ("ui_explanations", "ui_preview_marks", "ui_density")] == [
-        {"value": "beside", "source": "default"}, {"value": "tags", "source": "default"},
+        {"value": "on_request", "source": "default"}, {"value": "tags", "source": "default"},
         {"value": "comfortable", "source": "default"}]
-    saved = app_settings.save({"ui_explanations": "on_request", "ui_preview_marks": "dots", "ui_density": "compact"})
-    assert [saved[k]["value"] for k in ("ui_explanations", "ui_preview_marks", "ui_density")] == ["on_request", "dots", "compact"]
+    saved = app_settings.save({"ui_explanations": "beside", "ui_preview_marks": "dots", "ui_density": "compact"})
+    assert [saved[k]["value"] for k in ("ui_explanations", "ui_preview_marks", "ui_density")] == ["beside", "dots", "compact"]
     with pytest.raises(ValueError, match="beside, on_request"):
         app_settings.save({"ui_explanations": "hidden"})
     dirs.write_text(json.dumps({"ui_density": "tiny"}))

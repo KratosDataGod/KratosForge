@@ -128,7 +128,7 @@ class ValidateMixin:
                 u = plan["uncontained"][0]
                 raise PermissionError(f"Confirm to continue. Cell {u['cell']}: {u['text']}")
             static = validate.check(cells, lakehouse_ref, _runs_on(runs_on), self._fabric_observed())  # type: ignore[attr-defined]
-            code = [(n, c) for n, c in enumerate(cells, 1) if notebook_cells.runs(c)]
+            code = [(n, c) for n, c in enumerate(cells, 1) if notebook_cells.runs(c, skip_fabric_step=True)]
             rid = "validate-" + time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
             record: dict[str, Any] = {
                 "id": rid, "name": name,
@@ -298,6 +298,8 @@ class ValidateMixin:
             "cancelled": "Cancelled. Nothing was written to the lakehouse's tables.",
             "error": "The clean run couldn't finish.",
         }.get(run["status"], "")
+        if run["status"] in ("ok", "failed") and (skipped := notebook_cells.skipped_step(cells)):
+            record["summary"] += " " + skipped
         record["cell"] = None
         record["finished_at"] = _now()
         modules = sorted({m["module"] for c in cells if c.get("type") != "markdown"

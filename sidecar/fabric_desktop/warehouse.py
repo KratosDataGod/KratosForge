@@ -61,8 +61,9 @@ PROGRESS_SECONDS = 0.25
 LOGIN_TIMEOUT_S = 60
 _OUTSIDE = {"openrowset", "openquery", "opendatasource"}
 _GO = re.compile(r"^[ \t]*GO[ \t]*;?[ \t]*$", re.IGNORECASE | re.MULTILINE)
-_COMMENTS_AND_TEXT = re.compile(r"--[^\n]*|/\*.*?\*/|N?'(?:[^']|'')*'", re.DOTALL)
-_QUOTED_NAME = re.compile(r"\[((?:[^\]]|\]\])*)\]|\"((?:[^\"]|\"\")*)\"")
+# Comments, strings and quoted names in one left-to-right pass, so whichever starts first wins: a
+# quote inside [it's] or -- inside [a--b] is part of the name, and a [ inside a string is text.
+_TOKENS = re.compile(r"--[^\n]*|/\*.*?\*/|N?'(?:[^']|'')*'|\[((?:[^\]]|\]\])*)\]|\"((?:[^\"]|\"\")*)\"", re.DOTALL)
 _DEFINES = re.compile(r"^\s*(?:CREATE|ALTER|CREATE\s+OR\s+ALTER)\s+(PROC|PROCEDURE|FUNCTION|TRIGGER|VIEW)\b\s*([^\s(]*)",
                       re.IGNORECASE)
 # What a change may never do, looked for in each batch's text with comments and strings taken out,
@@ -71,14 +72,15 @@ _DEFINES = re.compile(r"^\s*(?:CREATE|ALTER|CREATE\s+OR\s+ALTER)\s+(PROC|PROCEDU
 # quoted names unwrapped, so [sys].[sp_executesql] is still sp_executesql.
 _TRANSACTION = "the run is one transaction the app commits: leave out BEGIN TRAN, COMMIT and ROLLBACK"
 _PERMISSIONS = "permissions, roles and users are managed in Fabric"
+_AS_NAME = "; a column or table with that name is written in brackets, such as [{}]"
 _DYNAMIC = "it runs SQL made from text, which can't be checked before it runs"
 _NEVER_WORDS = [(re.compile(p, re.IGNORECASE), why) for p, why in (
     (r"\b(?:BEGIN\s+TRAN(?:SACTION)?|BEGIN\s+DISTRIBUTED|COMMIT|ROLLBACK|SAVE\s+TRAN(?:SACTION)?)\b", _TRANSACTION),
     (r"\bEXEC(?:UTE)?\s*\(|\bEXEC(?:UTE)?\s+(?:@\w+\s*=\s*)?@\w+\b(?!\s*=)", _DYNAMIC),
     (r"\bEXEC(?:UTE)?\s+AS\b|\bREVERT\b|\bSETUSER\b", "it runs as someone else; it runs as you"),
-    (r"\b(?:GRANT|REVOKE|DENY|AUTHORIZATION)\b|\b(?:CREATE|ALTER|DROP)\s+(?:ROLE|USER|LOGIN|APPLICATION\s+ROLE)\b",
-     _PERMISSIONS),
-    (r"\bUSE\b", "USE switches to another database: open that warehouse instead"),
+    (r"\b(?:GRANT|REVOKE|DENY|AUTHORIZATION)\b", _PERMISSIONS + _AS_NAME.format("Grant")),
+    (r"\b(?:CREATE|ALTER|DROP)\s+(?:ROLE|USER|LOGIN|APPLICATION\s+ROLE)\b", _PERMISSIONS),
+    (r"\bUSE\b", "USE switches to another database: open that warehouse instead" + _AS_NAME.format("Use")),
     (r"\bCOPY\s+INTO\b", "COPY INTO loads files, which comes with loading data"),
     (r"\b(?:CREATE|ALTER|DROP)\s+DATABASE\b", "a database is created, changed or removed in Fabric"),
 )]
@@ -161,6 +163,21 @@ def _reads_outside(st: exp.Expression) -> str:
     return f"{outside.upper()} reads outside the warehouse" if outside else ""
 
 
+def _bare_and_names(batch: str) -> tuple[str, str]:
+    """The batch with comments and strings blanked, twice: ``bare`` with each quoted name as a
+    placeholder (for words, so a column called [User] is fine), ``names`` with each unwrapped (for
+    procedure names, so [sys].[sp_executesql] is still sp_executesql)."""
+    def quoted(m: re.Match[str]) -> bool:
+        return m.group(0)[:1] in "[\""
+
+    def unwrap(m: re.Match[str]) -> str:
+        if not quoted(m):
+            return " "
+        return m.group(1).replace("]]", "]") if m.group(0)[0] == "[" else m.group(2).replace('""', '"')
+
+    return (_TOKENS.sub(lambda m: " x " if quoted(m) else " ", batch), _TOKENS.sub(unwrap, batch))
+
+
 def _change_verdicts(query: str) -> list[sql_policy.Verdict]:
     parts = batches(query)
     if not parts:
@@ -168,9 +185,7 @@ def _change_verdicts(query: str) -> list[sql_policy.Verdict]:
     out: list[sql_policy.Verdict] = []
     for batch in parts:
         n = len(out) + 1
-        text = _COMMENTS_AND_TEXT.sub(" ", batch)
-        bare = _QUOTED_NAME.sub(" ", text)
-        names = _QUOTED_NAME.sub(lambda m: (m.group(1) if m.group(1) is not None else m.group(2)), text)
+        bare, names = _bare_and_names(batch)
         outside = next((f for f in _OUTSIDE if re.search(rf"\b{f}\b", names, re.IGNORECASE)), "")
         if outside:
             out.append(sql_policy.Verdict(n, "fabric_mutation", f"{outside.upper()} reads outside the warehouse"))

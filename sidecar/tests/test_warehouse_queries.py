@@ -476,10 +476,28 @@ def test_the_setting_is_on_by_default_and_a_broken_policy_turns_it_off(tmp_path,
     ("UPDATE OtherWH.dbo.t SET a = 1", "fabric_mutation", "OtherWH.dbo.t is in another database"),
     ("EXEC OtherWH.dbo.load", "fabric_mutation", "OtherWH.dbo.load is in another database"),
     ("INSERT INTO dbo.t SELECT * FROM OPENROWSET(BULK 'x') AS r", "fabric_mutation", "OPENROWSET reads outside"),
+    # Whichever of a comment, a string or a quoted name starts first wins, so none hides the rest.
+    ("CREATE PROCEDURE p AS BEGIN SELECT 1 AS [it's] GRANT SELECT ON dbo.t TO [x] SELECT 'z' END", "fabric_mutation",
+     "permissions, roles and users"),
+    ("CREATE PROCEDURE p AS BEGIN SELECT 1 AS [a--b] COMMIT END", "fabric_mutation", "the run is one transaction"),
+    ("CREATE PROCEDURE p AS BEGIN SELECT 1 AS [a/*b] COMMIT SELECT 1 AS [c*/d] END", "fabric_mutation",
+     "the run is one transaction"),
+    ('CREATE PROCEDURE p AS BEGIN SELECT 1 AS "it\'s" USE OtherWH SELECT \'z\' END', "fabric_mutation",
+     "open that warehouse instead"),
+    ("CREATE PROCEDURE p AS BEGIN SELECT 1 AS [x]]'y] EXEC sp_executesql N'COMMIT' END", "fabric_mutation",
+     "SQL made from text"),
+    ("UPDATE dbo.t SET a = '[' GRANT CONTROL TO someone SELECT ']'", "fabric_mutation", "permissions, roles and users"),
+    ("UPDATE dbo.t SET a = 1 -- [\nGRANT CONTROL TO someone -- ]", "fabric_mutation", "permissions, roles and users"),
+    ("SELECT 1 AS [it's], 'GRANT' AS [b--c], [Use] FROM dbo.t", "read_only", "reads"),
 ])
 def test_what_a_change_may_do(query, kind, says):
     v = warehouse.verdicts(query, writes=True)
     assert v[0].kind == kind and says in v[0].reason, v
+
+
+def test_a_word_refused_as_a_name_says_how_to_write_it():
+    assert "written in brackets, such as [Use]" in warehouse.verdicts("SELECT Use FROM dbo.t", writes=True)[0].reason
+    assert "such as [Grant]" in warehouse.verdicts("SELECT Deny FROM dbo.t", writes=True)[0].reason
 
 
 def test_go_lines_split_a_script_into_batches():

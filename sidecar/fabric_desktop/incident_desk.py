@@ -17,9 +17,14 @@ import polars as pl
 from . import app_settings
 from .meta.project import ENVIRONMENTS
 from .optimize import setup
-from .workloads import model, sla
+from . import governance_notices as notices
+from .central import core
+from .workloads import impact, model, sla
 from .workloads.incident_history import FAMILY, Sent, event_rows, snapshot_rows
 from .workloads.incidents import ACTIVE, PRIORITIES, PRIORITY_LABELS, default_priority
+
+
+_TOLD = "Told downstream in Teams:"
 
 
 class IncidentDeskMixin:
@@ -68,6 +73,56 @@ class IncidentDeskMixin:
 
     def incident_set_priority(self, env: str, id: str, priority: str, note: str) -> dict[str, Any]:
         return self._incident_log(env).set_priority(id, priority, self._incident_user(), note)  # type: ignore[attr-defined]
+
+    # ---- who an incident reaches (workloads/impact.py)
+
+    def _incident(self, env: str, id: str) -> dict[str, Any]:
+        found = next((i for i in self._incident_log(env).list() if i["id"] == id), None)  # type: ignore[attr-defined]
+        if found is None:
+            raise LookupError("That incident isn't in the list any more.")
+        return found
+
+    def _followers(self, product_ids: list[str]) -> dict[str, list[str]]:
+        """Each product's followers, on a platform that keeps them; none on one that doesn't."""
+        if "product_followers" not in core.OPERATIONS:
+            return {}
+        out: dict[str, list[str]] = {}
+        for pid in product_ids:
+            try:
+                out[pid] = self._catalog().call("product_followers", product_id=pid)  # type: ignore[attr-defined]
+            except (core.PlatformError, LookupError):  # an older UDF_Platform: owners and links still count
+                return {}
+        return out
+
+    def incident_impact(self, env: str, id: str) -> dict[str, Any]:
+        """The data products built on this incident's workload in its environment, the projects
+        that read them and the people to tell. Read only. ``available`` is false for an incident
+        that isn't about a metadata table, with the reason."""
+        inc = self._incident(env, id)
+        where = impact.workload_entity(inc.get("workload"))
+        if where is None:
+            return {"available": False, "reason": "This incident isn't about a table, so no data product is built on it."}
+        products = self._catalog().call("list_products")  # type: ignore[attr-defined]
+        first = impact.blast_radius(products, *where, env)
+        out = impact.blast_radius(products, *where, env, self._followers([p["id"] for p in first["products"]]),
+                                  me=self._wl_user() or "")  # type: ignore[attr-defined]
+        told = [n for n in inc.get("notes") or [] if str(n.get("text", "")).startswith(_TOLD)]
+        return out | {"available": True, "told": told[-1] if told else None}
+
+    def incident_tell_impacted(self, env: str, id: str) -> dict[str, Any]:
+        """Post one Teams notice naming the people this incident reaches, through the platform's
+        Teams routes, and note on the incident who was told. Nothing else changes."""
+        inc = self._incident(env, id)
+        found = self.incident_impact(env, id)
+        if not found["available"] or not found["people"]:
+            raise ValueError("Nobody downstream to tell: no published data product is built on this table here.")
+        out = self.platform_notify([notices.incident_impact(inc, found)])  # type: ignore[attr-defined]
+        result = (out.get("events") or [{}])[0]
+        if result.get("result") == "skipped":
+            return {"told": False, "reason": result.get("reason") or out.get("skipped") or "", "people": found["people"]}
+        upns = [p["upn"] for p in found["people"]]
+        self._incident_log(env).note(id, f"{_TOLD} {', '.join(upns)}", self._incident_user())  # type: ignore[attr-defined]
+        return {"told": True, "result": result.get("result"), "routes": result.get("routes") or [], "people": found["people"]}
 
     # ---- history in the central lakehouse
 

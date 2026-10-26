@@ -261,7 +261,80 @@ async function renderIncident() {
     h("div", { class: "wl-grid inc-grid" },
       h("section", { class: "card pad" }, h("h2", {}, "What happened"), incWhatHappened(inc)),
       h("section", { class: "card pad" }, h("h2", {}, "Who is told"), incWhoIsTold(inc, list))),
+    incImpactCard(inc, reload),
     h("section", { class: "card pad" }, h("h2", {}, "History"), incHistory(inc))));
+}
+
+// ---------- who it reaches: data products on this table and the projects that read them ----------
+
+function incImpactCard(inc, reload) {
+  if (!inc.workload || !inc.workload.startsWith("meta:")) return null;
+  const head = () => h("h2", {}, "Who's affected", " ", previewTag());
+  const box = h("section", { class: "card pad inc-impact" }, head(), h("p", { class: "muted-text" }, "Reading the data mesh..."));
+  rpc("incident_impact", { env: inc.env, id: inc.id }).then((out) => {
+    if (!box.isConnected) return;
+    box.replaceChildren(head(), ...incImpactBody(inc, out, reload));
+  }).catch((err) => box.isConnected && box.replaceChildren(head(),
+    h("p", { class: "reason" }, `Couldn't read the data mesh: ${friendlyError(err).text}`)));
+  return withHowItWorks(box, howItWorks("incidents.impact", {
+    reads: "The platform's catalog: data products whose ports in this environment publish this table, the projects linked to those ports, and who follows each product.",
+    changes: ["Tell them posts one Teams message through the platform's Teams routes (Settings > Notifications), naming the people below and the products. ",
+      "It also adds a note to this incident saying who was told, with your name and the time. Nothing runs and no data changes."],
+    results: "The people below read about it in the Teams channel the route posts to. Telling again only posts when someone new is reached.",
+    more: [["One hop", "It shows the projects that link to these products. What those projects build from the data isn't traced further."]],
+    anchor: "whos-affected-preview",
+  }));
+}
+
+function incImpactBody(inc, out, reload) {
+  if (!out.available) return [h("p", { class: "muted-text" }, out.reason)];
+  if (!out.products.length) {
+    return [h("p", { class: "muted-text" }, `No published data product in ${envName(inc.env)} is built on ${out.entity}, so nobody downstream reads it through the mesh.`)];
+  }
+  const products = h("table", { class: "mini inc-impact-products" }, h("tbody", {}, out.products.map((p) => h("tr", { "data-product": p.id },
+    h("td", {}, h("b", {}, p.name), h("div", { class: "muted-text small" }, `Port ${p.ports.join(", ")}${p.owner ? ` · owner ${p.owner}` : ""}`)),
+    h("td", {}, p.consumers.length ? `Read by ${p.consumers.join(", ")}` : h("span", { class: "muted-text" }, "No project links to it yet")),
+    h("td", {}, btn("Open product", null, () => openImpactProduct(p.id), "tool link small"))))));
+  const people = out.people.length ? h("ul", { class: "inc-impact-people" }, out.people.map((p) => h("li", {},
+    h("b", {}, p.upn), h("span", { class: "muted-text small" }, ` · ${p.why.join("; ")}`))))
+    : h("p", { class: "muted-text" }, "Nobody to tell but you.");
+  const told = out.told ? h("p", { class: "muted-text small" }, `Told in Teams ${relTime(out.told.at)} by ${out.told.by}.`) : null;
+  const unreachable = out.unreachable.length ? h("p", { class: "muted-text small" },
+    `Not an email, so not in the message: ${out.unreachable.join(", ")}.`) : null;
+  const upns = out.people.map((p) => p.upn);
+  const actions = upns.length ? h("div", { class: "row wrap" },
+    btn(out.told ? "Tell them again" : "Tell them", "comment", () => tellImpacted(inc, out, reload), "tool primary small"),
+    btn("Copy emails", "copyArrowRight", () => navigator.clipboard.writeText(upns.join("; ")).then(
+      () => toast(`Copied ${upns.length} ${upns.length === 1 ? "email" : "emails"}.`), () => toast("Couldn't copy the emails.", true)), "tool outline small")) : null;
+  return [h("p", { class: "sub" }, `${out.products.length} data ${out.products.length === 1 ? "product is" : "products are"} built on ${out.entity} in ${envName(inc.env)}.`),
+    products, h("h3", {}, "People to tell"), people, unreachable, told, actions];
+}
+
+async function openImpactProduct(id) {
+  const out = await platformCall("platform_products", {}, "Could not read the catalog");
+  const prod = out?.products.find((x) => x.id === id);
+  if (!prod) return;
+  productsPage.open = prod; catalogPage.tab = "products"; go("onelake");
+}
+
+function tellImpacted(inc, out, reload) {
+  const n = out.people.length;
+  confirmDialog(`Tell ${n} ${n === 1 ? "person" : "people"} about ${inc.title}?`,
+    `Posts one Teams message through the platform's Teams routes, naming ${out.people.map((p) => p.upn).join(", ")} and the data products it reaches. `
+      + "The message has the incident's title and the products' names, not its notes. A note on this incident records who was told.",
+    "Tell them").then(async (ok) => {
+    if (!ok) return;
+    const res = await attempt(() => rpc("incident_tell_impacted", { env: inc.env, id: inc.id }), "Couldn't tell them");
+    if (!res) return;
+    if (!res.told) {
+      toast(res.reason === "already posted" ? "Already told these people about this incident."
+        : `Not posted: ${res.reason}. Copy the emails and tell them yourself.`, res.reason !== "already posted");
+      return;
+    }
+    toast(res.result === "sent" ? `Told ${n} ${n === 1 ? "person" : "people"} in Teams.`
+      : res.result === "held" ? "Held for quiet hours; it goes out after them." : "Teams couldn't be reached; it's queued and will be sent.");
+    reload();
+  });
 }
 
 function incWhatHappened(inc) {

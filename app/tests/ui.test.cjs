@@ -5067,6 +5067,22 @@ test("the Ossie card exports, previews and imports only after a confirm, and hid
   assert.match(card, /OSSIE_MAX_BYTES/, "a file too large to be a model is refused before it's read");
 });
 
+test("the Direct Lake check is a Preview card that only reads, with fixes that open where the change is made", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const card = meta.split("function directLakeCard(plan, updateModel)")[1].split("// ---------- Apache Ossie")[0];
+  assert.match(card, /preview\("directLakeCheck", /, "the card is a Preview feature and hides with them");
+  assert.match(meta, /\n    directLakeCard\(plan, \(\) => build\(\)\),\n/, "the Semantic model tab shows the card");
+  for (const method of ["meta_model_directlake_setup", "meta_model_directlake_check"]) {
+    assert.match(card, new RegExp(`"${method}"`), `${method} has a caller`);
+  }
+  const calls = [...card.matchAll(/metaCall\("([a-z_]+)"/g)].map((x) => x[1]).sort();
+  assert.deepStrictEqual(calls, ["meta_model_directlake_check", "meta_model_directlake_setup", "meta_model_ossie_models"], "it calls nothing that writes");
+  assert.match(card, /reading from OneLake uses capacity/, "capacity wording (QA-008)");
+  assert.match(card, /goMeta\("health"\)/, "compacting happens in Table health");
+  const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  assert.match(features, /directLakeCheck: "Direct Lake check"/);
+});
+
 // kratosforge:// links (deep_link.rs): a link only shows a notebook or a page. The page's handler
 // opens or goes, and never runs, saves elsewhere, or publishes.
 test("A kratosforge:// link only shows something", () => {

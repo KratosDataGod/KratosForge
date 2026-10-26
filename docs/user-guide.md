@@ -376,6 +376,10 @@ Each entity page also has an **About** card (Preview): description, tags, classi
 
 **Data mesh > Deploy > Semantic model** has a **Direct Lake check** card (Preview). Pick a model and a capacity, then **Check now**: it lists what would make the model fall back to DirectQuery, or fail, before anyone queries it. That covers tables past the capacity's Direct Lake limits, columns the Delta table no longer has, types Direct Lake can't read, and, when you tick the box, relationship keys that aren't unique. It reads the model's definition from Fabric and each table's Delta log from OneLake and checks on this PC: it starts no Fabric job, though reading from OneLake uses capacity. Every check and the limits per capacity are in [Direct Lake check](direct-lake-check.md).
 
+### Data dictionary
+
+**Data mesh > Deploy > Semantic model** has a **Data dictionary** card (Preview): every table, column and measure of the layer's model with its description and classification from the catalog. **Export CSV** saves it to Downloads to edit in Excel; **Import descriptions** reads it back and shows every change before saving it to the catalog, as the About card does. A blank cell never erases text. **Update model** then writes the descriptions into the model. Details in [Data dictionary](data-dictionary.md).
+
 ### Approved exceptions
 
 **Data mesh > Quality > Exceptions** lists every approved exception in `exceptions.toml`: the table, the rule, the table's owner, why it was approved, who approved it, and when it ends. An exception that ends within 14 days shows a banner on Data mesh and a notice on the bell, once a day, before the save gate starts failing again. One with no end date stays in force. How to write an exception is in the [metadata guide](metadata-guide.md#6-quality-checks-quarantine-and-the-four-gates).

@@ -1371,6 +1371,7 @@ async function renderModelTab(body) {
       h("div", { class: "row wrap" }, h("label", { class: "field" }, "Layer", layer), h("label", { class: "field grow" }, "Model name", name)),
       result),
     directLakeCard(plan, () => build()),
+    dictionaryCard(plan),
     ossieCard(plan),
     h("div", { class: "entity-grid" },
       h("div", { class: "card pad grow" }, h("b", {}, `Tables (${plan.tables.length})`),
@@ -1384,6 +1385,116 @@ async function renderModelTab(body) {
             h("span", { class: "mono" }, `→ ${r.to_table}.${r.to_column}`),
             h("span", { class: "muted-text" }, r.active ? r.why : `inactive: ${r.why}`)))))))
           : h("p", { class: "muted-text" }, "None found. Facts relate to a dimension through a [[lookup]] block, or a column named like the dimension's surrogate key.")))));
+}
+
+// ---------- Data dictionary (model_dictionary_service.py) ----------
+
+const DICTIONARY_MAX_BYTES = 5 * 1024 * 1024;
+const DICTIONARY_SHOWN = 12;
+
+// Every table, column and measure of the layer's model with its description; null when preview features are hidden.
+function dictionaryCard(plan) {
+  const title = preview("dataDictionary", h("b", {}, "Data dictionary "));
+  if (!title) return null;
+  const body = h("div", { class: "dict-body" }, h("p", { class: "muted-text" }, "Reading the descriptions..."));
+  const load = async () => {
+    const out = await metaCall("meta_model_dictionary", { layer: plan.layer }, "Data dictionary not read");
+    if (!out) { fill(body); return; }
+    fill(body, dictionaryTable(out));
+  };
+  load();
+  const exportCsv = btn("Export CSV", "arrowDownload", async () => {
+    const res = await metaCall("meta_model_dictionary_export", { layer: plan.layer }, "Not exported");
+    if (res) toast(`Saved ${res.rows.toLocaleString()} rows to ${res.path}`);
+  }, "tool primary small");
+  const save = btn("Save to the project", "save", async () => {
+    const res = await metaCall("meta_model_dictionary_save", { layer: plan.layer }, "Not saved");
+    if (res) toast(`Saved ${res.path}: it shows in Changes, ready to commit`);
+  }, "tool outline small");
+  return h("div", { class: "card pad dict-card" },
+    h("div", { class: "row wrap" }, title, h("span", { class: "spacer" }),
+      btn("Import descriptions...", "arrowUpload", () => dictionaryImportDialog(plan, load), "tool outline small"), save, exportCsv),
+    h("p", { class: "muted-text" }, `Every table, column and measure in ${plan.name}, with the description people see in the catalog. Export it to edit in Excel, then import it back: the descriptions are saved to the catalog, and Update model writes them into the model, where they show in Power BI's field list.`),
+    body,
+    howItWorks("dataDictionary", {
+      reads: "The metadata project and the catalog (what the About card saved, else the [catalog] text in each entity's file).",
+      changes: "Export writes a new CSV in Downloads. Save to the project writes semantic/" + plan.name + ".dictionary.csv for Git. Import saves descriptions and classifications to the catalog after you see every change; a catalog in Fabric uses capacity to save. Nothing in Fabric's model changes until Update model.",
+      results: "Update model writes the descriptions into the model's TMDL.",
+      more: [["Where the idea comes from", "Elegant BI's data dictionary and description scripts for Tabular Editor (MIT), written here for the metadata project."]],
+      anchor: "data-dictionary",
+    }));
+}
+
+function dictionaryTable(out) {
+  const c = out.counts;
+  const missing = c.columns - c.columns_described;
+  const rows = (items) => items.map((x) => h("tr", {},
+    h("td", { class: "mono" }, x.table), h("td", { class: x.name ? "mono" : "muted-text" }, x.name || "(table)"),
+    h("td", {}, h("span", { class: `pill-s ${x.kind === "measure" ? "info" : "neu"}` }, x.kind[0].toUpperCase() + x.kind.slice(1))),
+    h("td", { class: "mono" }, x.type),
+    h("td", { class: x.description ? null : "muted-text" }, x.description || h("i", {}, "No description")),
+    h("td", {}, x.classification ? x.classification[0].toUpperCase() + x.classification.slice(1) : "")));
+  const tbody = h("tbody", {}, rows(out.items.slice(0, DICTIONARY_SHOWN)));
+  const more = out.items.length > DICTIONARY_SHOWN ? btn(`Show all ${out.items.length} rows`, null, (e) => {
+    fill(tbody, ...rows(out.items));
+    e.currentTarget.remove();
+  }, "tool link small") : null;
+  return h("div", { class: "dict-out" },
+    h("div", { class: "row wrap dict-counts" },
+      h("span", {}, h("b", {}, String(c.columns_described)), ` of ${c.columns} columns described`),
+      h("span", {}, h("b", {}, String(c.tables_described)), ` of ${c.tables} tables described`),
+      h("span", {}, h("b", {}, String(c.measures)), " measures, described for you"),
+      missing ? h("span", { class: "pill-s wrn" }, `${missing} column${missing === 1 ? " has" : "s have"} no description`) : null),
+    out.problem ? h("p", { class: "warn-text" }, `The catalog couldn't be read, so this shows the text in Git only (${out.problem}).`) : null,
+    h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["Table", "Column or measure", "Kind", "Type", "Description", "Classification"].map((x) => h("th", {}, x)))), tbody),
+    more);
+}
+
+// Pick an edited dictionary, see every change, then save.
+function dictionaryImportDialog(plan, reload) {
+  const picked = { text: "", name: "" };
+  const input = h("input", { type: "file", accept: ".csv,text/csv", "aria-label": "Data dictionary CSV" });
+  const out = h("div", { class: "dict-preview" });
+  const go = btn("Save changes", "save", null, "tool primary");
+  go.disabled = true;
+  input.onchange = async () => {
+    const f = input.files[0];
+    go.disabled = true;
+    if (!f) return;
+    if (f.size > DICTIONARY_MAX_BYTES) { fill(out, h("p", { class: "error-text" }, "The file is larger than 5 MB, so it isn't a data dictionary.")); return; }
+    Object.assign(picked, { text: await f.text(), name: f.name });
+    fill(out, h("p", { class: "muted-text" }, "Reading the file..."));
+    const res = await metaCall("meta_model_dictionary_preview", { text: picked.text, layer: plan.layer }, "Not read");
+    if (!res) { fill(out); return; }
+    const field = { description: "Description", classification: "Classification" };
+    const cap = (t) => (/^(public|internal|confidential|restricted)$/.test(t) ? t[0].toUpperCase() + t.slice(1) : t);
+    fill(out,
+      h("div", { class: "row wrap" }, h("span", { class: "pill-s pass" }, `${res.changes.length} to change`),
+        h("span", { class: "pill-s neu" }, `${res.unchanged} unchanged`),
+        res.skipped.length ? h("span", { class: "pill-s wrn" }, `${res.skipped.length} skipped`) : null),
+      res.changes.length ? h("table", { class: "list" }, h("thead", {}, h("tr", {}, ["Table or column", "What", "Now", "From the file"].map((x) => h("th", {}, x)))),
+        h("tbody", {}, res.changes.map((r) => h("tr", {}, h("td", { class: "mono" }, r.object), h("td", {}, field[r.field]),
+          h("td", { class: r.now ? null : "muted-text" }, r.now ? cap(r.now) : h("i", {}, "none")), h("td", {}, cap(r.new))))))
+        : h("p", { class: "muted-text" }, "Nothing changes: the catalog already has this text."),
+      res.skipped.length ? h("div", { class: "card pad warn-box" }, h("b", {}, `Skipped (${res.skipped.length})`),
+        h("ul", { class: "gate-list" }, res.skipped.map((x) => h("li", {}, h("span", { class: "mono" }, x.object), `, row ${x.row}: ${x.reason}`)))) : null,
+      res.problem ? h("p", { class: "error-text" }, `The catalog can't be reached, so nothing can be saved now (${res.problem}).`) : null);
+    go.textContent = `Save ${res.changes.length} change${res.changes.length === 1 ? "" : "s"}`;
+    go.disabled = !res.changes.length || !!res.problem;
+  };
+  go.onclick = async () => {
+    go.disabled = true;
+    const res = await metaCall("meta_model_dictionary_import", { text: picked.text, layer: plan.layer, confirmed: true }, "Not saved");
+    if (!res) { go.disabled = false; return; }
+    closeDialog();
+    toast(`Saved ${res.changes.length} change${res.changes.length === 1 ? "" : "s"} from ${picked.name} to the catalog. Update model writes them into the model.`);
+    reload();
+  };
+  showDialog("Import descriptions", h("div", { class: "scroll dict-import" },
+    h("label", { class: "field" }, "Edited data dictionary (CSV)", input),
+    out,
+    h("p", { class: "muted-text" }, "Takes descriptions and classifications for tables and columns. A blank cell leaves the text as it is; measure rows are skipped, since their descriptions are written for you. Saves to the catalog, as the About card does; the model in Fabric doesn't change until you Update model.")),
+  [btn("Cancel", null, closeDialog, "tool outline"), go]);
 }
 
 // ---------- Direct Lake check (model_directlake_service.py) ----------

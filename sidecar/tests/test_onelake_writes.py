@@ -286,10 +286,13 @@ def test_a_cell_reports_its_upload_wait_and_what_it_uploaded(service):
 def test_a_cell_that_computes_while_it_uploads_waits_less_than_the_upload(service, monkeypatch):
     # The cell goes on until its upload is in, as a cell computing for longer than its upload does:
     # an event, not a sleep, so a slow CI machine can't make the upload outlast the cell.
+    # The upload takes 1.2 s here: what's left to wait for after it (recording the write) took 0.23 s
+    # on a busy Windows runner (#771), longer than half the fixture's 0.2 s upload.
     uploaded, upload = threading.Event(), lakehouse.publish
 
     def publish_and_tell(*args, **kwargs):
         try:
+            time.sleep(1.0)
             return upload(*args, **kwargs)
         finally:
             uploaded.set()
@@ -298,9 +301,9 @@ def test_a_cell_that_computes_while_it_uploads_waits_less_than_the_upload(servic
     out = service.run_cell(WRITE + "assert lakehouse._test_uploaded.wait(30)", LH)
     assert out["status"] == "ok", out
     onelake = out["onelake"]
-    assert onelake["upload_seconds"] >= 0.2
+    assert onelake["upload_seconds"] >= 1.2
     # Left to wait for at the end: recording the write, not the upload, which ran while the cell went on.
-    assert onelake["wait_seconds"] < onelake["upload_seconds"] / 2
+    assert onelake["wait_seconds"] < onelake["upload_seconds"] / 2, onelake
 
 
 def test_a_direct_write_is_all_wait(service):

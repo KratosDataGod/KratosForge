@@ -74,7 +74,7 @@ def test_every_registered_engine_lists_every_capability():
 
 
 def test_planned_engines_claim_nothing_and_say_what_is_planned():
-    for eid in ("local-spark", "fabric-spark", "databricks-connect", "databricks-sql"):
+    for eid in ("local-spark", "fabric-spark", "databricks-connect"):
         d = registry.get(eid)
         assert not d.adapter and d.planned
         assert all(not d.capability(c).available for c in CAPABILITIES)

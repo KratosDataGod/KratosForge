@@ -391,3 +391,25 @@ def test_a_limited_tool_checks_risk_only_in_its_workspaces(store):
     assert reg.invoke(FakeService(), "fabric_desktop_check_run_risk", args, ctx(client["id"]))["result"] == "pass"
     got = outcome(reg, FakeService(), "fabric_desktop_check_run_risk", client["id"], args | {"workload_id": "w-other"})
     assert isinstance(got, IntegrationError) and got.code == "permission_denied"
+
+
+def test_an_environment_reaches_its_designation_workspaces_too(store):
+    """The Ossie tools read an environment's lakehouses, and a designation (finance, say) can keep its
+    lakehouses in another workspace: a tool limited to the environment's own workspace is refused."""
+    from fabric_desktop.integrations import scope
+    reg = registry(store)
+    client = limited_client(store)
+    svc = FakeService(meta_ws=IN)
+    envs = svc.meta_project()["environments"]
+    envs["test"]["workspaces"] = {"finance": {"id": OUT, "name": "Finance Test"}}
+    svc.meta_project = lambda: {"path": "C:/mesh", "environments": envs}
+    assert scope.environment(svc, {"env": "test"}, None) == {IN, OUT}
+    for cap_id, args in [("fabric_desktop_export_semantic_model_ossie", {"env": "test", "name": "m"}),
+                         ("fabric_desktop_preview_ossie_import", {"env": "test", "text": "name: m"}),
+                         ("fabric_desktop_list_semantic_models", {"env": "test"})]:
+        got = outcome(reg, svc, cap_id, client["id"], args)
+        assert isinstance(got, IntegrationError) and got.code == "permission_denied", cap_id
+    envs["test"]["workspaces"] = {"finance": {"name": "Finance Test"}}  # named without its id: can't be checked
+    assert scope.environment(svc, {"env": "test"}, None) is None
+    envs["test"]["workspaces"] = {"finance": {"id": IN}}
+    assert scope.environment(svc, {"env": "test"}, None) == {IN}

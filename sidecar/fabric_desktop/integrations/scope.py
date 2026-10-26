@@ -232,12 +232,27 @@ def project(service: Any, arguments: dict[str, Any], ctx: CallContext | None) ->
     return metadata_of(service.meta_project())
 
 
+def environment_of(cfg: dict[str, Any]) -> set[str] | None:
+    """The workspaces a metadata environment's lakehouses live in: its own and each designation's
+    (``workspaces: {designation: {id, name}}``, as meta_service._env_workspaces). None when any of
+    them is named without its id."""
+    found = located(cfg)
+    for ws in (cfg.get("workspaces") or {}).values():
+        if not isinstance(ws, dict):
+            continue
+        if ws.get("id"):
+            found = None if found is None else found | {str(ws["id"])}
+        elif ws.get("name"):
+            return None
+    return found
+
+
 def environment(service: Any, arguments: dict[str, Any], ctx: CallContext | None) -> set[str] | None:
-    """One environment of the open metadata project (``env``): its workspace and its lakehouses'. None
-    when no project is open or the environment names a place without its workspace id."""
+    """One environment of the open metadata project (``env``). None when no project is open or the
+    environment names a place without its workspace id."""
     meta = service.meta_project()
     env = (meta.get("environments") or {}).get(arguments.get("env") or "test") if meta.get("path") else None
-    return located(env) if env else None
+    return environment_of(env) if env else None
 
 
 def workload_of(service: Any, record: dict[str, Any], action: str, env: str) -> set[str] | None:
@@ -257,7 +272,7 @@ def workload_of(service: Any, record: dict[str, Any], action: str, env: str) -> 
         found.add(str(loc["workspace_id"]))
     if record.get("kind") == "meta_entity" and action == "run":
         envs = service.meta_project().get("environments") or {}
-        inputs = located(envs.get(env or "dev") or {})
+        inputs = environment_of(envs.get(env or "dev") or {})
         if inputs is None:
             return None
         found |= inputs

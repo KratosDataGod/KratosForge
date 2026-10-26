@@ -45,6 +45,50 @@ def test_separation_rule():
     assert "doesn't say who" in duties.separation_problem("test", "prod", 3, None, "pat")
 
 
+
+def test_separation_compares_entra_ids_when_both_are_known():
+    other = "22222222-2222-2222-2222-222222222222"
+    # Same PC login, different people: the ids decide.
+    assert duties.separation_problem("test", "prod", 3, "admin", "admin", other, ME) is None
+    # One person on two PCs with different logins.
+    assert "You promoted metadata 3" in duties.separation_problem("test", "prod", 3, "pat", "patricia", ME.upper(), ME)
+    # Not signed in, or an old record: back to login names, and a note says so.
+    assert "You promoted metadata 3" in duties.separation_problem("test", "prod", 3, "pat", "pat", ME, None)
+    assert "you aren't signed in" in duties.separation_note(ME, None)
+    assert "no Microsoft Entra id" in duties.separation_note(None, ME)
+    assert duties.separation_note(ME, other) is None
+    assert duties.recorded_object_id('{"identity": {"user": "pat", "object_id": "%s"}}' % ME) == ME
+    assert duties.recorded_object_id('{"identity": {"user": "pat"}}') is None
+    assert duties.recorded_object_id("not json") is None and duties.recorded_object_id(None) is None
+
+
+def test_the_release_record_names_the_promoters_entra_id(svc, monkeypatch):
+    project = svc._project()
+    envs = {k: dict(v) for k, v in project.environments.items()}
+    envs["prod"]["separate_promoter"] = True
+    svc._write_environments(project, envs)
+    monkeypatch.setattr(duties, "current_user", lambda: "admin")  # a shared login: only the ids tell people apart
+    monkeypatch.setattr("fabric_desktop.meta.release._user", lambda: "admin")
+    svc._auth = _Auth()
+    svc.meta_promote("dev", "test")
+    row = svc._store(svc._project(), "test").meta("deployments").row(-1, named=True)
+    assert duties.recorded_object_id(row["receipt"]) == ME
+    assert any("someone else" in e for e in svc.meta_promote_check("test", "prod")["errors"])
+
+    class _Ann(_Auth):
+        def signed_in_object_id(self):
+            return "22222222-2222-2222-2222-222222222222"
+
+    svc._auth = _Ann()
+    check = svc.meta_promote_check("test", "prod")
+    assert not any("someone else" in e for e in check["errors"])
+    assert not any("compared PC login names" in n for n in check["notes"])
+    svc._auth = None  # signed out: login names, with a note
+    check = svc.meta_promote_check("test", "prod")
+    assert any("someone else" in e for e in check["errors"])
+    assert any("you aren't signed in" in n for n in check["notes"])
+
+
 @pytest.fixture
 def svc(tmp_path):
     s = Service(root=tmp_path / "app")

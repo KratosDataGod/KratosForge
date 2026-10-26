@@ -304,7 +304,7 @@ The record goes into the target's `meta.deployments` row:
 | `dirty` | True when files that make up the metadata version differed from that commit. Local data (`.local`), caches and `environments.toml` don't count |
 | `pushed` | True when the commit was on the upstream branch |
 | `engine_version`, `lock_hash` | The engine version, and a hash of the versions of the packages it computes with (Polars, delta-rs, DuckDB, PyArrow) |
-| `by` | The PC login name that promoted |
+| `by` | The PC login name that promoted. The receipt's `identity` also has `object_id`, the promoter's Microsoft Entra object id, when they were signed in |
 | `receipt`, `receipt_id` | The whole record as a [run receipt](notebooks.md) of kind `release`, and its SHA-256 id. Anyone with the row can recompute the id to check the record wasn't changed |
 
 Rows written before this existed have these columns empty.
@@ -344,7 +344,7 @@ To have a second person release to Prod, set `separate_promoter = true` for Prod
 separate_promoter = true
 ```
 
-Whoever promoted a metadata version to Test then can't also promote it to Prod. The check compares PC login names in the [release record](#release-records)'s `by` column. That makes it a team process check, not a security boundary: to make sure only release managers can change Prod, give only them Contributor or higher on the Prod workspaces.
+Whoever promoted a metadata version to Test then can't also promote it to Prod. The check compares Microsoft Entra object ids: the one in the [release record](#release-records)'s receipt and yours, so a login name two PCs share doesn't count as one person and one person with two logins does. When either is missing (you aren't signed in, or the version was promoted to Test before releases recorded the id) it compares PC login names in the `by` column instead, and the promote card says so. Either way it's a team process check, not a security boundary, and `environments.toml` isn't part of the metadata version, so whoever edits it can turn the check off: to make sure only release managers can change Prod, give only them Contributor or higher on the Prod workspaces.
 
 ### This PC or Fabric runs each environment
 

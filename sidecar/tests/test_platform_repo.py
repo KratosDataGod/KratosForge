@@ -595,6 +595,18 @@ def test_a_persons_email_as_a_zone_reader_is_a_problem_in_a_file(tmp_path):
     assert got["landing_zones"] == {} and "A person's email" in got["problems"][0]
 
 
+@pytest.mark.parametrize("zid", ["hr-payroll", "1hr"])
+def test_a_zone_id_the_platform_would_store_differently_is_a_problem(tmp_path, zid):
+    # hr-payroll would deploy as hr_payroll and plan its create on every deploy; 1hr fails mid-deploy.
+    (tmp_path / "landing_zones").mkdir()
+    (tmp_path / "landing_zones" / f"{zid}.toml").write_text(f'id = "{zid}"\nname = "HR"\n', encoding="utf-8")
+    (tmp_path / "sources").mkdir()
+    (tmp_path / "sources" / "crm.toml").write_text(f'code = "crm"\nname = "CRM"\nzone = "{zid}"\n', encoding="utf-8")
+    got = platform_files.read_repo(tmp_path)
+    assert got["landing_zones"] == {} and "crm" not in got["sources"]
+    assert len(got["problems"]) == 2 and all("isn't a landing zone id" in p for p in got["problems"])
+
+
 def test_zones_wait_for_the_landing_workspace_and_a_builtin_template_id_is_refused():
     git = {"landing_zones": {"shared": platform_files.zone_record({"id": "shared", "name": "Shared"}),
                              "hr": platform_files.zone_record({"id": "hr", "name": "HR"})},

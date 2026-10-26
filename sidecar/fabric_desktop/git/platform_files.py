@@ -19,7 +19,7 @@ import tomllib
 from pathlib import Path
 from typing import Any, Callable
 
-from ..central.core import PlatformError
+from ..central.core import PlatformError, zone_key
 from ..central.policy import BUILTIN_TEMPLATES, clean_definition
 from .cli import GitError
 from .scopes import _replace_in
@@ -98,6 +98,15 @@ def source_record(s: dict[str, Any]) -> dict[str, Any]:
 
 def _is_email(v: str) -> bool:
     return "@" in v
+
+
+def _zone_id(zone: str) -> bool:
+    """Whether ``zone`` is already a zone id as the platform stores it (``zone_key`` leaves it as is),
+    so a deploy makes the zone the file names and the next compare finds it."""
+    try:
+        return zone_key(zone) == zone
+    except PlatformError:
+        return False
 
 
 def zone_record(z: dict[str, Any]) -> dict[str, Any]:
@@ -369,6 +378,11 @@ def read_repo(root: str | Path, committed: tuple[dict[str, str], list[str]] | No
             ident = rel[len(folder) + 1:-len(".toml")]
             if _s(data.get(field)).lower() != ident:
                 problems.append(f"{rel}: its {field} should be {ident!r}, the file's name.")
+                continue
+            zone = ident if kind == "landing_zones" else _s(data.get("zone")).lower() if kind == "sources" else ""
+            if zone and not _zone_id(zone):
+                problems.append(f"{rel}: {zone!r} isn't a landing zone id. An id is lower case letters, digits and _, "
+                                "starts with a letter and is up to 40 long, like hr_secure.")
                 continue
             if kind == "landing_zones" and any(_is_email(r) for r in _people(data.get("readers"))):
                 problems.append(f"{rel}: readers are groups, by name or object id. A person's email doesn't go in a file.")

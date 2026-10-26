@@ -107,7 +107,7 @@ def defines(text: str) -> dict[str, str] | None:
 
 
 def _key(kind: str, schema: str, name: str) -> tuple[str, str, str]:
-    return kind, schema.lower(), name.lower()
+    return kind, schema, name  # names are case-sensitive in a Fabric warehouse (BIN2 collation)
 
 
 def _segment_ok(s: str) -> bool:

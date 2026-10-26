@@ -2,8 +2,9 @@
 
 Both sides are T-SQL: the project's files, and the scripts the page makes from the warehouse's
 catalog (the same scripts Import writes). Two scripts are the same when they read the same as
-T-SQL in a case-insensitive warehouse: comments, GO lines, semicolons, spacing, letter case
-outside strings, and brackets or quotes around plain names don't count. For a table, the
+T-SQL: comments, GO lines, semicolons, spacing, the letter case of keywords, and brackets or
+quotes around plain names don't count. A Fabric warehouse's collation (Latin1_General_100_BIN2_UTF8
+by default) makes names case-sensitive, so the case of a name, quoted or not, does count. For a table, the
 columns that differ are named, since that is what a deploy (WH-13) can change with ALTER TABLE.
 Nothing here reads files, runs SQL or calls Fabric.
 """
@@ -16,29 +17,44 @@ from typing import Any
 
 MAX_ROWS = 3000   # side-by-side rows returned for one object
 
-_GO = re.compile(r"^[ \t]*GO[ \t]*;?[ \t]*$", re.IGNORECASE | re.MULTILINE)
-_TOKEN = re.compile(r"--[^\n]*|/\*.*?\*/|N?'(?:[^']|'')*'|\[(?:[^\]]|\]\])*\]|\"(?:[^\"]|\"\")*\"|[\w@#$]+|[^\s\w]",
-                    re.DOTALL)
+# A GO line is a token here, so a "GO" inside a string or a comment stays part of it.
+_TOKEN = re.compile(r"(?P<go>(?:^|\n)[ \t]*GO[ \t]*;?[ \t]*(?=\n|$))|--[^\n]*|/\*.*?\*/|N?'(?:[^']|'')*'|\[(?:[^\]]|\]\])*\]"
+                    r"|\"(?:[^\"]|\"\")*\"|[\w@#$]+|[^\s\w]", re.DOTALL | re.IGNORECASE)
 _PLAIN = re.compile(r"^[A-Za-z_][\w@#$]*$")
 _NOT_COLUMN = {"constraint", "primary", "unique", "foreign", "check", "index"}
+# Words T-SQL reads the same in any case: keywords, built-in types and common built-in functions.
+# Every other word is a name and keeps its case.
+KEYWORDS = frozenset("""
+add all alter and any as asc authorization begin between bigint binary bit by cascade case cast char
+check close clustered coalesce collate column commit constraint contains convert count create cross
+current current_date current_timestamp cursor date datetime2 datetimeoffset dateadd datediff datepart
+datetime decimal declare default delete desc distinct distribution double drop else end enforced
+escape except exec execute exists fetch float for foreign from full function go grant group hash
+having identity if iif in index inner insert int intersect into is isnull join key left like max
+merge min money nchar nonclustered not null nullif numeric nvarchar of off on open option or order
+outer over partition percent pivot primary print proc procedure real references replicate return
+returns revoke right round_robin rollback row_number rows schema select set smallint some sum
+sysdatetime table then time tinyint top tran transaction truncate try_cast try_convert union unique
+uniqueidentifier unpivot update use values varbinary varchar view when where while with within
+""".split())
 
 
 def tokens(text: str, fold: bool = True) -> list[str]:
-    """The script as T-SQL reads it: comments, GO lines and semicolons left out, words in lower case
-    (unless ``fold`` is False), [Name] and "Name" as name when plain (letters, digits, _), strings
-    exactly as written."""
-    low = str.lower if fold else str
+    """The script as T-SQL reads it: comments, GO lines and semicolons left out, keywords in lower
+    case (unless ``fold`` is False), [Name] and "Name" as Name when plain (letters, digits, _),
+    names and strings exactly as written."""
     out: list[str] = []
-    for t in _TOKEN.findall(_GO.sub(" ", text)):
-        if t.startswith("--") or t.startswith("/*") or t == ";":
+    for m in _TOKEN.finditer(text):
+        t = m.group()
+        if m.group("go") or t.startswith("--") or t.startswith("/*") or t == ";":
             continue
         if t[0] in "[\"":
             inner = t[1:-1].replace("]]", "]") if t[0] == "[" else t[1:-1].replace('""', '"')
-            out.append(low(inner) if _PLAIN.match(inner) else f"[{low(inner)}]")
+            out.append(inner if _PLAIN.match(inner) else f"[{inner}]")
         elif t[0] == "'" or t[:2].upper() == "N'":
             out.append(t)
         else:
-            out.append(low(t))
+            out.append(t.lower() if fold and t.lower() in KEYWORDS else t)
     return out
 
 
@@ -47,8 +63,8 @@ def same(a: str, b: str) -> bool:
 
 
 def columns(text: str) -> dict[str, tuple[str, str]] | None:
-    """A CREATE TABLE's columns, {name in lower case: (name, "type and options")}, or None when it
-    isn't one. Names keep their case for messages; compare the options in lower case."""
+    """A CREATE TABLE's columns, {name: (name, "type and options")}, or None when it isn't one.
+    Names are case-sensitive, as the warehouse reads them; compare the options in lower case."""
     t = tokens(text, fold=False)
     low = [x.lower() for x in t]
     try:
@@ -75,7 +91,7 @@ def columns(text: str) -> dict[str, tuple[str, str]] | None:
     out: dict[str, tuple[str, str]] = {}
     for p in parts:
         if p and p[0].lower() not in _NOT_COLUMN:
-            out[p[0].lower()] = (p[0], " ".join(p[1:]).replace(" ( ", "(").replace(" , ", ",").replace(" )", ")"))
+            out[p[0]] = (p[0], " ".join(p[1:]).replace(" ( ", "(").replace(" , ", ",").replace(" )", ")"))
     return out
 
 

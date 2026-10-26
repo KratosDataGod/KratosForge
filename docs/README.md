@@ -48,6 +48,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [notebooks.md](notebooks.md) | Engineers, analysts | Notebooks on your PC, Fabric code that works here, publishing, Run in Fabric, schedules, SQL query |
 | [notebook-spark-on-this-pc.md](notebook-spark-on-this-pc.md) | Engineers | Which PySpark methods and Spark settings work on this PC |
 | [sql-compatibility.md](sql-compatibility.md) | Engineers, analysts | Checking SQL against Fabric Warehouse, SQL analytics endpoint, SQL database and Spark before running it; the rules and their sources |
+| [semantic-model-rules.md](semantic-model-rules.md) | Engineers, BI developers | Best Practice Analyzer rules for the semantic model Update model writes, checked on this PC (Preview) |
 | [sql-best-practices.md](sql-best-practices.md) | Engineers, analysts | Best-practice checks on Warehouse and SQL endpoint T-SQL, read on this PC without running it (Preview) |
 | [warehouse.md](warehouse.md) | Engineers, analysts | Warehouses (Preview): the Warehouse page, read-only T-SQL on a Fabric warehouse or SQL analytics endpoint, what runs in Fabric, the plan |
 | [sql-execution.md](sql-execution.md) | Engineers, analysts, IT | How SQL page queries run on this PC: Stop, time and memory limits, paging, CSV/Parquet export, what a query may change, audit |

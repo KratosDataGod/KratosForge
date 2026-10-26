@@ -38,6 +38,7 @@ nav = [
     { "Local data projects" = "local-data.md" },
     { "SQL compatibility check" = "sql-compatibility.md" },
     { "SQL best practices" = "sql-best-practices.md" },
+    { "Semantic model rules" = "semantic-model-rules.md" },
     { "Running SQL queries" = "sql-execution.md" },
     { "Warehouses" = "warehouse.md" },
     { "Side by side: PC vs Fabric" = "side-by-side.md" },

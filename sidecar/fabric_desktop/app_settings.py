@@ -406,6 +406,10 @@ def _engine_url_problems(value: Any, auto_update: Any) -> list[str]:
                 "https://files.contoso.com/kratosforge (no user name, ? or #), so the engine comes from GitHub"]
     if auto_update is not False:
         return ['engine_download_url is used only with "auto_update": false, so the engine comes from GitHub']
+    ignored = os.environ.get("FABRIC_DESKTOP_ENGINE_URL_IGNORED", "")  # the shell's own check, at start
+    if ignored:
+        return [f"engine_download_url is ignored, so the engine comes from GitHub: {ignored}. Push policy.json "
+                "as SYSTEM (Intune, Group Policy) or from an elevated prompt, so only administrators can change it"]
     return []
 
 

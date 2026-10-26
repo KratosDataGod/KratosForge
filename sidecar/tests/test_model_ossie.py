@@ -381,6 +381,9 @@ def test_export_folder_refuses_links_junctions_and_a_bim_that_isnt_a_model(svc, 
     (root / "semantic" / "List.SemanticModel" / "model.bim").write_text("[1, 2]", encoding="utf-8")
     with pytest.raises(ValueError, match="isn't a semantic model"):
         svc.meta_model_ossie_export_folder("semantic/List.SemanticModel")
+    (root / "semantic" / "List.SemanticModel" / "model.bim").write_text("[" * 100_000 + "]" * 100_000, encoding="utf-8")
+    with pytest.raises(ValueError, match="nested too deeply"):
+        svc.meta_model_ossie_export_folder("semantic/List.SemanticModel")
 
 def test_ai_tools_only_read_and_pass_their_arguments_through():
     from fabric_desktop.integrations.capabilities import register_core

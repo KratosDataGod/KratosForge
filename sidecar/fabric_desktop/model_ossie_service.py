@@ -114,7 +114,10 @@ class ModelOssieMixin:
         elif (folder / "model.bim").is_file() and not _linked(folder / "model.bim"):
             if (folder / "model.bim").stat().st_size > tmdl.MAX_CHARS * 4:
                 raise ValueError(f"{name}'s model.bim is too large to read on this PC")
-            bim, read_report = json.loads((folder / "model.bim").read_text(encoding="utf-8-sig")), []
+            try:
+                bim, read_report = json.loads((folder / "model.bim").read_text(encoding="utf-8-sig")), []
+            except RecursionError:
+                raise ValueError(f"{path}/model.bim is nested too deeply to be a semantic model") from None
             if not isinstance(bim, dict):
                 raise ValueError(f"{path}/model.bim isn't a semantic model")
             bim["name"] = name

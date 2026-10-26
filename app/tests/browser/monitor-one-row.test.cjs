@@ -33,8 +33,11 @@ test("Operations picks its view from a dropdown on the band, and the band is one
   const pick = band.getByRole("combobox", { name: "Operations view" });
   assert.strictEqual(await pick.inputValue(), "queue");
   assert.strictEqual(await page().locator(".monitor-local > .monitor-filters").count(), 0, "no row of view chips under the band");
-  assert.match(await band.locator(".monitor-about").getAttribute("title"), /What is running and what runs next/);
-  assert.strictEqual(await band.locator(".monitor-about").innerText(), "Learn more");
+  const about = band.locator(".monitor-about a");
+  assert.match(await about.getAttribute("title"), /What is running and what runs next/);
+  assert.strictEqual(await about.innerText(), "Learn more");
+  // Keyboard and screen reader users get the sentence too: the link is described by it.
+  assert.match(await page().locator(`#${await about.getAttribute("aria-describedby")}`).textContent(), /What is running and what runs next/);
   const box = await band.boundingBox();
   assert.ok(box.height < 60, `band is ${box.height}px tall`);
   await pick.selectOption("incidents");
@@ -47,7 +50,7 @@ test("Runs has no Operations dropdown and keeps its filters", { skip }, async ()
   await page().evaluate(() => { monitorPage.panel = "runs"; go("home"); go("monitor"); });
   await page().getByRole("group", { name: "Where it ran" }).waitFor();
   assert.strictEqual(await page().getByRole("combobox", { name: "Operations view" }).count(), 0);
-  assert.match(await page().locator(".monitor-about").getAttribute("title"), /Everything this app ran or started/);
+  assert.match(await page().locator(".monitor-about a").getAttribute("title"), /Everything this app ran or started/);
 });
 
 test("Workloads groups from a dropdown on the same row as its views", { skip }, async () => {

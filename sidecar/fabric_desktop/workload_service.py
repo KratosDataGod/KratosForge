@@ -523,7 +523,7 @@ class WorkloadMixin:
                 "env": env, "env_label": dep.get("env_label") or "", "where": where, "identity": identity,
                 "target": target, "consequence": consequence, "warnings": warnings,
                 "recorded": "Recorded on this workload as submitted, then as succeeded or failed when the run finishes"
-                            + (", and on Platform > Audit." if self.workload_audit_state()["platform"] != "none" else "."),
+                            + (", and on Platform > Govern > Audit." if self.workload_audit_state()["platform"] != "none" else "."),
                 "risk": self._risk_for_preflight(w, action, env) if assess else None}  # type: ignore[attr-defined]
 
     def workload_act(self, id: str, action: str, env: str | None = None, schedule_id: str = "",

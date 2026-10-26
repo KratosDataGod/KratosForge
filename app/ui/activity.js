@@ -212,7 +212,7 @@ function renderTray() {
       : h("p", { class: "muted-text tray-empty" }, activity.filter === "all" ? "Nothing yet. Runs, publishes and problems show up here." : "Nothing here."))));
 }
 
-const TRAY_LABEL = { running: ["Running", "info"], ok: ["Done", "pass"], info: ["Done", "pass"], failed: ["Failed", "fail"], error: ["Couldn't finish", "fail"] };
+const TRAY_LABEL = { update: ["Update", "info"], running: ["Running", "info"], ok: ["Done", "pass"], info: ["Done", "pass"], failed: ["Failed", "fail"], error: ["Couldn't finish", "fail"] };
 
 function trayItem(i) {
   const [label, cls] = i.stale ? ["Unknown", "neu"] : TRAY_LABEL[i.status] || ["", "neu"];
@@ -220,6 +220,7 @@ function trayItem(i) {
   if (i.results) links.push(btn("See results", null, () => { toggleTray(false); showRunResults(i.results, i.results.find((r) => r.status === "needs_decision")); }, "tool link small"));
   if (i.monitor) links.push(btn("Open in Monitor", null, () => { toggleTray(false); go("monitor"); }, "tool link small"));
   if (i.url) links.push(btn("Open in Fabric", null, () => { toggleTray(false); openInFabric(i.url); }, "tool link small"));
+  if (i.update) links.push(btn("Check for updates", null, () => { toggleTray(false); checkForUpdates(); }, "tool link small"));
   if (i.details) links.push(btn("Copy details", null, () => copyText(i.details, "Details"), "tool link small"));
   return h("div", { class: `tray-item${PROBLEM.has(i.status) ? " bad" : ""}` },
     h("div", { class: "row" }, h("span", { class: `pill-s ${cls}` }, label), h("b", { class: "grow" }, i.title || ""), h("span", { class: "muted-text small" }, when(i.at))),

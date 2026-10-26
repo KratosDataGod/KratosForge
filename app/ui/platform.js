@@ -46,21 +46,22 @@ async function renderPlatform() {
   const envSeg = h("div", { class: "seg", role: "group", "aria-label": "Environment" },
     MESH_ENVS.map((env) => h("button", { class: p.env === env ? "on" : null, onclick: () => { p.env = env; render(); } }, ENV_LABEL[env])));
   const who = h("p", { class: "sub" }, "Loading...");
-  const waiting = h("span", { class: "tab-count", title: "Requests waiting" });
+  const waiting = h("span", { class: "tab-count", title: "Requests waiting" }, p.waiting ? p.waiting.toLocaleString() : "");
   setView(h("div", { class: "page" },
     h("div", { class: "page-head" },
       h("div", {}, h("h1", {}, "Platform ", previewTag()), who),
       // Only the landing zone and business keys are kept per environment; domains, glossary, governance and
       // requests are organization-wide, so the other tabs show no environment picker (Overview has its own).
       h("div", { class: "head-actions" }, ["landing", "keys"].includes(p.tab) && !(p.tab === "landing" && p.landingCentral) && !(p.tab === "keys" && p.keysShared) ? envSeg : null,
-        btn("Refresh", "sync", () => render(), "tool outline"))),
+        btn("Refresh", "sync", () => { p.waiting = undefined; render(); }, "tool outline"))),
     platformTabBar(waiting),
     body));
   p.me = await attempt(() => rpc("platform_whoami"), "Could not reach the platform");
   if (state.view !== "platform") return;
-  if (p.me) rpc("platform_requests", { status: "waiting" }).then((list) => {
-    if (Array.isArray(list) && list.length) waiting.textContent = list.length.toLocaleString();
-  }).catch(() => {});
+  // Overview and Requests read the count with their own data; another tab reads it once, then keeps it.
+  if (p.me && p.waiting === undefined && !["overview", "requests"].includes(p.tab)) {
+    rpc("platform_requests", { status: "waiting" }).then((list) => { if (Array.isArray(list)) showWaiting(list.length); }).catch(() => {});
+  }
   if (!p.me) { body.replaceChildren(h("p", { class: "muted-text" }, "The platform shows once the local engine is running.")); return; }
   who.replaceChildren(...[p.me.admin ? "You're a platform admin: you create domains, key tables and sources, write governance policies, and decide requests. "
     : p.me.can_claim ? "This platform has no admin yet. "
@@ -70,6 +71,12 @@ async function renderPlatform() {
   const tabs = { overview: platformOverviewTab, landing: platformLandingTab, keys: platformKeysTab, domains: platformDomainsTab,
     glossary: platformGlossaryTab, governance: platformGovernanceTab, requests: platformRequestsTab, audit: platformAuditTab, settings: platformSettingsTab };
   await (tabs[p.tab] || platformOverviewTab)(body);
+}
+
+function showWaiting(n) {
+  platformPage.waiting = n;
+  const el = document.querySelector(".subtabs .tab-count");
+  if (el) el.textContent = n ? n.toLocaleString() : "";
 }
 
 function platformTabBar(waiting) {
@@ -111,6 +118,7 @@ async function platformOverviewTab(body) {
   const o = await platformCall("platform_overview", { env: platformPage.env }, "Could not load the platform");
   if (!o || !stillHere("overview")) return;
   const c = o.counts;
+  showWaiting(c.requests);
   const late = (o.landing.sources || []).filter((s) => s.late);
   // One row per environment, so the card stays narrow enough to sit beside the landing zone.
   const health = h("table", { class: "list" }, h("tbody", {}, MESH_ENVS.map((env) => {
@@ -786,6 +794,7 @@ async function platformRequestsTab(body) {
   const filters = { waiting: (r) => r.status === "waiting", decided: (r) => r.status === "approved" || r.status === "declined", mine: (r) => r.mine, all: () => true };
   const labels = { waiting: "Waiting", decided: "Decided", mine: "Sent by me", all: "All" };
   const shown = all.filter(filters[p.requests] || filters.waiting);
+  showWaiting(all.filter(filters.waiting).length);
   body.replaceChildren(withHowItWorks(h("div", { class: "card pad" },
     h("div", { class: "row" },
       h("div", { class: "seg", role: "group", "aria-label": "Show" }, Object.entries(labels).map(([id, label]) =>

@@ -44,7 +44,7 @@ No Critical issue was confirmed. Twelve are High.
 | EN-6 | Medium | Leases | Local write leases can be taken by more than one process at once | HD-016 |
 | AR-1 | Medium | Leases | A lease that stops renewing isn't marked lost, and loss is only checked after the commit | HD-016 |
 | EP-3 | Medium | Audit | The audit hash chain forks when the app and a scheduled run write at once; tail deletion goes unnoticed | HD-017 |
-| EP-5 | Medium | Governance | The two-person promote rule compares OS login names and can be switched off in an unversioned file | HD-030 |
+| EP-5 | Medium | Governance | The two-person promote rule compares OS login names and can be switched off in an unversioned file | Partly closed by HD-030: a matching Entra object id or a matching login counts as the same person; the switch is still in `environments.toml` |
 | EP-6 | Medium | Governance | "Block" governance policies are stored but enforced nowhere | HD-031 (GOV-002) |
 | EP-7 | Medium | Business keys | T-SQL key import sends 3,000 parameters per statement; SQL Server allows 2,100 | HD-032 |
 | EN-7 | Medium | Docs | `docs/security.md` says the engine has no network listener; it runs one on 127.0.0.1:47615 | HD-009 |

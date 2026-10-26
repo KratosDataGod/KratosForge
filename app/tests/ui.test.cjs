@@ -1367,6 +1367,8 @@ test("engine messages point to Data mesh and Platform tabs that exist", () => {
   const mesh = new Set();
   for (const [, group, tabs] of groups) for (const [, tab] of tabs) mesh.add(`${group} > ${tab}`);
   const plat = new Set(platform.map(([, label]) => label));
+  // A page behind the Set up or Govern menu is named with its menu: "Platform > Set up > Business keys".
+  const bar = vm.runInNewContext(`${/const PLATFORM_TAB_BAR = \[[\s\S]*?\n\];/.exec(read("platform.js"))[0].replace("const ", "")}; PLATFORM_TAB_BAR`);
   const engine = path.join(__dirname, "..", "..", "sidecar", "fabric_desktop");
   const files = [];
   const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) {
@@ -1380,7 +1382,11 @@ test("engine messages point to Data mesh and Platform tabs that exist", () => {
       const where = `${m[1]} > ${m[2]}`;
       if (![...mesh].some((t) => t.startsWith(where))) bad.push(`${path.basename(f)}: Data mesh > ${where}`);
     }
-    for (const m of src.matchAll(/Platform > ([A-Z][\w ]*?)(?=[).,"'\n])/g)) if (!plat.has(m[1])) bad.push(`${path.basename(f)}: Platform > ${m[1]}`);
+    for (const m of src.matchAll(/Platform > (?:(Set up|Govern) > )?([A-Z][\w ]*?)(?=[).,"'\n]| > )/g)) {
+      const menu = bar.find(([, label]) => label === m[1]);
+      const ok = m[1] ? menu?.[2].some((id) => platform.find(([t]) => t === id)[1] === m[2]) : bar.some(([, label, items]) => items && label === m[2]) || plat.has(m[2]) && !bar.some(([, , items]) => items?.some((id) => platform.find(([t]) => t === id)[1] === m[2]));
+      if (!ok) bad.push(`${path.basename(f)}: Platform > ${m[1] ? `${m[1]} > ` : ""}${m[2]}`);
+    }
   }
   assert.deepStrictEqual(bad, []);
 });
@@ -2841,8 +2847,9 @@ test("every page links to its section of the user guide", () => {
   const views = new Map();
   for (const [, list] of all.matchAll(/views: \{([^}]*)\}/g)) for (const [, view, fn] of list.matchAll(/(\w+): (\w+)/g)) views.set(view, fn);
   assert.ok(views.size > 15, `only ${views.size} pages found`);
-  // The notebook's help belongs to its own guide; an agent's page has its link in the advice under its state.
-  const elsewhere = { notebook: null, agent: "agAdvice" };
+  // The notebook's help belongs to its own guide; an agent's page has its link in the advice under its state,
+  // and Monitor's is in monitorAbout beside its tabs.
+  const elsewhere = { notebook: null, agent: "agAdvice", monitor: "monitorAbout" };
   const missing = [...views].filter(([view, fn]) => {
     if (view in elsewhere) return elsewhere[view] && !(body(fn).includes(`${elsewhere[view]}(`) && body(elsewhere[view]).includes("learnMore("));
     return !/learnMore\(|howItWorks\(/.test(body(fn));
@@ -4204,10 +4211,10 @@ test("a workload page says whether its actions reached the platform's audit", ()
   const ctx = { h: (tag, attrs, ...kids) => kids.join("") };
   vm.runInNewContext(`${fn}this.f = platformAuditNote;`, ctx);
   assert.strictEqual(ctx.f(null), null);
-  assert.strictEqual(ctx.f({ platform: "this_pc", waiting: 0 }), "Each one is also on Platform > Audit.");
+  assert.strictEqual(ctx.f({ platform: "this_pc", waiting: 0 }), "Each one is also on Platform > Govern > Audit.");
   assert.match(ctx.f({ platform: "fabric", waiting: 2, error: "Signed out." }),
-    /^2 actions or changes haven't reached Platform > Audit yet: Signed out\. This PC keeps them/);
-  assert.match(ctx.f({ platform: "fabric", waiting: 1, error: "" }), /^1 action or change hasn't reached Platform > Audit yet\. /);
+    /^2 actions or changes haven't reached Platform > Govern > Audit yet: Signed out\. This PC keeps them/);
+  assert.match(ctx.f({ platform: "fabric", waiting: 1, error: "" }), /^1 action or change hasn't reached Platform > Govern > Audit yet\. /);
   assert.match(ctx.f({ platform: "none", waiting: 3 }), /^Kept on this PC only: there's no platform yet\. 3 actions/);
   assert.strictEqual(ctx.f({ platform: "none", waiting: 0 }), "Kept on this PC only: there's no platform yet.");
 });
@@ -4969,7 +4976,7 @@ test("Check for updates says what the channel has and offers an install only for
   assert.strictEqual(kind({ commit: null, latest: { commit: b } }), "local");
   const dialog = src.slice(src.indexOf("async function checkForUpdates"), src.indexOf("// ---------- What's new"));
   assert.match(dialog, /invoke\("check_for_update"\)/);
-  assert.match(dialog, /invoke\("update_app", \{ commit: latest\.commit \}\)/);
+  assert.match(dialog, /installUpdate\(latest\.commit, /);
   assert.match(dialog, /openLink\(latest\.page\)/);
   assert.match(src.slice(src.indexOf("function accountMenu"), src.indexOf("function channelLabel")), /"Check for updates".*checkForUpdates/);
 });
@@ -5069,3 +5076,34 @@ test("A kratosforge:// link only shows something", () => {
   assert.match(main, /generate_handler!\[[\s\S]*take_pending_link/);
   assert.match(main, /fn register_link_scheme\(\) \{\n    if !cfg!\(windows\) \|\| cfg!\(debug_assertions\)/);
 });
+
+// New build banner (settings.js): the startup check every 4 hours while the app is open. Only a
+// newer build shows it; a managed PC hears it's out with no install; Later hides that build only.
+test("the new build banner shows only a newer build, through the existing update check", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const fn = (name) => src.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  const ctx = {};
+  vm.runInNewContext(`${fn("updateCheckResult")}${fn("updateNotice")}; this.f = updateNotice;`, ctx);
+  const a = "5d69f21aa1b2c3d4e5f60718293a4b5c6d7e8f90", b = "a41c0e9aa1b2c3d4e5f60718293a4b5c6d7e8f90";
+  const newer = ctx.f({ commit: a, auto_update: true, latest: { commit: b, channel: "preview", page: "https://x/latest" } });
+  assert.strictEqual(newer.kind, "newer");
+  assert.strictEqual(newer.commit, b);
+  assert.match(newer.text, /a41c0e9 is out on Preview \(you're on 5d69f21\)/);
+  assert.strictEqual(ctx.f({ commit: a, auto_update: false, latest: { commit: b, channel: "stable" } }).kind, "managed");
+  assert.strictEqual(ctx.f({ commit: a, auto_update: true, latest: { commit: a, channel: "stable" } }), null);
+  assert.strictEqual(ctx.f({ commit: a, latest: { commit: null, error: "offline", channel: "stable" } }), null);
+  assert.strictEqual(ctx.f({ commit: a, auto_update: true, latest: { commit: b, refused: "older", channel: "stable" } }), null);
+  assert.strictEqual(ctx.f({ commit: null, latest: { commit: b } }), null);
+  const watch = fn("watchForUpdates");
+  assert.deepStrictEqual([...watch.matchAll(/invoke\("([a-z_]+)"/g)].map((m) => m[1]), ["check_for_update"], "no new phone-home");
+  assert.match(watch, /!updateWatchOn\(\) \|\| !previewShown\(\) \|\| !state\.commit/);
+  assert.match(src, /const UPDATE_WATCH_MS = 4 \* 60 \* 60 \* 1000;/);
+  const banner = fn("renderUpdateBanner");
+  assert.match(banner, /n\.commit === updateLater\(\)/, "Later hides that build only");
+  assert.match(banner, /installUpdate\(n\.commit/);
+  assert.match(fn("installUpdate"), /saveNotebook\(\)[\s\S]*invoke\("update_app", \{ commit \}\)/, "saves before it hands over");
+  assert.match(fn("checkForUpdates"), /installUpdate\(latest\.commit/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /scheduleUpdateWatch\(\);/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<\/header>\n  <div id="update-root"><\/div>/);
+});
+

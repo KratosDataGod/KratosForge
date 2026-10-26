@@ -10,6 +10,7 @@ import pytest
 from fabric_desktop import audit, server
 from fabric_desktop import fabric_connections_service as fcs
 from fabric_desktop import schedule_service
+from fabric_desktop.auth import SignInError, sign_in_error
 from fabric_desktop.service import Service
 
 SQL = "5a1c7d2e-0000-4000-8000-000000000001"
@@ -180,7 +181,7 @@ def test_without_gateway_access_the_connections_still_list(svc, monkeypatch):
         def _token(self, scopes):
             if scopes == fcs.GATEWAY_SCOPES:
                 asked.append(1)
-                raise RuntimeError("AADSTS65001: consent declined")
+                raise SignInError("AADSTS65001", "consent declined")
             return super()._token(scopes)
     monkeypatch.setattr(Service, "auth", property(lambda self: NoGateways()))
     out = _settled(svc)
@@ -188,3 +189,20 @@ def test_without_gateway_access_the_connections_still_list(svc, monkeypatch):
     assert all(r["gateway_name"] == "" for r in out["connections"])
     # The decline is kept: Refresh doesn't ask again.
     assert "consent declined" in _settled(svc, refresh=True)["gateways_error"] and len(asked) == 1
+
+
+@pytest.mark.parametrize("failure", [RuntimeError("connection reset"), SignInError("temporarily_unavailable", "busy"),
+                                     sign_in_error({"error": "server_error", "error_description": "AADSTS90033: busy"})])
+def test_a_passing_gateway_sign_in_failure_asks_again(svc, monkeypatch, failure):
+    asked = []
+
+    class Flaky(FakeAuth):
+        def _token(self, scopes):
+            if scopes == fcs.GATEWAY_SCOPES and not asked:
+                asked.append(1)
+                raise failure
+            return super()._token(scopes)
+    monkeypatch.setattr(Service, "auth", property(lambda self: Flaky()))
+    assert _settled(svc)["gateways_error"]
+    out = _settled(svc, refresh=True)
+    assert out["gateways_error"] == "" and {r["gateway_name"] for r in out["connections"]} == {"gw-onprem-01", ""}

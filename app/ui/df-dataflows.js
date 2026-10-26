@@ -95,13 +95,9 @@ async function dfListDataflows(ws) {
 async function dfRunInFabric(ws, item, verb, done) {
   const w = { id: `fabric:${ws.id}:${item.item_id}` };
   const a = { action: "run_item", label: verb };
-  let pre;
-  try {
-    pre = await rpc("workload_preflight", { id: w.id, action: "run_item", env: null });
-  } catch (err) {
-    const f = friendlyError(err);
-    if (f.cancelled) return;
-    if (!/isn't in the inventory/.test(f.text)) { toast(`Couldn't check that action: ${f.text}`, true, { details: f.details }); return; }
+  const pre = await attempt(() => rpc("workload_preflight", { id: w.id, action: "run_item", env: null }), "Couldn't check that action");
+  if (!pre) return;
+  if (pre.code === "not_in_inventory") {
     showDialog(`${verb} ${item.name}?`, h("div", {},
       h("p", { class: "text" }, `Runs started here go through Monitor > Workloads, which asks first, runs the risk check and records each run. `,
         `It doesn't list ${item.name} yet: ${ws.displayName} isn't one of the workspaces this app works in, or ${item.name} is newer than its last read.`),
@@ -138,7 +134,7 @@ function dfDetail(ws) {
   return h("div", { class: "df-detail" },
     h("div", { class: "df-detail-head" }, h("h2", {}, d.name), h("span", { class: "pill-s neu" }, "Runs in Fabric"),
       h("span", { class: "spacer" }),
-      btn("Refresh in Fabric…", "play", () => dfRunInFabric(ws, d, "Refresh in Fabric", () => dfOpenDataflow(ws, d)), "tool primary"),
+      btn("Refresh in Fabric…", "play", () => dfRunInFabric(ws, d, "Refresh in Fabric", () => dfOpenDataflow(ws, d)), "tool outline"),
       btn("Open in Fabric", "open", () => openInFabric(fabricItemLink({ type: "Dataflow", workspace_id: ws.id, item_id: d.item_id })), "tool outline")),
     d.description ? h("p", { class: "muted-text" }, d.description) : null, tabs, body);
 }

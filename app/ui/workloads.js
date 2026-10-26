@@ -460,7 +460,7 @@ async function confirmWorkloadAction(w, a, verb = "", recheck = false, opts = {}
   if (recheck && pre.risk) pre.risk = await rpc("risk_check", { id: w.id, action: a.action, env: a.env || null, refresh: true }).catch(() => pre.risk);
   if (!pre.allowed) {
     showDialog(`${a.label}?`, h("p", { class: "text" }, pre.reason), [
-      /sign in/i.test(pre.reason) ? btn("Sign in", null, async () => { closeDialog(); if (await signIn()) confirmWorkloadAction(w, a); }, "tool primary")
+      /sign in/i.test(pre.reason) ? btn("Sign in", null, async () => { closeDialog(); if (await signIn()) confirmWorkloadAction(w, a, verb, false, { done: opts.done }); }, "tool primary")
         : btn("Close", null, closeDialog, "tool primary")]);
     return;
   }

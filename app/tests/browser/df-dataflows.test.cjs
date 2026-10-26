@@ -24,6 +24,7 @@ const DETAIL = {
 
 const acted = [];
 let risk = null;
+let signedOut = false;
 const PRE = { allowed: true, label: "Run in Fabric", workload: "df_products_clean", env_label: "", where: "Fabric · Sales Dev",
   identity: "You (chris@contoso.com): a run started here runs as the person who starts it", target: "df_products_clean in Sales Dev",
   consequence: "Starts dataflow Gen2 df_products_clean in Fabric now, on its workspace's capacity, exactly as Fabric's own Run does. "
@@ -38,7 +39,7 @@ before(async () => {
   app = await openApp({
     viewport: { width: 1440, height: 900 },
     mocks: {
-      sign_in: () => ({ user: "chris@contoso.com", tenant: "contoso" }),
+      sign_in: () => { signedOut = false; return { user: "chris@contoso.com", tenant: "contoso" }; },
       list_workspaces: () => [{ id: WS, displayName: "Sales Dev" }],
       workspace_dataflows: () => ({ workspace_id: WS, dataflows: [
         { workspace_id: WS, item_id: DF, name: "df_products_clean", description: "Cleans products", folder_id: "" },
@@ -47,7 +48,7 @@ before(async () => {
         if (p.item_id !== DF) throw new Error("GET https://api.fabric.microsoft.com/... failed with 403: {}");
         return { workspace_id: WS, item_id: DF, name: p.name, ...DETAIL };
       },
-      workload_preflight: () => ({ ...PRE, risk }),
+      workload_preflight: () => (signedOut ? { allowed: false, reason: "Sign in first: this action uses Fabric." } : { ...PRE, risk }),
       workload_act: (p) => { acted.push(p); return { action: { status: "submitted" }, result: { job_id: "j3" } }; },
       fabric_dataflow_refreshes: () => ({ workspace_id: WS, item_id: DF, refreshes: [
         { job_id: "j2", state: "failed", native_status: "Failed", started: "2026-10-25T06:00:00Z", seconds: 134, invoke: "Scheduled",
@@ -116,6 +117,22 @@ test("with the check clear, Refresh in Fabric starts the refresh once", { skip }
   assert.deepStrictEqual(acted, [{ id: `fabric:${WS}:${DF}`, action: "run_item", env: null, schedule_id: "", job_id: "" }]);
 });
 
+test("signing in from the confirm carries on to the same refresh, and reads the refreshes after", { skip }, async () => {
+  signedOut = true;
+  const before = app.calls.filter((c) => c.method === "fabric_dataflow_refreshes").length;
+  await page().locator(".df-detail-head button", { hasText: "Refresh in Fabric…" }).click();
+  await page().locator(".dialog button", { hasText: "Sign in" }).click();
+  await page().locator(".wl-confirm").waitFor();
+  assert.ok(await page().locator(".dialog button", { hasText: /^Refresh in Fabric$/ }).count(), "the verb is kept");
+  await page().locator(".dialog button", { hasText: /^Refresh in Fabric$/ }).click();
+  await page().waitForFunction(() => !document.querySelector(".wl-confirm"));
+  assert.strictEqual(acted.length, 2);
+  for (const end = Date.now() + 5000; app.calls.filter((c) => c.method === "fabric_dataflow_refreshes").length <= before;) {
+    if (Date.now() > end) throw new Error("the refreshes weren't read again");
+    await new Promise((r) => setTimeout(r, 25));
+  }
+});
+
 test("a dataflow Fabric won't give says why; Open in Fabric goes to its workspace", { skip }, async () => {
   await page().locator('[role="tab"]', { hasText: "Queries (M)" }).click();
   await page().locator(".df-flow-row", { hasText: "df_broken" }).click();
@@ -123,7 +140,7 @@ test("a dataflow Fabric won't give says why; Open in Fabric goes to its workspac
   await page().evaluate(() => { window.openInFabric = (url) => { window.openedUrl = url; }; });
   await page().locator(".df-detail-head button", { hasText: "Open in Fabric" }).click();
   assert.match(await page().evaluate(() => window.openedUrl), new RegExp(`/groups/${WS}/`));
-  assert.strictEqual(app.calls.filter((c) => c.method === "workload_act").length, 1, "only the refresh asked for");
+  assert.strictEqual(app.calls.filter((c) => c.method === "workload_act").length, 2, "only the refreshes asked for");
 });
 
 test("no page errors", { skip }, () => assert.deepStrictEqual(app.errors, []));

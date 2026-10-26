@@ -63,7 +63,7 @@ before(async () => {
       },
       workload_preflight: (p) => {
         if (p.id === `fabric:${WS}:${CJ}`) return PRE;
-        throw new Error("That workload isn't in the inventory any more. It may have been renamed, deleted, or be in a workspace this app no longer reads.");
+        return { allowed: false, code: "not_in_inventory", reason: "That workload isn't in the inventory any more." };
       },
       workload_act: (p) => { acted.push(p); return { action: { status: "submitted" }, result: { job_id: "j3" } }; },
       set_workspace_mark: (p) => { pinned.push(p); return { favorites: [], pins: [p.workspace_id] }; },

@@ -46,9 +46,12 @@ async function renderOptimize() {
   actions.classList.toggle("optimize-setup", !!status?.allowed && !status.active);
   if (optimizePage.tab === "cost" || optimizePage.tab === "settings") return;
   if (!status?.active) {
-    fill(body, h("p", { class: "muted-text" }, status && !status.allowed
+    const note = h("p", { class: "muted-text" }, status && !status.allowed
       ? "Your organization has turned off shared optimization lakehouses."
-      : "Connect an optimization lakehouse to see what every KratosForge installation found, and act on it together. One lakehouse holds what every installation finds, fixes and saves, and your organization usually needs only one. Cost and savings works without one."));
+      : "Connect an optimization lakehouse to see what every KratosForge installation found, and act on it together. One lakehouse holds what every installation finds, fixes and saves, and your organization usually needs only one. Cost and savings works without one.");
+    // Overview still acts on what this PC's own Estate X-ray found (AF-5).
+    if (optimizePage.tab === "overview") fill(body, optimizeLocalCard(), note);
+    else fill(body, note);
     return;
   }
   fill(body, h("p", { class: "muted-text" }, "Reading shared results..."));
@@ -71,11 +74,54 @@ function optimizeBand(status) {
   if (!c) {
     return [["Results from this PC only · not shared with your team yet"],
       [btn("Connect to a lakehouse", null, () => optimizeConnectFlow(), "tool outline"),
-        btn("Create a lakehouse", "add", () => optimizeCreateFlow(), "tool primary")]];
+        btn("Create a lakehouse", "add", () => optimizeCreateFlow(), "tool outline")]];
   }
   const access = { write: "Read and write", read: "Read only", none: "No access" }[c.access] || c.access;
   return [["Shared through lakehouse ", h("b", {}, c.lakehouse_name || c.lakehouse_id), c.workspace_name ? ` in ${c.workspace_name}` : "", ` · ${access}`],
     [btn("Lakehouses", "settings", () => { state.settingsTab = "general"; go("settings"); }, "tool outline")]];
+}
+
+// Before a shared lakehouse is connected: this PC's last Estate X-ray findings, most severe first,
+// each with the fix the X-ray already offers (xray.js). It reads the saved scan and never starts one.
+const OPTIMIZE_LOCAL_LIMIT = 5;
+const XRAY_IMPACT = { high: "High", medium: "Medium", low: "Low" };
+
+function optimizeLocalCard() {
+  const box = h("section", { class: "card pad optimize-local" },
+    h("div", { class: "row" }, h("h2", { class: "grow" }, "Recommended improvements")),
+    h("p", { class: "muted-text" }, state.user ? "Reading this PC's last Estate X-ray scan..."
+      : "Sign in and scan with the Estate X-ray on Home, and what it finds shows here with a fix for each."));
+  if (state.user) loadOptimizeLocal(box);
+  return box;
+}
+
+async function loadOptimizeLocal(box) {
+  const res = await rpc("xray", { refresh: false, auto: false }).catch(() => null);
+  if (!box.isConnected) return;
+  drawOptimizeLocal(box, res);
+}
+
+function drawOptimizeLocal(box, res) {
+  const result = res?.result;
+  const rank = { high: 0, medium: 1, low: 2 };
+  const open = (result?.findings || []).filter((f) => !f.fixed).sort((a, b) => rank[a.severity] - rank[b.severity]);
+  const redraw = () => drawOptimizeLocal(box, res);
+  const home = (label) => btn(label, null, () => go("home"), "tool link small");
+  fill(box,
+    h("div", { class: "row" }, h("h2", { class: "grow" }, "Recommended improvements"),
+      result ? h("span", { class: "muted-text small" }, "From this PC's last Estate X-ray scan, ", when(result.scanned)) : null),
+    !res ? h("p", { class: "muted-text" }, "This PC's Estate X-ray couldn't be read just now.")
+      : !result ? h("p", { class: "muted-text" }, "No Estate X-ray scan on this PC yet. ", home("Scan on Home"))
+      : !open.length ? h("p", { class: "muted-text" }, "Nothing needs attention in the last scan.")
+      : h("table", { class: "list" },
+        h("thead", {}, h("tr", {}, ["Improvement", "Impact", "State", ""].map((c) => h("th", {}, c)))),
+        h("tbody", {}, open.slice(0, OPTIMIZE_LOCAL_LIMIT).map((f, i) => h("tr", { "data-finding": f.id },
+          h("td", {}, h("b", {}, f.title), h("div", { class: "muted-text small" }, f.detail),
+            xrayWhere(f) ? h("div", { class: "muted-text small" }, xrayWhere(f)) : null),
+          h("td", {}, XRAY_IMPACT[f.severity] || ""),
+          h("td", {}, f.fix?.state === "submitted" ? "Fix submitted" : f.fix?.state === "failed" ? "Fix didn't finish" : "Open"),
+          h("td", { class: "n" }, f.fix?.state === "submitted" ? null : xrayAction(f, redraw, res, { small: true, solid: i === 0 })))))),
+    open.length > OPTIMIZE_LOCAL_LIMIT ? home(`All ${open.length} in the Estate X-ray on Home`) : null);
 }
 
 // Findings by fingerprint, so a recommendation can show what it is about.

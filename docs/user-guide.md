@@ -189,6 +189,15 @@ The page shows the pipeline's **Graph** (each column runs after the one before i
 
 **Run** stays off until every activity can run here or has a mock. The run view shows every activity on a time line, nested ones under their loop, branch or child pipeline, and the output and error of the one you click. **Stop** ends the run: nothing new starts and running steps stop. **Run again with the same settings** opens the Run dialog with the settings that run started with. No Fabric job starts; notebook steps write only to a temporary folder in the lakehouse, and OneLake reads and writes use a little capacity. Results can differ from Fabric: see [Local pipeline runs](orchestration/local-runs.md).
 
+### Data Factory copy jobs (Preview)
+
+The **Copy jobs** tab beside **Pipelines** lists the copy jobs in a workspace you pick. Opening one shows its source and destination, its mode (Batch, or change data capture), its timeout and how many connections it uses. Two views follow:
+
+- **Tables**: each table it copies, with the source and destination table, the write behavior (Append, Overwrite, Upsert with its keys) and whether it copies incrementally, and on which columns.
+- **Run history**: the copy job's runs in Fabric, newest first.
+
+A line under the summary says whether a run on this PC will be able to take the job. That needs both ends to be lakehouses and a Batch job, because other sources need Fabric's connections and gateways. The tab only reads: no Fabric job starts and no capacity is used. Running a copy job from here comes later. **Open in Fabric** opens the job's workspace inside the app.
+
 ### Data Factory dataflows (Preview)
 
 The **Dataflows** tab beside **Pipelines** lists the Dataflow Gen2 items in a workspace you pick. Opening one shows:

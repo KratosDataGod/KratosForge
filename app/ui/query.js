@@ -7,7 +7,7 @@
 // SQL over one lakehouse's tables, run on this PC by the sidecar (DuckDB). The editor is sqleditor.js.
 const QUERY_HINT = "-- Spark SQL runs on this PC. Press Ctrl+Enter to run.\n";
 const SQL_AUTO_CHECK_LIMIT = 100000;  // characters; a longer query is checked when the person asks
-const WAREHOUSE_HINT = "-- T-SQL runs in Fabric on this warehouse and uses capacity. Only a query that reads runs here.\n";
+const WAREHOUSE_HINT = "-- T-SQL runs in Fabric on this warehouse and uses capacity. It only reads unless you tick Allow changes.\n";
 const sqlPage = { ref: null, tabs: [], active: 0, tables: null, cols: {}, open: {}, pending: {}, editor: null };
 // Warehouses whose first run this session the person has confirmed (a warehouse run uses capacity).
 const sqlWarehouseOk = new Set();
@@ -107,6 +107,7 @@ function sqlMessages(ex, tab, target) {
   if (ex.ended) lines.push(`Ended at ${time(ex.ended)} after ${ex.seconds} s`);
   lines.push(`State: ${SQL_STATE[ex.state]?.[1] || ex.state}${ex.state === "completed" ? ` · ${(ex.rows || 0).toLocaleString()} row${ex.rows === 1 ? "" : "s"}` +
     ` · ${(ex.columns?.length || 0).toLocaleString()} column${ex.columns?.length === 1 ? "" : "s"}` : ""}`);
+  if (ex.change) lines.push(`Change: ${(ex.affected || 0).toLocaleString()} row${ex.affected === 1 ? "" : "s"} affected · ${ex.committed ? "committed" : "nothing kept"}`);
   if (ex.refused) lines.push(`Refused before it ran: statement ${ex.refused.statement} ${ex.refused.label}`);
   if (ex.error) lines.push(`Message: ${ex.error}`);
   if (ex.time_limit_minutes) lines.push(`Time limit: ${ex.time_limit_minutes} minutes`);
@@ -224,7 +225,30 @@ function renderQuery() {
       toast(`${SQL_DIALECTS[tab.dialect].label} can't run on this PC. Pick Spark SQL or DuckDB to run here.`, true);
       return;
     }
-    if (wh && !(await warehouseRunOk(ref))) return;
+    // WH-10b: with Allow changes ticked, ask the engine what the script does first; a change has its own confirm.
+    const whRef = wh ? { workspace_id: ref.workspace_id, item_id: ref.item_id, kind: ref.kind } : null;
+    let change = false;
+    if (wh && whChangesTicked(ref)) {
+      let plan;
+      try {
+        plan = await rpc("sql_start", { query, target: "warehouse", dialect: "tsql", warehouse_ref: whRef, allow: ["warehouse_write"], dry_run: true });
+      } catch (err) {
+        Object.assign(tab, { error: String(err), errorRetry: () => run(query), result: null, exec: null });
+        sqlPage.redraw?.();
+        return;
+      }
+      if (plan.refused) {
+        Object.assign(tab, { error: `Statement ${plan.refused.statement} was refused (${plan.refused.reason}), so nothing was sent. A warehouse change can't do this.`,
+          errorRetry: null, result: null, exec: null });
+        sqlPage.redraw?.();
+        return;
+      }
+      if (plan.permission === "warehouse_write") {
+        if (!(await whChangeConfirm(ref, plan))) return;
+        change = true;
+      }
+    }
+    if (wh && !change && !(await warehouseRunOk(ref))) return;
     if (wh && !sqlPage.catalog) loadCatalog();
     tab.running = true;
     const startedAt = Date.now();
@@ -233,7 +257,8 @@ function renderQuery() {
     let status;
     try {
       status = await rpc("sql_start", wh
-        ? { query, target: "warehouse", dialect: "tsql", warehouse_ref: { workspace_id: ref.workspace_id, item_id: ref.item_id, kind: ref.kind } }
+        ? { query, target: "warehouse", dialect: "tsql", warehouse_ref: whRef,
+          ...(change ? { allow: ["warehouse_write"], confirm: true, confirm_name: ref.name } : {}) }
         : { query, lakehouse_ref: ref, dialect: tab.dialect, allow });
       Object.assign(tab, { exec: status, ranSql: query, ranDialect: tab.dialect });
       status = await followRun(tab, status);
@@ -255,10 +280,16 @@ function renderQuery() {
       if (tab.exportAfter) { const fmt = tab.exportAfter; delete tab.exportAfter; exportResult(fmt); }
     } else if (status && !tab.errorRetry) {  // a failed engine call keeps its own message and Retry
       tab.error = status.error || `The query ${SQL_STATE[status.state]?.[1].toLowerCase() || status.state}.`;
+      if (wh && !change && status.refused && whChangesAllowed()) tab.error += " To change the warehouse, tick Allow changes at the top of the page.";
+    }
+    if (change && status?.state === "completed") {
+      toast(`Changed ${ref.name}: ${(status.affected || 0).toLocaleString()} row${status.affected === 1 ? "" : "s"} affected, committed.`);
+      if (sqlPage.catalog) loadCatalog();  // tables, views or procedures may have changed
     }
     // WH-07: each run that reached the engine goes into this PC's history for the warehouse.
     if (wh && status?.state) {
       sqlHistoryAdd(ref, { at: startedAt, sql: query, state: status.state, seconds: status.seconds ?? null, rows: status.rows ?? null,
+        change: change || undefined, affected: change ? status.affected ?? null : undefined,
         error: status.state === "completed" ? undefined : sqlHistoryError(status.error) });
       if (p.whAside === "history") p.whRedraw?.();
     }
@@ -720,8 +751,12 @@ function renderQuery() {
       tab.file ? btn("Save as new", null, () => saveQuery(true), "tool") : null,
       btn("Open in Fabric", "open", () => openInFabric(fabricLink)),
       h("span", { class: "spacer" }),
-      h("span", { class: "sql-capacity-note", role: "note", title: `Queries run in Fabric on ${ref.name} and use capacity. Only a query that reads runs here.` },
-        "Runs in Fabric · uses capacity · reads only"), learnMore("warehouse-queries-preview"))),
+      whChangesSwitch(ref, () => renderQuery()),
+      h("span", { class: `sql-capacity-note${whChangesTicked(ref) ? " changes" : ""}`, role: "note",
+        title: whChangesTicked(ref) ? `Queries run in Fabric on ${ref.name} and use capacity. A change runs only after it shows what it changes and you confirm.`
+          : `Queries run in Fabric on ${ref.name} and use capacity. Only a query that reads runs here.` },
+        whChangesTicked(ref) ? "Runs in Fabric · uses capacity · changes after you confirm" : "Runs in Fabric · uses capacity · reads only"),
+      learnMore("warehouse-queries-preview"))),
     h("div", { class: "nb-body" },
       h("aside", { class: "explorer" }, h("div", { class: "explorer-head sql-views", role: "tablist", "aria-label": "Explorer views" },
         asideTab("explorer", "Explorer"), asideTab("queries", "Queries"), asideTab("history", "History")),
@@ -733,7 +768,7 @@ function renderQuery() {
         asideView !== "explorer" ? null : whTree.el,
         h("div", { class: "warehouse-how" }, howItWorks("warehouse.query", {
           reads: "The warehouse's SQL connection, from Fabric, then the rows your query asks for. The explorer reads the warehouse's catalog views (sys.objects, sys.columns) the same way. It signs in as you, with a token for Azure SQL.",
-          changes: "Nothing. Only a single statement that reads is sent; DDL, DML, EXEC and variables are refused before Fabric is asked.",
+          changes: "Nothing, until you tick Allow changes. Then a script that changes the warehouse (DDL, DML, EXEC) runs only after it shows what it changes and you confirm, typing the warehouse's name in Prod; it runs in one transaction, so a failure keeps nothing.",
           results: "A snapshot of the rows on this PC, read a page at a time, with Copy and Export to Downloads. The query text stays on this PC.",
           more: [["Capacity", "The query runs in Fabric, so it uses capacity on the warehouse's workspace."],
             ["Your templates", "Saving, importing or deleting a template of your own writes or removes a .sql file in My templates (the app's data folder) or in the sql-templates folder of a Git repository you opened. Export writes a new file in Downloads."],

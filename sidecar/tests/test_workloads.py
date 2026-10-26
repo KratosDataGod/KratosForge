@@ -39,6 +39,9 @@ def signed_in(svc, user=USER, token="tok"):
 def svc(tmp_path, monkeypatch):
     monkeypatch.setattr(Service, "pc_schedules",
                         property(lambda self: LocalSchedules(self.root, FakeScheduler(), "C:/engine/python.exe")))
+    # The risk check in a Fabric run's preflight would read the workspace's capacity from Fabric; with
+    # a fake token that went to the real API and waited out its retries (about 150 s, or a timeout).
+    monkeypatch.setattr(Service, "_risk_capacity_read", lambda self, *a: None)
     s = Service(root=tmp_path / "app")
     signed_in(s, user="", token=None)  # signed out, and never prompting
     return s

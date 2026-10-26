@@ -113,7 +113,7 @@ function renderAllNotebooks() {
     oninput: (e) => { nbFiles.query = e.target.value; clearTimeout(nbFiles.timer); nbFiles.timer = setTimeout(() => nbFilesDraw(results, chips), 250); } });
   setView(h("div", { class: "page nbf-page" },
     h("h1", {}, "All notebooks"),
-    h("p", { class: "sub" }, "Every notebook on this PC and in your notebooks repositories. Fabric notebooks are in Workspaces: select one there and use Edit on this PC. ", learnMore("all-notebooks")),
+    pageIntro("Every notebook on this PC and in your notebooks repositories. Fabric notebooks are in Workspaces: select one there and use Edit on this PC. ", learnMore("all-notebooks")),
     h("div", { class: "row wrap nbf-bar" },
       btn("New notebook", "notebook", () => newNotebook(), "tool primary"),
       btn("New folder", "folder", () => nbNewFolderDialog(null, () => nbFilesDraw(results, chips)), "tool outline"),

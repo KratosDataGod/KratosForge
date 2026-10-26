@@ -18,7 +18,7 @@ const PLAN = { layer: "gold", layers: ["gold"], name: "SM_Gold", workspace_name:
 const LIMITS = { sku: "F32", files: 1000, row_groups: 1000, rows: 300000000, model_bytes: 40 * 1024 ** 3 };
 const CHECK = { env: "test", name: "SM_Gold", workspace_name: "Sales Test", checked_at: new Date().toISOString(), sku: "F32",
   direct_lake: true, behavior: "automatic", storage: "sql", limits: LIMITS, model_bytes: 26 * 1024 ** 3, keys_checked: true,
-  counts: { fail: 2, warn: 2, info: 1 }, unread: [],
+  counts: { fail: 2, warn: 2, info: 2 }, unread: [],
   findings: [
     { severity: "fail", table: "DimCustomer", check: "Key not unique", column: "customer_sk", fix: "show_rows",
       message: "customer_sk has 3 values that appear more than once, so the relationship from FactSales fails at query time." },
@@ -29,7 +29,9 @@ const CHECK = { env: "test", name: "SM_Gold", workspace_name: "Sales Test", chec
     { severity: "warn", table: "FactWeb", check: "Parquet files", column: "", fix: "compact",
       message: "940 Parquet files; F32 allows 1,000 a table, so a few more loads will pass it." },
     { severity: "info", table: "FactSales", check: "New column", column: "channel", fix: "update_model",
-      message: "gold.fact_sales has channel, which the model doesn't have yet." }],
+      message: "gold.fact_sales has channel, which the model doesn't have yet." },
+    { severity: "info", table: "FactSales", check: "Rows with no match", column: "customer_sk", fix: "show_rows",
+      message: "FactSales has 4,210 rows with a customer_sk that isn't in DimCustomer (37 values). Power BI groups them under (Blank) when you slice by DimCustomer, instead of under the DimCustomer row they belong to." }],
   tables: [
     { table: "FactSales", delta_table: "gold.fact_sales", exists: true, rows: 212400000, files: 610, row_groups: 1240,
       row_groups_estimated: true, bytes: 18.2 * 1024 ** 3 },
@@ -91,6 +93,7 @@ test("Check now lists the worst first against the workspace's capacity, with fix
   assert.match(rows[0], /^Would fail/);
   assert.match(rows[0], /Open the table/);
   assert.match(rows[2], /Compact in Table health/);
+  assert.match(rows[5], /^Info.*Rows with no match.*\(Blank\).*Open the table/s, "fact rows with no match say where they show");
   await card.locator("details summary:has-text('Every table')").click();
   assert.match(await card.locator("details").first().textContent(), /about 1,240/);
   assert.strictEqual(await card.locator("td.n.over").count(), 1);

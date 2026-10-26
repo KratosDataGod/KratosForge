@@ -206,6 +206,13 @@ function showDialog(title, body, actions = [], onClose = null) {
   const previous = dialogOnClose;
   dialogOnClose = onClose;
   document.getElementById("dialog-root").replaceChildren(overlay);
+  // A dialog's How this works says what its button changes, so it opens unfolded.
+  overlay.querySelectorAll(".how-it-works.folded").forEach((p) => {
+    p.classList.remove("folded");
+    const toggle = p.querySelector(":scope > .fold-head > .fold-toggle");
+    toggle?.setAttribute("aria-expanded", "true");
+    if (toggle) toggle.title = "Hide";
+  });
   previous?.();
   overlay.querySelector("input, select")?.focus();
   return overlay;
@@ -669,7 +676,7 @@ function foldable(id, head, body, { cls = "card pad", always = null, start = fal
   const box = h("section", { class: `${cls} foldable${folded ? " folded" : ""}` });
   const toggle = h("button", { class: "fold-toggle", "aria-expanded": String(!folded), title: folded ? "Show" : "Hide",
     onclick: () => {
-      folded = !folded;
+      folded = !box.classList.contains("folded");
       try { localStorage.setItem(`fd.fold.${id}`, folded ? "1" : "0"); } catch { /* this session only */ }
       box.classList.toggle("folded", folded);
       toggle.setAttribute("aria-expanded", String(!folded));
@@ -909,7 +916,7 @@ function tile(iconName, title, desc, onClick) {
 
 function renderCreate() {
   setView(h("div", { class: "page" },
-    h("h1", {}, "Create"), h("p", { class: "sub" }, "Items you create here run on this PC and store their data in OneLake. ", learnMore("create")),
+    h("h1", {}, "Create"), pageIntro("Items you create here run on this PC and store their data in OneLake. ", learnMore("create")),
     h("h2", {}, "Data engineering"),
     h("div", { class: "tiles" },
       tile("notebook", "Notebook", "Explore, transform and write Delta tables with Python", newNotebook),
@@ -1184,7 +1191,7 @@ async function renderWorkspaces() {
   const previewing = itemPreviewOn();
   if (itemPreview.target?.kind !== "item" && !itemPreview.parent) itemPreview.target = null;
   setView(h("div", { class: "page" }, h("h1", {}, "Workspaces"), workspacesTabs("workspaces"),
-    h("p", { class: "sub" }, "Your Fabric workspaces. Expand one to see its items, star your favorites and pin the ones you use most. ",
+    pageIntro("Your Fabric workspaces. Expand one to see its items, star your favorites and pin the ones you use most. ",
       previewing ? "Click an item to preview it. " : "", learnMore("workspaces")),
     signInCallout(), withHowItWorks([chips, previewing ? previewLayout(body, () => draw()) : body], howItWorks("workspaces", {
       reads: "Your Fabric workspaces and their items, from Fabric with your sign-in, when the page opens and when you expand a workspace. Item previews read only the item you click.",
@@ -1346,7 +1353,7 @@ async function renderWorkspace() {
   const ws = state.openWorkspace;
   const body = loading("Loading items...");
   setView(h("div", { class: "page" }, h("h1", {}, ws.displayName),
-    h("p", { class: "sub" }, "This workspace's lakehouses. ", learnMore("workspaces")),
+    pageIntro("This workspace's lakehouses. ", learnMore("workspaces")),
     h("div", { class: "toolbar", style: "padding:0;border:0;margin-bottom:16px" },
       btn("New lakehouse", "add", () => newLakehouse(ws), "tool outline"),
       btn("New notebook", "add", newNotebook, "tool outline")),

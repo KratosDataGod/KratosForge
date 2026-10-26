@@ -601,6 +601,21 @@ h2.flush { margin: 0; }
 .wh-h-sql { font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wh-h-meta { font-size: 11.5px; color: var(--muted); }
 .wh-h-meta.bad { color: var(--danger); }
+/* WH-10b: changes to a warehouse */
+.wh-changes { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 10px; border: 1px solid var(--border-input);
+  border-radius: 4px; font-size: 13px; cursor: pointer; }
+.wh-changes.on { border-color: var(--danger); color: var(--danger); font-weight: 600; }
+.wh-changes input { margin: 0; }
+.sql-capacity-note.changes { background: #fde7e9; color: #8a1c22; font-weight: 600; }
+.wh-change { display: flex; flex-direction: column; gap: 10px; max-width: 560px; }
+.wh-change p { margin: 0; }
+.wh-change-where { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px; margin: 0; font-size: 13px; }
+.wh-change-where dt { color: var(--muted); }
+.wh-change-where dd { margin: 0; }
+.wh-change-what { border: 1px solid var(--border); border-radius: 4px; }
+.wh-change-head { padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 600; color: var(--text-2); }
+.wh-change-what ul { margin: 0; padding: 8px 10px 8px 28px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; max-height: 200px; overflow: auto; }
+.wh-h-change { color: var(--danger); font-weight: 600; }
 .wh-h-clear { margin: 6px 12px 0; }
 /* WH-04: SQL from a template */
 .sqlt-dialog { display: flex; flex-direction: column; }

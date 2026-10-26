@@ -7,11 +7,24 @@ KratosForge is building a full development experience for Fabric warehouses, the
 In **Workspaces**, open a workspace and press **SQL query** on a **Warehouse** or **SQL analytics endpoint** row. The Warehouse page opens: the SQL editor, the compatibility check and the managed results you know from lakehouse queries, with the warehouse as the target.
 
 - **It runs in Fabric and uses capacity.** Unlike a lakehouse query, which runs on this PC, a warehouse query runs on the warehouse. The first run on each warehouse after the app starts asks you to confirm.
-- **It only reads.** One statement that reads is sent. DDL, DML, `EXEC`, variables and anything that reaches outside the warehouse (`OPENROWSET`) are refused before Fabric is asked anything. Changing a warehouse comes next (WH-10): the engine can already run a change you confirmed (see [SQL execution](sql-execution.md#changes-on-a-warehouse-wh-10)), and the page's confirm follows. **Settings › Advanced › SQL queries › Warehouse changes** turns changes off for this PC; your organization can turn them off for everyone.
+- **It reads until you allow changes.** Until **Allow changes** is ticked, one statement that reads is sent; DDL, DML, `EXEC`, variables and anything that reaches outside the warehouse (`OPENROWSET`) are refused before Fabric is asked anything. With it ticked, a script may change the warehouse after it shows what it changes and you confirm: see [Changing the warehouse](#changing-the-warehouse).
 - **It runs as you.** The app signs in to Azure SQL (`https://database.windows.net`) with your account, the first time you run a warehouse query, and Fabric's permissions on the warehouse apply as they do in Fabric. See [permissions](permissions.md).
 - **Same run controls.** Stop, the time limit in Settings › SQL, results a page at a time, Copy and Export to CSV or Parquet. The `sql_execution` audit line names the workspace and warehouse, never the SQL.
-- **No risk check, by design.** The [risk check](finops/risk-check.md) looks at workloads (notebooks, pipelines, Data mesh runs) before a run. A warehouse query isn't a workload: it only reads, and the confirm, Stop and the time limit bound what it can use. Query insights on the History tab show what queries cost in time; capacity cost comes later, in Optimize.
+- **No risk check, by design.** The [risk check](finops/risk-check.md) looks at workloads (notebooks, pipelines, Data mesh runs) before a run. A warehouse query isn't a workload: a change shows what it changes before it runs, and the confirm, Stop and the time limit bound what it can use. Query insights on the History tab show what queries cost in time; capacity cost comes later, in Optimize.
 - **Check before you run.** The editor checks T-SQL against Fabric Warehouse (or the SQL analytics endpoint) as you type, from Microsoft's [T-SQL surface area](https://learn.microsoft.com/en-us/fabric/data-warehouse/tsql-surface-area) page. See [SQL compatibility](sql-compatibility.md).
+
+## Changing the warehouse
+
+Tick **Allow changes** at the top of the Warehouse page to let **Run** change that warehouse: DDL, DML and `EXEC`. It's ticked per warehouse and only until the app closes, so each page starts by reading.
+
+1. **Run** first asks the engine what the script does. Nothing is sent to Fabric for this. A script that only reads runs as before.
+2. A script that changes the warehouse shows a confirm: the workspace, the warehouse, its environment, and each statement that changes something, such as *Statement 1: UPDATE dbo.DimCustomer changes the warehouse*.
+3. In **Prod**, or in a workspace whose environment isn't known, you type the warehouse's name before **Run in Prod** is enabled. The engine checks that name against Fabric's, so a change never reaches a warehouse you didn't name. Dev and Test need only the confirm.
+4. The script runs in one transaction, in batches split at `GO` lines. If a statement fails, or you press **Stop**, nothing is kept. **Messages** and the **History** tab show how many rows changed and that it was committed, and the explorer lists the objects again.
+
+Some things are never run, even when changes are allowed: `BEGIN TRAN`, `COMMIT` and `ROLLBACK` (the run is the transaction), dynamic SQL, `EXECUTE AS`, permissions (`GRANT`, `REVOKE`, `DENY`, roles and users, which are managed in Fabric), `USE` and other databases, `COPY INTO` and database DDL. A script with one of these says which statement and why, and nothing is sent. A procedure's body is checked when you create it here, but a procedure already in the warehouse runs as it was written. The full list is in [SQL execution](sql-execution.md#changes-on-a-warehouse-wh-10).
+
+**Settings › Advanced › SQL queries › Warehouse changes** turns changes off for this PC, which leaves **Allow changes** greyed out; your organization can turn them off for everyone. The audit log records who changed which warehouse and how many rows, never the SQL or the data.
 
 ## Explorer
 
@@ -132,7 +145,7 @@ How a run works underneath (states, limits, what is refused): [Running SQL queri
 | WH-04b | Your own templates, on this PC or shared through Git | Done |
 | WH-06 | Saved and shared queries, on this PC or through Git | Done |
 | WH-07 | Query history and Fabric query insights | Done |
-| WH-10 | Changes to a warehouse (DDL, DML, EXEC) after a preview and confirm, in every environment; Prod asks you to type the warehouse's name | This release: the engine |
+| WH-10 | Changes to a warehouse (DDL, DML, EXEC) after a preview and confirm, in every environment; Prod asks you to type the warehouse's name | This release |
 | WH-08 | Messages and a quick chart (several result sets come with scripts) | Done |
 
-Next: the change confirm on the page, the warehouse as files in Git (WH-11), compare (WH-12), deploy with a preview (WH-13) and the estimated plan (WH-09). Later stages (loading and managing data, Snowflake) follow the same pattern: a mockup first, then one change per feature.
+Next: the warehouse as files in Git (WH-11), compare (WH-12), deploy with a preview (WH-13) and the estimated plan (WH-09). Later stages (loading and managing data, Snowflake) follow the same pattern: a mockup first, then one change per feature.

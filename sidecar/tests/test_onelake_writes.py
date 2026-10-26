@@ -319,3 +319,64 @@ def test_publish_says_what_an_append_uploaded(tmp_path):
     assert first.written_bytes == sum(pa.table(first.get_add_actions(flatten=True)).column("size_bytes").to_pylist())
     second = publish.publish(data(1), ref, "append", "tok")
     assert 0 < second.written_bytes < first.written_bytes  # only the new file
+
+
+# ---- a slow upload line (issue #785)
+
+DROPPED = ("Failed to parse parquet: External: Generic MicrosoftAzure error: Error performing PUT "
+           "https://onelake.blob.fabric.microsoft.com/ws/lh/Tables/tpch/partsupp/part-00000-x.zstd.parquet?comp=block "
+           "in 180.77s, after 5 retries, max_retries: 10, retry_timeout: 180s - HTTP error: error sending request")
+
+
+def test_uploads_get_time_for_a_slow_line():
+    import os
+
+    from fabric_desktop import onelake
+    opts = onelake.storage_options("tok")
+    assert opts["timeout"] == "600s" and opts["retry_timeout"] == "1800s"  # a part's tries outlast one try
+    assert os.environ["DELTARS_MAX_CONCURRENCY_TASKS"] == "4"
+    assert int(os.environ["DELTARS_MAX_IN_FLIGHT_UPLOAD_BYTES"]) == 256 * 1024 * 1024
+
+
+def test_only_a_dropped_data_file_upload_is_written_again():
+    from fabric_desktop.retrying import data_upload_dropped
+    assert data_upload_dropped(OSError(DROPPED))
+    assert data_upload_dropped(OSError(DROPPED.replace("error sending request", "Server returned non-2xx status code: 503")))
+    assert not data_upload_dropped(OSError(DROPPED.replace("error sending request", "Server returned non-2xx status code: 403")))
+    log = DROPPED.replace("part-00000-x.zstd.parquet", "_delta_log/00000000000000000003.json")
+    assert not data_upload_dropped(OSError(log))  # the commit may have gone in
+    assert not data_upload_dropped(ValueError("Schema error"))
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_a_dropped_upload_writes_the_table_again(service, monkeypatch, stream):
+    monkeypatch.setattr(lakehouse, "UPLOAD_RETRY_WAIT", 0.0)
+    upload, tries = lakehouse.publish, []
+
+    def drops_once(data, *args, **kwargs):
+        tries.append(1)
+        if len(tries) == 1:
+            data.read_all() if hasattr(data, "read_all") else None  # the first try read the stream
+            raise OSError(DROPPED)
+        return upload(data, *args, **kwargs)
+    monkeypatch.setattr(lakehouse, "publish", drops_once)
+    code = ("import pyarrow as pa\nfrom fabric_desktop import lakehouse\nt = pa.table({'id': list(range(10))})\n"
+            + ("lakehouse.write_table(pa.RecordBatchReader.from_batches(t.schema, t.to_batches(max_chunksize=3)), 'sales')"
+               if stream else "lakehouse.write_table(t, 'sales')"))
+    out = service.run_cell(code, LH)
+    assert out["status"] == "ok", out
+    assert len(tries) == 2
+    table = DeltaTable(str(service.onelake / "sales"))
+    assert table.version() == 0 and sorted(table.to_pyarrow_table().column("id").to_pylist()) == list(range(10))
+
+
+def test_other_write_errors_arent_tried_again(service, monkeypatch):
+    monkeypatch.setattr(lakehouse, "UPLOAD_RETRY_WAIT", 0.0)
+    tries = []
+
+    def forbidden(*args, **kwargs):
+        tries.append(1)
+        raise OSError(DROPPED.replace("error sending request", "Server returned non-2xx status code: 403 Forbidden"))
+    monkeypatch.setattr(lakehouse, "publish", forbidden)
+    out = service.run_cell(WRITE, LH)
+    assert out["status"] == "error" and len(tries) == 1

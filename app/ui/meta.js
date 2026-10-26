@@ -1609,19 +1609,34 @@ function ossieCard(plan) {
   if (!title) return null;
   const m = state.meta;
   const result = h("div", { class: "ossie-result" });
+  // Values say where the model is read from: "fabric:<name>" in the environment's workspace, "git:<folder>" in
+  // the project's folder (semantic/<name>.SemanticModel, read on this PC with no Fabric call).
   const model = h("select", { "aria-label": "Model to export" },
-    h("option", { value: plan.existing ? plan.name : "" }, plan.existing ? `${plan.name} (this layer's model)` : "Reading the workspace's models..."));
+    h("option", { value: plan.existing ? `fabric:${plan.name}` : "" }, plan.existing ? `${plan.name} (this layer's model)` : "Reading the models..."));
   const sql = h("input", { type: "checkbox", checked: true });
-  metaCall("meta_model_ossie_models", { env: m.env }, "Models not listed").then((res) => {
-    if (!res) return;
-    const keep = model.value || plan.name;
-    model.replaceChildren(...(res.models.length ? res.models.map((x) => h("option", { value: x.name, selected: x.name === keep ? true : null },
-      x.name === plan.name ? `${x.name} (this layer's model)` : x.name)) : [h("option", { value: "" }, "No semantic models in this workspace yet")]));
+  Promise.all([
+    rpc("meta_model_ossie_models", { env: m.env }).catch((err) => ({ error: err.message || String(err) })),
+    rpc("meta_model_ossie_folders", {}).catch(() => ({ folders: [] })),
+  ]).then(([fab, git]) => {
+    const keep = model.value || `fabric:${plan.name}`;
+    const opt = (value, label) => h("option", { value, selected: value === keep ? true : null }, label);
+    const inFabric = fab.error ? [h("option", { value: "", disabled: true }, fab.error)]
+      : fab.models.length ? fab.models.map((x) => opt(`fabric:${x.name}`, x.name === plan.name ? `${x.name} (this layer's model)` : x.name))
+        : [h("option", { value: "", disabled: true }, "No semantic models in this workspace yet")];
+    model.replaceChildren(
+      h("optgroup", { label: fab.workspace_name ? `In Fabric (${fab.workspace_name})` : "In Fabric" }, inFabric),
+      git.folders.length ? h("optgroup", { label: "In Git, on this PC" }, git.folders.map((f) => opt(`git:${f.path}`, `${f.name} (${f.path})`))) : null);
+    if (!model.value) model.value = git.folders.length ? `git:${git.folders[0].path}` : "";
   });
   const exportModel = async () => {
     if (!model.value) { toast("Pick a model to export", true); return; }
-    fill(result, h("p", { class: "muted-text" }, `Reading ${model.value} from Fabric and converting it on this PC...`));
-    const out = await metaCall("meta_model_ossie_export", { env: m.env, name: model.value, translate_dax: sql.checked }, "Not exported");
+    const [where, ...rest] = model.value.split(":");
+    const target = rest.join(":");
+    fill(result, h("p", { class: "muted-text" }, where === "git"
+      ? `Reading ${target} on this PC and converting it...` : `Reading ${target} from Fabric and converting it on this PC...`));
+    const out = where === "git"
+      ? await metaCall("meta_model_ossie_export_folder", { path: target, translate_dax: sql.checked }, "Not exported")
+      : await metaCall("meta_model_ossie_export", { env: m.env, name: target, translate_dax: sql.checked }, "Not exported");
     if (!out) { fill(result); return; }
     fill(result, ossieExportResult(out));
   };
@@ -1629,12 +1644,12 @@ function ossieCard(plan) {
     h("div", { class: "row wrap" }, title, h("span", { class: "spacer" }),
       btn("Import from Ossie...", "arrowUpload", () => ossieImportDialog(plan, result), "tool outline small"),
       btn("Export to Ossie", "arrowDownload", exportModel, "tool primary small")),
-    h("p", { class: "muted-text" }, "Ossie is the open format Snowflake, dbt, Databricks and others read for semantic models. Export reads the model's definition from Fabric and converts it on this PC; nothing in Fabric changes. A model sent to Ossie and back comes back the same, because Power BI details travel in the file's Power BI section."),
+    h("p", { class: "muted-text" }, "Ossie is the open format Snowflake, dbt, Databricks and others read for semantic models. Export reads the model's definition from Fabric, or its TMDL kept in Git, and converts it on this PC; nothing in Fabric changes. A model sent to Ossie and back comes back the same, because Power BI details travel in the file's Power BI section."),
     h("div", { class: "row wrap" }, h("label", { class: "field" }, "Model", model),
       h("label", { class: "check" }, sql, "Also write simple measures as portable SQL")),
     result,
     howItWorks("ossie", {
-      reads: "The model's definition from Fabric (getDefinition, read only), or the Ossie file you pick.",
+      reads: "The model's definition from Fabric (getDefinition, read only), its TMDL under semantic/ in the project's folder (no Fabric call), or the Ossie file you pick.",
       changes: "Export changes nothing until you save the file into the metadata project's folder. Import writes the model's definition in Fabric (or creates a new model) only after you confirm; no refresh runs. Save TMDL to Git writes the model's TMDL files under semantic/ in the project's folder.",
       results: "Files under semantic/ in the metadata project, ready to commit in Source control.",
       more: [["How it converts", "On this PC, with the Apache Ossie Microsoft converter. No AI is involved, and nothing leaves this PC except the Fabric calls above."]],

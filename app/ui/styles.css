@@ -589,7 +589,7 @@ h2.flush { margin: 0; }
 .sql-table-row .tree-row.wh-more { flex: none; width: 28px; justify-content: center; padding: 0; opacity: 0; }
 .wh-object:hover .wh-more, .wh-more:focus-visible, .wh-more[aria-expanded="true"] { opacity: 1; }
 /* WH-06: saved and shared queries */
-.explorer-head.sql-views { justify-content: flex-start; padding: 8px 12px 0; }
+.explorer-head.sql-views { justify-content: flex-start; padding: 8px 8px 0; }
 .wh-q-head { padding: 10px 12px 2px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .wh-queries.explorer-content { flex: none; overflow: visible; padding: 0 0 8px; }
 .wh-q-row { display: flex; align-items: center; }
@@ -617,6 +617,20 @@ h2.flush { margin: 0; }
 .wh-change-what ul { margin: 0; padding: 8px 10px 8px 28px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; max-height: 200px; overflow: auto; }
 .wh-h-change { color: var(--danger); font-weight: 600; }
 .wh-h-clear { margin: 6px 12px 0; }
+/* WH-11: the warehouse's project in Git */
+.wh-project.explorer-content { flex: none; overflow: visible; padding: 0 0 8px; }
+.wh-p-where { margin: 4px 8px 6px; font-size: 12px; overflow-wrap: anywhere; }
+.wh-p-pick { margin: 0 8px 6px; max-width: calc(100% - 16px); }
+.wh-p-dir { cursor: default; font-family: var(--mono); font-size: 12px; }
+.wh-p-file { font-family: var(--mono); font-size: 12px; }
+.wh-p-file.on { background: var(--accent-soft, #e9eef7); color: var(--accent); font-weight: 600; }
+.wh-p-git { margin-left: auto; padding-left: 6px; font-weight: 700; font-size: 11.5px; }
+.wh-p-git.added { color: var(--success, #107c10); }
+.wh-p-git.changed { color: #8a4b00; }
+.wh-p-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 8px 0; }
+.wh-p-plan { margin: 6px 0; padding-left: 20px; display: flex; flex-direction: column; gap: 2px; }
+.wh-p-import { display: flex; flex-direction: column; gap: 8px; max-width: 520px; }
+.wh-p-import p { margin: 0; }
 /* WH-04: SQL from a template */
 .sqlt-dialog { display: flex; flex-direction: column; }
 .sqlt { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }

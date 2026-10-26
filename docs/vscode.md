@@ -82,6 +82,8 @@ Preview. The KratosForge extension for VS Code, which picks this up in VS Code's
 
 1. In **Settings > Integrations > VS Code**, turn on **Let VS Code run notebooks**. It's off until you do, and your organization can keep it off (`integrations_editors` in the [policy file](azure-setup.md#4-push-settings-to-everyone)).
 2. In VS Code, pick KratosForge as the notebook's kernel. KratosForge asks **Let VS Code run notebooks on this PC?** with the window's folder and a pairing code. Check VS Code shows the same code, choose how long to keep the pairing, and **Pair this window**.
+![Let VS Code run notebooks on this PC?, with the window's folder, the pairing code and what it may do](images/editor-pairing.png)
+
 3. Cells you run in that window run in the notebook's own session here: the same variables, `spark`, default lakehouse and limits as running them in KratosForge. Stop in VS Code stops the cell.
 
 What a paired window can and can't do:

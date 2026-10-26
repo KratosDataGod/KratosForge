@@ -37,7 +37,7 @@ TRANSIENT_SIGN_IN = {"temporarily_unavailable", "server_error", "unknown_error"}
 
 def declined(exc: Exception) -> bool:
     """Microsoft sign-in said no (declined, cancelled, or not allowed), rather than failing for now."""
-    return isinstance(exc, SignInError) and exc.code not in TRANSIENT_SIGN_IN
+    return isinstance(exc, SignInError) and not {exc.code, exc.error} & TRANSIENT_SIGN_IN
 
 
 def connection_ids(value: Any) -> set[str]:

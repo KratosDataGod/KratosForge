@@ -445,6 +445,27 @@ def test_interrupt_while_a_cell_is_finishing_lets_it_finish(monkeypatch):
     assert k.interrupt() == {"interrupted": True, "stopped": True}
     assert k.poll(-1, 0.0)["status"] == "ok"
 
+
+def test_interrupt_is_sent_while_holding_the_cancel_lock(monkeypatch):
+    # Sent after the lock was released, the cell could disarm in between and get the interrupt in its finally.
+    import ctypes
+    from fabric_desktop import notebook
+    k = Kernel()
+    k.start("import time\nfor _ in range(400):\n    time.sleep(0.05)")
+    run = k._current
+    deadline = time.monotonic() + 5
+    while not run.armed and time.monotonic() < deadline:
+        time.sleep(0.01)
+    send, held = ctypes.pythonapi.PyThreadState_SetAsyncExc, []
+
+    def recording(ident, exc):
+        held.append(run.cancel_lock.locked())
+        return send(ident, exc)
+
+    monkeypatch.setattr(notebook.ctypes.pythonapi, "PyThreadState_SetAsyncExc", recording)
+    assert k.interrupt() == {"interrupted": True, "stopped": True}
+    assert held == [True] and k.poll(-1, 0.0)["status"] == "cancelled"
+
 def test_the_kernel_refuses_cells_while_a_proof_runs_and_one_proof_at_a_time(svc):
     svc.fake = FakeFabric(svc)
     cells = CELLS[:2] + [{"type": "code", "source": "import time\ntime.sleep(1.5)"}]

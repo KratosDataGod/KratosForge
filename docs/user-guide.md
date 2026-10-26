@@ -681,6 +681,16 @@ There are two channels:
 
 To update without waiting for the next start, choose **Check for updates** in the account menu (or in **Settings > Updates**). It shows your build next to your channel's newest one. If that one is newer, **Install and restart** downloads it, saves the open notebook, closes KratosForge and starts the new build; running cells stop. If there is nothing newer it says you're up to date. **Download manually** opens the channel's release page on GitHub, where you can download `kratosforge.exe` and run it in place of the one you have.
 
+### A new build while the app is open (Preview)
+
+If you keep KratosForge open for days, it still tells you when a new build is out. Every 4 hours it reads your channel's version file, the same check it makes at startup; nothing else is sent. When your channel has a newer build, a banner below the top bar says so, and the bell gets an **Update** entry.
+
+- **Restart to update** saves the open notebook, downloads the build, closes KratosForge and starts the new one; running cells stop. If the update fails you stay on your build, and the banner says why.
+- **Later** hides the banner for that build. The bell entry stays, and the next newer build shows the banner again.
+- **Release notes** opens the build's release page on GitHub.
+
+On a PC where your organization rolls out builds (`"auto_update": false` in the policy file), the banner only says the build is out and to ask IT; it offers no install. To stop the banner, turn off **Tell me when a new build is out** in **Settings > Updates**. It also stays off while preview features are hidden.
+
 A channel change takes effect the next time KratosForge starts. More detail, including where files are kept, is in [install.md](install.md#updates).
 
 ## Preview features

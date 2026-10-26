@@ -77,6 +77,12 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 /* Layout */
 .body { flex: 1; display: flex; min-height: 0; }
+.update-banner {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 16px;
+  background: var(--accent-soft); color: var(--text); border-bottom: 1px solid var(--border);
+}
+.update-banner > svg { color: var(--accent); flex: none; }
+.update-banner .grow { flex: 1 1 320px; min-width: 0; }
 .rail {
   display: flex; flex-direction: column; align-items: center; gap: 4px; width: 72px; padding: 8px 0;
   background: var(--surface); border-right: 1px solid var(--border); overflow-y: auto;
@@ -1646,7 +1652,7 @@ body.explain-on-request .how-it-works.how-shown.folded > .fold-body { display: b
 body.explain-on-request .how-it-works.how-shown .chev { display: none; }
 body.preview-dots :not(h1):not(.dialog-head) > .preview-tag {
   width: 7px; height: 7px; margin-left: 4px; padding: 0; border: 0; font-size: 0; line-height: 0;
-  vertical-align: super; background: #f8991c;
+  vertical-align: super; background: var(--brand-orange);
 }
 body.density-compact .list td, body.density-compact .list th { padding: 5px 10px; }
 body.density-compact .tool { min-height: 28px; padding: 0 8px; }
@@ -2283,3 +2289,10 @@ html[data-motion-level="0"] .mo-ghost { display: none; }
 .dialog:has(.ossie-import) { max-width: 900px; }
 .ossie-preview { display: flex; flex-direction: column; gap: 8px; }
 .ossie-preview tr.warn-row { background: #fff8e6; }
+
+/* Action-first framework (actions.js): next steps and the primary action with its More menu. */
+.next-steps { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; margin-bottom: 16px; border: 1px solid var(--border-soft); border-radius: 8px; background: #fff; }
+.next-steps-head { font-weight: 600; font-size: 13px; }
+.next-step { display: flex; align-items: center; gap: 10px; }
+.action-bar { gap: 8px; }
+.tool[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }

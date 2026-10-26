@@ -118,7 +118,7 @@ class PlatformKeys:
                 except core.PlatformError:
                     raise core.PlatformError(
                         f"keys.{name} isn't one of the platform's key tables yet. Ask a platform admin for it: "
-                        "Platform > Business keys > Request a key table") from None
+                        "Platform > Set up > Business keys > Request a key table") from None
             self._known.add(name)
         for i in range(0, len(unique), self.batch):
             out = self.client.call("issue_keys", name=name, business_keys=unique[i:i + self.batch])

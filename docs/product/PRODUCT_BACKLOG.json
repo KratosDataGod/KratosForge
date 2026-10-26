@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-10-25",
+  "updated": "2026-10-26",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -4381,20 +4381,17 @@
       "capability": "Governance owns templates (policies with Check now, user-added rules, locks, exceptions); the Best Practice Analyzer thread owns the checkers (notebook NB001-012, SQL SQ001-010, semantic model BPA through semantic-link-labs in Fabric).",
       "evidence": [
         "Chris 2026-10-24: 'more on governance and best practices. Allow for people to add their own templates'",
-        "Draft PRs #560 (BPA engine), #643 (notebook rules), #648 (templates and Check now), #649 (SQL rules), #651 (RE2 naming checks)"
+        "Draft PRs #560 (BPA engine), #643 (notebook rules), #648 (templates and Check now), #649 (SQL rules), #651 (RE2 naming checks)",
+        "Implementation review docs/product/reviews/PB-108-643.md: Accepted with Documented Limitations (Chris 'Go on all', 2026-10-26); limitations tracked in PB-111 and PB-112"
       ],
       "features": [
         "FEAT-GOV-05",
-        "FEAT-GOV-09",
-        "FEAT-META-13"
+        "FEAT-GOV-09"
       ],
       "depends_on": [
         "PB-056"
       ],
-      "external_dependencies": [
-        "Chris pastes the BPA cell error from the 2026-10-23 live run",
-        "Quality verdicts on #643, #648, #649, #651"
-      ],
+      "external_dependencies": [],
       "acceptance": [
         "Each rule set registers through governance_checks.register and is off unless a policy names it",
         "Check now runs offline for notebooks and SQL; model checks say they run in Fabric and use capacity"
@@ -4416,15 +4413,15 @@
       ],
       "effort": "L",
       "confidence": "Medium",
-      "state": "In review",
+      "state": "Accepted",
       "prs": [
-        560,
         643,
         648,
         649,
         651,
         664,
-        671
+        671,
+        713
       ],
       "mandatory": "none",
       "computed": {
@@ -4432,6 +4429,100 @@
         "cost": 2.5,
         "score": 2.83,
         "priority": "P1"
+      }
+    },
+    {
+      "category": "Data Governance and Quality",
+      "mandatory": "none",
+      "confidence": "Medium",
+      "state": "Proposed",
+      "depends_on": [
+        "PB-108"
+      ],
+      "id": "PB-111",
+      "title": "Check now covers SQL scripts and scheduled notebooks",
+      "problem": "Check now has no SQL scripts to give the SQL rules SQ001-SQ010, and checks notebooks as unscheduled, so a policy naming SQ rules or NB004/NB008 always shows not checked.",
+      "capability": "Check now collects this PC's SQL scripts (project .sql files and saved queries) for the SQL rules, and marks notebooks that have a schedule so the scheduled-only rules NB004 and NB008 run on them.",
+      "evidence": [
+        "PB-108 implementation review, findings 2 and 5 (docs/product/reviews/PB-108-643.md)",
+        "docs/governance.md: Check now has no SQL scripts yet; NB004 and NB008 are for scheduled runs"
+      ],
+      "features": [
+        "FEAT-GOV-09"
+      ],
+      "acceptance": [
+        "A policy naming SQ rules shows pass or findings from this PC's SQL scripts, never not checked when scripts exist",
+        "NB004 and NB008 run in Check now on notebooks that have a schedule"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 1,
+        "enterprise_value": 4,
+        "differentiation": 2,
+        "strategic_alignment": 3,
+        "complexity": 2,
+        "risk": 1
+      },
+      "owner": "Enterprise governance foundation",
+      "source_refs": [
+        "central/checks_service.py governance_check_now"
+      ],
+      "effort": "S",
+      "computed": {
+        "benefit": 2.7,
+        "cost": 1.5,
+        "score": 2.43,
+        "priority": "P2"
+      }
+    },
+    {
+      "category": "Data Governance and Quality",
+      "mandatory": "none",
+      "confidence": "Medium",
+      "state": "Proposed",
+      "depends_on": [
+        "PB-108"
+      ],
+      "id": "PB-112",
+      "title": "Semantic model best-practice checks in governance policies",
+      "problem": "No semantic model checker is registered, so a policy can't name Best Practice Analyzer rules and Check now can't run them.",
+      "capability": "The BPA engine (#560) registers through governance_checks.register with runs_in=\"fabric\"; Check now says those checks run in Fabric and use capacity, and stores their findings with store_fabric_findings.",
+      "evidence": [
+        "PB-108 implementation review, finding 1 (docs/product/reviews/PB-108-643.md)",
+        "#560 is an open draft"
+      ],
+      "features": [
+        "FEAT-GOV-09",
+        "FEAT-META-13"
+      ],
+      "external_dependencies": [
+        "Chris pastes the BPA cell error from the 2026-10-23 live run"
+      ],
+      "acceptance": [
+        "A policy can name semantic model rules; Check now says they run in Fabric and use capacity before running them"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 1,
+        "enterprise_value": 4,
+        "differentiation": 3,
+        "strategic_alignment": 4,
+        "complexity": 3,
+        "risk": 3
+      },
+      "owner": "Best Practice Analyzer",
+      "source_refs": [
+        "#560 model_bpa"
+      ],
+      "effort": "M",
+      "prs": [
+        560
+      ],
+      "computed": {
+        "benefit": 3.0,
+        "cost": 3.0,
+        "score": 1.8,
+        "priority": "P2"
       }
     },
     {

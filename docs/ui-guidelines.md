@@ -87,6 +87,32 @@ A section people watch while they work elsewhere (a run list, a monitoring hub) 
 
 Adding a section today means listing it in three places: `POP_OUTS` in `main.rs` (its window title), `POP_OUT` in `app.js` and the section check in `listenForPopOuts` (`popout.js`). `startPopOut` opens Monitor; a section on another page moves that into a small registry (section, page, render) first, in its own pull request.
 
+## Action-first standard
+
+Each screen leads with its most valuable action, recommends a next step only from evidence, keeps every other permitted action reachable, and gives feedback for every action. The standard, review checklist, baseline and backlog are in [Action-first experience](ux/action-first.md). The shared code is `app/ui/actions.js`:
+
+```js
+defineAction({
+  id: "notebook.run_all", label: "Run all", icon: "play", contexts: ["notebook"],
+  risk: "moderate", where: "local", primary: true,
+  available: (ctx) => (ctx.busy ? "A run is already going." : true),   // a reason the person can read
+  run: (ctx) => runAll(),
+  done: (result) => ({ text: "Ran every cell", next: ["notebook.publish"] }),
+});
+
+defineRecommendation({
+  id: "notebook.warnings", contexts: ["notebook"], reason: "validation", basis: "verified",
+  action: "notebook.validate", when: (ctx) => (ctx.warnings ? { n: ctx.warnings } : null),
+  why: (e) => `${e.n} validation warnings to review before you publish`,
+});
+```
+
+- `risk` is `low`, `moderate` or `high`; `where` is `local`, `fabric` or `either`. A `high` action needs `confirm` (shown as a danger dialog) or `ownConfirm` naming the dialog that already asks; one with `spendsCapacity` needs `riskCheck` or `ownRiskCheck`. Without them `defineAction` throws when the app loads.
+- `available` is a hint for the screen. The engine still checks: an action that changes Fabric or data asks the engine first.
+- A page tells the framework what it knows with `provideActionContext(view, () => ({ ... }))`.
+- Every action is found by the command bar. `actionBar(ctx)` draws the primary button and a More menu; `nextSteps(ctx)` draws up to three recommendations; `runAction(id)` runs one with the checks above; `doneToast(text, nextIds)` ends with the next step.
+- Recommendations are ranked by `reason` alone (failure, safety, validation, unfinished, local, continue). Never add a score.
+
 ## Words and help
 
 - Plain words people use, not internal names. "Run in Fabric", not "submit job".

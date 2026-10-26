@@ -301,3 +301,20 @@ def test_policy_can_keep_it_off(svc, tmp_path, monkeypatch):  # noqa: F811
         call(svc, "editor_set_enabled", enabled=True)
     policy.write_text(json.dumps({"integrations_editors": "yes"}), encoding="utf-8")  # unreadable: off
     assert call(svc, "editor_status")["blocked"]
+
+
+@pytest.mark.parametrize("folder", ["", "   ", "/", "C:\\" if __import__("os").name == "nt" else "//"])
+def test_a_window_cant_pair_a_whole_drive_or_no_folder(paired, folder):
+    svc, window, _ = paired
+    status, res = window.call("POST", "/v1/pair", {"window": folder, "client": "t"}, {"X-KratosForge-Hello": window.hello})
+    assert status == 403 and "whole drive" in res["error"]["message"]
+    assert call(svc, "editor_pending")["pairing"] == []
+
+
+def test_refused_calls_while_off_turn_it_off_once(svc):  # noqa: F811
+    started = []
+    svc._editor_turned_off = lambda: started.append(1)  # never finishes: the flag stays set
+    svc._editor_state()["stopping"] = False
+    assert [svc.editor_channel_open() for _ in range(5)] == [False] * 5
+    time.sleep(0.2)
+    assert started == [1]

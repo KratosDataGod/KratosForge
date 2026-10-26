@@ -180,3 +180,14 @@ def test_odd_query_metadata_doesnt_break_the_reader(odd):
         out = mashup.describe(_parts(M, meta))
         assert [q["name"] for q in out["queries"]] == ["Products", "Helper"]
         assert all(isinstance(c[k], str) for c in out["connections"] for k in ("kind", "path", "connection_id"))
+
+
+def test_query_metadata_that_isnt_json_is_a_problem_and_the_scan_counts_it_missed():
+    from fabric_desktop.fabric_connections_service import dataflow_connection_ids
+    result = {"definition": {"parts": [{"path": "mashup.pq", "payload": _b64(M)},
+                                       {"path": "queryMetadata.json", "payload": _b64("{not json")}]}}
+    out = mashup.describe(result)
+    assert out["ok"] and [q["name"] for q in out["queries"]] == ["Products", "Helper"]
+    assert out["problems"] == ["queryMetadata.json isn't valid JSON, so load flags and connections can't be shown."]
+    with pytest.raises(ValueError, match="isn't valid JSON"):
+        dataflow_connection_ids(result)

@@ -158,11 +158,12 @@ def describe(result: dict[str, Any]) -> dict[str, Any]:
         except (binascii.Error, UnicodeDecodeError, ValueError, TypeError):
             continue
     mashup = parts.get("mashup.pq", "")
+    problems = []
     try:
         meta = json.loads(parts.get("queryMetadata.json") or "{}")
     except ValueError:
+        problems.append("queryMetadata.json isn't valid JSON, so load flags and connections can't be shown.")
         meta = {}
-    problems = []
     if not isinstance(meta, dict):
         problems.append("queryMetadata.json isn't an object, so load flags and connections can't be shown.")
         meta = {}

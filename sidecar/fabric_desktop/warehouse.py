@@ -248,7 +248,9 @@ def connect(server: str, database: str, token: str, login_timeout: int = LOGIN_T
 
 def run(job: dict[str, Any], token: Callable[[], str], say: Callable[..., None]) -> None:
     """Run the job's query and stream the last result's rows into the job's Arrow IPC file. A job
-    with ``writes`` runs its batches in one transaction and commits it once they all succeeded."""
+    with ``writes`` runs its batches in one transaction and commits it once they all succeeded. A job
+    with ``plan`` (WH-09) doesn't run its query: with SHOWPLAN_XML on, Fabric returns the estimated
+    plan as one row of XML instead, and the session is set back before the connection closes."""
     import pyarrow as pa
 
     writes = bool(job.get("writes"))
@@ -270,6 +272,9 @@ def run(job: dict[str, Any], token: Callable[[], str], say: Callable[..., None])
         out = Path(job["out"])
         result: tuple[int, list[int], Any] | None = None
         affected = 0
+        plan = bool(job.get("plan")) and not writes
+        if plan:
+            cursor.execute("SET SHOWPLAN_XML ON")  # its own batch, as T-SQL requires
         for batch in (batches(job["query"]) if writes else [job["query"]]):
             cursor.execute(batch)
             while True:
@@ -279,6 +284,8 @@ def run(job: dict[str, Any], token: Callable[[], str], say: Callable[..., None])
                     affected += cursor.rowcount
                 if not writes or not cursor.nextset():
                     break
+        if plan:
+            cursor.execute("SET SHOWPLAN_XML OFF")
         if result is None:
             with pa.ipc.new_file(str(out), pa.schema([])):
                 pass

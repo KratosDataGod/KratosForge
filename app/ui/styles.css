@@ -692,6 +692,21 @@ h2.flush { margin: 0; }
 .wh-dep-warn { padding: 8px 12px; background: #fff4e5; color: #6b3a00; border-radius: 4px; font-size: 12.5px; }
 .wh-dep-results { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
 .wh-dep-results .ok { color: var(--success, #107c10); }
+/* WH-09: the estimated plan */
+.sql-plan { padding: 10px 16px; display: flex; flex-direction: column; gap: 10px; }
+.sql-plan-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.sql-plan-head .spacer { flex: 1; }
+.sql-plan-stmt { border: 1px solid var(--border); border-radius: 4px; }
+.sql-plan-stmt-head { padding: 6px 12px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 12.5px; }
+.sql-plan-tree { padding: 4px 0; font-size: 13px; }
+.sql-plan-op { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(120px, 1fr) auto 110px 52px; gap: 10px; align-items: baseline; padding-top: 3px; padding-bottom: 3px; padding-right: 12px; }
+.sql-plan-op.heavy { background: #fff4e5; }
+.sql-plan-op.heavy .sql-plan-cost { color: #8a4b00; font-weight: 700; }
+.sql-plan-name { font-weight: 600; }
+.sql-plan-object { font-family: var(--mono); font-size: 12px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sql-plan-warn { font-size: 11.5px; font-weight: 600; color: var(--danger); }
+.sql-plan-rows, .sql-plan-cost { text-align: right; font-variant-numeric: tabular-nums; }
+.sql-plan-xml { margin: 0; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; max-height: 300px; overflow: auto; }
 /* WH-04: SQL from a template */
 .sqlt-dialog { display: flex; flex-direction: column; }
 .sqlt { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }

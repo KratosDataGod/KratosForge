@@ -811,7 +811,8 @@ class Service(TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesM
     def sql_start(self, query: str, lakehouse_ref: dict[str, Any] | None = None, dialect: str = "spark",
                   allow: list[str] | None = None, target: str = "lakehouse", project: str = "",
                   confirm: bool = False, dry_run: bool = False,
-                  warehouse_ref: dict[str, Any] | None = None, confirm_name: str = "") -> dict[str, Any]:
+                  warehouse_ref: dict[str, Any] | None = None, confirm_name: str = "",
+                  estimated_plan: bool = False) -> dict[str, Any]:
         """Queue a query on this PC. ``allow`` adds "local_mutation" after the person confirmed it;
         lakehouse writes and Fabric changes are never allowed here (sql_policy.py).
 
@@ -822,10 +823,11 @@ class Service(TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesM
         With ``allow=["warehouse_write"]``, ``confirm`` and ``confirm_name`` (the warehouse's name, as
         the person confirmed it) it may change the warehouse (WH-10, sql_exec.py).
 
-        ``dry_run`` only says what each statement would do; nothing runs."""
+        ``dry_run`` only says what each statement would do; nothing runs. ``estimated_plan`` (warehouse,
+        a query that reads) returns Fabric's estimated plan as showplan XML instead of running it."""
         return self.sql_runs.start(query, lakehouse_ref, dialect, allow, target=target, project=project,
                                    confirm=confirm, dry_run=dry_run, warehouse_ref=warehouse_ref,
-                                   confirm_name=confirm_name)
+                                   confirm_name=confirm_name, estimated_plan=estimated_plan)
 
     def sql_status(self, execution: str) -> dict[str, Any]:
         return self.sql_runs.status(execution)

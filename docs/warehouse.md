@@ -55,7 +55,7 @@ WH_Gold.Warehouse/
 **Compare with WH_Gold** on the Project tab reads the warehouse's catalog (catalog queries in Fabric, as Import does) and opens a **Compare** tab beside your queries. Nothing changes on either side.
 
 - Each object is **Changed**, **Only in project**, **Only in warehouse** or **Same**, with a count for each; pick one to see only those. Changed objects come first.
-- Two scripts are the **same** when they read the same as T-SQL: comments, `GO` lines, semicolons, spacing, the letter case of keywords, and brackets around plain names don't count. Names keep their case, since a warehouse's default `Latin1_General_100_BIN2_UTF8` collation makes `dbo.Sales` and `dbo.sales` two tables. Strings are compared as written, and a `GO` line inside a string or comment stays part of it.
+- Two scripts are the **same** when they read the same as T-SQL: comments, `GO` lines, semicolons, spacing, the letter case of keywords, and brackets around plain names don't count. Names keep their case, including a column named like a type such as `Date`, since a warehouse's default `Latin1_General_100_BIN2_UTF8` collation makes `dbo.Sales` and `dbo.sales` two tables. Strings are compared as written, and a `GO` line inside a string or comment stays part of it.
 - Pick an object to see the warehouse's script beside the project's file, line by line. For a table, the columns that differ are listed above it, such as *column Segment: varchar(20) NULL in the warehouse, varchar(40) NULL in the project*. A table in the project with constraints the warehouse's catalog script doesn't carry shows as *the table's options differ*.
 - **Open file** opens the project's file in a tab. **Take the warehouse's version** writes the warehouse's script into the project (asking first when it replaces the object's file, and never writing over a file that holds another script); commit it in Source control.
 - A file that doesn't create an object, or defines one already defined in another file, is listed as not compared.
@@ -72,7 +72,7 @@ WH_Gold.Warehouse/
   - a table that only gains NULL columns at its end gets `ALTER TABLE ... ADD`, and its rows keep their data;
   - an object only in the warehouse can be dropped, but a drop is **never ticked for you**.
 - **What it won't do**: change a column's type or nullability, remove a column, or add one that's NOT NULL or not last. Those would rebuild the table, so the deploy says so and doesn't offer them: write that change as a script and run it yourself.
-- **A file runs only its own object.** A change is offered only when its file is one batch that defines that object and nothing else: a table's file only `CREATE TABLE` with its columns, a schema's only `CREATE SCHEMA`. A file with another batch after `GO` (a `DROP` or `TRUNCATE`, say), another statement, or `CREATE TABLE ... AS SELECT` isn't offered, and says why. Keep one object per file, as Import writes them.
+- **A file runs only its own object.** A change is offered only when its file is one batch that defines that object and nothing else: a table's file only `CREATE TABLE` with its columns, a schema's only `CREATE SCHEMA`. A file with another batch after `GO` (a `DROP` or `TRUNCATE`, say), another statement (also after a `;` in a view), or `CREATE TABLE ... AS SELECT` isn't offered, and says why. Keep one object per file, as Import writes them.
 - **Each change is checked first** by the same engine check as any warehouse change (see [Changing the warehouse](#changing-the-warehouse)). A change it would refuse, such as a procedure that commits, isn't offered, and says why.
 - **Test and Prod deploy only what's in Git**: every change's file tracked by Git and the same as the last commit (a file Git ignores counts as not committed), and the branch pushed. The engine holds back any other change when it plans the deploy, so the page can't offer it. Dev deploys the files as they are on this PC, and says which aren't committed. In Prod, or a workspace with no environment, you type the warehouse's name.
 - **Each change runs on its own**, as a confirmed warehouse change in its own transaction, in order. The deploy stops at the first that fails and lists what went in, what failed and why, and what didn't run. Each change is recorded in the audit log like any warehouse change: who, which warehouse and how many rows, never the SQL.
@@ -173,6 +173,15 @@ The explorer's **History** tab has two parts.
 
 Each opens in a new tab and runs there, so it asks first like any other run and **uses capacity**. The result is an ordinary result: page through it, chart it, export it. Fabric keeps 30 days of history and fills these views a few minutes after a query ends. What you see depends on your permissions on the warehouse.
 
+## Estimated plan
+
+**Estimated plan** in the editor's toolbar shows how Fabric would run the query, without running it. It works on a warehouse or SQL analytics endpoint, for one statement that reads (the same check as a run that reads); a change has no plan here.
+
+- **Fabric works it out, the query doesn't run.** The engine turns on `SET SHOWPLAN_XML ON`, sends the query, and gets Fabric's showplan back instead of rows. It uses a little capacity, and the first one on each warehouse after the app starts asks first, like a run.
+- **The Plan view** draws the plan as a tree of operators (scans, joins, aggregates), each with the objects it reads, Fabric's estimated rows, and its share of the statement's estimated cost. The heaviest operator is highlighted, and an operator Fabric flagged with a warning says so.
+- **Copy XML** copies the showplan as Fabric sent it, to open in SSMS or another plan viewer.
+- Rows and cost are Fabric's estimates, not measurements. The audit line is the usual `sql_execution` one, with `plan`; never the SQL.
+
 ## Results, Messages and Chart
 
 Above the result, three views, on every SQL page (lakehouse, local project and warehouse). Messages and Chart are Preview: on a lakehouse or local project page they carry the Preview tag and go when Settings hides preview features; on the Warehouse page the whole page is already Preview.
@@ -203,5 +212,6 @@ How a run works underneath (states, limits, what is refused): [Running SQL queri
 | WH-11 | The warehouse as files in Fabric's Git layout: Import, edit, New object | Done |
 | WH-12 | Compare the project with the warehouse, object by object | Done |
 | WH-13 | Deploy the project to the warehouse after a preview: create, CREATE OR ALTER, add NULL columns, drops never ticked; Test and Prod from Git only | This release |
+| WH-09 | Estimated plan: Fabric's showplan as a tree of operators with rows and cost, without running the query | This release |
 
-Next: the estimated plan (WH-09). Later stages (loading and managing data, Snowflake) follow the same pattern: a mockup first, then one change per feature.
+Phase 3 (WH-09 to WH-13) is complete. Later stages (loading and managing data, Snowflake) follow the same pattern: a mockup first, then one change per feature.

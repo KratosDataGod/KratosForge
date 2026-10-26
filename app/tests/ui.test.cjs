@@ -1539,6 +1539,9 @@ test("no raw HTML sinks in app/ui outside the reviewed list", () => {
     // <code>, <strong>, <em> and <u title>; headings and lists add only fixed tags. See the two
     // Markdown tests at the top of this file.
     `app.js: wrap.innerHTML = html.join("");`,
+    // sqlParsePlan(): Fabric's showplan parsed as XML ("application/xml" runs no script and loads nothing);
+    // the document is never put on the page, only attribute values are read and drawn as text with h().
+    `sqlplan.js: const doc = new DOMParser().parseFromString(String(xml || ""), "application/xml");`,
     // Data mesh map links: path coordinates are numbers from getBoundingClientRect, and the only data
     // (project and product ids in <title>) goes through esc().
     `meshmap.js: svg.innerHTML = \`<defs><marker id="mesh-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z"/></marker></defs>\${paths.join("")}\`;`

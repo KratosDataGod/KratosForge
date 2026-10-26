@@ -552,3 +552,39 @@ def test_every_result_set_of_a_batch_is_read_and_the_last_is_shown(tmp_path, mon
 def test_a_procedure_that_commits_is_refused_even_when_the_script_calls_it_later():
     v = warehouse.verdicts("CREATE PROCEDURE dbo.p AS BEGIN COMMIT; GRANT CONTROL TO someone; END\nGO\nEXEC dbo.p", writes=True)
     assert v[0].kind == "fabric_mutation" and sql_exec.sql_policy.refused(v, ("read_only", "warehouse_write")) is v[0]
+
+
+# ---------------------------------------------------------------- estimated plan (WH-09)
+
+PLAN_XML = '<ShowPlanXML xmlns="http://schemas.microsoft.com/sqlserver/2004/07/showplan"><BatchSequence/></ShowPlanXML>'
+
+
+def test_an_estimated_plan_turns_showplan_on_around_the_query_and_returns_its_xml(tmp_path, monkeypatch):
+    ran = []
+
+    class Plan(_Cursor):
+        def execute(self, query):
+            ran.append(query)
+            self.description = ([("Microsoft SQL Server 2005 XML Showplan", str, None, None, None, None, True)]
+                                if not query.startswith("SET") else None)
+            self._rows = [(PLAN_XML,)] if self.description else []
+    con = _Con(Plan(None, []))
+    monkeypatch.setattr(warehouse, "connect", lambda *a, **k: con)
+    said = []
+    out = tmp_path / "r.arrow"
+    warehouse.run({"query": "SELECT * FROM dbo.FactSales", "out": str(out), "plan": True,
+                   "warehouse": {"server": SERVER, "database": "d"}}, lambda: "t", lambda event, **f: said.append((event, f)))
+    assert ran == ["SET SHOWPLAN_XML ON", "SELECT * FROM dbo.FactSales", "SET SHOWPLAN_XML OFF"]
+    assert pa.ipc.open_file(str(out)).read_all().to_pylist() == [{"Microsoft SQL Server 2005 XML Showplan": PLAN_XML}]
+    assert said[-1][0] == "done" and con.events == ["rollback", "close"]
+
+
+def test_an_estimated_plan_is_only_for_a_warehouse_query_that_reads(runs):
+    with pytest.raises(ValueError, match="estimated plan is for a warehouse query that reads"):
+        change(runs, "UPDATE dbo.t SET a = 1", estimated_plan=True)
+    refused = start(runs, "UPDATE dbo.t SET a = 1", estimated_plan=True)
+    assert refused["state"] == "failed" and refused["error_kind"] == "permission", "still only reads"
+    status = wait(runs, start(runs, "SELECT id FROM dbo.sales", estimated_plan=True)["id"])
+    assert status["state"] == "completed" and status["plan"] is True
+    seen = json.loads(runs.log.read_text())
+    assert "committed" not in seen and seen["rolled_back"]

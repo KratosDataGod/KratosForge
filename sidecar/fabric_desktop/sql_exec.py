@@ -137,6 +137,7 @@ class Execution:
     warehouse: dict[str, Any] = field(default_factory=dict)  # warehouse target: the item, its server and database
     confirm_name: str = ""  # warehouse change: the warehouse the person confirmed, checked against Fabric's name
     affected: int = 0  # warehouse change: rows its statements changed
+    plan: bool = False  # warehouse target: the estimated plan, not the rows (WH-09)
     committed: bool = False
 
     @property
@@ -157,6 +158,7 @@ class Execution:
                 **({"time_limit_from": self.time_limit_from} if self.target == "local" else {}),
                 **({"change": True, "affected": self.affected, "committed": self.committed}
                    if "warehouse_write" in self.allow else {}),
+                **({"plan": True} if self.plan else {}),
                 "snapshot": self.state == "completed" and self.snapshot.exists()}
 
 
@@ -219,7 +221,8 @@ class SqlExecutions:
     def start(self, query: str, lakehouse_ref: dict[str, Any] | None = None, dialect: str = "spark",
               allow: list[str] | None = None, target: str = "lakehouse", project: str = "",
               confirm: bool = False, dry_run: bool = False, timeout: float | None = None,
-              warehouse_ref: dict[str, Any] | None = None, confirm_name: str = "") -> dict[str, Any]:
+              warehouse_ref: dict[str, Any] | None = None, confirm_name: str = "",
+              estimated_plan: bool = False) -> dict[str, Any]:
         """Queue a run. ``target="local"`` runs it in local data project ``project`` instead of
         against ``lakehouse_ref``; ``confirm`` lets its DROP, TRUNCATE and DELETE or UPDATE without
         WHERE run; ``timeout`` (seconds, local only) replaces the SQL page's time limit.
@@ -227,7 +230,8 @@ class SqlExecutions:
         ``target="warehouse"`` runs one T-SQL query that reads on ``warehouse_ref``
         (``workspace_id``, ``item_id``, ``kind`` "warehouse" or "endpoint"), in Fabric. With
         ``allow=["warehouse_write"]`` it is a change: it runs only with ``confirm`` and
-        ``confirm_name``, the warehouse's name as the person confirmed it."""
+        ``confirm_name``, the warehouse's name as the person confirmed it. With ``estimated_plan``
+        (WH-09) a query that reads isn't run: Fabric returns how it would run it, as showplan XML."""
         if not isinstance(query, str) or not query.strip():
             raise ValueError("The query is empty.")
         if target not in TARGET_ALLOWS:
@@ -263,6 +267,8 @@ class SqlExecutions:
                                       "nothing else is allowed.")
             raise PermissionError("The SQL page can only read tables and change a run's own session on this PC.")
         change = target == "warehouse" and "warehouse_write" in allowed
+        if estimated_plan and (target != "warehouse" or change):
+            raise ValueError("An estimated plan is for a warehouse query that reads.")
         writes_setting = app_settings.load()["sql_warehouse_writes"] if change else {}
         if change and not writes_setting["value"]:
             raise PermissionError("Warehouse changes are turned off in Settings › SQL"
@@ -283,6 +289,7 @@ class SqlExecutions:
             assert warehouse_ref is not None
             run.warehouse = {k: warehouse_ref[k] for k in ("workspace_id", "item_id", "kind")}
             run.confirm_name = confirm_name.strip() if change else ""
+            run.plan = bool(estimated_plan)
             stop = sql_policy.refused(warehouse.verdicts(query, writes=change), allowed)  # before Fabric is asked anything
             if stop is not None:
                 return self._refuse(run, stop)
@@ -414,7 +421,8 @@ class SqlExecutions:
         if run.target == "warehouse":
             job: dict[str, Any] = {"target": "warehouse", "query": run.query, "out": str(run.snapshot),
                                    "warehouse": {k: run.warehouse[k] for k in ("server", "database")},
-                                   "time_limit_s": minutes * 60, "writes": "warehouse_write" in run.allow}
+                                   "time_limit_s": minutes * 60, "writes": "warehouse_write" in run.allow,
+                                   "plan": run.plan}
         else:
             job = {"query": run.query, "dialect": run.dialect, "allow": list(run.allow),
                    "lakehouse": {k: lh[k] for k in ("workspace_id", "lakehouse_id", "name", "workspace_name") if k in lh},

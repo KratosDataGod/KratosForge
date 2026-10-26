@@ -505,7 +505,7 @@ function renderQuery() {
         h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("parquet"); } }, "Parquet")));
     // Messages and Chart are Preview: on the Warehouse page the whole page already is, so they carry no
     // tag of their own there; elsewhere they carry one and go when preview features are hidden.
-    const extra = wh || previewShown() ? ["messages", "chart"] : [];
+    const extra = [...(wh || previewShown() ? ["messages", "chart"] : []), ...(wh ? ["plan"] : [])];
     const view = extra.includes(tab.view) ? tab.view : "results";
     const viewTab = (id, label) => {
       const b = h("button", { role: "tab", class: `sql-view${view === id ? " on" : ""}`, "aria-selected": String(view === id),
@@ -513,7 +513,8 @@ function renderQuery() {
       return id === "results" || wh ? b : preview("sqlResultViews", b);
     };
     band.replaceChildren(...[h("div", { class: "sql-views", role: "tablist", "aria-label": "Result views" },
-      viewTab("results", "Results"), extra.length ? viewTab("messages", "Messages") : null, extra.length ? viewTab("chart", "Chart") : null),
+      viewTab("results", "Results"), extra.length ? viewTab("messages", "Messages") : null, extra.length ? viewTab("chart", "Chart") : null,
+      wh ? viewTab("plan", "Plan") : null),
       h("span", { class: `sql-pill ${pill[0]}` }, pill[1]), h("span", { class: "muted-text sql-run-msg" }, tab.error ? "" : msg),
       ex && (st === "running" || st === "queued") ? btn("Stop", "stop", stop, "tool small", { title: "Stop this query. Only its own process ends." }) : null,
       tab.ranNotice && r && !busy ? h("span", { class: "sql-local-note", role: "note" }, tab.ranNotice) : null,
@@ -527,7 +528,10 @@ function renderQuery() {
         { disabled: !r.has_next || tab.paging, "aria-label": "Next page" }) : null,
       btn("Copy", null, copyRows, "tool small", { disabled: !r, title: "Copy the rows on this page" }),
       exportMenu].filter(Boolean));
-    if (view === "messages") {
+    if (view === "plan") {
+      grid.replaceChildren(tab.planning ? h("p", { class: "muted-text", style: "padding:12px 16px" }, "Asking Fabric for the estimated plan...")
+        : sqlPlanView(tab.plan));
+    } else if (view === "messages") {
       grid.replaceChildren(sqlMessages(ex, tab, wh ? `${ref.name}${ref.workspace_name ? ` (${ref.workspace_name})` : ""} · in Fabric` : `${ref.name} · on this PC`));
     } else if (view === "chart") {
       grid.replaceChildren(r && r.columns.length && ex?.state === "completed"
@@ -616,9 +620,39 @@ function renderQuery() {
     compatChip.setAttribute("aria-expanded", String(compatOpen()));
     compatChip.replaceChildren(text, previewShown() ? previewTag() : null, icon("chevronDown", 14));
   }
+  // WH-09: Fabric's estimated plan for the query (or the selection), without running it. It has a
+  // run of its own, so the tab's results stay as they were.
+  async function estimatedPlan(query = editor.chosen()) {
+    if (!query.trim() || tab.planning) return;
+    if (!(await warehouseRunOk(ref))) return;
+    Object.assign(tab, { planning: true, plan: null, view: "plan" });
+    drawResults();
+    try {
+      let status = await rpc("sql_start", { query, target: "warehouse", dialect: "tsql",
+        warehouse_ref: { workspace_id: ref.workspace_id, item_id: ref.item_id, kind: ref.kind }, estimated_plan: true });
+      let wait = 150;
+      while (["queued", "running", "cancelling"].includes(status.state)) {
+        await new Promise((r) => setTimeout(r, wait));
+        wait = Math.min(1000, wait * 1.5);
+        status = await rpc("sql_status", { execution: status.id });
+      }
+      if (status.state !== "completed") tab.plan = { error: status.error || `The estimated plan ${status.state}.` };
+      else {
+        const page = await rpc("sql_page", { execution: status.id, offset: 0 });
+        tab.plan = { xml: String(page.rows?.[0]?.[0] ?? ""), at: new Date() };
+      }
+    } catch (err) {
+      tab.plan = { error: String(err) };
+    } finally {
+      tab.planning = false;
+      sqlPage.redraw?.();
+    }
+  }
   function drawActions() {
     if (wh) {
       actions.replaceChildren(btn("Run", "play", () => run(), "tool primary"),
+        btn("Estimated plan", "flowchart", () => estimatedPlan(), "tool outline",
+          { title: "How Fabric would run the query (or the selection), without running it. Uses a little capacity." }),
         h("span", { class: "muted-text" }, "Ctrl+Enter, or select text to run just that"),
         h("span", { class: "sql-sep", "aria-hidden": "true" }),
         h("span", { class: "sql-target-note" }, SQL_DIALECTS[tab.dialect].label),

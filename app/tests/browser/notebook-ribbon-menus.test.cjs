@@ -51,7 +51,7 @@ test("a panel opened from a menu shows the menu's button as on, and the item as 
   await page().keyboard.press("Enter");
   await page().locator(".validatepane").waitFor();
   assert.strictEqual(await page().locator("#menu").count(), 0, "the menu closed");
-  assert.strictEqual(await page().evaluate(() => document.activeElement?.textContent.trim()), "Check", "focus is back on the ribbon button");
+  await page().waitForFunction(() => document.activeElement?.textContent.trim() === "Check", null, { timeout: 3000 });  // focus is back on the ribbon button
   assert.match(await page().getByRole("button", { name: "Check", exact: true }).getAttribute("class"), /toggled/);
   await page().getByRole("button", { name: "Check", exact: true }).click();
   assert.strictEqual(await page().getByRole("menuitemcheckbox", { name: /^Validate/ }).getAttribute("aria-checked"), "true");

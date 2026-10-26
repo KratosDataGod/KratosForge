@@ -266,9 +266,16 @@ function menuNode(node) {
     // its data-menu-key; anything the item opened that took focus (a dialog, a panel's field) keeps it.
     const key = menuOpener?.dataset?.menuKey;
     closeMenu(true);
-    if (key) setTimeout(() => {
-      if (!document.activeElement || document.activeElement === document.body) document.querySelector(`[data-menu-key="${CSS.escape(key)}"]`)?.focus();
-    });
+    // The page may be drawn again a little later (a panel loading), so keep it up for a moment.
+    if (key) {
+      const until = performance.now() + 1000;
+      const keep = () => {
+        if (!document.activeElement || document.activeElement === document.body) document.querySelector(`[data-menu-key="${CSS.escape(key)}"]`)?.focus();
+        else if (!document.activeElement.matches(`[data-menu-key="${CSS.escape(key)}"]`)) return;  // something else took focus
+        if (performance.now() < until) requestAnimationFrame(keep);
+      };
+      requestAnimationFrame(keep);
+    }
   }, true);
   return node;
 }

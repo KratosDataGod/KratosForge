@@ -1014,14 +1014,15 @@
         "preview": false
       },
       "limitations": [
-        "Items matched by display name (fabric_api.py save_notebook)",
+        "After the first publish, the item is matched by its recorded id (PB-018); not yet checked against a live tenant",
         "The setup cell pip-installs sqlglot in Fabric",
         "notebooks.md says %%sql notebooks publish as Spark; code converts them (inference)"
       ],
       "prs": [
-        31
+        31,
+        685
       ],
-      "next_action": "Match the Fabric item by its recorded id, not display name, so a rename doesn't duplicate (PB-018).",
+      "next_action": "Include publish after a rename in the tenant smoke test.",
       "backlog": [
         "PB-002",
         "PB-018",
@@ -3671,10 +3672,11 @@
       "limitations": [
         "Not a security boundary",
         "Group roles become notes",
-        "separate_promoter compares PC login names"
+        "separate_promoter treats a matching Entra object id or PC login name as the same person (HD-030); it can be switched off in environments.toml"
       ],
       "prs": [
-        93
+        93,
+        721
       ],
       "workstream": "Enterprise readiness (FD-130)",
       "next_action": "Keep; compare signed-in identities rather than PC login names.",
@@ -4150,13 +4152,13 @@
       "limitations": [
         "Never run against a live tenant",
         "Runs metadata environments only, not notebooks or jobs",
-        "Queue never pruned (inference)",
-        "No command to revive a dead job"
+        "Finished jobs leave the queue after queue_retention_days, and `agent requeue` revives a dead or failed job (PB-044)"
       ],
       "prs": [
-        34
+        34,
+        689
       ],
-      "next_action": "Verify on a tenant; add queue pruning and requeue of dead jobs (PB-044).",
+      "next_action": "Verify on a tenant.",
       "backlog": [
         "PB-044"
       ]

@@ -111,7 +111,7 @@ async function dfRunInFabric(ws, item, verb, done) {
     }, "tool primary")]);
     return;
   }
-  confirmWorkloadAction(w, a, verb, false, { pre, done });
+  confirmWorkloadAction(w, a, verb, false, { pre, done, ends: "Monitor > Runs shows how it ends." });
 }
 
 function dfDetail(ws) {

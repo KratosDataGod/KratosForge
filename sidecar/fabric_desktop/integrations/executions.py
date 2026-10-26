@@ -366,8 +366,11 @@ class ExecutionManager:
         return IntegrationError("cancelled", "The query was cancelled.")
 
     def run_cells(self, run: Execution, cells: list[str], lakehouse_ref: dict[str, str] | None,
-                  notebook: str = "") -> dict[str, Any]:
-        """Run code cells in order in a fresh process kernel, then end it."""
+                  notebook: str = "", skipped: str = "") -> dict[str, Any]:
+        """Run code cells in order in a fresh process kernel, then end it. ``skipped`` says what
+        the run left out, in its log and result."""
+        if skipped:
+            run.log(skipped)
         kernel = self._kernel_factory()
         kernel.notebook_name = notebook
         where = getattr(self.service, "_resources_dir", None)  # builtin/ paths, as in the notebook
@@ -411,4 +414,4 @@ class ExecutionManager:
         if failed is not None:
             run.state = "failed"
             run.error = {"code": "failed", "message": f"Cell {failed['cell']} failed.", "retryable": False}
-        return {"cells": done, "cells_total": len(cells), "cells_run": len(done)}
+        return {"cells": done, "cells_total": len(cells), "cells_run": len(done)} | ({"skipped": skipped} if skipped else {})

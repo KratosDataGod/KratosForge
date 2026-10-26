@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ..jsonfile import write_text
+
 if TYPE_CHECKING:
     from .project import Project
 
@@ -55,7 +57,8 @@ class Product:
     def summary(self) -> dict[str, Any]:
         s = self.spec
         return {"name": self.name, "title": s.get("title") or self.name.replace("_", " ").title(),
-                "description": s.get("description", ""), "owner": s.get("owner", ""), "access": self.access,
+                "description": s.get("description", ""), "owner": s.get("owner", ""), "steward": s.get("steward", ""),
+                "access": self.access,
                 "status": self.status, "version": str(s.get("version", 1)), "deprecated_on": s.get("deprecated_on", ""),
                 "ports": [{"name": p.get("name", ""), "entity": p.get("entity", "")} for p in self.ports],
                 "path": str(self.path)}
@@ -165,7 +168,7 @@ def write_project_file(root: Path, fields: dict[str, Any]) -> Path:
         lines.append(f"contacts = {q([str(c) for c in fields['contacts']])}")
     lines.append(f"format = {FORMAT}")
     path = Path(root) / PROJECT_FILE
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_text(path, "\n".join(lines) + "\n")
     return path
 
 
@@ -176,7 +179,7 @@ def write_product(root: Path, p: dict[str, Any]) -> Path:
         raise ValueError("A product name is lowercase letters, digits or _, like customer_360")
     lines = ["# A data product: the tables (ports) other teams may read, and the promise that comes with them.",
              f"name = {json.dumps(name)}"]
-    for key in ("title", "description", "owner", "access", "status", "deprecated_on"):
+    for key in ("title", "description", "owner", "steward", "access", "status", "deprecated_on"):
         if p.get(key):
             lines.append(f"{key} = {json.dumps(str(p[key]))}")
     lines.append(f"version = {int(p.get('version') or 1)}")
@@ -185,7 +188,7 @@ def write_product(root: Path, p: dict[str, Any]) -> Path:
                   f"entity = {json.dumps(str(port.get('entity', '')))}"]
     path = Path(root) / "metadata" / "products" / f"{name}.toml"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_text(path, "\n".join(lines) + "\n")
     return path
 
 
@@ -211,7 +214,7 @@ def write_link(root: Path, l: dict[str, Any]) -> Path:
             lines += ["", f"[location.{env}]", f"table = {json.dumps(str(table))}"]
     path = Path(root) / "metadata" / "links" / f"{alias}.toml"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_text(path, "\n".join(lines) + "\n")
     return path
 
 

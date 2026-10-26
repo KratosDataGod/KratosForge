@@ -10,10 +10,10 @@ Assessed against `main` at `af11938` (sidecar 0.19.0, PR #53 merged; 322 tests p
 
 | Program | Plan | Owns (as far as this program is concerned) |
 | --- | --- | --- |
-| Scale and operations (roadmap) | [PR #57](https://github.com/KratosDataGod/fabric-desktop/pull/57), `docs/scale-and-operations-plan.md` | Large-table execution, ingestion, Git and release records that tie promotions to immutable revisions, the Fabric pipeline job contract, agent-side status and queue records (`agents/<name>.json`), run correlation fields (`ran_on`, `job_id`, [PR #58](https://github.com/KratosDataGod/fabric-desktop/pull/58)), column lineage and versioned product contracts. |
-| Prove this notebook | [PR #55](https://github.com/KratosDataGod/fabric-desktop/pull/55), `docs/prove/plan.md` | Notebook execution, environments and profiles, local-vs-Fabric comparisons, compatibility analysis, isolated kernels, run receipts (`receipts.py`), the per-run planner, placement recommendation and the cost model with run scorecards. |
+| Scale and operations (roadmap) | [PR #57](https://github.com/KratosDataGod/KratosForge/pull/57), `docs/scale-and-operations-plan.md` | Large-table execution, ingestion, Git and release records that tie promotions to immutable revisions, the Fabric pipeline job contract, agent-side status and queue records (`agents/<name>.json`), run correlation fields (`ran_on`, `job_id`, [PR #58](https://github.com/KratosDataGod/KratosForge/pull/58)), column lineage and versioned product contracts. |
+| Prove this notebook | [PR #55](https://github.com/KratosDataGod/KratosForge/pull/55), `docs/prove/plan.md` | Notebook execution, environments and profiles, local-vs-Fabric comparisons, compatibility analysis, isolated kernels, run receipts (`receipts.py`), the per-run planner, placement recommendation and the cost model with run scorecards. |
 
-Always-on monitoring and incident handling (the roadmap's capability 9) moved to this program on 2026-10-16: items 41 to 50 here. Concurrent writes and leases belong to the review thread ([PR #54](https://github.com/KratosDataGod/fabric-desktop/pull/54)). Platform requests and audit ([platform.md](../platform.md)) and the shortcut command center ([shortcuts.md](../shortcuts.md)) are extended, never duplicated.
+Always-on monitoring and incident handling (the roadmap's capability 9) moved to this program on 2026-10-16: items 41 to 50 here. Concurrent writes and leases belong to the review thread ([PR #54](https://github.com/KratosDataGod/KratosForge/pull/54)). Platform requests and audit ([platform.md](../platform.md)) and the shortcut command center ([shortcuts.md](../shortcuts.md)) are extended, never duplicated.
 
 ## 1. What exists today
 
@@ -421,7 +421,7 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 **75. Policy inheritance** · Missing · Stage 9. PR: —
 
 **76. Operational audit trail** · Enhance · Stage 1 (local action log), Stage 2B (platform audit)
-- Today: `catalog.audit`, shortcut changes, restores. Enhancement: every action from a workload page recorded with actor, target, environment, identity, before/after, outcome. Validation: U. PR: —
+- Today: `catalog.audit`, shortcut changes, restores. Enhancement: every action from a workload page recorded with actor, target, environment, identity, before/after, outcome. Validation: U. PR: stage 2B audit (each workload action and change goes to the platform's audit through `log_workload_action`, kept on the PC until the platform takes it; links get local history). Shared ownership (`catalog.workload`) is still later.
 
 **77. Sensitive-data handling posture** · Enhance · Stage 9 · Today: classification on entities and enrichment. PR: —
 

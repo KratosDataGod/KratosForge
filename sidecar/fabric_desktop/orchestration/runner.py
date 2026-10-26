@@ -2,9 +2,11 @@
 
 A run first checks that every activity it could reach runs here: its registry entry is ``local``
 (an adapter that executes, with tests) or the caller gave a mock for it. Anything else (Copy,
-Notebook, cloud-only and unknown activities) refuses the whole run before it starts, so nothing
-is sent to Fabric and no capacity is used. Mocks stand in for activities with a status and output
-the caller chooses, and the record says which activities were mocked.
+cloud-only and unknown activities) refuses the whole run before it starts, so nothing is sent to
+Fabric. Notebook activities run only when the engine gives the run a ``NotebookRunner``
+(pipeline_notebooks.py) that knows which notebook on this PC each one runs. Mocks stand in for
+activities with a status and output the caller chooses, and the record says which activities
+were mocked.
 
 Inside each list of activities, an activity starts when every activity it depends on has
 finished and each one's status matches the dependency's conditions (Succeeded, Failed, Skipped,
@@ -26,11 +28,11 @@ import time
 import uuid
 from collections.abc import Mapping
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 
 from ..redact import describe
 from .activities import default_registry
-from .adapters import ActivityFailed, child_key, timespan
+from .adapters import ActivityFailed, child_key, notebook_key, timespan
 from .definition import DEFINITION_VERSION, Activity, DefinitionError, ImportedPipeline, loads
 from .evaluate import Scope
 from .registry import ActivityRegistry, CheckContext
@@ -46,6 +48,51 @@ HIDDEN = "(hidden)"
 _TYPE_DEFAULTS = {"string": "", "securestring": "", "bool": False, "boolean": False, "array": [], "int": 0,
                   "integer": 0, "float": 0.0, "object": {}}
 CHILD_TYPES = ("ExecutePipeline", "InvokePipeline")
+NOTEBOOK_TYPE = "TridentNotebook"
+DATA_TYPES = ("Lookup", "GetMetadata", "Script")
+
+
+class NotebookRunner(Protocol):
+    """Runs a pipeline's Notebook activities on this PC (the engine's pipeline_notebooks.py)."""
+
+    def check(self, activity: Activity) -> list[dict[str, Any]]:
+        """Why this activity's notebook can't run here; empty when it can. Runs nothing."""
+        ...
+
+    def run(self, activity: Activity, parameters: dict[str, Any], cancelled: Callable[[], bool],
+            deadline: float | None) -> dict[str, Any]:
+        """Run the notebook to the end and return the activity's output, or raise ActivityFailed."""
+        ...
+
+    def notes(self) -> list[str]:
+        """What the run record should say about the notebooks that ran (where they read and wrote)."""
+        ...
+
+    def finish(self) -> None:
+        """Clean up after the run's notebooks (their sandbox folders). Called once every step has
+        ended and before the run reports its final state; calling it again does nothing."""
+        ...
+
+
+class DataReader(Protocol):
+    """Runs a pipeline's Lookup and Get Metadata activities on this PC (the engine's pipeline_data.py)."""
+
+    def check(self, activity: Activity) -> list[dict[str, Any]]:
+        """Why this activity can't read its dataset here; empty when it can. Reads nothing."""
+        ...
+
+    def lookup(self, activity: Activity, properties: dict[str, Any]) -> dict[str, Any]:
+        """Lookup's output from its evaluated typeProperties, or raise ActivityFailed."""
+        ...
+
+    def metadata(self, activity: Activity, properties: dict[str, Any]) -> dict[str, Any]:
+        """Get Metadata's output from its evaluated typeProperties, or raise ActivityFailed."""
+        ...
+
+    def script(self, activity: Activity, properties: dict[str, Any], cancelled: Callable[[], bool],
+               deadline: float | None) -> dict[str, Any]:
+        """Script's output from its evaluated scripts and connection, or raise ActivityFailed."""
+        ...
 
 
 class RunRefused(Exception):
@@ -101,11 +148,15 @@ class PipelineRun:
                  run_id: str | None = None, registry: ActivityRegistry | None = None,
                  now: Callable[[], datetime] | None = None,
                  on_change: Callable[["PipelineRun"], None] | None = None,
-                 depth: int = 0, cancel: threading.Event | None = None):
+                 depth: int = 0, cancel: threading.Event | None = None,
+                 notebooks: NotebookRunner | None = None, detached: list[threading.Thread] | None = None,
+                 data: DataReader | None = None):
         self.imp, self.pipeline = imp, imp.pipeline
         self.given = dict(parameters or {})
         self.mocks = {k: v for k, v in (mocks or {}).items() if isinstance(v, dict)}
         self.children = dict(children or {})
+        self.notebooks = notebooks
+        self.data = data
         self.max_parallel = max(1, min(int(max_parallel), 32))
         self.wait_scale = max(0.0, float(wait_scale))
         self.timeout_seconds = timeout_seconds
@@ -114,6 +165,9 @@ class PipelineRun:
         self.on_change = on_change
         self.depth = depth
         self._cancel = cancel or threading.Event()
+        # Child pipelines started with waitOnCompletion false, shared with every child run so the
+        # top-level run waits for them all before it cleans up and ends.
+        self._detached = detached if detached is not None else []
         self._lock = threading.RLock()
         self._cond = threading.Condition(self._lock)
         self._slots = threading.BoundedSemaphore(self.max_parallel)
@@ -189,6 +243,23 @@ class PipelineRun:
                         problems.append(_problem(d.code, d.message, a.name, d.path))
                 if a.type in CHILD_TYPES:
                     problems.extend(self._check_child(a))
+                if entry.type == NOTEBOOK_TYPE:
+                    if self.notebooks is None:
+                        problems.append(_problem("notebook_needs_engine", f"{a.name} runs notebook "
+                                                 f"{notebook_key(a) or '(no notebookId)'}. Notebook steps run when "
+                                                 "you start the run and name the notebook (fabric-desktop pipeline "
+                                                 "run --notebook); give a mock for it here.", a.name, a.path))
+                    else:
+                        problems.extend(self.notebooks.check(a))
+                if entry.type in DATA_TYPES:
+                    if self.data is None:
+                        problems.append(_problem("data_needs_engine", f"{a.name} ({a.type}) reads a lakehouse or a "
+                                                 "local data project. It runs when you start the run with lakehouse "
+                                                 "reads on (fabric-desktop pipeline run --read-lakehouse) or name its "
+                                                 "project (--sql-project); give a mock for it here.",
+                                                 a.name, a.path))
+                    else:
+                        problems.extend(self.data.check(a))
                 for kids in a.children.values():
                     visit(kids)
 
@@ -218,7 +289,7 @@ class PipelineRun:
                              "it here, or a mock for this activity.", a.name, a.path)]
         # Parameters are expressions evaluated at run time, so only the child's activities are checked here.
         probe = PipelineRun(child, mocks=self.mocks, children=self.children, registry=self.registry,
-                            depth=self.depth + 1)
+                            depth=self.depth + 1, notebooks=self.notebooks, data=self.data)
         probe.given = {k: None for k in child.pipeline.parameters}
         return [p | {"message": f"In child pipeline {key}: {p['message']}"} for p in probe.check()
                 if p["code"] not in ("missing_parameter", "bad_parameter", "unknown_mock")]
@@ -243,9 +314,16 @@ class PipelineRun:
         self._changed()
         try:
             outcome = self._run_list(self.pipeline.activities, self.scope, "", None)
+            if self.depth == 0:
+                self._join_detached()
         finally:
             if timer:
                 timer.cancel()
+        if self.notebooks is not None and self.depth == 0:
+            # Every step has ended; clean up before the final state, so a caller that sees the run
+            # end also sees its folders gone. Child pipelines share the top-level run's notebooks and
+            # folder, so only the top level cleans up. (On an error the caller stops the steps, then finishes.)
+            self.notebooks.finish()
         with self._lock:
             if self.stop_reason == "timed_out":
                 self.state = "failed"
@@ -256,6 +334,11 @@ class PipelineRun:
             self.ended, self.seconds = _now(), round(time.monotonic() - self._t0, 3)
         self._changed()
         return self
+
+    def _join_detached(self) -> None:
+        """Wait for the child runs that nothing waited on (a detached child may start more)."""
+        while self._detached:
+            self._detached.pop(0).join()
 
     def cancel(self, reason: str = "cancelled") -> None:
         with self._lock:
@@ -421,10 +504,14 @@ class PipelineRun:
                             "children": sorted(self.children)},
                 "counts": {s: sum(1 for r in self.records if r["state"] == s) for s in FINAL + ("running",)},
                 "activities": acts, "problems": list(self.problems),
-                "notes": ["Ran on this PC; no Fabric call was made and no capacity was used.",
-                          "Behaviour follows Microsoft's Data Factory documentation and hasn't been compared with "
-                          "Fabric."],
+                "notes": (self.notebooks.notes() if self.notebooks is not None else [])
+                or ["Ran on this PC; no Fabric job was started."],
             }
+            if any(r["type"] in DATA_TYPES and r.get("executed_by") == "adapter" and r.get("started") for r in self.records):
+                out["notes"].append("Lookup, Get Metadata and Script steps ran here; those that read a lakehouse "
+                                    "read OneLake, which uses a little capacity.")
+            out["notes"].append("Behaviour follows Microsoft's Data Factory documentation and hasn't been compared "
+                                "with Fabric.")
             if values:
                 out["parameters"] = {k: HIDDEN if k in secure else v for k, v in self.parameters.items()}
                 out["variables"] = dict(self.variables)
@@ -558,15 +645,18 @@ class _Context:
         with self.run._lock:
             self.run.return_value[key] = value
 
-    def run_child(self, activity: Activity, key: str, parameters: dict[str, Any]) -> dict[str, Any]:
+    def run_child(self, activity: Activity, key: str, parameters: dict[str, Any], wait: bool = True) -> dict[str, Any]:
         child_imp = self.run._child_definition(key)
         if child_imp is None:
             raise ActivityFailed(f"No definition was given for child pipeline {key!r}.", "LocalChildMissing")
         child = PipelineRun(child_imp, parameters=parameters, mocks=self.run.mocks, children=self.run.children,
                             max_parallel=self.run.max_parallel, wait_scale=self.run.wait_scale,
                             registry=self.run.registry, now=self.run.scope.now, depth=self.run.depth + 1,
-                            cancel=self.run._cancel,
+                            cancel=self.run._cancel, notebooks=self.run.notebooks, detached=self.run._detached,
+                            data=self.run.data,
                             run_id=str(uuid.uuid5(self.run._ns, f"child|{self.rec['id']}")))
+        if not wait:
+            return self._start_child(child, key)
         try:
             child.run()
         except RunRefused as exc:
@@ -578,4 +668,55 @@ class _Context:
         output = {"pipelineRunId": child.id, "pipelineReturnValue": dict(child.return_value)}
         if child.state != "succeeded":
             raise ActivityFailed(f"Child pipeline {key} failed.", "LocalChildFailed", output)
+        return output
+
+    def _start_child(self, child: PipelineRun, key: str) -> dict[str, Any]:
+        """waitOnCompletion false: start the child and succeed at once, as Fabric does. The child's
+        result goes in this activity's record when it ends and doesn't change this run's result."""
+        problems = child.check()
+        if problems:
+            raise ActivityFailed(f"Child pipeline {key} can't run: {RunRefused(problems)}", "LocalChildRefused")
+
+        def go() -> None:
+            try:
+                child.run()
+            except Exception as exc:  # noqa: BLE001 - nothing waits on this child; its record says what happened
+                _log.warning("Child pipeline %s stopped: %s", key, describe(exc))
+            finally:
+                self.note(child_run=child.to_json())
+                self.run._changed()
+
+        t = threading.Thread(target=go, name=f"pipeline-child-{child.id[:8]}", daemon=True)
+        t.start()
+        self.run._detached.append(t)
+        self.note(child_run=child.to_json())
+        return {"pipelineRunId": child.id}
+
+    def read_data(self, activity: Activity, properties: dict[str, Any]) -> dict[str, Any]:
+        if self.run.data is None:
+            raise ActivityFailed(f"{activity.name} can't read a lakehouse without the engine.", "LocalDataUnsupported")
+        if activity.type == "Script":
+            try:
+                output = self.run.data.script(activity, properties, lambda: self.run.cancelled, self.deadline)
+            except ActivityFailed:
+                if self.run.cancelled:
+                    raise _Cancelled() from None
+                raise
+            if self.run.cancelled:
+                raise _Cancelled()
+            return output
+        read = self.run.data.lookup if activity.type == "Lookup" else self.run.data.metadata
+        return read(activity, properties)
+
+    def run_notebook(self, activity: Activity, parameters: dict[str, Any]) -> dict[str, Any]:
+        if self.run.notebooks is None:
+            raise ActivityFailed(f"Notebook {notebook_key(activity)} can't run without the engine.", "LocalNotebookMissing")
+        try:
+            output = self.run.notebooks.run(activity, parameters, lambda: self.run.cancelled, self.deadline)
+        except ActivityFailed:
+            if self.run.cancelled:
+                raise _Cancelled() from None
+            raise
+        if self.run.cancelled:
+            raise _Cancelled()
         return output

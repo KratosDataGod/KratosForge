@@ -1,9 +1,12 @@
 """Running SQL, Python and notebooks for an external tool, through the engine's own paths.
 
-    SQL        Service.run_sql with ``sandbox=True``: one read-only statement (SELECT, WITH ...
+    SQL        sql.prepare_sandboxed and execute_sandboxed: one read-only statement (SELECT, WITH ...
                SELECT, UNION), DuckDB with external access off and its configuration locked, so
                only the lakehouse tables the query names can be read: no local files, no
-               extensions, no network
+               extensions, no network. The SQL page's memory share and threads per run apply
+               (Settings > SQL). The tables are registered under the attach lock and the query
+               runs after it is released, one external query at a time (waiting counts towards the
+               timeout); a timeout or cancel interrupts DuckDB until it stops
     Python     a ProcessKernel (kernel_proc.py) of its own, started for the execution and ended
                after it: the same kernel the notebook screen uses, never the app's own kernel
     Notebook   the same, cell by cell in order as Run all does, stopping at the first error
@@ -23,6 +26,10 @@ What code an external tool runs can do is limited on purpose:
 - Other notebooks can't be run from it (``%run``, ``notebookutils.notebook.run``): their code
   wasn't shown to the person. The app's own kernels still run them.
 - Output is capped, images and HTML are left out, and every string has secrets removed.
+- The kernel's environment has only the variables Python needs to start (kernel_proc.EXTERNAL_ENV_ALLOW:
+  PATH, the Windows system folders, temp, home, locale, proxy and certificate settings), so a secret in an environment variable
+  isn't visible to the code. It isn't a sandbox: the code runs as the person and can read their
+  files, including the token cache, until that cache is encrypted (HD-013).
 
 The person approves every Python and notebook run in the app, with the code shown; a notebook run
 is bound to the SHA-256 of the cells shown and runs exactly those (services.bind_notebook).
@@ -88,6 +95,24 @@ def shape_outputs(outputs: list[dict[str, Any]], budget: list[int]) -> list[dict
     return out
 
 
+def interrupt_until_stopped(con: Any, stopped: threading.Event, seconds: float = 30.0,
+                            lock: threading.Lock | None = None) -> None:
+    """Interrupt a DuckDB query until it has stopped: DuckDB drops an interrupt that lands just
+    before it starts a statement (localdata/engine.py's _interrupt_until_stopped does the same).
+    ``lock`` is held by whoever closes ``con`` too, so an interrupt never overlaps the close."""
+    lock = lock or threading.Lock()
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        with lock:
+            if stopped.is_set():
+                return
+            try:
+                con.interrupt()
+            except Exception:  # silent-ok: the connection closed as the query ended
+                return
+        stopped.wait(0.05)
+
+
 class Execution:
     def __init__(self, kind: str, client_id: str, title: str, target: dict[str, Any], timeout: float):
         self.id = new_execution_id()
@@ -134,6 +159,9 @@ class ExecutionManager:
         self._lock = threading.Lock()
         # The engine has one attached lakehouse at a time: share the lock the desktop's cells take.
         self._attach_lock = getattr(service, "attach_lock", None) or threading.RLock()
+        # Held only while an external SQL statement executes (not while its tables are registered):
+        # one at a time, so concurrent queries can't each take the SQL page's memory share.
+        self._sql_slot = threading.Lock()
 
     # ---- the kernel external code runs in
 
@@ -148,7 +176,7 @@ class ExecutionManager:
 
     def _new_kernel(self) -> Any:
         from .. import lakehouse
-        from ..kernel_proc import ProcessKernel
+        from ..kernel_proc import ProcessKernel, external_environment
 
         class ExternalKernel(ProcessKernel):
             def _sync_lakehouse(self) -> None:
@@ -160,7 +188,8 @@ class ExecutionManager:
                 finally:
                     lakehouse.write_guard = saved
 
-        kernel = ExternalKernel(token=self._token, load_notebook=self._other_notebook, command=self.kernel_command)
+        kernel = ExternalKernel(token=self._token, load_notebook=self._other_notebook, command=self.kernel_command,
+                                env=external_environment)
         kernel.calls["write_guard"] = lambda name, schema, table: WRITE_REFUSED
         return kernel
 
@@ -281,18 +310,68 @@ class ExecutionManager:
     # ---- the three kinds
 
     def run_sql(self, run: Execution, query: str, lakehouse_ref: dict[str, str], max_rows: int) -> dict[str, Any]:
+        """The query's tables are registered under the attach lock; the query itself runs after the
+        lock is released, so a long query never holds up the next run. A timeout or cancel
+        interrupts DuckDB (con.interrupt) until the query has stopped."""
+        import duckdb
+
+        from .. import app_settings, sql, sql_exec
+        from ..service import sql_result
+        limits = app_settings.sql_limits()  # the SQL page's memory share and threads per run (SQL-003)
         with self._attach_lock:
             if run.cancel_event.is_set():
-                raise IntegrationError("cancelled", "Cancelled before it started.")
-            out = self.service.run_sql(query, lakehouse_ref, limit=max_rows, sandbox=True)
+                raise self._stopped(run)
+            self.service._attach(lakehouse_ref)
+            con, statement = sql.prepare_sandboxed(
+                query, memory_mb=sql_exec.memory_mb(int(limits["sql_memory_limit_percent"])),
+                threads=sql_exec.run_threads(limits))
+        stopped = threading.Event()
+        con_lock = threading.Lock()  # an interrupt and the close never overlap
+        have_slot = False
+        try:
+            # One external query runs at a time, each with the SQL page's memory share. Waiting for
+            # the slot counts towards the timeout: a stop while waiting ends the run here.
+            while not (have_slot := self._sql_slot.acquire(timeout=0.05)):
+                if run.cancel_event.is_set():
+                    raise self._stopped(run)
+            run.on_cancel = lambda: threading.Thread(target=interrupt_until_stopped, args=(con, stopped, 30.0, con_lock), daemon=True,
+                                                     name=f"execution-stop-{run.id}").start()
+            started = time.monotonic()
+            # _stop sets cancel_event before it reads on_cancel: a stop that came before on_cancel was
+            # set is seen here, and one after it interrupts the query.
+            if run.cancel_event.is_set():
+                raise self._stopped(run)
+            result = sql.execute_sandboxed(con, statement)
+        except duckdb.Error:
+            if run.cancel_event.is_set():
+                raise self._stopped(run) from None
+            raise
+        finally:
+            run.on_cancel = None
+            with con_lock:
+                stopped.set()
+                con.close()
+            if have_slot:
+                self._sql_slot.release()
+        out = sql_result(result, max_rows, started)
         run.log(f"{out['row_count']} rows in {out['seconds']} s")
         return out | {"truncated": out["row_count"] > len(out["rows"])}
+
+    @staticmethod
+    def _stopped(run: Execution) -> IntegrationError:
+        if run.state == "timed_out":
+            return IntegrationError("timeout", f"The query was stopped after its time limit ({run.timeout:g} s).",
+                                    hint="Narrow the query (a filter, fewer rows or columns) or give it a longer "
+                                         "timeout_seconds.", retryable=True)
+        return IntegrationError("cancelled", "The query was cancelled.")
 
     def run_cells(self, run: Execution, cells: list[str], lakehouse_ref: dict[str, str] | None,
                   notebook: str = "") -> dict[str, Any]:
         """Run code cells in order in a fresh process kernel, then end it."""
         kernel = self._kernel_factory()
         kernel.notebook_name = notebook
+        where = getattr(self.service, "_resources_dir", None)  # builtin/ paths, as in the notebook
+        kernel.resources_dir = where(notebook) if where else ""
         budget = [MAX_OUTPUT_CHARS]
         done: list[dict[str, Any]] = []
 

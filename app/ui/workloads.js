@@ -71,7 +71,7 @@ function workloadsPanel() {
   return h("div", { class: "mon-how" }, withHowItWorks(box, howItWorks("monitor.workloads", {
     reads: "Your project's metadata entities, notebooks on this PC, and the pipelines, notebooks and Spark job definitions in the workspaces the app works in (pinned, your environments' and the ones your notebooks publish to), with their run records and Fabric's job history. Never your whole tenant. It reads when this view opens and when you press Refresh.",
     changes: "Nothing from the list. On a workload's page, Edit changes its owner, criticality and tags on this PC, and Run, Retry and Cancel the run first say which environment, where it runs, as whom and what it writes.",
-    results: "Ownership, tags, links and the action log stay on this PC in workloads.sqlite and aren't shared with your team yet. A run you start writes where that environment's runs always write.",
+    results: "Ownership, tags, links and the action log stay on this PC in workloads.sqlite and aren't shared with your team yet. When there's a platform, each action and change is also written to its audit (Platform > Audit) with who, where, before, after and how it ended; until the platform takes a line, this PC keeps it and sends it again. A run you start writes where that environment's runs always write.",
     more: [["Not observed is not failing", "When your sign-in has expired or a workspace refuses access, a workload shows Not observed with the reason, never Failing. Its last reading shows as Cached, then Stale after an hour."]],
     anchor: "workloads-preview",
   })));
@@ -91,8 +91,8 @@ async function loadWorkloads(box, refresh) {
   const again = (changes = {}) => { Object.assign(wlPage, changes); loadWorkloads(box, false); };
   const chip = (v) => h("button", { class: `chip${wlPage.view === v.id ? " on" : ""}`,
     onclick: () => again({ view: v.id, offset: 0 }) }, `${v.label} · ${v.count}`);
-  const groupSeg = h("div", { class: "seg", role: "group", "aria-label": "Group by" },
-    WL_GROUPS.map(([id, label]) => h("button", { class: wlPage.group === id ? "on" : null, onclick: () => again({ group: id, offset: 0 }) }, label)));
+  const groupSelect = h("select", { class: "group-select", "aria-label": "Group by", onchange: (e) => again({ group: e.target.value, offset: 0 }) },
+    WL_GROUPS.map(([id, label]) => h("option", { value: id, selected: wlPage.group === id }, label)));
   const sources = h("div", { class: "wl-sources" }, (data.sources || []).map((s) => h("span", { class: "wl-source" }, obsPill(s),
     " ", s.source, s.detail ? h("span", { class: "muted-text small" }, ` · ${s.detail}`) : null)),
   data.scanning ? h("span", { class: "muted-text small" }, "Reading Fabric items in the background...") : null,
@@ -123,7 +123,7 @@ async function loadWorkloads(box, refresh) {
   }[wlPage.view] || (state.query ? "No workloads match your search." : "No workloads yet. Notebooks, metadata entities and Fabric items in your workspaces show here.");
   box.replaceChildren(
     h("div", { class: "monitor-filters" }, h("div", { class: "row wrap", role: "group", "aria-label": "Show" }, (data.views || []).map(chip)),
-      h("span", { class: "spacer" }), h("span", { class: "muted-text small" }, "Group by"), groupSeg),
+      h("span", { class: "spacer" }), h("label", { class: "muted-text small row" }, "Group by", groupSelect)),
     sources,
     rows.length ? h("div", { class: "monitor-scroll" }, h("table", { class: "list wl-list" },
       h("thead", {}, h("tr", {}, ["Health", "Workload", "Owner", "Deployed to", "Last run", "Can", "Observed"].map((c) => h("th", {}, c)))),
@@ -163,7 +163,7 @@ function workloadRow(r) {
 
 async function renderWorkload() {
   if (!wlPage.id) return go("monitor");
-  setView(h("div", { class: "page wl-page" }, h("p", { class: "muted-text" }, "Loading...")));
+  setView(h("div", { class: "page wl-page" }, loading()));
   const w = wlPage.detail?.id === wlPage.id ? wlPage.detail : await attempt(() => rpc("workload_detail", { id: wlPage.id }), "Couldn't open the workload");
   if (state.view !== "workload") return;
   if (!w) {
@@ -181,7 +181,7 @@ async function renderWorkload() {
     h("div", { class: "row wrap wl-head" },
       h("div", { class: "grow" },
         h("h1", {}, w.name, " ", healthPill(w.health, w.health_label), preview("workloads", h("span", {}))),
-        h("p", { class: "sub" }, workloadSubtitle(w)),
+        h("p", { class: "sub" }, workloadSubtitle(w), " ", learnMore("workloads-preview")),
         capabilityChips(w.capabilities)),
       h("div", { class: "row" },
         primary ? btn(`Retry${primary.env ? ` in ${ENV_LABEL[primary.env] || primary.env}` : ""}`,
@@ -194,12 +194,52 @@ async function renderWorkload() {
       h("section", { class: "card pad" }, h("div", { class: "row" }, h("h2", { class: "grow" }, "Ownership"),
         btn("Edit", "person", () => ownershipDialog(w), "tool link small")), ownershipTable(w))),
     workloadIncidentsCard(w),
+    workloadCapacityCard(w),
     h("section", { class: "card pad" }, h("h2", {}, "Deployments"), deploymentsTable(w)),
     h("div", { class: "wl-grid" },
       h("section", { class: "card pad" }, h("h2", {}, "What changed"), timeline(w)),
       h("section", { class: "card pad" }, h("h2", {}, "Who is affected"), affected(w))),
     h("section", { class: "card pad" }, h("h2", {}, "Recent runs"), runsTable(w)),
-    (w.actions || []).length ? h("section", { class: "card pad" }, h("h2", {}, "Actions from KratosForge"), actionsTable(w)) : null));
+    (w.actions || []).length ? h("section", { class: "card pad" }, h("h2", {}, "Actions from KratosForge"), actionsTable(w), platformAuditNote(w.platform_audit)) : null));
+}
+
+// Whether the actions and changes above are on the platform's audit (workload_audit_state).
+function platformAuditNote(a) {
+  if (!a) return null;
+  const n = a.waiting === 1 ? "1 action or change hasn't" : `${a.waiting} actions or changes haven't`;
+  const text = a.platform === "none"
+    ? (a.waiting ? `Kept on this PC only: there's no platform yet. ${n} reached an audit; they go to Platform > Audit once a platform is set up.` : "Kept on this PC only: there's no platform yet.")
+    : a.waiting ? `${n} reached Platform > Audit yet${a.error ? `: ${a.error.replace(/\.$/, "")}` : ""}. This PC keeps them and sends them again.`
+      : "Each one is also on Platform > Audit.";
+  return h("p", { class: "muted-text small" }, text);
+}
+
+// Capacity use of the runs this app started or scheduled on this PC in the last 30 days
+// (workload_capacity_use; not Fabric's own job history, which Recent runs reads): measured where an imported
+// usage row matched the run, else the app's estimate; a run with neither is left out, not counted as 0.
+function workloadCapacityCard(w) {
+  const head = () => h("h2", {}, "Capacity use ", h("span", { class: "muted-text small" }, "runs from this app, last 30 days"), preview("workloads", h("span", {})));
+  const box = h("section", { class: "card pad wl-capacity" }, head(), h("p", { class: "muted-text" }, "Adding up its runs..."));
+  rpc("workload_capacity_use", { id: w.id, days: 30 }).then((u) => {
+    if (!box.isConnected) return;
+    const toCost = btn("Optimize > Cost and savings", null, () => { optimizePage.tab = "cost"; go("optimize"); }, "tool link small");
+    const plural = (n, one) => `${n} ${one}${n === 1 ? "" : "s"}`;
+    const lines = [];
+    if (u.fabric_runs) {
+      lines.push(h("p", {}, `${plural(u.fabric_runs, "run")} this app started in Fabric used `, measureFigure("Capacity use of its Fabric runs", u.total)));
+      lines.push(u.measured_runs
+        ? h("p", { class: "small" }, `${u.measured_runs} of ${u.fabric_runs} matched imported usage: `, measureFigure("Measured capacity use", u.measured),
+          h("div", { class: "muted-text" }, "The rest count with the app's estimate, and a run with neither is left out, not counted as 0."))
+        : h("p", { class: "small" }, "None matched imported usage, so the figure is the app's estimate. Import a Capacity Metrics export in ", toCost, " to measure it."));
+    }
+    if (u.pc_runs) lines.push(h("p", { class: "small" }, `${plural(u.pc_runs, "run")} on this PC started no Fabric job. Their OneLake reads and writes still use some capacity, which isn't counted here.`));
+    if (!lines.length) lines.push(h("p", { class: "muted-text" }, "No runs started from this app in the last 30 days."));
+    lines.push(h("p", { class: "muted-text small" }, "Runs Fabric started on its own schedule, or that someone started in Fabric, aren't counted here; Optimize > Cost and savings shows the capacity's imported usage."));
+    if (u.problem) lines.push(h("p", { class: "reason small" }, u.problem));
+    if (u.measured_runs) lines.push(h("p", { class: "muted-text small" }, "A match is likely, not proven: usage exports have names and times, not job ids."));
+    box.replaceChildren(head(), ...lines);
+  }).catch((err) => box.replaceChildren(head(), h("p", { class: "muted-text" }, `Couldn't add up its capacity use: ${friendlyError(err).text}`)));
+  return box;
 }
 
 function backToWorkloads() {

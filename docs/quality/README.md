@@ -4,8 +4,8 @@ An independent review of whether KratosForge is built like one coherent product:
 
 This review builds on two earlier ones and doesn't repeat them:
 
-- The [enterprise hardening audit](https://github.com/KratosDataGod/fabric-desktop/pull/137) (`docs/hardening/`, findings DI-, EP-, EN-, SH-, AR-, TS-, backlog HD-001 to HD-057) covers security, OneLake write integrity, distribution and reliability.
-- The [UX and simplicity audit](https://github.com/KratosDataGod/fabric-desktop/pull/166) (`docs/ux/`, backlog UX-001 to UX-020) covers workflows, navigation, configuration and documentation coverage.
+- The [enterprise hardening audit](https://github.com/KratosDataGod/KratosForge/pull/137) (`docs/hardening/`, findings DI-, EP-, EN-, SH-, AR-, TS-, backlog HD-001 to HD-057) covers security, OneLake write integrity, distribution and reliability.
+- The [UX and simplicity audit](https://github.com/KratosDataGod/KratosForge/pull/166) (`docs/ux/`, backlog UX-001 to UX-020) covers workflows, navigation, configuration and documentation coverage.
 
 Where a finding here overlaps theirs, it cites their ID and adds only what is new.
 
@@ -31,7 +31,7 @@ Where a finding here overlaps theirs, it cites their ID and adds only what is ne
 | Engine (`sidecar/`, `python -m pytest`) | **Ran: 1,405 passed, 2 skipped, 0 failed** in 503 s | Python 3.13.16 on Linux; CI uses 3.12. Skips: DuckDB's TPC-H extension can't install offline. 87% line coverage (25,597 statements). 369 `ResourceWarning`s |
 | UI (`node --test app/tests/ui.test.cjs`) | **Ran: 51 passed, 0 failed** | 39 tests execute extracted functions; 12 only match source text (QA-018) |
 | Browser tests (`app/tests/browser/`) | Not run | Not in CI either (UI-8 / HD-052) |
-| Rust tests (`cargo test`) | Not run | Not in CI either (SH-6 / HD-011) |
+| Rust tests (`cargo test`) | Not run | Not run in this assessment. CI's `shell` job runs them on Windows since HD-011 (SH-6) |
 | Live tenant (`fabric-desktop live-test`) | Not run | Never run anywhere automatically (TS-2 / HD-054) |
 | Defect reproductions | **Ran: 3 reproduced** | QA-001, QA-006, QA-016 |
 

@@ -1,7 +1,7 @@
 // Estate X-ray on Home: every lakehouse you can reach, read once, with what needs attention
 // ranked first and a fix on each line. "Adopt" turns a lakehouse's tables into metadata entities.
 
-const xrayPage = { data: null, timer: null, kind: "all", showAll: false, folded: false };
+const xrayPage = { data: null, timer: null, kind: "all", showAll: false, folded: false, watching: null };
 
 const XRAY_KINDS = {
   small_files: "Small files", unidentified: "Unidentified", access: "Access", cost: "Cost",
@@ -45,6 +45,14 @@ async function loadXray(box, refresh) {
   if (!res || state.view !== "home" || !box.isConnected) return;
   xrayPage.data = res;
   drawXray(box, res);
+  // A scan this card watched run ends: the numbers glow once, or the ember beside why it stopped. A
+  // scan that ended before the card was drawn plays nothing (motion.js).
+  if (res.running) xrayPage.watching = box;
+  else if (xrayPage.watching === box) {
+    xrayPage.watching = null;
+    if (res.error) forgeEvent("xray.scan.failed", box.querySelector(".reason"));
+    else if (res.result) forgeEvent("xray.scan.finished", box.querySelector(".xray-stats"));
+  }
   if (res.running && !res.paused) xrayPage.timer = setTimeout(() => loadXray(box, false), 2000);
 }
 
@@ -82,9 +90,12 @@ function drawXray(box, res) {
   const progress = res.running ? h("div", { class: "xray-progress" },
     h("div", { class: "row" }, h("b", {}, res.paused ? `Paused: ${(res.progress?.phase || "scanning").toLowerCase()}` : res.progress?.phase || "Scanning"),
       res.progress?.total ? h("span", { class: "muted-text small" }, `${res.progress.done} of ${res.progress.total}`) : null),
-    h("div", { class: "progress" }, res.progress?.total
-      ? h("div", { class: `bar${res.paused ? " paused" : ""}`, style: `width:${Math.max(4, Math.round(100 * res.progress.done / res.progress.total))}%` })
-      : h("div", { class: `bar${res.paused ? " paused" : " indeterminate"}` }))) : null;
+    // Before the scan can count what it reads, the navy wolf trots in place (motion.js remoteProgress):
+    // it reads Fabric, and has no measure yet. Paused, the grey bar stands still.
+    res.progress?.total
+      ? h("div", { class: "progress" }, h("div", { class: `bar${res.paused ? " paused" : ""}`, style: `width:${Math.max(4, Math.round(100 * res.progress.done / res.progress.total))}%` }))
+      : res.paused ? h("div", { class: "progress" }, h("div", { class: "bar paused" }))
+      : remoteProgress("Estate X-ray scan", "Reading Fabric")) : null;
   if (!result) {
     fill(box, head(h("div", { class: "row" }, scanBtn)), progress,
       res.error ? h("p", { class: "reason" }, `The scan stopped: ${friendlyError(res.error).text}`) : null,
@@ -116,6 +127,7 @@ function drawXray(box, res) {
     progress,
     stats,
     withHowItWorks([
+    xrayShared(result.shared),
     result.skipped?.length ? h("p", { class: "muted-text small" }, `Couldn't read: ${result.skipped.join(", ")} (a paused capacity, or no access).`) : null,
     open.length ? h("div", { class: "row wrap xray-chips" }, chip("all", "All", open.length),
       Object.entries(XRAY_KINDS).filter(([k]) => byKind[k]).map(([k, label]) => chip(k, label, byKind[k]))) : null,
@@ -137,14 +149,27 @@ function xrayHow() {
   return howItWorks("home.xray", {
     reads: "Table logs and workspace roles in every lakehouse you can reach, and the runs this app started in Fabric. "
       + "The first scan on this PC starts by itself after you sign in; after that it reads only when you press Scan again.",
-    changes: "Scanning changes nothing. Three buttons write, and each asks first. Optimize names the table, says it runs in "
+    changes: "Scanning changes no lakehouse it reads. When this PC is connected to a central lakehouse you can write to "
+      + "(Settings > Optimize lakehouses), each scan also adds its lakehouse and table findings there as new rows, never "
+      + "the names of people or cost estimates. Three buttons write, and each asks first. Optimize names the table, says it runs in "
       + "Fabric and uses capacity, and shows the risk check, then starts a Fabric table maintenance job that compacts it "
       + "and removes old files past the history the table keeps. Vacuum first shows how many old files it would delete, and deletes them in "
       + "Fabric only when you confirm, keeping the history the table promises. Adopt shows the entities it would create "
       + "and, when you confirm, writes them as files in your metadata project on this PC; the table itself isn't changed.",
-    results: "Findings are kept on this PC and only you see them. Optimize and Vacuum run as jobs in Fabric; follow them in Monitor.",
+    results: "Findings are kept on this PC. Lakehouse and table findings added to the central lakehouse show in "
+      + "Optimize > Opportunities, and anyone who can read that lakehouse can read them, including the workspace, "
+      + "lakehouse and table names of every workspace this scan reached; the app hides items you can't open, but "
+      + "that is a courtesy, not security. Optimize and Vacuum run as jobs in Fabric; follow them in Monitor.",
     anchor: "estate-x-ray-preview",
   });
+}
+
+// Where the scan's findings went besides this PC, when it is connected to a central lakehouse.
+function xrayShared(shared) {
+  if (!shared) return null;
+  return h("p", { class: "muted-text small" }, shared.error
+    ? `These findings weren't added to ${shared.lakehouse}: ${shared.error}`
+    : `${shared.findings} lakehouse and table finding${shared.findings === 1 ? " was" : "s were"} added to ${shared.lakehouse} for Optimize > Opportunities.`);
 }
 
 function stat(value, label, tone = "") {

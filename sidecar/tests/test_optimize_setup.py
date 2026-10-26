@@ -400,3 +400,20 @@ def test_family_registration_rules(incidents):
     with pytest.raises(ValueError, match="schema_version"):
         schema.register(schema.Family("fdzzz_", "No version", [schema.Migration(1, "Create", {"t": {"a": pl.String}})]))
     assert schema.family_of("fdtst_incident_event") is incidents and schema.family_of("sales") is None
+    for bad in ("Access", "1x", "a-b"):
+        with pytest.raises(ValueError, match="schema"):
+            schema.register(schema.Family("fdzzz_", "Bad schema", m1, schema=bad))
+
+
+def test_a_family_with_its_own_schema_keeps_its_tables_there(tmp_path, monkeypatch):
+    fam = schema.Family("fdtst_", "Access cache", [schema.Migration(1, "Create", INCIDENTS_V1)], schema="access")
+    monkeypatch.setitem(schema.FAMILIES, fam.prefix, fam)
+    lake = LocalLakehouse(tmp_path / "lh")
+    setup.initialize(lake, pc(tmp_path), approve=True, family=fam)
+    assert (tmp_path / "lh" / "Tables" / "access" / "fdtst_incident_event").is_dir()
+    assert not (tmp_path / "lh" / "Tables" / "dbo" / "fdtst_incident_event").exists()
+    assert "fdtst_incident_event" in lake.table_names() and lake.schema_names() == ["access", "dbo"]
+    assert setup.inspect(lake, fam)["state"] == setup.READY
+    with pytest.raises(ValueError, match="already belongs"):
+        schema.register(schema.Family("fdzzz_", "Same schema", [schema.Migration(1, "Create", INCIDENTS_V1)],
+                                      schema="access"))

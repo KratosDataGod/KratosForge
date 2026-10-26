@@ -1,0 +1,13 @@
+{
+  "name": "fabric-desktop-vega",
+  "private": true,
+  "description": "Builds vega-frame.js (Altair charts in notebook output) from the Vega, Vega-Lite and vega-embed builds. The built file is committed, so the app needs no build step.",
+  "scripts": {
+    "build": "node build.cjs"
+  },
+  "devDependencies": {
+    "vega": "6.4.0",
+    "vega-embed": "7.3.0",
+    "vega-lite": "6.4.3"
+  }
+}

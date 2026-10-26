@@ -253,6 +253,26 @@ class Engine:
     def lakehouse(self, entity: Entity) -> str:
         return self.project.layer(entity.layer).lakehouse
 
+    def landing_lakehouse(self, pattern: str) -> str:
+        """Where a [source] landing pattern's files are: with central landing (Preview), the lakehouse
+        of its source's zone, the same for every environment; else this environment's LH_Landing.
+        A zone Dev and Test don't read stops the entity there."""
+        source = pattern.strip("/").split("/")[0]
+        find = getattr(self.store, "landing_zone", None)
+        try:
+            zone = find(source) if find else None
+        except Exception as exc:  # noqa: BLE001 - any catalog problem stops the entity with its reason
+            raise CheckStop(f"the landing zones couldn't be read from the platform's catalog ({exc})") from exc
+        if zone is None:
+            return LANDING_LAKEHOUSE
+        if self.store.env in ("dev", "test") and zone.get("devtest") != "read":
+            kind = "secure zone" if zone.get("secure") else "zone"
+            raise CheckStop(f"{source} is in the {kind} {zone.get('name') or zone.get('id')}, which Dev and Test don't read")
+        try:
+            return self.store.landing_lakehouse(zone)
+        except LookupError as exc:
+            raise CheckStop(str(exc)) from exc
+
     def read_entity(self, name: str) -> pl.DataFrame | None:
         e = self.project.entities[name]
         return self.store.read(self.lakehouse(e), e.schema, e.table)
@@ -437,12 +457,12 @@ class Engine:
         if not src:
             df, detail = pl.DataFrame(), "no source: the custom step provides the rows"
         elif "files" in src or "landing" in src:
-            where = LANDING_LAKEHOUSE if "landing" in src else self.lakehouse(e)
             pattern = src.get("landing") or src["files"]
+            where = self.landing_lakehouse(pattern) if "landing" in src else self.lakehouse(e)
             try:
                 listed = self.store.list_files(where, pattern)
             except LookupError as exc:
-                if where != LANDING_LAKEHOUSE:
+                if "landing" not in src:
                     raise
                 raise CheckStop(f"there's no landing zone for {self.store.env} yet: create or join the platform in "
                                 f"Platform > Settings ({exc})") from exc
@@ -508,9 +528,11 @@ class Engine:
         wm_col = e.spec.get("load", {}).get("watermark")
         if e.mode == "incremental" and wm_col and not full:
             wm = self._watermark(e)
-            if wm is not None and wm_col in names:
-                after = (wm_col, _wm_literal(wm, schema[wm_col]))
-                lf = lf.filter(pl.col(wm_col) > after[1])
+            # The watermark is a contract column, saved from the output; the source may call it something else.
+            src_wm = {v: k for k, v in (src.get("rename") or {}).items()}.get(wm_col, wm_col)
+            if wm is not None and src_wm in names:
+                after = (src_wm, _wm_literal(wm, schema[src_wm]))
+                lf = lf.filter(pl.col(src_wm) > after[1])
                 detail = f"incremental, {wm_col} after {wm}"
         keep = self._source_columns(e, names)
         total = len([c for c in names if c not in SYSTEM_COLUMNS])

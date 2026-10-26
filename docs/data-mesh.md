@@ -25,6 +25,7 @@ All of it happens on the **Platform** page (central team, and requests from ever
 1. **Domains.** Every domain, its subdomains, and how many projects and products it has. **How domains feed each other** lists, for each pair of domains, the products one domain's projects read from the other's.
 2. **A domain.** Its projects, filtered by subdomain, each with its products, who reads them and what it reads. The project open on this PC also shows its layers with a table count; other projects' tables show when their folder is opened on this PC.
 3. **A layer.** The layer's tables. Pick one to see what it comes from, which tables and products read it, and **Open in Design** to edit it.
+4. **A table's lineage.** Every hop both ways, one column per hop. Upstream it starts at the files, landing source or link the chain begins with. Downstream it ends at the data products it feeds and the other projects that read them. **Only what it reads** and **Only what reads it** narrow it. Pick any table in a column to put it in the middle, and choose **Columns** to see where each column comes from. Tables come from the project open on this PC, and other projects come from the catalog's links. It reads only and changes nothing.
 
 ## The pieces
 
@@ -62,7 +63,8 @@ The mesh's domains and subdomains are the ones defined in Fabric (Admin portal >
 
 | Step | Who | Needs |
 | --- | --- | --- |
-| **Platform > Domains > Import from Fabric** copies every Fabric domain and subdomain into the platform's catalog | A platform admin who is also a **Fabric administrator** | Fabric's domain list is an admin API (`GET /v1/admin/domains`, `Tenant.Read.All`). KratosForge asks for it only at this step. No app registration |
+| **Platform > Domains > Import from Fabric** copies every Fabric domain and subdomain into the platform's catalog | A platform admin who is also a **Fabric administrator** | Fabric's domain list is an admin API (`GET /v1/admin/domains`, `Tenant.Read.All`). KratosForge asks for it only at this step. Each domain's admins are read too (`GET /v1/admin/domains/{id}/roleAssignments`, same permission). No app registration |
+| **Platform > Domains > New domain** creates the domain or subdomain in Fabric, then keeps it in the platform linked to it (Preview) | A platform admin who is also a **Fabric administrator** | `POST /v1/admin/domains` with `Tenant.ReadWrite.All`, asked for only at this step. The platform's checks (name, parent, platform admin) run first, so a domain the platform would refuse is never created in Fabric. Someone who isn't a Fabric administrator is told so, and can save the domain in the platform only. Not yet tried against a real tenant |
 | Seeing the domains, joining one, and the mesh map on Home | Everyone | Nothing: the names are read from the platform's catalog |
 | **Data mesh > Domains** shows which Fabric domain each of the project's workspaces is in, with **Use it** to pick it | Anyone who can see the workspace | Nothing new: each workspace says its domain to its members. Without an import, only the domain's id is known, so the tab asks for a Fabric administrator to import |
 
@@ -70,6 +72,7 @@ How the import works:
 
 - A Fabric domain matches the catalog domain already linked to it, else one with the same name (domains created by hand before are kept and linked, so their projects don't change), else it's added with an id made from its name (`Finance & Risk` becomes `finance-risk`).
 - Imported domains follow Fabric: rename or move one in Fabric, then import again; the catalog id stays, so projects keep their domain. Their name and parent can't be changed in KratosForge. Owners and description are the platform's and stay as you set them.
+- Each domain's admins in Fabric are kept by name (no email) and shown as owners marked **From Fabric** on Platform > Domains, Data mesh > Domains and Home's mesh map, until you set the platform's own owners; then both show. They're for reading only: only the platform's owners can keep a domain's glossary terms or apply its policies. A domain whose admins can't be read keeps what the last import read, and the import says which.
 - A domain deleted in Fabric is reported and kept in the catalog, because projects may still use it. Delete it on **Platform > Domains** once nothing uses it.
 - Fabric allows one level of subdomains, like the mesh. Anything deeper is skipped and reported.
 - **New domain** on **Platform > Domains** still works for organizations that don't use Fabric domains; those show as "Only here".
@@ -127,9 +130,24 @@ entity = "gold.dim_customer"
 
 The check knows which projects read a port, not which columns each one uses, so dropping any published column counts as breaking.
 
+## Endorsement and business terms
+
+Preview. **OneLake > Data products**, then select a product's name. The product's page shows two trust signals next to its name.
+
+**Endorsement** (Certified, Promoted or Master data) is set in Fabric, on the item's settings. KratosForge reads it and never sets it. The item is the lakehouse each port lives in, in the highest environment the product is published to (Prod, else Test, else Dev).
+
+- **Only Fabric administrators can read it.** Fabric shows endorsement through an API only in Power BI's admin tenant scan (`POST /v1.0/myorg/admin/workspaces/getInfo`, then `scanStatus` and `scanResult`); Fabric's Get Item doesn't return it. **Scan now** shows to platform admins. It works for one who is also a Fabric administrator; anyone else is told so and nothing is saved.
+- **What a scan reads and writes.** It scans only the workspaces the platform's published products live in, at most 100 a call, and asks for no lineage, data sources, schemas, expressions or users. It writes what it read for each product item to `catalog.endorsement` in the platform's catalog: the endorsement, who certified it when Fabric says, when, and who scanned. Each scan is in the platform's audit log, without the certifier's name.
+- **Everyone sees the last scan.** The badge shows with "From the tenant scan" and its age. Before any scan, or for an item the latest scan didn't report, the badge is a grey **Endorsement unknown**: KratosForge never guesses, and a later scan that doesn't confirm an old badge takes it away. **See it in Fabric** opens the item there. Under the product's name, **Last tenant scan** says when the newest of its items was read. When a product's items differ (say one lakehouse is Certified and another unknown), the badge by its name is a grey **Endorsement varies**, and the Endorsement card lists each item with its own badge.
+- **To change it,** open the item's settings in Fabric. Scan again to update the badge.
+
+**Business terms** are a term's name and a link to it in Microsoft Purview, so people can read the definition where your organization keeps it. **Add a term** asks for the term and **Link to the term in Purview**: copy the address from Purview. It must be an `https` link on `purview.microsoft.com` or `web.purview.azure.com`; anything else is refused. KratosForge doesn't read Purview: its sign-in can't get a Purview token, so the terms are what your stewards type. The product's owner or a platform admin adds and removes them (removing asks first); each change writes `catalog.product_term` and the platform's audit log. The term itself stays in Purview.
+
+An older UDF_Platform doesn't have these functions yet. The page then says: *After an update, a platform admin runs Platform > Settings > Finish or repair once.*
+
 ## Links
 
-**OneLake > Data products > Link**, **Data products > Other teams' products > Link**, or **Links > New link.** Pick a product and port, a name for it, and which of their environments each of yours reads. Dev usually reads their Prod, so you build against real data without copying it. The catalog refuses a link to a draft, to a private product, or to a domain product from another domain, unless the product's owner let your project in: **OneLake > Data products > Request access** sends them a request, and once they approve it on **Platform > Requests**, **Link** works. Approving lets the link be made; the owner still gives read access in OneLake (a data access role on their Product workspace).
+**OneLake > Data products > Link**, **Data products > Other teams' products > Link**, or **Links > New link.** Pick a product and port, a name for it, and which of their environments each of yours reads. Dev usually reads their Prod, so you build against real data without copying it. The catalog refuses a link to a draft, to a private product, or to a domain product from another domain, unless the product's owner let your project in: **OneLake > Data products > Request access** sends them a request, and once they approve it on **Platform > Requests**, **Link** works. Approving lets the link be made; the owner still gives read access in OneLake (a data access role on their Product workspace). The owner can take that access away later on the product's page under **Access given**; a link already made stays.
 
 An entity reads a link like any source:
 

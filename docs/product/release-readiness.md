@@ -16,7 +16,7 @@ An enterprise security or IT team approving KratosForge would ask for each of th
 | --- | --- | --- | --- |
 | 1 | Code signing | Smart App Control, App Control and many EDR tools block or flag the unsigned exe and engine | Chris: Azure Trusted Signing account (D-C3), then signing in CI |
 | 2 | Live tenant verification | Nothing has been proven on a real tenant, including sign-in with no app registration | Chris: one run of the FD-101 harness on a non-production workspace |
-| 3 | Token cache encryption | The MSAL token cache is a plain file in the user's profile; security reviews expect it protected with Windows DPAPI | Chris: decision D-C2 |
+| 3 | Token cache encryption | Done: the MSAL token cache is encrypted with Windows DPAPI for the person's Windows account (HD-013) | Windows check |
 | 4 | Pin a build and roll back | Each channel keeps only its newest build, so IT can't hold a known build or go back one | Release management: keep every build as its own release asset |
 | 5 | Managed install package | Intune and Configuration Manager deploy MSI or MSIX; today it's one exe plus a policy file copied by script | A packaging PR, which needs signing (1) first |
 | 6 | Security evidence pack | Reviewers want one place with the security model, data flows, permissions, SBOM and provenance, plus a privacy statement and support terms. The pieces exist ([security](../security.md), [permissions](../permissions.md), [telemetry](../telemetry.md); SBOMs and build provenance attestations are made for each Preview build, but the Stable release carries only the exe, engine and version.json) but aren't collected, and there is no privacy statement or support terms | Enterprise readiness can assemble the pack; privacy statement and support terms need Chris as publisher |
@@ -33,7 +33,7 @@ Settings could show the parts of this a person can see on their own PC (signed b
 | G2 Signed builds | Azure Trusted Signing account (D-C3), signing in CI (PR #28) | Blocked on Chris |
 | G3 Update integrity | FD-102a (checksums enforced), FD-103 (scanning, SBOM, provenance) | Merged (#82, #86, #88) |
 | G4 Admin controls | FD-105 policies, FD-104 deployment guide | Merged (#90). A broken policy file keeps the last good copy (#165, merged). Pinning a build and rollback still need per-build releases |
-| G5 Data protection | FD-131a redaction, FD-138 safe support report, FD-131b local retention | Merged (#84, #95, and more secret patterns in #181). Token cache encryption waits on D-C2 |
+| G5 Data protection | FD-131a redaction, FD-138 safe support report, FD-131b local retention | Merged (#84, #95, and more secret patterns in #181). Token cache encrypted with DPAPI on Windows (HD-013) |
 | G6 Audit | FD-125 audit trail | Merged (#89, and one chain across processes in #182) |
 | G7 Recovery | FD-126 backup and restore | Merged (#91) |
 | G8 Documentation | This page, the security model, install, enterprise install, backup, troubleshooting | Written; a security evidence pack and privacy statement are missing (row 6 above) |
@@ -73,11 +73,11 @@ The full threat model is in `docs/security.md` (PR #82). In short:
 | Requirement | Detail |
 | --- | --- |
 | PCs | Windows 10 or 11, 64-bit, with WebView2. Several hundred MB per user for the engine |
-| Network | The hosts in [Enterprise install: Network access](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/enterprise-install.md#network-access) |
+| Network | The hosts in [Enterprise install: Network access](https://github.com/KratosDataGod/KratosForge/blob/main/docs/enterprise-install.md#network-access) |
 | Fabric | A capacity for lakehouses and anything run in Fabric. Tenant settings as in [Configure Azure and Fabric](../azure-setup.md) |
 | Releases | A maintainer promotes a Preview build to Stable with release notes. Under managed updates, IT deploys each Stable exe |
 | Support | A `support_url` in policy, and support bundles for diagnosis |
-| Backups | People's local notebooks and settings: [Back up and restore](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/backup.md) |
+| Backups | People's local notebooks and settings: [Back up and restore](https://github.com/KratosDataGod/KratosForge/blob/main/docs/backup.md) |
 
 ## Validated scenarios
 

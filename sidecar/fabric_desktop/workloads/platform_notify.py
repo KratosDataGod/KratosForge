@@ -19,9 +19,10 @@ import sqlite3
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, ContextManager
 
-from .notify import DEFAULT_ROUTE, KEEP_TRYING, Outbox, Quiet, failure
+from .. import redact
+from .notify import DEFAULT_ROUTE, KEEP_TRYING, Outbox, Quiet, failure, transaction
 
 KINDS = ("request.waiting", "request.decided", "request.withdrawn", "shortcut.broken", "shortcut.fixed")
 OPENS = {"request.waiting": "request", "shortcut.broken": "shortcut"}  # kinds that open a dedupe key
@@ -55,12 +56,13 @@ def validate(event: dict[str, Any]) -> dict[str, Any]:
         value = str(event.get(key) or "").strip()
         if not value:
             raise ValueError(f"{key} is required")
-        out[key] = value[:200]
+        out[key] = (redact.secrets(value) if key == "title" else value)[:200]
     try:
         out["at"] = dt.datetime.fromisoformat(str(event.get("at") or "")).isoformat()
     except ValueError:
         raise ValueError("at is an ISO 8601 time") from None
-    out["detail"] = str(event.get("detail") or "")[:500]
+    # Title and detail go to Teams, the bell and the notice record: a token or SAS address in them never does.
+    out["detail"] = redact.secrets(str(event.get("detail") or ""))[:500]
     out["domain"] = str(event.get("domain") or "")
     out["env"] = str(event.get("env") or "")
     out["severity"] = str(event.get("severity") or "info")
@@ -173,8 +175,8 @@ class Ledger:
         with self._db() as db:
             db.execute("CREATE TABLE IF NOT EXISTS sent (key TEXT PRIMARY KEY, kind TEXT, at REAL, open INTEGER)")
 
-    def _db(self) -> sqlite3.Connection:
-        return sqlite3.connect(self.path, timeout=30)
+    def _db(self) -> ContextManager[sqlite3.Connection]:
+        return transaction(self.path)
 
     def get(self, key: str) -> tuple[str, bool] | None:
         with self._db() as db:

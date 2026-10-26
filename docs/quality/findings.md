@@ -3,7 +3,7 @@
 Every finding from the [engineering quality baseline](README.md), reviewed at `main` **3bee0db** (2026-10-18). Line numbers refer to that commit.
 
 - **Evidence** is **Reproduced** (a script ran the real engine code and showed it), **Code** (read and traced, not run) or **Count** (from `git grep`, the syntax tree or coverage data).
-- **Overlaps** names a finding from the [hardening audit](https://github.com/KratosDataGod/fabric-desktop/pull/137) (DI-, EP-, EN-, SH-, AR-, TS-, UI- ids; backlog HD-) or the [UX audit](https://github.com/KratosDataGod/fabric-desktop/pull/166) (UX-) and says what this one adds.
+- **Overlaps** names a finding from the [hardening audit](https://github.com/KratosDataGod/KratosForge/pull/137) (DI-, EP-, EN-, SH-, AR-, TS-, UI- ids; backlog HD-) or the [UX audit](https://github.com/KratosDataGod/KratosForge/pull/166) (UX-) and says what this one adds.
 - **Open PR** names a pull request open at review time that already fixes part of it.
 - **Fix** points at a [remediation spec](remediation.md).
 - Nothing here was run against a Fabric tenant.
@@ -21,38 +21,38 @@ Severity:
 
 | ID | Sev | Kind | Finding | Fix |
 | --- | --- | --- | --- | --- |
-| QA-001 | Critical | Fake functionality | Spark writer options are stored and ignored; `replaceWhere` overwrites the whole table | PR-QA-01 |
-| QA-002 | High | Hidden failure | A failed notebook save shows "Saved"; close and switch then drop the edits | PR-QA-02 |
-| QA-003 | High | Hidden failure | VACUUM falls back to Fabric's 7 days when the project or table setting can't be read | PR-QA-03 |
-| QA-004 | High | Hidden failure | Create model can overwrite an existing semantic model and silently leave tables out | PR-QA-03 |
+| QA-001 | Critical | Fake functionality | Spark writer options are stored and ignored; `replaceWhere` overwrites the whole table | PR-QA-01; fixed (#177) |
+| QA-002 | High | Hidden failure | A failed notebook save shows "Saved"; close and switch then drop the edits | PR-QA-02; fixed (#178, #661) |
+| QA-003 | High | Hidden failure | VACUUM falls back to Fabric's 7 days when the project or table setting can't be read | PR-QA-03; fixed (#180) |
+| QA-004 | High | Hidden failure | Create model can overwrite an existing semantic model and silently leave tables out | PR-QA-03; fixed (#180) |
 | QA-005 | High | Fail open | Shortcut rules and the access review treat a failed call as "nothing to enforce" and "no readers" | PR-QA-04; fix #247 (PASS), closed once merged |
-| QA-006 | High | Duplication | A Fabric 503 or 429 isn't retryable to the agent; five transient-error rules disagree | PR-QA-05 |
-| QA-007 | Medium | Hidden failure | A failed lakehouse lookup guesses "schemas on", sending writes to the wrong folder | PR-QA-03 |
-| QA-008 | Medium | Overclaim | "0 CU-s, measured" and "no Fabric capacity used" for runs that read and write OneLake | PR-QA-10 |
-| QA-009 | Medium | Fake functionality | `notebookutils.notebook.runMultiple` ignores args, dependencies and timeouts | PR-QA-01 |
-| QA-010 | Medium | Overclaim | X-ray marks a finding fixed when the job is submitted and hides it for good | PR-QA-03 |
-| QA-011 | Medium | Duplication | 9 atomic-write copies; settings and schedules are rewritten non-atomically and read a torn file as empty | PR-QA-06 |
-| QA-012 | Medium | Duplication | Two audit-chain writers; the app's caches the chain head across processes | PR-QA-06 |
+| QA-006 | High | Duplication | A Fabric 503 or 429 isn't retryable to the agent; five transient-error rules disagree | PR-QA-05; fixed (#179) |
+| QA-007 | Medium | Hidden failure | A failed lakehouse lookup guesses "schemas on", sending writes to the wrong folder | PR-QA-03; fixed (#180) |
+| QA-008 | Medium | Overclaim | "0 CU-s, measured" and "no Fabric capacity used" for runs that read and write OneLake | PR-QA-10; fixed (#200, #202, #221) |
+| QA-009 | Medium | Fake functionality | `notebookutils.notebook.runMultiple` ignores args, dependencies and timeouts | PR-QA-01; fixed (#177) |
+| QA-010 | Medium | Overclaim | X-ray marks a finding fixed when the job is submitted and hides it for good | PR-QA-03; fixed (#180) |
+| QA-011 | Medium | Duplication | 9 atomic-write copies; settings and schedules are rewritten non-atomically and read a torn file as empty | PR-QA-06; partly fixed (#309, #312, #313, #680) |
+| QA-012 | Medium | Duplication | Two audit-chain writers; the app's caches the chain head across processes | PR-QA-06; fixed (#182) |
 | QA-013 | Medium | Error handling | 237 broad exception handlers, 98 silent; "not set up" and "the call failed" share one branch | PR-QA-07; partly fixed by #263 (HD-055: CI blocks do-nothing handlers, 56 now log); 51 handlers that only set a default remain (101 on main by this definition) |
 | QA-014 | Medium | Architecture | `Service` is 347 public methods and 385 `type: ignore`; clients built at 43 sites; private `_token` is the real API | PR-QA-08 |
 | QA-015 | Medium | Architecture | Three hand-kept method lists make every feature PR touch the same files | PR-QA-09 |
-| QA-016 | Medium | Duplication | Four redactors; the shared one passes a token embedded in a URL | PR-QA-06 |
+| QA-016 | Medium | Duplication | Four redactors; the shared one passes a token embedded in a URL | PR-QA-06; fixed (#181, #303) |
 | QA-017 | Medium | Disconnected | 17 callable RPC methods with no screen, some destructive; local data is documented as usable with no screen | PR-QA-09 |
 | QA-018 | Medium | Weak tests | 22 of 41 Fabric client methods and every OneLake upload and delete never run, even against a fake | PR-QA-14 |
 | QA-019 | Medium | UI duplication | Confirm, tabs, pills, grids, polling and error handling re-built per page | PR-QA-11 to PR-QA-13 |
 | QA-020 | Medium | Overclaim | Untested Fabric-writing actions have no Preview tag; rail items never show one | PR-QA-10 |
-| QA-021 | Medium | Duplication | Teams alerts go two ways; the agent's job-failure alerts skip its retrying outbox | PR-QA-07 |
+| QA-021 | Medium | Duplication | Teams alerts go two ways; the agent's job-failure alerts skip its retrying outbox | PR-QA-07; fixed (#311) |
 | QA-022 | Medium | Duplication | Six SQLite connection idioms; twins drifted on durability; one leaks connections | PR-QA-06 |
 | QA-023 | Low | Duplication | Prove and side by side are near-clone background-run implementations | PR-QA-08 |
 | QA-024 | Low | Duplication | 13 date and time helpers with different rules for naive times and errors | PR-QA-06 |
 | QA-025 | Low | Duplication | Table URIs rebuilt by hand in four places, skipping name validation | PR-QA-08 |
-| QA-026 | Low | Fake functionality | `fs.exists` says False on 401/403, `mkdirs` does nothing, `read.schema()` is ignored | PR-QA-01 |
-| QA-027 | Low | Hidden failure | Monitor > Schedules, readiness and run lists show partial results as complete | PR-QA-07 |
+| QA-026 | Low | Fake functionality | `fs.exists` says False on 401/403, `mkdirs` does nothing, `read.schema()` is ignored | PR-QA-01; fixed (#177, #307, #547) |
+| QA-027 | Low | Hidden failure | Monitor > Schedules, readiness and run lists show partial results as complete | PR-QA-07; fixed (#310) |
 | QA-028 | Low | Configuration | Windows-only dependencies aren't pinned in `constraints.txt` | PR-QA-06 |
 | QA-029 | Low | Dead code | A dead redaction fallback, unused symbols and production code only tests call | PR-QA-09 |
 | QA-030 | Low | Architecture | Domain modules import the service layer; six cycles through function-level imports | PR-QA-08 |
-| QA-032 | Medium | Unconfirmed write | Estate X-ray's Optimize starts a Fabric compaction job on click, with no confirm or risk check | Owner: Optimize; fix #231 (PASS) |
-| QA-033 | Medium | Unsafe retry | `meta/engine.py` `_after_commit` (main :367-381) repeats run_log, dq_results, schema_history, quarantine and watermark appends on any exception, so an append that committed and then raised (lost response, timeout after commit) writes the rows twice. Retry only errors that prove nothing was written (e.g. CommitFailedError), or make the append idempotent by run id | Owner: Hardening (found grading #256; pre-existing) |
+| QA-032 | Medium | Unconfirmed write | Estate X-ray's Optimize starts a Fabric compaction job on click, with no confirm or risk check | Owner: Optimize; fixed (#231) |
+| QA-033 | Medium | Unsafe retry | `meta/engine.py` `_after_commit` (main :367-381) repeats run_log, dq_results, schema_history, quarantine and watermark appends on any exception, so an append that committed and then raised (lost response, timeout after commit) writes the rows twice. Retry only errors that prove nothing was written (e.g. CommitFailedError), or make the append idempotent by run id | Owner: Hardening (found grading #256; pre-existing); fixed (#273) |
 
 ## Details
 
@@ -77,6 +77,8 @@ w.mode("overwrite").option("replaceWhere", "date = '2026-10-01'").saveAsTable("s
 
 **Fix.** PR-QA-01: refuse any writer option outside an allow-list, with a message that names it; implement `replaceWhere` with delta-rs's predicate overwrite, or refuse it; make `insertInto` append. **Verify:** a test per option that today passes silently and must raise or behave as in Fabric.
 
+**Status.** Fixed on `main` (#177). The Spark writer takes only the options it can honor; any other option, `replaceWhere` and `partitionOverwriteMode` among them, raises `NotImplementedError` naming it (`spark_local.py`, the option allow-list), so the reproduction no longer replaces the table.
+
 ### QA-002 A failed notebook save shows "Saved", then edits are dropped (High)
 
 **Evidence: Code.** `saveNotebook()` (`app/ui/app.js:1923-1932`) runs the RPC through `attempt()`, which shows an error toast and returns `undefined`; `saveNotebook` returns nothing either way. Ctrl+S runs `saveNotebook().then(() => toast("Saved"))` (`:2430`); there is one toast element (`:57-69`), so "Saved" replaces "Could not save". Closing the notebook tab runs `await saveNotebook(); state.notebook = null;` (`:262`, commented "closing never loses edits") even when the save failed. Opening or creating another notebook (`:1895`, `:1903`) replaces the unsaved one the same way. The Copy buttons at `activity.js:155`, `dataops.js:150` and `meta.js:402` also toast success after a failure.
@@ -84,6 +86,8 @@ w.mode("overwrite").option("replaceWhere", "date = '2026-10-01'").saveAsTable("s
 **Impact.** A full disk, a locked file or an engine restart loses notebook work while the app says it was saved.
 
 **Fix.** PR-QA-02. **Verify:** a UI test where `save_notebook` rejects: no "Saved" toast, the notebook stays open and dirty.
+
+**Status.** Fixed on `main` (#178): `saveNotebook` returns whether it saved, and Ctrl+S, close and switch act on that. Opening a replay bundle and changing where a notebook runs were left: the first replaced the notebook after a failed save, dropping the unsaved cells, and the second said "now runs in..." anyway. Both now check the save (#661).
 
 ### QA-003 VACUUM drops the promised history on any error (High)
 
@@ -154,6 +158,8 @@ The agent's requeue (`agent.py:212-215`) and the metadata engine (`meta/engine.p
 
 **Fix.** PR-QA-01: pass `args`, order by `dependencies`, or refuse a DAG that uses them. **Verify:** tests with a two-activity DAG with a dependency and args.
 
+**Status.** Fixed on `main` (#177). `runMultiple` gives each activity its `args`, runs it after its `dependencies`, retries it `retry` times, skips an activity whose dependency failed, applies the DAG's `timeoutInSeconds`, keeps every result and raises a `RuntimeError` listing the failures after all have run (`notebookutils_local.py`, `runMultiple`).
+
 ### QA-010 X-ray marks a finding fixed when the job is only submitted (Medium)
 
 **Evidence: Code.** `xray_service.py:217` and `:247` call `_xray_mark_fixed` right after submitting the Fabric job. The id (`:319-320`) carries no time or version, so every later scan filters the finding out (`:175`, `app/ui/xray.js:94`), even if the job failed on a paused capacity or the problem came back.
@@ -167,6 +173,8 @@ The agent's requeue (`agent.py:212-215`) and the metadata engine (`meta/engine.p
 **Impact.** A crash or a second process mid-write leaves a torn `settings.json`; it reads as `{}`, and the next `_save_settings(x=...)` saves only `x`, dropping the metadata project, platform, cost settings and Teams webhook. A torn schedules file drops every schedule and orphans their Task Scheduler tasks.
 
 **Fix.** PR-QA-06. **Verify:** a test that a corrupt file is moved aside (not overwritten) and every listed site uses the helper.
+
+**Status.** Partly fixed: the agent's `settings.json` (`runtime.py` `_save_settings`) and `schedules.json` (`local_schedules.py`) now go through `jsonfile.write_json` (same-folder temp file, fsync, `os.replace` with a bounded Windows retry) and `jsonfile.read_json`, which moves a torn file to `<name>.corrupt-<timestamp>` with a warning instead of letting the next save overwrite it (`tests/test_json_files.py`); lakehouse favorites, workspace favorites and pins (`service.py`) do the same, and the saved side-by-side comparisons (`side_by_side_service._sbs_save`, JSON lines) are swapped in with `jsonfile.write_text`; a torn line there copies the original aside and then swaps in the lines that still read, so later reads and saves keep them; if that swap fails, the original stays in place and the next read tries again. `meta_service.py` writes through `jsonfile.write_text` too, and the person's own `app-settings.json` (`app_settings.save`, and the policy's last good copy) now does the same; a torn `app-settings.json` is set aside instead of being read as empty and overwritten by the next save (#680). Still their own copies of the temp-file-and-replace pattern: `capacity.py`, `leases.py` (local lease files), `localdata/projects.py`, `git_service.py`, `telemetry.py`, `auth.py` (token cache), `orchestration/runs.py`, `notebook_files.py`, `workloads/incident_history.py`, `usage/store.py` and `git/scopes.py`.
 
 ### QA-012 Two audit-chain writers (Medium)
 
@@ -214,6 +222,8 @@ secrets("webhook https://contoso.webhook.office.com/webhookb2/abc/IncomingWebhoo
 **Overlaps.** EN-5 / HD-007 (agent log redaction on JSON text; open PR #157) is about where redaction runs, not what it matches.
 
 **Fix.** PR-QA-06: `redact.secrets` includes the Git patterns and URL user info; delete the fallback; `livetest.scrub` calls it. **Verify:** the two strings above in `app/tests/redact-cases.json`.
+
+**Status.** URL user info, provider tokens and `*.webhook.office.com` webhooks fixed on `main` (#181); the legacy Office 365 connector form (`outlook.office.com/webhook/...`) and the bare webhook path a failed post prints (`url: /webhookb2/...`) added in #303.
 
 ### QA-017 RPC methods with no screen (Medium)
 
@@ -270,6 +280,8 @@ The fakes themselves are good: `test_fabric_api.py:22-33` checks method, URL and
 
 **Fix.** PR-QA-06: `sqlite_util.connect(path, durable=)` and `tx()`. **Verify:** the six modules use it; a `ResourceWarning` filter turned into an error in the notify tests.
 
+**Status.** Leak fixed: `workloads/notify.py` `Outbox` and `workloads/platform_notify.py` `Ledger` now close every connection (`notify.transaction`: commit, rollback on error, then close; `tests/test_sqlite_connections_closed.py`). The other sites don't leak per call: `jobqueue.py:63-71` and `integrations/store.py:77-84` (with `integrations/audit.py`) keep one connection per thread by design; `workloads/store.py:55-63` and `backup.py:68-74,227-242` close in `finally` (counted over 20-40 operations each). Unifying the idioms and the durability drift (only `jobqueue` sets `synchronous=full`) remain open.
+
 ### QA-023 Prove and side by side are clones (Low)
 
 **Evidence: Code.** `prove_service.py:187-212,295-323,641-647` and `side_by_side_service.py:87-108,158-187,333-340`: the same lazy state dict, 200-line JSONL history, copy retry loop, status, list and cancel. One corrupt history line makes `json.loads` raise and breaks the whole list (`prove_service.py:197`, `side_by_side_service.py:97`). 31 `threading.Thread(` sites in 23 files; four pre-fetch tokens by hand to keep MSAL on one thread (`estate_service.py:216`, `workload_service.py:174`, `xray_service.py:110`, `schedule_service.py:198`).
@@ -295,6 +307,8 @@ The fakes themselves are good: `test_fabric_api.py:22-33` checks method, URL and
 **Open PR.** #154 (HD-003) rewrites `fs` on OneLake and changes `exists`; re-check after it merges.
 
 **Fix.** PR-QA-01.
+
+**Status.** Fixed on `main`. `fs.exists` returns False only on a 404 and raises on 401, 403, 429 and 5xx, so `put` and `mv` without overwrite can't replace a file they couldn't check (#307). `mkdirs` on OneLake creates the folder, and raises `FileExistsError` when a file is at that path (#547, #585). `spark.read.schema(...)` applies a `StructType` after reading (CSV by position, other formats by name; a value that doesn't fit is null, as in Spark's PERMISSIVE mode) and refuses a DDL string or a format it can't apply to (#177).
 
 ### QA-027 Partial results shown as complete (Low)
 

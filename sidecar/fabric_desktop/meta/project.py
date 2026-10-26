@@ -32,6 +32,7 @@ from . import freshness as freshness_mod
 from . import objectives as objectives_mod
 from . import keys as keys_mod
 from . import mesh as mesh_mod
+from ..jsonfile import write_text
 
 MAX_LAYERS = 10
 # Fabric's table maintenance won't VACUUM with less than 7 days' retention.
@@ -49,6 +50,8 @@ OPERATIONAL_KEYS = (("source", "new_files_only"), ("load", "memory_guard"), ("lo
 CUSTOM_RULES = ("owner", "custom_code_owner", "custom_code_test", "key_not_null", "key_unique",
                 "surrogate_keys")
 ENVIRONMENTS = ("dev", "test", "prod")
+# An approved exception that ends inside this window raises a notice before the save gate fails.
+EXCEPTION_WARN_DAYS = 14
 _LAYER_NAME = re.compile(r"^[a-z][a-z0-9_]{0,30}$")
 _IGNORED = {".git", ".local", "__pycache__", ".pytest_cache"}
 # Where each environment writes and runs is deployment settings, not logic: changing it
@@ -226,7 +229,7 @@ def write_layers_file(root: Path, layers: list[Layer], rules: dict[str, Any]) ->
         if l.workspace:
             lines.append(f"workspace = {json.dumps(l.workspace)}")
         lines.append("")
-    (Path(root) / "layers.toml").write_text("\n".join(lines), encoding="utf-8")
+    write_text(Path(root) / "layers.toml", "\n".join(lines))
 
 
 class Project:
@@ -342,7 +345,7 @@ class Project:
         self.reload()
         errors = [e for e in validate(self) if "layer" in e or "reads" in e]
         if errors:
-            (self.root / "layers.toml").write_text(old, encoding="utf-8")
+            write_text(self.root / "layers.toml", old)
             self.reload()
             raise GateError("save", errors)
 
@@ -355,6 +358,7 @@ class Project:
         return None
 
     def summary(self, today: dt.date | None = None) -> dict[str, Any]:
+        today = today or dt.date.today()
         errors = validate(self, today)
         return {
             "path": str(self.root), "version": self.version,
@@ -364,6 +368,7 @@ class Project:
                                                      key=lambda e: (self._layer_pos(e), e.name))],
             "environments": self.environments,
             "exceptions": self.exceptions,
+            "exception_notices": describe_exceptions(self, today),
             "key_tables": [kt.summary() | {"used_by": [e.name for e in self.entities.values()
                                                         if kt.name in [k["table"] for k in keys_mod.entity_keys(e)]]}
                            for kt in sorted(self.key_tables.values(), key=lambda k: k.name)],
@@ -378,6 +383,52 @@ class Project:
 
     def _layer_pos(self, e: Entity) -> int:
         return self.layer_index(e.layer) if e.layer in self.layer_names() else 99
+
+
+def describe_exceptions(project: Project, today: dt.date | None = None,
+                        warn_days: int = EXCEPTION_WARN_DAYS) -> list[dict[str, Any]]:
+    """Each approved exception, and whether it is in force, about to end, or already ended.
+
+    ``owner`` is the table's owner. ``notice`` is set when someone should see it: the exception
+    ends within ``warn_days`` (including today), has already ended, or its expiry is not a date.
+    """
+    today = today or dt.date.today()
+    rows: list[dict[str, Any]] = []
+    for raw in project.exceptions:
+        entity = str(raw.get("entity") or "")
+        rule = str(raw.get("rule") or "")
+        expires = str(raw.get("expires", "permanent"))
+        ent = project.entities.get(entity)
+        owner = str(ent.spec.get("owner", "")) if ent else ""
+        who = entity or "An exception"
+        days_left: int | None = None
+        notice = ""
+        if expires == "permanent":
+            status = "permanent"
+        else:
+            try:
+                exp = dt.date.fromisoformat(expires)
+            except ValueError:
+                status = "invalid"
+                notice = f"{who}: the exception for {rule} has an expiry that isn't a date ({expires})"
+            else:
+                days_left = (exp - today).days
+                if days_left < 0:
+                    status = "expired"
+                    notice = (f"{who}: the exception for {rule} expired on {expires}. "
+                              "The save gate fails again until the rule is met or the exception is renewed.")
+                elif days_left <= warn_days:
+                    status = "expiring"
+                    when = "today" if days_left == 0 else f"in {days_left} day" + ("" if days_left == 1 else "s")
+                    notice = f"{who}: the exception for {rule} expires {when} ({expires})"
+                else:
+                    status = "active"
+        rows.append({
+            "entity": entity, "rule": rule, "reason": str(raw.get("reason") or ""),
+            "approver": str(raw.get("approver") or ""), "expires": expires, "owner": owner,
+            "status": status, "days_left": days_left, "notice": notice,
+        })
+    return rows
 
 
 # --------------------------------------------------------------------------- gate 1: on save
@@ -472,6 +523,10 @@ def validate(project: Project, today: dt.date | None = None) -> list[str]:
                 errors.append(f"{e.name}: key {k} is not a contract column")
         if e.mode == "incremental" and not s.get("load", {}).get("watermark") and "entity" in s.get("source", {}):
             errors.append(f"{e.name}: incremental loads need a watermark column")
+        wm, renames = s.get("load", {}).get("watermark"), s.get("source", {}).get("rename") or {}
+        if isinstance(renames, dict) and wm in renames and wm not in e.columns:
+            errors.append(f"{e.name}: the watermark is a contract column: the source renames {wm} to "
+                          f"{renames[wm]}, so use watermark = \"{renames[wm]}\"")
         if e.mode in ("scd1", "scd2"):
             if not e.surrogate_key:
                 errors.append(f"{e.name}: dimensions need [scd] surrogate_key")

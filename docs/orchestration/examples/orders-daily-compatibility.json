@@ -1,6 +1,6 @@
 {
   "ok": true,
-  "registry_version": "3",
+  "registry_version": "7",
   "pipeline": "pl_orders_daily",
   "schema": {
     "parser_version": 1,
@@ -130,20 +130,16 @@
   "summary": {
     "activities": 18,
     "by_classification": {
-      "local": 11,
+      "local": 15,
       "simulated": 0,
-      "static": 6,
+      "static": 2,
       "cloud": 0,
       "unsupported": 1
     },
     "overall": "unsupported",
     "runs_on_this_pc": false,
     "needs_fabric_capacity": [
-      "Get watermark",
-      "List new files",
       "Copy file to bronze",
-      "Bronze to silver",
-      "Run AMER script",
       "Check silver",
       "Alert on failure"
     ],
@@ -153,27 +149,7 @@
     ],
     "planned_to_run_on_this_pc": [
       {
-        "name": "Get watermark",
-        "classification": "simulated",
-        "stage": "later (not scheduled)"
-      },
-      {
-        "name": "List new files",
-        "classification": "simulated",
-        "stage": "later (not scheduled)"
-      },
-      {
         "name": "Copy file to bronze",
-        "classification": "simulated",
-        "stage": "later (not scheduled)"
-      },
-      {
-        "name": "Bronze to silver",
-        "classification": "local",
-        "stage": "later (not scheduled)"
-      },
-      {
-        "name": "Run AMER script",
         "classification": "simulated",
         "stage": "later (not scheduled)"
       },
@@ -193,33 +169,30 @@
       "container": null,
       "known": true,
       "title": "Lookup",
-      "classification": "static",
+      "classification": "local",
       "evidence": "unit_tests",
       "verified": false,
-      "planned": {
-        "classification": "simulated",
-        "stage": "later (not scheduled)",
-        "note": "Returns rows from a fixture or a local table."
-      },
+      "planned": null,
       "fabric_capacity": "metered_in_fabric",
       "auth": [
-        "fabric",
-        "connection"
+        "fabric"
       ],
       "side_effects": [
-        "reads_external",
         "reads_onelake"
       ],
       "external_dependencies": [
-        "source connection"
+        "its lakehouse"
       ],
       "inactive": false,
       "properties": [],
       "checked_properties": [
-        "source"
+        "source",
+        "firstRowOnly",
+        "datasetSettings"
       ],
       "limitations": [
-        "Fabric returns at most 5,000 rows or 4 MB; not checked here."
+        "Reads the lakehouse in OneLake its dataset names, when the run is started with lakehouse reads on. Tables are read at the version they had when the run first used that lakehouse, or from the run's own folder when a notebook step wrote them. Reading OneLake uses some capacity; no Fabric job is started and nothing is written.",
+        "Reads a whole lakehouse table (LakehouseTable dataset); queries and other connections need a mock. At most 5,000 rows, and an output over 4 MB fails, as in Fabric."
       ],
       "problems": []
     },
@@ -230,32 +203,30 @@
       "container": null,
       "known": true,
       "title": "Get Metadata",
-      "classification": "static",
+      "classification": "local",
       "evidence": "unit_tests",
       "verified": false,
-      "planned": {
-        "classification": "simulated",
-        "stage": "later (not scheduled)",
-        "note": "Reads metadata of local files."
-      },
+      "planned": null,
       "fabric_capacity": "metered_in_fabric",
       "auth": [
-        "fabric",
-        "connection"
+        "fabric"
       ],
       "side_effects": [
-        "reads_external",
         "reads_onelake"
       ],
       "external_dependencies": [
-        "dataset connection"
+        "its lakehouse"
       ],
       "inactive": false,
       "properties": [],
       "checked_properties": [
-        "fieldList"
+        "fieldList",
+        "datasetSettings"
       ],
-      "limitations": [],
+      "limitations": [
+        "Reads the lakehouse in OneLake its dataset names, when the run is started with lakehouse reads on. Tables are read at the version they had when the run first used that lakehouse, or from the run's own folder when a notebook step wrote them. Reading OneLake uses some capacity; no Fabric job is started and nothing is written.",
+        "A lakehouse table gives exists, itemName, structure and columnCount; a file or folder under Files gives exists, itemName, itemType, size, lastModified and childItems. Files are read as they are now, not pinned; other fields and connections need a mock."
+      ],
       "problems": []
     },
     {
@@ -421,18 +392,13 @@
       "container": null,
       "known": true,
       "title": "Notebook",
-      "classification": "static",
+      "classification": "local",
       "evidence": "unit_tests",
       "verified": false,
-      "planned": {
-        "classification": "local",
-        "stage": "later (not scheduled)",
-        "note": "Runs a local copy through Prove's notebook execution path, once it can be called with parameters."
-      },
+      "planned": null,
       "fabric_capacity": "metered_in_fabric",
       "auth": [
-        "fabric",
-        "workspace_role"
+        "fabric"
       ],
       "side_effects": [
         "runs_code",
@@ -440,7 +406,7 @@
         "writes_onelake"
       ],
       "external_dependencies": [
-        "the notebook item",
+        "a copy of the notebook on this PC",
         "its default lakehouse"
       ],
       "inactive": false,
@@ -452,10 +418,13 @@
         }
       ],
       "checked_properties": [
-        "notebookId"
+        "notebookId",
+        "parameters"
       ],
       "limitations": [
-        "Running on this PC uses a local Python kernel, not Fabric Spark; results can differ."
+        "Runs the notebook's copy on this PC in a fresh Python kernel, not Fabric Spark; results can differ. Spark notebooks still need a mock.",
+        "Tables are read at the version they had when the step started and written to the run's own folder in the lakehouse (Files/_fabric_desktop/proofs/pipeline-<run>/), never to its tables. Reading and writing OneLake uses some capacity; no Fabric job is started.",
+        "The output's result.exitValue is the value given to notebookutils.notebook.exit, as text."
       ],
       "problems": []
     },
@@ -540,7 +509,7 @@
         "parameters"
       ],
       "limitations": [
-        "In Fabric this starts the child pipeline's own run, which uses capacity. On this PC it runs the child's definition when the run is given it (by referenceName or pipelineId), and waits for it even when waitOnCompletion is false."
+        "In Fabric this starts the child pipeline's own run, which uses capacity. On this PC it runs the child's definition when the run is given it (by referenceName or pipelineId). With waitOnCompletion false the activity succeeds once the child starts; the local run's record still waits for the child to end, so its result is in the record."
       ],
       "problems": []
     },
@@ -551,33 +520,30 @@
       "container": "Pick region job",
       "known": true,
       "title": "Script",
-      "classification": "static",
+      "classification": "local",
       "evidence": "unit_tests",
       "verified": false,
-      "planned": {
-        "classification": "simulated",
-        "stage": "later (not scheduled)",
-        "note": "Runs against a local DuckDB copy only, never the real database."
-      },
+      "planned": null,
       "fabric_capacity": "metered_in_fabric",
       "auth": [
-        "connection"
+        "fabric"
       ],
       "side_effects": [
         "runs_code",
-        "reads_external",
-        "writes_external"
+        "reads_onelake"
       ],
       "external_dependencies": [
-        "database connection"
+        "its lakehouse, or a local data project named for it"
       ],
       "inactive": false,
       "properties": [],
       "checked_properties": [
-        "scripts"
+        "scripts",
+        "scriptBlockExecutionTimeout"
       ],
       "limitations": [
-        "SQL is carried as written; its dialect is the target database's."
+        "Runs each script through the SQL page's runner, with its policy, Stop and limits. On a lakehouse (with lakehouse reads on) T-SQL runs read-only against its tables as they are now; in a local data project named for it, it may change the project's own tables, but DROP, TRUNCATE and DELETE or UPDATE without WHERE are refused.",
+        "Warehouse and other connections, and script parameters, need a mock. Query results keep at most 5,000 rows each (outputTruncated). recordsAffected isn't reported."
       ],
       "problems": []
     },

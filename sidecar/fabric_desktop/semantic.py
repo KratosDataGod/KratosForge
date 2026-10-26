@@ -5,7 +5,9 @@ lakehouse's SQL analytics endpoint (Direct Lake, no import or refresh schedule).
 Relationships come from the metadata: a fact's ``[[lookup]]`` names the dimension and
 the key column, and any other column named like a dimension's surrogate key joins
 to it. Surrogate keys and the framework's own columns (``_run_id``, ``_loaded_at``) are
-hidden. Lineage tags are derived from names, so updating the model keeps them stable.
+hidden. No column summarizes on its own (``summarizeBy: none``); each fact's visible numeric columns that
+aren't keys get a total measure instead, which is what Best Practice Analyzer's rules ask for. Lineage tags are
+derived from names, so updating the model keeps them stable.
 """
 
 from __future__ import annotations
@@ -31,6 +33,13 @@ def tmdl_type(delta_type: str) -> str | None:
     if t.startswith("decimal"):
         return "decimal"
     return _TYPES.get(t)
+
+
+def left_out(t: "ModelTable") -> list[dict[str, str]]:
+    """The table's columns the model leaves out because Direct Lake can't read their type (arrays,
+    maps, structs, anything not in ``_TYPES``), so the person can be told instead of finding out later."""
+    return [{"table": t.name, "column": col, "type": delta_type} for col, delta_type in t.columns
+            if tmdl_type(delta_type) is None]
 
 
 def quote(name: str) -> str:
@@ -63,13 +72,43 @@ class Relationship:
     why: str = ""
 
 
-def plan(project: Any, layer: str) -> tuple[list[ModelTable], list[Relationship]]:
-    """The tables and relationships of a model over ``layer``; columns are filled in later."""
+def _unquote(name: str) -> str:
+    return name[1:-1].replace("''", "'") if name.startswith("'") and name.endswith("'") else name
+
+
+def table_names(parts: dict[str, str], entities: list[str]) -> dict[str, str]:
+    """The name each entity's table has in an existing model, found by its lineage tag, which is derived
+    from the entity (``tag('table', entity)``). ``parts`` are the model's TMDL files, keyed by path."""
+    by_tag = {}
+    for path, text in parts.items():
+        if not path.startswith("definition/tables/"):
+            continue
+        # The table line can follow /// description lines, and other properties can come before its lineage
+        # tag; the table's own properties are indented once, its columns' and measures' twice.
+        head = re.search(r"^table (.+)$", text.replace("\r\n", "\n"), re.M)
+        own = head and re.search(r"^\tlineageTag: (\S+)", text.replace("\r\n", "\n")[head.end():], re.M)
+        if head and own:
+            by_tag[own.group(1)] = _unquote(head.group(1).strip())
+    return {e: by_tag[tag("table", e)] for e in entities if tag("table", e) in by_tag}
+
+
+def plan(project: Any, layer: str, kept: dict[str, str] | None = None) -> tuple[list[ModelTable], list[Relationship]]:
+    """The tables and relationships of a model over ``layer``; columns are filled in later.
+
+    ``kept`` maps an entity to the name its table already has in the model (``table_names``). Those names
+    stay, so a new entity whose Delta table shares a name in another schema never renames a table that
+    reports already use (with its measures, which are named after it); only the newcomer is qualified."""
     entities = [e for e in project.entities.values() if e.layer == layer]
+    kept = {e: n for e, n in (kept or {}).items() if list((kept or {}).values()).count(n) == 1}
+    taken = set(kept.values())
     tables: list[ModelTable] = []
     for e in sorted(entities, key=lambda x: x.name):
-        clash = sum(1 for x in entities if x.table == e.table) > 1
-        name = f"{e.schema}_{e.table}" if clash or not e.table else e.table
+        if e.name in kept:
+            name = kept[e.name]
+        else:
+            clash = sum(1 for x in entities if x.table == e.table) > 1
+            name = f"{e.schema}_{e.table}" if clash or not e.table or e.table in taken else e.table
+        taken.add(name)
         tables.append(ModelTable(name=name, entity=e.name, schema=e.schema, table=e.table, keys=list(e.keys),
                                  surrogate_key=e.surrogate_key,
                                  is_dimension=e.mode in ("scd1", "scd2") and bool(e.surrogate_key)))
@@ -104,9 +143,20 @@ def _hidden(t: ModelTable, col: str) -> bool:
     return col.startswith("_") or col.endswith("_sk") or col == t.surrogate_key
 
 
-def _summarize(t: ModelTable, col: str, dtype: str) -> str:
-    keyish = col in t.keys or col.endswith(("_sk", "_id", "_key")) or col == t.surrogate_key
-    return "sum" if dtype in _NUMERIC and not keyish else "none"
+def _summed(t: ModelTable) -> list[tuple[str, str]]:
+    """A fact's visible numeric columns that aren't keys: each gets an explicit total measure, since every
+    column has ``summarizeBy: none`` (Best Practice Analyzer's NUMERIC_COLUMN_SUMMARIZE_BY, an error-level rule).
+    The measure is named after its table and column, like the row count measure, so the name stays the same as the
+    model grows: reports bind measures by name, and a name can't clash with another table's."""
+    if t.is_dimension:
+        return []
+    out = []
+    for col, delta_type in t.columns:
+        dtype = tmdl_type(delta_type)
+        keyish = col in t.keys or col.endswith(("_sk", "_id", "_key")) or col == t.surrogate_key
+        if dtype in _NUMERIC and not keyish and not _hidden(t, col):
+            out.append((col, dtype))
+    return out
 
 
 def _table_tmdl(t: ModelTable, expression: str) -> str:
@@ -114,17 +164,21 @@ def _table_tmdl(t: ModelTable, expression: str) -> str:
     if not t.is_dimension:
         lines += [f"\tmeasure {quote(t.name + ' rows')} = COUNTROWS({quote(t.name)})",
                   "\t\tformatString: #,0", f"\t\tlineageTag: {tag('measure', t.entity)}", ""]
+    for col, dtype in _summed(t):
+        lines += [f"\tmeasure {quote(f'{t.name} total {col}')} = SUM({quote(t.name)}[{col.replace(']', ']]')}])",
+                  f"\t\tformatString: {'#,0' if dtype == 'int64' else '#,0.00'}",
+                  f"\t\tlineageTag: {tag('measure', t.entity, col)}", ""]
     for col, delta_type in t.columns:
         dtype = tmdl_type(delta_type)
         if dtype is None:
-            continue  # e.g. arrays and structs, which Direct Lake can't read
+            continue  # arrays, maps and structs, which Direct Lake can't read; reported by left_out
         lines.append(f"\tcolumn {quote(col)}")
         lines.append(f"\t\tdataType: {dtype}")
         if _hidden(t, col):
             lines.append("\t\tisHidden")
         if dtype == "dateTime" and delta_type.lower() == "date":
             lines.append("\t\tformatString: Short Date")
-        lines += [f"\t\tlineageTag: {tag('column', t.entity, col)}", f"\t\tsummarizeBy: {_summarize(t, col, dtype)}",
+        lines += [f"\t\tlineageTag: {tag('column', t.entity, col)}", "\t\tsummarizeBy: none",
                   f"\t\tsourceColumn: {col}", ""]
     lines += [f"\tpartition {quote(t.name)} = entity", "\t\tmode: directLake", "\t\tsource",
               f"\t\t\tentityName: {t.table}", f"\t\t\tschemaName: {t.schema}", f"\t\t\texpressionSource: {expression}", ""]

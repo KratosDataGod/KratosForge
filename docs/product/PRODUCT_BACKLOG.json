@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-10-17",
+  "updated": "2026-10-25",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -188,7 +188,8 @@
       "problem": "The MSAL token cache is a plain file on Windows.",
       "capability": "DPAPI-protected cache through msal-extensions.",
       "evidence": [
-        "auth.py writes a plain cache file"
+        "auth.py writes a plain cache file",
+        "PR #593 encrypts the cache with DPAPI (HD-013); merged and promoted to Stable 3633b4a"
       ],
       "features": [
         "FEAT-AUTH-03"
@@ -217,14 +218,17 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In review",
       "mandatory_reason": "Refresh tokens on disk unencrypted are a security finding any enterprise review will raise.",
       "computed": {
         "benefit": 2.45,
         "cost": 2.0,
         "score": 1.96,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        593
+      ]
     },
     {
       "id": "PB-006",
@@ -258,7 +262,7 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In review",
       "mandatory_reason": "Defense in depth for a webview that renders user and notebook content.",
       "external_dependencies": [
         "Overlaps HD-020 Content Security Policy (Codebase audit and hardening backlog, PB-101)"
@@ -268,7 +272,11 @@
         "cost": 3.0,
         "score": 1.47,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        250,
+        445
+      ]
     },
     {
       "id": "PB-007",
@@ -325,7 +333,8 @@
       "problem": "The embedded view's allow-list accepts any *.microsoft.com and *.live.com page.",
       "capability": "Navigation limited to Fabric, Power BI and sign-in hosts; others open in the browser.",
       "evidence": [
-        "main.rs fabric_view host check (code reading)"
+        "main.rs fabric_view host check (code reading)",
+        "The Fabric view opens only Fabric and sign-in hosts (SH-12, #259; #455); readiness gate 1 lists SH-12 closed"
       ],
       "features": [
         "FEAT-FAB-05"
@@ -353,7 +362,7 @@
       ],
       "effort": "S",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In review",
       "mandatory_reason": "The embedded view holds saved Fabric sign-in cookies.",
       "external_dependencies": [
         "Overlaps HD-027 Fabric view navigation filter (Codebase audit and hardening backlog, PB-101)"
@@ -363,7 +372,11 @@
         "cost": 1.5,
         "score": 1.84,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        259,
+        455
+      ]
     },
     {
       "id": "PB-009",
@@ -495,13 +508,16 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In review",
       "computed": {
         "benefit": 3.9,
         "cost": 1.5,
         "score": 3.51,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        393
+      ]
     },
     {
       "id": "PB-013",
@@ -513,7 +529,8 @@
         "fabric_run.py _FABRIC_ONLY includes notebookutils.variableLibrary",
         "notebook.py %%sql MERGE path prints a note and returns ok",
         "notebookutils_local.py docstring names session; attribute absent",
-        "local_schedules.py runs all cells; notebook.js skips frozen cells (inference from code reading)"
+        "local_schedules.py runs all cells; notebook.js skips frozen cells (inference from code reading)",
+        "Re-checked 2026-10-25: all five defects are fixed on main (pr-ready/PB-013.md)"
       ],
       "features": [
         "FEAT-NB-04",
@@ -544,7 +561,7 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In review",
       "mandatory_reason": "Wrong-answer defects in local execution undermine the core promise and the rule that local results are never claimed equivalent without proof.",
       "package": "docs/product/pr-ready/PB-013.md",
       "computed": {
@@ -552,7 +569,10 @@
         "cost": 2.0,
         "score": 2.56,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        410
+      ]
     },
     {
       "id": "PB-014",
@@ -706,7 +726,8 @@
       ],
       "features": [
         "FEAT-NB-07",
-        "FEAT-META-14"
+        "FEAT-META-14",
+        "FEAT-ADM-09"
       ],
       "depends_on": [
         "PB-050",
@@ -731,13 +752,16 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In review",
       "computed": {
         "benefit": 4.5,
         "cost": 2.5,
         "score": 3.15,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        276
+      ]
     },
     {
       "id": "PB-018",
@@ -1016,7 +1040,8 @@
       "problem": "T-SQL developers can't reach a Warehouse, SQL analytics endpoint or Fabric SQL database from the app.",
       "capability": "Owned and specified by the SQL development sprint (SQL-004).",
       "evidence": [
-        "No TDS or ODBC client in sidecar/constraints.txt"
+        "No TDS or ODBC client in sidecar/constraints.txt",
+        "SQL-004 read-only warehouse queries (#581) with mssql-python (#580); Warehouse page WH-01 (#636)"
       ],
       "features": [
         "FEAT-FAB-11"
@@ -1037,13 +1062,13 @@
         "risk": 3
       },
       "mandatory": "none",
-      "owner": "SQL development sprint",
+      "owner": "Build full warehouse development experience",
       "source_refs": [
         "SQL-004"
       ],
       "effort": "L",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In review",
       "external_dependencies": [
         "Overlaps FD-LDE-012 and FD-LDE-013 local TDS endpoint and Power BI Desktop (LDE thread, only after Chris's go) (owners per docs/local-data-engine-plan.md section 3, PR #126)"
       ],
@@ -1052,7 +1077,12 @@
         "cost": 3.5,
         "score": 1.55,
         "priority": "P3"
-      }
+      },
+      "prs": [
+        580,
+        581,
+        636
+      ]
     },
     {
       "id": "PB-025",
@@ -1061,7 +1091,8 @@
       "problem": "There is no tree of schemas, tables, views and procedures for SQL work.",
       "capability": "Owned and specified by the SQL development sprint (SQL-005).",
       "evidence": [
-        "Lakehouse explorer lists tables only"
+        "Lakehouse explorer lists tables only",
+        "WH-02 object explorer (#637) and WH-03 Script as (#638) on the Warehouse page"
       ],
       "features": [
         "FEAT-FAB-11"
@@ -1082,19 +1113,23 @@
         "risk": 1
       },
       "mandatory": "none",
-      "owner": "SQL development sprint",
+      "owner": "Build full warehouse development experience",
       "source_refs": [
         "SQL-005"
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In review",
       "computed": {
         "benefit": 2.55,
         "cost": 1.5,
         "score": 2.29,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        637,
+        638
+      ]
     },
     {
       "id": "PB-026",
@@ -1132,13 +1167,16 @@
       ],
       "effort": "L",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In review",
       "computed": {
         "benefit": 3.2,
         "cost": 3.5,
         "score": 1.6,
         "priority": "P3"
-      }
+      },
+      "prs": [
+        387
+      ]
     },
     {
       "id": "PB-027",
@@ -1215,13 +1253,17 @@
       ],
       "effort": "S",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In review",
       "computed": {
         "benefit": 2.5,
         "cost": 2.0,
         "score": 2.0,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        440,
+        515
+      ]
     },
     {
       "id": "PB-030",
@@ -1423,13 +1465,19 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In review",
       "computed": {
         "benefit": 3.45,
         "cost": 2.0,
         "score": 2.76,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        150
+      ],
+      "features": [
+        "FEAT-ORC-09"
+      ]
     },
     {
       "id": "PB-037",
@@ -1464,13 +1512,25 @@
       ],
       "effort": "XL",
       "confidence": "Low",
-      "state": "Proposed",
+      "state": "In review",
       "computed": {
         "benefit": 4.5,
         "cost": 4.5,
         "score": 1.35,
         "priority": "P3"
-      }
+      },
+      "prs": [
+        218,
+        319,
+        559,
+        563,
+        568,
+        578,
+        579
+      ],
+      "features": [
+        "FEAT-ORC-08"
+      ]
     },
     {
       "id": "PB-040",
@@ -1615,7 +1675,8 @@
       "capability": "A Cancel action on running Fabric jobs in Monitor > Runs and the tray, reusing cancel_fabric_run.",
       "evidence": [
         "cloud_service.py cancel_fabric_run is called only from workload_service.py workload_act",
-        "app/ui/workloads.js offers cancel through workload actions"
+        "app/ui/workloads.js offers cancel through workload actions",
+        "Re-checked 2026-10-25: the Fabric step card cancels a run; Monitor > Runs and the tray still can't"
       ],
       "features": [
         "FEAT-FAB-07"
@@ -1721,13 +1782,17 @@
       ],
       "effort": "L",
       "confidence": "Low",
-      "state": "Proposed",
+      "state": "In review",
       "computed": {
         "benefit": 3.0,
         "cost": 4.5,
         "score": 0.9,
         "priority": "P3"
-      }
+      },
+      "prs": [
+        146,
+        149
+      ]
     },
     {
       "id": "PB-047",
@@ -2176,7 +2241,8 @@
       "problem": "Exceptions are lines in a project file with no request, approval or history.",
       "capability": "Request, approve and expire exceptions with history, aligned with the policy registry.",
       "evidence": [
-        "meta/project.py exceptions.toml"
+        "meta/project.py exceptions.toml",
+        "PR #603 shows approved exceptions and warns before they end; #605 adds exception requests on the Governance tab"
       ],
       "features": [
         "FEAT-GOV-03"
@@ -2203,13 +2269,17 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In review",
       "computed": {
         "benefit": 2.45,
         "cost": 2.0,
         "score": 1.96,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        603,
+        605
+      ]
     },
     {
       "id": "PB-060",
@@ -2421,7 +2491,7 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In review",
       "mandatory_reason": "Enterprise update control needs rollback.",
       "external_dependencies": [
         "Overlaps HD-022 no downgrade, keep the previous exe; HD-028 per-build releases for pinning and rollback (Codebase audit and hardening backlog, PB-101)"
@@ -2431,7 +2501,10 @@
         "cost": 2.5,
         "score": 1.72,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        241
+      ]
     },
     {
       "id": "PB-065",
@@ -2599,7 +2672,7 @@
       "state": "Proposed",
       "external_dependencies": [
         "Overlaps HD-032 T-SQL key import fails above 699 rows (staged roadmap) (Codebase audit and hardening backlog, PB-101)",
-        "Direction change (Chris's unit testing, 2026-10-18, item 25): keys move to a Fabric SQL database in a dedicated workspace; per environment or shared is Chris's open decision"
+        "Direction change (Chris's unit testing, 2026-10-18, item 25): keys move to one Fabric SQL database in a dedicated workspace shared by all environments (Chris, 2026-10-20: one for all)"
       ],
       "computed": {
         "benefit": 3.45,
@@ -2720,7 +2793,7 @@
       "owner": "Codebase audit and hardening",
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In review",
       "mandatory_reason": "The watchdog, sign-in and update integrity code is security- and reliability-critical and untested in CI.",
       "external_dependencies": [
         "Overlaps HD-011 cargo test runs in CI (Codebase audit and hardening backlog, PB-101)"
@@ -2734,7 +2807,10 @@
         "cost": 1.0,
         "score": 2.45,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        244
+      ]
     },
     {
       "id": "PB-072",
@@ -2966,7 +3042,8 @@
       "capability": "A PREVIEW_FEATURES id for each, or the docs changed where the feature is not exposed in the UI.",
       "evidence": [
         "app/ui/features.js PREVIEW_FEATURES has 19 ids",
-        "docs/metadata-guide.md Preview labels"
+        "docs/metadata-guide.md Preview labels",
+        "Re-checked 2026-10-25: the docs Preview table is the app's list (UX-019, ui.test.cjs); only metadata-guide.md's engine-behavior Preview labels are left"
       ],
       "features": [
         "FEAT-SHL-05"
@@ -3131,7 +3208,8 @@
       "capability": "Fix the text now; read endorsements when a supported API is confirmed.",
       "evidence": [
         "service.py endorsements returns available:false",
-        "docs/troubleshooting.md"
+        "docs/troubleshooting.md",
+        "Endorsement badges and Purview term links show on data products (#627, #642); the catalog filter is still missing"
       ],
       "features": [
         "FEAT-ONE-02"
@@ -3399,7 +3477,7 @@
       ],
       "effort": "L",
       "confidence": "Low",
-      "state": "Proposed",
+      "state": "In review",
       "external_dependencies": [
         "Overlaps PR-OPT-004, whose measured CU savings need this import (Optimize central lakehouse, PB-104)"
       ],
@@ -3408,7 +3486,13 @@
         "cost": 3.5,
         "score": 2.05,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        153
+      ],
+      "features": [
+        "FEAT-ADM-10"
+      ]
     },
     {
       "id": "PB-090",
@@ -3420,7 +3504,8 @@
         "meta/preflight.py estimates memory only"
       ],
       "features": [
-        "FEAT-META-06"
+        "FEAT-META-06",
+        "FEAT-ADM-08"
       ],
       "depends_on": [
         "PB-050"
@@ -3444,13 +3529,16 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In review",
       "computed": {
         "benefit": 4.35,
         "cost": 2.5,
         "score": 3.04,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        167
+      ]
     },
     {
       "id": "PB-091",
@@ -3856,7 +3944,18 @@
         "cost": 3.5,
         "score": 2.3,
         "priority": "P0"
-      }
+      },
+      "prs": [
+        580,
+        588,
+        609,
+        610,
+        612,
+        620,
+        622,
+        628,
+        631
+      ]
     },
     {
       "id": "PB-100",
@@ -3942,7 +4041,18 @@
         "cost": 3.5,
         "score": 1.75,
         "priority": "P0"
-      }
+      },
+      "prs": [
+        593,
+        618,
+        619,
+        621,
+        623,
+        624,
+        626,
+        659,
+        674
+      ]
     },
     {
       "id": "PB-102",
@@ -4038,7 +4148,12 @@
         "cost": 3.5,
         "score": 1.85,
         "priority": "P0"
-      }
+      },
+      "prs": [
+        585,
+        616,
+        661
+      ]
     },
     {
       "id": "PB-104",
@@ -4127,6 +4242,295 @@
         "benefit": 2.85,
         "cost": 3.5,
         "score": 1.43,
+        "priority": "P3"
+      }
+    },
+    {
+      "id": "PB-106",
+      "title": "Warehouse development program",
+      "category": "SQL, Python, and Notebook Development",
+      "problem": "Fabric warehouse developers write T-SQL in the browser with no local checking, templates, saved work or Git deploy preview.",
+      "capability": "Owned and specified by the 'Build full warehouse development experience' thread (WH-01..21, SF-01..06); not restated here. Phases: connect and query, templates and saved work, build and deploy from Git, manage data, then Snowflake.",
+      "evidence": [
+        "Chris's go 2026-10-24 18:16Z for phases 1-2",
+        "WH-01/02/03/04/05/04b/08 merged as #636-#641, #645"
+      ],
+      "features": [
+        "FEAT-FAB-11",
+        "FEAT-SQL-01",
+        "FEAT-SQL-03"
+      ],
+      "depends_on": [
+        "PB-024",
+        "PB-025"
+      ],
+      "external_dependencies": [
+        "Decision D1 warehouse writes (Chris)",
+        "Decision D3 live read query (Chris)",
+        "Phases 3-5 need Chris's go"
+      ],
+      "acceptance": [
+        "As defined in WH-01..21 by its owning thread"
+      ],
+      "scores": {
+        "developer_value": 5,
+        "cu_reduction": 3,
+        "enterprise_value": 4,
+        "differentiation": 4,
+        "strategic_alignment": 5,
+        "complexity": 4,
+        "risk": 2
+      },
+      "owner": "Build full warehouse development experience",
+      "source_refs": [
+        "WH-01..21",
+        "SF-01..06"
+      ],
+      "duplicates": [
+        "Absorbs PB-020 local warehouse simulation and the SQL sprint's SQL-004/005 screens"
+      ],
+      "effort": "XL",
+      "confidence": "Medium",
+      "prs": [
+        636,
+        637,
+        638,
+        639,
+        641,
+        645,
+        660,
+        662
+      ],
+      "mandatory": "none",
+      "state": "In progress",
+      "computed": {
+        "benefit": 4.2,
+        "cost": 3.0,
+        "score": 2.52,
+        "priority": "P2"
+      }
+    },
+    {
+      "id": "PB-107",
+      "title": "Data Factory program",
+      "category": "Pipelines and Orchestration",
+      "problem": "Pipelines, copy jobs, dataflows and connections are authored and watched only in the Fabric portal.",
+      "capability": "Owned and specified by the 'Build full Data Factory experience' thread (DF-1..10), built on the local pipeline runner's P-stages; not restated here.",
+      "evidence": [
+        "Chris's 'Go' 2026-10-24 18:16Z",
+        "DF-1 engine merged as #640",
+        "Mockup waits on Chris"
+      ],
+      "features": [
+        "FEAT-FAB-10",
+        "FEAT-ORC-10",
+        "FEAT-ORC-08"
+      ],
+      "depends_on": [
+        "PB-037"
+      ],
+      "external_dependencies": [
+        "Chris reacts to the Data Factory mockup before any UI",
+        "Plan decision 3 (real exports)"
+      ],
+      "acceptance": [
+        "As defined in DF-1..10 by its owning thread"
+      ],
+      "scores": {
+        "developer_value": 4,
+        "cu_reduction": 4,
+        "enterprise_value": 4,
+        "differentiation": 4,
+        "strategic_alignment": 5,
+        "complexity": 5,
+        "risk": 3
+      },
+      "owner": "Build full Data Factory experience",
+      "source_refs": [
+        "DF-1..10",
+        "Pipelines P5-P11"
+      ],
+      "duplicates": [
+        "Absorbs PB-030 (Copy job scope after D2) and the pipeline-authoring half of PB-035"
+      ],
+      "effort": "XL",
+      "confidence": "Medium",
+      "prs": [
+        640,
+        653,
+        665,
+        666,
+        667,
+        668,
+        669
+      ],
+      "mandatory": "none",
+      "state": "In progress",
+      "computed": {
+        "benefit": 4.15,
+        "cost": 4.0,
+        "score": 1.66,
+        "priority": "P3"
+      }
+    },
+    {
+      "id": "PB-108",
+      "title": "Best-practice checks and governance templates",
+      "category": "Data Governance and Quality",
+      "problem": "Teams have no shared, editable best-practice rules that check notebooks, SQL and semantic models before they reach Fabric.",
+      "capability": "Governance owns templates (policies with Check now, user-added rules, locks, exceptions); the Best Practice Analyzer thread owns the checkers (notebook NB001-012, SQL SQ001-010, semantic model BPA through semantic-link-labs in Fabric).",
+      "evidence": [
+        "Chris 2026-10-24: 'more on governance and best practices. Allow for people to add their own templates'",
+        "Draft PRs #560 (BPA engine), #643 (notebook rules), #648 (templates and Check now), #649 (SQL rules), #651 (RE2 naming checks)"
+      ],
+      "features": [
+        "FEAT-GOV-05",
+        "FEAT-GOV-09",
+        "FEAT-META-13"
+      ],
+      "depends_on": [
+        "PB-056"
+      ],
+      "external_dependencies": [
+        "Chris pastes the BPA cell error from the 2026-10-23 live run",
+        "Quality verdicts on #643, #648, #649, #651"
+      ],
+      "acceptance": [
+        "Each rule set registers through governance_checks.register and is off unless a policy names it",
+        "Check now runs offline for notebooks and SQL; model checks say they run in Fabric and use capacity"
+      ],
+      "scores": {
+        "developer_value": 4,
+        "cu_reduction": 3,
+        "enterprise_value": 5,
+        "differentiation": 4,
+        "strategic_alignment": 4,
+        "complexity": 3,
+        "risk": 2
+      },
+      "owner": "Enterprise governance foundation",
+      "source_refs": [
+        "NB001-012",
+        "SQ001-010",
+        "GOV templates"
+      ],
+      "effort": "L",
+      "confidence": "Medium",
+      "state": "In review",
+      "prs": [
+        560,
+        643,
+        648,
+        649,
+        651,
+        664,
+        671
+      ],
+      "mandatory": "none",
+      "computed": {
+        "benefit": 4.05,
+        "cost": 2.5,
+        "score": 2.83,
+        "priority": "P1"
+      }
+    },
+    {
+      "id": "PB-109",
+      "title": "VS Code developer integration",
+      "category": "Extensibility, APIs, CLI, and MCP",
+      "problem": "Developers who live in VS Code can't use KratosForge's local runs without leaving their editor.",
+      "capability": "Owned by the 'Bring VS Code developers to KratosForge' thread: phase 0 on-disk change guard (#650, merged), MCP in VS Code and an Add to VS Code button; later phases need Chris's go and three decisions.",
+      "evidence": [
+        "Proposal 2026-10-24",
+        "#650 merged: the app never saves over a file another program changed"
+      ],
+      "features": [
+        "FEAT-EXT-01",
+        "FEAT-EXT-02",
+        "FEAT-EXT-06",
+        "FEAT-NB-17"
+      ],
+      "external_dependencies": [
+        "Chris decides paired-editor runs without per-run approval",
+        ".vsix first then Marketplace (publisher account is Chris-only)",
+        "DuckDB extension later"
+      ],
+      "acceptance": [
+        "As defined in the thread's phases 0-4"
+      ],
+      "scores": {
+        "developer_value": 5,
+        "cu_reduction": 3,
+        "enterprise_value": 3,
+        "differentiation": 4,
+        "strategic_alignment": 4,
+        "complexity": 4,
+        "risk": 3
+      },
+      "owner": "Bring VS Code developers to KratosForge",
+      "source_refs": [
+        "VS phases 0-4"
+      ],
+      "effort": "XL",
+      "confidence": "Low",
+      "state": "In progress",
+      "prs": [
+        650,
+        652,
+        670
+      ],
+      "mandatory": "none",
+      "computed": {
+        "benefit": 3.8,
+        "cost": 3.5,
+        "score": 1.9,
+        "priority": "P2"
+      }
+    },
+    {
+      "id": "PB-110",
+      "title": "Semantic model interchange (Apache Ossie)",
+      "category": "Fabric Integration and Deployment",
+      "problem": "Semantic models are locked in TMDL/TMSL and can't move to or from other semantic layers.",
+      "capability": "Owned by the 'TMDL and OSI semantic model conversion' thread: engine merged (#599); a Deploy > Semantic model card waits on the mockup.",
+      "evidence": [
+        "#599 merged, vendored converter at 82b9eff"
+      ],
+      "features": [
+        "FEAT-META-19",
+        "FEAT-META-13"
+      ],
+      "external_dependencies": [
+        "Chris reacts to the mockup",
+        "Chris decides whether Import may create new models"
+      ],
+      "acceptance": [
+        "Export, preview and import from the Semantic model tab with a confirm; Save TMDL to Git"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 1,
+        "enterprise_value": 3,
+        "differentiation": 4,
+        "strategic_alignment": 3,
+        "complexity": 3,
+        "risk": 3
+      },
+      "owner": "TMDL and OSI semantic model conversion",
+      "source_refs": [
+        "model_ossie_*"
+      ],
+      "effort": "M",
+      "confidence": "Medium",
+      "state": "In progress",
+      "prs": [
+        599
+      ],
+      "mandatory": "none",
+      "computed": {
+        "benefit": 2.75,
+        "cost": 3.0,
+        "score": 1.65,
         "priority": "P3"
       }
     }

@@ -30,8 +30,10 @@ def test_kernel_keeps_state_and_shows_last_expression():
 
 def test_kernel_shows_data_frames_as_tables():
     out = Kernel().run("import polars as pl\npl.DataFrame({'region': ['East', 'West'], 'total': [960, 1350]})")
-    assert out["outputs"] == [{"type": "table", "columns": ["region", "total"],
-                               "rows": [["East", 960], ["West", 1350]], "total_rows": 2}]
+    (table,) = out["outputs"]
+    assert len(table.pop("frame")) == 12  # the whole result, for the result viewer (frames.py)
+    assert table == {"type": "table", "columns": ["region", "total"], "types": ["string", "integer"],
+                     "rows": [["East", 960], ["West", 1350]], "total_rows": 2}
 
 
 def test_kernel_reports_errors_and_survives():
@@ -75,12 +77,14 @@ def test_notebook_store_names_and_renames(tmp_path):
     assert store.new()["name"] == "Notebook 2"
     store.rename("Notebook 1", "Sales by region")
     assert {n["name"] for n in store.list()} == {"Notebook 2", "Sales by region"}
-    with pytest.raises(ValueError):
-        store.path("bad/name")
+    for bad in ("bad\\name", "../name", "a/b/c/d/name", "/name", "Sales/"):  # "/" only separates folders
+        with pytest.raises(ValueError):
+            store.path(bad)
+    assert store.path("Sales/Daily load") == tmp_path / "Sales" / "Daily load.ipynb"
 
 
 def test_notebook_reads_local_files_and_writes_tables(tmp_path, monkeypatch):
-    def local_publish(data, ref, mode, token):
+    def local_publish(data, ref, mode, token, **_):
         path = tmp_path / "onelake" / ref.schema / ref.table
         write_deltalake(str(path), data, mode=mode)
         return DeltaTable(str(path))
@@ -278,7 +282,7 @@ def test_sql_result_saves_as_a_table_and_exports_csv(tmp_path, monkeypatch):
     service, _ = _sql_service(tmp_path, monkeypatch)
     written = {}
 
-    def local_publish(data, ref, mode, token):
+    def local_publish(data, ref, mode, token, **_):
         written[ref.table] = data
         path = tmp_path / "onelake" / ref.table
         write_deltalake(str(path), data, mode=mode)
@@ -396,3 +400,27 @@ def test_saving_keeps_metadata_other_tools_wrote(tmp_path):
     cell = raw["cells"][0]
     assert cell["id"] == "c1" and cell["metadata"] == {"microsoft": {"language": "python"}, "tags": ["parameters"],
                                                         "jupyter": {"custom": 1}}
+
+
+def test_heading_collapse_and_cell_titles_round_trip_where_jupyterlab_and_databricks_keep_them(tmp_path):
+    nb = {"nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": [
+        {"cell_type": "markdown", "id": "m1", "source": ["# Load"], "metadata": {"jp-MarkdownHeadingCollapsed": True}},
+        {"cell_type": "code", "id": "c1", "source": ["x = 1"], "outputs": [], "execution_count": None,
+         "metadata": {"application/vnd.databricks.v1+cell": {"title": "Read sales", "nuid": "abc", "showTitle": True}}}]}
+    (tmp_path / "nb.ipynb").write_text(json.dumps(nb), encoding="utf-8")
+    store = NotebookStore(tmp_path)
+    cells = store.load("nb")["cells"]
+    assert cells[0]["meta"] == {"heading_collapsed": True}
+    assert cells[1]["meta"] == {"title": "Read sales"}
+    cells[0]["meta"] = {}                                    # expanded again
+    cells[1]["meta"] = {"title": "Read the sales table", "tags": ["load"]}
+    store.save("nb", cells)
+    raw = json.loads(store.path("nb").read_text(encoding="utf-8"))
+    assert "jp-MarkdownHeadingCollapsed" not in raw["cells"][0]["metadata"]
+    assert raw["cells"][1]["metadata"]["application/vnd.databricks.v1+cell"] == {
+        "title": "Read the sales table", "nuid": "abc", "showTitle": True}
+    cells = store.load("nb")["cells"]
+    cells[1]["meta"] = {}                                    # title removed: Databricks' own keys stay
+    store.save("nb", cells)
+    raw = json.loads(store.path("nb").read_text(encoding="utf-8"))
+    assert raw["cells"][1]["metadata"]["application/vnd.databricks.v1+cell"] == {"nuid": "abc", "showTitle": True}

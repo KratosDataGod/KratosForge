@@ -27,18 +27,28 @@ Tables (T-SQL schema.table; SQLite schema__table):
     catalog.source       every source system: the id business keys use, code, owner, type, expected
                          arrival in LH_Landing, connections per env (one list for every project)
     catalog.reader       which project reads which landing zone source
-    catalog.request      requests from domain teams: a key table, a source, or access to a product
+    catalog.landing_zone the central landing workspace's zones (Preview): Shared, a domain's, or a secure
+                         one for PII or PHI, each its own lakehouse; a source's zone column names its zone
+    catalog.request      requests from domain teams: a key table, a source, access to a product, a shortcut,
+                         a workspace, access to a workspace, a domain, or an exception to a policy
     catalog.grant        projects let in to a domain or private product by its owner
     catalog.shortcut     every OneLake shortcut last seen in a scan: its target and health
     catalog.shortcut_scope  lakehouses scanned for shortcuts, so a first scan isn't read as "all added"
     catalog.shortcut_change every shortcut added, repointed, removed, broken or fixed, and by whom
+    catalog.shortcut_risk   risks a platform admin accepted on a shortcut (Dev reading Prod), and why
+    catalog.endorsement  each data product item's endorsement (Certified, Promoted, Master data) as Fabric's
+                         admin tenant scan last read it, so everyone sees it (Preview)
+    catalog.product_term business terms on a data product: a name and a link to the term in Microsoft
+                         Purview, typed by the product's owner; nothing reads Purview (Preview)
     catalog.policy*      governance policies, their versions, assignments and history (policy.py)
 
 Who may change what (the caller is always who Fabric says it is, see udf.py):
 
-    platform admins      domains, key tables, source systems, glossary, admins, shortcut rules, and every request
+    platform admins      domains, key tables, source systems, landing zones, glossary, admins, shortcut rules,
+                         accepted shortcut risks, policy exceptions, endorsement scans, every product's
+                         business terms, and every request
     domain owners        glossary terms of their domain
-    product owners       access requests to their product
+    product owners       access requests to their product, and their product's business terms
     everyone             reading, issuing keys from existing key tables, catalog text, products, links, requests
 """
 
@@ -49,6 +59,7 @@ import json
 import re
 import uuid
 from typing import Any
+from urllib.parse import urlsplit
 
 SCHEMA_VERSION = 5
 UNKNOWN_KEY = -1
@@ -57,15 +68,24 @@ MAX_BK = 400
 ACCESS = ("public", "domain", "private")
 STATUS = ("draft", "published", "deprecated")
 CLASSIFICATIONS = ("public", "internal", "confidential", "restricted")
-REQUEST_KINDS = ("key_table", "source", "access", "shortcut")
+REQUEST_KINDS = ("key_table", "source", "access", "shortcut", "workspace", "workspace_access", "domain", "exception")
+# Kinds whose approval the app carries out in Fabric first, as the person approving (central/requests_service.py).
+FABRIC_KINDS = ("shortcut", "workspace", "workspace_access")
+WORKSPACE_ROLES = ("Viewer", "Contributor", "Member", "Admin")
 REQUEST_STATUS = ("waiting", "approved", "declined", "withdrawn")
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
 _CODE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,40}$")
 _ID = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
+_GUID = re.compile(r"^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$")
+_EMAIL = re.compile(r"^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$")
+_WS_BAD = re.compile(r'[\\/:*?"<>|#%\x00-\x1f]')
 
 
 # Tables other modules add to the platform (policy.py's governance policies), created with the rest.
 SCHEMA_HOOKS: list[Any] = []
+# Request kinds another module checks and carries out (policy.py's exceptions):
+# {kind: {"check": fn(db, target, detail, reason, by) -> (target, detail), "approve": fn(db, req, by)}}
+REQUEST_HOOKS: dict[str, dict[str, Any]] = {}
 
 
 class PlatformError(ValueError):
@@ -133,7 +153,7 @@ _LONG = {"tsql": "NVARCHAR(MAX)", "sqlite": "TEXT"}
 
 _CATALOG: dict[str, list[tuple[str, str]]] = {
     "domain": [("id", "key"), ("name", "text"), ("parent_id", "text"), ("description", "long"), ("owners", "text"),
-               ("fabric_domain", "text"), ("updated_at", "text"), ("updated_by", "text")],
+               ("fabric_domain", "text"), ("updated_at", "text"), ("updated_by", "text"), ("fabric_owners", "long")],
     "project": [("name", "key"), ("domain_id", "text"), ("subdomain_id", "text"), ("team", "text"),
                 ("description", "long"), ("updated_at", "text"), ("updated_by", "text")],
     "product": [("id", "key"), ("project", "text"), ("name", "text"), ("domain_id", "text"), ("description", "long"),
@@ -154,7 +174,7 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
                   ("created_at", "text"), ("created_by", "text")],
     "source": [("name", "key"), ("title", "text"), ("description", "long"), ("owner", "text"),
                ("expected_hours", "text"), ("connections", "long"), ("updated_at", "text"), ("updated_by", "text"),
-               ("source_id", "text"), ("code", "text"), ("system_type", "text"), ("active", "text")],
+               ("source_id", "text"), ("code", "text"), ("system_type", "text"), ("active", "text"), ("zone", "text")],
     "reader": [("id", "key"), ("project", "text"), ("source", "text"), ("entities", "long"), ("updated_at", "text")],
     "request": [("id", "key"), ("kind", "text"), ("target", "text"), ("detail", "long"), ("project", "text"),
                 ("reason", "long"), ("requested_by", "text"), ("requested_at", "text"), ("status", "text"),
@@ -164,12 +184,22 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
     "shortcut": [("id", "key"), ("workspace_id", "text"), ("workspace_name", "text"), ("lakehouse_id", "text"),
                  ("lakehouse_name", "text"), ("path", "text"), ("name", "text"), ("target", "long"),
                  ("health", "text"), ("health_detail", "long"), ("checked_at", "text"), ("first_seen", "text"),
-                 ("last_seen", "text")],
+                 ("last_seen", "text"), ("target_workspace_name", "text"), ("target_lakehouse_name", "text")],
+    "landing_zone": [("id", "key"), ("name", "text"), ("domain_id", "text"), ("workspace_id", "text"),
+                     ("workspace_name", "text"), ("lakehouse_id", "text"), ("lakehouse_name", "text"), ("secure", "text"),
+                     ("readers", "long"), ("label", "text"), ("devtest", "text"), ("updated_at", "text"), ("updated_by", "text"),
+                     ("switched_at", "text"), ("switched_by", "text")],
     "shortcut_scope": [("lakehouse_id", "key"), ("first_scan", "text"), ("last_scan", "text")],
     "shortcut_change": [("id", "key"), ("at", "text"), ("kind", "text"), ("shortcut_id", "text"),
                         ("workspace_name", "text"), ("lakehouse_name", "text"), ("name", "text"),
                         ("before_def", "long"), ("after_def", "long"), ("by_user", "text"), ("how", "text"),
                         ("note", "long")],
+    "shortcut_risk": [("id", "key"), ("shortcut_id", "text"), ("kind", "text"), ("reason", "long"),
+                      ("target", "long"), ("accepted_by", "text"), ("accepted_at", "text")],
+    "endorsement": [("item_id", "key"), ("workspace_id", "text"), ("item_type", "text"), ("item_name", "text"),
+                    ("endorsement", "text"), ("certified_by", "text"), ("scanned_at", "text"), ("scanned_by", "text")],
+    "product_term": [("id", "key"), ("product_id", "text"), ("term", "text"), ("url", "long"), ("added_by", "text"),
+                     ("added_at", "text")],
 }
 
 
@@ -198,6 +228,10 @@ def ensure_schema(db: Db) -> dict[str, Any]:
                f"action {_TEXT[db.dialect]}, target {_TEXT[db.dialect]}, detail {_LONG[db.dialect]})")
         created.append("catalog.audit")
     created += ensure_source_ids(db)
+    created += ensure_domain_columns(db)
+    created += ensure_landing_zones(db)
+    created += ensure_shortcut_risks(db)
+    created += ensure_trust_badges(db)
     for hook in SCHEMA_HOOKS:
         created += hook(db)
     _upsert(db, "config", "setting", "name", {"name": "schema_version", "value": str(SCHEMA_VERSION)})
@@ -290,6 +324,72 @@ def _clean_bks(business_keys: list[Any]) -> list[str]:
     return sorted(out)
 
 
+# A keys database that has stopped issuing (keys moving to, or moved to, the one keys database
+# for every environment) keeps the reason here; every run that asks for keys is told it.
+KEYS_CLOSED = "keys_closed"
+# Set on the shared keys database while a move fills it and nothing uses it yet.
+KEYS_STAGING = "keys_staging"
+# Set on the shared keys database once every environment uses it: from then on it's never staged or cleared.
+KEYS_LIVE = "keys_live"
+
+
+def _setting(db: Db, name: str) -> str:
+    if not db.exists("config", "setting"):
+        return ""
+    found = db.rows(f"SELECT value FROM {db.t('config', 'setting')} WHERE name = ?", (name,))
+    return str(found[0]["value"] or "") if found else ""
+
+
+def _require_open(db: Db) -> None:
+    if why := _setting(db, KEYS_CLOSED):
+        raise PlatformError(why)
+
+
+def close_keys(db: Db, reason: str = "", by: str = "") -> dict[str, Any]:
+    """Stop issuing and importing keys here, telling every run ``reason``; an empty reason opens them again."""
+    require_admin(db, by, "close or reopen key issuing")
+    _upsert(db, "config", "setting", "name", {"name": KEYS_CLOSED, "value": str(reason or "")})
+    _audit(db, by, "close keys" if reason else "reopen keys", "keys", {"reason": reason})
+    db.commit()
+    return {"closed": str(reason or "")}
+
+
+def keys_state(db: Db) -> dict[str, Any]:
+    """Whether this keys database is live (Dev, Test and Prod use it), being filled by a move, or closed."""
+    return {"live": _setting(db, KEYS_LIVE) == "1", "staging": _setting(db, KEYS_STAGING) == "1",
+            "closed": _setting(db, KEYS_CLOSED)}
+
+
+def stage_keys(db: Db, staging: bool, live: bool = False, by: str = "") -> dict[str, Any]:
+    """Mark the shared keys database as being filled by a move (only then can clear_keys empty it),
+    or, with ``live``, as the one every environment uses now. A live database is never staged again."""
+    require_admin(db, by, "move keys")
+    if _setting(db, KEYS_LIVE) == "1" and (staging or not live):
+        raise PlatformError("This keys database is already in use by Dev, Test and Prod. Join it instead of moving keys into it.")
+    _upsert(db, "config", "setting", "name", {"name": KEYS_STAGING, "value": "1" if staging and not live else ""})
+    if live:
+        _upsert(db, "config", "setting", "name", {"name": KEYS_LIVE, "value": "1"})
+        _audit(db, by, "keys live", "keys")
+    db.commit()
+    return keys_state(db)
+
+
+def clear_keys(db: Db, by: str = "") -> dict[str, Any]:
+    """Drop every key table a move put here before it switched, so the move can start again.
+    Refused on a keys database that isn't being filled by a move: those keys are in use."""
+    require_admin(db, by, "clear the keys a move copied")
+    if _setting(db, KEYS_LIVE) == "1" or _setting(db, KEYS_STAGING) != "1":
+        raise PlatformError("Only a keys database a move is still filling can be cleared: these keys are in use.")
+    names = [t["name"] for t in list_key_tables(db)]
+    for name in names:
+        if db.exists("keys", name):
+            db.run(f"DROP TABLE {db.t('keys', name)}")
+        db.run(f"DELETE FROM {db.t('catalog', 'key_table')} WHERE name = ?", (name,))
+    _audit(db, by, "clear moved keys", "keys", {"tables": names})
+    db.commit()
+    return {"cleared": names}
+
+
 def issue_keys(db: Db, name: str, business_keys: list[Any]) -> dict[str, Any]:
     """The surrogate key of every business key given, issuing the next keys for new ones.
 
@@ -298,6 +398,7 @@ def issue_keys(db: Db, name: str, business_keys: list[Any]) -> dict[str, Any]:
     business key. Returns {"keys": {bk: sk}, "inserted": n}."""
     name = key_name(name)
     bks = _clean_bks(business_keys)
+    _require_open(db)
     if not db.exists("keys", name):
         raise _missing_key_table(name)
     if not bks:
@@ -348,6 +449,7 @@ def import_keys(db: Db, name: str, rows: list[list[Any]], by: str = "") -> dict[
     migration never renumbers a key. The identity continues after the highest key. A key table
     that isn't there yet is created, which only a platform admin may do."""
     name = key_name(name)
+    _require_open(db)
     ensure_key_table(db, name, by)
     t = db.t("keys", name)
     have = {r["bk"]: int(r["sk"]) for r in db.rows(f"SELECT {name}_bk AS bk, {name}_sk AS sk FROM {t}")}
@@ -460,15 +562,35 @@ def _slug(name: str, taken: set[str]) -> str:
     return did
 
 
+def _fabric_admins(d: dict[str, Any]) -> str | None:
+    """A Fabric domain's admins as stored: a JSON list of {name, type}, names only (no email), sorted."""
+    people = sorted({(str(a.get("name") or "").strip(), str(a.get("type") or "User"))
+                     for a in d.get("admins") or [] if str(a.get("name") or "").strip()})
+    return json.dumps([{"name": n, "type": t} for n, t in people]) if people else None
+
+
+def ensure_domain_columns(db: Db) -> list[str]:
+    """Give catalog.domain the columns added after it was made (fabric_owners). Safe to run again."""
+    added = []
+    if "fabric_owners" not in _columns(db, "domain"):
+        db.run(f"ALTER TABLE {db.t('catalog', 'domain')} ADD {'' if db.tsql else 'COLUMN '}{_column(db, 'fabric_owners', 'long')}")
+        added.append("catalog.domain.fabric_owners")
+    return added
+
+
 def import_fabric_domains(db: Db, domains: list[dict[str, Any]], by: str = "") -> dict[str, Any]:
     """Make the catalog's domains follow Fabric's domains and subdomains (``GET /v1/admin/domains``).
 
     A Fabric domain matches the catalog domain already linked to it (``fabric_domain``), else one
     with the same name that isn't linked yet, else it's added. Linked domains take Fabric's name and
-    parent; their owners and description stay as the platform set them. Domains that are no longer
+    parent; their owners and description stay as the platform set them. A Fabric domain that carries
+    ``admins`` (its Fabric domain admins, read during the import) stores their names and kinds in
+    ``fabric_owners``: shown as "From Fabric", never used to grant anything. One without ``admins``
+    keeps what an earlier import read. Domains that are no longer
     in Fabric are reported, never deleted: projects may still use them. Platform admins only.
     """
     require_admin(db, by, "import domains from Fabric")
+    ensure_domain_columns(db)  # a platform made before fabric_owners
     existing = list_domains(db)
     by_fabric = {d["fabric_domain"]: d for d in existing if d.get("fabric_domain")}
     by_name = {str(d["name"] or "").strip().lower(): d for d in existing if not d.get("fabric_domain")}
@@ -496,11 +618,15 @@ def import_fabric_domains(db: Db, domains: list[dict[str, Any]], by: str = "") -
             row = {"id": did, "description": str(d.get("description") or ""), "owners": ""}
         elif kind == "updated" and row["name"] == name and (row.get("parent_id") or None) == parent:
             kind = "unchanged"
+        admins = _fabric_admins(d) if "admins" in d else row.get("fabric_owners")
+        if kind == "unchanged" and (admins or None) != (row.get("fabric_owners") or None):
+            kind = "updated"
         ids[fid] = row["id"]
         if kind != "unchanged":
             new = {"id": row["id"], "name": name, "parent_id": parent,
                    "description": str(row.get("description") or d.get("description") or ""),
-                   "owners": str(row.get("owners") or ""), "fabric_domain": fid, "updated_at": _now(), "updated_by": by}
+                   "owners": str(row.get("owners") or ""), "fabric_domain": fid, "fabric_owners": admins or None,
+                   "updated_at": _now(), "updated_by": by}
             _upsert(db, "catalog", "domain", "id", new)
         out[kind].append(row["id"])
     out["gone"] = [d["id"] for f, d in by_fabric.items() if f not in fabric]
@@ -687,6 +813,30 @@ def audit(db: Db, limit: int = 100) -> list[dict[str, Any]]:
     return db.rows(f"SELECT {top}* FROM {db.t('catalog', 'audit')} ORDER BY id DESC{tail}")
 
 
+WORKLOAD_ACTIONS = ("run", "run_in_fabric", "run_item", "run_schedule", "cancel", "assign", "link", "unlink")
+WORKLOAD_STATES = ("submitted", "succeeded", "failed", "cancelled", "changed")
+_WORKLOAD_FIELDS = ("id", "name", "env", "where", "target", "identity", "before", "after", "detail", "at")
+
+
+def log_workload_action(db: Db, workload: str, action: str, status: str, entry: dict[str, Any] | None = None,
+                        by: str = "") -> dict[str, Any]:
+    """What someone did from a workload page in the app, and how it ended, on the platform's audit.
+    Who did it is the caller (in Fabric, Fabric's own context); the rest is what the app reports,
+    each value cut to 500 characters. ``entry.id`` is the app's own record, so a line the app sent
+    twice can be told apart."""
+    if action not in WORKLOAD_ACTIONS:
+        raise PlatformError(f"action is one of {', '.join(WORKLOAD_ACTIONS)}")
+    if status not in WORKLOAD_STATES:
+        raise PlatformError(f"status is one of {', '.join(WORKLOAD_STATES)}")
+    workload = str(workload or "").strip()
+    if not workload:
+        raise PlatformError("say which workload")
+    detail = {k: str(v)[:500] for k, v in (entry or {}).items() if k in _WORKLOAD_FIELDS and v not in (None, "")}
+    _audit(db, by, f"workload {action} {status}", f"workload:{workload[:300]}", detail or None)
+    db.commit()
+    return {"recorded": True}
+
+
 # --------------------------------------------------------------------------- who may change what
 
 
@@ -795,17 +945,17 @@ def list_key_tables(db: Db) -> list[dict[str, Any]]:
 _SOURCE_ADDED = ("source_id", "code", "system_type", "active")
 
 
-def _source_columns(db: Db) -> set[str]:
+def _columns(db: Db, table: str) -> set[str]:
     if db.tsql:
-        return {r["name"] for r in db.rows("SELECT name FROM sys.columns WHERE object_id = OBJECT_ID('catalog.source')")}
-    return {r["name"] for r in db.rows(f"PRAGMA table_info({db.t('catalog', 'source')})")}
+        return {r["name"] for r in db.rows(f"SELECT name FROM sys.columns WHERE object_id = OBJECT_ID('catalog.{table}')")}
+    return {r["name"] for r in db.rows(f"PRAGMA table_info({db.t('catalog', table)})")}
 
 
 def ensure_source_ids(db: Db) -> list[str]:
     """Give catalog.source the columns of schema 5 and every source an id. A platform made before
     keeps its sources: each gets the next free id, in name order, and a code from its name."""
     added = []
-    have = _source_columns(db)
+    have = _columns(db, "source")
     for col in _SOURCE_ADDED:
         if col not in have:
             db.run(f"ALTER TABLE {db.t('catalog', 'source')} ADD {'' if db.tsql else 'COLUMN '}{_column(db, col, 'text')}")
@@ -847,6 +997,7 @@ def list_sources(db: Db) -> list[dict[str, Any]]:
         src["connections"] = json.loads(src["connections"] or "{}")
         src["source_id"] = int(src["source_id"])
         src["active"] = src["active"] != "0"
+        src["zone"] = src.get("zone") or ""  # empty: the Shared zone
         src["readers"] = [{"project": r["project"], "entities": json.loads(r["entities"] or "[]")}
                           for r in readers if r["source"] == src["name"]]
     return sorted(sources, key=lambda x: x["name"])
@@ -871,14 +1022,21 @@ def _source_row(source: dict[str, Any], by: str) -> dict[str, Any]:
     return {"name": name, "title": str(source.get("title") or name), "description": str(source.get("description") or ""),
             "owner": str(source.get("owner") or ""), "expected_hours": hours, "connections": json.dumps(conns),
             "updated_at": _now(), "updated_by": by, "code": code, "system_type": str(source.get("system_type") or ""),
-            "active": "0" if source.get("active") is False else "1"}
+            "active": "0" if source.get("active") is False else "1",
+            # None keeps the zone a source already has (callers that don't know zones, like adopt_sources).
+            "zone": None if source.get("zone") is None else _source_zone(source.get("zone"))}
 
 
 def _put_source(db: Db, row: dict[str, Any], source_id: Any = None) -> None:
     """Add or change one source. An existing source keeps its id; a new one takes ``source_id``
     (a project's own id, when sources move to the platform) or the next free one."""
     ensure_source_ids(db)
+    ensure_landing_zones(db)
     before = _row(db, "source", "name", row["name"])
+    if row.get("zone") is None:
+        row = row | {"zone": (before or {}).get("zone") or ""}
+    if row["zone"] and not _row(db, "landing_zone", "id", row["zone"]):
+        raise PlatformError(f"{row['zone']} isn't a landing zone: pick one from Platform > Landing zone")
     if before:
         row = row | {"source_id": before["source_id"]}
     else:
@@ -900,7 +1058,8 @@ def _put_source(db: Db, row: dict[str, Any], source_id: Any = None) -> None:
 
 def save_source(db: Db, source: dict[str, Any], by: str = "") -> list[dict[str, Any]]:
     """Add or change a source system, landed in LH_Landing (Files/<name>/<entity>/) and read by
-    projects with the same id everywhere. Platform admins only."""
+    projects with the same id everywhere. ``zone`` is its landing zone's id; empty is the Shared
+    zone. Platform admins only."""
     row = _source_row(source, by)
     require_admin(db, by, "add or change source systems")
     _put_source(db, row)
@@ -957,6 +1116,160 @@ def delete_source(db: Db, name: str, by: str = "") -> list[dict[str, Any]]:
     return list_sources(db)
 
 
+# --------------------------------------------------------------------------- landing zones (Preview)
+
+# One landing workspace read by Dev, Test and Prod, split into zones. Each zone is its own lakehouse:
+# Shared (LH_Landing) for every domain, a domain's own (LH_Landing_HR), or a secure one for PII or PHI
+# (LH_Landing_HR_Secure) that only its readers may read. A zone's devtest says whether Dev and Test
+# read it ("read") or only Prod does ("none", the default for a new zone). The app creates each
+# lakehouse in Fabric (central/setup.py); this records it. Access roles and labels are set in Fabric.
+# Shared sources keep reading each environment's own LH_Landing until a platform admin switches reads
+# to the landing workspace (switch_landing_reads: switched_at on the Shared zone), so the move never
+# breaks a Prod run before its files are there. Every other zone is new, so it's read from the start.
+SHARED_ZONE = "shared"
+DEVTEST = ("none", "read")
+
+
+def zone_key(name: Any) -> str:
+    """A zone's id from its name: HR-Secure is hr_secure."""
+    zid = re.sub(r"[^a-z0-9]+", "_", str(name or "").strip().lower()).strip("_")
+    if not zid or not zid[0].isalpha() or len(zid) > 40:
+        raise PlatformError(f"{name!r}: a landing zone's name starts with a letter and has letters, digits, "
+                            "spaces, - or _, up to 40")
+    return zid
+
+
+def zone_lakehouse(name: Any) -> str:
+    """The lakehouse a zone lives in: LH_Landing for Shared, LH_Landing_<Name> for the rest."""
+    if zone_key(name) == SHARED_ZONE:
+        return "LH_Landing"
+    return "LH_Landing_" + re.sub(r"[^A-Za-z0-9]+", "_", str(name).strip()).strip("_")
+
+
+def _source_zone(value: Any) -> str:
+    zid = str(value or "").strip()
+    return "" if not zid or zone_key(zid) == SHARED_ZONE else zone_key(zid)
+
+
+def ensure_landing_zones(db: Db) -> list[str]:
+    """Give a platform made before landing zones catalog.landing_zone and catalog.source.zone.
+    Additive only, safe to run again."""
+    added = []
+    if not db.exists("catalog", "landing_zone"):
+        db.run(f"CREATE TABLE {db.t('catalog', 'landing_zone')} "
+               f"({', '.join(_column(db, n, k) for n, k in _CATALOG['landing_zone'])})")
+        added.append("catalog.landing_zone")
+    else:
+        have = _columns(db, "landing_zone")
+        for col in ("switched_at", "switched_by"):
+            if col not in have:
+                db.run(f"ALTER TABLE {db.t('catalog', 'landing_zone')} ADD {'' if db.tsql else 'COLUMN '}{_column(db, col, 'text')}")
+                added.append(f"catalog.landing_zone.{col}")
+    if db.exists("catalog", "source") and "zone" not in _columns(db, "source"):
+        db.run(f"ALTER TABLE {db.t('catalog', 'source')} ADD {'' if db.tsql else 'COLUMN '}{_column(db, 'zone', 'text')}")
+        added.append("catalog.source.zone")
+    if added:
+        db.commit()
+    return added
+
+
+def _zone_out(row: dict[str, Any], sources: list[dict[str, Any]]) -> dict[str, Any]:
+    zone = dict(row)
+    zone["secure"] = zone.get("secure") == "1"
+    zone["readers"] = json.loads(zone.get("readers") or "[]")
+    zone["devtest"] = zone.get("devtest") or ("read" if zone["id"] == SHARED_ZONE else "none")
+    zone["sources"] = sorted(s["name"] for s in sources if (s.get("zone") or SHARED_ZONE) == zone["id"])
+    # Read from the landing workspace: every zone but Shared at once, Shared once reads are switched.
+    zone["switched_at"], zone["switched_by"] = zone.get("switched_at") or "", zone.get("switched_by") or ""
+    zone["read"] = zone["id"] != SHARED_ZONE or bool(zone["switched_at"])
+    return zone
+
+
+def list_landing_zones(db: Db) -> list[dict[str, Any]]:
+    """Every landing zone, Shared first, with the sources in each. Empty until the central landing
+    workspace is set up (a read never migrates the catalog)."""
+    if not db.exists("catalog", "landing_zone"):
+        return []
+    sources = db.rows(f"SELECT * FROM {db.t('catalog', 'source')}")
+    zones = [_zone_out(r, sources) for r in db.rows(f"SELECT * FROM {db.t('catalog', 'landing_zone')}")]
+    return sorted(zones, key=lambda z: (z["id"] != SHARED_ZONE, (z["name"] or "").lower()))
+
+
+def save_landing_zone(db: Db, zone: dict[str, Any], by: str = "") -> list[dict[str, Any]]:
+    """Add or change a landing zone: its name, domain, readers, whether it's secure, its label, and
+    whether Dev and Test read it. Where it lives (workspace and lakehouse) is kept once recorded.
+    Platform admins only."""
+    name = str(zone.get("name") or "").strip()
+    zid = zone_key(zone.get("id") or name)
+    require_admin(db, by, "add or change landing zones")
+    ensure_landing_zones(db)
+    before = _row(db, "landing_zone", "id", zid) or {}
+    name = name or before.get("name") or ""
+    if not name:
+        raise PlatformError("A landing zone needs a name")
+    devtest = str(zone.get("devtest") or before.get("devtest") or ("read" if zid == SHARED_ZONE else "none"))
+    if devtest not in DEVTEST:
+        raise PlatformError("Dev and Test either don't read the zone (none) or read it like Prod (read)")
+    domain = str((zone["domain_id"] if "domain_id" in zone else before.get("domain_id")) or "").strip()
+    if domain:
+        domain = domain_id(domain)
+        if not _row(db, "domain", "id", domain):
+            raise PlatformError(f"domain {domain} doesn't exist: add it first in Platform > Domains")
+    readers = zone["readers"] if "readers" in zone else json.loads(before.get("readers") or "[]")
+    if isinstance(readers, str):
+        readers = re.split(r"[,;\n]", readers)
+    readers = sorted({str(r).strip() for r in readers or [] if str(r).strip()})
+    secure = bool(zone["secure"]) if "secure" in zone else before.get("secure") == "1"
+    if zid == SHARED_ZONE and secure:
+        raise PlatformError("The Shared zone is read by every domain, so it can't be secure: make a secure zone for that data")
+    row = {"id": zid, "name": name, "domain_id": domain or None,
+           "workspace_id": str(zone.get("workspace_id") or before.get("workspace_id") or ""),
+           "workspace_name": str(zone.get("workspace_name") or before.get("workspace_name") or ""),
+           "lakehouse_id": str(zone.get("lakehouse_id") or before.get("lakehouse_id") or ""),
+           "lakehouse_name": str(zone.get("lakehouse_name") or before.get("lakehouse_name") or zone_lakehouse(name)),
+           "secure": "1" if secure else "0", "readers": json.dumps(readers),
+           "label": str((zone["label"] if "label" in zone else before.get("label")) or "").strip(),
+           "devtest": devtest, "updated_at": _now(), "updated_by": by}
+    _upsert(db, "catalog", "landing_zone", "id", row)
+    _audit(db, by, "save landing zone", zid, {k: v for k, v in row.items() if k not in ("updated_at", "updated_by")})
+    db.commit()
+    return list_landing_zones(db)
+
+
+def switch_landing_reads(db: Db, by: str = "") -> list[dict[str, Any]]:
+    """From now on every environment reads Shared sources from the landing workspace's LH_Landing
+    instead of its own. Done once, after the files runs need are there. Platform admins only."""
+    require_admin(db, by, "switch reads to the landing workspace")
+    ensure_landing_zones(db)
+    shared = _row(db, "landing_zone", "id", SHARED_ZONE)
+    if not shared or not shared.get("lakehouse_id"):
+        raise PlatformError("Set up the landing workspace first: it has no Shared zone yet")
+    if not shared.get("switched_at"):
+        db.run(f"UPDATE {db.t('catalog', 'landing_zone')} SET switched_at = ?, switched_by = ? WHERE id = ?",
+               (_now(), by, SHARED_ZONE))
+        _audit(db, by, "switch landing reads", SHARED_ZONE, {"lakehouse_id": shared["lakehouse_id"]})
+        db.commit()
+    return list_landing_zones(db)
+
+
+def delete_landing_zone(db: Db, id: str, by: str = "") -> list[dict[str, Any]]:
+    """Take a zone out of the catalog. Its lakehouse and files stay in Fabric. Refused while a source
+    is in it (a source with no zone is in Shared). Platform admins only."""
+    zid = zone_key(id)
+    require_admin(db, by, "remove landing zones")
+    zone = next((z for z in list_landing_zones(db) if z["id"] == zid), None)
+    if zone is None:
+        raise PlatformError(f"{zid} isn't a landing zone")
+    if zone["sources"]:
+        used = zone["sources"]
+        raise PlatformError(f"{zone['name']} still holds {', '.join(used)}: move {'it' if len(used) == 1 else 'them'} "
+                            "to another zone first")
+    db.run(f"DELETE FROM {db.t('catalog', 'landing_zone')} WHERE id = ?", (zid,))
+    _audit(db, by, "delete landing zone", zid)
+    db.commit()
+    return list_landing_zones(db)
+
+
 def _save_readers(db: Db, project: str, landing: dict[str, list[str]]) -> None:
     db.run(f"DELETE FROM {db.t('catalog', 'reader')} WHERE project = ?", (project,))
     for source, entities in sorted((landing or {}).items()):
@@ -971,13 +1284,104 @@ def _product_owners(product: dict[str, Any]) -> set[str]:
     return _names(product.get("owner"))
 
 
+def workspace_name(value: Any) -> str:
+    """A Fabric workspace's name as Fabric takes it: up to 256 characters, none of \\ / : * ? " < > | # %."""
+    name = re.sub(r"\s+", " ", str(value or "")).strip()
+    if not name or len(name) > 256 or _WS_BAD.search(name):
+        raise PlatformError(f"{name!r} isn't a workspace name: up to 256 characters, without \\ / : * ? \" < > | # %")
+    return name
+
+
+def principal(value: Any) -> dict[str, str]:
+    """A person by email or UPN, or a group by its object ID (Microsoft Entra), as a request stores it."""
+    if isinstance(value, dict):
+        text, name = str(value.get("id") or value.get("email") or "").strip(), str(value.get("name") or "").strip()
+    else:
+        text, name = str(value or "").strip(), ""
+    if _GUID.match(text):
+        return {"type": "Group", "id": text.lower(), "email": "", "name": name or text.lower()}
+    if _EMAIL.match(text):
+        return {"type": "User", "id": "", "email": text.lower(), "name": name or text.lower()}
+    raise PlatformError(f"{text or 'Nobody'} isn't a person's email or UPN, or a group's object ID")
+
+
+def _principals(values: Any) -> list[dict[str, str]]:
+    items = values if isinstance(values, list) else [v for v in re.split(r"[,;\n]", str(values or "")) if v.strip()]
+    out, seen = [], set()
+    for v in items:
+        p = principal(v)
+        if (p["id"] or p["email"]) not in seen:
+            seen.add(p["id"] or p["email"])
+            out.append(p)
+    return out
+
+
+def _check_workspace(db: Db, target: str, detail: dict[str, Any], reason: str) -> tuple[str, dict[str, Any]]:
+    name = workspace_name(detail.get("name") or target)
+    capacity = str(detail.get("capacity_id") or "").strip().lower()
+    if capacity and not _GUID.match(capacity):
+        raise PlatformError("Pick the capacity from the list")
+    domain = str(detail.get("domain_id") or "").strip()
+    row = _row(db, "domain", "id", domain_id(domain)) if domain else None
+    if domain and row is None:
+        raise PlatformError(f"{domain} isn't one of the platform's domains")
+    admins = _principals(detail.get("admins"))
+    if not admins:
+        raise PlatformError("Say who its admins are: a person's email or UPN, or a group's object ID")
+    if not str(reason or "").strip():
+        raise PlatformError("Say what the workspace is for")
+    return name, {"name": name, "capacity_id": capacity, "capacity_name": str(detail.get("capacity_name") or ""),
+                  "domain_id": row["id"] if row else "", "domain_name": row["name"] if row else "",
+                  "fabric_domain": (row or {}).get("fabric_domain") or "", "admins": admins}
+
+
+def _check_workspace_access(db: Db, target: str, detail: dict[str, Any], by: str) -> tuple[str, dict[str, Any]]:
+    wid = str(detail.get("workspace_id") or "").strip().lower()
+    if not _GUID.match(wid):
+        raise PlatformError("Pick the workspace, or paste its ID from its address in Fabric")
+    role = str(detail.get("role") or "").strip().title()
+    if role not in WORKSPACE_ROLES:
+        raise PlatformError(f"role must be one of {', '.join(WORKSPACE_ROLES)}")
+    if str(detail.get("who") or "me") == "me":
+        if not _EMAIL.match(_who(by)):
+            raise PlatformError("Sign in, so the request says who you are")
+        who = principal(_who(by))
+    else:
+        who = principal({"id": detail.get("group_id"), "name": detail.get("group_name")})
+        if who["type"] != "Group":
+            raise PlatformError("A group is given by its object ID (Microsoft Entra admin center > Groups)")
+    name = str(detail.get("workspace_name") or target or wid).strip()
+    return name, {"workspace_id": wid, "workspace_name": name, "role": role, "principal": who}
+
+
+def _check_domain(db: Db, target: str, detail: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    name = str(detail.get("name") or target or "").strip()
+    if not name:
+        raise PlatformError("A domain needs a name")
+    did = domain_id(detail.get("id") or name)
+    if _row(db, "domain", "id", did):
+        raise PlatformError(f"{did} is already a domain")
+    parent = str(detail.get("parent_id") or "").strip()
+    if parent:
+        parent = domain_id(parent)
+        p = _row(db, "domain", "id", parent)
+        if p is None:
+            raise PlatformError(f"parent domain {parent} doesn't exist")
+        if p.get("parent_id"):
+            raise PlatformError("Subdomains go one level deep: pick a top-level domain as the parent")
+    return did, {"id": did, "name": name, "parent_id": parent, "description": str(detail.get("description") or ""),
+                 "owners": str(detail.get("owners") or "").strip()}
+
+
 def request(db: Db, kind: str, target: str, project: str = "", reason: str = "", detail: dict[str, Any] | None = None,
             by: str = "") -> dict[str, Any]:
-    """Ask for something only someone else may give: a key table or source (platform admins), or
-    access to a domain or private data product (its owner)."""
+    """Ask for something only someone else may give: a key table, source, workspace, domain or policy
+    exception (platform admins), or access to a domain or private data product (its owner). Every
+    field is checked now, so a request that couldn't be carried out is refused before anyone decides."""
     if kind not in REQUEST_KINDS:
         raise PlatformError(f"kind must be one of {', '.join(REQUEST_KINDS)}")
     detail = dict(detail or {})
+    detail.pop("made", None)  # only the person approving records what was made
     target = str(target or "").strip()
     if kind == "key_table":
         target = key_name(target)
@@ -994,6 +1398,16 @@ def request(db: Db, kind: str, target: str, project: str = "", reason: str = "",
         target = shortcut_id(detail["item_id"], f"{str(detail['where']).strip('/')}/{detail['name']}")
         if _row(db, "shortcut", "id", target):
             raise PlatformError(f"There's already a shortcut {detail['name']} there")
+    elif kind == "workspace":
+        target, detail = _check_workspace(db, target, detail, reason)
+    elif kind == "workspace_access":
+        target, detail = _check_workspace_access(db, target, detail, by)
+    elif kind == "domain":
+        target, detail = _check_domain(db, target, detail)
+    elif kind in REQUEST_HOOKS:
+        target, detail = REQUEST_HOOKS[kind]["check"](db, target, detail, reason, by)
+    elif kind == "exception":
+        raise PlatformError("The platform can't take policy exceptions yet: governance policies aren't set up")
     else:
         product = _row(db, "product", "id", target)
         if product is None:
@@ -1004,17 +1418,51 @@ def request(db: Db, kind: str, target: str, project: str = "", reason: str = "",
             raise PlatformError(f"{target} is open to everyone: link to it without asking")
         if _row(db, "grant", "id", f"{target}|{project}"):
             raise PlatformError(f"{project} already has access to {target}")
-    for r in db.rows(f"SELECT * FROM {db.t('catalog', 'request')} WHERE kind = ? AND target = ? AND status = 'waiting'",
-                     (kind, target)):
-        if kind != "access" or r["project"] == project:
-            raise PlatformError(f"There's already a request waiting for {target}, from {r['requested_by'] or 'someone'}")
     row = {"id": uuid.uuid4().hex[:12], "kind": kind, "target": target, "detail": json.dumps(detail),
            "project": project or "", "reason": str(reason or ""), "requested_by": _who(by), "requested_at": _now(),
            "status": "waiting", "decided_by": "", "decided_at": "", "note": ""}
+    mine = _duplicate_key(_request_out(row))
+    for r in db.rows(f"SELECT * FROM {db.t('catalog', 'request')} WHERE kind = ? AND status = 'waiting'", (kind,)):
+        if _duplicate_key(_request_out(r)) == mine:
+            raise PlatformError(f"There's already a request waiting for {target}, from {r['requested_by'] or 'someone'}")
     _upsert(db, "catalog", "request", "id", row)
     _audit(db, by, f"request {kind}", target, {"project": project})
     db.commit()
     return _request_out(row)
+
+
+def _duplicate_key(req: dict[str, Any]) -> str:
+    """Two waiting requests with the same key are the same request: the same target, and for some
+    kinds the same project, person or group, or scope too."""
+    d = req.get("detail") or {}
+    kind, target = req["kind"], str(req.get("target") or "")
+    if kind == "access":
+        return f"{target}|{req.get('project') or ''}"
+    if kind == "workspace":
+        return target.lower()
+    if kind == "workspace_access":
+        p = d.get("principal") or {}
+        return f"{d.get('workspace_id')}|{p.get('id') or p.get('email')}"
+    if kind == "exception":
+        return f"{target}|{d.get('scope')}|{str(d.get('scope_target') or '').lower()}"
+    return target
+
+
+def record_request_progress(db: Db, id: str, made: dict[str, Any], by: str = "") -> dict[str, Any]:
+    """Note what approving a request has made so far in Fabric (a workspace's id, the admins added),
+    so a retry after a failed step finds it instead of making it twice. Only someone who may decide it."""
+    req = _row(db, "request", "id", str(id))
+    if req is None or req["status"] != "waiting":
+        raise PlatformError("Only a waiting request can be carried out")
+    req = _request_out(req)
+    if not (is_admin(db, by) or _who(by) in _deciders(db, req)):
+        raise PlatformError("Only a platform admin can carry out this request")
+    detail = dict(req["detail"])
+    detail["made"] = {**(detail.get("made") or {}), **{str(k): v for k, v in (made or {}).items()}}
+    db.run(f"UPDATE {db.t('catalog', 'request')} SET detail = ? WHERE id = ?", (json.dumps(detail), req["id"]))
+    _audit(db, by, f"made for {req['kind']} request", req["target"], {"request": req["id"], "made": made})
+    db.commit()
+    return _request_out(_row(db, "request", "id", req["id"]) or {})
 
 
 def _request_out(row: dict[str, Any]) -> dict[str, Any]:
@@ -1069,6 +1517,20 @@ def decide_request(db: Db, id: str, approve: bool, note: str = "", by: str = "")
             _put_source(db, _source_row({"name": req["target"], **d}, _who(by)))
         elif req["kind"] == "shortcut":
             pass  # the app creates the shortcut in Fabric first, as the person approving, then approves
+        elif req["kind"] == "workspace":
+            # The app makes it in Fabric first, as the person approving (central/requests_service.py).
+            if not (d.get("made") or {}).get("workspace_id"):
+                raise PlatformError("Create the workspace first: approve this request in KratosForge")
+        elif req["kind"] == "workspace_access":
+            if not (d.get("made") or {}).get("assigned"):
+                raise PlatformError("Add the role first: approve this request in KratosForge")
+        elif req["kind"] == "domain":
+            if _row(db, "domain", "id", req["target"]) is None:
+                raise PlatformError(f"Save the domain {req['target']} first: approve this request in KratosForge")
+        elif req["kind"] in REQUEST_HOOKS:
+            REQUEST_HOOKS[req["kind"]]["approve"](db, req, by)
+        elif req["kind"] == "exception":
+            raise PlatformError("The platform can't record policy exceptions yet: governance policies aren't set up")
         else:
             _upsert(db, "catalog", "grant", "id", {"id": f"{req['target']}|{req['project']}", "product_id": req["target"],
                                                    "project": req["project"], "request_id": req["id"],
@@ -1122,6 +1584,31 @@ DEFAULT_SHORTCUT_RULES = {"cross_env": "block", "storage_role": "warn", "depreca
                           "connections": "off", "allowed_connections": [], "who_creates": "anyone"}
 
 
+ACCEPTABLE_RISKS = ("cross_env",)
+# Columns catalog.shortcut gained after it was made: the last names its OneLake target was seen
+# with, so a target lakehouse that's gone can still be named, and found again by name.
+_SHORTCUT_ADDED = ("target_workspace_name", "target_lakehouse_name")
+
+
+def ensure_shortcut_risks(db: Db) -> list[str]:
+    """Give a platform made before accepted risks catalog.shortcut_risk and catalog.shortcut's
+    target name columns. Additive only, and safe to run again; the shortcut operations that use
+    them call it, so a platform in Fabric gets them on first use."""
+    added = []
+    if not db.exists("catalog", "shortcut_risk"):
+        cols = _CATALOG["shortcut_risk"]
+        db.run(f"CREATE TABLE {db.t('catalog', 'shortcut_risk')} ({', '.join(_column(db, n, k) for n, k in cols)})")
+        added.append("catalog.shortcut_risk")
+    have = _columns(db, "shortcut")
+    for col in _SHORTCUT_ADDED:
+        if col not in have:
+            db.run(f"ALTER TABLE {db.t('catalog', 'shortcut')} ADD {'' if db.tsql else 'COLUMN '}{_column(db, col, 'text')}")
+            added.append(f"catalog.shortcut.{col}")
+    if added:
+        db.commit()
+    return added
+
+
 def shortcut_id(lakehouse_id: str, full_path: str) -> str:
     return f"{lakehouse_id}|{str(full_path).strip('/')}"
 
@@ -1168,6 +1655,7 @@ def record_shortcuts(db: Db, lakehouses: list[dict[str, Any]], shortcuts: list[d
     were all read, ``shortcuts`` [{lakehouse_id, workspace_id, workspace_name, lakehouse_name, path, name,
     target}] is everything in them. Records what's new, gone or pointing somewhere else since the last
     scan, and returns those changes. A lakehouse scanned for the first time only sets the baseline."""
+    ensure_shortcut_risks(db)
     now = _now()
     scanned = {str(l["lakehouse_id"]): l for l in lakehouses if l.get("lakehouse_id")}
     seen = {}
@@ -1186,6 +1674,9 @@ def record_shortcuts(db: Db, lakehouses: list[dict[str, Any]], shortcuts: list[d
                "lakehouse_id": s.get("lakehouse_id"), "lakehouse_name": s.get("lakehouse_name"),
                "path": str(s.get("path") or "").strip("/"), "name": s.get("name"), "target": _canon(s.get("target")),
                "last_seen": now}
+        for col in _SHORTCUT_ADDED:  # a target seen by name keeps it; one that's gone keeps its last
+            if s.get(col):
+                row[col] = str(s[col])
         if before is None:
             row |= {"health": "not_checked", "health_detail": "", "checked_at": "", "first_seen": now}
             if str(s["lakehouse_id"]) not in first:
@@ -1193,11 +1684,14 @@ def record_shortcuts(db: Db, lakehouses: list[dict[str, Any]], shortcuts: list[d
         elif _canon(json.loads(before.get("target") or "{}")) != row["target"]:
             changes.append(_change(db, "repointed", sid, s, _definition(_shortcut_out(before)), _definition(s), "", "scan"))
             row |= {"health": "not_checked", "health_detail": "", "checked_at": ""}
+            row |= {col: str(s.get(col) or "") for col in _SHORTCUT_ADDED}
+            _end_risks(db, sid, "", "it was repointed (seen at scan)")
         _upsert(db, "catalog", "shortcut", "id", row)
     for sid, before in stored.items():
         if sid not in seen:
             changes.append(_change(db, "removed", sid, before, _definition(_shortcut_out(before)), None, "", "scan"))
             db.run(f"DELETE FROM {db.t('catalog', 'shortcut')} WHERE id = ?", (sid,))
+            _end_risks(db, sid, "", "it was removed (seen at scan)")
     for lh in scanned:
         _upsert(db, "catalog", "shortcut_scope", "lakehouse_id",
                 {"lakehouse_id": lh, "first_scan": (_row(db, "shortcut_scope", "lakehouse_id", lh) or {}).get("first_scan") or now,
@@ -1212,6 +1706,7 @@ def log_shortcut_change(db: Db, kind: str, shortcut: dict[str, Any], before: dic
     so the next scan doesn't count it again."""
     if kind not in ("added", "removed", "repointed"):
         raise PlatformError("kind is added, removed or repointed")
+    ensure_shortcut_risks(db)
     sid = shortcut_id(shortcut["lakehouse_id"], f"{str(shortcut.get('path') or '').strip('/')}/{shortcut.get('name')}")
     out = _change(db, kind, sid, shortcut, before, after, by, "app", note)
     if kind == "removed":
@@ -1224,7 +1719,11 @@ def log_shortcut_change(db: Db, kind: str, shortcut: dict[str, Any], before: dic
             "lakehouse_id": shortcut.get("lakehouse_id"), "lakehouse_name": shortcut.get("lakehouse_name"),
             "path": str(shortcut.get("path") or "").strip("/"), "name": shortcut.get("name"),
             "target": _canon((after or {}).get("target")), "health": "not_checked", "health_detail": "",
-            "checked_at": "", "first_seen": prev.get("first_seen") or now, "last_seen": now})
+            "checked_at": "", "first_seen": prev.get("first_seen") or now, "last_seen": now,
+            # a new target: the next scan names it
+            "target_workspace_name": "", "target_lakehouse_name": ""})
+    if kind in ("removed", "repointed"):
+        _end_risks(db, sid, by, f"it was {kind}")
     _audit(db, by, f"shortcut {kind}", sid, {"note": note} if note else None)
     db.commit()
     return out
@@ -1295,21 +1794,266 @@ def save_shortcut_rules(db: Db, rules: dict[str, Any], by: str = "") -> dict[str
     return out
 
 
+# ---- accepted risks: a platform admin says a flagged shortcut is fine, and why. Repointing or
+# removing the shortcut ends it, so a new target is judged afresh.
+
+def _risk_out(row: dict[str, Any]) -> dict[str, Any]:
+    return {"shortcut_id": row["shortcut_id"], "kind": row["kind"], "reason": row.get("reason") or "",
+            "by": row.get("accepted_by") or "", "at": row.get("accepted_at") or ""}
+
+
+def _end_risks(db: Db, sid: str, by: str, why: str) -> None:
+    for r in db.rows(f"SELECT * FROM {db.t('catalog', 'shortcut_risk')} WHERE shortcut_id = ?", (sid,)):
+        db.run(f"DELETE FROM {db.t('catalog', 'shortcut_risk')} WHERE id = ?", (r["id"],))
+        _audit(db, by, "end accepted shortcut risk", sid, {"kind": r["kind"], "why": why})
+
+
+def list_shortcut_risks(db: Db) -> list[dict[str, Any]]:
+    ensure_shortcut_risks(db)
+    return [_risk_out(r) for r in db.rows(f"SELECT * FROM {db.t('catalog', 'shortcut_risk')}")]
+
+
+def accept_shortcut_risk(db: Db, shortcut_id: str, kind: str, reason: str, by: str = "") -> dict[str, Any]:
+    """Accept a flagged risk on one shortcut (Dev reading Prod on purpose). Platform admins only."""
+    require_admin(db, by, "accept a shortcut's risk")
+    ensure_shortcut_risks(db)
+    if kind not in ACCEPTABLE_RISKS:
+        raise PlatformError(f"Only {', '.join(ACCEPTABLE_RISKS)} can be accepted")
+    reason = str(reason or "").strip()
+    if not reason:
+        raise PlatformError("Say why it's fine, so the next person knows")
+    row = _row(db, "shortcut", "id", str(shortcut_id))
+    if row is None:
+        raise PlatformError("That shortcut isn't in the platform's inventory. Refresh Shortcuts, then try again")
+    out = {"id": f"{shortcut_id}#{kind}", "shortcut_id": str(shortcut_id), "kind": kind, "reason": reason,
+           "target": row.get("target") or "", "accepted_by": _who(by), "accepted_at": _now()}
+    _upsert(db, "catalog", "shortcut_risk", "id", out)
+    _audit(db, by, "accept shortcut risk", str(shortcut_id), {"kind": kind, "reason": reason})
+    db.commit()
+    return _risk_out(out)
+
+
+def withdraw_shortcut_risk(db: Db, shortcut_id: str, kind: str, by: str = "") -> list[dict[str, Any]]:
+    """Take back an accepted risk: the shortcut is flagged again. Platform admins only."""
+    require_admin(db, by, "withdraw a shortcut's accepted risk")
+    ensure_shortcut_risks(db)
+    key = f"{shortcut_id}#{kind}"
+    if _row(db, "shortcut_risk", "id", key) is None:
+        raise PlatformError("That risk isn't accepted")
+    db.run(f"DELETE FROM {db.t('catalog', 'shortcut_risk')} WHERE id = ?", (key,))
+    _audit(db, by, "withdraw shortcut risk", str(shortcut_id), {"kind": kind})
+    db.commit()
+    return list_shortcut_risks(db)
+
+
+# --------------------------------------------------------------------------- trust badges (Preview)
+# Endorsement (Certified, Promoted, Master data) is set in Fabric, and only Fabric administrators can
+# read it, through Power BI's admin tenant scan. A platform admin who is also a Fabric administrator
+# scans (central/trust_service.py); what the scan read is kept here, so everyone sees the last scan's
+# badge. Nothing here sets endorsement in Fabric, and an item no scan has read stays unknown.
+# Business terms are typed by a product's owner with a link to the term in Microsoft Purview; nothing
+# here reads Purview.
+
+PURVIEW_HOSTS = ("purview.microsoft.com", "web.purview.azure.com")
+MAX_TERM = 200
+MAX_URL = 2000
+_ENDORSEMENT_LABELS = {"certified": "Certified", "promoted": "Promoted", "masterdata": "Master data", "none": "None"}
+_TRUST_TABLES = ("endorsement", "product_term")
+_SPACES = re.compile(r"\s+")
+
+
+def ensure_trust_badges(db: Db) -> list[str]:
+    """Give a platform made before trust badges catalog.endorsement and catalog.product_term.
+    Additive only, and safe to run again; the operations that use them call it, so a platform in
+    Fabric gets them on first use."""
+    added = []
+    for table in _TRUST_TABLES:
+        if not db.exists("catalog", table):
+            cols = _CATALOG[table]
+            db.run(f"CREATE TABLE {db.t('catalog', table)} ({', '.join(_column(db, n, k) for n, k in cols)})")
+            added.append(f"catalog.{table}")
+    if added:
+        db.commit()
+    return added
+
+
+def endorsement_label(value: Any) -> str:
+    """Fabric's endorsement value as the app shows it: Certified, Promoted, Master data or None.
+    A value this app doesn't know is kept as Fabric wrote it, never mapped to another."""
+    text = str(value or "").strip()
+    if not text:
+        return "None"
+    return _ENDORSEMENT_LABELS.get(re.sub(r"[\s_-]", "", text.lower()), text[:MAX_BK])
+
+
+def product_items(product: dict[str, Any]) -> list[dict[str, Any]]:
+    """The Fabric items behind a published product: the lakehouses its ports live in, in the highest
+    environment it's published to (Prod, else Test, else Dev). Only items the catalog recorded."""
+    ports = [p for p in product.get("ports") or [] if p.get("lakehouse_id")]
+    here: list[dict[str, Any]] = []
+    env = ""
+    for env in ("prod", "test", "dev"):
+        here = [p for p in ports if p.get("env") == env]
+        if here:
+            break
+    items: dict[str, dict[str, Any]] = {}
+    for p in here:
+        iid = str(p["lakehouse_id"]).strip().lower()
+        items.setdefault(iid, {"item_id": iid, "workspace_id": str(p.get("workspace_id") or "").strip().lower(),
+                               "workspace_name": p.get("workspace_name") or "", "item_type": "Lakehouse",
+                               "item_name": p.get("lakehouse_name") or "", "env": env})
+    return sorted(items.values(), key=lambda i: (i["item_name"], i["item_id"]))
+
+
+def purview_url(value: Any) -> str:
+    """A link to a term in Microsoft Purview: https on purview.microsoft.com or web.purview.azure.com
+    (or a host under them), with no sign-in name or other port in it. Anything else is refused."""
+    text = str(value or "").strip()
+    problem = PlatformError("Paste the term's address from Purview: an https link on purview.microsoft.com "
+                            "or web.purview.azure.com")
+    if not text or len(text) > MAX_URL or "\\" in text or any(ord(ch) <= 0x20 or ord(ch) == 0x7F for ch in text):
+        raise problem
+    try:
+        parts = urlsplit(text)
+        port = parts.port
+    except ValueError:
+        raise problem from None
+    host = (parts.hostname or "").lower()
+    if parts.scheme.lower() != "https" or "@" in parts.netloc or port not in (None, 443):
+        raise problem
+    if not any(host == h or host.endswith(f".{h}") for h in PURVIEW_HOSTS):
+        raise problem
+    return text
+
+
+def _product(db: Db, product_id: str) -> dict[str, Any]:
+    product = _row(db, "product", "id", str(product_id or ""))
+    if product is None:
+        raise PlatformError(f"{product_id} isn't a published data product")
+    return product
+
+
+def _can_edit_terms(db: Db, product: dict[str, Any], by: str) -> bool:
+    return is_admin(db, by) or _who(by) in _product_owners(product)
+
+
+def _term_key(product_id: str, term: Any) -> str:
+    return f"{product_id}|{_SPACES.sub(' ', str(term or '')).strip().lower()}"
+
+
+def list_product_terms(db: Db, product_id: str) -> list[dict[str, Any]]:
+    ensure_trust_badges(db)
+    rows = db.rows(f"SELECT * FROM {db.t('catalog', 'product_term')} WHERE product_id = ?", (str(product_id),))
+    return sorted(({"term": r["term"], "url": r["url"], "added_by": r.get("added_by") or "",
+                    "added_at": r.get("added_at") or ""} for r in rows), key=lambda t: t["term"].lower())
+
+
+def product_trust(db: Db, product_id: str, by: str = "") -> dict[str, Any]:
+    """A product's trust badges: each Fabric item behind it with the endorsement the last tenant scan
+    read (None when no scan has read it: unknown, never guessed), and its business terms."""
+    ensure_trust_badges(db)
+    product = _product(db, product_id)
+    ports = db.rows(f"SELECT * FROM {db.t('catalog', 'port')} WHERE product_id = ?", (product["id"],))
+    items = []
+    for item in product_items({"ports": ports}):
+        seen = _row(db, "endorsement", "item_id", item["item_id"]) or {}
+        items.append(item | {"endorsement": seen.get("endorsement") or None, "certified_by": seen.get("certified_by") or "",
+                             "scanned_at": seen.get("scanned_at") or "", "scanned_by": seen.get("scanned_by") or ""})
+    return {"product_id": product["id"], "name": product.get("name") or "", "owner": product.get("owner") or "",
+            "items": items, "terms": list_product_terms(db, product["id"]), "admin": is_admin(db, by),
+            "can_edit_terms": _can_edit_terms(db, product, by)}
+
+
+def record_endorsements(db: Db, items: list[dict[str, Any]], by: str = "",
+                        cleared: list[str] | None = None) -> dict[str, Any]:
+    """Keep what Fabric's admin tenant scan read for each product item, so everyone sees it. Platform
+    admins only: a badge everyone trusts can't be written by whoever calls. `cleared` are items the
+    scan looked for but didn't confirm: their last reading goes, so they show unknown, never an old badge."""
+    require_admin(db, by, "save endorsement from Fabric's tenant scan")
+    ensure_trust_badges(db)
+    at, counts = _now(), {}
+    gone = 0
+    for cid in cleared or []:
+        cid = str(cid or "").strip().lower()
+        if cid and len(cid) <= MAX_BK and _row(db, "endorsement", "item_id", cid) is not None:
+            db.run(f"DELETE FROM {db.t('catalog', 'endorsement')} WHERE item_id = ?", (cid,))
+            gone += 1
+    for it in items or []:
+        iid = str((it or {}).get("item_id") or "").strip().lower()
+        if not iid or len(iid) > MAX_BK:
+            raise PlatformError("Each scanned item needs its Fabric item id")
+        label = endorsement_label(it.get("endorsement"))
+        row = {"item_id": iid, "workspace_id": str(it.get("workspace_id") or "")[:MAX_BK],
+               "item_type": str(it.get("item_type") or "")[:MAX_BK], "item_name": str(it.get("item_name") or "")[:MAX_BK],
+               "endorsement": label, "certified_by": str(it.get("certified_by") or "").strip()[:MAX_BK],
+               "scanned_at": at, "scanned_by": _who(by)}
+        _upsert(db, "catalog", "endorsement", "item_id", row)
+        counts[label] = counts.get(label, 0) + 1
+    # Who certified stays out of the audit detail: Fabric may give a sign-in name.
+    _audit(db, by, "record endorsement scan", "endorsement",
+           {"items": sum(counts.values()), "endorsement": counts, "cleared": gone})
+    db.commit()
+    return {"recorded": sum(counts.values()), "cleared": gone, "scanned_at": at}
+
+
+def add_product_term(db: Db, product_id: str, term: str, url: str, by: str = "") -> list[dict[str, Any]]:
+    """Put a business term on a product, with a link to the term in Microsoft Purview. The product's
+    owner or a platform admin. The same term again changes its link."""
+    ensure_trust_badges(db)
+    product = _product(db, product_id)
+    if not _can_edit_terms(db, product, by):
+        raise PlatformError("Only the product's owner or a platform admin can add business terms")
+    name = _SPACES.sub(" ", str(term or "")).strip()
+    if not name or len(name) > MAX_TERM:
+        raise PlatformError(f"A business term needs a name of up to {MAX_TERM} characters")
+    link = purview_url(url)
+    row = {"id": _term_key(product["id"], name), "product_id": product["id"], "term": name, "url": link,
+           "added_by": _who(by), "added_at": _now()}
+    _upsert(db, "catalog", "product_term", "id", row)
+    _audit(db, by, "add product term", product["id"], {"term": name, "url": link})
+    db.commit()
+    return list_product_terms(db, product["id"])
+
+
+def remove_product_term(db: Db, product_id: str, term: str, by: str = "") -> list[dict[str, Any]]:
+    """Take a business term off a product; the term stays in Purview. The product's owner or a platform admin."""
+    ensure_trust_badges(db)
+    product = _product(db, product_id)
+    if not _can_edit_terms(db, product, by):
+        raise PlatformError("Only the product's owner or a platform admin can remove business terms")
+    key = _term_key(product["id"], term)
+    if _row(db, "product_term", "id", key) is None:
+        raise PlatformError(f"{term} isn't a business term on {product['id']}")
+    db.run(f"DELETE FROM {db.t('catalog', 'product_term')} WHERE id = ?", (key,))
+    _audit(db, by, "remove product term", product["id"], {"term": _SPACES.sub(" ", str(term or "")).strip()})
+    db.commit()
+    return list_product_terms(db, product["id"])
+
+
 # Everything a caller (the app, a notebook, a report button) may ask the platform to do.
 OPERATIONS = {
     "ensure_schema": ensure_schema, "ensure_key_table": ensure_key_table, "issue_keys": issue_keys,
-    "import_keys": import_keys, "key_stats": key_stats, "lookup_key": lookup_key, "export_keys": export_keys,
+    "import_keys": import_keys, "close_keys": close_keys, "stage_keys": stage_keys, "clear_keys": clear_keys,
+    "keys_state": keys_state,
+    "key_stats": key_stats, "lookup_key": lookup_key, "export_keys": export_keys,
     "list_domains": list_domains, "save_domain": save_domain, "delete_domain": delete_domain,
     "import_fabric_domains": import_fabric_domains,
     "register_project": register_project, "list_projects": list_projects, "register_product": register_product,
     "list_products": list_products, "resolve_port": resolve_port, "register_link": register_link,
     "save_enrichment": save_enrichment, "enrichment": enrichment, "list_glossary": list_glossary,
-    "save_term": save_term, "audit": audit,
+    "save_term": save_term, "audit": audit, "log_workload_action": log_workload_action,
     "whoami": whoami, "list_admins": list_admins, "claim_admin": claim_admin, "add_admin": add_admin,
     "remove_admin": remove_admin, "list_key_tables": list_key_tables, "list_sources": list_sources,
     "save_source": save_source, "delete_source": delete_source, "adopt_sources": adopt_sources, "request": request, "list_requests": list_requests,
+    "list_landing_zones": list_landing_zones, "save_landing_zone": save_landing_zone,
+    "delete_landing_zone": delete_landing_zone, "switch_landing_reads": switch_landing_reads,
     "decide_request": decide_request, "withdraw_request": withdraw_request, "list_grants": list_grants,
+    "record_request_progress": record_request_progress,
     "revoke_grant": revoke_grant, "record_shortcuts": record_shortcuts, "log_shortcut_change": log_shortcut_change,
     "record_shortcut_health": record_shortcut_health, "list_seen_shortcuts": list_seen_shortcuts,
     "shortcut_changes": shortcut_changes, "shortcut_rules": shortcut_rules, "save_shortcut_rules": save_shortcut_rules,
+    "list_shortcut_risks": list_shortcut_risks, "accept_shortcut_risk": accept_shortcut_risk,
+    "withdraw_shortcut_risk": withdraw_shortcut_risk,
+    "product_trust": product_trust, "record_endorsements": record_endorsements,
+    "add_product_term": add_product_term, "remove_product_term": remove_product_term,
 }

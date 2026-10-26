@@ -212,9 +212,15 @@ def compare(tables: Tables, before: dict[str, int], after_local: dict[str, int],
     return rows
 
 
-def verdict(rows: list[dict[str, Any]], local_status: str, fabric_status: str) -> dict[str, Any]:
+def verdict(rows: list[dict[str, Any]], local_status: str, fabric_status: str,
+            local_cell: int | None = None) -> dict[str, Any]:
     """The one line at the top of the comparison."""
     failed = [w for w, s in (("this PC", local_status), ("Fabric", fabric_status)) if s != "ok"]
+    if len(failed) == 2 and local_cell:
+        # The same code failing in both places is usually the notebook or its data, not either side:
+        # this PC's error is the one to read first, it names the line.
+        return {"same": False, "text": f"The run failed on this PC (cell {local_cell}) and in Fabric. "
+                                       "Fix this PC's error first: Fabric usually fails the same way."}
     if failed:
         return {"same": False, "text": f"The run failed on {' and '.join(failed)}, so the results can't be the same."}
     if not rows:
@@ -225,8 +231,10 @@ def verdict(rows: list[dict[str, Any]], local_status: str, fabric_status: str) -
     return {"same": False, "text": f"Results differ in {len(bad)} of {len(rows)} table{'s' if len(rows) != 1 else ''}."}
 
 
-def speed(local_seconds: float | None, fabric_total: float | None, fabric_run: float | None) -> dict[str, str]:
-    """Which side was faster: end to end, and on the notebook's own run time (Fabric's session start left out)."""
+def speed(local_seconds: float | None, fabric_total: float | None, fabric_run: float | None,
+          local_processing: float | None = None) -> dict[str, str]:
+    """Which side was faster: end to end, on the notebook's own run time (Fabric's session start left
+    out) and, when this PC waited on OneLake uploads, on this PC's processing alone."""
     def faster(here: float | None, there: float | None, what: str) -> str:
         if not here or not there:
             return ""
@@ -234,7 +242,10 @@ def speed(local_seconds: float | None, fabric_total: float | None, fabric_run: f
             return f"This PC was {there / here:.1f}x faster {what}"
         return f"Fabric was {here / there:.1f}x faster {what}"
     return {"end_to_end": faster(local_seconds, fabric_total, "end to end"),
-            "run": faster(local_seconds, fabric_run, "on run time alone, leaving out Fabric's session start")}
+            "run": faster(local_seconds, fabric_run, "on run time alone, leaving out Fabric's session start"),
+            "processing": faster(local_processing, fabric_run, "on processing alone, leaving out this PC's wait for "
+                                 "OneLake uploads (Fabric's run time includes its own writes)")
+            if local_processing is not None and local_processing < (local_seconds or 0) else ""}
 
 
 # ---- timing inside the Fabric run

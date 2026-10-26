@@ -104,9 +104,9 @@ items are sequenced at the priority of the work that needs them:
 | Id | Item | Own priority | Sequenced as | Because of |
 | --- | --- | --- | --- | --- |
 | [PB-035](PRODUCT_BACKLOG.md#pb-035) | Pipeline definition engine | P2 | P1 | [PB-036](PRODUCT_BACKLOG.md#pb-036) |
-| [PB-056](PRODUCT_BACKLOG.md#pb-056) | Enterprise policy registry | P2 | P1 | [PB-057](PRODUCT_BACKLOG.md#pb-057) |
+| [PB-056](PRODUCT_BACKLOG.md#pb-056) | Enterprise policy registry | P2 | P1 | [PB-108](PRODUCT_BACKLOG.md#pb-108) |
 | [PB-095](PRODUCT_BACKLOG.md#pb-095) | MCP server and local API for external AI tools | P2 | P1 | [PB-096](PRODUCT_BACKLOG.md#pb-096) |
-| [PB-024](PRODUCT_BACKLOG.md#pb-024) | Native Warehouse and SQL database connectivity | P3 | P2 | [PB-025](PRODUCT_BACKLOG.md#pb-025) |
+| [PB-024](PRODUCT_BACKLOG.md#pb-024) | Native Warehouse and SQL database connectivity | P3 | P2 | [PB-106](PRODUCT_BACKLOG.md#pb-106) |
 <!-- END GENERATED: pulled -->
 
 ## Recommended sequence
@@ -148,7 +148,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-103](PRODUCT_BACKLOG.md#pb-103) | Engineering quality program | 4 | 2 | 5 | 2 | 5 | 4 | 3 | 3.7 | 3.5 | 1.85 | blocker | XL | Medium | none | Engineering quality review |
 | [PB-101](PRODUCT_BACKLOG.md#pb-101) | Codebase audit and hardening program | 4 | 1 | 5 | 2 | 5 | 4 | 3 | 3.5 | 3.5 | 1.75 | blocker | XL | Medium | none | Codebase audit and hardening |
 
-### P1 (30 items)
+### P1 (31 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
@@ -157,6 +157,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-017](PRODUCT_BACKLOG.md#pb-017) | Local vs Fabric execution advisor | 4 | 5 | 4 | 5 | 5 | 3 | 2 | 4.5 | 2.5 | 3.15 | none | M | Medium | PB-050, PB-014 | Administration and FinOps sprint |
 | [PB-081](PRODUCT_BACKLOG.md#pb-081) | Column lineage view | 4 | 1 | 4 | 4 | 4 | 2 | 1 | 3.4 | 1.5 | 3.06 | none | M | High | none | Staged roadmap |
 | [PB-090](PRODUCT_BACKLOG.md#pb-090) | Preflight risk analyzer | 4 | 5 | 4 | 4 | 5 | 3 | 2 | 4.35 | 2.5 | 3.04 | none | M | Medium | PB-050 | Administration and FinOps sprint |
+| [PB-108](PRODUCT_BACKLOG.md#pb-108) | Best-practice checks and governance templates | 4 | 3 | 5 | 4 | 4 | 3 | 2 | 4.05 | 2.5 | 2.83 | none | L | Medium | PB-056 | Enterprise governance foundation |
 | [PB-057](PRODUCT_BACKLOG.md#pb-057) | Offline policy validation | 4 | 2 | 5 | 4 | 5 | 3 | 2 | 4.0 | 2.5 | 2.8 | none | M | Medium | PB-056 | Enterprise governance foundation |
 | [PB-036](PRODUCT_BACKLOG.md#pb-036) | Pipeline activity compatibility registry | 3 | 3 | 3 | 4 | 5 | 2 | 2 | 3.45 | 2.0 | 2.76 | none | M | Medium | PB-035 | Local Fabric pipeline execution |
 | [PB-086](PRODUCT_BACKLOG.md#pb-086) | Ready to work checklist | 3 | 2 | 4 | 2 | 4 | 2 | 1 | 3.05 | 1.5 | 2.75 | none | S | High | none | Enterprise readiness |
@@ -183,12 +184,13 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-006](PRODUCT_BACKLOG.md#pb-006) | Content Security Policy for the main window | 1 | 1 | 5 | 1 | 4 | 3 | 3 | 2.45 | 3.0 | 1.47 | required | M | Medium | none | Enterprise readiness |
 | [PB-104](PRODUCT_BACKLOG.md#pb-104) | Optimize central lakehouse program | 3 | 5 | 4 | 5 | 5 | 5 | 4 | 4.25 | 4.5 | 1.27 | none | XL | Low | none | Optimize central lakehouse |
 
-### P2 (47 items)
+### P2 (49 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
 | [PB-067](PRODUCT_BACKLOG.md#pb-067) | Bounded-memory runs: run dialog and orphan-file cleanup | 4 | 4 | 3 | 3 | 4 | 3 | 2 | 3.6 | 2.5 | 2.52 | none | M | High | none | Staged roadmap |
 | [PB-088](PRODUCT_BACKLOG.md#pb-088) | Capacity inventory and health | 2 | 4 | 5 | 3 | 4 | 3 | 2 | 3.6 | 2.5 | 2.52 | none | M | Medium | PB-050 | Administration and FinOps sprint |
+| [PB-106](PRODUCT_BACKLOG.md#pb-106) | Warehouse development program | 5 | 3 | 4 | 4 | 5 | 4 | 2 | 4.2 | 3.0 | 2.52 | none | XL | Medium | PB-024, PB-025 | Build full warehouse development experience |
 | [PB-094](PRODUCT_BACKLOG.md#pb-094) | Measure the process kernel, not the engine | 3 | 3 | 2 | 2 | 4 | 2 | 1 | 2.75 | 1.5 | 2.48 | none | S | Medium | none | Prove |
 | [PB-043](PRODUCT_BACKLOG.md#pb-043) | Cancel a Fabric run from the app | 3 | 3 | 2 | 1 | 3 | 1 | 1 | 2.45 | 1.0 | 2.45 | none | S | High | none | Master product (unassigned) |
 | [PB-077](PRODUCT_BACKLOG.md#pb-077) | User and agent docs match the code | 3 | 1 | 3 | 1 | 4 | 1 | 1 | 2.45 | 1.0 | 2.45 | none | S | High | none | Master product (unassigned) |
@@ -201,7 +203,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-040](PRODUCT_BACKLOG.md#pb-040) | Fabric workspace Git integration | 4 | 2 | 5 | 3 | 5 | 3 | 3 | 3.85 | 3.0 | 2.31 | none | L | High | none | Git-native development |
 | [PB-044](PRODUCT_BACKLOG.md#pb-044) | Agent queue pruning and dead-job requeue | 2 | 1 | 4 | 1 | 3 | 1 | 1 | 2.3 | 1.0 | 2.3 | none | S | High | none | Master product (unassigned) |
 | [PB-062](PRODUCT_BACKLOG.md#pb-062) | Save a support bundle from Settings | 2 | 1 | 4 | 1 | 3 | 1 | 1 | 2.3 | 1.0 | 2.3 | none | S | High | none | Enterprise readiness |
-| [PB-025](PRODUCT_BACKLOG.md#pb-025) | SQL object explorer | 4 | 1 | 3 | 1 | 3 | 2 | 1 | 2.55 | 1.5 | 2.29 | none | M | Medium | PB-024 | SQL development sprint |
+| [PB-025](PRODUCT_BACKLOG.md#pb-025) | SQL object explorer | 4 | 1 | 3 | 1 | 3 | 2 | 1 | 2.55 | 1.5 | 2.29 | none | M | Medium | PB-024 | Build full warehouse development experience |
 | [PB-023](PRODUCT_BACKLOG.md#pb-023) | Managed SQL execution with cancel and streaming | 4 | 3 | 3 | 2 | 4 | 3 | 2 | 3.25 | 2.5 | 2.27 | none | M | High | none | SQL development sprint |
 | [PB-047](PRODUCT_BACKLOG.md#pb-047) | Incident screens | 3 | 1 | 5 | 3 | 4 | 3 | 2 | 3.25 | 2.5 | 2.27 | none | M | High | none | Workload management |
 | [PB-015](PRODUCT_BACKLOG.md#pb-015) | Write semantics for MERGE, UPDATE and DELETE on this PC | 5 | 5 | 3 | 5 | 5 | 4 | 3 | 4.5 | 3.5 | 2.25 | none | L | Medium | PB-012 | Prove |
@@ -227,6 +229,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-016](PRODUCT_BACKLOG.md#pb-016) | Reproducible environments and Fabric Environment items | 4 | 3 | 4 | 4 | 4 | 4 | 3 | 3.8 | 3.5 | 1.9 | none | L | Low | none | Prove |
 | [PB-083](PRODUCT_BACKLOG.md#pb-083) | Endorsed items scope in the catalog | 2 | 1 | 3 | 1 | 2 | 1 | 1 | 1.9 | 1.0 | 1.9 | none | S | High | none | Master product (unassigned) |
 | [PB-087](PRODUCT_BACKLOG.md#pb-087) | Clean up downloaded preview files | 2 | 1 | 3 | 1 | 2 | 1 | 1 | 1.9 | 1.0 | 1.9 | none | S | Medium | none | Master product (unassigned) |
+| [PB-109](PRODUCT_BACKLOG.md#pb-109) | VS Code developer integration | 5 | 3 | 3 | 4 | 4 | 4 | 3 | 3.8 | 3.5 | 1.9 | none | XL | Low | none | Bring VS Code developers to KratosForge |
 | [PB-073](PRODUCT_BACKLOG.md#pb-073) | Process kernel by default with limits | 4 | 1 | 4 | 2 | 4 | 3 | 3 | 3.1 | 3.0 | 1.86 | none | M | Medium | none | Prove |
 | [PB-079](PRODUCT_BACKLOG.md#pb-079) | Decide the future of the TOML job runner | 2 | 2 | 2 | 1 | 2 | 1 | 1 | 1.85 | 1.0 | 1.85 | none | S | High | none | Master product (unassigned) |
 | [PB-048](PRODUCT_BACKLOG.md#pb-048) | Schedule editing and safer schedule removal | 3 | 1 | 3 | 1 | 3 | 2 | 2 | 2.3 | 2.0 | 1.84 | none | M | High | none | Master product (unassigned) |
@@ -235,15 +238,17 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-060](PRODUCT_BACKLOG.md#pb-060) | Sensitive data classification that complements Purview | 2 | 1 | 5 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | L | Low | PB-056 | Enterprise readiness |
 | [PB-076](PRODUCT_BACKLOG.md#pb-076) | Retire side by side into Prove | 2 | 2 | 3 | 1 | 3 | 2 | 2 | 2.25 | 2.0 | 1.8 | none | S | Medium | none | Prove |
 
-### P3 (11 items)
+### P3 (13 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
 | [PB-092](PRODUCT_BACKLOG.md#pb-092) | Shared workload ownership | 2 | 1 | 4 | 2 | 3 | 3 | 2 | 2.45 | 2.5 | 1.72 | none | M | Medium | none | Workload management |
+| [PB-107](PRODUCT_BACKLOG.md#pb-107) | Data Factory program | 4 | 4 | 4 | 4 | 5 | 5 | 3 | 4.15 | 4.0 | 1.66 | none | XL | Medium | PB-037 | Build full Data Factory experience |
 | [PB-100](PRODUCT_BACKLOG.md#pb-100) | Fuller What's new dialog | 2 | 1 | 2 | 1 | 2 | 1 | 1 | 1.65 | 1.0 | 1.65 | none | S | Medium | none | Fuller What's new dialog |
+| [PB-110](PRODUCT_BACKLOG.md#pb-110) | Semantic model interchange (Apache Ossie) | 3 | 1 | 3 | 4 | 3 | 3 | 3 | 2.75 | 3.0 | 1.65 | none | M | Medium | none | TMDL and OSI semantic model conversion |
 | [PB-026](PRODUCT_BACKLOG.md#pb-026) | Notebook debugger | 5 | 2 | 2 | 3 | 4 | 4 | 3 | 3.2 | 3.5 | 1.6 | none | L | Medium | PB-073 | Prove |
 | [PB-030](PRODUCT_BACKLOG.md#pb-030) | Data pipeline and Copy job scope after decision D2 | 3 | 2 | 4 | 3 | 4 | 4 | 3 | 3.2 | 3.5 | 1.6 | none | L | Low | none | Staged roadmap |
-| [PB-024](PRODUCT_BACKLOG.md#pb-024) | Native Warehouse and SQL database connectivity | 4 | 1 | 4 | 2 | 4 | 4 | 3 | 3.1 | 3.5 | 1.55 | none | L | Medium | PB-021 | SQL development sprint |
+| [PB-024](PRODUCT_BACKLOG.md#pb-024) | Native Warehouse and SQL database connectivity | 4 | 1 | 4 | 2 | 4 | 4 | 3 | 3.1 | 3.5 | 1.55 | none | L | Medium | PB-021 | Build full warehouse development experience |
 | [PB-105](PRODUCT_BACKLOG.md#pb-105) | Simplified incident management | 2 | 1 | 5 | 3 | 3 | 4 | 3 | 2.85 | 3.5 | 1.43 | none | L | Low | none | Simplified incident management |
 | [PB-037](PRODUCT_BACKLOG.md#pb-037) | Local DAG execution engine | 4 | 5 | 4 | 5 | 5 | 5 | 4 | 4.5 | 4.5 | 1.35 | none | XL | Low | PB-035, PB-036 | Local Fabric pipeline execution |
 | [PB-020](PRODUCT_BACKLOG.md#pb-020) | Local Warehouse simulation | 4 | 4 | 3 | 5 | 5 | 5 | 4 | 4.05 | 4.5 | 1.21 | none | XL | Low | PB-022 | SQL development sprint |
@@ -263,3 +268,5 @@ are sequenced by those programs; the order here is what the master product view 
 | 2026-10-18 | PB-104 Optimize central lakehouse program (PR-OPT-001..009) added from Chris's Optimize brief; P1 by Chris's override (its score alone gives P3) | Chris |
 | 2026-10-18 | Direction changes from Chris's unit testing: one landing workspace shared by Dev, Test and Prod, split by domain with secure zones (item 24); keys in a Fabric SQL database in a dedicated workspace, per environment or shared still open (item 25); glossary from Purview, Collibra or another catalog instead of our own (item 27); Monitor > Cost becomes Optimize > Cost and savings (item 36). Recorded on FEAT-MESH-02..04, FEAT-ADM-01 and PB-030, PB-050, PB-052, PB-060, PB-068 | Chris |
 | 2026-10-18 | PB-105 Simplified incident management added (unit testing item 33); best-practice actions, in-app guidance and a docs page per area noted as a theme on PB-077 and PB-102 | Master product thread |
+| 2026-10-20 | Business keys: one keys database in a dedicated workspace for all environments (unit testing item 25). Reverses the 2026-10-16 decision to keep keys per environment, so Dev and Test issue the same key numbers as Prod. Recorded on FEAT-MESH-02 and PB-068 | Chris |
+| 2026-10-25 | Product data refreshed for PRs #135 to #650 (the 2026-10-22 refresh had not reached main). Five programs added with their owners' ids: PB-106 Warehouse (WH), PB-107 Data Factory (DF), PB-108 best-practice checks and governance templates, PB-109 VS Code integration, PB-110 Apache Ossie. Merged work moved to In review: PB-005, PB-008, PB-024, PB-025, PB-059 | Product management thread |

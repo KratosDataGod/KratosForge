@@ -128,9 +128,14 @@ def _local(type_: str, title: str, adapter: type, required: tuple[str, ...] = ()
                            **kw)
 
 
+DATA_LIMIT = ("Reads the lakehouse in OneLake its dataset names, when the run is started with lakehouse reads on. "
+              "Tables are read at the version they had when the run first used that lakehouse, or from the run's "
+              "own folder when a notebook step wrote them. Reading OneLake uses some capacity; no Fabric job is "
+              "started and nothing is written.")
 CHILD_LIMIT = ("In Fabric this starts the child pipeline's own run, which uses capacity. On this PC it runs the "
-               "child's definition when the run is given it (by referenceName or pipelineId), and waits for it "
-               "even when waitOnCompletion is false.")
+               "child's definition when the run is given it (by referenceName or pipelineId). With waitOnCompletion "
+               "false the activity succeeds once the child starts; the local run's record still waits for the "
+               "child to end, so its result is in the record.")
 
 
 def _cloud(type_: str, title: str, required: tuple[str, ...] = (), **kw: Any) -> ActivitySupport:
@@ -176,36 +181,44 @@ ENTRIES: tuple[ActivitySupport, ...] = (
                         "dataIntegrationUnits": P("unsupported_locally", "Fabric compute sizing; no meaning here."),
                         "enableSkipIncompatibleRow": CARRIED, "logSettings": CARRIED},
             limitations=("Source and sink settings are carried, not checked against each connector's schema.",)),
-    _static("TridentNotebook", "Notebook", ("notebookId",), aliases=("Notebook",), type_name_verified=False,
-            fabric_capacity="metered_in_fabric", auth=("fabric", "workspace_role"),
-            side_effects=("runs_code", "reads_onelake", "writes_onelake"),
-            external_dependencies=("the notebook item", "its default lakehouse"),
-            planned=Planned("local", LATER, "Runs a local copy through Prove's notebook execution path, once it "
-                            "can be called with parameters."),
-            properties={"workspaceId": CARRIED, "parameters": CARRIED,
-                        "sessionTag": P("unsupported_locally", "High-concurrency session sharing is a Fabric Spark "
-                                        "feature."),
-                        "configuration": P("unsupported_locally", "Spark pool settings apply to Fabric only.")},
-            limitations=("Running on this PC uses a local Python kernel, not Fabric Spark; results can differ.",)),
+    _local("TridentNotebook", "Notebook", A.Notebook, ("notebookId",), aliases=("Notebook",), type_name_verified=False,
+           auth=("fabric",), side_effects=("runs_code", "reads_onelake", "writes_onelake"),
+           external_dependencies=("a copy of the notebook on this PC", "its default lakehouse"),
+           properties={"workspaceId": CARRIED, "parameters": CHECKED,
+                       "sessionTag": P("unsupported_locally", "High-concurrency session sharing is a Fabric Spark "
+                                       "feature."),
+                       "configuration": P("unsupported_locally", "Spark pool settings apply to Fabric only.")},
+           limitations=("Runs the notebook's copy on this PC in a fresh Python kernel, not Fabric Spark; results can "
+                        "differ. Spark notebooks still need a mock.",
+                        "Tables are read at the version they had when the step started and written to the run's own "
+                        "folder in the lakehouse (Files/_fabric_desktop/proofs/pipeline-<run>/), never to its tables. "
+                        "Reading and writing OneLake uses some capacity; no Fabric job is started.",
+                        "The output's result.exitValue is the value given to notebookutils.notebook.exit, as text.")),
     _cloud("SparkJobDefinition", "Spark job definition", ("sparkJobDefinitionId",), type_name_verified=False,
            auth=("fabric", "workspace_role"), side_effects=("runs_code", "starts_fabric_job", "writes_onelake"),
            external_dependencies=("the Spark job definition item",),
            limitations=("Runs only on Fabric Spark.",)),
-    _static("Lookup", "Lookup", ("source",), fabric_capacity="metered_in_fabric", auth=("fabric", "connection"),
-            side_effects=("reads_external", "reads_onelake"), external_dependencies=("source connection",),
-            planned=Planned("simulated", LATER, "Returns rows from a fixture or a local table."),
-            properties={"firstRowOnly": CARRIED, "datasetSettings": CARRIED},
-            limitations=("Fabric returns at most 5,000 rows or 4 MB; not checked here.",)),
-    _static("GetMetadata", "Get Metadata", ("fieldList",), fabric_capacity="metered_in_fabric", auth=("fabric", "connection"),
-            side_effects=("reads_external", "reads_onelake"), external_dependencies=("dataset connection",),
-            planned=Planned("simulated", LATER, "Reads metadata of local files."),
-            properties={"datasetSettings": CARRIED, "storeSettings": CARRIED, "formatSettings": CARRIED}),
-    _static("Script", "Script", ("scripts",), fabric_capacity="metered_in_fabric", auth=("connection",),
-            side_effects=("runs_code", "reads_external", "writes_external"),
-            external_dependencies=("database connection",),
-            planned=Planned("simulated", LATER, "Runs against a local DuckDB copy only, never the real database."),
-            properties={"scriptBlockExecutionTimeout": CARRIED, "logSettings": CARRIED},
-            limitations=("SQL is carried as written; its dialect is the target database's.",)),
+    _local("Lookup", "Lookup", A.ReadData, ("source",), auth=("fabric",), side_effects=("reads_onelake",),
+           external_dependencies=("its lakehouse",),
+           properties={"firstRowOnly": CHECKED, "datasetSettings": CHECKED},
+           limitations=(DATA_LIMIT, "Reads a whole lakehouse table (LakehouseTable dataset); queries and other "
+                        "connections need a mock. At most 5,000 rows, and an output over 4 MB fails, as in Fabric.")),
+    _local("GetMetadata", "Get Metadata", A.ReadData, ("fieldList",), auth=("fabric",), side_effects=("reads_onelake",),
+           external_dependencies=("its lakehouse",),
+           properties={"datasetSettings": CHECKED, "storeSettings": CARRIED, "formatSettings": CARRIED},
+           limitations=(DATA_LIMIT, "A lakehouse table gives exists, itemName, structure and columnCount; a file or "
+                        "folder under Files gives exists, itemName, itemType, size, lastModified and childItems. "
+                        "Files are read as they are now, not pinned; other fields and connections need a mock.")),
+    _local("Script", "Script", A.ReadData, ("scripts",), auth=("fabric",), side_effects=("runs_code", "reads_onelake"),
+           external_dependencies=("its lakehouse, or a local data project named for it",),
+           properties={"scripts": CHECKED, "scriptBlockExecutionTimeout": CHECKED,
+                       "logSettings": P("unsupported_locally", "Script logs aren't written on this PC.")},
+           limitations=("Runs each script through the SQL page's runner, with its policy, Stop and limits. On a "
+                        "lakehouse (with lakehouse reads on) T-SQL runs read-only against its tables as they are now; "
+                        "in a local data project named for it, it may change the project's own tables, but DROP, "
+                        "TRUNCATE and DELETE or UPDATE without WHERE are refused.",
+                        "Warehouse and other connections, and script parameters, need a mock. Query results keep at "
+                        "most 5,000 rows each (outputTruncated). recordsAffected isn't reported.")),
     _static("SqlServerStoredProcedure", "Stored procedure", ("storedProcedureName",), fabric_capacity="metered_in_fabric",
             auth=("connection",), side_effects=("runs_code", "writes_external"),
             external_dependencies=("database connection", "the stored procedure"),

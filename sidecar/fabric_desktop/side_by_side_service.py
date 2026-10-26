@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import threading
 import time
 import uuid
@@ -13,10 +14,14 @@ from typing import Any, Callable
 
 from deltalake import DeltaTable
 
-from . import depgraph, receipts
+from . import depgraph, jsonfile, notebook_cells, receipts
 from . import side_by_side as sbs
 from .fabric_run import TERMINAL, compute_check, uses_local_module, uses_spark
+from .fabric_step import STEP_REFUSED, is_step
 from .onelake import DFS_HOST, FileStore, storage_options
+
+_log = logging.getLogger(__name__)
+_SAVE_LOCK = threading.Lock()  # side_by_side.jsonl is read, changed and written back whole
 
 NOTEBOOK_JOB = "RunNotebook"
 POLL_SECONDS = 5
@@ -91,18 +96,49 @@ class SideBySideMixin:
 
     def _sbs_saved(self) -> list[dict[str, Any]]:
         try:
-            lines = self.side_by_side_file.read_text(encoding="utf-8").splitlines()
-        except OSError:
+            lines = jsonfile.read_text(self.side_by_side_file).splitlines()
+        except FileNotFoundError:
             return []
-        return [json.loads(line) for line in lines if line.strip()]
+        except ValueError:  # not UTF-8: keep the file, start again
+            jsonfile.set_aside(self.side_by_side_file)
+            return []
+        rows, torn = [], False
+        for line in filter(str.strip, lines):
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                torn = True
+        if torn:
+            self._sbs_repair(rows)
+        return rows
+
+    def _sbs_repair(self, rows: list[dict[str, Any]]) -> None:
+        """Copy the torn file aside, then swap in the rows that still read.
+
+        If that fails, the original stays in place and the next save rewrites it. Until the file
+        changes, reads don't try again, so Monitor's polls don't pile up copies or wait on retries."""
+        path = self.side_by_side_file
+        try:
+            stat = path.stat()
+        except OSError:
+            return
+        seen = (stat.st_mtime_ns, stat.st_size)
+        if getattr(self, "_sbs_failed_repair", None) == seen:
+            return
+        try:
+            jsonfile.set_aside(path, keep=True, then=f"the {len(rows)} comparisons that could be read were kept")
+            jsonfile.write_text(path, "".join(json.dumps(r, default=str) + "\n" for r in rows))
+        except OSError as exc:
+            self._sbs_failed_repair = seen
+            _log.warning("%s could not be repaired (%s); showing the comparisons that could be read.", path, exc)
 
     def _sbs_save(self, record: dict[str, Any]) -> None:
         """Keep the finished comparison (without cell outputs, which can be large)."""
         keep = {k: v for k, v in record.items() if not k.startswith("_")}
         keep["local"] = {k: v for k, v in record["local"].items() if k != "cells"}
-        rows = [r for r in self._sbs_saved() if r.get("id") != record["id"]] + [keep]
-        self.root.mkdir(parents=True, exist_ok=True)
-        self.side_by_side_file.write_text("".join(json.dumps(r, default=str) + "\n" for r in rows[-200:]), encoding="utf-8")
+        with _SAVE_LOCK:  # two comparisons finishing together would each drop the other's row
+            rows = [r for r in self._sbs_saved() if r.get("id") != record["id"]] + [keep]
+            jsonfile.write_text(self.side_by_side_file, "".join(json.dumps(r, default=str) + "\n" for r in rows[-200:]))
 
     # ---- what the app calls
 
@@ -113,13 +149,17 @@ class SideBySideMixin:
 
     def side_by_side_start(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
                            compute: str | None = None, workspace: dict[str, str] | None = None,
-                           confirm_writes: list[str] | None = None, confirm_unknown: bool = False) -> dict[str, Any]:
+                           confirm_writes: list[str] | None = None, confirm_unknown: bool = False,
+                           location_ref: dict[str, str] | None = None) -> dict[str, Any]:
         """Run the notebook on this PC, then publish and run it in Fabric, then compare. Returns at once;
-        side_by_side_status reports progress. Takes what the notebook screen sends (notebookPayload).
+        side_by_side_status reports progress. Takes what the notebook screen sends (publishPayload):
+        ``location_ref`` is the repository location's lakehouse, used when the notebook has none and
+        never saved into it.
 
         Both runs write the attached lakehouse's real tables (Prove is the sandboxed way). So a notebook
         that writes tables runs only when the caller confirms exactly the tables side_by_side_writes
         lists, and confirm_unknown when that says reading can't tell."""
+        saved_ref, lakehouse_ref = lakehouse_ref, lakehouse_ref or location_ref
         runs = self._sbs_state()
         if any(r["state"] in ("local", "fabric", "checking") for r in runs.values()):
             raise RuntimeError("A side-by-side run is already going. Wait for it, or cancel it.")
@@ -128,6 +168,9 @@ class SideBySideMixin:
             raise RuntimeError("A replay is using the kernel. End it first.")
         if not lakehouse_ref:
             raise ValueError("Attach a lakehouse first. Both runs read and write it, so their results can be compared.")
+        step = next((n for n, c in enumerate(cells, 1) if is_step(c)), None)
+        if step:
+            raise ValueError(f"This notebook can't run side by side: Cell {step} {STEP_REFUSED}")
         check = compute_check(cells, lakehouse_ref)
         for where, label in (("local", "on this PC"), ("fabric", "in Fabric")):
             if not check[where]["ok"]:
@@ -138,23 +181,30 @@ class SideBySideMixin:
         if sorted(confirm_writes or []) != writes["tables"] or (writes["unknown"] and not confirm_unknown):
             raise PermissionError("Side by side writes this notebook's tables for real, on this PC and then in Fabric. "
                                   "Confirm the tables it writes first, or use Prove, which keeps both runs' writes in a sandbox.")
-        saved = self.notebooks.save(name, cells, lakehouse_ref, compute, workspace)  # type: ignore[attr-defined]
+        # Both runs use the Parameters bar's values: Fabric as the run's parameters, this PC as the
+        # lines runCell adds after the parameter cell. A value the bar shows in red stops it here.
+        parameters = self._bar_parameters(name, cells)  # type: ignore[attr-defined]
+        saved = self.notebooks.save(name, cells, saved_ref, compute, workspace)  # type: ignore[attr-defined]
         # The code revision a receipt would name, so a comparison counts only for the code it ran.
         revision = receipts.code_revision([dict(c) | {"cell_id": cid} for c, cid in zip(cells, saved["cell_ids"], strict=True)])
         ws = self._publish_workspace(name, lakehouse_ref, workspace)  # type: ignore[attr-defined]
         # Sign in now, while the app is in front, rather than from the background.
         self.auth.storage_token()  # type: ignore[attr-defined]
         self.auth.fabric_token()  # type: ignore[attr-defined]
-        code = [i for i, c in enumerate(cells) if c.get("type") != "markdown" and c.get("source", "").strip()
-                and not (c.get("meta") or {}).get("frozen")]
+        code = [i for i, c in enumerate(cells) if notebook_cells.runs(c)]
         record: dict[str, Any] = {
             "id": time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6], "name": name, "state": "local",
             "started_at": _now(), "finished_at": None, "message": "",
-            "lakehouse": {"name": lakehouse_ref.get("name", ""), "workspace_name": lakehouse_ref.get("workspace_name", "")},
-            "workspace_name": ws["workspace_name"], "machine": sbs.machine(), "code_revision": revision["revision"],
+            # Workspace ids, so a tool limited to some workspaces can be shown the run (HD-014).
+            "lakehouse": {"name": lakehouse_ref.get("name", ""), "workspace_name": lakehouse_ref.get("workspace_name", ""),
+                          "workspace_id": lakehouse_ref.get("workspace_id", ""),
+                          "lakehouse_id": lakehouse_ref.get("lakehouse_id", "")},
+            "workspace_id": ws["workspace_id"], "workspace_name": ws["workspace_name"], "machine": sbs.machine(),
+            "code_revision": revision["revision"],
             "local": {"status": "pending", "seconds": None, "cell": None, "cells_total": len(code), "cells": {}},
             "fabric": {"status": "pending", "engine": "python" if uses_local_module(cells) and not uses_spark(cells) else "spark"},
-            "tables": [], "verdict": None, "speed": {}, "_cancel": False}
+            "tables": [], "verdict": None, "speed": {}, "_cancel": False,
+            "_parameters": parameters, "_saved_ref": saved_ref, "_suffixes": self._bar_suffixes(name, cells)}  # type: ignore[attr-defined]
         runs[record["id"]] = record
         threading.Thread(target=self._sbs_run, args=(record, cells, code, lakehouse_ref, compute, ws), daemon=True,
                          name=f"side-by-side-{record['id']}").start()
@@ -182,7 +232,7 @@ class SideBySideMixin:
             return {"cancelled": False}
         record["_cancel"] = True
         if record["state"] == "local":
-            self.kernel.interrupt()  # type: ignore[attr-defined]
+            self.sessions.kernel(record["name"]).interrupt()  # type: ignore[attr-defined]
         elif record["fabric"].get("job_id"):
             f = record["fabric"]
             try:
@@ -224,9 +274,13 @@ class SideBySideMixin:
             record["state"] = "checking"
             after_fabric = tables.versions()
             record["tables"] = sbs.compare(tables, before, after_local, after_fabric)
-            record["verdict"] = sbs.verdict(record["tables"], record["local"]["status"], record["fabric"]["status"])
+            record["verdict"] = sbs.verdict(record["tables"], record["local"]["status"], record["fabric"]["status"],
+                                            record["local"].get("failed_cell"))
             f = record["fabric"]
-            record["speed"] = sbs.speed(record["local"]["seconds"], f.get("total_seconds"), f.get("run_seconds"))
+            if record["local"]["status"] == "ok" and f["status"] == "ok":
+                # A run that stopped early isn't faster, it's shorter.
+                record["speed"] = sbs.speed(record["local"]["seconds"], f.get("total_seconds"), f.get("run_seconds"),
+                                            record["local"].get("processing_seconds"))
             record["state"] = "done"
         except _Cancelled:
             record["state"], record["message"] = "cancelled", "Cancelled."
@@ -241,9 +295,13 @@ class SideBySideMixin:
         local = record["local"]
         local["status"] = "running"
         self._attach(lakehouse_ref)  # type: ignore[attr-defined]
-        kernel = self.kernel  # type: ignore[attr-defined]
+        kernel = self.sessions.kernel(record["name"])  # type: ignore[attr-defined]
         kernel.restart()  # a clean start, as Fabric has
         kernel.notebook_name = record["name"]
+        kernel.resources_dir = self._resources_dir(record["name"])  # type: ignore[attr-defined]
+        kernel.onelake_writes = self._onelake_writes(record["name"])  # type: ignore[attr-defined]
+        kernel.widget_values = dict((self._saved_inputs(record["name"]) or {}).get("widgets") or {})  # type: ignore[attr-defined]
+        suffixes = record.get("_suffixes") or []
         started = time.monotonic()
         status = "ok"
         for n, i in enumerate(code, 1):
@@ -251,7 +309,8 @@ class SideBySideMixin:
                 status = "cancelled"
                 break
             local["cell"] = n
-            kernel.start(cells[i]["source"])
+            extra = suffixes[i] if i < len(suffixes) else ""
+            kernel.start(cells[i]["source"] + (f"\n{extra}" if extra else ""))
             snap = kernel.poll(-1, 0.0)
             outputs = snap.get("outputs") or []
             while snap["status"] == "running":
@@ -262,11 +321,17 @@ class SideBySideMixin:
             snap = kernel.poll(-1, 0.0)  # the finished cell, with all its output
             local["cells"][str(i)] = {"status": snap["status"], "seconds": snap["seconds"],
                                       "outputs": snap.get("outputs") or outputs, "execution_count": snap.get("execution_count")}
+            if snap.get("onelake"):
+                local["cells"][str(i)]["onelake"] = snap["onelake"]
             if snap["status"] != "ok":
                 status = "cancelled" if record["_cancel"] else "failed"
                 local["failed_cell"] = i + 1
+                err = next((o for o in reversed(local["cells"][str(i)]["outputs"]) if o.get("type") == "error"), None)
+                if err:
+                    local["message"] = f"{err.get('ename', 'Error')}: {err.get('evalue', '')}".strip()[:1000]
                 break
         local["seconds"] = round(time.monotonic() - started, 2)
+        local.update(_split(local["seconds"], [c.get("onelake") or {} for c in local["cells"].values()]))
         local["status"] = status
 
     def _sbs_fabric(self, record: dict[str, Any], cells: list[dict[str, Any]], lakehouse_ref: dict[str, str],
@@ -276,9 +341,11 @@ class SideBySideMixin:
         f["status"] = "publishing"
         first, last = sbs.timing_cells(record["id"])
         started = time.monotonic()
-        item = self._publish(record["name"], cells, lakehouse_ref, compute, ws,  # type: ignore[attr-defined]
-                             fabric_cells=[first] + cells + [last])
-        job_id = self.fabric_jobs.run_item_job(item["workspace_id"], item["id"], NOTEBOOK_JOB)  # type: ignore[attr-defined]
+        item = self._publish(record["name"], cells, record.get("_saved_ref"), compute, ws,  # type: ignore[attr-defined]
+                             fabric_cells=[first] + cells + [last], location_ref=lakehouse_ref)
+        parameters = record.get("_parameters")
+        job_id = self.fabric_jobs.run_item_job(item["workspace_id"], item["id"], NOTEBOOK_JOB,  # type: ignore[attr-defined]
+                                               {"parameters": parameters} if parameters else None)
         f.update(status="running", job_id=job_id, item_id=item["id"], workspace_id=item["workspace_id"],
                  url=item["url"], submitted_at=_now())
         self._log_fabric_run({"kind": "Notebook run", "name": record["name"], "workspace_id": item["workspace_id"],  # type: ignore[attr-defined]
@@ -317,6 +384,19 @@ class SideBySideMixin:
             f["cu_seconds"] = round(f["job_seconds"] * cu, 1)
             f["cost"] = round(f["cu_seconds"] / 3600 * float(cfg["price_per_cu_hour"]), 4)
             f["currency"] = cfg["currency"]
+
+
+def _split(seconds: float, cells: list[dict[str, Any]]) -> dict[str, Any]:
+    """This PC's time as processing and waiting on OneLake writes, with what the writes uploaded.
+
+    Cells run one after another, so their waits add up; so do their upload times (each cell's own
+    writes counted once however many ran side by side)."""
+    wait = min(sum(c.get("wait_seconds", 0) for c in cells), seconds)
+    upload = sum(c.get("upload_seconds", 0) for c in cells)
+    total = {k: sum(c.get(k, 0) for c in cells) for k in ("tables", "rows", "bytes", "skipped")}
+    return {"processing_seconds": round(seconds - wait, 2), "upload_wait_seconds": round(wait, 2),
+            "upload": {"seconds": round(upload, 2), **total,
+                       "mb_per_second": round(total["bytes"] / 1e6 / upload, 2) if upload > 0 and total["bytes"] else None}}
 
 
 def _writes(cells: list[dict[str, Any]]) -> dict[str, Any]:

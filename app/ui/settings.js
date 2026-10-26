@@ -3,8 +3,8 @@
 // what their organization fixed in its policy file.
 
 const SOURCE_TEXT = {
-  policy: "Set by your organization",
-  environment: "Set on this PC (FABRIC_DESKTOP_CLIENT_ID)",
+  policy: "Set by your organization's policy",
+  environment: "Set by the FABRIC_DESKTOP_CLIENT_ID environment variable",
   user: "Set by you",
   built_in: "Comes with KratosForge",
   default: "Default",
@@ -24,12 +24,16 @@ const MICROSOFT_SIGN_IN = "Microsoft's Fabric sign-in (no app registration)";
 
 async function loadSettings() {
   state.settings = await rpc("app_settings").catch(() => state.settings || null);
+  applyMotion();  // motion.js
+  applyAppearance();  // features.js
   return state.settings;
 }
 
 async function saveSettings(changes, label = "Not saved") {
   const res = await attempt(() => rpc("save_app_settings", { changes }), label);
   if (res) state.settings = res;
+  applyMotion();
+  applyAppearance();  // features.js
   return res;
 }
 
@@ -76,14 +80,16 @@ function accountMenu(anchor) {
     ? [{ info: `Signed in as ${state.user}` }]
     : [{ label: "Sign in", icon: "person", action: () => signIn().then((ok) => ok && render()) }];
   items.push(
+    previewShown() ? { label: "Profile (Preview)", icon: "person", action: () => { profilePage.tab = "overview"; go("profile"); } } : null,
     { label: "Settings", icon: "settings", action: () => go("settings") },
     { label: "Help and user guide", icon: "help", action: () => invoke("open_doc", { page: "user-guide.md" }).catch(() => {}) },
     { label: "Report a problem", icon: "bug", action: reportProblem },
     { label: "What's new", icon: "rocket", action: () => showWhatsNew(true) },
+    { label: "Check for updates", icon: "sync", action: checkForUpdates },
     { info: `KratosForge build ${state.build || "unknown"} · ${channelLabel()}` },
   );
   if (state.user) items.push({ label: "Sign out", icon: "signOut", action: signOut });
-  showMenu(anchor, items);
+  showMenu(anchor, items.filter(Boolean));
 }
 
 function channelLabel() {
@@ -102,10 +108,12 @@ function redactReport(text, level = "support") {
     .replace(/(\bbearer\s+)[A-Za-z0-9._~+/=\-]{8,}/gi, "$1[removed]")
     .replace(/([?&]sig=)[^&\s"'<>]+/gi, "$1[removed]")
     .replace(/(\b[a-z][a-z0-9+.\-]*:\/\/)[^/\s:@"'<>]+:[^@/\s"'<>]+@/gi, "$1[removed]@")
-    .replace(/https:\/\/[A-Za-z0-9.\-]+\.webhook\.office\.com\/[^\s"'<>]+/g, "[removed]")
+    .replace(/https:\/\/(?:[A-Za-z0-9.\-]+\.webhook\.office\.com\/|outlook\.office(?:365)?\.com\/webhook(?:b2)?\/)[^\s"'<>]+/gi, "[removed]")
+    .replace(/\/webhook(?:b2)?\/[^\s"'<>/]+@[^\s"'<>/]+\/IncomingWebhook\/[^\s"'<>]+/gi, "[removed]")
     .replace(/\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,})\b/g, "[removed]")
     .replace(/(?<![A-Za-z0-9_~.\-])[A-Za-z0-9_~.\-]{3}\dQ~[A-Za-z0-9_~.\-]{31,34}(?![A-Za-z0-9_~.\-])/g, "[removed]")
     .replace(/\bAKIA[0-9A-Z]{16}\b/g, "[removed]")
+    .replace(/\bdapi[0-9a-f]{32}(?:-\d+)?\b/g, "[removed]")
     .replace(/\bxox[abposr]-[A-Za-z0-9\-]{10,}\b/g, "[removed]")
     .replace(/\b(client_secret|password|passwd|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)("?\s*[=:]\s*"?)[^\s"'&;,]+/gi, "$1$2[removed]");
   if (level !== "support") return out;
@@ -143,7 +151,7 @@ function reportProblem() {
       openLink(`${support}${support.includes("?") ? "&" : "?"}subject=${encodeURIComponent("KratosForge problem")}&body=${encodeURIComponent(text.slice(0, 1500))}`);
     } else {
       await copyText(text, "Report");
-      openLink(support || "https://github.com/KratosDataGod/fabric-desktop/issues/new");
+      openLink(support || "https://github.com/KratosDataGod/KratosForge/issues/new");
     }
     closeDialog();
   };
@@ -155,6 +163,86 @@ function reportProblem() {
       : "Send copies all of this and opens a new issue on GitHub. Paste it there.")),
   [btn("Copy only", null, () => copyText(report(), "Report"), "tool outline"), h("span", { class: "spacer" }),
     btn("Cancel", null, closeDialog, "tool outline"), btn("Send", null, send, "tool primary")]);
+}
+
+// ---------- Check for updates ----------
+
+// What a manual update check found (check_for_update): "newer" offers Install and restart; every
+// other kind offers only the channel's release page.
+function updateCheckResult(report) {
+  const short = (c) => c.slice(0, 7);
+  const { commit, latest } = report;
+  const channel = latest.channel === "preview" ? "Preview" : "Stable";
+  if (!commit) return { kind: "local", text: "This is a local build, so it doesn't update itself." };
+  if (!latest.commit) return { kind: "error", text: `Couldn't check the ${channel} channel: ${latest.error}` };
+  if (latest.refused) return { kind: "error", text: latest.refused };
+  if (latest.commit === commit) return { kind: "current", text: `You're up to date. The ${channel} channel has nothing newer than this build.` };
+  if (report.auto_update === false) {
+    return { kind: "managed", text: `Build ${short(latest.commit)} is out. Your organization rolls out new builds, so ask IT for it.` };
+  }
+  return { kind: "newer", text: `Build ${short(latest.commit)} is out. Install it now: KratosForge downloads it, ` +
+    "saves the open notebook, closes and starts the new build." };
+}
+
+// The startup update on demand (account menu, Settings): this build next to the channel's newest,
+// installed through the same checked download and hand-over as at startup (update_app), or
+// downloaded by hand from the channel's release page.
+async function checkForUpdates() {
+  const short = (c) => (c ? c.slice(0, 7) : "unknown");
+  const show = (lines, actions) => showDialog("Check for updates", h("div", { class: "setup" }, lines), actions);
+  show([h("p", {}, "Checking for a newer build…")], []);
+  let report;
+  try {
+    report = await invoke("check_for_update");
+  } catch (err) {
+    show([h("p", { class: "error-text" }, String(err))],
+      [btn("Try again", null, checkForUpdates, "tool outline"), btn("Close", null, closeDialog, "tool primary")]);
+    return;
+  }
+  const { latest } = report;
+  const result = updateCheckResult(report);
+  const facts = h("dl", { class: "about" },
+    h("dt", {}, "This build"), h("dd", {}, report.commit ? short(report.commit) : state.build || "local build"),
+    h("dt", {}, `Latest on ${latest.channel === "preview" ? "Preview" : "Stable"}`), h("dd", {}, short(latest.commit)));
+  const manual = btn("Download manually", "arrowDownload", () => openLink(latest.page), "tool outline");
+  const note = h("p", { class: "muted-text small" }, result.kind === "newer"
+    ? "Running cells stop. Or download kratosforge.exe from the release page and run it in place of this one."
+    : result.kind === "current" ? "" : "You can download kratosforge.exe from the channel's release page and run it in place of this one.");
+  if (latest.note) note.prepend(`${latest.note} `);
+  const text = h("p", { class: result.kind === "error" ? "error-text" : "" }, result.text);
+  if (result.kind !== "newer") {
+    show([facts, text, note.textContent ? note : null], [
+      result.kind === "error" ? btn("Try again", null, checkForUpdates, "tool outline") : null,
+      latest.page ? manual : null, h("span", { class: "spacer" }), btn("Close", null, closeDialog, "tool primary")].filter(Boolean));
+    return;
+  }
+  const install = btn("Install and restart", "arrowDownload", async () => {
+    install.disabled = true;
+    later.disabled = true;
+    install.lastChild.textContent = "Downloading…";
+    if (state.notebook?.dirty && !(await saveNotebook())) {
+      install.disabled = later.disabled = false;
+      install.lastChild.textContent = "Install and restart";
+      return;
+    }
+    const unlisten = await window.__TAURI__.event.listen("component-log", (e) => {
+      const m = /^progress (\d+)/.exec(e.payload);
+      if (m) install.lastChild.textContent = m[1] === "100" ? "Restarting…" : `Downloading… ${m[1]}%`;
+    });
+    try {
+      await invoke("update_app", { commit: latest.commit });
+      install.lastChild.textContent = "Restarting…";  // the new build takes over
+    } catch (err) {
+      text.className = "error-text";
+      text.textContent = `Update to build ${short(latest.commit)} failed: ${err} You are still on ${short(report.commit)}.`;
+      install.disabled = later.disabled = false;
+      install.lastChild.textContent = "Try again";
+    } finally {
+      unlisten();
+    }
+  }, "tool primary");
+  const later = btn("Later", null, closeDialog, "tool outline");
+  show([facts, text, note], [manual, h("span", { class: "spacer" }), later, install]);
 }
 
 // ---------- What's new ----------
@@ -170,7 +258,7 @@ function showWhatsNew(asked = false) {
   if (!asked && (!notes || !state.commit || seen === state.commit)) return;
   try { localStorage.setItem("fd.whatsnew.seen", state.commit || ""); } catch { /* shown again next time */ }
   const { lines, items } = whatsNewItems(notes, release?.history);
-  const repo = "https://github.com/KratosDataGod/fabric-desktop";
+  const repo = "https://github.com/KratosDataGod/KratosForge";
   const day = (d) => {
     const [y, m, dd] = String(d || "").split("-").map(Number);
     return y ? new Date(y, m - 1, dd).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
@@ -192,19 +280,14 @@ function showWhatsNew(asked = false) {
   [btn("Got it", null, closeDialog, "tool primary")]);
 }
 
-// ---------- The new name ----------
+// ---------- The forge splash ----------
 
-// Fabric Desktop became KratosForge. The first start after that update shows a full-window
-// announcement, once; then() runs when it closes (What's new waits behind it). From the command
-// palette, whenever asked. Button, Escape or Enter closes it; with reduced motion nothing moves.
-const RENAME_SEEN = "fd.rename.kratosforge.seen";
-
-function showRenameSplash(then = () => {}, asked = false) {
-  let seen = false;
-  try { seen = localStorage.getItem(RENAME_SEEN) === "1"; } catch { /* show it */ }
-  if (seen && !asked) { then(); return false; }
-  try { localStorage.setItem(RENAME_SEEN, "1"); } catch { /* shown again next start */ }
-  const done = () => { closeDialog(); then(); };
+// The full-window forge: the emblem strikes the anvil, sparks fly, embers rise behind the
+// lettering. The new name and each update use it. Button, Escape or Enter closes it. It follows
+// Motion & effects when it opens: Off, Minimal or Windows' reduced motion show it still, and with
+// Forge sparks off no sparks fly and no embers rise. Returns the button so the caller can focus it
+// once it is on screen.
+function forgeSplash({ kicker, tag, body, link, extra, done }) {
   // Sparks leave the anvil once; embers keep rising behind the name. Spread is fixed, not random,
   // so every start looks the same.
   const sparks = Array.from({ length: 14 }, (_, i) => h("span", { class: "splash-spark",
@@ -212,7 +295,11 @@ function showRenameSplash(then = () => {}, asked = false) {
   const embers = Array.from({ length: 26 }, (_, i) => h("span", { class: "splash-ember",
     style: `--x:${(i * 41) % 100}%;--s:${2 + (i % 3)}px;--dur:${5 + (i * 7) % 6}s;--delay:${-((i * 13) % 50) / 10}s;--drift:${(i % 2 ? 1 : -1) * (10 + (i * 11) % 30)}px` }));
   const enter = btn("Enter the forge", null, done, "splash-go");
-  const overlay = h("div", { class: "overlay splash", role: "dialog", "aria-modal": "true",
+  // Decided once, from the chosen level and not the load drop, so a busy start doesn't stop it halfway.
+  const still = systemReducesMotion() || chosenMotionLevel() < 2;
+  const sparksOn = motionSetting("motion_sparks", true) === true;
+  const look = ["overlay splash", still && "splash-still", !sparksOn && "splash-nosparks"];
+  const overlay = h("div", { class: look.filter(Boolean).join(" "), role: "dialog", "aria-modal": "true",
     "aria-labelledby": "splash-title", "aria-describedby": "splash-text",
     onkeydown: (e) => {
       if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done(); }
@@ -224,20 +311,92 @@ function showRenameSplash(then = () => {}, asked = false) {
         sparks,
         h("img", { class: "splash-emblem", src: "wolf-forge-emblem.png", width: 128, height: 128, alt: "" })),
       h("h1", { id: "splash-title", class: "splash-title" },
-        h("span", { class: "splash-old" }, h("s", {}, "Fabric Desktop"), " is now"),
+        h("span", { class: "splash-old" }, kicker),
         h("img", { class: "splash-letters", src: "kratosforge-lettering.png", width: 800, height: 117, alt: "KratosForge" })),
-      h("p", { class: "splash-tag" }, "Same engine. Same projects. Forged for what's next."),
-      h("p", { id: "splash-text", class: "splash-text" },
-        "Everything you built is where you left it: notebooks, metadata projects, schedules, your sign-in and settings. " +
-        "Only the name and the look changed."),
+      h("p", { class: "splash-tag" }, tag),
+      body,
       h("div", { class: "splash-actions" }, enter,
-        h("a", { href: "#", class: "splash-link", onclick: (e) => {
-          e.preventDefault();
-          attempt(() => invoke("open_doc", { page: "kratosforge.md" }), "Could not open the guide");
-        } }, "What changed and what didn't"))));
+        h("a", { href: "#", class: "splash-link", onclick: (e) => { e.preventDefault(); link.run(); } }, link.label)),
+      extra || null));
   document.getElementById("dialog-root").replaceChildren(overlay);
-  enter.focus();
+  return enter;
+}
+
+// ---------- The new name ----------
+
+// Fabric Desktop became KratosForge. The first start after that update shows the forge, once;
+// then() runs when it closes (What's new waits behind it). From the command palette, whenever
+// asked. Returns whether it showed, so the start can show the update splash instead.
+const RENAME_SEEN = "fd.rename.kratosforge.seen";
+
+function showRenameSplash(then = () => {}, asked = false) {
+  let seen = false;
+  try { seen = localStorage.getItem(RENAME_SEEN) === "1"; } catch { /* show it */ }
+  if (seen && !asked) return false;
+  try { localStorage.setItem(RENAME_SEEN, "1"); } catch { /* shown again next start */ }
+  const done = () => { closeDialog(); then(); };
+  forgeSplash({
+    kicker: [h("s", {}, "Fabric Desktop"), " is now"],
+    tag: "Same engine. Same projects. Forged for what's next.",
+    body: h("p", { id: "splash-text", class: "splash-text" },
+      "Everything you built is where you left it: notebooks, metadata projects, schedules, your sign-in and settings. " +
+      "Only the name and the look changed."),
+    link: { label: "What changed and what didn't",
+      run: () => attempt(() => invoke("open_doc", { page: "kratosforge.md" }), "Could not open the guide") },
+    done,
+  }).focus();
   return true;
+}
+
+// ---------- After an update ----------
+
+// The first start on a new build shows the forge with what's new since the build this PC ran
+// before, once; a new install shows nothing. Turned off in Settings > Updates, the plain What's
+// new dialog shows instead. Shares What's new's "seen" mark, so only one of them shows. From the
+// command palette, whenever asked.
+const UPDATE_SPLASH_OFF = "fd.updatesplash.off";
+
+function updateSplashOn() {
+  try { return localStorage.getItem(UPDATE_SPLASH_OFF) !== "1"; } catch { return true; }
+}
+
+function showUpdateSplash(asked = false) {
+  if (!asked && !updateSplashOn()) { showWhatsNew(); return false; }
+  const release = state.release?.commit && state.release.commit === state.commit ? state.release : null;
+  let seen = "";
+  try { seen = localStorage.getItem("fd.whatsnew.seen") || ""; } catch { /* show it */ }
+  const { lines, items } = whatsNewItems(release?.notes, release?.history);
+  if (!asked && (!state.commit || seen === state.commit || (!lines.length && !items.length))) return false;
+  // A first start on this PC is an install, not an update: nothing to announce.
+  if (!asked && !seen) {
+    try { localStorage.setItem("fd.whatsnew.seen", state.commit); } catch { /* checked again next start */ }
+    return false;
+  }
+  try { localStorage.setItem("fd.whatsnew.seen", state.commit || ""); } catch { /* shown again next time */ }
+  const news = updateHighlights(lines, items, seen === state.commit ? "" : seen);
+  const shown = news.slice(0, 5);
+  const off = h("input", { type: "checkbox", checked: updateSplashOn() ? true : null,
+    onchange: (e) => { try { localStorage.setItem(UPDATE_SPLASH_OFF, e.target.checked ? "0" : "1"); } catch { /* kept for this start */ } } });
+  forgeSplash({
+    kicker: `Updated to build ${state.build || "unknown"}`,
+    tag: "Fresh from the forge.",
+    body: h("div", { id: "splash-text", class: "splash-text splash-news" },
+      shown.length ? h("ul", {}, shown.map((t) => h("li", {}, t))) : h("p", {}, "Fixes and polish. Everything you built is where you left it."),
+      news.length > shown.length ? h("p", { class: "splash-more" }, `and ${news.length - shown.length} more`) : null),
+    link: { label: "See everything new", run: () => { closeDialog(); showWhatsNew(true); } },
+    extra: h("label", { class: "splash-optout" }, off, "Show this after every update"),
+    done: closeDialog,
+  }).focus();
+  return true;
+}
+
+// What reached this PC with the update, newest first: the build's own notes, then each change
+// since the build it ran before (history down to that commit). Without that build in the month's
+// history, the newest change stands in for the list.
+function updateHighlights(lines, items, since) {
+  const at = since ? items.findIndex((i) => i.commit === since) : -1;
+  const fresh = (at >= 0 ? items.slice(0, at) : items.slice(0, 1)).map((i) => i.title.trim());
+  return [...new Set([...lines, ...fresh])];
 }
 
 // The build's own notes, unless they only repeat the newest history item (on Preview the notes
@@ -250,6 +409,145 @@ function whatsNewItems(notes, history) {
 }
 
 // ---------- Settings page ----------
+
+const MOTION_LEVEL_HELP = ["No animation at all. Progress, results and errors still show.",
+  "Quick page and panel transitions only. No branded effects.",
+  "Subtle sparks, embers and the wolf on real progress. Recommended.",
+  "The same moments with more character: extra sparks, halftone and offset rings."];
+const MOTION_FAMILIES = [["motion_wolf", "Wolf animations", "The wolf on run progress, its arrival, the Wolf Run after long work, and the navy wolf on work in Fabric or with a remote."],
+  ["motion_sparks", "Forge sparks", "Sparks when work succeeds, the anvil strike after a deployment or promote, the ember when something fails."],
+  ["motion_ambient", "Running indicators", "The glow on a running cell, the flow into a running pipeline step, the ring when work starts."]];
+// Achievement celebrations (off by default, #361) shows only while Profile (a Preview feature) can
+// award something; a switch that does nothing would only confuse.
+const MOTION_ACHIEVEMENTS = ["motion_achievements", "Achievement celebrations",
+  "A short reveal on the message when Profile awards you an achievement. Off unless you turn it on."];
+const motionFamilies = () => (previewShown() ? [...MOTION_FAMILIES, MOTION_ACHIEVEMENTS] : MOTION_FAMILIES);
+
+function motionSettingsCard(s, locked) {
+  const level = s.motion_level.value;
+  const source = (key) => (s[key]?.source === "policy" ? "policy" : null);
+  const save = async (changes) => { if (await saveSettings(changes)) render(); };
+  const levelRow = (n) => h("label", { class: `choice-row${level === n ? " selected" : ""}` },
+    h("input", { type: "radio", name: "motion_level", value: String(n), checked: level === n ? true : null,
+      disabled: locked("motion_level") ? true : null, onchange: () => save({ motion_level: n }) }),
+    h("span", {}, h("b", {}, `${n} ${MOTION_LEVELS[n]}`), h("span", { class: "muted-text small" }, MOTION_LEVEL_HELP[n])));
+  const toggle = (key, label, on, disabled) => h("label", { class: "switch" },
+    h("input", { type: "checkbox", checked: on ? true : null, disabled: disabled || locked(key) ? true : null, "aria-label": label,
+      onchange: (e) => save({ [key]: e.target.checked }) }),
+    h("span", {}, on ? "On" : "Off"));
+  const reduced = reducedMotion() && s.motion_follow_system?.value !== false;
+  const choice = (key) => {
+    const [title, help, options] = LAYOUT_CHOICES[key];
+    const now = layoutChoice(key);
+    return settingRow(title, help, h("div", { class: "seg", role: "group", "aria-label": title }, options.map(([value, label]) =>
+      h("button", { class: now === value ? "on" : "", "aria-pressed": String(now === value), disabled: locked(key) ? true : null,
+        onclick: () => now !== value && save({ [key]: value }) }, label))), source(key));
+  };
+  return h("section", { class: "card pad motion-settings" }, h("h2", {}, "Appearance"),
+    h("h3", {}, "Layout"),
+    h("p", { class: "muted-text small" }, "How much every page shows. Nothing is removed: what you tuck away is one click from where it was."),
+    Object.keys(LAYOUT_CHOICES).map(choice),
+    h("h3", {}, "Motion & effects"),
+    h("p", { class: "muted-text small" }, "Effects only follow real work as it finishes; they never delay a run, take focus or cover your code. ",
+      reduced ? h("b", {}, "Off now: Windows asks apps to reduce motion. ") : null, learnMore("motion-and-effects")),
+    h("div", { class: "choices motion-levels", role: "radiogroup", "aria-label": "Visual intensity" }, [0, 1, 2, 3].map(levelRow)),
+    source("motion_level") ? h("div", { class: "setting-source" }, SOURCE_TEXT.policy) : null,
+    motionFamilies().map(([key, label, help]) => settingRow(label, level < 2 ? `${help} Plays at Refined and Expressive.` : help,
+      toggle(key, label, s[key]?.value ?? key !== "motion_achievements", level < 2), source(key))),
+    settingRow("Respect Windows' reduced-motion setting",
+      "When Windows' Animation effects are off, KratosForge shows no motion. Untick to keep the level you chose anyway.",
+      toggle("motion_follow_system", "Respect Windows' reduced-motion setting", s.motion_follow_system?.value !== false), source("motion_follow_system")),
+    h("div", { class: "row" }, btn("Preview effects", "play", showMotionGallery, "tool outline")));
+}
+
+// Settings > Motion & effects > Preview effects: each effect on a sample, at the level and switches
+// in force now, and Energy Flow on a real three-step pipeline run on this PC.
+function showMotionGallery() {
+  const stats = h("p", { class: "muted-text small", "aria-live": "polite" });
+  const showStats = () => {
+    const d = motionDiagnostics();
+    const played = Object.values(d.played).reduce((a, b) => a + b, 0);
+    stats.textContent = `Level now: ${d.level} ${MOTION_LEVELS[d.level]}${d.level !== d.chosen ? ` (you chose ${d.chosen})` : ""}. `
+      + `${played} ${played === 1 ? "effect" : "effects"} played.`;
+  };
+  const sample = (label, cls = "ok") => h("span", { class: `motion-sample ${cls}` }, label);
+  const row = (name, help, target, play) => h("div", { class: "motion-demo" },
+    h("div", {}, h("b", {}, name), h("div", { class: "muted-text small" }, help)), h("div", { class: "motion-target" }, target),
+    btn("Play", "play", () => { play(); setTimeout(showStats, 50); }, "tool small"));
+  const spark = sample("Succeeded");
+  const failed = sample("Failed", "bad");
+  const run = h("button", { class: "tool outline small", tabindex: "-1", "aria-hidden": "true" }, "Run all");
+  const deployed = sample("Deployed 4 steps.");
+  const passed = sample("Ready: no errors or warnings");
+  const lane = h("span", { class: "motion-lane" }, "Kernel idle");
+  const award = sample("Achievement earned: First Flame");
+  const trackHost = h("span", { class: "motion-track" });
+  const remoteHost = h("span", { class: "motion-track" });
+  const flowHost = h("div", { class: "motion-flow" });
+  const flowNote = h("span", { class: "muted-text small" });
+  let flowing = false;
+  const runPipeline = async () => {
+    if (flowing) return;
+    flowing = true;
+    flowHost.replaceChildren();
+    const flow = pipelineFlow(flowHost);
+    const started = await attempt(() => rpc("pipeline_run_start", { text: MOTION_SAMPLE_PIPELINE }), "Sample pipeline didn't start");
+    if (!started?.ok) { flowing = false; flowNote.textContent = started?.problems?.[0]?.message || ""; return; }
+    forgeEvent("pipeline.started", flowHost.closest(".motion-demo")?.querySelector("button"));
+    for (;;) {
+      const st = await rpc("pipeline_run_status", { run_id: started.run_id, values: false }).catch(() => null);
+      if (!st || !flowHost.isConnected) break;
+      flow.update(st);
+      const ok = st.counts?.succeeded || 0;
+      flowNote.textContent = st.state === "running" || st.state === "pending" ? `Running on this PC: ${ok} succeeded so far`
+        : `${st.state[0].toUpperCase()}${st.state.slice(1)}: ${ok} of ${st.activities?.length || 0} activities succeeded`;
+      if (st.state !== "running" && st.state !== "pending") {
+        forgeEvent(st.state === "succeeded" ? "pipeline.succeeded" : "pipeline.failed", flowNote);
+        announce(`Sample pipeline ${st.state}`);
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    flowing = false;
+    showStats();
+  };
+  const body = h("div", { class: "motion-gallery" },
+    h("p", { class: "muted-text small" }, "Each effect plays on a sample at the level and switches set now. The samples are not real work, except the pipeline, "
+      + "which runs a three-step sample (two short waits and a variable) on this PC and is kept in this PC's local pipeline run history. Nothing goes to Fabric."),
+    row("Forge Spark", "A cell, query, save, model build or Git push succeeded.", spark, () => forgeEvent("notebook.cell.succeeded", spark)),
+    row("Controlled Failure", "Something failed. The red label is there from the first frame.", failed, () => forgeEvent("notebook.cell.failed", failed)),
+    row("Pulse", "Run all started.", run, () => forgeEvent("notebook.run.started", run)),
+    row("Wolf track and arrival", "Run all: the wolf sits at the share of cells done (sample: 4 steps).", trackHost, () => {
+      if (trackHost.childElementCount) return;
+      const t = wolfTrack(() => trackHost, "Sample run", "Step", "on this PC");
+      let i = 0;
+      t.set(0, 4);
+      const tick = setInterval(() => { i += 1; if (i < 4) t.set(i, 4); else { clearInterval(tick); t.set(4, 4); t.arrive(); } }, 450);
+    }),
+    row("Wolf Run", "A cell that ran 10 s or more succeeded.", lane, () => forgeEvent("notebook.long.succeeded", lane)),
+    row("Navy wolf", "Work in Fabric or with a remote that has no measure: the wolf trots in place on an empty track, with no fill or percentage.",
+      remoteHost, () => { if (!remoteHost.childElementCount) { remoteHost.append(remoteProgress("Sample run in Fabric")); setTimeout(() => remoteHost.replaceChildren(), 3000); } }),
+    row("Anvil Strike", "A deployment, a promote, a pipeline run or a Data mesh run succeeded.", deployed, () => forgeEvent("deploy.succeeded", deployed)),
+    row("Cooling spark", "Validate passed, a proof matched, or Fabric confirmed a publish.", passed, () => forgeEvent("validate.passed", passed)),
+    previewShown() ? row("Achievement Reveal", "Profile awarded you an achievement. Plays only with Achievement celebrations on.", award,
+      () => forgeEvent("achievement.unlocked", award)) : null,
+    h("div", { class: "motion-demo" }, h("div", {}, h("b", {}, "Energy Flow"),
+      h("div", { class: "muted-text small" }, "A pipeline's activities as they really run: the link into the running step flows, a finished step settles.")),
+    h("div", { class: "motion-target" }, flowNote), btn("Run sample on this PC", "play", runPipeline, "tool small")),
+    flowHost, stats);
+  showStats();
+  showDialog("Motion & effects", body, [btn("Done", null, closeDialog, "primary")]);
+}
+
+// Three activities that only wait and set a variable: nothing is read, written or sent.
+const MOTION_SAMPLE_PIPELINE = JSON.stringify({ name: "Motion sample", properties: {
+  variables: { shaped: { type: "String" } },
+  activities: [
+    { name: "Land files", type: "Wait", dependsOn: [], typeProperties: { waitTimeInSeconds: 1 } },
+    { name: "Shape", type: "SetVariable", dependsOn: [{ activity: "Land files", dependencyConditions: ["Succeeded"] }],
+      typeProperties: { variableName: "shaped", value: "yes" } },
+    { name: "Publish", type: "Wait", dependsOn: [{ activity: "Shape", dependencyConditions: ["Succeeded"] }], typeProperties: { waitTimeInSeconds: 1 } },
+  ] } });
 
 function settingRow(title, help, control, source) {
   return h("div", { class: "setting" },
@@ -267,27 +565,15 @@ async function renderSettings() {
       h("p", { class: "muted-text" }, "Settings load once the local engine is running.")));
     return;
   }
-  const locked = (key) => s[key].source === "policy";
+  // Policy or an environment variable sets it: the field shows the value, read-only, and says which.
+  const locked = (key) => fixedBy(s, key) !== null;
 
   // Account
-  const idInput = h("input", { value: s.client_id.source === "user" ? s.client_id.value : "", spellcheck: "false",
-    placeholder: s.client_id.source === "default" ? "Empty: Microsoft's Fabric sign-in" : s.client_id.value, disabled: locked("client_id") ? true : null });
   const account = h("section", { class: "card pad" }, h("h2", {}, "Account"),
     settingRow(state.user ? `Signed in as ${state.user}` : "Not signed in",
       state.user ? (state.tenant ? `Directory ${state.tenant}` : "") : "Sign in to see your Fabric workspaces and lakehouses.",
       state.user ? btn("Sign out", "signOut", signOut, "tool outline")
         : btn("Sign in", "person", async () => { if (await signIn()) render(); }, "tool primary")),
-    settingRow("App (client) ID", "Leave it empty: KratosForge signs in through Microsoft's own Fabric sign-in, so nobody has to register an app. Only paste an ID if your organization gave you its own app.",
-      h("div", { class: "row" }, idInput,
-        locked("client_id") ? null : btn("Save", null, async () => {
-          if (await saveSettings({ client_id: idInput.value.trim() })) { toast("Saved. Sign in again to use it."); render(); }
-        }, "tool outline")),
-      s.client_id.source === "default" ? MICROSOFT_SIGN_IN : s.client_id.source),
-    clientIdNote(s.client_id.source) ? h("div", { class: "callout git-warn small", role: "note" },
-      h("span", { class: "grow" }, clientIdNote(s.client_id.source)),
-      s.client_id.source === "user" ? btn("Use Microsoft's sign-in", null, async () => {
-        if (await saveSettings({ client_id: "" })) { toast("Saved. Sign in again to use it."); render(); }
-      }, "tool outline small") : null) : null,
     s.client_id.source !== "default" ? settingRow("Admin approval",
       "If sign-in says your organization needs to approve KratosForge, send this link to a Microsoft Entra admin. They open it once for everyone.",
       btn("Copy the link", "copyArrowRight", async () => {
@@ -308,7 +594,18 @@ async function renderSettings() {
       channel("stable", "Stable", "Builds that have been checked and released. Recommended."),
       channel("preview", "Preview", "Every new build as soon as it's ready. For testers; things may change or break.")),
     s.channel.source === "default" ? null : h("div", { class: "setting-source" }, SOURCE_TEXT[s.channel.source]),
-    h("div", { class: "row" }, btn("What's new in this build", "rocket", () => showWhatsNew(true), "tool link small")));
+    settingRow("Show the forge after an update", "The first start on a new build shows what's new in a full-window splash. Off: a small What's new window instead.",
+      h("label", { class: "switch" }, h("input", { type: "checkbox", checked: updateSplashOn() ? true : null,
+        onchange: (e) => {
+          try { localStorage.setItem(UPDATE_SPLASH_OFF, e.target.checked ? "0" : "1"); } catch { /* kept for this start */ }
+          render();
+        } }), h("span", {}, updateSplashOn() ? "On" : "Off"))),
+    h("div", { class: "row" }, btn("Check for updates", "sync", checkForUpdates, "tool link small"),
+      btn("What's new in this build", "rocket", () => showWhatsNew(true), "tool link small"),
+      btn("Show the update splash", "rocket", () => showUpdateSplash(true), "tool link small")));
+
+  // Appearance > Motion & effects (motion.js, docs/forge-animations.md)
+  const display = s.motion_level ? motionSettingsCard(s, locked) : null;
 
   // Preview features
   const previews = h("section", { class: "card pad" }, h("h2", {}, "Preview features"),
@@ -317,33 +614,21 @@ async function renderSettings() {
         + `${PREVIEW_ALWAYS_SHOWN.map((id) => PREVIEW_FEATURES[id]).join(", ")} are core steps: they stay visible, tagged Preview, either way.`,
       h("label", { class: "switch" }, h("input", { type: "checkbox", checked: previewShown() ? true : null, disabled: locked("show_preview") ? true : null,
         onchange: async (e) => { if (await saveSettings({ show_preview: e.target.checked })) render(); } }), h("span", {}, previewShown() ? "On" : "Off")),
-      s.show_preview.source === "policy" ? "policy" : null),
-    s.kernel_process ? settingRow("Run notebooks in their own process (Preview)",
-      "Cells run in a Python process of their own instead of inside the app's engine. Stop and a crash then end only that process, and the rest of the app keeps working. Variables are cleared when you switch.",
-      h("label", { class: "switch" }, h("input", { type: "checkbox", checked: s.kernel_process.value ? true : null, disabled: locked("kernel_process") ? true : null,
-        onchange: async (e) => { await saveSettings({ kernel_process: e.target.checked }); render(); } }),
-      h("span", {}, s.kernel_process.value ? "On" : "Off")),
-      s.kernel_process.source === "policy" ? "policy" : null) : null,
-    s.kernel_process?.value && s.cell_time_limit_minutes ? limitRow("cell_time_limit_minutes", "Cell time limit",
-      "A cell that runs longer is interrupted. Variables are kept. If it doesn't stop within 30 seconds, its process is ended and variables are cleared. Proofs and side by side use the same limit.",
-      [[0, "Off"], [15, "15 minutes"], [60, "1 hour"], [240, "4 hours"], [720, "12 hours"]]) : null,
-    s.kernel_process?.value && s.kernel_memory_limit_gb ? limitRow("kernel_memory_limit_gb", "Notebook memory limit",
-      "The notebook's process is ended if it uses more, so one notebook can't slow the whole PC. Variables are cleared.",
-      [[0, "Off"], [4, "4 GB"], [8, "8 GB"], [16, "16 GB"], [32, "32 GB"]]) : null);
+      s.show_preview.source === "policy" ? "policy" : null));
 
   // A limit from Settings: a fixed list, plus the current value when the policy file set another.
   function limitRow(key, title, help, options) {
     const current = Number(s[key].value || 0);
-    if (!options.some(([v]) => v === current)) options = [...options, [current, key.endsWith("_gb") ? `${current} GB` : `${current} minutes`]];
+    if (!options.some(([v]) => v === current)) options = [...options, [current, key.endsWith("_gb") ? `${current} GB` : key.endsWith("_minutes") ? `${current} minutes` : String(current)]];
     return settingRow(h("span", {}, title, " ", previewTag()), help,
       h("select", { "aria-label": title, disabled: locked(key) ? true : null,
         onchange: async (e) => { if (await saveSettings({ [key]: Number(e.target.value) })) render(); } },
         options.map(([v, label]) => h("option", { value: v, selected: v === current ? true : null }, label))),
-      s[key].source === "policy" ? "policy" : null);
+      fixedBy(s, key));
   }
 
-  // SQL queries (SQL-003): the limits every SQL page query runs with on this PC.
-  const sql = s.sql_page_rows ? sqlSettingsSection(s, locked) : null;
+  // Advanced (UX-006): what most people never change, folded until opened once.
+  const advanced = advancedSection(s, locked, limitRow);
 
   // Usage data (FD-137): off unless this person turns it on; telemetry.py in the engine.
   const usage = await usageSection(s);
@@ -351,12 +636,14 @@ async function renderSettings() {
   // Notifications
   const notify = h("section", { class: "card pad" }, h("h2", {}, "Notifications"),
     settingRow("Teams alerts", "Post late and failed tables to a Teams channel. The bell always shows them.",
-      btn("Set up", "alert", () => alertsDialog(), "tool outline")));
+      btn("Set up", "alert", () => alertsDialog(), "tool outline")),
+    await platformNoticesSection());
 
   // Help and about
   const about = h("section", { class: "card pad" }, h("h2", {}, "Help and about"),
     h("div", { class: "row wrap" },
       btn("User guide", "help", () => invoke("open_doc", { page: "user-guide.md" }).catch(() => {}), "tool outline"),
+      btn("Keyboard shortcuts", "help", shortcutsDialog, "tool outline"),
       btn("Report a problem", "bug", reportProblem, "tool outline"),
       btn("Guide for IT admins", "shield", () => invoke("open_doc", { page: "permissions.md" }).catch(() => {}), "tool outline")),
     h("dl", { class: "about" },
@@ -387,13 +674,127 @@ async function renderSettings() {
   setView(h("div", { class: "page settings" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
       h("p", { class: "sub" }, "How KratosForge signs in, updates and talks to you. ", learnMore("settings")))),
-    tabs, tab === "integrations" ? integrations : [account, updates, previews, sql, usage, platform, notify, about].filter(Boolean)));
+    tabs, tab === "integrations" ? integrations : [account, updates, display, previews, usage, platform, notify, about, advanced].filter(Boolean)));
   if (tab === "integrations") {
     renderIntegrationsTab(integrations);
     return;
   }
   const optimize = previewShown() ? await optimizeSettingsSection() : null;
   if (state.view === "settings" && optimize) notify.before(optimize);
+}
+
+// "policy" or "environment" when that sets the value, so Settings shows it read-only and says which
+// (SOURCE_TEXT); null when this person can change it.
+function fixedBy(s, key) {
+  const source = s?.[key]?.source;
+  return source === "policy" || source === "environment" ? source : null;
+}
+
+// The App (client) ID, notebook process limits and SQL limits: one fold, closed by default (UX-006).
+function advancedSection(s, locked, limitRow) {
+  const idFixed = locked("client_id");
+  const idInput = h("input", { value: idFixed || s.client_id.source === "user" ? s.client_id.value : "", spellcheck: "false",
+    "aria-label": "App (client) ID", placeholder: s.client_id.source === "default" ? "Empty: Microsoft's Fabric sign-in" : s.client_id.value,
+    readonly: idFixed ? true : null, "aria-readonly": idFixed ? "true" : null });
+  const signInGroup = h("div", { class: "advanced-group" }, h("h3", {}, "Sign-in"),
+    settingRow("App (client) ID", "Leave it empty: KratosForge signs in through Microsoft's own Fabric sign-in, so nobody has to register an app. Only paste an ID if your organization gave you its own app.",
+      h("div", { class: "row" }, idInput,
+        idFixed ? null : btn("Save", null, async () => {
+          if (await saveSettings({ client_id: idInput.value.trim() })) { toast("Saved. Sign in again to use it."); render(); }
+        }, "tool outline")),
+      s.client_id.source === "default" ? MICROSOFT_SIGN_IN : s.client_id.source),
+    clientIdNote(s.client_id.source) ? h("div", { class: "callout git-warn small", role: "note" },
+      h("span", { class: "grow" }, clientIdNote(s.client_id.source)),
+      s.client_id.source === "user" ? btn("Use Microsoft's sign-in", null, async () => {
+        if (await saveSettings({ client_id: "" })) { toast("Saved. Sign in again to use it."); render(); }
+      }, "tool outline small") : null) : null);
+  const kernel = s.kernel_process ? h("div", { class: "advanced-group" }, h("h3", {}, "Notebooks"),
+    settingRow("Run notebooks in their own process (Preview)",
+      "Cells run in a Python process of their own instead of inside the app's engine. Stop and a crash then end only that process, and the rest of the app keeps working. Variables are cleared when you switch.",
+      h("label", { class: "switch" }, h("input", { type: "checkbox", checked: s.kernel_process.value ? true : null, disabled: locked("kernel_process") ? true : null,
+        onchange: async (e) => { await saveSettings({ kernel_process: e.target.checked }); render(); } }),
+      h("span", {}, s.kernel_process.value ? "On" : "Off")),
+      fixedBy(s, "kernel_process")),
+    s.kernel_process.value && s.cell_time_limit_minutes ? limitRow("cell_time_limit_minutes", "Cell time limit",
+      "A cell that runs longer is interrupted. Variables are kept. If it doesn't stop within 30 seconds, its process is ended and variables are cleared. Proofs and side by side use the same limit.",
+      [[0, "Off"], [15, "15 minutes"], [60, "1 hour"], [240, "4 hours"], [720, "12 hours"]]) : null,
+    s.kernel_process.value && s.kernel_memory_limit_gb ? limitRow("kernel_memory_limit_gb", "Notebook memory limit",
+      "The notebook's process is ended if it uses more, so one notebook can't slow the whole PC. Variables are cleared.",
+      [[0, "Off"], [4, "4 GB"], [8, "8 GB"], [16, "16 GB"], [32, "32 GB"]]) : null,
+    s.kernel_process.value && s.kernel_max_sessions ? limitRow("kernel_max_sessions", "Notebooks with a session",
+      "Each notebook you run gets a process of its own. Opening one more than this stops the least recently used idle one, and its variables are cleared. A running notebook is never stopped.",
+      [[2, "2"], [5, "5"], [10, "10"], [20, "20"]]) : null,
+    s.kernel_process.value && s.kernel_idle_minutes ? limitRow("kernel_idle_minutes", "Stop idle sessions after",
+      "A notebook you haven't run for this long, and don't have open, has its process stopped to give back memory. Its variables are cleared.",
+      [[0, "Never"], [20, "20 minutes"], [60, "1 hour"], [240, "4 hours"]]) : null) : null;
+  const onelake = s.onelake_writes ? oneLakeWritesSection(s, locked) : null;
+  // SQL queries (SQL-003): the limits every SQL page query runs with on this PC.
+  const sql = s.sql_page_rows ? sqlSettingsSection(s, locked) : null;
+  return foldable("settings.advanced", h("h2", {}, "Advanced"), [
+    h("p", { class: "muted-text small" }, "Most people never need these: your own app registration, and the limits notebooks and SQL queries run with on this PC. ",
+      learnMore("advanced-settings")),
+    signInGroup, kernel, onelake, sql].filter(Boolean), { start: true, cls: "card pad advanced" });
+}
+
+// How notebooks on this PC write lakehouse tables (lakehouse.write_table). onelake_writes is only the
+// default: each notebook can choose its own under Runs on.
+const ONELAKE_WRITES = [["local_first", "Write here, then upload"], ["direct", "Straight to OneLake"]];
+function oneLakeWritesSection(s, locked) {
+  const choice = (key, title, help, options) => settingRow(title, help,
+    h("select", { "aria-label": title, disabled: locked(key) ? true : null,
+      onchange: async (e) => { if (await saveSettings({ [key]: e.target.value })) render(); } },
+      options.map(([v, label]) => h("option", { value: v, selected: v === s[key].value ? true : null }, label))),
+    fixedBy(s, key));
+  return h("div", { class: "advanced-group" }, h("h3", {}, "OneLake writes"),
+    choice("onelake_writes", "New notebooks write", "Write here, then upload: a cell's table writes are kept on this PC and upload in the background while the cell goes on; the cell ends when they're in OneLake. Straight to OneLake: each write returns once it's uploaded, which suits a fast upload line. Each notebook can choose its own under Runs on.",
+      ONELAKE_WRITES),
+    choice("onelake_compression", "Compression", "Zstandard files are about a quarter smaller than Snappy, so they upload sooner, and cost the same to write. Fabric's SQL analytics endpoint reads both. Choose Snappy if a Fabric reader you use can't read Zstandard.",
+      [["zstd", "Zstandard"], ["snappy", "Snappy"]]),
+    settingRow("Skip unchanged tables", "A table overwritten with exactly the rows it already holds isn't uploaded again. KratosForge keeps a fingerprint of the rows in the table's Delta log to tell.",
+      h("label", { class: "switch" }, h("input", { type: "checkbox", checked: s.onelake_skip_unchanged.value ? true : null, disabled: locked("onelake_skip_unchanged") ? true : null,
+        onchange: async (e) => { await saveSettings({ onelake_skip_unchanged: e.target.checked }); render(); } }),
+      h("span", {}, s.onelake_skip_unchanged.value ? "On" : "Off")),
+      fixedBy(s, "onelake_skip_unchanged")),
+    localWritesRow());
+}
+
+// The files local writes keep on this PC (local_writes_service.py), with a way to open each folder.
+function localWritesRow() {
+  const status = h("div", { class: "muted-text small" }, "Looking...");
+  const extra = h("div", { class: "local-writes" });
+  const open = btn("Open folder", "folderOpen", () => openLocalWrites(), "tool small");  // app.js
+  const clear = btn("Delete left-overs", "delete", () => clearLocalWrites(), "tool small", { disabled: true });
+  rpc("local_writes").then((w) => {
+    status.textContent = localWritesText(w);
+    clear.disabled = !w.files && !w.tpch.length;
+    extra.replaceChildren(...w.tpch.map((t) => h("div", { class: "row wrap" },
+      h("span", { class: "muted-text small grow" }, `TPC-H data left in the temp folder: ${formatBytes(t.bytes)}, ${t.folder}`),
+      btn("Open", "folderOpen", () => openLocalWrites(t.folder), "tool small"))));
+  }).catch(() => { status.textContent = "Couldn't read the folder."; });
+  return settingRow("Files on this PC",
+    "A write kept on this PC waits here until it has uploaded, then it's deleted, so this is normally empty. Open the folder to look, or Delete left-overs to clear up after a run that was ended mid-upload.",
+    h("div", { style: "display:flex;flex-direction:column;gap:6px" }, h("div", { class: "row wrap" }, status, open, clear), extra));
+}
+
+async function clearLocalWrites() {
+  const w = await attempt(() => rpc("local_writes"), "Couldn't read the folder");
+  if (!w) return;
+  const total = w.bytes + w.tpch.reduce((n, t) => n + t.bytes, 0);
+  const what = [w.files ? `${w.files.toLocaleString()} file${w.files === 1 ? "" : "s"} in ${w.folder}` : "",
+    ...w.tpch.map((t) => `TPC-H data in ${t.folder}`)].filter(Boolean);
+  if (!(await confirmDialog("Delete left-overs?", `This deletes ${formatBytes(total)} from this PC: ${what.join("; ")}. ` +
+    "Your tables in OneLake aren't touched. A write that hasn't finished uploading is lost, so it's refused while a notebook is running.",
+  "Delete", { danger: true }))) return;
+  const res = await attempt(() => rpc("local_writes_clear"), "Not deleted");
+  if (!res) return;
+  toast(`Deleted ${formatBytes(res.bytes)}.${res.in_use.length ? ` ${res.in_use.length} still in use, left: try again when it has finished.` : ""}`);
+  render();
+}
+
+function localWritesText(w) {
+  if (!w.files) return `Empty · ${w.folder}`;
+  const up = w.uploading.files ? `, ${w.uploading.files} waiting to upload or left over (${formatBytes(w.uploading.bytes)})` : "";
+  return `${formatBytes(w.bytes)} in ${w.files.toLocaleString()} file${w.files === 1 ? "" : "s"}${up} · ${w.folder}`;
 }
 
 // The SQL page's limits. Each is checked by the engine (app_settings.SQL_RANGES); a value set by the
@@ -410,14 +811,14 @@ function sqlSettingsSection(s, locked) {
   const inputs = {};
   const rows = SQL_SETTINGS.map(([key, title, help, min, max, unit]) => {
     inputs[key] = h("input", { type: "number", min: String(min), max: String(max), step: "1", value: String(s[key].value),
-      class: "num", "aria-label": title, disabled: locked(key) ? true : null });
+      class: "num", "aria-label": title, readonly: locked(key) ? true : null, "aria-readonly": locked(key) ? "true" : null });
     return settingRow(title, help, h("div", { class: "row" }, inputs[key], unit ? h("span", { class: "muted-text small" }, unit) : null),
-      s[key].source === "policy" ? "policy" : null);
+      fixedBy(s, key));
   });
   const temp = h("input", { value: s.sql_temp_dir.value || "", spellcheck: "false", "aria-label": "Temp folder",
-    placeholder: "Empty: the app's data folder", disabled: locked("sql_temp_dir") ? true : null });
+    placeholder: "Empty: the app's data folder", readonly: locked("sql_temp_dir") ? true : null, "aria-readonly": locked("sql_temp_dir") ? "true" : null });
   rows.push(settingRow("Temp folder", "Where spilled data and results are kept while you page and export. A fast local drive with free space works best.",
-    temp, s.sql_temp_dir.source === "policy" ? "policy" : null));
+    temp, fixedBy(s, "sql_temp_dir")));
   const save = async () => {
     const changes = {};
     for (const [key] of SQL_SETTINGS) {
@@ -427,13 +828,14 @@ function sqlSettingsSection(s, locked) {
     if (!Object.keys(changes).length) return;
     if (await saveSettings(changes)) { toast("Saved. New SQL queries use these limits."); render(); }
   };
-  return h("section", { class: "card pad" }, h("h2", {}, "SQL queries"),
+  const all = [...SQL_SETTINGS.map(([key]) => key), "sql_temp_dir"].every(locked);
+  return h("div", { class: "advanced-group" }, h("h3", {}, "SQL queries"),
     h("p", { class: "muted-text small" }, "Each query on the SQL page runs on this PC in a process of its own with these limits, so Stop ends only that query. ",
       h("a", { href: "#", class: "learn-more", onclick: (e) => {
         e.preventDefault();
         attempt(() => invoke("open_doc", { page: "sql-execution.md" }), "Could not open the guide");
       } }, "Learn more")),
-    ...rows, h("div", { class: "row" }, btn("Save", null, save, "tool outline")));
+    ...rows, all ? null : h("div", { class: "row" }, btn("Save", null, save, "tool outline")));
 }
 
 // ---------- Usage data ----------
@@ -658,6 +1060,8 @@ registerFeature({
     { label: "Report a problem", icon: "bug", keywords: "bug support help feedback", run: reportProblem },
     { label: "What's new", icon: "rocket", keywords: "release notes update changelog", run: () => showWhatsNew(true) },
     { label: "About the new name: KratosForge", icon: "rocket", keywords: "rename fabric desktop kratosforge brand splash", run: () => showRenameSplash(() => {}, true) },
+    { label: "Show the update splash", icon: "rocket", keywords: "what's new release notes update forge splash", run: () => showUpdateSplash(true) },
     { label: "Open the user guide", icon: "help", keywords: "help docs documentation", run: () => invoke("open_doc", { page: "user-guide.md" }).catch(() => {}) },
+    { label: "Keyboard shortcuts", icon: "help", keywords: "keys hotkeys help accessibility", run: shortcutsDialog },
   ],
 });

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
+import uuid
 
 from .server import main as serve
 from .service import Service
@@ -21,7 +23,7 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("run-schedule", help="run one of this PC's schedules (Windows Task Scheduler calls this)")
     p.add_argument("schedule_id")
     p.add_argument("--manual", action="store_true", help="started with Run now, not by the schedule")
-    agent = sub.add_parser("agent", help="the headless agent: run, check, enqueue, status")
+    agent = sub.add_parser("agent", help="the headless agent: run, check, enqueue, status, requeue, prune")
     agent.add_argument("--config", help="agent.toml (default: FABRIC_DESKTOP_AGENT_CONFIG, then "
                                         "%%ProgramData%%\\FabricDesktop\\agent.toml or /etc/fabric-desktop/agent.toml)")
     agent_sub = agent.add_subparsers(dest="agent_command", required=True)
@@ -33,6 +35,12 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("entities", nargs="*", help="entities to run (default: all)")
     p.add_argument("--backfill", default="", choices=["", "full"], help="full: rebuild from the whole source")
     p.add_argument("--cascade", action="store_true", help="with one entity: rebuild it and everything downstream")
+    p = agent_sub.add_parser("requeue", help="put a dead or failed job back in the queue, attempts reset")
+    p.add_argument("job_id")
+    p = agent_sub.add_parser("prune", help="remove finished jobs older than agent.queue_retention_days "
+                                           "(the agent does this at start and daily)")
+    p.add_argument("--days", type=float, help="older than this many days (default: agent.queue_retention_days)")
+    p.add_argument("--dry-run", action="store_true", help="only list what would be removed")
     p = sub.add_parser("clean-local", help="delete local copies of lakehouse data unused for a while "
                                            "(the app does this at start)")
     p.add_argument("--days", type=int, help="older than this many days (default: the local_retention_days setting)")
@@ -52,6 +60,13 @@ def main(argv: list[str] | None = None) -> None:
     live.add_argument("--out", default="live-test-results", help="folder for results (default: live-test-results)")
     live.add_argument("--agent-config", help="sign in as this agent.toml's identity instead of as you")
     live.add_argument("--cleanup", metavar="LEDGER", help="delete what an earlier run's ledger.json lists, then exit")
+    live.add_argument("--all", action="store_true", help="also run the opt-in checks (concurrent Delta writers, "
+                      "notebook publish, pipeline definition); they create items and use capacity")
+    live.add_argument("--check", action="append", default=[], metavar="ID",
+                      choices=["delta.concurrent", "notebook.publish", "pipeline.definition"],
+                      help="also run this opt-in check (repeat for more)")
+    live.add_argument("--run-in-fabric", action="store_true",
+                      help="also run the published test notebook in Fabric; spends Spark capacity")
     bundle = sub.add_parser("support-bundle", help="save a zip of versions, settings sources and recent logs, "
                                                    "with secrets and personal details taken out")
     bundle.add_argument("--out", default=".", help="folder to save it in (default: here)")
@@ -84,8 +99,8 @@ def main(argv: list[str] | None = None) -> None:
             p.add_argument("--json", action="store_true", help="print the whole report as JSON")
     p = pipe_sub.add_parser("activities", help="print the activity registry, or one type's entry, as JSON")
     p.add_argument("type", nargs="?", help="an activity type, such as Copy or TridentNotebook")
-    p = pipe_sub.add_parser("run", help="run the pipeline on this PC (control flow, child pipelines and mocks; "
-                                        "nothing is sent to Fabric); exit 0 if it succeeds")
+    p = pipe_sub.add_parser("run", help="run the pipeline on this PC (control flow, child pipelines, notebooks and "
+                                        "mocks; no Fabric job is started); exit 0 if it succeeds")
     p.add_argument("path", help="pipeline-content.json, a getDefinition result, or a <name>.DataPipeline folder")
     p.add_argument("--param", action="append", default=[], metavar="NAME=VALUE", help="a pipeline parameter")
     p.add_argument("--mocks", help="JSON file: {activity name: {status, output, error, seconds}}")
@@ -94,7 +109,32 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--max-parallel", type=int, default=4)
     p.add_argument("--wait-scale", type=float, default=1.0, help="multiply every wait by this (0 for none)")
     p.add_argument("--timeout", type=float, help="stop the run after this many seconds")
+    p.add_argument("--notebook", action="append", default=[], metavar="KEY=NOTEBOOK",
+                   help="run a Notebook activity (by activity name or notebookId) with a notebook saved in "
+                        "KratosForge; its writes go to the run's own folder in the lakehouse")
+    p.add_argument("--allow-uncontained", action="store_true",
+                   help="let notebooks call the network or read files on this PC")
+    p.add_argument("--keep-outputs", action="store_true", help="keep the run's folder in the lakehouse")
+    p.add_argument("--read-lakehouse", action="store_true",
+                   help="let Lookup and Get Metadata read the lakehouse their dataset names (reads only)")
+    p.add_argument("--workspace", metavar="ID", help="the pipeline's own workspace, for datasets that leave it out")
+    p.add_argument("--sql-project", action="append", default=[], metavar="KEY=PROJECT",
+                   help="run a Script activity (by activity or connection name) in a local data project")
     p.add_argument("--json", action="store_true", help="print the whole run record as JSON")
+    nb = sub.add_parser("nb", help="notebooks: check an .ipynb file on this PC (nothing runs)")
+    nb_sub = nb.add_subparsers(dest="nb_command", required=True)
+    p = nb_sub.add_parser("validate", help="list what Validate finds, one line per finding as file:line:column: "
+                                           "severity: message; exit 1 if there are errors")
+    p.add_argument("path", nargs="?", help="an .ipynb file")
+    p.add_argument("--path-from-env", metavar="NAME",
+                   help="read the file's path from this environment variable (VS Code's task does, so no shell reads it)")
+    p.add_argument("--runs-on", choices=["pc", "fabric"],
+                   help="where it will run (default: the notebook's own Runs on, if it's set)")
+    p.add_argument("--json", action="store_true", help="print the whole result as JSON")
+    p = nb_sub.add_parser("open", help="show an .ipynb file in KratosForge (a kratosforge:// link; nothing runs)")
+    p.add_argument("path", nargs="?", help="an .ipynb file in the notebooks folder or a notebooks repository")
+    p.add_argument("--path-from-env", metavar="NAME", help="read the file's path from this environment variable")
+    p.add_argument("--print", action="store_true", help="print the link instead of opening it")
     args = parser.parse_args(argv)
 
     if args.command == "mcp":
@@ -110,6 +150,8 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(serve_http(args.port, args.parent_pid))
     if args.command == "pipeline":
         raise SystemExit(_pipeline(args))
+    if args.command == "nb":
+        raise SystemExit(_nb_open(args) if args.nb_command == "open" else _nb_validate(args))
     if args.command == "serve":
         serve()
         return
@@ -177,6 +219,24 @@ def _agent(args: argparse.Namespace) -> int:
         agent.audit.record(
             "agent_enqueue", "ok", 0.0, {"env": args.env, "entities": args.entities, "backfill": args.backfill,
                                          "cascade": args.cascade, "agent": config.name})
+    elif args.agent_command == "requeue":
+        by = f"{agent.audit.os_user or 'unknown'} (cli)"
+        try:
+            job = agent.queue.requeue(args.job_id, by)
+        except (LookupError, ValueError) as exc:
+            print(exc)
+            return 1
+        agent.audit.record("agent_requeue", "ok", 0.0, {"job_id": args.job_id, "agent": config.name}, who=by)
+        result = {k: job[k] for k in ("id", "state", "attempts", "requeued_by")}
+    elif args.agent_command == "prune":
+        if args.days is not None and args.days < 0:
+            print("--days: a number of at least 0")
+            return 2
+        days = config.queue_retention_days if args.days is None else args.days
+        gone = agent.queue.prune(days, dry_run=args.dry_run)
+        if not args.dry_run:
+            agent.audit.record("agent_prune", "ok", 0.0, {"jobs": len(gone), "days": days, "agent": config.name})
+        result = {"dry_run": args.dry_run, "older_than_days": days, "jobs": gone}
     else:
         result = agent.status()
     print(json.dumps(result, indent=2, default=str))
@@ -215,9 +275,11 @@ def _live_test(args: argparse.Namespace) -> int:
     if not args.workspace and not args.cleanup:
         print("Name the test workspace with --workspace <id>.")
         return 2
+    extra = set(args.check) | (set(livetest.ALL_CHECKS) if args.all else set())
     if args.dry_run:
         print("The live test will:")
-        for step in livetest.LiveTest(args.workspace, None, None, None, Path(args.out), bad_token_files=object()).plan():
+        for step in livetest.LiveTest(args.workspace, None, None, None, Path(args.out), bad_token_files=object(),
+                                      extra=extra, run_in_fabric=args.run_in_fabric).plan():
             print(f"  - {step}")
         print("Dry run: nothing was signed in to, created or written.")
         return 0
@@ -234,7 +296,8 @@ def _live_test(args: argparse.Namespace) -> int:
         print(json.dumps(result, indent=2))
         return 1 if result["left_behind"] else 0
     test = livetest.LiveTest(args.workspace, fabric, FileStore(credential.storage_token), credential, Path(args.out),
-                             protected_ids=livetest.policy_workspace_ids())
+                             protected_ids=livetest.policy_workspace_ids(), extra=extra,
+                             run_in_fabric=args.run_in_fabric)
     print("The live test will:")
     for step in test.plan():
         print(f"  - {step}")
@@ -245,6 +308,81 @@ def _live_test(args: argparse.Namespace) -> int:
     print(livetest.summary(result))
     print("\n".join(result["files"]))
     return {"passed": 0, "failed": 1}.get(result["outcome"], 2)
+
+
+def _path_arg(args: argparse.Namespace) -> str:
+    """The file an `nb` command names: its argument, or the variable --path-from-env names (VS Code's
+    tasks pass ${file} that way, so cmd.exe never reads a name such as a&b.ipynb)."""
+    import os
+
+    raw = os.environ.get(args.path_from_env, "") if args.path_from_env else (args.path or "")
+    if not raw:
+        print("Name an .ipynb file" + (f": {args.path_from_env} isn't set." if args.path_from_env else "."), file=sys.stderr)
+    return raw
+
+
+def _nb_open(args: argparse.Namespace) -> int:
+    """Asks Windows to open a kratosforge:// link for the file; the app shows it (deep_link.rs)."""
+    import os
+    from pathlib import Path
+    from urllib.parse import quote
+
+    raw = _path_arg(args)
+    if not raw:
+        return 2
+    path = Path(raw).resolve()
+    if path.suffix.lower() != ".ipynb" or not path.is_file():
+        print(f"{path} isn't an .ipynb file.", file=sys.stderr)
+        return 2
+    link = "kratosforge://notebook?path=" + quote(path.as_posix(), safe="")
+    if args.print or os.name != "nt":
+        print(link)
+        return 0
+    os.startfile(link)  # type: ignore[attr-defined]  # Windows only
+    return 0
+
+
+def _nb_validate(args: argparse.Namespace) -> int:
+    """Validate's code checks on one file (validate.check), printed the way VS Code's problem
+    matcher in .vscode/tasks.json reads them (vscode_setup.PROBLEM_PATTERN). Findings point at the
+    file's first line and name the cell in the message, since an .ipynb has no line per cell."""
+    from pathlib import Path
+
+    from . import validate
+    from .notebook import from_ipynb
+    from .service import data_dir
+
+    raw = _path_arg(args)
+    if not raw:
+        return 2
+    path = Path(raw).resolve()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or not isinstance(data.get("cells"), list):
+            raise ValueError("it isn't a Jupyter notebook (.ipynb) file")
+        nb = from_ipynb(data)
+    except (OSError, UnicodeDecodeError, ValueError, AttributeError, TypeError) as exc:
+        print(f"{path}:1:1: error: KratosForge can't read this notebook: {exc}")
+        return 2
+    try:
+        observed = json.loads((data_dir() / "fabric_environment.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        observed = {}
+    runs_on = args.runs_on or {"local": "pc", "fabric": "fabric"}.get(nb["compute"])
+    result = validate.check(nb["cells"], nb["lakehouse"], runs_on, observed)
+    if args.json:
+        print(json.dumps({"path": str(path), "runs_on": runs_on} | result, indent=2, default=str))
+    else:
+        for f in result["findings"]:
+            title = f["title"] + (f" (line {f['line']})" if f.get("line") else "")
+            if f.get("cell") and not title.startswith(f"Cell {f['cell']}"):
+                title = f"Cell {f['cell']}: {title}"
+            text = " ".join(t for t in (title + ".", f["text"], f["fix"]) if t)
+            print(f"{path}:1:1: {f['severity']}: {' '.join(text.split())}")
+        c = result["counts"]
+        print(f"{c.get('error', 0)} errors, {c.get('warning', 0)} warnings, {c.get('info', 0)} notes"
+              + ("" if runs_on else " (Runs on isn't set, so what stops either place is a warning)"))
+    return 1 if result["counts"].get("error") else 0
 
 
 def _pipeline(args: argparse.Namespace) -> int:
@@ -308,14 +446,40 @@ def _pipeline_run(args: argparse.Namespace) -> int:
         print(f"error: {exc}")
         return 2
     params = dict(item.partition("=")[::2] for item in args.param)
+    run_id, notebooks, data = str(uuid.uuid4()), None, None
+    if args.notebook or args.read_lakehouse or args.sql_project:
+        svc = Service()
+    if args.notebook:
+        from .pipeline_notebooks import LocalNotebooks
+        notebooks = LocalNotebooks(svc, run_id, dict(item.partition("=")[::2] for item in args.notebook),
+                                   args.allow_uncontained, args.keep_outputs)
+    if args.read_lakehouse or args.sql_project:
+        from .pipeline_data import LocalData
+        data = LocalData(svc, run_id, notebooks, args.workspace, lakehouse_reads=args.read_lakehouse,
+                         sql_projects=dict(item.partition("=")[::2] for item in args.sql_project))
     run = PipelineRun(imp, parameters=params, mocks=mocks, children=children, max_parallel=args.max_parallel,
-                      wait_scale=args.wait_scale, timeout_seconds=args.timeout)
+                      wait_scale=args.wait_scale, timeout_seconds=args.timeout, run_id=run_id, notebooks=notebooks,
+                      data=data)
     try:
+        problems = run.check()
+        acts = imp.pipeline.all_activities()
+        if not problems and ((notebooks is not None and notebooks.lakehouses(acts))
+                             or (data is not None and data.lakehouses(acts))):
+            svc.auth.storage_token()  # sign in before anything runs
         run.run()
     except RunRefused as exc:
         for p in exc.problems:
             print(f"refused: {p['code']}" + (f" [{p['activity']}]" if p.get("activity") else "") + f": {p['message']}")
         return 2
+    except KeyboardInterrupt:
+        run.cancel()
+        if notebooks is not None:
+            notebooks.stop()
+        print("cancelled")
+        return 1
+    finally:
+        if notebooks is not None:
+            notebooks.finish()
     record = run.to_json()
     if args.json:
         print(json.dumps(record, indent=2, default=str))
@@ -346,7 +510,6 @@ def _audit(args: argparse.Namespace) -> int:
 
 def _run_schedule(schedule_id: str, trigger: str) -> None:
     """No console and no one watching: log to a file, never open a sign-in window."""
-    import sys
 
     from .server import _log_file
     if sys.stdout is None or sys.stderr is None or sys.executable.lower().endswith("pythonw.exe"):

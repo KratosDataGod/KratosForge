@@ -30,11 +30,11 @@ Highest priority first, by risk and by what unblocks other items. Owned-elsewher
 
 | Id | Priority | Capability | Status | Owner | PR |
 | --- | --- | --- | --- | --- | --- |
-| FD-101 | P0 | Live Fabric integration test harness | MISSING | This program | [#80](https://github.com/KratosDataGod/fabric-desktop/pull/80) |
-| FD-102 | P0 | Threat model and hardening | PARTIAL | This program | [#82](https://github.com/KratosDataGod/fabric-desktop/pull/82) (102a) |
-| FD-103 | P0 | Supply chain security | PARTIAL | This program | [#88](https://github.com/KratosDataGod/fabric-desktop/pull/88), [#86](https://github.com/KratosDataGod/fabric-desktop/pull/86) |
-| FD-104 | P0 | Enterprise installation and updates | PARTIAL (signing BLOCKED) | This program | [#90](https://github.com/KratosDataGod/fabric-desktop/pull/90) (guide) |
-| FD-105 | P0 | Configuration policies | PARTIAL | This program | [#90](https://github.com/KratosDataGod/fabric-desktop/pull/90) |
+| FD-101 | P0 | Live Fabric integration test harness | MISSING | This program | [#80](https://github.com/KratosDataGod/KratosForge/pull/80) |
+| FD-102 | P0 | Threat model and hardening | PARTIAL | This program | [#82](https://github.com/KratosDataGod/KratosForge/pull/82) (102a) |
+| FD-103 | P0 | Supply chain security | PARTIAL | This program | [#88](https://github.com/KratosDataGod/KratosForge/pull/88), [#86](https://github.com/KratosDataGod/KratosForge/pull/86) |
+| FD-104 | P0 | Enterprise installation and updates | PARTIAL (signing BLOCKED) | This program | [#90](https://github.com/KratosDataGod/KratosForge/pull/90) (guide) |
+| FD-105 | P0 | Configuration policies | PARTIAL | This program | [#90](https://github.com/KratosDataGod/KratosForge/pull/90) |
 | FD-109 | P0 | Reproducible environments | DUPLICATE | [Prove](../prove/plan.md) | |
 | FD-110 | P0 | Notebook execution isolation | DUPLICATE | [Prove](../prove/plan.md) | #67 |
 | FD-111 | P0 | Compatibility analyzer | DUPLICATE | [Prove](../prove/plan.md) | |
@@ -51,21 +51,21 @@ Highest priority first, by risk and by what unblocks other items. Owned-elsewher
 | FD-122 | P1 | Agent dashboard | DUPLICATE | [Workloads](../workloads/plan.md) | |
 | FD-123 | P1 | Incident management | DUPLICATE | [Workloads](../workloads/plan.md) | #74 |
 | FD-124 | P1 | Multi-worker execution | DUPLICATE | [Workloads](../workloads/plan.md) | |
-| FD-125 | P0 | Execution auditing | PARTIAL | This program | [#89](https://github.com/KratosDataGod/fabric-desktop/pull/89) |
-| FD-126 | P1 | Backup and disaster recovery | MISSING | This program | [#91](https://github.com/KratosDataGod/fabric-desktop/pull/91) |
+| FD-125 | P0 | Execution auditing | PARTIAL | This program | [#89](https://github.com/KratosDataGod/KratosForge/pull/89) |
+| FD-126 | P1 | Backup and disaster recovery | MISSING | This program | [#91](https://github.com/KratosDataGod/KratosForge/pull/91) |
 | FD-127 | P1 | Data contracts | DUPLICATE | [Staged roadmap](../scale-and-operations-plan.md) | |
 | FD-128 | P1 | Lineage and impact | DUPLICATE | [Staged roadmap](../scale-and-operations-plan.md) | #76 (open) |
 | FD-129 | P1 | Governance exceptions | PARTIAL | This program | |
-| FD-130 | P1 | Multi-team permissions | PARTIAL | This program | [#93](https://github.com/KratosDataGod/fabric-desktop/pull/93) |
-| FD-131 | P0 | Sensitive data protection | PARTIAL | This program | [#84](https://github.com/KratosDataGod/fabric-desktop/pull/84) (131a), [#95](https://github.com/KratosDataGod/fabric-desktop/pull/95) (131b retention) |
+| FD-130 | P1 | Multi-team permissions | PARTIAL | This program | [#93](https://github.com/KratosDataGod/KratosForge/pull/93) |
+| FD-131 | P0 | Sensitive data protection | PARTIAL | This program | [#84](https://github.com/KratosDataGod/KratosForge/pull/84) (131a), [#95](https://github.com/KratosDataGod/KratosForge/pull/95) (131b retention) |
 | FD-132 | P2 | Extension SDK | DUPLICATE | Git-native | |
 | FD-133 | P2 | Custom commands | DUPLICATE | Git-native | |
 | FD-134 | P2 | Project templates | DUPLICATE | Git-native | |
 | FD-135 | P2 | Extension packaging | DUPLICATE | Git-native | |
-| FD-136 | P1 | First-run experience | PARTIAL | This program | [#94](https://github.com/KratosDataGod/fabric-desktop/pull/94) (draft) |
+| FD-136 | P1 | First-run experience | PARTIAL | This program | [#94](https://github.com/KratosDataGod/KratosForge/pull/94) (draft) |
 | FD-137 | P1 | Opt-in telemetry | PARTIAL | This program | |
 | FD-138 | P1 | Diagnostic support bundles | PARTIAL | This program | |
-| FD-139 | P1 | Accessibility | PARTIAL | This program | [#92](https://github.com/KratosDataGod/fabric-desktop/pull/92) |
+| FD-139 | P1 | Accessibility | PARTIAL | This program | [#92](https://github.com/KratosDataGod/KratosForge/pull/92) |
 | FD-140 | P0 | Pilot readiness | PARTIAL | This program | this PR ([release-readiness.md](release-readiness.md)) |
 
 ## Items this program owns
@@ -104,7 +104,7 @@ Split in two so each change is reviewable on its own.
 ### FD-104 Enterprise installation and updates (P0)
 
 - **Acceptance criteria:** a documented per-machine and silent deployment path (copy the exe and policy file with Intune or Group Policy); policy settings to turn automatic updates off or pin a version; documented rollback and recovery from a failed engine install; uninstall steps that list every folder.
-- **Remaining after #90:** releases keep only the newest build per channel and the engine always comes from the channel's current release, so pinning a build and real rollback need per-build release assets (a release workflow change for maintainer review). The app deletes `fabric-desktop.exe.old` at startup, so it is not a rollback path.
+- **Remaining after #90:** releases keep only the newest build per channel and the engine always comes from the channel's current release, so pinning a build and real rollback need per-build release assets (a release workflow change for maintainer review). Since HD-022 the app keeps the previous exe (`kratosforge.exe.old`) only until the new build has started (and puts it back if it doesn't), so it is not a rollback path either.
 - **Blocked part:** an MSI or MSIX package and a quiet Smart App Control experience need code signing (PR #28).
 
 ### FD-105 Configuration policies (P0)
@@ -126,6 +126,7 @@ Split in two so each change is reviewable on its own.
 ### FD-129 Governance exceptions (P1)
 
 - **Acceptance criteria:** exceptions in `exceptions.toml` show in the app with owner, reason, approver and expiry; expiring ones raise a notice; adding one records who asked and who approved in the audit trail (FD-125).
+- **In the app:** Data mesh > Quality > Exceptions lists each exception with the table's owner, the reason, the approver and the expiry. One that ends within 14 days raises a notice on the bell and a banner on Data mesh. Still open: asking for an exception in the app, and recording who asked and who approved in the audit trail.
 
 ### FD-130 Multi-team permissions (P1)
 

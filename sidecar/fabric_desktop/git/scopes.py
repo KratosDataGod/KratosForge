@@ -80,10 +80,14 @@ _PLATFORM = """# Where the platform's items live, per environment. Anything not 
 
 _CAPACITY = """# The capacities and the workspaces each should hold. KratosForge compares
 # this with Fabric and reports differences; it doesn't change capacities.
+# A setting left out isn't compared. Ids and names only.
 
-# [capacities.<name>]
+# [capacities."F64 Prod"]
 # capacity_id = ""
-# workspaces = []
+# sku = "F64"
+# region = "West Europe"
+# state = "Active"
+# workspaces = [{ id = "", name = "" }]
 """
 
 # Files and folders each new repository starts with (folders get a .gitkeep so Git keeps them).

@@ -4,7 +4,7 @@ The metadata framework builds and runs your medallion layers (Bronze, Silver, Go
 
 This guide goes from an empty folder to Prod. The [reference](#reference) at the end lists every setting.
 
-> **Tested and not yet tested.** Everything that runs on your PC, including Dev on the PC, the four gates and every load mode, is covered by automated tests on every build. Features that talk to Fabric (promote to Test and Prod, runs in Fabric, Optimize, the semantic model, history and restore, the variable library) are built to Fabric's documented APIs but haven't yet been tried on a live tenant. Several are tagged **Preview** in the app.
+> **Tested and not yet tested.** Everything that runs on your PC, including Dev on the PC, the four gates and every load mode, is covered by automated tests on every build. Features that talk to Fabric (promote to Test and Prod, runs in Fabric, Optimize, the semantic model, history and restore, the variable library) are built to Fabric's documented APIs but haven't yet been tried on a live tenant. Several are tagged **Preview** in the app. Some things this guide marks Preview are settings in your project files rather than screens, such as reading **in batches** (`batch_by`), [reliability objectives](#reliability-objectives-preview) and [release records](#release-records). Turning Preview features off (`show_preview`) hides screens only, so these still run whenever a project sets them.
 
 ## Ideas in one page
 
@@ -151,7 +151,7 @@ Full loads and rebuilds replace the whole table. A source too big to read at onc
 
 **Before it reads a Delta source** (a table, a link or another entity), a run estimates the read from the table's Delta log alone: the files left after the watermark, their rows, their size on disk, and the memory the columns it reads take (8 bytes a number or timestamp, 4 a date, about 32 a text value). The **read** step shows it, for example *about 2,000 rows in 1 of 20 files (0.4 MB on disk, 0.1 MB in memory)*. If three times that estimate (the read plus the copies the later steps make; a 5-million-row first load peaked at 2.5 times) is more than the machine's free memory, the run stops before reading anything and says what to do instead: load it incrementally, read fewer columns, or run the environment in Fabric. To try anyway, set `memory_guard = false` under `[load]`; that isn't a logic change, so it doesn't ask whether to rebuild. Free memory is read on Windows and Linux; elsewhere there's no guard. File sources (`files`, `landing`) aren't estimated yet.
 
-Measured on one Linux machine (4 cores, 16 GB), local Delta tables, one incremental run with 1,000 changed and 1,000 new rows, using [examples/benchmark/large_tables.py](https://github.com/KratosDataGod/fabric-desktop/blob/main/examples/benchmark/large_tables.py):
+Measured on one Linux machine (4 cores, 16 GB), local Delta tables, one incremental run with 1,000 changed and 1,000 new rows, using [examples/benchmark/large_tables.py](https://github.com/KratosDataGod/KratosForge/blob/main/examples/benchmark/large_tables.py):
 
 | Table | Changed rows | Write | Seconds | Peak memory | Files rewritten | Written |
 | --- | --- | --- | --: | --: | --: | --: |
@@ -206,7 +206,7 @@ Checks run before every write. Each has an `on_fail`:
 
 The table commit comes first and everything in step 4 follows it, together with the quarantined rows. Only the table commit is ever retried, so a failure after it can't put the rows in twice: the run reports the rows as written and says what it couldn't record. Each commit also carries its watermark, so if saving `meta.watermarks` failed, the next run goes by the commit and doesn't load the same rows again. A run whose table write fails quarantines nothing.
 
-**Exceptions.** When a rule genuinely doesn't fit, add an approved exception to `exceptions.toml` with the entity, the rule, a reason, an approver and an expiry date (or `permanent`). An expired exception fails the save gate again.
+**Exceptions.** When a rule genuinely doesn't fit, add an approved exception to `exceptions.toml` with the entity, the rule, a reason, an approver and an expiry date (or `permanent`). An expired exception fails the save gate again. **Data mesh > Quality > Exceptions** shows each one with the table's owner, the reason, the approver and the end date. One that ends within 14 days raises a notice on the bell and a banner on Data mesh, so it can be renewed or the rule met before runs and promote are blocked.
 
 ```toml
 [[exception]]
@@ -227,7 +227,7 @@ expires = "2026-11-01"
 | **Schema drift** card | Reads the source now and lists new, gone and retyped columns. Add a new column to the contract, mark a gone column as renamed (`[source] rename`), take a new type, or set this table's drift policy. **Save to config** writes it through the save gate. |
 | **Freshness** card | See [Freshness promises](#freshness-promises). |
 | **Quarantine** card | Shows held-back rows and the check that held each. Fix values in place, or fix the check and save, then **Replay selected** (Preview): they go through the contract, derived columns and checks again, and are written as a `replay` run without moving the watermark. **Discard selected** removes rows that should never load. After a replay the app offers to rebuild downstream tables. |
-| **Cell 1: surrogate keys** card | The Spark SQL MERGE that issues this table's keys, for running in Fabric. **Create template notebook** makes a notebook that starts with it. |
+| **Cell 1: surrogate keys** card | The Spark SQL MERGE that issues this table's keys, for running in Fabric. **Create template notebook** makes a notebook that starts with it. Once the environment's keys come from the platform (SQL_Platform, or SQL_Keys when Dev, Test and Prod share one keys database), there's no MERGE: the card says where keys come from, and runs from Data mesh take them from there. |
 
 ### Freshness promises
 
@@ -323,14 +323,15 @@ Tables keep their rows. A table whose logic changes asks whether to rebuild on i
 
 Each promote card shows the **Last release** to its target: the metadata version, the commit and whether it was pushed, the engine, who promoted it and when, and whether the stored record still matches its id (**checks out**). **Copy record** copies the whole record.
 
-If the files can't be named by a pushed commit (uncommitted changes, unpushed commits, no upstream branch, or no Git), the promote still goes ahead and the promote card says so. To require a pushed commit instead, set `require_commit = true` for that environment in `environments.toml`:
+Test and Prod in OneLake only take released files. If the files can't be named by a pushed commit (uncommitted changes, unpushed commits, no upstream branch, or no Git), a promote to an environment whose tables are in OneLake is blocked until they are committed and pushed. An environment kept on this PC goes ahead, and the promote card says so. `require_commit` in `environments.toml` changes this for one environment:
 
 ```toml
-[prod]
-require_commit = true
-```
+[test]
+require_commit = false   # go ahead with a note instead
 
-Promote to that environment is then blocked until the files are committed and pushed.
+[prod]
+require_commit = true    # block even when this environment is on this PC
+```
 
 ### Who can promote
 
@@ -400,8 +401,10 @@ lib.CRM_server_host
 **Data mesh > Deploy > Semantic model** builds a Direct Lake semantic model over a layer's tables (the last layer, usually Gold) in Test or Prod. It reads the layer's lakehouse through its SQL analytics endpoint, with no import and no refresh schedule.
 
 - Each entity is a table; dimensions and facts are marked. Facts get a row count measure.
+- No column sums on its own (`summarizeBy: none`, as Best Practice Analyzer's rules ask). Instead each fact gets a total measure for every visible numeric column that isn't a key, named like its row count measure: `fact_sales total net_amount`. Names don't change as the model grows, so reports keep their measures. Visuals that already sum a column keep their aggregation.
 - Relationships come from the metadata: a fact's `[[lookup]]` names the dimension and key, and any other column named like a dimension's surrogate key joins to it.
 - Surrogate keys, `_run_id` and `_loaded_at` are hidden.
+- Two entities whose Delta tables share a name are qualified by schema (`sales_orders`). **Update model** first reads the model's definition and keeps the names its tables already have, so when a second `orders` table arrives only the newcomer is qualified, and reports keep their tables and measures. If the definition can't be read, nothing is written.
 - **Create model** makes `SM_<Layer>` in the environment's workspace (rename it if you like). **Update model** updates it in place and keeps every lineage tag, so reports built on it keep working.
 - If a model with that name already exists (for example after a rename), KratosForge asks first: the confirmation names the model and says its definition will be replaced, including measures, tables and relationships added to it in Fabric. Nothing is written until you confirm.
 
@@ -409,6 +412,7 @@ lib.CRM_server_host
 
 - If the workspace's semantic models can't be listed (no access, throttling, a sign-in that failed), the app shows the reason and the tab offers neither **Create model** nor **Update model**. Try again once Fabric answers.
 - A table that hasn't been written in the environment yet is left out, and the result says so (**Not written yet, so left out**).
+- A column whose type Direct Lake can't read (arrays, maps, structs) is left out of its table, and the result names each one with its type. A relationship that would use such a column is left out too, and named, rather than pointing at a column the model doesn't have.
 - A table that exists but can't be read stops the build with the table's name and the reason, and nothing is written, so the model never silently loses a table.
 
 Dev on the PC has no Direct Lake model: switch the environment to Test or Prod.
@@ -528,7 +532,7 @@ One section per environment (`[dev]`, `[test]`, `[prod]`):
 | `optimize_after_run` | Optimize every table a run writes (Test and Prod) |
 | `keys` | `platform` (keys in `SQL_Platform`) or `lakehouse` (`LH_Keys`). Unset, keys come from the platform once the environment has one in Fabric, unless the project already has `LH_Keys` |
 | `workspaces` | A workspace per designation, like `{ ingest = { id = "...", name = "Sales Ingest - Test" } }` |
-| `require_commit` | `true`: promote here only from files a pushed Git commit holds ([Release records](#release-records)) |
+| `require_commit` | Whether promote here takes only files a pushed Git commit holds. On by default for an environment in OneLake, off for one on this PC; `false` or `true` overrides it ([Release records](#release-records)) |
 | `separate_promoter` | `true`: whoever promoted this version to the environment before can't promote it here ([Who can promote](#who-can-promote)) |
 
 Changing this file doesn't change the metadata version, so it never forces a re-promote.

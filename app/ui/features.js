@@ -40,22 +40,36 @@ const PREVIEW_FEATURES = {
   schedules: "Schedules",
   sideBySide: "Side by side",
   prove: "Prove this notebook",
+  validate: "Validate notebook",
+  notebookRuns: "Notebook runs",
+  fabricEdit: "Edit Fabric notebooks on this PC",
   wizard: "New notebook wizard",
   deps: "Cell dependencies",
-  debug: "Variable history and watches",
+  debug: "Breakpoints, variable history and watches",
   replay: "Failure replay bundles",
+  inputs: "Parameters and widgets bar",
   cost: "Cost",
   capacity: "Capacity status",
   usage: "Measured usage import",
   shortcuts: "OneLake shortcuts",
+  shortcutFixes: "Shortcut fixes",
   access: "OneLake access",
   history: "Table history and restore",
   health: "Table health",
   model: "Semantic model",
+  ossie: "Semantic models and Apache Ossie",
   tests: "Tests",
   xray: "Estate X-ray",
   optimize: "Optimize",
   itemPreview: "Item preview",
+  resultViewer: "Result downloads",
+  chartBuilder: "Chart builder",
+  severalCharts: "Several charts per result",
+  dataWrangler: "Data Wrangler",
+  queryProfile: "Query profile",
+  sharedSessions: "Shared notebook sessions",
+  ipywidgets: "Notebook widgets",
+  altair: "Altair charts in notebooks",
   mesh: "Data mesh",
   platform: "Platform",
   sourceControl: "Source control",
@@ -71,8 +85,22 @@ const PREVIEW_FEATURES = {
   promote: "Promote",
   syncKeys: "Sync keys",
   varlib: "Variable library",
-  replay: "Quarantine replay",
+  quarantineReplay: "Quarantine replay",
   risk: "Risk check before a run",
+  sessions: "Notebook sessions",
+  environments: "Notebook environments",
+  nbFormats: "Notebook import and export formats",
+  profile: "Profile",
+  notebookFolderPublish: "Publishing notebooks from folders",
+  fabricStep: "Run the last cell on Fabric",
+  popOut: "Pop-out windows",
+  pipelines: "Pipelines",
+  pipelineRuns: "Pipeline runs in Monitor",
+  requestsCoreFour: "Workspace, domain and exception requests",
+  trustBadges: "Endorsement and business terms",
+  warehouse: "Warehouse queries",
+  sqlResultViews: "Messages and Chart on the SQL page",
+  bestPractices: "Best practices: checks and templates",
 };
 
 function previewShown() {
@@ -93,7 +121,7 @@ function preview(id, node) {
 
 // Core steps that are untested on a tenant but must not disappear when preview features are hidden:
 // they always show, always with the Preview tag (previewMarked).
-const PREVIEW_ALWAYS_SHOWN = ["promote", "syncKeys", "varlib", "replay", "risk"];
+const PREVIEW_ALWAYS_SHOWN = ["promote", "syncKeys", "varlib", "quarantineReplay", "risk"];
 
 // The node with a Preview tag, whatever the Settings switch says.
 function previewMarked(id, node) {
@@ -125,9 +153,155 @@ function withHowItWorks(main, panel) {
   return h("div", { class: "with-how" }, h("div", { class: "with-how-main" }, main), panel);
 }
 
+// ---------- Settings > Appearance > Layout ----------
+
+// Three choices (app_settings ui_explanations, ui_preview_marks, ui_density) that change how every
+// page shows the same things, as classes on <body>; styles.css does the rest. Nothing is hidden for
+// good: with explanations "on request", a page's How this works panel opens as a drawer from the
+// title bar's info button, and a Preview dot keeps the tag's words for screen readers and as its tooltip.
+const LAYOUT_CHOICES = {
+  ui_explanations: ["Explanations", "The How this works panels: what a page reads, what it changes and where results go.",
+    [["beside", "Beside the page"], ["on_request", "On request"]]],
+  ui_preview_marks: ["Preview marks", "How features still in preview are marked. Page titles keep the full tag.",
+    [["tags", "Tags"], ["dots", "Quiet dots"]]],
+  ui_density: ["Density", "Spacing in tables, lists and toolbars.", [["comfortable", "Comfortable"], ["compact", "Compact"]]],
+};
+const layoutChoice = (key) => state.settings?.[key]?.value || LAYOUT_CHOICES[key][2][0][0];
+const howView = { open: null };  // the view the drawer was opened on
+
+function applyAppearance() {
+  const body = document.body;
+  body.classList.toggle("explain-on-request", layoutChoice("ui_explanations") === "on_request");
+  body.classList.toggle("preview-dots", layoutChoice("ui_preview_marks") === "dots");
+  body.classList.toggle("density-compact", layoutChoice("ui_density") === "compact");
+  syncHowToggle();
+}
+
+function howPanel() {
+  return document.querySelector("#view .how-it-works");
+}
+
+// Shows the info button while the page has a panel to open, and keeps the drawer on the page it was
+// opened on: a re-render puts it on the new copy of the panel, another page closes it.
+function syncHowToggle() {
+  const toggle = document.getElementById("how-toggle");
+  if (!toggle) return;
+  const panel = document.body.classList.contains("explain-on-request") ? howPanel() : null;
+  toggle.hidden = !panel;
+  if (howView.open && (!panel || howView.open !== state.view)) setHowDrawer(false);
+  else if (howView.open && !panel.classList.contains("how-shown")) panel.classList.add("how-shown");
+}
+
+function setHowDrawer(open) {
+  document.querySelectorAll(".how-it-works.how-shown").forEach((p) => p.classList.remove("how-shown"));
+  const panel = open ? howPanel() : null;
+  panel?.classList.add("how-shown");
+  howView.open = panel ? state.view : null;
+  document.body.classList.toggle("how-open", !!panel);
+  document.getElementById("how-toggle")?.setAttribute("aria-expanded", String(!!panel));
+}
+
+function initAppearance() {
+  const toggle = document.getElementById("how-toggle");
+  if (!toggle) return;
+  toggle.addEventListener("click", () => setHowDrawer(!howView.open));
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && howView.open) setHowDrawer(false); });
+  let queued = false;
+  new MutationObserver(() => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; syncHowToggle(); });
+  }).observe(document.getElementById("view"), { childList: true, subtree: true });
+}
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initAppearance);
+else initAppearance();
+
+// ---------- keyboard shortcuts ----------
+
+// One registry of keyboard shortcuts. The Keyboard shortcuts dialog ("?", the command bar, Settings >
+// Help and about) lists whatever is registered, so a feature that adds keys adds them here once and
+// they can't go missing from the list:
+//
+//   registerShortcuts("Notebook", [{ keys: ["Shift+Enter"], label: "Run the cell and select the next one",
+//     when: () => state.view === "notebook" }]);
+//
+// keys: what to press, each a combination written with "+" ("Ctrl+K"); several mean "any of these".
+// label: what it does. when (optional): list it only while this returns true.
+// An entry with an id is also matched by isShortcut(e, id): match lists KeyboardEvent.key values and
+// mod means Ctrl (or Cmd) is held, alt that Alt is. The app-wide handlers in app.js read their keys that way.
+const shortcutRegistry = [];
+
+function registerShortcuts(group, list) {
+  for (const s of list) shortcutRegistry.push({ ...s, group });
+}
+
+// The keys that work everywhere in the window (app.js handles each through isShortcut).
+registerShortcuts("Anywhere", [
+  { id: "palette", keys: ["Ctrl+K"], match: ["k"], mod: true,
+    label: "Open the command bar: find a page, action, notebook, workspace or entity" },
+  { id: "shortcuts", keys: ["?"], match: ["?"], label: "Show this list (when you aren't typing in a box)" },
+  { id: "close", keys: ["Esc"], match: ["Escape"],
+    label: "Close the command bar, a menu, a dialog or the activity tray, then go back to where you were" },
+]);
+registerShortcuts("Moving around", [
+  { id: "focus", keys: ["Tab"], match: ["Tab"],
+    label: "Move to the next control (Shift+Tab: the previous one). In a dialog, it stays inside the dialog" },
+  { id: "open", keys: ["Enter", "Space"], match: ["Enter", " "],
+    label: "Open the row or card that has focus, such as a notebook, run or workload" },
+  // app.js navKey: not while typing in a box or with a dialog open.
+  { id: "history", keys: ["Alt+Left", "Alt+Right"], match: ["ArrowLeft", "ArrowRight"], alt: true, label: "Go back or forward to the page you were on (not while typing in a box)" },
+]);
+registerShortcuts("Menus and tabs", [
+  { id: "menu", keys: ["Up", "Down", "Home", "End"], match: ["ArrowDown", "ArrowUp", "Home", "End"],
+    label: "Move through an open menu. Enter picks the item" },
+  { id: "tabs", keys: ["Left", "Right", "Home", "End"], match: ["ArrowLeft", "ArrowRight", "Home", "End"],
+    label: "On a tab: move to the previous, next, first or last tab" },
+]);
+
+// Whether a key press is the registered shortcut with this id. Without mod, held modifiers are left
+// to the handler.
+function isShortcut(e, id) {
+  const s = shortcutRegistry.find((x) => x.id === id);
+  if (!s?.match || (s.mod && !(e.ctrlKey || e.metaKey)) || (s.alt && !e.altKey)) return false;
+  const key = String(e.key || "");
+  return s.match.some((k) => (k.length === 1 ? key.toLowerCase() === k : key === k));
+}
+
+// Whether focus is in a box someone types in, where a plain "?" must stay a character.
+function typingIn(el) {
+  return !!el && (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || !!el.isContentEditable
+    || !!el.closest?.(".cm-editor"));
+}
+
+// The shortcuts to list now, by group, in the order they were registered.
+function shortcutGroups() {
+  const shown = shortcutRegistry.filter((s) => {
+    try { return !s.when || s.when(); } catch { return false; }
+  });
+  return [...new Set(shown.map((s) => s.group))].map((group) => [group, shown.filter((s) => s.group === group)]);
+}
+
+function shortcutsDialog() {
+  const keys = (s) => h("td", { class: "kbd-keys" }, ...s.keys.flatMap((combo, i) => [
+    i ? h("span", { class: "muted-text" }, "/") : null,
+    ...combo.split(/(?<=.)\+(?=.)/).flatMap((k, j) => [j ? h("span", { class: "muted-text" }, "+") : null, h("kbd", {}, k)])]));
+  const groups = shortcutGroups();
+  const body = h("div", { class: "scroll shortcuts-list" },
+    ...groups.map(([group, list]) => h("section", {}, h("h3", {}, group),
+      h("table", { class: "list" }, h("tbody", {},
+        list.map((s) => h("tr", { "data-shortcut": s.id || null }, keys(s), h("td", {}, s.label))))))),
+    h("p", { class: "text" }, "The notebook editor has more keys of its own, such as running a cell or adding one: ",
+      h("a", { href: "#", class: "learn-more", onclick: (e) => {
+        e.preventDefault();
+        attempt(() => invoke("open_doc", { page: "notebooks.md#editing" }), "Could not open the guide");
+      } }, "see the notebook guide"), "."),
+    h("p", { class: "text" }, learnMore("keyboard-shortcuts", "Keyboard shortcuts in the user guide")));
+  showDialog("Keyboard shortcuts", body, [btn("Close", null, closeDialog, "tool primary")]);
+}
+
 // ---------- command bar (Ctrl+K) ----------
 
-const palette = { notebooks: null, selected: 0 };
+const palette = { notebooks: null, selected: 0, opener: null };
 
 // Everything the bar can find for this text: commands, then notebooks, workspaces and entities.
 function paletteItems(text) {
@@ -158,12 +332,23 @@ function paletteItems(text) {
   return items;
 }
 
+// A modal dialog: focus moves in, Tab stays in, Escape closes it and focus goes back to where it was.
 function openPalette(initial = "") {
+  // Not over another dialog: Ctrl+K there would leave two modals, with focus trapped in the one behind.
+  if (document.getElementById("dialog-root")?.childElementCount) return;
+  const opener = document.getElementById("palette") ? palette.opener : document.activeElement;
+  palette.opener = opener;
   closeMenu();
   const input = h("input", { type: "text", value: initial, placeholder: "Search pages, actions, notebooks, workspaces and entities",
     "aria-label": "Command bar" });
   const list = h("div", { class: "palette-list", role: "listbox" });
-  const close = () => { document.getElementById("palette")?.remove(); };
+  const close = () => {
+    const open = document.getElementById("palette");
+    if (!open) return;
+    open.remove();
+    palette.opener = null;
+    if (opener?.isConnected && typeof opener.focus === "function") opener.focus();
+  };
   const draw = () => {
     const items = paletteItems(input.value);
     palette.selected = Math.min(palette.selected, Math.max(0, items.length - 1));
@@ -184,11 +369,15 @@ function openPalette(initial = "") {
     if (e.key === "ArrowDown") { e.preventDefault(); palette.selected = Math.min(items.length - 1, palette.selected + 1); draw(); }
     else if (e.key === "ArrowUp") { e.preventDefault(); palette.selected = Math.max(0, palette.selected - 1); draw(); }
     else if (e.key === "Enter" && items[palette.selected]) { e.preventDefault(); close(); items[palette.selected].run(); }
-    else if (e.key === "Escape") { e.preventDefault(); close(); }
   });
-  close();
-  const box = h("div", { id: "palette", class: "palette-overlay", onmousedown: (e) => { if (e.target === box) close(); } },
-    h("div", { class: "palette", role: "dialog", "aria-label": "Command bar" },
+  document.getElementById("palette")?.remove();  // reopening keeps the first opener
+  const box = h("div", { id: "palette", class: "palette-overlay", onmousedown: (e) => { if (e.target === box) close(); },
+    onkeydown: (e) => {
+      if (e.key === "Tab") trapFocus(e, box);
+      // One Escape closes one thing, not the activity tray behind it too.
+      else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); }
+    } },
+    h("div", { class: "palette", role: "dialog", "aria-modal": "true", "aria-label": "Command bar" },
       h("label", { class: "palette-input" }, icon("search", 18), input, h("kbd", {}, "Esc")), list));
   document.body.append(box);
   palette.selected = 0;
@@ -206,3 +395,12 @@ function syncSearchBox() {
   box.value = state.query || "";
   document.querySelector(".search")?.classList.toggle("filtering", !!state.query);
 }
+
+// Back and Forward (UX-008; app.js keeps the history), also on Alt+Left and Alt+Right.
+registerFeature({
+  id: "navigation",
+  commands: [
+    { label: "Go back", icon: "history", keywords: "back previous page history alt+left", run: () => navBack(), when: () => navCan(-1) },
+    { label: "Go forward", icon: "chevronRight", keywords: "forward next page history alt+right", run: () => navForward(), when: () => navCan(1) },
+  ],
+});

@@ -23,6 +23,7 @@ import pytest
 from deltalake import DeltaTable, write_deltalake
 
 from fabric_desktop import lakehouse, proof, prove_service, verify
+from fabric_desktop.notebook import Kernel
 from fabric_desktop.proof_runtime import ProofRuntime, ReadOnlyTable
 from fabric_desktop.receipts import receipt_id
 from fabric_desktop.server import handle
@@ -277,6 +278,15 @@ def test_a_proof_runs_both_sides_from_pinned_inputs_without_touching_shared_tabl
     assert call(svc, "prove_list", name="Order values")[0]["id"] == out["id"]
 
 
+def test_a_matching_proof_earns_proof_forged_once(svc):
+    svc.fake = FakeFabric(svc)
+    out = wait(svc, call(svc, "prove_start", **payload())["id"])
+    assert out["verdict"]["verdict"] == "same", out
+    assert out["earned"] == [{"id": "proof-forged", "name": "Proof Forged", "xp": 150, "first": True}]
+    row = call(svc, "profile_get")["evidence"][0]
+    assert row["type"] == "prove.match" and row["ref"]["id"] == out["receipt_id"]
+
+
 def test_tiny_floating_point_drift_passes_the_default_tolerance(svc):
     svc.fake = FakeFabric(svc, env={"FD_FAKE_FABRIC_DRIFT": "1"})
     out = wait(svc, call(svc, "prove_start", **payload())["id"])
@@ -350,6 +360,91 @@ def test_cancel_during_the_pc_run(svc):
     assert out["receipt_id"]
 
 
+def test_cancel_that_lands_while_a_cell_is_starting_stops_it(svc, monkeypatch):
+    # Windows CI: Cancel landed after the proof moved to the next cell but before that cell's
+    # thread ran, and interrupt failed on the thread's missing id (TypeError), or found the last
+    # cell already done and the long cell then ran to its end.
+    svc.fake = FakeFabric(svc)
+    cells = CELLS[:2] + [{"type": "code", "source": "import time\nfor _ in range(400):\n    time.sleep(0.05)"}] + CELLS[3:]
+    started = call(svc, "prove_start", **payload(cells))
+    start = Kernel.start
+
+    def cancel_first(self, code, *args, **kwargs):
+        if "range(400)" in code:
+            assert call(svc, "prove_cancel", id=started["id"]) == {"cancelled": True}
+        return start(self, code, *args, **kwargs)
+
+    monkeypatch.setattr(Kernel, "start", cancel_first)
+    began = time.monotonic()
+    out = wait(svc, started["id"])
+    assert out["state"] == "cancelled" and time.monotonic() - began < 15, out["pc"]  # the cell alone takes 20 s
+    assert out["pc"]["cells"]["2"]["status"] != "ok" and svc.fake.saved == []
+
+
+def test_interrupt_waits_for_a_cell_thread_that_hasnt_started_yet(monkeypatch):
+    import threading
+    k = Kernel()
+    answers = []
+
+    class SlowStart(threading.Thread):
+        def start(self):
+            if self.name.startswith("cell-"):  # interrupt arrives between the thread's creation and its start
+                threading.Thread(target=lambda: answers.append(k.interrupt())).start()
+                time.sleep(0.3)
+            super().start()
+
+    monkeypatch.setattr(threading, "Thread", SlowStart)
+    k.start("import time\nfor _ in range(400):\n    time.sleep(0.05)")
+    monkeypatch.undo()
+    deadline = time.monotonic() + 10
+    while not answers and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert answers == [{"interrupted": True, "stopped": True}]
+    assert k.poll(-1, 0.0)["status"] == "cancelled"
+
+
+
+def test_interrupt_before_the_cell_reaches_its_handlers_still_cancels_it(monkeypatch):
+    # Windows CI: the interrupt was raised as soon as the thread had an id, which can be before
+    # _execute's handlers. The thread then died there, the run never finished and Prove waited on it.
+    import threading
+    k = Kernel()
+    execute, entered = Kernel._execute, threading.Event()
+
+    def late(self, *args, **kwargs):
+        entered.set()
+        time.sleep(0.5)  # the thread runs, but isn't in _execute yet
+        return execute(self, *args, **kwargs)
+
+    monkeypatch.setattr(Kernel, "_execute", late)
+    k.start("import time\nfor _ in range(400):\n    time.sleep(0.05)")
+    assert entered.wait(5)
+    assert k.interrupt() == {"interrupted": True, "stopped": True}
+    snap = k.poll(-1, 0.0)
+    assert snap["status"] == "cancelled" and any("Cancelled" in o.get("text", "") for o in snap["outputs"])
+    monkeypatch.undo()
+    assert k.run("x = 1")["status"] == "ok"  # the kernel takes the next cell
+
+
+def test_interrupt_while_a_cell_is_finishing_lets_it_finish(monkeypatch):
+    # An interrupt raised in _execute's finally (before run.finish) would end the thread with the run
+    # never finished, the same hang as an interrupt before its handlers.
+    import threading
+    from fabric_desktop import notebook
+    k = Kernel()
+    finish, entered = notebook._Run.finish, threading.Event()
+
+    def slow_finish(self, status):
+        entered.set()
+        time.sleep(0.5)  # in the finally: Cancel must not raise here
+        return finish(self, status)
+
+    monkeypatch.setattr(notebook._Run, "finish", slow_finish)
+    k.start("x = 1")
+    assert entered.wait(5)
+    assert k.interrupt() == {"interrupted": True, "stopped": True}
+    assert k.poll(-1, 0.0)["status"] == "ok"
+
 def test_the_kernel_refuses_cells_while_a_proof_runs_and_one_proof_at_a_time(svc):
     svc.fake = FakeFabric(svc)
     cells = CELLS[:2] + [{"type": "code", "source": "import time\ntime.sleep(1.5)"}]
@@ -405,6 +500,17 @@ def test_bad_rules_are_refused_before_anything_runs(svc):
     assert "Unknown comparison rule" in out["error"] and svc.fake.saved == []
 
 
+def test_a_proof_uses_the_repository_location_without_saving_it_into_the_notebook(svc):
+    # A notebook in a notebooks repository with no lakehouse of its own (publishPayload's location_ref).
+    svc.fake = FakeFabric(svc)
+    given = payload(lakehouse_ref=None, location_ref=LAKEHOUSE)
+    assert call(svc, "prove_check", **given)["check"]["ok"]
+    out = wait(svc, call(svc, "prove_start", **given)["id"])
+    assert out["state"] == "done", out["message"]
+    assert out["lakehouse"]["lakehouse_id"] == LAKEHOUSE["lakehouse_id"]
+    assert svc.notebooks.load("Order values").get("lakehouse") is None  # it keeps following the environment
+
+
 def test_prove_check_describes_the_plan(svc):
     plan = call(svc, "prove_check", **payload())
     assert plan["check"]["ok"] and "Order values_proof" in plan["plan"]["fabric"]
@@ -457,6 +563,59 @@ def test_whole_numbers_on_one_side_and_decimals_on_the_other_compare_as_numbers(
     assert verify.compare(pc, pa.table({"k": [1, 2], "n": ["1", "2"]}), rules)["result"] == "differs"
 
 
+@pytest.mark.parametrize("keys", [[], ["k"]], ids=["whole rows", "keyed"])
+def test_with_no_tolerance_decimals_are_compared_exactly_not_as_doubles(keys):
+    # Both values are the same DOUBLE, so rel 0 called them equal: a complete "match" that wasn't.
+    from decimal import Decimal as D
+    pc = pa.table({"k": [1, 2, 3], "n": pa.array([D("12345678901234567.0000000001"), D("1.5"), D("15")], pa.decimal128(38, 10))})
+    fabric = pa.table({"k": [1, 2, 3], "n": pa.array([D("12345678901234567.0000000002"), D("1.50"), D("15")], pa.decimal128(30, 12))})
+    out = verify.compare(pc, fabric, {"keys": keys, "rel": 0})
+    assert out["result"] == "differs" and out["level"] == "complete", out
+    if keys:
+        assert out["counts"]["changed"] == 1 and out["examples"][0]["key"] == {"k": 1}
+        # The difference is below what a DOUBLE shows, so no "largest 0" is reported for it.
+        assert out["column_diffs"]["n"] == {"rows": 1}
+    else:
+        assert out["counts"] == {"only_pc": 1, "only_fabric": 1}
+    # The default tolerance still allows it, and 1.5 = 1.50, 15 = 15.0 and an integer = its decimal exactly.
+    assert verify.compare(pc, fabric, {"keys": keys})["result"] == "match"
+    whole = pa.table({"k": [1, 2], "n": pa.array([12345678901234567, 15], pa.int64())})
+    dec = pa.table({"k": [1, 2], "n": pa.array([D("12345678901234567.00"), D("15.0")], pa.decimal128(20, 2))})
+    assert verify.compare(whole, dec, {"keys": keys, "rel": 0})["result"] == "match"
+    off = pa.table({"k": [1, 2], "n": pa.array([D("12345678901234567.01"), D("15.0")], pa.decimal128(20, 2))})
+    assert verify.compare(whole, off, {"keys": keys, "rel": 0})["result"] == "differs"
+
+
+def test_keys_of_different_types_are_matched_as_text_instead_of_failing():
+    # DuckDB refused to COALESCE a text key with a number key, so the comparison failed outright.
+    out = verify.compare(pa.table({"k": ["1", "2"], "v": [1, 2]}), pa.table({"k": [1, 3], "v": [1, 2]}), {"keys": ["k"]})
+    assert out["result"] == "differs" and out["columns"]["types"] == ["k (string vs integer)"]
+    assert out["counts"] == {"only_pc": 1, "only_fabric": 1, "changed": 0}
+    assert [e["key"] for e in out["examples"]] == [{"k": "2"}, {"k": "3"}]
+
+
+@pytest.mark.parametrize("given, says", [
+    ({"examples": -1}, "examples is a whole number"), ({"limit_rows": "abc"}, "limit_rows is a whole number"),
+    ({"limit_rows": True}, "limit_rows is a whole number"), ({"abs": "abc"}, "abs is a number"),
+    ({"rel": float("nan")}, "rel is a number 0 or more"), ({"rel": -1}, "rel is a number 0 or more"),
+    ({"keys": [1]}, "keys is a list of column names"), ({"ignore": {"a": 1}}, "ignore is a list of column names"),
+    ({"columns": [1]}, "columns gives tolerances per column"), ({"columns": {"a": {"tol": 1}}}, "The tolerance for a is abs"),
+    ({"columns": {"a": {"abs": -1}}}, "abs for a is a number 0 or more"), (["k"], "Comparison rules are a set"),
+])
+def test_bad_rules_are_refused_with_a_message_not_a_database_error(given, says):
+    with pytest.raises(ValueError, match=says):
+        verify.rules(given)
+    with pytest.raises(ValueError, match="offset is a whole number"):
+        verify.compare(pa.table({"k": [1]}), pa.table({"k": [1]}), None, offset=-1)
+
+
+def test_rules_given_as_text_or_one_name_are_read_as_meant():
+    r = verify.rules({"keys": "id", "ignore": " loaded_at ", "examples": "10", "limit_rows": 1e6, "abs": "0.01",
+                      "columns": {"amount": {"rel": "1e-6"}}})
+    assert (r["keys"], r["ignore"], r["examples"], r["limit_rows"], r["abs"]) == (["id"], ["loaded_at"], 10, 1_000_000, 0.01)
+    assert r["columns"] == {"amount": {"rel": 1e-6}} and verify.DEFAULTS["columns"] == {}
+
+
 NAN, INF = float("nan"), float("inf")
 
 
@@ -484,3 +643,22 @@ def test_verify_whole_rows_counts_duplicates_and_reports_levels():
     ts = verify.compare(pa.table({"t": pa.array([1_000_000_123], pa.timestamp("us"))}),
                         pa.table({"t": pa.array([1_000_000_999], pa.timestamp("us"))}), {"timestamps": "ms"})
     assert ts["result"] == "match"
+
+
+def test_a_proof_uses_its_own_notebooks_kernel_not_the_open_one(svc):
+    # A kernel per notebook (as with notebooks in their own process), in the engine to keep it quick.
+    svc.sessions.in_process, svc.sessions._make = True, lambda _process: Kernel()
+    svc.sessions.active = "Other"
+    other = svc.sessions.kernel("Other")
+    other.run("y = 1")
+    svc.fake = FakeFabric(svc)
+    cells = CELLS[:2] + [{"type": "code", "source": "import time\nfor _ in range(400):\n    time.sleep(0.05)"}] + CELLS[3:]
+    started = call(svc, "prove_start", **payload(cells))
+    for _ in range(200):
+        if call(svc, "prove_status", id=started["id"])["pc"].get("cell") == 2:
+            break
+        time.sleep(0.05)
+    assert call(svc, "prove_cancel", id=started["id"]) == {"cancelled": True}
+    assert wait(svc, started["id"])["state"] == "cancelled"
+    assert svc.sessions.kernel("Order values").notebook_name == "Order values"
+    assert other.run("print(y)")["outputs"][0]["text"] == "1\n"  # the open notebook kept its variables

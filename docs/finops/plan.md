@@ -43,7 +43,8 @@ PRs #5, #32, #58 and #94 are merged and present on main.
 | 3b | FINOPS-003 second provider: Azure Cost Management exports, billed per capacity ([usage-import.md](usage-import.md#billed-per-capacity-from-azure-cost-management)) | Open for review |
 | 4 | FINOPS-004 Predeployment capacity and CU risk analyzer, part 1: the risk service ([risk-check.md](risk-check.md)) | Open for review |
 | 4b | FINOPS-004 part 2: findings in the run dialogs, acknowledgement, settings ([risk-check.md](risk-check.md#where-you-see-it)) | Open for review |
-| 5 | FINOPS-005 Local vs Fabric execution advisor | Part 1: savings on this PC estimated from Fabric runs of the same table (`calibration.py`). Advisor not started |
+| 5 | FINOPS-005 Local vs Fabric execution advisor | Part 1: savings on this PC estimated from Fabric runs of the same table (`calibration.py`, #257). Part 2: placement advice per notebook (`advisor.py`, [Where to run a notebook](placement-advice.md)); its UI is Prove's (item 35) |
+| 6 | Capacity settings history (testing feedback item 30, `fdcap_` in the central lakehouse; [Capacity settings history](../optimize/README.md#capacity-settings-history)) | Merged (#294); admin overrides in #351 |
 
 ## FINOPS-003 usage source decision
 

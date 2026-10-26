@@ -1,0 +1,243 @@
+"""Requests that make something in Fabric or the platform, mixed into ``Service``: a new workspace,
+access to a workspace, a domain, and an exception to a governance policy.
+
+The platform (core.py) checks a request when it's sent and records the decision. Approving one of
+these makes what was asked for first, as the person approving, and only then approves it:
+
+    workspace         creates the workspace on its capacity (or puts the one this request made back
+                      on it), then makes the requested people and groups its admins
+    workspace_access  gives the person or group the role in that workspace
+    domain            creates the domain (or subdomain) in Fabric and keeps it in the platform linked to
+                      it (platform_create_domain); one whose parent isn't in Fabric is saved in the
+                      platform only. A retry finds a domain the platform already has.
+    exception         records the exception in the platform's catalog (core, through policy.py)
+
+If a step fails, the request stays waiting and the error names the step. What a workspace request
+made is recorded on the request (record_request_progress) and in the workspace's description, so a
+retry finds it instead of making it twice. Nothing here posts anything but governance's own notices.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from .. import access as access_mod
+from ..redact import describe
+from . import core
+
+_log = logging.getLogger(__name__)
+
+NEW_KINDS = ("workspace", "workspace_access", "domain", "exception")
+REPAIR = "After an update, a platform admin runs Platform > Settings > Finish or repair once."
+
+
+class StepError(RuntimeError):
+    """A step of carrying out a request failed: the request is still waiting."""
+
+
+def call_or_repair(catalog: Any, op: str, what: str, **kwargs: Any) -> Any:
+    """Call a platform operation that came with an update. A UDF_Platform made before it has no such
+    function (Fabric answers 404, read as LookupError), or refuses a request kind it doesn't know:
+    say what to do instead. Mirrors the shortcut center's accepted-risk calls."""
+    missing = f"The platform can't {what} yet: UDF_Platform is older than this app. {REPAIR}"
+    try:
+        return catalog.call(op, **kwargs)
+    except LookupError as exc:
+        _log.info("%s: %s", op, describe(exc))
+        raise LookupError(missing) from exc
+    except core.PlatformError as exc:
+        text = str(exc)
+        if (op in text and ("not found" in text.lower() or "no operation" in text.lower())) or "kind must be one of" in text:
+            _log.info("%s: %s", op, describe(exc))
+            raise LookupError(missing) from exc
+        raise
+
+
+class RequestsMixin:
+
+    def _rq_fabric(self) -> Any:
+        """Fabric as the signed-in person: the one approving."""
+        return self.fabric  # type: ignore[attr-defined]
+
+    def platform_request(self, kind: str, target: str, reason: str = "", detail: dict[str, Any] | None = None,
+                         project: str = "") -> dict[str, Any]:
+        if kind not in NEW_KINDS:
+            return super().platform_request(kind, target, reason, detail, project)  # type: ignore[misc]
+        detail = dict(detail or {})
+        if kind == "workspace":
+            self._rq_name_free(str(detail.get("name") or target))
+        try:
+            return super().platform_request(kind, target, reason, detail, project)  # type: ignore[misc]
+        except core.PlatformError as exc:
+            if "kind must be one of" in str(exc):
+                _log.info("request %s: %s", kind, describe(exc))
+                raise LookupError(f"The platform can't take this kind of request yet: UDF_Platform is older "
+                                  f"than this app. {REPAIR}") from exc
+            raise
+
+    def _rq_name_free(self, name: str) -> None:
+        """Refuse a new workspace whose name is taken, as far as the person asking can see."""
+        try:
+            taken = {str(w.get("displayName") or "").lower() for w in self._rq_fabric().list_workspaces()}
+        except Exception as exc:  # noqa: BLE001 - the approver's check still stops a duplicate
+            _log.info("Couldn't list workspaces to check %s is free: %s", name, describe(exc))
+            return
+        if name.strip().lower() in taken:
+            raise core.PlatformError(f"A workspace named {name.strip()} already exists. Ask for access to it, "
+                                     "or pick another name.")
+
+    def platform_decide(self, id: str, approve: bool, note: str = "", capacity_id: str = "") -> dict[str, Any]:
+        """Approving a workspace, workspace access or domain request makes it first, as the person
+        approving. ``capacity_id`` is for a workspace request sent without one: the approver picks it."""
+        if not approve:
+            return super().platform_decide(id, approve, note)  # type: ignore[misc]
+        req = next((r for r in self._catalog().call("list_requests", status="waiting")  # type: ignore[attr-defined]
+                    if r["id"] == id), None)
+        if req is None or req["kind"] not in NEW_KINDS:
+            return super().platform_decide(id, approve, note)  # type: ignore[misc]
+        if not req.get("can_decide"):
+            raise PermissionError("Only a platform admin can approve this request")
+        made: dict[str, Any] = {}
+        if req["kind"] == "workspace":
+            made = self._rq_make_workspace(req, capacity_id)
+        elif req["kind"] == "workspace_access":
+            made = self._rq_give_access(req)
+        elif req["kind"] == "domain":
+            made = self._rq_make_domain(req)
+        out = super().platform_decide(id, approve, note)  # type: ignore[misc]
+        if made.get("next"):
+            out["next"] = made["next"]
+        out["made"] = {k: v for k, v in made.items() if k != "next"}
+        return out
+
+    # ---- carrying out each kind
+
+    @staticmethod
+    def _rq_step(step: str, run: Any) -> Any:
+        try:
+            return run()
+        except Exception as exc:  # named and re-raised: the request stays waiting
+            _log.info("%s failed: %s", step, describe(exc))
+            raise StepError(f"{step} failed, so the request is still waiting: {describe(exc)}") from exc
+
+    def _rq_progress(self, req: dict[str, Any], made: dict[str, Any]) -> None:
+        self._rq_step("Record what was made", lambda: call_or_repair(
+            self._catalog(), "record_request_progress", "carry out this request",  # type: ignore[attr-defined]
+            id=req["id"], made=made))
+
+    def _rq_make_domain(self, req: dict[str, Any]) -> dict[str, Any]:
+        """Create the domain in Fabric as the approver, then keep it in the platform, as New domain
+        with Also create it in Fabric does. A subdomain whose parent isn't in Fabric can't be there
+        either, so it is saved in the platform only. A retry after a partial approval finds it."""
+        d = req["detail"]
+        name = str(d.get("name") or req["target"])
+        known = {x["id"]: x for x in self.platform_domains()}  # type: ignore[attr-defined]
+        if req["target"] in known:
+            return {}
+        parent = known.get(str(d.get("parent_id") or ""))
+        in_fabric = not parent or bool(parent.get("fabric_domain"))
+        domain = {"id": req["target"], "name": name, "parent_id": d.get("parent_id") or "",
+                  "description": d.get("description") or req.get("reason") or "", "owners": d.get("owners") or ""}
+
+        def create() -> Any:
+            try:
+                return self.platform_create_domain(domain, in_fabric=in_fabric)  # type: ignore[attr-defined]
+            except PermissionError as exc:
+                raise PermissionError(f"{exc} A Fabric administrator can approve this request, or you can create "
+                                      f"{name} in the platform only (Platform > Domains > New domain, without Also "
+                                      "create it in Fabric) and approve it again.") from exc
+
+        step = f"Create the domain {name} in Fabric" if in_fabric else f"Save the domain {name}"
+        self._rq_step(step, create)
+        if in_fabric or parent is None:
+            return {}
+        return {"next": [f"{parent['name']} isn't in Fabric, so {name} was saved in the platform only. Create "
+                         f"{parent['name']} and {name} in Fabric's admin portal, then choose Import from Fabric"]}
+
+    def _rq_make_workspace(self, req: dict[str, Any], capacity_id: str = "") -> dict[str, Any]:
+        d, api = req["detail"], self._rq_fabric()
+        made = dict(d.get("made") or {})
+        name = d["name"]
+        capacity = (d.get("capacity_id") or capacity_id or "").strip()
+        if not capacity:
+            raise core.PlatformError("Pick a capacity for the workspace: the request didn't name one")
+        marker = f"(KratosForge request {req['id']})"
+
+        def find_or_create() -> tuple[dict[str, Any], bool]:
+            same = [w for w in api.list_workspaces() if str(w.get("displayName") or "").lower() == name.lower()]
+            ours = next((w for w in same if w.get("id") == made.get("workspace_id")
+                         or marker in str(w.get("description") or "")), None)
+            if ours:
+                return ours, False
+            if same:
+                raise core.PlatformError(f"A workspace named {name} already exists and this request didn't make "
+                                         "it. Decline the request, or ask for another name.")
+            why = str(req.get("reason") or "").strip()
+            return api.create_workspace(name, capacity, f"{why} {marker}".strip()[:4000]), True
+
+        ws, created = self._rq_step(f"Create the workspace {name}", find_or_create)
+        wid = ws["id"]
+        if created or made.get("workspace_id") != wid:
+            made["workspace_id"] = wid
+            self._rq_progress(req, {"workspace_id": wid})
+        if not created and str(ws.get("capacityId") or "").lower() != capacity.lower():
+            self._rq_step(f"Put it on {d.get('capacity_name') or 'the capacity'}",
+                          lambda: api.assign_to_capacity(wid, capacity))
+        made["capacity_id"] = capacity
+        done = {p.lower() for p in made.get("admins") or []}
+        have: set[str] | None = None
+        for a in d.get("admins") or []:
+            key = (a.get("id") or a.get("email") or "").lower()
+            if key in done:
+                continue
+            if have is None:
+                have = self._rq_step("Read the workspace's roles", lambda: self._rq_admins(api, wid))
+            if key not in have:
+                self._rq_step(f"Make {a.get('name') or key} an admin", lambda a=a: self._rq_add(api, wid, a, "Admin"))
+            done.add(key)
+            made["admins"] = sorted(done)
+            self._rq_progress(req, {"admins": made["admins"]})
+        nxt = []
+        if d.get("domain_id"):
+            # Putting a workspace in a Fabric domain is a Fabric admin API (Tenant.ReadWrite.All), which
+            # KratosForge doesn't ask for: a Fabric administrator does it in the admin portal.
+            nxt.append(f"Put it in the {d.get('domain_name') or d['domain_id']} domain in Fabric's admin portal")
+        return made | {"next": nxt} if nxt else made
+
+    @staticmethod
+    def _rq_admins(api: Any, workspace_id: str) -> set[str]:
+        """The workspace's admins now, by object ID and by UPN, lower case."""
+        out: set[str] = set()
+        for r in api.list_role_assignments(workspace_id):
+            if r.get("role") == "Admin":
+                p = access_mod.principal(r.get("principal") or {})
+                out |= {str(p["id"] or "").lower(), str(p["email"] or "").lower()} - {""}
+        return out
+
+    def _rq_add(self, api: Any, workspace_id: str, who: dict[str, Any], role: str) -> None:
+        if who.get("type") == "Group":
+            api.add_role_assignment(workspace_id, who["id"], "Group", role)
+        else:
+            self._add_user_by_email(workspace_id, who["email"], role)  # type: ignore[attr-defined]
+
+    def _rq_give_access(self, req: dict[str, Any]) -> dict[str, Any]:
+        d, api = req["detail"], self._rq_fabric()
+        who, role, wid = d["principal"], d["role"], d["workspace_id"]
+        label = who.get("name") or who.get("email") or who.get("id")
+
+        def give() -> None:
+            current = None
+            for r in api.list_role_assignments(wid):
+                p = access_mod.principal(r.get("principal") or {})
+                if (who.get("id") and str(p["id"]).lower() == who["id"]) or (
+                        who.get("email") and str(p["email"]).lower() == who["email"]):
+                    current = r
+            if current is None:
+                self._rq_add(api, wid, who, role)
+            elif current.get("role") != role:
+                api.update_role_assignment(wid, current["id"], role)
+
+        self._rq_step(f"Give {label} the {role} role in {d.get('workspace_name') or wid}", give)
+        self._rq_progress(req, {"assigned": True})
+        return {"assigned": True}

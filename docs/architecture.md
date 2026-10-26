@@ -8,12 +8,12 @@ KratosForge does Microsoft Fabric data engineering work on your own Windows PC a
 
 ### KratosForge app (`app/`)
 
-`fabric-desktop.exe` is a [Tauri 2](https://v2.tauri.app/) shell written in Rust. It holds two WebView2 views and starts the local engine.
+`kratosforge.exe` is a [Tauri 2](https://v2.tauri.app/) shell written in Rust. It holds two WebView2 views and starts the local engine.
 
 | Part | What it does | Code |
 | --- | --- | --- |
 | **App UI** | The Fabric-style pages: Home, Create, Workspaces, OneLake catalog, Fabric, notebooks, SQL query, Metadata and Monitor. Plain HTML and JavaScript with no build step. `activity.js` holds the environment picker, the activity tray and plain-language errors. Each data action is one `rpc` command to the shell. | `app/ui/` |
-| **Fabric view** | A second WebView2 laid over the page, showing Fabric's own portal from `app.fabric.microsoft.com`: full page on the **Fabric** page, where item links across the app open, and the Monitoring hub on **Monitor**. It has its own WebView2 profile that uses Windows single sign-on. Its sign-in cookies are saved every few seconds, encrypted with Windows DPAPI, and restored before the next launch's first page load. Links that leave Fabric open in the default browser. | `fabric_view_show`, `mod signin` in `app/src-tauri/src/main.rs` |
+| **Fabric view** | A second WebView2 laid over the page, showing Fabric's own portal from `app.fabric.microsoft.com`: full page on the **Fabric** page, where item links across the app open, and the Monitoring hub on **Monitor**. It has its own WebView2 profile that uses Windows single sign-on. Its sign-in cookies are saved every few seconds, encrypted with Windows DPAPI, and restored before the next launch's first page load. Only Fabric and Microsoft sign-in pages open in it (the host list is in [security](security.md)); other links open in the default browser. | `fabric_view_show`, `mod signin` in `app/src-tauri/src/main.rs` |
 | **Startup check** | Before the engine starts: if GitHub Releases has a newer build, it downloads it, checks the file is that build, swaps the exe and restarts. It then checks Python 3.11 or later, and installs the sidecar from the commit the exe was built from, so the exe and the engine always match. | `check_components`, `app/src-tauri/src/updater.py` |
 
 ### Local engine (`sidecar/`)
@@ -44,7 +44,7 @@ The Python package `fabric_desktop`, run by the shell as `python -m fabric_deskt
 - the MSAL token cache
 - run history, and the jobs this app started in Fabric (`fabric_runs.jsonl`)
 - workload owners, links to Fabric items and actions taken from the app (`workloads.sqlite`)
-- local staging copies of each write
+- the local staging table of each write (its schema only, no rows)
 - catalog favorites
 - the list of repositories opened in Source control (`git_repos.json`; the repositories themselves stay where you put them)
 - the Fabric view's profile and its saved, encrypted sign-in
@@ -60,7 +60,7 @@ A metadata project is a folder you choose and keep in Git.
 | Fabric REST API (`api.fabric.microsoft.com`) | Listing and creating workspaces, lakehouses and notebooks |
 | OneLake (`onelake.dfs.fabric.microsoft.com`) | `Tables/` (Delta) and `Files/` in each lakehouse. The OneLake table API lists schemas and tables. |
 | Fabric portal (`app.fabric.microsoft.com`) | The pages shown in the Fabric view |
-| GitHub Releases | The `latest` release: `fabric-desktop.exe` and `version.json`, replaced by every green build of `main` |
+| GitHub Releases | The `latest` release: `kratosforge.exe` (also published as `fabric-desktop.exe` for builds before the name changed) and `version.json`, replaced by every green build of `main` |
 
 ## How a request flows
 
@@ -71,13 +71,23 @@ A metadata project is a folder you choose and keep in Git.
 
 Every other action follows the same path. Only the work in step 3 changes.
 
+Several calls can be on the pipe at once. Each request carries an id, and the shell hands each reply only to the call with that id; a late reply nobody waits for is dropped. The sidecar runs the quick calls (the ones the shell gives a 60-second limit, such as polling a cell, opening a notebook and the SQL page's paging) in their own lane, so a long run, publish or sign-in doesn't hold them up. Every other call runs one at a time in the order it arrives. Saving, creating and renaming a notebook stay in that order with publish and delete, so a publish that waited can never write older cells over a newer save; while a long call runs, a save waits for it.
+
 ## Writing to OneLake
 
 `lakehouse.write_table`, **Save as table**, jobs and metadata runs all write the same way:
 
-1. The result is written to a local staging Delta table first. It is checked against the Fabric-safe Delta profile before anything leaves the PC: reader version 1, writer version 2, no deletion vectors, no column mapping and classic checkpoints.
+1. An empty local staging Delta table with the result's schema is written first, since the schema alone decides the table's protocol, and deleted once checked. It is checked against the Fabric-safe Delta profile before anything leaves the PC: reader version 1, writer version 2, no deletion vectors, no column mapping and classic checkpoints.
 2. delta-rs writes the Parquet data files to `Tables/<schema>/<table>`, or `Tables/<table>` in a lakehouse without schemas. It then commits the Delta log in one atomic step, so Fabric never sees a half-written version.
 3. The written table is checked against the profile again, and the write is added to the run history shown in **Monitor**.
+
+On a home or office line the upload is nearly all of a write's time: delta-rs already sends 5 MB blocks about eight at a time, so OneLake takes the bytes at the line's upload speed (about 4.5 MB/s on a 40 Mbps line). So notebooks on this PC make the upload do less and overlap it with the work:
+
+- **Write here, then upload** (the default; `onelake_writes`). `write_table` keeps the table on this PC and returns at once, with the row count. A background queue uploads it while the cell goes on, so a cell computing the next table overlaps the previous one's upload, and different tables upload side by side (three at a time). One table's writes still commit in the order the cell made them. The cell ends only when its writes are in OneLake, and a write that fails fails the cell that made it, naming the table. The failure shows at the cell's end, so the rest of the cell has already run by then (a later write to the same table isn't made); with **Straight to OneLake** the cell stops at the failed write instead. A read of a table in the same cell waits for that cell's own writes first. Tables waiting in memory are capped at a quarter of the PC's memory; past that, `write_table` waits.
+- **Straight to OneLake.** Each `write_table` returns once its write is committed. For a fast upload line there's little to overlap, and a script that prints right after each write sees the committed version. Each notebook chooses under **Runs on > Table writes to OneLake**, kept in the notebook file; **Same as Settings** follows **Settings > Advanced > OneLake writes**. Scripts, jobs and Fabric runs always write straight through.
+- **A stream is one commit.** `write_table` also takes a stream of batches: a `RecordBatchReader`, DuckDB's `fetch_record_batch`, or any iterable of tables. It goes to a spill file on this PC's disk (`staging/_writes`, removed when the upload ends, whether it succeeded, failed or was cancelled; one left by an engine ended mid-upload is removed a day later), never all in memory, and commits once. Before, a big table written in slices paid a commit's round trips for every slice.
+- **Zstandard compression** (`onelake_compression`). The Parquet files are zstd level 3: on TPC-H about 26% fewer bytes than Snappy for the same encoding time. Fabric's Spark and the SQL analytics endpoint read them (checked with a TPC-H table in a lakehouse). Direct Lake reading zstd files written from outside hasn't been checked yet; if a report you use can't read them, choose Snappy.
+- **Unchanged tables upload nothing** (`onelake_skip_unchanged`). Each overwrite keeps a fingerprint of its rows (count, sum and XOR of a hash of every row, with the column names and types) in its Delta commit, under `kratosforge.rows`. When the table's newest commit is an overwrite with the same fingerprint, a rewrite of the same rows, in any order, writes nothing and says "unchanged": the table keeps its Delta version, with no new commit. Any other commit since (an append, Fabric's own write) means the rows are written again.
 
 Fabric registers a new table written from outside on its own schedule. Until then it can show under **Unidentified**, and refreshing the lakehouse in Fabric picks it up.
 

@@ -24,6 +24,7 @@ function when(iso) {
 function took(seconds) {
   if (seconds === null || seconds === undefined || seconds === "") return "";
   const s = Number(seconds);
+  if (s > 0 && s < 0.05) return "<0.1s";  // measured, just too short to round to a tenth: never "0s"
   if (s < 10) return `${Math.round(s * 10) / 10}s`;
   if (s < 60) return `${Math.round(s)}s`;
   const m = Math.floor(s / 60);
@@ -42,8 +43,35 @@ function runReason(r) {
 // text stays available under Details.
 function friendlyError(err) {
   const raw = String((err && typeof err === "object" ? err.message : err) || "").trim();  // new Error("") has no reason, not "Error"
-  const known = [
+  // Errors about files and folders on this PC, and the engine's own time limits ("TimeoutError: The
+  // query ran longer than..."): Python's exception name dropped, "[Errno 2] No such file or
+  // directory: 'x'" said in words, the raw text kept under Details.
+  function localError(raw) {
+    const m = /^(FileNotFoundError|FileExistsError|IsADirectoryError|NotADirectoryError|PermissionError|TimeoutError): ([\s\S]*)$/.exec(raw);
+    if (!m) return null;
+    const [, name, message] = m;
+    const os = /^\[(?:Errno|WinError) \d+\] [^:]*(?::\s*'?(.*?)'?)?$/.exec(message.trim());
+    if (!os) return { text: message.replace(/^'(.*)'$/, "$1") || "The app couldn't use a file on this PC.", details: raw };
+    if (name === "TimeoutError") return null;  // "[Errno 110] Connection timed out" is the network: the patterns below say so
+    const at = os[1] ? ` ${os[1].replace(/\\\\/g, "\\")}` : "";  // Python's repr doubles Windows backslashes
+    const text = {
+      FileNotFoundError: `There is no file or folder at${at || " that path"} on this PC. Check the path, or pick the file again.`,
+      FileExistsError: `Something already exists at${at || " that path"} on this PC. Pick another name or folder.`,
+      IsADirectoryError: `${at ? at.trim() : "That path"} is a folder, and a file was expected. Pick a file.`,
+      NotADirectoryError: `Part of${at || " that path"} is a file, and a folder was expected. Check the path.`,
+      PermissionError: `This PC didn't allow access to${at || " that file or folder"}. Close any program that has it open, or pick a folder you can write to.`,
+    }[name];
+    return { text, details: raw };
+  }
+  // Order matters (PR-UX-02): the engine's own hung, stopped and blocked messages first, then errors about
+  // files on this PC (localError, above), and only then Fabric's HTTP patterns, so a missing local
+  // file is never "Fabric couldn't find that item" and a local time limit is never "Couldn't reach Fabric".
+  const engine = [
     [/^The engine stopped answering/, "The local engine stopped answering, so the app restarted it. Notebook variables were cleared, so run the notebook's cells again. The details below name the request that hung."],
+    [/^The Python sidecar stopped/, "The local engine stopped while doing this. It restarts on your next action; if it keeps stopping, the details below show why."],
+    [/Application Control policy|WinError 4551/i, "Windows blocked part of the local engine (Smart App Control or an App Control policy). Restart KratosForge to see which files and what to do."],
+  ];
+  const known = [
     [/AADSTS53000|AADSTS53001|AADSTS53003|AADSTS530003|ConditionalAccess/i, "Your organization's sign-in rules (Conditional Access) blocked this sign-in, for example because this PC isn't managed by your organization. Ask IT; docs/permissions.md says what they can allow."],
     [/AADSTS700016|AADSTS90094|AADSTS90008|admin_consent|needs? admin approval/i, "Your organization hasn't allowed this sign-in yet. Ask a Microsoft Entra admin; docs/permissions.md says what they can do."],
     [/Capacity\.Read\.All|list_?capacities/i, "Your sign-in can't list capacities, so pick the workspace's capacity in Fabric instead. docs/permissions.md explains why and what IT can change."],
@@ -58,13 +86,14 @@ function friendlyError(err) {
     [/\b404\b|NotFound|ItemNotFound|does not exist/i, "Fabric couldn't find that item. It may have been deleted or renamed."],
     [/\b429\b|TooManyRequests|throttl/i, "Fabric is busy and asked the app to slow down. Try again in a minute."],
     [/ConnectionError|Max retries|timed out|Timeout|NameResolution|getaddrinfo|ECONN|network/i, "Couldn't reach Fabric. Check the internet connection and try again."],
-    [/Application Control policy|WinError 4551/i, "Windows blocked part of the local engine (Smart App Control or an App Control policy). Restart KratosForge to see which files and what to do."],
     [/DisplayName is Invalid|InvalidDisplayName/i, "Fabric doesn't accept that name. A lakehouse name can use only letters, numbers and underscores, and must start with a letter."],
     [/CapacityNotActive|capacity.*paused|CapacityLimitExceeded/i, "The workspace's Fabric capacity is paused or full."],
-    [/^The Python sidecar stopped/, "The local engine stopped while doing this. It restarts on your next action; if it keeps stopping, the details below show why."],
   ];
   if (/^SignInCancelled: /.test(raw)) return { text: "", details: "", cancelled: true };  // closed the sign-in window: not a failure
   if (!raw) return { text: "Something went wrong and no reason was given. Try again; if it keeps happening, report a problem.", details: "" };
+  for (const [re, text] of engine) if (re.test(raw)) return { text, details: raw };
+  const local = localError(raw);
+  if (local) return local;
   for (const [re, text] of known) if (re.test(raw)) return { text, details: raw };
   // The sidecar's own errors already explain themselves; only drop the exception name.
   const m = /^(ValueError|LookupError|KeyError|RuntimeError|PermissionError|FileNotFoundError|GateError|GitError): ([\s\S]*)$/.exec(raw);
@@ -75,11 +104,36 @@ function friendlyError(err) {
   return { text: raw, details: "" };
 }
 
+// UX-011: one way to show a failure inside a page or panel. A sentence from friendlyError, what to
+// do, Retry when the caller passes one, and the raw text under Details with Copy. Pass retry only
+// for a read, or an action that is safe to repeat: it runs again with no further question.
+// Returns null for a cancelled sign-in, which isn't a failure.
+function errorPanel(err, { retry = null, label = "", hint = "" } = {}) {
+  const f = friendlyError(err);
+  if (f.cancelled) return null;
+  const raw = f.details || "";
+  const what = hint || (retry ? "Try again. If it keeps failing, copy the details into Report a problem."
+    : raw ? "If it keeps happening, copy the details into Report a problem." : "");
+  const again = retry && btn("Retry", "sync", async () => {
+    again.disabled = true;
+    try { await retry(); } finally { if (again.isConnected) again.disabled = false; }
+  }, "tool small error-panel-retry");
+  const copy = () => navigator.clipboard.writeText(raw)
+    .then(() => toast("Copied the details"), () => toast("Couldn't copy. Select the text and copy it instead.", true, { quiet: true }));
+  return h("div", { class: "error-panel", role: "alert" },
+    label && !f.text.startsWith(label) ? h("b", { class: "error-panel-label" }, label) : null,
+    h("p", { class: "error-panel-text" }, f.text),
+    what ? h("p", { class: "error-panel-hint" }, what) : null,
+    again || null,
+    raw ? h("details", { class: "error-panel-details" }, h("summary", {}, "Details"),
+      h("pre", {}, raw), btn("Copy", null, copy, "tool small", { "aria-label": "Copy the details" })) : null);
+}
+
 // ---------- activity ----------
 
 // Items: {id, status: info|ok|error|failed|running, title, text, details, at, progress, results, url, request}.
 // Kept on this PC so the history survives a restart; nothing in them is needed to work.
-const activity = { items: [], open: false, filter: "all", seenAt: 0, pollTimer: null };
+const activity = { items: [], open: false, filter: "all", seenAt: 0, pollTimer: null, platform: null };
 
 (function loadActivity() {
   try {
@@ -114,9 +168,12 @@ function renderBell() {
   const bell = document.getElementById("bell");
   if (!bell) return;
   const running = activity.items.filter((i) => i.status === "running" && !i.stale).length;
-  const problems = activity.items.filter((i) => PROBLEM.has(i.status) && new Date(i.at).getTime() > activity.seenAt).length;
-  const count = running + problems;
-  const parts = [running ? `${running} running` : "", problems ? `${problems} new problem${problems === 1 ? "" : "s"}` : ""].filter(Boolean);
+  const unseen = (i) => new Date(i.at).getTime() > activity.seenAt;
+  const problems = activity.items.filter((i) => PROBLEM.has(i.status) && unseen(i)).length;
+  const notices = activity.items.filter((i) => i.notice && !PROBLEM.has(i.status) && unseen(i)).length;
+  const count = running + problems + notices;
+  const parts = [running ? `${running} running` : "", problems ? `${problems} new problem${problems === 1 ? "" : "s"}` : "",
+    notices ? `${notices} notice${notices === 1 ? "" : "s"}` : ""].filter(Boolean);
   bell.setAttribute("aria-label", `Activity${parts.length ? `, ${parts.join(", ")}` : ""}`);
   bell.title = parts.length ? `Activity: ${parts.join(", ")}` : "Activity";
   bell.classList.toggle("on", activity.open);
@@ -130,13 +187,16 @@ function toggleTray(open = !activity.open) {
   renderBell();
   renderTray();
   placeFabricView();
+  if (open) loadPlatformNotices().then(() => { if (activity.open) renderTray(); });
 }
 
 function renderTray() {
   const root = document.getElementById("tray-root");
-  if (!activity.open) { root.replaceChildren(); return; }
+  if (!activity.open) { motionLeave(root.querySelector(":scope > .tray")); root.replaceChildren(); return; }
   const running = activity.items.filter((i) => i.status === "running" && !i.stale);
   const problems = activity.items.filter((i) => PROBLEM.has(i.status));
+  const platform = platformNoticesShown();
+  if (activity.filter === "platform" && !platform) activity.filter = "all";
   const shown = activity.filter === "running" ? running : activity.filter === "problems" ? problems : activity.items;
   const chip = (id, label) => h("button", { class: `chip${activity.filter === id ? " on" : ""}`, onclick: () => { activity.filter = id; renderTray(); } }, label);
   root.replaceChildren(h("aside", { class: "tray", "aria-label": "Activity" },
@@ -146,8 +206,9 @@ function renderTray() {
         saveActivity(); renderBell(); renderTray();
       }, "tool link small"),
       h("button", { class: "tool small", "aria-label": "Close", onclick: () => toggleTray(false) }, icon("dismiss", 16))),
-    h("div", { class: "tray-chips" }, chip("all", "All"), chip("running", `Running ${running.length}`), chip("problems", `Problems ${problems.length}`)),
-    h("div", { class: "tray-list" }, shown.length ? shown.map(trayItem)
+    h("div", { class: "tray-chips" }, chip("all", "All"), chip("running", `Running ${running.length}`), chip("problems", `Problems ${problems.length}`),
+      platform ? chip("platform", `Platform ${activity.platform.open.length}`) : null),
+    h("div", { class: "tray-list" }, activity.filter === "platform" ? platformTrayList() : shown.length ? shown.map(trayItem)
       : h("p", { class: "muted-text tray-empty" }, activity.filter === "all" ? "Nothing yet. Runs, publishes and problems show up here." : "Nothing here."))));
 }
 
@@ -162,12 +223,21 @@ function trayItem(i) {
   if (i.details) links.push(btn("Copy details", null, () => copyText(i.details, "Details"), "tool link small"));
   return h("div", { class: `tray-item${PROBLEM.has(i.status) ? " bad" : ""}` },
     h("div", { class: "row" }, h("span", { class: `pill-s ${cls}` }, label), h("b", { class: "grow" }, i.title || ""), h("span", { class: "muted-text small" }, when(i.at))),
-    i.status === "running" && !i.stale ? h("div", { class: "progress", role: "progressbar", "aria-label": i.title },
-      h("div", { class: i.progress === undefined ? "bar indeterminate" : "bar", style: i.progress === undefined ? "" : `width:${Math.round(i.progress * 100)}%` })) : null,
+    i.status === "running" && !i.stale ? runningBar(i) : null,
     i.text ? h("div", { class: "tray-text" }, i.text) : null,
     i.stale ? h("div", { class: "muted-text small" }, "The app was closed while this ran. Monitor has its final state.") : null,
     i.details ? h("details", {}, h("summary", {}, "Details"), h("pre", {}, i.details)) : null,
     links.length ? h("div", { class: "row wrap" }, links) : null);
+}
+
+// A job the app started in Fabric (id fabric:…) reports no progress of its own.
+const remoteActivity = (i) => String(i.id || "").startsWith("fabric:") && i.progress === undefined;
+
+// A running entry's bar: how far it is when that's known, the navy wolf for a run in Fabric, else indeterminate.
+function runningBar(i) {
+  if (remoteActivity(i)) return remoteProgress(i.title);
+  return h("div", { class: "progress", role: "progressbar", "aria-label": i.title },
+    h("div", { class: i.progress === undefined ? "bar indeterminate" : "bar", style: i.progress === undefined ? "" : `width:${Math.round(i.progress * 100)}%` }));
 }
 
 // Jobs the app started in Fabric: follow every unfinished one until it ends, wherever the user is.

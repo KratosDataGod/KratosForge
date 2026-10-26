@@ -61,7 +61,7 @@ The interface is consistent; its use isn't (QA-014): the private `_token(scopes)
 
 ### Tests
 
-`sidecar/tests/` (76 files, 1,405 tests, 87% coverage, hand-written fakes), `app/tests/ui.test.cjs` (51 tests that extract functions by regex and run them in `vm`, or match source text), `app/tests/browser/` (Playwright against the real UI with the shell stubbed; not in CI), Rust unit tests (not in CI), `livetest.py` (a guarded live-tenant harness, run by hand only, never run so far).
+`sidecar/tests/` (76 files, 1,405 tests, 87% coverage, hand-written fakes), `app/tests/ui.test.cjs` (51 tests that extract functions by regex and run them in `vm`, or match source text), `app/tests/browser/` (Playwright against the real UI with the shell stubbed; in CI since HD-052), Rust unit tests (13, run by the CI `shell` job on Windows since HD-011), `livetest.py` (a guarded live-tenant harness, run by hand only, never run so far).
 
 ## Standards the code follows
 

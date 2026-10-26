@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 
 import pytest
@@ -27,10 +28,23 @@ class FakeFabric:
     def list_notebooks(self, ws):
         return [v for (w, _), v in self.items.items() if w == ws]
 
+    def get_notebook(self, ws, item_id):
+        return next((v | {"workspaceId": w} for (w, _), v in self.items.items() if w == ws and v["id"] == item_id), None)
+
+    def update_notebook(self, ws, item, name, ipynb):
+        return self.save_notebook(ws, name, ipynb)
+
+    def get_item_definition(self, ws, item_id, fmt=None):
+        # What Publish checks first: the item as last saved (nobody edits it in Fabric here).
+        nb = next(n for w, name, n in reversed(self.saved) if w == ws and self.items[(w, name)]["id"] == item_id)
+        return {"definition": {"parts": [{"path": "notebook-content.ipynb",
+                                          "payload": base64.b64encode(json.dumps(nb).encode()).decode()}]}}
+
     def get_lakehouse(self, ws, lh):
         return {"properties": {"defaultSchema": "dbo"}}
 
-    def run_item_job(self, ws, item, job):
+    def run_item_job(self, ws, item, job, execution_data=None):
+        self.execution_data = execution_data
         return "job1"
 
     def create_schedule(self, ws, item, job, config):
@@ -110,3 +124,29 @@ def test_open_notebook_returns_the_workspace(svc):
     assert call(svc, "open_notebook", name="NB")["workspace"] == {"workspace_id": "w", "workspace_name": "W"}
     call(svc, "save_notebook", **payload(workspace={}))  # forget it
     assert call(svc, "open_notebook", name="NB")["workspace"] is None
+
+
+def test_run_in_fabric_passes_the_parameters_bar_values_as_the_runs_parameters(svc):
+    cells = [{"type": "code", "source": 'n = 1\nregion = "EU"\nrate = 0.5\nfull = False', "meta": {"tags": ["parameters"]},
+              "cell_id": "p1"},
+             {"type": "code", "source": "print(n, region)", "meta": {}, "cell_id": "c2"}]
+    run = {"name": "Params", "cells": cells, "lakehouse_ref": LAKEHOUSE, "compute": "default", "workspace": None}
+    call(svc, "save_notebook", **run)
+    call(svc, "run_notebook_in_fabric", **run)
+    assert svc.fake.execution_data is None  # nothing set in the bar: the code's values
+    call(svc, "notebook_inputs_set", name="Params", cells=cells,
+         values={"parameters": {"n": "7", "region": "US", "rate": "0.5", "full": "True"}})
+    call(svc, "run_notebook_in_fabric", **run)
+    assert svc.fake.execution_data == {"parameters": {"n": {"value": 7, "type": "int"},
+                                                      "region": {"value": "US", "type": "string"},
+                                                      "full": {"value": True, "type": "bool"}}}
+    # The published code keeps its own values, and the cell stays Fabric's parameter cell.
+    published = svc.fake.saved[-1][2]["cells"]
+    first = next(c for c in published if "".join(c["source"]).startswith("n = 1"))
+    assert first["metadata"]["tags"] == ["parameters"]
+    # A value the bar shows in red stops the run before anything is published or started.
+    call(svc, "notebook_inputs_set", name="Params", cells=cells, values={"parameters": {"n": "seven"}})
+    published_before = len(svc.fake.saved)
+    out = handle(svc, json.dumps({"id": 1, "method": "run_notebook_in_fabric", "params": run}))
+    assert "Type a whole number" in out["error"] and "Nothing was sent" in out["error"]
+    assert len(svc.fake.saved) == published_before

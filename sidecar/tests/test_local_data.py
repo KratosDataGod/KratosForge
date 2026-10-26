@@ -280,8 +280,8 @@ def test_spark_sql_dialect(local, data):
     r = local.engine(pid).execute("SELECT name, nvl(NULL, 'x') AS v FROM dbo.orders ORDER BY id LIMIT 1",
                                   dialect="spark")
     assert r["rows"] == [["a", "x"]]
-    with pytest.raises(ValueError, match="FD-LDE-004"):
-        local.engine(pid).execute("SELECT TOP 1 * FROM dbo.orders", dialect="tsql")
+    r = local.engine(pid).execute("SELECT TOP 1 [name] FROM dbo.orders ORDER BY id", dialect="tsql")
+    assert r["rows"] == [["a"]]
 
 
 def test_another_process_cant_open_the_database_for_writing(local, data, tmp_path):
@@ -337,6 +337,39 @@ def test_app_calls(tmp_path, data):
     # The audit trail notes the query ran, never its text.
     entries = svc.audit.recent(10, "local_query")
     assert entries and entries[0]["target"]["query"] == "(given)"
+    svc.local_data.close_all()
+
+
+def test_local_query_makes_the_managed_run_checks(tmp_path, data):
+    """local_query runs in this process with no worker, so it classes the statements as sql_start
+    does for target="local" before the engine sees them."""
+    svc = Service(root=tmp_path / "app")
+    outside = tmp_path / "outside.csv"
+    outside.write_text("secret\n42\n")
+
+    def call(method, **params):
+        return server.handle(svc, json.dumps({"id": 1, "method": method, "params": params}))
+    pid = call("local_create_project", name="Checks")["result"]["id"]
+    call("local_add_source", project=pid, path=str(data))
+    for query in (f"SELECT * FROM read_csv('{outside}')", f"COPY dbo.orders TO '{tmp_path / 'out.csv'}'",
+                  "SET enable_external_access = true", "INSTALL httpfs",
+                  f"SELECT 1; SELECT * FROM '{outside}'"):
+        reply = call("local_query", project=pid, query=query)
+        assert "nothing ran" in reply.get("error", ""), (query, reply)
+    assert not (tmp_path / "out.csv").exists()
+    # T-SQL is checked as the DuckDB SQL it becomes.
+    reply = call("local_query", project=pid, query=f"SELECT * FROM OPENROWSET(BULK '{outside}') AS r", dialect="tsql")
+    assert "error" in reply
+    assert call("local_query", project=pid, query="CREATE TABLE t AS SELECT 1 AS a")["result"]
+    assert call("local_query", project=pid, query="INSERT INTO t VALUES (2)")["result"]
+    reply = call("local_query", project=pid, query="DROP TABLE t")
+    assert "needs confirming" in reply["error"]
+    assert call("local_query", project=pid, query="SELECT count(*) FROM t")["result"]["rows"] == [[2]]
+    assert "result" in call("local_query", project=pid, query="DROP TABLE t", confirm=True)
+    # EXPLAIN ANALYZE runs the query, so local_explain checks it too.
+    reply = call("local_explain", project=pid, query=f"SELECT * FROM read_csv('{outside}')", analyze=True)
+    assert "nothing ran" in reply.get("error", ""), reply
+    assert "result" in call("local_explain", project=pid, query="SELECT * FROM dbo.orders", analyze=True)
     svc.local_data.close_all()
 
 

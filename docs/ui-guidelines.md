@@ -26,6 +26,22 @@ registerFeature({
 
 Register in the file that defines the page's render function, at the end of it.
 
+## Keyboard shortcuts
+
+A feature with keys of its own registers them once, and the **Keyboard shortcuts** dialog (**?**, the command bar, Settings) lists them with the app-wide ones. There is no second list to keep up to date:
+
+```js
+registerShortcuts("Notebook", [
+  { keys: ["Shift+Enter"], label: "Run the cell and select the next one", when: () => state.view === "notebook" },
+  { keys: ["Ctrl+Enter", "Ctrl+Shift+Enter"], label: "Run the selected cells" },
+]);
+```
+
+- `keys` is what to press, each combination written with `+`; several mean any of them. `label` says what it does, in plain words. `when` (optional) lists it only while it returns true.
+- A key the app handles everywhere also gets an `id`, `match` (its `KeyboardEvent.key` values) and `mod: true` when Ctrl or Cmd is held. Its handler asks `isShortcut(e, id)`, so the key and its line in the list can't drift apart. Add it to the table in [Keyboard shortcuts](user-guide.md#keyboard-shortcuts) too.
+- A plain key (no Ctrl) must do nothing while someone is typing: check `typingIn(e.target)`.
+- Keys that work only on one page are registered too, description only (no `id`), with a `when` for that page, next to the page's code. The handler stays where it is.
+
 ## Preview features
 
 A feature that hasn't been tried on a real Fabric tenant is in preview:
@@ -55,6 +71,21 @@ body.replaceChildren(withHowItWorks(content, howItWorks("platform.overview", {
 - "What it changes" names anything that writes to Fabric or OneLake and says that it asks first.
 - The panel folds to its title and remembers that on the PC, so people who know the page can put it away.
 - It sits on the right, and moves under the content in a narrow window.
+- With **Settings > Appearance > Layout > Explanations** set to **On request**, it leaves the page and opens as a drawer from the title bar's info button. That works for any panel made with `howItWorks`, so don't build a page's own toggle for it.
+- Mark Preview features with `previewTag()` (or `preview`/`previewMarked`), never a tag of your own, so **Preview marks: Quiet dots** turns them into dots. A tag that's a direct child of an `h1` stays a full tag.
+
+## Pop-out windows
+
+A section people watch while they work elsewhere (a run list, a monitoring hub) can open in a window of its own, to keep on another screen. Monitor's two sections are the first ([user guide](user-guide.md#pop-out-windows-preview)); a new one uses the same pattern, in the same words:
+
+- **Pop out** (`popOutButton(section)`, icon `open`, Preview) goes on the section's own band, last before **Hide** when there is one. It shows only in the main window.
+- While the section is out, the main window keeps a band in its place (`poppedOutBand`): the section's title, "In a window of its own", **Show window** and **Dock back**. The rest of the page takes the room.
+- The window shows only that section: no rail, no search, no bell. Its top bar has **Keep on top** and **Dock back**, plus Back and Forward when the section opens other pages. Closing the window docks it back.
+- A pop-out window starts nothing: no component check, no update, no splash, and it never changes the page the main window reopens on. A list in it refreshes itself in place, keeping the scroll position, and never while a dialog is open or the window is minimized.
+- Links that belong to the main window (the Fabric portal) open there, not in the pop-out.
+- The window's title is "KratosForge · *section title*", so it can be told apart on the taskbar.
+
+Adding a section today means listing it in three places: `POP_OUTS` in `main.rs` (its window title), `POP_OUT` in `app.js` and the section check in `listenForPopOuts` (`popout.js`). `startPopOut` opens Monitor; a section on another page moves that into a small registry (section, page, render) first, in its own pull request.
 
 ## Words and help
 

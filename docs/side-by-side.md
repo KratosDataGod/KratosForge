@@ -8,7 +8,7 @@ Side by side runs one notebook on your PC and in Fabric, one after the other, an
 ## Turn it on
 
 1. Open a notebook and attach a lakehouse (**Add data items**). Both runs read and write that lakehouse's real tables.
-2. On the ribbon's **Home** or **Run** tab, select **Side by side**. It shows **Side by side: On**. The toggle is remembered for this notebook on this PC.
+2. Select **Side by side** on the ribbon's **Run** tab, or under **Check** on the **Home** tab. It shows **Side by side: On**. The toggle is remembered for this notebook on this PC.
 3. Select **Run all**.
 
 With the toggle off, Run all works as before. You can also find it in the command bar (Ctrl+K): type *side by side*.
@@ -19,7 +19,7 @@ The notebook must be able to run in both places. The check above the cells says 
 
 Run all goes through three steps, shown in a panel above the cells:
 
-1. **Run on this PC.** The kernel restarts, so the run starts clean as Fabric's does, and every code cell runs in order. Cell output shows in the notebook as usual. If a cell fails, the run on this PC stops there, and the comparison still goes on to Fabric, so you see which side breaks.
+1. **Run on this PC.** The kernel restarts, so the run starts clean as Fabric's does, and every code cell runs in order. Cell output shows in the notebook as usual. If a cell fails, the run on this PC stops there, and the comparison still goes on to Fabric, so you see which side breaks. The result shows this PC's error under the timings; when both sides fail, fix that one first, since the same code usually fails in Fabric for the same reason (Fabric's own message, such as *System cancelled the Spark session due to statement execution failures*, rarely says why).
 2. **Run in Fabric.** The notebook is published to its workspace (the same as **Publish to OneLake**) and started with Fabric's job scheduler, as **Run in Fabric** does. It shows in **Monitor** and in Fabric's Monitoring hub. The published copy gets two extra cells, one first and one last, that time the notebook's own cells inside Fabric. They aren't added to your notebook on this PC, and the next ordinary publish removes them.
 3. **Check the outputs.** Every table either run wrote is compared.
 
@@ -32,9 +32,9 @@ The runs go one after the other, not at the same moment, so they never write the
 | Part | What it shows |
 | --- | --- |
 | The top line | **Same results in both places**, **Results differ in N tables**, or which side failed |
-| This PC | Time from the first cell to the last, and the PC's cores and memory. No Fabric job starts; its OneLake reads and writes still use some capacity, which isn't measured. |
+| This PC | Time from the first cell to the last, and the PC's cores and memory, split into processing on this PC and waiting for OneLake uploads (the striped part of the bar). Below it, what the run uploaded, how long uploads were going on and about how many MB/s they reached. No Fabric job starts; its OneLake reads and writes still use some capacity, which isn't measured. |
 | Fabric | Time from Run all to the end of the Fabric job, split into the **session start** (Fabric starting a session and queueing) and the **run** (the notebook's cells). Below it, the estimated CU-seconds and cost. |
-| Faster | Which side was faster end to end, and on run time alone with Fabric's session start left out |
+| Faster | Which side was faster end to end, on run time alone with Fabric's session start left out and, when this PC waited for uploads, on this PC's processing alone against Fabric's run time (which includes Fabric's own writes). Left out when either side failed, since a run that stopped early is only shorter. |
 | Tables | Each table written: rows on each side, whether the columns match, and the result |
 
 A table's result is one of:
@@ -60,6 +60,10 @@ When a run **overwrites** a table, the whole table is compared. When a run only 
 
 Write outputs with `mode="overwrite"` (the default of `lakehouse.write_table`) for the cleanest comparison.
 
+The local time includes uploading what the notebook writes, and on most lines that upload is most of it. The notebook's **Runs on > Table writes to OneLake** choice decides how: written here and uploaded in the background (the default), or straight to OneLake. A rerun whose tables come out the same uploads nothing for them, so a second run of the TPC-H data notebook is much faster than the first; it says "unchanged" for each table it skipped ([Writing to OneLake](architecture.md#writing-to-onelake)).
+
+The split shows where the time went. Waiting for uploads is only the time a cell was held up by its writes: at the end of the cell, a read of a table the cell is still uploading, or a write straight to OneLake. Uploads that ran in the background while cells computed aren't in it, so with writes local first the upload time can be longer than the wait. The MB/s is the bytes of the files the run wrote over the time uploads were going on, so on a home line it is close to the line's upload speed. Writes from threads a cell starts itself are counted as processing.
+
 ### Time and cost
 
 The time on this PC runs from the start of the first cell to the end of the last. The Fabric time runs from Run all to the end of the job, so it includes publishing, queueing and starting a session: what someone waiting for the result sees. The session-start and run split comes from the timing cells; if they couldn't save their file, only the job time is shown.
@@ -70,7 +74,7 @@ Cost is an estimate: the Fabric job's time multiplied by the CUs of a Python not
 
 To test at scale with a standard workload, use the two TPC-H notebooks. TPC-H is the industry's standard decision-support benchmark: eight tables of orders, customers, parts and suppliers, and 22 queries.
 
-Add them from the Side by side panel (**Add the TPC-H benchmark notebooks**) or the command bar (Ctrl+K, *TPC-H*). They are also in the repository, to download or share: [examples/benchmark](https://github.com/KratosDataGod/fabric-desktop/tree/main/examples/benchmark). To use a downloaded copy, put the `.ipynb` files in `%LOCALAPPDATA%\FabricDesktop\notebooks` and they show in the app.
+Add them from the Side by side panel (**Add the TPC-H benchmark notebooks**) or the command bar (Ctrl+K, *TPC-H*). They are also in the repository, to download or share: [examples/benchmark](https://github.com/KratosDataGod/KratosForge/tree/main/examples/benchmark). To use a downloaded copy, put the `.ipynb` files in `%LOCALAPPDATA%\FabricDesktop\notebooks` and they show in the app.
 
 ### 1. Make the data: TPC-H data
 
@@ -83,7 +87,7 @@ Generates the TPC-H tables with DuckDB's tpch extension and writes them to the a
 | 10 | 60 million | 10 GB | A real load |
 | 30 | 180 million | 30 GB | A PC with 64 GB of memory or more |
 
-Run it once, on this PC (Run all with Side by side off) or in Fabric. Nothing is in the repository but the code: the data is generated when you run it, at any size. The generator writes through a database file in a temporary folder, so a scale factor bigger than your memory still works, and writes each table in slices of `batch_rows`.
+Run it once, on this PC (Run all with Side by side off) or in Fabric. Nothing is in the repository but the code: the data is generated when you run it, at any size. The data is generated in parts, one process per core (up to 16), each into a database file in a temporary folder, so it uses all your cores and a scale factor bigger than your memory still works; together the parts are exactly the rows one generator call makes. Each table is written as one stream, read `batch_rows` rows at a time, and the temporary folder is deleted when the write cell ends, whether or not the writes worked (or when the session ends, if the write cell never runs). Set the scale factor in the Parameters bar or in the cell itself: a side by side run gives both runs the bar's values, so both sides generate the same size.
 
 The extension comes from DuckDB's extension site; if your network blocks it, the notebook installs the same extension from PyPI (`duckdb-extension-tpch`).
 

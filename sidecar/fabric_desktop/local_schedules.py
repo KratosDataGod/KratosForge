@@ -21,6 +21,7 @@ from typing import Any
 from xml.sax.saxutils import escape
 
 from .fabric_run import WEEKDAYS, describe_schedule, schedule_configuration
+from .jsonfile import read_json, write_json
 
 TASK_FOLDER = "FabricDesktop"
 RUNS_FILE = "schedule_runs.jsonl"
@@ -190,14 +191,24 @@ class LocalSchedules:
         return self.root / RUNS_FILE
 
     def _load(self) -> dict[str, Any]:
-        try:
-            return json.loads(self.file.read_text(encoding="utf-8"))
-        except (FileNotFoundError, ValueError):
-            return {"engine": "", "schedules": []}
+        # A torn file is set aside (not overwritten by the next save), so its schedules can be recovered
+        return read_json(self.file, {"engine": "", "schedules": []})
 
     def _save(self, data: dict[str, Any]) -> None:
-        self.root.mkdir(parents=True, exist_ok=True)
-        self.file.write_text(json.dumps(data, indent=1), encoding="utf-8")
+        write_json(self.file, data, indent=1)
+
+    def set_aside(self) -> list[dict[str, Any]]:
+        """Schedules files that couldn't be read and were moved aside (jsonfile.set_aside), newest first:
+        their schedules aren't listed any more, but Task Scheduler may still have tasks for them."""
+        out = []
+        for path in self.root.glob(f"{SCHEDULES_FILE}.corrupt-*"):
+            stamp = path.name.rsplit(".corrupt-", 1)[1]
+            try:
+                at = dt.datetime.strptime(stamp, "%Y%m%dT%H%M%S%fZ").replace(tzinfo=dt.timezone.utc)
+            except ValueError:  # renamed by hand: when it was last changed will do
+                at = dt.datetime.fromtimestamp(path.stat().st_mtime, dt.timezone.utc)
+            out.append({"file": path.name, "path": str(path), "at": at.isoformat(timespec="seconds")})
+        return sorted(out, key=lambda x: x["at"], reverse=True)
 
     def get(self, schedule_id: str) -> dict[str, Any]:
         found = next((s for s in self._load()["schedules"] if s["id"] == schedule_id), None)
@@ -224,6 +235,18 @@ class LocalSchedules:
                 self._save(data)
                 return s
         raise LookupError(f"There is no schedule {schedule_id} on this PC")
+
+    def rename_notebook(self, old: str, new: str) -> list[str]:
+        """Points this PC's schedules that run notebook ``old`` at ``new`` (renamed or moved into a
+        folder). Task Scheduler runs them by id, so their tasks stay as they are. Returns their ids."""
+        data = self._load()
+        moved = [s["id"] for s in data["schedules"] if s["target"].get("kind") == "notebook" and s["target"].get("name") == old]
+        if moved:
+            for s in data["schedules"]:
+                if s["id"] in moved:
+                    s["target"] = {**s["target"], "name": new}
+            self._save(data)
+        return moved
 
     def delete(self, schedule_id: str) -> None:
         data = self._load()

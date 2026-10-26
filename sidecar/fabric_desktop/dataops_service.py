@@ -24,6 +24,7 @@ from .meta import drift as drift_mod
 from .meta import freshness as freshness_mod
 from .meta import release
 from .meta.project import ENVIRONMENTS
+from .meta_service import NoMetadataProject
 from .redact import describe
 from .workloads.notify import failure
 
@@ -244,7 +245,7 @@ class DataOpsMixin:
                 new = None if val is None or val == "" else str(val)
                 picked = picked.with_columns(pl.when(pl.col("_qid") == qid).then(pl.lit(new, dtype=pl.String))
                                              .otherwise(pl.col(col)).alias(col))
-        res, held = Engine(project, store).replay(name, picked)
+        res, held = Engine(project, store, table_lock=self._table_lock(project, env, store)).replay(name, picked)  # type: ignore[attr-defined]
         out = res.to_dict()
         out["held"] = 0
         if res.status == "ok":
@@ -271,10 +272,14 @@ class DataOpsMixin:
     def meta_freshness(self, notify: bool = False) -> dict[str, Any]:
         """Every freshness promise in every environment that has runs, late ones first. With
         ``notify``, newly late or failed tables are posted to the Teams channel, once each."""
+        alerts = bool(self._settings().get("teams_webhook"))  # type: ignore[attr-defined]
         try:
             project = self._project()  # type: ignore[attr-defined]
-        except Exception:
-            return {"items": [], "unavailable": {}, "alerts": bool(self._settings().get("teams_webhook"))}  # type: ignore[attr-defined]
+        except NoMetadataProject:
+            return {"items": [], "unavailable": {}, "alerts": alerts}
+        except Exception as exc:  # a broken project is not "nothing late": say why nothing was checked
+            _log.warning("Couldn't read the metadata project to check freshness: %s", describe(exc))
+            return {"items": [], "unavailable": {}, "alerts": alerts, "project_error": describe(exc)}
         data = self.meta_runs_all(limit=100000)  # type: ignore[attr-defined]
         envs = [env for env in ENVIRONMENTS if any(r["env"] == env for r in data["runs"])]
         items = freshness_mod.report({n: e.spec for n, e in project.entities.items()}, data["runs"], envs)

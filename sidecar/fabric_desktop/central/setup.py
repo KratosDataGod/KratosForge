@@ -4,9 +4,14 @@ For each environment, one Platform workspace (the central team's) holds:
 
     LH_Landing     lakehouse: the one landing zone, raw files from every source; each team builds its own Bronze
     LH_Meta        lakehouse: run history from every project (meta.runs) and the catalog's home in OneLake
-    SQL_Platform   SQL database: surrogate keys (keys.*), source systems (config.*), the catalog (catalog.*)
+    SQL_Platform   SQL database: source systems (config.*), the catalog (catalog.*), and this environment's
+                   surrogate keys (keys.*) until they move to the shared Keys workspace (keys_home.py)
     UDF_Platform   User Data Functions: the platform's API, run against SQL_Platform
     VL_Platform    variable library: these items' ids, so notebooks can find them
+
+With one landing workspace (Preview, landing_setup), LH_Landing moves out of these into one workspace
+that Dev, Test and Prod all read ("Platform - Landing"), one lakehouse per landing zone: LH_Landing for
+Shared, LH_Landing_<Name> for each other zone. Each environment's own LH_Landing is kept as it was.
 
 Every step is safe to run again: what exists is kept, what's missing is created. A step that
 fails says what to do and the rest still run, so a half-made platform can be finished later.
@@ -68,7 +73,7 @@ def setup(fabric: Any, execute_token: Callable[[], str], env: str, name: str = "
         wanted = (name or default_name(env)).strip()
         found = next((w for w in fabric.list_workspaces() if w.get("displayName") == wanted), None)
         ws = found or fabric.create_workspace(wanted, capacity_id, f"{env.title()} platform for KratosForge: "
-                                              "surrogate keys, catalog and run history for every team")
+                                              "catalog, run history and keys for every team")
         cfg.update(workspace_id=ws["id"], workspace_name=ws.get("displayName") or wanted)
         return ("Found " if found else "Created ") + cfg["workspace_name"]
 
@@ -92,7 +97,7 @@ def setup(fabric: Any, execute_token: Callable[[], str], env: str, name: str = "
         return ("Created " if created else "Kept ") + LANDING
 
     def sql() -> str:
-        item = fabric.save_item(ws, SQL_TYPE, SQL, description="Surrogate keys, source systems and the catalog")
+        item = fabric.save_item(ws, SQL_TYPE, SQL, description="Source systems, the catalog, and keys until they move to the Keys workspace")
         cfg["sql_id"] = item["id"]
         return ("Created " if item.get("created") else "Kept ") + SQL
 
@@ -127,6 +132,49 @@ def setup(fabric: Any, execute_token: Callable[[], str], env: str, name: str = "
     step(VARLIB, varlib)
     ready = all(s["status"] == "done" for s in steps)
     return {"env": env, "config": cfg, "steps": steps, "ready": ready}
+
+
+# ---- one landing workspace for Dev, Test and Prod (Preview)
+
+LANDING_WORKSPACE = "Platform - Landing"
+
+
+def landing_setup(fabric: Any, name: str = "", capacity_id: str = "",
+                  existing: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Create (or keep) the central landing workspace and its Shared zone's LH_Landing. Safe to run
+    again: what exists is kept. Each environment's own LH_Landing is left as it is."""
+    cfg: dict[str, Any] = dict(existing or {})
+    steps: list[dict[str, str]] = []
+    try:
+        if cfg.get("workspace_id"):
+            detail = f"Kept {cfg.get('workspace_name') or cfg['workspace_id']}"
+        else:
+            wanted = (name or LANDING_WORKSPACE).strip()
+            found = next((w for w in fabric.list_workspaces() if w.get("displayName") == wanted), None)
+            ws = found or fabric.create_workspace(wanted, capacity_id, "The landing zone for Dev, Test and Prod: raw "
+                                                  "files from every source system, one lakehouse per zone")
+            cfg.update(workspace_id=ws["id"], workspace_name=ws.get("displayName") or wanted)
+            detail = ("Found " if found else "Created ") + cfg["workspace_name"]
+        steps.append({"step": "Landing workspace", "status": "done", "detail": detail})
+    except Exception as exc:  # noqa: BLE001 - reported as the step's problem; nothing else can run without it
+        steps.append({"step": "Landing workspace", "status": "failed", "detail": str(exc)})
+        return {"config": cfg, "steps": steps, "ready": False}
+    try:
+        lh, created = zone_lakehouse(fabric, cfg["workspace_id"], LANDING)
+        cfg["lakehouse_id"] = lh["id"]
+        steps.append({"step": LANDING, "status": "done", "detail": ("Created " if created else "Kept ") + LANDING})
+    except Exception as exc:  # noqa: BLE001 - reported as the step's problem; Finish runs it again
+        steps.append({"step": LANDING, "status": "failed", "detail": str(exc)})
+    return {"config": cfg, "steps": steps, "ready": all(s["status"] == "done" for s in steps)}
+
+
+def zone_lakehouse(fabric: Any, workspace_id: str, name: str) -> tuple[dict[str, Any], bool]:
+    """A zone's lakehouse in the landing workspace, created if it isn't there: (lakehouse, created)."""
+    lh = fabric.find_lakehouse(workspace_id, name)
+    if lh is not None:
+        return lh, False
+    return fabric.create_lakehouse(workspace_id, name, "A landing zone: raw files from source systems, "
+                                   "in Files/<source>/<entity>/"), True
 
 
 def join(fabric: Any, env: str, workspace_id: str) -> dict[str, Any]:

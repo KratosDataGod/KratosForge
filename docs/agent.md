@@ -20,8 +20,8 @@ fabric-desktop agent enqueue ─┼─> durable queue (SQLite) ─> worker ─> 
 - **No one at the keyboard.** The agent signs in as an app identity. Nothing ever opens a sign-in window.
 - **Durable queue.** Jobs are kept in `queue.sqlite3` in the agent's home folder. A job is `queued`, then `running`, then `succeeded`, `failed` or `dead`. A running job holds a lease that its worker renews; if the worker dies (crash, reboot, killed service), the lease runs out and the job is put back in the queue on the next start.
 - **Retries that make sense.** Network errors, throttling (HTTP 429 and 5xx), a lost Delta commit race and a table busy with another writer are retried, waiting `backoff_seconds`, then twice that, up to `max_backoff_seconds`, for `max_attempts` tries in all. A retry runs only the tables that didn't finish. A job that still fails is `dead` and posts to Teams. A table that fails its checks is `failed` straight away, since running it again would fail the same way.
-- **Safe concurrent writes.** The engine writes a table by reading it, merging new rows and committing the result. Before it starts an entity, the agent takes a **write lease** on that table: a small file in the environment's `LH_Meta` lakehouse under `Files/_fabric_desktop/leases/`, created with `If-None-Match: *`, renewed with `If-Match`, and deleted when done. A second writer waits for it (up to `table_lease_seconds`), then retries later. An abandoned lease expires after `table_lease_seconds`. For a local environment the lease files are in its `.local` folder, and taking one over is a single step across every process on the PC, so two writers never both win an expired lease. A worker that can't renew its lease for a whole `table_lease_seconds` (OneLake unreachable, say) treats it as lost and reports the run that way. Every write, from the agent, the desktop app or a run in Fabric, also commits against the Delta version it read: if anyone committed to the table since, Delta refuses the commit and the engine re-reads the table and merges again (up to 3 times), so no writer's rows are lost even without a lease.
-- **Schedules.** `[[schedule]]` entries fire in the machine's local time: every N minutes, daily at set times, or weekly. A schedule that comes due while its last run is still queued or running doesn't add a second job. A schedule missed while the agent was down runs once when it starts.
+- **Safe concurrent writes.** The engine writes a table by reading it, merging new rows and committing the result. Before it starts an entity, the agent takes a **write lease** on that table: a small file in the environment's `LH_Meta` lakehouse under `Files/_fabric_desktop/leases/`, created with `If-None-Match: *`, renewed with `If-Match`, and deleted when done. A second writer waits for it (up to `table_lease_seconds`), then retries later. An abandoned lease expires after `table_lease_seconds`. The desktop app takes the same lease when you run a metadata entity on this PC or replay quarantined rows. Every OneLake table write, from those runs, the agent, a notebook's `write_table` or a job's publish, also holds a second lease in the table's own lakehouse (`Files/_fabric_desktop/leases/<schema>.<table>.json`), so a notebook and a metadata run writing the same table wait for each other; a notebook or job waits up to 90 seconds (a metadata run `table_lease_seconds`), then stops with "<table> is being written by <holder> on <machine>". A notebook killed mid-write leaves its lease for at most a minute, so the next write waits it out and goes ahead. Whether OneLake honours these conditional requests between two machines is not yet verified on a live tenant. For a local environment the lease files are in its `.local` folder, and taking one over is a single step across every process on the PC, so two writers never both win an expired lease. A worker that can't renew its lease for a whole `table_lease_seconds` (OneLake unreachable, say) treats it as lost and reports the run that way. Before each write starts, the writer also checks its leases: if one was taken over, or hasn't been renewed for two thirds of its length, it stops with nothing written ("Nothing was written; run it again"). A Delta write or MERGE uploads its files first and commits at the end, so a lease lost during the upload is still reported afterwards, as before. The check covers every table write made while the lease is held, so quarantine and business-key writes made during an entity's run also stop if that entity's lease lapses. Every write, from the agent, the desktop app or a run in Fabric, also commits against the Delta version it read: if anyone committed to the table since, Delta refuses the commit and the engine re-reads the table and merges again (up to 3 times), so no writer's rows are lost even without a lease.
+- **Schedules.** `[[schedule]]` entries fire in the machine's local time: every N minutes (counted from local midnight, so `every_minutes = 60` runs on the hour and a restart doesn't move it), daily at set times, or weekly. A schedule that comes due while its last run is still queued or running doesn't add a second job. A schedule missed while the agent was down runs once when it starts.
 - **Fabric pipelines can ask for runs.** With `[pipeline]` turned on, a pipeline writes a run request to the environment's `LH_Meta` and waits for the agent's answer next to it. See [Run from a Fabric pipeline](#run-from-a-fabric-pipeline).
 - **Guard rails.** The agent runs only the environments listed in `agent.environments`, writes only to the workspaces in `agent.workspaces` when you set it, and never creates lakehouses: an environment is set up by promoting to it from the app.
 - **Logs.** One JSON object per line on stdout (journald, `docker logs`) and in `<home>/logs/agent.log` (20 MB, 10 files kept). Every line has the worker and host; job lines add `job_id`, `env`, `attempt` and `source`. Every `run_log` row the agent writes has `worker`, `host`, `attempt` and `job_id`.
@@ -56,7 +56,7 @@ The full list, in alphabetical order, is in [permissions.md](permissions.md#the-
 
 ## Configure
 
-Copy [deploy/agent.example.toml](https://github.com/KratosDataGod/fabric-desktop/blob/main/deploy/agent.example.toml) to:
+Copy [deploy/agent.example.toml](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/agent.example.toml) to:
 
 | OS | Config | Home (queue, logs, caches) |
 | --- | --- | --- |
@@ -69,7 +69,7 @@ Secrets never go in `agent.toml`, and the agent refuses to start if one does. A 
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `agent.name` | host name | The worker's name in logs and run rows |
+| `agent.name` | host name | The worker's name in logs, run rows and `agents/<name>.json`: 1 to 64 letters, digits, `.`, `_` or `-` (other characters in the host name become `-`) |
 | `agent.owner` | none | Who looks after this agent (a team or contact), shown in the app as written |
 | `agent.project` | required | The metadata project folder |
 | `agent.environments` | required | The environments this agent may run |
@@ -124,7 +124,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now fabric-desktop-agent
 journalctl -u fabric-desktop-agent -f
 ```
 
-Variables named by `*_env` settings go in `/etc/fabric-desktop/agent.env` (`NAME=value` lines, mode 600). The unit file is [deploy/linux/fabric-desktop-agent.service](https://github.com/KratosDataGod/fabric-desktop/blob/main/deploy/linux/fabric-desktop-agent.service).
+Variables named by `*_env` settings go in `/etc/fabric-desktop/agent.env` (`NAME=value` lines, mode 600). The unit file is [deploy/linux/fabric-desktop-agent.service](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/linux/fabric-desktop-agent.service).
 
 ### Linux (container)
 
@@ -138,7 +138,7 @@ docker run -d --name fd-agent --restart unless-stopped --stop-timeout 900 \
 docker exec fd-agent fabric-desktop agent status
 ```
 
-See [deploy/linux/Dockerfile](https://github.com/KratosDataGod/fabric-desktop/blob/main/deploy/linux/Dockerfile).
+See [deploy/linux/Dockerfile](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/linux/Dockerfile).
 
 ### Windows
 
@@ -151,7 +151,7 @@ notepad C:\ProgramData\FabricDesktop\agent.toml
 Start-ScheduledTask -TaskPath '\FabricDesktop\' -TaskName Agent
 ```
 
-[The script](https://github.com/KratosDataGod/fabric-desktop/blob/main/deploy/windows/install-agent.ps1) installs the agent into a virtual environment and registers the Task Scheduler task `\FabricDesktop\Agent`. The task starts at boot with no one signed in and restarts every minute if it stops. A group managed service account (gMSA) is best, since there is no password to manage. Set `*_env` variables as machine environment variables.
+[The script](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/windows/install-agent.ps1) installs the agent into a virtual environment and registers the Task Scheduler task `\FabricDesktop\Agent`. The task starts at boot with no one signed in and restarts every minute if it stops. A group managed service account (gMSA) is best, since there is no password to manage. Set `*_env` variables as machine environment variables.
 
 ## Operate
 
@@ -160,9 +160,11 @@ fabric-desktop agent status                          # queue counts, next schedu
 fabric-desktop agent enqueue prod                     # run every Prod entity now
 fabric-desktop agent enqueue prod silver.orders gold.fact_sales
 fabric-desktop agent enqueue prod silver.orders --cascade --backfill full   # rebuild it and everything downstream
+fabric-desktop agent requeue job-20261025-020000-ab12cd  # run a dead or failed job again, attempts reset
+fabric-desktop agent prune --dry-run                  # list the finished jobs prune would remove
 ```
 
-`enqueue` and `status` work while the service runs; they share the queue file. Stopping the service (SIGTERM, `systemctl stop`, `docker stop`, ending the task) stops taking new jobs and waits for running ones. A job cut off anyway runs again at the next start.
+`enqueue`, `status`, `requeue` and `prune` work while the service runs; they share the queue file. Stopping the service (SIGTERM, `systemctl stop`, `docker stop`, ending the task) stops taking new jobs and waits for running ones. A job cut off anyway runs again at the next start.
 
 | Job state | Meaning | What to do |
 | --- | --- | --- |
@@ -172,6 +174,10 @@ fabric-desktop agent enqueue prod silver.orders --cascade --backfill full   # re
 | `failed` | A table failed its checks, its config, or permissions | Read `error`, fix, enqueue again |
 | `dead` | Retryable errors on every try | Read `error`; usually network, throttling or a table held by another writer |
 | `cancelled` | A pipeline cancelled it, or its deadline passed, before it started | Nothing |
+
+**Requeue.** Once you've fixed what made a job `dead` or `failed`, `agent requeue <job id>` puts it back in the queue with its attempts reset to 0. The job records who requeued it (`requeued_by`, your OS user name), and the agent's audit log gets an `agent_requeue` line. A job that is queued, running, succeeded or cancelled is refused. So is one from a Fabric pipeline, since its request already says it finished: submit it again from the pipeline. A job whose schedule has already queued a newer run is refused too.
+
+**Pruning.** At start and then once a day, the agent removes `succeeded`, `failed` and `cancelled` jobs that finished more than `agent.queue_retention_days` days ago (default 30). `dead` jobs stay until you requeue them. Queued and running jobs are never removed. `agent prune` does the same now; `--days N` picks another age and `--dry-run` lists the jobs without removing them. Pruning removes rows from the agent's own `queue.sqlite3` only, never anything in OneLake, and it runs in one short transaction.
 
 ### Status records
 
@@ -183,7 +189,7 @@ Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each envi
 | `agent`, `host`, `pid`, `version` | Which agent, where, and which KratosForge version |
 | `owner`, `identity` | `agent.owner` as written (`null` when not set), and `auth.type`: `service_principal`, `managed_identity` or `user`. No ids, certificate paths or secrets |
 | `credential` | Facts about the agent's credential, never the credential itself: `kind` (`certificate`, `secret`, `managed_identity` or `user`), `expires_at` (a certificate's end date, read from `auth.certificate_path`; `null` for a secret or managed identity, whose expiry the agent can't see), `last_token_at`, and `last_token_error` (`at` and the error, with secrets, ids, emails and user paths removed). The path, thumbprint, key and password are never published |
-| `state` | `running`, `stopping` (waiting for running jobs) or `stopped` (shut down cleanly) |
+| `state` | `running`, `stopping` (waiting for running jobs; still written every `status_seconds`, so no other agent takes over its requests) or `stopped` (shut down cleanly) |
 | `env`, `environments` | The environment this record is for, and every environment the agent runs |
 | `started_at`, `heartbeat_at`, `stale_after` | UTC times. Treat an agent as **offline** once `stale_after` (three beats after `heartbeat_at`) has passed without a newer record |
 | `status_seconds`, `concurrency` | Its settings |
@@ -213,7 +219,7 @@ With `[incidents] enabled = true`, every `incidents.seconds` the agent reads eac
 
 A failed run's incident carries a **likely category** matched from the error text: Access, Throttled or capacity, Network, Table busy, Source missing, Code or schema, Data quality, Code, or Unrecognized, with whether a retry alone usually helps. It is a hint for where to look, never a diagnosis; the run's own error is the evidence. A new failure of a table with an open incident counts as another occurrence of it. Someone who resolves an incident by hand doesn't see it again for the same failed run, only for a new one.
 
-With `alerts.teams_webhook_env` set, each change goes to Teams: one message when an incident opens or opens again, one when it recovers, and one digest when an evaluation changes more than `incidents.digest_over`. A message Teams doesn't take waits in `alerts.sqlite3` in the agent's home and goes with the next evaluation, marked **Delayed** with when it happened; after three days it is dropped. The agent's own "a job didn't finish" alert is unchanged.
+With `alerts.teams_webhook_env` set, each change goes to Teams: one message when an incident opens or opens again, one when it recovers, and one digest when an evaluation changes more than `incidents.digest_over`. A message Teams doesn't take waits in `alerts.sqlite3` in the agent's home and goes with the next evaluation, marked **Delayed** with when it happened; after three days it is dropped. The agent's own "a job didn't finish" alert waits the same way, in `job_alerts.sqlite3`: it goes before the next such alert, or with the next status update (`status_seconds`), marked **Delayed**, and is dropped after three days.
 
 Routes send some incidents to their own channel. Each `[[incidents.route]]` has a `name`, `webhook_env` (the name of the environment variable holding the webhook; the address itself never goes in the file), and any of `teams`, `owners`, `criticality`, `kinds` and `envs`, each a list; an empty filter matches everything, and matching ignores case. A change goes to every route that matches it, and to `alerts.teams_webhook_env` when none does. A route whose variable isn't set is logged and skipped.
 
@@ -259,7 +265,7 @@ enabled = true
 entities = ["silver.*", "gold.*"]   # optional: what pipelines may run
 ```
 
-**Add the sample notebook.** Import [examples/pipeline/run_on_agent.ipynb](https://github.com/KratosDataGod/fabric-desktop/blob/main/examples/pipeline/run_on_agent.ipynb) into the environment's workspace as a Python notebook and set **LH_Meta** as its default lakehouse. In your pipeline, add a **Notebook** activity for it with these base parameters:
+**Add the sample notebook.** Import [examples/pipeline/run_on_agent.ipynb](https://github.com/KratosDataGod/KratosForge/blob/main/examples/pipeline/run_on_agent.ipynb) into the environment's workspace as a Python notebook and set **LH_Meta** as its default lakehouse. In your pipeline, add a **Notebook** activity for it with these base parameters:
 
 | Parameter | Example | Meaning |
 | --- | --- | --- |
@@ -363,9 +369,10 @@ Nothing here has run against a live Fabric tenant yet. Before Prod, check these 
 
 - Pipeline requests don't record who wrote the request file, only the `submitted_by` text the pipeline gives. Whether OneLake reports a file's writer to the agent is still to verify.
 - One agent per queue. Two agents on different machines each keep their own queue. Table leases still stop them writing the same table at once, but nothing stops both from running the same schedule, unless it is a [shared schedule](#shared-schedules-preview) (Preview, untested on a tenant). Otherwise, give each environment's schedules to one agent.
-- The desktop app and runs in Fabric don't take write leases. Their writes are still safe (each commits against the version it read and merges again on a conflict), but a busy table means retries instead of waiting in turn.
+- Runs in Fabric don't take write leases. Their writes are still safe (each commits against the version it read and merges again on a conflict), but a busy table means retries instead of waiting in turn. The desktop app's metadata runs, notebook writes and job publishes do take them (see Safe concurrent writes).
+- An agent older than the desktop app's table leases takes only its `LH_Meta` lease, so it doesn't wait for a notebook writing the same table. Update agents with the app.
 - Notebooks and job files don't run in the agent yet; it runs metadata environments.
 - Agent environments run on the machine, whatever their **Runs on** setting in the app.
-- Lease expiry uses the holder's clock. Keep agent clocks in sync (NTP).
+- Lease expiry uses the holder's clock. Keep agent and PC clocks in sync (NTP; Windows does it by default). A notebook's or job's table lease lasts 60 seconds and is renewed every 20, so two machines whose clocks differ by more than about 40 seconds can take over each other's live lease. Each lease request gives up after a ninth of the lease's length, so a hung renewal is retried, or reported lost, before the lease runs out.
 - Incidents (Preview) cover metadata tables and agents only. The app shows them in Monitor > Operations > Incidents ([user guide](user-guide.md#incidents-preview)). The app leaves an environment to the agent while a running agent checks its incidents; when no agent does, the app checks it while open and posts to its own webhook. Quiet hours use the agent machine's clock, and routes are set per agent: two agents with different routes post the same incident to different channels.
 - The agent doesn't update itself. Install a new version with `pip install` and restart the service.

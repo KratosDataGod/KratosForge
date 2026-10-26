@@ -26,11 +26,12 @@ from . import costs as costs_mod
 from . import http_session
 from . import shortcuts as shortcuts_mod
 from .auth import CAPACITY_SCOPES, CONNECTION_SCOPES, FABRIC_SCOPES, GRAPH_USER_SCOPES, ONELAKE_SCOPES, POWERBI_WORKSPACE_SCOPES
-from .fabric_api import FabricClient
+from .fabric_api import FabricClient, FabricError
 from .meta import impact
 from .meta import restore as restore_mod
 from .meta import testing as testing_mod
 from .meta import varlib as varlib_mod
+from .notebookutils_local import FROM_KEY
 from .meta.engine import _wm_text
 from .meta.project import ENVIRONMENTS
 from .meta.store import OneLakeStore
@@ -50,6 +51,19 @@ def _who(service: Any) -> str:
     except Exception:  # noqa: BLE001
         return os.environ.get("USERNAME") or os.environ.get("USER") or ""
 
+
+
+def _put_roles(api: FabricClient, workspace_id: str, item_id: str, roles: list[dict[str, Any]],
+               etag: str | None) -> None:
+    """Replace the roles only if nobody changed them since ``etag`` was read: the PUT replaces the
+    whole list, so writing over someone else's change would silently undo it."""
+    try:
+        api.put_data_access_roles(workspace_id, item_id, roles, etag=etag)
+    except FabricError as exc:
+        if exc.code == "PreconditionFailed" or exc.status == 412:
+            raise PermissionError("Someone changed this lakehouse's roles while you were editing. Nothing was "
+                                  "saved; open it again to see their change, then make yours.") from exc
+        raise
 
 class EstateMixin:
 
@@ -452,20 +466,20 @@ class EstateMixin:
     def access_save_role(self, workspace_id: str, item_id: str, name: str, paths: list[str], members: list[str],
                          original_name: str | None = None) -> dict[str, Any]:
         api = self._scoped(ONELAKE_SCOPES)
-        roles = api.list_data_access_roles(workspace_id, item_id)
+        roles, etag = api.list_data_access_roles_tagged(workspace_id, item_id)
         names = {r.get("name") for r in roles}
         if (original_name is None or name != original_name) and name in names:
             raise ValueError(f"There is already a role named {name}.")
         keep = next((r for r in roles if r.get("name") == (original_name or name)), None)
         role = access_mod.make_role(name, paths, members, self.auth.signed_in_tenant() or "", keep)  # type: ignore[attr-defined]
-        api.put_data_access_roles(workspace_id, item_id,
-                                  [r for r in roles if r.get("name") not in (original_name, name)] + [role])
+        _put_roles(api, workspace_id, item_id,
+                   [r for r in roles if r.get("name") not in (original_name, name)] + [role], etag)
         return self.access_lakehouse(workspace_id, item_id)
 
     def access_delete_role(self, workspace_id: str, item_id: str, name: str) -> dict[str, Any]:
         api = self._scoped(ONELAKE_SCOPES)
-        roles = api.list_data_access_roles(workspace_id, item_id)
-        api.put_data_access_roles(workspace_id, item_id, [r for r in roles if r.get("name") != name])
+        roles, etag = api.list_data_access_roles_tagged(workspace_id, item_id)
+        _put_roles(api, workspace_id, item_id, [r for r in roles if r.get("name") != name], etag)
         return self.access_lakehouse(workspace_id, item_id)
 
     def access_who_can_read(self, workspace_id: str, item_id: str, table: str) -> dict[str, Any]:
@@ -543,16 +557,24 @@ class EstateMixin:
             raise ValueError(f"environment must be one of {', '.join(ENVIRONMENTS)}")
         return self._publish_varlib(self._project(), env)  # type: ignore[attr-defined]
 
-    def _notebook_variables(self, library: str) -> dict[str, str] | None:
-        """notebookutils.variableLibrary on this PC: VL_Sources for the attached lakehouse's environment."""
-        if library != varlib_mod.LIBRARY:
-            return None
-        try:
-            project = self._project()  # type: ignore[attr-defined]
-        except Exception as exc:  # noqa: BLE001
-            _log.info("No metadata project for notebook variables: %s", describe(exc))
-            return None
+    def _notebook_variables(self, library: str) -> dict[str, Any] | None:
+        """notebookutils.variableLibrary on this PC. VL_Sources comes from the metadata project, for
+        the attached lakehouse's environment; any other library is read (never changed) from the
+        attached lakehouse's workspace, with its active value set, as Fabric reads the notebook's."""
         from . import lakehouse
         ws = lakehouse._attached.workspace_id if lakehouse._attached else None
-        env = next((env for env in ENVIRONMENTS if ws and project.environments.get(env, {}).get("workspace_id") == ws), "dev")
-        return varlib_mod.resolve(project, env)
+        if library == varlib_mod.LIBRARY:
+            try:
+                project = self._project()  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001
+                _log.info("No metadata project for notebook variables: %s", describe(exc))
+            else:
+                env = next((env for env in ENVIRONMENTS if ws and project.environments.get(env, {}).get("workspace_id") == ws), "dev")
+                return varlib_mod.resolve(project, env)
+        if not ws:
+            return None
+        found = self.fabric.read_variable_library(ws, library)  # type: ignore[attr-defined]
+        if found is None:
+            raise LookupError(f"The workspace of the attached lakehouse has no variable library named {library}.")
+        # Says where it read from: Fabric reads the notebook's own workspace, this PC the lakehouse's.
+        return varlib_mod.read(*found) | {FROM_KEY: lakehouse._attached.workspace_name or ws}

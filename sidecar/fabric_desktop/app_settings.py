@@ -3,7 +3,7 @@
 Three places, strongest first:
 
     policy    %ProgramData%\\FabricDesktop\\policy.json, pushed by IT (Intune, Group Policy files).
-              Anything set here wins and shows as "Set by your organization".
+              Anything set here wins and shows as "Set by your organization's policy".
     user      %LOCALAPPDATA%\\FabricDesktop\\app-settings.json, written by the Settings page (the
               sidecar's settings.json, beside it, holds other things).
     built in  engine.json next to the engine's python.exe (written by CI), or
@@ -20,12 +20,29 @@ Keys:
                      organization that wants its own app registration
     channel          "stable" (default) or "preview": which release the app updates to
     show_preview     true to show features still in preview (default true)
+    forge_animations  the first motion switch, kept so older settings and policy files still work:
+                     false means motion_level 0 unless motion_level itself is set
+    motion_level     visual intensity (docs/forge-animations.md): 0 Off, 1 Minimal (functional
+                     transitions only), 2 Refined (default), 3 Expressive
+    motion_wolf, motion_sparks, motion_ambient  true (default) to show that family of effects at
+                     levels 2 and 3; motion_achievements the same, but false by default
+    motion_follow_system  true (default): Windows' reduced-motion setting turns decorative motion
+                     off whatever the level; false lets the chosen level apply anyway
+    ui_explanations  "beside" (default): each page's How this works panel sits beside it; "on_request":
+                     it opens from the title bar's info button instead (Settings > Appearance > Layout)
+    ui_preview_marks  "tags" (default): Preview features carry a Preview tag; "dots": a small dot,
+                     with the tag kept on page titles
+    ui_density       "comfortable" (default) or "compact": spacing in tables, lists and toolbars
     kernel_process   true to run each notebook's cells in a Python process of its own, so Stop
                      and crashes end only that process (default false while in preview)
     cell_time_limit_minutes  with kernel_process: minutes a cell may run before it's interrupted;
                      0 (default) for no limit
     kernel_memory_limit_gb   with kernel_process: gigabytes the notebook's process may use before
                      it's ended; 0 (default) for no limit
+    kernel_max_sessions      with kernel_process: how many notebooks keep a process of their own;
+                     opening one more stops the least recently used idle one (default 5)
+    kernel_idle_minutes      with kernel_process: stop a notebook's process after this many idle
+                     minutes; 0 (default) keeps it
     support_url      where "Report a problem" goes: an https link or a mailto: address
     platform         IT only: the organization's Platform workspaces, {"prod": {"workspace_id": ...}, ...},
                      so every PC joins the same platform without anyone picking it
@@ -34,6 +51,8 @@ Keys:
     allow_fabric_runs  IT only: false stops the app starting jobs on Fabric capacity (Run in Fabric,
                      Fabric schedules, table maintenance, the Fabric side of proofs); work stays on
                      the PC (default true)
+    allow_notebook_packages  IT only: false stops people installing packages into notebook
+                     environments (environments.py); the engine's own packages still work
     allow_optimize_lakehouse  IT only: false stops Optimize creating, connecting to or writing to a
                      shared optimization lakehouse (default true)
     allow_replay_samples  IT only: false removes "A sample of the input data" from replay bundles
@@ -43,6 +62,13 @@ Keys:
     local_retention_days  IT only: local copies of lakehouse data (file previews, staged writes, the
                      metadata framework's download cache) are deleted after this many days unused;
                      0 keeps them (default 30)
+    onelake_writes   "local_first" (default): a notebook cell's table writes are staged on this PC and
+                     upload in the background while the cell goes on; the cell ends when they're in.
+                     "direct": each write goes to OneLake before the next line runs
+    onelake_compression  "zstd" (default) or "snappy": the Parquet codec for tables written to
+                     OneLake from this PC. zstd files are about a quarter smaller, so they upload faster
+    onelake_skip_unchanged  true (default): an overwrite whose rows match what this app last wrote to
+                     the table uploads nothing and makes no new version
     sql_page_rows    the SQL page: rows on each page of a result (default 1000, 100 to 10000)
     sql_time_limit_minutes  the SQL page: minutes a query may run before it's stopped (default 10,
                      0 for no limit, at most 1440)
@@ -60,6 +86,12 @@ Keys:
     incident_sla     IT only: minutes to acknowledge and resolve an incident, per priority:
                      {"P1": {"acknowledge_minutes": 15, "resolve_minutes": 240}, ...}; 0 for no target
                      (default: workloads/sla.py DEFAULT_TARGETS)
+
+    fabric_view_sign_in_hosts  IT only, read by the shell: exact host names of the organization's
+                     own identity provider (AD FS, Okta, Ping), which the Fabric view may open during
+                     sign-in, e.g. ["adfs.contoso.com"] (default: none)
+    register_link_scheme  IT only, read by the shell: false stops the app registering kratosforge://
+                     links for the Windows user, and removes a registration it made (default true)
 
 The same file also holds the integrations_* and receipt_redactions keys; integrations/policy.py
 reads them through read_policy() here, so both read the file by the same rules.
@@ -82,6 +114,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from . import jsonfile
 from .auth import MICROSOFT_CLIENT_ID
 
 CHANNELS = ("stable", "preview")
@@ -90,7 +123,8 @@ DEFAULTS: dict[str, Any] = {"client_id": MICROSOFT_CLIENT_ID, "channel": "stable
                             "allow_replay_samples": True, "allowed_tenants": [], "local_retention_days": 30, "telemetry": False,
                             "telemetry_connection_string": "",
                             "cell_time_limit_minutes": 0, "kernel_memory_limit_gb": 0,
-                            "allow_optimize_lakehouse": True}
+                            "kernel_max_sessions": 5, "kernel_idle_minutes": 0,
+                            "allow_optimize_lakehouse": True, "allow_notebook_packages": True, "forge_animations": True}
 TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "show_preview": bool, "support_url": str,
                                             "platform": dict, "kernel_process": bool, "auto_update": bool,
                                             "allow_fabric_runs": bool, "allow_replay_samples": bool,
@@ -98,11 +132,17 @@ TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "
                                             "local_retention_days": int, "telemetry": bool,
                                             "telemetry_connection_string": str,
                                             "cell_time_limit_minutes": (int, float), "kernel_memory_limit_gb": (int, float),
-                                            "allow_optimize_lakehouse": bool}
+                                            "kernel_max_sessions": (int, float), "kernel_idle_minutes": (int, float),
+                                            "allow_optimize_lakehouse": bool, "allow_notebook_packages": bool,
+                                            "forge_animations": bool}
 USER_KEYS = ("client_id", "channel", "show_preview", "kernel_process", "telemetry",  # support_url is for IT only
-             "cell_time_limit_minutes", "kernel_memory_limit_gb")
-LIMITS = {"cell_time_limit_minutes": 7 * 24 * 60, "kernel_memory_limit_gb": 1024}  # the largest each accepts
+             "cell_time_limit_minutes", "kernel_memory_limit_gb", "kernel_max_sessions", "kernel_idle_minutes",
+             "forge_animations")
+LIMITS = {"cell_time_limit_minutes": 7 * 24 * 60, "kernel_memory_limit_gb": 1024,
+          "kernel_max_sessions": 20, "kernel_idle_minutes": 7 * 24 * 60}  # the largest each accepts
 GUID_CHARS = set("0123456789abcdefABCDEF-")
+# Settings an environment variable can set, between policy and user (load() reads them).
+ENV_VARS = {"client_id": "FABRIC_DESKTOP_CLIENT_ID"}
 
 
 # The SQL page's run limits (SQL-003, sql_exec.py): the smallest and largest each accepts.
@@ -114,14 +154,37 @@ DEFAULTS.update({"sql_page_rows": 1000, "sql_time_limit_minutes": 10, "sql_memor
 TYPES.update({key: int for key in SQL_RANGES} | {"sql_temp_dir": str})
 USER_KEYS += (*SQL_RANGES, "sql_temp_dir")
 
+# Motion and effects (app/ui/motion.js): the visual intensity level and one switch per family.
+MOTION_LEVELS = (0, 3)
+MOTION_SWITCHES = ("motion_wolf", "motion_sparks", "motion_achievements", "motion_ambient", "motion_follow_system")
+# Achievement celebrations are something people turn on (UX review, #361); the rest start on.
+DEFAULTS.update({"motion_level": 2} | {key: key != "motion_achievements" for key in MOTION_SWITCHES})
+TYPES.update({"motion_level": int} | {key: bool for key in MOTION_SWITCHES})
+USER_KEYS += ("motion_level", *MOTION_SWITCHES)
+
 # Incident SLA targets (workloads/sla.py checks the shape and says what it ignored).
 DEFAULTS["incident_sla"] = {}
 TYPES["incident_sla"] = dict
+# OneLake writes from notebooks on this PC (lakehouse.write_table, publish). onelake_writes is the
+# default for notebooks that don't choose; each notebook can set its own.
+CHOICES = {"onelake_writes": ("local_first", "direct"), "onelake_compression": ("zstd", "snappy")}
+DEFAULTS.update({"onelake_writes": "local_first", "onelake_compression": "zstd", "onelake_skip_unchanged": True})
+TYPES.update({"onelake_writes": str, "onelake_compression": str, "onelake_skip_unchanged": bool})
+USER_KEYS += ("onelake_writes", "onelake_compression", "onelake_skip_unchanged")
+# Layout (app/ui/features.js applyAppearance): how every page shows the same things; nothing is hidden.
+CHOICES.update({"ui_explanations": ("beside", "on_request"), "ui_preview_marks": ("tags", "dots"),
+                "ui_density": ("comfortable", "compact")})
+DEFAULTS.update({"ui_explanations": "beside", "ui_preview_marks": "tags", "ui_density": "comfortable"})
+TYPES.update({"ui_explanations": str, "ui_preview_marks": str, "ui_density": str})
+USER_KEYS += ("ui_explanations", "ui_preview_marks", "ui_density")
 # Read by integrations/policy.py, which decides what each means; listed here so the policy file has
 # one list of settings.
 INTEGRATION_KEYS = ("integrations", "integrations_max_permissions", "integrations_http", "integrations_extensions",
                     "receipt_redactions")
-POLICY_KEYS = (*DEFAULTS, *INTEGRATION_KEYS)
+# Read only by the shell (main.rs), which applies them itself; listed so the file has one list of
+# settings and policy_problems() can say what the shell will skip.
+SHELL_KEYS = ("fabric_view_sign_in_hosts", "register_link_scheme")
+POLICY_KEYS = (*DEFAULTS, *INTEGRATION_KEYS, *SHELL_KEYS)
 # No real tenant has the nil GUID, so allowed_tenants of just this lets no account sign in.
 NO_TENANT = "00000000-0000-0000-0000-000000000000"
 # The restrictions among DEFAULTS, and the value each takes when the policy file or that key can't
@@ -141,9 +204,17 @@ def user_path() -> Path:
 
 
 def _read(path: Path) -> dict[str, Any]:
+    """The person's own settings. A file that can't be parsed (a write cut short, a bad hand edit) is
+    moved aside as ``<name>.corrupt-<timestamp>`` rather than left for the next save to overwrite (QA-011)."""
     try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError):
+        data = json.loads(jsonfile.read_text(path).lstrip("\ufeff"))
+    except ValueError:  # UnicodeDecodeError too
+        try:
+            jsonfile.set_aside(path, then="your settings are back to their defaults until you change one")
+        except OSError:
+            pass
+        return {}
+    except OSError:
         return {}
     return {k: v for k, v in data.items() if k in DEFAULTS} if isinstance(data, dict) else {}
 
@@ -186,10 +257,7 @@ def _save_copy(saved: Path, text: str) -> None:
     try:
         if saved.exists() and saved.read_text(encoding="utf-8") == text:
             return
-        saved.parent.mkdir(parents=True, exist_ok=True)
-        tmp = saved.with_name(f"{saved.name}.{os.getpid()}.tmp")
-        tmp.write_text(text, encoding="utf-8")
-        os.replace(tmp, saved)
+        jsonfile.write_text(saved, text)
     except OSError:  # no copy this time; the policy itself still applies
         pass
 
@@ -252,6 +320,12 @@ def policy_problems() -> list[str]:
             problems.append(f"{key} isn't a setting (settings: {', '.join(POLICY_KEYS)})")
         elif key in INTEGRATION_KEYS:
             continue  # integrations/policy.py checks these, below
+        elif key == "fabric_view_sign_in_hosts":
+            problems.extend(_sign_in_host_problems(value))
+        elif key == "register_link_scheme":
+            if not isinstance(value, bool):
+                problems.append(f"register_link_scheme should be bool, not {type(value).__name__}, so the app keeps "
+                                "registering kratosforge:// links")
         elif not _typed(key, value):
             kind = TYPES[key]
             name = " or ".join(t.__name__ for t in kind) if isinstance(kind, tuple) else kind.__name__
@@ -259,6 +333,10 @@ def policy_problems() -> list[str]:
                             + (", so it takes its most restrictive value" if key in RESTRICTED else ""))
         elif key == "channel" and value not in CHANNELS:
             problems.append(f"channel must be one of {', '.join(CHANNELS)}")
+        elif key in CHOICES and value not in CHOICES[key]:
+            problems.append(f"{key} must be one of {', '.join(CHOICES[key])}")
+        elif key == "motion_level" and not MOTION_LEVELS[0] <= value <= MOTION_LEVELS[1]:
+            problems.append(f"motion_level must be between {MOTION_LEVELS[0]} and {MOTION_LEVELS[1]}")
         elif key in SQL_RANGES and not SQL_RANGES[key][0] <= value <= SQL_RANGES[key][1]:
             problems.append(f"{key} must be between {SQL_RANGES[key][0]} and {SQL_RANGES[key][1]}")
         elif key == "client_id" and value and not valid_client_id(value):
@@ -281,6 +359,26 @@ def policy_problems() -> list[str]:
         from .integrations import policy as integrations_policy
         problems += integrations_policy.current()["problems"]
     return problems
+
+
+def dns_name(host: str) -> bool:
+    """An exact DNS host name, as the shell's dns_name() in main.rs accepts it: two or more labels of
+    letters, digits and inner hyphens, at most 63 each and 253 in all, not ending in a number. No
+    wildcard, scheme, port, path, user name or trailing dot; non-ASCII names in their xn-- form."""
+    labels = host.split(".")
+    return (len(host) <= 253 and len(labels) >= 2 and not labels[-1].isdigit()
+            and all(0 < len(l) <= 63 and not l.startswith("-") and not l.endswith("-")
+                    and all(c.isascii() and (c.isalnum() or c == "-") for c in l) for l in labels))
+
+
+def _sign_in_host_problems(value: Any) -> list[str]:
+    """What the shell skips in fabric_view_sign_in_hosts (it reads the key itself)."""
+    if not isinstance(value, list):
+        return [f"fabric_view_sign_in_hosts should be a list of host names, not {type(value).__name__}, "
+                "so the Fabric view opens no extra sign-in hosts"]
+    bad = [v for v in value if not (isinstance(v, str) and dns_name(v))]
+    return [f"fabric_view_sign_in_hosts: {json.dumps(v)} isn't a host name like adfs.contoso.com "
+            "(no *, https://, port or path), so it's skipped" for v in bad]
 
 
 def user_can_change(path: Path) -> bool:
@@ -344,6 +442,10 @@ def _in_range(key: str, value: Any) -> bool:
         return value >= 0
     if key in LIMITS:
         return 0 <= value <= LIMITS[key]
+    if key == "motion_level":
+        return MOTION_LEVELS[0] <= value <= MOTION_LEVELS[1]
+    if key in CHOICES:
+        return value in CHOICES[key]
     return True
 
 
@@ -373,8 +475,8 @@ def load() -> dict[str, Any]:
             out[key] = {"value": RESTRICTED[key], "source": "policy"}
             continue
         candidates = [("policy", policy.get(key))]
-        if key == "client_id":
-            candidates.append(("environment", os.environ.get("FABRIC_DESKTOP_CLIENT_ID")))
+        if key in ENV_VARS:
+            candidates.append(("environment", os.environ.get(ENV_VARS[key])))
         if key in USER_KEYS:
             candidates.append(("user", user.get(key)))
         if key == "client_id":
@@ -387,6 +489,13 @@ def load() -> dict[str, Any]:
         if key == "channel" and value not in CHANNELS:
             value, source = default, "default"
         out[key] = {"value": value, "source": source}
+    # The first motion switch turned off means Off: from the organization's policy always (unless it
+    # sets motion_level itself), from the person's own choice unless they chose a level since.
+    legacy, level = out["forge_animations"], out["motion_level"]
+    if legacy["value"] is False and (
+            (legacy["source"] == "policy" and level["source"] != "policy")
+            or (legacy["source"] == "user" and level["source"] == "default")):
+        out["motion_level"] = {"value": 0, "source": legacy["source"]}
     return out
 
 
@@ -403,8 +512,14 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"{key} is not a setting you can change")
         if current[key]["source"] == "policy":
             raise ValueError(f"Your organization sets {key}, so it can't be changed here")
+        if current[key]["source"] == "environment":
+            # Saving would say Saved for a value that never applies: the variable wins over this file.
+            raise ValueError(f"The {ENV_VARS[key]} environment variable sets {key} on this PC, so a value saved "
+                             f"here wouldn't be used. Remove the variable and restart KratosForge to set it here")
         if key == "channel" and new not in CHANNELS:
             raise ValueError(f"channel must be one of {', '.join(CHANNELS)}")
+        if key in CHOICES and new not in (None, "", *CHOICES[key]):
+            raise ValueError(f"{key} must be one of {', '.join(CHOICES[key])}")
         if key in SQL_RANGES:
             new = _sql_number(key, new)
         if key == "sql_temp_dir":
@@ -413,17 +528,18 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
             new = str(new or "").strip()
             if new and not valid_client_id(new):
                 raise ValueError("That isn't an app (client) ID. It looks like 00000000-0000-0000-0000-000000000000.")
-        if key in ("show_preview", "kernel_process", "telemetry"):
+        if key in ("show_preview", "kernel_process", "telemetry", "forge_animations", "onelake_skip_unchanged", *MOTION_SWITCHES):
             new = bool(new)
+        if key == "motion_level" and new is not None and (
+                isinstance(new, bool) or not isinstance(new, int) or not MOTION_LEVELS[0] <= new <= MOTION_LEVELS[1]):
+            raise ValueError(f"motion_level must be a whole number from {MOTION_LEVELS[0]} to {MOTION_LEVELS[1]}")
         if key in LIMITS:
             new = _limit(key, new)
         if new in (None, ""):
             user.pop(key, None)
         else:
             user[key] = new
-    path = user_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(user, indent=2), encoding="utf-8")
+    jsonfile.write_json(user_path(), user)  # readers see the old file or the new one, never half (QA-011)
     return load()
 
 

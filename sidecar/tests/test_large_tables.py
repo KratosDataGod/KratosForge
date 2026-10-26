@@ -416,3 +416,43 @@ def test_a_dimension_merge_never_reuses_a_key_another_writer_handed_out_meanwhil
     assert {300, 400} <= set(t["customer_id"].to_list())
     assert not t["cust_sk"].is_duplicated().any()
     assert conflicts == ["dim1"]  # the MERGE saw the other writer's key, failed, and ran again
+
+
+def test_a_renamed_watermark_filters_the_source_and_a_keyless_table_appends_only_new_rows(tmp_path):
+    s = Setup(tmp_path, True, keys=False)
+    entity(s.root, "bronze.events", f"""
+        name = "bronze.events"
+        owner = "Chris"
+        [source]
+        table = {json.dumps(s.src.as_posix())}
+        rename = {{ ModifiedDate = "modified" }}
+        [load]
+        mode = "incremental"
+        watermark = "modified"
+        [contract.columns]
+        id = "int64"
+        name = "string"
+        amount = "float64"
+        modified = "date"
+    """)
+    s.source(rows(range(3), DAY1).rename({"modified": "ModifiedDate"}))
+    s.run()
+    s.source(rows([3], DAY2).rename({"modified": "ModifiedDate"}))
+    res = s.run(day=DAY2)
+    read = next(x for x in res.steps if x.name == "read")
+    assert read.rows == 1 and "incremental, modified after 2026-10-01" in read.detail
+    assert s.table()["id"].to_list() == [0, 1, 2, 3]  # nothing appended twice
+    s.run(day=DAY3)
+    assert s.table().height == 4
+
+
+def test_a_watermark_named_as_the_source_names_it_before_the_rename_is_refused(tmp_path):
+    from fabric_desktop.meta.project import validate
+    s = Setup(tmp_path, True, keys=False)
+    path = s.root / "metadata" / "entities" / "bronze.events.toml"
+    text = path.read_text(encoding="utf-8")
+    path.write_text(text.replace('watermark = "modified"', 'watermark = "ModifiedDate"')
+                    .replace("[load]", 'rename = { ModifiedDate = "modified" }\n[load]'), encoding="utf-8")
+    errors = validate(Project(s.root), DAY1)
+    assert ('bronze.events: the watermark is a contract column: the source renames ModifiedDate to '
+            'modified, so use watermark = "modified"') in errors

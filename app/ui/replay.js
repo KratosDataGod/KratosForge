@@ -108,7 +108,7 @@ async function replayOpenDialog() {
     const nb = await attempt(() => rpc("replay_bundle_open", params), "Could not open the replay bundle");
     if (!nb) return;
     closeDialog();
-    if (state.notebook?.dirty) await saveNotebook();
+    if (state.notebook?.dirty && !(await saveNotebook())) return;  // a failed save keeps the unsaved cells open (QA-002)
     loadIntoState(nb);
     go("notebook");
   };
@@ -192,8 +192,24 @@ function replayBody(nb) {
     c.live ? btn("End replay", null, () => replayEnd(nb, false), "tool outline", { disabled: busy })
       : btn(`Replay to cell ${r.failed_cell}`, "play", () => replayRun(nb), "tool primary",
         { disabled: busy || !!c.blockers.length || unresolved, title: unresolved ? "Choose what to read for each table above first." : "" }),
-    btn("Keep as a normal notebook", null, () => replayEnd(nb, true), "tool outline", { disabled: busy })));
+    btn("Keep as a normal notebook", null, () => replayEnd(nb, true), "tool outline", { disabled: busy }),
+    c.sandboxes?.length ? btn(`Delete replay outputs (${c.sandboxes.length})`, "delete", () => replayDeleteOutputs(nb), "tool outline",
+      { disabled: busy || c.live, title: c.live ? "End the replay first." : "" }) : null));
   return out;
+}
+
+// What the replays wrote stays in the lakehouse's Files until deleted here.
+async function replayDeleteOutputs(nb) {
+  const boxes = replayView(nb).check?.sandboxes || [];
+  const where = boxes.map((b) => `${b.folder}${b.lakehouse ? ` in ${b.lakehouse}` : ""}`).join(", ");
+  if (!(await confirmDialog(`Delete what ${boxes.length === 1 ? "the replay" : `${boxes.length} replays`} wrote?`,
+    `Deletes ${where}: the tables the replays wrote in the lakehouse's Files. The lakehouse's own tables aren't touched, and the notebook stays.`,
+    "Delete", { danger: true }))) return;
+  const out = await attempt(() => rpc("replay_delete_outputs", { name: nb.name }), "Could not delete the replay outputs");
+  if (!out) return;
+  toast(out.problems.length ? `Deleted ${out.deleted.length}. Couldn't delete: ${out.problems.join("; ")}` : `Deleted ${out.deleted.length} replay output folders.`,
+    !!out.problems.length);
+  replayLoad(nb, true);
 }
 
 async function replayRun(nb) {
@@ -224,6 +240,11 @@ async function replayRun(nb) {
 
 async function replayEnd(nb, keep) {
   const v = replayView(nb);
+  const boxes = v.check?.sandboxes || [];
+  // The banner (and its Delete replay outputs) goes away with Keep, so say what stays behind.
+  if (keep && boxes.length && !(await confirmDialog("Keep the replay outputs?",
+    `${boxes.length === 1 ? "The replay's output folder stays" : `${boxes.length} replay output folders stay`} in the lakehouse's Files. ` +
+    "To delete them, cancel and use Delete replay outputs first.", "Keep as a normal notebook"))) return;
   const done = await attempt(() => rpc("replay_end", { name: nb.name, keep }), keep ? "Could not keep the notebook" : "Could not end the replay");
   if (!done) return;
   if (v.check?.live) {

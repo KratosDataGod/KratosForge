@@ -39,6 +39,7 @@ const PRE = { allowed: true, label: "Run now", workload: "pl_load_erp", env_labe
   warnings: [], recorded: "Recorded on this workload as submitted, then as succeeded or failed when the run finishes." };
 
 let app;
+const FAILS = "fails";
 let current = WARNING;
 let checks = 0;
 const acks = [];
@@ -51,7 +52,17 @@ before(async () => {
     viewport: { width: 1000, height: 900 },
     mocks: {
       workload_preflight: () => ({ ...PRE, risk: current }),
-      risk_check: (p) => { checks += 1; return p.id === "meta:sales:orders" ? BLOCKED : p.id === "meta:sales:customers" ? WARNING : current; },
+      risk_check: (p) => {
+        checks += 1;
+        if (current === FAILS) throw new Error("This notebook isn't deployed to a Fabric workspace yet.");
+        return p.id === "meta:sales:orders" ? BLOCKED : p.id === "meta:sales:customers" ? WARNING : current; },
+      // Data mesh Run all reads the risk of every entity in one batch (#297).
+      meta_risk_gate: (p) => {
+        const all = { orders: BLOCKED, customers: WARNING };
+        const checks = (p.names || Object.keys(all)).map((n) => ({ entity: n, ...all[n] }));
+        const blocked = checks.filter((c) => c.result === "blocked").map((c) => c.entity);
+        return { checks, blocked, held: {}, run: checks.map((c) => c.entity).filter((n) => !blocked.includes(n)), enforced: false };
+      },
       risk_acknowledge: (p) => { acks.push(p); return { at: "now", risk_id: p.risk_id }; },
       workload_act: (p) => { acted.push(p); return { action: { status: "submitted" } }; },
       risk_settings: () => ({ warn_run_cu_hours: null, warn_failed_runs: 2, schedule_window_minutes: 60, require_acknowledgement: false }),
@@ -140,6 +151,26 @@ test("the notebook gate offers this PC when Fabric is blocked and stays quiet on
   assert.strictEqual(await dialog().count(), 0);
 });
 
+test("a risk check that couldn't run says why and asks, never going ahead on its own", { skip }, async () => {
+  current = FAILS;
+  const ask = () => page().evaluate(() => riskGate({ id: "notebook:nb", action: "run_in_fabric", title: "Run in Fabric nb_sales_daily?", runLabel: "Run in Fabric" }));
+  let gate = ask();
+  await dialog().waitFor();
+  const text = await dialog().textContent();
+  assert.match(text, /Unknown/);
+  assert.match(text, /The risk check couldn't run/);
+  assert.match(text, /This notebook isn't deployed to a Fabric workspace yet\./);
+  assert.deepStrictEqual(await page().locator(".dialog-actions button").allTextContents(), ["Cancel", "Continue"]);
+  await shot("risk-check-failed.png");
+  await page().locator(".dialog-actions button", { hasText: "Cancel" }).click();
+  assert.strictEqual(await gate, false);
+  gate = ask();
+  await dialog().waitFor();
+  await page().locator(".dialog-actions button", { hasText: "Continue" }).click();
+  assert.strictEqual(await gate, true);
+  current = PASS;
+});
+
 test("the Prices dialog saves the Before a run settings", { skip }, async () => {
   await page().evaluate(() => costSettingsDialog({ price_per_cu_hour: 0.18, currency: "USD", python_cu: 1, spark_cu: 8 }));
   await dialog().waitFor();
@@ -152,16 +183,16 @@ test("the Prices dialog saves the Before a run settings", { skip }, async () => 
   assert.deepStrictEqual(saved, [{ warn_run_cu_hours: 2.5, warn_failed_runs: 2, schedule_window_minutes: 60, require_acknowledgement: true }]);
 });
 
-test("Data mesh Run all goes ahead past one blocked entity but not when all are blocked", { skip }, async () => {
+test("Data mesh Run all starts only the entities that aren't blocked, and nothing when all are", { skip }, async () => {
   acks.length = 0;
   const p = { project: { name: "sales" }, entities: [{ name: "orders" }, { name: "customers" }] };
   const gate = page().evaluate((p) => metaRiskGate(p, ["orders", "customers"], "dev", "all 2 entities"), p);
   await dialog().waitFor();
-  assert.match(await dialog().textContent(), /1 of 2 can't start; the others run if you go ahead/);
+  assert.match(await dialog().textContent(), /1 of 2 won't start; the other 1 run if you go ahead/);
   await shot("risk-data-mesh.png");
   await page().locator(".dialog .risk-ack input").check();
-  await page().locator(".dialog-actions button", { hasText: "Run anyway" }).click();
-  assert.strictEqual(await gate, true);
+  await page().locator(".dialog-actions button", { hasText: "Run the other 1" }).click();
+  assert.deepStrictEqual(await gate, ["customers"]);
   assert.deepStrictEqual(acks.map((a) => a.id), ["meta:sales:customers"]);
   const one = page().evaluate((p) => metaRiskGate(p, ["orders"], "dev", "orders"), p);
   await dialog().waitFor();

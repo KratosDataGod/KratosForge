@@ -74,13 +74,23 @@ class Host:
         self.kernel = Kernel(token=lambda audience: channel.call("token", audience),
                              load_notebook=lambda name: channel.call("load_notebook", name),
                              variable_libraries=lambda name: channel.call("variable_libraries", name))
+        self.kernel.engine_call = lambda name, *args: channel.call(name, *args)  # %pip install
         self.proof: Any = None
 
     # ---- requests
 
-    def start(self, code: str, notebook_name: str = "", watches: list[str] | None = None) -> dict[str, Any]:
+    def start(self, code: str, notebook_name: str = "", watches: list[str] | None = None,
+              widget_values: dict[str, str] | None = None, resources_dir: str = "",
+              onelake_writes: str = "local_first", breakpoints: list[int] | None = None, step: bool = False) -> dict[str, Any]:
+        self.kernel.check_free()  # a shared session's running cell keeps its notebook's name and widgets
         self.kernel.notebook_name = notebook_name
-        return self.kernel.start(code, watches)
+        self.kernel.widget_values = dict(widget_values or {})
+        self.kernel.resources_dir = resources_dir
+        self.kernel.onelake_writes = onelake_writes
+        return self.kernel.start(code, watches, breakpoints, step)
+
+    def debug(self, action: str, expression: str | None = None) -> dict[str, Any]:
+        return self.kernel.debug(action, expression)
 
     def poll(self, version: int = -1, wait: float = 0.0) -> dict[str, Any]:
         return self.kernel.poll(version, wait)
@@ -93,6 +103,12 @@ class Host:
 
     def complete(self, code: str, cursor: int | None = None) -> dict[str, Any]:
         return self.kernel.complete(code, cursor)
+
+    def inspect(self, code: str, cursor: int | None = None, call: bool = False) -> dict[str, Any] | None:
+        return self.kernel.inspect(code, cursor, call)
+
+    def variable_detail(self, name: str) -> dict[str, Any]:
+        return self.kernel.variable_detail(name)
 
     def attach(self, context: dict[str, Any] | None, guard: bool = False) -> bool:
         """The engine's attached lakehouse, with tokens and the managed-table check asked of the engine."""
@@ -135,11 +151,35 @@ class Host:
     def reads(self) -> dict[str, Any]:
         return self.kernel.reads()
 
+    def frame_page(self, **args: Any) -> dict[str, Any]:
+        return self.kernel.frame_page(**args)
+
+    def frame_chart(self, **args: Any) -> dict[str, Any]:
+        return self.kernel.frame_chart(**args)
+
+    def frame_profile(self, **args: Any) -> dict[str, Any]:
+        return self.kernel.frame_profile(**args)
+
+    def frame_wrangle(self, **args: Any) -> dict[str, Any]:
+        return self.kernel.frame_wrangle(**args)
+
+    def frame_query_profile(self, **args: Any) -> dict[str, Any]:
+        return self.kernel.frame_query_profile(**args)
+
+    def ipywidget_event(self, **args: Any) -> dict[str, Any]:
+        return self.kernel.ipywidget_event(**args)
+
+    def frame_download(self, **args: Any) -> dict[str, Any]:
+        return self.kernel.frame_download(**args)
+
+    def forget_guest(self, notebook: str) -> dict[str, Any]:
+        return self.kernel.forget_guest(notebook)
+
     def ping(self) -> dict[str, Any]:
         return {"pid": os.getpid(), "python": sys.version.split()[0]}
 
-    OPS = ("start", "poll", "interrupt", "variables", "complete", "attach", "bind_proof", "unbind_proof",
-           "finish_proof", "proof_log", "reads", "ping")
+    OPS = ("start", "poll", "interrupt", "debug", "variables", "variable_detail", "complete", "inspect", "attach", "bind_proof", "unbind_proof",
+           "finish_proof", "proof_log", "reads", "frame_page", "frame_profile", "frame_chart", "frame_wrangle", "frame_query_profile", "ipywidget_event", "frame_download", "forget_guest", "ping")
 
     def handle(self, message: dict[str, Any]) -> None:
         mid = message.get("id")
@@ -147,7 +187,11 @@ class Host:
             op = message.get("op")
             if op not in self.OPS:
                 raise ValueError(f"Unknown request {op!r}")
-            result = getattr(self, op)(**(message.get("args") or {}))
+            args = dict(message.get("args") or {})
+            # A notebook sharing this session (kernel_sessions.share) asks with its name: what the
+            # request reads or runs is that notebook's own variables.
+            with self.kernel.as_guest(args.pop("guest", None)):
+                result = getattr(self, op)(**args)
             self.channel.send({"id": mid, "result": result})
         except BaseException as exc:  # noqa: BLE001 - every request gets an answer
             self.channel.send({"id": mid, "error": {"type": type(exc).__name__, "message": str(exc)}})
@@ -156,6 +200,11 @@ class Host:
 
 
 def main() -> None:
+    # A notebook environment's packages come after the engine's, so they add to it and never
+    # replace what the engine ships (environments.py).
+    for folder in filter(None, os.environ.get("FABRIC_DESKTOP_LIBRARY_PATHS", "").split(os.pathsep)):
+        if folder not in sys.path:
+            sys.path.append(folder)
     # Keep the protocol's pipes for ourselves; give everything else stderr and an empty stdin.
     proto_in = os.fdopen(os.dup(0), "r", encoding="utf-8")
     proto_out = os.fdopen(os.dup(1), "w", encoding="utf-8")

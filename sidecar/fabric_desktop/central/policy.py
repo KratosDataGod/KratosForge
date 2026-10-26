@@ -11,6 +11,10 @@ Tables (T-SQL catalog.<table>; SQLite catalog__<table>):
     catalog.policy_version     every version: a draft (editable) or published (never changed again)
     catalog.policy_assignment  where a policy applies: enterprise, a domain, a project or an entity
     catalog.policy_event       each policy's history: created, edited, published, deprecated, ...
+    catalog.policy_exception   exceptions to a policy for a project, domain or workspace, each until a date,
+                               granted by approving an exception request (Platform > Requests)
+    catalog.policy_template    your organization's policy templates: reusable definitions in a policy's own
+                               shape (built-in templates ship in BUILTIN_TEMPLATES and never change)
 
 A policy is written as a draft, then published as version 1, 2, ... A published version's
 definition and its SHA-256 hash are stored once and never updated; changing a policy means a
@@ -26,9 +30,13 @@ Every step is returned, so a result can always be explained.
 
 Who may change what:
 
-    platform admins      create, edit, publish, deprecate and retire policies; assign them anywhere
+    platform admins      create, edit, publish, deprecate and retire policies; assign them anywhere;
+                         grant exceptions (by approving a request)
     domain owners        assign policies to their own domain (and its subdomains), tightening only
     everyone             reading policies, their history and how they resolve
+    templates            platform admins add, change and delete them; domain owners too (their own) when
+                         a platform admin turns that on (set_template_authors); everyone reads them; Use makes a
+                         policy, so it's platform admins only
 """
 
 from __future__ import annotations
@@ -39,8 +47,8 @@ import json
 import uuid
 from typing import Any
 
-from .core import (OPERATIONS, SCHEMA_HOOKS, Db, PlatformError, _audit, _column, _names, _now, _row, _upsert, _who, domain_id,
-                   is_admin, require_admin)
+from .core import (OPERATIONS, REQUEST_HOOKS, SCHEMA_HOOKS, Db, PlatformError, _audit, _column, _names, _now, _row, _upsert,
+                   _who, domain_id, is_admin, require_admin)
 
 POLICY_CATEGORIES = {
     "naming": "Naming standards",
@@ -59,6 +67,11 @@ SCOPES = ("enterprise", "domain", "project", "entity")
 # Which way a parameter gets stricter, so a mandatory policy's parameter may only move that way.
 STRICTER = ("higher", "lower", "superset", "subset", "true", "fixed")
 SETTINGS = ("enforcement", "severity", "mandatory", "version", "params")
+# Where an exception to a policy can apply, and for how long at most.
+EXCEPTION_SCOPES = ("project", "domain", "workspace")
+_EXCEPTION_TABLE = [("id", "key"), ("policy_id", "text"), ("scope", "text"), ("target", "text"), ("until_date", "text"),
+                    ("reason", "long"), ("requested_by", "text"), ("approved_by", "text"), ("approved_at", "text"),
+                    ("request_id", "text")]
 _POLICY_TABLES: dict[str, list[tuple[str, str]]] = {
     "policy": [("id", "key"), ("name", "text"), ("category", "text"), ("owner", "text"), ("status", "text"),
                ("current_version", "text"), ("draft_version", "text"), ("created_at", "text"), ("created_by", "text"),
@@ -86,9 +99,25 @@ def ensure_policy_schema(db: Db) -> list[str]:
     return created
 
 
+def ensure_exception_schema(db: Db) -> list[str]:
+    """catalog.policy_exception, added after policies were: core.ensure_schema (Platform > Settings >
+    Finish or repair) creates it, and so does the first approved exception."""
+    if db.exists("catalog", "policy_exception"):
+        return []
+    db.run(f"CREATE TABLE {db.t('catalog', 'policy_exception')} ({', '.join(_column(db, n, k) for n, k in _EXCEPTION_TABLE)})")
+    db.commit()
+    return ["catalog.policy_exception"]
+
+
 def _ready(db: Db) -> None:
     if not db.exists("catalog", "policy_event"):
         ensure_policy_schema(db)
+
+
+def policies_ready(db: Db) -> bool:
+    """Whether this platform has its policy tables. Only looks: unlike every other policy
+    operation it never creates them (a platform repository's export asks this first)."""
+    return all(db.exists("catalog", t) for t in _POLICY_TABLES)
 
 
 def policy_id(value: Any) -> str:
@@ -391,6 +420,93 @@ def policy_version(db: Db, id: str, version: int) -> dict[str, Any]:
     return _version_out(v)
 
 
+# --------------------------------------------------------------------------- exceptions
+# Asked for on Platform > Requests (core.request, kind "exception"), granted by a platform admin
+# approving it. An exception lasts until its date (that day included), then ends on its own.
+
+
+def _one_year_from(day: dt.date) -> dt.date:
+    try:
+        return day.replace(year=day.year + 1)
+    except ValueError:  # 29 February
+        return day.replace(year=day.year + 1, day=28)
+
+
+def _check_exception(db: Db, target: str, detail: dict[str, Any], reason: str, by: str) -> tuple[str, dict[str, Any]]:
+    """An exception request's fields, checked when it's sent."""
+    _ready(db)
+    row = _policy(db, detail.get("policy") or target)
+    if not row.get("current_version") or row["status"] == "retired":
+        raise PlatformError(f"{row['id']} isn't a published policy, so it needs no exception")
+    v = _row(db, "policy_version", "id", f"{row['id']}@{int(row['current_version'])}")
+    definition = json.loads((v or {}).get("definition") or "{}")
+    if not definition.get("exception_eligible", True):
+        raise PlatformError(f"{definition.get('name') or row['id']} doesn't allow exceptions")
+    scope = _choice(detail.get("scope"), EXCEPTION_SCOPES, "scope")
+    where = str(detail.get("scope_target") or "").strip()
+    if not where:
+        raise PlatformError(f"Say which {scope} the exception is for")
+    if scope == "domain":
+        where = domain_id(where)
+        if _row(db, "domain", "id", where) is None:
+            raise PlatformError(f"{where} isn't one of the platform's domains")
+    until = _date(detail.get("until"), "Until")
+    today = dt.date.today()
+    if not until:
+        raise PlatformError("Say until when: an exception ends on its date")
+    if until <= today.isoformat():
+        raise PlatformError("Until is a date after today")
+    if until > _one_year_from(today).isoformat():
+        raise PlatformError("An exception lasts a year at most: pick an earlier date, and ask again when it ends")
+    if not str(reason or "").strip():
+        raise PlatformError("Say why the policy can't be met for now")
+    return row["id"], {"policy": row["id"], "policy_name": definition.get("name") or row["name"], "scope": scope,
+                       "scope_target": where, "until": until}
+
+
+def _approve_exception(db: Db, req: dict[str, Any], by: str) -> None:
+    """Record an approved exception. Platform admins only; the audit and the policy's history say who."""
+    require_admin(db, by, "grant exceptions to governance policies")
+    ensure_exception_schema(db)
+    d = req["detail"]
+    if d["until"] < dt.date.today().isoformat():
+        raise PlatformError(f"This exception would have ended on {d['until']}: decline it, and ask again if it's still needed")
+    row = {"id": req["id"], "policy_id": d["policy"], "scope": d["scope"], "target": d["scope_target"],
+           "until_date": d["until"], "reason": str(req.get("reason") or ""), "requested_by": req.get("requested_by") or "",
+           "approved_by": _who(by), "approved_at": _now(), "request_id": req["id"]}
+    _upsert(db, "catalog", "policy_exception", "id", row)
+    _event(db, d["policy"], "", "exception granted", by,
+           {"scope": d["scope"], "target": d["scope_target"], "until": d["until"], "request": req["id"]})
+
+
+def _exception_out(row: dict[str, Any], today: str) -> dict[str, Any]:
+    until = str(row.get("until_date") or "")
+    return dict(row, until=until, active=bool(until) and today <= until,
+                note=f"Excepted until {until}: {row.get('reason') or 'no reason given'}")
+
+
+def list_policy_exceptions(db: Db, policy: str = "", active: bool = False, today: str = "") -> list[dict[str, Any]]:
+    """Exceptions, soonest to end first; with ``active``, only those that haven't ended."""
+    today = today or dt.date.today().isoformat()
+    if not db.exists("catalog", "policy_exception"):
+        return []
+    sql = f"SELECT * FROM {db.t('catalog', 'policy_exception')}" + (" WHERE policy_id = ?" if policy else "")
+    rows = [_exception_out(r, today) for r in db.rows(sql, (policy_id(policy),) if policy else ())]
+    return sorted((r for r in rows if r["active"] or not active), key=lambda r: (r["until"], r["policy_id"], r["target"]))
+
+
+def _excepted(exceptions: list[dict[str, Any]], pid: str, chain: list[tuple[str, str]], context: dict[str, Any],
+              today: str) -> dict[str, Any] | None:
+    """The active exception that covers this policy at this place, if any."""
+    workspace = str(context.get("workspace") or "").strip().lower()
+    for e in exceptions:
+        if e.get("policy_id") != pid or not (today <= str(e.get("until") or "")):
+            continue
+        if (e["scope"], e["target"]) in chain or (e["scope"] == "workspace" and workspace and workspace == str(e["target"]).lower()):
+            return {k: e[k] for k in ("id", "scope", "target", "until", "reason", "approved_by", "note")}
+    return None
+
+
 # --------------------------------------------------------------------------- assignments
 
 
@@ -604,13 +720,16 @@ def _where(a: dict[str, Any]) -> str:
 
 
 def resolve(snap: dict[str, Any], chain: list[tuple[str, str]], local: list[dict[str, Any]] | None = None,
-            context: dict[str, Any] | None = None, today: str = "") -> dict[str, Any]:
+            context: dict[str, Any] | None = None, today: str = "",
+            exceptions: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """The policies in force at the bottom of ``chain`` ([(scope, target)], top first), and why.
 
     ``local`` adds assignments that aren't in the platform (a project's governance.toml), placed
     at their scope in the chain after the platform's own. ``context`` (layer, environment,
-    asset_type) filters by each policy's applies_to. Pure and deterministic: the same inputs
-    always give the same result, in the same order."""
+    asset_type) filters by each policy's applies_to. ``exceptions`` (list_policy_exceptions) mark a
+    policy in force that an active exception covers here: it gets an ``exception`` with the note
+    "Excepted until <date>: <why>", which is what shows instead of a violation. Pure and
+    deterministic: the same inputs always give the same result, in the same order."""
     today = today or dt.date.today().isoformat()
     context = context or {}
     rows = [dict(a, origin="platform") for a in snap.get("assignments", [])]
@@ -704,7 +823,9 @@ def resolve(snap: dict[str, Any], chain: list[tuple[str, str]], local: list[dict
         if reason:
             inactive.append({"id": pid, "name": d["name"], "reason": reason, "steps": steps})
             continue
+        excepted = _excepted(exceptions or [], pid, chain, context, today)
         policies.append({
+            **({"exception": excepted} if excepted else {}),
             "id": pid, "name": d["name"], "category": d["category"], "owner": d["owner"],
             "description": d["description"], "rule": d["rule"], "version": state["version"],
             "hash": version_row["hash"], "intact": version_row.get("intact", True), "enforcement": state["enforcement"],
@@ -735,7 +856,7 @@ def resolve_policies(db: Db, project: str = "", entity: str = "", domain: str = 
         chain.append(("project", project))
         if entity:
             chain.append(("entity", f"{project}:{entity}"))
-    out = resolve(snapshot(db), chain, local, context, today)
+    out = resolve(snapshot(db), chain, local, context, today, list_policy_exceptions(db, active=True, today=today))
     return out | {"project": project, "entity": entity, "domain": domain, "subdomain": subdomain}
 
 
@@ -745,7 +866,198 @@ def policy_options(db: Db) -> dict[str, Any]:
             "enforcements": list(ENFORCEMENTS[1:]), "scopes": list(SCOPES), "stricter": list(STRICTER)}
 
 
+# --------------------------------------------------------------------------- templates
+# A template is a reusable policy definition, in the same shape as a policy's (clean_definition).
+# Built-in ones ship here and can't change; your organization's are rows in catalog.policy_template.
+# Use makes a policy draft from one; Save as template copies a policy's current definition into one.
+
+TEMPLATE_AUTHORS = ("admins", "domain_owners")
+_TEMPLATE_TABLE = [("id", "key"), ("name", "text"), ("category", "text"), ("definition", "long"),
+                   ("created_at", "text"), ("created_by", "text"), ("updated_at", "text"), ("updated_by", "text")]
+_TEMPLATE_SETTING = "policy_template_authors"
+_ALL_SCOPES = list(SCOPES)
+
+BUILTIN_TEMPLATES: dict[str, dict[str, Any]] = {
+    "table-names": {
+        "name": "Table names", "category": "naming", "severity": "medium", "enforcement": "warn", "scopes": _ALL_SCOPES,
+        "description": "Gold tables are snake_case and start dim_ or fact_.",
+        "rule": "naming.table_name",
+        "remediation": "Rename the entity: its file and its table name. The save gate shows what reads it.",
+        "params": {"pattern": {"value": r"^(dim|fact)_[a-z0-9]+(_[a-z0-9]+)*$", "stricter": "fixed",
+                               "description": "The table name must match this regular expression"},
+                   "layers": {"value": ["gold"], "stricter": "superset", "description": "Layers whose table names are checked"}}},
+    "product-owner": {
+        "name": "Every product has an owner", "category": "ownership", "severity": "high", "enforcement": "warn",
+        "scopes": _ALL_SCOPES, "description": "A published data product names an owner and a steward.",
+        "rule": "ownership.product_owner",
+        "remediation": "Edit the product (Data mesh > Data products) and fill in Owner and Steward.",
+        "params": {"steward_required": {"value": True, "stricter": "true", "description": "A steward is named too"}}},
+    "sensitive-columns-labelled": {
+        "name": "Sensitive columns are labelled", "category": "classification", "severity": "high", "enforcement": "warn",
+        "scopes": _ALL_SCOPES, "description": "Columns marked PII or PHI carry a sensitivity label.",
+        "rule": "classification.sensitive_columns",
+        "remediation": "Label the column Confidential or Restricted on the entity's About card.",
+        "params": {"markers": {"value": ["phi", "pii"], "stricter": "superset", "description": "Column tags that mark sensitive data"},
+                   "labels": {"value": ["confidential", "restricted"], "stricter": "subset",
+                              "description": "Classifications that count as a sensitivity label"}}},
+    "data-contract": {
+        "name": "Data contract", "category": "contract", "severity": "medium", "enforcement": "warn", "scopes": _ALL_SCOPES,
+        "description": "A published data product loads within N hours, records its row count on every load, and links business terms.",
+        "rule": "contract.freshness, contract.row_count, contract.terms_linked",
+        "remediation": "Run or schedule the product's entities, and add its business terms on its page.",
+        "params": {"within_hours": {"value": 24, "stricter": "lower", "description": "Hours since the last successful load"},
+                   "min_rows": {"value": 1, "stricter": "higher", "description": "Rows the last load wrote, at least"}}},
+}
+
+
+def ensure_template_schema(db: Db) -> list[str]:
+    """catalog.policy_template, added after policies: Finish or repair creates it, and so does the first template call."""
+    if db.exists("catalog", "policy_template"):
+        return []
+    db.run(f"CREATE TABLE {db.t('catalog', 'policy_template')} ({', '.join(_column(db, n, k) for n, k in _TEMPLATE_TABLE)})")
+    db.commit()
+    return ["catalog.policy_template"]
+
+
+def _template_authors(db: Db) -> str:
+    if not db.exists("config", "setting"):
+        return "admins"
+    found = db.rows(f"SELECT value FROM {db.t('config', 'setting')} WHERE name = ?", (_TEMPLATE_SETTING,))
+    value = str(found[0]["value"] or "") if found else ""
+    return value if value in TEMPLATE_AUTHORS else "admins"
+
+
+def _domains_owned(db: Db, by: str) -> list[str]:
+    who = _who(by)
+    return [d["id"] for d in db.rows(f"SELECT id, owners FROM {db.t('catalog', 'domain')}") if who and who in _names(d["owners"])]
+
+
+def _may_add_templates(db: Db, by: str) -> bool:
+    return is_admin(db, by) or (_template_authors(db) == "domain_owners" and bool(_domains_owned(db, by)))
+
+
+def _require_template_author(db: Db, by: str, row: dict[str, Any] | None = None) -> None:
+    if is_admin(db, by):
+        return
+    if _may_add_templates(db, by) and (row is None or _who(row.get("created_by")) == _who(by)):
+        return
+    if row is not None and _may_add_templates(db, by):
+        raise PlatformError("Domain owners change only the templates they added. Ask a platform admin.")
+    require_admin(db, by, "add or change policy templates")
+
+
+def _template_out(row: dict[str, Any], db: Db, by: str) -> dict[str, Any]:
+    d = json.loads(row.get("definition") or "{}")
+    mine = is_admin(db, by) or (_may_add_templates(db, by) and _who(row.get("created_by")) == _who(by))
+    return {"id": row["id"], "name": d.get("name") or row.get("name"), "category": d.get("category") or row.get("category"),
+            "description": d.get("description", ""), "definition": d, "builtin": False,
+            "created_by": row.get("created_by") or "", "created_at": row.get("created_at") or "",
+            "updated_by": row.get("updated_by") or "", "updated_at": row.get("updated_at") or "", "can_edit": mine}
+
+
+def builtin_templates() -> list[dict[str, Any]]:
+    return [{"id": tid, "name": d["name"], "category": d["category"], "description": d["description"],
+             "definition": clean_definition(d), "builtin": True, "can_edit": False}
+            for tid, d in BUILTIN_TEMPLATES.items()]
+
+
+def list_policy_templates(db: Db, by: str = "") -> dict[str, Any]:
+    """Built-in templates first, then your organization's, and whether the caller may add one."""
+    ensure_template_schema(db)
+    rows = db.rows(f"SELECT * FROM {db.t('catalog', 'policy_template')}")
+    yours = sorted((_template_out(r, db, by) for r in rows), key=lambda t: (str(t["name"]).lower(), t["id"]))
+    return {"templates": builtin_templates() + yours, "can_add": _may_add_templates(db, by),
+            "authors": _template_authors(db), "admin": is_admin(db, by)}
+
+
+def _template_row(db: Db, tid: str) -> dict[str, Any]:
+    if tid in BUILTIN_TEMPLATES:
+        raise PlatformError(f"{tid} is a built-in template: it can't change. Use it, then save your policy as a new template.")
+    row = _row(db, "policy_template", "id", tid)
+    if row is None:
+        raise PlatformError(f"There's no template {tid}")
+    return row
+
+
+def save_policy_template(db: Db, template: dict[str, Any], id: str = "", by: str = "") -> dict[str, Any]:
+    """Add a template, or with ``id`` change one. Platform admins, or domain owners when the platform lets them
+    (a domain owner changes only the ones they added)."""
+    ensure_template_schema(db)
+    editing = bool(id)
+    tid = policy_id(id or template.get("id") or template.get("name"))
+    before = _template_row(db, tid) if editing else None
+    _require_template_author(db, by, before)
+    if not editing:
+        if tid in BUILTIN_TEMPLATES or _row(db, "policy_template", "id", tid):
+            raise PlatformError(f"There's already a template {tid}: pick another id")
+    d = clean_definition(template)
+    now = _now()
+    _upsert(db, "catalog", "policy_template", "id", {
+        "id": tid, "name": d["name"], "category": d["category"], "definition": json.dumps(d),
+        "created_at": (before or {}).get("created_at") or now, "created_by": (before or {}).get("created_by") or _who(by),
+        "updated_at": now, "updated_by": _who(by)})
+    _audit(db, by, "policy template edited" if editing else "policy template created", tid,
+           {"name": d["name"], "category": d["category"]})
+    db.commit()
+    return _template_out(_row(db, "policy_template", "id", tid) or {}, db, by)
+
+
+def delete_policy_template(db: Db, id: str, by: str = "") -> dict[str, Any]:
+    """Remove one of your organization's templates. Policies made from it stay as they are."""
+    ensure_template_schema(db)
+    tid = policy_id(id)
+    row = _template_row(db, tid)
+    _require_template_author(db, by, row)
+    db.run(f"DELETE FROM {db.t('catalog', 'policy_template')} WHERE id = ?", (tid,))
+    _audit(db, by, "policy template deleted", tid, {"name": row.get("name")})
+    db.commit()
+    return {"id": tid, "deleted": True}
+
+
+def _template_definition(db: Db, tid: str) -> dict[str, Any]:
+    if tid in BUILTIN_TEMPLATES:
+        return clean_definition(BUILTIN_TEMPLATES[tid])
+    return json.loads(_template_row(db, tid).get("definition") or "{}")
+
+
+def use_policy_template(db: Db, template: str, id: str = "", name: str = "", by: str = "") -> dict[str, Any]:
+    """A new policy draft from a template (create_policy: platform admins only)."""
+    ensure_template_schema(db)
+    tid = policy_id(template)
+    d = _template_definition(db, tid)
+    if name:
+        d["name"] = str(name).strip()
+    return create_policy(db, dict(d, id=id or tid, note=f"From template {tid}"), by)
+
+
+def save_policy_as_template(db: Db, policy: str, id: str = "", name: str = "", by: str = "") -> dict[str, Any]:
+    """A new template copied from a policy's current definition (its draft if it was never published)."""
+    _ready(db)
+    row = _policy(db, policy)
+    n = row.get("current_version") or row.get("draft_version")
+    v = _row(db, "policy_version", "id", f"{row['id']}@{int(n)}") if n else None
+    if v is None:
+        raise PlatformError(f"{row['id']} has no version to copy")
+    d = json.loads(v.get("definition") or "{}")
+    if name:
+        d["name"] = str(name).strip()
+    return save_policy_template(db, dict(d, id=id or f"{row['id']}-template"), by=by)
+
+
+def set_template_authors(db: Db, authors: str, by: str = "") -> dict[str, Any]:
+    """Who may add templates: platform admins only, or domain owners too. Platform admins only."""
+    require_admin(db, by, "choose who adds policy templates")
+    _choice(authors, TEMPLATE_AUTHORS, "who adds templates")
+    _upsert(db, "config", "setting", "name", {"name": _TEMPLATE_SETTING, "value": authors})
+    _audit(db, by, "policy template authors", _TEMPLATE_SETTING, {"authors": authors})
+    db.commit()
+    return list_policy_templates(db, by)
+
+
 SCHEMA_HOOKS.append(ensure_policy_schema)
+SCHEMA_HOOKS.append(ensure_exception_schema)
+SCHEMA_HOOKS.append(ensure_template_schema)
+REQUEST_HOOKS["exception"] = {"check": _check_exception, "approve": _approve_exception}
 OPERATIONS.update({
     "ensure_policy_schema": ensure_policy_schema, "create_policy": create_policy,
     "save_policy_draft": save_policy_draft, "discard_policy_draft": discard_policy_draft,
@@ -753,5 +1065,10 @@ OPERATIONS.update({
     "get_policy": get_policy, "policy_history": policy_history, "policy_version": policy_version,
     "save_assignment": save_assignment, "remove_assignment": remove_assignment, "list_assignments": list_assignments,
     "policy_applicability": policy_applicability, "resolve_policies": resolve_policies, "policy_snapshot": snapshot,
-    "policy_options": policy_options,
+    "policy_options": policy_options, "policies_ready": policies_ready,
+    "list_policy_exceptions": list_policy_exceptions,
+    "ensure_template_schema": ensure_template_schema, "list_policy_templates": list_policy_templates,
+    "save_policy_template": save_policy_template, "delete_policy_template": delete_policy_template,
+    "use_policy_template": use_policy_template, "save_policy_as_template": save_policy_as_template,
+    "set_template_authors": set_template_authors,
 })

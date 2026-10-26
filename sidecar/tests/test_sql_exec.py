@@ -340,6 +340,13 @@ def test_an_existing_file_is_never_replaced(runs, lake, tmp_path, monkeypatch):
     assert status["path"].endswith("sales query 2026-10-17 120000 (2).csv")
 
 
+def test_a_hostile_name_stays_in_downloads(runs, lake, tmp_path):
+    run = wait(runs, runs.start("SELECT 1 AS a", lake)["id"])
+    status = wait_export(runs, runs.export(run["id"], "csv", "../..\\evil/sales")["id"])
+    path = Path(status["path"])
+    assert path.parent == tmp_path / "Downloads" and path.name.startswith("evilsales query ")
+
+
 def test_parquet_export_renames_repeated_columns_so_it_reads_back(runs, lake):
     run = wait(runs, runs.start("SELECT id, amount, id FROM sales ORDER BY id", lake)["id"])
     status = wait_export(runs, runs.export(run["id"], "parquet")["id"])
@@ -411,7 +418,7 @@ def test_the_audit_records_the_run_but_never_its_sql_error_or_token(runs, lake):
     assert [line[1] for line in lines] == ["ok", "error"]
     params = lines[0][3]
     assert set(params) == {"execution", "state", "dialect", "permission", "rows", "workspace_id", "lakehouse_id",
-                           "lakehouse"}
+                           "lakehouse", "target", "project"}
     text = json.dumps(lines, default=str)
     # Letters around the card number: digits alone can turn up inside a duration in the audit line.
     for leaked in ("QZX-4111", "password_column", "SECRET-TOKEN", "SELECT"):
@@ -460,3 +467,307 @@ def test_sql_settings_have_defaults_ranges_and_policy(tmp_path, monkeypatch):
     assert any("sql_max_concurrent" in p for p in app_settings.policy_problems())
     with pytest.raises(ValueError, match="organization"):
         app_settings.save({"sql_memory_limit_percent": 50})
+
+
+# ---- local data projects (KF-DE-027): target="local"
+
+LOCAL_SLOW = "SELECT count(*) FROM range(10000000000) a"
+
+
+@pytest.fixture
+def local_runs(tmp_path):
+    from fabric_desktop.localdata import LocalData
+    local = LocalData(tmp_path / "local-data")
+    pid = local.create("Proj")["id"]
+    local.engine(pid).execute("CREATE TABLE orders AS SELECT range AS id, range % 3 AS kind FROM range(2500)")
+    audit: list[tuple] = []
+    manager = sql_exec.SqlExecutions(tmp_path / "data", token=lambda: "", audit=lambda *a: audit.append(a),
+                                     limits=limits(), downloads=lambda: tmp_path / "Downloads",
+                                     local_engine=local.engine)
+    manager.pid, manager.local, manager.audit_lines = pid, local, audit  # type: ignore[attr-defined]
+    yield manager
+    manager.shutdown()
+    local.close_all()
+
+
+def start_local(manager, query, **options):
+    return manager.start(query, target="local", project=manager.pid, dialect=options.pop("dialect", "duckdb"),
+                         **options)
+
+
+def count(manager, table="orders"):
+    return manager.local.engine(manager.pid).execute(f"SELECT count(*) FROM {table}")["rows"][0][0]
+
+
+@pytest.mark.parametrize("query,expected", [
+    ("SELECT * FROM orders", [("read_only", False)]),
+    ("CREATE TABLE t AS SELECT 1 a; INSERT INTO t VALUES (2); DELETE FROM t; DROP TABLE t",
+     [("local_project_write", False)] * 4),
+    ("INSERT INTO orders VALUES (1, 1)", [("local_project_write", False)]),
+    ("UPDATE orders SET kind = 0 WHERE id = 1", [("local_project_write", False)]),
+    ("DELETE FROM orders WHERE id = 1", [("local_project_write", False)]),
+    ("DELETE FROM orders", [("local_project_write", True)]),
+    ("UPDATE orders SET kind = 0", [("local_project_write", True)]),
+    ("TRUNCATE orders", [("local_project_write", True)]),
+    ("DROP TABLE orders", [("local_project_write", True)]),
+    ("CREATE TEMP VIEW v AS SELECT 1 x", [("local_mutation", False)]),
+    ("COPY orders TO 'out.csv'", [("fabric_mutation", False)]),
+    ("ATTACH 'other.db'", [("fabric_mutation", False)]),
+    ("CREATE OR REPLACE TABLE orders AS SELECT 1 id", [("local_project_write", True)]),
+    ("CREATE TABLE t AS SELECT 1 a; CREATE OR REPLACE TABLE t AS SELECT 2 a", [("local_project_write", False)] * 2),
+    ("INSERT OVERWRITE orders SELECT * FROM orders", [("local_project_write", True)]),
+    ("SELECT * FROM read_csv('C:/secret.csv')", [("fabric_mutation", False)]),
+    ("SELECT read_text('C:/secret.txt')", [("fabric_mutation", False)]),
+    ("SELECT * FROM 'C:/secret.parquet'", [("fabric_mutation", False)]),
+    ("CREATE TABLE t AS SELECT * FROM glob('C:/*')", [("fabric_mutation", False)]),
+    ("SET profiling_output = 'C:/out.json'", [("fabric_mutation", False)]),
+    ("PRAGMA enable_profiling", [("fabric_mutation", False)]),
+    ("SELECT * FROM query('SELECT * FROM read_csv(''C:/secret.csv'')')", [("fabric_mutation", False)]),
+    ("SELECT json_execute_serialized_sql('{}')", [("fabric_mutation", False)]),
+    ("SELECT current_setting('home_directory')", [("fabric_mutation", False)]),
+    ("SELECT * FROM duckdb_settings()", [("fabric_mutation", False)]),
+])
+def test_local_target_classes(query, expected):
+    verdicts = sql_policy.classify(sql.parse(query, "duckdb"), "local")
+    assert [(v.kind, v.confirm) for v in verdicts] == expected
+
+
+def test_lakehouse_refusals_are_unchanged_by_the_local_class():
+    for query in ("DROP TABLE sales", "DELETE FROM sales", "INSERT INTO sales VALUES (1)"):
+        verdicts = sql_policy.classify(sql.parse(query, "spark"))
+        assert verdicts[0].kind == "onelake_write" and not verdicts[0].confirm
+    with pytest.raises(ValueError):
+        sql_policy.classify([], "elsewhere")
+
+
+def test_a_lakehouse_run_can_never_allow_project_writes(runs, lake):
+    with pytest.raises(PermissionError):
+        runs.start("DROP TABLE sales", lake, allow=["local_project_write"])
+
+
+def test_local_target_selects_page_and_export(local_runs, tmp_path):
+    status = wait(local_runs, start_local(local_runs, "SELECT id, kind FROM orders ORDER BY id")["id"])
+    assert status["state"] == "completed" and status["rows"] == 2500
+    assert status["target"] == "local" and status["project"] == "Proj" and status["permission"] == "read_only"
+    assert [c["name"] for c in status["columns"]] == ["id", "kind"]
+    first = local_runs.page(status["id"])
+    assert len(first["rows"]) == 1000 and first["rows"][0] == [0, 0] and first["has_next"]
+    assert [r[0] for r in local_runs.page(status["id"], 2400, 1000)["rows"]] == list(range(2400, 2500))
+    csv = wait_export(local_runs, local_runs.export(status["id"], "csv")["id"])
+    assert csv["state"] == "completed" and csv["rows"] == 2500 and Path(csv["path"]).name.startswith("Proj query")
+    parquet = wait_export(local_runs, local_runs.export(status["id"], "parquet")["id"])
+    assert pq.read_table(parquet["path"]).num_rows == 2500
+    assert local_runs.audit_lines[-1][3]["target"] == "local" and local_runs.audit_lines[-1][3]["project"] == "Proj"
+
+
+def test_local_target_spark_sql_and_project_writes(local_runs):
+    status = wait(local_runs, start_local(local_runs, "CREATE TABLE kinds AS SELECT DISTINCT kind FROM orders; "
+                                                      "SELECT count(*) AS n FROM kinds", dialect="spark")["id"])
+    assert status["state"] == "completed" and status["permission"] == "local_project_write"
+    assert local_runs.page(status["id"])["rows"] == [[3]]
+    assert count(local_runs, "kinds") == 3  # kept in the project
+
+
+def test_local_stop_interrupts_a_long_query(local_runs):
+    run = start_local(local_runs, LOCAL_SLOW)
+    wait(local_runs, run["id"], ("running",))
+    time.sleep(0.3)
+    started = time.monotonic()
+    assert local_runs.cancel(run["id"])["state"] in ("cancelling", "cancelled")
+    status = wait(local_runs, run["id"], seconds=20)
+    assert status["state"] == "cancelled" and time.monotonic() - started < 15
+    assert not local_runs._get(run["id"]).folder.exists()
+    # the project still answers
+    assert wait(local_runs, start_local(local_runs, "SELECT 1")["id"])["state"] == "completed"
+
+
+def test_local_time_limit(tmp_path):
+    from fabric_desktop.localdata import LocalData
+    local = LocalData(tmp_path / "local-data")
+    pid = local.create("Slow")["id"]
+    manager = sql_exec.SqlExecutions(tmp_path / "data", token=lambda: "", limits=limits(sql_time_limit_minutes=0.01),
+                                     local_engine=local.engine)
+    try:
+        status = wait(manager, manager.start(LOCAL_SLOW, target="local", project=pid, dialect="duckdb")["id"], seconds=30)
+        assert status["state"] == "timed_out" and "time limit" in status["error"]
+        status = wait(manager, manager.start(LOCAL_SLOW, target="local", project=pid, dialect="duckdb",
+                                             timeout=0.3)["id"], seconds=30)
+        assert status["state"] == "timed_out" and "0.3 seconds" in status["error"]
+    finally:
+        manager.shutdown()
+        local.close_all()
+
+
+def test_the_projects_own_time_limit_is_shown_and_named(tmp_path):
+    from fabric_desktop.localdata import LocalData
+    local = LocalData(tmp_path / "local-data")
+    pid = local.create("Slow")["id"]
+    local.set_settings(pid, {"timeout_seconds": 1})
+    manager = sql_exec.SqlExecutions(tmp_path / "data", token=lambda: "", limits=limits(sql_time_limit_minutes=0),
+                                     local_engine=local.engine)
+    try:
+        status = wait(manager, manager.start(LOCAL_SLOW, target="local", project=pid, dialect="duckdb")["id"], seconds=30)
+        assert status["state"] == "timed_out" and "project's time limit" in status["error"]
+        assert status["time_limit_minutes"] == round(1 / 60, 2) and status["time_limit_from"] == "project"
+    finally:
+        manager.shutdown()
+        local.close_all()
+
+
+def test_export_and_import_database_are_refused_as_writes_outside_the_project(local_runs, tmp_path):
+    for query in (f"EXPORT DATABASE '{(tmp_path / 'dump').as_posix()}'", "SELECT 1; IMPORT DATABASE 'x'",
+                  f"-- back up\n/* first */ EXPORT DATABASE '{(tmp_path / 'dump').as_posix()}'",
+                  "SELECT 1; -- then\nIMPORT DATABASE 'x'"):
+        status = wait(local_runs, start_local(local_runs, query, confirm=True)["id"])
+        assert status["state"] == "failed" and status["error_kind"] == "permission", query
+        assert status["refused"]["permission"] == "fabric_mutation"
+    assert not (tmp_path / "dump").exists()
+
+
+@pytest.mark.parametrize("query,word", [
+    ("EXPORT DATABASE 'x'", "EXPORT"),
+    ("-- a\n/* b */  import database 'x'", "IMPORT"),
+    ("SELECT ';EXPORT DATABASE' AS s", ""),  # inside a string
+    ("SELECT 1 -- ; EXPORT DATABASE 'x'", ""),  # inside a comment
+    ("SELECT 1; /* note */ EXPORT DATABASE 'x'", "EXPORT"),
+    ("SELECT 'it''s'; EXPORT DATABASE 'x'", "EXPORT"),
+    ("SELECT 1 FROM", ""),
+])
+def test_export_and_import_database_are_found_after_comments_only(query, word):
+    assert sql_exec._outside_command(query) == word
+
+
+def test_finding_export_database_stays_linear():
+    for text in (";--" * 50_000, ";/*" * 50_000, "'" * 100_000, ";" * 150_000 + "EXPORT DATABASE 'x'"):
+        started = time.perf_counter()
+        sql_exec._outside_command(text)
+        assert time.perf_counter() - started < 1.0, text[:12]
+
+
+def test_local_drop_asks_for_confirmation_then_runs(local_runs):
+    refused = wait(local_runs, start_local(local_runs, "DROP TABLE orders")["id"])
+    assert refused["state"] == "failed" and refused["error_kind"] == "permission"
+    assert refused["refused"]["confirm_required"] and refused["refused"]["statement"] == 1
+    assert "needs confirming" in refused["error"]
+    assert count(local_runs) == 2500  # nothing ran
+    done = wait(local_runs, start_local(local_runs, "DROP TABLE orders", confirm=True)["id"])
+    assert done["state"] == "completed"
+    with pytest.raises(Exception, match="orders"):
+        count(local_runs)
+
+
+def test_local_delete_or_update_without_where_asks(local_runs):
+    for query in ("DELETE FROM orders", "UPDATE orders SET kind = 9", "SELECT 1; TRUNCATE orders"):
+        status = wait(local_runs, start_local(local_runs, query)["id"])
+        assert status["state"] == "failed" and status["refused"]["confirm_required"], query
+    assert count(local_runs) == 2500
+    assert local_runs.local.engine(local_runs.pid).execute("SELECT count(*) FROM orders WHERE kind = 9")["rows"] == [[0]]
+    status = wait(local_runs, start_local(local_runs, "DELETE FROM orders WHERE kind = 0")["id"])
+    assert status["state"] == "completed" and count(local_runs) == 1666
+    status = wait(local_runs, start_local(local_runs, "DELETE FROM orders", confirm=True)["id"])
+    assert status["state"] == "completed" and count(local_runs) == 0
+
+
+def test_local_files_and_extensions_are_refused_even_when_confirmed(local_runs, tmp_path):
+    out = tmp_path / "leak.csv"
+    status = wait(local_runs, start_local(local_runs, f"COPY orders TO '{out}'", confirm=True)["id"])
+    assert status["state"] == "failed" and status["refused"]["permission"] == "fabric_mutation"
+    assert not out.exists()
+    with pytest.raises(PermissionError):
+        start_local(local_runs, "SELECT 1", allow=["fabric_mutation"])
+
+
+def test_local_replace_asks_and_outside_files_stay_unread(local_runs, tmp_path):
+    for query in ("CREATE OR REPLACE TABLE orders AS SELECT 1 id, 1 kind", "INSERT OVERWRITE orders SELECT * FROM orders LIMIT 1"):
+        status = wait(local_runs, start_local(local_runs, query)["id"])
+        assert status["state"] == "failed" and status["refused"]["confirm_required"], query
+    assert count(local_runs) == 2500
+    secret = tmp_path / "secret.csv"
+    secret.write_text("a\n1\n")
+    profile = tmp_path / "profile.json"
+    for query in (f"SELECT * FROM read_csv('{secret.as_posix()}')", f"SELECT * FROM '{secret.as_posix()}'",
+                  f"SET enable_profiling = 'json'; SET profiling_output = '{profile.as_posix()}'; SELECT 1"):
+        status = wait(local_runs, start_local(local_runs, query, confirm=True)["id"])
+        assert status["state"] == "failed" and status["refused"]["permission"] == "fabric_mutation", query
+    assert not profile.exists()
+
+
+def test_local_target_runs_t_sql_under_the_same_policy(local_runs):
+    done = wait(local_runs, start_local(local_runs, "SELECT TOP 1 id FROM orders ORDER BY id", dialect="tsql")["id"])
+    assert done["state"] == "completed"
+    refused = wait(local_runs, start_local(local_runs, "DELETE FROM orders", dialect="tsql")["id"])
+    assert refused["state"] == "failed" and refused["refused"]["confirm_required"]
+    assert count(local_runs) == 2500
+
+
+def test_a_dry_run_changes_nothing(local_runs, runs, lake):
+    before = local_runs.recent()
+    plan = start_local(local_runs, "INSERT INTO orders VALUES (9999, 1); DROP TABLE orders", dry_run=True)
+    assert plan["dry_run"] and plan["confirm_required"]
+    assert [(s["permission"], s["confirm"]) for s in plan["statements"]] == [
+        ("local_project_write", False), ("local_project_write", True)]
+    assert count(local_runs) == 2500 and local_runs.recent() == before
+    confirmed = start_local(local_runs, "DROP TABLE orders", dry_run=True, confirm=True)
+    assert not confirmed["confirm_required"] and confirmed["refused"] is None
+    assert count(local_runs) == 2500
+    lake_plan = runs.start("DELETE FROM sales", lake, dry_run=True)
+    assert lake_plan["refused"]["permission"] == "onelake_write" and not lake_plan["confirm_required"]
+    assert runs.recent() == []
+
+
+def test_local_target_needs_a_known_project_and_a_local_dialect(local_runs):
+    with pytest.raises(ValueError):
+        local_runs.start("SELECT 1", target="local")
+    with pytest.raises(KeyError):
+        local_runs.start("SELECT 1", target="local", project="nope", dialect="duckdb")
+    with pytest.raises(ValueError):
+        local_runs.start("SELECT 1", target="local", project=local_runs.pid, dialect="fabric_warehouse")
+
+
+def test_old_local_query_calls_forward_to_managed_runs(tmp_path):
+    from fabric_desktop import server
+    from fabric_desktop.service import Service
+    svc = Service(root=tmp_path / "app")
+
+    def call(method, **params):
+        reply = server.handle(svc, json.dumps({"id": 1, "method": method, "params": params}))
+        assert "error" not in reply, reply
+        return reply["result"]
+
+    def until_done(query_id):
+        for _ in range(400):
+            status = call("local_query_status", query_id=query_id)
+            if status["state"] != "running":
+                return status
+            time.sleep(0.05)
+        raise AssertionError("still running")
+    try:
+        pid = call("local_create_project", name="Old")["id"]
+        started = call("local_query_start", project=pid, query="SELECT range AS n FROM range(50)", limit=10)
+        assert started["state"] == "running"
+        assert call("sql_status", execution=started["query_id"])["target"] == "local"  # one lifecycle
+        done = until_done(started["query_id"])
+        assert done["state"] == "done" and done["result"]["rows"] == [[n] for n in range(10)]
+        assert done["result"]["row_count"] == 50 and done["result"]["truncated"]
+        slow = call("local_query_start", project=pid, query=LOCAL_SLOW)
+        time.sleep(0.3)
+        assert call("local_query_cancel", query_id=slow["query_id"]) == {"cancelled": True}
+        assert until_done(slow["query_id"])["state"] == "cancelled"
+        assert call("local_query_cancel", query_id=slow["query_id"]) == {"cancelled": False}
+        call("local_query", project=pid, query="CREATE TABLE t AS SELECT 1 a")
+        asked = until_done(call("local_query_start", project=pid, query="DROP TABLE t")["query_id"])
+        assert asked["state"] == "error" and asked["refused"]["confirm_required"]
+        assert until_done(call("local_query_start", project=pid, query="DROP TABLE t", confirm=True)["query_id"])["state"] == "done"
+        timed = until_done(call("local_query_start", project=pid, query=LOCAL_SLOW, timeout=0.3)["query_id"])
+        assert timed["state"] == "error" and "0.3 seconds" in timed["error"]
+    finally:
+        svc.sql_runs.shutdown()
+        svc.local_data.close_all()
+
+
+def test_a_temp_view_is_found_whatever_case_it_is_named_in(runs, lake):
+    # #414: the worker compared names case-sensitively, so `recent` was opened as a lakehouse table.
+    status = wait(runs, runs.start("CREATE TEMP VIEW Recent AS SELECT * FROM sales WHERE id > 1; "
+                                   "SELECT count(*) AS n FROM recent", lake, allow=["local_mutation"])["id"])
+    assert status["state"] == "completed", status.get("error")
+    assert runs.page(status["id"])["rows"] == [[2]]

@@ -6,8 +6,9 @@ import datetime as dt
 import json
 import logging
 import tomllib
+from contextlib import AbstractContextManager, ExitStack, contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterator
 
 import polars as pl
 
@@ -17,7 +18,9 @@ from .meta import lineage, release
 from .meta import mesh
 from .meta import Engine, GateError, Layer, LocalStore, OneLakeStore, Project, impact, promote
 from .meta.engine import RunResult
+from .leases import Backend, Leases, LocalBackend, OneLakeBackend, lease_timeout, onelake_table_lease, table_key
 from .onelake import storage_options
+from .publish import WRITER
 from .meta.project import DEFAULT_RETENTION_DAYS, ENVIRONMENTS, validate
 from .meta import diff as diff_mod
 from .meta import snapshot
@@ -25,6 +28,7 @@ from .meta.promote import promote_checks, releases, rollback
 from .meta.store import LANDING_LAKEHOUSE, META_LAKEHOUSE, Store, ran_on
 from .meta.templates import TEMPLATES, describe, entity_text, init_project
 from .redact import describe as describe_error
+from .jsonfile import read_json, write_json, write_text
 
 _log = logging.getLogger(__name__)
 
@@ -99,14 +103,11 @@ class MetaMixin:
         return self.root / "settings.json"
 
     def _settings(self) -> dict[str, Any]:
-        try:
-            return json.loads(self.settings_file.read_text(encoding="utf-8"))
-        except (FileNotFoundError, ValueError):
-            return {}
+        settings = read_json(self.settings_file, {})
+        return settings if isinstance(settings, dict) else {}
 
     def _save_settings(self, **changes: Any) -> None:
-        self.settings_file.parent.mkdir(parents=True, exist_ok=True)
-        self.settings_file.write_text(json.dumps(self._settings() | changes, indent=2), encoding="utf-8")
+        write_json(self.settings_file, self._settings() | changes)
 
     def _source_options(self) -> dict[str, str]:
         """OneLake access for source tables outside the environment (adopted lakehouse tables)."""
@@ -179,7 +180,9 @@ class MetaMixin:
             raise ValueError(f"environment must be one of {', '.join(ENVIRONMENTS)}")
         cfg = project.environments.get(env, {})
         if cfg.get("target", "onelake" if env != "dev" else "local") == "local":
-            return LocalStore(project.local_data / env, env, landing=self._landing_dir(env))
+            store: Store = LocalStore(project.local_data / env, env, landing=self._landing_dir(env))
+            store.landing_zones = self._landing_resolver(local=True)  # type: ignore[attr-defined]
+            return store
         ws = cfg.get("workspace_id")
         if not ws:
             raise LookupError(f"Assign a workspace to {env.title()} first (Data mesh > Deploy > Environments and promote).")
@@ -202,14 +205,17 @@ class MetaMixin:
                 if name not in existing:
                     existing[name] = fabric.create_lakehouse(
                         space, name, "Managed by KratosForge's metadata framework")["id"]
-        # The organization's landing zone is the platform's, never created here.
+        # The organization's landing zone is the platform's, never created here. With the central landing
+        # workspace (Preview), each source's zone is looked up on the first landing read instead.
         platform = self._platform_config().get(env, {})  # type: ignore[attr-defined]
         if platform.get("landing_id"):
             existing[LANDING_LAKEHOUSE] = platform["landing_id"]
             where[LANDING_LAKEHOUSE] = platform["workspace_id"]
-        return OneLakeStore(env, ws, existing, lambda: self.auth.storage_token(),  # type: ignore[attr-defined]
-                            self.root / "onelake-cache",
-                            lakehouse_workspaces={n: w for n, w in where.items() if w != ws})
+        store = OneLakeStore(env, ws, existing, lambda: self.auth.storage_token(),  # type: ignore[attr-defined]
+                             self.root / "onelake-cache",
+                             lakehouse_workspaces={n: w for n, w in where.items() if w != ws})
+        store.landing_zones = self._landing_resolver()  # type: ignore[attr-defined]
+        return store
 
     def _landing_dir(self, env: str) -> Path:
         """This PC's landing zone for a local environment, shared by every project on the PC."""
@@ -236,6 +242,13 @@ class MetaMixin:
         return OneLakeStore(env, ws, existing, lambda: self.auth.storage_token(),  # type: ignore[attr-defined]
                             self.root / "onelake-cache")
 
+    def _keys_database(self, project: Project, env: str) -> str:
+        """The SQL database an environment's keys come from once they're in the platform, else "".
+        A Spark MERGE into LH_Keys would issue keys that database never sees, so there's none then."""
+        if not self._keys_in_platform(project, env):
+            return ""
+        return "SQL_Keys" if self._keys_config().get("shared") else "SQL_Platform"  # type: ignore[attr-defined]
+
     def _keys_in_platform(self, project: Project, env: str) -> bool:
         """One key system for everything: once an environment's platform is in Fabric, its keys come
         from SQL_Platform, unless the project already issues keys in LH_Keys (those move first, with
@@ -243,7 +256,7 @@ class MetaMixin:
         cfg = project.environments.get(env, {})
         if cfg.get("keys") in ("platform", "lakehouse"):
             return cfg["keys"] == "platform"
-        if not self._platform_config().get(env, {}).get("functions_id"):  # type: ignore[attr-defined]
+        if not self._keys_in_fabric(env):  # type: ignore[attr-defined]
             return False
         local = cfg.get("target", "onelake" if env != "dev" else "local") == "local"
         has_lh_keys = (project.local_data / f"keys-{env}").exists() if local else bool(cfg.get("keys_workspace_id"))
@@ -261,12 +274,13 @@ class MetaMixin:
                  "# keys_workspace_id is the workspace that holds LH_Keys, the surrogate keys.", ""]
         lines += ["# workspaces: a workspace per designation (ingest, product, serve, sandbox); layers pick one",
                   "# with workspace = \"...\" in layers.toml. keys = \"platform\": surrogate keys are in SQL_Platform.",
-                  "# require_commit = true: promote here only from files a pushed Git commit holds.", ""]
+                  "# require_commit: Test and Prod in OneLake only take files a pushed Git commit holds;",
+                  "# false lets a promote go ahead with a note, true asks it of an environment on this PC too.", ""]
         for name in ENVIRONMENTS:
             lines.append(f"[{name}]")
             lines += [f"{k} = {_toml(v)}" for k, v in envs.get(name, {}).items()]
             lines.append("")
-        (project.root / "environments.toml").write_text("\n".join(lines), encoding="utf-8")
+        write_text(project.root / "environments.toml", "\n".join(lines))
 
     def meta_set_environment(self, env: str, workspace_id: str | None = None, workspace_name: str | None = None,
                              target: str | None = None) -> dict[str, Any]:
@@ -335,11 +349,12 @@ class MetaMixin:
         except Exception as exc:  # the config is still useful when the environment can't be read
             runs = [{"status": "unavailable", "message": str(exc)}]
         errors = [x for x in project.summary()["errors"] if x.startswith(name + ":")]
-        keys_sql = None
-        if keys_mod.entity_keys(e) and not errors and "entity" in e.spec.get("source", {}):
+        keys_sql, keys_from = None, self._keys_database(project, env)
+        if keys_mod.entity_keys(e) and not errors and "entity" in e.spec.get("source", {}) and not keys_from:
             keys_sql = keys_mod.merge_sql(project, e, project.environments.get(env, {}).get("keys_workspace_name", ""))
         return e.summary() | {"text": e.path.read_text(encoding="utf-8"), "impact": impact(project, name),
-                              "runs": runs, "preview": preview, "errors": errors, "keys_sql": keys_sql}
+                              "runs": runs, "preview": preview, "errors": errors, "keys_sql": keys_sql,
+                              "keys_from": keys_from}
 
     def meta_save_entity(self, name: str, text: str) -> dict[str, Any]:
         """Save an entity file. TOML that doesn't parse is refused; other problems are listed."""
@@ -358,8 +373,9 @@ class MetaMixin:
             downstream = impact(project, name) if name in project.entities else []
             if downstream:
                 raise GateError("save", [f"can't rename {name}: {', '.join(downstream)} read it"])
+        write_text(path, text)
+        if new_name != name:  # only once the new file is in place, so a failed save loses neither
             (project.entities_dir / f"{name}.toml").unlink(missing_ok=True)
-        path.write_text(text, encoding="utf-8")
         return self.meta_entity(new_name)
 
     def meta_new_entity(self, template: str, name: str, source: str = "", keys: list[str] | None = None,
@@ -376,7 +392,9 @@ class MetaMixin:
         if template in ("files", "landing") and source:
             try:
                 store = self._store(project, "dev")
-                where = LANDING_LAKEHOUSE if template == "landing" else project.layer(layer).lakehouse
+                # Dev reads no zone it doesn't read in a run: the contract then starts with a placeholder.
+                where = (Engine(project, store).landing_lakehouse(source) if template == "landing"
+                         else project.layer(layer).lakehouse)
                 sample, _ = store.read_files(where, source)
             except Exception:  # no files yet: the contract starts with a placeholder column
                 sample = None
@@ -390,8 +408,8 @@ class MetaMixin:
             p = project.root / rel
             if not p.exists():
                 p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_text(content, encoding="utf-8")
-        (project.entities_dir / f"{name}.toml").write_text(text, encoding="utf-8")
+                write_text(p, content)
+        write_text(project.entities_dir / f"{name}.toml", text)
         return self.meta_entity(name)
 
     def meta_delete_entity(self, name: str) -> dict[str, Any]:
@@ -447,6 +465,39 @@ class MetaMixin:
         except LookupError:
             return project  # Engine.check_deployed says the folder isn't on the release
 
+    def lease_backend(self, project: Project, env: str, store: Store, ttl: float = 120) -> Backend:
+        """Where an environment's per-table leases live: its LH_Meta, or a local folder (leases.py)."""
+        if isinstance(store, OneLakeStore):
+            meta_id = store.lakehouse_ids.get(META_LAKEHOUSE)
+            if not meta_id:
+                raise LookupError(f"{META_LAKEHOUSE} doesn't exist in the {env} workspace yet; promote to {env} first")
+            return OneLakeBackend(store.workspace_id, meta_id, self.auth.storage_token,  # type: ignore[attr-defined]
+                                  timeout=lease_timeout(ttl))
+        if isinstance(store, LocalStore):
+            return LocalBackend(store.root / "_leases")
+        raise TypeError(f"no lease backend for {type(store).__name__}")
+
+    def _table_lock(self, project: Project, env: str, store: Store, owner: str = WRITER, seconds: float = 120,
+                    guard: Callable[[], None] | None = None) -> Callable[[Any], AbstractContextManager[None]]:
+        """The Engine's ``table_lock``: each table is written under the environment's lease on it and,
+        in OneLake, the lease in the table's own lakehouse that notebooks and jobs hold too.
+        ``guard`` runs once both are held, before anything is written."""
+        leases = Leases(self.lease_backend(project, env, store, ttl=seconds), owner=owner, ttl=seconds, wait=seconds)
+
+        @contextmanager
+        def table_lock(e: Any) -> Iterator[None]:
+            lakehouse = project.layer(e.layer).lakehouse
+            with ExitStack() as held:
+                held.enter_context(leases.hold(table_key(lakehouse, e.schema, e.table)))
+                if isinstance(store, OneLakeStore) and (lakehouse_id := store.lakehouse_ids.get(lakehouse)):
+                    held.enter_context(onelake_table_lease(
+                        store.workspace_of(lakehouse), lakehouse_id, e.schema, e.table,
+                        self.auth.storage_token, owner=owner, ttl=seconds, wait=seconds))  # type: ignore[attr-defined]
+                if guard:
+                    guard()
+                yield
+        return table_lock
+
     def _run_here(self, project: Project, env: str, names: list[str] | None = None, backfill: str | None = None,
                   cascade: bool = False) -> list[dict[str, Any]]:
         """Run on this PC, whatever the environment's compute (schedules on this PC use it)."""
@@ -454,7 +505,8 @@ class MetaMixin:
         project = self._released(project, env, store)
         keys_store = self._keys_store(project, env, create=env == "dev") if self._uses_keys(project, names) else None
         engine = Engine(project, store, keys_store=keys_store, source_options=self._source_options,
-                        link_table=self._link_table(project, env))  # type: ignore[attr-defined]
+                        link_table=self._link_table(project, env),  # type: ignore[attr-defined]
+                        table_lock=self._table_lock(project, env, store))
         if cascade and names and len(names) == 1:
             results: list[RunResult] = engine.backfill(names[0])
         else:
@@ -636,13 +688,20 @@ class MetaMixin:
         return {"env": env, "release": out, "problem": None}
 
     def _release_gate(self, project: Project, target: str, git: dict[str, Any]) -> tuple[list[str], list[str]]:
-        """Promoting files no pushed commit holds: blocked when the target environment sets
-        ``require_commit = true`` in environments.toml, otherwise a note (decision D1)."""
+        """Promoting files no pushed commit holds. Chris decided (D1, 2026-10-25) that Test and Prod
+        only take released files, so this blocks when the target's tables are in OneLake. An environment
+        kept on this PC is a note, as is any environment with ``require_commit = false`` in
+        environments.toml; ``require_commit = true`` blocks on this PC too."""
         found = release.problems(git)
         if not found or target == "dev":
             return [], []
-        if project.environments.get(target, {}).get("require_commit"):
-            return [f"{target.title()} only takes released files: {p}" for p in found], []
+        cfg = project.environments.get(target, {})
+        if cfg.get("require_commit", cfg.get("target", "onelake") != "local"):
+            errors = [f"{target.title()} only takes released files: {p}" for p in found]
+            if "require_commit" not in cfg:  # the default, not the team's own choice: say how to go ahead without Git
+                errors[-1] = errors[-1].rstrip(".") + (f". To promote without a pushed commit, set require_commit = false under [{target}] "
+                               "in environments.toml")
+            return errors, []
         return [], [f"The release record can't name a pushed commit that holds these files: {'; '.join(found)}"]
 
     def _duties_gate(self, project: Project, source: str, target: str,
@@ -726,14 +785,15 @@ class MetaMixin:
         central = None  # the platform's key tables, when this environment's keys are there
         if self._keys_in_platform(project, env):
             try:
-                central = self._platform(env).call("list_key_tables")  # type: ignore[attr-defined]
+                central = self._keys_platform(env).call("list_key_tables")  # type: ignore[attr-defined]
             except Exception as exc:  # noqa: BLE001
                 problem = problem or str(exc)
         return {"env": env, "local": local, "path": str(project.local_data / f"keys-{env}") if local else None,
                 "workspace_id": cfg.get("keys_workspace_id", ""), "workspace_name": cfg.get("keys_workspace_name", ""),
-                "lakehouse": "SQL_Platform" if self._keys_in_platform(project, env) else keys_mod.KEYS_LAKEHOUSE,
+                "lakehouse": self._keys_database(project, env) or keys_mod.KEYS_LAKEHOUSE,
                 "platform": self._keys_in_platform(project, env), "moved_at": cfg.get("keys_moved_at", ""),
-                "platform_available": bool(self._platform_config().get(env, {}).get("functions_id")),  # type: ignore[attr-defined]
+                "platform_available": self._keys_in_fabric(env),  # type: ignore[attr-defined]
+                "shared": bool(self._keys_config().get("shared")),  # type: ignore[attr-defined]
                 "key_tables": tables, "central_key_tables": central,
                 "source_systems": summary["source_systems"], "system_types": list(keys_mod.SYSTEM_TYPES),
                 "connection_fields": list(keys_mod.CONNECTION_FIELDS), "problem": problem,
@@ -800,7 +860,7 @@ class MetaMixin:
             raise ValueError(f"key table {name} already exists")
         if self._keys_in_platform(project, env):
             # One key system: the project uses a key table the platform has, it doesn't make its own.
-            central = {t["name"] for t in self._platform(env).call("list_key_tables")}  # type: ignore[attr-defined]
+            central = {t["name"] for t in self._keys_platform(env).call("list_key_tables")}  # type: ignore[attr-defined]
             if name not in central:
                 raise GateError("save", [f"{name} isn't one of the platform's key tables. Request it in "
                                          "Platform > Business keys, or pick one from the list."])
@@ -854,7 +914,7 @@ class MetaMixin:
             if old is None:
                 path.unlink()
             else:
-                path.write_text(old, encoding="utf-8")
+                write_text(path, old)
             raise GateError("save", problems)
         return self.meta_keys(env)
 
@@ -880,6 +940,10 @@ class MetaMixin:
             raise GateError("save", errors)
         if not keys_mod.entity_keys(e):
             raise ValueError(f"{name} has no [[keys]] block, so there is no key MERGE to start its notebook with")
+        if db := self._keys_database(project, env):
+            raise GateError("save", [f"{env.title()}'s keys come from {db}, so a notebook that merges into LH_Keys "
+                                     "would give rows keys the rest of the platform doesn't have. Run "
+                                     f"{name} from Data mesh instead: its run takes the keys from {db}."])
         src = project.entities[e.spec["source"]["entity"]]
         nb_name = f"nb_{src.layer}_to_{e.layer}_{e.table}"
         cells = keys_mod.template_cells(project, e, project.environments.get(env, {}).get("keys_workspace_name", ""))

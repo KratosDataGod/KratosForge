@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-RULE_VERSION = "2026.10.2"
+RULE_VERSION = "2026.10.3"
 CHECKED_ON = "2026-10-17"
 
 LEARN = "https://learn.microsoft.com"
@@ -33,7 +33,7 @@ DOCS = {
     "spark_datetime": ("https://spark.apache.org/docs/3.5.1/sql-ref-datetime-pattern.html", ""),
     "duckdb_regex": ("https://duckdb.org/docs/stable/sql/functions/regular_expressions", ""),
     "fabric_runtime": (f"{LEARN}/fabric/data-engineering/runtime", ""),
-    "local": ("https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/sql-compatibility.md", ""),
+    "local": ("https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md", ""),
 }
 
 

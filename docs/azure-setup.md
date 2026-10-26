@@ -61,16 +61,30 @@ A policy file that sets everything an organization usually wants:
 | --- | --- | --- |
 | `allow_fabric_runs` | `true` (default) or `false` | `false` keeps work off Fabric capacity: Run in Fabric, Fabric schedules, Optimize and the Fabric side of a proof are refused with a message, and turning a Fabric schedule off still works. Runs on the PC are not affected |
 | `allow_optimize_lakehouse` | `true` (default) or `false` | `false` stops the app creating, connecting to or writing to shared optimization lakehouses ([Optimize](optimize/README.md)) |
+| `allow_notebook_packages` | `true` (default) or `false` | `false` stops people installing Python packages into notebook environments ([notebooks](notebooks.md#notebook-environments-preview)); notebooks use the app's packages only |
 | `allow_replay_samples` | `true` (default) or `false` | `false` takes "A sample of the input data" out of the Save replay bundle dialog, so a replay bundle never holds lakehouse rows. Code, input versions and the error with secrets removed are still saved |
 | `allowed_tenants` | A list of tenant (directory) IDs | People can only sign in with accounts from these tenants. Any other account is signed out again with a message. Leave it out to allow any |
 | `auto_update` | `true` (default) or `false` | `false` stops the app updating itself, so you roll out builds yourself ([Enterprise install](enterprise-install.md)) |
 | `cell_time_limit_minutes` | A number, `0` for none | With `kernel_process`: minutes a notebook cell may run before it's interrupted (Preview; none by default) |
 | `channel` | `stable` or `preview` | Fixes the update channel |
 | `client_id` | Your own app's Application (client) ID | Only with step 3. Leave it out to keep Microsoft's sign-in |
+| `register_link_scheme` | `true` (default) or `false` | `false` stops the app registering `kratosforge://` links for the Windows user, and removes a registration it made earlier, so links from VS Code, a terminal or a browser don't open the app ([Links into KratosForge](vscode.md#links-into-kratosforge)). Read by the app itself at start |
+| `fabric_view_sign_in_hosts` | A list of exact host names, for example `["adfs.contoso.com", "contoso.okta.com"]` | Only if your tenant's sign-in hands off to your own identity provider (AD FS, Okta, Ping and similar). The Fabric view (Monitor and Fabric pages) opens only Fabric and Microsoft sign-in pages and sends every other page to the default browser, so without this key people can't sign in inside it. Hosts here are treated like Microsoft's sign-in hosts: `https` only, default port, no user name in the link. Each entry must be a whole host name: no `*`, `https://`, port or path. Entries that aren't are skipped and listed in **Settings > Help and about**. Read by the app itself when the view opens; a missing or unreadable file adds no hosts ([Security](security.md#threats-and-what-stops-them)) |
+| `motion_level` | `0` to `3` (default `2`) | Visual intensity: 0 Off, 1 Minimal, 2 Refined, 3 Expressive ([Motion and effects](forge-animations.md)). Progress and results show the same at every level |
+| `ui_explanations` | `"beside"` or `"on_request"` (default `"beside"`) | Where each page's How this works panel shows: beside the page, or from the title bar's info button ([Layout](user-guide.md#layout)) |
+| `ui_preview_marks` | `"tags"` or `"dots"` (default `"tags"`) | How features still in preview are marked: a Preview tag, or a small dot with the tag kept on page titles |
+| `ui_density` | `"comfortable"` or `"compact"` (default `"comfortable"`) | Spacing in tables, lists and toolbars |
+| `motion_wolf`, `motion_sparks`, `motion_ambient` | `true` (default) or `false` | `false` turns that family of effects off |
+| `motion_achievements` | `true` or `false` (default) | `true` turns on achievement celebrations from the developer profile |
+| `motion_follow_system` | `true` (default) or `false` | `true`: Windows' reduced-motion setting turns motion off whatever the level. People can untick it to keep motion under reduced motion; set it to `true` here to stop that |
+| `forge_animations` | `true` or `false` | Kept from the first version: `false` locks `motion_level` at 0 unless the policy file also sets `motion_level` |
 | `incident_sla` | Minutes per priority: `{"P1": {"acknowledge_minutes": 15, "resolve_minutes": 240}, ...}`, `0` for no target | Your own targets for acknowledging and resolving incidents; priorities left out keep the defaults ([Incidents](incidents.md#slas)) |
 | `kernel_memory_limit_gb` | A number, `0` for none | With `kernel_process`: gigabytes a notebook's process may use before it's ended (Preview; none by default) |
 | `kernel_process` | `true` or `false` | Runs notebook cells in a Python process of their own, so Stop and crashes end only that process (Preview; off by default) |
-| `local_retention_days` | A whole number of days (default `30`; `0` keeps them) | Local copies of lakehouse data that haven't been used for this long are deleted when the app starts: file previews, tables staged before a publish, the metadata framework's download cache. Notebooks, settings and history are never deleted |
+| `local_retention_days` | A whole number of days (default `30`; `0` keeps them) | Local copies of lakehouse data that haven't been used for this long are deleted when the app starts: file previews and the metadata framework's download cache. Notebooks, settings and history are never deleted |
+| `onelake_compression` | `"zstd"` or `"snappy"` (default `"zstd"`) | How table files written from this PC are compressed. Zstandard files are about a quarter smaller, so they upload sooner ([Writing to OneLake](architecture.md#writing-to-onelake)) |
+| `onelake_skip_unchanged` | `true` or `false` (default `true`) | An overwrite of exactly the rows a table already holds from KratosForge uploads nothing |
+| `onelake_writes` | `"local_first"` or `"direct"` (default `"local_first"`) | The default for notebooks that don't choose: write on this PC and upload in the background, or straight to OneLake. Each notebook can still choose its own unless the policy fixes this |
 | `show_preview` | `true` or `false` | Shows or hides every feature tagged Preview |
 | `sql_max_concurrent` | 1 to 8 (default `2`) | SQL page queries that run at once; more wait in a queue ([SQL execution](sql-execution.md#limits)) |
 | `sql_memory_limit_percent` | 10 to 90 (default `60`) | Share of the PC's memory one SQL page query may use; more spills to the temp folder |
@@ -93,7 +107,9 @@ A key that is misspelled is ignored. An invalid file or key fails closed for any
 
 With no policy file at all, nothing is restricted. **Settings > Help and about** lists every problem in the file and what KratosForge did about it. Check there after you push a new file.
 
-`auto_update` and `channel` are also read by the app's updater, which still treats an unreadable file or a wrongly typed `auto_update` as no setting, so the app keeps updating itself on the channel chosen in Settings (Stable unless someone picked Preview).
+`fabric_view_sign_in_hosts` is also read by the app itself, not the engine: an unreadable file, a value that isn't a list, or an entry that isn't a host name adds no sign-in host. The last copy of the file isn't used for it.
+
+`auto_update` and `channel` are also read by the app's updater, which follows the same last copy while the file can't be read. With no copy, or for a wrongly typed `auto_update`, it treats them as no setting, so the app keeps updating itself on the channel chosen in Settings (Stable unless someone picked Preview).
 
 Every key is optional. More detail is in [permissions.md: Rolling out to your organization](permissions.md#rolling-out-to-your-organization).
 

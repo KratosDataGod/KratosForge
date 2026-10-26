@@ -97,6 +97,19 @@ def test_config_refuses_secrets_and_lists_every_problem(tmp_path, setup):
     assert "s3cret" not in text
 
 
+def test_agent_name_must_be_one_the_mailbox_can_take_over(tmp_path, setup, monkeypatch):
+    raw = {"agent": {"project": str(setup.project), "environments": ["dev"], "name": "etl 01"}, "auth": {"type": "user"}}
+    with pytest.raises(agent_config.ConfigError, match="agent.name: 'etl 01' isn't 1 to 64 letters"):
+        agent_config.parse(raw)
+    del raw["agent"]["name"]
+    monkeypatch.setattr(agent_config.socket, "gethostname", lambda: "Büro PC#2")
+    assert agent_config.parse(raw).name == "B-ro-PC-2"  # the default always passes
+    monkeypatch.setattr(agent_config.socket, "gethostname", lambda: "x" * 70)
+    assert agent_config.parse(raw).name == "x" * 64
+    monkeypatch.setattr(agent_config.socket, "gethostname", lambda: "")
+    assert agent_config.parse(raw).name == "agent"
+
+
 def test_webhook_comes_from_an_environment_variable(tmp_path, setup, monkeypatch):
     path = tmp_path / "a.toml"
     path.write_text(config_text(setup.project, tmp_path / "h", '[alerts]\nteams_webhook_env = "FD_HOOK"'), encoding="utf-8")
@@ -215,6 +228,97 @@ def test_queue_survives_a_new_process_and_dedupes(tmp_path):
     assert again["id"] == first["id"] and again["deduplicated"]
     assert q2.counts()["queued"] == 1
 
+
+
+def _finished(q, clock, state, days_ago, **kw):
+    """A job that reached ``state`` ``days_ago`` days before the clock's time now."""
+    now = clock.t
+    clock.t = now - days_ago * 86400
+    job = q.enqueue("meta", {"env": "dev"}, **kw)
+    if state != "queued":
+        q.claim("w1", 60)
+        if state == "succeeded":
+            q.succeed(job["id"], "w1")
+        elif state == "failed":
+            q.fail(job["id"], "w1", "a check failed")
+        elif state == "dead":
+            q.retry_later(job["id"], "w1", "timeout")
+    clock.t = now
+    return q.get(job["id"])
+
+
+def test_prune_removes_old_finished_jobs_and_keeps_the_rest(tmp_path):
+    clock = Clock()
+    q = JobQueue(tmp_path / "q.sqlite3", clock=clock, backoff_seconds=0)
+    old_ok, old_failed = _finished(q, clock, "succeeded", 40), _finished(q, clock, "failed", 40)
+    old_cancelled = q.enqueue("meta", {"env": "dev"})
+    clock.t -= 40 * 86400
+    q.cancel(old_cancelled["id"], "not wanted")
+    clock.t += 40 * 86400
+    recent = _finished(q, clock, "succeeded", 5)
+    dead = _finished(q, clock, "dead", 40, max_attempts=1)  # needs a person: kept
+    running = q.enqueue("meta", {"env": "dev"})
+    q.claim("w2", 60)
+    queued = _finished(q, clock, "queued", 40)  # after the claim, which takes the oldest due job
+    assert q.get(running["id"])["state"] == "running" and dead["state"] == "dead"
+    old = {old_ok["id"], old_failed["id"], old_cancelled["id"]}
+    assert set(q.prune(30, dry_run=True)) == old
+    assert q.get(old_ok["id"]) is not None  # a dry run deletes nothing
+    assert set(q.prune(30)) == old
+    assert all(q.get(i) is None for i in old)
+    assert {j["id"] for j in q.list()} == {recent["id"], dead["id"], queued["id"], running["id"]}
+    assert q.prune(30) == []
+
+
+def test_requeue_puts_a_dead_job_back_with_its_attempts_reset(tmp_path):
+    clock = Clock()
+    q = JobQueue(tmp_path / "q.sqlite3", clock=clock, backoff_seconds=0)
+    dead = _finished(q, clock, "dead", 0, max_attempts=1)
+    again = q.requeue(dead["id"], "chris (cli)")
+    assert again["state"] == "queued" and again["attempts"] == 0 and again["requeued_by"] == "chris (cli)"
+    assert again["error"] is None and again["finished_at"] is None
+    assert q.claim("w1", 60)["id"] == dead["id"]
+    failed = _finished(q, clock, "failed", 0)
+    assert q.requeue(failed["id"], "chris")["state"] == "queued"
+
+
+def test_requeue_refuses_jobs_that_are_not_dead_or_failed(tmp_path):
+    q = JobQueue(tmp_path / "q.sqlite3")
+    queued = q.enqueue("meta", {"env": "dev"})
+    with pytest.raises(ValueError, match="queued"):
+        q.requeue(queued["id"], "chris")
+    q.claim("w1", 60)
+    with pytest.raises(ValueError, match="running"):
+        q.requeue(queued["id"], "chris")
+    q.succeed(queued["id"], "w1")
+    with pytest.raises(ValueError, match="succeeded"):
+        q.requeue(queued["id"], "chris")
+    with pytest.raises(LookupError):
+        q.requeue("job-missing", "chris")
+
+
+def test_requeue_refuses_a_pipeline_job_and_one_with_a_newer_run(tmp_path):
+    clock = Clock()
+    q = JobQueue(tmp_path / "q.sqlite3", clock=clock, backoff_seconds=0)
+    piped = _finished(q, clock, "failed", 0, dedupe_key="pipeline:r1")
+    with pytest.raises(ValueError, match="pipeline"):
+        q.requeue(piped["id"], "chris")
+    nightly = _finished(q, clock, "failed", 0, dedupe_key="schedule:nightly")
+    q.enqueue("meta", {"env": "dev"}, dedupe_key="schedule:nightly")  # the schedule already queued the next run
+    with pytest.raises(ValueError, match="newer run"):
+        q.requeue(nightly["id"], "chris")
+
+
+def test_an_older_queue_file_gets_the_requeue_column(tmp_path):
+    import sqlite3
+    path = tmp_path / "q.sqlite3"
+    JobQueue(path).close()
+    db = sqlite3.connect(path)
+    db.execute("alter table jobs drop column requeued_by")  # as written before requeue
+    db.close()
+    q = JobQueue(path)
+    job = _finished(q, Clock(), "failed", 0)
+    assert q.requeue(job["id"], "chris")["requeued_by"] == "chris"
 
 # ---- table leases
 
@@ -426,6 +530,32 @@ def test_schedules_fire_once_when_due_and_do_not_pile_up(tmp_path, setup):
     assert agent.queue.counts()["queued"] == 1
 
 
+def test_every_minutes_keeps_its_times_across_a_restart(tmp_path, setup, monkeypatch):
+    import datetime as dt
+    import types
+    from fabric_desktop import local_schedules
+    path = tmp_path / "s.toml"
+    path.write_text(config_text(setup.project, tmp_path / "h3", '[[schedule]]\nid = "hourly"\nenv = "dev"\nevery_minutes = 60'),
+                    encoding="utf-8")
+
+    def load_at(when):  # agent.toml parsed at ``when``
+        fake = type("Now", (dt.datetime,), {"now": classmethod(lambda cls, tz=None: when)})
+        monkeypatch.setattr(local_schedules, "dt", types.SimpleNamespace(**{**vars(dt), "datetime": fake}))
+        cfg = agent_config.load(path)
+        monkeypatch.setattr(local_schedules, "dt", dt)
+        return cfg
+    clock = Clock(dt.datetime(2026, 10, 23, 10, 37).timestamp())
+    queue = JobQueue(setup.home / "grid.sqlite3", clock=clock)
+    Agent(load_at(dt.datetime(2026, 10, 23, 10, 37)), queue=queue, clock=clock).tick_schedules()
+    first = queue.schedule_next("hourly")
+    assert first == dt.datetime(2026, 10, 23, 11, 0).timestamp()
+    clock.t = dt.datetime(2026, 10, 23, 10, 50).timestamp()
+    agent = Agent(load_at(dt.datetime(2026, 10, 23, 10, 50)), queue=queue, clock=clock)  # restarted
+    clock.t = first
+    assert agent.tick_schedules() == ["hourly"]
+    assert queue.schedule_next("hourly") == first + 3600  # not 10:50 + 60 minutes
+
+
 def test_cli_check_enqueue_and_status(setup, capsys):
     assert cli._agent(cli_args(setup, "check")) == 0
     checked = json.loads(capsys.readouterr().out)
@@ -437,6 +567,53 @@ def test_cli_check_enqueue_and_status(setup, capsys):
     assert json.loads(capsys.readouterr().out)["counts"]["queued"] == 1
 
 
+
+def test_agent_prunes_at_start_and_then_daily(setup):
+    clock = Clock()
+    q = JobQueue(setup.home / "queue.sqlite3", clock=clock, backoff_seconds=0)
+    old = _finished(q, clock, "succeeded", 31)
+    agent = Agent(setup, queue=q, clock=clock)
+    agent.step()
+    assert q.get(old["id"]) is None
+    later = _finished(q, clock, "succeeded", 31)
+    clock.t += 3600
+    agent.step()  # pruned an hour ago: not yet
+    assert q.get(later["id"]) is not None
+    clock.t += 86400
+    agent.step()
+    assert q.get(later["id"]) is None
+
+
+def test_cli_requeue_and_prune(setup, capsys):
+    clock = Clock()
+    q = JobQueue(setup.home / "queue.sqlite3", clock=clock, backoff_seconds=0)
+    dead = _finished(q, clock, "dead", 0, max_attempts=1)
+    old = _finished(q, clock, "succeeded", 400)
+    assert cli._agent(cli_args(setup, "requeue", job_id=dead["id"])) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["state"] == "queued" and out["attempts"] == 0 and out["requeued_by"].endswith("(cli)")
+    assert cli._agent(cli_args(setup, "requeue", job_id=dead["id"])) == 1  # queued now: refused
+    assert "only a dead or failed job" in capsys.readouterr().out
+    assert cli._agent(cli_args(setup, "prune", days=None, dry_run=True)) == 0
+    assert json.loads(capsys.readouterr().out)["jobs"] == [old["id"]]
+    assert q.get(old["id"]) is not None
+    assert cli._agent(cli_args(setup, "prune", days=None, dry_run=False)) == 0
+    assert json.loads(capsys.readouterr().out) == {"dry_run": False, "older_than_days": 30.0, "jobs": [old["id"]]}
+    assert q.get(old["id"]) is None
+    actions = [json.loads(line)["action"] for f in (setup.home / "audit").glob("*.jsonl")
+               for line in f.read_text(encoding="utf-8").splitlines()]
+    assert "agent_requeue" in actions and "agent_prune" in actions
+
+
+def test_config_checks_queue_retention_days(tmp_path, setup):
+    path = tmp_path / "r.toml"
+    path.write_text(config_text(setup.project, tmp_path / "h3").replace("poll_seconds = 0.1",
+                                                                        "poll_seconds = 0.1\nqueue_retention_days = 0"),
+                    encoding="utf-8")
+    with pytest.raises(agent_config.ConfigError, match="queue_retention_days"):
+        agent_config.load(path)
+    assert setup.queue_retention_days == 30
+
 def test_cli_reports_a_bad_config(tmp_path, capsys):
     bad = tmp_path / "bad.toml"
     bad.write_text("[agent]\n", encoding="utf-8")
@@ -444,10 +621,10 @@ def test_cli_reports_a_bad_config(tmp_path, capsys):
     assert "agent.project" in capsys.readouterr().out
 
 
-def cli_args(cfg, command, config=None, env="", entities=None):
+def cli_args(cfg, command, config=None, env="", entities=None, **extra):
     import argparse
     return argparse.Namespace(config=config or str(cfg.path), agent_command=command, env=env,
-                              entities=entities or [], backfill="", cascade=False)
+                              entities=entities or [], backfill="", cascade=False, **extra)
 
 
 def test_a_lost_commit_race_merges_again_and_succeeds(setup, monkeypatch):

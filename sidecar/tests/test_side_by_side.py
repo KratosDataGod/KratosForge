@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import time
 from decimal import Decimal
 from pathlib import Path
@@ -15,6 +16,7 @@ from deltalake import DeltaTable, write_deltalake
 from fabric_desktop import benchmark, lakehouse
 from fabric_desktop import side_by_side as sbs
 from fabric_desktop import side_by_side_service
+from fabric_desktop.notebook import Kernel
 from fabric_desktop.server import handle
 from fabric_desktop.service import Service
 
@@ -164,7 +166,7 @@ def test_verdict_and_speed():
     s = sbs.speed(10, 40, 20)
     assert s["end_to_end"] == "This PC was 4.0x faster end to end"
     assert s["run"].startswith("This PC was 2.0x faster on run time alone")
-    assert sbs.speed(40, 10, None) == {"end_to_end": "Fabric was 4.0x faster end to end", "run": ""}
+    assert sbs.speed(40, 10, None) == {"end_to_end": "Fabric was 4.0x faster end to end", "run": "", "processing": ""}
 
 
 def test_timing_cells_write_where_the_app_reads():
@@ -201,7 +203,8 @@ class FakeFabric:
     def get_lakehouse(self, ws, lh):
         return {"properties": {"defaultSchema": "dbo"}}
 
-    def run_item_job(self, ws, item, job):
+    def run_item_job(self, ws, item, job, execution_data=None):
+        self.execution_data = execution_data
         self.fabric_writes(self.tables)
         return "job1"
 
@@ -286,6 +289,8 @@ def test_side_by_side_end_to_end_same_results(svc, tables):
     out = wait(svc, started["id"])
     assert out["state"] == "done", out["message"]
     assert out["local"]["status"] == "ok" and out["local"]["seconds"] is not None
+    local = out["local"]
+    assert local["processing_seconds"] + local["upload_wait_seconds"] == pytest.approx(local["seconds"], abs=0.02)
     assert out["local"]["cells"]["2"]["outputs"][0]["text"].startswith("wrote")
     f = out["fabric"]
     assert f["status"] == "ok" and f["job_seconds"] == 90 and f["run_seconds"] == 60 and f["start_seconds"] == 30
@@ -300,6 +305,16 @@ def test_side_by_side_end_to_end_same_results(svc, tables):
     listed = call(svc, "side_by_side_list", name="NB")
     assert listed[0]["id"] == out["id"] and "cells" not in listed[0]["local"]
     assert svc.fabric_runs(refresh=False)[0]["side_by_side"] == out["id"]
+
+
+def test_side_by_side_uses_the_repository_location_without_saving_it_into_the_notebook(svc, tables):
+    # A notebook in a notebooks repository with no lakehouse of its own (publishPayload's location_ref).
+    svc.fake = FakeFabric(tables, lambda t: t.write(pa.table({"id": [2, 1]}), "bench.q01"))
+    started = call(svc, "side_by_side_start", **payload() | {"lakehouse_ref": None, "location_ref": LAKEHOUSE})
+    out = wait(svc, started["id"])
+    assert out["state"] == "done", out["message"]
+    assert out["lakehouse"]["lakehouse_id"] == LAKEHOUSE["lakehouse_id"]
+    assert svc.notebooks.load("NB").get("lakehouse") is None  # it keeps following the environment
 
 
 def test_side_by_side_names_the_code_it_ran_as_a_receipt_does(svc, tables):
@@ -326,6 +341,14 @@ def test_a_failure_on_this_pc_still_runs_in_fabric(svc, tables):
     assert out["fabric"]["status"] == "ok"
     assert "failed on this PC" in out["verdict"]["text"]
     assert out["tables"][0]["result"] == "only_fabric"
+    assert out["local"]["message"] == "ValueError: only on my laptop"
+    assert out["speed"] == {}  # a run that stopped early isn't faster
+
+
+def test_both_sides_failing_points_at_this_pcs_error():
+    v = sbs.verdict([], "failed", "failed", 4)
+    assert v["same"] is False
+    assert "this PC (cell 4) and in Fabric" in v["text"] and "Fix this PC's error first" in v["text"]
 
 
 def test_side_by_side_needs_a_notebook_that_runs_in_both_places(svc, tables):
@@ -333,6 +356,10 @@ def test_side_by_side_needs_a_notebook_that_runs_in_both_places(svc, tables):
     out = handle(svc, json.dumps({"id": 1, "method": "side_by_side_start", "params": payload(
         [{"type": "code", "source": "x = open('C:\\\\data\\\\a.csv')", "meta": {}}])}))
     assert "can't run in Fabric" in out["error"]
+    # The Fabric step runs only on Fabric Spark, so the run on this PC can't (fabric_step.py).
+    step = CELLS[:2] + [dict(CELLS[2], meta={"fabric_step": True})]
+    out = handle(svc, json.dumps({"id": 1, "method": "side_by_side_start", "params": payload(step)}))
+    assert "can't run side by side: Cell 3 is marked Run on Fabric" in out["error"] and svc.fake.saved == []
     out = handle(svc, json.dumps({"id": 1, "method": "side_by_side_start", "params": payload() | {"lakehouse_ref": None}}))
     assert "Attach a lakehouse" in out["error"]
 
@@ -421,3 +448,78 @@ def test_benchmark_before_the_data_notebook_says_to_run_it_first(svc, tables):
     out = svc.kernel.run(cells[2]["source"])
     assert out["status"] == "error"
     assert "Run the TPC-H data notebook" in str(out["outputs"])
+
+
+def test_side_by_side_runs_its_own_notebooks_kernel_not_the_open_one(svc, tables):
+    # A kernel per notebook (as with notebooks in their own process), in the engine to keep it quick.
+    svc.sessions.in_process, svc.sessions._make = True, lambda _process: Kernel()
+    svc.sessions.active = "Other"
+    other = svc.sessions.kernel("Other")
+    other.run("y = 1")
+    svc.fake = FakeFabric(tables, lambda t: t.write(pa.table({"id": [2, 1]}), "bench.q01"))
+    out = wait(svc, call(svc, "side_by_side_start", **payload())["id"])
+    assert out["state"] == "done", out["message"]
+    assert svc.sessions.kernel("NB").run("print(x)")["outputs"][0]["text"] == "2\n"
+    assert other.run("print(y)")["outputs"][0]["text"] == "1\n"  # the open notebook wasn't restarted
+
+
+def test_both_runs_use_the_parameters_bar_values(svc, tables):
+    # Fabric's stand-in writes what Fabric would write with x = 5; this PC must use 5 too to match.
+    svc.fake = FakeFabric(tables, lambda t: t.write(pa.table({"id": [5, 1]}), "bench.q01"))
+    cells = [dict(c) | {"cell_id": f"c{i}"} for i, c in enumerate(CELLS)]
+    cells[1] = cells[1] | {"meta": {"tags": ["parameters"]}}
+    call(svc, "save_notebook", name="NB", cells=cells, lakehouse_ref=LAKEHOUSE)
+    call(svc, "notebook_inputs_set", name="NB", cells=cells, values={"parameters": {"x": "5"}})
+    out = wait(svc, call(svc, "side_by_side_start", **payload(cells))["id"])
+    assert out["state"] == "done", out["message"]
+    assert svc.fake.execution_data == {"parameters": {"x": {"value": 5, "type": "int"}}}
+    assert out["verdict"]["same"] is True
+    # The code kept its own value; the bar's was added only to the run.
+    assert svc.notebooks.load("NB")["cells"][1]["source"].endswith("x = 2")
+    assert "_parameters" not in out and "_suffixes" not in out
+    # A value the bar shows in red stops both runs before either starts.
+    call(svc, "notebook_inputs_set", name="NB", cells=cells, values={"parameters": {"x": "five"}})
+    refused = handle(svc, json.dumps({"id": 1, "method": "side_by_side_start", "params": payload(cells)}))
+    assert "Type a whole number" in refused["error"]
+
+
+def _tpch_available() -> bool:
+    import duckdb
+    try:
+        duckdb.connect().execute("INSTALL tpch; LOAD tpch")
+        return True
+    except Exception:  # noqa: BLE001  # silent-ok: no extension site here, so the test is skipped
+        return False
+
+
+@pytest.mark.skipif(not _tpch_available(), reason="DuckDB's tpch extension can't be downloaded here")
+def test_tpch_data_parts_are_exactly_one_dbgen_and_are_deleted_after(monkeypatch):
+    """The TPC-H data notebook generates in parts on several processes: together they must be the
+    rows one dbgen call makes, and the generated data must not stay on disk."""
+    import duckdb
+    monkeypatch.setattr(os, "cpu_count", lambda: 3)
+    ns = {"scale_factor": 0.5, "TABLES": benchmark.TABLES, "schema": "tpch"}  # 3 parts
+    exec(compile(benchmark._GENERATE, "generate", "exec"), ns)
+    one = duckdb.connect()
+    one.execute("LOAD tpch")
+    one.execute("CALL dbgen(sf=0.5)")
+    for table in benchmark.TABLES:
+        query = f"SELECT count(*), sum(hash(t)) FROM {table} t"
+        assert ns["con"].execute(query).fetchone() == one.execute(query).fetchone(), table
+    work = ns["work"]
+    ns["clean_up"]()
+    assert not os.path.exists(work)
+
+
+def test_this_pcs_time_splits_into_processing_and_upload_wait():
+    from fabric_desktop.side_by_side_service import _split
+    cells = [{"wait_seconds": 600, "upload_seconds": 640, "tables": 8, "rows": 86_000_000, "bytes": 3_000_000_000, "skipped": 0},
+             {}, {"wait_seconds": 50, "upload_seconds": 60, "tables": 1, "rows": 10, "bytes": 290_000_000, "skipped": 1}]
+    split = _split(780.0, cells)
+    assert split["processing_seconds"] == 130.0 and split["upload_wait_seconds"] == 650.0
+    assert split["upload"] == {"seconds": 700.0, "tables": 9, "rows": 86_000_010, "bytes": 3_290_000_000, "skipped": 1,
+                               "mb_per_second": 4.7}
+    assert _split(10.0, [])["upload"]["mb_per_second"] is None
+    s = sbs.speed(780, 549, 488, 130)
+    assert s["processing"].startswith("This PC was 3.8x faster on processing alone")
+    assert sbs.speed(780, 549, 488, 780)["processing"] == ""  # no wait, nothing to add

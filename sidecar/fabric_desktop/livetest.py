@@ -16,6 +16,11 @@ Safety, in order:
    the moment it exists, and only ever deletes what that ledger lists. ``--cleanup <ledger>``
    finishes a cleanup that was cut off.
 
+Opt-in checks (KF-DE-005) run only when named (``--check``) or with ``--all``, so the default run
+is unchanged: two writers appending to one Delta table at once, a notebook publish round trip, a
+pipeline definition round trip, and (only with ``--run-in-fabric``, which spends capacity) running
+that notebook in Fabric. Each writes only ``fdlt_<run id>`` things that go in the ledger.
+
 Results go to ``<out>/<run id>/result.json`` and ``summary.md``. Neither holds a token.
 """
 
@@ -24,6 +29,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -42,6 +48,20 @@ _log = logging.getLogger(__name__)
 MARKER = "fabric-desktop-live-test"
 PREFIX = "fdlt_"
 SCHEMA = "live-test-result@1"
+# Opt-in checks: what each writes. OneLake writes and item creation use the workspace's capacity.
+EXTRA_CHECKS = {
+    "delta.concurrent": "Two writers append to one Delta table (dbo.livetest_concurrent in the test lakehouse) at "
+                        "the same time. Writes about 100 rows to OneLake, which uses capacity.",
+    "notebook.publish": "Publishes a two-cell notebook item named fdlt_<run id>_nb, reads its definition back and "
+                        "compares the cells, then deletes it. Creating an item uses capacity.",
+    "pipeline.definition": "Creates a one-activity (Wait) DataPipeline item named fdlt_<run id>_pl, reads its "
+                           "definition back, parses and re-exports it, then deletes it. Creating an item uses capacity.",
+    "notebook.run": "Runs the published fdlt_<run id>_nb notebook in Fabric (Run in Fabric) and waits for it. "
+                    "Spends Spark capacity, so it only runs with --run-in-fabric.",
+}
+ALL_CHECKS = ("delta.concurrent", "notebook.publish", "pipeline.definition")  # what --all selects
+ITEM_KINDS = {"notebook": "Notebook", "pipeline": "DataPipeline"}  # Fabric type; deleted before the lakehouse
+_RUN_TIMEOUT = 30 * 60
 _PROD_WORD = re.compile(r"(?<![a-z0-9])(prod|prd|production)(?![a-z0-9])", re.IGNORECASE)
 
 
@@ -123,7 +143,10 @@ class LiveTest:
 
     def __init__(self, workspace_id: str, fabric: Any, files: Any, credential: Any, out_dir: Path,
                  table_access: TableAccess | None = None, protected_ids: set[str] | None = None,
-                 bad_token_files: Any | None = None, run_id: str = "", clock: Callable[[], float] = time.monotonic):
+                 bad_token_files: Any | None = None, run_id: str = "", clock: Callable[[], float] = time.monotonic,
+                 extra: set[str] | tuple[str, ...] = (), run_in_fabric: bool = False,
+                 write_table: Callable[[TableRef, Any, str], Any] | None = None,
+                 sleep: Callable[[float], None] = time.sleep):
         self.workspace_id = workspace_id
         self.fabric, self.files, self.credential = fabric, files, credential
         self.run_id = run_id or uuid.uuid4().hex[:12]
@@ -133,10 +156,18 @@ class LiveTest:
         self.protected_ids = {i.lower() for i in (protected_ids or set())}
         self.table_access = table_access or (lambda ref: (ref.uri, storage_options(credential.storage_token())))
         self.bad_token_files = bad_token_files if bad_token_files is not None else FileStore(lambda: "not-a-token")
-        self.clock = clock
+        self.clock, self.sleep = clock, sleep
+        unknown = set(extra) - set(EXTRA_CHECKS)
+        if unknown:
+            raise ValueError(f"Unknown checks: {', '.join(sorted(unknown))}. Choose from {', '.join(EXTRA_CHECKS)}.")
+        self.extra = set(extra) | ({"notebook.publish", "notebook.run"} if run_in_fabric else set())
+        self.run_in_fabric = run_in_fabric
+        # The write path notebooks and jobs use (publish.publish); tests pass one that writes to local disk.
+        self.write_table = write_table or self._publish
         self.checks: list[Check] = []
         self.workspace: dict[str, Any] = {}
         self.lakehouse_id = ""
+        self.notebook_id = ""
 
     # ---- what it does
 
@@ -149,7 +180,11 @@ class LiveTest:
             f"Write, list, read and delete a small file under {folder}.",
             "Write a 3-row Delta table dbo.livetest, read it back, append, merge, and read version 0.",
             "Ask for a lakehouse that doesn't exist, and call OneLake with a bad token, to check errors are reported.",
-            f"Delete the lakehouse {self.name}, and check it is gone.",
+            *[f"Opt-in {id}: {EXTRA_CHECKS[id]}".replace("<run id>", self.run_id)
+              for id in EXTRA_CHECKS if id in self.extra],
+            *(["Opt-in notebook.run: skipped; add --run-in-fabric to run the notebook in Fabric (spends capacity)."]
+              if "notebook.publish" in self.extra and not self.run_in_fabric else []),
+            f"Delete the lakehouse {self.name}{' and the items above' if self.extra else ''}, and check it is gone.",
             f"Write the results to {self.dir}.",
         ]
 
@@ -185,6 +220,7 @@ class LiveTest:
             return self._finish(started, refused=refused)
         try:
             self._write_checks()
+            self._extra_checks()
         finally:
             self.cleanup()
         return self._finish(started, refused=[])
@@ -324,16 +360,170 @@ class LiveTest:
             raise RuntimeError(f"Refused with {status}, expected 401 or 403") from None
         raise RuntimeError("OneLake accepted a bad token")
 
+    # ---- opt-in checks (KF-DE-005): only what was asked for with --check, --all or --run-in-fabric
+
+    def _extra_checks(self) -> None:
+        if "delta.concurrent" in self.extra:
+            if self.lakehouse_id:
+                self._check("delta.concurrent", "Two writers append to one Delta table at once", self._delta_concurrent)
+            else:
+                self._skip("delta.concurrent", "Two writers append to one Delta table at once",
+                           "Needs the lakehouse, which couldn't be created.")
+        if "notebook.publish" in self.extra:
+            published = self._check("notebook.publish", "Publish a notebook and read its cells back",
+                                    self._notebook_publish)
+            if not self.run_in_fabric:
+                self._skip("notebook.run", "Run the notebook in Fabric",
+                           "skipped: needs --run-in-fabric (it spends capacity).")
+            elif published.status == "passed":
+                self._check("notebook.run", "Run the notebook in Fabric", self._notebook_run)
+            else:  # running cells that didn't publish as written would spend capacity proving nothing
+                self._skip("notebook.run", "Run the notebook in Fabric",
+                           "Needs the notebook published as written, and notebook.publish failed.")
+        if "pipeline.definition" in self.extra:
+            self._check("pipeline.definition", "Create a pipeline, read its definition back and re-export it",
+                        self._pipeline_definition)
+
+    def _publish(self, ref: TableRef, data: Any, mode: str) -> Any:
+        from .publish import publish
+        return publish(data, ref, mode, self.credential.storage_token())
+
+    def _delta_concurrent(self) -> str:
+        import pyarrow as pa
+        from deltalake import DeltaTable
+        ref = TableRef(self.workspace_id, self.lakehouse_id, "dbo", "livetest_concurrent")
+        self.write_table(ref, pa.table({"id": [0], "writer": ["seed"]}), "overwrite")
+        n, start = 50, threading.Barrier(2)
+        attempts: dict[str, int] = {}
+        errors: dict[str, str] = {}
+
+        def writer(name: str, first: int) -> None:
+            rows = pa.table({"id": list(range(first, first + n)), "writer": [name] * n})
+            try:
+                start.wait(timeout=60)
+            except threading.BrokenBarrierError:
+                _log.info("Live test writer %s started without the other", name)
+            for attempt in range(1, 4):
+                attempts[name] = attempt
+                try:
+                    self.write_table(ref, rows, "append")
+                    return
+                except Exception as exc:  # recorded as the check's failure below
+                    if attempt == 3 or not _commit_conflict(exc):
+                        errors[name] = f"{type(exc).__name__}: {exc}"
+                        return
+                    self.sleep(attempt)
+
+        threads = [threading.Thread(target=writer, args=(name, first), daemon=True)
+                   for name, first in (("A", 1), ("B", 1 + n))]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=300)
+        if any(t.is_alive() for t in threads):
+            raise RuntimeError("A writer was still committing after 5 minutes")
+        if errors:
+            raise RuntimeError("; ".join(f"Writer {k} failed: {v}" for k, v in sorted(errors.items())))
+        uri, opts = self.table_access(ref)
+        table = DeltaTable(uri, storage_options=opts)
+        ids = sorted(table.to_pyarrow_table().column("id").to_pylist())
+        expected = list(range(0, 1 + 2 * n))
+        if ids != expected:
+            lost = sorted(set(expected) - set(ids))
+            raise RuntimeError(f"Expected {len(expected)} rows, found {len(ids)}"
+                               + (f"; lost ids {lost[:10]}" if lost else "; some rows were written twice"))
+        if table.version() != 2:
+            raise RuntimeError(f"Expected both appends as versions 1 and 2, found version {table.version()}")
+        retried = [f"writer {k} retried ({v} attempts)" for k, v in sorted(attempts.items()) if v > 1]
+        return (f"Both commits are there (version 2, {len(ids)} rows = 1 + {n} + {n}, none lost). "
+                + (", ".join(retried) + "." if retried else
+                   "Neither writer had to retry; Delta resolved any commit race itself."))
+
+    def _new_item_name(self, suffix: str, item_type: str) -> str:
+        name = f"{self.name}_{suffix}"
+        if self.fabric.find_item(self.workspace_id, item_type, name):
+            raise RuntimeError(f"A {item_type} named {name} already exists; the live test won't overwrite it.")
+        return name
+
+    def _notebook_publish(self) -> str:
+        from .fabric_run import fabric_ipynb
+        name = self._new_item_name("nb", "Notebook")
+        cells = [{"type": "markdown", "source": f"# KratosForge live test {self.run_id}"},
+                 {"type": "code", "source": "message = 'fabric-desktop live test'\nprint(message)"}]
+        # The same conversion and API call as Publish to Fabric (cloud_service._publish).
+        item = self.fabric.save_notebook(self.workspace_id, name, json.dumps(fabric_ipynb(cells, None)).encode())
+        if not item.get("id"):  # a create can come back without the item; look it up
+            item = next((n for n in self.fabric.list_notebooks(self.workspace_id) if n["displayName"] == name), item)
+        self.notebook_id = str(item.get("id") or "")
+        if not self.notebook_id:
+            raise RuntimeError("Fabric didn't return the new notebook's id")
+        self.ledger.add(kind="notebook", workspace_id=self.workspace_id, id=self.notebook_id, name=name)
+        back = _ipynb_cells(self.fabric.get_item_definition(self.workspace_id, self.notebook_id, fmt="ipynb"))
+        want = [(c["type"], c["source"]) for c in cells]
+        if back != want:
+            raise RuntimeError(f"The cells read back differ from those published: {back!r}")
+        return f"Notebook {name} ({self.notebook_id}) published; its {len(want)} cells read back unchanged."
+
+    def _notebook_run(self) -> str:
+        from .fabric_run import TERMINAL
+        job_type = "RunNotebook"  # what Run in Fabric starts (cloud_service.NOTEBOOK_JOB)
+        job_id = self.fabric.run_item_job(self.workspace_id, self.notebook_id, job_type)
+        deadline = self.clock() + _RUN_TIMEOUT
+        while True:
+            job = self.fabric.job_instance(self.workspace_id, self.notebook_id, job_id)
+            status = job.get("status")
+            if status == "Completed":
+                return f"Job {job_id} completed in Fabric."
+            if status in TERMINAL:
+                reason = (job.get("failureReason") or {}).get("message", "") if isinstance(job.get("failureReason"), dict) else ""
+                raise RuntimeError(f"Job {job_id} ended {status}. {reason}".strip())
+            if self.clock() > deadline:
+                self.fabric.cancel_job(self.workspace_id, self.notebook_id, job_id)
+                raise RuntimeError(f"Job {job_id} hadn't finished after {_RUN_TIMEOUT // 60} minutes; cancelled it.")
+            self.sleep(10)
+
+    def _pipeline_definition(self) -> str:
+        from .orchestration import definition
+        name = self._new_item_name("pl", "DataPipeline")
+        content = {"properties": {"activities": [{"name": "Wait1", "type": "Wait", "dependsOn": [],
+                                                  "typeProperties": {"waitTimeInSeconds": 1}}]}}
+        item = self.fabric.save_item(self.workspace_id, "DataPipeline", name,
+                                     parts={definition.CONTENT_PART: json.dumps(content)},
+                                     description=f"Created by the Fabric Desktop live test {self.run_id}; safe to delete.")
+        item_id = str(item.get("id") or "")
+        if not item_id:
+            raise RuntimeError("Fabric didn't return the new pipeline's id")
+        if item.get("created") is False:  # appeared since the check above; not ours, so never in the ledger
+            raise RuntimeError(f"{name} already existed, so the live test didn't record it for deleting")
+        self.ledger.add(kind="pipeline", workspace_id=self.workspace_id, id=item_id, name=name)
+        back = self.fabric.get_item_definition(self.workspace_id, item_id)
+        imported = definition.loads(json.dumps(back), name_hint=name)
+        if imported.pipeline.problems:
+            raise RuntimeError("The definition read back has problems: "
+                               + "; ".join(str(p) for p in imported.pipeline.problems))
+        names = [a.name for a in imported.pipeline.all_activities()]
+        if names != ["Wait1"]:
+            raise RuntimeError(f"Expected the one Wait1 activity, read back {names}")
+        exported = definition.export(imported)
+        again = definition.loads(exported if isinstance(exported, str) else json.dumps(exported), name_hint=name)
+        if again.pipeline.content != imported.pipeline.content:
+            raise RuntimeError("Exporting the definition and reading it again changed it")
+        return (f"Pipeline {name} ({item_id}) created; its definition parses "
+                f"({imported.source_format}, {len(names)} activity) and round-trips through export.")
+
     # ---- cleanup
 
     def cleanup(self) -> list[Check]:
-        """Delete what this run's ledger lists, and nothing else."""
+        """Delete what this run's ledger lists, and nothing else: items first, then the lakehouse."""
         done = []
-        for resource in list(self.ledger.created):
-            if resource.get("kind") != "lakehouse" or resource.get("workspace_id") != self.workspace_id \
-                    or not resource.get("name", "").startswith(PREFIX):
-                continue  # never delete what this harness didn't name
-            check = self._check("cleanup.lakehouse", f"Delete lakehouse {resource['name']}",
+        ordered = sorted(self.ledger.created, key=lambda r: r.get("kind") == "lakehouse")
+        for resource in ordered:
+            kind = resource.get("kind")
+            name = resource.get("name", "")
+            ours = name == self.name if kind == "lakehouse" else name.startswith(f"{self.name}_")
+            if kind not in ("lakehouse", *ITEM_KINDS) or resource.get("workspace_id") != self.workspace_id or not ours:
+                continue  # never delete what this run didn't name (fdlt_<run id>, fdlt_<run id>_*)
+            check = self._check(f"cleanup.{kind}", f"Delete {kind} {resource['name']}",
                                 lambda r=resource: self._delete(r))
             if check.status == "passed":
                 self.ledger.remove(resource)
@@ -341,6 +531,27 @@ class LiveTest:
         return done
 
     def _delete(self, resource: dict[str, str]) -> str:
+        # The ledger is a file on disk: check the live item is still the one this run made before deleting it.
+        if resource["kind"] in ITEM_KINDS:
+            live = next((i for i in self.fabric.list_items(self.workspace_id) if i.get("id") == resource["id"]), None)
+            if live is None:
+                return "Already gone."
+            if live.get("type") != ITEM_KINDS[resource["kind"]] or live.get("displayName") != resource["name"]:
+                raise RuntimeError(f"Item {resource['id']} is now {live.get('type')} {live.get('displayName')!r}, "
+                                   f"not the {resource['kind']} {resource['name']} this run made; not deleted")
+            self.fabric.delete_item(self.workspace_id, resource["id"])
+            if any(i.get("id") == resource["id"] for i in self.fabric.list_items(self.workspace_id)):
+                raise RuntimeError(f"The {resource['kind']} is still listed after deleting it")
+            return "Deleted, and no longer listed."
+        try:
+            live = self.fabric.get_lakehouse(self.workspace_id, resource["id"])
+        except FabricError as exc:
+            if exc.status == 404 or exc.code in ("ItemNotFound", "EntityNotFound"):
+                return "Already gone."
+            raise
+        if live.get("displayName") != resource["name"]:
+            raise RuntimeError(f"Lakehouse {resource['id']} is now {live.get('displayName')!r}, "
+                               f"not {resource['name']}; not deleted")
         self.fabric.delete_lakehouse(self.workspace_id, resource["id"])
         try:
             self.fabric.get_lakehouse(self.workspace_id, resource["id"])
@@ -360,6 +571,7 @@ class LiveTest:
             "identity": {"name": getattr(self.credential, "name", "") or "signed-in user",
                          "tenant": _safe(lambda: self.credential.signed_in_tenant())},
             "refused": refused, "counts": counts, "checks": [asdict(c) for c in self.checks],
+            "opt_in": {"checks": sorted(self.extra), "run_in_fabric": self.run_in_fabric},
             "left_behind": self.ledger.created,
         }
         self.dir.mkdir(parents=True, exist_ok=True)
@@ -378,6 +590,28 @@ _AFTER_LAKEHOUSE = [("fabric.get_lakehouse", "Read the lakehouse's properties"),
                     ("errors.bad_token", "OneLake refuses a bad token")]
 
 
+def _commit_conflict(exc: Exception) -> bool:
+    """A Delta commit lost a race with another writer and can be tried again."""
+    text = f"{type(exc).__name__} {exc}".lower()
+    return any(w in text for w in ("commitfailed", "conflict", "concurrent", "version already exists"))
+
+
+def _ipynb_cells(definition: dict[str, Any]) -> list[tuple[str, str]]:
+    """(type, source) of each cell in a notebook's getDefinition result (format ipynb)."""
+    import base64
+    parts = (definition.get("definition") or definition).get("parts") or []
+    part = next((p for p in parts if str(p.get("path", "")).endswith(".ipynb")), None)
+    if part is None:
+        raise RuntimeError("The notebook definition has no .ipynb part")
+    nb = json.loads(base64.b64decode(part["payload"]).decode("utf-8-sig"))
+    out = []
+    for cell in nb.get("cells", []):
+        source = cell.get("source", "")
+        out.append(("markdown" if cell.get("cell_type") == "markdown" else "code",
+                    "".join(source) if isinstance(source, list) else str(source)))
+    return out
+
+
 def _safe(fn: Callable[[], Any]) -> str:
     try:
         return str(fn() or "")
@@ -391,6 +625,8 @@ def summary(result: dict[str, Any]) -> str:
     lines = [f"# KratosForge live test {result['run_id']}", "",
              f"Outcome: **{result['outcome']}**. Workspace {result['workspace']['name'] or result['workspace']['id']}, "
              f"started {result['started_at']}.", ""]
+    if (result.get("opt_in") or {}).get("checks"):
+        lines += [f"Opt-in checks: {', '.join(result['opt_in']['checks'])}.", ""]
     if result["refused"]:
         lines += ["Nothing was written, because:", ""] + [f"- {r}" for r in result["refused"]] + [""]
     lines += ["| Check | Result | Seconds | Detail |", "| --- | --- | --- | --- |"]

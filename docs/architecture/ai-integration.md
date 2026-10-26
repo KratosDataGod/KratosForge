@@ -18,7 +18,7 @@ This page is the architecture. The backlog and status of each pull request are i
 | Execution boundaries | Notebook cells run in the engine or in a process of their own (`kernel_proc.py`, Preview), with interrupt and stop. SQL runs in an in-memory DuckDB with each named table registered as an Arrow dataset. Prove runs in a fresh kernel with outputs redirected. | |
 | Local network APIs | **None.** The engine is stdio only and the headless agent has no HTTP endpoint (`agent.py`, `agent_status.py` write files). | |
 | MCP | **None.** No MCP code, experiment or dependency anywhere in the repository. | |
-| Extension mechanism | **None yet** at discovery. Extensions (manifest, permissions, own process) are Phase 4 of the Git-native development program ([git-integration-plan.md](https://github.com/KratosDataGod/fabric-desktop/blob/claude/git-foundation-rmrdsg/docs/git-integration-plan.md)), not built. | |
+| Extension mechanism | **None yet** at discovery. Extensions (manifest, permissions, own process) are Phase 4 of the Git-native development program ([git-integration-plan.md](https://github.com/KratosDataGod/KratosForge/blob/claude/git-foundation-rmrdsg/docs/git-integration-plan.md)), not built. | |
 | Audit, redaction, IT policy | In review, owned by the enterprise readiness program: hash-chained audit trail (PR #89, `audit.py`), secret redaction (PR #84, `redact.py`), policy keys `auto_update`, `allow_fabric_runs`, `allowed_tenants` (PR #90). The policy file itself (`%ProgramData%\FabricDesktop\policy.json`) already exists in `app_settings.py`. | |
 | Tests | About 40 pytest modules in `sidecar/tests`, all run without Fabric; UI tests in `app/tests/ui.test.cjs`. | |
 
@@ -109,6 +109,7 @@ Each capability carries:
 | `limitations` | Known limits, shown to clients |
 | `version` | Bumped when the schema changes incompatibly |
 | `source` | `core` or the extension id that registered it |
+| `workspaces` | How a tool limited to some workspaces is kept inside them (`integrations/scope.py`): `none` (reaches no workspace), `argument` (its `workspace_id` names it), `filtered` (a list that leaves out the rest), `unknown` (can't be confined, so a limited tool can't use it), or a function that reads which workspaces the call reaches. Unset is treated as `unknown` |
 
 The registry is dynamic: `Registry.register()` adds a capability with validation of its schemas and permission, and `unregister()` removes it. Built-in capabilities are registered at import time; extensions register theirs when enabled (section 8).
 
@@ -132,7 +133,7 @@ How a call is decided, in order (in `invoke`):
 1. Integrations are on (the person's switch, and not turned off by IT policy `integrations`).
 2. The client is known and not revoked. Unknown clients get nothing.
 3. The capability is available and its category is granted to this client and allowed by policy (`integrations_max_permissions`).
-4. Targets are in scope: approved folders for file work; workspaces in the client's list when the person set one.
+4. Targets are in scope: approved folders for file work; workspaces in the client's list when the person set one. Every capability is checked, not only those with a `workspace_id` argument: one that names a notebook, proof, receipt, side-by-side run, execution or the metadata project is checked against the workspaces that thing points at (its lakehouse, where it publishes, where it ran); lists (workspaces, notebooks, proofs, receipts, side-by-side runs, executions, projects) leave out what is elsewhere, and their totals count only what is left. A capability that can't tell which workspace it would reach (the run-risk check, an extension that doesn't declare `workspaces`, a record saved without workspace ids) is refused to a limited tool and listed as unavailable to it. The check runs before any approval is asked for.
 5. If the capability needs approval, the request appears in the app (bell and **Settings > Integrations**) showing the client, the operation, the target and, for code, the code itself. The person approves or denies. An approval is single-use and bound to a hash of the exact arguments, so a client can't get approval for one thing and run another.
 6. The service runs under the person's own Fabric and Entra permissions. Integration never adds access the person doesn't have.
 
@@ -144,7 +145,7 @@ External execution reuses the engine's own paths:
 
 | Capability | Runs through | Boundary |
 | --- | --- | --- |
-| `fabric_desktop_execute_sql` | `sql.run` | Read-only statements only; DuckDB with external access off (no local files, no extensions, no network) so only lakehouse tables can be read |
+| `fabric_desktop_execute_sql` | `sql.prepare_sandboxed`, `sql.execute_sandboxed` | Read-only statements only; DuckDB with external access off (no local files, no extensions, no network) so only lakehouse tables can be read; the SQL page's memory share and threads per run, locked; tables registered under the attach lock and the query run after it is released, one at a time (the wait counts towards the timeout); a timeout or cancel interrupts DuckDB until it stops |
 | `fabric_desktop_execute_python` | `ProcessKernel` (`kernel_proc.py`) | Always in a process of its own; timeout, interrupt then stop; output capped; approval every call |
 | `fabric_desktop_run_notebook` | Same kernel, cell by cell, as **Run all** does | Same as above; the code cells are read before asking (`Capability.bind`), shown in the approval and bound to it by their SHA-256, and exactly those run; a notebook changed since is refused; `%run` and `notebookutils.notebook.run` are refused; Fabric runs are not offered yet |
 
@@ -204,7 +205,8 @@ An extension is a named, versioned set of capabilities with the permission categ
 | Its capability ids start with its own prefix (`notebook-outline` gives `notebook_outline_...`) | Two extensions can't collide, and a tool can see where a capability comes from |
 | Each capability's permission is one the extension declared, and its `source` is the extension | What the person sees before turning it on is what it can ask for |
 | A resource is under `fabric-desktop://ext/<extension id>/` | It can't stand in for a core resource |
-| Everything the registry checks for any capability (schemas, read-only means a read permission, destructive means approval) | No second, weaker path |
+| Everything the registry checks for any capability (schemas, read-only means a read permission, destructive means approval, a valid `workspaces` declaration) | No second, weaker path |
+| A capability that doesn't declare `workspaces` still loads, but is refused to a tool limited to some workspaces | It can't reach a workspace by not saying which one it reaches |
 | All of its capabilities register, or none do | A half-loaded extension never shows up |
 
 Extensions are off until the person turns each on in **Settings > Integrations > Extensions**. The policy key `integrations_extensions` (a list of ids) limits which ones can be turned on; `[]` or an unreadable value allows none, and one already on is taken away at the next sync. The switches live in the integration store, and each server process's `ExtensionHost.sync()` runs every 2 seconds, so a change reaches every MCP and HTTP server without a restart.

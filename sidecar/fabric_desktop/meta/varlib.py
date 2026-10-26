@@ -69,3 +69,54 @@ def resolve(project: Project, env: str) -> dict[str, str]:
     """The values a notebook in ``env`` reads: what the active value set gives each variable."""
     env = env if env in ENVIRONMENTS else "dev"
     return {r["name"]: r[env] for r in values(project)}
+
+
+def _integer(v: Any) -> int:
+    """A whole number; 1.5 or True isn't one (int() would make them 1)."""
+    if isinstance(v, bool) or (isinstance(v, float) and not v.is_integer()):
+        raise ValueError(v)
+    return int(v)
+
+
+def _boolean(v: Any) -> bool:
+    if isinstance(v, bool):
+        return v
+    text = str(v).strip().lower()
+    if text not in ("true", "false"):
+        raise ValueError(v)  # "yes" or "1" would otherwise read as False
+    return text == "true"
+
+
+_TYPES = {"Integer": _integer, "Number": float, "Boolean": _boolean}
+
+
+def _json(path: str, text: str) -> dict[str, Any]:
+    try:
+        data = json.loads(text)
+    except ValueError:
+        raise ValueError(f"The library's {path} isn't valid JSON.") from None
+    if not isinstance(data, dict):
+        raise ValueError(f"The library's {path} isn't a JSON object.")
+    return data
+
+
+def read(parts: dict[str, str], value_set: str | None) -> dict[str, Any]:
+    """Any variable library's values from its definition files, with ``value_set``'s overrides:
+    what ``getLibrary`` gives in Fabric. Integer, Number and Boolean variables keep their type;
+    the rest (String, DateTime, Guid, item references) read as text."""
+    variables = _json("variables.json", parts.get("variables.json") or "{}").get("variables") or []
+    out: dict[str, Any] = {v["name"]: v.get("value") for v in variables if v.get("name")}
+    kinds = {v["name"]: v.get("type", "String") for v in variables if v.get("name")}
+    if value_set and value_set != DEFAULT_SET:
+        sets = (_json(path, text) for path, text in sorted(parts.items()) if path.startswith("valueSets/"))
+        overrides = next((v for v in sets if v.get("name") == value_set), None)
+        if overrides is None:
+            raise LookupError(f"The active value set {value_set} isn't in the library's definition")
+        out.update({o["name"]: o.get("value") for o in overrides.get("variableOverrides") or [] if o.get("name") in out})
+    typed: dict[str, Any] = {}
+    for k, v in out.items():
+        try:
+            typed[k] = None if v is None else _TYPES.get(kinds[k], str)(v)
+        except (TypeError, ValueError):
+            raise ValueError(f"Variable {k} is {kinds[k]}, but its value in the library isn't one.") from None
+    return typed

@@ -151,3 +151,28 @@ def test_ids_must_be_guids(svc, call, ws, item):
 def test_all_three_are_read_only_and_not_quick():
     for name in ("workspace_copy_jobs", "workspace_copy_job_definition", "fabric_copy_job_runs"):
         assert name in server.METHODS and name in audit.READ_ONLY and name not in server.QUICK
+
+
+ODD = [None, 1, "x", True, 1.5, [], {}, [1], {"a": 1}]
+
+
+@pytest.mark.parametrize("result", [None, 1, "x", [], {"definition": 1}, {"definition": {"parts": "x"}},
+                                    {"definition": {"parts": [1, None]}},
+                                    {"definition": {"parts": [{"path": "copyjob-content.json", "payload": 5}]}}])
+def test_a_getdefinition_reply_of_any_shape_is_a_problem_not_a_crash(result):
+    out = copyjob.describe(result)
+    assert not out["ok"] and out["tables"] == [] and out["problems"]
+
+
+@pytest.mark.parametrize("odd", ODD)
+def test_odd_values_anywhere_in_a_copy_job_dont_break_the_reader(odd):
+    for content in ({"properties": odd, "activities": odd},
+                    {"properties": {"jobMode": odd, "source": odd, "destination": odd, "policy": odd}, "activities": [odd, {"properties": odd}]},
+                    {"properties": {"source": {"connectionSettings": {"typeProperties": odd, "externalReferences": odd, "type": odd}}}},
+                    {"activities": [{"id": odd, "properties": {"source": {"changeDataSettings": odd, "datasetSettings": {"location": odd}},
+                                                               "destination": {"upsertSettings": odd, "datasetSettings": odd}}}]},
+                    {"activities": [{"properties": {"source": {"changeDataSettings": {"columns": odd, "readMethod": odd}},
+                                                    "destination": {"upsertSettings": {"keys": odd}}, "translator": {"mappings": odd}}}]}):
+        out = copyjob.describe(_definition(content))
+        assert isinstance(out["tables"], list) and isinstance(out["problems"], list)
+        assert all(isinstance(t["keys"], list) and isinstance(t["incremental_columns"], list) for t in out["tables"])

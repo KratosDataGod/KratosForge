@@ -22,7 +22,9 @@ needs the catalog, so it waits until it can be reached.
 ## Export, edit, import
 
 - **Export CSV** writes a new file in your Downloads folder and never replaces one. It opens
-  in Excel; the `Entity` column is how Import finds each row, so leave it as it is.
+  in Excel; the `Entity` column is how Import finds each row, so leave it as it is. Text that
+  starts with `=`, `+`, `-` or `@` goes out with a `'` in front, so Excel shows it as text
+  instead of running it as a formula; Import takes the `'` off again.
 - **Save to the project** writes `semantic/SM_<Layer>.dictionary.csv` into the metadata
   project's folder, where it shows in Changes, ready to commit.
 - **Import descriptions** reads an edited CSV, from Excel in any language (semicolons work

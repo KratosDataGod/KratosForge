@@ -68,6 +68,21 @@ def test_import_previews_only_real_changes_and_skips_what_it_cant_take(svc):
     assert reasons["dim_customer.city"] == "Listed twice; the first row counts"
 
 
+def test_text_excel_would_run_as_a_formula_goes_out_as_text_and_comes_back_the_same(svc):
+    items = svc.meta_model_dictionary()["items"]
+    evil = '=HYPERLINK("http://x","click")'
+    items = [x | {"description": evil} if x["name"] == "email" else x for x in items]
+    items.append(items[-1] | {"name": "-margin", "description": "+1 for a new customer", "classification": ""})
+    text = md.to_csv(items)
+    assert "'=HYPERLINK" in text and "'-margin" in text and "'+1 for" in text
+    assert not any(cell.startswith(md.FORMULA) for line in text.split("\r\n")[1:] for cell in line.split(",") if cell)
+    back = md.read_csv(text)
+    assert [r["description"] for r in back] == [x["description"] for x in items]
+    assert back[-1]["column or measure"] == "-margin"
+    assert md.plan_import(items, back)["changes"] == [], "a round trip changes nothing"
+    assert md.read_csv(md.to_csv([items[0] | {"description": "'Tis plain text"}]))[0]["description"] == "'Tis plain text"
+
+
 def test_a_blank_cell_never_erases(svc):
     items = svc.meta_model_dictionary()["items"]
     plan = md.plan_import([x | {"description": "Kept"} for x in items], md.read_csv(md.to_csv(items)))

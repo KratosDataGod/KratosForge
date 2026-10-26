@@ -35,7 +35,8 @@ const bodyHas = (cls) => page().evaluate((c) => document.body.classList.contains
 
 test("new installs fold help away: the info button opens it, with Preview tags and comfortable spacing", { skip }, async () => {
   await monitor();
-  assert.ok(await page().isHidden(".mon-how .how-it-works"), "the panel waits behind the info button");
+  // The info button takes the page's panel on the next frame (features.js syncHowToggle), so wait for it.
+  await page().waitForSelector(".mon-how .how-it-works", { state: "hidden" });  // the panel waits behind the info button
   await page().waitForSelector("#how-toggle:not([hidden])");
   assert.strictEqual(await bodyHas("explain-on-request"), true);
   for (const cls of ["preview-dots", "density-compact"]) assert.strictEqual(await bodyHas(cls), false, cls);
@@ -48,7 +49,7 @@ test("new installs fold help away: the info button opens it, with Preview tags a
 test("explanations on request: the panel leaves the page and opens as a drawer from the title bar", { skip }, async () => {
   await monitor();
   await page().waitForSelector("#how-toggle:not([hidden])");
-  assert.ok(await page().isHidden(".mon-how .how-it-works"));
+  await page().waitForSelector(".mon-how .how-it-works", { state: "hidden" });
   const width = await page().$eval(".mon-how .with-how-main", (m) => m.getBoundingClientRect().width);
   assert.ok(width > 1200, `the list takes the panel's width (${width}px)`);
   await page().click("#how-toggle");

@@ -40,6 +40,7 @@ from .preview_service import PreviewMixin
 from .central.service import PlatformMixin
 from .central.governance_service import GovernanceMixin
 from .central.checks_service import ChecksMixin
+from .central.entra_service import EntraGroupsMixin
 from .central.requests_service import RequestsMixin
 from .central.trust_service import TrustMixin
 from .shortcut_service import ShortcutMixin
@@ -104,7 +105,7 @@ def _lakehouse_key(ref: Any) -> Any:
         return ref.get("lakehouse_id") or ref.get("name") or None
     return ref or None
 
-class Service(TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, RequestsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin):
+class Service(TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings

@@ -51,6 +51,9 @@ CONNECTION_SCOPES = ["https://api.fabric.microsoft.com/Connection.Read.All"]
 # Gateway names on the Data Factory Connections tab (Preview), asked for the first time it opens.
 GATEWAY_SCOPES = ["https://api.fabric.microsoft.com/Gateway.Read.All"]
 GRAPH_USER_SCOPES = ["https://graph.microsoft.com/User.ReadBasic.All"]
+# Finding an Entra ID group by name, and checking which suggested groups exist (Platform > Set up >
+# Domains, Access groups). Reads only; it needs an Entra admin's consent, and linking by object ID works without it.
+GRAPH_GROUP_SCOPES = ["https://graph.microsoft.com/Group.Read.All"]
 # Listing capacities (creating a workspace, the cost view's capacity size).
 CAPACITY_SCOPES = ["https://api.fabric.microsoft.com/Capacity.Read.All"]
 # Importing Fabric's domains and subdomains (Fabric's admin API). Only a Fabric administrator

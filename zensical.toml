@@ -78,6 +78,7 @@ nav = [
     { "Data mesh" = "data-mesh.md" },
     { "Semantic models and Apache Ossie" = "semantic-model-ossie.md" },
     { "Direct Lake check" = "direct-lake-check.md" },
+    { "Data dictionary" = "data-dictionary.md" },
     { "Shortcuts" = "shortcuts.md" },
     { "Pipeline definitions" = "orchestration/pipeline-definitions.md" },
     { "Pipeline activity compatibility" = "orchestration/activity-registry.md" },

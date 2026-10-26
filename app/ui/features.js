@@ -59,6 +59,7 @@ const PREVIEW_FEATURES = {
   model: "Semantic model",
   ossie: "Semantic models and Apache Ossie",
   directLakeCheck: "Direct Lake check",
+  dataDictionary: "Data dictionary",
   tests: "Tests",
   xray: "Estate X-ray",
   optimize: "Optimize",

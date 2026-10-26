@@ -39,7 +39,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "governance_discard_draft", "governance_publish", "governance_set_status", "governance_assign",
            "governance_unassign", "governance_applicability", "governance_resolve",
            "governance_templates", "governance_template_save", "governance_template_delete", "governance_template_use",
-           "governance_template_from_policy", "governance_template_authors", "governance_check_now", "governance_last_check",
+           "governance_template_from_policy", "governance_template_authors", "governance_check_now", "governance_last_check", "governance_practice_settings",
            "governance_product_checklist",
            "mesh_overview", "mesh_set_project", "mesh_save_product", "mesh_delete_product", "mesh_publish", "mesh_save_link",
            "mesh_delete_link", "mesh_resolve_links", "mesh_about", "mesh_save_about", "meta_set_designation",
@@ -183,6 +183,10 @@ METHODS |= SQL_QUERY_METHODS
 from .warehouse_project_service import METHODS as WH_PROJECT_METHODS  # noqa: E402
 
 METHODS |= WH_PROJECT_METHODS
+# Workspace monitoring views for a warehouse (warehouse_monitoring_service.py).
+from .warehouse_monitoring_service import METHODS as WH_MONITORING_METHODS  # noqa: E402
+
+METHODS |= WH_MONITORING_METHODS
 
 # Folders for notebooks (notebook_folders_service.py): new, rename, delete when empty, move into one.
 from .notebook_folders_service import METHODS as NOTEBOOK_FOLDERS_METHODS  # noqa: E402
@@ -203,6 +207,12 @@ from .comments_service import METHODS as COMMENT_METHODS  # noqa: E402
 
 METHODS |= COMMENT_METHODS
 
+# Run cells from VS Code (editor_service.py): the editor channel's switch, pairing requests and
+# the OneLake writes paired windows ask for.
+from .editor_service import METHODS as EDITOR_METHODS  # noqa: E402
+
+METHODS |= EDITOR_METHODS
+
 
 # The calls the shell gives a short time limit (QUICK in app/src-tauri/src/watchdog.rs): they read
 # local state or the kernel and answer at once. They run in their own lane, so a long run, publish
@@ -211,7 +221,7 @@ METHODS |= COMMENT_METHODS
 # (new, save, rename) stay ordered with publish and delete, which save too: a publish queued behind a
 # long call must not write its older cells over an autosave that overtook it.
 QUICK = frozenset({
-    "app_settings", "debug_cell", "interrupt_cell", "kernel_complete", "kernel_info", "kernel_variables",
+    "app_settings", "debug_cell", "editor_pending", "editor_status", "interrupt_cell", "kernel_complete", "kernel_info", "kernel_variables",
     "list_notebooks", "notebook_comments_list", "notebook_debug_get", "notebook_dependencies",
     "notebook_environment", "notebook_folders", "notebook_resources", "notebook_version", "notebook_versions",
     "open_notebook", "poll_cell", "prove_list", "prove_rules_get", "prove_status",
@@ -394,6 +404,10 @@ def _start_integration_http(service: Service) -> None:
         service.integrations_sync_http()
     except Exception as exc:  # noqa: BLE001 - the app works without it; Settings shows why
         print(f"integrations: local API not started: {exc}", file=sys.stderr)
+    try:
+        service.editor_sync()  # the editor channel, if VS Code may run notebooks
+    except Exception as exc:  # noqa: BLE001 - likewise
+        print(f"integrations: editor channel not started: {exc}", file=sys.stderr)
 
 
 def _refresh_integration_launcher() -> None:

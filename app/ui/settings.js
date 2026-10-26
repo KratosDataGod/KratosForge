@@ -936,6 +936,16 @@ function sqlSettingsSection(s, locked) {
       "aria-label": "Warehouse changes", onchange: async (e) => { await saveSettings({ sql_warehouse_writes: e.target.checked }); render(); } }),
     h("span", {}, s.sql_warehouse_writes.value ? "On" : "Off")),
     fixedBy(s, "sql_warehouse_writes")));
+  // WH-19: workspaces whose new warehouses get monitoring views without asking (whmonitor.js).
+  const auto = s.wh_monitoring_auto?.value || [];
+  rows.push(settingRow("Monitoring views without asking", "Workspaces where you said yes, on a build confirm, to monitoring views for new warehouses. The app builds a warehouse's KQL queryset when it opens one there. Remove a workspace and it asks again.",
+    auto.length ? h("ul", { class: "wh-mon-auto" }, auto.map((ws) => h("li", {}, h("span", {}, whMonWorkspaceName(ws)),
+      locked("wh_monitoring_auto") ? null : btn("Remove", null, async () => {
+        await saveSettings({ wh_monitoring_auto: auto.filter((w) => w !== ws) });
+        render();
+      }, "tool outline small", { "aria-label": `Remove ${whMonWorkspaceName(ws)}` }))))
+      : h("span", { class: "muted-text small" }, "None."),
+    fixedBy(s, "wh_monitoring_auto")));
   const save = async () => {
     const changes = {};
     for (const [key] of SQL_SETTINGS) {

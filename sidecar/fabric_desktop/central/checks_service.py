@@ -143,6 +143,37 @@ class ChecksMixin:
         pname = mesh.project_name(project)
         return {"project": pname, "result": self._gc_state().get("results", {}).get(pname)}
 
+    def governance_practice_settings(self, kind: str) -> dict[str, Any]:
+        """How the policies in force for the open project set one kind of best-practice rule ("notebook" or
+        "sql"), for the editors' Best practices panels: ``{rule_id: {"enabled", "severity"}}`` for the rules a
+        policy names. A rule no policy names keeps its own severity. Two policies naming one rule: it's on if
+        either turns it on, at the worse severity. With no project open, or no catalog, every rule is as built."""
+        if kind not in ("notebook", "sql"):
+            raise ValueError('kind must be "notebook" or "sql"')
+        try:
+            resolved = self.governance_resolve()  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001 - the panel still checks with the rules as built
+            return {"settings": {}, "policies": [], "note": f"The policies couldn't be read, so every rule is on as built: {describe(exc)}"}
+        out: dict[str, dict[str, Any]] = {}
+        names: list[str] = []
+        for pol in resolved.get("policies") or []:
+            named = False
+            for rid in gc.rule_ids(pol.get("rule")):
+                found = gc.find_rule(rid)
+                if found is None or found[1]["kind"] != kind:
+                    continue
+                named = True
+                s = gc.settings_for(found[1], pol.get("severity") or "", pol.get("params") or {})
+                was = out.get(rid)
+                if was is None or (s["enabled"] and not was["enabled"]):
+                    out[rid] = {"enabled": s["enabled"], "severity": s["severity"]}
+                elif s["enabled"] == was["enabled"]:
+                    worse = min(was["severity"], s["severity"], key=gc.FINDING_SEVERITIES.index)
+                    out[rid] = {"enabled": was["enabled"], "severity": worse}
+            if named:
+                names.append(str(pol.get("name") or pol.get("id") or ""))
+        return {"settings": out, "policies": names, "note": ""}
+
     # ---- Check now
 
     def _gc_trust(self, product_id: str) -> tuple[dict[str, Any] | None, str]:

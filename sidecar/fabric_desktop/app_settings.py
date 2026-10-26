@@ -83,6 +83,10 @@ Keys:
     sql_warehouse_writes  the Warehouse page: false refuses every change to a warehouse (DDL, DML,
                      EXEC), so the page only reads; IT can fix it either way (default true; each
                      change still needs its own confirm)
+    wh_monitoring_views  the Warehouse page's Monitoring tab: false stops the app creating monitoring
+                     views (KQL querysets) in Fabric; reading monitoring still works (default true)
+    wh_monitoring_auto  the workspaces whose warehouses get monitoring views without asking again,
+                     by workspace id; the person adds one when they tick it on the build confirm
     telemetry        true to send daily usage counts (telemetry.py); off unless the person turns it on,
                      and IT can fix it either way (default false)
     telemetry_connection_string  IT only: an Application Insights connection string, so usage data
@@ -158,6 +162,9 @@ DEFAULTS.update({"sql_page_rows": 1000, "sql_time_limit_minutes": 10, "sql_memor
 DEFAULTS["sql_warehouse_writes"] = True
 TYPES.update({key: int for key in SQL_RANGES} | {"sql_temp_dir": str, "sql_warehouse_writes": bool})
 USER_KEYS += (*SQL_RANGES, "sql_temp_dir", "sql_warehouse_writes")
+DEFAULTS.update({"wh_monitoring_views": True, "wh_monitoring_auto": []})
+TYPES.update({"wh_monitoring_views": bool, "wh_monitoring_auto": list})
+USER_KEYS += ("wh_monitoring_views", "wh_monitoring_auto")
 
 # Motion and effects (app/ui/motion.js): the visual intensity level and one switch per family.
 MOTION_LEVELS = (0, 3)
@@ -189,7 +196,7 @@ TYPES.update({"allow_dbconnect_install": bool, "dbconnect_index_url": str})
 # Read by integrations/policy.py, which decides what each means; listed here so the policy file has
 # one list of settings.
 INTEGRATION_KEYS = ("integrations", "integrations_max_permissions", "integrations_http", "integrations_extensions",
-                    "receipt_redactions")
+                    "integrations_editors", "receipt_redactions")
 # Read only by the shell (main.rs), which applies them itself; listed so the file has one list of
 # settings and policy_problems() can say what the shell will skip.
 SHELL_KEYS = ("fabric_view_sign_in_hosts", "register_link_scheme", "engine_download_url")
@@ -200,6 +207,7 @@ NO_TENANT = "00000000-0000-0000-0000-000000000000"
 # be read. Updates (auto_update, channel) are enforced by the shell, which reads the file itself.
 RESTRICTED: dict[str, Any] = {"allow_fabric_runs": False, "allowed_tenants": [NO_TENANT], "show_preview": False,
                               "telemetry": False, "sql_warehouse_writes": False,
+                              "wh_monitoring_views": False,
                               "allow_dbconnect_install": False}
 
 

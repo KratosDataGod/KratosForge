@@ -2370,3 +2370,20 @@ html[data-motion-level="0"] .mo-ghost { display: none; }
 .next-step { display: flex; align-items: center; gap: 10px; }
 .action-bar { gap: 8px; }
 .tool[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
+
+/* Table detail on the Warehouse page (WH-16) */
+.dialog:has(.wh-detail) { max-width: 900px; }
+.wh-detail { display: flex; flex-direction: column; gap: 12px; }
+.wh-detail-head { display: flex; gap: 12px; align-items: center; }
+.wh-detail-head p { flex: 1; margin: 0; }
+.wh-detail-cols { max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: 4px; }
+.wh-detail-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.wh-detail-table th { position: sticky; top: 0; background: var(--surface-2, var(--surface)); text-align: left; font-weight: 600; color: var(--text-2); }
+.wh-detail-table th, .wh-detail-table td { padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.wh-detail-table .num { text-align: right; font-variant-numeric: tabular-nums; color: inherit; }
+.wh-detail-empty { font-weight: 600; }
+.wh-detail-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.wh-detail-tools section { border: 1px solid var(--border); border-radius: 4px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.wh-detail-tools p { margin: 0; }
+.wh-detail-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.wh-detail-row input { padding: 5px 8px; border: 1px solid var(--border); border-radius: 4px; font: inherit; font-size: 13px; background: var(--surface); color: var(--text); }

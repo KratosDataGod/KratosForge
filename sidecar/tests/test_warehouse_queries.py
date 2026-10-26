@@ -179,6 +179,30 @@ def test_t_sql_that_cant_be_read_is_refused_not_sent(runs):
     assert runs.fabric.calls == []
 
 
+@pytest.mark.parametrize("query", [
+    "SELECT TOP 100 * FROM dbo.FactSales OPTION (FOR TIMESTAMP AS OF '2026-10-20T10:00:00.000')",
+    "select count_big(*) from [dbo].[FactSales]\noption ( for timestamp as of '2026-10-20T10:00:00' ) ;\n",
+])
+def test_a_read_at_a_past_time_is_a_read(query):
+    (v,) = warehouse.verdicts(query)
+    assert v.kind == "read_only", v
+
+
+@pytest.mark.parametrize("query", [
+    "DELETE FROM dbo.FactSales OPTION (FOR TIMESTAMP AS OF '2026-10-20T10:00:00')",
+    "SELECT 1; DROP TABLE dbo.t OPTION (FOR TIMESTAMP AS OF '2026-10-20T10:00:00')",
+    "SELECT * INTO dbo.copy FROM dbo.t OPTION (FOR TIMESTAMP AS OF '2026-10-20T10:00:00')",
+    "SELECT 1 OPTION (FOR TIMESTAMP AS OF '2026-10-20T10:00:00' + (SELECT 'x'))",
+    "SELECT 1 OPTION (FOR TIMESTAMP AS OF @when)",
+])
+def test_the_past_time_hint_never_lets_anything_but_one_read_through(query):
+    try:
+        verdicts = warehouse.verdicts(query)
+    except ValueError:
+        return  # can't be read: refused
+    assert verdicts[0].kind != "read_only" or len(verdicts) > 1 and verdicts[1].kind != "read_only", verdicts
+
+
 def test_outside_reads_are_refused():
     v = warehouse.verdicts("SELECT * FROM OPENQUERY(srv, 'SELECT 1')")
     assert v[0].kind != "read_only"

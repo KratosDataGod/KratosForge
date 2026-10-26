@@ -89,6 +89,14 @@ The left side lists the warehouse's schemas, and in each its **Tables**, **Views
 - **Filter objects** narrows the tree by name or schema. **Refresh** lists them again.
 - The editor completes table, view and column names from the same list, without asking Fabric again.
 
+### Table detail (Preview)
+
+**Table detail** on a table's **⋯** menu shows its columns, and three ways to look after it:
+
+- **Profile** counts, for each column, how many values are empty (NULL), how many distinct values there are (Fabric's estimate, `APPROX_COUNT_DISTINCT`) and the smallest and largest value. It's one query that reads, over every row, in Fabric, so it uses capacity; up to 50 columns are profiled. Binary and `(max)` columns show only how many are empty.
+- **See it as it was** opens a query tab that reads the table at a past time you pick, in your time zone, sent to Fabric as UTC with `OPTION (FOR TIMESTAMP AS OF '...')`. Fabric keeps past versions for its retention period. It reads only: a query with that hint is checked like any read.
+- **Clone** writes `CREATE TABLE ... AS CLONE OF ...` (optionally `AT` a past time) into a new tab. A clone shares the table's files, so it takes seconds and no extra storage until either table changes. The script runs only through **Allow changes**, after the usual preview and confirm, and in Prod after you type the warehouse's name.
+
 A SQL analytics endpoint is found through its lakehouse, which Fabric gives the same name in the same workspace. If the lakehouse isn't in the list, the row has no **SQL query** button; use **Open in Fabric**.
 
 ## SQL from a template
@@ -213,5 +221,6 @@ How a run works underneath (states, limits, what is refused): [Running SQL queri
 | WH-12 | Compare the project with the warehouse, object by object | Done |
 | WH-13 | Deploy the project to the warehouse after a preview: create, CREATE OR ALTER, add NULL columns, drops never ticked; Test and Prod from Git only | This release |
 | WH-09 | Estimated plan: Fabric's showplan as a tree of operators with rows and cost, without running the query | This release |
+| WH-16 | Table detail: profile, a query at a past time, a clone script | This release |
 
-Phase 3 (WH-09 to WH-13) is complete. Later stages (loading and managing data, Snowflake) follow the same pattern: a mockup first, then one change per feature.
+Phase 3 (WH-09 to WH-13) is complete. Phase 4 (load and manage data) is proposed: load data (WH-15), table detail (WH-16), copies on this PC (WH-17, WH-14) and restore points (WH-18). Later stages (loading and managing data, Snowflake) follow the same pattern: a mockup first, then one change per feature.

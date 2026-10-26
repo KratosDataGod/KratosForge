@@ -142,13 +142,14 @@ function learnMore(anchor, label = "Learn more") {
 // "How this works": the panel beside a page or tab that says what it reads, what it changes and where
 // its results go, then links to its section of the guide. It folds to its title, remembered on this
 // PC. Every new page or tab gets one (docs/ui-guidelines.md); withHowItWorks puts it on the right,
-// or under the content in a narrow window.
+// or under the content in a narrow window. With explanations on request, the page's own panel opens from
+// the title bar's info button and any other starts folded to its title where it is.
 function howItWorks(id, { reads, changes, results, more = [], anchor }) {
   const part = (title, text) => (text ? h("div", { class: "how-part" }, h("b", {}, title), h("p", {}, text)) : null);
   return foldable(`how.${id}`, h("h2", {}, "How this works"),
     h("div", { class: "how-body" }, part("What it reads", reads), part("What it changes", changes),
       part("Where results go", results), ...more.map(([title, text]) => part(title, text)), anchor ? learnMore(anchor) : null),
-    { cls: "card pad how-it-works" });
+    { cls: "card pad how-it-works", start: layoutChoice("ui_explanations") === "on_request" });
 }
 
 function withHowItWorks(main, panel) {
@@ -159,16 +160,18 @@ function withHowItWorks(main, panel) {
 
 // Three choices (app_settings ui_explanations, ui_preview_marks, ui_density) that change how every
 // page shows the same things, as classes on <body>; styles.css does the rest. Nothing is hidden for
-// good: with explanations "on request", a page's How this works panel opens as a drawer from the
-// title bar's info button, and a Preview dot keeps the tag's words for screen readers and as its tooltip.
+// good: with explanations "on request" (the default), a page's How this works panel and its one-line
+// explanation (pageIntro) open as a drawer from the title bar's info button, and a Preview dot keeps
+// the tag's words for screen readers and as its tooltip.
 const LAYOUT_CHOICES = {
-  ui_explanations: ["Explanations", "The How this works panels: what a page reads, what it changes and where results go.",
+  ui_explanations: ["Explanations", "Each page's one-line explanation and How this works panel: what it reads, what it changes and where results go.",
     [["beside", "Beside the page"], ["on_request", "On request"]]],
   ui_preview_marks: ["Preview marks", "How features still in preview are marked. Page titles keep the full tag.",
     [["tags", "Tags"], ["dots", "Quiet dots"]]],
   ui_density: ["Density", "Spacing in tables, lists and toolbars.", [["comfortable", "Comfortable"], ["compact", "Compact"]]],
 };
-const layoutChoice = (key) => state.settings?.[key]?.value || LAYOUT_CHOICES[key][2][0][0];
+const LAYOUT_DEFAULTS = { ui_explanations: "on_request" };  // as app_settings.DEFAULTS; others: the first choice
+const layoutChoice = (key) => state.settings?.[key]?.value || LAYOUT_DEFAULTS[key] || LAYOUT_CHOICES[key][2][0][0];
 const howView = { open: null };  // the view the drawer was opened on
 
 function applyAppearance() {
@@ -179,16 +182,57 @@ function applyAppearance() {
   syncHowToggle();
 }
 
-function howPanel() {
-  return document.querySelector("#view .how-it-works");
+// A page's one-line explanation under its title. With explanations on request it leaves the page and
+// opens at the top of the info drawer. Facts about what's open (counts, owners, status) stay plain
+// "sub" lines: only what explains the page goes here.
+function pageIntro(...children) {
+  return h("p", { class: "sub page-intro" }, ...children);
 }
 
-// Shows the info button while the page has a panel to open, and keeps the drawer on the page it was
-// opened on: a re-render puts it on the new copy of the panel, another page closes it.
+// The page's own panel. Home's cards, the notebook's side panes and query results keep theirs in place.
+const HOW_IN_PLACE = ".ready, .xray, .explorer-content, .validate-how, .warehouse-how, .dialog";
+function howPanel() {
+  return [...document.querySelectorAll("#view .how-it-works")].find((p) => !p.closest(HOW_IN_PLACE));
+}
+
+// The drawer's copy of the page's explanation, first in the panel. A page with an explanation and no
+// panel gets a panel of its own for it. Learn more stays on the panel's own link.
+function howIntro() {
+  const intro = document.querySelector("#view .page-intro");
+  let panel = howPanel();
+  if (!intro) {
+    if (panel?.classList.contains("how-intro-only")) panel.remove();
+    return howPanel();
+  }
+  if (!panel) {
+    panel = h("section", { class: "card pad how-it-works how-intro-only" }, h("h2", {}, "About this page"));
+    (intro.closest(".page") || document.getElementById("view")).append(panel);
+  }
+  const copy = intro.cloneNode(true);
+  copy.querySelectorAll(".learn-more, .preview-tag").forEach((el) => el.remove());
+  // A panel of its own takes the explanation's Learn more link (the page's own, so it still works).
+  const link = panel?.classList.contains("how-intro-only") || !panel ? intro.querySelector(".learn-more") : null;
+  const text = copy.textContent.trim();
+  let about = panel.querySelector(":scope > .how-about");
+  if (about?.textContent !== text) {
+    about?.remove();
+    about = h("p", { class: "how-about" }, text);
+    if (panel.classList.contains("how-intro-only")) panel.querySelector(":scope > h2").after(about);
+    else panel.prepend(about);
+  }
+  if (link) panel.append(link);
+  return panel;
+}
+
+// Shows the info button while the page has a panel or an explanation to open, and keeps the drawer
+// on the page it was opened on: a re-render puts it on the new copy of the panel, another page closes it.
 function syncHowToggle() {
   const toggle = document.getElementById("how-toggle");
   if (!toggle) return;
-  const panel = document.body.classList.contains("explain-on-request") ? howPanel() : null;
+  const panel = document.body.classList.contains("explain-on-request") ? howIntro() : null;
+  if (!panel) document.querySelectorAll("#view .how-intro-only").forEach((p) => p.remove());
+  document.querySelectorAll("#view .how-page").forEach((p) => p !== panel && p.classList.remove("how-page"));
+  panel?.classList.add("how-page");
   toggle.hidden = !panel;
   if (howView.open && (!panel || howView.open !== state.view)) setHowDrawer(false);
   else if (howView.open && !panel.classList.contains("how-shown")) panel.classList.add("how-shown");
@@ -196,7 +240,7 @@ function syncHowToggle() {
 
 function setHowDrawer(open) {
   document.querySelectorAll(".how-it-works.how-shown").forEach((p) => p.classList.remove("how-shown"));
-  const panel = open ? howPanel() : null;
+  const panel = open ? howIntro() : null;
   panel?.classList.add("how-shown");
   howView.open = panel ? state.view : null;
   document.body.classList.toggle("how-open", !!panel);

@@ -24,7 +24,7 @@ async function renderOptimize() {
   setView(h("div", { class: "page optimize" },
     h("div", { class: "page-head" }, h("div", {},
       h("h1", {}, "Optimize ", previewTag()),
-      h("p", { class: "sub" }, "What your Fabric estate could do better, what was fixed and what it could save, shared with everyone on your optimization lakehouse. ",
+      pageIntro("What your Fabric estate could do better, what was fixed and what it could save, shared with everyone on your optimization lakehouse. ",
         learnMore("optimize-preview")))),
     band,
     h("div", { class: "subtabs", role: "tablist", "aria-label": "Optimize views" }, OPTIMIZE_TABS.map(([id, label]) =>

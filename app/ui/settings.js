@@ -784,7 +784,7 @@ async function renderSettings() {
     btn("Open Platform > Settings", "building", () => goPlatform("settings"), "tool outline"))) : null;
   setView(h("div", { class: "page settings" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
-      h("p", { class: "sub" }, "How KratosForge signs in, updates and talks to you. ", learnMore("settings")))),
+      pageIntro("How KratosForge signs in, updates and talks to you. ", learnMore("settings")))),
     tabs, tab === "integrations" ? integrations : [account, updates, display, previews, usage, platform, notify, about, advanced].filter(Boolean)));
   if (tab === "integrations") {
     renderIntegrationsTab(integrations);

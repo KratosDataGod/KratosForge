@@ -33,20 +33,19 @@ const choose = async (group, label) => {
 };
 const bodyHas = (cls) => page().evaluate((c) => document.body.classList.contains(c), cls);
 
-test("new installs show everything: panels beside the page, Preview tags, comfortable spacing", { skip }, async () => {
+test("new installs fold help away: the info button opens it, with Preview tags and comfortable spacing", { skip }, async () => {
   await monitor();
-  assert.ok(await page().isVisible(".mon-how .how-it-works"));
-  assert.ok(await page().isHidden("#how-toggle"), "the title bar's info button shows only with explanations on request");
-  for (const cls of ["explain-on-request", "preview-dots", "density-compact"]) assert.strictEqual(await bodyHas(cls), false, cls);
+  assert.ok(await page().isHidden(".mon-how .how-it-works"), "the panel waits behind the info button");
+  await page().waitForSelector("#how-toggle:not([hidden])");
+  assert.strictEqual(await bodyHas("explain-on-request"), true);
+  for (const cls of ["preview-dots", "density-compact"]) assert.strictEqual(await bodyHas(cls), false, cls);
   await page().evaluate(() => go("settings"));
-  for (const [group, on] of [["Explanations", "Beside the page"], ["Preview marks", "Tags"], ["Density", "Comfortable"]]) {
+  for (const [group, on] of [["Explanations", "On request"], ["Preview marks", "Tags"], ["Density", "Comfortable"]]) {
     assert.strictEqual(await page().getByRole("group", { name: group }).getByRole("button", { name: on }).getAttribute("aria-pressed"), "true", group);
   }
 });
 
 test("explanations on request: the panel leaves the page and opens as a drawer from the title bar", { skip }, async () => {
-  await choose("Explanations", "On request");
-  assert.strictEqual(await page().evaluate(async () => (await rpc("app_settings")).ui_explanations.value), "on_request", "kept for the next start");
   await monitor();
   await page().waitForSelector("#how-toggle:not([hidden])");
   assert.ok(await page().isHidden(".mon-how .how-it-works"));
@@ -65,11 +64,36 @@ test("explanations on request: the panel leaves the page and opens as a drawer f
   assert.ok(await page().isVisible(".how-it-works.how-shown"), "the drawer stayed open");
   await page().keyboard.press("Escape");
   await page().waitForSelector(".mon-how .how-it-works", { state: "hidden" });
+});
+
+test("a page's explanation line folds into the drawer; a page with only that line gets an About drawer", { skip }, async () => {
+  await page().evaluate(() => { state.settings.ui_explanations = { value: "on_request" }; applyAppearance();
+    window.__learned = 0;
+    setView(h("div", { class: "page" }, h("h1", {}, "Sample"),
+      pageIntro("What this page is for. ", h("a", { class: "learn-more", href: "#", onclick: (e) => { e.preventDefault(); window.__learned++; } }, "Learn more")),
+      h("p", { class: "sub" }, "3 items need you."))); });
+  assert.ok(await page().isHidden(".page-intro"), "the explanation leaves the page");
+  assert.ok(await page().isVisible("p.sub:not(.page-intro)"), "facts stay on the page");
+  await page().waitForSelector("#how-toggle:not([hidden])");
   await page().click("#how-toggle");
-  await page().waitForSelector(".how-it-works.how-shown", { state: "visible" });
-  await page().evaluate(() => go("settings"));
-  await page().waitForFunction(() => !document.body.classList.contains("how-open"));
-  assert.ok(await page().isHidden("#how-toggle"), "Settings has no panel, so no button");
+  const drawer = page().locator(".how-it-works.how-shown");
+  await drawer.waitFor({ state: "visible" });
+  assert.match(await drawer.textContent(), /About this page[\s\S]*What this page is for\./);
+  await drawer.getByRole("link", { name: "Learn more" }).click();
+  assert.strictEqual(await page().evaluate(() => window.__learned), 1, "the page's own Learn more still works from the drawer");
+  await page().keyboard.press("Escape");
+  // A page with a panel shows the line above it, and the page keeps no copy once help sits beside the page again.
+  await page().evaluate(() => setView(h("div", { class: "page" }, h("h1", {}, "Sample"), pageIntro("Why you would come here."),
+    withHowItWorks(h("div", {}, "list"), howItWorks("sample", { reads: "a", changes: "b", results: "c" })))));
+  await page().click("#how-toggle");
+  await drawer.waitFor({ state: "visible" });
+  assert.match(await drawer.textContent(), /^\s*Why you would come here\./);
+  await page().keyboard.press("Escape");
+  await choose("Explanations", "Beside the page");
+  await page().evaluate(() => setView(h("div", { class: "page" }, h("h1", {}, "Sample"), pageIntro("Shown on the page."))));
+  assert.ok(await page().isVisible(".page-intro"));
+  assert.strictEqual(await page().locator("#view .how-intro-only").count(), 0);
+  assert.ok(await page().isHidden("#how-toggle"));
 });
 
 test("Preview marks as dots keep the word for screen readers, and page titles keep the tag", { skip }, async () => {

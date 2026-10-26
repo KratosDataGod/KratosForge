@@ -150,7 +150,7 @@ test("Compare lists each object's state, shows the difference and can take the w
   const decoy = "CREATE VIEW dbo.vw_Other AS SELECT 9 AS z\n";
   fs.writeFileSync(file("dbo", "Views", "vw_Sales.sql"), decoy);
   await view.getByRole("button", { name: "Take the warehouse's version" }).click();
-  await page().waitForFunction(() => /already holds another script, so dbo\.vw_Sales wasn't written/.test([...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" ")));
+  await page().waitForFunction(() => /Could not write dbo\.vw_Sales: Its file would be dbo\/Views\/vw_Sales\.sql, which already defines dbo\.vw_Other\./.test([...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" ")));
   assert.strictEqual(fs.readFileSync(file("dbo", "Views", "vw_Sales.sql"), "utf8"), decoy);
   fs.rmSync(file("dbo", "Views", "vw_Sales.sql"));
   await view.getByRole("button", { name: "Take the warehouse's version" }).dispatchEvent("click");  // under the error toast

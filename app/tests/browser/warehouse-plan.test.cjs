@@ -60,7 +60,11 @@ test("Estimated plan asks Fabric without running the query and draws the operato
   assert.match(await page().locator(".sql-plan-op.heavy").textContent(), /FactSales/, "the heaviest operator stands out");
   assert.match(await page().locator(".sql-plan-stmt-head").textContent(), /Statement 1 · 4 rows · cost 10/);
   assert.strictEqual(await page().getByRole("tab", { name: "Plan" }).getAttribute("aria-selected"), "true");
-  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "wh-09-plan.png") });
+  if (SHOTS) {
+    await page().waitForFunction(() => !document.querySelector(".dialog"));
+    await page().waitForTimeout(600);
+    await page().screenshot({ path: path.join(SHOTS, "wh-09-plan.png") });
+  }
   await page().getByRole("tab", { name: "Results" }).click();
   assert.match(await page().locator(".warehouse-page").textContent(), /Press Run to see results|Write T-SQL/, "the results weren't touched");
 });

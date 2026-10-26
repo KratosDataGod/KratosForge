@@ -37,7 +37,7 @@ from . import warehouse_compare
 from .git.repo import Repository
 
 METHODS = {"wh_projects_list", "wh_project_files", "wh_project_read", "wh_project_save", "wh_project_write",
-           "wh_project_compare", "wh_project_diff"}
+           "wh_project_compare", "wh_project_diff", "wh_project_deploy_plan"}
 
 SUFFIX = ".Warehouse"
 MAX_FILE = 1024 * 1024        # one object's file
@@ -223,12 +223,13 @@ class WarehouseProjectMixin:
                     files.append(f)
         return files, cut
 
-    def _wh_git_codes(self, root: Path, project: Path) -> tuple[dict[str, str], str | None]:
-        """Each changed file's Git code (A added, M modified) by its path in the project, and the branch."""
+    def _wh_git(self, root: Path, project: Path) -> dict[str, Any]:
+        """The project's Git state: each changed file's code (A added, M modified) by its path in the
+        project, the branch, the commit, the upstream and how many commits aren't pushed."""
         try:
             st = Repository(root).status()
         except Exception:  # noqa: BLE001 - no Git, or not a repository yet: files show without codes
-            return {}, None
+            return {"codes": {}, "branch": None, "commit": None, "upstream": None, "ahead": None}
         prefix = project.relative_to(root).as_posix() + "/"
         codes: dict[str, str] = {}
         for group in ("staged", "unstaged", "untracked", "conflicts"):
@@ -237,14 +238,31 @@ class WarehouseProjectMixin:
                 if p.startswith(prefix):
                     code = "A" if e.get("code") in ("U", "A", "?") else str(e.get("code") or "M")
                     codes.setdefault(p[len(prefix):], code)
-        return codes, st.get("branch")
+        return {"codes": codes, "branch": st.get("branch"), "commit": st.get("commit"),
+                "upstream": st.get("upstream"), "ahead": st.get("ahead")}
+
+    def _wh_committed(self, root: Path, project: Path, paths: list[str]) -> dict[str, bool]:
+        """Whether each project file is tracked by Git and the same as in the last commit (HEAD). A file
+        Git ignores, or one with changes staged or not, is not; so is every file when there is no commit."""
+        try:
+            git = Repository(root)
+            base = project.resolve().relative_to(Path(git.root).resolve())
+        except Exception:  # noqa: BLE001 - no Git, or the project isn't in it: nothing is committed
+            return {p: False for p in paths}
+        out: dict[str, bool] = {}
+        for rel in paths:
+            spec = (base / rel).as_posix()  # cli.run reads pathspecs literally
+            out[rel] = (git._try("ls-files", "--error-unmatch", "--", spec) is not None
+                        and git._try("diff", "--quiet", "HEAD", "--", spec) is not None)
+        return out
 
     def wh_project_files(self, repo: str, folder: str) -> dict[str, Any]:
         """Every .sql file in the project: its path, the object it defines (or a problem), its Git code
         and version. Also the branch, and whether the project has its .sqlproj and .platform."""
         project = self._wh_project_dir(repo, folder)
         files, cut = self._wh_walk(project)
-        codes, branch = self._wh_git_codes(self._wh_repo_root(repo), project)
+        git = self._wh_git(self._wh_repo_root(repo), project)
+        codes, branch = git["codes"], git["branch"]
         out = []
         for f in files:
             rel = f.relative_to(project).as_posix()
@@ -436,3 +454,32 @@ class WarehouseProjectMixin:
         if len(str(warehouse_text)) + len(str(project_text)) > 2 * MAX_FILE:
             raise ValueError(f"Each side can be up to {MAX_FILE // 1024} KB.")
         return warehouse_compare.side_by_side(str(warehouse_text or ""), str(project_text or ""))
+
+    # ---- deploy (WH-13)
+
+    def wh_project_deploy_plan(self, repo: str, folder: str, objects: list[dict[str, Any]],
+                               environment: str = "") -> dict[str, Any]:
+        """What a deploy would run to make the warehouse match the project: the compare, turned into
+        changes in the order they'd run (warehouse_compare.deploy_plan), and the project's Git state.
+        Each change from a file says whether that file is committed (tracked, and the same as HEAD).
+        Outside Dev (``environment`` test, prod, none or not given) a deploy takes only what Git has:
+        a change whose file isn't committed isn't offered, and nothing is while the branch has commits
+        that aren't pushed. Writes nothing and runs nothing: the page runs each ticked change as a
+        confirmed warehouse change (sql_exec.py)."""
+        compared = self.wh_project_compare(repo, folder, objects)
+        root = self._wh_repo_root(repo)
+        project = self._wh_project_dir(repo, folder)
+        git = self._wh_git(root, project)
+        changes = warehouse_compare.deploy_plan(compared["objects"])
+        committed = self._wh_committed(root, project, sorted({c["path"] for c in changes if c["path"]}))
+        gated = environment != "dev"
+        unpushed = not git["upstream"] or bool(git["ahead"])
+        for c in changes:
+            c["committed"] = committed.get(c["path"], True) if c["path"] else True
+            c["git"] = (git["codes"].get(c["path"]) or ("" if c["committed"] else "!")) if c["path"] else ""
+            if gated and c["offered"] and (not c["committed"] or unpushed):
+                c.update(offered=False, ticked=False, held=True,
+                         why=f"{c['why']}; held until it's committed and pushed")
+        return {"repo": repo, "folder": folder, "changes": changes, "unread": compared["unread"],
+                "branch": git["branch"], "commit": git["commit"], "upstream": git["upstream"], "ahead": git["ahead"],
+                "gated": gated, "uncommitted": sorted({c["path"] for c in changes if not c["committed"]})}

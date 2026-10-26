@@ -61,6 +61,24 @@ WH_Gold.Warehouse/
 - A file that doesn't create an object, or defines one already defined in another file, is listed as not compared.
 - **Compare again** reads the catalog again. Closing the Compare tab forgets the comparison.
 
+### Deploy the project to the warehouse
+
+**Deploy to WH_Gold...** on the Compare tab makes the warehouse match the project, after a preview. It reads the catalog again, so the plan is from the warehouse as it is now.
+
+- **The changes, in the order they run**: new schemas, then tables, functions, views and procedures, then drops. Each says what it does and whether its file is committed. Pick one to see the exact T-SQL that runs.
+- **What a deploy can do**:
+  - an object only in the project is created from its file;
+  - a changed view, procedure or function is applied with `CREATE OR ALTER`;
+  - a table that only gains NULL columns at its end gets `ALTER TABLE ... ADD`, and its rows keep their data;
+  - an object only in the warehouse can be dropped, but a drop is **never ticked for you**.
+- **What it won't do**: change a column's type or nullability, remove a column, or add one that's NOT NULL or not last. Those would rebuild the table, so the deploy says so and doesn't offer them: write that change as a script and run it yourself.
+- **A file runs only its own object.** A change is offered only when its file is one batch that defines that object and nothing else: a table's file only `CREATE TABLE` with its columns, a schema's only `CREATE SCHEMA`. A file with another batch after `GO` (a `DROP` or `TRUNCATE`, say), another statement, or `CREATE TABLE ... AS SELECT` isn't offered, and says why. Keep one object per file, as Import writes them.
+- **Each change is checked first** by the same engine check as any warehouse change (see [Changing the warehouse](#changing-the-warehouse)). A change it would refuse, such as a procedure that commits, isn't offered, and says why.
+- **Test and Prod deploy only what's in Git**: every change's file tracked by Git and the same as the last commit (a file Git ignores counts as not committed), and the branch pushed. The engine holds back any other change when it plans the deploy, so the page can't offer it. Dev deploys the files as they are on this PC, and says which aren't committed. In Prod, or a workspace with no environment, you type the warehouse's name.
+- **Each change runs on its own**, as a confirmed warehouse change in its own transaction, in order. The deploy stops at the first that fails and lists what went in, what failed and why, and what didn't run. Each change is recorded in the audit log like any warehouse change: who, which warehouse and how many rows, never the SQL.
+- Afterwards the explorer and the comparison are read again.
+- **Warehouse changes** in Settings › Advanced › SQL queries turns deploys off too.
+
 ## Explorer
 
 The left side lists the warehouse's schemas, and in each its **Tables**, **Views**, **Stored procedures** and **Functions**, read from the warehouse's own catalog views (`sys.objects`, `sys.columns`, `sys.types`). Listing runs two catalog queries in Fabric, so it uses a little capacity: it starts by itself once you have confirmed a run on that warehouse this session, otherwise **List objects** asks first.
@@ -183,6 +201,7 @@ How a run works underneath (states, limits, what is refused): [Running SQL queri
 | WH-10 | Changes to a warehouse (DDL, DML, EXEC) after a preview and confirm, in every environment; Prod asks you to type the warehouse's name | This release |
 | WH-08 | Messages and a quick chart (several result sets come with scripts) | Done |
 | WH-11 | The warehouse as files in Fabric's Git layout: Import, edit, New object | Done |
-| WH-12 | Compare the project with the warehouse, object by object | This release |
+| WH-12 | Compare the project with the warehouse, object by object | Done |
+| WH-13 | Deploy the project to the warehouse after a preview: create, CREATE OR ALTER, add NULL columns, drops never ticked; Test and Prod from Git only | This release |
 
-Next: deploy with a preview (WH-13) and the estimated plan (WH-09). Later stages (loading and managing data, Snowflake) follow the same pattern: a mockup first, then one change per feature.
+Next: the estimated plan (WH-09). Later stages (loading and managing data, Snowflake) follow the same pattern: a mockup first, then one change per feature.

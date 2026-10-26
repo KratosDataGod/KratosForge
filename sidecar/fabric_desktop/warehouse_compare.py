@@ -153,3 +153,129 @@ def compare(project: dict[tuple[str, str, str], dict[str, str]],
         out.append(row)
     order = {"changed": 0, "only_project": 1, "only_warehouse": 2, "same": 3}
     return sorted(out, key=lambda r: (order[r["state"]], r["schema"].lower(), r["name"].lower()))
+
+
+# ---- deploy (WH-13): the changes that make the warehouse match the project
+
+_DROP_WORD = {"table": "TABLE", "view": "VIEW", "procedure": "PROCEDURE", "function": "FUNCTION", "schema": "SCHEMA"}
+_ORDER = {("create", "schema"): 0, ("create", "table"): 1, ("add_columns", "table"): 1, ("create", "function"): 2,
+          ("alter", "function"): 2, ("create", "view"): 3, ("alter", "view"): 3, ("create", "procedure"): 4,
+          ("alter", "procedure"): 4, ("drop", "procedure"): 5, ("drop", "view"): 6, ("drop", "function"): 7,
+          ("drop", "table"): 8, ("drop", "schema"): 9}
+_LEADING_CREATE = re.compile(r"^((?:\s|--[^\n]*\n|/\*.*?\*/)*)CREATE\s+(?:OR\s+ALTER\s+)?(VIEW|PROC|PROCEDURE|FUNCTION)\b",
+                             re.IGNORECASE | re.DOTALL)
+ONE_DEFINITION = ("the file holds more than the object's own CREATE (another batch after GO), so a deploy doesn't "
+                  "offer it: keep one object per file")
+ONE_TABLE = ("the file holds more than CREATE TABLE with its columns (another statement, or AS SELECT), so a deploy "
+             "doesn't offer it: keep one table per file")
+REBUILD = ("Changing a column's type or nullability, removing a column or adding one that isn't NULL or isn't last "
+           "would rebuild the table, so a deploy doesn't offer it. Write that change as a script and run it yourself.")
+
+
+def _quote(name: str) -> str:
+    return "[" + name.replace("]", "]]") + "]"
+
+
+def _full(o: dict[str, Any]) -> str:
+    return _quote(o["name"]) if o["kind"] == "schema" else f"{_quote(o['schema'])}.{_quote(o['name'])}"
+
+
+def batches(text: str) -> list[str]:
+    """The script's batches, split on GO lines outside strings and comments, leaving out batches
+    with nothing but comments and spacing."""
+    out, start = [], 0
+    for m in _TOKEN.finditer(text):
+        if m.group("go"):
+            out.append(text[start:m.start()])
+            start = m.end()
+    out.append(text[start:])
+    return [b.strip("\n") for b in out if tokens(b)]
+
+
+def _one_definition(kind: str, text: str) -> str | None:
+    """The script when it is one batch that only defines one object of ``kind``, else None. T-SQL
+    makes CREATE VIEW, PROCEDURE and FUNCTION the only statement of its batch, so one batch is enough
+    for those. A table is only CREATE TABLE name (columns); a schema only CREATE SCHEMA name, with an
+    optional AUTHORIZATION: nothing that copies, removes or changes data rides along."""
+    parts = batches(text)
+    if len(parts) != 1:
+        return None
+    t = tokens(parts[0])
+    if kind in ("view", "procedure", "function"):
+        return parts[0] if _LEADING_CREATE.match(parts[0]) else None
+    if t[:2] != ["create", kind] or kind not in ("table", "schema"):
+        return None
+    i = 2
+    while i + 1 < len(t) and t[i + 1] == ".":  # schema.name
+        i += 2
+    if kind == "schema":
+        rest = t[i + 1:]
+        return parts[0] if not rest or (len(rest) == 2 and rest[0] == "authorization") else None
+    if i + 1 >= len(t) or t[i + 1] != "(":
+        return None
+    depth = 0
+    for j in range(i + 1, len(t)):
+        depth += {"(": 1, ")": -1}.get(t[j], 0)
+        if depth == 0:
+            return parts[0] if j == len(t) - 1 else None
+    return None
+
+
+def _as_create_or_alter(text: str) -> str | None:
+    m = _LEADING_CREATE.match(text)
+    return None if not m else f"{m.group(1)}CREATE OR ALTER {m.group(2).upper()}" + text[m.end():]
+
+
+def _added_columns(warehouse: str, project: str) -> list[tuple[str, str]] | None:
+    """The columns a table only gains, at its end and NULL, as [(name, spec)], or None when the change
+    is anything else (that would rebuild the table)."""
+    w, p = columns(warehouse), columns(project)
+    if w is None or p is None or not set(w) <= set(p):
+        return None
+    if any(w[c][1].lower() != p[c][1].lower() for c in w) or list(p)[: len(w)] != list(w):
+        return None
+    new = [p[c] for c in list(p)[len(w):]]
+    for _, spec in new:
+        words = spec.lower().split()
+        if "null" not in words or ("not" in words and words[words.index("null") - 1] == "not") or "identity" in spec.lower():
+            return None
+    return new or None
+
+
+def deploy_plan(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The changes, in the order a deploy runs them, from compare() rows. Each is {kind, schema, name,
+    path, action (create, alter, add_columns, drop), sql, ticked, offered, why}. A drop is offered but
+    never ticked; a change that would rebuild a table isn't offered. A file's script is offered only
+    when it is one batch that only defines its object (_one_definition), so nothing else in the file
+    runs with it."""
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        base = {"kind": r["kind"], "schema": r["schema"], "name": r["name"], "path": r.get("path", ""),
+                "detail": r.get("detail") or []}
+        own = _one_definition(r["kind"], r["project_text"]) if r["state"] in ("only_project", "changed") else None
+        if r["state"] in ("only_project", "changed") and r["kind"] != "table" and own is None:
+            out.append({**base, "action": "create" if r["state"] == "only_project" else "alter", "sql": "",
+                        "ticked": False, "offered": False, "why": ONE_DEFINITION})
+        elif r["state"] == "only_project" and own is None:
+            out.append({**base, "action": "create", "sql": "", "ticked": False, "offered": False, "why": ONE_TABLE})
+        elif r["state"] == "only_project":
+            out.append({**base, "action": "create", "sql": own, "ticked": True, "offered": True,
+                        "why": "new" if r["kind"] != "table" else "new table, empty"})
+        elif r["state"] == "only_warehouse":
+            out.append({**base, "action": "drop", "sql": f"DROP {_DROP_WORD[r['kind']]} {_full(r)};", "ticked": False,
+                        "offered": True, "why": "only in the warehouse. Drops are never ticked for you."})
+        elif r["state"] == "changed" and r["kind"] in ("view", "procedure", "function"):
+            sql = _as_create_or_alter(own)
+            out.append({**base, "action": "alter", "sql": sql or "", "ticked": bool(sql), "offered": bool(sql),
+                        "why": "definition changes" if sql else "the file doesn't start with CREATE, so it can't be applied"})
+        elif r["state"] == "changed" and r["kind"] == "table":
+            new = _added_columns(r["warehouse_text"], r["project_text"])
+            sql = "\n".join(f"ALTER TABLE {_full(r)} ADD {_quote(n)} {spec};" for n, spec in new) if new else ""
+            out.append({**base, "action": "add_columns", "sql": sql, "ticked": bool(new), "offered": bool(new),
+                        "why": (f"new nullable column{'s' if len(new) > 1 else ''} {', '.join(n for n, _ in new)}; existing rows "
+                                "keep their data") if new else REBUILD})
+        elif r["state"] == "changed":
+            out.append({**base, "action": "alter", "sql": "", "ticked": False, "offered": False,
+                        "why": "a schema can't be changed, only created or dropped"})
+    out.sort(key=lambda c: (_ORDER.get((c["action"], c["kind"]), 10), c["schema"].lower(), c["name"].lower()))
+    return out

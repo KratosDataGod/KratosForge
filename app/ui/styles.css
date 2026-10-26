@@ -671,6 +671,27 @@ h2.flush { margin: 0; }
 .wh-cmp-line.none { background: repeating-linear-gradient(135deg, transparent 0 6px, rgba(0,0,0,.04) 6px 12px); }
 .wh-cmp-actions { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-top: 1px solid var(--border); font-size: 12px; }
 .warehouse-page .sql-main > .wh-cmp { margin-top: 0; }
+/* WH-13: deploy the project to the warehouse */
+.dialog:has(.wh-dep-body) { max-width: 1000px; }
+.wh-dep { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.wh-dep p { margin: 0; }
+.wh-dep-body { display: flex; gap: 12px; min-height: 280px; max-height: 52vh; }
+.wh-dep-list { width: 380px; flex: none; overflow: auto; border: 1px solid var(--border); border-radius: 4px; font-size: 13px; }
+.wh-dep-head, .wh-dep-preview-head { padding: 8px 12px; font-weight: 600; color: var(--text-2); border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.wh-dep-item { display: flex; gap: 8px; align-items: flex-start; padding: 6px 12px; }
+.wh-dep-item.on { background: var(--accent-soft, #e9eef7); }
+.wh-dep-item input { margin-top: 3px; }
+.wh-dep-item.off .wh-dep-verb { color: var(--muted); }
+.wh-dep-what { display: flex; flex-direction: column; gap: 1px; border: 0; background: none; padding: 0; text-align: left; cursor: pointer; color: inherit; font: inherit; }
+.wh-dep-what .muted-text { font-size: 12px; }
+.wh-dep-verb { font-weight: 600; }
+.wh-dep-verb.drop { color: var(--danger); }
+.wh-dep-git { font-size: 11.5px; color: #8a4b00; font-weight: 600; }
+.wh-dep-preview { flex: 1; min-width: 0; overflow: auto; border: 1px solid var(--border); border-radius: 4px; }
+.wh-dep-sql { margin: 0; padding: 8px 12px; font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; }
+.wh-dep-warn { padding: 8px 12px; background: #fff4e5; color: #6b3a00; border-radius: 4px; font-size: 12.5px; }
+.wh-dep-results { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.wh-dep-results .ok { color: var(--success, #107c10); }
 /* WH-04: SQL from a template */
 .sqlt-dialog { display: flex; flex-direction: column; }
 .sqlt { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }

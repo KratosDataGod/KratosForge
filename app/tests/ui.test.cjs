@@ -4969,7 +4969,7 @@ test("Check for updates says what the channel has and offers an install only for
   assert.strictEqual(kind({ commit: null, latest: { commit: b } }), "local");
   const dialog = src.slice(src.indexOf("async function checkForUpdates"), src.indexOf("// ---------- What's new"));
   assert.match(dialog, /invoke\("check_for_update"\)/);
-  assert.match(dialog, /invoke\("update_app", \{ commit: latest\.commit \}\)/);
+  assert.match(dialog, /installUpdate\(latest\.commit, /);
   assert.match(dialog, /openLink\(latest\.page\)/);
   assert.match(src.slice(src.indexOf("function accountMenu"), src.indexOf("function channelLabel")), /"Check for updates".*checkForUpdates/);
 });
@@ -5069,3 +5069,34 @@ test("A kratosforge:// link only shows something", () => {
   assert.match(main, /generate_handler!\[[\s\S]*take_pending_link/);
   assert.match(main, /fn register_link_scheme\(\) \{\n    if !cfg!\(windows\) \|\| cfg!\(debug_assertions\)/);
 });
+
+// New build banner (settings.js): the startup check every 4 hours while the app is open. Only a
+// newer build shows it; a managed PC hears it's out with no install; Later hides that build only.
+test("the new build banner shows only a newer build, through the existing update check", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const fn = (name) => src.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  const ctx = {};
+  vm.runInNewContext(`${fn("updateCheckResult")}${fn("updateNotice")}; this.f = updateNotice;`, ctx);
+  const a = "5d69f21aa1b2c3d4e5f60718293a4b5c6d7e8f90", b = "a41c0e9aa1b2c3d4e5f60718293a4b5c6d7e8f90";
+  const newer = ctx.f({ commit: a, auto_update: true, latest: { commit: b, channel: "preview", page: "https://x/latest" } });
+  assert.strictEqual(newer.kind, "newer");
+  assert.strictEqual(newer.commit, b);
+  assert.match(newer.text, /a41c0e9 is out on Preview \(you're on 5d69f21\)/);
+  assert.strictEqual(ctx.f({ commit: a, auto_update: false, latest: { commit: b, channel: "stable" } }).kind, "managed");
+  assert.strictEqual(ctx.f({ commit: a, auto_update: true, latest: { commit: a, channel: "stable" } }), null);
+  assert.strictEqual(ctx.f({ commit: a, latest: { commit: null, error: "offline", channel: "stable" } }), null);
+  assert.strictEqual(ctx.f({ commit: a, auto_update: true, latest: { commit: b, refused: "older", channel: "stable" } }), null);
+  assert.strictEqual(ctx.f({ commit: null, latest: { commit: b } }), null);
+  const watch = fn("watchForUpdates");
+  assert.deepStrictEqual([...watch.matchAll(/invoke\("([a-z_]+)"/g)].map((m) => m[1]), ["check_for_update"], "no new phone-home");
+  assert.match(watch, /!updateWatchOn\(\) \|\| !previewShown\(\) \|\| !state\.commit/);
+  assert.match(src, /const UPDATE_WATCH_MS = 4 \* 60 \* 60 \* 1000;/);
+  const banner = fn("renderUpdateBanner");
+  assert.match(banner, /n\.commit === updateLater\(\)/, "Later hides that build only");
+  assert.match(banner, /installUpdate\(n\.commit/);
+  assert.match(fn("installUpdate"), /saveNotebook\(\)[\s\S]*invoke\("update_app", \{ commit \}\)/, "saves before it hands over");
+  assert.match(fn("checkForUpdates"), /installUpdate\(latest\.commit/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /scheduleUpdateWatch\(\);/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<\/header>\n  <div id="update-root"><\/div>/);
+});
+

@@ -219,30 +219,132 @@ async function checkForUpdates() {
   const install = btn("Install and restart", "arrowDownload", async () => {
     install.disabled = true;
     later.disabled = true;
-    install.lastChild.textContent = "Downloading…";
-    if (state.notebook?.dirty && !(await saveNotebook())) {
-      install.disabled = later.disabled = false;
-      install.lastChild.textContent = "Install and restart";
-      return;
-    }
-    const unlisten = await window.__TAURI__.event.listen("component-log", (e) => {
-      const m = /^progress (\d+)/.exec(e.payload);
-      if (m) install.lastChild.textContent = m[1] === "100" ? "Restarting…" : `Downloading… ${m[1]}%`;
-    });
     try {
-      await invoke("update_app", { commit: latest.commit });
-      install.lastChild.textContent = "Restarting…";  // the new build takes over
+      if (await installUpdate(latest.commit, (label) => { install.lastChild.textContent = label; })) return;
+      install.lastChild.textContent = "Install and restart";
     } catch (err) {
       text.className = "error-text";
       text.textContent = `Update to build ${short(latest.commit)} failed: ${err} You are still on ${short(report.commit)}.`;
-      install.disabled = later.disabled = false;
       install.lastChild.textContent = "Try again";
-    } finally {
-      unlisten();
     }
+    install.disabled = later.disabled = false;
   }, "tool primary");
   const later = btn("Later", null, closeDialog, "tool outline");
   show([facts, text, note], [manual, h("span", { class: "spacer" }), later, install]);
+}
+
+// Saves the open notebook, then downloads the build and hands over to it, the same checked
+// download as at startup (update_app). False when the notebook wasn't saved; throws when the
+// update failed. setLabel shows how far the download is.
+async function installUpdate(commit, setLabel) {
+  if (state.notebook?.dirty && !(await saveNotebook())) return false;
+  setLabel("Downloading…");
+  const unlisten = await window.__TAURI__.event.listen("component-log", (e) => {
+    const m = /^progress (\d+)/.exec(e.payload);
+    if (m) setLabel(m[1] === "100" ? "Restarting…" : `Downloading… ${m[1]}%`);
+  });
+  try {
+    await invoke("update_app", { commit });
+    setLabel("Restarting…");  // the new build takes over
+    return true;
+  } finally {
+    unlisten();
+  }
+}
+
+// ---------- New build banner ----------
+
+// While the app is open, the same check as Check for updates (the channel's version.json, nothing
+// else sent) every 4 hours. A newer build shows a banner below the top bar and a bell entry; Later
+// hides the banner for that build only. Off in Settings > Updates, or with preview features hidden.
+const UPDATE_WATCH_OFF = "fd.updatewatch.off";
+const UPDATE_WATCH_LATER = "fd.updatewatch.later";
+const UPDATE_WATCH_MS = 4 * 60 * 60 * 1000;
+const updateWatch = { timer: null, notice: null, checkedAt: null, busy: false };
+
+function updateWatchOn() {
+  try { return localStorage.getItem(UPDATE_WATCH_OFF) !== "1"; } catch { return true; }
+}
+
+// What the banner says about a check_for_update report: null unless the channel has a newer build.
+// A PC whose organization rolls out builds hears it's out but gets no install.
+function updateNotice(report) {
+  const result = updateCheckResult(report);
+  if (result.kind !== "newer" && result.kind !== "managed") return null;
+  const short = (c) => c.slice(0, 7);
+  const channel = report.latest.channel === "preview" ? "Preview" : "Stable";
+  return {
+    kind: result.kind, commit: report.latest.commit, page: report.latest.page || "",
+    title: result.kind === "newer" ? "A new KratosForge build is ready." : `Build ${short(report.latest.commit)} is out.`,
+    text: result.kind === "newer"
+      ? `Build ${short(report.latest.commit)} is out on ${channel} (you're on ${short(report.commit)}). Restarting saves your open notebook and stops running cells.`
+      : "Your organization rolls out KratosForge updates, so ask IT when it reaches you.",
+  };
+}
+
+function scheduleUpdateWatch() {
+  clearTimeout(updateWatch.timer);
+  updateWatch.timer = setTimeout(watchForUpdates, UPDATE_WATCH_MS);
+}
+
+async function watchForUpdates() {
+  scheduleUpdateWatch();
+  if (!updateWatchOn() || !previewShown() || !state.commit) return;
+  let report;
+  try {
+    report = await invoke("check_for_update");
+  } catch {
+    return;  // offline or no Python: the next check tries again, and Check for updates says why
+  }
+  updateWatch.checkedAt = new Date();
+  updateWatch.notice = updateNotice(report);
+  const n = updateWatch.notice;
+  if (n && !activity.items.some((i) => i.id === `update:${n.commit}`)) {
+    logActivity({ id: `update:${n.commit}`, status: "update", notice: true, update: true,
+      title: n.kind === "newer" ? `Update ready: build ${n.commit.slice(0, 7)}` : n.title, text: n.text });
+  }
+  renderUpdateBanner();
+}
+
+function updateLater() {
+  try { return localStorage.getItem(UPDATE_WATCH_LATER) || ""; } catch { return ""; }
+}
+
+function renderUpdateBanner() {
+  const root = document.getElementById("update-root");
+  if (!root) return;
+  const n = updateWatch.notice;
+  if (!n || !updateWatchOn() || !previewShown() || n.commit === updateLater()) {
+    if (root.childElementCount) { root.replaceChildren(); placeFabricView(); }
+    return;
+  }
+  const later = () => {
+    try { localStorage.setItem(UPDATE_WATCH_LATER, n.commit); } catch { /* hidden until the app restarts */ }
+    updateWatch.notice = null;
+    renderUpdateBanner();
+  };
+  const text = h("div", { class: "grow" }, h("b", {}, n.title), " ", n.text);
+  const actions = [];
+  if (n.page) actions.push(btn("Release notes", null, () => openLink(n.page), "tool link small"));
+  if (n.kind === "newer") {
+    const restart = btn("Restart to update", "arrowDownload", async () => {
+      restart.disabled = true;
+      try {
+        if (await installUpdate(n.commit, (label) => { restart.lastChild.textContent = label; })) return;
+        restart.lastChild.textContent = "Restart to update";
+      } catch (err) {
+        text.replaceChildren(h("b", { class: "error-text" }, `Update to build ${n.commit.slice(0, 7)} failed: ${err}`),
+          " You are still on this build. Check for updates in the account menu can try again.");
+        restart.lastChild.textContent = "Try again";
+      }
+      restart.disabled = false;
+    }, "tool primary small");
+    actions.push(btn("Later", null, later, "tool outline small"), restart);
+  } else {
+    actions.push(btn("Dismiss", null, later, "tool outline small"));
+  }
+  root.replaceChildren(h("div", { class: "update-banner", role: "status" }, icon("arrowDownload", 18), text, ...actions));
+  placeFabricView();
 }
 
 // ---------- What's new ----------
@@ -600,6 +702,15 @@ async function renderSettings() {
           try { localStorage.setItem(UPDATE_SPLASH_OFF, e.target.checked ? "0" : "1"); } catch { /* kept for this start */ }
           render();
         } }), h("span", {}, updateSplashOn() ? "On" : "Off"))),
+    preview("updateBanner", settingRow("Tell me when a new build is out",
+      "While KratosForge is open, checks your channel's version file every 4 hours, the same check as at startup; nothing else is sent. "
+        + (updateWatch.checkedAt ? `Last checked ${updateWatch.checkedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.` : "Not checked yet since this start."),
+      h("label", { class: "switch" }, h("input", { type: "checkbox", checked: updateWatchOn() ? true : null,
+        onchange: (e) => {
+          try { localStorage.setItem(UPDATE_WATCH_OFF, e.target.checked ? "0" : "1"); } catch { /* kept for this start */ }
+          renderUpdateBanner();
+          render();
+        } }), h("span", {}, updateWatchOn() ? "On" : "Off")))),
     h("div", { class: "row" }, btn("Check for updates", "sync", checkForUpdates, "tool link small"),
       btn("What's new in this build", "rocket", () => showWhatsNew(true), "tool link small"),
       btn("Show the update splash", "rocket", () => showUpdateSplash(true), "tool link small")));

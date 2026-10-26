@@ -203,6 +203,28 @@ def test_the_past_time_hint_never_lets_anything_but_one_read_through(query):
     assert verdicts[0].kind != "read_only" or len(verdicts) > 1 and verdicts[1].kind != "read_only", verdicts
 
 
+def test_a_read_at_a_past_time_runs_with_allow_changes_ticked():
+    (v,) = warehouse.verdicts("SELECT TOP (100) *\nFROM [dbo].[FactSales]\nOPTION (FOR TIMESTAMP AS OF '2026-10-20T10:00:00.000');\n",
+                              writes=True)
+    assert v.kind == "read_only", v
+
+
+@pytest.mark.parametrize("query", [
+    "DELETE FROM dbo.FactSales OPTION (FOR TIMESTAMP AS OF '2026-10-20T10:00:00')",
+    "SELECT * INTO dbo.copy FROM dbo.t OPTION (FOR TIMESTAMP AS OF '2026-10-20T10:00:00')",
+])
+def test_the_past_time_hint_on_a_change_is_still_a_change(query):
+    assert [v.kind for v in warehouse.verdicts(query, writes=True)] == ["warehouse_write"]
+
+
+@pytest.mark.parametrize("query", [
+    "GRANT SELECT ON dbo.t TO [x] OPTION (FOR TIMESTAMP AS OF '2026-10-20T10:00:00')",
+    "SELECT 1 OPTION (FOR TIMESTAMP AS OF @when)",
+])
+def test_the_past_time_hint_on_a_change_never_hides_a_refusal(query):
+    assert warehouse.verdicts(query, writes=True)[0].kind == "fabric_mutation"
+
+
 def test_outside_reads_are_refused():
     v = warehouse.verdicts("SELECT * FROM OPENQUERY(srv, 'SELECT 1')")
     assert v[0].kind != "read_only"

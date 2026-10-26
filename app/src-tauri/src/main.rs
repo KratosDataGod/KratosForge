@@ -17,6 +17,7 @@ mod deep_link;
 mod engine_patch;
 mod exe_name;
 mod policy_file;
+mod policy_trust;
 mod replies;
 mod update_guard;
 mod vscode_link;
@@ -70,13 +71,23 @@ fn policy_allows_updates(text: &str) -> bool {
 /// folder holding the files of this build's `build-*` release, copied unchanged, for networks that
 /// can't reach GitHub. Used only with `"auto_update": false`, since only then is the engine one
 /// known build; its version.json must still name this build (check_engine_build) and the zip must
-/// match its checksum.
+/// match its checksum. Those checks come from the same folder, so the folder is trusted only as far
+/// as the policy file: it is read from policy.json itself (never the per-user last good copy), and
+/// only when a standard user couldn't have written that file or its folder (policy_trust).
 fn engine_mirror() -> Option<String> {
-    let text = policy_text();
+    let dir = std::env::var_os("ProgramData")?;
+    let file = PathBuf::from(dir).join("FabricDesktop").join("policy.json");
+    let text = std::fs::read_to_string(&file).ok()?;
     if policy_allows_updates(&text) {
         return None;
     }
-    policy_engine_url(&text)
+    let url = policy_engine_url(&text)?;
+    if !policy_trust::admin_only(&file) {
+        eprintln!("engine_download_url ignored: {} isn't administrators' only, so the engine comes from GitHub",
+                  file.display());
+        return None;
+    }
+    Some(url)
 }
 
 /// `engine_download_url` when it is an https address with a host name and nothing else that could

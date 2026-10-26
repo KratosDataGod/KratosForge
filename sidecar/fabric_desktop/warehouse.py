@@ -22,10 +22,12 @@ refused, before anything is sent: BEGIN TRAN, COMMIT and ROLLBACK (the run is th
 USE (another database), GRANT, REVOKE and DENY (permissions belong in Fabric), COPY INTO (loading
 files comes with data loading), CREATE, ALTER or DROP DATABASE, and OPENROWSET, OPENQUERY and
 OPENDATASOURCE. Also refused: dynamic SQL (EXEC of a string or a variable, sp_executesql), since
-what it runs can't be checked first; EXECUTE AS and REVERT; and roles, users and ALTER
-AUTHORIZATION. Every batch is checked by its text for these, procedure and function bodies
-included, since a procedure the change creates could be called by the same script; a batch sqlglot
-can't read in full then runs as written. A procedure already in the warehouse runs as it was
+what it runs can't be checked first (EXEC of a module named by a variable too); EXECUTE AS and
+REVERT; and roles, users and AUTHORIZATION. Every batch is checked by its text for these words,
+anywhere outside comments, strings and quoted names, procedure and function bodies included, since
+a procedure the change creates could be called by the same script; procedure names are checked
+with brackets and quotes unwrapped. A batch sqlglot can't read is refused, unless it defines a
+procedure, function, view or trigger. A procedure already in the warehouse runs as it was
 written; the page says so. Every batch runs on one connection in one transaction: committed once
 all of them succeeded, rolled back when one fails or the run is stopped, so a failed change keeps
 nothing.
@@ -59,27 +61,31 @@ PROGRESS_SECONDS = 0.25
 LOGIN_TIMEOUT_S = 60
 _OUTSIDE = {"openrowset", "openquery", "opendatasource"}
 _GO = re.compile(r"^[ \t]*GO[ \t]*;?[ \t]*$", re.IGNORECASE | re.MULTILINE)
-_COMMENTS_AND_TEXT = re.compile(r"--[^\n]*|/\*.*?\*/|N?'(?:[^']|'')*'|\[[^\]]*\]|\"[^\"]*\"", re.DOTALL)
+_COMMENTS_AND_TEXT = re.compile(r"--[^\n]*|/\*.*?\*/|N?'(?:[^']|'')*'", re.DOTALL)
+_QUOTED_NAME = re.compile(r"\[((?:[^\]]|\]\])*)\]|\"((?:[^\"]|\"\")*)\"")
 _DEFINES = re.compile(r"^\s*(?:CREATE|ALTER|CREATE\s+OR\s+ALTER)\s+(PROC|PROCEDURE|FUNCTION|TRIGGER|VIEW)\b\s*([^\s(]*)",
                       re.IGNORECASE)
-# What a change may never do, looked for in each batch's text with comments, strings and quoted
-# names taken out, procedure and function bodies included (they run the same way when called).
-# Words that start a statement count at the script's start, after ; or a line break, or after
-# AS, BEGIN, ELSE or THEN; the rest count anywhere.
-_START = r"(?:^|;|\n|\bAS\b|\bBEGIN\b|\bELSE\b|\bTHEN\b)\s*"
+# What a change may never do, looked for in each batch's text with comments and strings taken out,
+# procedure and function bodies included (they run the same way when called). The words are looked
+# for with quoted names taken out too, so a column called [User] is fine; the procedure names with
+# quoted names unwrapped, so [sys].[sp_executesql] is still sp_executesql.
 _TRANSACTION = "the run is one transaction the app commits: leave out BEGIN TRAN, COMMIT and ROLLBACK"
 _PERMISSIONS = "permissions, roles and users are managed in Fabric"
-_NEVER = [(re.compile(p, re.IGNORECASE), why) for p, why in (
+_DYNAMIC = "it runs SQL made from text, which can't be checked before it runs"
+_NEVER_WORDS = [(re.compile(p, re.IGNORECASE), why) for p, why in (
     (r"\b(?:BEGIN\s+TRAN(?:SACTION)?|BEGIN\s+DISTRIBUTED|COMMIT|ROLLBACK|SAVE\s+TRAN(?:SACTION)?)\b", _TRANSACTION),
-    (r"\bEXEC(?:UTE)?\s*\(|\bEXEC(?:UTE)?\s+@\w+\b(?!\s*=)|\bsp_executesql\b",
-     "it runs SQL made from text, which can't be checked before it runs"),
+    (r"\bEXEC(?:UTE)?\s*\(|\bEXEC(?:UTE)?\s+(?:@\w+\s*=\s*)?@\w+\b(?!\s*=)", _DYNAMIC),
     (r"\bEXEC(?:UTE)?\s+AS\b|\bREVERT\b|\bSETUSER\b", "it runs as someone else; it runs as you"),
-    (r"\b(?:CREATE|ALTER|DROP)\s+(?:ROLE|USER|LOGIN|APPLICATION\s+ROLE)\b|\bALTER\s+AUTHORIZATION\b|"
-     r"\bsp_(?:add|drop)(?:srv)?rolemember\b|\bsp_(?:add|drop)user\b", _PERMISSIONS),
-    (_START + r"(?:GRANT|REVOKE|DENY)\b", _PERMISSIONS),
-    (_START + r"USE\b", "USE switches to another database: open that warehouse instead"),
-    (_START + r"COPY\s+INTO\b", "COPY INTO loads files, which comes with loading data"),
+    (r"\b(?:GRANT|REVOKE|DENY|AUTHORIZATION)\b|\b(?:CREATE|ALTER|DROP)\s+(?:ROLE|USER|LOGIN|APPLICATION\s+ROLE)\b",
+     _PERMISSIONS),
+    (r"\bUSE\b", "USE switches to another database: open that warehouse instead"),
+    (r"\bCOPY\s+INTO\b", "COPY INTO loads files, which comes with loading data"),
     (r"\b(?:CREATE|ALTER|DROP)\s+DATABASE\b", "a database is created, changed or removed in Fabric"),
+)]
+_NEVER_NAMES = [(re.compile(p, re.IGNORECASE), why) for p, why in (
+    (r"\bsp_executesql\b", _DYNAMIC),
+    (r"\bsp_(?:add|drop)(?:srv)?rolemember\b|\bsp_(?:add|drop)user\b|\bsp_(?:add|drop)role\b|\bsp_changedbowner\b",
+     _PERMISSIONS),
 )]
 SQL_COPT_SS_ACCESS_TOKEN = 1256
 
@@ -162,16 +168,19 @@ def _change_verdicts(query: str) -> list[sql_policy.Verdict]:
     out: list[sql_policy.Verdict] = []
     for batch in parts:
         n = len(out) + 1
-        bare = _COMMENTS_AND_TEXT.sub(" ", batch)
-        outside = next((f for f in _OUTSIDE if re.search(rf"\b{f}\b", bare, re.IGNORECASE)), "")
+        text = _COMMENTS_AND_TEXT.sub(" ", batch)
+        bare = _QUOTED_NAME.sub(" ", text)
+        names = _QUOTED_NAME.sub(lambda m: (m.group(1) if m.group(1) is not None else m.group(2)), text)
+        outside = next((f for f in _OUTSIDE if re.search(rf"\b{f}\b", names, re.IGNORECASE)), "")
         if outside:
             out.append(sql_policy.Verdict(n, "fabric_mutation", f"{outside.upper()} reads outside the warehouse"))
             continue
-        never = next((why for rule, why in _NEVER if rule.search(bare)), "")
+        never = next((why for rule, why in _NEVER_WORDS if rule.search(bare)), "") or next(
+            (why for rule, why in _NEVER_NAMES if rule.search(names)), "")
         if never:
             out.append(sql_policy.Verdict(n, "fabric_mutation", never))
             continue
-        defines = _DEFINES.match(bare)
+        defines = _DEFINES.match(names)
         if defines:  # its body was checked above; sqlglot can't read most bodies, so it isn't parsed
             out.append(sql_policy.Verdict(n, "warehouse_write", f"defines {defines.group(1).upper()} {defines.group(2)}"
                                           .rstrip()))
@@ -179,7 +188,8 @@ def _change_verdicts(query: str) -> list[sql_policy.Verdict]:
         try:
             statements = [st for st in sqlglot.parse(batch, read="tsql", error_level=ErrorLevel.RAISE) if st is not None]
         except ParseError:
-            out.append(sql_policy.Verdict(n, "warehouse_write", "couldn't be read in full: it runs as written"))
+            out.append(sql_policy.Verdict(n, "fabric_mutation", "it couldn't be read as T-SQL, so it can't be checked; "
+                                                                 "a procedure or function definition can be"))
             continue
         for st in statements:
             out.append(_change_verdict(len(out) + 1, st))

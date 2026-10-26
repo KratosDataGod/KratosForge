@@ -1033,13 +1033,20 @@ async function renderMonitor() {
     pipelines.error ? `Pipeline runs not shown: they couldn't be read (${pipelines.error.replace(/\.$/, "")})` : "",
     fabricPipelineRunNote(fabricPipelines),
   ].filter(Boolean).join(" · ");
-  // The Fabric pipeline scan runs in the background: draw Runs again when it's done.
+  // The Fabric pipeline scan runs in the background: ask only for it until it's done, then draw Runs again.
   clearTimeout(monitorPage.fabricPipelinesTimer);
-  if (fabricPipelines?.pending) {
-    monitorPage.fabricPipelinesTimer = setTimeout(() => {
-      if (state.view === "monitor" && monitorPage.panel === "runs") { monitorPage.refreshing = true; render(); }
+  const wait = monitorPage.fabricPipelinesWait = (monitorPage.fabricPipelinesWait || 0) + 1;  // a newer draw takes over
+  const onRuns = () => wait === monitorPage.fabricPipelinesWait && state.view === "monitor" && monitorPage.panel === "runs";
+  const waitForScan = () => {
+    monitorPage.fabricPipelinesTimer = setTimeout(async () => {
+      if (!onRuns()) return;
+      const out = await rpc("fabric_pipeline_runs", {}).catch(() => ({ pending: false }));
+      if (!onRuns()) return;
+      if (out.pending) waitForScan();
+      else { monitorPage.refreshing = true; render(); }
     }, 2500);
-  }
+  };
+  if (fabricPipelines?.pending) waitForScan();
   const rows = [
     ...(meta.runs || []).map((r) => ({
       at: r.started_at, status: r.status, activity: r.entity, kind: `Metadata run${r.backfill ? ` · backfill ${r.backfill}` : ""}`,

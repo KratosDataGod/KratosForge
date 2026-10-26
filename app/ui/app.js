@@ -2831,6 +2831,7 @@ function startMain() {
       render();
       trackFabricJobs();
       checkFreshness();
+      scheduleUpdateWatch();  // settings.js: the new build banner, every 4 hours while open
       // After an update the engine lives in a new folder: point this PC's scheduled runs at it.
       rpc("sync_pc_schedules").then((r) => r.error && toast(`Scheduled runs on this PC: ${friendlyError(r.error).text}`, true)).catch(() => {});
     }, "Could not start the Python sidecar");

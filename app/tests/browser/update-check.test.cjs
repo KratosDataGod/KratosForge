@@ -64,3 +64,55 @@ test("nothing newer says so and offers only the release page; a managed PC never
     await app.close();
   }
 });
+
+// New build banner: the 4-hourly check finds a newer build while the app is open.
+test("a newer build while the app is open shows the banner; Later hides it, Restart installs it", { skip }, async () => {
+  const app = await openApp();
+  try {
+    const { page } = app;
+    await withShell(page, { commit: NEWER, channel: "preview", tag: "preview", page: PAGE });
+    await page.evaluate((c) => { state.commit = c; localStorage.removeItem(UPDATE_WATCH_LATER); return watchForUpdates(); }, RUNNING);
+    await page.waitForSelector(".update-banner >> text=A new KratosForge build is ready.");
+    assert.match(await page.textContent(".update-banner"), /a41c0e9 is out on Preview \(you're on 5d69f21\)/);
+    assert.ok(await page.evaluate((n) => activity.items.some((i) => i.id === `update:${n}` && i.status === "update"), NEWER));
+    await page.click(".update-banner >> text=Later");
+    assert.strictEqual(await page.$(".update-banner"), null);
+    // The same build again stays hidden; Restart to update hands it to the updater.
+    await page.evaluate(() => watchForUpdates());
+    assert.strictEqual(await page.$(".update-banner"), null);
+    await page.evaluate(() => { localStorage.removeItem(UPDATE_WATCH_LATER); return watchForUpdates(); });
+    await page.click(".update-banner >> text=Restart to update");
+    await page.waitForFunction(() => window.__fdShellCalls.some((c) => c.cmd === "update_app"));
+    assert.deepStrictEqual(await shellCalls(page, "update_app"), [{ commit: NEWER }]);
+    assert.deepStrictEqual(app.errors, []);
+  } finally {
+    await app.close();
+  }
+});
+
+test("the banner says ask IT on a managed PC, and stays off when nothing is newer or it's turned off", { skip }, async () => {
+  const app = await openApp();
+  try {
+    const { page } = app;
+    await withShell(page, { commit: NEWER, channel: "stable", tag: "stable", page: PAGE }, false);
+    await page.evaluate((c) => { state.commit = c; localStorage.removeItem(UPDATE_WATCH_LATER); return watchForUpdates(); }, RUNNING);
+    await page.waitForSelector(".update-banner >> text=ask IT");
+    assert.strictEqual(await page.$(".update-banner >> text=Restart to update"), null);
+    await page.click(".update-banner >> text=Dismiss");
+    assert.strictEqual(await page.$(".update-banner"), null);
+
+    await withShell(page, { commit: RUNNING, channel: "stable", tag: "stable", page: PAGE });
+    await page.evaluate(() => watchForUpdates());
+    assert.strictEqual(await page.$(".update-banner"), null);
+
+    await withShell(page, { commit: NEWER, channel: "stable", tag: "stable", page: PAGE });
+    const before = (await shellCalls(page, "check_for_update")).length;
+    await page.evaluate(() => { localStorage.setItem(UPDATE_WATCH_OFF, "1"); return watchForUpdates(); });
+    assert.strictEqual((await shellCalls(page, "check_for_update")).length, before, "turned off, it doesn't check");
+    assert.strictEqual(await page.$(".update-banner"), null);
+    assert.deepStrictEqual(await shellCalls(page, "update_app"), []);
+    assert.deepStrictEqual(app.errors, []);
+  } finally {
+    await app.close();
+  }
+});

@@ -101,6 +101,7 @@ const PREVIEW_FEATURES = {
   warehouse: "Warehouse queries",
   sqlResultViews: "Messages and Chart on the SQL page",
   bestPractices: "Best practices: checks and templates",
+  updateBanner: "New build banner",
 };
 
 function previewShown() {

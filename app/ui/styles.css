@@ -1548,6 +1548,8 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
 .git-op { gap: 6px; }
 .callout.git-warn { background: #fff4e5; color: #6b3d00; margin-bottom: 0; }
 .callout.git-warn.small { padding: 8px 10px; font-size: 13px; }
+.git-hunk-head { gap: 6px; }
+.git-hunk-head .tool.small { padding: 1px 8px; }
 .git-platform { display: flex; flex-direction: column; gap: 12px; max-width: 1000px; }
 .git-platform h2 { margin: 0 0 4px; font-size: 15px; }
 .git-platform-item { padding: 6px 0; border-top: 1px solid var(--border, #f0f0f0); }

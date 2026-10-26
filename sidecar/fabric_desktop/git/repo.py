@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 import difflib
+import hashlib
 import json
 import os
 import re
@@ -335,6 +336,39 @@ class Repository:
                 target = (self.root / r)
                 if target.is_file() or target.is_symlink():
                     target.unlink()
+        return self.status()
+
+    def apply_hunk(self, path: str, hunk: str, action: str, confirm: bool = False) -> dict[str, Any]:
+        """Stages, unstages or discards one block of changed lines (a hunk, as ``diff`` shows it, by
+        its id). The block is applied only if the file's changes still hold it exactly; otherwise
+        nothing changes. Discard changes the file on disk, so it needs ``confirm``."""
+        rel = self.rel(path)
+        if action not in ("stage", "unstage", "discard"):
+            raise GitError("Choose to stage, unstage or discard the block.", kind="invalid")
+        if self._try("ls-files", "--unmerged", "--", rel):
+            raise GitError("Fix the conflicts in this file first, then stage the whole file.", kind="conflict")
+        cached = action == "unstage"
+        if not cached and not self._try("ls-files", "--error-unmatch", "--", rel):
+            raise GitError("Git doesn't track this file yet, so it has no blocks to choose from. Stage or discard "
+                           "the whole file.", kind="invalid")
+        raw = cli.run(self.root, ["diff", *(["--cached"] if cached else []), "-U3", "--no-ext-diff", "--no-color",
+                                  "--", rel], read_only=True).stdout
+        if re.search(rb"^(Binary files .* differ|GIT binary patch)$", raw, re.M):
+            raise GitError("This file isn't text, so it can only be staged or discarded whole.", kind="invalid")
+        head, chunks = _split_patch(raw)
+        chunk = next((c for c in chunks
+                      if (p := parse_unified(c.decode("utf-8", "replace"))["hunks"]) and p[0]["id"] == hunk), None)
+        if chunk is None:
+            raise GitError("This file changed since its changes were shown, so nothing was changed. Look at the "
+                           "changes again, then choose the block.", kind="stale")
+        if action == "discard" and not confirm:
+            p = parse_unified(chunk.decode("utf-8", "replace"))
+            n = p["added"] + p["removed"]
+            raise confirm_needed(f"This throws away {n} changed line{'s' if n != 1 else ''} in {rel}. The rest of the "
+                                 "file stays as it is. This can't be undone.")
+        args = ["apply", *(["--cached"] if action != "discard" else []), *(["--reverse"] if action != "stage" else []),
+                "--whitespace=nowarn", "-"]
+        cli.run(self.root, args, input=head + chunk)
         return self.status()
 
     # ---- commits
@@ -757,4 +791,25 @@ def parse_unified(text: str) -> dict[str, Any]:
             old += 1
             new += 1
         count += 1
+    for hk in hunks:  # names the block, so staging it later can check it is still the one shown
+        hk["id"] = hunk_id(hk)
     return {"hunks": hunks, "added": added, "removed": removed, "truncated": truncated}
+
+
+def hunk_id(hk: dict[str, Any]) -> str:
+    text = "\n".join([hk["header"], *(line["kind"] + line["text"] for line in hk["lines"])])
+    return hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()[:16]
+
+
+def _split_patch(raw: bytes) -> tuple[bytes, list[bytes]]:
+    """A one-file patch as its header (diff --git, index, ---, +++) and its hunks, bytes as Git wrote them."""
+    head: list[bytes] = []
+    chunks: list[list[bytes]] = []
+    for line in raw.splitlines(keepends=True):
+        if line.startswith(b"@@ "):
+            chunks.append([line])
+        elif chunks:
+            chunks[-1].append(line)
+        else:
+            head.append(line)
+    return b"".join(head), [b"".join(c) for c in chunks]

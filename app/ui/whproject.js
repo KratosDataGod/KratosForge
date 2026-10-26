@@ -13,7 +13,7 @@ async function whLoadProjects() {
     const r = await rpc("wh_projects_list");
     Object.assign(whProjects, { state: "done", repos: r.repos, projects: r.projects, error: "" });
   } catch (err) {
-    Object.assign(whProjects, { state: "failed", error: friendlyError(err).text });
+    Object.assign(whProjects, { state: "failed", error: whWhy(err) });
   }
 }
 
@@ -21,6 +21,13 @@ async function whLoadProjects() {
 function whFailed(what, err) {
   const f = friendlyError(err);
   if (!f.cancelled) toast(`${what}: ${f.text}`, true);
+}
+
+// Why a call left something not loaded or not run, for the line that says so: friendlyError has no
+// text for a closed sign-in window, so it says that instead of nothing.
+function whWhy(err) {
+  const f = friendlyError(err);
+  return f.cancelled ? "The sign-in window was closed." : f.text;
 }
 
 const WH_KIND_LABELS = { schema: "Schema", table: "Table", view: "View", procedure: "Stored procedure", function: "Function" };
@@ -75,7 +82,7 @@ function whProject(ref, actions) {
     try {
       files[id] = { state: "done", data: await rpc("wh_project_files", { repo: project.repo, folder: project.folder }) };
     } catch (err) {
-      files[id] = { state: "failed", error: friendlyError(err).text };
+      files[id] = { state: "failed", error: whWhy(err) };
     }
     sqlPage.whRedraw?.();
   }
@@ -541,7 +548,7 @@ async function whProjectDeploy(ref, project) {
   for (const c of run) {
     toast(`Deploying ${results.length + 1} of ${run.length}: ${label(c)}...`);
     let status;
-    try { status = await whRunChange(ref, c.sql); } catch (err) { status = { state: "failed", error: friendlyError(err).text }; }
+    try { status = await whRunChange(ref, c.sql); } catch (err) { status = { state: "failed", error: whWhy(err) }; }
     results.push({ c, status });
     if (status.state !== "completed") break;
   }

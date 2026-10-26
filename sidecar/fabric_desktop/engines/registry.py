@@ -13,10 +13,10 @@ from typing import Any
 
 from .capabilities import EngineDescriptor
 from .contract import EngineAdapter
-from .local_python import PYTHON, PythonAdapter
+from .local_python import PYTHON, NotebookSessionsAdapter, PythonAdapter
 from .local_sql import DUCKDB, POLARS, SQLITE, DuckDBAdapter, PolarsAdapter, SQLiteAdapter
 
-REGISTRY_VERSION = "1"
+REGISTRY_VERSION = "2"
 
 LOCAL_SPARK = EngineDescriptor(
     id="local-spark", label="Apache Spark (this PC)", location="local", platform="local", billing="none",
@@ -63,11 +63,16 @@ def get(engine_id: str) -> EngineDescriptor:
     return ENGINES[engine_id]
 
 
-def adapter(engine_id: str) -> EngineAdapter:
-    """A new adapter for ``engine_id``; an error naming what's planned when it has none yet."""
+def adapter(engine_id: str, notebook_sessions: Any = None) -> EngineAdapter:
+    """A new adapter for ``engine_id``; an error naming what's planned when it has none yet.
+
+    With ``notebook_sessions`` (the app's KernelSessions), the Python engine uses the notebook's own
+    kernel instead of starting processes of its own."""
     desc = get(engine_id)
     if engine_id not in _ADAPTERS:
         raise ValueError(f"{desc.label} can't run cells in this version. {desc.planned}")
+    if engine_id == PYTHON.id and notebook_sessions is not None:
+        return NotebookSessionsAdapter(notebook_sessions)
     return _ADAPTERS[engine_id]()
 
 

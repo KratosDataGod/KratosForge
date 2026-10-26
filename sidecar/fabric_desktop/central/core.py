@@ -832,33 +832,36 @@ _PATTERN = re.compile(r"^(?:[A-Za-z0-9_.-]|\{(?:PREFIX|DOMAIN|SUBDOMAIN|ROLE|ENV
 
 
 def entra_group_naming(db: Db) -> dict[str, Any]:
-    """The platform's naming pattern for the Entra ID groups it suggests: DEFAULT_GROUP_NAMING until an admin saves one."""
-    out = json.loads(json.dumps(DEFAULT_GROUP_NAMING))
+    """The platform's naming pattern for the Entra ID groups it suggests: DEFAULT_GROUP_NAMING until an admin saves one.
+    What is stored is checked again on every read, so a value written to the table some other way never reaches
+    a script; one that fails the checks reads as the default."""
     if db.exists("config", "setting"):
         saved = db.rows(f"SELECT value FROM {db.t('config', 'setting')} WHERE name = ?", (_NAMING_SETTING,))
         if saved and saved[0].get("value"):
-            mine = json.loads(saved[0]["value"])
-            out.update({k: v for k, v in mine.items() if k in out and k != "words"})
-            out["words"].update(mine.get("words") or {})
-    return out
+            try:
+                return checked_entra_naming(json.loads(saved[0]["value"]))
+            except (PlatformError, ValueError, TypeError, AttributeError):
+                pass
+    return json.loads(json.dumps(DEFAULT_GROUP_NAMING))
 
 
-def save_entra_group_naming(db: Db, naming: dict[str, Any], by: str = "") -> dict[str, Any]:
-    """Change the naming pattern. Platform admins only. Every part stays letters, digits, -, _ or ., so a
-    name is safe in a script and in Entra's mail nickname."""
-    require_admin(db, by, "change how Entra ID groups are named")
-    out = entra_group_naming(db)
-    for k, v in (naming or {}).items():
+def checked_entra_naming(naming: dict[str, Any], base: dict[str, Any] | None = None) -> dict[str, Any]:
+    """``naming`` laid over ``base`` (the default), every part checked: letters, digits, -, _ or . only, so a
+    name is safe in a script, on a command line and in Entra's mail nickname. Raises PlatformError."""
+    out = json.loads(json.dumps(base or DEFAULT_GROUP_NAMING))
+    if not isinstance(naming, dict):
+        raise PlatformError("The group naming is a set of named parts")
+    for k, v in naming.items():
         if k not in DEFAULT_GROUP_NAMING:
             raise PlatformError(f"{k} isn't part of the group naming")
         if k == "pattern":
             v = str(v or "").strip()
-            if not _PATTERN.match(v) or "{DOMAIN}" not in v or "{ROLE}" not in v:
+            if not _PATTERN.fullmatch(v) or "{DOMAIN}" not in v or "{ROLE}" not in v:
                 raise PlatformError("The pattern needs {DOMAIN} and {ROLE}, and may use {PREFIX}, {SUBDOMAIN} and {ENV} "
                                     "with letters, digits, -, _ or . between them (no spaces)")
         elif k == "prefix":
             v = str(v or "").strip()
-            if v and not _GROUP_PART.match(v):
+            if v and not _GROUP_PART.fullmatch(v):
                 raise PlatformError("The prefix is up to 40 letters, digits, -, _ or .")
         elif k == "case":
             if v not in ("upper", "lower", "as_typed"):
@@ -868,10 +871,10 @@ def save_entra_group_naming(db: Db, naming: dict[str, Any], by: str = "") -> dic
                 raise PlatformError("domain_part is id or name")
         elif k == "words":
             words = dict(out["words"])
-            for role, word in (v or {}).items():
+            for role, word in dict(v or {}).items():
                 if role not in ENTRA_ROLES:
                     raise PlatformError(f"{role} isn't a domain role")
-                if not _GROUP_PART.match(str(word or "")):
+                if not _GROUP_PART.fullmatch(str(word or "")):
                     raise PlatformError(f"The word for {role} is up to 40 letters, digits, -, _ or .")
                 words[role] = str(word)
             v = words
@@ -880,6 +883,13 @@ def save_entra_group_naming(db: Db, naming: dict[str, Any], by: str = "") -> dic
             if any(r not in ENTRA_ROLES for r in v):
                 raise PlatformError(f"roles_off names roles from: {', '.join(ENTRA_ROLES)}")
         out[k] = v
+    return out
+
+
+def save_entra_group_naming(db: Db, naming: dict[str, Any], by: str = "") -> dict[str, Any]:
+    """Change the naming pattern. Platform admins only."""
+    require_admin(db, by, "change how Entra ID groups are named")
+    out = checked_entra_naming(naming or {}, entra_group_naming(db))
     _upsert(db, "config", "setting", "name", {"name": _NAMING_SETTING, "value": json.dumps(out)})
     _audit(db, by, "save Entra group naming", _NAMING_SETTING, out)
     db.commit()
@@ -940,7 +950,7 @@ def link_entra_group(db: Db, domain: str, role: str, env: str, group_id: str, gr
     role, env = _entra_key(role, env)
     _require_domain_owner(db, did, by, "link groups to its roles")
     gid = str(group_id or "").strip().lower()
-    if not _GUID.match(gid):
+    if not _GUID.fullmatch(gid):
         raise PlatformError("A group is linked by its object ID, like 00000000-0000-0000-0000-000000000000 "
                             "(Microsoft Entra admin center > Groups > the group > Object ID)")
     name = re.sub(r"[\x00-\x1f]", "", str(group_name or "")).strip()[:256] or gid

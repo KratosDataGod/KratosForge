@@ -247,3 +247,32 @@ def test_no_single_quote_of_any_kind_leaves_a_powershell_string(platform, q):
         assert "Start-Process" in script
         assert "Start-Process" not in _code_outside_literals(script)
     assert entra._ps(payload) == f"'x{q}{q}; Start-Process calc; {q}{q}'"
+
+
+@pytest.mark.parametrize("bad", ['{"pattern": "{DOMAIN}&calc&{ROLE}"}', '{"prefix": "SG|calc"}', '{"words": {"readers": "R^x"}}',
+                                 '{"pattern": "{DOMAIN}-{ROLE}\\nx"}', '["not", "a", "dict"]', "not json"])
+def test_naming_written_around_the_platform_reads_as_the_default(platform, bad):
+    with platform._db() as db:  # someone with write access to the catalog's table, not through save
+        core._upsert(db, "config", "setting", "name", {"name": "entra_group_naming", "value": bad})
+        db.commit()
+    assert platform.call("entra_group_naming") == core.DEFAULT_GROUP_NAMING
+    assert _plan(platform)[0]["suggested"] == "SG-FAB-SALES-DOMAIN-ADMINS"
+
+
+def test_a_name_with_shell_characters_never_reaches_a_script(platform):
+    rows = _plan(platform)
+    rows[7]["suggested"] = "SG-FAB-SALES-READERS&calc&-PROD"  # as if naming had slipped past the checks
+    rows[8]["suggested"] = "SG-FAB-SALES-VIEWERS-PROD\n"
+    for r in rows:
+        r["fabric_domain"] = "0f6a7b1c-0000-4000-8000-000000000001"
+    spaces = {"prod": [{"id": "22222222-2222-2222-2222-222222222222", "name": "Sales Prod"}]}
+    for script in (entra.powershell(rows, [OWNER]), entra.az(rows, [OWNER]), entra.roles(rows, spaces)):
+        assert "calc" not in script and "VIEWERS-PROD" not in script
+        assert "Do these by hand: these names have characters" in script and "Data readers, Prod" in script
+    assert entra.powershell(rows, [OWNER]).count("@{ Name = ") == 8
+    assert not entra.scriptable("A\n") and not entra.scriptable("x" * 257) and entra.scriptable("SG-FAB_x.y")
+
+
+def test_object_ids_match_whole(svc):
+    with pytest.raises(ValueError, match="object ID"):
+        svc.platform_entra_link("sales", "readers", "prod", GID + "\nx")

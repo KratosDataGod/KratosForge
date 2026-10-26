@@ -34,10 +34,11 @@ class EntraGroupsMixin:
 
     def _entra_naming(self) -> dict[str, Any]:
         try:
-            return self._catalog().call("entra_group_naming")  # type: ignore[attr-defined]
-        except (LookupError, core.PlatformError) as exc:  # a UDF_Platform older than this app: the default
+            # Checked here too: whatever the platform answers, only letters, digits, -, _ and . reach a script.
+            return core.checked_entra_naming(self._catalog().call("entra_group_naming"))  # type: ignore[attr-defined]
+        except (LookupError, core.PlatformError, TypeError, AttributeError) as exc:  # an older UDF_Platform, or a bad value
             _log.info("entra_group_naming: %s", describe(exc))
-            return dict(core.DEFAULT_GROUP_NAMING)
+            return core.checked_entra_naming({})
 
     def _entra_links(self, domain: str) -> list[dict[str, Any]]:
         try:
@@ -125,7 +126,7 @@ class EntraGroupsMixin:
                             envs: list[str] | None = None) -> dict[str, Any]:
         """Use an existing group for a role (in ``env``, or each of ``envs``). Saved in the platform's catalog."""
         gid = str(group_id or "").strip()
-        if not _GUID.match(gid):
+        if not _GUID.fullmatch(gid):
             raise ValueError("Paste the group's object ID, like 00000000-0000-0000-0000-000000000000")
         if not group_name:
             group_name = self._entra_group_name(gid)
@@ -186,7 +187,7 @@ class EntraGroupsMixin:
         hold a Fabric role. A pasted object ID finds that group."""
         text = str(query or "").strip()
         select = "id,displayName,description,securityEnabled,mailEnabled,groupTypes"
-        if _GUID.match(text):
+        if _GUID.fullmatch(text):
             g = self._graph(f"/groups/{text}", {"$select": select})
             return [self._entra_group(g)] if g else []
         if len(text) < 2:

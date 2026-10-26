@@ -28,7 +28,15 @@ from . import core
 ENV_NAMES = {"dev": "Dev", "test": "Test", "prod": "Prod"}
 _MAIL_BAD = re.compile(r"[^a-z0-9_.-]")
 _EMAIL = re.compile(r"^[A-Za-z0-9._%+'-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
-_SAFE = re.compile(r"^[A-Za-z0-9_.-]+$")
+_SAFE = re.compile(r"[A-Za-z0-9_.-]+")  # IDs that go into a URL; always fullmatch
+# A suggested name a script may carry. On Windows az is az.cmd, so cmd.exe reads its arguments and & | ^ would
+# run commands: a name is written into a script only when it is these characters alone, and the OData and
+# JMESPath filters that name it ('...') are safe for the same reason. Anything else is left for by hand.
+_NAME_OK = re.compile(r"[A-Za-z0-9_.-]{1,256}")
+
+
+def scriptable(name: str) -> bool:
+    return bool(_NAME_OK.fullmatch(str(name or "")))
 FABRIC = "https://api.fabric.microsoft.com/v1"
 
 
@@ -151,6 +159,14 @@ def _comment(text: str) -> str:
     return _LINE_BREAKS.sub(" ", str(text))
 
 
+def _unscriptable(rows: list[dict[str, Any]], mark: str = "#") -> list[str]:
+    bad = [r for r in rows if not r["linked"] and not scriptable(r["suggested"])]
+    if not bad:
+        return []
+    return [f"{mark} Do these by hand: these names have characters a script can't carry safely (only letters, digits, -, _ and .): "
+            + "; ".join(f"{_comment(r['label'])}" for r in bad) + ". Check the platform's group naming."]
+
+
 def _header(rows: list[dict[str, Any]], by: str, at: str, mark: str = "#") -> list[str]:
     domain = rows[0]["domain"] if rows else ""
     new = [r for r in rows if not r["linked"]]
@@ -160,12 +176,12 @@ def _header(rows: list[dict[str, Any]], by: str, at: str, mark: str = "#") -> li
     if linked:
         out.append(f"{mark} Linked to groups you already have, so not created here: "
                    + "; ".join(f"{_comment(r['linked']['group_name'])} ({r['label']})" for r in linked) + ".")
-    return out
+    return out + _unscriptable(rows, mark)
 
 
 def powershell(rows: list[dict[str, Any]], owners: list[str], by: str = "", at: str = "") -> str:
     """Microsoft Graph PowerShell that creates the suggested groups that don't exist yet."""
-    new = [r for r in rows if not r["linked"] and _SAFE.match(r["suggested"])]
+    new = [r for r in rows if not r["linked"] and scriptable(r["suggested"])]
     lines = _header(rows, by, at) + [
         "# Run as a Groups Administrator (or anyone allowed to create security groups).",
         "# Needs the Microsoft.Graph module: Install-Module Microsoft.Graph -Scope CurrentUser",
@@ -193,7 +209,7 @@ def powershell(rows: list[dict[str, Any]], owners: list[str], by: str = "", at: 
 
 def az(rows: list[dict[str, Any]], owners: list[str], by: str = "", at: str = "") -> str:
     """The same with the Azure CLI, for bash (Cloud Shell, WSL, macOS or Linux)."""
-    new = [r for r in rows if not r["linked"] and _SAFE.match(r["suggested"])]
+    new = [r for r in rows if not r["linked"] and scriptable(r["suggested"])]
     lines = ["#!/usr/bin/env bash"] + _header(rows, by, at) + [
         "# Run as a Groups Administrator after az login (--allow-no-subscriptions works without an Azure subscription).",
         "set -euo pipefail",
@@ -251,7 +267,7 @@ def roles(rows: list[dict[str, Any]], workspaces: dict[str, list[dict[str, str]]
     """PowerShell that gives the groups their Fabric roles, once they exist. ``workspaces`` maps each
     environment to the domain's workspaces there [{id, name}]. Uses the Azure CLI's sign-in for a Fabric
     token; a domain role needs a Fabric administrator, a workspace role an admin of that workspace."""
-    lines = _header(rows, by, at)[:1] + [
+    lines = _header(rows, by, at)[:1] + _unscriptable(rows) + [
         "# Gives each group its Fabric role. Run after the groups exist, signed in with az login.",
         "# Domain roles need a Fabric administrator; workspace roles need an admin of each workspace.",
         "# A group that already has a role in a workspace is reported and left as it is.",
@@ -281,6 +297,8 @@ def roles(rows: list[dict[str, Any]], workspaces: dict[str, list[dict[str, str]]
         name = r["linked"]["group_name"] if r["linked"] else r["suggested"]
         ref = f"(Get-GroupId {_ps(name)} {_ps(gid)})"
         kind = (r.get("fabric") or [None, None])
+        if not r["linked"] and not scriptable(name):
+            continue  # named in the header's by-hand line: never handed to az
         if kind[0] == "domain":
             if not r["fabric_domain"]:
                 manual.append(f"# {_comment(r['domain'])} isn't in Fabric yet: give {_comment(name)} the {kind[1]} role there once it is.")
@@ -291,7 +309,7 @@ def roles(rows: list[dict[str, Any]], workspaces: dict[str, list[dict[str, str]]
                       f'  $body = @{{ type = {_ps(kind[1])}; principals = @(@{{ id = $gid; type = "Group" }}) }} | ConvertTo-Json -Depth 4',
                       f'  Invoke-RestMethod -Method Post -Uri "{FABRIC}/admin/domains/{r["fabric_domain"]}/roleAssignments/bulkAssign" -Headers $headers -ContentType "application/json" -Body $body | Out-Null',
                       f'  Write-Host {_ps(name + " is " + kind[1] + " of " + r["domain"])}',
-                      "}", ""] if _SAFE.match(r["fabric_domain"]) else []
+                      "}", ""] if _SAFE.fullmatch(r["fabric_domain"]) else []
         elif kind[0] == "workspace":
             spaces = workspaces.get(r["env"]) or []
             if not spaces:
@@ -300,7 +318,7 @@ def roles(rows: list[dict[str, Any]], workspaces: dict[str, list[dict[str, str]]
                 continue
             lines += [f"# {_comment(r['label'])}: {_comment(name)}", f"$gid = {ref}"]
             lines += [f"Grant-Workspace {_ps(w['id'])} {_ps(name + ' in ' + w.get('name', w['id']))} $gid {_ps(kind[1])}"
-                      for w in spaces if _SAFE.match(w["id"])]
+                      for w in spaces if _SAFE.fullmatch(w["id"])]
             lines.append("")
         elif r["role"] == "readers":
             manual.append(f"# {_comment(name)}: in each {ENV_NAMES.get(r['env'], '')} lakehouse that holds {_comment(r['domain'])} data products, "

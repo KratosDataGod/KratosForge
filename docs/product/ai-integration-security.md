@@ -47,6 +47,7 @@ In `%ProgramData%\FabricDesktop\policy.json`:
 | `integrations` | `false` turns external AI integration off on this PC; the switch in Settings shows "Set by your organization" |
 | `integrations_max_permissions` | The permission categories clients may be granted, for example `["READ_METADATA", "READ_DATA"]`; anything else can't be granted |
 | `integrations_http` | `false` stops the local HTTP API being switched on |
+| `integrations_editors` | `false` stops VS Code windows being paired to run notebooks (the editor channel, docs/vscode.md) |
 | `integrations_extensions` | The extensions that may be turned on, by id, for example `["notebook-outline"]`; `[]` allows none |
 
 A value of the wrong type fails closed: integrations off, or no permission categories, or no HTTP, or no extensions, or every receipt part left out. A policy file that exists but can't be read is replaced by the last copy that could be read, or, with no copy, applies all of those at once, and both the integrations and the rest of KratosForge read it through the same loader (`app_settings.read_policy()`).

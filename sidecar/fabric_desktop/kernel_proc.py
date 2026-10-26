@@ -125,7 +125,7 @@ class ProcessKernel:
             "token": token or _no("tokens"),
             "load_notebook": load_notebook or _no("other notebooks"),
             "variable_libraries": variable_libraries or (lambda name: None),
-            "write_guard": lambda name, schema, table: lakehouse.write_guard(name, schema, table) if lakehouse.write_guard else None,
+            "write_guard": self._write_refusal,
             "proof_options": lambda: (self._proof_options or (lambda: {}))(),
         }
         self._proof_options = proof_options
@@ -137,6 +137,9 @@ class ProcessKernel:
         self.widget_values: dict[str, str] = {}
         self.resources_dir = ""  # passed with each cell (notebook.Kernel.resources_dir)
         self.onelake_writes = "local_first"  # likewise (notebook.Kernel.onelake_writes)
+        # Set before each cell (service._start_cell): asked before every write the cell makes, as for
+        # a cell a paired VS Code window started (editor_service.py). None for the app's own cells.
+        self.write_check: Callable[[str, str, str], str | None] | None = None
         self._lock = threading.Lock()  # one process at a time: starting, stopping
         self._proc: subprocess.Popen[str] | None = None
         self._tree: _Tree | None = None  # the process and everything its cells start
@@ -338,10 +341,15 @@ class ProcessKernel:
             raise RuntimeError(err.get("message") or err.get("type"))
         return slot.get("result")
 
+    def _write_refusal(self, name: str, schema: str, table: str) -> str | None:
+        reason = lakehouse.write_guard(name, schema, table) if lakehouse.write_guard else None
+        check = self.write_check
+        return reason or (check(name, schema, table) if check else None)
+
     def _sync_lakehouse(self) -> None:
         """Pass the engine's attached lakehouse (and whether tables are guarded) to the kernel."""
         a = lakehouse._attached
-        guard = lakehouse.write_guard is not None
+        guard = lakehouse.write_guard is not None or self.write_check is not None
         context = None if a is None else {
             "workspace_id": a.workspace_id, "lakehouse_id": a.lakehouse_id, "name": a.name,
             "workspace_name": a.workspace_name, "work_dir": str(a.work_dir),
@@ -470,6 +478,7 @@ class ProcessKernel:
 
     def run(self, code: str) -> dict[str, Any]:
         """Run ``code`` to the end and return its result (scheduled runs, tests)."""
+        self.write_check = None  # the app's own run
         snap = self.start(code)
         version = -1
         outputs = snap.get("outputs") or []

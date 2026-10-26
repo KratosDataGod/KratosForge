@@ -1,7 +1,8 @@
-"""Read-only queries on a Fabric Data warehouse or SQL analytics endpoint (SQL-004, Preview).
+"""Queries and changes on a Fabric Data warehouse or SQL analytics endpoint (SQL-004, WH-10, Preview).
 
 The SQL page's run has ``target="warehouse"``: the query runs in Fabric, in the warehouse, as the
-person who signed in, so it uses capacity. This stage only reads:
+person who signed in, so it uses capacity. A run reads unless it was started to change the
+warehouse (below):
 
 - **One query that reads.** The T-SQL is read with sqlglot before anything connects. It must be a
   single statement that only reads (sql_policy.classify): no SELECT ... INTO, no EXEC, no
@@ -14,6 +15,16 @@ person who signed in, so it uses capacity. This stage only reads:
   (``resolve``), never taken from the caller, and must be a ``*.datawarehouse.fabric.microsoft.com``
   host, so the Azure SQL token is never sent anywhere else.
 
+A **change** (WH-10) is a run started with ``writes``: the person saw what it changes and
+confirmed it, naming the warehouse (sql_exec.py checks the name against Fabric's). Its script may be
+several statements, in batches split at ``GO`` lines like SSMS: DDL, DML, EXEC, variables. Still
+refused, before anything is sent: BEGIN TRAN, COMMIT and ROLLBACK (the run is the transaction),
+USE (another database), GRANT, REVOKE and DENY (permissions belong in Fabric), COPY INTO (loading
+files comes with data loading), CREATE, ALTER or DROP DATABASE, and OPENROWSET, OPENQUERY and
+OPENDATASOURCE. A batch sqlglot can't read in full (a procedure's body, say) is checked by its text
+for the same words. Every batch runs on one connection in one transaction: committed once all of
+them succeeded, rolled back when one fails or the run is stopped, so a failed change keeps nothing.
+
 The run is a process of its own (sql_worker.py, like a lakehouse run), so Stop and the time limit
 end that process, which closes the connection; Fabric stops the query when its connection closes.
 The worker asks the engine for the token (``call`` ``warehouse_token``) and keeps it in memory only.
@@ -23,6 +34,7 @@ from __future__ import annotations
 
 import datetime as dt
 import decimal
+import re
 import struct
 import time
 from dataclasses import dataclass
@@ -41,6 +53,25 @@ BATCH_ROWS = 65_536
 PROGRESS_SECONDS = 0.25
 LOGIN_TIMEOUT_S = 60
 _OUTSIDE = {"openrowset", "openquery", "opendatasource"}
+_GO = re.compile(r"^[ \t]*GO[ \t]*;?[ \t]*$", re.IGNORECASE | re.MULTILINE)
+_COMMENTS_AND_TEXT = re.compile(r"--[^\n]*|/\*.*?\*/|N?'(?:[^']|'')*'|\[[^\]]*\]|\"[^\"]*\"", re.DOTALL)
+_DEFINES = re.compile(r"^\s*(?:CREATE|ALTER|CREATE\s+OR\s+ALTER)\s+(PROC|PROCEDURE|FUNCTION|TRIGGER|VIEW)\b\s*([^\s(]*)",
+                      re.IGNORECASE)
+# Words a change may never use: transaction control anywhere, the rest where a statement starts
+# (the script's start, after ; or a line break, or after BEGIN, ELSE or THEN).
+_NEVER = re.compile(r"\b(BEGIN\s+TRAN(?:SACTION)?|BEGIN\s+DISTRIBUTED|COMMIT|ROLLBACK|SAVE\s+TRAN(?:SACTION)?)\b|"
+                    r"(?:^|;|\n|\bBEGIN\b|\bELSE\b|\bTHEN\b)\s*(USE|GRANT|REVOKE|DENY|COPY\s+INTO|"
+                    r"(?:CREATE|ALTER|DROP)\s+DATABASE)\b", re.IGNORECASE)
+_NEVER_WHY = {"BEGIN": "the run is one transaction the app commits: leave out BEGIN TRAN, COMMIT and ROLLBACK",
+              "COMMIT": "the run is one transaction the app commits: leave out BEGIN TRAN, COMMIT and ROLLBACK",
+              "ROLLBACK": "the run is one transaction the app commits: leave out BEGIN TRAN, COMMIT and ROLLBACK",
+              "SAVE": "the run is one transaction the app commits: leave out BEGIN TRAN, COMMIT and ROLLBACK",
+              "USE": "USE switches to another database: open that warehouse instead",
+              "GRANT": "permissions are managed in Fabric", "REVOKE": "permissions are managed in Fabric",
+              "DENY": "permissions are managed in Fabric",
+              "COPY": "COPY INTO loads files, which comes with loading data",
+              "CREATE": "a database is created or removed in Fabric", "ALTER": "a database is changed in Fabric",
+              "DROP": "a database is created or removed in Fabric"}
 SQL_COPT_SS_ACCESS_TOKEN = 1256
 
 
@@ -76,8 +107,17 @@ def resolve(fabric: Any, ref: dict[str, Any]) -> Endpoint:
     return Endpoint(server, database)
 
 
-def verdicts(query: str) -> list[sql_policy.Verdict]:
-    """What each statement of ``query`` is. Only a single statement that reads is read_only."""
+def batches(query: str) -> list[str]:
+    """The script's batches, split at ``GO`` lines as SSMS does; empty ones are left out."""
+    return [b.strip("\n") for b in _GO.split(query.replace("\r\n", "\n")) if b.strip()]
+
+
+def verdicts(query: str, writes: bool = False) -> list[sql_policy.Verdict]:
+    """What each statement of ``query`` is. Without ``writes`` only a single statement that reads
+    is read_only. With ``writes`` each statement of each batch is read_only, warehouse_write, or
+    refused (fabric_mutation) for the reasons in this module's docstring."""
+    if writes:
+        return _change_verdicts(query)
     try:
         statements = [s for s in sqlglot.parse(query, read="tsql", error_level=ErrorLevel.RAISE) if s is not None]
     except ParseError as exc:
@@ -89,18 +129,75 @@ def verdicts(query: str) -> list[sql_policy.Verdict]:
         if v.statement > 1:
             v = sql_policy.Verdict(v.statement, "fabric_mutation", "a warehouse run is one query at a time")
         elif v.kind == "read_only":
-            into = st.find(exp.Into)
-            outside = next((n.name.lower() for n in st.find_all(exp.Anonymous) if n.name.lower() in _OUTSIDE), "")
-            if into is not None:
-                v = sql_policy.Verdict(1, "fabric_mutation", "SELECT ... INTO creates a table in the warehouse")
-            elif outside:
-                v = sql_policy.Verdict(1, "fabric_mutation", f"{outside.upper()} reads outside the warehouse")
-            else:
-                v = sql_policy.Verdict(1, "read_only", "reads the warehouse's tables")
+            refused = _reads_outside(st)
+            v = (sql_policy.Verdict(1, "fabric_mutation", refused) if refused
+                 else sql_policy.Verdict(1, "read_only", "reads the warehouse's tables"))
         else:
             v = sql_policy.Verdict(v.statement, "fabric_mutation", f"{st.key.upper()} isn't a query that only reads")
         out.append(v)
     return out
+
+
+def _reads_outside(st: exp.Expression) -> str:
+    """Why a statement that reads isn't only reading the warehouse, or ""."""
+    if st.find(exp.Into) is not None:
+        return "SELECT ... INTO creates a table in the warehouse"
+    outside = next((n.name.lower() for n in st.find_all(exp.Anonymous) if n.name.lower() in _OUTSIDE), "")
+    return f"{outside.upper()} reads outside the warehouse" if outside else ""
+
+
+def _change_verdicts(query: str) -> list[sql_policy.Verdict]:
+    parts = batches(query)
+    if not parts:
+        raise ValueError("The query is empty.")
+    out: list[sql_policy.Verdict] = []
+    for batch in parts:
+        n = len(out) + 1
+        bare = _COMMENTS_AND_TEXT.sub(" ", batch)
+        outside = next((f for f in _OUTSIDE if re.search(rf"\b{f}\b", bare, re.IGNORECASE)), "")
+        if outside:
+            out.append(sql_policy.Verdict(n, "fabric_mutation", f"{outside.upper()} reads outside the warehouse"))
+            continue
+        defines = _DEFINES.match(bare)
+        if defines:  # a procedure's or function's body runs when it's called, so only its definition is checked
+            out.append(sql_policy.Verdict(n, "warehouse_write", f"defines {defines.group(1).upper()} {defines.group(2)}"
+                                          .rstrip()))
+            continue
+        never = _NEVER.search(bare)
+        if never:
+            word = (never.group(1) or never.group(2)).split()[0].upper()
+            out.append(sql_policy.Verdict(n, "fabric_mutation", _NEVER_WHY[word]))
+            continue
+        try:
+            statements = [st for st in sqlglot.parse(batch, read="tsql", error_level=ErrorLevel.RAISE) if st is not None]
+        except ParseError:
+            out.append(sql_policy.Verdict(n, "warehouse_write", "couldn't be read in full: it runs as written"))
+            continue
+        for st in statements:
+            out.append(_change_verdict(len(out) + 1, st))
+    return out
+
+
+def _change_verdict(n: int, st: exp.Expression) -> sql_policy.Verdict:
+    if isinstance(st, (exp.Select, exp.Union, exp.Intersect, exp.Except, exp.Subquery, exp.Values)):
+        if st.find(exp.Into) is not None:
+            return sql_policy.Verdict(n, "warehouse_write", "SELECT ... INTO creates a table")
+        return sql_policy.Verdict(n, "read_only", "reads the warehouse's tables")
+    if isinstance(st, (exp.Declare, exp.Set)):
+        return sql_policy.Verdict(n, "read_only", "sets a variable for this run")
+    target = st.find(exp.Table)
+    name = ".".join(p for p in (target.catalog, target.db, target.name) if p) if target is not None else ""
+    if target is not None and target.catalog:
+        return sql_policy.Verdict(n, "fabric_mutation", f"{name} is in another database: open that warehouse to "
+                                                         "change it")
+    if isinstance(st, exp.Command):
+        verb = str(st.this).upper()
+    elif isinstance(st, (exp.Create, exp.Drop)):
+        verb = f"{st.key.upper()} {str(st.args.get('kind') or '').upper()}".strip()
+    else:
+        verb = {"truncatetable": "TRUNCATE", "execute": "EXEC", "ifblock": "IF", "whileblock": "WHILE"}.get(
+            st.key, st.key.upper())
+    return sql_policy.Verdict(n, "warehouse_write", f"{verb} {name}".strip() + " changes the warehouse")
 
 
 def connect(server: str, database: str, token: str, login_timeout: int = LOGIN_TIMEOUT_S) -> Any:
@@ -117,43 +214,73 @@ def connect(server: str, database: str, token: str, login_timeout: int = LOGIN_T
 
 
 def run(job: dict[str, Any], token: Callable[[], str], say: Callable[..., None]) -> None:
-    """Run the job's one read query and stream its rows into the job's Arrow IPC file."""
+    """Run the job's query and stream the last result's rows into the job's Arrow IPC file. A job
+    with ``writes`` runs its batches in one transaction and commits it once they all succeeded."""
     import pyarrow as pa
-    import pyarrow.ipc as ipc
 
-    stop = sql_policy.refused(verdicts(job["query"]), ("read_only",))
+    writes = bool(job.get("writes"))
+    checked = verdicts(job["query"], writes=writes)
+    stop = sql_policy.refused(checked, ("read_only", "warehouse_write") if writes else ("read_only",))
     if stop is not None:
         say("error", kind="permission", permission=stop.kind, statement=stop.statement,
-            message=f"Statement {stop.statement} was refused ({stop.reason}), so nothing was sent. A warehouse run "
-                    "only reads.")
+            message=f"Statement {stop.statement} was refused ({stop.reason}), so nothing was sent. "
+                    + ("A warehouse change can't do this." if writes else "A warehouse run only reads."))
         return
     wh = job["warehouse"]
     con = connect(wh["server"], wh["database"], token())
+    committed = False
     try:
         if job.get("time_limit_s"):
             con.timeout = int(job["time_limit_s"])  # the driver cancels the query too, as well as Stop ending the process
-        say("started", permission="read_only")
+        say("started", permission=sql_policy.strongest(checked))
         cursor = con.cursor()
-        cursor.execute(job["query"])
         out = Path(job["out"])
-        rows, batches, last = 0, [], time.monotonic()
-        chunk = cursor.fetchmany(BATCH_ROWS) if cursor.description else []
-        schema = _schema(cursor.description, chunk) if cursor.description else pa.schema([])
-        with ipc.new_file(str(out), schema) as writer:
-            while chunk:
-                writer.write_batch(_batch(schema, chunk))
-                rows += len(chunk)
-                batches.append(len(chunk))
-                if time.monotonic() - last >= PROGRESS_SECONDS:
-                    say("progress", rows=rows)
-                    last = time.monotonic()
-                chunk = cursor.fetchmany(BATCH_ROWS)
-        say("done", rows=rows, batches=batches, columns=[{"name": f.name, "type": str(f.type)} for f in schema])
+        result: tuple[int, list[int], Any] | None = None
+        affected = 0
+        for batch in (batches(job["query"]) if writes else [job["query"]]):
+            cursor.execute(batch)
+            while True:
+                if cursor.description:
+                    result = _write_result(cursor, out, say)  # each result replaces the one before: the last is shown
+                elif writes and isinstance(getattr(cursor, "rowcount", -1), int) and cursor.rowcount > 0:
+                    affected += cursor.rowcount
+                if not writes or not cursor.nextset():
+                    break
+        if result is None:
+            with pa.ipc.new_file(str(out), pa.schema([])):
+                pass
+            result = (0, [], pa.schema([]))
+        if writes:
+            con.commit()
+            committed = True
+        rows, batch_rows, schema = result
+        say("done", rows=rows, batches=batch_rows, columns=[{"name": f.name, "type": str(f.type)} for f in schema],
+            **({"affected": affected, "committed": True} if writes else {}))
     finally:
         try:
-            con.rollback()
+            if not committed:
+                con.rollback()
         finally:
             con.close()
+
+
+def _write_result(cursor: Any, out: Path, say: Callable[..., None]) -> tuple[int, list[int], Any]:
+    """The cursor's current result set into ``out``: its row count, batch sizes and schema."""
+    import pyarrow.ipc as ipc
+
+    rows, sizes, last = 0, [], time.monotonic()
+    chunk = cursor.fetchmany(BATCH_ROWS)
+    schema = _schema(cursor.description, chunk)
+    with ipc.new_file(str(out), schema) as writer:
+        while chunk:
+            writer.write_batch(_batch(schema, chunk))
+            rows += len(chunk)
+            sizes.append(len(chunk))
+            if time.monotonic() - last >= PROGRESS_SECONDS:
+                say("progress", rows=rows)
+                last = time.monotonic()
+            chunk = cursor.fetchmany(BATCH_ROWS)
+    return rows, sizes, schema
 
 
 def _schema(description: Any, sample: list[Any]) -> Any:

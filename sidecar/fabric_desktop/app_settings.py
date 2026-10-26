@@ -79,6 +79,9 @@ Keys:
                      app data folder's sql-runs)
     sql_result_retention_hours  the SQL page: hours a finished query's result is kept for paging and
                      export (default 24, 0 keeps it only until the app closes, at most 168)
+    sql_warehouse_writes  the Warehouse page: false refuses every change to a warehouse (DDL, DML,
+                     EXEC), so the page only reads; IT can fix it either way (default true; each
+                     change still needs its own confirm)
     telemetry        true to send daily usage counts (telemetry.py); off unless the person turns it on,
                      and IT can fix it either way (default false)
     telemetry_connection_string  IT only: an Application Insights connection string, so usage data
@@ -151,8 +154,9 @@ SQL_RANGES: dict[str, tuple[int, int]] = {"sql_page_rows": (100, 10_000), "sql_t
                                           "sql_result_retention_hours": (0, 7 * 24)}
 DEFAULTS.update({"sql_page_rows": 1000, "sql_time_limit_minutes": 10, "sql_memory_limit_percent": 60,
                  "sql_max_concurrent": 2, "sql_temp_dir": "", "sql_result_retention_hours": 24})
-TYPES.update({key: int for key in SQL_RANGES} | {"sql_temp_dir": str})
-USER_KEYS += (*SQL_RANGES, "sql_temp_dir")
+DEFAULTS["sql_warehouse_writes"] = True
+TYPES.update({key: int for key in SQL_RANGES} | {"sql_temp_dir": str, "sql_warehouse_writes": bool})
+USER_KEYS += (*SQL_RANGES, "sql_temp_dir", "sql_warehouse_writes")
 
 # Motion and effects (app/ui/motion.js): the visual intensity level and one switch per family.
 MOTION_LEVELS = (0, 3)
@@ -190,7 +194,7 @@ NO_TENANT = "00000000-0000-0000-0000-000000000000"
 # The restrictions among DEFAULTS, and the value each takes when the policy file or that key can't
 # be read. Updates (auto_update, channel) are enforced by the shell, which reads the file itself.
 RESTRICTED: dict[str, Any] = {"allow_fabric_runs": False, "allowed_tenants": [NO_TENANT], "show_preview": False,
-                              "telemetry": False}
+                              "telemetry": False, "sql_warehouse_writes": False}
 
 
 def policy_path() -> Path:

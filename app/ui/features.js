@@ -58,6 +58,7 @@ const PREVIEW_FEATURES = {
   health: "Table health",
   model: "Semantic model",
   ossie: "Semantic models and Apache Ossie",
+  dataDictionary: "Data dictionary",
   tests: "Tests",
   xray: "Estate X-ray",
   optimize: "Optimize",

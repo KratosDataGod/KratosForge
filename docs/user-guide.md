@@ -363,6 +363,10 @@ The **Data mesh** page (it was called Metadata) is where your metadata project l
 
 Each entity page also has an **About** card (Preview): description, tags, classification, glossary terms and steward for the table and each column, saved in the catalog so anyone can write them without a Git change.
 
+### Data dictionary
+
+**Data mesh > Deploy > Semantic model** has a **Data dictionary** card (Preview): every table, column and measure of the layer's model with its description and classification from the catalog. **Export CSV** saves it to Downloads to edit in Excel; **Import descriptions** reads it back and shows every change before saving it to the catalog, as the About card does. A blank cell never erases text. **Update model** then writes the descriptions into the model. Details in [Data dictionary](data-dictionary.md).
+
 ### Approved exceptions
 
 **Data mesh > Quality > Exceptions** lists every approved exception in `exceptions.toml`: the table, the rule, the table's owner, why it was approved, who approved it, and when it ends. An exception that ends within 14 days shows a banner on Data mesh and a notice on the bell, once a day, before the save gate starts failing again. One with no end date stays in force. How to write an exception is in the [metadata guide](metadata-guide.md#6-quality-checks-quarantine-and-the-four-gates).

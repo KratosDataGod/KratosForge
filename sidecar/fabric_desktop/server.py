@@ -147,6 +147,11 @@ from .model_ossie_service import METHODS as MODEL_OSSIE_METHODS  # noqa: E402
 
 METHODS |= MODEL_OSSIE_METHODS
 
+# Semantic model tab: the data dictionary (model_dictionary_service.py).
+from .model_dictionary_service import METHODS as MODEL_DICTIONARY_METHODS  # noqa: E402
+
+METHODS |= MODEL_DICTIONARY_METHODS
+
 # Validate notebook (validate_service.py): code checks and a clean run in a fresh kernel.
 from .validate_service import METHODS as VALIDATE_METHODS  # noqa: E402
 

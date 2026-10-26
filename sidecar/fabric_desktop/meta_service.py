@@ -12,7 +12,7 @@ from typing import Any, Callable, Iterator
 
 import polars as pl
 
-from . import duties, lakehouse
+from . import app_settings, duties, lakehouse
 from .meta import keys as keys_mod
 from .meta import lineage, release
 from .meta import mesh
@@ -717,14 +717,16 @@ class MetaMixin:
     def _duties_gate(self, project: Project, source: str, target: str,
                      src: Any = None, separation: bool = True) -> tuple[list[str], list[str]]:
         """Before writing to Test or Prod: the person's workspace roles there, and with
-        ``separate_promoter = true`` on the target, that they didn't promote this version to the
-        source themselves (FD-130). Reads only; see duties.py."""
+        ``separate_promoter = true`` on the target, or the organization's ``separate_promoter_envs``
+        policy naming it, that they didn't promote this version to the source themselves (FD-130,
+        HD-030). Reads only; see duties.py."""
         cfg = project.environments.get(target, {})
         if target == "dev":
             return [], []
         errors: list[str] = []
         notes: list[str] = []
-        if cfg.get("separate_promoter") and separation:
+        by_policy = target.lower() in {str(e).lower() for e in app_settings.value("separate_promoter_envs")}
+        if (cfg.get("separate_promoter") or by_policy) and separation:
             try:
                 store = src or self._store(project, source)
                 deps = store.meta("deployments")
@@ -735,7 +737,9 @@ class MetaMixin:
             last = rows[-1] if rows else {}
             their_id, my_id = duties.recorded_object_id(last.get("receipt")), self._signed_in_object_id()
             problem = duties.separation_problem(source, target, project.version, last.get("by"),
-                                                duties.current_user(), their_id, my_id)
+                                                duties.current_user(), their_id, my_id,
+                                                rule=("separate_promoter_envs in your organization's policy" if by_policy
+                                                      else "separate_promoter in environments.toml"))
             if problem:
                 errors.append(problem)
             if last and (note := duties.separation_note(their_id, my_id)):

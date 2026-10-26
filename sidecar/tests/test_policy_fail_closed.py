@@ -270,3 +270,13 @@ def test_register_link_scheme_is_a_setting_the_shell_reads(files):
     assert app_settings.policy_problems() == []
     files({"register_link_scheme": "false"})
     assert app_settings.policy_problems()[0].startswith("register_link_scheme should be bool")
+
+
+@pytest.mark.parametrize("bad", ["prod", ["prod", 3], {"prod": True}])
+def test_a_separate_promoter_list_that_cant_be_read_covers_test_and_prod(files, bad):
+    files({"separate_promoter_envs": bad})
+    assert app_settings.load()["separate_promoter_envs"] == {"value": ["test", "prod"], "source": "policy"}
+    assert any("separate_promoter_envs" in p for p in app_settings.policy_problems())
+    files({"separate_promoter_envs": ["prod"]})
+    assert app_settings.value("separate_promoter_envs") == ["prod"]
+    assert not any("separate_promoter_envs" in p for p in app_settings.policy_problems())

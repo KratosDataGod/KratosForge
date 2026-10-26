@@ -362,7 +362,9 @@ def fabric_workloads(items: list[dict[str, Any]], *, items_obs: dict[str, Any], 
             "definition": {"workspace_id": ws, "workspace_name": it.get("workspace_name") or "", "item_id": iid,
                            "item_type": it["type"], "job_type": SUPPORTED_FABRIC_TYPES[it["type"]],
                            "url": fabric_url(ws, iid, it["type"])},
-            "capabilities": ["discoverable", "observable", "runnable", "schedulable", "cancelable"],
+            # Schedules for the Preview types wait for a live check of the job type Fabric's schedule API wants.
+            "capabilities": ["discoverable", "observable", "runnable", "cancelable"]
+            + ([] if it["type"] in PREVIEW_FABRIC_TYPES else ["schedulable"]),
             "owners": owners({}, assigned), "criticality": crit, "tags": tags,
             "deployments": [{
                 "env": None, "env_label": "",

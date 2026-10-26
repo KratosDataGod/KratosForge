@@ -407,6 +407,7 @@ def test_copy_jobs_and_dataflows_run_in_fabric_through_their_own_execute_job(svc
     rows = by_name(everything(svc))
     assert rows["cj_orders"]["kind_label"] == "Copy job" and rows["df_customers"]["kind_label"] == "Dataflow Gen2"
     assert rows["cj_orders"]["preview"] and rows["df_customers"]["preview"] and not rows["pl_load_erp"]["preview"]
+    assert "schedulable" not in rows["cj_orders"]["capabilities"] and "schedulable" in rows["pl_load_erp"]["capabilities"]
     jobs = FakeJobs()
     monkeypatch.setattr(Service, "fabric_jobs", property(lambda self: jobs))
     for item, label, effect in (("cj1", "copy job cj_orders", "It moves data"),

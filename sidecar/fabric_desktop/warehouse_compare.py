@@ -137,3 +137,76 @@ def compare(project: dict[tuple[str, str, str], dict[str, str]],
         out.append(row)
     order = {"changed": 0, "only_project": 1, "only_warehouse": 2, "same": 3}
     return sorted(out, key=lambda r: (order[r["state"]], r["schema"].lower(), r["name"].lower()))
+
+
+# ---- deploy (WH-13): the changes that make the warehouse match the project
+
+_DROP_WORD = {"table": "TABLE", "view": "VIEW", "procedure": "PROCEDURE", "function": "FUNCTION", "schema": "SCHEMA"}
+_ORDER = {("create", "schema"): 0, ("create", "table"): 1, ("add_columns", "table"): 1, ("create", "function"): 2,
+          ("alter", "function"): 2, ("create", "view"): 3, ("alter", "view"): 3, ("create", "procedure"): 4,
+          ("alter", "procedure"): 4, ("drop", "procedure"): 5, ("drop", "view"): 6, ("drop", "function"): 7,
+          ("drop", "table"): 8, ("drop", "schema"): 9}
+_LEADING_CREATE = re.compile(r"^((?:\s|--[^\n]*\n|/\*.*?\*/)*)CREATE\s+(?:OR\s+ALTER\s+)?(VIEW|PROC|PROCEDURE|FUNCTION)\b",
+                             re.IGNORECASE | re.DOTALL)
+REBUILD = ("Changing a column's type or nullability, removing a column or adding one that isn't NULL or isn't last "
+           "would rebuild the table, so a deploy doesn't offer it. Write that change as a script and run it yourself.")
+
+
+def _quote(name: str) -> str:
+    return "[" + name.replace("]", "]]") + "]"
+
+
+def _full(o: dict[str, Any]) -> str:
+    return _quote(o["name"]) if o["kind"] == "schema" else f"{_quote(o['schema'])}.{_quote(o['name'])}"
+
+
+def _as_create_or_alter(text: str) -> str | None:
+    m = _LEADING_CREATE.match(text)
+    return None if not m else f"{m.group(1)}CREATE OR ALTER {m.group(2).upper()}" + text[m.end():]
+
+
+def _added_columns(warehouse: str, project: str) -> list[tuple[str, str]] | None:
+    """The columns a table only gains, at its end and NULL, as [(name, spec)], or None when the change
+    is anything else (that would rebuild the table)."""
+    w, p = columns(warehouse), columns(project)
+    if w is None or p is None or not set(w) <= set(p):
+        return None
+    if any(w[c][1].lower() != p[c][1].lower() for c in w) or list(p)[: len(w)] != list(w):
+        return None
+    new = [p[c] for c in list(p)[len(w):]]
+    for _, spec in new:
+        words = spec.lower().split()
+        if "null" not in words or ("not" in words and words[words.index("null") - 1] == "not") or "identity" in spec.lower():
+            return None
+    return new or None
+
+
+def deploy_plan(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The changes, in the order a deploy runs them, from compare() rows. Each is {kind, schema, name,
+    path, action (create, alter, add_columns, drop), sql, ticked, offered, why}. A drop is offered but
+    never ticked; a change that would rebuild a table isn't offered."""
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        base = {"kind": r["kind"], "schema": r["schema"], "name": r["name"], "path": r.get("path", ""),
+                "detail": r.get("detail") or []}
+        if r["state"] == "only_project":
+            out.append({**base, "action": "create", "sql": r["project_text"], "ticked": True, "offered": True,
+                        "why": "new" if r["kind"] != "table" else "new table, empty"})
+        elif r["state"] == "only_warehouse":
+            out.append({**base, "action": "drop", "sql": f"DROP {_DROP_WORD[r['kind']]} {_full(r)};", "ticked": False,
+                        "offered": True, "why": "only in the warehouse. Drops are never ticked for you."})
+        elif r["state"] == "changed" and r["kind"] in ("view", "procedure", "function"):
+            sql = _as_create_or_alter(r["project_text"])
+            out.append({**base, "action": "alter", "sql": sql or "", "ticked": bool(sql), "offered": bool(sql),
+                        "why": "definition changes" if sql else "the file doesn't start with CREATE, so it can't be applied"})
+        elif r["state"] == "changed" and r["kind"] == "table":
+            new = _added_columns(r["warehouse_text"], r["project_text"])
+            sql = "\n".join(f"ALTER TABLE {_full(r)} ADD {_quote(n)} {spec};" for n, spec in new) if new else ""
+            out.append({**base, "action": "add_columns", "sql": sql, "ticked": bool(new), "offered": bool(new),
+                        "why": (f"new nullable column{'s' if len(new) > 1 else ''} {', '.join(n for n, _ in new)}; existing rows "
+                                "keep their data") if new else REBUILD})
+        elif r["state"] == "changed":
+            out.append({**base, "action": "alter", "sql": "", "ticked": False, "offered": False,
+                        "why": "a schema can't be changed, only created or dropped"})
+    out.sort(key=lambda c: (_ORDER.get((c["action"], c["kind"]), 10), c["schema"].lower(), c["name"].lower()))
+    return out

@@ -366,7 +366,7 @@ function whCompareView(ref, actions) {
       o.path ? btn("Open file", null, () => actions.open({ path: o.path }, p), "tool small") : null,
       o.state === "changed" || o.state === "only_warehouse" ? btn("Take the warehouse's version", null, () => takeWarehouse(o), "tool small",
         { title: o.state === "changed" ? `Replace ${o.path} with ${ref.name}'s version` : `Write ${whObjLabel(o)} into the project` }) : null,
-      o.state === "only_project" ? h("span", { class: "muted-text" }, "Deploy (coming next) can create it in the warehouse.") : null);
+      o.state === "only_project" ? h("span", { class: "muted-text" }, `Deploy to ${ref.name} creates it in the warehouse.`) : null);
   }
 
   async function takeWarehouse(o) {
@@ -399,10 +399,143 @@ function whCompareView(ref, actions) {
       h("h2", {}, `Compare the project with ${ref.name}${env !== "none" ? ` (${ENV_NAMES[env] || env})` : ""}`),
       h("span", { class: "muted-text" }, `${c.project.folder} · read from the warehouse catalog at ${c.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · nothing changes`),
       h("span", { class: "spacer" }),
-      btn("Compare again", "sync", () => whProjectCompare(ref, c.project), "tool outline small")),
+      btn("Compare again", "sync", () => whProjectCompare(ref, c.project), "tool outline small"),
+      ref.kind === "warehouse" ? btn(`Deploy to ${ref.name}...`, null, () => whProjectDeploy(ref, c.project), "tool primary small",
+        { title: "Preview the changes that make the warehouse match the project, then run the ones you pick" }) : null),
     h("div", { class: "wh-cmp-chips", role: "group", "aria-label": "Show" }, WH_STATES.map(([s, label]) =>
       h("button", { class: `wh-cmp-chip ${s}${c.filter === s ? " on" : ""}`, "aria-pressed": String(c.filter === s),
         onclick: () => { c.filter = s; renderQuery(); } }, `${label} ${count(s)}`))),
     r.unread.length ? h("p", { class: "muted-text wh-note" }, `Not compared: ${r.unread.slice(0, 3).map((u) => `${u.path} (${u.why})`).join("; ")}${r.unread.length > 3 ? `, and ${r.unread.length - 3} more` : ""}.`) : null,
     h("div", { class: "wh-cmp-body" }, list, pane));
+}
+
+// ---- Deploy (WH-13): make the warehouse match the project, change by change, after a preview.
+
+const WH_ACTION_WORD = { create: "CREATE", alter: "CREATE OR ALTER", add_columns: "ALTER TABLE", drop: "DROP" };
+const WH_KIND_WORD = { schema: "SCHEMA", table: "TABLE", view: "VIEW", procedure: "PROCEDURE", function: "FUNCTION" };
+
+// One confirmed warehouse change, start to finish: the final status.
+async function whRunChange(ref, sql) {
+  const whRef = { workspace_id: ref.workspace_id, item_id: ref.item_id, kind: ref.kind };
+  let status = await rpc("sql_start", { query: sql, target: "warehouse", dialect: "tsql", warehouse_ref: whRef,
+    allow: ["warehouse_write"], confirm: true, confirm_name: ref.name });
+  let wait = 150;
+  while (["queued", "running", "cancelling"].includes(status.state)) {
+    await new Promise((r) => setTimeout(r, wait));
+    wait = Math.min(1000, wait * 1.5);
+    status = await rpc("sql_status", { execution: status.id });
+  }
+  return status;
+}
+
+// Test and Prod deploy only what Git has: every change's file committed, and the commits pushed.
+function whDeployGate(env, plan, ticked) {
+  if (!["test", "prod", "none"].includes(env)) return "";
+  const dirty = ticked.filter((c) => c.git).map((c) => c.path);
+  if (dirty.length) return `${ENV_NAMES[env] || "This environment"} deploys only what's committed. Commit ${dirty.length === 1 ? dirty[0] : `${dirty.length} files`} in Source control first.`;
+  if (!plan.upstream) return `${ENV_NAMES[env] || "This environment"} deploys only what's pushed, and ${plan.branch || "this branch"} has no remote branch yet. Push it in Source control first.`;
+  if (plan.ahead) return `${ENV_NAMES[env] || "This environment"} deploys only what's pushed. Push ${plan.ahead} commit${plan.ahead === 1 ? "" : "s"} in Source control first.`;
+  return "";
+}
+
+async function whProjectDeploy(ref, project) {
+  if (!whChangesAllowed()) { toast("Warehouse changes are turned off in Settings › Advanced › SQL queries.", true); return; }
+  if (!(await warehouseRunOk(ref))) return;
+  toast(`Reading ${ref.name}'s catalog to plan the deploy...`);
+  let plan;
+  try {
+    const objects = await whScriptWarehouse(ref);
+    plan = await rpc("wh_project_deploy_plan", { repo: project.repo, folder: project.folder, objects });
+    // The engine's check on each change, before anything is sent: one it would refuse isn't offered.
+    const whRef = { workspace_id: ref.workspace_id, item_id: ref.item_id, kind: ref.kind };
+    for (const c of plan.changes.filter((x) => x.offered)) {
+      const dry = await rpc("sql_start", { query: c.sql, target: "warehouse", dialect: "tsql", warehouse_ref: whRef, allow: ["warehouse_write"], dry_run: true });
+      if (dry.refused) Object.assign(c, { offered: false, ticked: false, why: `the engine refuses it: ${dry.refused.reason}` });
+    }
+  } catch (err) {
+    toast(`Could not plan the deploy: ${String(err).replace(/^Error: /, "")}`, true);
+    return;
+  }
+  if (!plan.changes.length) { toast(`${ref.name} already matches ${project.folder}: nothing to deploy.`); return; }
+  const env = whEnv(ref);
+  const named = whNeedsName(ref);
+  const where = env === "none" ? "no environment, so it's treated like Prod" : ENV_NAMES[env] || env;
+  let picked = plan.changes.findIndex((c) => c.offered);
+  if (picked < 0) picked = 0;
+  const preview = h("div", { class: "wh-dep-preview" });
+  const gateNote = h("p", { class: "error-text wh-dep-gate", role: "alert" });
+  const devNote = h("p", { class: "muted-text small" });
+  const typed = h("input", { "aria-label": "Warehouse name", spellcheck: "false", autocomplete: "off", oninput: () => update() });
+  const go = btn("Deploy", null, () => { finish(true); closeDialog(); }, "tool danger-solid");
+  const cancel = btn("Cancel", null, () => { finish(false); closeDialog(); }, "tool outline");
+  const boxes = [];
+  const label = (c) => `${WH_ACTION_WORD[c.action]}${c.action === "add_columns" ? "" : ` ${WH_KIND_WORD[c.kind]}`} ${whObjLabel(c)}`;
+  const list = h("div", { class: "wh-dep-list" }, h("div", { class: "wh-dep-head" }, `${plan.changes.length} change${plan.changes.length === 1 ? "" : "s"}, in this order`),
+    plan.changes.map((c, i) => {
+      const box = h("input", { type: "checkbox", checked: c.ticked || null, disabled: c.offered ? null : true,
+        "aria-label": label(c), onchange: () => { c.ticked = box.checked; update(); } });
+      boxes.push(box);
+      return h("div", { class: `wh-dep-item${i === picked ? " on" : ""}${c.offered ? "" : " off"}` }, box,
+        h("button", { class: "wh-dep-what", onclick: () => { picked = i; drawPreview(); list.querySelectorAll(".wh-dep-item").forEach((el, j) => el.classList.toggle("on", j === i)); } },
+          h("span", { class: `wh-dep-verb${c.action === "drop" ? " drop" : ""}` }, `${i + 1}. ${label(c)}`),
+          h("span", { class: "muted-text" }, c.why), c.git ? h("span", { class: "wh-dep-git" }, "not committed") : null));
+    }));
+  function drawPreview() {
+    const c = plan.changes[picked];
+    preview.replaceChildren(...[h("div", { class: "wh-dep-preview-head" }, c.offered ? "What runs" : "Not offered"),
+      c.detail?.length ? h("ul", { class: "wh-cmp-detail" }, c.detail.map((d) => h("li", {}, d))) : null,
+      c.offered ? h("pre", { class: "wh-dep-sql" }, c.sql) : h("p", { class: "wh-note" }, c.why)].filter(Boolean));
+  }
+  function update() {
+    const ticked = plan.changes.filter((c) => c.offered && c.ticked);
+    const gate = whDeployGate(env, plan, ticked);
+    gateNote.textContent = gate;
+    gateNote.hidden = !gate;
+    const dirty = ticked.filter((c) => c.git).length;
+    devNote.textContent = !gate && dirty ? `${dirty} of these file${dirty === 1 ? " isn't" : "s aren't"} committed: ${ENV_NAMES[env] || env} deploys them as they are on this PC. Test and Prod deploy only what's committed and pushed.` : "";
+    devNote.hidden = !devNote.textContent;
+    go.textContent = `Deploy ${ticked.length} change${ticked.length === 1 ? "" : "s"}${env === "prod" ? " to Prod" : ""}`;
+    go.disabled = !ticked.length || !!gate || (named && typed.value !== ref.name);
+  }
+  let resolve;
+  let fin = false;
+  const finish = (v) => { if (!fin) { fin = true; resolve(v); } };
+  const ok = new Promise((r) => { resolve = r; });
+  drawPreview();
+  update();
+  const commit = plan.commit ? plan.commit.slice(0, 7) : "no commit yet";
+  showDialog(`Deploy ${project.folder}`, h("div", { class: "wh-dep" },
+    h("p", {}, `From ${project.repo_label}, branch ${plan.branch || "(none)"} at ${commit}, to ${ref.name} in ${ref.workspace_name || ref.workspace_id} (${where}). It runs in Fabric as you and uses capacity.`),
+    h("div", { class: "wh-dep-body" }, list, preview),
+    plan.changes.some((c) => c.action === "add_columns" && !c.offered) ? h("p", { class: "wh-dep-warn" }, plan.changes.find((c) => c.action === "add_columns" && !c.offered).why) : null,
+    gateNote,
+    devNote,
+    h("p", { class: "muted-text small" }, "Each change runs on its own, in this order, and the deploy stops at the first that fails, saying which went in. " +
+      "Each change is recorded in the audit log like any warehouse change: who, which warehouse and how many rows, never the SQL."),
+    named ? h("label", { class: "field" }, h("span", {}, "Type ", h("code", {}, ref.name), ` to deploy to ${env === "prod" ? "Prod" : "it"}`), typed) : null),
+  [cancel, go], () => finish(false));
+  (named ? typed : cancel).focus();
+  if (!(await ok)) return;
+
+  const run = plan.changes.filter((c) => c.offered && c.ticked);
+  const results = [];
+  for (const c of run) {
+    toast(`Deploying ${results.length + 1} of ${run.length}: ${label(c)}...`);
+    let status;
+    try { status = await whRunChange(ref, c.sql); } catch (err) { status = { state: "failed", error: String(err).replace(/^Error: /, "") }; }
+    results.push({ c, status });
+    if (status.state !== "completed") break;
+  }
+  const done = results.filter((r) => r.status.state === "completed").length;
+  const failed = results.find((r) => r.status.state !== "completed");
+  showDialog(failed ? `Deployed ${done} of ${run.length} changes` : `Deployed ${done} change${done === 1 ? "" : "s"} to ${ref.name}`, h("div", { class: "wh-dep" },
+    h("ul", { class: "wh-dep-results" }, run.map((c) => {
+      const r = results.find((x) => x.c === c);
+      return h("li", { class: !r ? "muted-text" : r.status.state === "completed" ? "ok" : "error-text" },
+        `${!r ? "Not run" : r.status.state === "completed" ? "Done" : "Failed"}: ${label(c)}${r && r.status.state !== "completed" ? ` (${r.status.error || r.status.state})` : ""}`);
+    })),
+    failed ? h("p", { class: "muted-text small" }, "The change that failed kept nothing, and the ones after it didn't run. Fix it in the project and deploy again.") : null),
+  [btn("Close", null, closeDialog, "tool primary")]);
+  await whLoadCatalog(ref, () => sqlPage.whRedraw?.());
+  if (sqlPage.whCompare?.key === sqlRefKey(ref)) await whProjectCompare(ref, project);
 }

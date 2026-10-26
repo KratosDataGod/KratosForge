@@ -215,3 +215,63 @@ def test_compare_lists_every_object_on_either_side(svc, repo):
     rows = svc.wh_project_diff(changed["warehouse_text"], changed["project_text"])["rows"]
     assert [r["op"] for r in rows].count("changed") == 1
     assert not audit.audited("wh_project_compare") and not audit.audited("wh_project_diff")
+
+
+# ---- deploy (WH-13)
+
+
+def _row(state, kind, name, project_text="", warehouse_text="", schema="dbo", path=""):
+    return {"state": state, "kind": kind, "schema": schema, "name": name, "path": path,
+            "project_text": project_text, "warehouse_text": warehouse_text}
+
+
+def test_a_deploy_creates_alters_adds_columns_and_never_ticks_a_drop():
+    added = TABLE.replace("[Segment] varchar(20) NULL", "[Segment] varchar(20) NULL,\n    [Region] nvarchar(50) NULL")
+    plan = wc.deploy_plan([
+        _row("changed", "procedure", "usp_Load", "-- loads\nCREATE PROCEDURE dbo.usp_Load AS SELECT 2;", "x"),
+        _row("only_warehouse", "view", "vw_Old"),
+        _row("changed", "table", "DimCustomer", added, TABLE),
+        _row("only_project", "schema", "staging", "CREATE SCHEMA [staging];", schema="staging"),
+        _row("only_project", "table", "FactTargets", "CREATE TABLE dbo.FactTargets (a int NULL);"),
+        _row("changed", "view", "vw_Sales", "CREATE OR ALTER VIEW dbo.vw_Sales AS SELECT 2 AS x;", VIEW),
+    ])
+    assert [(c["action"], c["name"], c["ticked"], c["offered"]) for c in plan] == [
+        ("create", "staging", True, True), ("add_columns", "DimCustomer", True, True), ("create", "FactTargets", True, True),
+        ("alter", "vw_Sales", True, True), ("alter", "usp_Load", True, True), ("drop", "vw_Old", False, True)]
+    assert plan[1]["sql"] == "ALTER TABLE [dbo].[DimCustomer] ADD [Region] nvarchar(50) NULL;"
+    assert plan[4]["sql"] == "-- loads\nCREATE OR ALTER PROCEDURE dbo.usp_Load AS SELECT 2;"
+    assert plan[3]["sql"].startswith("CREATE OR ALTER VIEW dbo.vw_Sales")
+    assert plan[5]["sql"] == "DROP VIEW [dbo].[vw_Old];"
+
+
+@pytest.mark.parametrize("project", [
+    TABLE.replace("varchar(20)", "varchar(40)"),                                        # a type changes
+    TABLE.replace(",\n    [Segment] varchar(20) NULL", ""),                              # a column goes
+    TABLE.replace("[Segment] varchar(20) NULL", "[Segment] varchar(20) NULL,\n    [Region] int NOT NULL"),  # NOT NULL
+    TABLE.replace("    [Segment]", "    [Region] int NULL,\n    [Segment]"),           # not last
+])
+def test_a_table_change_that_would_rebuild_it_isnt_offered(project):
+    (c,) = wc.deploy_plan([_row("changed", "table", "DimCustomer", project, TABLE)])
+    assert not c["offered"] and not c["ticked"] and c["why"] == wc.REBUILD
+
+
+def test_the_deploy_plan_says_which_files_arent_committed(svc, repo):
+    svc.wh_project_write(str(repo), objs(("view", "dbo", "vw_Sales", VIEW)), create="WH_Gold")
+    out = svc.wh_project_deploy_plan(str(repo), "WH_Gold.Warehouse", objs(("view", "dbo", "vw_Old", "CREATE VIEW dbo.vw_Old AS SELECT 1 AS y;")))
+    assert [(c["action"], c["name"], c["git"]) for c in out["changes"]] == [("create", "vw_Sales", "A"), ("drop", "vw_Old", "")]
+    assert out["uncommitted"] == ["dbo/Views/vw_Sales.sql"] and out["branch"] == "main"
+    assert not audit.audited("wh_project_deploy_plan")
+
+
+@pytest.mark.parametrize("sql", [
+    "CREATE SCHEMA [staging];",
+    "CREATE TABLE dbo.FactTargets (a int NULL);",
+    "ALTER TABLE [dbo].[DimCustomer] ADD [Region] nvarchar(50) NULL;",
+    "CREATE OR ALTER VIEW dbo.vw_Sales AS SELECT 2 AS x;\nGO\n",
+    "-- loads\nCREATE OR ALTER PROCEDURE dbo.usp_Load AS BEGIN UPDATE dbo.t SET a = 1; END;\nGO\n",
+    "DROP VIEW [dbo].[vw_Old];",
+])
+def test_each_kind_of_deploy_change_is_a_warehouse_change_the_engine_runs(sql):
+    from fabric_desktop import warehouse
+    verdicts = warehouse.verdicts(sql, writes=True)
+    assert {v.kind for v in verdicts} <= {"warehouse_write", "read_only"} and any(v.kind == "warehouse_write" for v in verdicts), verdicts

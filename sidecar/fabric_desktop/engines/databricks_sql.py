@@ -23,6 +23,7 @@ tables, per warehouse and hour, never per cell, so this engine reports none (ADR
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from typing import Any, Callable
@@ -40,6 +41,9 @@ WAIT = "10s"                 # how long the first request waits for a quick stat
 POLL_SECONDS = 1.0
 TERMINAL = ("SUCCEEDED", "FAILED", "CANCELED", "CLOSED")
 CATALOG_LIMIT = 1000         # items listed per Catalog call, across pages
+MAX_SECONDS = 2 * 60 * 60    # a statement still running after this is cancelled and reported
+# Warehouse and statement IDs as Databricks issues them; checked before either goes into a URL path.
+_ID = re.compile(r"^[A-Za-z0-9-]{1,64}$")
 
 DATABRICKS_SQL = EngineDescriptor(
     id="databricks-sql", label="Databricks SQL warehouse (remote)", location="remote", platform="databricks",
@@ -72,7 +76,10 @@ DATABRICKS_SQL = EngineDescriptor(
     limitations=("Preview: tested against fakes of the documented APIs, not yet against a live workspace.",
                  "A statement sent to a stopped warehouse starts it; the warehouse bills DBUs while it runs.",
                  "Results come back inline: over 25 MB the warehouse refuses them, so add a LIMIT.",
-                 "Only the last statement's result is shown, and only from its first result chunk."),
+                 "Only the last statement's result is shown, and only from its first result chunk.",
+                 "Cells can change data on the warehouse (CREATE, INSERT, MERGE, DROP) with no further confirm, as "
+                 "in a Databricks notebook; the confirm is for starting the session.",
+                 "A statement still running after two hours is cancelled."),
 )
 
 
@@ -121,6 +128,12 @@ def to_table(manifest: dict[str, Any], rows: list[list[Any]]) -> pa.Table:
     return pa.Table.from_arrays(arrays, names=names) if names else pa.table({})
 
 
+def _checked_id(value: str, what: str) -> str:
+    if not isinstance(value, str) or not _ID.fullmatch(value):
+        raise DatabricksError(f"That isn't a Databricks {what} ID.")
+    return value
+
+
 class Client:
     """The few REST calls the session makes, with the token on each; errors never quote a token."""
 
@@ -159,16 +172,16 @@ class Client:
             (f"{message} " if message else "") + hint.get(resp.status_code, "")
 
     def warehouse(self, warehouse_id: str) -> dict[str, Any]:
-        return self._call("GET", f"/api/2.0/sql/warehouses/{warehouse_id}")
+        return self._call("GET", f"/api/2.0/sql/warehouses/{_checked_id(warehouse_id, 'SQL warehouse')}")
 
     def submit(self, body: dict[str, Any]) -> dict[str, Any]:
         return self._call("POST", "/api/2.0/sql/statements", json=body)
 
     def status(self, statement_id: str) -> dict[str, Any]:
-        return self._call("GET", f"/api/2.0/sql/statements/{statement_id}")
+        return self._call("GET", f"/api/2.0/sql/statements/{_checked_id(statement_id, 'statement')}")
 
     def cancel(self, statement_id: str) -> None:
-        self._call("POST", f"/api/2.0/sql/statements/{statement_id}/cancel")
+        self._call("POST", f"/api/2.0/sql/statements/{_checked_id(statement_id, 'statement')}/cancel")
 
     def list(self, path: str, key: str, params: dict[str, str]) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
@@ -186,13 +199,16 @@ class DatabricksSqlSession:
     engine = DATABRICKS_SQL.id
 
     def __init__(self, config: SessionConfig, client: Client, warehouse_id: str,
-                 sleep: Callable[[float], None] = time.sleep):
+                 sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
+                 max_seconds: float = MAX_SECONDS):
         self.notebook = config.notebook
         self.warehouse_id = warehouse_id
         self.catalog_name = str(config.options.get("catalog") or "")
         self.schema_name = str(config.options.get("schema") or "")
         self._client = client
         self._sleep = sleep
+        self._clock = clock
+        self._max_seconds = max_seconds
         self._lock = threading.Lock()
         self._statement = ""
         self._cancelled = False
@@ -216,11 +232,16 @@ class DatabricksSqlSession:
             body["catalog"] = self.catalog_name
         if self.schema_name:
             body["schema"] = self.schema_name
+        started = self._clock()
         reply = self._client.submit(body)
         self._statement = str(reply.get("statement_id") or "")
         if self._cancelled and self._statement:
             self._client.cancel(self._statement)
         while (reply.get("status") or {}).get("state") not in TERMINAL:
+            if self._clock() - started > self._max_seconds:
+                self._client.cancel(self._statement)
+                raise DatabricksError(f"The statement was still running after {self._max_seconds / 60:.0f} minutes, "
+                                      "so it was cancelled on the warehouse.")
             self._sleep(POLL_SECONDS)
             reply = self._client.status(self._statement)
         state = reply["status"]["state"]

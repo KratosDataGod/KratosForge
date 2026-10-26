@@ -572,3 +572,21 @@ def test_python_engine_on_shared_or_in_engine_kernels_says_what_to_change():
     with pytest.raises(Unsupported, match="shares a's session"):
         registry.adapter("local-python", notebook_sessions=sessions).open_session(SessionConfig("b"))
     assert registry.adapter("local-python", notebook_sessions=sessions).open_session(SessionConfig("a"))
+
+
+def test_databricks_sql_runs_on_duckdb_translated():
+    d = registry.get("local-duckdb")
+    v = check_cell(d, "sql", "databricks")
+    assert v["ok"] and v["level"] == "translated" and "without starting a warehouse" in v["reason"]
+    s = registry.adapter("local-duckdb").open_session(SessionConfig("nb"))
+    try:
+        s.execute(CellRequest("CREATE TABLE t AS SELECT * FROM VALUES (1, 'a'), (1, 'b'), (2, NULL) AS v(k, x)",
+                              "sql", "databricks"))
+        r = s.execute(CellRequest("SELECT k, nvl(x, 'none') AS x FROM t "
+                                  "QUALIFY row_number() OVER (PARTITION BY k ORDER BY x) = 1 ORDER BY k",
+                                  "sql", "databricks"))
+        assert r.status == "ok" and r.rows == 2
+        r = s.execute(CellRequest("COPY t TO 'out.csv'", "sql", "databricks"))
+        assert r.status == "error"
+    finally:
+        s.close()

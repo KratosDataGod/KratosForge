@@ -167,6 +167,8 @@ table = "abfss://<workspace id>@onelake.dfs.fabric.microsoft.com/<lakehouse id>/
 
 The **Links** tab shows where each link points in the picked environment, and which entities use it. A link that an entity still reads can't be removed.
 
+When a table behind a product has an incident, the incident page lists the products built on it, the projects linked to them and who to tell, with **Tell them** to post it in Teams. See [Who's affected](user-guide.md#whos-affected-preview).
+
 ## Catalog text (About)
 
 Every entity page has an **About** card: description, tags, classification (Public, Internal, Confidential, Restricted), glossary terms, steward, and a description and classification per column. **Save** writes them to the catalog; no Git change is needed.

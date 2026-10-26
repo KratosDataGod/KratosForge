@@ -9,7 +9,7 @@ This page is for IT teams that roll KratosForge out to many Windows PCs with Int
 | Part | Where it goes | How it gets there |
 | --- | --- | --- |
 | `kratosforge.exe` | Any folder. It is one file; there is no installer or MSI | You copy it |
-| The local engine (Python and its packages, several hundred MB) | `%LOCALAPPDATA%\FabricDesktop\engine`, once per Windows user | The app downloads `fabric-desktop-engine.zip` from the release on its first start and checks its SHA-256 ([Security](https://github.com/KratosDataGod/KratosForge/blob/main/docs/security.md)) |
+| The local engine (Python and its packages, several hundred MB) | `%LOCALAPPDATA%\FabricDesktop\engine`, once per Windows user | The app downloads `fabric-desktop-engine.zip` from the release, or from [your own folder](#host-the-engine-yourself), on its first start and checks its SHA-256 ([Security](https://github.com/KratosDataGod/KratosForge/blob/main/docs/security.md)) |
 | `policy.json` (optional) | `%ProgramData%\FabricDesktop\policy.json` | You push it ([the keys](azure-setup.md#4-push-settings-to-everyone)) |
 
 Nothing needs admin rights at run time, and nothing is written to the registry. The engine is per user, so a shared PC downloads it once for each person who uses the app.
@@ -55,12 +55,22 @@ The exe and the engine must come from the same build. Each build is kept as its 
 
 Self-updating PCs download the engine from the channel's current release, and update the exe to match.
 
+## Host the engine yourself
+
+On a network that can't reach GitHub, or to keep 5,000 PCs from each downloading the engine from the internet, keep it on your own web server:
+
+1. Download the files of the build you deploy from its `build-<first 12 characters of its commit>` release: `fabric-desktop-engine.zip`, `version.json` and `fabric-desktop-engine-update.zip`. Check them as in [Install: Check a download yourself](https://github.com/KratosDataGod/KratosForge/blob/main/docs/install.md#check-a-download-yourself).
+2. Put them, unchanged and with the same names, in one folder on an internal `https://` server that every PC can read without signing in. Use one folder per build, so PCs on the old exe keep finding their engine while you roll out the new one.
+3. In `policy.json`, set `"auto_update": false` and `"engine_download_url"` to that folder, for example `"https://files.contoso.com/kratosforge/build-0123456789ab"`. Push the file as SYSTEM (Intune, Group Policy) or from an elevated prompt: the app ignores the address when the file or its folder is owned by anyone other than SYSTEM or Administrators, or when the person using the PC can change either, and then downloads from GitHub ([why](security.md#threats-and-what-stops-them)).
+
+The app installs only an engine whose `version.json` names the app's own build and whose zip matches the checksum in it, and it follows redirects only to `https`. **Settings > Help and about** says when the address isn't one it will use. Not yet tried on a real network.
+
 ## Roll back
 
 There is no one-click rollback yet.
 
 - **Self-updating:** the app always moves to the channel's current build. To go back, a maintainer promotes the earlier build to Stable again, and PCs move to it at their next start.
-- **Managed:** deploy the older exe. A PC that has to download the engine gets that build's engine from its `build-*` release while the release is kept (see above). Keep a copy of each exe and engine zip you deploy; installing the engine from your own copy is not supported yet.
+- **Managed:** deploy the older exe. A PC that has to download the engine gets that build's engine from its `build-*` release while the release is kept (see above). Keep a copy of each exe and its engine files; with [your own engine folder](#host-the-engine-yourself) a rolled-back exe gets its engine from there.
 
 ## If an update fails
 

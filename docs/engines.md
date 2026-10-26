@@ -26,9 +26,9 @@ refuses to register an engine that claims more than it has an adapter and tests 
 ### Compatibility matrix
 
 "Tested" means automated tests in this repository, on Linux and Windows CI, with no cloud. Nothing
-here has run against a Fabric tenant or a Databricks workspace yet: the Databricks SQL warehouse
-and Databricks Connect engines are tested against fakes of Databricks' documented APIs and
-client, and stay Preview until they have.
+here has run against a Fabric tenant or a Databricks workspace yet: the Databricks SQL warehouse,
+Databricks Connect and Fabric Spark engines are tested against fakes of the platforms' documented
+APIs and clients, and stay Preview until they have.
 
 | Engine | Where it runs | Languages | SQL | Cancel | Plan | Variables | Billed | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -37,7 +37,7 @@ client, and stay Preview until they have.
 | SQLite (this PC) | This PC | SQL | SQLite native | Native | Native | No | Nothing | Tested |
 | Polars SQL (this PC) | This PC | SQL | Polars SQL partial | **No** (the query finishes) | Native | No | Nothing | Tested |
 | Apache Spark (this PC) | This PC | none yet | none yet | | | | Nothing | Planned |
-| Fabric Spark (remote) | Fabric capacity | none yet | none yet | | | | Fabric capacity | Planned, Preview |
+| Fabric Spark (remote) | A Spark session on your Fabric capacity | PySpark, Python, Spark SQL, Scala native | Spark SQL native | Native | No (df.explain) | No | Fabric capacity | Preview, tested against fakes |
 | Databricks Connect (remote) | Your Databricks cluster (Python on this PC) | PySpark native; Python partial | (use spark.sql) | Partial (Spark jobs) | No (df.explain) | No | DBUs | Preview, tested against fakes |
 | Databricks SQL warehouse (remote) | Your Databricks SQL warehouse | SQL | Databricks SQL native | Native | Partial (EXPLAIN on the warehouse) | No | DBUs | Preview, tested against fakes |
 
@@ -115,6 +115,21 @@ the rest of the cell's Python runs on this PC.
 - **Limits:** Spark Connect has no RDDs or SparkContext. Results show the first rows only, because
   counting them all would run another Spark job. Cancel stops the session's Spark jobs, not plain
   Python. Serverless compute isn't offered yet.
+
+## Fabric Spark (Preview)
+
+Cells can run in an interactive Spark session in your Fabric workspace, on a lakehouse you pick,
+through Fabric's Livy API with your own Fabric sign-in. PySpark, Python, Spark SQL and Scala cells
+run in the same session, as in a Fabric notebook. Each cell is sent once and never retried, so it
+can't run twice. **Cancel** cancels the running statement in Fabric, and closing the session ends it.
+
+- **It uses Fabric capacity** for as long as the session is open, including while it sits idle,
+  until you close it or Fabric ends it. A session opens only after your confirmation for that
+  lakehouse, or your profile's policy, and never when your organization has turned off Fabric runs
+  from KratosForge.
+- **Limits:** output arrives when the cell finishes; notebookutils and %magics are Fabric notebook
+  features a Livy session doesn't fully have; capacity use is in the Fabric Capacity Metrics app, not
+  per cell. A cell still running after two hours is cancelled.
 
 ## Switching engines
 

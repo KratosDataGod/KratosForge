@@ -1,0 +1,306 @@
+"""Fabric Spark: a notebook's cells in an interactive Spark session in a Fabric workspace (Preview;
+tested against fakes of the documented Livy API, not a live tenant).
+
+The session is a Livy session on a lakehouse, through Fabric's Livy API for Data Engineering:
+
+    POST   .../lakehouses/{lakehouse}/livyapi/versions/2023-12-01/sessions
+    GET    .../sessions/{id}                      (waits until it is idle)
+    POST   .../sessions/{id}/statements           (one per cell: pyspark, sql or spark)
+    GET    .../sessions/{id}/statements/{n}       (until the statement is available)
+    POST   .../sessions/{id}/statements/{n}/cancel
+    DELETE .../sessions/{id}                      (closing the session)
+
+with the app's own Fabric sign-in. Statements are sent once, never retried, so a cell can't run
+twice. Nothing opens without a ``RemoteAuthorization`` for this engine and lakehouse: a session runs
+on the workspace's capacity and uses Fabric capacity units for as long as it is open, and the
+organization's ``allow_fabric_runs`` policy can forbid it outright. Closing the session ends it in
+Fabric; Fabric also ends an idle one on its own.
+"""
+
+from __future__ import annotations
+
+import re
+import threading
+import time
+from typing import Any, Callable
+
+from .. import redact
+from .authorization import require
+from .capabilities import EngineDescriptor, Support
+from .contract import CellRequest, CellResult, OutputSink, SessionClosed, SessionConfig, Unsupported
+
+_T = "unit_tests"
+API = "https://api.fabric.microsoft.com/v1"
+LIVY = "livyapi/versions/2023-12-01"
+POLL_SECONDS = 1.0
+START_SECONDS = 15 * 60          # a custom pool can take minutes to start
+MAX_SECONDS = 2 * 60 * 60        # a statement still running after this is cancelled
+KINDS = {"pyspark": "pyspark", "python": "pyspark", "sql": "sql", "scala": "spark"}
+_GUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+_ID = re.compile(r"^[0-9A-Za-z-]{1,64}$")
+_SESSION_DONE = ("dead", "error", "killed", "shutting_down", "success")
+
+FABRIC_SPARK = EngineDescriptor(
+    id="fabric-spark", label="Fabric Spark (remote)", location="remote", platform="fabric",
+    billing="fabric_capacity", adapter=True, family="fabric-spark", preview=True,
+    languages={
+        "pyspark": Support("native", "Fabric's own Spark, in a session on the workspace's capacity.", _T),
+        "python": Support("native", "Python cells run in the Spark session's driver, as in a Fabric notebook.", _T),
+        "sql": Support("native", "Spark SQL on the session, with the lakehouse as its default.", _T),
+        "scala": Support("native", "Scala cells run in the same session.", _T),
+    },
+    dialects={"spark": Support("native", evidence=_T)},
+    capabilities={
+        "session": Support("native", "A Livy session on one lakehouse; closing it ends the session in Fabric. "
+                           "Fabric also ends an idle one.", _T),
+        "execute": Support("native", "One statement per cell, sent once and never retried.", _T),
+        "cancel": Support("native", "Cancels the running statement in Fabric.", _T),
+        "stream": Support("unsupported", "Output arrives when the cell finishes."),
+        "variables": Support("unsupported", "Not listed for a remote session yet."),
+        "debug": Support("unsupported", "No step debugger for a remote session."),
+        "plan": Support("unsupported", "Call df.explain() or EXPLAIN in a cell; the Spark UI has the details."),
+        "metrics": Support("partial", "Wall time per cell. The Spark UI and the Monitoring hub have the rest.", _T),
+        "catalog": Support("unsupported", "Use the lakehouse explorer, or spark.catalog in a cell."),
+        "cost": Support("unsupported", "Capacity use is in the Fabric Capacity Metrics app, per item and time, "
+                        "not per cell. An open session uses capacity units until it ends."),
+        "compat": Support("partial", "The cell's language is checked before sending; Spark checks the code.", _T),
+    },
+    requirements=("A Fabric workspace on a capacity, and Contributor on it", "A lakehouse for the session",
+                  "Signed in to Fabric in KratosForge"),
+    limitations=("Preview: tested against fakes of Fabric's Livy API, not yet against a live tenant.",
+                 "A session uses Fabric capacity while it is open, including while idle, until it is closed or "
+                 "Fabric ends it.",
+                 "notebookutils and %magics are Fabric notebook features; a Livy session doesn't have all of them.",
+                 "Your organization can turn off Fabric runs from KratosForge (allow_fabric_runs)."),
+)
+
+
+class FabricSparkError(RuntimeError):
+    """Fabric refused or failed a request; the message says what to check."""
+
+
+def _checked(value: str, pattern: re.Pattern[str], what: str) -> str:
+    if not isinstance(value, str) or not pattern.fullmatch(value):
+        raise FabricSparkError(f"That isn't a Fabric {what} ID.")
+    return value
+
+
+class LivyClient:
+    """The Livy calls for one lakehouse. Writes are sent once; errors never quote the token."""
+
+    def __init__(self, token: Callable[[], str], workspace_id: str, lakehouse_id: str, http: Any = None):
+        if http is None:
+            from ..http_session import session
+            http = session()
+        self._token = token
+        self._http = http
+        self.base = (f"{API}/workspaces/{_checked(workspace_id, _GUID, 'workspace')}/lakehouses/"
+                     f"{_checked(lakehouse_id, _GUID, 'lakehouse')}/{LIVY}/sessions")
+
+    def _call(self, method: str, path: str = "", **kwargs: Any) -> dict[str, Any]:
+        headers = {"Authorization": f"Bearer {self._token()}"}
+        try:
+            resp = self._http.request(method, self.base + path, headers=headers, timeout=60, **kwargs)
+        except Exception as exc:  # noqa: BLE001 - a network failure becomes the person's message
+            raise FabricSparkError(f"Couldn't reach Fabric: {type(exc).__name__}.") from None
+        if resp.status_code >= 400:
+            try:
+                body = resp.json()
+            except ValueError:
+                body = {}
+            message = redact.secrets(str(body.get("message") or "")) if isinstance(body, dict) else ""
+            hint = {401: "Sign in again.", 403: "You need Contributor on the workspace.",
+                    404: "Check the workspace and lakehouse.", 429: "The capacity is busy; try again shortly.",
+                    430: "The capacity's Spark limit is reached; close another session or try later."}
+            raise FabricSparkError(f"Fabric refused the request (HTTP {resp.status_code}). "
+                                   + (f"{message} " if message else "") + hint.get(resp.status_code, ""))
+        try:
+            return resp.json() if resp.content else {}
+        except ValueError:
+            return {}
+
+    def create(self, name: str, conf: dict[str, str]) -> dict[str, Any]:
+        return self._call("POST", json={"name": name, "conf": conf})
+
+    def session(self, sid: str) -> dict[str, Any]:
+        return self._call("GET", f"/{_checked(sid, _ID, 'session')}")
+
+    def submit(self, sid: str, code: str, kind: str) -> dict[str, Any]:
+        return self._call("POST", f"/{_checked(sid, _ID, 'session')}/statements", json={"code": code, "kind": kind})
+
+    def statement(self, sid: str, n: str) -> dict[str, Any]:
+        return self._call("GET", f"/{_checked(sid, _ID, 'session')}/statements/{_checked(n, _ID, 'statement')}")
+
+    def cancel(self, sid: str, n: str) -> None:
+        self._call("POST", f"/{_checked(sid, _ID, 'session')}/statements/{_checked(n, _ID, 'statement')}/cancel")
+
+    def delete(self, sid: str) -> None:
+        self._call("DELETE", f"/{_checked(sid, _ID, 'session')}")
+
+
+def _outputs(output: dict[str, Any], preview_rows: int) -> tuple[list[dict[str, Any]], int | None]:
+    """Livy's statement output as the notebook's outputs: text, a table for SQL, or the error."""
+    if output.get("status") == "error":
+        return [{"type": "error", "ename": str(output.get("ename") or "Error"),
+                 "evalue": redact.secrets(str(output.get("evalue") or "")),
+                 "traceback": [redact.secrets(str(t)) for t in output.get("traceback") or []]}], None
+    data = output.get("data") or {}
+    table = data.get("application/json")
+    if isinstance(table, dict) and isinstance(table.get("data"), list):
+        import pyarrow as pa
+
+        from .local_sql import _table_output
+        fields = [str(f.get("name")) for f in (table.get("schema") or {}).get("fields") or []]
+        rows = table["data"]
+        try:
+            arrow = pa.Table.from_pylist([dict(zip(fields, r)) for r in rows[:preview_rows]]) if rows else \
+                pa.table({f: pa.array([], pa.string()) for f in fields})
+        except (pa.ArrowInvalid, pa.ArrowTypeError):
+            arrow = pa.table({f: pa.array([None if r[i] is None else str(r[i]) for r in rows[:preview_rows]],
+                                          pa.string()) for i, f in enumerate(fields)})
+        return [_table_output(arrow, len(rows))], len(rows)
+    text = data.get("text/plain")
+    return ([{"type": "stream", "text": str(text)}] if text not in (None, "") else []), None
+
+
+class FabricSparkSession:
+    engine = FABRIC_SPARK.id
+
+    def __init__(self, config: SessionConfig, client: LivyClient, sleep: Callable[[float], None] = time.sleep,
+                 clock: Callable[[], float] = time.monotonic, start_seconds: float = START_SECONDS,
+                 max_seconds: float = MAX_SECONDS):
+        self.notebook = config.notebook
+        self._client = client
+        self._sleep = sleep
+        self._clock = clock
+        self._max_seconds = max_seconds
+        self._lock = threading.Lock()
+        self._statement = ""
+        self._cancelled = False
+        self._closed = False
+        conf = {k: str(v) for k, v in (config.options.get("conf") or {}).items()}
+        created = client.create(f"KratosForge {config.notebook}"[:100], conf)
+        self.id = str(created.get("id", ""))
+        started = clock()
+        state = str(created.get("state") or "")
+        while state != "idle":
+            if state in _SESSION_DONE:
+                self._closed = True
+                raise FabricSparkError(f"The Spark session couldn't start (it is {state}). The Monitoring hub "
+                                       "has its log.")
+            if clock() - started > start_seconds:
+                self.close()
+                raise FabricSparkError(f"The Spark session didn't start within {start_seconds / 60:.0f} minutes, "
+                                       "so it was ended.")
+            sleep(POLL_SECONDS)
+            state = str(client.session(self.id).get("state") or "")
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def execute(self, request: CellRequest, on_output: OutputSink | None = None) -> CellResult:
+        if self._closed:
+            raise SessionClosed("This Fabric Spark session was closed. Start the engine again to run cells.")
+        kind = KINDS.get(request.language)
+        if kind is None:
+            raise Unsupported(f"Fabric Spark doesn't run {request.language} cells.")
+        if request.language == "sql" and request.dialect not in (None, "spark"):
+            raise Unsupported(f"Fabric Spark runs Spark SQL, not {request.dialect}.")
+        if not self._lock.acquire(blocking=False):
+            raise RuntimeError("A cell is already running in this session. Wait for it, or Cancel it.")
+        self._cancelled = False
+        started = self._clock()
+        t0 = time.perf_counter()
+        try:
+            reply = self._client.submit(self.id, request.code, kind)
+            self._statement = str(reply.get("id", ""))
+            if self._cancelled:
+                self._client.cancel(self.id, self._statement)
+            while reply.get("state") not in ("available", "error", "cancelled"):
+                if self._clock() - started > self._max_seconds:
+                    self._client.cancel(self.id, self._statement)
+                    raise FabricSparkError(f"The cell was still running after {self._max_seconds / 60:.0f} minutes, "
+                                           "so it was cancelled.")
+                self._sleep(POLL_SECONDS)
+                reply = self._client.statement(self.id, self._statement)
+        except FabricSparkError as exc:
+            out = {"type": "error", "ename": "FabricSparkError", "evalue": str(exc)}
+            if on_output:
+                on_output(out)
+            return CellResult("error", [out], time.perf_counter() - t0, None, self.engine)
+        finally:
+            self._statement = ""
+            self._lock.release()
+        if reply.get("state") == "cancelled" or self._cancelled:
+            outputs, rows, status = [{"type": "error", "ename": "Cancelled", "evalue": "Cancelled."}], None, "cancelled"
+        else:
+            outputs, rows = _outputs(reply.get("output") or {}, request.preview_rows)
+            status = "error" if any(o.get("type") == "error" for o in outputs) else "ok"
+        if on_output:
+            for o in outputs:
+                on_output(o)
+        return CellResult(status, outputs, time.perf_counter() - t0, rows, self.engine)
+
+    def cancel(self) -> bool:
+        if not self._lock.locked():
+            return False
+        self._cancelled = True
+        if self._statement:
+            try:
+                self._client.cancel(self.id, self._statement)
+            except FabricSparkError:
+                return False
+        return True
+
+    def variables(self) -> list[dict[str, Any]]:
+        raise Unsupported(FABRIC_SPARK.capability("variables").note)
+
+    def plan(self, code: str, dialect: str | None = None) -> str:
+        raise Unsupported(FABRIC_SPARK.capability("plan").note)
+
+    def catalog(self) -> list[dict[str, Any]]:
+        raise Unsupported(FABRIC_SPARK.capability("catalog").note)
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self.cancel()
+        self._closed = True
+        if self.id:
+            try:
+                self._client.delete(self.id)
+            except FabricSparkError:
+                pass  # silent-ok: Fabric ends an idle session on its own; this session is closed either way
+
+
+class FabricSparkAdapter:
+    """``SessionConfig.options``: ``workspace_id`` and ``lakehouse_id`` (GUIDs), optional ``conf``
+    (Spark settings, as %%configure takes). ``token`` is the app's Fabric sign-in; ``client_for``
+    replaces the Livy client in tests."""
+
+    def __init__(self, token: Callable[[], str] | None = None,
+                 client_for: Callable[[str, str], LivyClient] | None = None,
+                 sleep: Callable[[float], None] = time.sleep):
+        self._token = token
+        self._client_for = client_for
+        self._sleep = sleep
+
+    def describe(self) -> EngineDescriptor:
+        return FABRIC_SPARK
+
+    def open_session(self, config: SessionConfig, authorization: Any = None) -> FabricSparkSession:
+        ws = str(config.options.get("workspace_id") or "")
+        lh = str(config.options.get("lakehouse_id") or "")
+        if not (_GUID.fullmatch(ws) and _GUID.fullmatch(lh)):
+            raise Unsupported("Pick the workspace and lakehouse for the Spark session first.")
+        require(FABRIC_SPARK, f"{ws}/{lh}", authorization)
+        from ..fabric_api import _check_fabric_runs_allowed
+        _check_fabric_runs_allowed("interactive Spark sessions")
+        if self._client_for is not None:
+            client = self._client_for(ws, lh)
+        elif self._token is not None:
+            client = LivyClient(self._token, ws, lh)
+        else:
+            raise Unsupported("Fabric Spark sessions use the app's Fabric sign-in. Sign in first.")
+        return FabricSparkSession(config, client, self._sleep)

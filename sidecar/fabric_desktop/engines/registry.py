@@ -13,12 +13,13 @@ from typing import Any
 
 from .capabilities import EngineDescriptor
 from .contract import EngineAdapter
-from .dbconnect import DATABRICKS_CONNECT, DatabricksConnectAdapter
 from .databricks_sql import DATABRICKS_SQL, DatabricksSqlAdapter
+from .dbconnect import DATABRICKS_CONNECT, DatabricksConnectAdapter
+from .fabric_spark import FABRIC_SPARK, FabricSparkAdapter
 from .local_python import PYTHON, NotebookSessionsAdapter, PythonAdapter
 from .local_sql import DUCKDB, POLARS, SQLITE, DuckDBAdapter, PolarsAdapter, SQLiteAdapter
 
-REGISTRY_VERSION = "4"
+REGISTRY_VERSION = "5"
 
 LOCAL_SPARK = EngineDescriptor(
     id="local-spark", label="Apache Spark (this PC)", location="local", platform="local", billing="none",
@@ -27,16 +28,10 @@ LOCAL_SPARK = EngineDescriptor(
             "Spark; whether it should is an open decision. Until then PySpark is simulated by the Python engine.",
     requirements=("PySpark (the Apache package, not DuckDB's)", "Java 17 or later"),
 )
-FABRIC_SPARK = EngineDescriptor(
-    id="fabric-spark", label="Fabric Spark (remote)", location="remote", platform="fabric",
-    billing="fabric_capacity", adapter=False, family="spark", preview=True,
-    planned="Phase 3+: an interactive Spark session in a Fabric workspace (Livy API), started only after a "
-            "confirm or the profile's policy. Today, Run in Fabric runs the whole published notebook as a job.",
-    requirements=("A Fabric workspace on a capacity", "Contributor role on the workspace"),
-)
 _ADAPTERS: dict[str, type] = {
     PYTHON.id: PythonAdapter, DUCKDB.id: DuckDBAdapter, SQLITE.id: SQLiteAdapter, POLARS.id: PolarsAdapter,
     DATABRICKS_SQL.id: DatabricksSqlAdapter, DATABRICKS_CONNECT.id: DatabricksConnectAdapter,
+    FABRIC_SPARK.id: FabricSparkAdapter,
 }
 ENGINES: dict[str, EngineDescriptor] = {d.id: d for d in (
     PYTHON, DUCKDB, SQLITE, POLARS, LOCAL_SPARK, FABRIC_SPARK, DATABRICKS_CONNECT, DATABRICKS_SQL)}

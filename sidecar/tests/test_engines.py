@@ -74,14 +74,13 @@ def test_every_registered_engine_lists_every_capability():
 
 
 def test_planned_engines_claim_nothing_and_say_what_is_planned():
-    for eid in ("local-spark", "fabric-spark"):
+    for eid in ("local-spark",):
         d = registry.get(eid)
         assert not d.adapter and d.planned
         assert all(not d.capability(c).available for c in CAPABILITIES)
         with pytest.raises(ValueError, match="can't run cells"):
             registry.adapter(eid)
         assert check_cell(d, "python")["ok"] is False
-    assert registry.get("fabric-spark").billing == "fabric_capacity"
 
 
 def test_pyspark_on_this_pc_is_simulated_and_spark_sql_on_duckdb_is_translated():

@@ -324,7 +324,7 @@ function tellImpacted(inc, out, reload) {
       + "The message has the incident's title and the products' names, not its notes. A note on this incident records who was told.",
     "Tell them").then(async (ok) => {
     if (!ok) return;
-    const res = await attempt(() => rpc("incident_tell_impacted", { env: inc.env, id: inc.id }), "Couldn't tell them");
+    const res = await attempt(() => rpc("incident_tell_impacted", { env: inc.env, id: inc.id, people: out.people.map((p) => p.upn) }), "Couldn't tell them");
     if (!res) return;
     if (!res.told) {
       toast(res.reason === "already posted" ? "Already told these people about this incident."

@@ -360,17 +360,19 @@ def test_incident_impact_reads_the_catalog_and_tell_them_posts_once_and_notes_it
     assert out["available"] and [p["id"] for p in out["products"]] == ["sales/orders"] and out["told"] is None
     assert [p["upn"] for p in out["people"]] == ["olu@contoso.com"]  # the link was made as chris, who is asking
     assert out["consumers"][0]["project"] == "finance"
-    skipped = svc.incident_tell_impacted("dev", inc["id"])
+    with pytest.raises(ValueError, match="changed since you looked"):
+        svc.incident_tell_impacted("dev", inc["id"], ["someone@contoso.com"])
+    skipped = svc.incident_tell_impacted("dev", inc["id"], ["Olu@contoso.com"])
     assert skipped["told"] is False and "route" in skipped["reason"] and not posts
     svc.platform_notify_save([{"name": "default", "url": "https://contoso.webhook.office.com/x"}])
-    told = svc.incident_tell_impacted("dev", inc["id"])
+    told = svc.incident_tell_impacted("dev", inc["id"], ["olu@contoso.com"])
     assert told["told"] and told["result"] == "sent" and len(posts) == 1
     title, lines = posts[0]
     assert title == "Incident upstream of your data: Orders late"
     assert "For olu@contoso.com." in lines and "Data products affected: orders." in lines
     assert lines[-1] == "Open it in KratosForge > Monitor > Incidents."
     assert svc.incident_impact("dev", inc["id"])["told"]["text"].endswith("olu@contoso.com")
-    again = svc.incident_tell_impacted("dev", inc["id"])
+    again = svc.incident_tell_impacted("dev", inc["id"], ["olu@contoso.com"])
     assert again == {"told": False, "reason": "already posted", "people": out["people"]} and len(posts) == 1
     with pytest.raises(ValueError, match="Nobody downstream"):
-        svc.incident_tell_impacted("dev", other["id"])
+        svc.incident_tell_impacted("dev", other["id"], [])

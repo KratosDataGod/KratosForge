@@ -52,7 +52,7 @@ test("the incident page shows who the incident reaches and tells them after a co
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "incident-impact.png") });
   await dialog.getByRole("button", { name: "Tell them" }).click();
   await page().waitForFunction(() => document.body.innerText.includes("Told 2 people in Teams."));
-  assert.deepStrictEqual(calls.find((c) => c[0] === "tell"), ["tell", { env: "prod", id: "inc-1" }]);
+  assert.deepStrictEqual(calls.find((c) => c[0] === "tell"), ["tell", { env: "prod", id: "inc-1", people: ["ana@contoso.com", "olu@contoso.com"] }]);
   assert.deepStrictEqual(app.errors, []);
 });
 

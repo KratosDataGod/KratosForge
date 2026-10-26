@@ -109,13 +109,16 @@ class IncidentDeskMixin:
         told = [n for n in inc.get("notes") or [] if str(n.get("text", "")).startswith(_TOLD)]
         return out | {"available": True, "told": told[-1] if told else None}
 
-    def incident_tell_impacted(self, env: str, id: str) -> dict[str, Any]:
+    def incident_tell_impacted(self, env: str, id: str, people: list[str]) -> dict[str, Any]:
         """Post one Teams notice naming the people this incident reaches, through the platform's
-        Teams routes, and note on the incident who was told. Nothing else changes."""
+        Teams routes, and note on the incident who was told. ``people`` are the UPNs the person
+        confirmed: if the mesh changed since, nothing is posted. Nothing else changes."""
         inc = self._incident(env, id)
         found = self.incident_impact(env, id)
         if not found["available"] or not found["people"]:
             raise ValueError("Nobody downstream to tell: no published data product is built on this table here.")
+        if sorted(str(p).lower() for p in people or []) != sorted(p["upn"] for p in found["people"]):
+            raise ValueError("Who's affected changed since you looked. Nothing was posted; check the list and tell them again.")
         out = self.platform_notify([notices.incident_impact(inc, found)])  # type: ignore[attr-defined]
         result = (out.get("events") or [{}])[0]
         if result.get("result") == "skipped":

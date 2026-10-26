@@ -14,10 +14,16 @@ from . import model
 from .model import ROLES, observation, run_state
 
 ENV_LABELS = {"dev": "Dev", "test": "Test", "prod": "Prod"}
-SUPPORTED_FABRIC_TYPES = {"Notebook": "RunNotebook", "DataPipeline": "Pipeline", "SparkJobDefinition": "sparkjob"}
-FABRIC_TYPE_LABELS = {"Notebook": "Fabric notebook", "DataPipeline": "Pipeline", "SparkJobDefinition": "Spark job definition"}
+# Fabric item type -> its job type (schedules use it too). Copy jobs and dataflows run through their
+# own "execute" path (FabricClient.run_item_execute).
+SUPPORTED_FABRIC_TYPES = {"Notebook": "RunNotebook", "DataPipeline": "Pipeline", "SparkJobDefinition": "sparkjob",
+                          "CopyJob": "Execute", "Dataflow": "Execute"}
+FABRIC_TYPE_LABELS = {"Notebook": "Fabric notebook", "DataPipeline": "Pipeline", "SparkJobDefinition": "Spark job definition",
+                      "CopyJob": "Copy job", "Dataflow": "Dataflow Gen2"}
 RUNNER_NOTEBOOK = "nb_fabric_desktop_runner"
 FABRIC_APP = "https://app.fabric.microsoft.com"
+# Item types tagged Preview in the app until a run against a real tenant has been checked.
+PREVIEW_FABRIC_TYPES = {"CopyJob", "Dataflow"}
 _ITEM_PATHS = {"Notebook": "synapsenotebooks", "DataPipeline": "pipelines", "SparkJobDefinition": "sparkjobdefinitions"}
 
 
@@ -350,6 +356,7 @@ def fabric_workloads(items: list[dict[str, Any]], *, items_obs: dict[str, Any], 
         observed = bool(runs)
         out.append({
             "id": wid, "kind": "fabric_item", "kind_label": FABRIC_TYPE_LABELS[it["type"]],
+            "preview": it["type"] in PREVIEW_FABRIC_TYPES,
             "name": it.get("displayName") or iid, "description": it.get("description") or "",
             "group": {"type": "workspace", "id": f"workspace:{ws}", "label": it.get("workspace_name") or ws},
             "definition": {"workspace_id": ws, "workspace_name": it.get("workspace_name") or "", "item_id": iid,

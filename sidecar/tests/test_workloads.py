@@ -366,7 +366,7 @@ def test_a_fabric_run_stays_submitted_until_fabric_says_how_it_ended(svc, monkey
     assert pre["allowed"] and "exactly as Fabric's own Run does" in pre["consequence"]
     calls = []
 
-    def run_now(ws, item, job, name, ws_name=""):
+    def run_now(ws, item, job, name, ws_name="", item_type=""):
         calls.append((ws, item, job))
         return svc._log_fabric_run({"kind": "Scheduled item run", "name": name, "workspace_id": ws,
                                     "workspace_name": ws_name, "item_id": item, "job_id": "job-1"})
@@ -381,6 +381,67 @@ def test_a_fabric_run_stays_submitted_until_fabric_says_how_it_ended(svc, monkey
     svc._write_fabric_runs(runs)
     everything(svc)
     assert svc.workload_actions(wid)[0]["status"] == "succeeded"
+
+
+class FakeJobs:
+    EXECUTE_PATHS = {"CopyJob": "copyJobs", "Dataflow": "dataflows"}
+
+    def __init__(self):
+        self.started = []
+
+    def run_item_execute(self, ws, item, item_type):
+        self.started.append(("execute", ws, item, item_type))
+        return f"job-{item}"
+
+    def run_item_job(self, ws, item, job_type):
+        self.started.append(("job", ws, item, job_type))
+        return f"job-{item}"
+
+
+def test_copy_jobs_and_dataflows_run_in_fabric_through_their_own_execute_job(svc, monkeypatch):
+    signed_in(svc)
+    monkeypatch.setattr(FakeFabric, "items", FakeFabric.items | {"ws1": FakeFabric.items["ws1"] + [
+        {"id": "cj1", "type": "CopyJob", "displayName": "cj_orders"},
+        {"id": "df1", "type": "Dataflow", "displayName": "df_customers"}]})
+    scan(svc, monkeypatch)
+    rows = by_name(everything(svc))
+    assert rows["cj_orders"]["kind_label"] == "Copy job" and rows["df_customers"]["kind_label"] == "Dataflow Gen2"
+    assert rows["cj_orders"]["preview"] and rows["df_customers"]["preview"] and not rows["pl_load_erp"]["preview"]
+    jobs = FakeJobs()
+    monkeypatch.setattr(Service, "fabric_jobs", property(lambda self: jobs))
+    for item, label, effect in (("cj1", "copy job cj_orders", "It moves data"),
+                                ("df1", "dataflow Gen2 df_customers", "writes its results to every destination")):
+        wid = model.fabric_id("ws1", item)
+        pre = svc.workload_preflight(wid, "run_item", assess=False)  # the risk check has its own tests
+        assert pre["allowed"] and f"Starts {label} in Fabric now" in pre["consequence"] and effect in pre["consequence"]
+        assert pre["identity"].startswith("You") and pre["where"].startswith("Fabric")
+        assert svc.workload_act(wid, "run_item")["action"]["status"] == "submitted"
+    assert jobs.started == [("execute", "ws1", "cj1", "CopyJob"), ("execute", "ws1", "df1", "Dataflow")]
+    runs = svc._read_fabric_runs()[-2:]
+    assert [(r["job_id"], r["engine"]) for r in runs] == [("job-cj1", "data_factory"), ("job-df1", "data_factory")]
+    svc.workload_act(model.fabric_id("ws1", "pl1"), "run_item")  # a pipeline still uses the jobType path
+    assert jobs.started[-1] == ("job", "ws1", "pl1", "Pipeline")
+    assert svc._read_fabric_runs()[-1]["engine"] == "spark"
+
+
+def test_a_refused_start_says_not_authorized_and_records_no_run(svc, monkeypatch):
+    signed_in(svc)
+    monkeypatch.setattr(FakeFabric, "items", FakeFabric.items | {"ws1": FakeFabric.items["ws1"] + [
+        {"id": "cj1", "type": "CopyJob", "displayName": "cj_orders"}]})
+    scan(svc, monkeypatch)
+
+    class Refusing(FakeJobs):
+        def run_item_execute(self, ws, item, item_type):
+            raise FabricError("POST /workspaces/ws1/copyJobs/cj1/jobs/execute/instances failed with 403: Forbidden")
+
+    monkeypatch.setattr(Service, "fabric_jobs", property(lambda self: Refusing()))
+    before = len(svc._read_fabric_runs())
+    wid = model.fabric_id("ws1", "cj1")
+    with pytest.raises(FabricError):
+        svc.workload_act(wid, "run_item")
+    last = svc.workload_actions(wid)[0]
+    assert last["status"] == "failed" and last["detail"].startswith("Not authorized") and "Item.Execute.All" in last["detail"]
+    assert len(svc._read_fabric_runs()) == before
 
 
 def test_unsupported_or_unsafe_actions_are_refused(svc, project, monkeypatch):

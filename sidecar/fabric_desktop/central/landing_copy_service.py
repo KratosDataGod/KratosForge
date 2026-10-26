@@ -69,17 +69,38 @@ class LandingCopyMixin:
         if central:
             zone_id = str(req["detail"].get("zone") or core.SHARED_ZONE)
             zone = next((z for z in self._landing_zones() if z["id"] == zone_id), None)  # type: ignore[attr-defined]
+            names = {"zone": zone_id, "zone_name": (zone or {}).get("name") or zone_id.title(),
+                     "secure": bool((zone or {}).get("secure")),
+                     "workspace_name": (zone or {}).get("workspace_name") or central.get("workspace_name") or ""}
             if zone and zone.get("workspace_id") and zone.get("lakehouse_id"):
-                return {"workspace_id": zone["workspace_id"], "lakehouse_id": zone["lakehouse_id"]}
+                return names | {"workspace_id": zone["workspace_id"], "lakehouse_id": zone["lakehouse_id"],
+                                "lakehouse_name": zone.get("lakehouse_name") or ""}
             if zone_id == core.SHARED_ZONE and central.get("lakehouse_id"):
-                return {"workspace_id": central["workspace_id"], "lakehouse_id": central["lakehouse_id"]}
+                return names | {"workspace_id": central["workspace_id"], "lakehouse_id": central["lakehouse_id"],
+                                "lakehouse_name": "LH_Landing"}
             raise StepError(f"The landing zone {zone_id} has no lakehouse yet: set it up on Platform > Set up > "
                             "Landing zone, then approve again")
         cfg = self._platform_config().get(env, {})  # type: ignore[attr-defined]
         if not (cfg.get("workspace_id") and cfg.get("landing_id")):
             raise StepError(f"{env.title()} has no LH_Landing in Fabric yet: create the platform for {env.title()} on "
                             "Platform > Settings, then approve again")
-        return {"workspace_id": cfg["workspace_id"], "lakehouse_id": cfg["landing_id"]}
+        return {"workspace_id": cfg["workspace_id"], "lakehouse_id": cfg["landing_id"], "lakehouse_name": "LH_Landing",
+                "workspace_name": cfg.get("workspace_name") or "", "zone": "", "zone_name": "", "secure": False}
+
+    def platform_requests(self, status: str = "") -> list[dict[str, Any]]:
+        """Each waiting source request that asks for a Copy job says where it would land with one landing
+        workspace (``lands_in``: its zone and lakehouse), so the approver sees it before approving: a
+        requester picks the zone. Without one landing workspace the approver picks the environment."""
+        out = super().platform_requests(status)  # type: ignore[misc]
+        asks = [r for r in out if r.get("kind") == "source" and r.get("status") == "waiting"
+                and (r.get("detail") or {}).get("copy")]
+        if asks and self._central_landing():  # type: ignore[attr-defined]
+            for r in asks:
+                try:
+                    r["lands_in"] = self._lc_where(r, "prod")
+                except StepError as exc:
+                    r["lands_in"] = {"problem": str(exc)}
+        return out
 
     def _lc_make(self, req: dict[str, Any], env: str) -> dict[str, Any]:
         d = req["detail"]

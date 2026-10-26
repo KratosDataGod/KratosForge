@@ -218,3 +218,27 @@ def test_the_landing_zone_names_the_copy_job_that_lands_a_source(svc, who):
     erp = next(s for s in svc.platform_landing("dev")["sources"] if s["name"] == "erp")
     assert erp["copy_job"] | {"request_id": ""} == {"id": "cj-1", "workspace_id": WS, "name": "CJ_Landing_erp",
                                                     "tables": 2, "times": ["02:00"], "request_id": ""}
+
+
+def test_with_one_landing_workspace_the_request_says_which_zone_it_lands_in(svc, who, api, monkeypatch):
+    central = {"workspace_id": "ws-landing", "workspace_name": "Platform - Landing", "lakehouse_id": "lh-shared"}
+    zones = [{"id": "shared", "name": "Shared", "workspace_id": "ws-landing", "lakehouse_id": "lh-shared",
+              "lakehouse_name": "LH_Landing", "workspace_name": "Platform - Landing"},
+             {"id": "hr", "name": "HR", "secure": True, "workspace_id": "ws-landing", "lakehouse_id": "lh-hr",
+              "lakehouse_name": "LH_Landing_HR", "workspace_name": "Platform - Landing"}]
+    monkeypatch.setattr(type(svc), "_central_landing", lambda self: central)
+    monkeypatch.setattr(type(svc), "_landing_zones", lambda self: zones)
+    who["user"] = DEV
+    shared = svc.platform_request("source", "erp", "", {"copy": COPY})
+    secure = svc.platform_request("source", "payroll", "", {"copy": COPY, "zone": "hr"})
+    who["user"] = ADMIN
+    lands = {r["target"]: r["lands_in"] for r in svc.platform_requests("waiting")}
+    assert lands["erp"] | {"workspace_id": "", "lakehouse_id": ""} == {
+        "zone": "shared", "zone_name": "Shared", "secure": False, "workspace_name": "Platform - Landing",
+        "lakehouse_name": "LH_Landing", "workspace_id": "", "lakehouse_id": ""}
+    assert (lands["payroll"]["zone_name"], lands["payroll"]["secure"], lands["payroll"]["lakehouse_name"]) == ("HR", True, "LH_Landing_HR")
+    assert secure["status"] == "waiting"
+    svc.platform_decide(shared["id"], True)
+    assert api.items[0]["workspaceId"] == "ws-landing"
+    assert json.loads(api.items[0]["parts"][copyjob.CONTENT])["properties"]["destination"]["connectionSettings"][
+        "typeProperties"]["artifactId"] == "lh-shared"

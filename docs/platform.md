@@ -139,13 +139,13 @@ A domain team can ask for the Copy job that lands its source, and a platform adm
 - the **tables**, as `schema.table`, and for each, whether a run copies the whole table or only the rows changed since the last run, by a column such as `ModifiedAt`.
 - a **time of day** in UTC for its daily run, or none.
 
-**Approve and make it** says what it makes, then, as the person approving:
+**Approve and make it** says what it makes and where: with one landing workspace, the zone and lakehouse it writes to (the request names the zone; Shared is read by every domain, and by Dev and Test). Then, as the person approving:
 
 1. Creates the Copy job `CJ_Landing_<source>` in the landing workspace (the source's zone's lakehouse with [one landing workspace](#one-landing-workspace-for-dev-test-and-prod-preview); otherwise the approver picks the environment whose LH_Landing it writes to). Each table lands as Parquet in `Files/<source>/<table>/`. Its description names the request.
 2. Adds its daily schedule, when the request asked for one.
 3. Registers the source, as any approved source request does.
 
-Creating the Copy job starts no run. Each run uses capacity, and the connection's gateway reads the source. If a step fails, the request stays waiting and the error names the step; approving again carries on with the Copy job the request already made. A Copy job of the same name that the request didn't make is never taken over. The source's panel on **Landing zone** then shows **Lands with CJ_Landing_<source>**, and a platform admin can **Run now...** after a confirm; the run shows in **Monitor > Runs**. Changing the tables is a new request; the Copy job itself is edited in Fabric (**Data Factory > Copy jobs** reads it).
+Creating the Copy job starts no run. Each run uses capacity, and the connection's gateway reads the source. If a step fails, the request stays waiting and the error names the step; approving again carries on with the Copy job the request already made. A Copy job of the same name that the request didn't make is never taken over. The source's panel on **Landing zone** then shows **Lands with CJ_Landing_<source>**, and a platform admin can **Run now...** after a confirm and the [risk check](finops/risk-check.md), which says when it couldn't run; the run shows in **Monitor > Runs**. Changing the tables is a new request; the Copy job itself is edited in Fabric (**Data Factory > Copy jobs** reads it).
 
 This is Preview: the Copy job definition follows Microsoft's documentation and hasn't been created on a real tenant yet. Bronze reads the files with **Data mesh > New entity > From the landing zone**.
 

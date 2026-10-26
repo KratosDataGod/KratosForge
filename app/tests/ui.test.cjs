@@ -5175,4 +5175,7 @@ test("a source request can ask for a Copy job, and approving says what it makes"
   const run = fn("copyJobLine");
   assert.match(run, /confirmDialog\(`Run \$\{j\.name\} now\?`[\s\S]*uses capacity[\s\S]*platformCall\("run_fabric_item_now"/);
   assert.match(run, /adminOnly\(run\)/);
+  assert.match(run, /riskGate\(\{ id: `fabric:\$\{j\.workspace_id\}:\$\{j\.id\}`, action: "run_item"/, "Run now spends capacity: the risk check comes first");
+  assert.match(confirm, /central \? landsIn\(r\.lands_in, central\)/, "the approver sees the zone and lakehouse it lands in");
+  assert.match(fn("landsIn"), /secure \? "secure " : ""\}zone \$\{where\.zone_name\}/);
 });

@@ -380,6 +380,7 @@ function copyJobLine(s) {
   const j = s.copy_job;
   const run = btn("Run now...", null, async () => {
     if (!(await confirmDialog(`Run ${j.name} now?`, `It copies ${j.tables} table${j.tables === 1 ? "" : "s"} into the landing zone in Fabric. It uses capacity, and the gateway reads the source.`, "Run now"))) return;
+    if (!(await riskGate({ id: `fabric:${j.workspace_id}:${j.id}`, action: "run_item", title: `Run ${j.name} now?`, runLabel: "Run now" }))) return;
     if (await platformCall("run_fabric_item_now", { workspace_id: j.workspace_id, item_id: j.id, job_type: "Execute", name: j.name, item_type: "CopyJob" }, "Not started"))
       toast(`${j.name} started; it shows in Monitor > Runs`, false, { log: true });
   }, "tool outline small");
@@ -872,6 +873,16 @@ async function confirmApproval(r) {
   return {};
 }
 
+// Where the Copy job writes, with one landing workspace: the zone comes from the request, so the
+// approver sees it (a secure zone, or Shared, which every domain and Dev and Test read).
+function landsIn(where, central) {
+  if (!where) return h("p", { class: "wrn-text small" }, `In ${central.workspace_name || "the landing workspace"}; its zone couldn't be read, so check the request before approving.`);
+  if (where.problem) return h("p", { class: "fail-text small" }, where.problem);
+  return h("p", { class: "text" }, "It writes to ", h("b", {}, `${where.lakehouse_name || "the zone's lakehouse"}`),
+    `, the ${where.secure ? "secure " : ""}zone ${where.zone_name}, in ${where.workspace_name || "the landing workspace"}. `,
+    where.zone === "shared" ? "Every domain, and Dev and Test, read the Shared zone." : where.secure ? "Only the readers its data access role allows see it." : "");
+}
+
 // Approving a source with a Copy job (scale plan 4.1): what it makes, where, and that runs use capacity.
 async function confirmCopyJob(r) {
   const c = r.detail.copy;
@@ -887,7 +898,7 @@ async function confirmCopyJob(r) {
           h("td", { class: "mono" }, `Files/${r.target}/${t.folder}/`),
           h("td", {}, t.mode === "incremental" ? `rows changed since the last run, by ${t.column}` : "the whole table")))))),
       c.times?.length ? h("li", {}, `Its schedule: every day at ${c.times.join(", ")} UTC.`) : null),
-    central ? h("p", { class: "muted-text small" }, `In the landing workspace ${central.workspace_name || central.workspace_id}.`)
+    central ? landsIn(r.lands_in, central)
       : reqField("Into the LH_Landing of", env, "There's no one landing workspace yet, so pick the environment whose platform workspace it lands in."),
     h("p", { class: "wrn-text small" }, "Creating it starts no run. Each run uses capacity, and the gateway reads the source. Copy jobs made here are Preview: not yet run against a real tenant.")), [
     btn("Cancel", null, () => { closeDialog(); resolve(false); }, "tool outline"),

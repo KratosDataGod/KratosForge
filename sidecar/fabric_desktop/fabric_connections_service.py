@@ -70,8 +70,12 @@ def definition_parts(result: dict[str, Any]) -> list[Any]:
 
 
 def dataflow_connection_ids(result: dict[str, Any]) -> set[str]:
-    """The connection ids a Dataflow Gen2 definition names (queryMetadata.json's ``DatasourceId``)."""
-    return {c["connection_id"].strip().lower() for c in mashup.describe(result)["connections"] if c["connection_id"].strip()}
+    """The connection ids a Dataflow Gen2 definition names (queryMetadata.json's ``DatasourceId``).
+    A definition the reader can't fully read raises, so the scan counts it as missed, not as using none."""
+    out = mashup.describe(result)
+    if out["problems"]:
+        raise ValueError(out["problems"][0])
+    return {c["connection_id"].strip().lower() for c in out["connections"] if c["connection_id"].strip()}
 
 
 def connection_row(c: dict[str, Any]) -> dict[str, Any]:

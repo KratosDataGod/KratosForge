@@ -19,9 +19,9 @@ Status: Preview. Chris said go on 2026-10-24 and approved the mockup on 2026-10-
 | DF-2 | Open a pipeline from a workspace (read its definition), Open in Fabric embedded | Done, Preview (#665 engine, then the open dialog's workspace list) |
 | DF-3 | Copy data inside OneLake and local files (orchestration plan P5) | Not started |
 | DF-4 | Schedule a pipeline on this PC (P6), rerun from the failed activity (P7) | Not started |
-| DF-5 | Connections tab: connections and gateways, what uses each one, and a check before a platform deploy | Connections tab in review; the deploy check comes with DF-8 |
-| DF-6 | Copy jobs: definition, diff, local run inside OneLake, run in Fabric, run history | Not started |
-| DF-7 | Dataflow Gen2: M code and destinations, diff, refresh in Fabric, refresh history | Engine and Dataflows tab (reads); refresh next, behind a confirm and the risk check |
+| DF-5 | Connections tab: connections and gateways, what uses each one, and a check before a platform deploy | Done, Preview (#667, #668, gateway names #709, dataflows in Used by #736); the deploy check comes with DF-8 |
+| DF-6 | Copy jobs: definition, diff, local run inside OneLake, run in Fabric, run history | Copy jobs tab, run history and Run in Fabric done, Preview (#724, #732, #735, #737, #739, #740); diff and the local run (needs DF-3) to come; no live run yet |
+| DF-7 | Dataflow Gen2: M code and destinations, diff, refresh in Fabric, refresh history | Dataflows tab, refresh history and Refresh in Fabric done, Preview (#669, #700, #737, #739, #740); diff to come; no live refresh yet |
 | DF-8 | Deploy Data Factory items through the platform repository deploy, with connection and parameter mapping | Not started |
 | DF-9 | Spark notebook steps (P8), Delete, Web and the smaller rows (P9) | Not started |
 | DF-10 | Edit a pipeline in the app (P11) | Later |
@@ -88,7 +88,7 @@ Three engine calls, all reads (listed in `audit.READ_ONLY`). None of them starts
   - the job's source and destination: type, connection type, connection id (lowercased, so it matches the Connections tab), and the lakehouse workspace, item and root folder when there is one
   - one row per table: source and destination schema, table or folder, write behavior (Append, Overwrite, Upsert, ...), upsert keys, table option, incremental read method and columns, how many columns are mapped, and staging
   - `local_check`, which says whether a run on this PC could take the job, with the reasons when it can't. That's only when both ends are a lakehouse (OneLake) and the job is Batch. An external source needs Fabric's connections and gateways, and CDC runs in Fabric only.
-  - A definition it can't read (no `copyjob-content.json`, an unknown job mode, `activities` that isn't a list) comes back with the reason under `problems`, not an error.
+  - A definition it can't read (no `copyjob-content.json`, an unknown job mode, `activities` that isn't a list) comes back with the reason under `problems`, not an error. A value of an unexpected type anywhere in it (a number where a list or an object should be) is read as empty, never an error; the same holds for a dataflow's `queryMetadata.json`. In the Connections scan, a dataflow whose definition has a problem counts under `missed`, not as using no connections.
 - `fabric_copy_job_runs(workspace_id, item_id, name)` lists the copy job's newest 50 runs, in the shape Monitor > Runs uses for pipeline runs.
 
 The field names follow the examples in Microsoft's Copy job definition article. They haven't been checked against a real export yet (plan decision 4). Database names and folders pass through `redact.secrets`, and nothing is written to disk. The reader lives in `orchestration/copyjob.py`. Running a copy job on this PC needs the pipeline thread's copy module (DF-3), and running one in Fabric needs a confirm and the risk check.

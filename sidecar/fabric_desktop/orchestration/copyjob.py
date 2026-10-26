@@ -27,6 +27,10 @@ def _dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
 def _text(value: Any) -> str:
     return value if isinstance(value, str) else ""
 
@@ -59,10 +63,10 @@ def table(activity: Any) -> dict[str, Any]:
     mappings = _dict(props.get("translator")).get("mappings")
     return {"id": _text(a.get("id")), "source": _dataset(src), "destination": _dataset(dst),
             "write_behavior": _text(dst.get("writeBehavior") or dst.get("writeBehaviour")),
-            "keys": [k for k in upsert.get("keys") or [] if isinstance(k, str)],
+            "keys": [k for k in _list(upsert.get("keys")) if isinstance(k, str)],
             "table_option": _text(dst.get("tableOption")),
             "read_method": _text(change.get("readMethod")),
-            "incremental_columns": [_text(c.get("name")) for c in change.get("columns") or [] if isinstance(c, dict)],
+            "incremental_columns": [_text(c.get("name")) for c in _list(change.get("columns")) if isinstance(c, dict)],
             "mapped_columns": len(mappings) if isinstance(mappings, list) else 0,
             "staging": bool(props.get("enableStaging"))}
 
@@ -81,11 +85,11 @@ def local_check(mode: str, source: dict[str, Any], destination: dict[str, Any]) 
 def describe(result: dict[str, Any]) -> dict[str, Any]:
     """A getDefinition result as {ok, job_mode, source, destination, timeout, retry, tables, local_check, problems}."""
     text = ""
-    for part in _dict(_dict(result).get("definition")).get("parts") or []:
+    for part in _list(_dict(_dict(result).get("definition")).get("parts")):
         if isinstance(part, dict) and part.get("path") == CONTENT:
             try:
                 text = base64.b64decode(part.get("payload") or "").decode("utf-8")
-            except (binascii.Error, UnicodeDecodeError, ValueError):
+            except (binascii.Error, UnicodeDecodeError, ValueError, TypeError):
                 text = ""
     problems = []
     try:

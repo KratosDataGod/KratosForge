@@ -154,3 +154,29 @@ def test_statements_skip_comments_and_nested_brackets():
 def test_all_three_are_read_only_and_not_quick():
     for name in ("workspace_dataflows", "workspace_dataflow_definition", "fabric_dataflow_refreshes"):
         assert name in server.METHODS and name in audit.READ_ONLY and name not in server.QUICK
+
+
+ODD = [None, 1, "x", True, 1.5, [], {}, [1], {"a": 1}]
+M = ('section Section1;\nshared Products = let a = 1 in a;\nshared Helper = 2;\n')
+
+
+def _parts(m, meta):
+    return {"definition": {"parts": [{"path": "mashup.pq", "payload": _b64(m)},
+                                     {"path": "queryMetadata.json", "payload": _b64(json.dumps(meta))}]}}
+
+
+@pytest.mark.parametrize("result", [None, 1, "x", [], {"definition": 1}, {"definition": {"parts": "x"}},
+                                    {"definition": {"parts": [1, None]}}, {"definition": {"parts": [{"path": 1, "payload": 5}]}}])
+def test_a_getdefinition_reply_of_any_shape_is_a_problem_not_a_crash(result):
+    out = mashup.describe(result)
+    assert not out["ok"] and out["queries"] == [] and out["problems"]
+
+
+@pytest.mark.parametrize("odd", ODD)
+def test_odd_query_metadata_doesnt_break_the_reader(odd):
+    for meta in ({"queriesMetadata": odd, "connections": odd},
+                 {"queriesMetadata": {"Products": odd}, "connections": [odd, {"kind": odd, "path": odd, "connectionId": odd}]},
+                 {"queriesMetadata": {"Products": {"loadEnabled": odd, "isHidden": odd}}}):
+        out = mashup.describe(_parts(M, meta))
+        assert [q["name"] for q in out["queries"]] == ["Products", "Helper"]
+        assert all(isinstance(c[k], str) for c in out["connections"] for k in ("kind", "path", "connection_id"))

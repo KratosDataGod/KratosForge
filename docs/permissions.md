@@ -65,7 +65,7 @@ With your own app, KratosForge signs in with the browser (not Windows sign-in) a
 | API (as Entra shows it) | Permission | Needed for | Asked |
 | --- | --- | --- | --- |
 | Azure Key Vault | `user_impersonation` | Notebooks reading secrets with `notebookutils.credentials.getSecret` on this PC | Optional, when a notebook asks |
-| Azure SQL Database | `user_impersonation` | Queries on a Data warehouse or SQL analytics endpoint (Preview, [SQL execution](sql-execution.md#queries-on-a-warehouse-preview)); they only read | On first use |
+| Azure SQL Database | `user_impersonation` | Queries on a Data warehouse or SQL analytics endpoint (Preview, [SQL execution](sql-execution.md#queries-on-a-warehouse-preview)), and changes to a warehouse you confirm (WH-10, same scope; Fabric's own permissions on the warehouse decide what you can change) | On first use |
 | Azure Storage | `user_impersonation` | Reading and writing OneLake: tables, files, the Fabric runner bundle; listing the platform's landing zone | At first sign-in |
 | Microsoft Graph | `User.ReadBasic.All` | Adding someone to a data access role who has no role in the workspace yet | Optional, on first use |
 | Power BI Service | `Capacity.Read.All` | Listing capacities when you create a workspace, the size and status of each environment's capacity (Optimize > Cost and savings, Data mesh > Environments), and reading capacities for the capacity settings history (`capacity_settings_read`, Preview: Optimize > Settings history; it only reads), and the capacity repository's drift report (`git_capacity_diff`, Preview: Source control > Capacity; it only reads) | On first use |

@@ -7,7 +7,7 @@ KratosForge is building a full development experience for Fabric warehouses, the
 In **Workspaces**, open a workspace and press **SQL query** on a **Warehouse** or **SQL analytics endpoint** row. The Warehouse page opens: the SQL editor, the compatibility check and the managed results you know from lakehouse queries, with the warehouse as the target.
 
 - **It runs in Fabric and uses capacity.** Unlike a lakehouse query, which runs on this PC, a warehouse query runs on the warehouse. The first run on each warehouse after the app starts asks you to confirm.
-- **It only reads.** One statement that reads is sent. DDL, DML, `EXEC`, variables and anything that reaches outside the warehouse (`OPENROWSET`) are refused before Fabric is asked anything. Changing a warehouse from the app is a later stage and waits on its own decision.
+- **It only reads.** One statement that reads is sent. DDL, DML, `EXEC`, variables and anything that reaches outside the warehouse (`OPENROWSET`) are refused before Fabric is asked anything. Changing a warehouse comes next (WH-10): the engine can already run a change you confirmed (see [SQL execution](sql-execution.md#changes-on-a-warehouse-wh-10)), and the page's confirm follows. **Settings › Advanced › SQL queries › Warehouse changes** turns changes off for this PC; your organization can turn them off for everyone.
 - **It runs as you.** The app signs in to Azure SQL (`https://database.windows.net`) with your account, the first time you run a warehouse query, and Fabric's permissions on the warehouse apply as they do in Fabric. See [permissions](permissions.md).
 - **Same run controls.** Stop, the time limit in Settings › SQL, results a page at a time, Copy and Export to CSV or Parquet. The `sql_execution` audit line names the workspace and warehouse, never the SQL.
 - **No risk check, by design.** The [risk check](finops/risk-check.md) looks at workloads (notebooks, pipelines, Data mesh runs) before a run. A warehouse query isn't a workload: it only reads, and the confirm, Stop and the time limit bound what it can use. Query insights on the History tab show what queries cost in time; capacity cost comes later, in Optimize.
@@ -131,7 +131,8 @@ How a run works underneath (states, limits, what is refused): [Running SQL queri
 | WH-04, WH-05 | SQL from a template, with fill-in parameters | Done |
 | WH-04b | Your own templates, on this PC or shared through Git | Done |
 | WH-06 | Saved and shared queries, on this PC or through Git | Done |
-| WH-07 | Query history and Fabric query insights | This release |
+| WH-07 | Query history and Fabric query insights | Done |
+| WH-10 | Changes to a warehouse (DDL, DML, EXEC) after a preview and confirm, in every environment; Prod asks you to type the warehouse's name | This release: the engine |
 | WH-08 | Messages and a quick chart (several result sets come with scripts) | Done |
 
-Later stages (building and deploying objects from Git, loading and managing data, Snowflake) follow the same pattern: a mockup first, then one change per feature.
+Next: the change confirm on the page, the warehouse as files in Git (WH-11), compare (WH-12), deploy with a preview (WH-13) and the estimated plan (WH-09). Later stages (loading and managing data, Snowflake) follow the same pattern: a mockup first, then one change per feature.

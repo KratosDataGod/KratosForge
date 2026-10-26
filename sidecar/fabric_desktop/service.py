@@ -810,7 +810,7 @@ class Service(TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesM
     def sql_start(self, query: str, lakehouse_ref: dict[str, Any] | None = None, dialect: str = "spark",
                   allow: list[str] | None = None, target: str = "lakehouse", project: str = "",
                   confirm: bool = False, dry_run: bool = False,
-                  warehouse_ref: dict[str, Any] | None = None) -> dict[str, Any]:
+                  warehouse_ref: dict[str, Any] | None = None, confirm_name: str = "") -> dict[str, Any]:
         """Queue a query on this PC. ``allow`` adds "local_mutation" after the person confirmed it;
         lakehouse writes and Fabric changes are never allowed here (sql_policy.py).
 
@@ -818,10 +818,13 @@ class Service(TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesM
         own tables, and ``confirm`` lets DROP, TRUNCATE and DELETE or UPDATE without WHERE run.
         ``target="warehouse"`` (Preview) runs one T-SQL query that only reads on ``warehouse_ref``
         (``workspace_id``, ``item_id``, ``kind`` "warehouse" or "endpoint"), in Fabric: it uses capacity.
+        With ``allow=["warehouse_write"]``, ``confirm`` and ``confirm_name`` (the warehouse's name, as
+        the person confirmed it) it may change the warehouse (WH-10, sql_exec.py).
 
         ``dry_run`` only says what each statement would do; nothing runs."""
         return self.sql_runs.start(query, lakehouse_ref, dialect, allow, target=target, project=project,
-                                   confirm=confirm, dry_run=dry_run, warehouse_ref=warehouse_ref)
+                                   confirm=confirm, dry_run=dry_run, warehouse_ref=warehouse_ref,
+                                   confirm_name=confirm_name)
 
     def sql_status(self, execution: str) -> dict[str, Any]:
         return self.sql_runs.status(execution)

@@ -930,6 +930,12 @@ function sqlSettingsSection(s, locked) {
     placeholder: "Empty: the app's data folder", readonly: locked("sql_temp_dir") ? true : null, "aria-readonly": locked("sql_temp_dir") ? "true" : null });
   rows.push(settingRow("Temp folder", "Where spilled data and results are kept while you page and export. A fast local drive with free space works best.",
     temp, fixedBy(s, "sql_temp_dir")));
+  // WH-10: off, the Warehouse page only reads; on, each change still asks first (sql_exec.py).
+  rows.push(settingRow("Warehouse changes", "Lets the Warehouse page change a warehouse (create, alter, insert, update, delete, run procedures) after you see what it changes and confirm. Off, every warehouse only reads.",
+    h("label", { class: "switch" }, h("input", { type: "checkbox", checked: s.sql_warehouse_writes.value ? true : null, disabled: locked("sql_warehouse_writes") ? true : null,
+      "aria-label": "Warehouse changes", onchange: async (e) => { await saveSettings({ sql_warehouse_writes: e.target.checked }); render(); } }),
+    h("span", {}, s.sql_warehouse_writes.value ? "On" : "Off")),
+    fixedBy(s, "sql_warehouse_writes")));
   const save = async () => {
     const changes = {};
     for (const [key] of SQL_SETTINGS) {

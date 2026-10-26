@@ -392,9 +392,10 @@ def _notebook_code(svc: Any, name: str, workspace_id: str) -> tuple[list[str], d
     if lakehouse and lakehouse.get("workspace_id") != workspace_id:
         raise ValueError(f"{name} reads a lakehouse in workspace {lakehouse.get('workspace_id')}; pass that as workspace_id.")
     cells = [c.get("source") or "" for c in nb["cells"] if notebook_cells.runs(c, skip_fabric_step=True)]
+    skipped = notebook_cells.skipped_step(nb["cells"])
     if not cells:
-        raise ValueError(f"{name} has no code to run.")
-    return cells, lakehouse, notebook_cells.skipped_step(nb["cells"])
+        raise ValueError(f"{name} has no code to run." + (f" {skipped}" if skipped else ""))
+    return cells, lakehouse, skipped
 
 
 def _cells_sha256(cells: list[str]) -> str:

@@ -3,6 +3,8 @@
 import base64
 import copy
 import json
+import os
+from pathlib import Path
 
 import pytest
 import yaml
@@ -320,6 +322,68 @@ def test_reading_a_project_file_refuses_what_import_would(svc):
     with pytest.raises(ValueError, match="version"):
         svc.meta_model_ossie_read("semantic/notes.yaml")
 
+
+def test_a_model_kept_in_git_exports_offline(svc, monkeypatch):
+    from fabric_desktop import semantic
+    root = Path(svc._project().root)
+    assert svc.meta_model_ossie_folders() == {"folders": []}
+    svc.meta_model_tmdl_save("test", "SM_Gold")  # what Save TMDL to Git writes
+    fact = semantic.ModelTable("fact_sales", "gold.fact_sales", "dbo", "fact_sales", [("amount", "double")])
+    for path, text in semantic.build([fact], [], "srv", "ep").items():
+        (root / "semantic" / "SM_Gold.SemanticModel" / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / "semantic" / "SM_Gold.SemanticModel" / path).write_text(text, encoding="utf-8")
+    (root / "semantic" / "Old.SemanticModel").mkdir()
+    (root / "semantic" / "Old.SemanticModel" / "model.bim").write_text(json.dumps(FakeFabric().bim), encoding="utf-8")
+    assert [f["name"] for f in svc.meta_model_ossie_folders()["folders"]] == ["Old", "SM_Gold"]
+    monkeypatch.setattr(svc, "fake", None)  # no Fabric at all
+    out = svc.meta_model_ossie_export_folder("semantic/SM_Gold.SemanticModel")
+    assert out["name"] == "SM_Gold" and out["path"] == "semantic/SM_Gold.ossie.yaml"
+    assert out["counts"]["datasets"] == 1 and out["counts"]["portable_metrics"] == 1
+    old = svc.meta_model_ossie_export_folder("semantic\\Old.SemanticModel")
+    assert old["name"] == "Old" and old["counts"]["datasets"] == 2
+
+
+@pytest.mark.parametrize("path", ["semantic/../semantic/SM_Gold.SemanticModel", "/etc", "semantic/Nope.SemanticModel",
+                                  "semantic", "SM_Gold.SemanticModel"])
+def test_export_folder_reads_only_model_folders_under_semantic(svc, path):
+    (Path(svc._project().root) / "semantic" / "SM_Gold.SemanticModel" / "definition").mkdir(parents=True)
+    with pytest.raises(LookupError):
+        svc.meta_model_ossie_export_folder(path)
+
+def test_export_folder_refuses_links_junctions_and_a_bim_that_isnt_a_model(svc, tmp_path, monkeypatch):
+    from fabric_desktop import model_ossie_service
+    root = Path(svc._project().root)
+    outside = tmp_path / "outside"
+    (outside / "definition" / "tables").mkdir(parents=True)
+    (outside / "definition" / "tables" / "Secret.tmdl").write_text(
+        "table Secret\n\tpartition Secret = entity\n\t\tsource\n\t\t\tentityName: s\n", encoding="utf-8")
+    good = root / "semantic" / "Good.SemanticModel" / "definition"
+    (good / "tables").mkdir(parents=True)
+    (good / "model.tmdl").write_text("model Model\n", encoding="utf-8")
+    table = "table {0}\n\tcolumn id\n\t\tdataType: int64\n\t\tsourceColumn: id\n\tpartition {0} = entity\n\t\tmode: directLake\n\t\tsource\n\t\t\tentityName: {0}\n"
+    (good / "tables" / "Sales.tmdl").write_text(table.format("Sales"), encoding="utf-8")
+    (good / "more").mkdir()
+    (good / "more" / "Keep.tmdl").write_text(table.format("Keep"), encoding="utf-8")
+    (good / "linked").symlink_to(outside / "definition" / "tables", target_is_directory=True)
+    (root / "semantic" / "Linked.SemanticModel").symlink_to(outside, target_is_directory=True)
+    assert [f["name"] for f in svc.meta_model_ossie_folders()["folders"]] == ["Good"]
+    out = svc.meta_model_ossie_export_folder("semantic/Good.SemanticModel")
+    assert "Secret" not in out["yaml"] and "Sales" in out["yaml"]
+    # A junction isn't a symlink to pathlib: _is_link sees its reparse tag.
+    real = model_ossie_service._is_link
+    monkeypatch.setattr(model_ossie_service, "_is_link", lambda st: real(st) or st.st_ino == os.stat(good / "tables").st_ino)
+    out = svc.meta_model_ossie_export_folder("semantic/Good.SemanticModel")
+    assert "Sales" not in out["yaml"] and "Keep" in out["yaml"]
+    monkeypatch.setattr(model_ossie_service, "_is_link", lambda st: st.st_ino == os.stat(root / "semantic").st_ino)
+    assert svc.meta_model_ossie_folders() == {"folders": []}
+    monkeypatch.setattr(model_ossie_service, "_is_link", real)
+    (root / "semantic" / "List.SemanticModel").mkdir()
+    (root / "semantic" / "List.SemanticModel" / "model.bim").write_text("[1, 2]", encoding="utf-8")
+    with pytest.raises(ValueError, match="isn't a semantic model"):
+        svc.meta_model_ossie_export_folder("semantic/List.SemanticModel")
+    (root / "semantic" / "List.SemanticModel" / "model.bim").write_text("[" * 100_000 + "]" * 100_000, encoding="utf-8")
+    with pytest.raises(ValueError, match="nested too deeply"):
+        svc.meta_model_ossie_export_folder("semantic/List.SemanticModel")
 
 def test_ai_tools_only_read_and_pass_their_arguments_through():
     from fabric_desktop.integrations.capabilities import register_core

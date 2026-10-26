@@ -219,10 +219,17 @@ def execution(service: Any, arguments: dict[str, Any], ctx: CallContext | None) 
 
 
 def metadata_of(meta: dict[str, Any]) -> set[str] | None:
-    """The open metadata project: the workspaces its environments and entities name."""
+    """The open metadata project: the workspaces its environments (with their designations') and
+    entities name."""
     if not meta.get("path"):
         return set()
-    return located(meta.get("environments") or {}, meta.get("entities") or [])
+    found = located(meta.get("entities") or [])
+    for cfg in (meta.get("environments") or {}).values():
+        here = environment_of(cfg or {})
+        if found is None or here is None:
+            return None
+        found |= here
+    return found
 
 
 def project(service: Any, arguments: dict[str, Any], ctx: CallContext | None) -> set[str] | None:
@@ -249,7 +256,9 @@ def environment_of(cfg: dict[str, Any]) -> set[str] | None:
 
 def environment(service: Any, arguments: dict[str, Any], ctx: CallContext | None) -> set[str] | None:
     """One environment of the open metadata project (``env``). None when no project is open or the
-    environment names a place without its workspace id."""
+    environment names a place without its workspace id. ``env`` defaults to test, as the semantic model
+    tools' schema does (models live in Fabric, and Dev usually keeps its tables on this PC); the risk
+    check's dev default is its own."""
     meta = service.meta_project()
     env = (meta.get("environments") or {}).get(arguments.get("env") or "test") if meta.get("path") else None
     return environment_of(env) if env else None

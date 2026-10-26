@@ -793,6 +793,8 @@ def parse_unified(text: str) -> dict[str, Any]:
         count += 1
     for hk in hunks:  # names the block, so staging it later can check it is still the one shown
         hk["id"] = hunk_id(hk)
+    if truncated and cur is not None:
+        cur["id"] = None  # cut short at the line limit: not all of it is shown, so it can't be staged alone
     return {"hunks": hunks, "added": added, "removed": removed, "truncated": truncated}
 
 

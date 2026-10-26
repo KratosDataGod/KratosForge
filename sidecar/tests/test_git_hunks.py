@@ -7,6 +7,7 @@ import subprocess
 import pytest
 
 from fabric_desktop.git.cli import GitError
+from fabric_desktop.git import repo as repo_mod
 from fabric_desktop.git.repo import init
 
 from test_git import git_home, raw, write  # noqa: F401  (git_home is an autouse fixture)
@@ -94,3 +95,9 @@ def test_crlf_and_no_newline_at_end_survive_a_block(tmp_path):
     assert staged.endswith(b"END") and b"\r\nb\r\n" in staged  # the first block stays unstaged
     r.apply_hunk("w.txt", first["id"], "stage")
     assert index() == (r.root / "w.txt").read_bytes()
+
+
+def test_a_block_cut_short_by_the_line_limit_has_no_buttons(repo, monkeypatch):
+    monkeypatch.setattr(repo_mod, "MAX_DIFF_LINES", 10)
+    d = repo.diff("load.py")
+    assert d["truncated"] and d["hunks"][0]["id"] and d["hunks"][-1]["id"] is None

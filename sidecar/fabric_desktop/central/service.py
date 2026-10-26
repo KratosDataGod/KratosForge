@@ -762,7 +762,7 @@ class PlatformMixin:
             return
 
         def events() -> list[dict[str, Any]]:
-            kinds = ("access", "shortcut")
+            kinds = ("access", "shortcut", "data")
             products = self._catalog().call("list_products") if req.get("kind") in kinds else []
             event = build(req, products)
             return [event] if event else []

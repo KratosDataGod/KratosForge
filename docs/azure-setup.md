@@ -123,7 +123,7 @@ Notebooks and SQL queries can use any lakehouse a person can open. The **metadat
 | What | How many | Holds |
 | --- | --- | --- |
 | **Environment workspaces** | One each for Dev, Test and Prod, per project | One lakehouse per layer (`LH_Bronze`, `LH_Silver`, `LH_Gold`, or whatever layers the project has), plus `LH_Meta` for run logs, checks and watermarks. |
-| **Keys workspace** | One per environment, shared by every project that shares business keys | `LH_Keys`: one table per business key (`sk.customer`, `sk.product`) and the source system configuration. |
+| **Keys workspace** | One for the organization, shared by Dev, Test and Prod and by every project ([one keys database](platform.md#one-keys-database-for-dev-test-and-prod), Preview) | `SQL_Keys`, with one table per business key (`keys.customer`, `keys.product`), and `UDF_Keys`. Customer ABC gets the same key in every environment. Without the platform, each environment keeps its own `LH_Keys` instead ([metadata-guide.md](metadata-guide.md#8-surrogate-keys)). |
 
 Things to know:
 

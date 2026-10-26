@@ -18,7 +18,7 @@ This guide goes from an empty folder to Prod. The [reference](#reference) at the
 | **Gates** | Rules enforced at four points (save, write, promote, after) so the standards are followed without anyone policing them. |
 | **Promote** | Moving a tested metadata version from Dev to Test, or Test to Prod. |
 | **LH_Meta** | A lakehouse per environment that holds the run log, check results, watermarks, schema history and deployments. |
-| **LH_Keys** | A lakehouse per environment, in a shared Keys workspace, that issues surrogate keys. |
+| **Keys** | Where surrogate keys are issued. Recommended: one keys database for Dev, Test and Prod, in one Keys workspace ([platform.md](platform.md#one-keys-database-for-dev-test-and-prod)). Without it, `LH_Keys`, a lakehouse per environment. |
 
 ## 1. Set up a project
 
@@ -354,7 +354,7 @@ With **Fabric** (Preview), **Run all** (and running one entity, backfills and re
 
 ## 8. Surrogate keys
 
-Surrogate keys are issued in one place per environment: `LH_Keys`, in a dedicated Keys workspace (Dev keeps it on the PC). Each business key has its own key table, `sk.<name>`, with three columns: `<name>_sk` (INT), `<name>_bk` (the business key, unique) and `create_date`. Customer ABC gets one key, say 123, and every source that has Customer ABC maps to 123.
+Surrogate keys are issued in one place. The recommended setup is [one keys database for Dev, Test and Prod](platform.md#one-keys-database-for-dev-test-and-prod) (Preview), in one Keys workspace, so a business key has the same surrogate key in every environment. Without the [platform](platform.md), each environment issues its own keys in `LH_Keys`, in a dedicated Keys workspace (Dev keeps it on the PC); the rest of this section describes that setup. Each business key has its own key table, `sk.<name>`, with three columns: `<name>_sk` (INT), `<name>_bk` (the business key, unique) and `create_date`. Customer ABC gets one key, say 123, and every source that has Customer ABC maps to 123.
 
 **Sync to LH_Keys** is in Preview for Fabric environments: it has not yet been run on a tenant.
 

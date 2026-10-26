@@ -66,17 +66,27 @@ def _seconds(start: Any, end: Any) -> float | None:
     return round((b - a).total_seconds(), 3) if a and b else None
 
 
+def _str(value: Any) -> str:
+    return value if isinstance(value, str) else ""
+
+
+def _number(value: Any) -> float | None:
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
 def run_row(job: dict[str, Any], pipeline: dict[str, Any]) -> dict[str, Any]:
-    """One Fabric job instance of a pipeline, in the shape Monitor > Runs lists."""
+    """One Fabric job instance of a pipeline, in the shape Monitor > Runs lists. A field of an
+    unexpected type reads as empty, so one odd job never ends a scan."""
+    job = job if isinstance(job, dict) else {}
     reason = job.get("failureReason") or {}
-    status = job.get("status") or ""
+    status = _str(job.get("status"))
+    started, ended = _str(job.get("startTimeUtc")) or None, _str(job.get("endTimeUtc")) or None
     return {"where": "fabric", "workspace_id": pipeline["workspace_id"], "workspace_name": pipeline["workspace_name"],
-            "item_id": pipeline["id"], "name": pipeline.get("displayName") or "", "job_id": job.get("id") or "",
+            "item_id": pipeline["id"], "name": _str(pipeline.get("displayName")), "job_id": _str(job.get("id")),
             "state": RUN_STATES.get(status, "unknown"), "native_status": status,
-            "started": job.get("startTimeUtc"), "ended": job.get("endTimeUtc"),
-            "seconds": _seconds(job.get("startTimeUtc"), job.get("endTimeUtc")),
-            "invoke": job.get("invokeType") or "",
-            "message": secrets((reason.get("message", "") if isinstance(reason, dict) else str(reason)) or "")}
+            "started": started, "ended": ended, "seconds": _seconds(started, ended),
+            "invoke": _str(job.get("invokeType")),
+            "message": secrets((_str(reason.get("message")) if isinstance(reason, dict) else str(reason)) or "")}
 
 
 def _text(value: Any) -> dict[str, Any]:
@@ -89,14 +99,15 @@ def _text(value: Any) -> dict[str, Any]:
 
 
 def activity_row(a: dict[str, Any]) -> dict[str, Any]:
+    a = a if isinstance(a, dict) else {}
     err = a.get("error") if isinstance(a.get("error"), dict) else {}
-    status = a.get("status") or ""
+    status = _str(a.get("status"))
     message = secrets(str(err.get("message") or ""))
-    return {"name": a.get("activityName") or "", "type": a.get("activityType") or "",
+    return {"name": _str(a.get("activityName")), "type": _str(a.get("activityType")),
             "state": ACTIVITY_STATES.get(status, "unknown"), "native_status": status,
-            "started": a.get("activityRunStart"), "ended": a.get("activityRunEnd"),
-            "ms": a.get("durationInMs"), "retry": a.get("retryAttempt"), "run_id": a.get("activityRunId") or "",
-            "iteration": a.get("iterationHash") or "",
+            "started": _str(a.get("activityRunStart")) or None, "ended": _str(a.get("activityRunEnd")) or None,
+            "ms": _number(a.get("durationInMs")), "retry": _number(a.get("retryAttempt")), "run_id": _str(a.get("activityRunId")),
+            "iteration": _str(a.get("iterationHash")),
             "input": _text(a.get("input")), "output": _text(a.get("output")),
             "error": {"code": str(err.get("errorCode") or ""), "message": message[:TEXT_LIMIT],
                       "failure_type": str(err.get("failureType") or "")} if message or err.get("errorCode") else None}
@@ -156,10 +167,12 @@ class FabricPipelineRunsMixin:
         def runs(p: dict[str, Any]) -> list[dict[str, Any]]:
             try:
                 jobs = client.list_job_instances(p["workspace_id"], p["id"])
+                # Rows are built here too: an item whose history this version can't read is one
+                # missed read, never a scan that stops and leaves Monitor "Reading..." for good.
+                return [{**run_row(j, p), "kind": RUN_KINDS[p["type"]]} for j in jobs[:RUNS_PER_PIPELINE]]
             except Exception as exc:  # noqa: BLE001
                 missed.append(f"runs of {RUN_KINDS[p['type']]} {p['id']}: {describe(exc)}")
                 return []
-            return [{**run_row(j, p), "kind": RUN_KINDS[p["type"]]} for j in jobs[:RUNS_PER_PIPELINE]]
 
         with ThreadPoolExecutor(max_workers=8) as pool:
             found = [p for chunk in pool.map(pipelines, workspaces) for p in chunk]

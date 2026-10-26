@@ -46,6 +46,17 @@ A session's database file (an existing DuckDB or SQLite file) is opened read-onl
 its own in-memory database or Python process: two notebooks never see each other's tables or
 variables, and closing a session frees everything it held.
 
+A SQL session never reaches past its own database. DuckDB refuses COPY, EXPORT, ATTACH, INSTALL and
+LOAD before anything in the cell runs (the same statements the SQL query page refuses), and its
+connection can't read or write files on this PC, load extensions or reach the network at all.
+SQLite refuses ATTACH and DETACH, so a cell can't create or open another database file. Polars
+reads the files a cell names with read_parquet or read_csv, and never writes one.
+
+The Python engine uses the notebook's own session (the same process **Stop** ends), so it needs
+**Run notebooks in their own process** turned on in Settings. With it off every notebook shares one
+kernel, and a notebook sharing another notebook's session shares its process too; in both cases the
+engine says what to change instead of running.
+
 ## Switching engines
 
 A notebook has one engine at a time. Switching to another engine starts a new session: cells and

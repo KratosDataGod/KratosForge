@@ -11,6 +11,8 @@ these makes what was asked for first, as the person approving, and only then app
                       it (platform_create_domain); one whose parent isn't in Fabric is saved in the
                       platform only. A retry finds a domain the platform already has.
     exception         records the exception in the platform's catalog (core, through policy.py)
+    data              nothing to make: accepting says the producing team will build the product or
+                      change, and the note says how and when
 
 If a step fails, the request stays waiting and the error names the step. What a workspace request
 made is recorded on the request (record_request_progress) and in the workspace's description, so a
@@ -28,7 +30,7 @@ from . import core
 
 _log = logging.getLogger(__name__)
 
-NEW_KINDS = ("workspace", "workspace_access", "domain", "exception")
+NEW_KINDS = ("workspace", "workspace_access", "domain", "exception", "data")
 REPAIR = "After an update, a platform admin runs Platform > Settings > Finish or repair once."
 
 

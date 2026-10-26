@@ -98,11 +98,31 @@ def unquote(name: str) -> str:
 
 
 def column_ref(ref: str) -> tuple[str, str]:
-    """``'Sales Table'.Amount`` as (table, column)."""
-    m = re.match(rf"^\s*({_NAME})\.({_NAME})\s*$", ref)
-    if not m:
+    """``'Sales Table'.Amount`` as (table, column). Read by hand, not by a regular expression: a long dotted
+    value that doesn't match would make one backtrack for hours."""
+    ref = ref.strip()
+    if len(ref) > 1024:
+        raise ValueError("a column reference is longer than 1,024 characters")
+    if ref.startswith("'"):
+        end = 1
+        while True:
+            end = ref.find("'", end)
+            if end < 0:
+                raise ValueError(f"not a column reference: {ref}")
+            if not ref.startswith("''", end):
+                break
+            end += 2
+        table, column = ref[:end + 1], ref[end + 1:]
+        if not column.startswith("."):
+            raise ValueError(f"not a column reference: {ref}")
+        column = column[1:]
+    else:
+        table, dot, column = ref.partition(".")
+        if not dot:
+            raise ValueError(f"not a column reference: {ref}")
+    if not table.strip() or not column.strip():
         raise ValueError(f"not a column reference: {ref}")
-    return unquote(m.group(1)), unquote(m.group(2))
+    return unquote(table), unquote(column)
 
 
 def _value(key: str, text: str) -> Any:
@@ -293,7 +313,10 @@ def to_bim(files: dict[str, str], name: str = "") -> tuple[dict[str, Any], list[
         raise ValueError("There are no .tmdl files in this folder; it should hold definition/model.tmdl")
     for path in ordered:
         top: dict[str, Any] = {}
-        _Reader(path, files[path], report).block(-1, top)
+        try:
+            _Reader(path, files[path], report).block(-1, top)
+        except RecursionError:
+            raise ValueError(f"{path} is nested too deeply to be a semantic model") from None
         db = top.pop("database", None)
         if isinstance(db, dict):
             root.update(db)

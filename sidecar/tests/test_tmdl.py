@@ -166,3 +166,23 @@ def test_refuses_what_it_cant_read():
         tmdl.to_bim({"definition/model.tmdl": "x" * (tmdl.MAX_CHARS + 1)})
     with pytest.raises(ValueError, match="not a column reference"):
         tmdl.column_ref("nodot")
+
+
+def test_a_long_dotted_reference_is_refused_fast():
+    import time
+    start = time.monotonic()
+    rel = "relationship r\n\tfromColumn: " + ".".join(["a"] * 400_000) + "'\n"
+    with pytest.raises(ValueError, match="longer than 1,024"):
+        tmdl.to_bim({"definition/relationships.tmdl": rel})
+    assert tmdl.column_ref("'a.b''c'.'d.e'") == ("a.b'c", "d.e")
+    assert tmdl.column_ref("t.'col.x'") == ("t", "col.x")
+    for bad in ("'open.col", "'t'col", "t.", ".c"):
+        with pytest.raises(ValueError, match="not a column reference"):
+            tmdl.column_ref(bad)
+    assert time.monotonic() - start < 2
+
+
+def test_deep_nesting_is_refused_not_a_crash():
+    text = "\n".join("\t" * n + f"table t{n}" for n in range(3000))
+    with pytest.raises(ValueError, match="nested too deeply"):
+        tmdl.to_bim({"definition/tables/t.tmdl": text})

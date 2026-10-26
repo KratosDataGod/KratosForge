@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -17,6 +18,7 @@ from typing import Any
 from . import model_ossie, tmdl
 from .jsonfile import write_text
 from .meta.store import OneLakeStore
+from .notebook_files_service import _is_link
 
 METHODS = {"meta_model_ossie_models", "meta_model_ossie_export", "meta_model_ossie_save", "meta_model_ossie_read",
            "meta_model_ossie_preview", "meta_model_ossie_import", "meta_model_tmdl_save",
@@ -24,6 +26,14 @@ METHODS = {"meta_model_ossie_models", "meta_model_ossie_export", "meta_model_oss
 FOLDER = "semantic"
 MODES = ("update", "replace", "new")
 _SAFE = re.compile(r"[^A-Za-z0-9 _.-]+")
+
+
+def _linked(path: Path) -> bool:
+    """A symbolic link, junction or other Windows link: it could point outside the project, or at a share."""
+    try:
+        return _is_link(os.lstat(path))
+    except OSError:
+        return True
 
 
 class ModelOssieMixin:
@@ -69,8 +79,9 @@ class ModelOssieMixin:
 
     def _model_folders(self, project: Any) -> list[Path]:
         base = Path(project.root, FOLDER)
-        return sorted((p for p in base.glob("*.SemanticModel") if p.is_dir() and not p.is_symlink()),
-                      key=lambda p: p.name.lower()) if base.is_dir() else []
+        if not base.is_dir() or _linked(base):
+            return []
+        return sorted((p for p in base.glob("*.SemanticModel") if p.is_dir() and not _linked(p)), key=lambda p: p.name.lower())
 
     def meta_model_ossie_folders(self) -> dict[str, Any]:
         """The semantic models kept in the project's folder (semantic/<name>.SemanticModel/, the Power BI
@@ -92,19 +103,20 @@ class ModelOssieMixin:
         if definition.is_dir():
             files: dict[str, str] = {}
             total = 0
-            inside = folder.resolve()
             for f in sorted(definition.rglob("*.tmdl")):
-                if f.is_symlink() or not f.is_file() or not f.resolve().is_relative_to(inside):
-                    continue  # links (and junctions) could reach files outside the project
+                if not f.is_file() or any(_linked(p) for p in [f, *f.parents] if p.is_relative_to(definition)):
+                    continue  # links and junctions could reach files outside the project, or a network share
                 total += f.stat().st_size
                 if total > tmdl.MAX_CHARS * 4:
                     raise ValueError(f"{name}'s TMDL is too large to read on this PC")
                 files[f.relative_to(folder).as_posix()] = f.read_text(encoding="utf-8-sig")
             bim, read_report = tmdl.to_bim(files, name)
-        elif (folder / "model.bim").is_file() and not (folder / "model.bim").is_symlink():
+        elif (folder / "model.bim").is_file() and not _linked(folder / "model.bim"):
             if (folder / "model.bim").stat().st_size > tmdl.MAX_CHARS * 4:
                 raise ValueError(f"{name}'s model.bim is too large to read on this PC")
             bim, read_report = json.loads((folder / "model.bim").read_text(encoding="utf-8-sig")), []
+            if not isinstance(bim, dict):
+                raise ValueError(f"{path}/model.bim isn't a semantic model")
             bim["name"] = name
         else:
             raise ValueError(f"{path} has neither definition/ (TMDL) nor model.bim")

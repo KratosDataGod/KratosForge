@@ -138,6 +138,7 @@ With a platform Teams route set (**Settings > Notifications**), KratosForge post
 | It is approved or declined | `request.decided` | Whoever asked |
 | It is withdrawn | `request.withdrawn` | Platform admins and the product's owners |
 | A health check on **Shortcuts > Health** finds a shortcut broken, or fixed again | `shortcut.broken`, `shortcut.fixed` | Platform admins |
+| A promote to Prod deprecates a data product, changes its version, or adds, removes or retypes a port's columns (Preview) | `product.changed` | The product's followers and whoever linked a project to it. The message says what changed |
 
 - **Only what the channel may read.** A message names the request or shortcut and where to open it in the app. A request's reason and detail stay in the app. People are named by UPN. Anything that looks like a secret, a webhook address among them, is masked before it's stored or posted.
 - **Once each.** A request waiting, or a shortcut that stays broken, is posted once. A fix is posted only after its break was.

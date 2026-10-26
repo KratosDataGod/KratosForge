@@ -78,6 +78,19 @@ def request_closed(req: dict[str, Any], products: list[dict[str, Any]]) -> dict[
     return None
 
 
+def product_changed(product: dict[str, Any], changes: list[str], followers: list[str], env: str) -> dict[str, Any] | None:
+    """A publish that changed a product, for its followers and the projects that link to it. Its
+    changes are named (versions and column names), as they are what readers act on."""
+    people = _upns(";".join(followers or []))
+    if not changes or not people:
+        return None
+    at = _now()
+    return {"kind": "product.changed", "id": product["id"], "title": secrets(str(product.get("name") or product["id"])),
+            "at": at, "detail": secrets("; ".join(changes)), "domain": str(product.get("domain_id") or ""), "env": env,
+            "dedupe": f"product.changed:{product['id']}:{env}:{at}",
+            "to": {"people": people, "roles": []}, "open": {"view": "onelake", "tab": "products", "target": product["id"]}}
+
+
 def shortcut_events(changes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """A health check's changes ("broke", "fixed") as events for platform admins. The dedupe key is
     the shortcut, so one that stays broken is posted once and its fix closes that break."""

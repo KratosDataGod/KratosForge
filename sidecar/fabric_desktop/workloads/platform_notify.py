@@ -24,16 +24,16 @@ from typing import Any, Callable, ContextManager
 from .. import redact
 from .notify import DEFAULT_ROUTE, KEEP_TRYING, Outbox, Quiet, failure, transaction
 
-KINDS = ("request.waiting", "request.decided", "request.withdrawn", "shortcut.broken", "shortcut.fixed")
+KINDS = ("request.waiting", "request.decided", "request.withdrawn", "shortcut.broken", "shortcut.fixed", "product.changed")
 OPENS = {"request.waiting": "request", "shortcut.broken": "shortcut"}  # kinds that open a dedupe key
 CLOSES = {"request.decided": "request.waiting", "request.withdrawn": "request.waiting", "shortcut.fixed": "shortcut.broken"}
-VIEWS = {"platform": ("requests",), "shortcuts": ("health",)}
+VIEWS = {"platform": ("requests",), "shortcuts": ("health",), "onelake": ("products",)}
 SEVERITIES = ("info", "warn")
 _UPN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _ROLE = re.compile(r"^(platform_admin|requester|(domain_owner|product_owner):[A-Za-z0-9._-]+)$")
 _TITLES = {"request.waiting": "Waiting on you", "request.decided": "Decided", "request.withdrawn": "Withdrawn",
-           "shortcut.broken": "Shortcut broken", "shortcut.fixed": "Shortcut fixed"}
-_WHERE = {"requests": "Platform > Requests", "health": "Shortcuts > Health"}
+           "shortcut.broken": "Shortcut broken", "shortcut.fixed": "Shortcut fixed", "product.changed": "Data product changed"}
+_WHERE = {"requests": "Platform > Requests", "health": "Shortcuts > Health", "products": "OneLake > Data products"}
 
 
 def _strs(value: Any, name: str) -> list[str]:
@@ -81,7 +81,7 @@ def validate(event: dict[str, Any]) -> dict[str, Any]:
     out["to"] = {"people": people, "roles": roles}
     opened = event.get("open") or {}
     if not isinstance(opened, dict) or opened.get("view") not in VIEWS or opened.get("tab") not in VIEWS[opened.get("view")]:
-        raise ValueError("open is {view: platform, tab: requests} or {view: shortcuts, tab: health}")
+        raise ValueError("open is {view: platform, tab: requests}, {view: shortcuts, tab: health} or {view: onelake, tab: products}")
     out["open"] = {"view": opened["view"], "tab": opened["tab"], "target": str(opened.get("target") or "")}
     out["dedupe"] = str(event.get("dedupe") or f"{kind}:{out['id']}")
     return out
@@ -104,7 +104,7 @@ def message(event: dict[str, Any]) -> tuple[str, list[str]]:
                                    event["env"].title() if event["env"] else "") if x)
     if scope:
         lines.append(scope)
-    if event["kind"].startswith("shortcut.") and event["detail"]:
+    if event["kind"].startswith(("shortcut.", "product.")) and event["detail"]:
         lines.append(event["detail"])
     lines.append(f"Open it in KratosForge > {_WHERE[event['open']['tab']]}.")
     return f"{_TITLES[event['kind']]}: {event['title']}", lines

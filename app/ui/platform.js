@@ -934,7 +934,7 @@ registerFeature({
 
 // ---------- OneLake > Data products: every team's products, for everyone ----------
 
-const productsPage = { query: "", domain: "all", open: null };
+const productsPage = { query: "", domain: "all", open: null, following: false };
 
 async function renderDataProducts() {
   const pp = productsPage;
@@ -959,7 +959,7 @@ async function renderDataProducts() {
   const domains = [...new Set(out.products.map((p) => p.domain_id).filter(Boolean))].sort();
   const draw = () => {
     const q = pp.query.toLowerCase();
-    const shown = out.products.filter((p) => (pp.domain === "all" || p.domain_id === pp.domain)
+    const shown = out.products.filter((p) => (pp.domain === "all" || p.domain_id === pp.domain) && (!pp.following || p.following)
       && (!q || `${p.name} ${p.description} ${p.owner} ${p.project} ${p.ports.map((x) => x.port).join(" ")}`.toLowerCase().includes(q)));
     const action = (p) => p.linked ? h("span", { class: "pill-s pass" }, "Linked")
       : p.can_link ? btn("Link", "databaseLink", async () => {
@@ -970,7 +970,9 @@ async function renderDataProducts() {
           : p.why === "requested" ? h("span", { class: "pill-s wrn" }, "Requested") : h("span", { class: "muted-text small" }, p.why);
     list.replaceChildren(...[
       h("div", { class: "row", role: "group", "aria-label": "Domain" },
-        ["all", ...domains].map((d) => h("button", { class: `chip${pp.domain === d ? " on" : ""}`, onclick: () => { pp.domain = d; draw(); } }, d === "all" ? "All domains" : d))),
+        ["all", ...domains].map((d) => h("button", { class: `chip${pp.domain === d ? " on" : ""}`, onclick: () => { pp.domain = d; draw(); } }, d === "all" ? "All domains" : d)),
+        out.can_follow && previewShown() ? h("button", { class: `chip follow-chip${pp.following ? " on" : ""}`, "aria-pressed": String(pp.following),
+          onclick: () => { pp.following = !pp.following; draw(); } }, `Following (${out.products.filter((p) => p.following).length})`) : null),
       out.project ? null : h("p", { class: "muted-text small" }, "Open a metadata project to link to a product or ask for access."),
       shown.length ? h("table", { class: "list" },
         h("thead", {}, h("tr", {}, ["Product", "Domain", "Owner", "Open to", "Ports", "Readers", ""].map((x) => h("th", {}, x)))),
@@ -1018,6 +1020,31 @@ function purviewUrlProblem(text) {
   return PURVIEW_HOSTS.some((x) => host === x || host.endsWith(`.${x}`)) ? "" : bad;
 }
 
+// Follow a product to hear in Teams when it's deprecated, gets a new version or its columns change in Prod.
+// Whoever links a project to it hears too. A platform older than following shows no button.
+function followButton(p) {
+  if (p.following === undefined) return null;
+  const b = btn("", null, async () => {
+    b.disabled = true;
+    try {
+      const res = await rpc("platform_follow", { product_id: p.id, follow: !p.following });
+      p.following = res.following.includes(p.id);
+      toast(p.following ? `Following ${p.name}: you'll hear when it changes in Prod.` : `Stopped following ${p.name}.`);
+    } catch (err) {
+      toast(trustError(err), true);
+    }
+    b.disabled = false;
+    paint();
+  }, "tool outline small follow-button");
+  const paint = () => {
+    b.textContent = p.following ? "Following" : "Follow";
+    b.setAttribute("aria-pressed", String(!!p.following));
+    b.title = p.following ? "Stop following" : "Hear in Teams when it's deprecated, gets a new version or its columns change";
+  };
+  paint();
+  return b;
+}
+
 function trustError(err) {
   const raw = String((err && typeof err === "object" ? err.message : err) || "");
   return raw.replace(/^[A-Za-z]*Error: /, "") || "The platform didn't answer.";
@@ -1032,14 +1059,15 @@ async function renderProductTrust(p) {
   setView(h("div", { class: "page monitor onelake" }, onelakeTabs(), withHowItWorks(
     h("div", {},
       h("section", { class: "card pad" },
-        h("div", { class: "monitor-band" }, btn("All data products", null, () => { pp.open = null; render(); }, "tool link small")),
+        h("div", { class: "monitor-band" }, btn("All data products", null, () => { pp.open = null; render(); }, "tool link small"),
+          h("span", { class: "spacer" }), followButton(p)),
         h("div", { class: "row" }, h("h2", { class: "trust-name" }, p.name), badges, previewTag()),
         h("div", { class: "muted-text small" }, p.description || ""), h("div", { class: "muted-text small mono" }, p.id), lastScan),
       endorsement, terms, productChecklistCard(p), productAccessCard(p)),
     howItWorks("onelake.product-trust", {
       reads: "The product's endorsement as the last tenant scan read it, and its business terms, from the platform's catalog. Scan now reads Fabric's admin tenant scan (Power BI) of the workspaces the platform's published products live in, as you: only a Fabric administrator can. Nothing reads Purview.",
-      changes: "Scan now writes what the scan read to catalog.endorsement in the platform's catalog. Adding or removing a term writes catalog.product_term. Take access away deletes that project's row in catalog.grant; links it already made stay. Nothing changes in Fabric or Purview: KratosForge can't set endorsement, and terms stay in Purview.",
-      results: "Everyone who opens this product sees the last scan's badge and when it was read, and each term with a link to it in Purview. Each scan, term change and access taken away is in the platform's audit log.",
+      changes: "Scan now writes what the scan read to catalog.endorsement in the platform's catalog. Adding or removing a term writes catalog.product_term. Take access away deletes that project's row in catalog.grant; links it already made stay. Follow adds you to catalog.follow (Following takes you off). Nothing changes in Fabric or Purview: KratosForge can't set endorsement, and terms stay in Purview.",
+      results: "Everyone who opens this product sees the last scan's badge and when it was read, and each term with a link to it in Purview. Each scan, term change and access taken away is in the platform's audit log. When a promote to Prod deprecates the product, changes its version or changes a port's columns, its followers and the people who linked a project to it are named in a Teams notice that says what changed.",
       anchor: "endorsement-and-business-terms-preview",
     }))));
   const here = () => state.view === "onelake" && catalogPage.tab === "products" && pp.open === p;

@@ -262,6 +262,8 @@ def test_the_check_reads_onelake_and_reports_drift_and_duplicate_keys(svc):
     blank = next(f for f in out["findings"] if f["check"] == "Rows with no match")
     assert blank["table"] == "FactSales" and "1 row with a customer_sk that isn't in DimCustomer (1 value)" in blank["message"]
     assert all(f["fix"] != "update_model" or f["check"] in ("Column missing", "New column") for f in out["findings"])
+    missing = next(f for f in out["findings"] if f["check"] == "Column missing")
+    assert missing["fix"] == "update_model", "checking keys keeps the Update model fix for the layer's own model"
     assert {t["table"]: t["rows"] for t in out["tables"]} == {"FactSales": 3, "DimCustomer": 3}
     without = svc.meta_model_directlake_check("test", "SM_Gold", sku="F64")
     assert not without["keys_checked"]

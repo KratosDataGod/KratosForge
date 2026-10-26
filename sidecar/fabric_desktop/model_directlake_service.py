@@ -181,23 +181,23 @@ class ModelDirectLakeMixin:
         if keys:
             duplicates, unmatched = {}, {}
 
-            def column(table: str, name: str) -> tuple[str, dict[str, str] | None, str] | None:
+            def column(table: str, col_name: str) -> tuple[str, dict[str, str] | None, str] | None:
                 """Where a model column's values are, or None when it can't be read (or is reported as missing)."""
                 t = next((x for x in tables if x.name == table), None)
-                col = next((c for c in (t.columns if t else []) if c["name"] == name), None)
+                col = next((c for c in (t.columns if t else []) if c["name"] == col_name), None)
                 if col is None or not stats.get(table) or table not in where:
                     return None
-                src = col["source"] or name
+                src = col["source"] or col_name
                 return (*where[table], src) if src in dict(stats[table].columns) else None  # type: ignore[union-attr]
 
-            for table, name in model_directlake.unique_keys(bim):
-                one = column(table, name)
+            for table, key in model_directlake.unique_keys(bim):
+                one = column(table, key)
                 if one is None:
                     continue
                 try:
-                    duplicates[f"{table}.{name}"] = duplicate_values(*one)
+                    duplicates[f"{table}.{key}"] = duplicate_values(*one)
                 except Exception as exc:  # noqa: BLE001 - the rest of the check still stands
-                    unread.append({"table": table, "reason": f"Key {name} not read ({describe(exc)})"})
+                    unread.append({"table": table, "reason": f"Key {key} not read ({describe(exc)})"})
             for r in model_directlake.relationships(bim):
                 many, one = column(r["from_table"], r["from_column"]), column(r["to_table"], r["to_column"])
                 if many is None or one is None or _type(stats, r["from_table"], many) != _type(stats, r["to_table"], one):

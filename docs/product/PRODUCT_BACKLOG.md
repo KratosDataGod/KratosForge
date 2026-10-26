@@ -890,7 +890,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Teams have no shared, editable best-practice rules that check notebooks, SQL and semantic models before they reach Fabric.
 - **Proposed capability:** Governance owns templates (policies with Check now, user-added rules, locks, exceptions); the Best Practice Analyzer thread owns the checkers (notebook NB001-012, SQL SQ001-010, semantic model BPA through semantic-link-labs in Fabric).
-- **Current-state evidence:** Chris 2026-10-24: 'more on governance and best practices. Allow for people to add their own templates'; Draft PRs #560 (BPA engine), #643 (notebook rules), #648 (templates and Check now), #649 (SQL rules), #651 (RE2 naming checks); Implementation review docs/product/reviews/PB-108-643.md: Accepted with Documented Limitations (Chris 'Go on all', 2026-10-26); limitations tracked in PB-111 and PB-112
+- **Current-state evidence:** Chris 2026-10-24: 'more on governance and best practices. Allow for people to add their own templates'; Draft PRs #560 (BPA engine), #643 (notebook rules), #648 (templates and Check now), #649 (SQL rules), #651 (RE2 naming checks); Implementation review docs/product/reviews/PB-108-643.md: Accepted with Documented Limitations (Chris 'Go on all', 2026-10-26, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpVYtS9wxoAC4YeAMMvSdTtB); limitations tracked in PB-111 and PB-112
 - **Inventory features:** [FEAT-GOV-05](FEATURE_INVENTORY.md#feat-gov-05), [FEAT-GOV-09](FEATURE_INVENTORY.md#feat-gov-09)
 - **Dependencies:** [PB-056](#pb-056)
 - **Owner:** Enterprise governance foundation (NB001-012, SQ001-010, GOV templates)

@@ -4445,7 +4445,7 @@
       "evidence": [
         "Chris 2026-10-24: 'more on governance and best practices. Allow for people to add their own templates'",
         "Draft PRs #560 (BPA engine), #643 (notebook rules), #648 (templates and Check now), #649 (SQL rules), #651 (RE2 naming checks)",
-        "Implementation review docs/product/reviews/PB-108-643.md: Accepted with Documented Limitations (Chris 'Go on all', 2026-10-26); limitations tracked in PB-111 and PB-112"
+        "Implementation review docs/product/reviews/PB-108-643.md: Accepted with Documented Limitations (Chris 'Go on all', 2026-10-26, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpVYtS9wxoAC4YeAMMvSdTtB); limitations tracked in PB-111 and PB-112"
       ],
       "features": [
         "FEAT-GOV-05",

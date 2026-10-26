@@ -224,7 +224,7 @@ def test_the_run_dialog_carries_the_risk_and_the_run_itself_does_not_wait_for_it
     pre = svc.workload_preflight(item, "run_item")
     assert pre["allowed"] and pre["risk"]["result"] == risk.UNKNOWN and "boom" in pre["risk"]["summary"]
     assert svc.workload_preflight(item, "run_item", assess=False)["risk"] is None
-    monkeypatch.setattr(svc, "run_fabric_item_now", lambda ws, it, job, name, ws_name="": svc._log_fabric_run(
+    monkeypatch.setattr(svc, "run_fabric_item_now", lambda ws, it, job, name, ws_name="", item_type="": svc._log_fabric_run(
         {"kind": "Scheduled item run", "name": name, "workspace_id": ws, "item_id": it, "job_id": "job-1"}))
     assert svc.workload_act(item, "run_item")["action"]["status"] == "submitted"  # the check didn't run
 

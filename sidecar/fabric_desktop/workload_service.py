@@ -38,6 +38,10 @@ ITEMS_STALE_AFTER = 24 * 3600      # Fabric item listings
 RUN_LIMIT = 2000
 AUDIT_RETRY_AFTER = 600            # seconds before lines the platform didn't take are tried again on their own
 AUDIT_BATCH = 50
+_RUN_ITEM_EFFECT = {
+    "CopyJob": "It moves data: each of its tables is copied from the source into the destination, as the job is set to write.",
+    "Dataflow": "The refresh writes its results to every destination the dataflow has.",
+}
 _ACTION_LABELS = {"run": "Run", "run_in_fabric": "Run in Fabric", "run_item": "Run in Fabric",
                   "run_schedule": "Run the schedule now", "cancel": "Cancel the run"}
 
@@ -504,8 +508,8 @@ class WorkloadMixin:
             where, needs_sign_in = dep["location"]["label"], True
         elif action == "run_item":
             target = f"{w['name']} in {d.get('workspace_name')}"
-            consequence = (f"Starts {w['kind_label'].lower()} {w['name']} in Fabric now, on its workspace's capacity, "
-                           "exactly as Fabric's own Run does. Whatever it writes, it writes.")
+            consequence = (f"Starts {w['kind_label'][:1].lower() + w['kind_label'][1:]} {w['name']} in Fabric now, on its workspace's capacity, "
+                           "exactly as Fabric's own Run does. " + _RUN_ITEM_EFFECT.get(d.get("item_type", ""), "Whatever it writes, it writes."))
             where, needs_sign_in = dep["location"]["label"], True
         elif action == "run_schedule":
             target = f"the notebook {w['name']} on this PC"
@@ -562,7 +566,7 @@ class WorkloadMixin:
                 outcome = out
             elif action == "run_item":
                 out = self.run_fabric_item_now(d["workspace_id"], d["item_id"], d["job_type"], w["name"],  # type: ignore[attr-defined]
-                                               d.get("workspace_name", ""))
+                                               d.get("workspace_name", ""), d.get("item_type", ""))
                 record = store.update_action(record["id"], ref={"job_id": out.get("job_id")})
                 outcome = out
             elif action == "run_schedule":
@@ -578,7 +582,11 @@ class WorkloadMixin:
             else:
                 raise ValueError(f"unknown action {action}")
         except Exception as exc:
-            failed = store.update_action(record["id"], "failed", detail=f"{type(exc).__name__}: {exc}")
+            detail = f"{type(exc).__name__}: {exc}"
+            if action == "run_item" and model.classify_error(exc)[0] == "unauthorized":
+                detail = ("Not authorized: Fabric refused to start it, so no run happened. Starting items needs the "
+                          "Item.Execute.All permission for your sign-in and Contributor or higher in the workspace. " + detail)
+            failed = store.update_action(record["id"], "failed", detail=detail)
             self._wl_audit_action(failed, w["name"])
             self._wl_records = None
             raise

@@ -3,6 +3,7 @@
 import base64
 import copy
 import json
+from pathlib import Path
 
 import pytest
 import yaml
@@ -320,6 +321,33 @@ def test_reading_a_project_file_refuses_what_import_would(svc):
     with pytest.raises(ValueError, match="version"):
         svc.meta_model_ossie_read("semantic/notes.yaml")
 
+
+def test_a_model_kept_in_git_exports_offline(svc, monkeypatch):
+    from fabric_desktop import semantic
+    root = Path(svc._project().root)
+    assert svc.meta_model_ossie_folders() == {"folders": []}
+    svc.meta_model_tmdl_save("test", "SM_Gold")  # what Save TMDL to Git writes
+    fact = semantic.ModelTable("fact_sales", "gold.fact_sales", "dbo", "fact_sales", [("amount", "double")])
+    for path, text in semantic.build([fact], [], "srv", "ep").items():
+        (root / "semantic" / "SM_Gold.SemanticModel" / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / "semantic" / "SM_Gold.SemanticModel" / path).write_text(text, encoding="utf-8")
+    (root / "semantic" / "Old.SemanticModel").mkdir()
+    (root / "semantic" / "Old.SemanticModel" / "model.bim").write_text(json.dumps(FakeFabric().bim), encoding="utf-8")
+    assert [f["name"] for f in svc.meta_model_ossie_folders()["folders"]] == ["Old", "SM_Gold"]
+    monkeypatch.setattr(svc, "fake", None)  # no Fabric at all
+    out = svc.meta_model_ossie_export_folder("semantic/SM_Gold.SemanticModel")
+    assert out["name"] == "SM_Gold" and out["path"] == "semantic/SM_Gold.ossie.yaml"
+    assert out["counts"]["datasets"] == 1 and out["counts"]["portable_metrics"] == 1
+    old = svc.meta_model_ossie_export_folder("semantic\\Old.SemanticModel")
+    assert old["name"] == "Old" and old["counts"]["datasets"] == 2
+
+
+@pytest.mark.parametrize("path", ["semantic/../semantic/SM_Gold.SemanticModel", "/etc", "semantic/Nope.SemanticModel",
+                                  "semantic", "SM_Gold.SemanticModel"])
+def test_export_folder_reads_only_model_folders_under_semantic(svc, path):
+    (Path(svc._project().root) / "semantic" / "SM_Gold.SemanticModel" / "definition").mkdir(parents=True)
+    with pytest.raises(LookupError):
+        svc.meta_model_ossie_export_folder(path)
 
 def test_ai_tools_only_read_and_pass_their_arguments_through():
     from fabric_desktop.integrations.capabilities import register_core

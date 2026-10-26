@@ -44,14 +44,14 @@ Every pull request that adds or changes a screen shows, in its description:
 
 Measured by `app/tests/browser/action-baseline.cjs` at `main` 0a2f24e on 26 October 2026: signed out, no tenant, a 1440x940 window, the real engine. Run it again after each change and add a column.
 
-| Measure | Baseline |
-| --- | --- |
-| Home: solid buttons | 3, all sign-in (Sign in, Sign in, Sign in and scan) |
-| Home: New notebook position | 1,798 px down, not in the first view; outlined |
-| Notebook (new, empty): solid button | Publish to OneLake |
-| Notebook: Run all | In view, not the solid button |
-| Optimize (no shared lakehouse): solid button | Create a lakehouse |
-| Command bar finds Run all, Run cell, Validate, Publish, Run in Fabric | No (only Schedule) |
+| Measure | Baseline | After AF-2 |
+| --- | --- | --- |
+| Home: solid buttons | 3, all sign-in (Sign in, Sign in, Sign in and scan) | 2 signed out with no notebooks (Sign in, Sign in and scan); Continue is solid once a notebook exists |
+| Home: New notebook position | 1,798 px down, not in the first view; outlined | 176 px down, in the first view; outlined |
+| Notebook (new, empty): solid buttons | Publish to OneLake, its options arrow, and Add data items in the empty explorer | Unchanged |
+| Notebook: Run all | In view, not the solid button | Unchanged |
+| Optimize (no shared lakehouse): solid button | Create a lakehouse | Unchanged |
+| Command bar finds Run all, Run cell, Validate, Publish, Run in Fabric | No (only Schedule) | Unchanged |
 
 Rates that need real use (recommendation acceptance, failure and recovery) are not measured. They could only come from the opt-in telemetry, which is off by default.
 
@@ -59,8 +59,8 @@ Rates that need real use (recommendation acceptance, failure and recovery) are n
 
 | Id | Package | State |
 | --- | --- | --- |
-| AF-1 | Shared action framework, this standard and the baseline | In review |
-| AF-2 | Home as a command center: Continue, next steps and Start something in the first view; one sign-in prompt | Mockup next |
+| AF-1 | Shared action framework, this standard and the baseline | Merged (#722) |
+| AF-2 | Home: Continue, Start something and Recent notebooks first; one sign-in prompt; a signed-out summary that says Fabric wasn't checked | In review |
 | AF-3 | Feedback that leads somewhere: finished actions offer the next step; safe reads offer Retry | After AF-1 |
 | AF-4 | Notebook run-first: Run is primary, Publish recommended once there is something to publish; notebook actions in the command bar | Mockup; Publish as primary was a deliberate choice, so this is Chris's call |
 | AF-5 | Optimize opportunities that act: top three with evidence and a Fix that opens the X-ray fix; useful before a shared lakehouse exists | Mockup |

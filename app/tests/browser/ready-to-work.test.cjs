@@ -44,7 +44,7 @@ test("the card says how it works and names the one write", { skip }, async () =>
   const page = app.page;
   await page.evaluate(() => { localStorage.removeItem("fd.ready.write"); document.querySelectorAll(".ready").forEach((n) => n.remove());
     document.body.append(readinessCard()); });
-  await page.waitForSelector(".ready .how-it-works");
+  await page.waitForSelector(".ready .how-it-works", { state: "attached" });
   const text = await page.textContent(".ready .how-it-works");
   assert.match(text, /What it changes/);
   assert.match(text, /Files\/_fabric_desktop_check\/write-test\.txt/);

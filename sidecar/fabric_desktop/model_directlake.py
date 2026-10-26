@@ -145,12 +145,14 @@ def _guardrail(t: ModelTable, label: str, noun: str, have: int | None, limit: in
 
 
 def check(bim: dict[str, Any], stats: dict[str, TableStats | None], lim: dict[str, Any] | None,
-          duplicates: dict[str, int] | None = None, ours: bool = False) -> dict[str, Any]:
+          duplicates: dict[str, int] | None = None, ours: bool = False,
+          unmatched: dict[str, dict[str, int]] | None = None) -> dict[str, Any]:
     """Findings for the model's Direct Lake tables.
 
     ``stats`` maps a model table's name to its Delta table's numbers, or None when there's no such Delta table.
     Tables missing from ``stats`` couldn't be read and aren't checked. ``duplicates`` maps "table.column" (the one
-    side of a relationship) to how many of its values appear more than once; None when that wasn't checked. ``ours``
+    side of a relationship) to how many of its values appear more than once, and ``unmatched`` maps "table.column"
+    (the many side) to the rows whose key has no match on the one side; None when they weren't checked. ``ours``
     is True for the model KratosForge builds over the layer, whose fix for schema drift is Update model."""
     tables = direct_lake_tables(bim)
     behavior = fallback_behavior(bim)
@@ -239,6 +241,18 @@ def check(bim: dict[str, Any], stats: dict[str, TableStats | None], lim: dict[st
                                      f"{r['to_column']} has {_n(n)} value{'s' if n != 1 else ''} that appear more than once, "
                                      f"so the relationship from {r['from_table']} fails at query time.",
                                      "show_rows", r["to_column"]))
+        miss = (unmatched or {}).get(f"{r['from_table']}.{r['from_column']}") or {}
+        if miss.get("rows") or miss.get("empty"):
+            parts = []
+            if miss.get("rows"):
+                parts.append(f"{_n(miss['rows'])} row{'s' if miss['rows'] != 1 else ''} with a {r['from_column']} that "
+                             f"isn't in {r['to_table']} ({_n(miss['values'])} value{'s' if miss['values'] != 1 else ''})")
+            if miss.get("empty"):
+                parts.append(f"{_n(miss['empty'])} row{'s' if miss['empty'] != 1 else ''} with no {r['from_column']}")
+            findings.append(_finding("info", r["from_table"], "Rows with no match",
+                                     f"{r['from_table']} has {' and '.join(parts)}. Power BI groups them under (Blank) "
+                                     f"when you slice by {r['to_table']}, instead of under the {r['to_table']} row they belong to.",
+                                     "show_rows", r["from_column"]))
     order = {"fail": 0, "warn": 1, "info": 2}
     findings.sort(key=lambda f: (order[f["severity"]], f["table"], f["check"]))
     counts = {k: sum(1 for f in findings if f["severity"] == k) for k in order}

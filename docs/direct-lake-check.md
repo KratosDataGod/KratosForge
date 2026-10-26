@@ -19,12 +19,13 @@ uses capacity.
 | Would fail | Column missing | The model reads a column the Delta table no longer has. Visuals that use it show an error |
 | Would fail | Type Direct Lake can't read | The model reads a binary, array, map or struct column |
 | Would fail | Relationship types differ | The two columns of a relationship have different types |
-| Would fail | Key not unique | The one side of a relationship has values that appear more than once (only when you tick **Also check relationship keys are unique**, which reads those columns from OneLake) |
+| Would fail | Key not unique | The one side of a relationship has values that appear more than once (only when you tick **Also check relationship keys**, which reads those columns from OneLake) |
 | Would fail | Calculated column | Direct Lake on SQL doesn't support calculated columns |
 | Falls back | Parquet files, Row groups, Rows | The table is past, or within 10% of, the capacity's Direct Lake limit |
 | Falls back | Model size | On F2 to F32, the model's tables take more space on OneLake than the capacity allows |
 | Falls back | Type changed | The model says one type and the Delta table now stores another |
 | Info | New column | The Delta table has a column the model doesn't have yet |
+| Info | Rows with no match | Rows of a fact whose key isn't in the dimension, or is empty. Power BI groups them under (Blank) when you slice by the dimension, instead of under the row they belong to (only when you tick **Also check relationship keys**) |
 | Info | Type left out | The Delta table has a column Direct Lake can't read, so the model leaves it out |
 
 Past a limit, what happens depends on the model. A model on the SQL analytics endpoint with
@@ -59,7 +60,9 @@ size.
   columns and drops ones the Delta table no longer has.
 - **Compact in Table health** opens Table health, where Optimize (Test and Prod) or Compact
   (Dev) merges small files, which cuts Parquet files and row groups.
-- **Open the table** opens the dimension whose key isn't unique, so you can fix its load.
+- **Open the table** opens the dimension whose key isn't unique, or the fact with rows that have
+  no match, so you can fix its load. A `[[lookup]]` sends keys it can't find to the Unknown
+  member (-1), so rows with no match usually mean the fact's key isn't looked up.
 
 For any other model, make the change in Fabric or in Power BI Desktop.
 
@@ -69,4 +72,5 @@ Checking guardrails and schema drift from a notebook comes from Microsoft's
 [semantic-link-labs](https://github.com/microsoft/semantic-link-labs) (MIT), which Michael
 Kovalsky of [Elegant BI](https://www.elegantbi.com/) started. That library runs only inside
 Fabric, so KratosForge doesn't use it here: the check is written for this PC and needs no
-notebook.
+notebook. Finding rows with no match comes from Elegant BI's
+[blank row finder](https://github.com/m-kovalsky/Tabular) for Tabular Editor (MIT).

@@ -5,8 +5,8 @@
 
 const PN_KINDS = [["request.waiting", "Request waiting on someone"], ["request.decided", "Request decided"],
   ["request.withdrawn", "Request withdrawn"], ["shortcut.broken", "Shortcut broken"], ["shortcut.fixed", "Shortcut fixed"],
-  ["product.changed", "Data product changed (to its followers)"]];
-const PN_WHERE = { requests: "Platform > Requests", health: "Shortcuts > Health" };
+  ["incident.impact", "Incident reaching data products"], ["product.changed", "Data product changed (to its followers)"]];
+const PN_WHERE = { requests: "Platform > Requests", health: "Shortcuts > Health", detail: "Monitor > Incidents", products: "OneLake > Data products" };
 
 // ---------- the bell ----------
 

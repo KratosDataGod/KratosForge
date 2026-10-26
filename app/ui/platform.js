@@ -63,6 +63,8 @@ async function renderPlatform() {
     rpc("platform_requests", { status: "waiting" }).then((list) => { if (Array.isArray(list)) showWaiting(list.length); }).catch(() => {});
   }
   if (!p.me) { body.replaceChildren(h("p", { class: "muted-text" }, "The platform shows once the local engine is running.")); return; }
+  // What the page is for folds into the info drawer; the claim link stays on the page.
+  who.classList.toggle("page-intro", !p.me.can_claim);
   who.replaceChildren(...[p.me.admin ? "You're a platform admin: you create domains, key tables and sources, write governance policies, and decide requests. "
     : p.me.can_claim ? "This platform has no admin yet. "
       : "Domain teams see everything here and ask for what they need in Requests. ",

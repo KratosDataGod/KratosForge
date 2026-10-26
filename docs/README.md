@@ -104,6 +104,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [architecture/ai-integration.md](architecture/ai-integration.md) | Contributors, admins | External AI tools through MCP and a local API, with no AI in the app: architecture, permissions, security ([backlog](product/ai-integration-backlog.md), [decisions](product/ai-integration-decisions.md), [security](product/ai-integration-security.md), [compatibility](product/ai-integration-compatibility.md), [AI tool test checklist](product/ai-integration-client-checklist.md)) |
 | [ui-guidelines.md](ui-guidelines.md) | Contributors | Where new features go in the UI |
 | [ux/README.md](ux/README.md) | Contributors, product and release managers | UX and simplicity audit: scorecard, configuration, navigation, workflows, docs coverage, backlog (UX-nnn), usability release gates |
+| [ux/action-first.md](ux/action-first.md) | Contributors, product and release managers | Action-first standard, review checklist, measured baseline and backlog (AF-n); the shared action framework |
 | [enterprise-roadmap.md](enterprise-roadmap.md) | Platform owners | Milestones for running at enterprise scale |
 | [local-data-engine-plan.md](local-data-engine-plan.md) | Contributors, platform owners | The local data engine program FD-LDE-001 to 020: audit, implementation matrix, owners, PR plan |
 | [scale-and-operations-plan.md](scale-and-operations-plan.md) | Platform owners | Staged plan for large tables, ingestion, releases, pipelines, lineage and monitoring |

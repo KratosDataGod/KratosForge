@@ -80,7 +80,7 @@ Refresh in Fabric comes next, behind a confirm and the risk check. No live refre
 
 ## DF-6 engine: copy jobs from a workspace
 
-Three engine calls, all reads (listed in `audit.READ_ONLY`). None of them starts a run or uses capacity. The Copy jobs tab that shows them comes next.
+Three engine calls, all reads (listed in `audit.READ_ONLY`). None of them starts a run or uses capacity.
 
 - `workspace_copy_jobs(workspace_id)` lists a workspace's copy jobs by name: item id, name, description and folder.
 - `workspace_copy_job_definition(workspace_id, item_id, name)` reads one copy job with getDefinition (`copyjob-content.json`) and returns:
@@ -92,3 +92,7 @@ Three engine calls, all reads (listed in `audit.READ_ONLY`). None of them starts
 - `fabric_copy_job_runs(workspace_id, item_id, name)` lists the copy job's newest 50 runs, in the shape Monitor > Runs uses for pipeline runs.
 
 The field names follow the examples in Microsoft's Copy job definition article. They haven't been checked against a real export yet (plan decision 4). Database names and folders pass through `redact.secrets`, and nothing is written to disk. The reader lives in `orchestration/copyjob.py`. Running a copy job on this PC needs the pipeline thread's copy module (DF-3), and running one in Fabric needs a confirm and the risk check.
+
+## DF-6 screen: Copy jobs tab
+
+The Pipelines page's **Copy jobs** tab (Preview) sits between Pipelines and Dataflows. It works like the Dataflows tab: you pick a workspace (the same remembered `fd.pipelines.workspace`), its copy jobs are listed with `workspace_copy_jobs`, and opening one reads `workspace_copy_job_definition` and `fabric_copy_job_runs` together. The summary shows source, destination, mode, timeout, connection count and the `local_check` line. Its views are **Tables** and **Run history**. **Open in Fabric** opens the workspace until a copy job's own page address is confirmed. There are no run buttons yet. Run on this PC needs the copy engine (DF-3), and Run in Fabric needs a confirm and the risk check.

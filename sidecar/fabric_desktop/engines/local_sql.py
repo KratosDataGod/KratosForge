@@ -208,16 +208,21 @@ def _refuse_outside(code: str, dialect: str | None) -> None:
 
 
 def _databricks(code: str) -> list[Any]:
-    """Databricks SQL statements read by sqlglot's Databricks dialect; ValueError when it can't."""
+    """Databricks SQL statements read by sqlglot's Databricks dialect, with the same Spark fixes
+    sql.parse makes for Spark SQL (substring from 0, date_add returning a date, trunc, unix_timestamp,
+    Spark's column names), so a query answers here as it does on the warehouse. ValueError when
+    it can't be read."""
     import sqlglot
     from sqlglot.errors import ParseError
+
+    from .. import sql
     try:
         statements = [s for s in sqlglot.parse(code, read="databricks") if s is not None]
     except ParseError as exc:
         raise ValueError(f"Could not read the query: {exc}") from None
     if not statements:
         raise ValueError("The query is empty.")
-    return statements
+    return [sql.spark_substring(sql._spark_dates(sql._spark_names(s))) for s in statements]
 
 
 class DuckDBSession(_SqlSession):

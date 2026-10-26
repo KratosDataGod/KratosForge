@@ -590,3 +590,20 @@ def test_databricks_sql_runs_on_duckdb_translated():
         assert r.status == "error"
     finally:
         s.close()
+
+
+@pytest.mark.parametrize("query", [
+    "SELECT substring('abcdef', 0, 2)",
+    "SELECT date_add(DATE'2024-03-05', 1)",
+    "SELECT trunc(DATE'2024-03-05', 'MM')",
+    "SELECT unix_timestamp('2024-01-01', 'yyyy-MM-dd')",
+    "SELECT add_months(DATE'2024-01-31', 1)",
+])
+def test_databricks_sql_on_duckdb_answers_as_spark_sql_does(query):
+    s = registry.adapter("local-duckdb").open_session(SessionConfig("nb"))
+    try:
+        spark = s.execute(CellRequest(query, "sql", "spark")).outputs[0]
+        dbx = s.execute(CellRequest(query, "sql", "databricks")).outputs[0]
+        assert spark.get("type") != "error" and dbx == spark
+    finally:
+        s.close()

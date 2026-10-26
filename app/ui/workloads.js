@@ -460,7 +460,7 @@ async function confirmWorkloadAction(w, a, verb = "", recheck = false, opts = {}
   if (recheck && pre.risk) pre.risk = await rpc("risk_check", { id: w.id, action: a.action, env: a.env || null, refresh: true }).catch(() => pre.risk);
   if (!pre.allowed) {
     showDialog(`${a.label}?`, h("p", { class: "text" }, pre.reason), [
-      /sign in/i.test(pre.reason) ? btn("Sign in", null, async () => { closeDialog(); if (await signIn()) confirmWorkloadAction(w, a, verb, false, { done: opts.done }); }, "tool primary")
+      /sign in/i.test(pre.reason) ? btn("Sign in", null, async () => { closeDialog(); if (await signIn()) confirmWorkloadAction(w, a, verb, false, { done: opts.done, ends: opts.ends }); }, "tool primary")
         : btn("Close", null, closeDialog, "tool primary")]);
     return;
   }
@@ -476,7 +476,7 @@ async function confirmWorkloadAction(w, a, verb = "", recheck = false, opts = {}
       schedule_id: a.schedule_id || "", job_id: a.job_id || "" }), `${verb} didn't start`);
     if (!res) { wlPage.detail = null; if (state.view === "workload") render(); return; }
     const s = res.action?.status;
-    toast(s === "submitted" ? `${verb}: submitted. This page shows how it ends when the run finishes.`
+    toast(s === "submitted" ? `${verb}: submitted. ${opts.ends || "This page shows how it ends when the run finishes."}`
       : s === "failed" ? `${verb} failed: ${res.action.detail || "see the run"}` : `${verb}: done.`, s === "failed", { log: true });
     wlPage.detail = null;
     if (opts.done) opts.done(res);
@@ -490,10 +490,10 @@ async function confirmWorkloadAction(w, a, verb = "", recheck = false, opts = {}
       row("Target", pre.target),
       row("What happens", pre.consequence))),
     (pre.warnings || []).map((t) => h("div", { class: "callout wl-warning" }, icon("warning", 18), h("span", {}, t))),
-    riskPanel(pre.risk, { box, onRecheck: () => { closeDialog(); confirmWorkloadAction(w, a, verb, true, { done: opts.done }); } }),
+    riskPanel(pre.risk, { box, onRecheck: () => { closeDialog(); confirmWorkloadAction(w, a, verb, true, { done: opts.done, ends: opts.ends }); } }),
     h("p", { class: "muted-text small" }, pre.risk?.note ? `${pre.risk.note} ` : "", pre.recorded)),
   pre.risk?.result === "blocked"
-    ? [btn("Check again", null, () => { closeDialog(); confirmWorkloadAction(w, a, verb, true, { done: opts.done }); }, "tool outline"),
+    ? [btn("Check again", null, () => { closeDialog(); confirmWorkloadAction(w, a, verb, true, { done: opts.done, ends: opts.ends }); }, "tool outline"),
       btn("Close", null, closeDialog, "tool primary")]
     : [btn("Cancel", null, closeDialog, "tool outline"),
       btn(`${verb}${inEnv}`, null, go_, "tool primary")]);

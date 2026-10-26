@@ -40,7 +40,13 @@ _PRACTICES = "notebook best practices: engine only, the panel waits on Chris's m
 _SQL_PRACTICES = "SQL best practices: engine only, the panel waits on Chris's mockup review (docs/sql-best-practices.md)"
 
 
+_COPY_JOBS = "Copy jobs (DF-6): engine first, the Copy jobs tab comes next (docs/orchestration/data-factory.md)"
+
+
 NO_UI_CALLER: dict[str, str] = {
+    "workspace_copy_jobs": _COPY_JOBS,
+    "workspace_copy_job_definition": _COPY_JOBS,
+    "fabric_copy_job_runs": _COPY_JOBS,
     "notebook_practices": _PRACTICES,
     "notebook_practice_rules": _PRACTICES,
     "sql_practices": _SQL_PRACTICES,

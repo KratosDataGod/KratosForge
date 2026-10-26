@@ -56,6 +56,13 @@ after(async () => { if (app) await app.close(); });
 
 test("Runs says it's reading, then lists Fabric pipeline runs once each", { skip }, async () => {
   await page().locator(".monitor-filters", { hasText: "Reading pipeline runs in Fabric" }).waitFor();
+  // While the scan runs, only the scan is asked again: the other sources wait for the redraw.
+  const count = (m) => app.calls.filter((c) => c.method === m).length;
+  const others = count("meta_runs_all");
+  const polls = count("fabric_pipeline_runs");
+  for (let i = 0; i < 80 && count("fabric_pipeline_runs") === polls; i++) await page().waitForTimeout(50);
+  assert.ok(count("fabric_pipeline_runs") > polls, "the scan is asked again");
+  assert.strictEqual(count("meta_runs_all"), others, "Runs isn't redrawn while the scan is pending");
   scanDone = true;
   await page().locator("tr.pl-run", { hasText: "pl_customer_load" }).waitFor({ timeout: 10000 });
   const texts = await page().locator("tr.pl-run").allTextContents();

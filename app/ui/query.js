@@ -222,7 +222,7 @@ function renderQuery() {
   }
 
   // SQL-003: each run is a managed query on this PC (sql_exec.py): queued, then running in a process
-  // of its own, with Stop and the time limit in Settings › SQL. Results come a page at a time from
+  // of its own, with Stop and the time limit in Settings > Advanced > SQL queries. Results come a page at a time from
   // the run's snapshot, so a large result is never loaded whole. On the Warehouse page (WH-01) the
   // same managed run sends one query that reads to the warehouse (sql_start target "warehouse").
   async function run(query = editor.chosen(), allow = []) {
@@ -487,7 +487,7 @@ function renderQuery() {
     let msg = "Press Run to see results";
     if (st === "queued" && !ex) msg = wh ? "Starting..." : "Starting on this PC...";
     else if (st === "queued" && wh) msg = "Waiting to start: finding the warehouse's SQL connection in Fabric, or another query is still running";
-    else if (st === "queued") msg = "Waiting for another query to finish (Settings › SQL sets how many run at once)";
+    else if (st === "queued") msg = "Waiting for another query to finish (Settings > Advanced > SQL queries sets how many run at once)";
     else if (st === "completed" && !r && busy) msg = "Reading the first page...";
     else if (st === "running" || st === "cancelling") {
       msg = `${ex.seconds} s ${where}${ex.rows ? ` · ${ex.rows.toLocaleString()} rows so far` : ""}`;

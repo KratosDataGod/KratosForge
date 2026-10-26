@@ -816,3 +816,32 @@ def test_listing_sources_on_a_platform_not_yet_repaired_changes_nothing(tmp_path
     with sqlite3.connect(path) as conn:
         cols = {r[1] for r in conn.execute('PRAGMA table_info("catalog__source")')}
     assert not cols & set(core._SOURCE_ADDED), "a read added columns"
+
+
+def test_owner_coverage_lists_what_has_no_owner_no_backup_or_a_quiet_owner(platform):
+    platform.call("save_domain", domain={"name": "Sales", "owners": "Dee@example.com, ed@example.com"})
+    platform.call("save_domain", domain={"name": "Finance"})
+    platform.call("register_project", project={"name": "crm", "domain": "sales"})
+    for name, owner, status in (("c360", "bo@example.com", "published"), ("draft", "", "draft"), ("orders", "Sales team", "published")):
+        platform.call("register_product", product={"project": "crm", "name": name, "domain": "sales", "access": "public",
+                                                   "status": status, "owner": owner}, ports=[], env="prod")
+    platform.call("save_source", source={"name": "shopify", "owner": "lee@example.com; bo@example.com"})
+    for who in ("dee", "ed", "lee"):
+        _as(platform, f"{who}@example.com").call("note_seen")
+    old = (core.dt.datetime.now(core.dt.timezone.utc) - core.dt.timedelta(days=61)).isoformat(timespec="seconds")
+    with platform._db() as db:
+        db.run(f"UPDATE {db.t('catalog', 'person')} SET last_seen = ? WHERE user_name = ?", (old, "ed@example.com"))
+        db.commit()
+    bo = _as(platform, "bo@example.com")
+    bo.call("note_seen")
+    assert bo.call("note_seen")["last_seen"], "a second call the same day writes nothing new"
+
+    c = platform.call("owner_coverage")
+    gaps = {(g["kind"], g["id"]): g["problems"] for g in c["gaps"]}
+    assert c["gaps"][0]["problems"] == ["No owner"], "nobody owning it comes first"
+    assert gaps == {("domain", "finance"): ["No owner"],
+                    ("domain", "sales"): ["ed@example.com hasn't used the platform for 61 days"],
+                    ("product", "crm/c360"): ["No second owner to cover"],
+                    ("product", "crm/orders"): ["No second owner to cover"]}
+    assert next(g for g in c["gaps"] if g["id"] == "crm/orders")["unchecked"] == ["sales team"]
+    assert (c["checked"], c["covered"], c["no_owner"]) == (5, 1, 1), "drafts aren't checked; shopify is covered"

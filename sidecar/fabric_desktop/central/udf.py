@@ -497,6 +497,21 @@ def remove_product_term(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionC
     return _run(sqlDB, "remove_product_term", ctx, product_id=product_id, term=term)
 
 
+# ---- owner coverage (Preview)
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def note_seen(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext) -> dict:
+    return _run(sqlDB, "note_seen", ctx)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def owner_coverage(sqlDB: fn.FabricSqlConnection) -> dict:
+    return _run(sqlDB, "owner_coverage")
+
+
 # ---- governance policies (policy.py)
 
 @udf.connection(argName="sqlDB", alias="platform")

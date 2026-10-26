@@ -1601,7 +1601,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_agent.py`
 - **Docs:** [docs/agent.md](../agent.md)
 - **Known limitations:** Never run against a live tenant. Runs metadata environments only, not notebooks or jobs. Finished jobs leave the queue after queue_retention_days, and `agent requeue` revives a dead or failed job (PB-044).
-- **Pull requests and issues:** [#34](https://github.com/KratosDataGod/KratosForge/pull/34), [#679](https://github.com/KratosDataGod/KratosForge/pull/679), [#689](https://github.com/KratosDataGod/KratosForge/pull/689)
+- **Pull requests and issues:** [#34](https://github.com/KratosDataGod/KratosForge/pull/34), [#689](https://github.com/KratosDataGod/KratosForge/pull/689)
 - **Backlog:** [PB-044](PRODUCT_BACKLOG.md#pb-044)
 - **Recommended next action:** Verify on a tenant.
 

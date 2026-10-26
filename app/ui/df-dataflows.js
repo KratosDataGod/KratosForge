@@ -1,8 +1,8 @@
 // Data Factory dataflows (DF-7, Preview): the Dataflows tab beside Pipelines. Read-only: it lists a
 // workspace's Dataflow Gen2 items, and for the one picked shows its Power Query (M) queries, where
 // each loads, the connections it names and its refreshes in Fabric (workspace_dataflows,
-// workspace_dataflow_definition, fabric_dataflow_refreshes). Dataflows run in Fabric only; refreshing
-// one from here comes later, behind a confirm and the risk check.
+// workspace_dataflow_definition, fabric_dataflow_refreshes). Dataflows run in Fabric only: Refresh in
+// Fabric starts one through Workloads (dfRunInFabric), behind its confirm and the risk check.
 
 const DF_FLOW_TABS = [["queries", "Queries (M)"], ["destinations", "Destinations"], ["refreshes", "Refresh history"]];
 const dfFlowPage = { workspace: null, list: null, selected: null, detail: null, refreshes: null, tab: "queries" };
@@ -89,6 +89,31 @@ async function dfListDataflows(ws) {
   render();
 }
 
+// Run in Fabric for a copy job or a dataflow: the Workloads action run_item, so it gets the same confirm,
+// risk check and record as any other Fabric item (workload_preflight, then workload_act). Workloads lists
+// the items of the workspaces this app works in; one outside them is offered a pin and a fresh read.
+async function dfRunInFabric(ws, item, verb, done) {
+  const w = { id: `fabric:${ws.id}:${item.item_id}` };
+  const a = { action: "run_item", label: verb };
+  const pre = await attempt(() => rpc("workload_preflight", { id: w.id, action: "run_item", env: null }), "Couldn't check that action");
+  if (!pre) return;
+  if (pre.code === "not_in_inventory") {
+    showDialog(`${verb} ${item.name}?`, h("div", {},
+      h("p", { class: "text" }, `Runs started here go through Monitor > Workloads, which asks first, runs the risk check and records each run. `,
+        `It doesn't list ${item.name} yet: ${ws.displayName} isn't one of the workspaces this app works in, or ${item.name} is newer than its last read.`),
+      h("p", { class: "muted-text small" }, `Pin and read again pins ${ws.displayName} on the Workspaces page (kept on this PC, nothing changes in Fabric) and reads its items again in the background.`)),
+    [btn("Cancel", null, closeDialog, "tool outline"), btn("Pin and read again", null, async () => {
+      closeDialog();
+      const ok = await attempt(() => rpc("set_workspace_mark", { workspace_id: ws.id, mark: "pins", on: true }), "Could not pin the workspace");
+      if (!ok) return;
+      await attempt(() => rpc("workloads_list", { limit: 1, refresh: true }), "Could not read the workspace again");
+      toast(`Reading the items in ${ws.displayName}. Try ${verb} again in a minute.`);
+    }, "tool primary")]);
+    return;
+  }
+  confirmWorkloadAction(w, a, verb, false, { pre, done, ends: "Monitor > Runs shows how it ends." });
+}
+
 function dfDetail(ws) {
   const d = dfFlowPage.selected;
   if (!d) return h("p", { class: "muted-text" }, "Pick a dataflow to see its queries.");
@@ -109,6 +134,7 @@ function dfDetail(ws) {
   return h("div", { class: "df-detail" },
     h("div", { class: "df-detail-head" }, h("h2", {}, d.name), h("span", { class: "pill-s neu" }, "Runs in Fabric"),
       h("span", { class: "spacer" }),
+      btn("Refresh in Fabric…", "play", () => dfRunInFabric(ws, d, "Refresh in Fabric", () => dfOpenDataflow(ws, d)), "tool outline"),
       btn("Open in Fabric", "open", () => openInFabric(fabricItemLink({ type: "Dataflow", workspace_id: ws.id, item_id: d.item_id })), "tool outline")),
     d.description ? h("p", { class: "muted-text" }, d.description) : null, tabs, body);
 }
@@ -118,8 +144,8 @@ async function renderDfDataflows() {
   setView(h("div", { class: "page df-dataflows" }, dfAreaTabs(),
     h("div", { class: "df-conn-head" }, h("h1", {}, "Dataflows ", previewTag())),
     withHowItWorks(body, howItWorks("df-dataflows", {
-      reads: "The dataflows in the workspace you pick, the definition of the one you open (its Power Query queries, destinations and connections) and its refresh history. No Fabric job starts and no capacity is used.",
-      changes: "Nothing. Dataflows run in Fabric only; to change a query, Open in Fabric shows Fabric's editor inside the app.",
+      reads: "The dataflows in the workspace you pick, the definition of the one you open (its Power Query queries, destinations and connections) and its refresh history. Reading starts no Fabric job.",
+      changes: "Nothing until you press Refresh in Fabric, which starts the dataflow's refresh in Fabric after a confirm and the risk check: it uses capacity and writes to every destination the dataflow has. If Workloads doesn't list the workspace yet, Pin and read again pins it on this PC first. To change a query, Open in Fabric shows Fabric's editor inside the app.",
       results: "Shown here only, kept in memory while the page is open. Only the workspace you pick is remembered.",
       anchor: "data-factory-dataflows-preview",
     }))));

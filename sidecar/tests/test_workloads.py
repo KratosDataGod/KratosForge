@@ -358,7 +358,14 @@ def test_a_failed_run_is_recorded_as_failed(svc, project, monkeypatch):
     assert last["status"] == "failed" and "engine stopped" in last["detail"]
 
 
-def test_a_fabric_run_stays_submitted_until_fabric_says_how_it_ended(svc, monkeypatch):
+@pytest.fixture
+def no_capacity_read(monkeypatch):
+    """The risk check in a Fabric run's preflight reads the workspace's capacity from Fabric; with the
+    fake token that went to the real API and waited out its retries (about 150 s, or a timeout)."""
+    monkeypatch.setattr(Service, "_risk_capacity_read", lambda self, *a: None)
+
+
+def test_a_fabric_run_stays_submitted_until_fabric_says_how_it_ended(svc, monkeypatch, no_capacity_read):
     signed_in(svc)
     scan(svc, monkeypatch)
     wid = model.fabric_id("ws1", "pl1")
@@ -366,7 +373,7 @@ def test_a_fabric_run_stays_submitted_until_fabric_says_how_it_ended(svc, monkey
     assert pre["allowed"] and "exactly as Fabric's own Run does" in pre["consequence"]
     calls = []
 
-    def run_now(ws, item, job, name, ws_name=""):
+    def run_now(ws, item, job, name, ws_name="", item_type=""):
         calls.append((ws, item, job))
         return svc._log_fabric_run({"kind": "Scheduled item run", "name": name, "workspace_id": ws,
                                     "workspace_name": ws_name, "item_id": item, "job_id": "job-1"})
@@ -381,6 +388,101 @@ def test_a_fabric_run_stays_submitted_until_fabric_says_how_it_ended(svc, monkey
     svc._write_fabric_runs(runs)
     everything(svc)
     assert svc.workload_actions(wid)[0]["status"] == "succeeded"
+
+
+class FakeJobs:
+    EXECUTE_PATHS = {"CopyJob": "copyJobs", "Dataflow": "dataflows"}
+
+    def __init__(self):
+        self.started = []
+
+    def run_item_execute(self, ws, item, item_type):
+        self.started.append(("execute", ws, item, item_type))
+        return f"job-{item}"
+
+    def run_item_job(self, ws, item, job_type):
+        self.started.append(("job", ws, item, job_type))
+        return f"job-{item}"
+
+
+def test_copy_jobs_and_dataflows_run_in_fabric_through_their_own_execute_job(svc, monkeypatch):
+    signed_in(svc)
+    monkeypatch.setattr(FakeFabric, "items", FakeFabric.items | {"ws1": FakeFabric.items["ws1"] + [
+        {"id": "cj1", "type": "CopyJob", "displayName": "cj_orders"},
+        {"id": "df1", "type": "Dataflow", "displayName": "df_customers"}]})
+    scan(svc, monkeypatch)
+    rows = by_name(everything(svc))
+    assert rows["cj_orders"]["kind_label"] == "Copy job" and rows["df_customers"]["kind_label"] == "Dataflow Gen2"
+    assert rows["cj_orders"]["preview"] and rows["df_customers"]["preview"] and not rows["pl_load_erp"]["preview"]
+    assert "schedulable" not in rows["cj_orders"]["capabilities"] and "schedulable" in rows["pl_load_erp"]["capabilities"]
+    jobs = FakeJobs()
+    monkeypatch.setattr(Service, "fabric_jobs", property(lambda self: jobs))
+    for item, label, effect in (("cj1", "copy job cj_orders", "It moves data"),
+                                ("df1", "dataflow Gen2 df_customers", "writes its results to every destination")):
+        wid = model.fabric_id("ws1", item)
+        pre = svc.workload_preflight(wid, "run_item", assess=False)  # the risk check has its own tests
+        assert pre["allowed"] and f"Starts {label} in Fabric now" in pre["consequence"] and effect in pre["consequence"]
+        assert pre["identity"].startswith("You") and pre["where"].startswith("Fabric")
+        assert svc.workload_act(wid, "run_item")["action"]["status"] == "submitted"
+    assert jobs.started == [("execute", "ws1", "cj1", "CopyJob"), ("execute", "ws1", "df1", "Dataflow")]
+    runs = svc._read_fabric_runs()[-2:]
+    assert [(r["job_id"], r["engine"]) for r in runs] == [("job-cj1", "data_factory"), ("job-df1", "data_factory")]
+    svc.workload_act(model.fabric_id("ws1", "pl1"), "run_item")  # a pipeline still uses the jobType path
+    assert jobs.started[-1] == ("job", "ws1", "pl1", "Pipeline")
+    assert svc._read_fabric_runs()[-1]["engine"] == "spark"
+
+
+def test_a_refused_start_says_not_authorized_and_records_no_run(svc, monkeypatch):
+    signed_in(svc)
+    monkeypatch.setattr(FakeFabric, "items", FakeFabric.items | {"ws1": FakeFabric.items["ws1"] + [
+        {"id": "cj1", "type": "CopyJob", "displayName": "cj_orders"}]})
+    scan(svc, monkeypatch)
+
+    class Refusing(FakeJobs):
+        def run_item_execute(self, ws, item, item_type):
+            raise FabricError("POST /workspaces/ws1/copyJobs/cj1/jobs/execute/instances failed with 403: Forbidden")
+
+    monkeypatch.setattr(Service, "fabric_jobs", property(lambda self: Refusing()))
+    before = len(svc._read_fabric_runs())
+    wid = model.fabric_id("ws1", "cj1")
+    with pytest.raises(FabricError):
+        svc.workload_act(wid, "run_item")
+    last = svc.workload_actions(wid)[0]
+    assert last["status"] == "failed" and last["detail"].startswith("Not authorized") and "Item.Execute.All" in last["detail"]
+    assert len(svc._read_fabric_runs()) == before
+
+
+def test_an_item_the_inventory_doesnt_list_is_refused_with_a_code(svc, monkeypatch):
+    signed_in(svc)
+    scan(svc, monkeypatch)
+    pre = svc.workload_preflight(model.fabric_id("ws9", "cj9"), "run_item")
+    assert pre == {"allowed": False, "code": "not_in_inventory", "reason": pre["reason"]} and "isn't in the inventory" in pre["reason"]
+    with pytest.raises(PermissionError, match="isn't in the inventory"):
+        svc.workload_act(model.fabric_id("ws9", "cj9"), "run_item")
+
+
+def test_a_refresh_during_a_scan_scans_once_more_so_a_new_pin_is_read(svc, monkeypatch):
+    signed_in(svc)
+    started, release = [], __import__("threading").Event()
+
+    def slow_scan(token, client=None):
+        started.append(token)
+        if len(started) == 1:
+            release.wait(5)
+        with svc._wl_scan_lock:
+            svc._wl_scan = {"pending": False, "collected_at": "now"}
+        return svc._wl_scan
+
+    monkeypatch.setattr(svc, "_wl_scan_items", slow_scan)
+    svc._wl_start_scan("tok")
+    svc._wl_start_scan("tok2")  # a pin while the first scan runs
+    svc._wl_start_scan("tok3")  # asking twice still means one more scan, with the newest token
+    release.set()
+    deadline = time.monotonic() + 5
+    while (len(started) < 2 or svc._wl_scan.get("pending")) and time.monotonic() < deadline:
+        time.sleep(0.01)
+    time.sleep(0.05)
+    assert started == ["tok", "tok3"] and not svc._wl_scan["pending"] and not svc._wl_scan_again
 
 
 def test_unsupported_or_unsafe_actions_are_refused(svc, project, monkeypatch):

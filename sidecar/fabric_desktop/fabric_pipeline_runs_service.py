@@ -1,7 +1,7 @@
 """Fabric pipeline runs for Monitor > Runs (Data Factory DF-1, engine half).
 
-Two reads, no writes, no capacity: ``fabric_pipeline_runs`` lists the job history of every pipeline
-in the chosen workspaces (a background scan, like Fabric schedules: ``{"pending": True}`` until it's
+Two reads, no writes, no capacity: ``fabric_pipeline_runs`` lists the job history of every pipeline,
+copy job and dataflow (DF-6, DF-7; each row's ``kind`` says which) in the chosen workspaces (a background scan, like Fabric schedules: ``{"pending": True}`` until it's
 done), and ``fabric_pipeline_activity_runs`` reads one run's activities when its row is opened, never
 in the background. Activity input, output and errors pass through redact.secrets and are capped, so a
 large Lookup output can't flood the reply.
@@ -22,7 +22,9 @@ from .redact import describe, secrets
 
 _log = logging.getLogger(__name__)
 
-RUNS_PER_PIPELINE = 20
+RUNS_PER_PIPELINE = 20  # per item, whatever its kind
+# The Data Factory items whose runs Monitor lists, and the kind each row carries.
+RUN_KINDS = {"DataPipeline": "pipeline", "CopyJob": "copy job", "Dataflow": "dataflow"}
 MAX_RUNS = 300
 TEXT_LIMIT = 16_000  # characters of one activity's input, output or error detail
 WINDOW_SLACK = dt.timedelta(minutes=5)  # around the run's start and end for the activity query
@@ -64,17 +66,27 @@ def _seconds(start: Any, end: Any) -> float | None:
     return round((b - a).total_seconds(), 3) if a and b else None
 
 
+def _str(value: Any) -> str:
+    return value if isinstance(value, str) else ""
+
+
+def _number(value: Any) -> float | None:
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
 def run_row(job: dict[str, Any], pipeline: dict[str, Any]) -> dict[str, Any]:
-    """One Fabric job instance of a pipeline, in the shape Monitor > Runs lists."""
+    """One Fabric job instance of a pipeline, in the shape Monitor > Runs lists. A field of an
+    unexpected type reads as empty, so one odd job never ends a scan."""
+    job = job if isinstance(job, dict) else {}
     reason = job.get("failureReason") or {}
-    status = job.get("status") or ""
+    status = _str(job.get("status"))
+    started, ended = _str(job.get("startTimeUtc")) or None, _str(job.get("endTimeUtc")) or None
     return {"where": "fabric", "workspace_id": pipeline["workspace_id"], "workspace_name": pipeline["workspace_name"],
-            "item_id": pipeline["id"], "name": pipeline.get("displayName") or "", "job_id": job.get("id") or "",
+            "item_id": pipeline["id"], "name": _str(pipeline.get("displayName")), "job_id": _str(job.get("id")),
             "state": RUN_STATES.get(status, "unknown"), "native_status": status,
-            "started": job.get("startTimeUtc"), "ended": job.get("endTimeUtc"),
-            "seconds": _seconds(job.get("startTimeUtc"), job.get("endTimeUtc")),
-            "invoke": job.get("invokeType") or "",
-            "message": secrets((reason.get("message", "") if isinstance(reason, dict) else str(reason)) or "")}
+            "started": started, "ended": ended, "seconds": _seconds(started, ended),
+            "invoke": _str(job.get("invokeType")),
+            "message": secrets((_str(reason.get("message")) if isinstance(reason, dict) else str(reason)) or "")}
 
 
 def _text(value: Any) -> dict[str, Any]:
@@ -87,14 +99,15 @@ def _text(value: Any) -> dict[str, Any]:
 
 
 def activity_row(a: dict[str, Any]) -> dict[str, Any]:
+    a = a if isinstance(a, dict) else {}
     err = a.get("error") if isinstance(a.get("error"), dict) else {}
-    status = a.get("status") or ""
+    status = _str(a.get("status"))
     message = secrets(str(err.get("message") or ""))
-    return {"name": a.get("activityName") or "", "type": a.get("activityType") or "",
+    return {"name": _str(a.get("activityName")), "type": _str(a.get("activityType")),
             "state": ACTIVITY_STATES.get(status, "unknown"), "native_status": status,
-            "started": a.get("activityRunStart"), "ended": a.get("activityRunEnd"),
-            "ms": a.get("durationInMs"), "retry": a.get("retryAttempt"), "run_id": a.get("activityRunId") or "",
-            "iteration": a.get("iterationHash") or "",
+            "started": _str(a.get("activityRunStart")) or None, "ended": _str(a.get("activityRunEnd")) or None,
+            "ms": _number(a.get("durationInMs")), "retry": _number(a.get("retryAttempt")), "run_id": _str(a.get("activityRunId")),
+            "iteration": _str(a.get("iterationHash")),
             "input": _text(a.get("input")), "output": _text(a.get("output")),
             "error": {"code": str(err.get("errorCode") or ""), "message": message[:TEXT_LIMIT],
                       "failure_type": str(err.get("failureType") or "")} if message or err.get("errorCode") else None}
@@ -106,7 +119,8 @@ class FabricPipelineRunsMixin:
 
     def fabric_pipeline_runs(self, refresh: bool = False, all_workspaces: bool = False,
                              workspace_ids: list[str] | None = None) -> dict[str, Any]:
-        """Pipeline runs in Fabric, newest first, from a background scan ({"pending": True} meanwhile).
+        """Pipeline, copy job and dataflow runs in Fabric, newest first, from a background scan
+        ({"pending": True} meanwhile).
 
         Workspaces: ``workspace_ids`` when given, else the ones Schedules lists (pinned, environments,
         notebooks), or every one with ``all_workspaces``. Reads only: no job starts."""
@@ -145,7 +159,7 @@ class FabricPipelineRunsMixin:
         def pipelines(ws: dict[str, str]) -> list[dict[str, Any]]:
             try:
                 return [{"workspace_id": ws["id"], "workspace_name": ws["name"], **it}
-                        for it in client.list_items(ws["id"]) if it.get("type") == "DataPipeline"]
+                        for it in client.list_items(ws["id"]) if it.get("type") in RUN_KINDS]
             except Exception as exc:  # noqa: BLE001
                 missed.append(f"items in workspace {ws['id']}: {describe(exc)}")
                 return []
@@ -153,10 +167,12 @@ class FabricPipelineRunsMixin:
         def runs(p: dict[str, Any]) -> list[dict[str, Any]]:
             try:
                 jobs = client.list_job_instances(p["workspace_id"], p["id"])
+                # Rows are built here too: an item whose history this version can't read is one
+                # missed read, never a scan that stops and leaves Monitor "Reading..." for good.
+                return [{**run_row(j, p), "kind": RUN_KINDS[p["type"]]} for j in jobs[:RUNS_PER_PIPELINE]]
             except Exception as exc:  # noqa: BLE001
-                missed.append(f"runs of pipeline {p['id']}: {describe(exc)}")
+                missed.append(f"runs of {RUN_KINDS[p['type']]} {p['id']}: {describe(exc)}")
                 return []
-            return [run_row(j, p) for j in jobs[:RUNS_PER_PIPELINE]]
 
         with ThreadPoolExecutor(max_workers=8) as pool:
             found = [p for chunk in pool.map(pipelines, workspaces) for p in chunk]
@@ -165,7 +181,8 @@ class FabricPipelineRunsMixin:
             _log.warning("Fabric pipeline runs: %d reads failed; the first was %s", len(missed), missed[0])
         rows.sort(key=lambda r: str(r.get("started") or ""), reverse=True)
         self._set_pipeline_runs({"pending": False, "runs": rows[:MAX_RUNS], "scope": scope,
-                                 "workspaces": len(workspaces), "pipelines": len(found), "missed": len(missed),
+                                 "workspaces": len(workspaces), "items": len(found),
+                                 "pipelines": sum(p["type"] == "DataPipeline" for p in found), "missed": len(missed),
                                  "scanned": _iso(_now())})
 
     def _set_pipeline_runs(self, value: dict[str, Any]) -> None:

@@ -16,7 +16,7 @@ after(async () => { await app?.close(); });
 test("Advanced is folded, and a value set by the environment or policy can't be edited", { skip }, async () => {
   const programData = fs.mkdtempSync(path.join(os.tmpdir(), "fd-policy-"));
   fs.mkdirSync(path.join(programData, "FabricDesktop"));
-  fs.writeFileSync(path.join(programData, "FabricDesktop", "policy.json"), JSON.stringify({ sql_page_rows: 2000 }));
+  fs.writeFileSync(path.join(programData, "FabricDesktop", "policy.json"), JSON.stringify({ sql_page_rows: 2000, sql_warehouse_writes: false }));
   Object.assign(process.env, { ProgramData: programData, FABRIC_DESKTOP_CLIENT_ID: APP });
   try {
     app = await openApp({ engine: ["app_settings", "save_app_settings"] });
@@ -45,6 +45,10 @@ test("Advanced is folded, and a value set by the environment or policy can't be 
   const rowsSetting = page.locator(".setting", { has: rows });
   assert.match(await rowsSetting.textContent(), /Set by your organization's policy/);
   assert.strictEqual(await page.getByRole("spinbutton", { name: "Time limit" }).getAttribute("readonly"), null);
+  // WH-10: the organization turned warehouse changes off, so the switch is off and can't be turned on.
+  const writes = page.getByRole("checkbox", { name: "Warehouse changes" });
+  assert.ok(!(await writes.isChecked()) && await writes.isDisabled());
+  assert.match(await page.locator(".setting", { has: writes }).textContent(), /Off.*Set by your organization's policy/s);
 
   // The engine refuses an ID the variable overrides instead of saying Saved.
   const refused = await page.evaluate(() => rpc("save_app_settings", { changes: { client_id: "" } }).then(() => "saved", (e) => String(e.message || e)));

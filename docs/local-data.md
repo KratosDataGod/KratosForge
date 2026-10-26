@@ -177,6 +177,8 @@ Each project is a folder under `%LOCALAPPDATA%\FabricDesktop\local-data\` (or on
 | `transforms\<schema>\<name>.sql` | Transformation steps, and `transforms\.runs\` their last 50 runs |
 | `Tables\<schema>\<table>\` | The project's Delta tables. Tables copied in here are picked up when the project opens or is refreshed. |
 
+**What a project can reach.** A project's engine reads and writes only its own folder and the folders you registered. DuckDB itself enforces this, as well as the statement checks the engine calls make: a query can't read or write a file anywhere else on the PC, read from a URL, attach another database or install a DuckDB extension, and SQL can't turn this off. When you add or remove a folder, the engine opens the database again with the new list, so temporary tables (`CREATE TEMP TABLE`) are cleared; the project's own tables and views stay.
+
 Only one program can write to a project's database at a time. If another KratosForge window or a notebook has it open, the project says so instead of risking the file; close it there (or close the project) and try again.
 
 ## Engine calls

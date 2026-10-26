@@ -364,19 +364,22 @@ def test_cancel_that_lands_while_a_cell_is_starting_stops_it(svc, monkeypatch):
     # Windows CI: Cancel landed after the proof moved to the next cell but before that cell's
     # thread ran, and interrupt failed on the thread's missing id (TypeError), or found the last
     # cell already done and the long cell then ran to its end.
+    # The patch goes in before the proof starts: patched after, the proof's thread could reach the
+    # long cell first (Windows CI, #728), so nothing cancelled it and it ran to its end.
     svc.fake = FakeFabric(svc)
     cells = CELLS[:2] + [{"type": "code", "source": "import time\nfor _ in range(400):\n    time.sleep(0.05)"}] + CELLS[3:]
-    started = call(svc, "prove_start", **payload(cells))
-    start = Kernel.start
+    start, started, cancelled = Kernel.start, {}, []
 
     def cancel_first(self, code, *args, **kwargs):
         if "range(400)" in code:
-            assert call(svc, "prove_cancel", id=started["id"]) == {"cancelled": True}
+            cancelled.append(call(svc, "prove_cancel", id=started["id"]))
         return start(self, code, *args, **kwargs)
 
     monkeypatch.setattr(Kernel, "start", cancel_first)
     began = time.monotonic()
+    started.update(call(svc, "prove_start", **payload(cells)))
     out = wait(svc, started["id"])
+    assert cancelled == [{"cancelled": True}]
     assert out["state"] == "cancelled" and time.monotonic() - began < 15, out["pc"]  # the cell alone takes 20 s
     assert out["pc"]["cells"]["2"]["status"] != "ok" and svc.fake.saved == []
 
@@ -444,6 +447,27 @@ def test_interrupt_while_a_cell_is_finishing_lets_it_finish(monkeypatch):
     assert entered.wait(5)
     assert k.interrupt() == {"interrupted": True, "stopped": True}
     assert k.poll(-1, 0.0)["status"] == "ok"
+
+
+def test_interrupt_is_sent_while_holding_the_cancel_lock(monkeypatch):
+    # Sent after the lock was released, the cell could disarm in between and get the interrupt in its finally.
+    import ctypes
+    from fabric_desktop import notebook
+    k = Kernel()
+    k.start("import time\nfor _ in range(400):\n    time.sleep(0.05)")
+    run = k._current
+    deadline = time.monotonic() + 5
+    while not run.armed and time.monotonic() < deadline:
+        time.sleep(0.01)
+    send, held = ctypes.pythonapi.PyThreadState_SetAsyncExc, []
+
+    def recording(ident, exc):
+        held.append(run.cancel_lock.locked())
+        return send(ident, exc)
+
+    monkeypatch.setattr(notebook.ctypes.pythonapi, "PyThreadState_SetAsyncExc", recording)
+    assert k.interrupt() == {"interrupted": True, "stopped": True}
+    assert held == [True] and k.poll(-1, 0.0)["status"] == "cancelled"
 
 def test_the_kernel_refuses_cells_while_a_proof_runs_and_one_proof_at_a_time(svc):
     svc.fake = FakeFabric(svc)

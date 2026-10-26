@@ -267,6 +267,7 @@ function plPill(verdict) {
 
 async function renderPipelines() {
   if (plPage.area === "connections") return renderDfConnections();
+  if (plPage.area === "copyjobs") return renderDfCopyJobs();
   if (plPage.area === "dataflows") return renderDfDataflows();
   const p = plPage.pipeline;
   if (!p) {
@@ -642,7 +643,7 @@ async function renderPipelineRun() {
   if (!plPage.run || plPage.run.run_id !== id) {
     setView(h("div", { class: "page" }, loading("Reading the run...")));
     const run = await attempt(() => rpc("pipeline_run_status", { run_id: id }), "Could not read the run");
-    if (!run || plPage.runId !== id) return;
+    if (!run || plPage.runId !== id) { if (plPulse === id) plPulse = null; return; }  // a run never drawn never pulses later
     plPage.run = run;
     if (state.view !== "pipelineRun") return;
   }
@@ -747,6 +748,8 @@ registerFeature({
     { label: "Open a pipeline", icon: "flow", keywords: "pipeline fabric data factory run local datapipeline", run: () => pipelineOpenDialog() },
     { label: "Data Factory connections", icon: "flow", keywords: "connection gateway fabric data factory used by missing",
       run: () => { plPage.area = "connections"; go("pipelines"); } },
+    { label: "Copy jobs", icon: "flow", keywords: "copy job fabric data factory ingest incremental cdc",
+      run: () => { plPage.area = "copyjobs"; go("pipelines"); } },
     { label: "Dataflows", icon: "flow", keywords: "dataflow gen2 power query m fabric data factory refresh",
       run: () => { plPage.area = "dataflows"; go("pipelines"); } },
   ],

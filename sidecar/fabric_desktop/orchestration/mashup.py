@@ -129,6 +129,10 @@ def destination(attrs: str, by_name: dict[str, dict[str, Any]]) -> dict[str, Any
             "update_method": update.group(1) if update else "", "new_table": "IsNewTarget = true" in attrs}
 
 
+def _text(value: Any) -> str:
+    return value if isinstance(value, str) else ""
+
+
 def _connection_id(raw: Any) -> str:
     """queryMetadata keeps a connection's id as JSON text with ``DatasourceId``, or as a plain id."""
     if not isinstance(raw, str):
@@ -144,17 +148,22 @@ def describe(result: dict[str, Any]) -> dict[str, Any]:
     """A getDefinition result as {ok, queries, connections, mashup, problems}. Hidden queries
     (destinations, helpers) are listed too, marked hidden, so the page can fold them away."""
     parts: dict[str, str] = {}
-    for part in ((result or {}).get("definition") or {}).get("parts") or []:
+    definition = result.get("definition") if isinstance(result, dict) else None
+    raw_parts = definition.get("parts") if isinstance(definition, dict) else None
+    for part in raw_parts if isinstance(raw_parts, list) else []:
+        if not isinstance(part, dict):
+            continue
         try:
             parts[str(part.get("path") or "")] = base64.b64decode(part.get("payload") or "").decode("utf-8")
-        except (binascii.Error, UnicodeDecodeError, ValueError):
+        except (binascii.Error, UnicodeDecodeError, ValueError, TypeError):
             continue
     mashup = parts.get("mashup.pq", "")
+    problems = []
     try:
         meta = json.loads(parts.get("queryMetadata.json") or "{}")
     except ValueError:
+        problems.append("queryMetadata.json isn't valid JSON, so load flags and connections can't be shown.")
         meta = {}
-    problems = []
     if not isinstance(meta, dict):
         problems.append("queryMetadata.json isn't an object, so load flags and connections can't be shown.")
         meta = {}
@@ -165,9 +174,13 @@ def describe(result: dict[str, Any]) -> dict[str, Any]:
     flags = meta.get("queriesMetadata") if isinstance(meta.get("queriesMetadata"), dict) else {}
     rows = []
     for q in found:
-        info = flags.get(q["name"]) or {}
+        info = flags.get(q["name"])
+        info = info if isinstance(info, dict) else {}
         rows.append({"name": q["name"], "m": q["m"], "load_enabled": bool(info.get("loadEnabled", True)),
                      "hidden": bool(info.get("isHidden", False)), "destination": destination(q["attributes"], by_name)})
-    connections = [{"kind": c.get("kind") or "", "path": c.get("path") or "", "connection_id": _connection_id(c.get("connectionId"))}
-                   for c in meta.get("connections") or [] if isinstance(c, dict)]
+    listed = meta.get("connections")
+    if listed is not None and not isinstance(listed, list):
+        problems.append("queryMetadata.json's connections isn't a list, so the connections can't be shown.")
+    connections = [{"kind": _text(c.get("kind")), "path": _text(c.get("path")), "connection_id": _connection_id(c.get("connectionId"))}
+                   for c in (listed if isinstance(listed, list) else []) if isinstance(c, dict)]
     return {"ok": bool(mashup), "queries": rows, "connections": connections, "mashup": mashup, "problems": problems}

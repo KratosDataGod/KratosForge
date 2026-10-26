@@ -426,9 +426,13 @@ class ScheduleMixin:
                         r["enabled"] = enabled
 
     def run_fabric_item_now(self, workspace_id: str, item_id: str, job_type: str, name: str,
-                            workspace_name: str = "") -> dict[str, Any]:
-        job_id = self.fabric_jobs.run_item_job(workspace_id, item_id, job_type)  # type: ignore[attr-defined]
+                            workspace_name: str = "", item_type: str = "") -> dict[str, Any]:
+        jobs = self.fabric_jobs  # type: ignore[attr-defined]
+        if item_type in jobs.EXECUTE_PATHS:  # a copy job or a dataflow: Data Factory, not Spark
+            job_id, engine = jobs.run_item_execute(workspace_id, item_id, item_type), "data_factory"
+        else:
+            job_id, engine = jobs.run_item_job(workspace_id, item_id, job_type), "spark"
         return self._log_fabric_run({"kind": "Scheduled item run", "name": name, "workspace_id": workspace_id,  # type: ignore[attr-defined]
                                      "workspace_name": workspace_name, "item_id": item_id, "job_id": job_id,
-                                     "engine": "spark"})
+                                     "engine": engine})
 

@@ -29,7 +29,7 @@ test("five tabs, and Requests shows how many are waiting", { skip }, async () =>
   await page().evaluate(() => { state.user = "chris@contoso.com"; goPlatform("overview"); });
   await page().waitForFunction(() => document.querySelector(".subtabs .tab-count")?.textContent === "2");
   assert.deepStrictEqual((await tabs().allTextContents()).map((t) => t.trim()), ["Overview", "Requests2", "Set up", "Govern", "Settings"]);
-  assert.deepStrictEqual(asked.at(-1), { status: "waiting" });
+  assert.deepStrictEqual(asked, [], "Overview's own counts give the number: no second read of the requests");
   assert.strictEqual(await tabs().nth(0).getAttribute("aria-current"), "page");
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "platform-tabs.png") });
 });
@@ -40,6 +40,7 @@ test("Set up opens a menu of its four pages, and the tab then names the page", {
   assert.deepStrictEqual(await menu.getByRole("menuitem").allTextContents(), ["Landing zone", "Business keys", "Domains", "Glossary"]);
   await menu.getByRole("menuitem", { name: "Domains" }).click();
   await page().waitForFunction(() => platformPage.tab === "domains");
+  assert.deepStrictEqual(asked, [], "the count is kept from Overview");
   const setUp = page().locator(".subtabs .tab-menu").first();
   assert.match(await setUp.textContent(), /Set up: Domains/);
   assert.strictEqual(await setUp.getAttribute("aria-current"), "page");
@@ -51,5 +52,9 @@ test("Govern holds Governance and Audit; old links to any page still open it", {
   await page().keyboard.press("Escape");
   await page().evaluate(() => goPlatform("glossary"));
   await page().waitForFunction(() => /Set up: Glossary/.test(document.querySelector(".subtabs").textContent));
+  // Opened on another tab with no count yet, the bar reads the waiting requests once.
+  await page().evaluate(() => { platformPage.waiting = undefined; goPlatform("audit"); });
+  await page().waitForFunction(() => document.querySelector(".subtabs .tab-count")?.textContent === "2");
+  assert.deepStrictEqual(asked, [{ status: "waiting" }]);
   assert.deepStrictEqual(app.errors, []);
 });

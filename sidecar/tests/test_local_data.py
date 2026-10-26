@@ -460,3 +460,40 @@ def test_cancel_right_after_start_never_leaves_it_running(local):
                 break
             time.sleep(0.05)
         assert status["state"] == "cancelled"
+
+
+def test_the_engine_itself_reaches_only_the_projects_folders(local, tmp_path, data):
+    """Behind the statement checks (sql_exec.check_local): DuckDB itself is locked to the project's
+    folder and its sources, so SQL that reaches the engine without those checks still can't read
+    or write anything else, attach another database, install an extension or undo the lock."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.csv").write_text("s\n42\n")
+    pid = local.create("Locked")["id"]
+    local.add_source(pid, str(data))
+    engine = local.engine(pid)
+    assert engine.execute("SELECT count(*) FROM dbo.orders")["rows"] == [[3]]
+    assert engine.execute(f"SELECT count(*) FROM read_csv('{data / 'Sales' / 'Customer.csv'}')")["rows"] == [[3]]
+    for sql in (f"SELECT * FROM read_csv('{outside / 'secret.csv'}')",
+                f"COPY (SELECT 1 AS a) TO '{outside / 'out.csv'}'",
+                f"ATTACH '{outside / 'other.duckdb'}' AS other",
+                "SELECT * FROM read_parquet('https://example.com/x.parquet')",
+                "INSTALL httpfs",
+                "SET enable_external_access = true",
+                f"SET allowed_directories = ['{outside}']"):
+        with pytest.raises(Exception):
+            engine.execute(sql)
+    assert sorted(p.name for p in outside.iterdir()) == ["secret.csv"]
+    # The project's own folder still works: its tables, and files written inside it.
+    engine.execute("CREATE TABLE kept AS SELECT 1 AS a")
+    engine.execute(f"COPY kept TO '{engine.project.root / 'tmp' / 'kept.csv'}'")
+    # A folder added later is reachable: the connection is opened again with it, keeping tables.
+    engine.execute("CREATE TEMP TABLE scratch AS SELECT 1 AS a")
+    local.add_source(pid, str(outside))
+    assert engine.execute(f"SELECT * FROM read_csv('{outside / 'secret.csv'}')")["rows"] == [[42]]
+    assert engine.execute("SELECT a FROM kept")["rows"] == [[1]]
+    with pytest.raises(Exception):
+        engine.execute("SELECT * FROM scratch")  # temporary tables don't survive the new connection
+    engine.remove_source(str(outside.resolve()))
+    with pytest.raises(Exception):
+        engine.execute(f"SELECT * FROM read_csv('{outside / 'secret.csv'}')")

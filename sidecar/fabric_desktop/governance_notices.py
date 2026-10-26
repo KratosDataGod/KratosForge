@@ -17,7 +17,7 @@ from .redact import secrets
 _UPN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _KIND = {"key_table": "New key table", "source": "New source", "access": "Access to", "shortcut": "New shortcut",
          "workspace": "New workspace", "workspace_access": "Workspace access to", "domain": "New domain",
-         "exception": "Exception to"}
+         "exception": "Exception to", "data": "Data request to"}
 _DECIDED = {"approved": "approved", "declined": "declined"}
 
 
@@ -35,8 +35,18 @@ def _title(req: dict[str, Any]) -> str:
 
 def _product(req: dict[str, Any], products: list[dict[str, Any]]) -> dict[str, Any]:
     """The data product a request is about: access to it, or a shortcut pointing at it."""
-    pid = req.get("target") if req.get("kind") == "access" else (req.get("detail") or {}).get("product_id")
+    d = req.get("detail") or {}
+    named = req.get("kind") == "access" or (req.get("kind") == "data" and d.get("what") == "change")
+    pid = req.get("target") if named else d.get("product_id")
     return next((p for p in products if pid and p.get("id") == pid), {})
+
+
+def _deciders(req: dict[str, Any], product: dict[str, Any]) -> list[str]:
+    """Who decides it besides platform admins: the product's owners, or for a new data product the
+    domain's owners as the request recorded them."""
+    if req.get("kind") == "data" and (req.get("detail") or {}).get("what") == "new":
+        return _upns((req.get("detail") or {}).get("owners"))
+    return _upns(product.get("owner"))
 
 
 def _domain(req: dict[str, Any], product: dict[str, Any]) -> str:
@@ -50,6 +60,8 @@ def _domain(req: dict[str, Any], product: dict[str, Any]) -> str:
         return str(d.get("parent_id") or req.get("target") or "")
     if kind == "exception" and d.get("scope") == "domain":
         return str(d.get("scope_target") or "")
+    if kind == "data":
+        return str(d.get("domain_id") or product.get("domain_id") or "")
     return product.get("domain_id") or ""
 
 
@@ -58,7 +70,7 @@ def request_waiting(req: dict[str, Any], products: list[dict[str, Any]]) -> dict
     product = _product(req, products)
     return {"kind": "request.waiting", "id": req["id"], "title": _title(req), "at": req.get("requested_at") or _now(),
             "domain": _domain(req, product),
-            "to": {"people": _upns(product.get("owner")), "roles": ["platform_admin"]},
+            "to": {"people": _deciders(req, product), "roles": ["platform_admin"]},
             "open": {"view": "platform", "tab": "requests", "target": req["id"]}}
 
 
@@ -74,7 +86,7 @@ def request_closed(req: dict[str, Any], products: list[dict[str, Any]]) -> dict[
                        "to": {"people": asker, "roles": [] if asker else ["requester"]}}
     if status == "withdrawn":
         return base | {"kind": "request.withdrawn", "title": _title(req),
-                       "to": {"people": _upns(product.get("owner")), "roles": ["platform_admin"]}}
+                       "to": {"people": _deciders(req, product), "roles": ["platform_admin"]}}
     return None
 
 

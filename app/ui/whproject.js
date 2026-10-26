@@ -13,7 +13,7 @@ async function whLoadProjects() {
     const r = await rpc("wh_projects_list");
     Object.assign(whProjects, { state: "done", repos: r.repos, projects: r.projects, error: "" });
   } catch (err) {
-    Object.assign(whProjects, { state: "failed", error: String(err).replace(/^Error: /, "") });
+    Object.assign(whProjects, { state: "failed", error: friendlyError(err).text });
   }
 }
 
@@ -69,7 +69,7 @@ function whProject(ref, actions) {
     try {
       files[id] = { state: "done", data: await rpc("wh_project_files", { repo: project.repo, folder: project.folder }) };
     } catch (err) {
-      files[id] = { state: "failed", error: String(err).replace(/^Error: /, "") };
+      files[id] = { state: "failed", error: friendlyError(err).text };
     }
     sqlPage.whRedraw?.();
   }
@@ -202,14 +202,14 @@ async function whProjectImport(ref, project, done) {
   toast(`Scripting ${ref.name} from its catalog...`);
   let objects;
   try { objects = await whScriptWarehouse(ref); } catch (err) {
-    toast(`Could not script ${ref.name}: ${String(err).replace(/^Error: /, "")}`, true);
+    toast(`Could not script ${ref.name}: ${friendlyError(err).text}`, true);
     return;
   }
   const repoPick = project ? null : h("select", { "aria-label": "Repository" }, whProjects.repos.map((r) => h("option", { value: r.repo }, r.label)));
   const target = () => (project ? { repo: project.repo, folder: project.folder } : { repo: repoPick.value, create: ref.name });
   let plan;
   try { plan = await rpc("wh_project_write", { ...target(), objects, dry_run: true }); } catch (err) {
-    toast(`Could not read the project: ${String(err).replace(/^Error: /, "")}`, true);
+    toast(`Could not read the project: ${friendlyError(err).text}`, true);
     return;
   }
   const replace = h("input", { type: "checkbox" });
@@ -248,7 +248,7 @@ async function whProjectImport(ref, project, done) {
     toast(`Imported ${ref.name}: ${c.added} new, ${replace.checked ? c.changed : 0} replaced, ${c.same} the same${c.skipped ? `, ${c.skipped} skipped` : ""}.`);
     if (out.created) sqlPage.whProjectPick[sqlRefKey(ref)] = `${out.repo}|${out.folder}`;
   } catch (err) {
-    toast(`Could not import: ${String(err).replace(/^Error: /, "")}`, true);
+    toast(`Could not import: ${friendlyError(err).text}`, true);
   }
   await done();
 }
@@ -276,7 +276,7 @@ async function whProjectNewObject(ref, project, actions, done) {
       await done();
       const file = sqlPage.whProjectFiles?.[whProjectId(project)]?.data?.files.find((f) => f.path === row.path);
       if (file) actions.open(file, project);
-    } catch (err) { why.textContent = String(err).replace(/^Error: /, ""); create.disabled = false; }
+    } catch (err) { why.textContent = friendlyError(err).text; create.disabled = false; }
   }, "tool primary");
   showDialog("New object", h("div", {},
     h("label", { class: "field" }, "Kind", kind),
@@ -296,7 +296,7 @@ async function whProjectSave(tab) {
     toast(`Saved ${f.path} in ${f.folder}.`);
     return true;
   } catch (err) {
-    toast(`Couldn't save the file: ${String(err).replace(/^Error: /, "")}`, true);
+    toast(`Could not save the file: ${friendlyError(err).text}`, true);
     return false;
   }
 }
@@ -318,7 +318,7 @@ async function whProjectCompare(ref, project) {
     sqlPage.whCompareShown = true;
     renderQuery();
   } catch (err) {
-    toast(`Could not compare: ${String(err).replace(/^Error: /, "")}`, true);
+    toast(`Could not compare: ${friendlyError(err).text}`, true);
   }
 }
 
@@ -370,8 +370,8 @@ function whCompareView(ref, actions) {
   }
 
   async function takeWarehouse(o) {
-    if (o.state === "changed" && !(await confirmDialog("Take the warehouse's version",
-      `Replace ${o.path} with ${whObjLabel(o)} as it is in ${ref.name}? Your version stays in Git history only if it was committed.`, "Replace", { danger: true }))) return;
+    if (o.state === "changed" && !(await confirmDialog(`Replace ${o.path}?`,
+      `It gets ${whObjLabel(o)} as it is in ${ref.name}. Your version stays in Git history only if it was committed.`, "Replace", { danger: true }))) return;
     const out = await attempt(() => rpc("wh_project_write", { repo: c.project.repo, folder: c.project.folder, replace: o.state === "changed",
       objects: [{ kind: o.kind, schema: o.schema, name: o.name, text: o.warehouse_text }] }), "Could not write the file");
     if (!out) return;
@@ -389,9 +389,9 @@ function whCompareView(ref, actions) {
     renderQuery();
   }
 
-  const list = h("div", { class: "wh-cmp-list", role: "listbox", "aria-label": "Objects" },
+  const list = h("div", { class: "wh-cmp-list", role: "group", "aria-label": "Objects" },
     h("div", { class: "wh-cmp-list-head" }, h("span", {}, "Object"), h("span", {}, "State")),
-    shown.length ? shown.map(([o, i]) => h("button", { class: `wh-cmp-item${i === c.picked ? " on" : ""}`, role: "option", "aria-selected": String(i === c.picked),
+    shown.length ? shown.map(([o, i]) => h("button", { class: `wh-cmp-item${i === c.picked ? " on" : ""}`, "aria-pressed": String(i === c.picked),
       onclick: () => { c.picked = i; renderQuery(); } },
     h("span", { class: "label", title: WH_KIND_LABELS[o.kind] }, icon(WH_KIND_ICONS[o.kind] || "document", 14), whObjLabel(o)),
     h("span", { class: `wh-cmp-state ${o.state}` }, o.state === "changed" && o.detail?.length && o.kind === "table" ? "Changed: columns" : WH_STATE_LABEL[o.state])))
@@ -404,7 +404,7 @@ function whCompareView(ref, actions) {
       h("span", { class: "muted-text" }, `${c.project.folder} · read from the warehouse catalog at ${c.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · nothing changes`),
       h("span", { class: "spacer" }),
       btn("Compare again", "sync", () => whProjectCompare(ref, c.project), "tool outline small"),
-      ref.kind === "warehouse" ? btn(`Deploy to ${ref.name}...`, null, () => whProjectDeploy(ref, c.project), "tool primary small",
+      ref.kind === "warehouse" ? btn(`Deploy to ${ref.name}…`, null, () => whProjectDeploy(ref, c.project), "tool primary small",
         { title: "Preview the changes that make the warehouse match the project, then run the ones you pick" }) : null),
     h("div", { class: "wh-cmp-chips", role: "group", "aria-label": "Show" }, WH_STATES.map(([s, label]) =>
       h("button", { class: `wh-cmp-chip ${s}${c.filter === s ? " on" : ""}`, "aria-pressed": String(c.filter === s),
@@ -444,7 +444,7 @@ function whDeployGate(env, plan) {
 }
 
 async function whProjectDeploy(ref, project) {
-  if (!whChangesAllowed()) { toast("Warehouse changes are turned off in Settings › Advanced › SQL queries.", true); return; }
+  if (!whChangesAllowed()) { toast("Warehouse changes are turned off in Settings > Advanced > SQL queries.", true); return; }
   if (!(await warehouseRunOk(ref))) return;
   toast(`Reading ${ref.name}'s catalog to plan the deploy...`);
   let plan;
@@ -458,7 +458,7 @@ async function whProjectDeploy(ref, project) {
       if (dry.refused) Object.assign(c, { offered: false, ticked: false, why: `the engine refuses it: ${dry.refused.reason}` });
     }
   } catch (err) {
-    toast(`Could not plan the deploy: ${String(err).replace(/^Error: /, "")}`, true);
+    toast(`Could not plan the deploy: ${friendlyError(err).text}`, true);
     return;
   }
   if (!plan.changes.length) { toast(`${ref.name} already matches ${project.folder}: nothing to deploy.`); return; }
@@ -481,7 +481,15 @@ async function whProjectDeploy(ref, project) {
         "aria-label": label(c), onchange: () => { c.ticked = box.checked; update(); } });
       boxes.push(box);
       return h("div", { class: `wh-dep-item${i === picked ? " on" : ""}${c.offered ? "" : " off"}` }, box,
-        h("button", { class: "wh-dep-what", onclick: () => { picked = i; drawPreview(); list.querySelectorAll(".wh-dep-item").forEach((el, j) => el.classList.toggle("on", j === i)); } },
+        h("button", { class: "wh-dep-what", "aria-pressed": String(i === picked), title: "Show what runs",
+          onclick: () => {
+            picked = i;
+            drawPreview();
+            list.querySelectorAll(".wh-dep-item").forEach((el, j) => {
+              el.classList.toggle("on", j === i);
+              el.querySelector(".wh-dep-what").setAttribute("aria-pressed", String(j === i));
+            });
+          } },
           h("span", { class: `wh-dep-verb${c.action === "drop" ? " drop" : ""}` }, `${i + 1}. ${label(c)}`),
           h("span", { class: "muted-text" }, c.why), c.git ? h("span", { class: "wh-dep-git" }, "not committed") : null));
     }));
@@ -527,7 +535,7 @@ async function whProjectDeploy(ref, project) {
   for (const c of run) {
     toast(`Deploying ${results.length + 1} of ${run.length}: ${label(c)}...`);
     let status;
-    try { status = await whRunChange(ref, c.sql); } catch (err) { status = { state: "failed", error: String(err).replace(/^Error: /, "") }; }
+    try { status = await whRunChange(ref, c.sql); } catch (err) { status = { state: "failed", error: friendlyError(err).text }; }
     results.push({ c, status });
     if (status.state !== "completed") break;
   }

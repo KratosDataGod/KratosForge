@@ -903,7 +903,7 @@ class PlatformMixin:
         if project is not None:
             summary = read("Incidents", self.incidents_summary) or {"envs": []}  # type: ignore[attr-defined]
             incidents = [i for e in summary["envs"] for i in e["incidents"]]
-            problems += [f"Incidents in {e['env']}: {e['observation'].get('detail') or e['observation'].get('label')}"
+            problems += [f"Incidents in {e['env'].title()}: {e['observation'].get('detail') or e['observation'].get('label')}"
                          for e in summary["envs"] if e["count"] is None and e["observation"].get("state") != "not_set_up"]
         reach = home.incident_reach(products, incidents)
         reviews = (read("Access reviews", lambda: catalog.call("access_reviews"))

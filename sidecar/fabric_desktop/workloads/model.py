@@ -125,6 +125,9 @@ def classify_error(exc: BaseException) -> tuple[str, str]:
         return "signed_out", "Sign in to read this."
     if isinstance(exc, LookupError) and ("assign a workspace" in low or "no metadata project" in low):
         return "not_set_up", str(exc)
+    # Nothing promoted to the environment yet (no LH_Meta in its workspace): a step not taken, not a fault.
+    if isinstance(exc, LookupError) and "doesn't exist in" in low and "promote" in low:
+        return "not_set_up", "Nothing has been promoted to this environment yet."
     if isinstance(exc, (ConnectionError, TimeoutError)) or any(w in low for w in (
             "connectionerror", "timed out", "timeout", "name resolution", "failed to establish", "network")):
         return "offline", "Couldn't reach Fabric. Check the network and try again."

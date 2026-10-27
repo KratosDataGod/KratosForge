@@ -45,7 +45,7 @@ function mhTeam(t) {
       : h("p", { class: "muted-text" }, "Nothing is waiting on you."),
     t.reviews_due ? h("p", {}, `${mhPlural(t.reviews_due, "grant")} to your products ${t.reviews_due === 1 ? "is" : "are"} due an access review. `,
       btn("Review", null, () => openProducts(null, { reviewDue: true }), "tool link small")) : null);
-  const asks = mhCard("Your asks", previewShown() ? btn("Ask for data", null, () => newRequestDialog(null, "data"), "tool outline small") : null,
+  const asks = mhCard("Your asks", null,
     t.asks.length ? h("ul", { class: "mh-list" }, t.asks.map((r) => h("li", {},
       h("span", { class: "grow" }, mhRequestText(r)),
       h("span", { class: `small ${r.status === "approved" ? "" : "muted-text"}` }, `${REQUEST_STATUS[r.status] || r.status} · ${relTime(r.decided_at || r.requested_at)}`))))
@@ -130,6 +130,8 @@ async function mhLoad(view) {
 }
 
 async function renderMeshHomeTab(body, p) {
+  // Ask for data is the page's button on Home and Products, where you look for data.
+  meshChrome({ actions: previewShown() ? btn("Ask for data", null, () => newRequestDialog(null, "data"), "tool primary") : null });
   body.replaceChildren(loading("Reading the platform's catalog..."));
   const here = () => state.view === "metadata" && state.meta.tab === "home" && body.isConnected;
   let view = meshHome.view || meshHomeSaved();
@@ -144,14 +146,13 @@ async function renderMeshHomeTab(body, p) {
   const pick = (v) => { meshHome.view = v; meshHomeSave(v); renderMeshHomeTab(body, p); };
   const seg = h("div", { class: "seg", role: "group", "aria-label": "View" }, MESH_VIEWS.map(([id, label]) =>
     h("button", { class: meshHome.view === id ? "on" : null, "aria-pressed": String(meshHome.view === id), onclick: () => pick(id) }, label)));
-  const who = out.project ? `${out.project.name}${out.project.domain ? ` · domain ${out.project.domain}` : ""}${out.project.team ? ` · ${out.project.team}` : ""}`
+  const who = out.project ? `Project ${out.project.name}${out.project.domain ? ` · domain ${out.project.domain}` : ""}${out.project.team ? ` · ${out.project.team}` : ""}`
     : "No metadata project open on this PC.";
   const main = out.problem ? h("p", { class: "muted-text" }, "The platform's catalog couldn't be read: ", out.problem)
     : { team: () => mhTeam(out.team), oncall: () => mhOncall(out.oncall, out), org: () => mhOrg(out.org) }[out.view]();
-  body.replaceChildren(withHowItWorks(h("div", { class: "mh" },
-    h("div", { class: "row tight" }, h("p", { class: "muted-text grow" }, who), seg),
-    (out.problems || []).length ? h("div", { class: "problems" }, h("b", {}, "Some of this couldn't be read"), gateList(out.problems)) : null,
-    main),
+  meshChrome({ context: who, views: seg,
+    banners: (out.problems || []).length ? h("div", { class: "problems" }, h("b", {}, "Some of this couldn't be read"), gateList(out.problems)) : null });
+  body.replaceChildren(withHowItWorks(h("div", { class: "mh" }, main),
   howItWorks("mesh.home", {
     reads: "Data products, requests, follows, access reviews and domains from the platform's catalog. On call also reads the landing zone, the shortcuts the catalog has seen and owner coverage. Incidents come from the open project's incident lists in each environment.",
     changes: "Nothing. Each card opens the page that acts: Data mesh > Requests to decide, a product to review access, Monitor to work an incident.",

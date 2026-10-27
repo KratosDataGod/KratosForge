@@ -1,6 +1,6 @@
 """Who runs each workload, with what credential, and where data and credentials go (plan items 71,
 78 and 79). Read only, from what the app already holds: your sign-in on this PC, agent status
-records, and the Fabric schedules Monitor > Schedules last read. Nothing here signs in, rotates a
+records, and the Fabric schedules Monitor > Fabric schedules last read. Nothing here signs in, rotates a
 credential or changes access, and it makes no Fabric call.
 
 Rows: ``{"place": {"kind": "pc" | "fabric_jobs" | "agent" | "fabric_schedule", "name"}, "env",

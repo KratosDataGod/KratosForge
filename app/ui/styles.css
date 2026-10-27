@@ -2464,3 +2464,13 @@ html[data-motion-level="0"] .mo-ghost { display: none; }
 .src-tables { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 6px; }
 .src-table-row { display: grid; grid-template-columns: 2fr 2fr 1.4fr 36px; gap: 6px; align-items: center; }
 .copy-job-line { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; padding: 8px 0; border-top: 1px solid var(--border); }
+/* One layout for every Data mesh tab (meta.js meshPage): title, context line and the tab's buttons; tabs;
+   banners; the view row (views left, tools and Refresh right); the working area. */
+.mesh-page .page-head .sub.mesh-context { margin-bottom: 12px; }
+.mesh-view-row { flex-wrap: wrap; gap: 8px 12px; margin: 0 0 14px; }
+.mesh-views:empty, .mesh-tools:empty, .mesh-banners:empty { display: none; }
+.mesh-page .seg.meta-tabs { margin: 0; }
+.mesh-tools .catalog-search { width: 280px; max-width: 100%; }
+.page.monitor > .page-head .sub { margin-bottom: 0; }
+.page.monitor .mesh-view-row { margin: 0; }
+.monitor-note:empty { display: none; }

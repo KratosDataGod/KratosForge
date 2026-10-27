@@ -1208,3 +1208,46 @@ def test_project_toml_keeps_the_catalogs_domain_while_a_join_waits(svc):
     catalog.call("decide_request", id=listed["domain_request"]["id"], approve=True)
     assert svc.mesh_members()["domain_request"] is None
     assert [p["domain_id"] for p in svc.mesh_overview()["projects"]] == ["finance"]
+
+
+def _forget_members(platform):
+    with platform._db() as db:
+        db.run(f"DELETE FROM {db.t('catalog', 'project_member')}")
+        db.commit()
+
+
+def test_a_project_the_catalog_names_nobody_for_waits_for_an_admin_to_name_its_owner(platform):
+    # Recorded signed out on this PC, so the catalog names nobody; then members came.
+    _as(platform, "").call("register_project", project={"name": "crm"})
+    _forget_members(platform)
+    ana = _as(platform, "ana@example.com")
+    assert not ana.call("list_project_members", project="crm")["can_change"]
+    with pytest.raises(core.PlatformError, match="crm has no owner yet, so only a platform admin"):
+        ana.call("register_project", project={"name": "crm", "team": "Mine now"})
+    with pytest.raises(core.PlatformError, match="no owner yet"):
+        ana.call("set_project_member", project="crm", user="ana@example.com", role="owner")
+    assert ana.call("list_project_members", project="crm")["members"] == []
+    platform.call("set_project_member", project="crm", user="bo@example.com", role="owner")
+    _as(platform, "bo@example.com").call("register_project", project={"name": "crm", "team": "Customers"})
+
+
+def test_a_name_known_only_from_its_links_isnt_claimed_by_the_first_caller(platform):
+    platform.call("register_project", project={"name": "sales"})
+    platform.call("register_product", product={"project": "sales", "name": "orders", "access": "public",
+                                               "status": "published"}, ports=[], env="prod")
+    # A link records no project row: "finance" is in the catalog only as the link's consumer.
+    with platform._db() as db:
+        db.run(f"INSERT INTO {db.t('catalog', 'link')} (id, consumer_project, alias, product_id, port, reads, updated_at, "
+               "updated_by) VALUES ('finance:orders', 'finance', 'orders', 'sales/orders', 'orders', '{}', '', '')")
+        db.commit()
+    with pytest.raises(core.PlatformError, match="finance has no owner yet"):
+        _as(platform, "eve@example.com").call("register_project", project={"name": "finance"})
+    with pytest.raises(core.PlatformError, match="finance has no owner yet"):
+        _as(platform, "eve@example.com").call("register_link", consumer="finance", alias="orders2",
+                                             product_id="sales/orders", port="orders", reads={})
+    # A name the catalog has never seen is the caller's, as their sign-in (an email, never an object id).
+    _as(platform, "eve@example.com").call("register_project", project={"name": "payroll"})
+    assert _as(platform, "eve@example.com").call("list_project_members", project="payroll")["members"] == [
+        {"user": "eve@example.com", "role": "owner"}]
+    with pytest.raises(core.PlatformError, match="no owner yet"):
+        _as(platform, "0b9c6f1e-0000-4000-8000-000000000000").call("register_project", project={"name": "hr"})

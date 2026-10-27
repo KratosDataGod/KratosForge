@@ -1743,19 +1743,37 @@ def _put_member(db: Db, project: str, user: str, role: str, by: str) -> None:
 
 def require_member(db: Db, project: str, by: str, action: str) -> None:
     """Refuse unless the caller is one of the project's members or a platform admin. A project with no
-    members yet gets the people who already worked on it as owners, or, when it's new, the caller."""
+    members yet gets the people who already worked on it as owners. Only a name the catalog has never
+    seen (no project, products or links) makes the caller its first owner; any other waits for an admin."""
     who = _who(by)
     ensure_project_members(db)
     members = _stored_members(db, project)
     if not members:
-        for person in _earlier_people(db, project) or ([who] if who else []):
+        first = _earlier_people(db, project)
+        if not first and not _in_catalog(db, project) and _EMAIL.match(who):
+            first = [who]
+        for person in first:
             _put_member(db, project, person, "owner", by or person)
         members = _stored_members(db, project)
     if is_admin(db, by) or (who and who in members):
         return
     owners = sorted(u for u, r in members.items() if r == "owner")
+    if not owners:
+        raise PlatformError(f"{project} has no owner yet, so only a platform admin can {action}. A platform admin "
+                            "names its first owner on Data mesh > Domains > This project.")
     raise PlatformError(f"Only {project}'s members or a platform admin can {action}. Ask one of its owners "
-                        f"({', '.join(owners) or 'none yet'}) to add you on Data mesh > Domains > This project.")
+                        f"({', '.join(owners)}) to add you on Data mesh > Domains > This project.")
+
+
+def _in_catalog(db: Db, project: str) -> bool:
+    """Whether the catalog already knows a project by this name: its row, a product of it, or a link it made
+    (a link records no project row, so a name can be only there)."""
+    if _row(db, "project", "name", project) is not None:
+        return True
+    if db.rows(f"SELECT id FROM {db.t('catalog', 'product')} WHERE project = ?", (project,)):
+        return True
+    return db.exists("catalog", "link") and bool(
+        db.rows(f"SELECT id FROM {db.t('catalog', 'link')} WHERE consumer_project = ?", (project,)))
 
 
 def list_project_members(db: Db, project: str, by: str = "") -> dict[str, Any]:
@@ -1768,7 +1786,8 @@ def list_project_members(db: Db, project: str, by: str = "") -> dict[str, Any]:
     who = _who(by)
     rows = sorted(({"user": u, "role": r} for u, r in members.items()), key=lambda m: (m["role"] != "owner", m["user"]))
     return {"project": project, "members": rows, "earlier": earlier,
-            "can_change": is_admin(db, by) or members.get(who) == "owner" or (not members and bool(who)),
+            "can_change": is_admin(db, by) or members.get(who) == "owner"
+            or (not members and not _in_catalog(db, project) and bool(_EMAIL.match(who))),
             "domain_request": _waiting_join(db, project, who)}
 
 

@@ -4,8 +4,18 @@ KratosForge checks a notebook's code against best-practice rules on this PC. It 
 text and, for Python cells, with Python's own parser. **Nothing runs**, nothing is read from Fabric,
 and it uses no capacity.
 
-The engine is in place. The screen (a Best practices panel in the notebook editor) comes next, once
-the mockup is approved.
+## In the notebook editor
+
+**Best practices** on the View tab opens a panel beside the cells. It checks the code cells as you
+type (when the code changes, every second or so) and lists each finding with its severity, what to
+do, and **Go to cell n, line m**, which selects the cell and puts the cursor on that line. The button
+shows how many findings there are while the panel is open.
+
+The panel reads the governance policies in force for the open project (`governance_practice_settings`).
+A rule a policy turns off (`enabled = false`) isn't shown, and a policy's severity, or its `severity`
+parameter, changes a rule's severity. When two policies name one rule, it's on if either turns it on,
+at the worse severity. With no project open, or when the policies can't be read, every rule is on as
+built, and the panel says so. The panel doesn't check NB004 and NB008, which are for scheduled runs.
 
 ## Rules
 
@@ -40,6 +50,7 @@ A governance policy can name these rules in **Checked by**, like `NB003, NB006` 
 | --- | --- | --- |
 | `notebook_practices(sources, scheduled?, settings?)` | Findings for the code cells' sources, worst first, with each finding's cell and line | Nothing |
 | `notebook_practice_rules()` | The rules above, for a template to list | Nothing |
+| `governance_practice_settings(kind)` | How the open project's policies set the `notebook` or `sql` rules: `{settings, policies, note}` | Nothing |
 
 Findings have the same shape as the semantic model best practices check:
 severity, rule, category, object, description and URL, plus `rule_id`, `cell` and `line`.

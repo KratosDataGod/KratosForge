@@ -99,6 +99,8 @@ w.mode("overwrite").option("replaceWhere", "date = '2026-10-01'").saveAsTable("s
 
 **Fix.** PR-QA-03: only "no metadata project" (a specific exception) means nothing more to keep; any other failure stops the vacuum with the reason. **Verify:** tests with a broken project file and a failing table read: the vacuum is refused.
 
+**Status.** Fixed on `main` (#180). Only `NoMetadataProject` means nothing more to keep; any other failure to read the project or the table's setting stops the vacuum and says why, instead of falling back to 7 days (`xray_service.py`, `_xray_keep_days`).
+
 ### QA-004 Create model can overwrite an existing model (High)
 
 **Evidence: Code.** The plan (`sidecar/fabric_desktop/cloud_service.py:469-474`) sets `existing = None` when `list_semantic_models` fails, so the UI (`app/ui/meta.js:1121-1122`) offers **Create model**. `save_semantic_model` (`fabric_api.py:254-263`) then looks the name up again and, if it exists, calls `updateDefinition`, replacing the definition. A failed `table_schema` read (`cloud_service.py:500-508`) becomes `fields = None`, and the UI reports that table as "Not written yet, so left out" (`meta.js:1114`) inside a passing check. No confirmation precedes the overwrite.
@@ -106,6 +108,8 @@ w.mode("overwrite").option("replaceWhere", "date = '2026-10-01'").saveAsTable("s
 **Impact.** Measures, relationships and tables added in Fabric are replaced, and tables whose schema read failed disappear from the model, all after a screen that said "create".
 
 **Fix.** PR-QA-03: a failed lookup fails the plan; "not found" and "read failed" are different outcomes; an existing model gets a confirmation that names it. **Verify:** tests for each failure with a fake client.
+
+**Status.** Fixed on `main` (#180). A failed model lookup fails the plan ("whether SM_<layer> exists isn't known") instead of offering Create, a table whose schema can't be read stops the write and names it, and an existing model asks to confirm before it is replaced (`cloud_service.py`).
 
 ### QA-005 Governance checks fail open on errors (High)
 
@@ -165,6 +169,8 @@ The agent's requeue (`agent.py:212-215`) and the metadata engine (`meta/engine.p
 **Evidence: Code.** `xray_service.py:217` and `:247` call `_xray_mark_fixed` right after submitting the Fabric job. The id (`:319-320`) carries no time or version, so every later scan filters the finding out (`:175`, `app/ui/xray.js:94`), even if the job failed on a paused capacity or the problem came back.
 
 **Fix.** PR-QA-03: record "submitted" with the job id; mark fixed when the job completes; let a later scan show it again. **Verify:** a test where the job fails and the next scan still shows the finding.
+
+**Status.** Fixed on `main` (#180). A fix's Fabric job is recorded as submitted with its job id (`_xray_mark_submitted`), the finding shows "submitted" while it runs, "fixed" only when the Fabric runs log says the job completed, and "failed" with Fabric's reason otherwise; a scan after the job finished shows the finding again if the problem is still there (`_xray_fixes`).
 
 ### QA-011 Shared JSON files are rewritten non-atomically (Medium)
 

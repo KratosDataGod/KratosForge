@@ -572,7 +572,9 @@
       },
       "prs": [
         410,
-        692
+        692,
+        762,
+        771
       ]
     },
     {
@@ -1532,7 +1534,8 @@
         563,
         568,
         578,
-        579
+        579,
+        791
       ],
       "features": [
         "FEAT-ORC-08"
@@ -4088,7 +4091,10 @@
         708,
         715,
         717,
-        721
+        721,
+        757,
+        768,
+        786
       ]
     },
     {
@@ -4145,7 +4151,9 @@
         703,
         704,
         705,
-        719
+        719,
+        747,
+        769
       ]
     },
     {
@@ -4202,7 +4210,12 @@
         680,
         711,
         733,
-        738
+        738,
+        766,
+        775,
+        778,
+        781,
+        784
       ]
     },
     {
@@ -4355,7 +4368,13 @@
         728,
         729,
         730,
-        731
+        731,
+        743,
+        745,
+        747,
+        774,
+        783,
+        787
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -4429,7 +4448,8 @@
         737,
         739,
         740,
-        741
+        741,
+        746
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -4546,7 +4566,7 @@
       "category": "Data Governance and Quality",
       "mandatory": "none",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In review",
       "depends_on": [
         "PB-108"
       ],
@@ -4556,7 +4576,8 @@
       "capability": "The BPA engine (#560) registers through governance_checks.register with runs_in=\"fabric\"; Check now says those checks run in Fabric and use capacity, and stores their findings with store_fabric_findings.",
       "evidence": [
         "PB-108 implementation review, finding 1 (docs/product/reviews/PB-108-643.md)",
-        "#560 is an open draft"
+        "#560 is an open draft",
+        "PR #753 registers SM001-SM007 so a policy can name them; they read the model on this PC, so no capacity is used, unlike the criterion's Fabric run (BPA #560 is still a draft)"
       ],
       "features": [
         "FEAT-GOV-09",
@@ -4583,7 +4604,8 @@
       ],
       "effort": "M",
       "prs": [
-        560
+        560,
+        753
       ],
       "computed": {
         "benefit": 3.0,
@@ -4638,7 +4660,9 @@
         670,
         695,
         710,
-        712
+        712,
+        742,
+        754
       ],
       "mandatory": "none",
       "computed": {
@@ -4687,7 +4711,9 @@
       "prs": [
         599,
         681,
-        716
+        716,
+        758,
+        777
       ],
       "mandatory": "none",
       "computed": {
@@ -4731,7 +4757,9 @@
       "effort": "L",
       "confidence": "Medium",
       "prs": [
-        722
+        722,
+        760,
+        776
       ],
       "mandatory": "none",
       "state": "In progress",

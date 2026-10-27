@@ -70,7 +70,7 @@ body.replaceChildren(withHowItWorks(content, howItWorks("platform.overview", {
 - Three short answers in plain words, then the guide link. Add more parts with `more: [["Undo", "..."]]` when a page needs them.
 - "What it changes" names anything that writes to Fabric or OneLake and says that it asks first.
 - The panel folds to its title and remembers that on the PC, so people who know the page can put it away.
-- It sits on the right, and moves under the content in a narrow window.
+- With **Beside the page**, it sits on the right, and moves under the content in a narrow window.
 - **On request** is the default for **Settings > Appearance > Layout > Explanations**: the panel leaves the page and opens as a drawer from the title bar's info button. That works for any panel made with `howItWorks`, so don't build a page's own toggle for it. A panel inside a Home card, a notebook side pane or query results starts folded to its title where it is, and a dialog's panel opens unfolded every time (showDialog), because it says what the dialog's button changes.
 - Write a page's one-line explanation of what it is for with `pageIntro(...)`, not a plain `p.sub`. On request it folds into the same drawer above the panel; a page with no panel gets an "About this page" drawer, and its Learn more link moves there. Keep facts and warnings (counts, a missing setup step) as plain `.sub` so they stay on the page.
 - Mark Preview features with `previewTag()` (or `preview`/`previewMarked`), never a tag of your own, so **Preview marks: Quiet dots** turns them into dots. A tag that's a direct child of an `h1` stays a full tag.

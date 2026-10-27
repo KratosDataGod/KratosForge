@@ -2464,3 +2464,15 @@ html[data-motion-level="0"] .mo-ghost { display: none; }
 .src-tables { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 6px; }
 .src-table-row { display: grid; grid-template-columns: 2fr 2fr 1.4fr 36px; gap: 6px; align-items: center; }
 .copy-job-line { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; padding: 8px 0; border-top: 1px solid var(--border); }
+
+/* The Fabric portal tab in full screen (app.js renderFabric): the embedded Fabric view fills the window
+   under a slim band, which keeps the way out since keys pressed inside Fabric never reach the app. */
+body.fabric-full .topbar, body.fabric-full .rail, body.fabric-full #update-root,
+body.fabric-full .fabric-page .subtabs, body.fabric-full .fabric-page .how-it-works { display: none; }
+body.fabric-full .fabric-page { padding: 0; }
+body.fabric-full .fabric-page .with-how { display: flex; gap: 0; }
+body.fabric-full .fabric-page .with-how-main { flex: 1; display: flex; }
+body.fabric-full .fabric-page .monitor-fabric { border: 0; border-radius: 0; margin: 0; }
+body.fabric-full .fabric-page .monitor-band { padding: 4px 10px; }
+body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
+.choices { display: flex; flex-direction: column; gap: 8px; max-width: 560px; }

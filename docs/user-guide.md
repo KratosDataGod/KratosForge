@@ -428,7 +428,10 @@ Whoever creates the platform in Fabric becomes its first admin. Admins add other
 
 ## Fabric
 
-**Workspaces > Fabric portal** is Fabric's own portal, `app.fabric.microsoft.com`, inside the app. Links across the app (**Open in Fabric**, **Show in Fabric**) open their item here. Buttons along the top: **Back**, **Home**, **OneLake catalog**, **Monitoring hub**, **Reload**, and **Open in browser**.
+**Workspaces > Fabric portal** is Fabric's own portal, `app.fabric.microsoft.com`, inside the app. Links across the app (**Open in Fabric**, **Show in Fabric**) open their item here. Buttons along the top: **Open in KratosForge**, **Full screen**, **Back**, **Home**, **OneLake catalog**, **Monitoring hub**, **Reload**, and **Open in browser**.
+
+- **Full screen** hides the app's top bar, left rail and tabs, so Fabric fills the window under a slim row of these buttons. **Exit full screen**, or Esc when the app (not Fabric) has the keys, brings them back. The app remembers it: the tab opens in full screen until you leave it. Keys you press inside Fabric go to Fabric, so the button is the sure way out.
+- **Open in KratosForge** opens the warehouse or SQL analytics endpoint Fabric is showing on the app's own [Warehouse page](warehouse.md). On any other Fabric page it says to open one first. It reads only the address of the page Fabric shows.
 
 It signs in with your Windows account when that is the same work account you use in the app, so there's usually no password prompt. Otherwise sign in once; the app keeps that sign-in between launches, encrypted for your Windows account in `%LOCALAPPDATA%\FabricDesktop\fabric-view-signin.bin`. Delete that file to make it forget. Links that leave Fabric open in your default browser.
 

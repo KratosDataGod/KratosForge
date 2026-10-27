@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import os
 import threading
 import time
 import uuid
@@ -147,6 +148,33 @@ class SideBySideMixin:
         ``unknown`` is True when a cell does something reading can't follow (exec, %run, import *)."""
         return _writes(cells)
 
+    def _sbs_cores_choice(self, name: str) -> Any:
+        try:
+            choice = self.notebooks.extra(name, "sbs_cores")  # type: ignore[attr-defined]
+        except (OSError, ValueError):  # not saved yet
+            choice = None
+        if choice in sbs.CORE_CHOICES or (isinstance(choice, int) and not isinstance(choice, bool) and choice >= 1):
+            return choice
+        return sbs.DEFAULT_CORES
+
+    def side_by_side_cores(self, name: str, cells: list[dict[str, Any]]) -> dict[str, Any]:
+        """The notebook's "Cores on this PC" choice for side by side runs: "all", "match" (the
+        vCores of its Fabric session) or a number, with what each comes to on this PC."""
+        engine = _engine(cells)
+        vcores = sbs.fabric_vcores(cells, engine)
+        choice = self._sbs_cores_choice(name)
+        pc = os.cpu_count()
+        return {"choice": choice, "pc_cores": pc, "engine": engine, "fabric_vcores": vcores,
+                "cores": sbs.cores_for(choice, vcores, pc) or pc}
+
+    def side_by_side_cores_set(self, name: str, cells: list[dict[str, Any]], choice: Any) -> dict[str, Any]:
+        """Keep the notebook's choice: "all", "match", or a number of cores from 1 to this PC's."""
+        pc = os.cpu_count() or 1
+        if isinstance(choice, bool) or not (choice in sbs.CORE_CHOICES or (isinstance(choice, int) and 1 <= choice <= pc)):
+            raise ValueError(f"Cores must be all, match, or a number from 1 to {pc}")
+        self.notebooks.set_extra(name, "sbs_cores", choice)  # type: ignore[attr-defined]
+        return self.side_by_side_cores(name, cells)
+
     def side_by_side_start(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
                            compute: str | None = None, workspace: dict[str, str] | None = None,
                            confirm_writes: list[str] | None = None, confirm_unknown: bool = False,
@@ -192,6 +220,9 @@ class SideBySideMixin:
         self.auth.storage_token()  # type: ignore[attr-defined]
         self.auth.fabric_token()  # type: ignore[attr-defined]
         code = [i for i, c in enumerate(cells) if notebook_cells.runs(c)]
+        engine = _engine(cells)
+        vcores = sbs.fabric_vcores(cells, engine)
+        cores = sbs.cores_for(self._sbs_cores_choice(name), vcores, os.cpu_count())
         record: dict[str, Any] = {
             "id": time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6], "name": name, "state": "local",
             "started_at": _now(), "finished_at": None, "message": "",
@@ -199,12 +230,12 @@ class SideBySideMixin:
             "lakehouse": {"name": lakehouse_ref.get("name", ""), "workspace_name": lakehouse_ref.get("workspace_name", ""),
                           "workspace_id": lakehouse_ref.get("workspace_id", ""),
                           "lakehouse_id": lakehouse_ref.get("lakehouse_id", "")},
-            "workspace_id": ws["workspace_id"], "workspace_name": ws["workspace_name"], "machine": sbs.machine(),
+            "workspace_id": ws["workspace_id"], "workspace_name": ws["workspace_name"], "machine": sbs.machine(cores),
             "code_revision": revision["revision"],
             "local": {"status": "pending", "seconds": None, "cell": None, "cells_total": len(code), "cells": {}},
-            "fabric": {"status": "pending", "engine": "python" if uses_local_module(cells) and not uses_spark(cells) else "spark"},
+            "fabric": {"status": "pending", "engine": engine, "vcores": vcores},
             "tables": [], "verdict": None, "speed": {}, "_cancel": False,
-            "_parameters": parameters, "_saved_ref": saved_ref, "_suffixes": self._bar_suffixes(name, cells)}  # type: ignore[attr-defined]
+            "_cores": cores, "_parameters": parameters, "_saved_ref": saved_ref, "_suffixes": self._bar_suffixes(name, cells)}  # type: ignore[attr-defined]
         runs[record["id"]] = record
         threading.Thread(target=self._sbs_run, args=(record, cells, code, lakehouse_ref, compute, ws), daemon=True,
                          name=f"side-by-side-{record['id']}").start()
@@ -232,7 +263,7 @@ class SideBySideMixin:
             return {"cancelled": False}
         record["_cancel"] = True
         if record["state"] == "local":
-            self.sessions.kernel(record["name"]).interrupt()  # type: ignore[attr-defined]
+            (record.get("_kernel") or self.sessions.kernel(record["name"])).interrupt()  # type: ignore[attr-defined]
         elif record["fabric"].get("job_id"):
             f = record["fabric"]
             try:
@@ -281,6 +312,7 @@ class SideBySideMixin:
                 # A run that stopped early isn't faster, it's shorter.
                 record["speed"] = sbs.speed(record["local"]["seconds"], f.get("total_seconds"), f.get("run_seconds"),
                                             record["local"].get("processing_seconds"))
+                record["speed"]["cores"] = sbs.cores_line(record["machine"], f.get("vcores"))
             record["state"] = "done"
         except _Cancelled:
             record["state"], record["message"] = "cancelled", "Cancelled."
@@ -295,8 +327,24 @@ class SideBySideMixin:
         local = record["local"]
         local["status"] = "running"
         self._attach(lakehouse_ref)  # type: ignore[attr-defined]
+        if record.get("_cores"):
+            # Held to fewer cores: a process of its own, so the cap (cpu_cap.py) binds the run and
+            # nothing else, and the notebook's own session keeps its variables.
+            kernel = self._new_kernel(process=True)  # type: ignore[attr-defined]
+            self._prepare_kernel(record["name"], kernel)  # type: ignore[attr-defined]
+            kernel.cores = record["_cores"]
+            record["_kernel"] = kernel
+            try:
+                self._sbs_cells(record, kernel, cells, code)
+            finally:
+                kernel.close()  # its process, and the output it spilled
+            return
         kernel = self.sessions.kernel(record["name"])  # type: ignore[attr-defined]
         kernel.restart()  # a clean start, as Fabric has
+        self._sbs_cells(record, kernel, cells, code)
+
+    def _sbs_cells(self, record: dict[str, Any], kernel: Any, cells: list[dict[str, Any]], code: list[int]) -> None:
+        local = record["local"]
         kernel.notebook_name = record["name"]
         kernel.resources_dir = self._resources_dir(record["name"])  # type: ignore[attr-defined]
         kernel.onelake_writes = self._onelake_writes(record["name"])  # type: ignore[attr-defined]
@@ -413,6 +461,11 @@ def _writes(cells: list[dict[str, Any]]) -> dict[str, Any]:
 
 class _Cancelled(Exception):
     pass
+
+
+def _engine(cells: list[dict[str, Any]]) -> str:
+    """The kind of Fabric notebook a side by side run publishes."""
+    return "python" if uses_local_module(cells) and not uses_spark(cells) else "spark"
 
 
 def _copy(record: dict[str, Any]) -> dict[str, Any]:

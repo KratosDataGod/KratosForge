@@ -243,7 +243,7 @@ description = "Primary email address"
 classification = "confidential"
 ```
 
-**Glossary** (**Platform > Glossary**) holds shared terms like *Active customer*. Platform admins keep shared terms and a domain's owners keep their domain's. Tag a table or column with terms on the entity's About tab. Recent changes in the catalog, and who made them, are on **Platform > Audit**.
+**Glossary** (**Platform > Set up > Glossary**) holds shared terms like *Active customer*. Platform admins keep shared terms and a domain's owners keep their domain's. Tag a table or column with terms on the entity's About tab. Recent changes in the catalog, and who made them, are on **Platform > Govern > Audit**.
 
 ## At scale
 

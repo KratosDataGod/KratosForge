@@ -90,6 +90,14 @@ const META_TAB_GROUPS = [
 // The tabs that show the whole mesh rather than the open project, so they show without one.
 const META_NO_PROJECT = ["home", "catalog", "requests", "domains", "overview"];
 
+// The Preview feature every tab in a group shares, so the group's tab carries the one tag; null when
+// any tab in it isn't in preview or they differ.
+function metaGroupPreview(tabs) {
+  const ids = new Set(tabs.map(([, , previewId]) => previewId || null));
+  const [id] = ids;
+  return ids.size === 1 && id && PREVIEW_FEATURES[id] ? id : null;
+}
+
 function metaGroupOf(tab) {
   return META_TAB_GROUPS.find(([, , tabs]) => tabs.some(([id]) => id === tab)) || META_TAB_GROUPS[0];
 }
@@ -117,10 +125,11 @@ async function renderMetadata() {
   const inProject = group[3] === "project";
   if (inProject) m.projectTab = m.tab;  // Project opens where you left it
   const shownGroups = (section) => META_TAB_GROUPS.filter(([, , tabs, sec]) => sec === section && visible(tabs).length);
-  const groupTab = ([id, label, tabs]) => h("button", { class: `tab${group[0] === id ? " active" : ""}`, onclick: () => goMeta(visible(tabs)[0][0]) }, label);
+  const groupTab = ([id, label, tabs]) => h("button", { class: `tab${group[0] === id ? " active" : ""}`, onclick: () => goMeta(visible(tabs)[0][0]) },
+    label, metaGroupPreview(tabs) ? previewTag() : null);
   const tabLabel = (label, previewId) => {
     const node = h("span", {}, label);
-    return previewId ? preview(previewId, node) : node;
+    return previewId && !metaGroupPreview(group[2]) ? preview(previewId, node) : node;
   };
   const body = h("div", { class: "meta-body" });
   setView(h("div", { class: "page" },
@@ -129,7 +138,7 @@ async function renderMetadata() {
         h("h1", {}, "Data mesh"),
         inProject ? h("p", { class: "sub" }, "Every table is a file in ", h("span", { class: "mono" }, p.path),
           ". Metadata version ", h("span", { class: "mono" }, p.version), ". ", learnMore("data-mesh"))
-          : h("p", { class: "sub" }, "Your organization's data products, the requests on them and who owns what. ", learnMore("data-mesh"))),
+          : pageIntro("Your organization's data products, the requests on them and who owns what. ", learnMore("data-mesh"))),
       inProject ? h("div", { class: "head-actions" },
         btn("New entity", "add", newEntityDialog, "tool outline"),
         preview("schedules", btn("Schedule", "history", () => scheduleMetaRuns(m.env), "tool outline",
@@ -163,10 +172,11 @@ function renderMetaNoProject(p) {
   const group = metaGroupOf(tab);
   setView(h("div", { class: "page" },
     h("div", { class: "page-head" },
-      h("div", {}, h("h1", {}, "Data mesh"), h("p", { class: "sub" }, "Your organization's data products, the requests on them and who owns what. ", learnMore("data-mesh"))),
+      h("div", {}, h("h1", {}, "Data mesh"), pageIntro("Your organization's data products, the requests on them and who owns what. ", learnMore("data-mesh"))),
       p.presets ? h("div", { class: "head-actions" }, btn("Set up a project", "add", () => renderMetaSetup(p), "tool outline")) : null),
     h("div", { class: "subtabs meta-groups" }, groups.map(([id, label, tabs]) =>
-      h("button", { class: `tab${group[0] === id ? " active" : ""}`, onclick: () => goMeta(shown(tabs)[0][0]) }, label))),
+      h("button", { class: `tab${group[0] === id ? " active" : ""}`, onclick: () => goMeta(shown(tabs)[0][0]) },
+        label, metaGroupPreview(tabs) ? previewTag() : null))),
     shown(group[2]).length > 1 ? h("div", { class: "seg meta-tabs", role: "group", "aria-label": group[1] }, shown(group[2]).map(([id, label]) =>
       h("button", { class: tab === id ? "on" : null, onclick: () => goMeta(id) }, label))) : null,
     body));

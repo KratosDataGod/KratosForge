@@ -48,7 +48,7 @@ function mfLineage(entities, ports, readers, name, dir = "both") {
 
 
 async function renderMeshOverviewTab(body, p) {
-  body.replaceChildren(h("p", { class: "muted-text" }, "Reading the platform's catalog..."));
+  body.replaceChildren(loading("Reading the platform's catalog..."));
   let m;
   try { m = await rpc("mesh_map", {}); } catch (e) { m = { problem: String(e?.message || e), domains: [], projects: [], products: [], links: [], me: "" }; }
   if (state.view !== "metadata" || state.meta.tab !== "overview" || !body.isConnected) return;
@@ -76,7 +76,7 @@ function mfCrumbs(m, draw) {
   const parts = [step("Domains", meshFlow.domain !== null ? () => { Object.assign(meshFlow, { domain: null, sub: null, layer: null, table: null }); draw(); } : null)];
   if (meshFlow.domain !== null) parts.push(step(mfDomainName(m, meshFlow.domain), meshFlow.layer ? () => { Object.assign(meshFlow, { layer: null, table: null }); draw(); } : null));
   if (meshFlow.layer) parts.push(step(`${m.me} / ${meshFlow.layer}`, null));
-  return previewMarked("mesh", h("nav", { class: "row tight mf-crumbs", "aria-label": "Where you are" }, parts.flatMap((x, i) => (i ? [h("span", { class: "muted-text", "aria-hidden": "true" }, "/"), x] : [x]))));
+  return h("nav", { class: "row tight mf-crumbs", "aria-label": "Where you are" }, parts.flatMap((x, i) => (i ? [h("span", { class: "muted-text", "aria-hidden": "true" }, "/"), x] : [x])));
 }
 
 function mfDomains(m, draw) {

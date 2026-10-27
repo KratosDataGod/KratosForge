@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-10-26",
+  "updated": "2026-10-27",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -3199,7 +3199,8 @@
       "problem": "Breaking changes are blocked, but consumers can't declare what they read or see deprecations.",
       "capability": "Consumer declarations and deprecation windows on product ports.",
       "evidence": [
-        "meta/mesh.py breaking-change check"
+        "meta/mesh.py breaking-change check",
+        "PR #701 (FD-127 8.2): port version history, accepted versions on links, deprecation dates with Teams notices, in the engine"
       ],
       "features": [
         "FEAT-MESH-05"
@@ -3223,13 +3224,16 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In review",
       "computed": {
         "benefit": 3.4,
         "cost": 2.5,
         "score": 2.38,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        701
+      ]
     },
     {
       "id": "PB-083",
@@ -4153,7 +4157,13 @@
         705,
         719,
         747,
-        769
+        769,
+        801,
+        802,
+        803,
+        804,
+        805,
+        806
       ]
     },
     {
@@ -4374,7 +4384,9 @@
         747,
         774,
         783,
-        787
+        787,
+        808,
+        809
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -4522,7 +4534,7 @@
       "category": "Data Governance and Quality",
       "mandatory": "none",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In review",
       "depends_on": [
         "PB-108"
       ],
@@ -4532,7 +4544,8 @@
       "capability": "Check now collects this PC's SQL scripts (project .sql files and saved queries) for the SQL rules, and marks notebooks that have a schedule so the scheduled-only rules NB004 and NB008 run on them.",
       "evidence": [
         "PB-108 implementation review, findings 2 and 5 (docs/product/reviews/PB-108-643.md)",
-        "docs/governance.md: Check now has no SQL scripts yet; NB004 and NB008 are for scheduled runs"
+        "docs/governance.md: Check now has no SQL scripts yet; NB004 and NB008 are for scheduled runs",
+        "PR #798: Check now gives the SQL rules this PC's SQL scripts and runs NB004 and NB008 on notebooks with a PC schedule; a Fabric-only schedule isn't read yet"
       ],
       "features": [
         "FEAT-GOV-09"
@@ -4560,7 +4573,10 @@
         "cost": 1.5,
         "score": 2.43,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        798
+      ]
     },
     {
       "category": "Data Governance and Quality",
@@ -4577,7 +4593,8 @@
       "evidence": [
         "PB-108 implementation review, finding 1 (docs/product/reviews/PB-108-643.md)",
         "#560 is an open draft",
-        "PR #753 registers SM001-SM007 so a policy can name them; they read the model on this PC, so no capacity is used, unlike the criterion's Fabric run (BPA #560 is still a draft)"
+        "PR #753 registers SM001-SM007 so a policy can name them; they read the model on this PC, so no capacity is used, unlike the criterion's Fabric run (BPA #560 is still a draft)",
+        "PR #560 merged: the Fabric BPA run with semantic-link-labs (engine); not yet run live"
       ],
       "features": [
         "FEAT-GOV-09",
@@ -4662,7 +4679,8 @@
         710,
         712,
         742,
-        754
+        754,
+        795
       ],
       "mandatory": "none",
       "computed": {

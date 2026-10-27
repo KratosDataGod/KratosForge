@@ -990,8 +990,8 @@ function requestTable(rows, rerender, compact = false) {
 const REQUESTS_HOW = {
   reads: "The requests in the platform's catalog (SQL_Platform in Fabric, or a file on this PC), when the tab opens. New request also lists the domains, capacities, workspaces and policies you can see, to pick from, and Request a source lists the Fabric connections you can use (never their credentials).",
   changes: "Sending adds a request to the catalog. Approving makes what was asked for first, as you: a key table or source in the platform (for a source asking for a Copy job, first the Copy job CJ_Landing_<source> in the landing workspace, writing to LH_Landing/Files/<source>/<table>/, and its daily schedule, Preview); a shortcut in OneLake; a workspace in Fabric on its capacity, with its admins added; a role in a workspace; a domain created in Fabric and kept in the platform (in the platform only when its parent isn't in Fabric; creating it in Fabric needs a Fabric administrator); an exception recorded in the platform for its policy; access to a data product given in the catalog. Then the request is marked approved. Accepting a data request records your reply and builds nothing. Declining records your note; Withdraw marks your own request withdrawn. If a step fails, the request stays waiting and the error names the step.",
-  results: "Everyone sees requests here and in the bell, and the platform's Teams routes get a notice (no email yet). A workspace's domain in Fabric is set by a Fabric administrator in Fabric's admin portal. Every change is on the Audit tab.",
-  anchor: "platform",
+  results: "Everyone sees requests here and in the bell, and the platform's Teams routes get a notice (no email yet). A workspace's domain in Fabric is set by a Fabric administrator in Fabric's admin portal. Every change is on Platform > Govern > Audit.",
+  anchor: "data-mesh",
 };
 
 // ---------- Data mesh > Domains: the organization's domains (it was Platform > Set up > Domains) ----------
@@ -1011,7 +1011,7 @@ async function renderMeshOrgDomainsTab(body) {
   const productsIn = (d) => (m?.products || []).filter((x) => projectsIn(d).some((p) => p.name === x.project));
   const count = (n) => (m ? n : h("span", { class: "muted-text", title: "The catalog's projects couldn't be read" }, "—"));
   body.replaceChildren(withHowItWorks(h("div", { class: "card pad mesh-domains" },
-    h("div", { class: "row" }, previewMarked("mesh", h("h2", { class: "grow" }, "Your organization's domains")),
+    h("div", { class: "row" }, h("h2", { class: "grow" }, "Your organization's domains"),
       btn("Glossary", null, () => goPlatform("glossary"), "tool link small",
         { title: "The business glossary is kept on Platform > Set up > Glossary; tag tables with its terms on their About tab" }),
       adminOnly(h("span", { class: "row tight" },
@@ -1047,7 +1047,7 @@ async function renderMeshOrgDomainsTab(body) {
     reads: "The platform's domains, and the projects and published products in each, from the platform's catalog (SQL_Platform in Fabric, or the file on this PC). Import from Fabric reads Fabric's domains and each one's admins, as a Fabric administrator.",
     changes: "New, Edit and Delete change the domain in the platform's catalog; only platform admins see them. New domain with Also create it in Fabric ticked also creates the domain (or subdomain) in Fabric's admin portal, for the whole organization, before saving it here; that needs a Fabric administrator. Nothing here renames, moves or deletes a domain in Fabric. Access groups saves which Entra ID group each of the domain's roles uses (catalog.entra_group) and its naming pattern; it creates nothing in Entra or Fabric, only scripts an admin runs.",
     results: "Everyone using this platform sees the same domains. Each change is kept on Platform > Govern > Audit.",
-    anchor: "platform",
+    anchor: "data-mesh",
   })));
 }
 
@@ -1164,7 +1164,7 @@ async function renderDataProducts() {
   const search = h("input", { class: "catalog-search", placeholder: "Search products, ports and owners", value: pp.query, "aria-label": "Search data products" });
   productsView(h("div", { class: "monitor onelake mesh-products" }, withHowItWorks(
     h("section", { class: "card pad" },
-      h("div", { class: "monitor-band" }, previewMarked("mesh", h("h2", {}, "Data products")),
+      h("div", { class: "monitor-band" }, h("h2", {}, "Data products"),
         h("span", { class: "muted-text" }, "What every team shares, from the platform's catalog"), h("span", { class: "spacer" }), search,
         previewShown() ? btn("Ask for data", null, () => newRequestDialog(null, "data"), "tool outline") : null,
         btn("Refresh", "sync", () => render(), "tool outline")),
@@ -1172,7 +1172,7 @@ async function renderDataProducts() {
     howItWorks("onelake.products", {
       reads: "Every team's published data products, their ports and readers, from the platform's catalog (SQL_Platform in Fabric, or the file on this PC), and, for the products you own, which grants are due for their access review. It reads when the tab opens and when you press Refresh.",
       changes: "Link writes a link file in your open metadata project on this PC and records your project as a reader in the platform's catalog. Request access adds a request to the platform's catalog for the product's owner, and Ask for data adds one for the domain's or product's owners. None of them touches the product's tables in OneLake, and nothing else here writes.",
-      results: "The product's owner sees your request on Data mesh > Requests and decides it, and sees your project among the product's readers. A link shows on your project's Links tab.",
+      results: "The product's owner sees your request on Data mesh > Requests and decides it, and sees your project among the product's readers. A link shows on Project > Products and links > Links.",
       anchor: "data-products-preview",
     }))));
   const [out, reviews] = await Promise.all([platformCall("platform_products", {}, "Could not read the catalog"),

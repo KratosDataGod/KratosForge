@@ -41,7 +41,7 @@ test("with no project open, Requests opens on what waits on you", { skip }, asyn
   assert.match(await page().textContent('.mesh-requests .seg button:has-text("Waiting on you")'), /\(1\)/);
   assert.deepStrictEqual(await rows(), ["r1"]);
   assert.match(await page().textContent(".how-it-works"), /access to a data product given in the catalog/);
-  assert.ok(await page().$(".mesh-requests .preview-tag"));
+  assert.ok(await page().$('.meta-groups .tab.active:has-text("Requests") .preview-tag'));
 });
 
 test("Sent by you lists your own requests, which you can withdraw", { skip }, async () => {

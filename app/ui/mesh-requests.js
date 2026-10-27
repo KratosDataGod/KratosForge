@@ -19,13 +19,13 @@ async function renderMeshRequestsTab(body) {
   const shown = all.filter(filters[show][0]);
   const empty = { waiting: "Nothing is waiting on you.", mine: "You haven't asked for anything yet.", all: "No one has asked for anything yet." }[show];
   body.replaceChildren(withHowItWorks(h("div", { class: "card pad mesh-requests" },
-    previewMarked("mesh", h("div", { class: "row" },
+    h("div", { class: "row" },
       h("div", { class: "seg", role: "group", "aria-label": "Show" }, Object.entries(filters).map(([id, [, label]]) =>
         h("button", { class: show === id ? "on" : null, "aria-pressed": String(show === id), onclick: () => { meshRequests.show = id; rerender(); } },
           label, id === "waiting" ? ` (${waiting})` : ""))),
       h("span", { class: "spacer" }),
       previewShown() ? btn("Ask for data", null, () => newRequestDialog(rerender, "data"), "tool outline small") : null,
-      btn("New request", "add", () => newRequestDialog(rerender), "tool primary small"))),
+      btn("New request", "add", () => newRequestDialog(rerender), "tool primary small")),
     h("p", { class: "muted-text small" }, "A data product's owner decides who else may read it and changes to it. A domain's owners answer requests for a new data product. Platform admins decide key tables, sources, workspaces, workspace access, domains and policy exceptions, and can decide any request."),
     shown.length ? requestTable(shown, rerender) : h("p", { class: "muted-text" }, empty)),
   howItWorks("mesh.requests", REQUESTS_HOW)));

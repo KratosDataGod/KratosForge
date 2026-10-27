@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "73c4ae4",
-    "date": "2026-10-26",
+    "commit": "6159e50",
+    "date": "2026-10-27",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
       "Ran the sidecar test suite (pytest) on Linux, Python 3.13",
@@ -16,7 +16,8 @@
       "Refreshed at 524e6a3 on 2026-10-25 for the PRs merged from #560 to #650 (the 2026-10-22 refresh for #135 to #559 is included; it had not reached main). Each merge's changed files and title were read; rows those PRs changed were updated and five rows added. Other rows were not re-read.",
       "Daily product check 2026-10-25 at 5ae85e5: PRs #643 to #675 merged after the #654 refresh; their rows were updated and two added.",
       "Product check 2026-10-26 at bb084c6: PRs #676 to #741 merged after #677; their rows were updated. Other rows were not re-read.",
-      "Product check 2026-10-26 23:42 at 73c4ae4: PRs #742 to #791, with #725 and #726, merged after #752; their rows were updated. Other rows were not re-read."
+      "Product check 2026-10-26 23:42 at 73c4ae4: PRs #742 to #791, with #725 and #726, merged after #752; their rows were updated. Other rows were not re-read.",
+      "Product check 2026-10-27 at 6159e50: PRs merged after #797 (#560, #449, #701, #763, #765, #782, #788 to #809); their rows were updated. Other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -208,7 +209,9 @@
         722,
         760,
         769,
-        776
+        776,
+        803,
+        806
       ]
     },
     {
@@ -1423,7 +1426,9 @@
         747,
         774,
         783,
-        787
+        787,
+        808,
+        809
       ],
       "limitations": [
         "Read-only: writes wait on Chris's decision D1",
@@ -3397,6 +3402,11 @@
           "kind": "test",
           "ref": "app/tests/browser/dictionary-card.test.cjs",
           "note": "product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_model_date_table.py",
+          "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
         }
       ],
       "source": [
@@ -3409,7 +3419,8 @@
         "sidecar/tests/test_model_directlake.py",
         "sidecar/tests/test_model_dictionary.py",
         "app/tests/browser/directlake-card.test.cjs",
-        "app/tests/browser/dictionary-card.test.cjs"
+        "app/tests/browser/dictionary-card.test.cjs",
+        "sidecar/tests/test_model_date_table.py"
       ],
       "docs": [
         "docs/metadata-guide.md",
@@ -3429,7 +3440,8 @@
       "prs": [
         725,
         726,
-        748
+        748,
+        788
       ]
     },
     {
@@ -3777,7 +3789,7 @@
         "docs/metadata-guide.md"
       ],
       "ui": {
-        "surface": "Metadata project, Platform > Governance > Requests",
+        "surface": "Metadata project, Data mesh > Requests",
         "preview": true
       },
       "workstream": "Enterprise governance foundation (FD-129)",
@@ -4001,7 +4013,9 @@
         48,
         50,
         694,
-        705
+        705,
+        765,
+        806
       ],
       "next_action": "Verify setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified).",
       "backlog": [
@@ -4087,6 +4101,11 @@
           "kind": "test",
           "ref": "app/tests/browser/landing-zones.test.cjs",
           "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_landing_copy_requests.py",
+          "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
         }
       ],
       "source": [
@@ -4096,7 +4115,8 @@
       "tests": [
         "sidecar/tests/test_platform.py",
         "sidecar/tests/test_landing_zones.py",
-        "app/tests/browser/landing-zones.test.cjs"
+        "app/tests/browser/landing-zones.test.cjs",
+        "sidecar/tests/test_landing_copy_requests.py"
       ],
       "docs": [
         "docs/platform.md"
@@ -4106,16 +4126,18 @@
         "preview": true
       },
       "limitations": [
-        "Nothing in the app writes into landing: no extractors or connectors",
+        "Copy job requests (#794) are approved in the app but the copy job is built in Fabric; no extractors of its own",
         "Not yet set up on a tenant"
       ],
       "workstream": "Staged roadmap (FD-116)",
-      "next_action": "Guided ingestion still waits on D2 (FD-116); Data Factory copy jobs (DF-6) may answer it.",
+      "next_action": "Landing copy job requests (stage 4.1) and platform-repo landing zones merged; try on a tenant.",
       "backlog": [
         "PB-030"
       ],
       "prs": [
-        597
+        597,
+        792,
+        794
       ]
     },
     {
@@ -4165,6 +4187,41 @@
           "kind": "test",
           "ref": "app/tests/browser/data-requests.test.cjs",
           "note": "product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_versioned_contracts.py",
+          "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_entra_groups.py",
+          "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/access-reviews.test.cjs",
+          "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/owner-coverage.test.cjs",
+          "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/mesh-home.test.cjs",
+          "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/mesh-products.test.cjs",
+          "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/mesh-requests.test.cjs",
+          "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
         }
       ],
       "source": [
@@ -4181,13 +4238,20 @@
         "app/tests/browser/domain-in-fabric.test.cjs",
         "app/tests/browser/trust-badges.test.cjs",
         "app/tests/browser/follow-product.test.cjs",
-        "app/tests/browser/data-requests.test.cjs"
+        "app/tests/browser/data-requests.test.cjs",
+        "sidecar/tests/test_versioned_contracts.py",
+        "sidecar/tests/test_entra_groups.py",
+        "app/tests/browser/access-reviews.test.cjs",
+        "app/tests/browser/owner-coverage.test.cjs",
+        "app/tests/browser/mesh-home.test.cjs",
+        "app/tests/browser/mesh-products.test.cjs",
+        "app/tests/browser/mesh-requests.test.cjs"
       ],
       "docs": [
         "docs/data-mesh.md"
       ],
       "ui": {
-        "surface": "Data mesh > Domains, OneLake > Data products, Home",
+        "surface": "Data mesh: Home, Domains, Products, Requests and Project tabs",
         "preview": true
       },
       "limitations": [
@@ -4201,11 +4265,21 @@
         627,
         642,
         694,
+        701,
         749,
         761,
-        770
+        763,
+        765,
+        770,
+        793,
+        801,
+        802,
+        803,
+        804,
+        805,
+        806
       ],
-      "next_action": "Purview and endorsement live checks wait on Chris's tenant run; implementation review of #591, #627, #642.",
+      "next_action": "Data mesh now holds Home, Domains, Products and Requests (#801-#806); Purview and endorsement live checks wait on Chris's tenant run.",
       "backlog": [
         "PB-052"
       ]
@@ -4240,10 +4314,11 @@
         "preview": false
       },
       "prs": [
-        71
+        71,
+        701
       ],
       "workstream": "Staged roadmap (FD-127)",
-      "next_action": "Consumer declarations and deprecation (scale plan 8.2).",
+      "next_action": "Versioned contracts (#701): accepted versions and deprecation dates block only readers that need it.",
       "backlog": [
         "PB-082"
       ]
@@ -5270,6 +5345,11 @@
           "kind": "test",
           "ref": "sidecar/tests/test_git.py::test_notebook_diffs_compare_code_and_leave_outputs_out",
           "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/git-hunks.test.cjs",
+          "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
         }
       ],
       "source": [
@@ -5279,7 +5359,8 @@
         "app/ui/git.js"
       ],
       "tests": [
-        "sidecar/tests/test_git.py"
+        "sidecar/tests/test_git.py",
+        "app/tests/browser/git-hunks.test.cjs"
       ],
       "docs": [
         "docs/source-control.md"
@@ -5290,11 +5371,13 @@
       },
       "limitations": [
         "Not tried with Git Credential Manager and SSH on many PCs",
-        "No line staging, rebase, tags"
+        "No rebase or tags"
       ],
       "prs": [
         85,
-        696
+        696,
+        789,
+        792
       ],
       "workstream": "Git-native development",
       "next_action": "Capacity repository drift report against Fabric (#696, Preview); Fabric workspace Git (FEAT-FAB-12) still planned."
@@ -6927,6 +7010,7 @@
       "prs": [
         325,
         372,
+        449,
         571,
         572,
         573,
@@ -7036,12 +7120,13 @@
         380,
         690,
         764,
-        780
+        780,
+        782
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Screens after a mockup; never install databricks-connect into the engine (ADR-004).",
       "limitations": [
-        "Databricks SQL warehouse engine tested against fakes only"
+        "Databricks SQL warehouse and Databricks Connect engines tested against fakes only"
       ]
     },
     {
@@ -7120,7 +7205,7 @@
         "docs/platform.md"
       ],
       "ui": {
-        "surface": "Platform > Governance > Requests",
+        "surface": "Data mesh > Requests",
         "preview": true
       },
       "prs": [
@@ -7212,20 +7297,24 @@
         "sidecar/tests/test_best_practice_checkers.py",
         "app/tests/browser/best-practice-checks.test.cjs",
         "sidecar/tests/test_model_practices.py",
-        "app/tests/browser/notebook-practices.test.cjs"
+        "app/tests/browser/notebook-practices.test.cjs",
+        "sidecar/tests/test_model_bpa.py",
+        "app/tests/browser/sql-practices.test.cjs"
       ],
       "docs": [
         "docs/notebook-best-practices.md",
         "docs/sql-best-practices.md",
         "docs/governance.md",
         "docs/governance-guide.md",
-        "docs/semantic-model-rules.md"
+        "docs/semantic-model-rules.md",
+        "docs/semantic-model-best-practices.md"
       ],
       "ui": {
         "surface": "Platform > Governance > Best practices; data product checklist",
         "preview": true
       },
       "prs": [
+        560,
         643,
         648,
         649,
@@ -7235,15 +7324,18 @@
         713,
         720,
         753,
-        790
+        788,
+        790,
+        798,
+        800
       ],
       "workstream": "Enterprise governance foundation; Best Practice Analyzer (checkers)",
       "limitations": [
         "Check now reads only this PC's schedules, so NB004 and NB008 don't run on a notebook only a Fabric schedule runs",
-        "Semantic model rules SM001-SM007 read the model on this PC; the Fabric BPA run (#560) is still a draft",
+        "The Fabric BPA run (#560) needs semantic-link-labs in Fabric and hasn't run live",
         "Central policies not yet set up on a tenant"
       ],
-      "next_action": "Notebook editor Best practices panel (#790) and SM rules (#753) merged; PB-111 is next.",
+      "next_action": "PB-111 (#798) and BPA (#560) merged; a live BPA run and central policies on a tenant are what's left.",
       "evidence": [
         {
           "kind": "test",
@@ -7289,6 +7381,16 @@
           "kind": "test",
           "ref": "app/tests/browser/notebook-practices.test.cjs",
           "note": "product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_model_bpa.py",
+          "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/sql-practices.test.cjs",
+          "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
         }
       ],
       "backlog": [
@@ -7316,7 +7418,8 @@
         "app/tests/browser/notebook-disk-change.test.cjs",
         "app/tests/browser/deep-link.test.cjs",
         "app/tests/browser/vscode-setup.test.cjs",
-        "app/tests/browser/editor-pairing.test.cjs"
+        "app/tests/browser/editor-pairing.test.cjs",
+        "sidecar/tests/test_editor_channel.py"
       ],
       "docs": [
         "docs/vscode.md",
@@ -7334,14 +7437,15 @@
         710,
         712,
         742,
-        754
+        754,
+        795
       ],
       "workstream": "Bring VS Code developers to KratosForge",
       "limitations": [
-        "Cells run from VS Code need a paired KratosForge window (phase 2a); no Marketplace extension yet",
-        "Links, hand-off and pairing not yet checked on Windows by a person"
+        "The extension isn't on the Marketplace yet; it installs from the release",
+        "Links, hand-off, pairing and the kernel picker not yet checked on Windows by a person"
       ],
-      "next_action": "Phase 2 remainder (extension packaging) per the VS Code thread.",
+      "next_action": "Phase 2b (KratosForge · This PC in VS Code's kernel picker) merged; Windows check by a person, then Marketplace.",
       "evidence": [
         {
           "kind": "test",
@@ -7367,6 +7471,11 @@
           "kind": "test",
           "ref": "app/tests/browser/editor-pairing.test.cjs",
           "note": "product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_editor_channel.py",
+          "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
         }
       ]
     }

@@ -130,7 +130,7 @@ async function mhLoad(view) {
 }
 
 async function renderMeshHomeTab(body, p) {
-  body.replaceChildren(h("p", { class: "muted-text" }, "Reading the platform's catalog..."));
+  body.replaceChildren(loading("Reading the platform's catalog..."));
   const here = () => state.view === "metadata" && state.meta.tab === "home" && body.isConnected;
   let view = meshHome.view || meshHomeSaved();
   let out = await mhLoad(view || "team");
@@ -149,7 +149,7 @@ async function renderMeshHomeTab(body, p) {
   const main = out.problem ? h("p", { class: "muted-text" }, "The platform's catalog couldn't be read: ", out.problem)
     : { team: () => mhTeam(out.team), oncall: () => mhOncall(out.oncall, out), org: () => mhOrg(out.org) }[out.view]();
   body.replaceChildren(withHowItWorks(h("div", { class: "mh" },
-    previewMarked("mesh", h("div", { class: "row tight" }, h("p", { class: "muted-text grow" }, who), seg)),
+    h("div", { class: "row tight" }, h("p", { class: "muted-text grow" }, who), seg),
     (out.problems || []).length ? h("div", { class: "problems" }, h("b", {}, "Some of this couldn't be read"), gateList(out.problems)) : null,
     main),
   howItWorks("mesh.home", {

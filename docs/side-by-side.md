@@ -115,7 +115,7 @@ On a PC, the time goes to reading the tables over the network and to computing; 
 
 ### Comparing fairly
 
-A run that writes gigabytes from a PC to OneLake is bound by the PC's upload speed, not by the engine: at 42 Mbps (about 4.7 MB/s) 2.4 GB takes about 8.5 minutes to upload whatever computes it, while Fabric writes from the same region as the storage. Neither way of writing gets under that floor: written here first, uploads already run while cells compute, and straight to OneLake waits on the same line. So report the two parts separately, as the card does: processing on this PC against Fabric's run time compares the compute, and end to end compares what someone waiting sees on that line.
+A run that writes gigabytes from a PC to OneLake is bound by the PC's upload speed, not by the engine: at 42 Mbps (about 5 MB/s, a little less in practice) 2.4 GB takes about 8.5 minutes to upload whatever computes it, while Fabric writes from the same region as the storage. Neither way of writing gets under that floor: written here first, uploads already run while cells compute, and straight to OneLake waits on the same line. So report the two parts separately, as the card does: processing on this PC against Fabric's run time compares the compute, and end to end compares what someone waiting sees on that line.
 
 For a comparison others can repeat:
 

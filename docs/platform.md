@@ -77,7 +77,7 @@ Every change is recorded with who made it and when (**Platform > Audit**). Actio
 
 The rail's **Platform** page is the central team's home, and the same screens show every other team what the platform offers.
 
-Its tabs are **Overview**, **Set up** (a menu of **Landing zone**, **Business keys** and **Glossary**), **Govern** (a menu of **Governance** and **Audit**) and **Settings**. On a page from a menu, the tab names it, for example **Set up: Glossary**. Requests and domains are on Data mesh, where every team works: **Data mesh > Requests** and **Data mesh > Domains**; older links to Platform's Requests and Domains open them there. In these docs, **Platform > Business keys** means Set up > Business keys.
+Its tabs are **Overview**, **Set up**, **Govern** and **Settings**, the way Data mesh lays out its tabs. **Set up** holds **Landing zone**, **Business keys** and **Glossary**, and **Govern** holds **Governance** and **Audit**: pick one on the switcher under the tabs. Requests and domains are on Data mesh, where every team works: **Data mesh > Requests** and **Data mesh > Domains**; older links to Platform's Requests and Domains open them there. In these docs, **Platform > Business keys** means Set up > Business keys.
 
 - **Overview:** counts, requests that need you, each environment's platform, landing zone sources (late ones first in red) and recent changes.
 - **Landing zone:** each source in `LH_Landing` for the environment picked at the top: its entities, newest files, last arrival, how often it's expected and which projects read it. A source that hasn't arrived within its expected hours (plus a quarter) shows **late**. Folders in the landing zone that no admin registered show **not registered**.

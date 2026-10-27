@@ -1,5 +1,5 @@
 // QA-011 follow-up: when this PC's schedules file couldn't be read and was moved aside,
-// Monitor > KratosForge schedules says so and warns about Task Scheduler tasks (see harness.cjs for how to run it).
+// Monitor > KratosForge > Schedules says so and warns about Task Scheduler tasks (see harness.cjs for how to run it).
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const path = require("node:path");
@@ -29,7 +29,7 @@ const open = async () => {
   await page().waitForSelector(".schedule-summary");
 };
 
-test("Monitor > KratosForge schedules says the schedules file was moved aside, and what that means", { skip }, async () => {
+test("Monitor > KratosForge > Schedules says the schedules file was moved aside, and what that means", { skip }, async () => {
   await open();
   const text = await page().textContent(".set-aside");
   for (const part of ["Some schedules on this PC may be missing", "schedules.json.corrupt-20261020T090000000000Z",

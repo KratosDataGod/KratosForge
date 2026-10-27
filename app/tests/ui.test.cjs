@@ -908,10 +908,10 @@ test("the risk gate passes quietly, never runs a blocked item and needs the tick
   assert.deepStrictEqual(acks.map((a) => a.risk_id), ["r2"], "nothing is acknowledged when nothing was checked");
 });
 
-test("only Monitor > Runs shares the page with Fabric's hub, so Schedules and Cost get the whole page (#190)", () => {
+test("Fabric's hub is a Monitor tab of its own, so no list shares the page with it (#190)", () => {
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  // With From KratosForge in its own window (Pop out), Monitor here is the hub's band and the hub.
-  assert.match(src, /const wide = !runsOut && monitorPage\.panel !== "runs";/);
+  assert.match(src, /const hubShown = hub && !POP_OUT && !fabricOut;/);
+  assert.match(src, /page monitor\$\{hubShown \? "" : " no-fabric"\}/);
 });
 
 // The pure helpers at the top of replay.js.
@@ -1300,7 +1300,7 @@ test("Home doesn't say nothing needs attention when run history or Fabric jobs c
   assert.match(src, /couldn't check \$\{unread\.join\(", "\)\}/);
 });
 
-test("Monitor has three tabs, and Operations holds the workload views in the mockup's order (UX-010)", () => {
+test("Monitor's tabs are by source, and Operations holds the workload views in the mockup's order (UX-010)", () => {
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const literal = src.match(/const MONITOR_OPS = (\[[\s\S]*?\n\]);/)[1];
   const ops = JSON.parse(JSON.stringify(vm.runInNewContext(literal)));
@@ -1309,9 +1309,21 @@ test("Monitor has three tabs, and Operations holds the workload views in the moc
   assert.deepStrictEqual(ops.map((o) => o.panel), ["workloads", "queue", "agents", "runas", "incidents"]);
   const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
   for (const o of ops) assert.ok(features.includes(`${o.feature}:`), `${o.feature} is a registered preview feature`);
-  const seg = src.slice(src.indexOf('"aria-label": "Show" },'), src.indexOf('h("span", { class: "spacer" })', src.indexOf('"aria-label": "Show" },')));
-  assert.deepStrictEqual([...seg.matchAll(/"(Runs|Schedules|Operations|Cost|Workloads|Queue|Agents|Run as|Incidents)"/g)].map((m) => m[1]),
-    ["Runs", "Schedules", "Operations"]);
+  const sources = vm.runInNewContext(`${/const MONITOR_SOURCES = \[[\s\S]*?\];/.exec(src)[0].replace("const ", "")}; MONITOR_SOURCES`);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(sources.map(([, label]) => label))), ["KratosForge", "Fabric"]);
+  // Each tab's pages are on the view row's switcher.
+  const pages = src.slice(src.indexOf("const pages = source ==="), src.indexOf("const shown = pages.filter"));
+  assert.deepStrictEqual([...pages.matchAll(/"(Monitoring hub|Schedules|Runs|Operations)"/g)].map((m) => m[1]),
+    ["Monitoring hub", "Schedules", "Runs", "Schedules", "Operations"]);
+});
+
+test("Home's All schedules opens Fabric schedules when every upcoming schedule is in Fabric, else KratosForge schedules", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const at = src.indexOf('btn("All schedules"');
+  const link = src.slice(at, src.indexOf('"tool link small")', at));
+  assert.match(link, /items\.length && items\.every\(\(x\) => x\.where === "Fabric"\) \? "fabric_schedules" : "schedules"/);
+  // "Fabric" is the where Home gives a Fabric schedule's row.
+  assert.match(src, /where: "Fabric", text: sc\.text/);
 });
 
 test("Monitor > Agents explains agents beside the list, with links to sections of agent.md (testing item 34)", () => {
@@ -1370,7 +1382,7 @@ test("engine messages point to Data mesh and Platform tabs that exist", () => {
   const mesh = new Set();
   for (const [, group, tabs] of groups) for (const [, tab] of tabs) mesh.add(`${group} > ${tab}`);
   const plat = new Set(platform.map(([, label]) => label));
-  // A page behind the Set up or Govern menu is named with its menu: "Platform > Set up > Business keys".
+  // A page on the Set up or Govern tab is named with its tab: "Platform > Set up > Business keys".
   const bar = vm.runInNewContext(`${/const PLATFORM_TAB_BAR = \[[\s\S]*?\n\];/.exec(read("platform.js"))[0].replace("const ", "")}; PLATFORM_TAB_BAR`);
   const engine = path.join(__dirname, "..", "..", "sidecar", "fabric_desktop");
   const files = [];
@@ -1764,7 +1776,7 @@ test("moving keys into one database previews first, and cancelling it is a dange
   assert.ok(cancel.indexOf("danger: true") < cancel.indexOf("approve: true"));
   assert.match(mesh, /\.\.\.MESH_ENVS\.map\(row\), keysRow\(s, policy\)\)/);
   const platform = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
-  assert.match(platform, /!\(p\.tab === "keys" && p\.keysShared\) \? envSeg : null/);
+  assert.match(platform, /!\(p\.tab === "keys" && p\.keysShared\)\);\n[\s\S]*?perEnv \? envSeg : null/);
   assert.match(platform, /k\.shared \? "Key tables in SQL_Keys"/);
   const how = platform.match(/howItWorks\("platform\.keys", \{[\s\S]*?\n  \}\)/)?.[0] || "";
   for (const write of [/SQL_Keys and UDF_Keys, which uses Fabric capacity/, /copies every key table/, /new numbers/, /closes each environment's old key tables/, /removes the copied tables/]) {
@@ -1830,7 +1842,8 @@ test("Clean up's Undo is offered only while the cells are exactly what Apply mad
 
 test("Schedules warns when this PC's schedules file was moved aside (QA-011)", () => {
   const s = fs.readFileSync(path.join(ui, "schedules.js"), "utf8");
-  assert.match(s, /h\("h3", \{ class: "schedule-head" \}, "On this PC"\),\n    setAsideNotice\(res\.pc_set_aside\),/);
+  // On KratosForge schedules, first after the counts.
+  assert.match(s, /failed\(pc\.filter\([^\n]*\)\),\n      setAsideNotice\(res\.pc_set_aside\),/);
   assert.match(s, /look in Task Scheduler under /);
 });
 
@@ -2436,7 +2449,7 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.strictEqual(ok, "Remove");
   assert.strictEqual(opts.danger, true);
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true)[1], /Fabric deletes the schedule/);
-  assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
+  assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Fabric > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
 
@@ -4456,7 +4469,7 @@ test("folder actions are wired: a menu entry, New folder, the empty-only delete 
 test("a move that leaves something behind names it and says what to do", () => {
   const { nbRenameProblemLines } = notebookFolderHelpers();
   const lines = nbRenameProblemLines([{ notebook: "EMEA/B", was: "Sales/B", step: "schedules", error: "OSError: disk full" }]);
-  assert.deepStrictEqual([...lines], ["EMEA/B (was Sales/B): its schedules didn't follow (OSError: disk full). Open Monitor > Schedules and point its schedule on this PC at the new name."]);
+  assert.deepStrictEqual([...lines], ["EMEA/B (was Sales/B): its schedules didn't follow (OSError: disk full). Open Monitor > KratosForge > Schedules and point its schedule on this PC at the new name."]);
   assert.deepStrictEqual([...nbRenameProblemLines([])], []);
   const files = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
   assert.strictEqual(files.match(/nbRenameWarning\((out|ok)\.problems\)/g).length, 3);

@@ -187,7 +187,7 @@ class ScheduleMixin:
         mine = [r for r in fabric if r.get("name") == name and r.get("kind") == "Notebook run"
                 and (ws is None or r.get("workspace_id") == ws)]
         items = {r.get("item_id") for r in mine}
-        # Run now on a Fabric schedule (Monitor > Schedules) logs no item type: count it when the item is
+        # Run now on a Fabric schedule (Monitor > Fabric > Schedules) logs no item type: count it when the item is
         # one this notebook ran as, so a pipeline with the same name isn't listed.
         return mine + [r for r in fabric if r.get("kind") == "Scheduled item run" and r.get("name") == name
                        and r.get("item_id") in items]
@@ -317,7 +317,7 @@ class ScheduleMixin:
             if not failed:
                 return ""
             title = f"Scheduled run failed on this PC: {row['label']}"
-            lines = [row.get("message") or "See Monitor > Schedules"]
+            lines = [row.get("message") or "See Monitor > KratosForge > Schedules"]
             try:
                 post_teams(url, title, lines)
                 return ""

@@ -456,7 +456,8 @@ fn updater(args: &[&str]) -> Result<Command, String> {
 }
 
 /// Runs an updater command, sending each output line to the UI as a
-/// `component-log` event. Returns the last lines of output when it fails.
+/// `component-log` event. Returns the last lines of output when it fails, without the
+/// download's "progress <percent>" lines, which only drive the UI's progress label.
 fn stream(app: &tauri::AppHandle, mut cmd: Command) -> Result<(), String> {
     let mut child = cmd
         .stdout(Stdio::piped())
@@ -467,6 +468,9 @@ fn stream(app: &tauri::AppHandle, mut cmd: Command) -> Result<(), String> {
     for line in BufReader::new(child.stdout.take().expect("updater stdout")).lines() {
         let line = line.unwrap_or_default();
         let _ = app.emit("component-log", &line);
+        if line.starts_with("progress ") {
+            continue;
+        }
         if tail.len() == 12 {
             tail.pop_front();
         }
@@ -822,11 +826,9 @@ async fn check_components() -> Result<Value, String> {
     Ok(report)
 }
 
-/// "Check for updates" (account menu, Settings): the channel's newest build, put through the same
-/// release rule as the startup check, so update_app will install it. Leaves the engine alone: the
-/// new build's startup check updates it.
-#[tauri::command]
-async fn check_for_update() -> Result<Value, String> {
+/// The channel's newest build (updater.py latest), put through the release rule, which also
+/// makes it the build update_app may install.
+fn channel_latest() -> Result<Value, String> {
     let out = updater(&["latest"])?.output().map_err(|e| format!("Python was not found ({e})."))?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
@@ -835,6 +837,31 @@ async fn check_for_update() -> Result<Value, String> {
     let mut latest: Value = serde_json::from_slice(&out.stdout)
         .map_err(|_| "Python gave an unexpected answer to the update check.".to_string())?;
     apply_release_rule(&mut latest);
+    Ok(latest)
+}
+
+/// The build the channel offers right now, checked again just before a download, since a banner
+/// or dialog can show a build the channel has since replaced (a newer Preview was published).
+fn offered_now() -> Result<String, String> {
+    let latest = channel_latest()?;
+    if let Some(reason) = latest["refused"].as_str() {
+        return Err(reason.to_string());
+    }
+    match latest["commit"].as_str() {
+        Some(c) if update_guard::is_commit(c) => Ok(c.to_ascii_lowercase()),
+        _ => Err(format!(
+            "Could not check the update channel ({}). Try again in a few minutes.",
+            latest["error"].as_str().unwrap_or("it names no build")
+        )),
+    }
+}
+
+/// "Check for updates" (account menu, Settings): the channel's newest build, put through the same
+/// release rule as the startup check, so update_app will install it. Leaves the engine alone: the
+/// new build's startup check updates it.
+#[tauri::command]
+async fn check_for_update() -> Result<Value, String> {
+    let latest = channel_latest()?;
     Ok(json!({
         "commit": if BUILD_COMMIT.is_empty() { Value::Null } else { json!(BUILD_COMMIT) },
         "auto_update": auto_update_allowed(),
@@ -1202,6 +1229,10 @@ impl update_guard::Handover for ExeHandover<'_> {
 /// it started; if the new one exits first, this exe is put back, its engine restarted if it was
 /// running, and it keeps running (HD-022). One still running at the time limit without saying so
 /// is left to run: builds from before HD-022 never say.
+///
+/// `commit` is the build the UI showed. The channel is checked again first, and when it has moved
+/// on (a newer Preview was published since), or moves during the download, the build it names
+/// now is installed instead, so an update never chases a build the release no longer holds.
 #[tauri::command]
 async fn update_app(app: tauri::AppHandle, state: tauri::State<'_, SidecarState>, commit: String) -> Result<(), String> {
     if !update_guard::is_commit(&commit) {
@@ -1210,22 +1241,47 @@ async fn update_app(app: tauri::AppHandle, state: tauri::State<'_, SidecarState>
     if !auto_update_allowed() {
         return Err("Your organization rolls out new builds itself, so the app doesn't update itself.".into());
     }
-    // Only the build the last accepted startup check offered (update_guard::check_manifest).
-    if update_guard::offered(&update_state()).is_none_or(|c| !c.eq_ignore_ascii_case(&commit)) {
-        return Err(format!("Build {} isn't the build your update channel offers, so it wasn't installed.", &commit[..7]));
-    }
-    if !update_guard::wants_install(BUILD_COMMIT, &update_guard::Seen { commit: commit.clone(), published: None }) {
-        return Err(format!("This is already build {}, or a local build that doesn't update itself.", &commit[..7]));
-    }
     let exe = app_exe().map_err(|e| e.to_string())?;
     let new = exe.with_extension("exe.new");
     let old = exe.with_extension("exe.old");
     let dest = new.to_string_lossy().into_owned();
-    // The download runs the updater with its own Python, not the engine, so the engine keeps
-    // running until the file is here and checked.
-    stream(&app, updater(&["download-app", &dest, &commit])?)?;
+    let mut target = commit.to_ascii_lowercase();
+    for attempt in 0..2 {
+        let offered = offered_now()?;
+        if offered != target {
+            let _ = app.emit("component-log", format!(
+                "Build {} was replaced on the update channel by build {}; installing that.", &target[..7], &offered[..7]));
+            target = offered;
+        }
+        // Only the build the accepted check just now offered (update_guard::check_manifest).
+        if update_guard::offered(&update_state()).is_none_or(|c| !c.eq_ignore_ascii_case(&target)) {
+            return Err(format!("Build {} isn't the build your update channel offers, so it wasn't installed.", &target[..7]));
+        }
+        if !update_guard::wants_install(BUILD_COMMIT, &update_guard::Seen { commit: target.clone(), published: None }) {
+            return Err(format!("This is already build {}, or a local build that doesn't update itself.", &target[..7]));
+        }
+        // The download runs the updater with its own Python, not the engine, so the engine keeps
+        // running until the file is here and checked.
+        match stream(&app, updater(&["download-app", &dest, &target])?) {
+            Ok(()) => break,
+            Err(out) => {
+                let last = out.lines().last().unwrap_or_default().trim().to_string();
+                if last.starts_with("moved ") && attempt == 0 {
+                    continue; // republished meanwhile: check the channel again
+                }
+                let _ = std::fs::remove_file(&new);
+                return Err(if last.starts_with("moved ") {
+                    "The update channel is being republished. Try again in a few minutes.".into()
+                } else if last.is_empty() {
+                    "The download failed. Try again in a few minutes.".into()
+                } else {
+                    last
+                });
+            }
+        }
+    }
     update_guard::hand_over(&mut ExeHandover {
-        app: &app, state: &state, exe, new, old, marker: start_marker(), commit: &commit, child: None,
+        app: &app, state: &state, exe, new, old, marker: start_marker(), commit: &target, child: None,
     })
 }
 
@@ -1735,6 +1791,28 @@ async fn fabric_view_action(app: tauri::AppHandle, window: tauri::Window, action
     }
 }
 
+/// The Fabric page the calling window's view shows, without its query or fragment, so the page can
+/// offer to open the same item itself (Open in KratosForge). None when it isn't on Fabric.
+#[tauri::command]
+async fn fabric_view_url(app: tauri::AppHandle, window: tauri::Window) -> Result<Option<String>, String> {
+    let label = fabric_view_label(window.label())?;
+    let Some(view) = app.get_webview(label) else { return Ok(None) };
+    Ok(fabric_page_address(&view.url().map_err(|e| e.to_string())?))
+}
+
+fn fabric_page_address(url: &Url) -> Option<String> {
+    if url.scheme() != "https" || url.host_str() != Some("app.fabric.microsoft.com") {
+        return None;
+    }
+    let mut page = url.clone();
+    page.set_query(None);
+    page.set_fragment(None);
+    let _ = page.set_username("");
+    let _ = page.set_password(None);
+    let _ = page.set_port(None);
+    Some(page.to_string())
+}
+
 /// Signs the Fabric view out and forgets its saved sign-in; the sidecar forgets its own.
 #[tauri::command]
 async fn fabric_view_sign_out(app: tauri::AppHandle) -> Result<(), String> {
@@ -2117,7 +2195,7 @@ fn main() {
         .on_window_event(on_window_event)
         .invoke_handler(tauri::generate_handler![
             rpc, stop_kernel, check_components, check_for_update, update_sidecar, update_app,
-            fabric_view_show, fabric_view_hide, fabric_view_action, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode, take_pending_link,
+            fabric_view_show, fabric_view_hide, fabric_view_action, fabric_view_url, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode, take_pending_link,
             pop_out_open, pop_out_close, pop_out_on_top, pop_out_list, pop_out_open_in_fabric
         ])
         .run(tauri::generate_context!())
@@ -2267,6 +2345,17 @@ mod integrity_tests {
 #[cfg(test)]
 mod fabric_nav_tests {
     use super::*;
+
+    #[test]
+    fn the_page_address_is_fabric_only_and_drops_the_query() {
+        let page = |u: &str| fabric_page_address(&Url::parse(u).unwrap());
+        assert_eq!(page("https://app.fabric.microsoft.com/groups/ws/datawarehouses/wh?experience=fabric-developer&ctid=t#x"),
+                   Some("https://app.fabric.microsoft.com/groups/ws/datawarehouses/wh".into()));
+        assert_eq!(page("https://login.microsoftonline.com/common/oauth2"), None);
+        assert_eq!(page("http://app.fabric.microsoft.com/groups/ws"), None);
+        assert_eq!(page("https://u:p@app.fabric.microsoft.com:8443/groups/ws"),
+                   Some("https://app.fabric.microsoft.com/groups/ws".into()));
+    }
 
     fn nav(url: &str) -> FabricNav {
         fabric_nav(&Url::parse(url).unwrap(), false, &[])

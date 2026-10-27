@@ -90,6 +90,14 @@ const META_TAB_GROUPS = [
 // The tabs that show the whole mesh rather than the open project, so they show without one.
 const META_NO_PROJECT = ["home", "catalog", "requests", "domains", "overview"];
 
+// The Preview feature every tab in a group shares, so the group's tab carries the one tag; null when
+// any tab in it isn't in preview or they differ.
+function metaGroupPreview(tabs) {
+  const ids = new Set(tabs.map(([, , previewId]) => previewId || null));
+  const [id] = ids;
+  return ids.size === 1 && id && PREVIEW_FEATURES[id] ? id : null;
+}
+
 function metaGroupOf(tab) {
   return META_TAB_GROUPS.find(([, , tabs]) => tabs.some(([id]) => id === tab)) || META_TAB_GROUPS[0];
 }
@@ -97,6 +105,53 @@ function metaGroupOf(tab) {
 function goMeta(tab) {
   state.meta.tab = tab || state.meta.tab;
   go("metadata");
+}
+
+// ---------- one layout for every tab ----------
+// Every Data mesh tab is laid out the same way (Chris, 2026-10-27): the title with one context line and
+// the tab's own buttons top right (the main one last), the tabs, any banner, then the view row (the
+// tab's views as one switcher on the left, its search, filters and Refresh on the right) and the
+// working area in white cards. The page draws the places; a tab fills its parts with meshChrome.
+const meshSlots = {};
+
+// The places a tab fills, made fresh with each page. Context starts as the tab's default line.
+function meshSlotsFor(tab, context) {
+  Object.assign(meshSlots, {
+    context: h("p", { class: "sub mesh-context" }, ...[context ?? MESH_CONTEXT[tab] ?? ""].flat()),
+    actions: h("div", { class: "head-actions" }),
+    banners: h("div", { class: "mesh-banners" }),
+    views: h("div", { class: "row tight mesh-views" }),
+    tools: h("div", { class: "row tight mesh-tools" }),
+  });
+  return meshSlots;
+}
+
+// Fill a tab's parts of the page: context (its one line under the title), actions (its buttons, top
+// right), banners, views (its switcher) and tools (search and filters, left of Refresh). A part left
+// out stays as it is; null empties it.
+function meshChrome(parts) {
+  for (const [slot, nodes] of Object.entries(parts)) {
+    if (nodes !== undefined && meshSlots[slot]?.isConnected) meshSlots[slot].replaceChildren(...[nodes].flat().filter(Boolean));
+  }
+}
+
+// The one line under the title for each of the mesh's own tabs; Home says which project and domain.
+const MESH_CONTEXT = {
+  catalog: "Every team's data products, from the platform's catalog",
+  requests: "Requests for data, access and changes, and who decides them",
+  domains: "Your organization's domains", overview: "Your organization's domains", workspaces: "Your organization's domains",
+};
+
+function meshPage({ intro, context, actions, tabs, banners, groupSeg, body }) {
+  const slots = meshSlotsFor(state.meta.tab, context);
+  if (actions) slots.actions.replaceChildren(...actions.filter(Boolean));
+  return h("div", { class: "page mesh-page" },
+    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Data mesh"), slots.context, intro), slots.actions),
+    ...tabs,
+    ...banners, slots.banners,
+    h("div", { class: "row mesh-view-row" }, groupSeg, slots.views, h("span", { class: "spacer" }), slots.tools,
+      btn("Refresh", "sync", () => render(), "tool outline mesh-refresh")),
+    body);
 }
 
 // ---------- main page ----------
@@ -117,34 +172,32 @@ async function renderMetadata() {
   const inProject = group[3] === "project";
   if (inProject) m.projectTab = m.tab;  // Project opens where you left it
   const shownGroups = (section) => META_TAB_GROUPS.filter(([, , tabs, sec]) => sec === section && visible(tabs).length);
-  const groupTab = ([id, label, tabs]) => h("button", { class: `tab${group[0] === id ? " active" : ""}`, onclick: () => goMeta(visible(tabs)[0][0]) }, label);
+  const groupTab = ([id, label, tabs]) => h("button", { class: `tab${group[0] === id ? " active" : ""}`, onclick: () => goMeta(visible(tabs)[0][0]) },
+    label, metaGroupPreview(tabs) ? previewTag() : null);
   const tabLabel = (label, previewId) => {
     const node = h("span", {}, label);
-    return previewId ? preview(previewId, node) : node;
+    return previewId && !metaGroupPreview(group[2]) ? preview(previewId, node) : node;
   };
   const body = h("div", { class: "meta-body" });
-  setView(h("div", { class: "page" },
-    h("div", { class: "page-head" },
-      h("div", {},
-        h("h1", {}, "Data mesh"),
-        inProject ? h("p", { class: "sub" }, "Every table is a file in ", h("span", { class: "mono" }, p.path),
-          ". Metadata version ", h("span", { class: "mono" }, p.version), ". ", learnMore("data-mesh"))
-          : h("p", { class: "sub" }, "Your organization's data products, the requests on them and who owns what. ", learnMore("data-mesh"))),
-      inProject ? h("div", { class: "head-actions" },
-        btn("New entity", "add", newEntityDialog, "tool outline"),
-        preview("schedules", btn("Schedule", "history", () => scheduleMetaRuns(m.env), "tool outline",
-          { title: `Run every entity in ${ENV_LABEL[m.env]} on a schedule, on this PC or in Fabric` })),
-        btn(inFabric(p, m.env) ? "Run all in Fabric" : "Run all", "play", () => runEntities(null), "tool primary",
-          { disabled: p.errors.length ? true : null })) : null),
-    // Problems and ending exceptions show on every tab: runs and promote stay blocked until they're fixed.
-    problemsBanner(p.errors),
-    exceptionBanner(p),
-    h("div", { class: "subtabs meta-groups" }, shownGroups("mesh").map(groupTab),
+  setView(meshPage({
+    context: inProject ? ["Every table is a file in ", h("span", { class: "mono" }, p.path),
+      ". Metadata version ", h("span", { class: "mono" }, p.version), ". ", learnMore("data-mesh")] : undefined,
+    intro: inProject ? null : pageIntro("Your organization's data products, the requests on them and who owns what. ", learnMore("data-mesh")),
+    actions: inProject ? [
+      btn("New entity", "add", newEntityDialog, "tool outline"),
+      preview("schedules", btn("Schedule", "history", () => scheduleMetaRuns(m.env), "tool outline",
+        { title: `Run every entity in ${ENV_LABEL[m.env]} on a schedule, on this PC or in Fabric` })),
+      btn(inFabric(p, m.env) ? "Run all in Fabric" : "Run all", "play", () => runEntities(null), "tool primary",
+        { disabled: p.errors.length ? true : null })] : null,
+    tabs: [h("div", { class: "subtabs meta-groups" }, shownGroups("mesh").map(groupTab),
       h("button", { class: `tab${inProject ? " active" : ""}`, onclick: () => goMeta(m.projectTab || "entities") }, "Project")),
-    inProject ? h("div", { class: "subtabs meta-project-groups", "aria-label": "Project" }, shownGroups("project").map(groupTab)) : null,
-    visible(group[2]).length > 1 ? h("div", { class: "seg meta-tabs", role: "group", "aria-label": group[1] }, visible(group[2]).map(([id, label, previewId]) =>
-      h("button", { class: m.tab === id ? "on" : null, onclick: () => goMeta(id) }, tabLabel(label, previewId)))) : null,
-    body));
+    inProject ? h("div", { class: "subtabs meta-project-groups", "aria-label": "Project" }, shownGroups("project").map(groupTab)) : null],
+    // Problems and ending exceptions show on every tab: runs and promote stay blocked until they're fixed.
+    banners: [problemsBanner(p.errors), exceptionBanner(p)],
+    groupSeg: visible(group[2]).length > 1 ? h("div", { class: "seg meta-tabs", role: "group", "aria-label": group[1] }, visible(group[2]).map(([id, label, previewId]) =>
+      h("button", { class: m.tab === id ? "on" : null, "aria-pressed": String(m.tab === id), onclick: () => goMeta(id) }, tabLabel(label, previewId)))) : null,
+    body,
+  }));
   const render = { home: renderMeshHomeTab, catalog: renderMeshCatalogTab, requests: renderMeshRequestsTab, overview: renderMeshOverviewTab, entities: renderEntitiesTab, layers: renderLayersTab, keys: renderKeysTab, sources: renderSourcesTab,
     runs: renderRunsTab, health: renderHealthTab, model: renderModelTab, tests: renderTestsTab, environments: renderEnvTab,
     domains: renderMeshOrgDomainsTab, workspaces: renderMeshDomainsTab, products: renderMeshProductsTab, links: renderMeshLinksTab,
@@ -161,15 +214,23 @@ function renderMetaNoProject(p) {
   const shown = (tabs) => tabs.filter(([id]) => META_NO_PROJECT.includes(id));
   const groups = META_TAB_GROUPS.filter(([, , tabs]) => shown(tabs).length);
   const group = metaGroupOf(tab);
-  setView(h("div", { class: "page" },
-    h("div", { class: "page-head" },
-      h("div", {}, h("h1", {}, "Data mesh"), h("p", { class: "sub" }, "Your organization's data products, the requests on them and who owns what. ", learnMore("data-mesh"))),
-      p.presets ? h("div", { class: "head-actions" }, btn("Set up a project", "add", () => renderMetaSetup(p), "tool outline")) : null),
-    h("div", { class: "subtabs meta-groups" }, groups.map(([id, label, tabs]) =>
-      h("button", { class: `tab${group[0] === id ? " active" : ""}`, onclick: () => goMeta(shown(tabs)[0][0]) }, label))),
-    shown(group[2]).length > 1 ? h("div", { class: "seg meta-tabs", role: "group", "aria-label": group[1] }, shown(group[2]).map(([id, label]) =>
-      h("button", { class: tab === id ? "on" : null, onclick: () => goMeta(id) }, label))) : null,
-    body));
+  setView(meshPage({
+    intro: pageIntro("Your organization's data products, the requests on them and who owns what. ", learnMore("data-mesh")),
+    // Set up a project is the page's own button, before the tab's so the tab's primary stays last.
+    actions: null,
+    tabs: [h("div", { class: "subtabs meta-groups" }, groups.map(([id, label, tabs]) =>
+      h("button", { class: `tab${group[0] === id ? " active" : ""}`, onclick: () => goMeta(shown(tabs)[0][0]) },
+        label, metaGroupPreview(tabs) ? previewTag() : null)))],
+    banners: [],
+    groupSeg: shown(group[2]).length > 1 ? h("div", { class: "seg meta-tabs", role: "group", "aria-label": group[1] }, shown(group[2]).map(([id, label]) =>
+      h("button", { class: tab === id ? "on" : null, "aria-pressed": String(tab === id), onclick: () => goMeta(id) }, label))) : null,
+    body,
+  }));
+  if (p.presets) {
+    const wrap = h("div", { class: "head-actions" });
+    meshSlots.actions.replaceWith(wrap);
+    wrap.append(btn("Set up a project", "add", () => renderMetaSetup(p), "tool outline"), meshSlots.actions);
+  }
   return { home: renderMeshHomeTab, catalog: renderMeshCatalogTab, requests: renderMeshRequestsTab, domains: renderMeshOrgDomainsTab,
     overview: renderMeshOverviewTab }[tab](body, p);
 }

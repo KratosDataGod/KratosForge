@@ -66,7 +66,7 @@ It was Platform > Requests, and older links open it here. Approve does what was 
 | **Domain** | An area of the business that owns its data, like Sales or Finance. Subdomains go one level deep (Sales > EMEA). Imported from Fabric's domains | The platform's catalog, linked to the Fabric domain |
 | **Project** | A metadata project (one Git repository) and the domain and team it belongs to | `project.toml` in the project, and the catalog |
 | **Workspace designation** | What a workspace is for: Ingest, Product, Serve or Sandbox | `environments.toml` and `layers.toml` |
-| **Data product** | The tables (ports) other teams may read from a project, with an owner, a description and who may read it | `metadata/products/<name>.toml`, published to the catalog on promote |
+| **Data product** | The tables (ports) other teams may read from a project, with an owner, a description and who may read it | `metadata/products/<name>.toml`, published to the catalog on promote. Once a product is in the catalog, only its owners, whoever last published it and platform admins publish it again, so the person who promotes a project must be one of them: otherwise the promote stops at that product and says who its owners are. A first publish whose owners name people (emails) must name the publisher among them |
 | **Link** | A project's reference to another team's product port, read where it lives with no copy | `metadata/links/<alias>.toml` |
 | **Catalog text** | Descriptions, tags, classification, glossary terms and steward of tables and columns | The platform's catalog (starter text can live in the entity file) |
 
@@ -243,7 +243,7 @@ description = "Primary email address"
 classification = "confidential"
 ```
 
-**Glossary** (**Platform > Glossary**) holds shared terms like *Active customer*. Platform admins keep shared terms and a domain's owners keep their domain's. Tag a table or column with terms on the entity's About tab. Recent changes in the catalog, and who made them, are on **Platform > Audit**.
+**Glossary** (**Platform > Set up > Glossary**) holds shared terms like *Active customer*. Platform admins keep shared terms and a domain's owners keep their domain's. Tag a table or column with terms on the entity's About tab. Recent changes in the catalog, and who made them, are on **Platform > Govern > Audit**.
 
 ## At scale
 

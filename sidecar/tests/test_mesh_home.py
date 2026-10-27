@@ -140,3 +140,21 @@ def test_mesh_home_with_a_project_reads_its_incidents_and_shows_what_they_reach(
     assert team["incidents_read"] and team["team"]["products"][0]["needs"][0] == "Incident upstream"
     oncall = svc.mesh_home("oncall")["oncall"]
     assert oncall["wake"] == [{"product": "orders", "owners": ["olu@contoso.com"]}]
+
+
+def test_mesh_home_skips_an_environment_nothing_was_promoted_to(svc, tmp_path, monkeypatch):
+    # Chris's Home showed "Incidents in dev: LookupError: LH_Meta doesn't exist..." with Test picked:
+    # an environment not promoted to yet is a step not taken, not a problem to show.
+    svc.meta_init(str(tmp_path / "proj"), "3")
+    real = svc._incident_log
+
+    def log(env):
+        if env == "dev":
+            raise LookupError("LH_Meta doesn't exist in this environment's workspace yet; promote to it first")
+        if env == "prod":
+            raise RuntimeError("boom")
+        return real(env)
+    monkeypatch.setattr(svc, "_incident_log", log)
+    problems = svc.mesh_home("team")["problems"]
+    assert not any("Dev" in p or "dev" in p for p in problems)
+    assert [p for p in problems if p.startswith("Incidents in ")] == ["Incidents in Prod: RuntimeError: boom"]

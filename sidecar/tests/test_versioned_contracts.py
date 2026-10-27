@@ -263,6 +263,7 @@ def test_a_prod_deprecation_is_told_once_not_again_as_a_product_change(svc, monk
     svc._local_platforms = {}  # the catalog asks who's signed in again
     svc._catalog().call("register_link", consumer="finance", alias="crm_customers", product_id="crm/customers",
                         port="customers", reads={"prod": "prod"})
+    svc._catalog().call("add_admin", user="ops@example.com")  # ops publishes a product they don't own
     monkeypatch.setattr(svc, "_user", lambda: "bo@example.com")  # follows, with no link of their own
     svc._local_platforms = {}
     svc.platform_follow("crm/customers")
@@ -399,3 +400,45 @@ def test_a_deprecated_product_without_a_date_says_none_is_set(tmp_path):
     assert notes == ["links/cust: crm/customers is deprecated, with no stop date set yet; ask its owner what replaces it"]
     _, notes = m.deprecated_links(project, [{"id": "crm/customers", "status": "deprecated", "deprecated_on": "soon"}])
     assert "its stop date soon can't be read" in notes[0]
+
+
+def _deprecate_with_a_reader(svc, monkeypatch):
+    svc._catalog().call("register_product", product=_product(), ports=[], env="dev")
+    svc._catalog().call("register_link", consumer="finance", alias="crm_customers", product_id="crm/customers",
+                        port="customers", reads={"dev": "dev"})
+    sent = []
+    monkeypatch.setattr(svc, "platform_notify", lambda events: sent.extend(events) or {"sent": len(events)})
+    _version(svc, "1", access="private", status="deprecated", deprecated_on=(TODAY + dt.timedelta(days=60)).isoformat())
+    return sent
+
+
+def test_a_notice_that_cant_be_made_doesnt_fail_the_publish(svc, monkeypatch):
+    from fabric_desktop import governance_notices as notices
+    sent = _deprecate_with_a_reader(svc, monkeypatch)
+
+    def broken(product, consumers):
+        raise KeyError("id")
+    monkeypatch.setattr(notices, "product_deprecated", broken)
+    out = svc.mesh_publish("dev")
+    assert out["published"] == ["customers"] and sent == []
+    assert out["problems"] == ["products/customers is published, but its Teams notice couldn't be made: KeyError: 'id'"]
+
+
+def test_notices_for_products_already_published_still_go_when_a_later_one_fails(svc, monkeypatch):
+    sent = _deprecate_with_a_reader(svc, monkeypatch)
+    svc.mesh_save_product({"name": "zz_orders", "access": "private", "status": "published", "version": "1",
+                           "ports": [{"name": "orders", "entity": "silver.customers"}]})
+    catalog = svc._catalog()
+    real = catalog.call
+
+    def call(method, **kw):
+        if method == "register_product" and kw["product"]["name"] == "zz_orders":
+            raise core.PlatformError("register_product failed")
+        return real(method, **kw)
+    monkeypatch.setattr(catalog, "call", call)
+    monkeypatch.setattr(svc, "_catalog", lambda: catalog)
+    assert list(svc._project().products) == ["customers", "zz_orders"]
+    with pytest.raises(core.PlatformError, match="register_product failed"):
+        svc.mesh_publish("dev")
+    # customers is in the catalog as deprecated now, so the next publish wouldn't tell its reader again.
+    assert [e["kind"] for e in sent] == ["product.deprecated"]

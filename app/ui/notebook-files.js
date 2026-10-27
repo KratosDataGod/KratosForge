@@ -381,7 +381,7 @@ const NB_RENAME_FIX = {
   environment: "Pick its environment again on the notebook's status bar.",
   "Fabric link": "Publish it once to link it to its Fabric item again.",
   versions: "Its earlier versions are still kept under the old name in the app's notebook-versions folder.",
-  schedules: "Open Monitor > Schedules and point its schedule on this PC at the new name.",
+  schedules: "Open Monitor > KratosForge > Schedules and point its schedule on this PC at the new name.",
 };
 
 // After a move or folder rename: a warning naming what didn't follow, and what to do. Pure (ui.test.cjs).

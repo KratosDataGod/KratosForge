@@ -517,6 +517,8 @@ def test_an_ended_action_never_changes(tmp_path):
     (FabricError("GET /x failed with 429: Too Many Requests"), "throttled"),
     (ConnectionError("Failed to establish a new connection"), "offline"),
     (LookupError("Assign a workspace to Test first"), "not_set_up"),
+    (LookupError("LH_Meta doesn't exist in this environment's workspace yet; promote to it first"), "not_set_up"),
+    (LookupError("LH_Meta doesn't exist in the test workspace yet; promote to test first"), "not_set_up"),
     (RuntimeError("weird"), "error"),
 ])
 def test_read_failures_are_classified(exc, state):

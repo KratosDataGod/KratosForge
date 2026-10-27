@@ -903,7 +903,7 @@ class PlatformMixin:
         if project is not None:
             summary = read("Incidents", self.incidents_summary) or {"envs": []}  # type: ignore[attr-defined]
             incidents = [i for e in summary["envs"] for i in e["incidents"]]
-            problems += [f"Incidents in {e['env']}: {e['observation'].get('detail') or e['observation'].get('label')}"
+            problems += [f"Incidents in {e['env'].title()}: {e['observation'].get('detail') or e['observation'].get('label')}"
                          for e in summary["envs"] if e["count"] is None and e["observation"].get("state") != "not_set_up"]
         reach = home.incident_reach(products, incidents)
         reviews = (read("Access reviews", lambda: catalog.call("access_reviews"))
@@ -1090,44 +1090,28 @@ class PlatformMixin:
         before = self._published_before(catalog, project)
         done, problems, events, tell = [], [], [], []
         old_function = False
-        for p in project.products.values():
-            if p.status == "draft":
-                continue
-            ports = [{"port": port["name"], **self._port_location(project, env, port["entity"])} for port in p.ports]
-            info = p.summary() | {"project": name, "domain": project.info.get("domain", "")}
-            out = catalog.call("register_product", product=info, ports=ports, env=env)
-            done.append(p.name)
-            # The port history came with versioned contracts: an older UDF_Platform publishes without it.
-            old_function = old_function or not (isinstance(out, dict) and "history" in out)
-            told: set[str] = set()  # the people the deprecation notice names
-            if p.status == "deprecated":
-                if before is None:
-                    problems.append(f"products/{p.name} is deprecated, but the catalog's readers couldn't be read, so "
-                                    "no Teams notice went to them. Publish again to try once more.")
-                else:
-                    was = before.get(f"{name}/{p.name}")
-                    stops = str(info.get("deprecated_on") or "")
-                    if was and (was.get("status") != "deprecated" or str(was.get("deprecated_on") or "") != stops):
-                        event = notices.product_deprecated(was | {"deprecated_on": stops, "domain_id": info["domain"]},
-                                                           was.get("consumers") or [])
-                        if event:
-                            told = {u.lower() for u in event["to"]["people"]}
-                            events.append(event)
-                            tell += [{"product": was["id"], "project": c["consumer_project"], "alias": c.get("alias", ""),
-                                      "deprecated_on": stops} for c in was.get("consumers") or []
-                                     if c.get("consumer_project") and c["consumer_project"] != name]
-            # Readers hear about changes in Prod, the environment their own projects read. People the
-            # deprecation notice just named don't hear about the deprecation twice; other followers do.
-            changes = (out.get("changes") or []) if isinstance(out, dict) else []
-            if env == "prod" and changes:
-                me = (self._user() or "").lower()  # type: ignore[attr-defined]
-                followers = [f for f in out.get("followers") or [] if f.lower() != me]  # the promoter knows
-                rest = [c for c in changes if not c.startswith("Deprecated")]
-                for people, said, suffix in (([f for f in followers if f.lower() not in told], changes, ""),
-                                             ([f for f in followers if f.lower() in told], rest, ":told")):
-                    event = notices.product_changed(out, said, people, env)
-                    if event:
-                        events.append(event | {"dedupe": event["dedupe"] + suffix})
+        try:
+            for p in project.products.values():
+                if p.status == "draft":
+                    continue
+                ports = [{"port": port["name"], **self._port_location(project, env, port["entity"])} for port in p.ports]
+                info = p.summary() | {"project": name, "domain": project.info.get("domain", "")}
+                out = catalog.call("register_product", product=info, ports=ports, env=env)
+                done.append(p.name)
+                # The port history came with versioned contracts: an older UDF_Platform publishes without it.
+                old_function = old_function or not (isinstance(out, dict) and "history" in out)
+                try:
+                    self._publish_notices(p, info, out, before, name, env, events, tell, problems)
+                except Exception as exc:  # noqa: BLE001 - the product is published; a notice never fails that
+                    problem = f"products/{p.name} is published, but its Teams notice couldn't be made: {describe(exc)}"
+                    _log.warning(problem)
+                    problems.append(problem)
+        except Exception:
+            # A later product failed to publish: the notices for the ones already published still go,
+            # since the next publish finds them unchanged and wouldn't send them again.
+            if events:
+                self._governance_notify(lambda: events)  # type: ignore[attr-defined]
+            raise
         if old_function:
             problems.append("Published, but the catalog keeps no port history yet: UDF_Platform is older than "
                             "versioned contracts. A platform admin runs Platform > Settings > Finish or repair once.")
@@ -1137,6 +1121,40 @@ class PlatformMixin:
                 problems.append(problem)
         # Who was told, and what didn't happen, only when there is something to say.
         return {"env": env, "published": done} | ({"told": tell} if tell else {}) | ({"problems": problems} if problems else {})
+
+    def _publish_notices(self, p: Any, info: dict[str, Any], out: Any, before: dict[str, dict[str, Any]] | None,
+                         name: str, env: str, events: list[dict[str, Any]], tell: list[dict[str, Any]],
+                         problems: list[str]) -> None:
+        """The Teams notices one published product calls for, added to ``events`` and ``tell``."""
+        told: set[str] = set()  # the people the deprecation notice names
+        if p.status == "deprecated":
+            if before is None:
+                problems.append(f"products/{p.name} is deprecated, but the catalog's readers couldn't be read, so "
+                                "no Teams notice went to them. Publish again to try once more.")
+            else:
+                was = before.get(f"{name}/{p.name}")
+                stops = str(info.get("deprecated_on") or "")
+                if was and (was.get("status") != "deprecated" or str(was.get("deprecated_on") or "") != stops):
+                    consumers = [c for c in was.get("consumers") or [] if isinstance(c, dict)]
+                    event = notices.product_deprecated(was | {"deprecated_on": stops, "domain_id": info["domain"]}, consumers)
+                    if event:
+                        told = {u.lower() for u in event["to"]["people"]}
+                        events.append(event)
+                        tell += [{"product": was["id"], "project": c["consumer_project"], "alias": c.get("alias", ""),
+                                  "deprecated_on": stops} for c in consumers
+                                 if c.get("consumer_project") and c["consumer_project"] != name]
+        # Readers hear about changes in Prod, the environment their own projects read. People the
+        # deprecation notice just named don't hear about the deprecation twice; other followers do.
+        changes = (out.get("changes") or []) if isinstance(out, dict) else []
+        if env == "prod" and changes:
+            me = (self._user() or "").lower()  # type: ignore[attr-defined]
+            followers = [f for f in out.get("followers") or [] if isinstance(f, str) and f.lower() != me]  # the promoter knows
+            rest = [c for c in changes if not str(c).startswith("Deprecated")]
+            for people, said, suffix in (([f for f in followers if f.lower() not in told], changes, ""),
+                                         ([f for f in followers if f.lower() in told], rest, ":told")):
+                event = notices.product_changed(out, said, people, env)
+                if event:
+                    events.append(event | {"dedupe": event["dedupe"] + suffix})
 
     def _published_before(self, catalog: Any, project: Any) -> dict[str, dict[str, Any]] | None:
         """The catalog's products before a publish, read only when one of the project's is deprecated

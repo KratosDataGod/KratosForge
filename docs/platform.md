@@ -86,6 +86,12 @@ Its tabs are **Overview**, **Requests** (with how many are waiting), **Set up** 
 - **Requests:** what domain teams asked for, and what was decided. **New request** asks for a workspace, access to a workspace, a domain or an exception to a policy (Preview), and links to the other kinds.
 - **Audit** and **Settings** (where each environment's platform is, and its admins).
 
+### Owners (Preview)
+
+**Platform > Overview > Owners** lists every domain, published data product and landing zone source that needs attention before it matters at 2am. Each is listed for one of three reasons: it has **no owner**; it has **no second owner** to cover; or an owner **hasn't used the platform** for 60 days (or ever). Nothing without an owner comes first, and **Open** goes to where its owner is set. Owners are read from each item's owners field. An owner written as a name rather than a sign-in (such as *Sales team*) can't be checked for being quiet, and the card says so.
+
+"Used the platform" means the app opened the platform as them (recorded once a day in `catalog.person`), or they made any change in the audit log. Quiet owners are checked only when your organization's policy turns on `platform_presence` ([Azure setup](azure-setup.md)); it is off by default because everyone who reads the catalog can see those dates ([Security](security.md#personal-data-in-the-platforms-catalog)). With it off, the card still lists missing and single owners. No directory is read: KratosForge doesn't ask for Microsoft Graph. A platform made before this shows what to do until a platform admin runs **Finish or repair** once.
+
 ## Requests
 
 What only someone else may give is asked for, not taken:

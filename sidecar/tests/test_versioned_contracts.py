@@ -129,6 +129,54 @@ def test_a_new_link_accepts_the_products_current_version(svc):
     assert svc._project().links["old"].accepts == ""
 
 
+
+def _stored(svc, alias):
+    return next(c for p in svc._catalog().call("list_products") if p["id"] == "sales/orders"
+                for c in p["consumers"] if c["alias"] == alias)
+
+
+def test_saving_a_link_again_from_new_link_keeps_its_accepts_and_columns(svc):
+    svc._catalog().call("register_product", product=_product(project="sales", name="orders", version="3"),
+                        ports=[dict(PORT[0], port="orders")], env="prod")
+    svc.mesh_save_link({"alias": "orders", "product": "sales/orders", "port": "orders", "accepts": "3-4",
+                        "columns": {"customer_id": "int64"}})
+    # The New link dialog sends neither accepts nor columns.
+    svc.mesh_save_link({"alias": "orders", "product": "sales/orders", "port": "orders"})
+    assert svc._project().links["orders"].accepts == "3-4"
+    assert _stored(svc, "orders")["accepts"] == "3-4" and _stored(svc, "orders")["columns"] == {"customer_id": "int64"}
+    # Sent on purpose as "", it reads any version.
+    svc.mesh_save_link({"alias": "orders", "product": "sales/orders", "port": "orders", "accepts": ""})
+    assert svc._project().links["orders"].accepts == "" and _stored(svc, "orders")["accepts"] == ""
+
+
+def test_accepts_widened_in_the_link_file_reaches_the_catalog_on_publish(svc):
+    svc._catalog().call("register_product", product=_product(project="sales", name="orders", version="3"),
+                        ports=[dict(PORT[0], port="orders")], env="prod")
+    svc.mesh_save_link({"alias": "orders", "product": "sales/orders", "port": "orders"})
+    path = svc._project().links["orders"].path
+    path.write_text(path.read_text(encoding="utf-8").replace('accepts = "3"', 'accepts = "3-4"'), encoding="utf-8")
+    svc._project().reload()
+    assert _stored(svc, "orders")["accepts"] == "3", "editing the file alone doesn't reach the catalog"
+    _version(svc, "1", access="private")  # private: publishing needs no catalog text
+    links = lambda: len([a for a in svc._catalog().call("audit") if a["action"] == "link"])  # noqa: E731
+    out = svc.mesh_publish("dev")
+    assert _stored(svc, "orders")["accepts"] == "3-4" and not out.get("problems")
+    once = links()
+    svc.mesh_publish("dev")
+    assert links() == once, "a second publish finds nothing different and sends nothing"
+
+
+def test_a_link_the_catalog_refuses_on_publish_is_a_problem_not_a_failed_publish(svc):
+    svc._catalog().call("register_product", product=_product(project="sales", name="orders", access="private"),
+                        ports=[dict(PORT[0], port="orders")], env="prod")
+    write(svc._project().root, "metadata/links/orders.toml", 'alias = "orders"\nproduct = "sales/orders"\nport = "orders"\n')
+    svc._project().reload()
+    _version(svc, "1", access="private")
+    out = svc.mesh_publish("dev")
+    assert out["published"] == ["customers"]
+    assert any("links/orders isn't in the catalog as its file says" in p and "private" in p for p in out["problems"])
+
+
 # --------------------------------------------------------------------------- the promote check
 
 
@@ -139,7 +187,7 @@ def test_a_new_breaking_version_is_blocked_by_a_link_that_doesnt_accept_it(svc):
     errors, notes = _breaking(svc)
     assert errors == ["products/customers: port customers drops email, and 1 other project reads it in test (finance). "
                       "Version 2 is outside what 1 link accepts: finance (link customers accepts 1). Its project can "
-                      "widen accepts in the link (for example accepts = \"1-2\") once it reads the new version, or "
+                      "widen accepts in the link's file (for example accepts = \"1-2\") and promote, once it reads the new version, or "
                       "keep the column"]
     _link(svc, accepts="1-2")  # widened by its project
     errors, notes = _breaking(svc)

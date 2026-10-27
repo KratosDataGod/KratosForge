@@ -37,7 +37,7 @@ test("each Monitor section has Pop out, marked Preview", { skip }, async () => {
   // The runs list's Pop out is the page's button, top right; the hub's is on its band.
   const places = await main.page.$$eval(".page.monitor .page-head .head-actions, .page.monitor .monitor-band", (els) => els.map((b) => b.textContent));
   assert.strictEqual(places.length, 2);
-  for (const place of places) assert.match(place, /Pop outPreview/);
+  for (const place of places) assert.match(place, /Pop out( runs)?Preview/);
 });
 
 test("popping out the runs list leaves a band and gives Fabric's hub the page", { skip }, async () => {

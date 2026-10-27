@@ -216,7 +216,7 @@ function renderMetaNoProject(p) {
   const group = metaGroupOf(tab);
   setView(meshPage({
     intro: pageIntro("Your organization's data products, the requests on them and who owns what. ", learnMore("data-mesh")),
-    // Set up a project is the page's own button, after the tab's.
+    // Set up a project is the page's own button, before the tab's so the tab's primary stays last.
     actions: null,
     tabs: [h("div", { class: "subtabs meta-groups" }, groups.map(([id, label, tabs]) =>
       h("button", { class: `tab${group[0] === id ? " active" : ""}`, onclick: () => goMeta(shown(tabs)[0][0]) },
@@ -226,7 +226,7 @@ function renderMetaNoProject(p) {
       h("button", { class: tab === id ? "on" : null, "aria-pressed": String(tab === id), onclick: () => goMeta(id) }, label))) : null,
     body,
   }));
-  if (p.presets) meshSlots.actions.after(h("div", { class: "head-actions" }, btn("Set up a project", "add", () => renderMetaSetup(p), "tool outline")));
+  if (p.presets) meshSlots.actions.before(h("div", { class: "head-actions" }, btn("Set up a project", "add", () => renderMetaSetup(p), "tool outline")));
   return { home: renderMeshHomeTab, catalog: renderMeshCatalogTab, requests: renderMeshRequestsTab, domains: renderMeshOrgDomainsTab,
     overview: renderMeshOverviewTab }[tab](body, p);
 }

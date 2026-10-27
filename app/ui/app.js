@@ -1025,7 +1025,7 @@ async function renderMonitor() {
   setView(h("div", { class: `page monitor${fabricShown ? "" : " no-fabric"}${runsOut ? " runs-out" : ""}` },
     POP_OUT ? null : h("div", { class: "page-head" },
       h("div", {}, h("h1", {}, "Monitor"), h("p", { class: "sub monitor-context" }, monitorAbout(...about))),
-      h("div", { class: "head-actions" }, runsOut ? null : popOutButton("runs"))),
+      h("div", { class: "head-actions" }, runsOut ? null : popOutButton("runs", "Pop out runs"))),
     runsOut ? poppedOutBand("runs", "From KratosForge", "monitor-local") : [tabs, viewRow, note,
       h("section", { class: "card monitor-local" }, local)],
     !fabricHere ? null : fabricOut ? poppedOutBand("fabric", "In Fabric", "monitor-fabric") : h("section", { class: "card monitor-fabric" },

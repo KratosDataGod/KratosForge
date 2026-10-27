@@ -2430,3 +2430,8 @@ html[data-motion-level="0"] .mo-ghost { display: none; }
 @media (max-width: 1100px) { .wh-mon-grid { grid-template-columns: minmax(0, 1fr); } }
 .wh-mon-auto { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
 .wh-mon-auto li { display: flex; align-items: center; gap: 8px; }
+
+/* Landing source requests with a Copy job (scale plan 4.1) */
+.src-tables { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 6px; }
+.src-table-row { display: grid; grid-template-columns: 2fr 2fr 1.4fr 36px; gap: 6px; align-items: center; }
+.copy-job-line { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; padding: 8px 0; border-top: 1px solid var(--border); }

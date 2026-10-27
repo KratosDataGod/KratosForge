@@ -5186,3 +5186,27 @@ test("the new build banner shows only a newer build, through the existing update
   assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<\/header>\n  <div id="update-root"><\/div>/);
 });
 
+
+// Scale plan 4.1 (D2): a team asks for a source with a Copy job, a platform admin approves and
+// approving makes it. The request reads connections only; the approve confirm names every write
+// and that runs use capacity; Run now asks first.
+test("a source request can ask for a Copy job, and approving says what it makes", () => {
+  const src = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  const fn = (name) => src.match(new RegExp(`(async )?function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  assert.match(fn("requestDialog"), /if \(kind === "source"\) return sourceRequestDialog\(target, done\);/);
+  const ask = fn("sourceRequestDialog");
+  assert.deepStrictEqual([...new Set([...ask.matchAll(/(?:rpc|reqQuietly|platformCall)\("([a-z_]+)"/g)].map((m) => m[1]))].sort(),
+    ["fabric_connections", "platform_request"], "asking reads connections and sends the request, nothing else");
+  assert.match(ask, /detail\.copy = \{ connection_id: conn\.value/);
+  const confirm = fn("confirmCopyJob");
+  assert.match(confirm, /CJ_Landing_\$\{r\.target\}/);
+  assert.match(confirm, /Files\/\$\{r\.target\}\/\$\{t\.folder\}\//);
+  assert.match(confirm, /starts no run\. Each run uses capacity/);
+  assert.match(fn("confirmApproval"), /if \(r\.kind === "source" && d\.copy\) return confirmCopyJob\(r\);/);
+  const run = fn("copyJobLine");
+  assert.match(run, /confirmDialog\(`Run \$\{j\.name\} now\?`[\s\S]*uses capacity[\s\S]*platformCall\("run_fabric_item_now"/);
+  assert.match(run, /adminOnly\(run\)/);
+  assert.match(run, /riskGate\(\{ id: `fabric:\$\{j\.workspace_id\}:\$\{j\.id\}`, action: "run_item"/, "Run now spends capacity: the risk check comes first");
+  assert.match(confirm, /central \? landsIn\(r\.lands_in, central\)/, "the approver sees the zone and lakehouse it lands in");
+  assert.match(fn("landsIn"), /secure \? "secure " : ""\}zone \$\{where\.zone_name\}/);
+});

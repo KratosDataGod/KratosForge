@@ -712,6 +712,7 @@ def register_product(db: Db, product: dict[str, Any], ports: list[dict[str, Any]
         raise PlatformError(f"status must be one of {', '.join(STATUS)}")
     ensure_contracts(db)
     pid = f"{project}/{name}"
+    _may_publish(db, pid, _row(db, "product", "id", pid), product, by)
     ensure_follows(db)
     before = _row(db, "product_env", "id", f"{pid}:{env}")
     old_ports = {r["port"]: json.loads(r["columns"] or "{}")
@@ -744,6 +745,28 @@ def register_product(db: Db, product: dict[str, Any], ports: list[dict[str, Any]
     if changes:
         out["followers"] = _followers(db, pid)
     return out
+
+def _may_publish(db: Db, pid: str, existing: dict[str, Any] | None, product: dict[str, Any], by: str) -> None:
+    """Only a product's owners, whoever last published it, or a platform admin may publish it again.
+    A first publish must name the publisher among its owners, unless its owners are a team or group
+    name rather than people (no email), which the platform can't check."""
+    if is_admin(db, by):
+        return
+    who = _who(by)
+    if existing is not None:
+        owners, last = _product_owners(existing), _who(existing.get("updated_by"))
+        # A row from before this check that names no owner and no publisher has no one to ask.
+        if not owners and not last:
+            return
+        if who and (who in owners or who == last):
+            return
+        raise PlatformError(f"Only {pid}'s owners or a platform admin can publish it. Its owners are "
+                            f"{existing.get('owner') or 'not set'}; ask one of them, or a platform admin.")
+    people = {x for x in _names(product.get("owner")) if "@" in x}
+    if people and who not in people:
+        raise PlatformError(f"{pid} names {product.get('owner')} as its owners, but you publish it: add yourself "
+                            "to its owners, or ask one of them or a platform admin to publish it.")
+
 
 def _port_versions(db: Db, product_id: str, port: str = "", env: str = "") -> list[dict[str, Any]]:
     """A product's port history, newest first. Reads only: none before the table exists."""

@@ -9,6 +9,18 @@ KratosForge is used by people who learned where things are. New features go wher
 - The rail grows only for a new kind of work, and only after a mockup is agreed.
 - Settings for a feature go on the Settings page (`settings.js`), in an existing section where one fits.
 
+## Page layout
+
+Every page with tabs is laid out the same way, so moving between tabs never moves the controls. Data mesh follows it (`meshPage` and `meshChrome` in `app/ui/meta.js`).
+
+1. **Header**: the title, one short context line under it (what is open, not how it works), and this tab's buttons at top right with the main one last. A button lives in one place only: not in the header and again in a card.
+2. **Tabs**, then any second row of section tabs.
+3. **Banners**, only when something needs fixing, in plain words (never a raw exception).
+4. **View row**: the tab's views as one segmented control on the left; search, filters and Refresh on the right.
+5. **Working area**: white cards at the same edge and width. A card doesn't repeat the tab's name as its title.
+
+Paragraphs that explain the page go in its How this works panel (as a `more` part), which folds behind the info button.
+
 ## Registering a feature
 
 Every page registers itself once:

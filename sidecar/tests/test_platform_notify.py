@@ -61,7 +61,7 @@ def test_a_requests_reason_never_reaches_teams_but_a_shortcuts_break_does():
     assert title == "Waiting on you: Access to LH_Sales"
     assert not any("Q3" in line for line in lines)
     assert lines[0] == "For ana@contoso.com, owners of domain sales."
-    assert lines[-1] == "Open it in KratosForge > Platform > Requests."
+    assert lines[-1] == "Open it in KratosForge > Data mesh > Requests."
     title, lines = message(event("shortcut.broken", "s1"))
     assert title.startswith("Shortcut broken") and "Its target table was deleted" in lines
 

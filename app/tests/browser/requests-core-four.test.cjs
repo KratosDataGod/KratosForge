@@ -1,4 +1,4 @@
-// Governance plan step 10: Platform > Requests' New request dialog for a workspace, workspace access,
+// Governance plan step 10: Data mesh > Requests' New request dialog for a workspace, workspace access,
 // a domain and a policy exception, their rows, and the confirmation before an approval makes
 // something in Fabric (see harness.cjs for how to run it).
 const { test, before, after } = require("node:test");
@@ -46,7 +46,7 @@ before(async () => {
     governance_overview: () => ({ policies: [{ id: "no-pii-in-dev", name: "No PII in Dev", current_version: 1, status: "published" }],
       domains: [{ id: "sales", name: "Sales" }], projects: ["hr-analytics", "crm"], exceptions: [], problems: [] }),
   } });
-  await page().evaluate(() => { state.user = "ana@contoso.com"; goPlatform("requests"); });
+  await page().evaluate(() => { state.user = "ana@contoso.com"; meshRequests.show = "all"; goPlatform("requests"); });
   await page().waitForSelector('tr[data-request="r1"]');
 });
 after(async () => { if (app) await app.close(); });

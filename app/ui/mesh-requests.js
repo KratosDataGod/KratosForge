@@ -1,6 +1,6 @@
 // Data mesh > Requests: everyone's inbox. Waiting on you is what you can decide (a product's owner its
 // access and change requests, a domain's owners new products, admins the rest); Sent by you is what
-// you asked for and what happened to it. The same requests and decisions as Platform > Requests.
+// you asked for and what happened to it. It was Platform > Requests; older links open it here.
 
 const meshRequests = { show: null };
 
@@ -17,7 +17,6 @@ async function renderMeshRequestsTab(body) {
   const waiting = all.filter(filters.waiting[0]).length;
   const show = filters[meshRequests.show] ? meshRequests.show : waiting || !all.some(filters.mine[0]) ? "waiting" : "mine";
   const shown = all.filter(filters[show][0]);
-  showWaiting(all.filter((r) => r.status === "waiting").length);
   const empty = { waiting: "Nothing is waiting on you.", mine: "You haven't asked for anything yet.", all: "No one has asked for anything yet." }[show];
   body.replaceChildren(withHowItWorks(h("div", { class: "card pad mesh-requests" },
     previewMarked("mesh", h("div", { class: "row" },

@@ -37,7 +37,7 @@ test("each gap says what it is, who owns it and why it's listed, with nobody own
   assert.match(await page().textContent('.owner-coverage tr[data-owned="product:crm/orders"]'), /Names, not sign-ins, can't be checked/);
   assert.match(await page().textContent('.owner-coverage tr[data-owned="domain:sales"]'), /hasn't used the platform for 61 days/);
   await page().click('.owner-coverage tr[data-owned="domain:finance"] button:text-is("Open")');
-  await page().waitForFunction(() => platformPage.tab === "domains");
+  await page().waitForFunction(() => state.view === "metadata" && state.meta.tab === "domains");
 });
 
 test("everything covered says so, and an older platform says what to do", { skip }, async () => {

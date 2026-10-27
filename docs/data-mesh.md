@@ -40,6 +40,10 @@ Home only reads: the catalog (products, requests, follows, access reviews, domai
 
 These are the same requests, buttons and checks as **Platform > Requests**: Approve does what was asked (for access, it gives the project access in the catalog), Accept on a data request records your reply and builds nothing, Decline records your note, and Withdraw takes back your own request. **Ask for data** and **New request** send one.
 
+## Domains (Preview)
+
+**Data mesh > Domains** has three tabs. **Domains** lists every domain and subdomain with its owners, the projects that joined it and their published data products, and **Access groups** for its Entra ID groups. Everyone sees it, with or without a project open; only platform admins see **Import from Fabric**, **New domain**, **Edit** and **Delete** (see [Domains come from Fabric](#domains-come-from-fabric)). It was Platform > Set up > Domains, and older links open it here. **Map** shows how domains feed each other (below). **This project** is the open project's own domain and workspaces (see [Join the mesh](#join-the-mesh)).
+
 ## The open project
 
 **Data mesh > Project** is the editor for the metadata project open on this PC: **Design**, **Runs**, **Quality**, **Products and links** (the project's own data products and its links to other teams') and **Deploy**. It opens on the tab you last used there. **New entity**, **Schedule** and **Run all** show on Project's tabs; problems that block runs and promote show on every tab.
@@ -70,7 +74,7 @@ Logic lives in Git and goes through review and promote. Catalog text lives in th
 
 ## Join the mesh
 
-**Data mesh > Domains > Domain and workspaces.** Pick your domain (and subdomain, if any), your team and a description, then choose **Join the mesh**. That writes `project.toml` at the top of the project:
+**Data mesh > Domains > This project.** Pick your domain (and subdomain, if any), your team and a description, then choose **Join the mesh**. That writes `project.toml` at the top of the project:
 
 ```toml
 [project]
@@ -81,7 +85,7 @@ team = "CRM analytics"
 format = 2
 ```
 
-Nothing else in the project changes, and a project without `project.toml` works exactly as before. Domains come from the platform; platform admins create them on **Platform > Domains** (also listed in **Your organization's domains** on this tab).
+Nothing else in the project changes, and a project without `project.toml` works exactly as before. Domains come from the platform; platform admins create them on **Data mesh > Domains > Domains**.
 
 ## Domains come from Fabric
 
@@ -91,20 +95,20 @@ Each domain's roles (owners, contributors, workspace admins, creators, readers, 
 
 | Step | Who | Needs |
 | --- | --- | --- |
-| **Platform > Domains > Import from Fabric** copies every Fabric domain and subdomain into the platform's catalog | A platform admin who is also a **Fabric administrator** | Fabric's domain list is an admin API (`GET /v1/admin/domains`, `Tenant.Read.All`). KratosForge asks for it only at this step. Each domain's admins are read too (`GET /v1/admin/domains/{id}/roleAssignments`, same permission). No app registration |
-| **Platform > Domains > New domain** creates the domain or subdomain in Fabric, then keeps it in the platform linked to it (Preview) | A platform admin who is also a **Fabric administrator** | `POST /v1/admin/domains` with `Tenant.ReadWrite.All`, asked for only at this step. The platform's checks (name, parent, platform admin) run first, so a domain the platform would refuse is never created in Fabric. Someone who isn't a Fabric administrator is told so, and can save the domain in the platform only. Not yet tried against a real tenant |
+| **Import from Fabric** on **Data mesh > Domains** copies every Fabric domain and subdomain into the platform's catalog | A platform admin who is also a **Fabric administrator** | Fabric's domain list is an admin API (`GET /v1/admin/domains`, `Tenant.Read.All`). KratosForge asks for it only at this step. Each domain's admins are read too (`GET /v1/admin/domains/{id}/roleAssignments`, same permission). No app registration |
+| **New domain** on **Data mesh > Domains** creates the domain or subdomain in Fabric, then keeps it in the platform linked to it (Preview) | A platform admin who is also a **Fabric administrator** | `POST /v1/admin/domains` with `Tenant.ReadWrite.All`, asked for only at this step. The platform's checks (name, parent, platform admin) run first, so a domain the platform would refuse is never created in Fabric. Someone who isn't a Fabric administrator is told so, and can save the domain in the platform only. Not yet tried against a real tenant |
 | Seeing the domains, joining one, and the mesh map on Home | Everyone | Nothing: the names are read from the platform's catalog |
-| **Data mesh > Domains** shows which Fabric domain each of the project's workspaces is in, with **Use it** to pick it | Anyone who can see the workspace | Nothing new: each workspace says its domain to its members. Without an import, only the domain's id is known, so the tab asks for a Fabric administrator to import |
+| **Data mesh > Domains > This project** shows which Fabric domain each of the project's workspaces is in, with **Use it** to pick it | Anyone who can see the workspace | Nothing new: each workspace says its domain to its members. Without an import, only the domain's id is known, so the tab asks for a Fabric administrator to import |
 
 How the import works:
 
 - A Fabric domain matches the catalog domain already linked to it, else one with the same name (domains created by hand before are kept and linked, so their projects don't change), else it's added with an id made from its name (`Finance & Risk` becomes `finance-risk`).
 - Imported domains follow Fabric: rename or move one in Fabric, then import again; the catalog id stays, so projects keep their domain. Their name and parent can't be changed in KratosForge. Owners and description are the platform's and stay as you set them.
-- Each domain's admins in Fabric are kept by name (no email) and shown as owners marked **From Fabric** on Platform > Domains, Data mesh > Domains and Home's mesh map, until you set the platform's own owners; then both show. They're for reading only: only the platform's owners can keep a domain's glossary terms or apply its policies. A domain whose admins can't be read keeps what the last import read, and the import says which.
-- A domain deleted in Fabric is reported and kept in the catalog, because projects may still use it. Delete it on **Platform > Domains** once nothing uses it.
+- Each domain's admins in Fabric are kept by name (no email) and shown as owners marked **From Fabric** on Data mesh > Domains and Home's mesh map, until you set the platform's own owners; then both show. They're for reading only: only the platform's owners can keep a domain's glossary terms or apply its policies. A domain whose admins can't be read keeps what the last import read, and the import says which.
+- A domain deleted in Fabric is reported and kept in the catalog, because projects may still use it. Delete it on **Data mesh > Domains** once nothing uses it.
 - Fabric allows one level of subdomains, like the mesh. Anything deeper is skipped and reported.
-- **New domain** on **Platform > Domains** still works for organizations that don't use Fabric domains; those show as "Only here".
-- Domains are created, imported and edited only on **Platform > Domains**. **Data mesh > Domains** lists them, read only, with **Manage in Platform**.
+- **New domain** on **Data mesh > Domains** still works for organizations that don't use Fabric domains; those show as "Only here".
+- Domains are created, imported and edited only on **Data mesh > Domains**, by platform admins. Everyone else sees the same list, read only, with each domain's owners, projects and published products. It was Platform > Set up > Domains; older links open it here.
 
 ## Workspaces by designation
 
@@ -117,7 +121,7 @@ One environment can spread its lakehouses over several workspaces, so access fol
 | Serve | Semantic models, reports | Report readers |
 | Sandbox | Anything | Whoever is trying something |
 
-On **Domain and workspaces**, pick or create a workspace for each designation and environment (a new one is named like `Sales Ingest - Test`). On **Design > Layers**, set each layer's **Workspace**. A layer with no designation stays in the environment's own workspace, and `LH_Meta` always does.
+On **Domains > This project**, pick or create a workspace for each designation and environment (a new one is named like `Sales Ingest - Test`). On **Design > Layers**, set each layer's **Workspace**. A layer with no designation stays in the environment's own workspace, and `LH_Meta` always does.
 
 ## Data products
 

@@ -1600,7 +1600,7 @@ def save_landing_zone(db: Db, zone: dict[str, Any], by: str = "") -> list[dict[s
     if domain:
         domain = domain_id(domain)
         if not _row(db, "domain", "id", domain):
-            raise PlatformError(f"domain {domain} doesn't exist: add it first in Platform > Set up > Domains")
+            raise PlatformError(f"domain {domain} doesn't exist: add it first in Data mesh > Domains")
     readers = zone["readers"] if "readers" in zone else json.loads(before.get("readers") or "[]")
     if isinstance(readers, str):
         readers = re.split(r"[,;\n]", readers)

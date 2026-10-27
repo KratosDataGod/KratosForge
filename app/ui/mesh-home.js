@@ -111,8 +111,8 @@ function mhOrg(g) {
         h("td", {}, h("b", {}, d.name)), h("td", {}, String(d.products)), h("td", {}, String(d.readers)),
         h("td", {}, d.products ? `${d.two_owners} of ${d.products}` : "—"),
         h("td", {}, d.needs.length ? d.needs.join(" · ") : h("span", { class: "muted-text" }, "Nothing"))))))
-      : emptyState({ title: "No domains yet", text: "A platform admin imports the organization's Fabric domains on Platform > Set up > Domains.",
-        action: btn("Open Domains", "building", () => goPlatform("domains"), "tool outline small") }));
+      : emptyState({ title: "No domains yet", text: "A platform admin imports the organization's Fabric domains on Data mesh > Domains.",
+        action: btn("Open Domains", "building", () => goMeta("domains"), "tool outline small") }));
   const stale = mhCard(`Waiting over ${g.stale_days} days`, btn("Open Requests", null, () => mhOpenRequests("all"), "tool link small"),
     g.stale.length ? h("ul", { class: "mh-list" }, g.stale.map((r) => h("li", {},
       h("span", { class: "grow" }, mhRequestText(r)), h("span", { class: "muted-text small" }, `${r.days} days`))))

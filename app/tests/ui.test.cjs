@@ -1096,20 +1096,23 @@ test("a failed save says so and keeps the notebook open and dirty", async () => 
   assert.strictEqual(nb.dirty, false);
 });
 
-// UX-009: domains, the glossary and platform setup each have one home, on the Platform page.
-test("domains, the glossary and platform setup are edited only on the Platform page", () => {
+// UX-009: domains, the glossary and platform setup each have one home: domains on Data mesh > Domains,
+// the glossary and setup on the Platform page.
+test("domains are edited only on Data mesh > Domains, the glossary and platform setup only on Platform", () => {
   const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
   const groups = meta.match(/const META_TAB_GROUPS = \[[\s\S]*?\n\];/)[0];
   assert.ok(!/"glossary"/.test(groups), "Data mesh still has a Glossary tab");
   const mesh = fs.readFileSync(path.join(ui, "mesh.js"), "utf8");
   const domainsTab = mesh.match(/async function renderMeshDomainsTab\([\s\S]*?\n}\n/)[0];
   for (const edit of ["domainDialog(", "importFabricDomains(", "platform_delete_domain"]) {
-    assert.ok(!domainsTab.includes(edit), `Data mesh > Domains still calls ${edit}`);
+    assert.ok(!domainsTab.includes(edit), `Domains > This project still calls ${edit}`);
   }
-  assert.match(domainsTab, /goPlatform\("domains"\)/);
-  assert.match(domainsTab, /goPlatform\("glossary"\)/);
   const platform = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
-  assert.match(platform, /importFabricDomains\(rerender\)/);
+  const orgDomains = platform.match(/async function renderMeshOrgDomainsTab\([\s\S]*?\n}\n/)[0];
+  assert.match(orgDomains, /importFabricDomains\(rerender\)/);
+  assert.match(orgDomains, /goPlatform\("glossary"\)/);
+  assert.match(groups, /\["domains", "Domains", "mesh"\]/);
+  assert.ok(!/"domains"/.test(platform.match(/const PLATFORM_TAB_BAR = \[[\s\S]*?\n\];/)[0]), "Platform still has a Domains tab");
   assert.match(platform, /platformSection\(\)/);
   const settings = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   assert.ok(!settings.includes("platformSection("), "Settings still sets up the platform");

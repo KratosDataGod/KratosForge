@@ -34,15 +34,15 @@ test("five tabs, and Requests shows how many are waiting", { skip }, async () =>
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "platform-tabs.png") });
 });
 
-test("Set up opens a menu of its four pages, and the tab then names the page", { skip }, async () => {
+test("Set up opens a menu of its three pages, and the tab then names the page", { skip }, async () => {
   await page().locator(".subtabs .tab-menu").first().click();
   const menu = page().getByRole("menu");
-  assert.deepStrictEqual(await menu.getByRole("menuitem").allTextContents(), ["Landing zone", "Business keys", "Domains", "Glossary"]);
-  await menu.getByRole("menuitem", { name: "Domains" }).click();
-  await page().waitForFunction(() => platformPage.tab === "domains");
+  assert.deepStrictEqual(await menu.getByRole("menuitem").allTextContents(), ["Landing zone", "Business keys", "Glossary"]);
+  await menu.getByRole("menuitem", { name: "Glossary" }).click();
+  await page().waitForFunction(() => platformPage.tab === "glossary");
   assert.deepStrictEqual(asked, [], "the count is kept from Overview");
   const setUp = page().locator(".subtabs .tab-menu").first();
-  assert.match(await setUp.textContent(), /Set up: Domains/);
+  assert.match(await setUp.textContent(), /Set up: Glossary/);
   assert.strictEqual(await setUp.getAttribute("aria-current"), "page");
 });
 

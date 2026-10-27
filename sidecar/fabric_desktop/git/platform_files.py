@@ -626,7 +626,7 @@ def plan(git: dict[str, Any], envs: dict[str, dict[str, Any]], catalog_env: str,
             why = (f"has parent {rec['parent']}, which is a subdomain itself. Subdomains go one level deep: "
                    "pick a top-level domain as the parent.")
         elif rec.get("fabric_domain_id") and dep is None:
-            why = "comes from Fabric. Import it from Fabric on Platform > Set up > Domains, then deploy again."
+            why = "comes from Fabric. Import it from Fabric on Data mesh > Domains, then deploy again."
         elif dep is not None and dep.get("fabric_domain_id", "") != rec.get("fabric_domain_id", ""):
             why = "is linked to a different Fabric domain in the platform."
         if why:

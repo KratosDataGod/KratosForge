@@ -361,7 +361,7 @@ class PlatformMixin:
         except FabricError as exc:
             if re.search(r"failed with 40[13]\b", str(exc)):
                 raise PermissionError("Only a Fabric administrator can read Fabric's domains. Ask one to open "
-                                      "Platform > Set up > Domains and choose Import from Fabric; after that, everyone "
+                                      "Data mesh > Domains and choose Import from Fabric; after that, everyone "
                                       "sees the domains here.") from exc
             raise
         unread = self._read_domain_admins(admin, fabric)

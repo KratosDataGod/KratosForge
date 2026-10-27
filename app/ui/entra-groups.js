@@ -1,4 +1,4 @@
-// Entra ID groups per domain (Preview): Platform > Set up > Domains > Access groups. Each of a domain's roles
+// Entra ID groups per domain (Preview): Data mesh > Domains > Access groups. Each of a domain's roles
 // (owners, creators, readers...) goes to one Entra ID security group, never to people. The dialog suggests a
 // name for each from the platform's naming pattern, lets owners link a group they already have instead, and
 // writes scripts (Graph PowerShell, az CLI, a CSV to build them by hand, and the Fabric role assignments) for

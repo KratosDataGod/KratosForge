@@ -30,7 +30,7 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
 | Semantic models | Best Practice Analyzer; TMDL and OSI conversion | PB-110, PB-112 | BPA live run next |
 | Governance and mesh | Enterprise governance foundation; data mesh | PB-059, PB-082, PB-111 | Reviews wait on the product owner; #828 draft |
 | Developer experience | UX oversight; action-first; VS Code | PB-102, PB-113, PB-109 | #827 open |
-| Testing and security | Codebase audit; engineering quality | PB-101, PB-103 | BQ-013 fix pending |
+| Testing and security | Codebase audit; engineering quality | PB-101, PB-103 | Working |
 | Release | Release management | | Working |
 
 ## Open pull requests

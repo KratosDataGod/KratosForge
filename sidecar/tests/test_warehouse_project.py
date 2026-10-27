@@ -258,6 +258,27 @@ def test_compare_lists_every_object_on_either_side(svc, repo):
     assert not audit.audited("wh_project_compare") and not audit.audited("wh_project_diff")
 
 
+def test_fabrics_own_schemas_are_never_imported_compared_or_deployed(svc, repo):
+    insights = "CREATE VIEW [queryinsights].[exec_requests_history] AS SELECT 1 AS x;\nGO\n"
+    out = svc.wh_project_write(str(repo), objs(("schema", "queryinsights", "queryinsights", "CREATE SCHEMA [queryinsights];"),
+                                               ("schema", "_rsc", "_rsc", "CREATE SCHEMA [_rsc];"),
+                                               ("view", "queryinsights", "exec_requests_history", insights),
+                                               ("table", "dbo", "DimCustomer", TABLE)), create="WH_Gold")
+    assert out["counts"] == {"added": 1, "changed": 0, "same": 0, "skipped": 3}
+    assert {r["why"] for r in out["skipped"]} == {wp.FABRIC_OWN}
+    project = repo / "WH_Gold.Warehouse"
+    assert not (project / "queryinsights").exists() and not (project / "Security").exists()
+    # A project imported before this fix keeps its file, but Compare and Deploy leave it out.
+    (project / "queryinsights" / "Views").mkdir(parents=True)
+    (project / "queryinsights" / "Views" / "exec_requests_history.sql").write_text(insights, encoding="utf-8")
+    warehouse = objs(("table", "dbo", "DimCustomer", TABLE), ("view", "QueryInsights", "exec_requests_history", insights),
+                     ("schema", "_rsc", "_rsc", "CREATE SCHEMA [_rsc];"))
+    cmp = svc.wh_project_compare(str(repo), "WH_Gold.Warehouse", warehouse)
+    assert [(r["name"], r["state"]) for r in cmp["objects"]] == [("DimCustomer", "same")]
+    assert cmp["unread"] == [{"path": "queryinsights/Views/exec_requests_history.sql", "why": wp.FABRIC_OWN}]
+    assert svc.wh_project_deploy_plan(str(repo), "WH_Gold.Warehouse", warehouse, environment="dev")["changes"] == []
+
+
 # ---- deploy (WH-13)
 
 

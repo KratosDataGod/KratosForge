@@ -16,7 +16,7 @@ from fabric_desktop.notebook import Kernel
 
 from test_side_by_side import CELLS, FakeFabric, call, payload, svc, tables, wait  # noqa: F401 - fixtures
 
-LINUX_AFFINITY = hasattr(os, "sched_setaffinity")
+AFFINITY = sys.platform == "win32" or hasattr(os, "sched_setaffinity")
 
 
 def code(source):
@@ -55,12 +55,12 @@ def test_env_names_the_cap_for_every_pool_that_reads_a_count():
     assert cpu_cap.env(2) == {"FABRIC_DESKTOP_CORES": "2", "POLARS_MAX_THREADS": "2", "PYTHON_CPU_COUNT": "2"}
 
 
-@pytest.mark.skipif(not LINUX_AFFINITY, reason="checked here with Linux affinity; Windows uses SetProcessAffinityMask")
+@pytest.mark.skipif(not AFFINITY, reason="no process affinity on this OS")
 def test_a_capped_process_and_the_processes_it_starts_get_only_those_cores():
     script = ("import os, subprocess, sys\n"
               "from fabric_desktop import cpu_cap\n"
-              "print(cpu_cap.from_env(), len(os.sched_getaffinity(0)), os.cpu_count())\n"
-              "print(subprocess.run([sys.executable, '-c', 'import os; print(len(os.sched_getaffinity(0)))'],\n"
+              "print(cpu_cap.from_env(), cpu_cap.allowed(), os.cpu_count())\n"
+              "print(subprocess.run([sys.executable, '-c', 'from fabric_desktop import cpu_cap; print(cpu_cap.allowed())'],\n"
               "                     capture_output=True, text=True).stdout.strip())\n")
     env = dict(os.environ, **cpu_cap.env(1), PYTHONPATH=os.pathsep.join(sys.path))
     out = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, env=env, timeout=60)
@@ -68,14 +68,14 @@ def test_a_capped_process_and_the_processes_it_starts_get_only_those_cores():
     assert out.stdout.split() == ["1", "1", "1", "1"]
 
 
-@pytest.mark.skipif(not LINUX_AFFINITY, reason="checked here with Linux affinity")
+@pytest.mark.skipif(not AFFINITY, reason="no process affinity on this OS")
 def test_a_process_kernel_with_cores_runs_its_cells_on_them():
     k = ProcessKernel()
     k.cores = 1
     try:
-        res = k.run("import os, duckdb, polars\n"
+        res = k.run("import os, duckdb, polars\nfrom fabric_desktop import cpu_cap\n"
                     "threads = lambda con: con.execute(\"select current_setting('threads')\").fetchone()[0]\n"
-                    "print(len(os.sched_getaffinity(0)), os.cpu_count(), polars.thread_pool_size(),\n"
+                    "print(cpu_cap.allowed(), os.cpu_count(), polars.thread_pool_size(),\n"
                     "      threads(duckdb.connect()), threads(duckdb.connect(':memory:', config={'threads': 3})),\n"
                     "      duckdb.sql(\"select current_setting('threads')\").fetchone()[0])")
         assert res["status"] == "ok", res

@@ -69,6 +69,25 @@ def _duckdb_threads(cores: int) -> None:
         _log.warning("Couldn't set DuckDB's default connection to %s threads: %s", cores, exc)
 
 
+def allowed() -> int | None:
+    """How many processors this process may run on now (its affinity), or None where that can't
+    be read."""
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        kernel32.GetProcessAffinityMask.argtypes = [wintypes.HANDLE, ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)]
+        mask, system = ctypes.c_size_t(), ctypes.c_size_t()
+        if not kernel32.GetProcessAffinityMask(kernel32.GetCurrentProcess(), ctypes.byref(mask), ctypes.byref(system)):
+            return None
+        return bin(mask.value).count("1")
+    if hasattr(os, "sched_getaffinity"):
+        return len(os.sched_getaffinity(0))
+    return None
+
+
 def limit(cores: int) -> bool:
     """Set this process's affinity to the first ``cores`` processors it may use now."""
     try:

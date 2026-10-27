@@ -28,7 +28,13 @@ All of it happens on the **Platform** page (central team, and requests from ever
 | **On call** | Whoever is on call | Active incidents that reach a data product, with its readers and owners, who to wake, landing sources late in Prod, shortcuts broken at their last check, and owner gaps |
 | **Organization** | The CDO and domain leads | Totals, one row per top-level domain (subdomains count toward their parent), and requests that have waited more than 5 days |
 
-Home only reads: the catalog (products, requests, follows, access reviews, domains, shortcuts, owner coverage), the landing zone on On call, and the incident lists of the project open on this PC. Each card opens the page that acts: **Decide** opens Platform > Requests, a product opens its page, an incident opens it in Monitor. Something it couldn't read is named at the top and its card says so, rather than showing a zero. Incidents need a project open, because incident lists belong to a project's environments.
+Home only reads: the catalog (products, requests, follows, access reviews, domains, shortcuts, owner coverage), the landing zone on On call, and the incident lists of the project open on this PC. Each card opens the page that acts: **Decide** opens [Requests](#requests-preview), a product opens its page, an incident opens it in Monitor. Something it couldn't read is named at the top and its card says so, rather than showing a zero. Incidents need a project open, because incident lists belong to a project's environments.
+
+## Requests (Preview)
+
+**Data mesh > Requests** is everyone's inbox for the mesh, and works with no project open. **Waiting on you** lists what you can decide: a data product's owner decides who else may read it and changes to it, a domain's owners answer requests for a new product from their domain, and platform admins decide the rest and can decide any request. **Sent by you** lists what you asked for, who decided it and their note. **Everything** shows every request in the catalog. It opens on Waiting on you when something waits on you, and on Sent by you otherwise.
+
+These are the same requests, buttons and checks as **Platform > Requests**: Approve does what was asked (for access, it gives the project access in the catalog), Accept on a data request records your reply and builds nothing, Decline records your note, and Withdraw takes back your own request. **Ask for data** and **New request** send one.
 
 ## From domains to tables
 

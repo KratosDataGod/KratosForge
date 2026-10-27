@@ -71,9 +71,10 @@ async function loadMetaProject() {
 
 // Data mesh's tabs, in groups so new features join a group instead of a long row.
 // [group id, label, [[tab id, label, preview feature id]]]. Home (mesh-home.js) is the mesh as each
-// person sees it and needs no project open; the page opens there.
+// person sees it, and Requests (mesh-requests.js) everyone's inbox; neither needs a project open.
 const META_TAB_GROUPS = [
   ["home", "Home", [["home", "Home", "mesh"]]],
+  ["requests", "Requests", [["requests", "Requests", "mesh"]]],
   ["overview", "Overview", [["overview", "Domains", "mesh"]]],
   ["design", "Design", [["entities", "Entities"], ["layers", "Layers"], ["keys", "Surrogate keys"], ["sources", "Source systems"]]],
   ["runs", "Runs", [["runs", "Runs"]]],
@@ -81,6 +82,9 @@ const META_TAB_GROUPS = [
   ["mesh", "Domains", [["domains", "Domain and workspaces", "mesh"], ["products", "Data products", "mesh"], ["links", "Links", "mesh"]]],
   ["deploy", "Deploy", [["environments", "Environments and promote"], ["model", "Semantic model", "model"]]],
 ];
+
+// The tabs that show the whole mesh rather than the open project, so they show without one.
+const META_NO_PROJECT = ["home", "requests"];
 
 function metaGroupOf(tab) {
   return META_TAB_GROUPS.find(([, , tabs]) => tabs.some(([id]) => id === tab)) || META_TAB_GROUPS[0];
@@ -97,7 +101,7 @@ async function renderMetadata() {
   setView(h("div", { class: "page" }, h("h1", {}, "Data mesh"), h("p", { class: "muted-text" }, "Loading the metadata project...")));
   const p = await loadMetaProject();
   if (state.view !== "metadata" || !p) return;
-  if (!p.path) return state.meta.tab === "home" && previewShown() ? renderMetaHomeOnly(p) : renderMetaSetup(p);
+  if (!p.path) return META_NO_PROJECT.includes(state.meta.tab) && previewShown() ? renderMetaNoProject(p) : renderMetaSetup(p);
   renderEnvBar();  // the top bar's environment picker waits for the project
   const m = state.meta;
   // A hidden preview tab falls back to its group's first tab.
@@ -128,7 +132,7 @@ async function renderMetadata() {
     visible(group[2]).length > 1 ? h("div", { class: "seg meta-tabs", role: "group", "aria-label": group[1] }, visible(group[2]).map(([id, label, previewId]) =>
       h("button", { class: m.tab === id ? "on" : null, onclick: () => goMeta(id) }, tabLabel(label, previewId)))) : null,
     body));
-  const render = { home: renderMeshHomeTab, overview: renderMeshOverviewTab, entities: renderEntitiesTab, layers: renderLayersTab, keys: renderKeysTab, sources: renderSourcesTab,
+  const render = { home: renderMeshHomeTab, requests: renderMeshRequestsTab, overview: renderMeshOverviewTab, entities: renderEntitiesTab, layers: renderLayersTab, keys: renderKeysTab, sources: renderSourcesTab,
     runs: renderRunsTab, health: renderHealthTab, model: renderModelTab, tests: renderTestsTab, environments: renderEnvTab,
     domains: renderMeshDomainsTab, products: renderMeshProductsTab, links: renderMeshLinksTab,
     exceptions: renderExceptionsTab }[m.tab];
@@ -136,16 +140,19 @@ async function renderMetadata() {
   await render(body, p);
 }
 
-// With no metadata project open, Home still shows the mesh: a CDO or on-call engineer needs no
-// project. The project's own tabs wait for one.
-function renderMetaHomeOnly(p) {
+// With no metadata project open, the mesh's own tabs still show: a CDO or on-call engineer needs no
+// project. The project's tabs wait for one.
+function renderMetaNoProject(p) {
   const body = h("div", { class: "meta-body" });
+  const tab = state.meta.tab;
   setView(h("div", { class: "page" },
     h("div", { class: "page-head" },
       h("div", {}, h("h1", {}, "Data mesh"), h("p", { class: "sub" }, "Your organization's data products, the requests on them and who owns what. ", learnMore("data-mesh"))),
       h("div", { class: "head-actions" }, btn("Set up a project", "add", () => renderMetaSetup(p), "tool outline"))),
+    h("div", { class: "subtabs meta-groups" }, META_TAB_GROUPS.filter(([id]) => META_NO_PROJECT.includes(id)).map(([id, label]) =>
+      h("button", { class: `tab${tab === id ? " active" : ""}`, onclick: () => goMeta(id) }, label))),
     body));
-  return renderMeshHomeTab(body, p);
+  return { home: renderMeshHomeTab, requests: renderMeshRequestsTab }[tab](body, p);
 }
 
 // Where an environment's runs execute: "local" (this PC) or "fabric" (the workspace's capacity).

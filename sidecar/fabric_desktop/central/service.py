@@ -25,7 +25,7 @@ from ..meta import mesh
 from ..meta.project import ENVIRONMENTS, GateError
 from ..onelake import FileStore, TableRef
 from ..redact import describe
-from . import core, keys_home
+from . import core, home, keys_home
 from . import setup as setup_mod
 from .client import FabricPlatform, LocalPlatform, PlatformKeys
 from .core import domain_id
@@ -836,6 +836,56 @@ class PlatformMixin:
                            "requests": len(requests)},
                 "needs_you": [r for r in requests if r.get("can_decide")], "mine": [r for r in requests if r.get("mine")],
                 "landing": landing, "recent": catalog.call("audit", limit=8), "problems": problems}
+
+    def mesh_home(self, view: str = "team") -> dict[str, Any]:
+        """Data mesh > Home for one of its three views (central/home.py): ``team``, ``oncall`` or
+        ``org``. Only reads: the catalog, the open project's incident lists and, on call, the
+        landing zone. A source that can't be read is named in ``problems`` and its part is left out."""
+        if view not in home.VIEWS:
+            raise ValueError(f"view is one of {', '.join(home.VIEWS)}")
+        catalog, problems = self._catalog(), []
+
+        def read(what: str, fn: Any) -> Any:
+            try:
+                return fn()
+            except Exception as exc:  # noqa: BLE001 - Home shows what it could read and names the rest
+                problems.append(f"{what}: {describe(exc)}")
+                return None
+
+        try:
+            products = catalog.call("list_products")
+            me = catalog.call("whoami")
+        except Exception as exc:  # noqa: BLE001 - without the catalog there is no mesh to show
+            return {"view": view, "problem": describe(exc)}
+        try:
+            project = mesh.identity(self._project())  # type: ignore[attr-defined]
+        except LookupError:
+            project = None
+        incidents = []
+        if project is not None:
+            summary = read("Incidents", self.incidents_summary) or {"envs": []}  # type: ignore[attr-defined]
+            incidents = [i for e in summary["envs"] for i in e["incidents"]]
+            problems += [f"Incidents in {e['env']}: {e['observation'].get('detail') or e['observation'].get('label')}"
+                         for e in summary["envs"] if e["count"] is None and e["observation"].get("state") != "not_set_up"]
+        reach = home.incident_reach(products, incidents)
+        reviews = (read("Access reviews", lambda: catalog.call("access_reviews"))
+                   if "access_reviews" in core.OPERATIONS else None)
+        out: dict[str, Any] = {"view": view, "me": me, "project": project, "incidents_read": project is not None}
+        if view == "team":
+            requests = read("Requests", lambda: catalog.call("list_requests")) or []
+            follows = read("Following", lambda: catalog.call("list_follows"))
+            out["team"] = home.team(me.get("user") or "", project, products, requests, follows, reviews, reach)
+        elif view == "oncall":
+            landing = read("Landing zone", lambda: self.platform_landing("prod"))
+            shortcuts = read("Shortcuts", lambda: catalog.call("list_seen_shortcuts"))
+            coverage = (read("Owners", self.platform_owner_coverage)  # type: ignore[attr-defined]
+                        if "owner_coverage" in core.OPERATIONS else None)
+            out["oncall"] = home.oncall(reach, landing, shortcuts, coverage)
+        else:
+            domains = read("Domains", lambda: catalog.call("list_domains")) or []
+            requests = read("Requests", lambda: catalog.call("list_requests", status="waiting")) or []
+            out["org"] = home.org(domains, products, requests, reviews, reach, dt.datetime.now(dt.timezone.utc))
+        return out | {"problems": problems}
 
     def mesh_map(self) -> dict[str, Any]:
         """The whole mesh for Home's map: domains and subdomains, the projects in each, their

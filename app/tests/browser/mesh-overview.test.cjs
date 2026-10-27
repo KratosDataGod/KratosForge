@@ -31,7 +31,7 @@ const mocks = {
 before(async () => {
   if (skip) return;
   app = await openApp({ mocks });
-  await page().evaluate(() => go("metadata"));
+  await page().evaluate(() => goMeta("overview"));
   await page().waitForSelector(".mf-domains");
 });
 after(async () => { if (app) await app.close(); });

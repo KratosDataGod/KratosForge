@@ -77,3 +77,15 @@ def test_practice_settings_come_from_the_policies_in_force(tmp_path):
     assert svc.governance_practice_settings("sql")["settings"] == {"SQ005": {"enabled": True, "severity": "Error"}}
     with pytest.raises(ValueError):
         svc.governance_practice_settings("model")
+
+
+def test_one_policy_turning_a_rule_off_doesnt_beat_one_turning_it_on(tmp_path):
+    from fabric_desktop.service import Service
+
+    svc = Service(root=tmp_path / "app")
+    svc.meta_init(str(tmp_path / "crm"), "3")
+    for pid, params in (("off", {"enabled": {"value": False}}), ("on", {})):
+        svc.governance_create({"id": pid, "name": pid, "category": "quality", "rule": "SQ002", "severity": "low", "params": params})
+        svc.governance_publish(pid)
+        svc.governance_assign(pid, "enterprise")
+    assert svc.governance_practice_settings("sql")["settings"] == {"SQ002": {"enabled": True, "severity": "Info"}}

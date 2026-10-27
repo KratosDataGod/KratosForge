@@ -382,6 +382,10 @@ A data product's page shows its **endorsement** badge (Certified, Promoted or Ma
 
 **Business terms** list each term with **Open in Purview**. The product's owner or a platform admin chooses **Add a term**, types the term and pastes its address from Purview (an `https` link on `purview.microsoft.com` or `web.purview.azure.com`). KratosForge doesn't read Purview. The details are in [Endorsement and business terms](data-mesh.md#endorsement-and-business-terms).
 
+### Tables, semantic models and reports (Preview)
+
+A data product's page groups what it offers into **Tables**, **Semantic models** and **Reports**; each model and report has its own endorsement badge. The product's owner or a platform admin chooses **Add a model** or **Add a report**, picks a workspace and then the item: the product records only the item's id, type, workspace id and display name, and nothing in Fabric changes. **Remove** asks first. On **Data mesh > Products**, **Has tables**, **Has models** and **Has reports** find products by what they offer, and a product's badge is its semantic model's endorsement. Details in [Tables, semantic models and reports](data-mesh.md#tables-semantic-models-and-reports-preview).
+
 ### Direct Lake check
 
 **Data mesh > Deploy > Semantic model** has a **Direct Lake check** card (Preview). Pick a model and a capacity, then **Check now**: it lists what would make the model fall back to DirectQuery, or fail, before anyone queries it. That covers tables past the capacity's Direct Lake limits, columns the Delta table no longer has, types Direct Lake can't read, and, when you tick the box, relationship keys that aren't unique and fact rows whose key has no match. It reads the model's definition from Fabric and each table's Delta log from OneLake and checks on this PC: it starts no Fabric job, though reading from OneLake uses capacity. Every check and the limits per capacity are in [Direct Lake check](direct-lake-check.md).

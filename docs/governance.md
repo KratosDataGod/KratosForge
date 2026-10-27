@@ -147,7 +147,7 @@ Each finding names its policy and what's wrong. Where a safe fix exists in the a
 | `contract.terms_linked`, `contract.endorsed` | `catalog.product_term` and `catalog.endorsement` ([endorsement and business terms](data-mesh.md#endorsement-and-business-terms)) |
 | `contract.description` | The product's description |
 
-`contract.endorsed` passes only when every one of the product's items is endorsed with an accepted value; a finding names the ones that aren't.
+`contract.endorsed` passes only when every one of the product's items is endorsed with an accepted value; a finding names the ones that aren't. Its items are the lakehouses the product's ports live in. Semantic models and reports grouped under a product (`catalog.product_item`, [Tables, semantic models and reports](data-mesh.md#tables-semantic-models-and-reports-preview)) show their own badges on its page and don't change this check.
 
 **Checkers that run in Fabric** are never started by Check now. Their last stored findings show with their date, or **not run**.
 

@@ -41,6 +41,8 @@ Tables (T-SQL schema.table; SQLite schema__table):
                          admin tenant scan last read it, so everyone sees it (Preview)
     catalog.product_term business terms on a data product: a name and a link to the term in Microsoft
                          Purview, typed by the product's owner; nothing reads Purview (Preview)
+    catalog.product_item a data product's semantic models and reports: the Fabric item's id, type, workspace id
+                         and display name, picked by the product's owner; nothing in Fabric changes (Preview)
     catalog.policy*      governance policies, their versions, assignments and history (policy.py)
 
 Who may change what (the caller is always who Fabric says it is, see udf.py):
@@ -49,7 +51,8 @@ Who may change what (the caller is always who Fabric says it is, see udf.py):
                          accepted shortcut risks, policy exceptions, endorsement scans, every product's
                          business terms, and every request
     domain owners        glossary terms of their domain
-    product owners       access requests to their product, and their product's business terms
+    product owners       access requests to their product, their product's business terms, and the semantic
+                         models and reports grouped under it
     everyone             reading, issuing keys from existing key tables, catalog text, products, links, requests
 """
 
@@ -219,6 +222,10 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
     # that span them), so the role uses it instead of the group the platform suggests (entra.py).
     "entra_group": [("id", "key"), ("domain_id", "text"), ("role", "text"), ("env", "text"), ("group_id", "text"),
                     ("group_name", "text"), ("linked_by", "text"), ("linked_at", "text")],
+    # A semantic model or report a product's owner put under the product, by its Fabric item id (product_id|item_id).
+    "product_item": [("id", "key"), ("product_id", "text"), ("item_id", "text"), ("item_type", "text"),
+                     ("workspace_id", "text"), ("workspace_name", "text"), ("item_name", "text"),
+                     ("added_by", "text"), ("added_at", "text")],
 }
 
 
@@ -255,6 +262,7 @@ def ensure_schema(db: Db) -> dict[str, Any]:
     created += ensure_grant_reviews(db)
     created += ensure_follows(db)
     created += ensure_entra_groups(db)
+    created += ensure_product_items(db)
     for hook in SCHEMA_HOOKS:
         created += hook(db)
     _upsert(db, "config", "setting", "name", {"name": "schema_version", "value": str(SCHEMA_VERSION)})
@@ -2642,6 +2650,95 @@ def remove_product_term(db: Db, product_id: str, term: str, by: str = "") -> lis
     return list_product_terms(db, product["id"])
 
 
+# --------------------------------------------------------------------------- product groups (Preview)
+# A data product offers tables (its ports, from the project's definition), semantic models and reports.
+# The product's owner picks a model or report from Fabric; the catalog keeps only its item id, type,
+# workspace id and display name. Nothing here writes to Fabric. Each item's endorsement is what the last
+# tenant scan read (catalog.endorsement), unknown until a scan has read it.
+
+ITEM_TYPES = ("SemanticModel", "Report")
+
+
+def ensure_product_items(db: Db) -> list[str]:
+    """catalog.product_item, added after trust badges: additive, safe to run again; adding calls it."""
+    if db.exists("catalog", "product_item"):
+        return []
+    db.run(f"CREATE TABLE {db.t('catalog', 'product_item')} ({', '.join(_column(db, n, k) for n, k in _CATALOG['product_item'])})")
+    db.commit()
+    return ["catalog.product_item"]
+
+
+def _item_out(db: Db, row: dict[str, Any]) -> dict[str, Any]:
+    seen = _row(db, "endorsement", "item_id", row["item_id"]) or {}
+    return {k: row.get(k) or "" for k in ("product_id", "item_id", "item_type", "workspace_id", "workspace_name",
+                                          "item_name", "added_by", "added_at")} | {
+        "endorsement": seen.get("endorsement") or None, "certified_by": seen.get("certified_by") or "",
+        "scanned_at": seen.get("scanned_at") or ""}
+
+
+def list_product_items(db: Db, product_id: str = "") -> list[dict[str, Any]]:
+    """The semantic models and reports under a product (every product's with no id), each with the
+    endorsement the last tenant scan read (None when none has: unknown, never guessed)."""
+    ensure_product_items(db)
+    ensure_trust_badges(db)
+    t = db.t("catalog", "product_item")
+    rows = (db.rows(f"SELECT * FROM {t} WHERE product_id = ?", (str(product_id),)) if product_id
+            else db.rows(f"SELECT * FROM {t}"))
+    order = {k: n for n, k in enumerate(ITEM_TYPES)}
+    return sorted((_item_out(db, r) for r in rows),
+                  key=lambda i: (i["product_id"], order.get(i["item_type"], 9), i["item_name"].lower(), i["item_id"]))
+
+
+def _fabric_id(value: Any, what: str) -> str:
+    text = str(value or "").strip().lower()
+    if not _GUID.match(text):
+        raise PlatformError(f"{what} needs its Fabric id")
+    return text
+
+
+def add_product_item(db: Db, product_id: str, item: dict[str, Any], by: str = "") -> list[dict[str, Any]]:
+    """Put a semantic model or report from Fabric under a product. The product's owner or a platform
+    admin. Records the item's id, type, workspace id and display name; nothing in Fabric changes. The
+    same item again updates its name."""
+    ensure_product_items(db)
+    product = _product(db, product_id)
+    if not _can_edit_terms(db, product, by):
+        raise PlatformError("Only the product's owner or a platform admin can add semantic models and reports")
+    item = dict(item or {})
+    kind = str(item.get("item_type") or "").strip()
+    if kind not in ITEM_TYPES:
+        raise PlatformError("A product groups semantic models and reports: item_type is SemanticModel or Report")
+    iid = _fabric_id(item.get("item_id"), "The item")
+    ws = _fabric_id(item.get("workspace_id"), "The item's workspace")
+    name = _SPACES.sub(" ", str(item.get("item_name") or "")).strip()
+    if not name or len(name) > MAX_BK:
+        raise PlatformError(f"The item needs its display name, up to {MAX_BK} characters")
+    row = {"id": f"{product['id']}|{iid}", "product_id": product["id"], "item_id": iid, "item_type": kind,
+           "workspace_id": ws, "workspace_name": _SPACES.sub(" ", str(item.get("workspace_name") or "")).strip()[:MAX_BK],
+           "item_name": name, "added_by": _who(by), "added_at": _now()}
+    _upsert(db, "catalog", "product_item", "id", row)
+    _audit(db, by, "add product item", product["id"], {"item_type": kind, "item_id": iid, "workspace_id": ws, "item_name": name})
+    db.commit()
+    return list_product_items(db, product["id"])
+
+
+def remove_product_item(db: Db, product_id: str, item_id: str, by: str = "") -> list[dict[str, Any]]:
+    """Take a semantic model or report off a product; the item stays in Fabric. The product's owner or a platform admin."""
+    ensure_product_items(db)
+    product = _product(db, product_id)
+    if not _can_edit_terms(db, product, by):
+        raise PlatformError("Only the product's owner or a platform admin can remove semantic models and reports")
+    iid = str(item_id or "").strip().lower()
+    found = _row(db, "product_item", "id", f"{product['id']}|{iid}")
+    if found is None:
+        raise PlatformError(f"{item_id} isn't a semantic model or report on {product['id']}")
+    db.run(f"DELETE FROM {db.t('catalog', 'product_item')} WHERE id = ?", (found["id"],))
+    _audit(db, by, "remove product item", product["id"],
+           {"item_type": found.get("item_type") or "", "item_id": iid, "item_name": found.get("item_name") or ""})
+    db.commit()
+    return list_product_items(db, product["id"])
+
+
 # Everything a caller (the app, a notebook, a report button) may ask the platform to do.
 OPERATIONS = {
     "ensure_schema": ensure_schema, "ensure_key_table": ensure_key_table, "issue_keys": issue_keys,
@@ -2675,4 +2772,5 @@ OPERATIONS = {
     "product_followers": product_followers,
     "entra_group_naming": entra_group_naming, "save_entra_group_naming": save_entra_group_naming,
     "list_entra_groups": list_entra_groups, "link_entra_group": link_entra_group, "unlink_entra_group": unlink_entra_group,
+    "list_product_items": list_product_items, "add_product_item": add_product_item, "remove_product_item": remove_product_item,
 }

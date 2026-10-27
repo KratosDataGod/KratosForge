@@ -976,7 +976,11 @@ class PlatformMixin:
         follows = self._my_follows()
         for p in products:
             p["following"] = p["id"] in (follows or [])
-        return {"project": me, "products": products, "can_follow": follows is not None}
+        # Each product's semantic models and reports (Preview); an older platform has none to show.
+        groups = self._product_groups(self._catalog())  # type: ignore[attr-defined]
+        for p in products:
+            p["items"] = [g for g in groups or [] if g["product_id"] == p["id"]]
+        return {"project": me, "products": products, "can_follow": follows is not None, "can_group": groups is not None}
 
     def _my_follows(self) -> list[str] | None:
         """The products the signed-in person follows; None when the platform is older than following."""

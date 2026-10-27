@@ -786,6 +786,30 @@ def save_policy_as_template(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunct
 def set_template_authors(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, authors: str) -> dict:
     return _run(sqlDB, "set_template_authors", ctx, authors=authors)
 
+
+# ---- product groups: a data product's semantic models and reports, by Fabric item id (Preview)
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def list_product_items(sqlDB: fn.FabricSqlConnection, product_id: str = "") -> list:
+    return _run(sqlDB, "list_product_items", product_id=product_id)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def add_product_item(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, product_id: str,
+                     item: dict) -> list:
+    return _run(sqlDB, "add_product_item", ctx, product_id=product_id, item=item)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def remove_product_item(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, product_id: str,
+                        item_id: str) -> list:
+    return _run(sqlDB, "remove_product_item", ctx, product_id=product_id, item_id=item_id)
+
 '''
 
 

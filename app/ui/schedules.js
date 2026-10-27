@@ -1,6 +1,6 @@
 // Schedules: on this PC (Windows Task Scheduler starts them, even with the app closed) or in
 // Fabric (its job scheduler, on capacity). One dialog adds them for a notebook or an environment;
-// Monitor > KratosForge > Schedules and Fabric schedules list every one.
+// Monitor > KratosForge > Schedules and Monitor > Fabric > Schedules list every one.
 
 // What a run of a schedule on this PC did, as a pill.
 function scheduleRunPill(last) {
@@ -127,15 +127,15 @@ async function openScheduleDialog(o) {
   showDialog(o.title, h("div", { class: "scroll" },
     h("div", { class: "compute-row" }, h("span", { class: "muted-text small" }, "Runs on"), seg),
     intro, list, h("b", {}, "Add a schedule"), form.fields,
-    h("p", { class: "muted-text small" }, "Every schedule, on this PC and in Fabric, is listed in Monitor > KratosForge > Schedules and Fabric schedules.")),
+    h("p", { class: "muted-text small" }, "Every schedule, on this PC and in Fabric, is listed in Monitor > KratosForge > Schedules and Monitor > Fabric > Schedules.")),
   [btn("Close", null, closeDialog, "tool outline"), btn("Add schedule", "add", add, "tool primary")]);
   draw();
 }
 
-// ---------- Monitor > KratosForge > Schedules and Fabric schedules ----------
+// ---------- Monitor > KratosForge > Schedules and Monitor > Fabric > Schedules ----------
 
-// Monitor has two schedule tabs: KratosForge schedules (panel "schedules", those Windows starts on this
-// PC) and Fabric schedules (panel "fabric_schedules", Fabric's job scheduler). Both read all_schedules.
+// Monitor has two schedule pages: KratosForge > Schedules (panel "schedules", those Windows starts on this
+// PC) and Fabric > Schedules (panel "fabric_schedules", Fabric's job scheduler). Both read all_schedules.
 // refresh: Monitor's Refresh asks Fabric again rather than using the last read.
 const schedulesPage = { allWorkspaces: false, data: null, timer: null, refresh: false };
 const onSchedules = () => state.view === "monitor" && ["schedules", "fabric_schedules"].includes(monitorPage.panel);

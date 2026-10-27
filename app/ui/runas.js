@@ -107,7 +107,7 @@ async function loadRunAs(box) {
       h("span", {}, h("b", {}, "Fabric schedules"), fab.state === "read" ? ` as Schedules last read them, ${relTime(fab.at)}`
         : fab.state === "reading" ? " being read on Schedules"
         : fab.state === "error" ? `: ${friendlyError(fab.detail).text}`
-        : [" not read yet. ", btn("Read them on Fabric schedules", null, () => { monitorPage.panel = "fabric_schedules"; go("monitor"); }, "tool link small")])),
+        : [" not read yet. ", btn("Read them on Fabric > Schedules", null, () => { monitorPage.panel = "fabric_schedules"; go("monitor"); }, "tool link small")])),
     raAttention(out) || "",  // replaceChildren would print a null
     rows.length ? h("div", { class: "monitor-scroll" }, h("table", { class: "list inc-list" },
       h("thead", {}, h("tr", {}, ["Place", "Runs as", "Credential", "Its state", "Where data and credentials go"].map((c) => h("th", {}, c)))),

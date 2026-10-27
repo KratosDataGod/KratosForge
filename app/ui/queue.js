@@ -47,7 +47,7 @@ function quSources(out) {
     h("span", {}, h("b", {}, "Fabric schedules"), fab.state === "read" ? ` read ${relTime(fab.at)}`
       : fab.state === "reading" ? " being read on Schedules"
       : fab.state === "error" ? `: ${friendlyError(fab.detail).text}`
-      : [" not read yet. ", btn("Read them on Fabric schedules", null, () => { monitorPage.panel = "fabric_schedules"; go("monitor"); }, "tool link small")]));
+      : [" not read yet. ", btn("Read them on Fabric > Schedules", null, () => { monitorPage.panel = "fabric_schedules"; go("monitor"); }, "tool link small")]));
 }
 
 function quRow(r) {

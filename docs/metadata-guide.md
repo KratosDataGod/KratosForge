@@ -431,7 +431,7 @@ To manage tables that already exist in a lakehouse, use **Adopt** on the lakehou
 
 ## 12. Run on a schedule or a server
 
-- **On this PC or in Fabric:** **Schedule** at the top of Metadata, or **Schedules** on an environment card (Preview). Listed in **Monitor > KratosForge > Schedules and Fabric schedules**.
+- **On this PC or in Fabric:** **Schedule** at the top of Metadata, or **Schedules** on an environment card (Preview). Listed in **Monitor > KratosForge > Schedules and Monitor > Fabric > Schedules**.
 - **On a server, unattended:** the [headless agent](agent.md) runs the same engine on Windows or Linux as a service principal or managed identity, with a durable queue and retries. It hasn't yet run against a live tenant.
 
 ## Reference

@@ -815,7 +815,7 @@ async function renderHome() {
       const next = h("div", {}, items.length ? h("div", { class: "home-list" }, items.map((x) => h("div", { class: "home-item row" },
         h("span", { class: "grow" }, x.what, h("span", { class: "muted-text small" }, ` · ${x.where}`)), h("span", { class: "muted-text small" }, x.text))))
         : h("p", { class: "muted-text" }, "Nothing scheduled. Use Schedule on a notebook or on Data mesh, on this PC or in Fabric."),
-        // Opens the tab with the schedules listed here: Fabric schedules when every one of them is in Fabric.
+        // Opens the page with the schedules listed here: Fabric > Schedules when every one of them is in Fabric.
         btn("All schedules", "history", () => {
           monitorPage.panel = items.length && items.every((x) => x.where === "Fabric") ? "fabric_schedules" : "schedules"; go("monitor");
         }, "tool link small"));

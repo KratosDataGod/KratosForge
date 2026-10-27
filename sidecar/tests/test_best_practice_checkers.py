@@ -34,15 +34,6 @@ def test_sql_items_and_settings_from_policy_params():
     assert off.get("disabled") is True
 
 
-def test_scheduled_only_rules_check_only_scheduled_notebooks():
-    nb = {"kind": "notebook", "id": "n", "sources": ["%pip install x==1"]}
-    settings = gc.settings_for(gc.find_rule("NB008")[1], "", {})
-    run = gc.run_rule("NB008", [nb], settings)
-    assert not run.get("not_run") and run["checked"] == 0, "an unscheduled notebook isn't counted as passing"
-    run = gc.run_rule("NB008", [nb, dict(nb, id="s", scheduled=True)], settings)
-    assert run["checked"] == 1 and [f["object"] for f in run["findings"]] == ["s: cell 1, line 1"]
-
-
 def test_check_now_runs_notebook_rules_and_says_when_nothing_is_there_to_check(tmp_path):
     from fabric_desktop.service import Service
 
@@ -82,6 +73,27 @@ def test_practice_settings_come_from_the_policies_in_force(tmp_path):
     assert svc.governance_practice_settings("sql")["settings"] == {"SQ005": {"enabled": True, "severity": "Error"}}
     with pytest.raises(ValueError):
         svc.governance_practice_settings("model")
+
+
+def test_one_policy_turning_a_rule_off_doesnt_beat_one_turning_it_on(tmp_path):
+    from fabric_desktop.service import Service
+
+    svc = Service(root=tmp_path / "app")
+    svc.meta_init(str(tmp_path / "crm"), "3")
+    for pid, params in (("off", {"enabled": {"value": False}}), ("on", {})):
+        svc.governance_create({"id": pid, "name": pid, "category": "quality", "rule": "SQ002", "severity": "low", "params": params})
+        svc.governance_publish(pid)
+        svc.governance_assign(pid, "enterprise")
+    assert svc.governance_practice_settings("sql")["settings"] == {"SQ002": {"enabled": True, "severity": "Info"}}
+
+
+def test_scheduled_only_rules_check_only_scheduled_notebooks():
+    nb = {"kind": "notebook", "id": "n", "sources": ["%pip install x==1"]}
+    settings = gc.settings_for(gc.find_rule("NB008")[1], "", {})
+    run = gc.run_rule("NB008", [nb], settings)
+    assert not run.get("not_run") and run["checked"] == 0, "an unscheduled notebook isn't counted as passing"
+    run = gc.run_rule("NB008", [nb, dict(nb, id="s", scheduled=True)], settings)
+    assert run["checked"] == 1 and [f["object"] for f in run["findings"]] == ["s: cell 1, line 1"]
 
 
 def test_check_now_checks_saved_queries_and_warehouse_project_files(tmp_path):

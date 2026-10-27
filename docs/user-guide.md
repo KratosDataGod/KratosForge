@@ -370,11 +370,12 @@ Changing roles needs workspace **Admin**. Needs `OneLake.ReadWrite.All`, `Worksp
 
 ## Data mesh
 
-The **Data mesh** page (it was called Metadata) is where your metadata project lives. Metadata describes each table of your medallion layers once, in a file, and KratosForge builds and runs them. Its tabs are in six groups:
+The **Data mesh** page (it was called Metadata) is where your metadata project lives. Metadata describes each table of your medallion layers once, in a file, and KratosForge builds and runs them. Its tabs are in seven groups:
 
 | Group | Tabs |
 | --- | --- |
-| Overview (Preview) | Domains: the page opens here. Your organization's domains and how they feed each other; open a domain to see its projects, their layers, products and readers, then a layer of the project on this PC to see each table's whole lineage, from its source files to the projects that read its products. Read only. See [Data mesh](data-mesh.md#from-domains-to-tables) |
+| Home (Preview) | The page opens here, even with no project open: **My team**, **On call** or **Organization**, the mesh as each of them sees it. Read only. See [Data mesh](data-mesh.md#home-the-mesh-for-who-you-are-preview) |
+| Overview (Preview) | Domains: Your organization's domains and how they feed each other; open a domain to see its projects, their layers, products and readers, then a layer of the project on this PC to see each table's whole lineage, from its source files to the projects that read its products. Read only. See [Data mesh](data-mesh.md#from-domains-to-tables) |
 | Design | Entities, Layers, Surrogate keys, Source systems |
 | Runs | Every run, with its steps, rows and problems |
 | Quality | Tests, Table health, and Exceptions |
@@ -542,7 +543,7 @@ An incident is one record per problem in an environment: a table whose last run 
 
 #### Who's affected (Preview)
 
-For an incident about a metadata table, the incident page shows **Who's affected**: each published data product whose ports in that environment carry the table, the projects linked to those ports, and the people to tell, with why (owns the product, linked a project to it, or follows it). It is one hop: what those projects build from the data isn't traced further. Names that aren't emails are listed but can't be sent a message.
+For an incident about a metadata table, the incident page shows **Who's affected**: each published data product whose ports in that environment carry the table, the projects linked to those ports, and the people to tell, with why (owns the product, linked a project to it, or follows it). It is one hop: what those projects build from the data isn't traced further. Names that aren't emails are listed but can't be sent a message. Who follows a product is personal data, so its followers are listed only to its owners and platform admins; anyone else sees that they were left out, and the product's owner can tell them.
 
 **Tell them** posts one Teams message through the platform's Teams routes (**Settings > Notifications**, kind *Incident reaching data products*) naming those people and products. The message has the incident's title and the products' names, never its notes. A note on the incident records who was told and when. Telling again only posts when someone new is reached. With no platform Teams route set, nothing is posted: **Copy emails** copies the addresses so you can tell them yourself.
 

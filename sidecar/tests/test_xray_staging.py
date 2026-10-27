@@ -124,7 +124,9 @@ def test_remove_checks_again_and_deletes_only_that_lakehouse(svc):
     with pytest.raises(ValueError, match="isn't in the workspace"):
         s.xray_remove_staging("ws", "zz", OLD)
     assert deleted == []
+    s._save_settings(xray_removed={"old": "2026-01-01T00:00:00+00:00"})
     out = s.xray_remove_staging("ws", "a", OLD, "Sales", finding_id="staging|ws|a||||")
+    assert list(s._settings()["xray_removed"]) == ["staging|ws|a||||"]  # older than 90 days: dropped
     assert deleted == [("ws", "a")] and out["removed_at"]
     s._xray_file.parent.mkdir(parents=True, exist_ok=True)
     found = {"id": "x", "kind": "staging", "workspace_id": "ws", "lakehouse_id": "a", "severity": "low", "title": "t"}

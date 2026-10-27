@@ -407,7 +407,9 @@ class XRayMixin:
         _log.info("Removed leftover staging lakehouse %s (%s) in workspace %s; kept %s",
                   lakehouse_name, lakehouse_id, workspace_name or workspace_id, check["kept"])
         if finding_id:
-            removed = dict(self._settings().get("xray_removed") or {})  # type: ignore[attr-defined]
+            cutoff = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=90)).isoformat(timespec="seconds")
+            removed = {k: v for k, v in (self._settings().get("xray_removed") or {}).items()  # type: ignore[attr-defined]
+                       if str(v) >= cutoff}  # long gone from every scan: no need to keep them
             removed[finding_id] = removed_at
             self._save_settings(xray_removed=removed)  # type: ignore[attr-defined]
         return check | {"removed_at": removed_at}

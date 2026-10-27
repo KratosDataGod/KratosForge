@@ -30,6 +30,8 @@ def test_older_staging_lakehouses_are_findings_and_the_newest_is_kept():
     found = xray.staging_findings([_lh("w1", "c", NEW), _lh("w1", "a", OLD), _lh("w1", "b", MID),
                                    _lh("w1", "x", "DataflowsStagingLakehouse"), _lh("w2", "d", OLD)])
     assert [(f["workspace_id"], f["lakehouse_name"]) for f in found] == [("w1", OLD), ("w1", MID)]  # w2 has only one
+    future = xray.staging_findings([_lh("w1", "c", NEW), _lh("w1", "z", "StagingLakehouseForDataflows_29990101000000")])
+    assert future == []  # a name dated ahead neither counts as newest nor is offered
     assert all(f["kind"] == "staging" and f["action"] == "remove_staging" and f["kept"] == NEW and f["kept_id"] == "c"
                for f in found)
 

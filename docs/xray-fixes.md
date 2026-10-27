@@ -127,14 +127,14 @@ So **Restore** and time travel still reach back as far as the layer promises. Wi
 
 **How the one in use is kept.** Fabric doesn't say which staging lakehouse a dataflow uses, so Remove is careful:
 
-- The newest staging lakehouse in a workspace is never offered.
+- The newest staging lakehouse in a workspace is never offered. A name dated more than a day ahead is never offered either, and doesn't count as the newest.
 - An older one can be removed only when nothing in its Tables or Files has been written for 30 days (an empty one counts from when it was made).
 - Every Dataflow Gen2 in the workspace must show it doesn't stage there: its definition doesn't name the lakehouse, and it has a completed refresh that started after the lakehouse was last written (a dataflow staging there would have written to it). A dataflow that never refreshed, whose history Fabric no longer lists, or whose definition can't be read keeps it, and so does a workspace where Fabric lists no dataflows (older dataflows aren't listed by its API).
 - If its tables and files can't be read, it stays.
 
 The scan doesn't read the tables inside any staging lakehouse, and it never suggests Optimize, Vacuum or other fixes for them, because Fabric manages them.
 
-**What Remove does.** It checks everything above again, live from Fabric and OneLake. Then it shows the workspace, when the lakehouse was made and last written, how many files and how much storage it holds, which staging lakehouse is kept, and each dataflow it checked. When something keeps it, it says why and nothing can be deleted. Otherwise **Remove...** opens a red confirm, and **Delete lakehouse** stays off until you type `delete`. The app then checks again and deletes that one lakehouse with its tables and files through the Fabric API (shortcut targets stay). A lakehouse renamed since the check isn't deleted. Fabric may not let you get it back. IT can turn Remove off with `allow_staging_cleanup: false`; the findings still show.
+**What Remove does.** It checks everything above again, live from Fabric and OneLake. Then it shows the workspace, when the lakehouse was made and last written, how many files and how much storage it holds, which staging lakehouse is kept, and each dataflow it checked. When something keeps it, it says why and nothing can be deleted. Otherwise **Remove...** opens a red confirm, and **Delete lakehouse** stays off until you type `delete`. The app then checks again and deletes that one lakehouse with its tables and files through the Fabric API (shortcut targets stay). A lakehouse renamed since the check isn't deleted. Fabric may not let you get it back. The `StagingWarehouseForDataflows_` warehouse made at the same time is left alone. Remove is only in the app: it isn't offered over MCP or the local API. IT can turn Remove off with `allow_staging_cleanup: false`; the findings still show.
 
 **By hand.** Open the workspace in Fabric, check that no dataflow refresh wrote to the lakehouse lately, and delete it from its **...** menu. Keep the newest one.
 

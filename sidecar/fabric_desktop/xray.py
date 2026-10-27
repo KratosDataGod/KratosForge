@@ -135,9 +135,11 @@ def staging_created(name: str) -> dt.datetime | None:
 
 def staging_split(lakehouses: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
     """One workspace's staging lakehouses as (the newest, the older ones). The newest is the one
-    dataflows stage in, so it is always kept, even when it looks unused."""
-    dated = sorted(((staging_created(lh["lakehouse_name"]), lh) for lh in lakehouses
-                    if staging_created(lh["lakehouse_name"])), key=lambda p: p[0])
+    dataflows stage in, so it is always kept, even when it looks unused. A name dated more than a
+    day ahead is neither: it can't be real, so it is never offered and doesn't decide the newest."""
+    soon = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=1)
+    dated = sorted(((t, lh) for lh in lakehouses
+                    if (t := staging_created(lh["lakehouse_name"])) and t <= soon), key=lambda p: p[0])
     if not dated:
         return None, []
     return dated[-1][1], [lh for _, lh in dated[:-1]]

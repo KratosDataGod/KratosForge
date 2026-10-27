@@ -47,7 +47,7 @@ function quSources(out) {
     h("span", {}, h("b", {}, "Fabric schedules"), fab.state === "read" ? ` read ${relTime(fab.at)}`
       : fab.state === "reading" ? " being read on Schedules"
       : fab.state === "error" ? `: ${friendlyError(fab.detail).text}`
-      : [" not read yet. ", btn("Read them on Schedules", null, () => { monitorPage.panel = "schedules"; go("monitor"); }, "tool link small")]));
+      : [" not read yet. ", btn("Read them on Fabric schedules", null, () => { monitorPage.panel = "fabric_schedules"; go("monitor"); }, "tool link small")]));
 }
 
 function quRow(r) {
@@ -66,7 +66,7 @@ function queuePanel() {
   const box = h("div", { class: "inc-panel" }, h("p", { class: "muted-text monitor-empty" }, "Reading queues..."));
   loadQueue(box);
   return h("div", { class: "mon-how" }, withHowItWorks(box, howItWorks("monitor.queue", {
-    reads: "This PC's schedules, each agent's status record in the environments' LH_Meta, the Fabric jobs this app started as last checked, and the Fabric schedules Monitor > Schedules last read. It makes no Fabric call of its own and never polls your tenant.",
+    reads: "This PC's schedules, each agent's status record in the environments' LH_Meta, the Fabric jobs this app started as last checked, and the Fabric schedules Monitor > Fabric schedules last read. It makes no Fabric call of its own and never polls your tenant.",
     changes: "Nothing. It never starts, stops or reorders work; each row's scheduler (Windows Task Scheduler, the agent's queue or Fabric's) owns it.",
     results: "Nothing is stored. A run Task Scheduler started on this PC shows in Runs when it finishes. Fabric work this app didn't start is in Fabric's Monitoring hub.",
     more: [["Unknown and Missed", "For an agent that stopped reporting, what it was running shows as Unknown from its last report, and a schedule it should have run since shows as Missed. It runs each missed schedule once when it is back."]],

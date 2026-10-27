@@ -2471,3 +2471,6 @@ html[data-motion-level="0"] .mo-ghost { display: none; }
 .mesh-views:empty, .mesh-tools:empty, .mesh-banners:empty { display: none; }
 .mesh-page .seg.meta-tabs { margin: 0; }
 .mesh-tools .catalog-search { width: 280px; max-width: 100%; }
+.page.monitor > .page-head .sub { margin-bottom: 0; }
+.page.monitor .mesh-view-row { margin: 0; }
+.monitor-note:empty { display: none; }

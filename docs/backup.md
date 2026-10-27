@@ -48,7 +48,7 @@ For a [headless agent](agent.md), add `--agent-home <its FABRIC_DESKTOP_HOME>` t
    ```
 
 4. Open the app and sign in. Set the Teams webhook again if you used one.
-5. Schedules on this PC come back in **Monitor > Schedules**, and the app adds them to Windows Task Scheduler again as it starts.
+5. Schedules on this PC come back in **Monitor > KratosForge schedules**, and the app adds them to Windows Task Scheduler again as it starts.
 
 A restore adds and replaces files, and checks each file it writes against the backup. Every file it replaces is copied first to `%LOCALAPPDATA%\FabricDesktop\restore-safety\<date>-<time>`, so you can put any of them back by hand. A replaced database's `-wal`, `-shm` and `-journal` files are moved there too, beside the database's copy: left in place, they would bring back changes made after the backup. To undo, put the database and those files back together.
 

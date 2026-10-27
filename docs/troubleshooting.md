@@ -83,7 +83,7 @@ When a page or panel couldn't load something, the error shows in place with **Re
 | "Assign a workspace before Test can run" | The environment has no workspace. | **Environments and promote > Assign workspace**. |
 | A Fabric run "stopped before it saved any results" | The runner notebook failed in Fabric. | Open it from **Monitor** to see the notebook's output in Fabric. |
 | Fabric schedule or Run in Fabric fails with 403 | You aren't Contributor on the workspace, or your organization's own app registration lacks `Item.Execute.All`. | Ask for Contributor, or an admin adds the permission and you sign in again ([permissions.md](permissions.md#using-your-own-app-registration)). |
-| A scheduled run on this PC didn't happen | The PC was off, asleep or nobody was signed in to Windows; or the app was signed out. | Use a Fabric schedule for runs that must happen. Monitor > Schedules shows each run and why it was skipped. |
+| A scheduled run on this PC didn't happen | The PC was off, asleep or nobody was signed in to Windows; or the app was signed out. | Use a Fabric schedule for runs that must happen. Monitor > KratosForge schedules shows each run and why it was skipped. |
 
 ## Source control
 

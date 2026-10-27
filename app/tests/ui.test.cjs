@@ -1300,7 +1300,7 @@ test("Home doesn't say nothing needs attention when run history or Fabric jobs c
   assert.match(src, /couldn't check \$\{unread\.join\(", "\)\}/);
 });
 
-test("Monitor has three tabs, and Operations holds the workload views in the mockup's order (UX-010)", () => {
+test("Monitor has four tabs, and Operations holds the workload views in the mockup's order (UX-010)", () => {
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const literal = src.match(/const MONITOR_OPS = (\[[\s\S]*?\n\]);/)[1];
   const ops = JSON.parse(JSON.stringify(vm.runInNewContext(literal)));
@@ -1309,9 +1309,9 @@ test("Monitor has three tabs, and Operations holds the workload views in the moc
   assert.deepStrictEqual(ops.map((o) => o.panel), ["workloads", "queue", "agents", "runas", "incidents"]);
   const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
   for (const o of ops) assert.ok(features.includes(`${o.feature}:`), `${o.feature} is a registered preview feature`);
-  const seg = src.slice(src.indexOf('"aria-label": "Show" },'), src.indexOf('h("span", { class: "spacer" })', src.indexOf('"aria-label": "Show" },')));
-  assert.deepStrictEqual([...seg.matchAll(/"(Runs|Schedules|Operations|Cost|Workloads|Queue|Agents|Run as|Incidents)"/g)].map((m) => m[1]),
-    ["Runs", "Schedules", "Operations"]);
+  const tabs = src.slice(src.indexOf('const tabs = h("div", { class: "subtabs monitor-tabs"'), src.indexOf("Object.assign(monitorSlots"));
+  assert.deepStrictEqual([...tabs.matchAll(/"(Runs|KratosForge schedules|Fabric schedules|Schedules|Operations|Cost|Workloads|Queue|Agents|Run as|Incidents)"/g)].map((m) => m[1]),
+    ["Runs", "KratosForge schedules", "Fabric schedules", "Operations"]);
 });
 
 test("Monitor > Agents explains agents beside the list, with links to sections of agent.md (testing item 34)", () => {
@@ -1830,7 +1830,8 @@ test("Clean up's Undo is offered only while the cells are exactly what Apply mad
 
 test("Schedules warns when this PC's schedules file was moved aside (QA-011)", () => {
   const s = fs.readFileSync(path.join(ui, "schedules.js"), "utf8");
-  assert.match(s, /h\("h3", \{ class: "schedule-head" \}, "On this PC"\),\n    setAsideNotice\(res\.pc_set_aside\),/);
+  // On KratosForge schedules, first after the counts.
+  assert.match(s, /failed\(pc\.filter\([^\n]*\)\),\n      setAsideNotice\(res\.pc_set_aside\),/);
   assert.match(s, /look in Task Scheduler under /);
 });
 
@@ -2436,7 +2437,7 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.strictEqual(ok, "Remove");
   assert.strictEqual(opts.danger, true);
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true)[1], /Fabric deletes the schedule/);
-  assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
+  assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Fabric schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
 
@@ -4456,7 +4457,7 @@ test("folder actions are wired: a menu entry, New folder, the empty-only delete 
 test("a move that leaves something behind names it and says what to do", () => {
   const { nbRenameProblemLines } = notebookFolderHelpers();
   const lines = nbRenameProblemLines([{ notebook: "EMEA/B", was: "Sales/B", step: "schedules", error: "OSError: disk full" }]);
-  assert.deepStrictEqual([...lines], ["EMEA/B (was Sales/B): its schedules didn't follow (OSError: disk full). Open Monitor > Schedules and point its schedule on this PC at the new name."]);
+  assert.deepStrictEqual([...lines], ["EMEA/B (was Sales/B): its schedules didn't follow (OSError: disk full). Open Monitor > KratosForge schedules and point its schedule on this PC at the new name."]);
   assert.deepStrictEqual([...nbRenameProblemLines([])], []);
   const files = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
   assert.strictEqual(files.match(/nbRenameWarning\((out|ok)\.problems\)/g).length, 3);

@@ -34,14 +34,15 @@ before(async () => {
 after(async () => { await Promise.all([main, runs, fabric].map((a) => a?.close())); });
 
 test("each Monitor section has Pop out, marked Preview", { skip }, async () => {
-  const bands = await main.page.$$eval(".page.monitor .monitor-band", (els) => els.map((b) => b.textContent));
-  assert.strictEqual(bands.length, 2);
-  for (const band of bands) assert.match(band, /Pop outPreview/);
+  // The runs list's Pop out is the page's button, top right; the hub's is on its band.
+  const places = await main.page.$$eval(".page.monitor .page-head .head-actions, .page.monitor .monitor-band", (els) => els.map((b) => b.textContent));
+  assert.strictEqual(places.length, 2);
+  for (const place of places) assert.match(place, /Pop outPreview/);
 });
 
 test("popping out the runs list leaves a band and gives Fabric's hub the page", { skip }, async () => {
   const p = main.page;
-  await p.click(".monitor-local .monitor-band button:has-text('Pop out')");
+  await p.click(".page.monitor .page-head button:has-text('Pop out')");
   await p.waitForSelector(".monitor-local.popped-out");
   assert.deepStrictEqual(await shellCalls(p, "pop_out_open"), [{ section: "runs", onTop: false }]);
   assert.match(await p.textContent(".monitor-local.popped-out"), /From KratosForge.*In a window of its own.*Show window.*Dock back/);

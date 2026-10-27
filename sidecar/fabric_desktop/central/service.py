@@ -1006,7 +1006,7 @@ class PlatformMixin:
             done.append(p.name)
             # The port history came with versioned contracts: an older UDF_Platform publishes without it.
             old_function = old_function or not (isinstance(out, dict) and "history" in out)
-            told = False
+            told: set[str] = set()  # the people the deprecation notice names
             if p.status == "deprecated":
                 if before is None:
                     problems.append(f"products/{p.name} is deprecated, but the catalog's readers couldn't be read, so "
@@ -1018,19 +1018,22 @@ class PlatformMixin:
                         event = notices.product_deprecated(was | {"deprecated_on": stops, "domain_id": info["domain"]},
                                                            was.get("consumers") or [])
                         if event:
-                            told = True
+                            told = {u.lower() for u in event["to"]["people"]}
                             events.append(event)
                             tell += [{"product": was["id"], "project": c["consumer_project"], "alias": c.get("alias", ""),
                                       "deprecated_on": stops} for c in was.get("consumers") or []
                                      if c.get("consumer_project") and c["consumer_project"] != name]
-            # Readers hear about other changes in Prod, the environment their own projects read. A
-            # deprecation its readers were just told about isn't posted twice.
-            changes = [c for c in (out.get("changes") or []) if not (told and c.startswith("Deprecated"))] \
-                if isinstance(out, dict) else []
+            # Readers hear about changes in Prod, the environment their own projects read. People the
+            # deprecation notice just named don't hear about the deprecation twice; other followers do.
+            changes = (out.get("changes") or []) if isinstance(out, dict) else []
             if env == "prod" and changes:
-                event = notices.product_changed(out, changes, out.get("followers") or [], env)
-                if event:
-                    events.append(event)
+                followers = out.get("followers") or []
+                rest = [c for c in changes if not c.startswith("Deprecated")]
+                for people, said, suffix in (([f for f in followers if f.lower() not in told], changes, ""),
+                                             ([f for f in followers if f.lower() in told], rest, ":told")):
+                    event = notices.product_changed(out, said, people, env)
+                    if event:
+                        events.append(event | {"dedupe": event["dedupe"] + suffix})
         if old_function:
             problems.append("Published, but the catalog keeps no port history yet: UDF_Platform is older than "
                             "versioned contracts. A platform admin runs Platform > Settings > Finish or repair once.")

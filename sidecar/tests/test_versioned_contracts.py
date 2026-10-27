@@ -263,6 +263,11 @@ def test_a_prod_deprecation_is_told_once_not_again_as_a_product_change(svc, monk
     svc._local_platforms = {}  # the catalog asks who's signed in again
     svc._catalog().call("register_link", consumer="finance", alias="crm_customers", product_id="crm/customers",
                         port="customers", reads={"prod": "prod"})
+    monkeypatch.setattr(svc, "_user", lambda: "bo@example.com")  # follows, with no link of their own
+    svc._local_platforms = {}
+    svc.platform_follow("crm/customers")
+    monkeypatch.setattr(svc, "_user", lambda: "chris@example.com")
+    svc._local_platforms = {}
     sent = []
     monkeypatch.setattr(svc, "platform_notify", lambda events: sent.extend(events) or {"sent": len(events)})
     _version(svc, "1", access="private")
@@ -272,9 +277,12 @@ def test_a_prod_deprecation_is_told_once_not_again_as_a_product_change(svc, monk
     _version(svc, "2", access="private", status="deprecated", deprecated_on=stops)
     out = svc.mesh_publish("prod")
     assert out["told"][0]["project"] == "finance"
-    kinds = {e["kind"]: e for e in sent}
-    assert set(kinds) == {"product.deprecated", "product.changed"}
-    assert kinds["product.changed"]["detail"] == "Version 1 to 2", "the deprecation isn't posted twice"
+    [deprecated] = [e for e in sent if e["kind"] == "product.deprecated"]
+    assert deprecated["to"]["people"] == ["chris@example.com"]
+    changed = {tuple(e["to"]["people"]): e for e in sent if e["kind"] == "product.changed"}
+    assert changed[("bo@example.com",)]["detail"] == f"Deprecated, stops {stops}; Version 1 to 2", "a follower hears it"
+    assert changed[("chris@example.com",)]["detail"] == "Version 1 to 2", "the deprecation isn't posted to them twice"
+    assert len({e["dedupe"] for e in sent}) == len(sent) == 3
 
 
 def test_the_deprecation_event_fits_the_platform_notice_shape():

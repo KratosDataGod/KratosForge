@@ -566,18 +566,21 @@ h2.flush { margin: 0; }
 .sql-finding.error b { color: #b10e1c; } .sql-finding.warning b { color: #8a4b00; }
 .sql-finding.information b { color: #1b3664; } .sql-finding.unverified b { color: #424242; }
 .sql-finding-detail { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 4px; }
+.sql-practice { display: flex; flex-direction: column; gap: 2px; padding: 6px 4px; border-bottom: 1px solid var(--border-soft); }
+.sql-practice .link-btn { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; text-decoration: underline; cursor: pointer; }
+.sql-practice-sev.error { color: #b10e1c; } .sql-practice-sev.warning { color: #8a4b00; } .sql-practice-sev.info { color: #1b3664; }
 .sql-compat-note { margin: 0; font-size: 12px; }
 .sql-local-note { flex-basis: 100%; padding: 6px 10px; border-radius: 4px; background: #fff8eb; color: #5c3300; font-size: 12.5px; }
 /* WH-01: the Warehouse page */
 .sql-target-note { font-size: 13px; color: var(--text-2); }
 .sql-capacity-note { padding: 4px 8px; border-radius: 4px; background: #fff8eb; color: #5c3300; font-size: 12.5px; }
-.sql-compat-chip { display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 0 10px; border: 1px solid var(--border-input); border-radius: 999px;
+:is(.sql-compat-chip, .sql-practices-chip) { display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 0 10px; border: 1px solid var(--border-input); border-radius: 999px;
   background: var(--surface); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap; }
-.sql-compat-chip.ok { border-color: #b7dfc2; background: #e6f4ea; color: #14532d; }
-.sql-compat-chip.warning { border-color: #f3c27a; background: #fff4e0; color: #7a4100; }
-.sql-compat-chip.error { border-color: #f1b8bd; background: #fdf3f4; color: #9b0d19; }
-.sql-compat-chip.unverified { border-color: #c8c8c8; background: #f0f0f0; color: #3d3d3d; border-style: dashed; }
-.sql-compat-chip[aria-expanded="true"] svg { transform: rotate(180deg); }
+:is(.sql-compat-chip, .sql-practices-chip).ok { border-color: #b7dfc2; background: #e6f4ea; color: #14532d; }
+:is(.sql-compat-chip, .sql-practices-chip).warning { border-color: #f3c27a; background: #fff4e0; color: #7a4100; }
+:is(.sql-compat-chip, .sql-practices-chip).error { border-color: #f1b8bd; background: #fdf3f4; color: #9b0d19; }
+:is(.sql-compat-chip, .sql-practices-chip).unverified { border-color: #c8c8c8; background: #f0f0f0; color: #3d3d3d; border-style: dashed; }
+:is(.sql-compat-chip, .sql-practices-chip)[aria-expanded="true"] svg { transform: rotate(180deg); }
 .warehouse-page .explorer .preview-tag { margin-left: 6px; }
 .warehouse-how { margin: 12px 8px; }
 .warehouse-page .explorer { overflow-y: auto; }  /* the tree, then How this works, scroll together */
@@ -2430,3 +2433,8 @@ html[data-motion-level="0"] .mo-ghost { display: none; }
 @media (max-width: 1100px) { .wh-mon-grid { grid-template-columns: minmax(0, 1fr); } }
 .wh-mon-auto { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
 .wh-mon-auto li { display: flex; align-items: center; gap: 8px; }
+
+/* Landing source requests with a Copy job (scale plan 4.1) */
+.src-tables { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 6px; }
+.src-table-row { display: grid; grid-template-columns: 2fr 2fr 1.4fr 36px; gap: 6px; align-items: center; }
+.copy-job-line { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; padding: 8px 0; border-top: 1px solid var(--border); }

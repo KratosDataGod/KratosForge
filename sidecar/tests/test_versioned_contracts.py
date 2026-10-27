@@ -266,7 +266,7 @@ def test_a_prod_deprecation_is_told_once_not_again_as_a_product_change(svc, monk
     monkeypatch.setattr(svc, "_user", lambda: "bo@example.com")  # follows, with no link of their own
     svc._local_platforms = {}
     svc.platform_follow("crm/customers")
-    monkeypatch.setattr(svc, "_user", lambda: "chris@example.com")
+    monkeypatch.setattr(svc, "_user", lambda: "ops@example.com")  # promotes; the promoter isn't told
     svc._local_platforms = {}
     sent = []
     monkeypatch.setattr(svc, "platform_notify", lambda events: sent.extend(events) or {"sent": len(events)})

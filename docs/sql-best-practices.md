@@ -10,8 +10,18 @@ fragile or hard to maintain, even when it runs. The two lists are kept apart, so
 findings never change a compatibility result. A DELETE or UPDATE without WHERE isn't repeated here,
 because compatibility rule DES-003 already reports it.
 
-The engine is in place. The screen (a Best practices panel on the SQL page) comes next, once the
-mockup is approved.
+## On the SQL page
+
+When the query's dialect is T-SQL (Fabric Warehouse, SQL analytics endpoint or SQL database), and on
+the Warehouse page, a **Best practices** chip sits beside **Compatibility**. Both are checked together
+shortly after you stop typing. The chip shows how many findings there are, and is red or amber for the
+worst one. It opens the panel beside the editor on its own tab, listing each finding with what to do and
+**Line n**, which selects the place in the editor. Pressing the chip again closes the panel.
+
+The governance policies in force for the open project tune the rules, read once each time you open
+the page (`governance_practice_settings`). A rule a policy turns off isn't shown, and a policy can change
+a rule's severity. With no project open, or when the policies can't be read, every rule is on as built,
+and the panel says so. Like the other Preview features, the chip is hidden when previews are hidden.
 
 ## Rules
 

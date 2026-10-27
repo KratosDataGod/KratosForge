@@ -93,7 +93,7 @@ What only someone else may give is asked for, not taken:
 | Request | Sent from | Decided by | Approving |
 | --- | --- | --- | --- |
 | **A key table** | Platform > Business keys, or Data mesh > Surrogate keys > Use a key table > Request a new one | A platform admin | Creates the key table in every environment |
-| **A source** in the landing zone | Platform > Landing zone or Requests | A platform admin | Registers the source; the central team then lands its files |
+| **A source** in the landing zone | Platform > Landing zone or Requests | A platform admin | Registers the source; the central team then lands its files. A request that asks for a Copy job (Preview) makes it first, as the person approving: see [Copy jobs from requests](#copy-jobs-from-requests-preview) |
 | **Access to a data product** open only to its domain, or private | OneLake > Data products > Request access | The product's owner (or a platform admin) | Lets the project link to it. The owner still gives read access in OneLake (a data access role on the Product workspace) |
 | **A shortcut** | OneLake > Shortcuts > Request a shortcut | A platform admin, or the owner of the data product it points at | Makes the shortcut, as the person approving, then marks the request approved ([shortcuts.md](shortcuts.md#requests-and-shortcut-needs)) |
 | **A new workspace** (Preview): its name, domain, capacity, admins and why | Platform > Requests > New request | A platform admin | Creates the workspace on its capacity and makes the people (by email or UPN) and groups (by object ID) its admins, as the person approving. A workspace's Fabric domain is set with Fabric's admin API, which KratosForge doesn't ask for: the approver is told to put it in the domain in Fabric's admin portal |
@@ -110,6 +110,8 @@ After this update, a platform admin runs **Platform > Settings > Finish or repai
 
 Each request records who sent it, why, who decided and a note. A request can be withdrawn while it waits. A product owner or a platform admin can take access away again on the product's page (**OneLake > Data products >** the product **> Access given > Take access away**, Preview), after a confirm. Existing links stay in the project and their runs keep reading, but no new link is allowed until the project asks again. To stop reads too, remove the project's OneLake data access role on the Product workspace.
 
+**Access reviews (Preview).** Every 90 days, a product's owner confirms that each project given access still needs it. **OneLake > Data products** says how many grants on your products haven't been confirmed in that time, and **Review due** shows only those products. On a product's page, **Access given** shows when each grant was last confirmed. **Still needed** (or **All still needed**) records your confirmation in `catalog.grant_review` and the audit log; **Take access away** removes it. Nothing is taken away by itself: a grant nobody confirms stays, marked **Review due**. A platform admin sees every product's grants. A platform made before access reviews says so until a platform admin runs **Finish or repair** once.
+
 ### Notices to Teams (Preview)
 
 A request waiting on someone, a decision or withdrawal, and a shortcut that breaks or is fixed can each be posted to a Teams channel through a Teams Workflows webhook. Each change is posted once: a shortcut that stays broken isn't posted again, and its fix is posted only if its break was. Routes send some kinds of notice, or some domains, to their own channel; everything else goes to the route named `default`. Quiet hours hold notices until they end, and a notice Teams doesn't take waits on this PC and goes out on the next try, marked as delayed.
@@ -120,7 +122,7 @@ Routes and quiet hours are set in **Settings > Notifications > Platform notices*
 
 ## One landing zone
 
-Raw data from every source lands once, in `LH_Landing`, organized by source system: `Files/erp/customers/2026-10-16.csv`. **Only the central team writes there**, with pipelines or copy jobs it owns; nobody lands the same source twice. Platform admins register each source on **Platform > Landing zone** with its owner, how often it should arrive, and the name of the Key Vault secret its connection uses per environment (secrets themselves never go in the platform). A domain team that needs a new source requests it.
+Raw data from every source lands once, in `LH_Landing`, organized by source system: `Files/erp/customers/2026-10-16.csv`. **Only the central team writes there**, with pipelines or copy jobs it owns, including the ones a platform admin makes by approving a team's request ([Copy jobs from requests](#copy-jobs-from-requests-preview)); nobody lands the same source twice. Platform admins register each source on **Platform > Landing zone** with its owner, how often it should arrive, and the name of the Key Vault secret its connection uses per environment (secrets themselves never go in the platform). A domain team that needs a new source requests it.
 
 Each team builds its own Bronze from it: **Data mesh > New entity > From the landing zone** picks a source and entity, or an entity reads the landing zone with `landing` instead of `files`:
 
@@ -130,6 +132,24 @@ landing = "erp/customers/*.csv"
 ```
 
 In Test and Prod that reads `LH_Landing` in the environment's Platform workspace. In Dev on a PC it reads `%LOCALAPPDATA%\FabricDesktop\platform\landing-dev\Files`, one folder shared by every project on that PC. Give teams **Viewer** on the Platform workspace, or a OneLake data access role on the landing folders they may read; only the central team gets Contributor or above, so only it can write. When a project joins the mesh, the catalog records which sources it reads, so the Landing zone tab shows each source's readers and a source still read can't be removed.
+
+### Copy jobs from requests (Preview)
+
+A domain team can ask for the Copy job that lands its source, and a platform admin approves it. **Request a source** (Platform > Landing zone) names:
+
+- the **Fabric connection** to read from, picked from the SQL Server connections the person can use. Its credentials stay in Fabric: KratosForge never reads them.
+- the **tables**, as `schema.table`, and for each, whether a run copies the whole table or only the rows changed since the last run, by a column such as `ModifiedAt`.
+- a **time of day** in UTC for its daily run, or none.
+
+**Approve and make it** says what it makes and where: with one landing workspace, the zone and lakehouse it writes to (the request names the zone; Shared is read by every domain, and by Dev and Test). Then, as the person approving:
+
+1. Creates the Copy job `CJ_Landing_<source>` in the landing workspace (the source's zone's lakehouse with [one landing workspace](#one-landing-workspace-for-dev-test-and-prod-preview); otherwise the approver picks the environment whose LH_Landing it writes to). Each table lands as Parquet in `Files/<source>/<table>/`. Its description names the request.
+2. Adds its daily schedule, when the request asked for one.
+3. Registers the source, as any approved source request does.
+
+Creating the Copy job starts no run. Each run uses capacity, and the connection's gateway reads the source. If a step fails, the request stays waiting and the error names the step; approving again carries on with the Copy job the request already made. A Copy job of the same name that the request didn't make is never taken over. The source's panel on **Landing zone** then shows **Lands with CJ_Landing_<source>**, and a platform admin can **Run now...** after a confirm and the [risk check](finops/risk-check.md), which says when it couldn't run; the run shows in **Monitor > Runs**. Changing the tables is a new request; the Copy job itself is edited in Fabric (**Data Factory > Copy jobs** reads it).
+
+This is Preview: the Copy job definition follows Microsoft's documentation and hasn't been created on a real tenant yet. Bronze reads the files with **Data mesh > New entity > From the landing zone**.
 
 ### One landing workspace for Dev, Test and Prod (Preview)
 

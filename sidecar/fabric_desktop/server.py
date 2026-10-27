@@ -33,7 +33,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "platform_key_tables", "platform_create_key_table", "platform_sources", "platform_save_source",
            "platform_delete_source", "platform_landing", "platform_landing_files", "platform_landing_setup",
            "platform_create_landing_zone", "platform_delete_landing_zone", "platform_switch_landing_reads", "platform_requests", "platform_request",
-           "platform_decide", "platform_withdraw", "platform_revoke", "platform_overview", "platform_products",
+           "platform_decide", "platform_withdraw", "platform_revoke", "platform_access_reviews", "platform_confirm_access", "platform_overview", "platform_products",
            "platform_product_trust", "platform_scan_endorsement", "platform_add_product_term", "platform_remove_product_term", "platform_follow",
            "governance_overview", "governance_policy", "governance_version", "governance_create", "governance_save_draft",
            "governance_discard_draft", "governance_publish", "governance_set_status", "governance_assign",
@@ -223,12 +223,12 @@ METHODS |= EDITOR_METHODS
 QUICK = frozenset({
     "app_settings", "debug_cell", "editor_pending", "editor_status", "interrupt_cell", "kernel_complete", "kernel_info", "kernel_variables",
     "list_notebooks", "notebook_comments_list", "notebook_debug_get", "notebook_dependencies",
-    "notebook_environment", "notebook_folders", "notebook_resources", "notebook_version", "notebook_versions",
+    "notebook_environment", "notebook_folders", "notebook_practices", "notebook_resources", "notebook_version", "notebook_versions",
     "open_notebook", "poll_cell", "prove_list", "prove_rules_get", "prove_status",
     "receipt_get", "receipts_list", "side_by_side_list",
     "side_by_side_status", "side_by_side_writes", "sql_analyze", "sql_cancel",
     "sql_compat_profiles", "sql_executions", "sql_export", "sql_export_cancel", "sql_export_status",
-    "sql_page", "sql_start", "sql_status",
+    "sql_page", "sql_practices", "sql_start", "sql_status",
     "wizard_preview", "wizard_templates",
 })
 

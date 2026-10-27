@@ -795,6 +795,19 @@ class PlatformMixin:
     def platform_revoke(self, product_id: str, project: str) -> list[dict[str, Any]]:
         return self._catalog().call("revoke_grant", product_id=product_id, project=project)
 
+    def platform_access_reviews(self) -> dict[str, Any]:
+        """The grants you review: your products', or all of them for a platform admin. Only reads.
+        A platform older than access reviews says so instead of failing the page."""
+        try:
+            return call_or_repair(self._catalog(), "access_reviews", "review access")
+        except LookupError as exc:
+            return {"available": False, "problem": str(exc), "grants": [], "due": 0, "every_days": core.REVIEW_DAYS}
+
+    def platform_confirm_access(self, product_id: str, projects: list[str]) -> dict[str, Any]:
+        """Confirm these projects still need access to the product. Writes catalog.grant_review."""
+        return call_or_repair(self._catalog(), "confirm_access", "review access", product_id=product_id,
+                              projects=list(projects or []))
+
     def platform_overview(self, env: str = "dev") -> dict[str, Any]:
         """The central team's home: counts, what needs a decision, the landing zone and each
         environment's platform."""
@@ -992,9 +1005,11 @@ class PlatformMixin:
             out = self._catalog().call("register_product", product=info, ports=ports, env=env)
             done.append(p.name)
             if env == "prod" and out.get("changes"):
+                me = (self._user() or "").lower()
+                me_out = lambda people: [x for x in people or [] if x.lower() != me]  # noqa: E731 - the promoter knows
                 # Readers hear about Prod, the environment their own projects read.
                 problem = self._governance_notify(  # type: ignore[attr-defined]
-                    lambda out=out: [e for e in [notices.product_changed(out, out["changes"], out.get("followers") or [], env)] if e])
+                    lambda out=out: [e for e in [notices.product_changed(out, out["changes"], me_out(out.get("followers")), env)] if e])
                 if problem:
                     unsent.append(problem)
         return {"env": env, "published": done, **({"problems": unsent} if unsent else {})}

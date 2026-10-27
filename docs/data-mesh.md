@@ -134,7 +134,7 @@ The check knows which projects read a port, not which columns each one uses, so 
 
 **Follow** on a product's page (**OneLake > Data products >** the product) tells you in Teams when a promote to Prod changes it: it's deprecated (and when it stops), it has a new version, or a port's columns are added, removed or retyped. Whoever links a project to a product follows it without asking, so its readers hear too. **Following** on the list shows only the products you follow; choose **Following** on a product's page to stop.
 
-Only Prod counts, because that's what readers' projects read. Each environment keeps what it last published (`catalog.product_env`), so a change is told once, when it reaches Prod, not again on the next promote. The notice goes to the platform's Teams routes as `product.changed`, naming the people it's for ([governance-guide.md](governance-guide.md)). A platform made before following shows no Follow button until a platform admin runs **Finish or repair** once.
+Only Prod counts, because that's what readers' projects read. Each environment keeps what it last published (`catalog.product_env`), so a change is told once, when it reaches Prod, not again on the next promote. The notice goes to the platform's Teams routes as `product.changed`, naming the people it's for ([governance-guide.md](governance-guide.md)), except whoever promoted it. Who follows a product is personal data: only its owners and platform admins can list its followers. A platform made before following shows no Follow button until a platform admin runs **Finish or repair** once.
 
 ## Endorsement and business terms
 

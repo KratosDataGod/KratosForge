@@ -27,7 +27,7 @@ function whChangesSwitch(ref, redraw) {
     } });
   return h("label", { class: `wh-changes${whChangesTicked(ref) ? " on" : ""}`,
     title: allowed ? `Run may change ${ref.name} after it shows what it changes and you confirm. Untick to only read.`
-      : "Warehouse changes are turned off in Settings › Advanced › SQL queries." }, box, "Allow changes");
+      : "Warehouse changes are turned off in Settings > Advanced > SQL queries." }, box, "Allow changes");
 }
 
 // The confirm for a change. plan is the engine's dry run. Resolves true to run it.

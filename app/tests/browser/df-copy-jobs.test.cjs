@@ -124,6 +124,10 @@ test("a copy job Fabric won't give says why; Open in Fabric goes to its workspac
   await page().locator(".df-detail-head button", { hasText: "Open in Fabric" }).click();
   assert.match(await page().evaluate(() => window.openedUrl), new RegExp(`/groups/${WS}/`));
   assert.ok(!app.calls.some((c) => /workload_act|run_item|job_start/.test(c.method)), "nothing runs");
+  // Its run history still shows, as on the Dataflows tab.
+  await page().locator('[role="tab"]', { hasText: "Run history" }).click();
+  await page().locator(".df-copy-runs").waitFor();
+  await page().locator('[role="tab"]', { hasText: "Tables" }).click();
 });
 
 test("Run in Fabric asks first through the Workloads confirm, then starts it and reads the runs again", { skip }, async () => {
@@ -139,6 +143,7 @@ test("Run in Fabric asks first through the Workloads confirm, then starts it and
   await page().waitForFunction(() => document.querySelectorAll(".wl-confirm").length === 0);
   assert.deepStrictEqual(acted, [{ id: `fabric:${WS}:${CJ}`, action: "run_item", env: null, schedule_id: "", job_id: "" }]);
   await until(() => app.calls.filter((c) => c.method === "fabric_copy_job_runs").length > runsBefore);  // the runs are read again
+  await page().locator(".toast", { hasText: "Run in Fabric: submitted. Monitor > Runs shows how it ends." }).waitFor();
 });
 
 test("a copy job Workloads doesn't list yet offers to pin its workspace, and starts nothing", { skip }, async () => {

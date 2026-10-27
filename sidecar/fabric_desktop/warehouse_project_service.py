@@ -375,6 +375,10 @@ class WarehouseProjectMixin:
                     where.setdefault(_key(obj["kind"], obj["schema"], obj["name"]), rel)
                     if obj["kind"] != "schema" and len(PurePosixPath(rel).parts) == 3:
                         folders.setdefault(obj["kind"], PurePosixPath(rel).parts[1])  # this project's own folder name
+        # Windows and macOS file names ignore letter case, but warehouse names don't (BIN2): dbo.Sales and
+        # dbo.sales would share one file there. Each path, in lower case, belongs to the first object to
+        # have it, and another object whose path differs only in case is skipped, never written over it.
+        taken = {rel.lower(): key for key, rel in where.items()}
         result: dict[str, list[dict[str, str]]] = {"added": [], "changed": [], "same": [], "skipped": []}
         for o in objects:
             kind, schema, name = str(o.get("kind") or ""), str(o.get("schema") or ""), str(o.get("name") or "")
@@ -392,6 +396,13 @@ class WarehouseProjectMixin:
                     if kind in folders:
                         rel = f"{schema}/{folders[kind]}/{name}.sql"
                 row["path"] = rel
+                owner = taken.setdefault(rel.lower(), _key(kind, schema, name))
+                if owner != _key(kind, schema, name) and where.get(_key(kind, schema, name)) != rel:
+                    other = owner[2] if owner[0] == "schema" else f"{owner[1]}.{owner[2]}"
+                    if where.get(owner) == rel:
+                        raise ValueError(f"Its file would be {rel}, which already defines {other}.")
+                    raise ValueError(f"Its file would be {rel}, which is {other}'s file apart from letter case, and "
+                                     "Windows keeps only one of them. Rename one of the two objects.")
                 f = self._wh_file(project, rel) if project is not None else None
                 if f is None or not f.is_file():
                     if not dry_run:

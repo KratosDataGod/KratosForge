@@ -784,7 +784,7 @@ async function renderSettings() {
     btn("Open Platform > Settings", "building", () => goPlatform("settings"), "tool outline"))) : null;
   setView(h("div", { class: "page settings" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
-      h("p", { class: "sub" }, "How KratosForge signs in, updates and talks to you. ", learnMore("settings")))),
+      pageIntro("How KratosForge signs in, updates and talks to you. ", learnMore("settings")))),
     tabs, tab === "integrations" ? integrations : [account, updates, display, previews, usage, platform, notify, about, advanced].filter(Boolean)));
   if (tab === "integrations") {
     renderIntegrationsTab(integrations);
@@ -936,6 +936,16 @@ function sqlSettingsSection(s, locked) {
       "aria-label": "Warehouse changes", onchange: async (e) => { await saveSettings({ sql_warehouse_writes: e.target.checked }); render(); } }),
     h("span", {}, s.sql_warehouse_writes.value ? "On" : "Off")),
     fixedBy(s, "sql_warehouse_writes")));
+  // WH-19: workspaces whose new warehouses get monitoring views without asking (whmonitor.js).
+  const auto = s.wh_monitoring_auto?.value || [];
+  rows.push(settingRow("Monitoring views without asking", "Workspaces where you said yes, on a build confirm, to monitoring views for new warehouses. The app builds a warehouse's KQL queryset when it opens one there. Remove a workspace and it asks again.",
+    auto.length ? h("ul", { class: "wh-mon-auto" }, auto.map((ws) => h("li", {}, h("span", {}, whMonWorkspaceName(ws)),
+      locked("wh_monitoring_auto") ? null : btn("Remove", null, async () => {
+        await saveSettings({ wh_monitoring_auto: auto.filter((w) => w !== ws) });
+        render();
+      }, "tool outline small", { "aria-label": `Remove ${whMonWorkspaceName(ws)}` }))))
+      : h("span", { class: "muted-text small" }, "None."),
+    fixedBy(s, "wh_monitoring_auto")));
   const save = async () => {
     const changes = {};
     for (const [key] of SQL_SETTINGS) {
@@ -1091,10 +1101,13 @@ function rememberWrite(row, target) {
   } catch { /* not remembered */ }
 }
 
+// Whether Home shows Ready to work: until someone hides it.
+function readinessShown() {
+  try { return localStorage.getItem("fd.ready.hidden") !== "1"; } catch { return true; }
+}
+
 function readinessCard() {
-  let hidden = false;
-  try { hidden = localStorage.getItem("fd.ready.hidden") === "1"; } catch { /* shown */ }
-  if (hidden) return null;
+  if (!readinessShown()) return null;
   const box = h("section", { class: "card pad ready", "aria-labelledby": "ready-title" });
   let writeRow = null;
   try { writeRow = savedWriteRow(JSON.parse(localStorage.getItem("fd.ready.write") || "null"), state.user, state.tenant || null); } catch { /* ask again */ }
@@ -1150,11 +1163,12 @@ function getStarted(project, notebookCount) {
   try { hidden = localStorage.getItem("fd.getstarted.hidden") === "1"; } catch { /* shown */ }
   if (hidden || project?.path) return null;
   const steps = [
-    [!!state.user, "Sign in with your work account", "So the app can see your Fabric workspaces.", () => signIn().then((ok) => ok && render())],
+    // Signing in is asked once on Home: by Ready to work while it shows, else here.
+    readinessShown() ? null : [!!state.user, "Sign in with your work account", "So the app can see your Fabric workspaces.", () => signIn().then((ok) => ok && render())],
     [done("lakehouse"), "Open a lakehouse", "Browse its tables and files, or query them with SQL.", () => go("onelake")],
     [notebookCount > 0, "Run a notebook on this PC", "Python and Spark-style code, run on your own processor.", () => newNotebook()],
     [false, "Set up a metadata project", "Describe your medallion tables once and let KratosForge build and run them.", () => go("metadata")],
-  ];
+  ].filter(Boolean);
   const box = h("section", { class: "card pad get-started" },
     h("div", { class: "row" }, h("h2", { class: "grow" }, "Get started"),
       btn("Hide", null, () => { try { localStorage.setItem("fd.getstarted.hidden", "1"); } catch { /* */ } box.remove(); }, "tool link small")),

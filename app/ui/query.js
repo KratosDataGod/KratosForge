@@ -222,7 +222,7 @@ function renderQuery() {
   }
 
   // SQL-003: each run is a managed query on this PC (sql_exec.py): queued, then running in a process
-  // of its own, with Stop and the time limit in Settings › SQL. Results come a page at a time from
+  // of its own, with Stop and the time limit in Settings > Advanced > SQL queries. Results come a page at a time from
   // the run's snapshot, so a large result is never loaded whole. On the Warehouse page (WH-01) the
   // same managed run sends one query that reads to the warehouse (sql_start target "warehouse").
   async function run(query = editor.chosen(), allow = []) {
@@ -487,7 +487,7 @@ function renderQuery() {
     let msg = "Press Run to see results";
     if (st === "queued" && !ex) msg = wh ? "Starting..." : "Starting on this PC...";
     else if (st === "queued" && wh) msg = "Waiting to start: finding the warehouse's SQL connection in Fabric, or another query is still running";
-    else if (st === "queued") msg = "Waiting for another query to finish (Settings › SQL sets how many run at once)";
+    else if (st === "queued") msg = "Waiting for another query to finish (Settings > Advanced > SQL queries sets how many run at once)";
     else if (st === "completed" && !r && busy) msg = "Reading the first page...";
     else if (st === "running" || st === "cancelling") {
       msg = `${ex.seconds} s ${where}${ex.rows ? ` · ${ex.rows.toLocaleString()} rows so far` : ""}`;
@@ -562,14 +562,17 @@ function renderQuery() {
     while (p.tabs.some((t) => t.name === `Query ${n}`)) n++;
     return `Query ${n}`;
   };
-  const addTab = () => { p.whCompareShown = false; p.tabs.push({ name: nextTabName(), sql: wh ? WAREHOUSE_HINT : QUERY_HINT, dialect: tab.dialect }); p.active = p.tabs.length - 1; saveQueryTabs(); renderQuery(); };
+  const addTab = () => { p.whCompareShown = p.whMonitorShown = false; p.tabs.push({ name: nextTabName(), sql: wh ? WAREHOUSE_HINT : QUERY_HINT, dialect: tab.dialect }); p.active = p.tabs.length - 1; saveQueryTabs(); renderQuery(); };
   // WH-12: the compare view, when one was made for this warehouse, has a tab of its own.
   const compare = wh && p.whCompare?.key === sqlRefKey(ref) ? p.whCompare : null;
   const compareOn = !!(compare && p.whCompareShown);
+  // WH-19: the Monitoring tab, once opened for this warehouse.
+  const monitor = wh && p.whMonitor?.key === sqlRefKey(ref) ? p.whMonitor : null;
+  const monitorOn = !!(monitor && p.whMonitorShown);
   const tabs = h("div", { class: "sql-tabs", role: "tablist", "aria-label": "Queries" },
-    p.tabs.map((t, i) => h("div", { class: `sql-tab${i === p.active && !compareOn ? " on" : ""}` },
-      h("button", { class: "name", role: "tab", "aria-selected": String(i === p.active && !compareOn),
-        onclick: () => { p.active = i; p.whCompareShown = false; renderQuery(); },
+    p.tabs.map((t, i) => h("div", { class: `sql-tab${i === p.active && !compareOn && !monitorOn ? " on" : ""}` },
+      h("button", { class: "name", role: "tab", "aria-selected": String(i === p.active && !compareOn && !monitorOn),
+        onclick: () => { p.active = i; p.whCompareShown = p.whMonitorShown = false; renderQuery(); },
         ondblclick: async () => {
           const name = await askText("Rename query", "Name", t.name, "Rename");
           if (name) { t.name = name; saveQueryTabs(); renderQuery(); }
@@ -577,9 +580,13 @@ function renderQuery() {
       p.tabs.length > 1 ? h("button", { class: "close", "aria-label": `Close ${t.name}`,
         onclick: () => { p.tabs.splice(i, 1); p.active = Math.min(p.active, p.tabs.length - 1); saveQueryTabs(); renderQuery(); } }, "×") : null)),
     compare ? h("div", { class: `sql-tab wh-cmp-tab${compareOn ? " on" : ""}` },
-      h("button", { class: "name", role: "tab", "aria-selected": String(compareOn), onclick: () => { p.whCompareShown = true; renderQuery(); } },
+      h("button", { class: "name", role: "tab", "aria-selected": String(compareOn), onclick: () => { p.whCompareShown = true; p.whMonitorShown = false; renderQuery(); } },
         icon("branchCompare", 14), "Compare"),
       h("button", { class: "close", "aria-label": "Close Compare", onclick: () => { p.whCompare = null; p.whCompareShown = false; renderQuery(); } }, "×")) : null,
+    monitor ? h("div", { class: `sql-tab wh-mon-tab${monitorOn ? " on" : ""}` },
+      h("button", { class: "name", role: "tab", "aria-selected": String(monitorOn), onclick: () => { p.whMonitorShown = true; p.whCompareShown = false; renderQuery(); } },
+        icon("monitor", 14), "Monitoring"),
+      h("button", { class: "close", "aria-label": "Close Monitoring", onclick: () => { p.whMonitor = null; p.whMonitorShown = false; renderQuery(); } }, "×")) : null,
     h("button", { class: "sql-tab add", "aria-label": "New query", onclick: addTab }, "+"));
 
   const dialectPick = h("select", { class: "sql-dialect", "aria-label": "SQL dialect",
@@ -739,7 +746,7 @@ function renderQuery() {
   edit.append(editor.view.dom);
   // A new tab holding text from the explorer's Script as or a template (WH-03, WH-04).
   const openTab = (name, text) => {
-    p.whCompareShown = false;
+    p.whCompareShown = p.whMonitorShown = false;
     p.tabs.push({ name, sql: text, dialect: tab.dialect });
     p.active = p.tabs.length - 1;
     saveQueryTabs();
@@ -757,7 +764,7 @@ function renderQuery() {
   // WH-06: saved and shared queries, on the explorer's Queries tab. A saved query opens in its own
   // tab, or in the tab that already holds it.
   const openSaved = (q) => {
-    p.whCompareShown = false;
+    p.whCompareShown = p.whMonitorShown = false;
     const at = p.tabs.findIndex((t) => t.file?.place === q.place && t.file?.name === q.name);
     if (at < 0) p.tabs.push({ name: q.title, sql: q.sql, dialect: tab.dialect,
       file: { place: q.place, name: q.name, place_label: q.place_label, title: q.title, description: q.description || "",
@@ -767,16 +774,14 @@ function renderQuery() {
     renderQuery();
   };
   const whSaved = wh ? whQueries(ref, { open: openSaved }) : null;
-  const whRuns = wh ? whHistory(ref, {
-    open: (name, text) => openTab(name, text),
-    insight: (name, text) => {
-      p.whCompareShown = false;
-      p.tabs.push({ name, sql: text, dialect: tab.dialect, autorun: true });
-      p.active = p.tabs.length - 1;
-      saveQueryTabs();
-      renderQuery();
-    },
-  }) : null;
+  const openInsight = (name, text) => {
+    p.whCompareShown = p.whMonitorShown = false;
+    p.tabs.push({ name, sql: text, dialect: tab.dialect, autorun: true });
+    p.active = p.tabs.length - 1;
+    saveQueryTabs();
+    renderQuery();
+  };
+  const whRuns = wh ? whHistory(ref, { open: (name, text) => openTab(name, text), insight: openInsight }) : null;
   const saveQuery = async (asNew) => {
     const file = await saveSqlQuery(ref, tab, asNew);
     if (!file) return;
@@ -789,7 +794,7 @@ function renderQuery() {
   // WH-11: the warehouse's project in Git, on the explorer's Project tab. A file opens in its own
   // tab, or in the tab that already holds it; Save writes it back.
   const openProjectFile = async (f, project) => {
-    p.whCompareShown = false;
+    p.whCompareShown = p.whMonitorShown = false;
     const at = p.tabs.findIndex((t) => t.proj?.repo === project.repo && t.proj?.folder === project.folder && t.proj?.path === f.path);
     if (at < 0) {
       const file = await attempt(() => rpc("wh_project_read", { repo: project.repo, folder: project.folder, path: f.path }), "Could not open the file");
@@ -818,6 +823,7 @@ function renderQuery() {
         : btn("Save query", "save", () => saveQuery(false), "tool", { title: tab.file ? `Save to ${tab.file.name} in ${tab.file.place === "mine" ? "My queries" : tab.file.place_label}` : "Save this tab as a .sql file in My queries or a Git repository" }),
       tab.file && !tab.proj ? btn("Save as new", null, () => saveQuery(true), "tool") : null,
       btn("Open in Fabric", "open", () => openInFabric(fabricLink)),
+      btn("Monitoring", "monitor", () => whMonitorOpen(ref), "tool", { title: "Fabric's workspace monitoring for this warehouse, and its monitoring views (Preview)" }),
       h("span", { class: "spacer" }),
       whChangesSwitch(ref, () => renderQuery()),
       h("span", { class: `sql-capacity-note${whChangesTicked(ref) ? " changes" : ""}`, role: "note",
@@ -842,10 +848,12 @@ function renderQuery() {
             ["Your templates", "Saving, importing or deleting a template of your own writes or removes a .sql file in My templates (the app's data folder) or in the sql-templates folder of a Git repository you opened. Export writes a new file in Downloads."],
             ["Saved queries", "Save query writes the tab to a .sql file in My queries (the app's data folder) or in the sql-queries folder of a Git repository you opened; Delete removes that file. Nothing is committed for you."],
             ["Project", "The Project tab reads and writes .sql files in a <warehouse>.Warehouse folder of a Git repository you opened, in Fabric's Git layout. Import from the warehouse and Compare run catalog queries in Fabric. Import writes new files and, only if you tick it, replaces files that differ; Compare writes nothing unless you take the warehouse's version of an object. Nothing is committed and no file is removed. Deploy changes the warehouse: it previews each change and runs only the ones you tick, each as a confirmed change; Test and Prod deploy only committed, pushed files."],
+            ["Monitoring", "Reads the workspace's monitoring KQL database (Fabric's WarehouseExecutions table), one small KQL query a view, as you; it uses capacity at Eventhouse rates. Build views creates or updates a KQL queryset per warehouse in the workspace, after you confirm, or without asking in a workspace where you ticked that; other tabs in it stay. Who runs what lists each person's sign-in name with their queries and CPU time."],
             ["History", "Each run here is kept with its SQL in the app's storage on this PC (up to 200 per warehouse) until you clear it. Query insights run a query on the warehouse's queryinsights views in Fabric."]],
           anchor: "warehouse-queries-preview" }))),
       h("section", { class: "sql-main" }, tabs,
-        compareOn ? whCompareView(ref, { open: openProjectFile })
+        monitorOn ? whMonitorView(ref, { insight: openInsight })
+          : compareOn ? whCompareView(ref, { open: openProjectFile })
           : h("div", { class: "sql-card" }, actions, h("div", { class: "sql-editor-row" }, edit, compat), band, grid))))
     : h("div", { class: "sql-page" },
     h("div", { class: "ribbon" }, h("div", { class: "toolbar" },
@@ -865,6 +873,7 @@ function renderQuery() {
   drawTables();
   if (tab.autorun) { delete tab.autorun; run(tab.sql); }
   if (wh && !p.catalog && sqlWarehouseOk.has(sqlRefKey(ref))) loadCatalog();
+  if (wh) whMonitorAutoCheck(ref);
   if (!p.tables && !wh) {
     rpc("list_tables", { workspace_id: ref.workspace_id, lakehouse_id: ref.lakehouse_id })
       .then((t) => { p.tables = t; })

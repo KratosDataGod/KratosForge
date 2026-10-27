@@ -26,12 +26,14 @@ const PREVIEW = { env: "test", name: "SM_Gold", mode: "update", exists: true, wo
   report: [{ object: "relationship 'orders_to_returns'", kind: "lost", message: "joins on 2 columns; Power BI joins on one" }] };
 
 const apps = [];
-async function open(calls) {
+async function open(calls, extra = {}) {
   const log = (name) => (p) => { calls.push([name, p]); return null; };
   const app = await openApp({ mocks: {
     meta_model_plan: () => PLAN,
     meta_model_ossie_models: () => ({ env: "test", models: [{ id: "m1", name: "SM_Gold" }, { id: "m2", name: "Finance KPIs" }] }),
     meta_model_ossie_export: (p) => { calls.push(["export", p]); return EXPORT; },
+    meta_model_ossie_folders: () => ({ folders: [{ path: "semantic/Finance KPIs.SemanticModel", name: "Finance KPIs" }] }),
+    meta_model_ossie_export_folder: (p) => { calls.push(["export_folder", p]); return { ...EXPORT, model: "Finance KPIs", path: "semantic/Finance KPIs.ossie.yaml" }; },
     meta_model_ossie_save: (p) => { calls.push(["save", p]); return { path: p.path }; },
     meta_model_ossie_read: (p) => { calls.push(["read", p]); return { path: p.path, text: YAML }; },
     meta_model_ossie_preview: (p) => { calls.push(["preview", p]); return PREVIEW; },
@@ -43,6 +45,7 @@ async function open(calls) {
         : { confirm: { name: "SM_Gold", mode: "update", workspace_name: "Sales Test", counts: { add: 2, needs_dax: 1 } } };
     },
     meta_model_tmdl_save: log("tmdl"),
+    ...extra,
   } });
   apps.push(app);
   await app.page.setViewportSize({ width: 1280, height: 1000 });
@@ -74,7 +77,7 @@ test("Export shows what's portable and what only Fabric keeps, then saves the fi
   const { page, errors } = await open(calls);
   const card = page.locator("#model-under-test .ossie-card");
   await card.waitFor();
-  await page.waitForFunction(() => document.querySelectorAll(".ossie-card select option").length === 2);
+  await page.waitForFunction(() => document.querySelectorAll(".ossie-card select option").length === 3);
   await card.locator("button:has-text('Export to Ossie')").click();
   await card.locator(".pass-box").waitFor();
   assert.match(await card.locator(".pass-box").textContent(), /Converted SM_Gold: 6 datasets, 61 fields, 22 measures \(16 also as SQL\), 5 relationships\. 2 things only Power BI understands are kept/);
@@ -122,6 +125,22 @@ test("Import previews every change and writes only after the confirm, keeping wh
   await shot(page, "4-result", "#model-under-test .ossie-card");
   await page.locator("#model-under-test button:has-text('Save TMDL to Git')").click();
   await page.waitForFunction(() => true);
+  assert.deepStrictEqual(errors, []);
+});
+
+test("A model kept in Git exports on this PC, and Fabric's answer shows when it can't list models", { skip }, async () => {
+  const calls = [];
+  const { page, errors } = await open(calls, { meta_model_ossie_models: () => { throw new Error("Semantic models live in a Fabric workspace. Switch to Test or Prod."); } });
+  const card = page.locator("#model-under-test .ossie-card");
+  await page.waitForFunction(() => document.querySelectorAll(".ossie-card optgroup").length === 2);
+  assert.strictEqual(await card.locator("select").inputValue(), "git:semantic/Finance KPIs.SemanticModel");
+  assert.match(await card.locator("optgroup[label='In Fabric'] option").textContent(), /Switch to Test or Prod/);
+  await shot(page, "5-git-model", "#model-under-test .ossie-card");
+  await card.locator("button:has-text('Export to Ossie')").click();
+  await card.locator(".pass-box").waitFor();
+  assert.deepStrictEqual(calls.find(([n]) => n === "export_folder")[1], { path: "semantic/Finance KPIs.SemanticModel", translate_dax: true });
+  assert.ok(!calls.some(([n]) => n === "export"), "nothing is read from Fabric");
+  assert.strictEqual(await card.locator("input[aria-label='Save in the project as']").inputValue(), "semantic/Finance KPIs.ossie.yaml");
   assert.deepStrictEqual(errors, []);
 });
 

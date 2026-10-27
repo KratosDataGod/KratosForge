@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "5ae85e5",
-    "date": "2026-10-25",
+    "commit": "bb084c6",
+    "date": "2026-10-26",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
       "Ran the sidecar test suite (pytest) on Linux, Python 3.13",
@@ -14,9 +14,10 @@
       "Taken at b7b04cc; refreshed at 9715e28 for the PRs merged in between (#89 to #134): only the features they touched were re-read, and four rows were added",
       "Refreshed at be3e45b on 2026-10-22 for the PRs merged from #135 to #559: rows were added for the features those PRs shipped, and rows whose status those PRs changed were re-read. Other rows were not re-read, so their evidence is from earlier runs",
       "Refreshed at 524e6a3 on 2026-10-25 for the PRs merged from #560 to #650 (the 2026-10-22 refresh for #135 to #559 is included; it had not reached main). Each merge's changed files and title were read; rows those PRs changed were updated and five rows added. Other rows were not re-read.",
-      "Daily product check 2026-10-25 at 5ae85e5: PRs #643 to #675 merged after the #654 refresh; their rows were updated and two added."
+      "Daily product check 2026-10-25 at 5ae85e5: PRs #643 to #675 merged after the #654 refresh; their rows were updated and two added.",
+      "Product check 2026-10-26 at bb084c6: PRs #676 to #741 merged after #677; their rows were updated. Other rows were not re-read."
     ],
-    "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22)."
+    "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
   "features": [
     {
@@ -198,6 +199,12 @@
         "PB-063",
         "PB-070",
         "PB-102"
+      ],
+      "prs": [
+        702,
+        705,
+        719,
+        722
       ]
     },
     {
@@ -240,6 +247,9 @@
       "next_action": "Add Preview ids for batch_by, release records, who-can-promote, objectives and column lineage, which docs call Preview but code doesn't tag (PB-078).",
       "backlog": [
         "PB-078"
+      ],
+      "prs": [
+        699
       ]
     },
     {
@@ -379,7 +389,9 @@
       ],
       "prs": [
         90,
-        569
+        569,
+        680,
+        699
       ],
       "workstream": "Enterprise readiness (FD-105)",
       "next_action": "Missing keys through the enterprise program (PB-061); #569 closed the ten audit bugs #411 to #420.",
@@ -469,7 +481,8 @@
         569,
         594,
         602,
-        607
+        607,
+        718
       ],
       "workstream": "Fuller What's new dialog (PB-100) and Enterprise readiness",
       "next_action": "Code signing (PB-001); Rust tests in CI (PB-071).",
@@ -1014,14 +1027,15 @@
         "preview": false
       },
       "limitations": [
-        "Items matched by display name (fabric_api.py save_notebook)",
+        "After the first publish, the item is matched by its recorded id (PB-018); not yet checked against a live tenant",
         "The setup cell pip-installs sqlglot in Fabric",
         "notebooks.md says %%sql notebooks publish as Spark; code converts them (inference)"
       ],
       "prs": [
-        31
+        31,
+        685
       ],
-      "next_action": "Match the Fabric item by its recorded id, not display name, so a rename doesn't duplicate (PB-018).",
+      "next_action": "Include publish after a rename in the tenant smoke test.",
       "backlog": [
         "PB-002",
         "PB-018",
@@ -1144,8 +1158,8 @@
     },
     {
       "id": "FEAT-FAB-10",
-      "name": "Data Factory items: pipelines, connections and dataflows",
-      "description": "Open a Fabric workspace's pipeline on this PC (getDefinition, DF-2), a Connections tab with what uses each connection per environment (DF-5), and Dataflow Gen2 queries, destinations and refreshes read in the engine (DF-7). Read-only; Preview.",
+      "name": "Data Factory items: pipelines, copy jobs, dataflows and connections",
+      "description": "Open a Fabric workspace's pipeline on this PC (DF-2); Copy jobs (DF-6) and Dataflows (DF-7) tabs with source, destination, queries and run history; Run in Fabric and Refresh in Fabric buttons after a confirm (#737, #739); a Connections tab with what uses each connection, gateway names when Gateway.Read.All is granted (DF-5, #709, #736). Preview.",
       "pillar": "Enterprise services",
       "category": "Pipelines and Orchestration",
       "status": "Partially Implemented",
@@ -1175,6 +1189,21 @@
           "kind": "test",
           "ref": "app/tests/browser/df-connections.test.cjs",
           "note": "daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_workspace_copy_jobs.py",
+          "note": "product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/df-copy-jobs.test.cjs",
+          "note": "product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/df-dataflows.test.cjs",
+          "note": "product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it"
         }
       ],
       "source": [
@@ -1182,14 +1211,17 @@
         "sidecar/fabric_desktop/fabric_connections_service.py",
         "sidecar/fabric_desktop/workspace_dataflows_service.py",
         "sidecar/fabric_desktop/orchestration/mashup.py",
-        "app/ui/df-connections.js"
+        "app/ui/df-connections.js",
+        "sidecar/fabric_desktop/orchestration/copyjob.py",
+        "app/ui/df-copy-jobs.js",
+        "app/ui/df-dataflows.js"
       ],
       "ui": {
-        "surface": "Pipelines page > Open from workspace, Connections tab",
+        "surface": "Pipelines page > Open from workspace, Copy jobs, Dataflows and Connections tabs",
         "preview": true
       },
       "workstream": "Build full Data Factory experience (DF-1..10)",
-      "next_action": "DF-6 copy jobs and the DF-7 screen; deploy through the platform repo (DF-8) later.",
+      "next_action": "DF-8 deploy through the platform repo needs Chris's go; tenant run of the DF-6 buttons.",
       "backlog": [
         "PB-030",
         "PB-035"
@@ -1199,7 +1231,10 @@
         "sidecar/tests/test_fabric_connections.py",
         "sidecar/tests/test_workspace_dataflows.py",
         "app/tests/browser/workspace-pipelines.test.cjs",
-        "app/tests/browser/df-connections.test.cjs"
+        "app/tests/browser/df-connections.test.cjs",
+        "sidecar/tests/test_workspace_copy_jobs.py",
+        "app/tests/browser/df-copy-jobs.test.cjs",
+        "app/tests/browser/df-dataflows.test.cjs"
       ],
       "docs": [
         "docs/orchestration/data-factory.md"
@@ -1209,18 +1244,27 @@
         666,
         667,
         668,
-        669
+        669,
+        700,
+        709,
+        714,
+        724,
+        732,
+        736,
+        737,
+        739,
+        740,
+        741
       ],
       "limitations": [
-        "Read-only: no authoring or deploy yet (DF-8, DF-10)",
-        "Dataflows have an engine read only, no screen",
-        "Copy jobs (DF-6) not started"
+        "No authoring or deploy of Data Factory items yet (DF-8, DF-10)",
+        "Run in Fabric and Refresh in Fabric not yet run on a tenant"
       ]
     },
     {
       "id": "FEAT-FAB-11",
       "name": "Fabric Warehouse development",
-      "description": "A Warehouse page opened from Workspaces: read-only T-SQL on a Fabric warehouse or SQL analytics endpoint through mssql-python, an object explorer with Script as, Messages and a quick Chart, SQL templates (built-in and your own), saved and shared queries, and query history with Fabric query insights. Preview.",
+      "description": "A Warehouse page opened from Workspaces: T-SQL on a Fabric warehouse or SQL analytics endpoint through mssql-python, an object explorer with Script as, templates, saved and shared queries, history with query insights, an estimated plan (WH-09), changes after a preview and confirm in one transaction (WH-10, D1: Prod also asks for the warehouse name), and a Project tab that keeps the warehouse as files in Fabric's Git layout, compares them object by object and deploys after a preview (WH-11..13). Preview.",
       "pillar": "Local development",
       "category": "SQL, Python, and Notebook Development",
       "status": "Partially Implemented",
@@ -1269,6 +1313,26 @@
           "kind": "test",
           "ref": "app/tests/browser/query-history.test.cjs",
           "note": "daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/warehouse-changes.test.cjs",
+          "note": "product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/warehouse-project.test.cjs",
+          "note": "product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/warehouse-deploy.test.cjs",
+          "note": "product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/warehouse-plan.test.cjs",
+          "note": "product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it"
         }
       ],
       "source": [
@@ -1280,14 +1344,17 @@
         "app/ui/sqltemplates.js",
         "app/ui/sqlchart.js",
         "app/ui/sqlqueries.js",
-        "app/ui/sqlhistory.js"
+        "app/ui/sqlhistory.js",
+        "app/ui/sqlchanges.js",
+        "app/ui/whproject.js",
+        "app/ui/sqlplan.js"
       ],
       "ui": {
         "surface": "Workspaces > warehouse > Warehouse page",
         "preview": true
       },
       "workstream": "Build full warehouse development experience (WH-01..21)",
-      "next_action": "Phases 1-2 (WH-01..08) are on main; phase 3 build and deploy needs Chris's go, writes need D1.",
+      "next_action": "Tenant run of WH-10..13 writes; phases 4-5 need Chris's go.",
       "backlog": [
         "PB-020",
         "PB-022",
@@ -1302,7 +1369,11 @@
         "app/tests/browser/sql-templates.test.cjs",
         "sidecar/tests/test_sql_queries.py",
         "app/tests/browser/saved-queries.test.cjs",
-        "app/tests/browser/query-history.test.cjs"
+        "app/tests/browser/query-history.test.cjs",
+        "app/tests/browser/warehouse-changes.test.cjs",
+        "app/tests/browser/warehouse-project.test.cjs",
+        "app/tests/browser/warehouse-deploy.test.cjs",
+        "app/tests/browser/warehouse-plan.test.cjs"
       ],
       "docs": [
         "docs/warehouse.md",
@@ -1318,7 +1389,14 @@
         641,
         645,
         660,
-        662
+        662,
+        703,
+        723,
+        727,
+        728,
+        729,
+        730,
+        731
       ],
       "limitations": [
         "Read-only: writes wait on Chris's decision D1",
@@ -1624,7 +1702,8 @@
         610,
         612,
         622,
-        625
+        625,
+        711
       ],
       "next_action": "#612 SF10 streaming in quality per memory; Direct Lake on zstd is Chris's call (Snappy fallback); verify MERGE on OneLake in the live test (PB-003).",
       "backlog": [
@@ -1683,7 +1762,8 @@
       ],
       "prs": [
         30,
-        635
+        635,
+        702
       ],
       "next_action": "The Parameters bar now applies to Fabric and side by side runs (#635), which closes Chris's 2026-10-23 'later' ask.",
       "backlog": [
@@ -2040,7 +2120,8 @@
         516,
         517,
         518,
-        519
+        519,
+        692
       ]
     },
     {
@@ -2367,7 +2448,9 @@
       "prs": [
         118,
         134,
-        639
+        639,
+        676,
+        703
       ],
       "workstream": "SQL development sprint",
       "next_action": "SQL editor rows are tracked by the warehouse program now (WH-08 Messages and Chart merged).",
@@ -2464,7 +2547,11 @@
       "prs": [
         59,
         62,
-        65
+        65,
+        683,
+        708,
+        717,
+        733
       ],
       "workstream": "Prove",
       "next_action": "Run one proof on the tenant (PB-002); add the column heatmap from plan Stage 3.",
@@ -2684,7 +2771,8 @@
         625,
         634,
         635,
-        673
+        673,
+        683
       ],
       "workstream": "Prove (FD-112)",
       "next_action": "Chris's SF1 local run is 65 s vs 101 s before (1.9x); keep the benchmark and retire correctness checks into Prove (PB-076).",
@@ -3108,6 +3196,10 @@
       "next_action": "Release rollback (scale plan 5.3) and decision D1 (require a pushed commit for Test/Prod).",
       "backlog": [
         "PB-042"
+      ],
+      "prs": [
+        688,
+        707
       ]
     },
     {
@@ -3499,7 +3591,8 @@
         "Paused capacities skipped"
       ],
       "prs": [
-        41
+        41,
+        678
       ],
       "next_action": "Keep."
     },
@@ -3671,13 +3764,14 @@
       "limitations": [
         "Not a security boundary",
         "Group roles become notes",
-        "separate_promoter compares PC login names"
+        "separate_promoter treats a matching Entra object id or PC login name as the same person (HD-030); it can be switched off in environments.toml"
       ],
       "prs": [
-        93
+        93,
+        721
       ],
       "workstream": "Enterprise readiness (FD-130)",
-      "next_action": "Keep; compare signed-in identities rather than PC login names.",
+      "next_action": "The HD-030 switch still lives in each project's environments.toml, where a project can turn it off (#744 moves it to the organization's policy); test the same Entra user promoting from two PCs.",
       "backlog": [
         "PB-065"
       ]
@@ -3839,11 +3933,13 @@
         "T-SQL tested on SQLite only",
         "Whether UDF context exposes executing_user is unverified",
         "setup()/join() have no tests",
-        "platform_revoke has no UI"
+        "No screen lists the source registry (PB-054's other half)"
       ],
       "prs": [
         48,
-        50
+        50,
+        694,
+        705
       ],
       "next_action": "Verify setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified).",
       "backlog": [
@@ -3854,7 +3950,7 @@
     {
       "id": "FEAT-MESH-02",
       "name": "Central business keys",
-      "description": "Keys issued in batches by SQL_Platform UDFs with numbers kept when moved from LH_Keys.",
+      "description": "Keys issued in batches by SQL database UDFs, either per environment (SQL_Platform) or one keys database shared by Dev, Test and Prod (SQL_Keys in a Keys workspace), with numbers kept when moved.",
       "pillar": "Enterprise services",
       "category": "Enterprise Shared Services",
       "status": "Implemented",
@@ -3868,30 +3964,40 @@
         {
           "kind": "test",
           "ref": "sidecar/tests/test_platform.py::test_keys_move_to_the_platform_with_their_numbers"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_shared_keys.py (PR #293)",
+          "note": "18 passed when run on 2026-10-26 against main bb084c6b; SQLite stand-in, no tenant"
         }
       ],
       "source": [
         "sidecar/fabric_desktop/central/core.py",
         "sidecar/fabric_desktop/central/client.py",
-        "sidecar/fabric_desktop/central/migrate.py"
+        "sidecar/fabric_desktop/central/migrate.py",
+        "sidecar/fabric_desktop/central/keys_home.py"
       ],
       "tests": [
-        "sidecar/tests/test_platform.py"
+        "sidecar/tests/test_platform.py",
+        "sidecar/tests/test_shared_keys.py"
       ],
       "docs": [
         "docs/platform.md"
       ],
       "ui": {
-        "surface": "Data mesh > Surrogate keys > Move keys, Platform > Business keys",
+        "surface": "Settings > Platform > Keys (Create, Join existing, Move keys in); Data mesh > Surrogate keys > Move keys; Platform > Business keys",
         "preview": true
       },
       "limitations": [
         "Moving back to LH_Keys refused once new keys are issued",
-        "Direction change (Chris's unit testing, 2026-10-18, item 25): keys live in one Fabric SQL database in a dedicated workspace, shared by all environments (Chris chose one for all on 2026-10-20, reversing the 2026-10-16 decision to keep keys per environment); today each environment has its own SQL_Platform"
+        "One keys database for Dev, Test and Prod (Chris's unit testing item 25, chosen 2026-10-20) is built in PR #293: Settings > Platform > Keys creates or joins the Keys workspace (SQL_Keys, UDF_Keys) and Move keys in brings existing keys over. Built and tested against SQLite only; the move on a live tenant has not been done"
       ],
-      "next_action": "Staged roadmap moves keys to one shared keys database in a dedicated workspace, keeping existing key numbers (item 25, decided 2026-10-20)",
+      "next_action": "Move keys into the shared Keys workspace on a live tenant (PB-002); user docs that still say one LH_Keys per environment (azure-setup.md, metadata-guide.md) need updating",
       "backlog": [
         "PB-052"
+      ],
+      "prs": [
+        293
       ]
     },
     {
@@ -4017,7 +4123,8 @@
         50,
         591,
         627,
-        642
+        642,
+        694
       ],
       "next_action": "Purview and endorsement live checks wait on Chris's tenant run; implementation review of #591, #627, #642.",
       "backlog": [
@@ -4150,13 +4257,13 @@
       "limitations": [
         "Never run against a live tenant",
         "Runs metadata environments only, not notebooks or jobs",
-        "Queue never pruned (inference)",
-        "No command to revive a dead job"
+        "Finished jobs leave the queue after queue_retention_days, and `agent requeue` revives a dead or failed job (PB-044)"
       ],
       "prs": [
-        34
+        34,
+        689
       ],
-      "next_action": "Verify on a tenant; add queue pruning and requeue of dead jobs (PB-044).",
+      "next_action": "Verify on a tenant.",
       "backlog": [
         "PB-044"
       ]
@@ -4481,7 +4588,8 @@
         74,
         79,
         125,
-        127
+        127,
+        682
       ],
       "workstream": "Workloads (FD-123)",
       "next_action": "Simplified incident management (PB-105) builds on these incidents; implementation review of PRs #125 and #127",
@@ -4531,7 +4639,9 @@
       ],
       "prs": [
         58,
-        579
+        579,
+        704,
+        735
       ],
       "next_action": "Fabric pipeline runs (FEAT-ORC-10) join this list after the Data Factory mockup."
     },
@@ -4798,7 +4908,9 @@
         "preview": false
       },
       "prs": [
-        95
+        95,
+        687,
+        706
       ],
       "workstream": "Enterprise readiness (FD-131b)",
       "next_action": "Implementation review of PR #95",
@@ -4963,7 +5075,9 @@
       "prs": [
         86,
         88,
-        674
+        674,
+        679,
+        715
       ],
       "workstream": "Enterprise readiness (FD-103)",
       "next_action": "SH-8: docs and Codex review workflow actions pinned by commit (#674).",
@@ -5089,10 +5203,11 @@
         "No line staging, rebase, tags"
       ],
       "prs": [
-        85
+        85,
+        696
       ],
       "workstream": "Git-native development",
-      "next_action": "Owned by the Git-native program."
+      "next_action": "Capacity repository drift report against Fabric (#696, Preview); Fabric workspace Git (FEAT-FAB-12) still planned."
     },
     {
       "id": "FEAT-EXT-01",
@@ -5437,7 +5552,9 @@
         126,
         620,
         628,
-        631
+        631,
+        676,
+        691
       ],
       "workstream": "Local data engine and OneLake publishing (FD-LDE-001, FD-LDE-002)",
       "next_action": "local_query, local_explain, Delta writes and transformation steps are checked like a managed local run; screens still wait on the mockup."
@@ -5479,7 +5596,8 @@
         "preview": false
       },
       "prs": [
-        130
+        130,
+        686
       ],
       "workstream": "Local Fabric pipeline execution (ORCH-001)",
       "next_action": "ORCH-002 activity registry, after Chris approves"
@@ -6340,7 +6458,9 @@
         606,
         657,
         663,
-        675
+        675,
+        684,
+        686
       ],
       "workstream": "Local Fabric pipeline execution (ORCH-004)",
       "next_action": "Lakehouse Script steps refuse to read this PC's files (#657) and external tools are told to mock Notebook, Lookup and Get Metadata (#663); P5 Copy data needs Chris's go.",
@@ -6718,7 +6838,11 @@
         655,
         656,
         658,
-        672
+        672,
+        678,
+        688,
+        693,
+        697
       ],
       "workstream": "Forge and wolf animations",
       "next_action": "Draft #449 style guide waits on Chris; keep effects subordinate to work (brief section 8)."
@@ -6797,7 +6921,8 @@
         "preview": true
       },
       "prs": [
-        380
+        380,
+        690
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Screens after a mockup; never install databricks-connect into the engine (ADR-004)."
@@ -6822,12 +6947,14 @@
         "docs/orchestration/data-factory.md"
       ],
       "ui": {
-        "surface": "Monitor > Runs (pipeline runs in Fabric, opening to their activities)",
+        "surface": "Monitor > Runs (pipeline, copy job and dataflow runs in Fabric)",
         "preview": true
       },
       "prs": [
         640,
-        653
+        653,
+        734,
+        735
       ],
       "workstream": "Build full Data Factory experience (DF-1..10)",
       "limitations": [
@@ -6844,6 +6971,11 @@
           "kind": "test",
           "ref": "app/tests/browser/fabric-pipeline-runs.test.cjs",
           "note": "daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/fabric-pipeline-runs.test.cjs",
+          "note": "product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it"
         }
       ]
     },
@@ -6901,7 +7033,7 @@
       "description": "Exports a semantic model (TMSL from Fabric getDefinition) to an Apache Ossie YAML file and previews or imports one back, with Microsoft's vendored Apache-2.0 converter. Engine only.",
       "pillar": "Enterprise services",
       "category": "Fabric Integration and Deployment",
-      "status": "Implemented but Not Exposed",
+      "status": "Implemented",
       "verification": "Partially Verified",
       "source": [
         "sidecar/fabric_desktop/model_ossie.py",
@@ -6915,18 +7047,20 @@
         "docs/semantic-model-ossie.md"
       ],
       "ui": {
-        "surface": "None yet: Deploy > Semantic model card waits on the mockup",
+        "surface": "Semantic model tab > Apache Ossie card",
         "preview": true
       },
       "prs": [
-        599
+        599,
+        681,
+        716
       ],
       "workstream": "TMDL and OSI semantic model conversion",
       "limitations": [
         "Ossie spec 0.2 is a draft and still changes",
         "TMDL only through Fabric's TMSL bridge"
       ],
-      "next_action": "UI card after Chris reacts to the mockup and decides whether Import may create new models.",
+      "next_action": "Round trip on a real model before Preview comes off.",
       "evidence": [
         {
           "kind": "test",
@@ -6974,7 +7108,9 @@
         649,
         651,
         664,
-        671
+        671,
+        713,
+        720
       ],
       "workstream": "Enterprise governance foundation; Best Practice Analyzer (checkers)",
       "limitations": [
@@ -6983,7 +7119,7 @@
         "Semantic model rules (BPA, #560) aren't registered yet (PB-112)",
         "Central policies not yet set up on a tenant"
       ],
-      "next_action": "PB-111 (SQL scripts and scheduled notebooks in Check now); PB-112 (BPA model checks after #560).",
+      "next_action": "PB-108 accepted with documented limitations; PB-111 and PB-112 track them.",
       "evidence": [
         {
           "kind": "test",
@@ -7025,19 +7161,22 @@
     {
       "id": "FEAT-EXT-06",
       "name": "VS Code integration",
-      "description": "Open a notebook or its folder in VS Code (or Insiders) from the notebook's Home tab, see edits saved there without losing outputs, and Add to VS Code for the MCP tools (Preview).",
+      "description": "Open a notebook or folder in VS Code from the notebook's Home tab, set up a repository for VS Code with `kratosforge nb validate`, kratosforge:// links back into the app (local drive paths only, one running copy), and Add to VS Code for the MCP tools (Preview).",
       "pillar": "Local development",
       "category": "Extensibility, APIs, CLI, and MCP",
-      "status": "Partially Implemented",
+      "status": "Implemented",
       "verification": "Partially Verified",
       "source": [
         "app/src-tauri/src/vscode_link.rs",
         "app/ui/vscode.js",
-        "app/ui/integrations.js"
+        "app/ui/integrations.js",
+        "app/src-tauri/src/deep_link.rs"
       ],
       "tests": [
         "app/tests/browser/notebook-vscode.test.cjs",
-        "app/tests/browser/notebook-disk-change.test.cjs"
+        "app/tests/browser/notebook-disk-change.test.cjs",
+        "app/tests/browser/deep-link.test.cjs",
+        "app/tests/browser/vscode-setup.test.cjs"
       ],
       "docs": [
         "docs/vscode.md",
@@ -7050,14 +7189,17 @@
       "prs": [
         650,
         652,
-        670
+        670,
+        695,
+        710,
+        712
       ],
       "workstream": "Bring VS Code developers to KratosForge",
       "limitations": [
-        "No KratosForge kernel in VS Code yet: cells run in VS Code use VS Code's kernel",
-        "vscode:// hand-off not checked on Windows by a person"
+        "No KratosForge kernel in VS Code: cells run there use VS Code's kernel",
+        "Links and hand-off not yet checked on Windows by a person"
       ],
-      "next_action": "Phase 2 VS Code extension waits on Chris's three decisions.",
+      "next_action": "Phase 2 (extension) waits on Chris's decisions.",
       "evidence": [
         {
           "kind": "test",
@@ -7068,6 +7210,16 @@
           "kind": "test",
           "ref": "app/tests/browser/notebook-disk-change.test.cjs",
           "note": "daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/deep-link.test.cjs",
+          "note": "product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/vscode-setup.test.cjs",
+          "note": "product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it"
         }
       ]
     }

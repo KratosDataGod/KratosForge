@@ -18,7 +18,7 @@ This guide goes from an empty folder to Prod. The [reference](#reference) at the
 | **Gates** | Rules enforced at four points (save, write, promote, after) so the standards are followed without anyone policing them. |
 | **Promote** | Moving a tested metadata version from Dev to Test, or Test to Prod. |
 | **LH_Meta** | A lakehouse per environment that holds the run log, check results, watermarks, schema history and deployments. |
-| **LH_Keys** | A lakehouse per environment, in a shared Keys workspace, that issues surrogate keys. |
+| **Keys** | Where surrogate keys are issued. Recommended: one keys database for Dev, Test and Prod, in one Keys workspace ([platform.md](platform.md#one-keys-database-for-dev-test-and-prod)). Without it, `LH_Keys`, a lakehouse per environment. |
 
 ## 1. Set up a project
 
@@ -354,7 +354,7 @@ With **Fabric** (Preview), **Run all** (and running one entity, backfills and re
 
 ## 8. Surrogate keys
 
-Surrogate keys are issued in one place per environment: `LH_Keys`, in a dedicated Keys workspace (Dev keeps it on the PC). Each business key has its own key table, `sk.<name>`, with three columns: `<name>_sk` (INT), `<name>_bk` (the business key, unique) and `create_date`. Customer ABC gets one key, say 123, and every source that has Customer ABC maps to 123.
+Surrogate keys are issued in one place. The recommended setup is [one keys database for Dev, Test and Prod](platform.md#one-keys-database-for-dev-test-and-prod) (Preview), in one Keys workspace, so a business key has the same surrogate key in every environment. Without the [platform](platform.md), each environment issues its own keys in `LH_Keys`, in a dedicated Keys workspace (Dev keeps it on the PC); the rest of this section describes that setup. Each business key has its own key table, `sk.<name>`, with three columns: `<name>_sk` (INT), `<name>_bk` (the business key, unique) and `create_date`. Customer ABC gets one key, say 123, and every source that has Customer ABC maps to 123.
 
 **Sync to LH_Keys** is in Preview for Fabric environments: it has not yet been run on a tenant.
 
@@ -404,6 +404,14 @@ lib.CRM_server_host
 - No column sums on its own (`summarizeBy: none`, as Best Practice Analyzer's rules ask). Instead each fact gets a total measure for every visible numeric column that isn't a key, named like its row count measure: `fact_sales total net_amount`. Names don't change as the model grows, so reports keep their measures. Visuals that already sum a column keep their aggregation.
 - Relationships come from the metadata: a fact's `[[lookup]]` names the dimension and key, and any other column named like a dimension's surrogate key joins to it.
 - Surrogate keys, `_run_id` and `_loaded_at` are hidden.
+- **Date table.** A date dimension becomes the model's date table (*Mark as date table* in Power BI, so time intelligence like `TOTALYTD` works) when its entity names the date column:
+
+  ```toml
+  [model]
+  date_column = "day"
+  ```
+
+  The entity must be a dimension (`scd1` or `scd2` with a surrogate key) and the column a contract column of type `date` or `datetime`. Power BI refuses a date table with a blank date, so this dimension's Unknown member gets the date 1899-12-30 (day 0 of Power BI's date serials) instead of a blank one. A dimension that already exists is rewritten once on its next run to give its Unknown member that date (the write step says so); later runs merge as usual. Facts still point unmatched rows at -1, and visuals show them under 1899-12-30.
 - Two entities whose Delta tables share a name are qualified by schema (`sales_orders`). **Update model** first reads the model's definition and keeps the names its tables already have, so when a second `orders` table arrives only the newcomer is qualified, and reports keep their tables and measures. If the definition can't be read, nothing is written.
 - **Create model** makes `SM_<Layer>` in the environment's workspace (rename it if you like). **Update model** updates it in place and keeps every lineage tag, so reports built on it keep working.
 - If a model with that name already exists (for example after a rename), KratosForge asks first: the confirmation names the model and says its definition will be replaced, including measures, tables and relationships added to it in Fabric. Nothing is written until you confirm.
@@ -507,6 +515,7 @@ business_key = "order_id"
 | `[[keys]]` | `table`, `business_key` | Surrogate keys from `LH_Keys` |
 | `[[lookup]]` | `dim`, `on`, `as`, `at` | A dimension's surrogate key as of the fact's date |
 | `[scd]` | `surrogate_key`, `tracked`, `type1` | Dimension settings |
+| `[model]` | `date_column` | Makes the dimension the semantic model's date table (see [section 10](#10-semantic-model-preview)) |
 | `[hooks]` | `after_clean`, `before_write`, `reads`, `adds`, `owner`, `test` | Your Python at a fixed point |
 | `[step]` | `custom`, `reads`, `owner`, `test` | Your Python replaces the transform |
 | `[params]` | any | Values your code reads from `ctx.params` |
@@ -555,7 +564,7 @@ KratosForge works out where every column comes from by reading the project's fil
 | --- | --- |
 | Every row | `_run_id`, `_loaded_at` |
 | Type 2 dimensions | `valid_from`, `valid_to`, `is_current` |
-| Dimensions | The surrogate key column, and an Unknown member at -1 |
+| Dimensions | The surrogate key column, and an Unknown member at -1 (dated 1899-12-30 in the model's date table) |
 | `LH_Meta` | `meta.run_log`, `meta.dq_results`, `meta.watermarks`, `meta.schema_history`, `meta.deployments` |
 | Each layer lakehouse | `quarantine.<schema>_<table>` for held-back rows |
 | `LH_Keys` | `sk.<name>` per key table; `config.source_system`, `config.source_connection` |

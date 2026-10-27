@@ -253,6 +253,38 @@ def test_products_are_checked_on_save_and_documented_before_publish(svc):
     assert svc.mesh_overview()["published"][0]["id"] == "crm/c360"
 
 
+def test_a_prod_publish_that_changes_a_product_tells_its_followers(svc, monkeypatch):
+    svc.meta_set_environment("prod", target="local")
+    who = {"user": "chris@example.com"}
+    monkeypatch.setattr(svc, "_user", lambda: who["user"])
+    svc.platform_save_domain({"name": "Sales"})
+    svc.mesh_set_project({"domain": "sales"})
+    product = {"name": "c360", "access": "public", "status": "published", "description": "Customers", "owner": "Chris",
+               "ports": [{"name": "customers", "entity": "gold.dim_customer"}]}
+    svc.mesh_save_product(product)
+    svc.mesh_save_about("gold.dim_customer", {"description": "One row per customer"})
+    for c in svc.mesh_about("gold.dim_customer")["columns"]:
+        svc.mesh_save_about("gold.dim_customer", {"description": f"The {c['name']}"}, c["name"])
+    sent = []
+    monkeypatch.setattr(svc, "platform_notify", lambda events: sent.extend(events) or {"sent": len(events)})
+    assert svc.mesh_publish("prod")["published"] == ["c360"]
+    assert svc.platform_products()["can_follow"] and not svc.platform_products()["products"][0]["following"]
+    assert svc.platform_follow("crm/c360") == {"following": ["crm/c360"]}
+    assert svc.platform_products()["products"][0]["following"]
+    who["user"] = "ana@example.com"
+    svc.platform_follow("crm/c360")
+    who["user"] = "chris@example.com"
+
+    svc.mesh_save_product(product | {"version": "2"})
+    svc.mesh_publish("dev")
+    assert sent == [], "Dev changes aren't news to readers"
+    svc.mesh_publish("prod")
+    [event] = sent
+    assert (event["kind"], event["detail"], event["to"]["people"]) == ("product.changed", "Version 1 to 2", ["ana@example.com"]), \
+        "the promoter isn't told about their own change"
+    assert svc.platform_follow("crm/c360", follow=False) == {"following": []}
+
+
 def test_an_entity_reads_another_teams_table_through_a_link(svc, tmp_path):
     producer = LocalStore(tmp_path / "other", "dev")
     producer.write("LH_Gold", "dbo", "regions", pl.DataFrame({"region_id": [1, 2], "region": ["EMEA", "APAC"]}),
@@ -447,6 +479,56 @@ def test_domain_owners_keep_their_own_glossary(platform):
                  {"term": "Active customer", "domain_id": "finance"}):
         with pytest.raises(core.PlatformError, match="glossary"):
             ana.call("save_term", term=term)
+
+
+def test_data_requests_go_to_the_domain_or_product_owners(platform):
+    platform.call("save_domain", domain={"name": "Sales", "owners": "Dee@example.com"})
+    platform.call("save_domain", domain={"name": "Finance"})
+    platform.call("register_project", project={"name": "crm", "domain": "sales"})
+    port = [{"port": "customers", "entity": "gold.dim_customer", "workspace_id": "w", "lakehouse_id": "l", "table": "dim_customer"}]
+    platform.call("register_product", product={"project": "crm", "name": "c360", "domain": "sales", "access": "public",
+                                               "status": "published", "owner": "Bo@example.com"}, ports=port, env="prod")
+    ana, bo, dee = (_as(platform, f"{n}@example.com") for n in ("ana", "bo", "dee"))
+
+    # A new product: the domain's owners decide; nothing is checked against a product.
+    new = ana.call("request", kind="data", target="Sales", project="ledger", reason="Churn by region",
+                   detail={"what": "new", "needed_by": "2026-11-30"})
+    assert (new["target"], new["detail"]["domain_name"], new["detail"]["owners"]) == ("sales", "Sales", "Dee@example.com")
+    with pytest.raises(core.PlatformError, match="already a request waiting"):
+        ana.call("request", kind="data", target="sales", project="ledger", reason=" churn  by REGION ",
+                 detail={"what": "new"})
+    assert [r["can_decide"] for r in dee.call("list_requests", status="waiting")] == [True]
+    assert [r["can_decide"] for r in bo.call("list_requests", status="waiting")] == [False]
+    with pytest.raises(core.PlatformError, match="domain's owners or a platform admin"):
+        bo.call("decide_request", id=new["id"], approve=True)
+    done = dee.call("decide_request", id=new["id"], approve=True, note="In Prod by 30 November")
+    assert (done["status"], done["note"]) == ("approved", "In Prod by 30 November")
+
+    # A change to a product: its owner decides.
+    chg = ana.call("request", kind="data", target="crm/c360", project="ledger", reason="Add a region column",
+                   detail={"what": "change"})
+    assert chg["detail"]["product_name"] == "c360"
+    with pytest.raises(core.PlatformError, match="product's owner or a platform admin"):
+        dee.call("decide_request", id=chg["id"], approve=True)
+    assert bo.call("decide_request", id=chg["id"], approve=False, note="Region is in geo/regions")["status"] == "declined"
+
+    for kwargs, why in (({"target": "sales", "reason": "x", "detail": {"what": "both"}}, "new data product or a change"),
+                        ({"target": "sales", "reason": " ", "detail": {"what": "new"}}, "Say what you need"),
+                        ({"target": "nowhere", "reason": "x", "detail": {"what": "new"}}, "Pick the domain"),
+                        ({"target": "crm/none", "reason": "x", "detail": {"what": "change"}}, "isn't a published"),
+                        ({"target": "sales", "reason": "x", "detail": {"what": "new", "needed_by": "30/11"}}, "Needed by")):
+        with pytest.raises(core.PlatformError, match=why):
+            ana.call("request", kind="data", **kwargs)
+
+
+def test_data_request_notices_name_who_decides():
+    from fabric_desktop import governance_notices as gn
+    new = {"id": "r1", "kind": "data", "target": "sales", "detail": {"what": "new", "domain_id": "sales", "owners": "Dee@example.com"}}
+    event = gn.request_waiting(new, [])
+    assert (event["title"], event["domain"], event["to"]["people"]) == ("Data request to sales", "sales", ["dee@example.com"])
+    chg = {"id": "r2", "kind": "data", "target": "crm/c360", "detail": {"what": "change", "domain_id": "sales"}}
+    event = gn.request_waiting(chg, [{"id": "crm/c360", "owner": "bo@example.com", "domain_id": "sales"}])
+    assert event["to"]["people"] == ["bo@example.com"]
 
 
 def test_requests_for_key_tables_sources_and_access(platform):
@@ -852,3 +934,71 @@ def test_access_reviews_flag_old_grants_for_their_owners_and_take_nothing_away(p
 
     bo.call("revoke_grant", product_id="crm/c360", project="ledger")
     assert [g["project"] for g in bo.call("access_reviews")["grants"]] == ["billing"]
+
+
+def test_following_a_product_and_hearing_what_a_publish_changed(platform):
+    platform.call("save_domain", domain={"name": "Sales"})
+    platform.call("register_project", project={"name": "crm", "domain": "sales"})
+    platform.call("register_project", project={"name": "ledger", "domain": "sales"})
+    port = {"port": "customers", "entity": "gold.dim_customer", "workspace_id": "w", "lakehouse_id": "l", "table": "dim_customer",
+            "columns": {"id": "Int64", "name": "Utf8", "city": "Utf8"}}
+    product = {"project": "crm", "name": "c360", "domain": "sales", "access": "public", "status": "published", "owner": "bo@example.com"}
+    first = platform.call("register_product", product=product, ports=[port], env="prod")
+    assert first["changes"] == [] and "followers" not in first
+    ana, cy = _as(platform, "Ana@example.com"), _as(platform, "cy@example.com")
+    assert ana.call("follow_product", product_id="crm/c360") == ["crm/c360"]
+    assert ana.call("follow_product", product_id="crm/c360") == ["crm/c360"], "following twice is one follow"
+    with pytest.raises(core.PlatformError, match="isn't a published"):
+        ana.call("follow_product", product_id="crm/none")
+    cy.call("register_link", consumer="ledger", alias="cust", product_id="crm/c360", port="customers",
+            reads={"dev": "prod", "test": "prod", "prod": "prod"})
+    assert platform.call("product_followers", product_id="crm/c360") == ["ana@example.com", "cy@example.com"]
+
+    again = platform.call("register_product", product=product, ports=[port], env="prod")
+    assert again["changes"] == [], "an unchanged publish says nothing"
+    changed = dict(port, columns={"id": "Int64", "name": "Utf8", "region": "Utf8", "city": "Int64"})
+    out = platform.call("register_product", product=dict(product, version="2", status="deprecated", deprecated_on="2027-01-31"),
+                        ports=[changed], env="prod")
+    assert out["changes"] == ["Deprecated, stops 2027-01-31", "Version 1 to 2", "Port customers: region added; city retyped"]
+    assert out["followers"] == ["ana@example.com", "cy@example.com"]
+    gone = dict(port, columns={"id": "Int64"})
+    assert platform.call("register_product", product=dict(product, version="2", status="deprecated", deprecated_on="2027-01-31"),
+                         ports=[gone], env="prod")["changes"] == ["Port customers: city, name, region removed"]
+
+    assert ana.call("unfollow_product", product_id="crm/c360") == []
+    assert platform.call("product_followers", product_id="crm/c360") == ["cy@example.com"]
+    with pytest.raises(core.PlatformError, match="owner or a platform admin"):
+        cy.call("product_followers", product_id="crm/c360")
+    assert _as(platform, "bo@example.com").call("product_followers", product_id="crm/c360") == ["cy@example.com"]
+
+
+def test_reads_of_follows_and_reviews_create_no_tables(platform):
+    platform.call("register_project", project={"name": "crm"})
+    platform.call("register_product", product={"project": "crm", "name": "c360", "access": "public", "status": "published",
+                                               "owner": "bo@example.com"}, ports=[], env="dev")
+    with platform._db() as db:  # a platform made before following and access reviews
+        for table in ("follow", "grant_review"):
+            db.run(f"DROP TABLE {db.t('catalog', table)}")
+        db.commit()
+    assert platform.call("list_follows") == [] and platform.call("product_followers", product_id="crm/c360") == []
+    assert platform.call("access_reviews")["grants"] == []
+    before = len(platform.call("audit", limit=500))
+    assert platform.call("confirm_access", product_id="crm/c360", projects=[])["grants"] == []
+    assert len(platform.call("audit", limit=500)) == before, "an empty confirmation writes no audit row"
+    with platform._db() as db:
+        assert not db.exists("catalog", "follow") and not db.exists("catalog", "grant_review")
+
+
+def test_a_product_change_notice_names_its_followers_and_what_changed():
+    from fabric_desktop import governance_notices as gn
+    from fabric_desktop.workloads import platform_notify as pn
+    product = {"id": "crm/c360", "name": "c360", "domain_id": "sales"}
+    assert gn.product_changed(product, ["Version 1 to 2"], [], "prod") is None, "nobody to tell"
+    assert gn.product_changed(product, [], ["ana@example.com"], "prod") is None, "nothing changed"
+    event = pn.validate(gn.product_changed(product, ["Version 1 to 2"], ["Ana@example.com", "not a upn"], "prod"))
+    assert (event["kind"], event["title"], event["detail"], event["to"]["people"]) == (
+        "product.changed", "c360", "Version 1 to 2", ["ana@example.com"])
+    assert event["open"] == {"view": "onelake", "tab": "products", "target": "crm/c360"}
+    title, lines = pn.message(event)
+    assert title == "Data product changed: c360"
+    assert "Version 1 to 2" in lines and lines[-1] == "Open it in KratosForge > OneLake > Data products."

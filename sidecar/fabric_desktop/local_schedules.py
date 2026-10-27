@@ -1,4 +1,4 @@
-"""Schedules that run on this PC: a notebook, or a metadata environment's tables.
+"""Schedules that run on this PC: a notebook, a metadata environment's tables, or a pipeline.
 
 Windows Task Scheduler starts each run, so a schedule fires with the app closed, as long as
 you are signed in to Windows. The task runs this sidecar's own ``pythonw.exe -m
@@ -28,9 +28,16 @@ RUNS_FILE = "schedule_runs.jsonl"
 SCHEDULES_FILE = "schedules.json"
 
 
+# What a pipeline schedule keeps besides its folder: the settings of the Run dialog that the run
+# needs every time. SecureString parameter values are never kept (the definition's defaults apply).
+PIPELINE_OPTIONS = ("parameters", "mocks", "notebooks", "sql_projects")
+
+
 def target_label(target: dict[str, Any]) -> str:
     if target.get("kind") == "notebook":
         return target.get("name", "")
+    if target.get("kind") == "pipeline":
+        return f"Pipeline: {target.get('name') or Path(str(target.get('path', ''))).name}"
     names = target.get("entities") or []
     what = ", ".join(names) if names else "every table"
     return f"{str(target.get('env', '')).title()} metadata: {what}"
@@ -46,7 +53,19 @@ def check_target(target: dict[str, Any]) -> dict[str, Any]:
         if target.get("env") not in ("dev", "test", "prod"):
             raise ValueError("Pick the environment to run")
         return {"kind": "meta", "env": target["env"], "entities": list(target.get("entities") or [])}
-    raise ValueError("A schedule runs a notebook or a metadata environment")
+    if kind == "pipeline":
+        if not target.get("path"):
+            raise ValueError("Pick the pipeline to run")
+        out: dict[str, Any] = {"kind": "pipeline", "path": str(target["path"]), "name": str(target.get("name") or "")}
+        for key in PIPELINE_OPTIONS:
+            value = target.get(key)
+            if value is not None and not isinstance(value, dict):
+                raise ValueError(f"{key} must be an object")
+            out[key] = dict(value or {})
+        out["read_lakehouses"] = bool(target.get("read_lakehouses"))
+        out["workspace_id"] = str(target.get("workspace_id") or "")
+        return out
+    raise ValueError("A schedule runs a notebook, a metadata environment or a pipeline")
 
 
 def local_configuration(schedule: dict[str, Any]) -> dict[str, Any]:

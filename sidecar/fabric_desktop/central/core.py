@@ -68,7 +68,7 @@ MAX_BK = 400
 ACCESS = ("public", "domain", "private")
 STATUS = ("draft", "published", "deprecated")
 CLASSIFICATIONS = ("public", "internal", "confidential", "restricted")
-REQUEST_KINDS = ("key_table", "source", "access", "shortcut", "workspace", "workspace_access", "domain", "exception")
+REQUEST_KINDS = ("key_table", "source", "access", "shortcut", "workspace", "workspace_access", "domain", "exception", "data")
 # Kinds whose approval the app carries out in Fabric first, as the person approving (central/requests_service.py).
 FABRIC_KINDS = ("shortcut", "workspace", "workspace_access")
 WORKSPACE_ROLES = ("Viewer", "Contributor", "Member", "Admin")
@@ -203,6 +203,10 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
     # The last time a product's owner confirmed a project's access still stands (keyed like catalog.grant).
     "grant_review": [("id", "key"), ("product_id", "text"), ("project", "text"), ("reviewed_by", "text"),
                      ("reviewed_at", "text")],
+    "follow": [("id", "key"), ("user_name", "text"), ("product_id", "text"), ("followed_at", "text")],
+    # What each environment last published of a product, so a promote's changes are told once per environment.
+    "product_env": [("id", "key"), ("product_id", "text"), ("env", "text"), ("version", "text"), ("status", "text"),
+                    ("deprecated_on", "text"), ("published_at", "text")],
 }
 
 
@@ -236,6 +240,7 @@ def ensure_schema(db: Db) -> dict[str, Any]:
     created += ensure_shortcut_risks(db)
     created += ensure_trust_badges(db)
     created += ensure_grant_reviews(db)
+    created += ensure_follows(db)
     for hook in SCHEMA_HOOKS:
         created += hook(db)
     _upsert(db, "config", "setting", "name", {"name": "schema_version", "value": str(SCHEMA_VERSION)})
@@ -690,6 +695,11 @@ def register_product(db: Db, product: dict[str, Any], ports: list[dict[str, Any]
     if product.get("status", "draft") not in STATUS:
         raise PlatformError(f"status must be one of {', '.join(STATUS)}")
     pid = f"{project}/{name}"
+    ensure_follows(db)
+    before = _row(db, "product_env", "id", f"{pid}:{env}")
+    old_ports = {r["port"]: json.loads(r["columns"] or "{}")
+                 for r in db.rows(f"SELECT port, columns FROM {db.t('catalog', 'port')} WHERE product_id = ? AND env = ?",
+                                  (pid, env))}
     row = {"id": pid, "project": project, "name": name, "domain_id": product.get("domain") or None,
            "description": str(product.get("description") or ""), "owner": str(product.get("owner") or ""),
            "access": product.get("access", "private"), "version": str(product.get("version") or "1"),
@@ -703,9 +713,108 @@ def register_product(db: Db, product: dict[str, Any], ports: list[dict[str, Any]
                 "schema_name": p.get("schema", "dbo"), "table_name": p.get("table", ""),
                 "columns": json.dumps(p.get("columns", {})), "updated_at": _now()}
         _upsert(db, "catalog", "port", "id", port)
-    _audit(db, by, "publish product", pid, {"env": env, "ports": [p["port"] for p in ports]})
+    changes = product_changes(before, row, old_ports, {p["port"]: p.get("columns", {}) for p in ports})
+    _upsert(db, "catalog", "product_env", "id", {"id": f"{pid}:{env}", "product_id": pid, "env": env, "version": row["version"],
+                                                 "status": row["status"], "deprecated_on": row["deprecated_on"] or "",
+                                                 "published_at": _now()})
+    _audit(db, by, "publish product", pid, {"env": env, "ports": [p["port"] for p in ports],
+                                            **({"changes": changes} if changes else {})})
     db.commit()
-    return row
+    out = dict(row, changes=changes)
+    if changes:
+        out["followers"] = _followers(db, pid)
+    return out
+
+
+def product_changes(before: dict[str, Any] | None, after: dict[str, Any], old_ports: dict[str, dict[str, Any]],
+                    new_ports: dict[str, dict[str, Any]]) -> list[str]:
+    """What a publish changed in one environment that a product's readers should hear about, in words:
+    deprecated, a new version, and a port's columns gone, added or retyped. ``before`` is what that
+    environment last published; the first publish there (or before this was kept) has nothing to compare with.
+    A port left out of a publish isn't news here: its old row stays, and promote's breaking-change check
+    already stops a port that readers use from going."""
+    if before is None:
+        return []
+    out = []
+    if after["status"] == "deprecated" and before.get("status") != "deprecated":
+        stops = after.get("deprecated_on")
+        out.append(f"Deprecated, stops {stops}" if stops else "Deprecated")
+    if str(before.get("version") or "") != after["version"]:
+        out.append(f"Version {before.get('version') or '?'} to {after['version']}")
+    for port in sorted(set(old_ports) & set(new_ports)):
+        old, new = old_ports[port] or {}, new_ports[port] or {}
+        gone = sorted(set(old) - set(new))
+        added = sorted(set(new) - set(old))
+        retyped = sorted(c for c in set(old) & set(new) if str(old[c]) != str(new[c]))
+        parts = [f"{', '.join(gone)} removed" if gone else "", f"{', '.join(added)} added" if added else "",
+                 f"{', '.join(retyped)} retyped" if retyped else ""]
+        if any(parts):
+            out.append(f"Port {port}: {'; '.join(x for x in parts if x)}")
+    return out
+
+
+# --------------------------------------------------------------------------- following a product
+# A person follows a product to hear when it changes (deprecated, a new version, columns changed).
+# Whoever links a project to a product follows it too, so readers hear without having to ask.
+
+def ensure_follows(db: Db) -> list[str]:
+    """catalog.follow and catalog.product_env, added after the mesh: additive, safe to run again; the
+    follow operations and publishing call it."""
+    added = []
+    for table in ("follow", "product_env"):
+        if not db.exists("catalog", table):
+            db.run(f"CREATE TABLE {db.t('catalog', table)} ({', '.join(_column(db, n, k) for n, k in _CATALOG[table])})")
+            added.append(f"catalog.{table}")
+    if added:
+        db.commit()
+    return added
+
+
+def follow_product(db: Db, product_id: str, by: str = "") -> list[str]:
+    """Follow a product as the caller. Returns the products the caller follows."""
+    ensure_follows(db)
+    who = _who(by)
+    if not who:
+        raise PlatformError("Sign in to follow a product")
+    if _row(db, "product", "id", product_id) is None:
+        raise PlatformError(f"{product_id} isn't a published data product")
+    _upsert(db, "catalog", "follow", "id", {"id": f"{who}|{product_id}", "user_name": who, "product_id": product_id,
+                                            "followed_at": _now()})
+    db.commit()
+    return list_follows(db, by)
+
+
+def unfollow_product(db: Db, product_id: str, by: str = "") -> list[str]:
+    ensure_follows(db)
+    db.run(f"DELETE FROM {db.t('catalog', 'follow')} WHERE id = ?", (f"{_who(by)}|{product_id}",))
+    db.commit()
+    return list_follows(db, by)
+
+
+def list_follows(db: Db, by: str = "") -> list[str]:
+    """The products the caller follows. A read: a platform without catalog.follow follows nothing."""
+    if not db.exists("catalog", "follow"):
+        return []
+    return sorted(r["product_id"] for r in db.rows(f"SELECT product_id FROM {db.t('catalog', 'follow')} WHERE user_name = ?",
+                                                     (_who(by),)))
+
+
+def product_followers(db: Db, product_id: str, by: str = "") -> list[str]:
+    """Everyone who hears about a product's changes: its followers and whoever linked a project to it.
+    Who follows what is personal data, so only the product's owners and platform admins may list it."""
+    product = _row(db, "product", "id", product_id) or {}
+    if not (is_admin(db, by) or _who(by) in _product_owners(product)):
+        raise PlatformError("Only the product's owner or a platform admin can see who follows it")
+    return _followers(db, product_id)
+
+
+def _followers(db: Db, product_id: str) -> list[str]:
+    people = ({r["user_name"] for r in db.rows(f"SELECT user_name FROM {db.t('catalog', 'follow')} WHERE product_id = ?",
+                                               (product_id,))}
+              if db.exists("catalog", "follow") else set())  # a read never creates the table
+    people |= {_who(r["updated_by"]) for r in db.rows(f"SELECT updated_by FROM {db.t('catalog', 'link')} WHERE product_id = ?",
+                                                      (product_id,)) if r["updated_by"]}
+    return sorted(p for p in people if p)
 
 
 def list_products(db: Db) -> list[dict[str, Any]]:
@@ -1377,6 +1486,40 @@ def _check_domain(db: Db, target: str, detail: dict[str, Any]) -> tuple[str, dic
                  "owners": str(detail.get("owners") or "").strip()}
 
 
+DATA_ASKS = ("new", "change")
+_DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _check_data_request(db: Db, target: str, detail: dict[str, Any], reason: str) -> tuple[str, dict[str, Any]]:
+    """Ask another team for data: a new data product from a domain (its owners decide), or a change to
+    a product (its owner decides). Accepting records that the producing team will do it; nothing is made."""
+    what = str(detail.get("what") or "")
+    if what not in DATA_ASKS:
+        raise PlatformError("Say whether you need a new data product or a change to one")
+    if not str(reason or "").strip():
+        raise PlatformError("Say what you need, so the team can answer")
+    needed_by = str(detail.get("needed_by") or "").strip()
+    if needed_by:
+        try:
+            if not _DAY.match(needed_by):
+                raise ValueError(needed_by)
+            dt.date.fromisoformat(needed_by)
+        except ValueError:
+            raise PlatformError("Needed by is a date like 2026-11-30") from None
+    if what == "change":
+        product = _row(db, "product", "id", target)
+        if product is None or product.get("status") == "draft":
+            raise PlatformError(f"{target} isn't a published data product")
+        out = {"what": what, "needed_by": needed_by, "product_name": product.get("name") or target,
+               "domain_id": product.get("domain_id") or "", "owners": product.get("owner") or ""}
+        return target, out
+    domain = _row(db, "domain", "id", domain_id(target)) if target else None
+    if domain is None:
+        raise PlatformError("Pick the domain that should make it")
+    return domain["id"], {"what": what, "needed_by": needed_by, "domain_name": domain.get("name") or domain["id"],
+                          "domain_id": domain["id"], "owners": domain.get("owners") or ""}
+
+
 def request(db: Db, kind: str, target: str, project: str = "", reason: str = "", detail: dict[str, Any] | None = None,
             by: str = "") -> dict[str, Any]:
     """Ask for something only someone else may give: a key table, source, workspace, domain or policy
@@ -1408,6 +1551,8 @@ def request(db: Db, kind: str, target: str, project: str = "", reason: str = "",
         target, detail = _check_workspace_access(db, target, detail, by)
     elif kind == "domain":
         target, detail = _check_domain(db, target, detail)
+    elif kind == "data":
+        target, detail = _check_data_request(db, target, detail, reason)
     elif kind in REQUEST_HOOKS:
         target, detail = REQUEST_HOOKS[kind]["check"](db, target, detail, reason, by)
     elif kind == "exception":
@@ -1449,6 +1594,8 @@ def _duplicate_key(req: dict[str, Any]) -> str:
         return f"{d.get('workspace_id')}|{p.get('id') or p.get('email')}"
     if kind == "exception":
         return f"{target}|{d.get('scope')}|{str(d.get('scope_target') or '').lower()}"
+    if kind == "data":
+        return f"{target}|{req.get('project') or ''}|{' '.join(str(req.get('reason') or '').lower().split())}"
     return target
 
 
@@ -1479,6 +1626,10 @@ def _deciders(db: Db, req: dict[str, Any]) -> set[str]:
         return _product_owners(product)
     if req["kind"] == "shortcut" and req["detail"].get("product_id"):
         return _product_owners(_row(db, "product", "id", req["detail"]["product_id"]) or {})
+    if req["kind"] == "data":
+        if req["detail"].get("what") == "change":
+            return _product_owners(_row(db, "product", "id", req["target"]) or {})
+        return _names((_row(db, "domain", "id", req["target"]) or {}).get("owners"))
     return set()
 
 
@@ -1508,6 +1659,9 @@ def decide_request(db: Db, id: str, approve: bool, note: str = "", by: str = "")
     if not (is_admin(db, by) or _who(by) in _deciders(db, req)):
         who = ("the product's owner or a platform admin" if req["kind"] == "access" or _deciders(db, req)
                else "a platform admin")
+        if req["kind"] == "data":
+            who = ("the product's owner or a platform admin" if req["detail"].get("what") == "change"
+                   else "the domain's owners or a platform admin")
         raise PlatformError(f"Only {who} can decide this request")
     if approve:
         d = req["detail"]
@@ -1521,6 +1675,8 @@ def decide_request(db: Db, id: str, approve: bool, note: str = "", by: str = "")
             _put_source(db, _source_row({"name": req["target"], **d}, _who(by)))
         elif req["kind"] == "shortcut":
             pass  # the app creates the shortcut in Fabric first, as the person approving, then approves
+        elif req["kind"] == "data":
+            pass  # accepting says the producing team will do it; the note says how and when
         elif req["kind"] == "workspace":
             # The app makes it in Fabric first, as the person approving (central/requests_service.py).
             if not (d.get("made") or {}).get("workspace_id"):
@@ -1596,11 +1752,12 @@ def ensure_grant_reviews(db: Db) -> list[str]:
 
 def access_reviews(db: Db, by: str = "") -> dict[str, Any]:
     """The grants the caller reviews (their own products', or every product's for a platform admin),
-    oldest confirmation first, each with when it was last confirmed and whether it's due."""
-    ensure_grant_reviews(db)
+    oldest confirmation first, each with when it was last confirmed and whether it's due. A read: a
+    platform without catalog.grant_review has no confirmations yet."""
     admin, who = is_admin(db, by), _who(by)
     products = {p["id"]: p for p in db.rows(f"SELECT id, name, owner FROM {db.t('catalog', 'product')}")}
-    reviews = {r["id"]: r for r in db.rows(f"SELECT * FROM {db.t('catalog', 'grant_review')}")}
+    reviews = ({r["id"]: r for r in db.rows(f"SELECT * FROM {db.t('catalog', 'grant_review')}")}
+               if db.exists("catalog", "grant_review") else {})
     now = dt.datetime.now(dt.timezone.utc)
     out = []
     for g in db.rows(f"SELECT * FROM {db.t('catalog', 'grant')}"):
@@ -1623,7 +1780,6 @@ def access_reviews(db: Db, by: str = "") -> dict[str, Any]:
 
 def confirm_access(db: Db, product_id: str, projects: list[str], by: str = "") -> dict[str, Any]:
     """The product's owner (or a platform admin) confirms these projects still need access."""
-    ensure_grant_reviews(db)
     product = _row(db, "product", "id", product_id) or {}
     if not (is_admin(db, by) or _who(by) in _product_owners(product)):
         raise PlatformError("Only the product's owner or a platform admin can confirm access")
@@ -1631,10 +1787,13 @@ def confirm_access(db: Db, product_id: str, projects: list[str], by: str = "") -
     missing = sorted(set(projects or []) - granted)
     if missing:
         raise PlatformError(f"{', '.join(missing)} {'has' if len(missing) == 1 else 'have'} no access to {product_id} to confirm")
-    for project in sorted(set(projects or [])):
+    if not projects:
+        return access_reviews(db, by)  # nothing confirmed: nothing to record
+    ensure_grant_reviews(db)
+    for project in sorted(set(projects)):
         _upsert(db, "catalog", "grant_review", "id", {"id": f"{product_id}|{project}", "product_id": product_id,
                                                       "project": project, "reviewed_by": _who(by), "reviewed_at": _now()})
-    _audit(db, by, "confirm access", product_id, {"projects": sorted(set(projects or []))})
+    _audit(db, by, "confirm access", product_id, {"projects": sorted(set(projects))})
     db.commit()
     return access_reviews(db, by)
 
@@ -2124,4 +2283,6 @@ OPERATIONS = {
     "product_trust": product_trust, "record_endorsements": record_endorsements,
     "add_product_term": add_product_term, "remove_product_term": remove_product_term,
     "access_reviews": access_reviews, "confirm_access": confirm_access,
+    "follow_product": follow_product, "unfollow_product": unfollow_product, "list_follows": list_follows,
+    "product_followers": product_followers,
 }

@@ -800,7 +800,8 @@ class CloudMixin:
             fabric.refresh_sql_endpoint(store.workspace_of(lakehouse), endpoint["id"])
         except Exception:
             refreshed = False
-        parts = semantic.build(tables, rels, endpoint["connectionString"], endpoint["id"])
+        parts = semantic.build(tables, rels, endpoint["connectionString"], endpoint["id"],
+                               self.model_descriptions(project, layer))  # type: ignore[attr-defined]
         try:
             model = fabric.save_semantic_model(store.workspace_id, name, parts,
                                                f"Direct Lake over {lakehouse}, built by KratosForge from the metadata project",

@@ -1807,6 +1807,9 @@ fn fabric_page_address(url: &Url) -> Option<String> {
     let mut page = url.clone();
     page.set_query(None);
     page.set_fragment(None);
+    let _ = page.set_username("");
+    let _ = page.set_password(None);
+    let _ = page.set_port(None);
     Some(page.to_string())
 }
 
@@ -2350,6 +2353,8 @@ mod fabric_nav_tests {
                    Some("https://app.fabric.microsoft.com/groups/ws/datawarehouses/wh".into()));
         assert_eq!(page("https://login.microsoftonline.com/common/oauth2"), None);
         assert_eq!(page("http://app.fabric.microsoft.com/groups/ws"), None);
+        assert_eq!(page("https://u:p@app.fabric.microsoft.com:8443/groups/ws"),
+                   Some("https://app.fabric.microsoft.com/groups/ws".into()));
     }
 
     fn nav(url: &str) -> FabricNav {

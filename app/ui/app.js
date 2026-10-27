@@ -635,6 +635,7 @@ function render() {
 }
 
 function setView(...children) {
+  document.body.classList.remove("fabric-full");  // only the Fabric portal tab fills the window
   const view = document.getElementById("view");
   view.replaceChildren(...children);
   viewTransition(view);  // motion.js: only when the page itself changed
@@ -1256,12 +1257,14 @@ async function renderWorkspaces() {
       return h("tr", { class: `${previewing ? "click" : ""}${isPreviewed(target) ? " selected" : ""}`,
         title: previewing ? `Preview ${it.displayName}` : null, onclick: () => selectPreview(target) },
         h("td", {}, h("span", { class: "item" }, itemIcon(it.type),
-          h("button", { class: "name-link", title: "Open in Fabric", onclick: stop(() => openInFabric(fabricItemLink(r))) }, it.displayName))),
+          whRef && whOpensHere()
+            ? h("button", { class: "name-link", title: "Open on the Warehouse page", onclick: stop(() => openWarehouseQuery(whRef)) }, it.displayName)
+            : h("button", { class: "name-link", title: "Open in Fabric", onclick: stop(() => openInFabric(fabricItemLink(r))) }, it.displayName))),
         h("td", { class: "ws-type" }, typeLabel(it.type)),
         h("td", { class: "actions" },
           lh ? btn("Open", null, stop(() => openLakehouse(lh)), "tool small link") : null,
           lh ? btn("SQL query", null, stop(() => openSqlQuery(lh)), "tool small link") : null,
-          whRef ? preview("warehouse", btn("SQL query", null, stop(() => openWarehouseQuery(whRef)), "tool small link",
+          whRef && !whOpensHere() ? preview("warehouse", btn("SQL query", null, stop(() => openWarehouseQuery(whRef)), "tool small link",
             { title: "Query it with T-SQL in Fabric (uses capacity)" })) : null,
           btn("Open in Fabric", "open", stop(() => openInFabric(fabricItemLink(r))), "tool small link")));
     })));
@@ -1332,15 +1335,52 @@ function workspacesTabs(active) {
         onclick: () => go(view) }, label)));
 }
 
+// Opening a warehouse or SQL analytics endpoint by its name: the Warehouse page unless Settings says
+// Fabric's own editor (wh_open_in). The Warehouse page is a Preview feature, so with preview features
+// hidden a name opens Fabric as before.
+const whOpensHere = () => previewShown() && (state.settings?.wh_open_in?.value || "kratosforge") === "kratosforge";
+const fabricFullScreen = () => state.settings?.fabric_full_screen?.value === true;
+
+// The warehouse or SQL analytics endpoint a Fabric portal address shows, as {workspace_id, item_id,
+// type}, or null for any other page.
+function fabricWarehouseOf(address) {
+  const m = /^https:\/\/app\.fabric\.microsoft\.com\/groups\/([0-9a-f-]{36})\/(datawarehouses|lakewarehouses)\/([0-9a-f-]{36})(?:[/?#]|$)/i
+    .exec(String(address || ""));
+  return m ? { workspace_id: m[1].toLowerCase(), type: m[2].toLowerCase() === "datawarehouses" ? "Warehouse" : "SQLEndpoint",
+    item_id: m[3].toLowerCase() } : null;
+}
+
+// Open in KratosForge: the warehouse the Fabric portal shows, on the Warehouse page.
+async function openFabricPageHere() {
+  const address = await invoke("fabric_view_url").catch(() => null);
+  const at = fabricWarehouseOf(address);
+  if (!at) { toast("Open a warehouse or SQL analytics endpoint in Fabric first, then this opens it here.", true); return; }
+  const workspaces = state.workspaces || await attempt(() => rpc("list_workspaces"), "Could not list workspaces");
+  const ws = (workspaces || []).find((w) => w.id.toLowerCase() === at.workspace_id);
+  const items = ws && await attempt(() => rpc("list_items", { workspace_id: ws.id }), `Could not list the items in ${ws.displayName}`);
+  const it = (items || []).find((x) => x.id.toLowerCase() === at.item_id && x.type === at.type);
+  const ref = it && warehouseRefFor(ws, it, items);
+  if (!ref) { toast("That warehouse isn't in a workspace you can open here.", true); return; }
+  openWarehouseQuery(ref);
+}
+
+async function setFabricFullScreen(on) {
+  if (await saveSettings({ fabric_full_screen: on })) renderFabric();
+}
+
 function renderFabric() {
   const slot = h("div", { class: "fabric-slot" },
     h("p", { class: "muted-text" }, "Opening Fabric. Sign in once and the app keeps it between launches."));
   const action = (name) => attempt(() => invoke("fabric_view_action", { action: name, page: fabricPage.page }), "Fabric view");
+  const full = fabricFullScreen();
   setView(h("div", { class: "page monitor fabric-page" }, workspacesTabs("fabric"), withHowItWorks(
     h("section", { class: "card monitor-fabric" },
       h("div", { class: "monitor-band" },
         h("h2", {}, "Fabric"),
         h("span", { class: "spacer" }),
+        preview("warehouse", btn("Open in KratosForge", "database", openFabricPageHere, "tool outline",
+          { title: "Open the warehouse or SQL analytics endpoint Fabric shows on the Warehouse page" })),
+        btn(full ? "Exit full screen" : "Full screen", null, () => setFabricFullScreen(!full), "tool outline"),
         btn("Back", null, () => action("back"), "tool outline"),
         btn("Home", "home", () => openInFabric(FABRIC_HOME), "tool outline"),
         btn("OneLake catalog", "onelake", () => openInFabric("catalog"), "tool outline"),
@@ -1357,9 +1397,18 @@ function renderFabric() {
         + "account; delete fabric-view-signin.bin to make it forget.",
       anchor: "fabric",
     }))));
+  document.body.classList.toggle("fabric-full", full);
   dockFabricView(slot, "fabric", fabricPage.page);
   placeFabricView();
 }
+
+// Esc leaves full screen while the app has the keys; inside Fabric the bar's button does.
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || !document.body.classList.contains("fabric-full")) return;
+  if (document.getElementById("dialog-root")?.childElementCount) return;
+  e.preventDefault();
+  setFabricFullScreen(false);
+});
 
 function openWorkspace(ws) {
   state.openWorkspace = ws;
@@ -1698,7 +1747,10 @@ async function renderOneLake() {
         h("td", {}, h("button", { class: `star${fav ? " on" : ""}`, title: fav ? "Remove from favorites" : "Add to favorites",
           "aria-label": fav ? "Remove from favorites" : "Add to favorites", onclick: (ev) => toggleFavorite(r, ev) }, fav ? "★" : "☆")),
         h("td", {}, h("span", { class: "item" }, itemIcon(r.type),
-          h("button", { class: "name-link", title: "Open in Fabric", onclick: () => openInFabric(fabricItemLink(r)) }, r.name))),
+          r.type === "Warehouse" && whOpensHere()
+            ? h("button", { class: "name-link", title: "Open on the Warehouse page",
+              onclick: () => openWarehouseQuery({ kind: "warehouse", workspace_id: r.workspace_id, workspace_name: r.workspace_name, item_id: r.item_id, name: r.name }) }, r.name)
+            : h("button", { class: "name-link", title: "Open in Fabric", onclick: () => openInFabric(fabricItemLink(r)) }, r.name))),
         h("td", {}, typeLabel(r.type)),
         h("td", {}, h("button", { class: "name-link", title: "Open the workspace in Fabric",
           onclick: () => openInFabric(fabricItemLink({ workspace_id: r.workspace_id })) }, r.workspace_name),

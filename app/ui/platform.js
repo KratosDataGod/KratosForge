@@ -47,8 +47,10 @@ async function renderPlatform() {
   const p = platformPage;
   if (p.tab === "domains" || p.tab === "requests") { const tab = p.tab; p.tab = "overview"; return goMeta(tab); }
   const body = h("div", { class: "meta-body" });
-  const envSeg = h("div", { class: "seg", role: "group", "aria-label": "Environment" },
-    MESH_ENVS.map((env) => h("button", { class: p.env === env ? "on" : null, onclick: () => { p.env = env; render(); } }, ENV_LABEL[env])));
+  // Labelled, so it doesn't read as more of Set up's page switcher beside it.
+  const envSeg = h("div", { class: "row tight platform-env" }, h("span", { class: "muted-text small" }, "Environment"),
+    h("div", { class: "seg", role: "group", "aria-label": "Environment" },
+      MESH_ENVS.map((env) => h("button", { class: p.env === env ? "on" : null, onclick: () => { p.env = env; render(); } }, ENV_LABEL[env]))));
   const who = h("p", { class: "sub" }, "Loading...");
   // The page layout every tabbed page shares (docs/ui-guidelines.md): title, tabs, then the view row with
   // the environment on the left and Refresh on the right. Only Overview, the landing zone and business

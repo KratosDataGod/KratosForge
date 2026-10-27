@@ -28,7 +28,6 @@ async function renderOptimize() {
     h("div", { class: "page-head" }, h("div", {},
       h("h1", {}, "Optimize ", previewTag()), band,
       pageIntro("What your Fabric estate could do better, what was fixed and what it could save, shared with everyone on your optimization lakehouse. ",
-        "One lakehouse holds what every installation finds, fixes and saves, and your organization usually needs only one. Nothing here waits for it. ",
         learnMore("optimize-preview"))), actions),
     h("div", { class: "subtabs", role: "tablist", "aria-label": "Optimize views" }, OPTIMIZE_TABS.map(([id, label]) =>
       h("button", { class: `tab${optimizePage.tab === id ? " active" : ""}`, role: "tab", "aria-selected": optimizePage.tab === id ? "true" : "false",
@@ -49,7 +48,7 @@ async function renderOptimize() {
   if (!status?.active) {
     fill(body, h("p", { class: "muted-text" }, status && !status.allowed
       ? "Your organization has turned off shared optimization lakehouses."
-      : "Connect an optimization lakehouse to see what every KratosForge installation found, and act on it together. Cost and savings works without one."));
+      : "Connect an optimization lakehouse to see what every KratosForge installation found, and act on it together. One lakehouse holds what every installation finds, fixes and saves, and your organization usually needs only one. Cost and savings works without one."));
     return;
   }
   fill(body, h("p", { class: "muted-text" }, "Reading shared results..."));

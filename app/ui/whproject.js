@@ -44,6 +44,11 @@ ORDER BY s.name, o.name;`;
 // User schemas: dbo, guest, INFORMATION_SCHEMA and sys are 1 to 4, database roles from 16384.
 const WH_SCHEMAS_SQL = `SELECT s.name FROM sys.schemas AS s WHERE s.schema_id BETWEEN 5 AND 16383 ORDER BY s.name;`;
 
+// Schemas Fabric makes and keeps itself in a warehouse (queryinsights, _rsc): they
+// aren't the project's, so Import, Compare and Deploy leave them out.
+const WH_FABRIC_SCHEMAS = new Set(["queryinsights", "_rsc", "sys", "information_schema"]);
+const whFabricSchema = (schema) => WH_FABRIC_SCHEMAS.has(String(schema || "").toLowerCase());
+
 // The script a new object's file starts with.
 function whNewObjectText(kind, schema, name) {
   const full = whName(schema, name);
@@ -189,7 +194,8 @@ function whProject(ref, actions) {
 }
 
 // Every object in the warehouse as {kind, schema, name, text}: tables from the explorer's catalog,
-// views, procedures and functions from sys.sql_modules, and the schemas. Catalog queries in Fabric.
+// views, procedures and functions from sys.sql_modules, and the schemas, without Fabric's own
+// (WH_FABRIC_SCHEMAS). Catalog queries in Fabric.
 async function whScriptWarehouse(ref) {
   if (sqlPage.catalog?.key !== sqlRefKey(ref) || sqlPage.catalog.state !== "done") {
     await whLoadCatalog(ref, () => sqlPage.whRedraw?.());
@@ -205,7 +211,7 @@ async function whScriptWarehouse(ref) {
   for (const [schema, name, type, def] of modules.rows) {
     if (typeof def === "string" && def.trim()) out.push({ kind: WH_KIND_OF[type] || "function", schema, name, text: `${def.trim()}\nGO\n` });
   }
-  return out;
+  return out.filter((o) => !whFabricSchema(o.schema));
 }
 
 // Import from the warehouse: scripts it, shows what would change in the project, then writes.

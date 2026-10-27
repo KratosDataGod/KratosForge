@@ -16,6 +16,7 @@ AI tools are not paired windows: they keep asking before every run (integrations
 
 from __future__ import annotations
 
+import ntpath
 import os
 import secrets
 import threading
@@ -39,6 +40,19 @@ def _inside(path: str, folder: str) -> bool:
         return False
     top = os.path.normcase(os.path.abspath(folder)).rstrip("\\/")
     return os.path.normcase(os.path.abspath(path)).startswith(top + os.sep)
+
+
+def _absolute(folder: str) -> bool:
+    """A full path (Windows' form too, so a test on another OS can stand in for a PC), never one
+    relative to wherever the engine happens to run."""
+    return os.path.isabs(folder) or ntpath.isabs(folder)
+
+
+def _is_root(folder: str) -> bool:
+    """A drive or share root (C:\\, /, \\\\host\\share), which would cover every notebook on it."""
+    full = os.path.abspath(folder)
+    drive, rest = os.path.splitdrive(full)
+    return os.path.dirname(full) == full or rest.strip("\\/") == ""
 
 
 class _WriteAsk:
@@ -107,13 +121,20 @@ class EditorMixin:
         runs on one of its own threads)."""
         if self._editor_enabled():
             return True
-        threading.Thread(target=self._editor_turned_off, daemon=True, name="editor-off").start()
+        state = self._editor_state()
+        with state["lock"]:
+            start, state["stopping"] = not state.get("stopping"), True
+        if start:  # once, however many refused calls arrive meanwhile
+            threading.Thread(target=self._editor_turned_off, daemon=True, name="editor-off").start()
         return False
 
     def _editor_turned_off(self) -> None:
-        self.editor_pairings.end_all()
-        self._editor_deny_all()
-        self.editor_sync()
+        try:
+            self.editor_pairings.end_all()
+            self._editor_deny_all()
+            self.editor_sync()
+        finally:
+            self._editor_state()["stopping"] = False
 
     def editor_status(self) -> dict[str, Any]:
         if self._editor_state()["channel"] is not None and not self._editor_enabled():
@@ -165,6 +186,9 @@ class EditorMixin:
     def editor_channel_pair(self, window: str | None, client: str | None) -> dict[str, Any]:
         if not self._editor_enabled():
             raise PermissionError("VS Code can't run notebooks in KratosForge: it's switched off in Settings > Integrations.")
+        if not isinstance(window, str) or not _absolute(window) or _is_root(window):
+            raise PermissionError("Pair from a folder with notebooks in it, not a whole drive or no folder: "
+                                  "open the notebooks folder or repository in VS Code first.")
         out = self.editor_pairings.request(window, client)
         self._editor_audit("editor_pair_request", {"window": window or ""}, {"result": out})
         return out

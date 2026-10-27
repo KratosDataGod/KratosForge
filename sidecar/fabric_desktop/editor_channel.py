@@ -10,6 +10,8 @@ and DNS rebinding can't either), and its body is at most 1 MiB of JSON. Asking t
 ``X-KratosForge-Hello`` (only programs that can read this user's data folder have it); everything
 else needs ``Authorization: Bearer <token>`` from a pairing (editor_pairing.py).
 
+    GET    /v1/hello?nonce=         {"proof"}: HMAC-SHA256(hello, nonce), so a window can tell it's
+                                    KratosForge before it sends the hello or a token
     POST   /v1/pair                 {"window", "client"}  ->  {"id", "code", "expires_in"}
     GET    /v1/pair/<id>            {"state": waiting | paired | denied | expired, "token" once}
     DELETE /v1/pair                 ends this window's pairing
@@ -26,6 +28,8 @@ change settings or pairings beyond ending the caller's own.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import secrets
 import threading
@@ -97,6 +101,8 @@ class Channel:
         if not self.service.editor_channel_open():
             raise Refused(403, "off", "VS Code can't run notebooks in KratosForge now: it's switched off in "
                           "Settings > Integrations, or your organization doesn't allow it.")
+        if method == "GET" and path == "/v1/hello":
+            return None  # proves who's listening; needs nothing and gives nothing away
         if (method == "POST" and path == "/v1/pair") or (method == "GET" and path.startswith("/v1/pair/")):
             self._hello(headers)
             return None
@@ -104,6 +110,11 @@ class Channel:
 
     def route(self, method: str, path: str, query: dict[str, str], pairing: dict[str, Any] | None, body: Any) -> Any:
         svc = self.service
+        if method == "GET" and path == "/v1/hello":
+            nonce = _field(query, "nonce", limit=128)
+            if len(nonce) < 16:
+                raise Refused(400, "invalid_input", "nonce should be at least 16 characters.")
+            return {"proof": hmac.new(self.hello.encode("utf-8"), nonce.encode("utf-8"), hashlib.sha256).hexdigest()}
         if method == "POST" and path == "/v1/pair":
             return svc.editor_channel_pair(_field(body, "window", required=False), _field(body, "client", required=False))
         if method == "GET" and path.startswith("/v1/pair/"):

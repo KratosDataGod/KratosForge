@@ -105,6 +105,12 @@ def test_layout_choices_default_to_help_on_request_and_take_only_their_choices(d
     assert "ui_density must be one of comfortable, compact" in app_settings.policy_problems()
 
 
+def test_warehouse_names_open_the_warehouse_page_unless_set_to_fabric(dirs):
+    assert app_settings.load()["warehouse_open"] == {"value": "app", "source": "default"}
+    assert app_settings.save({"warehouse_open": "fabric"})["warehouse_open"]["value"] == "fabric"
+    with pytest.raises(ValueError, match="app, fabric"):
+        app_settings.save({"warehouse_open": "browser"})
+
 def test_forge_animations_off_still_means_motion_off(dirs):
     app_settings.save({"forge_animations": False})
     assert app_settings.load()["motion_level"] == {"value": 0, "source": "user"}

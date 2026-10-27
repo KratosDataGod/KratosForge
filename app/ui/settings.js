@@ -936,6 +936,12 @@ function sqlSettingsSection(s, locked) {
       "aria-label": "Warehouse changes", onchange: async (e) => { await saveSettings({ sql_warehouse_writes: e.target.checked }); render(); } }),
     h("span", {}, s.sql_warehouse_writes.value ? "On" : "Off")),
     fixedBy(s, "sql_warehouse_writes")));
+  rows.push(settingRow("Open warehouses in", "Where clicking a warehouse's name in Workspaces and the OneLake catalog takes you. Open in Fabric is still on every warehouse either way.",
+    h("select", { "aria-label": "Open warehouses in", disabled: locked("warehouse_open") ? true : null,
+      onchange: async (e) => { if (await saveSettings({ warehouse_open: e.target.value })) render(); } },
+    [["app", "The Warehouse page"], ["fabric", "The Fabric portal"]].map(([v, label]) =>
+      h("option", { value: v, selected: v === s.warehouse_open?.value ? true : null }, label))),
+    fixedBy(s, "warehouse_open")));
   // WH-19: workspaces whose new warehouses get monitoring views without asking (whmonitor.js).
   const auto = s.wh_monitoring_auto?.value || [];
   rows.push(settingRow("Monitoring views without asking", "Workspaces where you said yes, on a build confirm, to monitoring views for new warehouses. The app builds a warehouse's KQL queryset when it opens one there. Remove a workspace and it asks again.",

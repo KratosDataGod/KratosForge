@@ -630,6 +630,7 @@ function renderChrome() {
 function render() {
   navSync();
   renderChrome();
+  document.body.classList.toggle("fabric-full", state.view === "fabric" && fabricPage.full);
   if (state.view !== fabricView.owner) placeFabricView();
   (features.views[state.view] || renderHome)();
 }
@@ -1255,8 +1256,7 @@ async function renderWorkspaces() {
       const stop = (fn) => (e) => { e.stopPropagation(); fn(); };
       return h("tr", { class: `${previewing ? "click" : ""}${isPreviewed(target) ? " selected" : ""}`,
         title: previewing ? `Preview ${it.displayName}` : null, onclick: () => selectPreview(target) },
-        h("td", {}, h("span", { class: "item" }, itemIcon(it.type),
-          h("button", { class: "name-link", title: "Open in Fabric", onclick: stop(() => openInFabric(fabricItemLink(r))) }, it.displayName))),
+        h("td", {}, h("span", { class: "item" }, itemIcon(it.type), itemNameButton(r, whRef))),
         h("td", { class: "ws-type" }, typeLabel(it.type)),
         h("td", { class: "actions" },
           lh ? btn("Open", null, stop(() => openLakehouse(lh)), "tool small link") : null,
@@ -1311,7 +1311,7 @@ async function renderWorkspaces() {
 // The Fabric page: Fabric's own portal on the whole page. Links across the app open their
 // item here; the page keeps whatever was shown last.
 const FABRIC_HOME = "https://app.fabric.microsoft.com/home?experience=fabric-developer";
-const fabricPage = { page: FABRIC_HOME };
+const fabricPage = { page: FABRIC_HOME, full: false };
 
 function openInFabric(page) {
   fabricPage.page = page;
@@ -1332,6 +1332,14 @@ function workspacesTabs(active) {
         onclick: () => go(view) }, label)));
 }
 
+// Full screen: the portal and its band take the window. The band keeps Exit full screen, since keys
+// pressed inside the portal never reach this page (navKey); Esc works while focus is on the band.
+function setFabricFull(on) {
+  fabricPage.full = on;
+  render();
+}
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && fabricPage.full && state.view === "fabric") setFabricFull(false); });
+
 function renderFabric() {
   const slot = h("div", { class: "fabric-slot" },
     h("p", { class: "muted-text" }, "Opening Fabric. Sign in once and the app keeps it between launches."));
@@ -1346,7 +1354,9 @@ function renderFabric() {
         btn("OneLake catalog", "onelake", () => openInFabric("catalog"), "tool outline"),
         btn("Monitoring hub", "monitor", () => openInFabric("monitor"), "tool outline"),
         btn("Reload", "restart", () => action("reload"), "tool outline"),
-        btn("Open in browser", "publish", () => action("browser"), "tool outline")),
+        btn("Open in browser", "publish", () => action("browser"), "tool outline"),
+        btn(fabricPage.full ? "Exit full screen" : "Full screen", null, () => setFabricFull(!fabricPage.full), "tool outline",
+          { title: fabricPage.full ? "Show the app's menu and tabs again (Esc)" : "Give the portal the whole window" })),
       slot),
     howItWorks("workspaces.fabric", {
       reads: "This is Fabric's own portal, app.fabric.microsoft.com, signed in as you. It shows what Fabric shows you; "
@@ -1434,6 +1444,19 @@ const FABRIC_ITEM_PATHS = {
   KQLQueryset: "queryworkbenches", KQLDashboard: "kustodashboards", Eventstream: "eventstreams", MirroredDatabase: "mirroreddatabases",
   SQLDatabase: "sqldatabases", MLModel: "mlmodels", MLExperiment: "mlexperiments",
 };
+
+// Clicking an item's name: a warehouse opens on the Warehouse page (WH-01) unless Settings > Advanced >
+// SQL says Fabric or preview features are hidden; everything else opens in Fabric. whRef is
+// warehouseRefFor's, or null.
+function warehouseInApp(whRef) {
+  return Boolean(whRef) && previewShown() && state.settings?.warehouse_open?.value !== "fabric";
+}
+
+function itemNameButton(r, whRef) {
+  const inApp = warehouseInApp(whRef);
+  return h("button", { class: "name-link", title: inApp ? "Open on the Warehouse page" : "Open in Fabric",
+    onclick: (e) => { e.stopPropagation(); inApp ? openWarehouseQuery(whRef) : openInFabric(fabricItemLink(r)); } }, r.name);
+}
 
 function fabricItemLink(r) {
   const path = FABRIC_ITEM_PATHS[r.type];
@@ -1697,8 +1720,8 @@ async function renderOneLake() {
           onclick: () => { open ? cp.open.delete(key(r)) : cp.open.add(key(r)); draw(); } }, open ? "▾" : "▸") : ""),
         h("td", {}, h("button", { class: `star${fav ? " on" : ""}`, title: fav ? "Remove from favorites" : "Add to favorites",
           "aria-label": fav ? "Remove from favorites" : "Add to favorites", onclick: (ev) => toggleFavorite(r, ev) }, fav ? "★" : "☆")),
-        h("td", {}, h("span", { class: "item" }, itemIcon(r.type),
-          h("button", { class: "name-link", title: "Open in Fabric", onclick: () => openInFabric(fabricItemLink(r)) }, r.name))),
+        h("td", {}, h("span", { class: "item" }, itemIcon(r.type), itemNameButton(r, r.type === "Warehouse"
+          ? { kind: "warehouse", workspace_id: r.workspace_id, workspace_name: r.workspace_name, item_id: r.item_id, name: r.name } : null))),
         h("td", {}, typeLabel(r.type)),
         h("td", {}, h("button", { class: "name-link", title: "Open the workspace in Fabric",
           onclick: () => openInFabric(fabricItemLink({ workspace_id: r.workspace_id })) }, r.workspace_name),

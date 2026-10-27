@@ -1749,6 +1749,12 @@ body.density-compact .subtabs .tab { min-height: 32px; }
 .fabric-page .with-how-main { min-height: 0; }
 .fabric-page .how-it-works { align-self: start; }
 @media (max-width: 1100px) { .fabric-page .with-how { grid-template-rows: minmax(320px, 1fr) auto; } }
+/* Full screen (app.js setFabricFull): only the band and the portal. */
+body.fabric-full .topbar, body.fabric-full .rail, body.fabric-full .update-banner,
+body.fabric-full .fabric-page .subtabs, body.fabric-full .fabric-page .how-it-works { display: none; }
+body.fabric-full .page.fabric-page { padding: 0; gap: 0; }
+body.fabric-full .fabric-page .with-how { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 0; }
+body.fabric-full .fabric-page .monitor-fabric { border: 0; border-radius: 0; }
 
 /* Data mesh > Overview (meshflow.js): domains, then a domain's projects, then a layer's tables */
 .mf { display: flex; flex-direction: column; gap: 14px; min-width: 0; }

@@ -4,7 +4,7 @@ KratosForge is building a full development experience for Fabric warehouses, the
 
 ## The Warehouse page
 
-In **Workspaces**, open a workspace and press **SQL query** on a **Warehouse** or **SQL analytics endpoint** row. The Warehouse page opens: the SQL editor, the compatibility check and the managed results you know from lakehouse queries, with the warehouse as the target.
+In **Workspaces**, open a workspace and click a **Warehouse**'s name, or press **SQL query** on a **Warehouse** or **SQL analytics endpoint** row; a warehouse's name in the OneLake catalog opens it too. To have names open the warehouse in the Fabric portal instead, set **Settings > Advanced > SQL > Open warehouses in** to **The Fabric portal**; **Open in Fabric** stays on every row either way. The Warehouse page opens: the SQL editor, the compatibility check and the managed results you know from lakehouse queries, with the warehouse as the target.
 
 - **It runs in Fabric and uses capacity.** Unlike a lakehouse query, which runs on this PC, a warehouse query runs on the warehouse. The first run on each warehouse after the app starts asks you to confirm.
 - **It reads until you allow changes.** Until **Allow changes** is ticked, one statement that reads is sent; DDL, DML, `EXEC`, variables and anything that reaches outside the warehouse (`OPENROWSET`) are refused before Fabric is asked anything. With it ticked, a script may change the warehouse after it shows what it changes and you confirm: see [Changing the warehouse](#changing-the-warehouse).

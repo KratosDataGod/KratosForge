@@ -2953,6 +2953,21 @@ test("Back after Open in Fabric returns to the page before, and opening the same
   assert.strictEqual(ctx.state.view, "monitor");
 });
 
+test("a warehouse's name opens the Warehouse page unless Settings says Fabric or previews are hidden", () => {
+  const ctx = { state: { settings: {} }, previewShown: () => true };
+  vm.createContext(ctx);
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  vm.runInContext(app.slice(app.indexOf("function warehouseInApp("), app.indexOf("function itemNameButton(")), ctx);
+  const wh = { kind: "warehouse", item_id: "i1", workspace_id: "w1" };
+  assert.strictEqual(ctx.warehouseInApp(wh), true);
+  assert.strictEqual(ctx.warehouseInApp(null), false, "a lakehouse or report opened somewhere other than Fabric");
+  ctx.state.settings.warehouse_open = { value: "fabric" };
+  assert.strictEqual(ctx.warehouseInApp(wh), false);
+  ctx.state.settings.warehouse_open = { value: "app" };
+  ctx.previewShown = () => false;
+  assert.strictEqual(ctx.warehouseInApp(wh), false, "the Warehouse page is Preview, so hidden previews open Fabric");
+});
+
 test("Back brings back the workspace you had open and skips a notebook that was closed (UX-008)", () => {
   const { ctx } = navHarness();
   ctx.render();

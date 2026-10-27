@@ -83,6 +83,8 @@ Keys:
     sql_warehouse_writes  the Warehouse page: false refuses every change to a warehouse (DDL, DML,
                      EXEC), so the page only reads; IT can fix it either way (default true; each
                      change still needs its own confirm)
+    warehouse_open   where clicking a warehouse's name goes: "app" (default), the Warehouse page;
+                     "fabric", the Fabric portal
     wh_monitoring_views  the Warehouse page's Monitoring tab: false stops the app creating monitoring
                      views (KQL querysets) in Fabric; reading monitoring still works (default true)
     wh_monitoring_auto  the workspaces whose warehouses get monitoring views without asking again,
@@ -193,6 +195,11 @@ CHOICES.update({"ui_explanations": ("beside", "on_request"), "ui_preview_marks":
 DEFAULTS.update({"ui_explanations": "on_request", "ui_preview_marks": "tags", "ui_density": "comfortable"})
 TYPES.update({"ui_explanations": str, "ui_preview_marks": str, "ui_density": str})
 USER_KEYS += ("ui_explanations", "ui_preview_marks", "ui_density")
+# Where clicking a warehouse's name goes (app/ui/app.js itemNameButton).
+CHOICES["warehouse_open"] = ("app", "fabric")
+DEFAULTS["warehouse_open"] = "app"
+TYPES["warehouse_open"] = str
+USER_KEYS += ("warehouse_open",)
 # Databricks Connect (engines/dbconnect.py): whether the app may install its client from the
 # hash-pinned lock files, and the package index to fetch them from (empty: the default index).
 DEFAULTS.update({"allow_dbconnect_install": True, "dbconnect_index_url": ""})

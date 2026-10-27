@@ -124,7 +124,7 @@ Your organization's templates are kept in `catalog.policy_template` in the platf
 **Platform > Governance > Check this project** checks the open metadata project. **Check now**:
 
 1. Works out the policies in force for the project, exactly as **Explain** does: the platform's assignments plus the project's `governance.toml`.
-2. Runs each policy's **Checked by** rules on this PC, with the policy's parameters as the rules' thresholds. A policy's severity sets its findings': high or critical is **Error**, medium **Warning**, low **Info**. A `severity` parameter overrides it for the rules, and `enabled = false` switches them off.
+2. Runs each policy's **Checked by** rules on this PC, on the project's entities and products and, when a policy names their rules, this PC's notebooks and SQL scripts, with the policy's parameters as the rules' thresholds. A policy's severity sets its findings': high or critical is **Error**, medium **Warning**, low **Info**. A `severity` parameter overrides it for the rules, and `enabled = false` switches them off.
 3. Applies exceptions: a finding an active exception covers shows **Excepted until <date>: <why>** instead of counting. **Ask for an exception** sends the request ([Platform > Requests](platform.md#requests)), with the policy and project filled in.
 4. Shows the result, like "Sales Forecasting: 2 to look at" and "Checked on this PC 5 min ago. Warn only: nothing is blocked."
 
@@ -188,11 +188,11 @@ Checks come from one registry, `sidecar/fabric_desktop/governance_checks.py`. Th
 register(kind, rules, check, runs_in="local")   # runs_in: "local" (this PC) or "fabric"
 ```
 
-- `rules()` returns dicts: `id`, `kind` (the item kind it checks: entity, product, notebook, ...), `severity` (`Error`, `Warning` or `Info`), `category`, `name`, `description`, and optionally `fix`, `url`, `default_thresholds` (`{name: value}`) and `scheduled_only` (only a scheduled run checks it, never Check now).
+- `rules()` returns dicts: `id`, `kind` (the item kind it checks: entity, product, notebook, ...), `severity` (`Error`, `Warning` or `Info`), `category`, `name`, `description`, and optionally `fix`, `url`, `default_thresholds` (`{name: value}`) and `scheduled_only` (it checks only items marked `"scheduled": true`, like a notebook a schedule on this PC runs).
 - `check(item, settings)` gets one item (a dict whose `kind` says what it is) and `{rule_id: {"enabled": bool, "severity": "Error"|"Warning"|"Info", "thresholds": {name: value}}}` for the rules a policy turned on. It returns a list of findings, or `None` when none of those rules applies to the item (so it isn't counted as a pass).
 - A finding: `rule_id`, `severity`, `rule` (the rule's name), `category`, `object_type`, `object`, `description`, `url`; optionally `cell` and `line` (carried through as they are), `fix` (`{"action", "label", ...}`, an action the app offers) and `outcome: "unknown"` when what the rule needs isn't recorded (the description says why). `finding(rule, settings, object_type, object, description, **extra)` builds one.
 - A policy's parameters become the settings: `enabled` and `severity` are read as such, every other parameter is a threshold over the rule's `default_thresholds`. Severity maps both ways: Error is high (or critical), Warning medium, Info low.
-- A checker with `runs_in="fabric"`, or a `scheduled_only` rule, is never run by Check now; `store_fabric_findings(state, project, rule_id, findings)` keeps what a Fabric run found, and Check now shows it with its date.
+- A checker with `runs_in="fabric"` is never run by Check now; `store_fabric_findings(state, project, rule_id, findings)` keeps what a Fabric run found, and Check now shows it with its date.
 
 A minimal checker:
 
@@ -212,9 +212,9 @@ def check(item, settings):
 gc.register("notebook-example", lambda: RULES, check)
 ```
 
-A policy whose **Checked by** is `notebook.no_print` then runs it on every item of that kind Check now is given. Check now builds entity and product items, notebook items (this PC's notebooks, their code cells) when a policy names a notebook rule, and the model Update model writes for the last layer when a policy names a semantic model rule.
+A policy whose **Checked by** is `notebook.no_print` then runs it on every item of that kind Check now is given. Check now builds entity and product items, notebook items (this PC's notebooks, their code cells, and `scheduled` when an enabled schedule on this PC runs the notebook) when a policy names a notebook rule, SQL items (this PC's SQL scripts: your saved queries, those in the repositories opened in Source control, and the `.sql` files of the warehouse projects in those repositories) when a policy names a SQL rule, and the model Update model writes for the last layer when a policy names a semantic model rule.
 
-The notebook rules `NB001` to `NB012` ([notebook best practices](notebook-best-practices.md)) the SQL rules `SQ001` to `SQ010` ([SQL best practices](sql-best-practices.md)) and the semantic model rules `SM001` to `SM007` ([semantic model rules](semantic-model-rules.md)) are registered this way (`best_practice_checkers.py`), so a policy can name them in **Checked by**, like `NB003, NB006`. Each runs only the rules its policy names, with the policy's severity, or `severity` and `enabled` parameters. `NB004` and `NB008` are for scheduled runs, so Check now doesn't run them. Check now has no SQL scripts to give the SQL rules yet, so a policy naming only those shows as not checked, never as passing. The same holds for any policy whose rules found nothing of their kind (for notebook rules, among this PC's notebooks), and for one whose parameters turn its rules off (`enabled = false`).
+The notebook rules `NB001` to `NB012` ([notebook best practices](notebook-best-practices.md)) the SQL rules `SQ001` to `SQ010` ([SQL best practices](sql-best-practices.md)) and the semantic model rules `SM001` to `SM007` ([semantic model rules](semantic-model-rules.md)) are registered this way (`best_practice_checkers.py`), so a policy can name them in **Checked by**, like `NB003, NB006`. Each runs only the rules its policy names, with the policy's severity, or `severity` and `enabled` parameters. `NB004` and `NB008` are for scheduled runs, so Check now runs them only on the notebooks a schedule on this PC runs (Fabric schedules aren't read, and a paused schedule doesn't count). SQL rules check each script as warehouse T-SQL; a script that can't be read is listed under the result's problems, not skipped silently. A policy whose rules found nothing of their kind (no notebooks, no scheduled notebooks or no SQL scripts on this PC) shows as not checked, never as passing, and so does one whose parameters turn its rules off (`enabled = false`).
 
 ## What isn't built yet
 

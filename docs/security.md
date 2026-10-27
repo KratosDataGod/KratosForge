@@ -91,6 +91,18 @@ What this means in practice:
 - The PC is the protection: BitLocker, a managed device and a per-user profile. KratosForge keeps local data under `%LOCALAPPDATA%\FabricDesktop` and project folders and doesn't encrypt it itself.
 - Running a notebook in Fabric (**Runs on: Fabric**) keeps the data in the tenant.
 
+## Personal data in the platform's catalog
+
+The platform's catalog (SQL_Platform, or the SQLite file on this PC) is readable by everyone with Viewer on the Platform workspace. Besides names in owner fields, it holds:
+
+| What | Where | When |
+| --- | --- | --- |
+| Who made each change, and when | `catalog.audit` | Always: every platform change |
+| The date each person last used the platform | `catalog.person` (user name, last-used time) | Only when the policy file sets `platform_presence` to `true`. Off by default |
+| Who follows which data product | `catalog.follow` (user name, product, when) | When someone presses **Follow** ([Follow a product](data-mesh.md#follow-a-product-preview)). The app lists a product's followers only to its owners and platform admins; anyone with direct read access to the catalog's tables can still see them |
+
+`platform_presence` feeds owner coverage's check that an owner hasn't gone quiet ([Platform > Owners](platform.md#owners-preview)). It is per-PC policy: a PC without it writes nothing, and its Owners card doesn't check quietness at all. Turn it on only where your works council and privacy notice cover it. Turning it off later stops new writes; existing rows stay until a platform admin deletes them from `catalog.person`.
+
 ## Supply chain
 
 - Python packages are pinned exactly in `sidecar/constraints.txt` and CI installs with it; Rust builds use `Cargo.lock` with `--locked`.

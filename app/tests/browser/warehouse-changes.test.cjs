@@ -8,6 +8,9 @@ const { playwright, openApp, sqlRunMocks } = require("./harness.cjs");
 
 const DEV = { kind: "warehouse", workspace_id: "ws1", workspace_name: "Sales Dev", item_id: "wh1", name: "WH_Gold" };
 const PROD = { kind: "warehouse", workspace_id: "ws9", workspace_name: "Sales Prod", item_id: "wh9", name: "WH_Gold" };
+// No environment in the project: its name reads like Test, but a name is only a guess (#807).
+const KEYS = { kind: "warehouse", workspace_id: "wsK", workspace_name: "Keys Dev", item_id: "whK", name: "WH_Keys" };
+const UNMAPPED = { kind: "warehouse", workspace_id: "ws5", workspace_name: "kf_tenant_test", item_id: "wh5", name: "WH_Try" };
 const SHOTS = process.env.SCREENSHOT_DIR;
 const UPDATE = "UPDATE dbo.DimCustomer SET Segment = 'Enterprise' WHERE AnnualRevenue >= 10000000;\nGO\nEXEC dbo.usp_RefreshSegments;";
 
@@ -36,6 +39,9 @@ before(async () => {
   app = await openApp({
     engine: ["sql_format", "sql_dialects", "sql_analyze", "sql_queries_list"],
     mocks: {
+      // One Keys workspace shared by Dev and Prod (#293): it counts as Prod, the strictest.
+      meta_project: () => ({ environments: { dev: { workspace_id: "ws1", keys_workspace_id: "wsK" },
+        prod: { workspace_id: "ws9", keys_workspace_id: "wsK" } } }),
       ...runs,
       sql_start: (p) => {
         if (p.dry_run) return plan(p.query);
@@ -148,6 +154,35 @@ test("in Prod the warehouse's name has to be typed", { skip }, async () => {
   await go.click();
   await page().waitForFunction(() => sqlPage.tabs[sqlPage.active].exec?.committed === true);
   assert.strictEqual(starts().filter((p) => p.confirm).at(-1).confirm_name, "WH_Gold");
+});
+
+test("a workspace with no environment is treated like Prod, whatever its name says", { skip }, async () => {
+  await page().evaluate((wh) => openWarehouseQuery(wh), UNMAPPED);
+  await page().waitForSelector(".warehouse-page .sql-edit .cm-editor");
+  await allow().check();
+  await setDoc(UPDATE);
+  await run();
+  const dialog = page().getByRole("dialog", { name: "Change WH_Try?" });
+  await dialog.waitFor();
+  assert.match(await dialog.textContent(), /Not set, so it's treated like Prod/);
+  const go = dialog.getByRole("button", { name: "Run the change" });
+  assert.ok(await go.isDisabled(), "the name has to be typed");
+  await dialog.getByRole("textbox", { name: "Warehouse name" }).fill("WH_Try");
+  await go.click();
+  await page().waitForFunction(() => sqlPage.tabs[sqlPage.active].exec?.committed === true);
+  assert.strictEqual(starts().filter((p) => p.confirm).at(-1).confirm_name, "WH_Try");
+});
+
+test("a workspace Dev and Prod share counts as Prod", { skip }, async () => {
+  await page().evaluate((wh) => openWarehouseQuery(wh), KEYS);
+  await page().waitForSelector(".warehouse-page .sql-edit .cm-editor");
+  await allow().check();
+  await setDoc(UPDATE);
+  await run();
+  const dialog = page().getByRole("dialog", { name: "Change WH_Keys in Prod?" });
+  await dialog.waitFor();
+  assert.ok(await dialog.getByRole("button", { name: "Run in Prod" }).isDisabled(), "the name has to be typed");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
 });
 
 test("with changes turned off in Settings the switch can't be ticked", { skip }, async () => {

@@ -171,3 +171,58 @@ def test_a_second_check_starting_at_the_same_time_is_refused(svc):
             svc.model_bpa_check("test")
     assert not [c for c in svc.fake.calls if c[0] == "job"]
     svc.model_bpa_check("test")
+
+
+def _finish(svc, status, body=None):
+    started = svc.model_bpa_check("test")
+    svc.fake.status = status
+    if body is not None:
+        svc.files[("ws-test", "id-meta", f"Files/_fabric_desktop/results/{started['request_id']}.json")] = body
+    return started
+
+
+@pytest.mark.parametrize("body", [b'{"rows": [', b'["not", "a", "record"]', b'{"rows": ["not a row"]}'])
+def test_a_result_file_that_cant_be_read_says_so_and_status_still_answers(svc, body):
+    _finish(svc, "Completed", body)
+    status = svc.model_bpa_status("test")
+    assert status["last"] is None and status["failed"]["status"] == "Completed"
+    assert status["failed"]["message"].startswith("The check finished, but the findings it saved in LH_Meta couldn't be read")
+
+
+def test_a_completed_check_that_saved_nothing_says_so(svc):
+    _finish(svc, "Completed")
+    assert "saved no findings in LH_Meta" in svc.model_bpa_status("test")["failed"]["message"]
+
+
+def test_findings_are_this_checks_whatever_the_file_says_its_request_is(svc):
+    started = _finish(svc, "Completed", json.dumps({"tables": True, "rows": []}).encode())
+    status = svc.model_bpa_status("test")
+    assert status["failed"] is None and status["last"]["request_id"] == started["request_id"]
+
+
+def test_a_check_notebook_deleted_in_fabric_is_published_again(svc):
+    from fabric_desktop.fabric_api import FabricError
+    svc.fake.status = "Completed"
+    svc.model_bpa_check("test")
+    real = svc.fake.run_item_job
+
+    def run(ws, item, job_type, data=None):
+        if item == "nb1":
+            raise FabricError("not found", code="ItemNotFound", status=404)
+        return real(ws, item, job_type, data)
+    svc.fake.run_item_job = run
+    svc.fake.save_notebook = lambda ws, name, ipynb: svc.fake.calls.append(("notebook", ws, name)) or {"id": "nb2"}
+    started = svc.model_bpa_check("test")
+    assert started["job_id"] and [c[0] for c in svc.fake.calls].count("notebook") == 2
+    assert svc.fabric_runs(5, refresh=False)[0]["item_id"] == "nb2"
+
+
+def test_other_fabric_errors_starting_a_check_arent_retried(svc):
+    from fabric_desktop.fabric_api import FabricError
+
+    def run(ws, item, job_type, data=None):
+        raise FabricError("capacity paused", code="CapacityNotActive", status=403)
+    svc.fake.run_item_job = run
+    with pytest.raises(FabricError, match="capacity paused"):
+        svc.model_bpa_check("test")
+    assert [c[0] for c in svc.fake.calls].count("notebook") == 1

@@ -190,7 +190,7 @@ on quality.
 | [FEAT-META-15](#feat-meta-15) | Variable library and source systems | Implemented | Partially Verified | Data mesh > Source systems | Keep. |
 | [FEAT-MESH-01](#feat-mesh-01) | Central platform | Implemented | Partially Verified | Platform (Preview) | Verify setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified). |
 | [FEAT-MESH-02](#feat-mesh-02) | Central business keys | Implemented | Partially Verified | Settings > Platform > Keys (Create, Join existing, Move keys in); Data mesh > Surrogate keys > Move keys; Platform > Business keys (Preview) | Move keys into the shared Keys workspace on a live tenant (PB-002); user docs that still say one LH_Keys per environment (azure-setup.md, metadata-guide.md) need updating |
-| [FEAT-MESH-04](#feat-mesh-04) | Data mesh: domains, products, links, glossary | Implemented | Partially Verified | Data mesh > Domains, OneLake > Data products, Home (Preview) | Purview and endorsement live checks wait on Chris's tenant run; implementation review of #591, #627, #642. |
+| [FEAT-MESH-04](#feat-mesh-04) | Data mesh: domains, products, links, glossary | Implemented | Partially Verified | Data mesh > Domains, Products and Home (Preview) | Purview and endorsement live checks wait on Chris's tenant run; implementation review of #591, #627, #642. |
 
 ### Data Governance and Quality
 
@@ -205,12 +205,12 @@ on quality.
 | [FEAT-META-17](#feat-meta-17) | Column lineage | Implemented | Partially Verified | Entity page > Lineage > Columns (Preview) | Implementation review of PR #124. |
 | [FEAT-GOV-01](#feat-gov-01) | Freshness promises and Teams alerts | Implemented | Partially Verified | Entity > Freshness, Home | Merge with incidents so a late table posts once (agent.md notes duplicates). |
 | [FEAT-GOV-02](#feat-gov-02) | Project tests gate promote | Implemented | Partially Verified | Data mesh > Quality > Tests (Preview) | Fold into the Git program's validation framework (FD-113). |
-| [FEAT-GOV-03](#feat-gov-03) | Governance exceptions | Implemented | Partially Verified | Metadata project, Platform > Governance > Requests (Preview) | Implementation review of #603 and #605 (PB-059). |
+| [FEAT-GOV-03](#feat-gov-03) | Governance exceptions | Implemented | Partially Verified | Metadata project, Data mesh > Requests (Preview) | Implementation review of #603 and #605 (PB-059). |
 | [FEAT-GOV-05](#feat-gov-05) | Enterprise governance policy registry and offline validation | Partially Implemented | Partially Verified | None | GOV-002 offline validation, after Chris approves |
 | [FEAT-GOV-06](#feat-gov-06) | Sensitive data classification | Missing | Unverified | None | Owned by the governance foundation thread; complement Purview, don't duplicate it. |
 | [FEAT-GOV-07](#feat-gov-07) | Reliability objectives | Implemented but Not Exposed | Partially Verified | None (agent incidents only) | Show in the workload page with incidents (PB-047). |
 | [FEAT-MESH-05](#feat-mesh-05) | Breaking-change check for data products | Implemented | Partially Verified | Promote card | Consumer declarations and deprecation (scale plan 8.2). |
-| [FEAT-GOV-08](#feat-gov-08) | Governance requests | Implemented | Partially Verified | Platform > Governance > Requests (Preview) | Governance steps 8 and 12 wait on Chris's two read-only PC checks. |
+| [FEAT-GOV-08](#feat-gov-08) | Governance requests | Implemented | Partially Verified | Data mesh > Requests (Preview) | Governance steps 8 and 12 wait on Chris's two read-only PC checks. |
 | [FEAT-GOV-09](#feat-gov-09) | Best-practice checks and templates | Implemented | Partially Verified | Platform > Governance > Best practices; data product checklist (Preview) | Notebook editor Best practices panel (#790) and SM rules (#753) merged; PB-111 is next. |
 
 ### Developer Experience and Productivity
@@ -1424,7 +1424,7 @@ on quality.
 
 - **Pillar and category:** Enterprise services; Data Governance and Quality
 - **Status:** Implemented. **Verification:** Partially Verified.
-- **Where people reach it:** Metadata project, Platform > Governance > Requests (Preview)
+- **Where people reach it:** Metadata project, Data mesh > Requests (Preview)
 - **Evidence:** test: sidecar/tests/test_meta.py::test_05e_exceptions_expire (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_meta.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: sidecar/tests/test_requests_core_four.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs))
 - **Source:** `sidecar/fabric_desktop/meta/project.py`
 - **Tests:** `sidecar/tests/test_meta.py`, `sidecar/tests/test_requests_core_four.py`
@@ -1551,7 +1551,7 @@ on quality.
 
 - **Pillar and category:** Enterprise services; Enterprise Shared Services
 - **Status:** Implemented. **Verification:** Partially Verified.
-- **Where people reach it:** Data mesh > Domains, OneLake > Data products, Home (Preview)
+- **Where people reach it:** Data mesh > Domains, Products and Home (Preview)
 - **Evidence:** test: sidecar/tests/test_platform.py::test_an_entity_reads_another_teams_table_through_a_link (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_platform.py::test_mesh_map_lists_domains_projects_products_and_links; test: sidecar/tests/test_domain_in_fabric.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: sidecar/tests/test_trust_badges.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: app/tests/browser/domain-in-fabric.test.cjs (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: app/tests/browser/trust-badges.test.cjs (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: app/tests/browser/follow-product.test.cjs (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it); test: app/tests/browser/data-requests.test.cjs (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it)
 - **Source:** `sidecar/fabric_desktop/meta/mesh.py`, `sidecar/fabric_desktop/central/service.py`, `app/ui/mesh.js`, `app/ui/meshmap.js`, `sidecar/fabric_desktop/central/trust_service.py`
 - **Tests:** `sidecar/tests/test_platform.py`, `sidecar/tests/test_domain_in_fabric.py`, `sidecar/tests/test_trust_badges.py`, `app/tests/browser/domain-in-fabric.test.cjs`, `app/tests/browser/trust-badges.test.cjs`, `app/tests/browser/follow-product.test.cjs`, `app/tests/browser/data-requests.test.cjs`
@@ -2453,7 +2453,7 @@ on quality.
 
 - **Pillar and category:** Enterprise services; Data Governance and Quality
 - **Status:** Implemented. **Verification:** Partially Verified.
-- **Where people reach it:** Platform > Governance > Requests (Preview)
+- **Where people reach it:** Data mesh > Requests (Preview)
 - **Evidence:** test: sidecar/tests/test_requests_core_four.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: app/tests/browser/requests-core-four.test.cjs (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs))
 - **Source:** `sidecar/fabric_desktop/central/requests_service.py`, `sidecar/fabric_desktop/central/governance_service.py`, `app/ui/governance.js`
 - **Tests:** `sidecar/tests/test_requests_core_four.py`, `app/tests/browser/requests-core-four.test.cjs`

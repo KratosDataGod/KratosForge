@@ -313,24 +313,6 @@ A workspace's **environment** comes from your metadata project first: the worksp
 
 A workspace's **solution** is its name without that environment word, so `Adv Wrks DE 2 Dev`, `Adv Wrks DE 2 Test` and `Adv Wrks DE 2 Prod` all belong to the solution **Adv Wrks DE 2**. To make your workspaces group together, name each environment's copy the same way with a different environment word.
 
-### Data products (Preview)
-
-**Data mesh > Products** (OneLake's Data products tab opens it) lists every team's published [data products](data-mesh.md#data-products), from the platform's catalog, so anyone can find what other teams share without opening their project. Filter by domain or search by name, port or owner. Each row shows who owns it, who it's open to, its ports and how many projects read it, and what your open metadata project can do:
-
-- **Link** opens the new link dialog for that product (it's open to everyone, to your domain, or its owner let your project in).
-- **Request access** asks the product's owner to let your project link to it. They approve it on **Data mesh > Requests**; then **Link** shows here.
-- **Linked**: your project already reads it.
-- **Ask for data** (above the list) asks a domain's owners for a new data product; **Ask for a change** on a product's page asks its owner for a change. Accepting records the team's reply on **Data mesh > Requests**; nothing is built for you ([Ask for data](data-mesh.md)).
-- **Follow** on a product's page tells you in Teams when a promote to Prod deprecates it, gives it a new version or changes a port's columns; **Following** filters the list to the products you follow. Linking a project to a product follows it for you ([Follow a product](data-mesh.md#follow-a-product-preview)).
-
-Products works with no metadata project open. Select a product's name to open its page: its endorsement and business terms, checklist and who has access. For a product of the project open on this PC, **Edit definition** opens **Data mesh > Project > Products and links**, where its file is edited.
-
-### Endorsement and business terms (Preview)
-
-A data product's page shows its **endorsement** badge (Certified, Promoted or Master data) next to its name, as Fabric's admin tenant scan last read it, and when. Only Fabric administrators can read endorsement, so until one has scanned, the badge is a grey **Endorsement unknown**. A platform admin who is also a Fabric administrator chooses **Scan now**; after that, everyone sees the last scan's badge. To change endorsement, open the item's settings in Fabric: KratosForge can't set it.
-
-**Business terms** list each term with **Open in Purview**. The product's owner or a platform admin chooses **Add a term**, types the term and pastes its address from Purview (an `https` link on `purview.microsoft.com` or `web.purview.azure.com`). KratosForge doesn't read Purview. The details are in [Endorsement and business terms](data-mesh.md#endorsement-and-business-terms).
-
 ### Shortcuts (Preview)
 
 Shortcuts are tables or folders in a lakehouse that point at data somewhere else, without copying it. This tab is the **shortcut command center**: every shortcut in every lakehouse you can see, in one list.
@@ -381,6 +363,24 @@ The **Data mesh** page (it was called Metadata) is where your metadata project l
 | Project | The open project, in five groups. **Design**: Entities, Layers, Surrogate keys, Source systems. **Runs**: every run, with its steps, rows and problems. **Quality**: Tests, Table health and Exceptions. **Products and links** (Preview): the project's own data products and its links to other teams'. **Deploy**: Environments and promote, Semantic model. Project opens on the tab you last used |
 
 Each entity page also has an **About** card (Preview): description, tags, classification, glossary terms and steward for the table and each column, saved in the catalog so anyone can write them without a Git change.
+
+### Data products (Preview)
+
+**Data mesh > Products** (OneLake's Data products tab opens it) lists every team's published [data products](data-mesh.md#data-products), from the platform's catalog, so anyone can find what other teams share without opening their project. Filter by domain or search by name, port or owner. Each row shows who owns it, who it's open to, its ports and how many projects read it, and what your open metadata project can do:
+
+- **Link** opens the new link dialog for that product (it's open to everyone, to your domain, or its owner let your project in).
+- **Request access** asks the product's owner to let your project link to it. They approve it on **Data mesh > Requests**; then **Link** shows here.
+- **Linked**: your project already reads it.
+- **Ask for data** (above the list) asks a domain's owners for a new data product; **Ask for a change** on a product's page asks its owner for a change. Accepting records the team's reply on **Data mesh > Requests**; nothing is built for you ([Ask for data](data-mesh.md)).
+- **Follow** on a product's page tells you in Teams when a promote to Prod deprecates it, gives it a new version or changes a port's columns; **Following** filters the list to the products you follow. Linking a project to a product follows it for you ([Follow a product](data-mesh.md#follow-a-product-preview)).
+
+Products works with no metadata project open. Select a product's name to open its page: its endorsement and business terms, checklist and who has access. For a product of the project open on this PC, **Edit definition** opens **Data mesh > Project > Products and links**, where its file is edited.
+
+### Endorsement and business terms (Preview)
+
+A data product's page shows its **endorsement** badge (Certified, Promoted or Master data) next to its name, as Fabric's admin tenant scan last read it, and when. Only Fabric administrators can read endorsement, so until one has scanned, the badge is a grey **Endorsement unknown**. A platform admin who is also a Fabric administrator chooses **Scan now**; after that, everyone sees the last scan's badge. To change endorsement, open the item's settings in Fabric: KratosForge can't set it.
+
+**Business terms** list each term with **Open in Purview**. The product's owner or a platform admin chooses **Add a term**, types the term and pastes its address from Purview (an `https` link on `purview.microsoft.com` or `web.purview.azure.com`). KratosForge doesn't read Purview. The details are in [Endorsement and business terms](data-mesh.md#endorsement-and-business-terms).
 
 ### Direct Lake check
 

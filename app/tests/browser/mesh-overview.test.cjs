@@ -42,7 +42,7 @@ test("Data mesh opens on the organization's domains, with how they feed each oth
   assert.match(await page().textContent(".mf-domain.me"), /This project's domain/);
   assert.match(await page().textContent(".mf-feeds"), /Sales\s*→\s*Finance\s*Orders/);
   assert.ok(await page().$(".how-it-works"));
-  assert.ok(await page().$(".mf-crumbs .preview-tag"), "the page shows it is in Preview");
+  assert.ok(await page().$('.meta-groups .tab.active:has-text("Domains") .preview-tag'), "the tab shows it is in Preview");
 });
 
 test("a domain lists its projects, their layers, products and readers", { skip }, async () => {
@@ -76,9 +76,10 @@ test("a layer's table shows its whole lineage, both ways, out to the projects re
   assert.deepStrictEqual(app.errors, []);
 });
 
-test("the Preview tag shows on every level", { skip }, async () => {
+test("the Preview tag stays in view on every level, once, on the tab", { skip }, async () => {
   await page().click('.mf-domain:has-text("Sales")');
-  assert.ok(await page().$(".mf-crumbs .preview-tag"));
+  assert.ok(await page().$('.meta-groups .tab.active:has-text("Domains") .preview-tag'));
   await page().click('.mf-layers .layer-chip:has-text("gold")');
-  assert.ok(await page().$(".mf-crumbs .preview-tag"));
+  assert.ok(await page().$('.meta-groups .tab.active:has-text("Domains") .preview-tag'));
+  assert.strictEqual(await page().$(".mf-crumbs .preview-tag"), null);
 });

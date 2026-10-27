@@ -3777,7 +3777,7 @@
         "docs/metadata-guide.md"
       ],
       "ui": {
-        "surface": "Metadata project, Platform > Governance > Requests",
+        "surface": "Metadata project, Data mesh > Requests",
         "preview": true
       },
       "workstream": "Enterprise governance foundation (FD-129)",
@@ -4187,7 +4187,7 @@
         "docs/data-mesh.md"
       ],
       "ui": {
-        "surface": "Data mesh > Domains, OneLake > Data products, Home",
+        "surface": "Data mesh > Domains, Products and Home",
         "preview": true
       },
       "limitations": [
@@ -7120,7 +7120,7 @@
         "docs/platform.md"
       ],
       "ui": {
-        "surface": "Platform > Governance > Requests",
+        "surface": "Data mesh > Requests",
         "preview": true
       },
       "prs": [

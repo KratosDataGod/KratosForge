@@ -32,7 +32,7 @@ test("with no project open, Products lists every team's products in Data mesh", 
   await page().evaluate(() => goMeta("catalog"));
   await page().waitForSelector('.mesh-products a.product-open:has-text("stores")');
   assert.ok(await page().$('.meta-groups .tab.active:has-text("Products")'));
-  assert.ok(await page().$(".mesh-products .preview-tag"));
+  assert.ok(await page().$('.meta-groups .tab.active:has-text("Products") .preview-tag'));
   await page().click('a.product-open:has-text("c360")');
   await page().waitForSelector(".trust-name");
   assert.strictEqual(await page().$('button:has-text("Edit definition")'), null, "no project open, so nothing to edit here");

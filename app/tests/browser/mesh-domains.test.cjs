@@ -36,7 +36,8 @@ test("with no project open, Domains lists every domain with its projects and pro
   assert.match(await row("hr"), /HR.*not set\s*0\s*0/);
   assert.ok(await page().$('.mesh-domains tr[data-domain="sales"] button:has-text("Access groups")'));
   assert.strictEqual(await page().$('.mesh-domains button:has-text("New domain")'), null, "only platform admins edit domains");
-  assert.ok(await page().$(".mesh-domains .preview-tag"));
+  assert.ok(await page().$('.meta-groups .tab.active:has-text("Domains") .preview-tag'), "the tab carries the Preview tag");
+  assert.strictEqual(await page().$(".meta-tabs .preview-tag"), null, "once, on the tab, not again on Domains and Map");
 });
 
 test("a platform admin imports, adds and edits domains here", { skip }, async () => {

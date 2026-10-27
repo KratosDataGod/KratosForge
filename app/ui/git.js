@@ -91,8 +91,9 @@ function nbDataText(data) {
 
 // A platform repository compared with what is deployed (item 37, stage 3).
 const PLATFORM_STATES = { same: "same", changed: "changed", only_git: "only in Git", only_deployed: "removed in Git" };
-const PLATFORM_GROUPS = { admins: "Admins", domains: "Domains", sources: "Source systems", key_tables: "Key tables",
-  glossary: "Glossary", shortcut_rules: "Shortcut rules", policies: "Policies" };
+const PLATFORM_GROUPS = { admins: "Admins", domains: "Domains", landing_zones: "Landing zones", sources: "Source systems",
+  key_tables: "Key tables", glossary: "Glossary", shortcut_rules: "Shortcut rules", policy_templates: "Policy templates",
+  policies: "Policies" };
 
 function platformValue(v) {
   if (Array.isArray(v)) return v.length ? v.join(", ") : "none";

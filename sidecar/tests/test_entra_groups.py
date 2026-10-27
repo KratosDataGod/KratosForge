@@ -139,7 +139,15 @@ def test_role_script_grants_domain_and_workspace_roles_and_says_what_is_manual(p
     assert "isn't in Fabric yet" in no_fabric and "bulkAssign" not in no_fabric
 
 
-@pytest.mark.skipif(not shutil.which("bash"), reason="needs bash")
+def _bash_works():
+    # On Windows, bash.exe is often WSL's launcher with no distro installed: it is found but can't run anything.
+    try:
+        return bool(shutil.which("bash")) and subprocess.run(["bash", "-c", "true"], capture_output=True, timeout=30).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+@pytest.mark.skipif(not _bash_works(), reason="needs a working bash")
 def test_az_script_is_valid_bash(platform, tmp_path):
     script = tmp_path / "groups.sh"
     script.write_text(entra.az(_plan(platform), [OWNER]))

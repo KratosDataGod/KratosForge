@@ -14,8 +14,8 @@ import polars as pl
 import pyarrow as pa
 from deltalake import DeltaTable
 
-from . import app_settings, maintenance, risk, xray
-from .auth import FABRIC_SCOPES
+from . import app_settings, http_session, maintenance, risk, xray
+from .auth import FABRIC_SCOPES, POWERBI_DATAFLOW_SCOPES
 from .fabric_api import FabricClient
 from .fabric_run import TERMINAL
 from .meta_service import NoMetadataProject
@@ -409,6 +409,17 @@ class XRayMixin:
             why.append("Fabric lists no Dataflow Gen2 items in this workspace, and older dataflows aren't listed by its API, "
                        "so whether one stages in it isn't known.")
             return []
+        try:
+            fabric_ids = {str(f.get("id") or "").lower() for f in flows}
+            unlisted = [d for d in self._powerbi_dataflows(workspace_id) if str(d.get("objectId") or "").lower() not in fabric_ids]
+        except Exception as exc:  # noqa: BLE001 - the older dataflows unknown: one may stage there
+            why.append(f"Power BI's list of the workspace's dataflows couldn't be read ({describe(exc)}). It's the only list "
+                       "with older dataflows (Gen1, and Gen2 without CI/CD), so whether one stages in it isn't known.")
+            unlisted = []
+        if unlisted:
+            names = ", ".join(sorted(str(d.get("name") or d.get("objectId")) for d in unlisted))
+            why.append(f"Older dataflows Fabric's API doesn't describe are in this workspace ({names}), and which staging "
+                       "lakehouse they use can't be shown.")
         if last_write is None:
             why.append("When it was last written isn't known, so refreshes can't show it's unused.")
         rows = []
@@ -440,6 +451,15 @@ class XRayMixin:
             else:
                 row["ok"] = last_write is not None
         return rows
+
+    def _powerbi_dataflows(self, workspace_id: str) -> list[dict[str, Any]]:
+        """Every dataflow Power BI lists in the workspace: Gen1 and Dataflow Gen2 without CI/CD, which
+        Fabric's items API leaves out ({"objectId", "name"}). Raises when it can't be read."""
+        token = self.auth._token(POWERBI_DATAFLOW_SCOPES)  # type: ignore[attr-defined]
+        r = http_session.session().get(f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/dataflows",
+                                       headers={"Authorization": f"Bearer {token}"}, timeout=30)
+        r.raise_for_status()
+        return list(r.json().get("value") or [])
 
     def xray_staging_preview(self, workspace_id: str, lakehouse_id: str) -> dict[str, Any]:
         """What removing one leftover staging lakehouse would delete, and anything that stops it."""

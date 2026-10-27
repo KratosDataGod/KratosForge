@@ -110,10 +110,12 @@ def svc(tmp_path, monkeypatch):
     flows = {"df1": {"name": "Sales load", "jobs": [{"status": "Completed", "startTimeUtc": ago(1)},
                                                    {"status": "Failed", "startTimeUtc": ago(0)}]}}
     monkeypatch.setattr(Fabric, "flows", flows)
+    older = []  # Power BI's list: Gen1 and Gen2 without CI/CD
+    monkeypatch.setattr(Service, "_powerbi_dataflows", lambda self, ws: older if isinstance(older, list) else older())
     monkeypatch.setattr(xs, "FabricClient", lambda _t: Fabric(deleted))
     monkeypatch.setattr(Service, "auth", property(lambda self: type("A", (), {"storage_token": lambda _s: "s",
                                                                              "fabric_token": lambda _s: "f"})()), raising=False)
-    s.flows, s.ago = flows, ago
+    s.flows, s.ago, s.older = flows, ago, older
     return s, deleted, broken
 
 
@@ -190,4 +192,22 @@ def test_every_dataflow_must_show_it_does_not_stage_there(svc):
     s.flows.clear()
     p = s.xray_staging_preview("ws", "a")
     assert not p["ok"] and "lists no Dataflow Gen2" in p["why"][-1]
+    assert deleted == []
+
+
+def test_older_dataflows_fabric_does_not_list_keep_it(svc, monkeypatch):
+    s, deleted, _ = svc
+    s.older.append({"objectId": "DF1", "name": "Sales load"})  # the same dataflow, in both lists
+    assert s.xray_staging_preview("ws", "a")["ok"]
+    s.older.append({"objectId": "gen1", "name": "Quarterly Gen1"})
+    p = s.xray_staging_preview("ws", "a")
+    assert not p["ok"] and "Quarterly Gen1" in p["why"][-1]
+
+    def unreadable(self, ws):
+        raise PermissionError("Dataflow.Read.All not granted")
+    monkeypatch.setattr(Service, "_powerbi_dataflows", unreadable)
+    p = s.xray_staging_preview("ws", "a")
+    assert not p["ok"] and "Power BI's list" in p["why"][-1]
+    with pytest.raises(ValueError, match="wasn't deleted"):
+        s.xray_remove_staging("ws", "a", OLD)
     assert deleted == []

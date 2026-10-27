@@ -777,7 +777,7 @@ function newRequestDialog(done, start = "workspace", prefill = {}) {
   const also = h("div", { class: "row tight muted-text small" }, "Also here: ",
     elsewhere("Key table", () => requestDialog("key_table", "", done)),
     elsewhere("Source", () => requestDialog("source", "", done)),
-    elsewhere("Product access", () => { catalogPage.tab = "products"; go("onelake"); }),
+    elsewhere("Product access", () => openProducts()),
     elsewhere("Shortcut", () => { catalogPage.tab = "shortcuts"; scPage.view = "requests"; go("onelake"); shortcutDialog("request"); }));
   showDialog("New request", h("div", { class: "req-dialog" }, shown ? grid : null, also, shown ? box : null), [
     btn("Cancel", null, closeDialog, "tool outline"),

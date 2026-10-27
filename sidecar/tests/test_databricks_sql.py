@@ -385,6 +385,26 @@ def test_the_cli_is_found_only_in_absolute_path_folders(tmp_path, monkeypatch):
     assert dba.find_cli(env) == str(real / name)
 
 
+def test_on_windows_only_databricks_exe_in_a_drive_folder_counts(tmp_path, monkeypatch):
+    import sys
+    scripts, both = tmp_path / "scripts", tmp_path / "both"
+    for folder, names in ((scripts, ("databricks.cmd", "databricks.bat")), (both, ("databricks.cmd", "databricks.exe"))):
+        folder.mkdir()
+        for name in names:
+            (folder / name).write_text("")
+            (folder / name).chmod(0o755)
+    # Without a drive letter, as a network share or \\?\ path has none.
+    windows = sys.platform == "win32"
+    no_drive = "\\\\?\\" + str(both) if windows else str(both)
+    monkeypatch.setattr(dba.sys, "platform", "win32")
+    env = {"PATHEXT": ".CMD;.BAT;.EXE"}
+    assert dba.find_cli({**env, "PATH": no_drive}) is None
+    assert dba._DRIVE.match("C:\\Program Files\\Databricks") and not dba._DRIVE.match("\\\\server\\share")
+    if windows:
+        assert dba.find_cli({**env, "PATH": str(scripts)}) is None
+        assert dba.find_cli({**env, "PATH": str(both)}) == str(both / "databricks.exe")
+
+
 @pytest.mark.parametrize("bad", ["../../api/2.0/clusters/delete", "wh1/x", "wh 1", "", "a" * 65])
 def test_ids_are_checked_before_they_reach_a_url(bad):
     ws = FakeWorkspace()

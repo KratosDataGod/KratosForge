@@ -1354,6 +1354,11 @@
           "kind": "test",
           "ref": "app/tests/browser/warehouse-monitoring.test.cjs",
           "note": "product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "doc",
+          "ref": "docs/warehouse.md#tested-on-a-tenant",
+          "note": "tenant run 2026-10-27 at 21d318fc: 25 of 26 checks passed; WH-10.7 failed and was fixed by #808"
         }
       ],
       "source": [
@@ -1376,7 +1381,7 @@
         "preview": true
       },
       "workstream": "Build full warehouse development experience (WH-01..21)",
-      "next_action": "Tenant run of WH-10 to WH-13 writes and the WH-19 Monitoring tab; phases 4-5 need Chris's go.",
+      "next_action": "A warehouse query from the app itself on a tenant, and the WH-19 Monitoring tab; phases 4-5 need Chris's go.",
       "backlog": [
         "PB-020",
         "PB-022",
@@ -1428,13 +1433,14 @@
         783,
         787,
         808,
-        809
+        809,
+        823
       ],
       "limitations": [
-        "Read-only: writes wait on Chris's decision D1",
-        "Not yet run against a live warehouse (decision D3)",
+        "Not yet run through the app's own Azure SQL sign-in: the 2026-10-27 tenant run used the Azure CLI's token",
+        "The Monitoring tab (WH-19) is not yet checked on a tenant",
         "One result set per run: the engine refuses a second statement",
-        "No build or deploy (WH-09..14), no Fabric SQL database, no Snowflake"
+        "No Fabric SQL database, no Snowflake"
       ]
     },
     {

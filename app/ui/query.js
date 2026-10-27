@@ -247,10 +247,15 @@ function renderQuery() {
         return failed(err);
       }
     };
-    const [report, bp] = await Promise.all([rpc("sql_analyze", { query: text, target: dialect }).catch(failed), practices()]);
+    // Practices draw when they arrive, so the compatibility result never waits for them.
+    practices().then((bp) => {
+      if (!here() || editor.text() !== text) return;
+      tab.practices = bp;
+      drawCompat();
+    });
+    const report = await rpc("sql_analyze", { query: text, target: dialect }).catch(failed);
     if (!here() || editor.text() !== text) return null;
     tab.compat = report;
-    tab.practices = bp;
     tab.compatText = text;
     drawCompat();
     return report.failed ? null : report;
@@ -816,7 +821,7 @@ function renderQuery() {
       h("div", { class: "muted-text" }, f.description),
       h("div", {}, h("button", { class: "link-btn", onclick: () => {
         const text = editor.text();
-        if (text !== tab.compatText) return;
+        if (text !== tab.compatText) { toast("The SQL changed since this check. The findings update in a moment."); return; }
         const at = sqlPracticeOffset(text, f.line, f.col);
         editor.reveal(sqlUtf16Offset(text, at), sqlUtf16Offset(text, at + 1));
       } }, `Line ${f.line}`), h("span", { class: "muted-text" }, ` · ${f.rule_id} · ${f.category}`))));

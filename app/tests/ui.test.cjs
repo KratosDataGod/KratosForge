@@ -3735,6 +3735,9 @@ test("SQL best practices: finding offsets and the chip label", () => {
   assert.strictEqual(ctx.sqlPracticeLabel(null), "Best practices");
   assert.match(src, /rpc\("governance_practice_settings", \{ kind: "sql" \}\)/);
   assert.match(src, /SQL_PRACTICE_TARGETS = \["warehouse", "endpoint", "sqldb"\]/);
+  // The compatibility result never waits for the practices (they draw when they arrive).
+  assert.doesNotMatch(src, /Promise\.all\(\[rpc\("sql_analyze"/);
+  assert.match(src, /practices\(\)\.then\(/);
 });
 
 // Notebook parity L3: a notebook's Runs panel lists this PC's scheduled runs and its Fabric runs.

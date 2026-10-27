@@ -12,16 +12,17 @@ const whChangesTicked = (ref) => whChangesAllowed() && sqlChangesOn.has(sqlRefKe
 // "dev" | "test" | "prod" | "none", from the project's environments only (#807). A workspace that
 // isn't Dev, Test or Prod there is "none", treated like Prod, whatever its name says: a name is a
 // guess, and an unmapped "kf_tenant_test" read as Test skipped the typed name.
+// A workspace two environments share, such as the Keys workspace, is the strictest of them.
+let whEnvWs = {};
 function whEnv(ref) {
-  const mapped = typeof catalogPage === "undefined" ? {} : catalogPage.envWs || {};
-  return mapped[ref.workspace_id] || "none";
+  return whEnvWs[ref.workspace_id] || "none";
 }
 
-// Reads the project's environments again (the Catalog page reads them too), so a change or deploy
-// sees the workspaces as Metadata has them now. If they can't be read, what was read before stays.
+// Reads the project's environments again, so a change or deploy sees the workspaces as Metadata has
+// them now. If they can't be read, what was read before stays (at first nothing: all like Prod).
 async function whEnvRead() {
   const p = await rpc("meta_project").catch(() => null);
-  if (p && typeof catalogPage !== "undefined") catalogPage.envWs = envWorkspaces(p.environments);
+  if (p) whEnvWs = envWorkspaces(p.environments, true);
 }
 
 // A Prod workspace, or one whose environment isn't known, asks for the name to be typed.

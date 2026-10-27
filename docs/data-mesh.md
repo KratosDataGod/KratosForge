@@ -66,7 +66,7 @@ It was Platform > Requests, and older links open it here. Approve does what was 
 | **Domain** | An area of the business that owns its data, like Sales or Finance. Subdomains go one level deep (Sales > EMEA). Imported from Fabric's domains | The platform's catalog, linked to the Fabric domain |
 | **Project** | A metadata project (one Git repository) and the domain and team it belongs to | `project.toml` in the project, and the catalog |
 | **Workspace designation** | What a workspace is for: Ingest, Product, Serve or Sandbox | `environments.toml` and `layers.toml` |
-| **Data product** | The tables (ports) other teams may read from a project, with an owner, a description and who may read it | `metadata/products/<name>.toml`, published to the catalog on promote |
+| **Data product** | The tables (ports) other teams may read from a project, with an owner, a description and who may read it | `metadata/products/<name>.toml`, published to the catalog on promote. Once a product is in the catalog, only its owners, whoever last published it and platform admins publish it again. A first publish whose owners name people (emails) must name the publisher among them |
 | **Link** | A project's reference to another team's product port, read where it lives with no copy | `metadata/links/<alias>.toml` |
 | **Catalog text** | Descriptions, tags, classification, glossary terms and steward of tables and columns | The platform's catalog (starter text can live in the entity file) |
 

@@ -87,6 +87,6 @@ Stages 1 to 4 need no new Entra scope: stage 3 uses the platform's functions as 
 ## Known gaps after Phase 1
 
 - Pull requests open on the provider's site; status, reviews and checks inside the app come later.
-- Line-level staging (part of a file) is not built; whole files only.
+- Staging part of a file is by block of changed lines (hunk); choosing single lines inside a block is not built.
 - No rebase, cherry-pick, tags or submodules UI.
 - Not yet tried on Windows with Git Credential Manager and an SSH agent, so the page carries a Preview tag.

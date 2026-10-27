@@ -55,7 +55,7 @@ async function renderMeshOverviewTab(body, p) {
   const draw = () => body.replaceChildren(withHowItWorks(meshFlow.layer ? mfLayer(m, p, draw) : meshFlow.domain ? mfDomain(m, p, draw) : mfDomains(m, draw),
     howItWorks("mesh.overview", {
       reads: "Domains, projects, data products and who links to them from the platform's catalog, and the tables of the project open on this PC.",
-      changes: "Nothing. Domains are edited on Platform; a project's tables and products on its Design and Domains tabs.",
+      changes: "Nothing. Domains are edited on Platform; a project's tables and products on its Project tab (Design, and Products and links).",
       results: "Everyone sees the same domains and links. A project's tables show here only for the project open on this PC.",
       anchor: "data-mesh",
     })));
@@ -148,7 +148,7 @@ function mfDomain(m, p, draw) {
         h("td", {}, list(m.products.filter((pr) => pr.project === x.name).map((pr) => pr.name))),
         h("td", {}, list(readers(x.name).map((l) => `${l.from} (${productName(l.product)})`))),
         h("td", {}, list(reads(x.name).map((l) => `${productName(l.product)} from ${l.to}`)))))))
-      : h("p", { class: "muted-text" }, "No projects have joined this domain yet. A project joins one on its Domains tab."));
+      : h("p", { class: "muted-text" }, "No projects have joined this domain yet. A project joins one on Domains > Domain and workspaces."));
 }
 
 function mfLayer(m, p, draw) {

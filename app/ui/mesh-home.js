@@ -55,7 +55,7 @@ function mhTeam(t) {
     t.products.length ? h("table", { class: "list" },
       h("thead", {}, h("tr", {}, ["Product", "Readers", "Owners", "Needs"].map((c) => h("th", {}, c)))),
       h("tbody", {}, t.products.map(product)))
-      : h("p", { class: "muted-text" }, t.project ? `${t.project.name} hasn't published a data product yet. Add one on the Domains > Data products tab.`
+      : h("p", { class: "muted-text" }, t.project ? `${t.project.name} hasn't published a data product yet. Add one on Project > Products and links.`
         : "You don't own a data product yet. Open your project to see the ones it publishes."));
   const depends = mhCard("Data you depend on", null,
     t.depends.length ? h("ul", { class: "mh-list" }, t.depends.map((d) => h("li", {},

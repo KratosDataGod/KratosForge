@@ -255,7 +255,8 @@ def test_products_are_checked_on_save_and_documented_before_publish(svc):
 
 def test_a_prod_publish_that_changes_a_product_tells_its_followers(svc, monkeypatch):
     svc.meta_set_environment("prod", target="local")
-    monkeypatch.setattr(svc, "_user", lambda: "chris@example.com")
+    who = {"user": "chris@example.com"}
+    monkeypatch.setattr(svc, "_user", lambda: who["user"])
     svc.platform_save_domain({"name": "Sales"})
     svc.mesh_set_project({"domain": "sales"})
     product = {"name": "c360", "access": "public", "status": "published", "description": "Customers", "owner": "Chris",
@@ -270,13 +271,17 @@ def test_a_prod_publish_that_changes_a_product_tells_its_followers(svc, monkeypa
     assert svc.platform_products()["can_follow"] and not svc.platform_products()["products"][0]["following"]
     assert svc.platform_follow("crm/c360") == {"following": ["crm/c360"]}
     assert svc.platform_products()["products"][0]["following"]
+    who["user"] = "ana@example.com"
+    svc.platform_follow("crm/c360")
+    who["user"] = "chris@example.com"
 
     svc.mesh_save_product(product | {"version": "2"})
     svc.mesh_publish("dev")
     assert sent == [], "Dev changes aren't news to readers"
     svc.mesh_publish("prod")
     [event] = sent
-    assert (event["kind"], event["detail"], event["to"]["people"]) == ("product.changed", "Version 1 to 2", ["chris@example.com"])
+    assert (event["kind"], event["detail"], event["to"]["people"]) == ("product.changed", "Version 1 to 2", ["ana@example.com"]), \
+        "the promoter isn't told about their own change"
     assert svc.platform_follow("crm/c360", follow=False) == {"following": []}
 
 
@@ -895,6 +900,42 @@ def test_listing_sources_on_a_platform_not_yet_repaired_changes_nothing(tmp_path
     assert not cols & set(core._SOURCE_ADDED), "a read added columns"
 
 
+def test_access_reviews_flag_old_grants_for_their_owners_and_take_nothing_away(platform):
+    platform.call("save_domain", domain={"name": "Sales"})
+    platform.call("register_project", project={"name": "crm", "domain": "sales"})
+    platform.call("register_product", product={"project": "crm", "name": "c360", "domain": "sales", "access": "private",
+                                               "status": "published", "owner": "Bo@example.com"}, ports=[], env="prod")
+    bo, ana = _as(platform, "bo@example.com"), _as(platform, "ana@example.com")
+    for project in ("ledger", "billing"):
+        req = ana.call("request", kind="access", target="crm/c360", project=project, reason="Invoices")
+        bo.call("decide_request", id=req["id"], approve=True)
+    fresh = bo.call("access_reviews")
+    assert (fresh["due"], [g["project"] for g in fresh["grants"]]) == (0, ["billing", "ledger"])
+    assert ana.call("access_reviews")["grants"] == [], "only owners and admins review"
+    assert len(platform.call("access_reviews")["grants"]) == 2, "a platform admin sees every product's"
+
+    # Granted 100 days ago: due, and still there.
+    old = (core.dt.datetime.now(core.dt.timezone.utc) - core.dt.timedelta(days=100)).isoformat(timespec="seconds")
+    with platform._db() as db:
+        db.run(f"UPDATE {db.t('catalog', 'grant')} SET granted_at = ?", (old,))
+        db.commit()
+    due = bo.call("access_reviews")
+    assert due["due"] == 2 and all(g["due"] and g["days"] >= 100 for g in due["grants"])
+    assert sorted(g["project"] for g in bo.call("list_grants", product_id="crm/c360")) == ["billing", "ledger"]
+
+    with pytest.raises(core.PlatformError, match="owner or a platform admin"):
+        ana.call("confirm_access", product_id="crm/c360", projects=["ledger"])
+    with pytest.raises(core.PlatformError, match="nope has no access"):
+        bo.call("confirm_access", product_id="crm/c360", projects=["nope"])
+    after = bo.call("confirm_access", product_id="crm/c360", projects=["ledger"])
+    ledger = next(g for g in after["grants"] if g["project"] == "ledger")
+    assert (after["due"], ledger["due"], ledger["reviewed_by"]) == (1, False, "bo@example.com")
+    assert after["grants"][0]["project"] == "billing", "the longest unconfirmed comes first"
+
+    bo.call("revoke_grant", product_id="crm/c360", project="ledger")
+    assert [g["project"] for g in bo.call("access_reviews")["grants"]] == ["billing"]
+
+
 def test_following_a_product_and_hearing_what_a_publish_changed(platform):
     platform.call("save_domain", domain={"name": "Sales"})
     platform.call("register_project", project={"name": "crm", "domain": "sales"})
@@ -926,6 +967,26 @@ def test_following_a_product_and_hearing_what_a_publish_changed(platform):
 
     assert ana.call("unfollow_product", product_id="crm/c360") == []
     assert platform.call("product_followers", product_id="crm/c360") == ["cy@example.com"]
+    with pytest.raises(core.PlatformError, match="owner or a platform admin"):
+        cy.call("product_followers", product_id="crm/c360")
+    assert _as(platform, "bo@example.com").call("product_followers", product_id="crm/c360") == ["cy@example.com"]
+
+
+def test_reads_of_follows_and_reviews_create_no_tables(platform):
+    platform.call("register_project", project={"name": "crm"})
+    platform.call("register_product", product={"project": "crm", "name": "c360", "access": "public", "status": "published",
+                                               "owner": "bo@example.com"}, ports=[], env="dev")
+    with platform._db() as db:  # a platform made before following and access reviews
+        for table in ("follow", "grant_review"):
+            db.run(f"DROP TABLE {db.t('catalog', table)}")
+        db.commit()
+    assert platform.call("list_follows") == [] and platform.call("product_followers", product_id="crm/c360") == []
+    assert platform.call("access_reviews")["grants"] == []
+    before = len(platform.call("audit", limit=500))
+    assert platform.call("confirm_access", product_id="crm/c360", projects=[])["grants"] == []
+    assert len(platform.call("audit", limit=500)) == before, "an empty confirmation writes no audit row"
+    with platform._db() as db:
+        assert not db.exists("catalog", "follow") and not db.exists("catalog", "grant_review")
 
 
 def test_a_product_change_notice_names_its_followers_and_what_changed():

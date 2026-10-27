@@ -344,6 +344,24 @@ def test_blast_radius_follows_ports_of_the_table_in_its_environment_to_linked_pr
     assert impact.blast_radius(products, "sales", "silver.orders", "test")["products"] == []
 
 
+def test_who_s_affected_names_followers_only_to_owners_and_admins_and_says_who_was_left_out(svc):
+    who = {"u": "chris@contoso.com"}
+    svc._auth.signed_in_user = lambda: who["u"]
+    cat = svc._catalog()
+    cat.call("register_product", product={"project": "sales", "name": "orders", "owner": "olu@contoso.com",
+                                          "access": "public", "status": "published", "domain": "sales"},
+             ports=[{"port": "daily", "entity": "silver.orders"}], env="dev")
+    who["u"] = "bo@contoso.com"
+    cat.call("follow_product", product_id="sales/orders")
+    who["u"] = "dee@contoso.com"  # works the incident; neither the product's owner nor an admin
+    inc = svc.incident_report("dev", "Orders late", workload="meta:sales:silver.orders")
+    out = svc.incident_impact("dev", inc["id"])
+    assert [p["upn"] for p in out["people"]] == ["olu@contoso.com"] and out["followers_hidden"] == ["sales/orders"]
+    who["u"] = "olu@contoso.com"
+    out = svc.incident_impact("dev", inc["id"])
+    assert [p["upn"] for p in out["people"]] == ["bo@contoso.com"] and out["followers_hidden"] == []
+
+
 def test_incident_impact_reads_the_catalog_and_tell_them_posts_once_and_notes_it(svc, monkeypatch):
     from fabric_desktop import platform_notify_service as pns
     posts = []

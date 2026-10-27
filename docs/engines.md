@@ -5,8 +5,8 @@ Azure Databricks, or both. This page describes the two foundations that work is 
 they can do today, and what is planned. **Nothing on this page has a screen in the app yet**: it
 is the engine underneath, built and tested first so the screens can't promise more than it does.
 
-- An **engine** is what runs a notebook cell: Python on this PC, DuckDB, SQLite, Polars, and
-  later Fabric Spark, Databricks Connect and Databricks SQL warehouses.
+- An **engine** is what runs a notebook cell: Python on this PC, DuckDB, SQLite, Polars and
+  a Databricks SQL warehouse (Preview, tested against fakes), and later Fabric Spark and Databricks Connect.
 - A **connection profile** says which platforms a piece of work uses, where, how it signs in,
   which engine it runs on by default, and whether it may start remote compute.
 
@@ -27,7 +27,8 @@ refuses to register an engine that claims more than it has an adapter and tests 
 
 "Tested" means automated tests in this repository, on Linux and Windows CI, with no cloud. Nothing
 here has run against a Fabric tenant or a Databricks workspace yet: the Databricks SQL warehouse
-engine is tested against fakes of Databricks' documented APIs, and stays Preview until it has.
+and Databricks Connect engines are tested against fakes of Databricks' documented APIs and
+client, and stay Preview until they have.
 
 | Engine | Where it runs | Languages | SQL | Cancel | Plan | Variables | Billed | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -37,7 +38,7 @@ engine is tested against fakes of Databricks' documented APIs, and stays Preview
 | Polars SQL (this PC) | This PC | SQL | Polars SQL partial | **No** (the query finishes) | Native | No | Nothing | Tested |
 | Apache Spark (this PC) | This PC | none yet | none yet | | | | Nothing | Planned |
 | Fabric Spark (remote) | Fabric capacity | none yet | none yet | | | | Fabric capacity | Planned, Preview |
-| Databricks Connect (remote) | Databricks compute | none yet | none yet | | | | DBUs | Planned, Preview |
+| Databricks Connect (remote) | Your Databricks cluster (Python on this PC) | PySpark native; Python partial | (use spark.sql) | Partial (Spark jobs) | No (df.explain) | No | DBUs | Preview, tested against fakes |
 | Databricks SQL warehouse (remote) | Your Databricks SQL warehouse | SQL | Databricks SQL native | Native | Partial (EXPLAIN on the warehouse) | No | DBUs | Preview, tested against fakes |
 
 Engines on this PC bill nothing themselves. **Reading or writing OneLake from this PC still uses
@@ -83,6 +84,37 @@ warehouse. **Plan** runs EXPLAIN on the warehouse.
 - **Limits:** a statement still running after two hours is cancelled. Results come back inline, so the warehouse refuses one over 25 MB (add a LIMIT), and
   only the first result chunk is previewed. Billed DBUs are in Databricks' system billing tables,
   per warehouse and hour, so the engine reports measured seconds only.
+
+## Databricks Connect (Preview)
+
+PySpark cells can run their `spark` work on a Databricks cluster through Databricks Connect, while
+the rest of the cell's Python runs on this PC.
+
+- **Its own environment.** Databricks Connect brings its own PySpark, so it never loads inside
+  KratosForge. You install it once per Databricks Runtime line (for example 16.4); KratosForge
+  downloads it with pip into a folder of its own and runs each session as a separate process there.
+  Opening a session never installs anything.
+- **Pinned packages only.** Each supported runtime line (16.4 and 17.3 in this version) has a lock
+  file in the app naming every package, its exact version and its hash. pip installs only those
+  files, as prebuilt wheels, and refuses any whose hash differs, so a changed or look-alike package
+  never installs. Other runtime lines say they aren't supported in this version. Your organization
+  can point the download at its own package mirror (`dbconnect_index_url`) or turn installs off
+  (`allow_dbconnect_install`) in the [policy file](azure-setup.md).
+- **Checked first.** Before anything starts, KratosForge reads the cluster's runtime and checks it
+  against the installed client and this PC's Python. KratosForge's Python is 3.12, so clusters on
+  Databricks Runtime 16 and later work. 13.3 to 15.4 need Python 3.10 or 3.11, and the check says so.
+- **It bills DBUs.** Connecting to a terminated cluster starts it, and a running cluster bills
+  Databricks units until it auto-terminates. A session opens only after your confirmation for that
+  cluster, or your profile's policy. Closing the session ends the process on this PC, not the cluster.
+- **Sign-in** goes to the process as the Databricks SDK's own settings: your CLI profile's name, or
+  the workspace address with the CLI's sign-in, or a service principal whose secret is read from its
+  reference. Databricks variables already set on this PC are left out. A sign-in through the CLI
+  needs the Databricks CLI on PATH; without it the session doesn't start. A service principal's
+  secret is removed from the process once the session has signed in, but cells still run with that
+  principal's rights in the workspace, so give it only the access the notebook needs.
+- **Limits:** Spark Connect has no RDDs or SparkContext. Results show the first rows only, because
+  counting them all would run another Spark job. Cancel stops the session's Spark jobs, not plain
+  Python. Serverless compute isn't offered yet.
 
 ## Switching engines
 
@@ -165,8 +197,9 @@ and outputs stay. A notebook with unsaved changes must be saved or discarded fir
 ## Not yet
 
 - No screens: the notebook's engine picker and profile setup come next, after a mockup.
-- No Databricks sign-in, workspace discovery or execution yet; those need the Databricks SDK and
-  will be labeled Preview until tested against a live workspace.
+- Databricks SQL warehouses sign in through the Databricks CLI or a service principal and run SQL
+  through the Statement Execution API, tested against fakes only. Databricks workspace discovery and
+  Databricks Connect aren't built yet, and stay Preview until tested against a live workspace.
 - Databricks Connect will run in its own Python environment: it ships its own PySpark, which would
   otherwise change what `spark` means in every local notebook. Its version is checked before
   anything starts (Databricks Runtime 16.4 or later, or serverless, for this app's Python 3.12).

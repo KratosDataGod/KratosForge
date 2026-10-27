@@ -33,7 +33,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/kratosforge.md](docs/kratosforge.md) | Legacy names: which files, folders and settings keep an earlier name so nothing breaks |
 | [docs/install.md](docs/install.md) | Installing on a PC: requirements, first start, Windows blocking the engine, updates and channels, where files live, uninstalling |
 | [docs/backup.md](docs/backup.md) | Backing up and restoring what the app keeps only on your PC, without sign-in tokens |
-| [docs/enterprise-install.md](docs/enterprise-install.md) | Rolling the app out with Intune or Configuration Manager: what to deploy, self-updating or managed updates, rollback, failed updates, network access |
+| [docs/enterprise-install.md](docs/enterprise-install.md) | Rolling the app out with Intune or Configuration Manager: what to deploy, self-updating or managed updates, hosting the engine on your own server, rollback, failed updates, network access |
 | [docs/azure-setup.md](docs/azure-setup.md) | Configuring Fabric for an organization: tenant settings, sign-in policies, the optional policy file, workspaces, capacity and access |
 | [docs/permissions.md](docs/permissions.md) | How sign-in works (no app registration), what each feature uses, an optional own app registration with its permissions in alphabetical order, and what the agent needs |
 | [docs/telemetry.md](docs/telemetry.md) | Opt-in usage data: every field sent, what is never sent, and how IT turns it off |
@@ -47,7 +47,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/sql-compatibility.md](docs/sql-compatibility.md) | The SQL compatibility check: what each Fabric SQL engine supports, findings, export, rules |
 | [docs/semantic-model-rules.md](docs/semantic-model-rules.md) | Best Practice Analyzer rules for the semantic model Update model writes, checked on this PC from the metadata project |
 | [docs/sql-best-practices.md](docs/sql-best-practices.md) | Best-practice checks on Warehouse and SQL endpoint T-SQL, read on this PC without running it |
-| [docs/warehouse.md](docs/warehouse.md) | Warehouses (Preview): the Warehouse page, T-SQL on a Fabric warehouse or SQL analytics endpoint (runs in Fabric, uses capacity), changes after a preview and confirm, the warehouse project in Git with compare and deploy, and the plan |
+| [docs/warehouse.md](docs/warehouse.md) | Warehouses (Preview): the Warehouse page, T-SQL on a Fabric warehouse or SQL analytics endpoint (runs in Fabric, uses capacity), changes after a preview and confirm, the warehouse project in Git with compare and deploy, Monitoring from Fabric's workspace monitoring (reads use capacity), and the plan |
 | [docs/sql-execution.md](docs/sql-execution.md) | Running SQL page queries on this PC: states, Stop, limits, paging, export, what a query may do |
 | [docs/local-data.md](docs/local-data.md) | Local data projects (Preview): folders of CSV, JSON and Parquet files as SQL tables on your PC, kept between sessions, starting no Fabric job |
 | [docs/notebook-resources.md](docs/notebook-resources.md) | Notebook resources: files kept beside a notebook and read as `builtin/<file>`, like Fabric's built-in resources |
@@ -86,7 +86,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/data-dictionary.md](docs/data-dictionary.md) | The data dictionary (Preview): every table, column and measure of a layer's model with its description, exported to Excel and imported back with a preview of each change |
 | [docs/semantic-model-ossie.md](docs/semantic-model-ossie.md) | Semantic models to and from Apache Ossie (Preview): export a model to a `.ossie.yaml` file, or import one with a preview of every change |
 | [docs/governance-guide.md](docs/governance-guide.md) | Governance guide (Preview): how a policy goes from draft to result, three worked examples, and what KratosForge, Fabric, Purview and Entra can each enforce |
-| [docs/data-mesh.md](docs/data-mesh.md) | Domains, workspace designations, data products, links between teams and catalog text |
+| [docs/data-mesh.md](docs/data-mesh.md) | Domains, workspace designations, data products, links between teams, asking another team for data, following a product, and catalog text |
 | [docs/shortcuts.md](docs/shortcuts.md) | The shortcut command center: every OneLake shortcut's health, who can read it, rules, change history with undo, and requests |
 | [docs/source-control.md](docs/source-control.md) | Source control (Preview): clone, diffs, branches, commit, pull and push in the app, the secret check, repository kinds, the platform repository (compare, export, deploy), and what it doesn't do yet |
 | [docs/orchestration/pipeline-definitions.md](docs/orchestration/pipeline-definitions.md) | Reading, checking and converting Fabric pipeline definitions on your PC, with nothing run in Fabric (Preview) |

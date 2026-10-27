@@ -18,6 +18,18 @@ KratosForge lets many teams build on one platform without stepping on each other
 
 All of it happens on the **Platform** page (central team, and requests from everyone), **Data mesh > Domains** (a project's own products and links) and **OneLake > Data products** (finding other teams' products). See [The platform](platform.md#who-can-do-what).
 
+## Home: the mesh for who you are (Preview)
+
+**Data mesh > Home** is where the page opens. It shows the same catalog three ways, one for each of the people who run a mesh; pick one at the top right and KratosForge remembers it on this PC. The first time, it starts on **My team** if you own a data product or have a project open, on **On call** if you're a platform admin, and on **Organization** otherwise. Home needs no metadata project open: a CDO or an on-call engineer can use it without one.
+
+| View | For | What it shows |
+| --- | --- | --- |
+| **My team** | A team lead | Requests waiting on you, your own asks and what happened to them, your products (readers, owners, and what each needs: an incident upstream, no second owner, an access review due, a deprecation), and the products your project links to or you follow |
+| **On call** | Whoever is on call | Active incidents that reach a data product, with its readers and owners, who to wake, late landing sources, shortcuts broken at their last check, and owner gaps |
+| **Organization** | The CDO and domain leads | Totals, one row per top-level domain (subdomains count toward their parent), and requests that have waited more than 5 days |
+
+Home only reads: the catalog (products, requests, follows, access reviews, domains, shortcuts, owner coverage), the landing zone on On call, and the incident lists of the project open on this PC. Each card opens the page that acts: **Decide** opens Platform > Requests, a product opens its page, an incident opens it in Monitor. Something it couldn't read is named at the top and its card says so, rather than showing a zero. Incidents need a project open, because incident lists belong to a project's environments.
+
 ## From domains to tables
 
 **Data mesh > Overview** is where the page opens. It reads the platform's catalog and changes nothing:

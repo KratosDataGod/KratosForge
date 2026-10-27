@@ -5,7 +5,7 @@
 state.meta = {
   project: null,       // summary from meta_project
   projectTab: null,    // the Project tab last open, where Project opens again
-  tab: "home",         // home | requests | overview | entities | layers | keys | sources | runs | health | model | tests | exceptions | environments | domains | products | links
+  tab: "home",         // home | catalog | requests | overview | entities | layers | keys | sources | runs | health | model | tests | exceptions | environments | domains | products | links
   env: (() => { try { return localStorage.getItem("fd.env") || "dev"; } catch { return "dev"; } })(),  // set from the top bar
   entity: null,        // open entity detail
   layersDraft: null,   // unsaved layer edits
@@ -72,10 +72,11 @@ async function loadMetaProject() {
 
 // Data mesh's tabs, in groups so new features join a group instead of a long row.
 // [group id, label, [[tab id, label, preview feature id]], section]. The "mesh" section is the mesh
-// for everyone: Home (mesh-home.js) as each person sees it, Requests (mesh-requests.js) everyone's
+// for everyone: Home (mesh-home.js) as each person sees it, Products (platform.js) every team's products, Requests (mesh-requests.js) everyone's
 // inbox, Domains. The "project" section is the open project's editor, behind one Project tab.
 const META_TAB_GROUPS = [
   ["home", "Home", [["home", "Home", "mesh"]], "mesh"],
+  ["catalog", "Products", [["catalog", "Products", "mesh"]], "mesh"],
   ["requests", "Requests", [["requests", "Requests", "mesh"]], "mesh"],
   ["overview", "Domains", [["overview", "Map", "mesh"], ["domains", "Domain and workspaces", "mesh"]], "mesh"],
   ["design", "Design", [["entities", "Entities"], ["layers", "Layers"], ["keys", "Surrogate keys"], ["sources", "Source systems"]], "project"],
@@ -86,7 +87,7 @@ const META_TAB_GROUPS = [
 ];
 
 // The tabs that show the whole mesh rather than the open project, so they show without one.
-const META_NO_PROJECT = ["home", "requests"];
+const META_NO_PROJECT = ["home", "catalog", "requests"];
 
 function metaGroupOf(tab) {
   return META_TAB_GROUPS.find(([, , tabs]) => tabs.some(([id]) => id === tab)) || META_TAB_GROUPS[0];
@@ -102,7 +103,9 @@ function goMeta(tab) {
 async function renderMetadata() {
   setView(h("div", { class: "page" }, h("h1", {}, "Data mesh"), h("p", { class: "muted-text" }, "Loading the metadata project...")));
   const p = await loadMetaProject();
-  if (state.view !== "metadata" || !p) return;
+  if (state.view !== "metadata") return;
+  // The mesh's own tabs need no project, so they show even when the project couldn't be read.
+  if (!p) return META_NO_PROJECT.includes(state.meta.tab) && previewShown() ? renderMetaNoProject({}) : undefined;
   if (!p.path) return META_NO_PROJECT.includes(state.meta.tab) && previewShown() ? renderMetaNoProject(p) : renderMetaSetup(p);
   renderEnvBar();  // the top bar's environment picker waits for the project
   const m = state.meta;
@@ -141,7 +144,7 @@ async function renderMetadata() {
     visible(group[2]).length > 1 ? h("div", { class: "seg meta-tabs", role: "group", "aria-label": group[1] }, visible(group[2]).map(([id, label, previewId]) =>
       h("button", { class: m.tab === id ? "on" : null, onclick: () => goMeta(id) }, tabLabel(label, previewId)))) : null,
     body));
-  const render = { home: renderMeshHomeTab, requests: renderMeshRequestsTab, overview: renderMeshOverviewTab, entities: renderEntitiesTab, layers: renderLayersTab, keys: renderKeysTab, sources: renderSourcesTab,
+  const render = { home: renderMeshHomeTab, catalog: renderMeshCatalogTab, requests: renderMeshRequestsTab, overview: renderMeshOverviewTab, entities: renderEntitiesTab, layers: renderLayersTab, keys: renderKeysTab, sources: renderSourcesTab,
     runs: renderRunsTab, health: renderHealthTab, model: renderModelTab, tests: renderTestsTab, environments: renderEnvTab,
     domains: renderMeshDomainsTab, products: renderMeshProductsTab, links: renderMeshLinksTab,
     exceptions: renderExceptionsTab }[m.tab];
@@ -157,11 +160,11 @@ function renderMetaNoProject(p) {
   setView(h("div", { class: "page" },
     h("div", { class: "page-head" },
       h("div", {}, h("h1", {}, "Data mesh"), h("p", { class: "sub" }, "Your organization's data products, the requests on them and who owns what. ", learnMore("data-mesh"))),
-      h("div", { class: "head-actions" }, btn("Set up a project", "add", () => renderMetaSetup(p), "tool outline"))),
+      p.presets ? h("div", { class: "head-actions" }, btn("Set up a project", "add", () => renderMetaSetup(p), "tool outline")) : null),
     h("div", { class: "subtabs meta-groups" }, META_TAB_GROUPS.filter(([id]) => META_NO_PROJECT.includes(id)).map(([id, label]) =>
       h("button", { class: `tab${tab === id ? " active" : ""}`, onclick: () => goMeta(id) }, label))),
     body));
-  return { home: renderMeshHomeTab, requests: renderMeshRequestsTab }[tab](body, p);
+  return { home: renderMeshHomeTab, catalog: renderMeshCatalogTab, requests: renderMeshRequestsTab }[tab](body, p);
 }
 
 // Where an environment's runs execute: "local" (this PC) or "fabric" (the workspace's capacity).

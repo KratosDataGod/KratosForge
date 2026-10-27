@@ -16,7 +16,7 @@ KratosForge lets many teams build on one platform without stepping on each other
 | Links | | Link to products open to them; request access to others |
 | Catalog text | Shared glossary terms | Describe their tables and columns |
 
-All of it happens on the **Platform** page (central team, and requests from everyone), **Data mesh > Project > Products and links** (a project's own products and links) and **OneLake > Data products** (finding other teams' products). See [The platform](platform.md#who-can-do-what).
+All of it happens on the **Platform** page (central team, and requests from everyone), **Data mesh > Project > Products and links** (a project's own products and links) and **Data mesh > Products** (finding other teams' products). See [The platform](platform.md#who-can-do-what).
 
 ## Home: the mesh for who you are (Preview)
 
@@ -29,6 +29,10 @@ All of it happens on the **Platform** page (central team, and requests from ever
 | **Organization** | The CDO and domain leads | Totals, one row per top-level domain (subdomains count toward their parent), and requests that have waited more than 5 days |
 
 Home only reads: the catalog (products, requests, follows, access reviews, domains, shortcuts, owner coverage), the landing zone on On call, and the incident lists of the project open on this PC. Each card opens the page that acts: **Decide** opens [Requests](#requests-preview), a product opens its page, an incident opens it in Monitor. Something it couldn't read is named at the top and its card says so, rather than showing a zero. Incidents need a project open, because incident lists belong to a project's environments.
+
+## Products (Preview)
+
+**Data mesh > Products** is every team's published data products, for producers and readers alike, and works with no project open. It was **OneLake > Data products**; that tab and every link now open it here. Open a product for its page: endorsement and business terms, its checklist, who has access (with access reviews for its owner), Follow, and Ask for a change. For a product of the project open on this PC, **Edit definition** opens **Project > Products and links**, where its definition file is edited. See [Data products](user-guide.md#data-products-preview).
 
 ## Requests (Preview)
 
@@ -154,13 +158,13 @@ The check knows which projects read a port, not which columns each one uses, so 
 
 ## Follow a product (Preview)
 
-**Follow** on a product's page (**OneLake > Data products >** the product) tells you in Teams when a promote to Prod changes it: it's deprecated (and when it stops), it has a new version, or a port's columns are added, removed or retyped. Whoever links a project to a product follows it without asking, so its readers hear too. **Following** on the list shows only the products you follow; choose **Following** on a product's page to stop.
+**Follow** on a product's page (**Data mesh > Products >** the product) tells you in Teams when a promote to Prod changes it: it's deprecated (and when it stops), it has a new version, or a port's columns are added, removed or retyped. Whoever links a project to a product follows it without asking, so its readers hear too. **Following** on the list shows only the products you follow; choose **Following** on a product's page to stop.
 
 Only Prod counts, because that's what readers' projects read. Each environment keeps what it last published (`catalog.product_env`), so a change is told once, when it reaches Prod, not again on the next promote. The notice goes to the platform's Teams routes as `product.changed`, naming the people it's for ([governance-guide.md](governance-guide.md)), except whoever promoted it. Who follows a product is personal data: only its owners and platform admins can list its followers. A platform made before following shows no Follow button until a platform admin runs **Finish or repair** once.
 
 ## Endorsement and business terms
 
-Preview. **OneLake > Data products**, then select a product's name. The product's page shows two trust signals next to its name.
+Preview. **Data mesh > Products**, then select a product's name. The product's page shows two trust signals next to its name.
 
 **Endorsement** (Certified, Promoted or Master data) is set in Fabric, on the item's settings. KratosForge reads it and never sets it. The item is the lakehouse each port lives in, in the highest environment the product is published to (Prod, else Test, else Dev).
 
@@ -175,9 +179,9 @@ An older UDF_Platform doesn't have these functions yet. The page then says: *Aft
 
 ## Links
 
-**OneLake > Data products > Link**, **Data products > Other teams' products > Link**, or **Links > New link.** Pick a product and port, a name for it, and which of their environments each of yours reads. Dev usually reads their Prod, so you build against real data without copying it. The catalog refuses a link to a draft, to a private product, or to a domain product from another domain, unless the product's owner let your project in: **OneLake > Data products > Request access** sends them a request, and once they approve it on **Platform > Requests**, **Link** works. Approving lets the link be made; the owner still gives read access in OneLake (a data access role on their Product workspace). The owner can take that access away later on the product's page under **Access given**; a link already made stays.
+**Data mesh > Products > Link**, **Data products > Other teams' products > Link**, or **Links > New link.** Pick a product and port, a name for it, and which of their environments each of yours reads. Dev usually reads their Prod, so you build against real data without copying it. The catalog refuses a link to a draft, to a private product, or to a domain product from another domain, unless the product's owner let your project in: **Data mesh > Products > Request access** sends them a request, and once they approve it on **Platform > Requests**, **Link** works. Approving lets the link be made; the owner still gives read access in OneLake (a data access role on their Product workspace). The owner can take that access away later on the product's page under **Access given**; a link already made stays.
 
-**Ask for data (Preview).** When the product you need doesn't exist yet, or needs a change, ask the team that would make it: **OneLake > Data products > Ask for data**, or **Ask for a change** on a product's page. Say what you need it for and, if it matters, by when. A new product goes to its domain's owners, a change to the product's owner, and either can be answered by a platform admin. Whoever accepts replies with how and when, and you see the answer on **Platform > Requests**. Nothing is built for you: accepting is the team's promise, recorded in the platform's audit log.
+**Ask for data (Preview).** When the product you need doesn't exist yet, or needs a change, ask the team that would make it: **Data mesh > Products > Ask for data**, or **Ask for a change** on a product's page. Say what you need it for and, if it matters, by when. A new product goes to its domain's owners, a change to the product's owner, and either can be answered by a platform admin. Whoever accepts replies with how and when, and you see the answer on **Platform > Requests**. Nothing is built for you: accepting is the team's promise, recorded in the platform's audit log.
 
 An entity reads a link like any source:
 

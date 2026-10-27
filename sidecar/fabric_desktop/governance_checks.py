@@ -350,7 +350,7 @@ CONTRACT_RULES = [
           "Look at the last run of the product's entities.", {"min_rows": 1}),
     _rule("contract.terms_linked", "product", "Warning", "contract", "Business terms linked",
           "The product links at least one business term in Purview.",
-          "Add a term on the product's page (OneLake > Data products).", {"min_terms": 1}),
+          "Add a term on the product's page (Data mesh > Products).", {"min_terms": 1}),
     _rule("contract.description", "product", "Warning", "contract", "Description",
           "The product says what it is.", "Edit the product and write a description."),
     _rule("contract.endorsed", "product", "Info", "contract", "Endorsement",

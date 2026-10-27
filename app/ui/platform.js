@@ -139,7 +139,7 @@ async function platformOverviewTab(body) {
       platStat(c.projects, "Projects joined", c.teams ? `${c.teams} team${c.teams === 1 ? "" : "s"}, joined to a domain` : "joined to a domain in Data mesh",
         () => goMeta("domains")),
       platStat(c.key_tables, "Business key tables", `${c.keys.toLocaleString()} keys in ${ENV_LABEL[o.env]}`, () => goPlatform("keys")),
-      platStat(c.products, "Data products", `${c.published} published`, () => go("onelake")),
+      platStat(c.products, "Data products", `${c.published} published`, () => openProducts()),
       platStat(c.requests, "Requests waiting", o.needs_you.length ? `${o.needs_you.length} for you` : "", () => goPlatform("requests"))),
     h("div", { class: "plat-two" },
       h("div", { class: "card pad" }, h("b", {}, o.me.admin ? "Needs you" : "Your requests"),
@@ -1106,9 +1106,30 @@ registerFeature({
   ],
 });
 
-// ---------- OneLake > Data products: every team's products, for everyone ----------
+// ---------- Data mesh > Products: every team's products, for everyone ----------
+// It was OneLake > Data products; OneLake's tab and every link now open it on Data mesh.
 
-const productsPage = { query: "", domain: "all", open: null, following: false, reviewDue: false };
+const productsPage = { query: "", domain: "all", open: null, following: false, reviewDue: false, mine: "" };
+const productsHost = { body: null };
+
+// Open the products list, or one product's page, on Data mesh > Products.
+function openProducts(prod = null, opts = {}) {
+  Object.assign(productsPage, { open: prod }, opts);
+  goMeta("catalog");
+}
+
+function productsHere() {
+  return state.view === "metadata" && state.meta.tab === "catalog" && !!productsHost.body?.isConnected;
+}
+
+function productsView(node) {
+  productsHost.body?.replaceChildren(node);
+}
+
+function renderMeshCatalogTab(body) {
+  productsHost.body = body;
+  return renderDataProducts();
+}
 
 async function renderDataProducts() {
   const pp = productsPage;
@@ -1116,9 +1137,9 @@ async function renderDataProducts() {
   pp.open = null;
   const list = h("div", {}, loading("Loading data products..."));
   const search = h("input", { class: "catalog-search", placeholder: "Search products, ports and owners", value: pp.query, "aria-label": "Search data products" });
-  setView(h("div", { class: "page monitor onelake" }, onelakeTabs(), withHowItWorks(
+  productsView(h("div", { class: "monitor onelake mesh-products" }, withHowItWorks(
     h("section", { class: "card pad" },
-      h("div", { class: "monitor-band" }, h("h2", {}, "Data products"),
+      h("div", { class: "monitor-band" }, previewMarked("mesh", h("h2", {}, "Data products")),
         h("span", { class: "muted-text" }, "What every team shares, from the platform's catalog"), h("span", { class: "spacer" }), search,
         previewShown() ? btn("Ask for data", null, () => newRequestDialog(null, "data"), "tool outline") : null,
         btn("Refresh", "sync", () => render(), "tool outline")),
@@ -1126,12 +1147,13 @@ async function renderDataProducts() {
     howItWorks("onelake.products", {
       reads: "Every team's published data products, their ports and readers, from the platform's catalog (SQL_Platform in Fabric, or the file on this PC), and, for the products you own, which grants are due for their access review. It reads when the tab opens and when you press Refresh.",
       changes: "Link writes a link file in your open metadata project on this PC and records your project as a reader in the platform's catalog. Request access adds a request to the platform's catalog for the product's owner, and Ask for data adds one for the domain's or product's owners. None of them touches the product's tables in OneLake, and nothing else here writes.",
-      results: "The product's owner sees your request on Platform > Requests and decides it, and sees your project among the product's readers. A link shows on your project's Links tab.",
+      results: "The product's owner sees your request on Data mesh > Requests and decides it, and sees your project among the product's readers. A link shows on your project's Links tab.",
       anchor: "data-products-preview",
     }))));
   const [out, reviews] = await Promise.all([platformCall("platform_products", {}, "Could not read the catalog"),
     previewShown() ? rpc("platform_access_reviews", {}).catch(() => null) : null]);
-  if (!out || state.view !== "onelake" || catalogPage.tab !== "products") return;
+  if (!out || !productsHere()) return;
+  pp.mine = out.project?.name || "";
   const dueFor = new Set((reviews?.grants || []).filter((g) => g.due).map((g) => g.product_id));
   const domains = [...new Set(out.products.map((p) => p.domain_id).filter(Boolean))].sort();
   const draw = () => {
@@ -1175,7 +1197,7 @@ async function renderDataProducts() {
   draw();
 }
 
-// ---------- OneLake > Data products > one product: endorsement and business terms (Preview) ----------
+// ---------- Data mesh > Products > one product: endorsement and business terms (Preview) ----------
 // Endorsement is read only by Fabric admins (Power BI's admin tenant scan); the platform keeps the last
 // scan's reading so everyone sees it. Terms are typed with a link to Purview; nothing reads Purview.
 
@@ -1237,11 +1259,13 @@ async function renderProductTrust(p) {
   const lastScan = h("div", { class: "muted-text small trust-last-scan" });
   const endorsement = h("div", { class: "card pad trust-endorsement" }, h("b", {}, "Endorsement"), loading());
   const terms = h("div", { class: "card pad trust-terms" }, h("b", {}, "Business terms"), loading());
-  setView(h("div", { class: "page monitor onelake" }, onelakeTabs(), withHowItWorks(
+  productsView(h("div", { class: "monitor onelake mesh-products" }, withHowItWorks(
     h("div", {},
       h("section", { class: "card pad" },
         h("div", { class: "monitor-band" }, btn("All data products", null, () => { pp.open = null; render(); }, "tool link small"),
-          h("span", { class: "spacer" }), followButton(p), btn("Ask for a change", null, () => newRequestDialog(null, "data", { product: p.id }), "tool outline small")),
+          h("span", { class: "spacer" }), followButton(p),
+          // The open project's own product: its definition is a file there, edited on Project.
+          pp.mine && p.project === pp.mine ? btn("Edit definition", null, () => goMeta("products"), "tool outline small") : null, btn("Ask for a change", null, () => newRequestDialog(null, "data", { product: p.id }), "tool outline small")),
         h("div", { class: "row" }, h("h2", { class: "trust-name" }, p.name), badges, previewTag()),
         h("div", { class: "muted-text small" }, p.description || ""), h("div", { class: "muted-text small mono" }, p.id), lastScan),
       endorsement, terms, productChecklistCard(p), productAccessCard(p)),
@@ -1251,7 +1275,7 @@ async function renderProductTrust(p) {
       results: "Everyone who opens this product sees the last scan's badge and when it was read, and each term with a link to it in Purview. Each scan, term change and access taken away is in the platform's audit log. When a promote to Prod deprecates the product, changes its version or changes a port's columns, its followers and the people who linked a project to it are named in a Teams notice that says what changed.",
       anchor: "endorsement-and-business-terms-preview",
     }))));
-  const here = () => state.view === "onelake" && catalogPage.tab === "products" && pp.open === p;
+  const here = () => productsHere() && pp.open === p;
   const draw = (t) => {
     if (!here()) return;
     // Items that differ get one neutral badge here; the Endorsement card names each item's own.

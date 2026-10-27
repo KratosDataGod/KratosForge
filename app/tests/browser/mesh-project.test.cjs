@@ -30,7 +30,7 @@ after(async () => { if (app) await app.close(); });
 const tabs = (sel) => page().$$eval(`${sel} > .tab`, (b) => b.map((x) => x.textContent));
 
 test("the top tabs are the mesh's, and Project holds the editor", { skip }, async () => {
-  assert.deepStrictEqual(await tabs(".meta-groups"), ["Home", "Requests", "Domains", "Project"]);
+  assert.deepStrictEqual(await tabs(".meta-groups"), ["Home", "Products", "Requests", "Domains", "Project"]);
   assert.strictEqual(await page().$(".meta-project-groups"), null);
   assert.strictEqual(await page().$('.head-actions button:has-text("Run all")'), null, "Run all is a project action");
   await page().click('.meta-groups .tab:has-text("Project")');

@@ -287,7 +287,7 @@ Opening a lakehouse shows its **Tables** (by schema) and **Files** (folders and 
 
 ## OneLake
 
-The OneLake page has four tabs: **Catalog**, and the preview tabs **Data products**, **Shortcuts** and **Access**.
+The OneLake page has four tabs: **Catalog**, and the preview tabs **Data products**, **Shortcuts** and **Access**. **Data products** opens **Data mesh > Products**, where data products now live.
 
 ### Catalog
 
@@ -315,7 +315,7 @@ A workspace's **solution** is its name without that environment word, so `Adv Wr
 
 ### Data products (Preview)
 
-Every team's published [data products](data-mesh.md#data-products), from the platform's catalog, so anyone can find what other teams share without opening their project. Filter by domain or search by name, port or owner. Each row shows who owns it, who it's open to, its ports and how many projects read it, and what your open metadata project can do:
+**Data mesh > Products** (OneLake's Data products tab opens it) lists every team's published [data products](data-mesh.md#data-products), from the platform's catalog, so anyone can find what other teams share without opening their project. Filter by domain or search by name, port or owner. Each row shows who owns it, who it's open to, its ports and how many projects read it, and what your open metadata project can do:
 
 - **Link** opens the new link dialog for that product (it's open to everyone, to your domain, or its owner let your project in).
 - **Request access** asks the product's owner to let your project link to it. They approve it on **Platform > Requests**; then **Link** shows here.
@@ -323,7 +323,7 @@ Every team's published [data products](data-mesh.md#data-products), from the pla
 - **Ask for data** (above the list) asks a domain's owners for a new data product; **Ask for a change** on a product's page asks its owner for a change. Accepting records the team's reply on **Platform > Requests**; nothing is built for you ([Ask for data](data-mesh.md)).
 - **Follow** on a product's page tells you in Teams when a promote to Prod deprecates it, gives it a new version or changes a port's columns; **Following** filters the list to the products you follow. Linking a project to a product follows it for you ([Follow a product](data-mesh.md#follow-a-product-preview)).
 
-Select a product's name to open its page: its endorsement and business terms.
+Products works with no metadata project open. Select a product's name to open its page: its endorsement and business terms, checklist and who has access. For a product of the project open on this PC, **Edit definition** opens **Data mesh > Project > Products and links**, where its file is edited.
 
 ### Endorsement and business terms (Preview)
 
@@ -375,6 +375,7 @@ The **Data mesh** page (it was called Metadata) is where your metadata project l
 | Tab | What's there |
 | --- | --- |
 | Home (Preview) | The page opens here, even with no project open: **My team**, **On call** or **Organization**, the mesh as each of them sees it. Read only. See [Data mesh](data-mesh.md#home-the-mesh-for-who-you-are-preview) |
+| Products (Preview) | Every team's published data products and each product's page, with no project needed. It was OneLake > Data products. See [Data products](#data-products-preview) |
 | Requests (Preview) | Everyone's requests, with no project needed: **Waiting on you**, **Sent by you** and **Everything**. The same requests and decisions as Platform > Requests. See [Data mesh](data-mesh.md#requests-preview) |
 | Domains (Preview) | **Map**: your organization's domains and how they feed each other; open a domain to see its projects, their layers, products and readers, then a layer of the project on this PC to see each table's whole lineage, from its source files to the projects that read its products. Read only. See [Data mesh](data-mesh.md#from-domains-to-tables). **Domain and workspaces**: the open project's domain and the workspace each layer uses. Domains are created and edited on **Platform > Domains** and the glossary is on **Platform > Glossary** |
 | Project | The open project, in five groups. **Design**: Entities, Layers, Surrogate keys, Source systems. **Runs**: every run, with its steps, rows and problems. **Quality**: Tests, Table health and Exceptions. **Products and links** (Preview): the project's own data products and its links to other teams'. **Deploy**: Environments and promote, Semantic model. Project opens on the tab you last used |
@@ -423,7 +424,7 @@ Whoever creates the platform in Fabric becomes its first admin. Admins add other
 
 **Platform > Governance > Templates** lists reusable policy definitions: four **Built in** ones (table names, product owners, sensitive column labels and a data contract) and your organization's own (**Yours**). A platform admin chooses **Use** to make a policy draft from one, and any policy can be saved with **Save as template** from its page. Platform admins add templates, and can let domain owners add them too.
 
-**Platform > Governance > Check this project** checks the open metadata project against the policies in force for it. **Check now** runs on this PC and lists what to look at, with a fix where a safe one exists (**Label it**) or a link to where to fix it. It is warn only: nothing is blocked. A finding an approved exception covers says **Excepted until <date>: <why>**, and **Ask for an exception** sends the request. A data product's page (OneLake > Data products) also shows its **Checklist**. Details in [Governance policies](governance.md#best-practices-checks-and-templates-preview).
+**Platform > Governance > Check this project** checks the open metadata project against the policies in force for it. **Check now** runs on this PC and lists what to look at, with a fix where a safe one exists (**Label it**) or a link to where to fix it. It is warn only: nothing is blocked. A finding an approved exception covers says **Excepted until <date>: <why>**, and **Ask for an exception** sends the request. A data product's page (Data mesh > Products) also shows its **Checklist**. Details in [Governance policies](governance.md#best-practices-checks-and-templates-preview).
 
 ## Fabric
 

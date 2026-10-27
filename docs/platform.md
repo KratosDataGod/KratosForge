@@ -64,9 +64,10 @@ Inside the platform:
 | Who | Can change |
 | --- | --- |
 | **Platform admins** | Domains, business key tables, landing zone sources, shared glossary terms, governance policies and their exceptions, shortcut rules and accepted shortcut risks ([shortcuts.md](shortcuts.md#accept-a-crossed-environment)), the list of admins, and every request |
-| **A domain's owners** (set on the domain) | Requests for a new data product from their domain, their domain's glossary terms, and which governance policies apply to their domain (tightening only) |
+| **A domain's owners** (set on the domain) | Requests for a new data product from their domain, which projects join their domain, their domain's glossary terms, and which governance policies apply to their domain (tightening only) |
+| **A project's owners** (Preview, [data-mesh.md](data-mesh.md#members-and-joining-a-domain-preview)) | The project's members. Its members publish its products, make its links and change its domain |
 | **A data product's owner** | Who else may read their product (access requests), and requests for a change to it |
-| **Everyone** | Catalog text (descriptions, tags, classification), their own products and links, and requests |
+| **Everyone** | Catalog text (descriptions, tags, classification), the products and links of projects they're a member of, and requests |
 
 The platform checks these itself on every call, as the person Fabric says is calling (a user data function reads the caller from Fabric, never from what the app sends). The app hides buttons you can't use, but that's only a convenience. Whoever sets the platform up is its first admin; a platform with no admin lets the first person who signs in claim it on **Platform > Settings**, and always keeps at least one. Admins are kept in each environment's `SQL_Platform`; adding or removing one on the Platform page changes all of them.
 

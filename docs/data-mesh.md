@@ -11,7 +11,8 @@ KratosForge lets many teams build on one platform without stepping on each other
 | --- | --- | --- |
 | Landing zone | Land every source once, register sources | Read it in their own Bronze; request a new source |
 | Business keys | Create key tables (in every environment at once) | Use them; request a new one |
-| Domains | Create domains and subdomains, name their owners | Join one; owners keep its glossary terms |
+| Domains | Create domains and subdomains, name their owners | Ask to join one (its owners approve); owners keep its glossary terms |
+| Projects | Change any project's members | Owners add and remove members; members publish, link and change the domain |
 | Data products | | Publish their own; decide who else may read them |
 | Links | | Link to products open to them; request access to others |
 | Catalog text | Shared glossary terms | Describe their tables and columns |
@@ -86,6 +87,21 @@ format = 2
 ```
 
 Nothing else in the project changes, and a project without `project.toml` works exactly as before. Domains come from the platform; platform admins create them on **Data mesh > Domains > Domains**.
+
+### Members and joining a domain (Preview)
+
+A project in the catalog has **owners** and **members**, listed in the **Members** card on **Data mesh > Domains > This project**. Only a project's members, or a platform admin, can:
+
+- record or change the project in the catalog (Save, Join the mesh, Promote),
+- publish its data products,
+- make its links to other teams' products, and
+- ask to move it to another domain.
+
+Owners also **Add member**, **Make owner** and **Remove**. A project always keeps at least one owner, and platform admins can change any project's members. Whoever records a new project first is its first owner. A project from before members starts with the people the catalog already names for it (whoever registered it, published its products or made its links, and the product owners given as an email) as its owners, the next time one of them changes it.
+
+Picking a domain you don't own asks that domain's owners (and the subdomain's, if you picked one): the request is on **Data mesh > Requests** for them, and the Members card shows **Waiting on <domain>'s owners** with **Withdraw** for whoever asked. A domain with no owners waits for a platform admin. Until they approve, the project stays in its current domain in the catalog and `project.toml` keeps it too. Once they approve, the catalog has the new domain and **This project** offers **Use it** to write it to `project.toml`. A domain's owners, and platform admins, move their own projects in directly.
+
+What it writes: `catalog.project_member` (one row per person and project) and, for a domain ask, a `join_domain` row in `catalog.request`. Every change is on **Platform > Govern > Audit**. The checks run in the platform (UDF_Platform in Fabric), so a platform set up before this release needs **Platform > Settings > Finish or repair** once; until then the Members card says so and the checks don't apply.
 
 ## Domains come from Fabric
 

@@ -86,7 +86,7 @@ function mhOncall(o, out) {
       : h("p", { class: "muted-text" }, "No one: nothing upstream of a product is broken."),
     h("p", { class: "muted-text small" }, "The owners of each product an open incident reaches. Tell them from the incident's Who's affected card."));
   const unknown = (what) => h("p", { class: "muted-text" }, `${what} couldn't be read.`);
-  const landing = mhCard("Late landing sources", btn("Landing zone", null, () => goPlatform("landing"), "tool link small"),
+  const landing = mhCard("Late landing sources in Prod", btn("Landing zone", null, () => goPlatform("landing"), "tool link small"),
     o.late === null ? unknown("The landing zone") : o.late.length ? h("ul", { class: "mh-list" }, o.late.map((s) => h("li", {},
       h("b", { class: "grow" }, s.title || s.name), h("span", { class: "muted-text small" }, s.newest ? `last file ${relTime(s.newest)}` : "No files yet"))))
       : h("p", { class: "muted-text" }, "Every source arrived on time."),

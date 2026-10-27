@@ -180,7 +180,7 @@ function sbsLocalSplit(local) {
     const what = up.bytes ? `${sbsSize(up.bytes)} to OneLake` : `${up.rows.toLocaleString()} rows to OneLake`;
     const rate = up.mb_per_second ? ` · about ${up.mb_per_second.toFixed(1)} MB/s` : "";
     const skipped = up.skipped ? ` · ${up.skipped} unchanged, skipped` : "";
-    lines.push(h("span", { class: "muted", title: "Uploading time counts writes going side by side once. With writes local first, much of it ran while cells computed." },
+    lines.push(h("span", { class: "muted", title: "Uploading time counts writes going side by side once. With writes local first, much of it ran while cells computed. Large writes can't upload faster than this PC's line, so compare processing on this PC with Fabric's run time for the compute." },
       `Uploaded ${what} in ${sbsTime(up.seconds)}${rate}${skipped}`));
   }
   return lines;

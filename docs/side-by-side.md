@@ -113,6 +113,17 @@ To compare a write-heavy load instead, run **TPC-H data** itself side by side: b
 
 On a PC, the time goes to reading the tables over the network and to computing; in Fabric, to starting the session and to computing on the notebook's cores. A Fabric Python notebook starts with 2 vCores and 16 GB of memory, so a scale factor that needs more memory than that can fail in Fabric while it works on a bigger PC, which is the kind of difference Side by side is for. Larger scale factors in Fabric need a bigger session (`%%configure` in a Python notebook) or a Spark notebook.
 
+### Comparing fairly
+
+A run that writes gigabytes from a PC to OneLake is bound by the PC's upload speed, not by the engine: at 42 Mbps (about 4.7 MB/s) 2.4 GB takes about 8.5 minutes to upload whatever computes it, while Fabric writes from the same region as the storage. Neither way of writing gets under that floor: written here first, uploads already run while cells compute, and straight to OneLake waits on the same line. So report the two parts separately, as the card does: processing on this PC against Fabric's run time compares the compute, and end to end compares what someone waiting sees on that line.
+
+For a comparison others can repeat:
+
+- Say what the PC has (the card shows its cores and memory) and what the Fabric session had. A PC with 24 cores against a session with a few vCores compares hardware as much as engines; size the Fabric session to match (`%%configure`) for a like-for-like run.
+- Say the upload speed (the card's MB/s is close to it).
+- Run each side twice and report both: the first run pays for cold caches and a cold session; a rerun of TPC-H data skips unchanged tables, so it measures something else.
+- Compare a read-heavy load too: **TPC-H benchmark** reads tables already in OneLake and writes little, which is the everyday case for running notebooks on a PC.
+
 These runs follow TPC-H's data and queries but are not audited TPC-H results, and shouldn't be published as such. TPC-H is a trademark of the Transaction Processing Performance Council.
 
 ## Limits

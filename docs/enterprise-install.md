@@ -87,7 +87,7 @@ The app talks to these hosts over HTTPS (port 443). Allow them through your prox
 
 | Host | Used for |
 | --- | --- |
-| `github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com` | The update check and downloading the exe and the engine. Not needed after the engine is installed if `auto_update` is `false` |
+| `github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com` | The update check and downloading the exe and the engine. Not needed after the engine is installed if `auto_update` is `false`. With `engine_download_url`, the engine comes from your own server instead ([Host the engine yourself](#host-the-engine-yourself)) |
 | `codeload.github.com` | Only for a build without a bundled engine (built from source): the engine's source download, which `github.com` redirects to |
 | `pypi.org`, `files.pythonhosted.org` | Installing Python packages: `%pip install` in notebooks and environments, and the engine's own packages for a build without a bundled engine. Your own package index instead, if pip is set up to use one |
 | `login.microsoftonline.com` | Sign-in |
@@ -96,6 +96,9 @@ The app talks to these hosts over HTTPS (port 443). Allow them through your prox
 | `onelake.dfs.fabric.microsoft.com` | Reading and writing OneLake files and tables |
 | `app.fabric.microsoft.com` | The Fabric pages embedded in the app (Monitor, Fabric) |
 | `app.powerbi.com` | Older Fabric item and report links in the embedded Fabric pages, which redirect through it |
+| `*.datawarehouse.fabric.microsoft.com` | Only for queries and changes on a Fabric warehouse or SQL analytics endpoint (Preview, [Warehouse](warehouse.md)) |
+| `*.kusto.fabric.microsoft.com` | Only for a warehouse's Monitoring tab (Preview): reading the workspace's monitoring KQL database ([Warehouse](warehouse.md#monitoring-preview)) |
+| Your Databricks workspace host (`adb-<id>.<n>.azuredatabricks.net`) | Only if a connection profile runs SQL on a Databricks SQL warehouse (Preview, [Engines](engines.md#databricks-sql-warehouse-preview)) |
 | `kratosforge://` links | On by default: each start, the app registers the scheme for the signed-in Windows user (`HKCU\Software\Classes\kratosforge`, nothing machine-wide). Set `"register_link_scheme": false` in `policy.json` to stop it; the app then removes its registration ([Links into KratosForge](vscode.md#links-into-kratosforge)) |
 | Your identity provider's hosts in `fabric_view_sign_in_hosts` | Only with federated sign-in in the Fabric view ([the key](azure-setup.md#4-push-settings-to-everyone)) |
 | `api.powerbi.com` | Semantic models |

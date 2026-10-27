@@ -164,6 +164,8 @@ In this release:
 
 Other PCs pick up the landing workspace the first time they open **Platform > Landing zone**; an organization that sets the platform in `policy.json` adds it there as `platform.landing` (`workspace_id`, `workspace_name`, `lakehouse_id`). **New landing zone** creates its lakehouse in the landing workspace and needs the workspace set up first. Creating the workspace and lakehouses uses the Fabric permissions sign-in already asks for (`Workspace.ReadWrite.All`, `Item.ReadWrite.All`), and reading and writing the zones in OneLake uses capacity.
 
+Zones and each source's zone can also be kept in a [platform repository](source-control.md#platform-repository) (`landing_zones/<id>.toml`, and `zone` in `sources/<code>.toml`). Its deploy creates missing zones the same way **New landing zone** does, never removes one, and never switches reads: that stays the manual step above.
+
 ## One list of source systems (Preview)
 
 The source systems on **Platform > Landing zone** are the one list for every project. Each has an **id** (a whole number that never changes, used by business keys and loaded rows), a **code** (its folder name in any case, like `SAP` for `Files/sap/`), a name, owner and system type. A project doesn't define its own sources: on **Data mesh > Design > Source systems** it chooses **Add a source this project reads**, picks one from the platform's list, and gives only its own connection in Dev, Test and Prod. The name, id, owner and type stay read only there, with **Edit in Platform**.

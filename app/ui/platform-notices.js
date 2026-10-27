@@ -58,6 +58,12 @@ function openPlatformNotice(n) {
     catalogPage.tab = "shortcuts";
     scPage.view = "health";
     go("onelake");
+  } else if (n.open.view === "onelake") {
+    catalogPage.tab = "products";
+    go("onelake");
+  } else if (n.open.view === "incident") {
+    incPage.filter = "active";
+    backToIncidents();
   } else {
     goPlatform("requests");
   }

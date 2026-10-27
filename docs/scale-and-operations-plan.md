@@ -193,6 +193,9 @@ Kept for the record; that program's plan is the source of truth and supersedes 9
 
 **4.1 SQL Server to the landing zone through a Fabric Copy job.** Effort L, risk high until D2 is decided and the Copy job API is checked on a tenant. Connect (pick or create a Fabric connection, so credentials stay in Fabric or Key Vault), Preview (a row-limited copy to a scratch folder), Map (columns and types into a Bronze entity draft), Load (create and run a Copy job writing to `LH_Landing/Files/<source>/<table>/`), Schedule (the Copy job's own schedule). Fabric's Copy job already handles connectors, gateways, incremental copy and retries, so KratosForge does not build its own extractors. Bronze reads new files only (1.4). Depends on D2, 1.4.
 
+- Built (Preview, D2 = teams ask, admins approve): **Request a source** can ask for a Copy job: a Fabric connection (picked from the ones the person can use; credentials stay in Fabric), the tables (`schema.table`), whether each run copies the whole table or the rows changed since the last run by a column, and a daily time in UTC. Approving, by a platform admin, creates `CJ_Landing_<source>` in the landing workspace as that admin (or in the chosen environment's LH_Landing when there's no one landing workspace), writing each table as Parquet to `Files/<source>/<table>/`, then its schedule, then registers the source. Each step is recorded on the request, so approving again after a failure carries on; a Copy job of the same name the request didn't make is never taken over. **Platform > Landing zone** shows which Copy job lands a source, with **Run now...** after a confirm. Code: `orchestration/copyjob_build.py`, `central/landing_copy_service.py`.
+- Not built yet: Preview (a row-limited copy to a scratch folder) and Map (columns into a Bronze entity draft). The Copy job definition follows Microsoft's article and DF-6's reader; no real export has been checked, so it stays Preview until a tenant run creates one.
+
 **4.2 Late rows and source deletes.** Effort M. A watermark lookback window for late-arriving rows (safe because 1.1's MERGE is idempotent per key) and an optional periodic key snapshot that marks deleted keys. Depends on 4.1.
 
 **4.3 PostgreSQL and REST.** After 4.1 works on a tenant; same flow, different connection type.
@@ -201,7 +204,7 @@ Kept for the record; that program's plan is the source of truth and supersedes 9
 
 1. Merged: **1.1** (#56), **9.3** (#58), **1.2** (#61), **1.3** engine (#69), **7.1** (#64), **7.2** (#66), **1.4** (#70), **8.1** (#71), **5.1** engine (#73), **5.2** engine (#75), **8.3** engine (#76). Live use of 7.1 and 7.2 waits for FD-2 (conditional requests on OneLake).
 2. **1.5** (merged in #87).
-3. **4.1** once D2 is answered.
+3. **4.1** (D2 decided; first part in review).
 4. **5.3** rollback (in review), then **8.2**, **4.2** and **4.3**. **7.3** moved to the Workload management program (docs/workloads/multi-worker.md).
 
 Large tables come first because every later stage runs through the same write path. The pipeline contract comes before Git because the Workload management program's queue and location views read its records. Git comes after the receipt schema so promotions and proofs share one record.
@@ -209,7 +212,7 @@ Large tables come first because every later stage runs through the same write pa
 ## Decisions needed
 
 - **D1.** Should promotion to Test and Prod require a committed, pushed revision (recommended), or only warn? *Decided 2026-10-25: Chris chose Block.* Test and Prod in OneLake block files no pushed commit holds; an environment kept on this PC stays a note, and `require_commit` overrides either way.
-- **D2.** Who creates landing-zone writers (Copy jobs into LH_Landing): only the central platform team (current assumption, matching [platform.md](platform.md)), or domain teams through a request the central team approves? Blocks 4.1.
+- **D2.** Who creates landing-zone writers (Copy jobs into LH_Landing): only the central platform team, or domain teams through a request the central team approves? *Decided 2026-10-26: Chris chose teams ask, admins approve.* A team asks for a source with its Copy job; approving makes the job as the platform admin, so only the central team's accounts write to the landing zone.
 
 ## Dependencies outside this plan
 
@@ -245,3 +248,4 @@ On a non-production workspace with an environment set to "Tables in: Workspace":
 | 2026-10-16 | Capability 9 and the agent, queue and release views moved to the Workload management program; 9.3 built ([PR #58](https://github.com/KratosDataGod/KratosForge/pull/58)). |
 | 2026-10-16 | Plan written; capabilities 2, 3, 6, 10 assigned to the notebook program; stage 1.1 built and measured ([PR #56](https://github.com/KratosDataGod/KratosForge/pull/56)). |
 | 2026-10-25 | D1 decided (Block): `require_commit` is on by default for Test and Prod in OneLake. |
+| 2026-10-26 | D2 decided (teams ask, admins approve). Stage 4.1 first part: source requests can ask for a Copy job, and approving makes it in the landing workspace (Preview). |

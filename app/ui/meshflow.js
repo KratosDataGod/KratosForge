@@ -1,4 +1,4 @@
-// Data mesh > Overview: start at the organization's domains, open one to see each project's flow
+// Data mesh > Domains > Map: start at the organization's domains, open one to see each project's flow
 // from its layers to the products other domains read, then open a layer of the project on this
 // PC to see where each table comes from and what reads it (testing feedback item 21).
 // Read only: domains are edited on Platform, a project's tables and products on its own tabs.

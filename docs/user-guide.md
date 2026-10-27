@@ -367,18 +367,14 @@ Changing roles needs workspace **Admin**. Needs `OneLake.ReadWrite.All`, `Worksp
 
 ## Data mesh
 
-The **Data mesh** page (it was called Metadata) is where your metadata project lives. Metadata describes each table of your medallion layers once, in a file, and KratosForge builds and runs them. Its tabs are in eight groups:
+The **Data mesh** page (it was called Metadata) is where your metadata project lives. Metadata describes each table of your medallion layers once, in a file, and KratosForge builds and runs them. Its top tabs show the mesh for everyone; **Project** holds the open project's editor:
 
-| Group | Tabs |
+| Tab | What's there |
 | --- | --- |
 | Home (Preview) | The page opens here, even with no project open: **My team**, **On call** or **Organization**, the mesh as each of them sees it. Read only. See [Data mesh](data-mesh.md#home-the-mesh-for-who-you-are-preview) |
 | Requests (Preview) | Everyone's requests, with no project needed: **Waiting on you**, **Sent by you** and **Everything**. The same requests and decisions as Platform > Requests. See [Data mesh](data-mesh.md#requests-preview) |
-| Overview (Preview) | Domains: Your organization's domains and how they feed each other; open a domain to see its projects, their layers, products and readers, then a layer of the project on this PC to see each table's whole lineage, from its source files to the projects that read its products. Read only. See [Data mesh](data-mesh.md#from-domains-to-tables) |
-| Design | Entities, Layers, Surrogate keys, Source systems |
-| Runs | Every run, with its steps, rows and problems |
-| Quality | Tests, Table health, and Exceptions |
-| Domains (Preview) | Domain and workspaces, Data products, Links. Domains are created and edited on **Platform > Domains** and the glossary is on **Platform > Glossary**; this tab lists the domains and links there. See [Data mesh](data-mesh.md) |
-| Deploy | Environments and promote, Semantic model |
+| Domains (Preview) | **Map**: your organization's domains and how they feed each other; open a domain to see its projects, their layers, products and readers, then a layer of the project on this PC to see each table's whole lineage, from its source files to the projects that read its products. Read only. See [Data mesh](data-mesh.md#from-domains-to-tables). **Domain and workspaces**: the open project's domain and the workspace each layer uses. Domains are created and edited on **Platform > Domains** and the glossary is on **Platform > Glossary** |
+| Project | The open project, in five groups. **Design**: Entities, Layers, Surrogate keys, Source systems. **Runs**: every run, with its steps, rows and problems. **Quality**: Tests, Table health and Exceptions. **Products and links** (Preview): the project's own data products and its links to other teams'. **Deploy**: Environments and promote, Semantic model. Project opens on the tab you last used |
 
 Each entity page also has an **About** card (Preview): description, tags, classification, glossary terms and steward for the table and each column, saved in the catalog so anyone can write them without a Git change.
 

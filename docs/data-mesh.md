@@ -16,7 +16,7 @@ KratosForge lets many teams build on one platform without stepping on each other
 | Links | | Link to products open to them; request access to others |
 | Catalog text | Shared glossary terms | Describe their tables and columns |
 
-All of it happens on the **Platform** page (central team, and requests from everyone), **Data mesh > Domains** (a project's own products and links) and **OneLake > Data products** (finding other teams' products). See [The platform](platform.md#who-can-do-what).
+All of it happens on the **Platform** page (central team, and requests from everyone), **Data mesh > Project > Products and links** (a project's own products and links) and **OneLake > Data products** (finding other teams' products). See [The platform](platform.md#who-can-do-what).
 
 ## Home: the mesh for who you are (Preview)
 
@@ -36,9 +36,13 @@ Home only reads: the catalog (products, requests, follows, access reviews, domai
 
 These are the same requests, buttons and checks as **Platform > Requests**: Approve does what was asked (for access, it gives the project access in the catalog), Accept on a data request records your reply and builds nothing, Decline records your note, and Withdraw takes back your own request. **Ask for data** and **New request** send one.
 
+## The open project
+
+**Data mesh > Project** is the editor for the metadata project open on this PC: **Design**, **Runs**, **Quality**, **Products and links** (the project's own data products and its links to other teams') and **Deploy**. It opens on the tab you last used there. **New entity**, **Schedule** and **Run all** show on Project's tabs; problems that block runs and promote show on every tab.
+
 ## From domains to tables
 
-**Data mesh > Overview** is where the page opens. It reads the platform's catalog and changes nothing:
+**Data mesh > Domains > Map** reads the platform's catalog and changes nothing:
 
 1. **Domains.** Every domain, its subdomains, and how many projects and products it has. **How domains feed each other** lists, for each pair of domains, the products one domain's projects read from the other's.
 2. **A domain.** Its projects, filtered by subdomain, each with its products, who reads them and what it reads. The project open on this PC also shows its layers with a table count; other projects' tables show when their folder is opened on this PC.
@@ -111,7 +115,7 @@ On **Domain and workspaces**, pick or create a workspace for each designation an
 
 ## Data products
 
-**Data mesh > Domains > Data products > New data product.** Choose the tables to share (each becomes a **port**, with the name consumers use), an owner, and who it's **open to**:
+**Data mesh > Project > Products and links > Data products > New data product.** Choose the tables to share (each becomes a **port**, with the name consumers use), an owner, and who it's **open to**:
 
 | Open to | Who may link to it |
 | --- | --- |

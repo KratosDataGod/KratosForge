@@ -69,7 +69,7 @@ test("On call lists incidents that reach products, who to wake, and names what i
   assert.match(await page().textContent('.mh-card:has-text("Incidents that reach")'), /P2\s*Orders late.*orders.*2 projects.*No owner/);
   assert.match(await page().textContent('.mh-card:has-text("Who to wake")'), /orders\s*olu@contoso\.com/);
   assert.match(await page().textContent(".problems"), /Landing zone: couldn't reach OneLake/);
-  assert.match(await page().textContent('.mh-card:has-text("Late landing sources")'), /The landing zone couldn't be read/);
+  assert.match(await page().textContent('.mh-card:has-text("Late landing sources in Prod")'), /The landing zone couldn't be read/);
   assert.strictEqual(await page().evaluate(() => localStorage.getItem("fd.meshHome")), "oncall");
 });
 

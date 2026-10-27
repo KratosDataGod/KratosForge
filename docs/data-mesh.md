@@ -25,7 +25,7 @@ All of it happens on the **Platform** page (central team, and requests from ever
 | View | For | What it shows |
 | --- | --- | --- |
 | **My team** | A team lead | Requests waiting on you, your own asks and what happened to them, your products (readers, owners, and what each needs: an incident upstream, no second owner, an access review due, a deprecation), and the products your project links to or you follow |
-| **On call** | Whoever is on call | Active incidents that reach a data product, with its readers and owners, who to wake, late landing sources, shortcuts broken at their last check, and owner gaps |
+| **On call** | Whoever is on call | Active incidents that reach a data product, with its readers and owners, who to wake, landing sources late in Prod, shortcuts broken at their last check, and owner gaps |
 | **Organization** | The CDO and domain leads | Totals, one row per top-level domain (subdomains count toward their parent), and requests that have waited more than 5 days |
 
 Home only reads: the catalog (products, requests, follows, access reviews, domains, shortcuts, owner coverage), the landing zone on On call, and the incident lists of the project open on this PC. Each card opens the page that acts: **Decide** opens Platform > Requests, a product opens its page, an incident opens it in Monitor. Something it couldn't read is named at the top and its card says so, rather than showing a zero. Incidents need a project open, because incident lists belong to a project's environments.

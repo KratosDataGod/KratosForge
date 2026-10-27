@@ -135,3 +135,19 @@ def test_a_matched_run_uses_its_own_kernel_and_says_so(svc, tables, monkeypatch)
     assert out["speed"]["cores"].startswith("Same cores on both sides")
     # The notebook's own session kept its variables: the run didn't restart it.
     assert svc.sessions.kernel("NB").run("print(y)")["outputs"][0]["text"] == "7\n"
+
+
+def test_cancel_ends_a_capped_runs_own_process(svc):
+    class Proc:
+        stopped = interrupted = False
+
+        def stop(self):
+            self.stopped = True
+
+        def interrupt(self):
+            self.interrupted = True
+
+    proc = Proc()
+    svc._sbs_state()["r1"] = {"id": "r1", "name": "NB", "state": "local", "_cancel": False, "_kernel": proc}
+    assert svc.side_by_side_cancel("r1") == {"cancelled": True}
+    assert proc.stopped and not proc.interrupted

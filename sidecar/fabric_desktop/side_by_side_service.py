@@ -262,8 +262,12 @@ class SideBySideMixin:
         if record is None or record["state"] not in ("local", "fabric", "checking"):
             return {"cancelled": False}
         record["_cancel"] = True
-        if record["state"] == "local":
-            (record.get("_kernel") or self.sessions.kernel(record["name"])).interrupt()  # type: ignore[attr-defined]
+        if record["state"] == "local" and record.get("_kernel") is not None:
+            # The run's own process (a core cap): nobody's variables to keep, and an interrupt can
+            # miss a cell stuck in native code, so end it and everything it started.
+            record["_kernel"].stop()
+        elif record["state"] == "local":
+            self.sessions.kernel(record["name"]).interrupt()  # type: ignore[attr-defined]
         elif record["fabric"].get("job_id"):
             f = record["fabric"]
             try:

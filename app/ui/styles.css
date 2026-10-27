@@ -2477,4 +2477,5 @@ html[data-motion-level="0"] .mo-ghost { display: none; }
 .monitor-note:empty { display: none; }
 
 /* Platform's environment picker, labelled and set apart from Set up's page switcher. */
-.platform-env { gap: 8px; margin-left: 8px; padding-left: 14px; border-left: 1px solid var(--border); }
+.platform-env { gap: 8px; }
+.platform-pages + .platform-env { margin-left: 8px; padding-left: 14px; border-left: 1px solid var(--border); }

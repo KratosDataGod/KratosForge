@@ -97,11 +97,13 @@ class FakeFabric:
     def get_lakehouse(self, ws, lh):
         return {"properties": {"defaultSchema": "dbo"}}
 
-    def run_item_job(self, ws, item, job):
+    def run_item_job(self, ws, item, job, execution_data=None):
         if self.before_run:
             self.before_run()
         name, nb = self.saved[-1]
-        self.ran = run_published(nb, self.svc.lh_root, self.svc.tmp, self.env)
+        self.execution_data = execution_data
+        self.ran = run_published(with_parameters(nb, (execution_data or {}).get("parameters")),
+                                 self.svc.lh_root, self.svc.tmp, self.env)
         return "job1"
 
     def job_instance(self, ws, item, job):
@@ -111,6 +113,16 @@ class FakeFabric:
 
     def cancel_job(self, ws, item, job):
         pass
+
+
+def with_parameters(nb: dict, parameters: dict | None) -> dict:
+    """The notebook as Fabric runs it with a job's parameters: a cell setting them after the
+    parameter cell."""
+    if not parameters:
+        return nb
+    at = next(i + 1 for i, c in enumerate(nb["cells"]) if "parameters" in c.get("metadata", {}).get("tags", []))
+    cell = {"cell_type": "code", "metadata": {}, "source": [f"{k} = {v['value']!r}\n" for k, v in parameters.items()]}
+    return nb | {"cells": nb["cells"][:at] + [cell] + nb["cells"][at:]}
 
 
 def run_published(nb: dict, lh_root: Path, tmp: Path, env: dict) -> subprocess.CompletedProcess:
@@ -286,6 +298,26 @@ def test_a_matching_proof_earns_proof_forged_once(svc):
     assert out["earned"] == [{"id": "proof-forged", "name": "Proof Forged", "xp": 150, "first": True}]
     row = call(svc, "profile_get")["evidence"][0]
     assert row["type"] == "prove.match" and row["ref"]["id"] == out["receipt_id"]
+
+
+def test_both_runs_use_the_parameters_bar_values(svc):
+    # With the code's own factor (1) on this PC and the bar's (3) in Fabric, the results would differ.
+    cells = [dict(c) for c in CELLS]
+    cells.insert(2, {"type": "code", "source": "factor = 1", "meta": {"tags": ["parameters"]}})
+    cells[4] = cells[4] | {"source": cells[4]["source"].replace("pl.col('rate')", "pl.col('rate') * factor")}
+    cells = [c | {"cell_id": f"c{i}"} for i, c in enumerate(cells)]
+    svc.fake = FakeFabric(svc)
+    call(svc, "save_notebook", name="Order values", cells=cells, lakehouse_ref=LAKEHOUSE)
+    call(svc, "notebook_inputs_set", name="Order values", cells=cells, values={"parameters": {"factor": "3"}})
+    out = wait(svc, call(svc, "prove_start", **payload(cells))["id"])
+    assert out["verdict"]["verdict"] == "same", out
+    assert svc.fake.execution_data == {"parameters": {"factor": {"value": 3, "type": "int"}}}
+    assert out["parameters"] == {"factor": {"value": 3, "type": "int"}} and "_suffixes" not in out
+    assert call(svc, "receipt_get", id=out["receipt_id"])["receipt"]["notebook"]["parameters"] == out["parameters"]
+    # A value the bar shows in red stops the proof before either run starts.
+    call(svc, "notebook_inputs_set", name="Order values", cells=cells, values={"parameters": {"factor": "three"}})
+    refused = handle(svc, json.dumps({"id": 1, "method": "prove_start", "params": payload(cells)}))
+    assert "Type a whole number" in refused["error"]
 
 
 def test_tiny_floating_point_drift_passes_the_default_tolerance(svc):

@@ -12,7 +12,8 @@ A checker registers once::
 ``rules()``  the rules it checks, each a dict:
              id, kind, severity (Error, Warning or Info), category, name, description, and optionally
              fix (what to do, in words), url (where to read more), default_thresholds ({name: value})
-             and scheduled_only (True: only a scheduled run checks it, never Check now)
+             and scheduled_only (True: it checks only items marked "scheduled": true, like a notebook
+             a schedule on this PC runs)
 ``check(item, settings)``
              ``item``: the object to check, a dict whose "kind" says what it is (entity, product, notebook...)
              ``settings``: {rule_id: {"enabled": bool, "severity": "Error"|"Warning"|"Info",
@@ -58,9 +59,14 @@ _REGISTRY: dict[str, Checker] = {}
 def register(kind: str, rules: Callable[[], list[dict[str, Any]]],
              check: Callable[[dict[str, Any], dict[str, Any]], list[dict[str, Any]] | None],
              runs_in: str = "local") -> Checker:
-    """Add (or replace) a checker. Its rules are checked for the fields every rule needs."""
+    """Add (or replace) a checker. Its rules are checked for the fields every rule needs. A checker that
+    runs somewhere else can't take over a kind: the local model rules and the BPA that runs in Fabric
+    would otherwise replace each other, so the one in Fabric needs a kind of its own."""
     if runs_in not in RUNS_IN:
         raise ValueError(f"runs_in is one of {', '.join(RUNS_IN)}")
+    if kind in _REGISTRY and _REGISTRY[kind].runs_in != runs_in:
+        raise ValueError(f"{kind} rules already run in {_REGISTRY[kind].runs_in}; give the checker that runs in "
+                         f"{runs_in} a kind of its own")
     for r in rules():
         missing = [f for f in RULE_FIELDS if not r.get(f)]
         if missing:
@@ -123,14 +129,14 @@ def finding(rule: dict[str, Any], settings: dict[str, Any], object_type: str, ob
 def run_rule(rule_id: str, items: list[dict[str, Any]], settings: dict[str, Any],
              stored: dict[str, Any] | None = None) -> dict[str, Any]:
     """One rule over the items it applies to, on this PC: how many it checked, which passed, its findings
-    (outcome "unknown" ones apart). A Fabric checker or a scheduled-only rule isn't run: its last stored
-    findings are returned instead, or none ("not run")."""
+    (outcome "unknown" ones apart). A scheduled-only rule checks only the items marked scheduled. A Fabric
+    checker isn't run: its last stored findings are returned instead, or none ("not run")."""
     got = find_rule(rule_id)
     if got is None:
         return {"rule_id": rule_id, "missing": True}
     checker, rule = got
     out: dict[str, Any] = {"rule_id": rule_id, "name": rule["name"], "runs_in": checker.runs_in}
-    if checker.runs_in != "local" or rule.get("scheduled_only"):
+    if checker.runs_in != "local":
         last = (stored or {}).get(rule_id)
         return out | {"not_run": True, "last": last}
     if not settings.get("enabled", True):
@@ -139,6 +145,8 @@ def run_rule(rule_id: str, items: list[dict[str, Any]], settings: dict[str, Any]
     findings, unknown = [], []
     for item in items:
         if item.get("kind") != rule["kind"] and rule["kind"] != "*":
+            continue
+        if rule.get("scheduled_only") and not item.get("scheduled"):
             continue
         try:
             result = checker.check(item, {rule_id: settings})
@@ -345,7 +353,7 @@ CONTRACT_RULES = [
           "Look at the last run of the product's entities.", {"min_rows": 1}),
     _rule("contract.terms_linked", "product", "Warning", "contract", "Business terms linked",
           "The product links at least one business term in Purview.",
-          "Add a term on the product's page (OneLake > Data products).", {"min_terms": 1}),
+          "Add a term on the product's page (Data mesh > Products).", {"min_terms": 1}),
     _rule("contract.description", "product", "Warning", "contract", "Description",
           "The product says what it is.", "Edit the product and write a description."),
     _rule("contract.endorsed", "product", "Info", "contract", "Endorsement",

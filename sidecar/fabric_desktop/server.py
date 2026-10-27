@@ -28,18 +28,20 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "run_cell", "start_cell", "poll_cell", "interrupt_cell", "debug_cell", "kernel_variables", "kernel_variable_detail", "kernel_complete", "kernel_inspect", "notebook_syntax", "notebook_format", "notebook_practices", "notebook_practice_rules", "notebook_plotly_js", "notebook_frame_page", "notebook_frame_profile", "notebook_frame_query_profile", "notebook_frame_chart", "notebook_frame_wrangle", "notebook_ipywidget_event", "notebook_frame_download", "restart_kernel", "run_sql", "save_sql", "export_sql_csv", "table_columns", "sql_dialects", "sql_format", "sql_analyze", "sql_practices", "sql_practice_rules", "sql_compat_profiles", "sql_compat_export", "sql_start", "sql_status", "sql_executions", "sql_page", "sql_cancel", "sql_export", "sql_export_status", "sql_export_cancel", "list_notebooks", "new_notebook", "open_notebook",
            "save_notebook", "notebook_inputs", "notebook_inputs_set", "notebook_onelake_writes_set", "rename_notebook", "delete_notebook", "publish_notebook",
            "platform_status", "platform_setup", "platform_join", "platform_forget", "platform_keys_setup", "platform_keys_join", "platform_share_keys", "platform_cancel_share_keys", "platform_domains",
-           "platform_save_domain", "platform_create_domain", "platform_delete_domain", "platform_import_fabric_domains", "mesh_workspace_domains", "mesh_map", "platform_glossary", "platform_save_term", "platform_audit",
+           "platform_save_domain", "platform_create_domain", "platform_delete_domain", "platform_import_fabric_domains", "mesh_workspace_domains", "mesh_map", "mesh_home", "platform_glossary", "platform_save_term", "platform_audit",
            "platform_whoami", "platform_admins", "platform_claim_admin", "platform_add_admin", "platform_remove_admin",
            "platform_key_tables", "platform_create_key_table", "platform_sources", "platform_save_source",
            "platform_delete_source", "platform_landing", "platform_landing_files", "platform_landing_setup",
            "platform_create_landing_zone", "platform_delete_landing_zone", "platform_switch_landing_reads", "platform_requests", "platform_request",
-           "platform_decide", "platform_withdraw", "platform_revoke", "platform_overview", "platform_products",
+           "platform_decide", "platform_withdraw", "platform_revoke", "platform_owner_coverage", "platform_note_seen", "platform_access_reviews", "platform_confirm_access", "platform_overview", "platform_products",
            "platform_product_trust", "platform_scan_endorsement", "platform_add_product_term", "platform_remove_product_term", "platform_follow",
+           "platform_entra_groups", "platform_entra_script", "platform_entra_save", "platform_entra_link", "platform_entra_unlink",
+           "platform_entra_naming_save", "platform_entra_find", "platform_entra_check",
            "governance_overview", "governance_policy", "governance_version", "governance_create", "governance_save_draft",
            "governance_discard_draft", "governance_publish", "governance_set_status", "governance_assign",
            "governance_unassign", "governance_applicability", "governance_resolve",
            "governance_templates", "governance_template_save", "governance_template_delete", "governance_template_use",
-           "governance_template_from_policy", "governance_template_authors", "governance_check_now", "governance_last_check",
+           "governance_template_from_policy", "governance_template_authors", "governance_check_now", "governance_last_check", "governance_practice_settings",
            "governance_product_checklist",
            "mesh_overview", "mesh_set_project", "mesh_save_product", "mesh_delete_product", "mesh_publish", "mesh_save_link",
            "mesh_delete_link", "mesh_resolve_links", "mesh_about", "mesh_save_about", "meta_set_designation",
@@ -59,6 +61,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_table_history", "meta_restore", "cost_report", "set_cost_settings", "capacity_health",
            "usage_preview", "usage_import", "usage_imports", "usage_import_delete", "usage_reconciliation",
            "risk_check", "meta_risk_gate", "placement_advice", "risk_settings", "set_risk_settings", "risk_acknowledge", "risk_acknowledgements",
+           "model_bpa_status", "model_bpa_risk", "model_bpa_check",
            "list_shortcuts", "all_shortcuts", "create_shortcut", "delete_shortcut", "shortcut_connections",
            "shortcut_center", "shortcut_check", "shortcut_readers", "shortcut_access", "shortcut_rules",
            "shortcut_save_rules", "shortcut_preflight", "shortcut_changes", "shortcut_repoint", "shortcut_undo",
@@ -91,7 +94,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "git_compare", "git_file_at", "git_branches", "git_create_branch", "git_switch", "git_delete_branch",
            "git_restore_stash", "git_abort_merge", "git_settings", "git_set_identity", "git_add_remote",
            "git_path_info", "git_notebook_info", "git_create", "git_set_kind", "git_locations", "git_set_locations",
-           "git_platform_diff", "git_platform_export", "git_platform_deploy", "git_capacity_diff", "git_capacity_write", "git_vscode_plan", "git_vscode_apply",
+           "git_platform_diff", "git_platform_export", "git_platform_deploy", "git_capacity_diff", "git_capacity_write", "git_apply_hunk", "git_vscode_plan", "git_vscode_apply",
            "notebook_places", "move_notebook", "audit_log",
            "pipeline_import", "pipeline_validate", "pipeline_inspect", "pipeline_export",
            "pipeline_compatibility", "pipeline_activity_registry",
@@ -183,6 +186,10 @@ METHODS |= SQL_QUERY_METHODS
 from .warehouse_project_service import METHODS as WH_PROJECT_METHODS  # noqa: E402
 
 METHODS |= WH_PROJECT_METHODS
+# Workspace monitoring views for a warehouse (warehouse_monitoring_service.py).
+from .warehouse_monitoring_service import METHODS as WH_MONITORING_METHODS  # noqa: E402
+
+METHODS |= WH_MONITORING_METHODS
 
 # Folders for notebooks (notebook_folders_service.py): new, rename, delete when empty, move into one.
 from .notebook_folders_service import METHODS as NOTEBOOK_FOLDERS_METHODS  # noqa: E402
@@ -203,6 +210,12 @@ from .comments_service import METHODS as COMMENT_METHODS  # noqa: E402
 
 METHODS |= COMMENT_METHODS
 
+# Run cells from VS Code (editor_service.py): the editor channel's switch, pairing requests and
+# the OneLake writes paired windows ask for.
+from .editor_service import METHODS as EDITOR_METHODS  # noqa: E402
+
+METHODS |= EDITOR_METHODS
+
 
 # The calls the shell gives a short time limit (QUICK in app/src-tauri/src/watchdog.rs): they read
 # local state or the kernel and answer at once. They run in their own lane, so a long run, publish
@@ -211,14 +224,14 @@ METHODS |= COMMENT_METHODS
 # (new, save, rename) stay ordered with publish and delete, which save too: a publish queued behind a
 # long call must not write its older cells over an autosave that overtook it.
 QUICK = frozenset({
-    "app_settings", "debug_cell", "interrupt_cell", "kernel_complete", "kernel_info", "kernel_variables",
+    "app_settings", "debug_cell", "editor_pending", "editor_status", "interrupt_cell", "kernel_complete", "kernel_info", "kernel_variables",
     "list_notebooks", "notebook_comments_list", "notebook_debug_get", "notebook_dependencies",
-    "notebook_environment", "notebook_folders", "notebook_resources", "notebook_version", "notebook_versions",
+    "notebook_environment", "notebook_folders", "notebook_practices", "notebook_resources", "notebook_version", "notebook_versions",
     "open_notebook", "poll_cell", "prove_list", "prove_rules_get", "prove_status",
     "receipt_get", "receipts_list", "side_by_side_list",
     "side_by_side_status", "side_by_side_writes", "sql_analyze", "sql_cancel",
     "sql_compat_profiles", "sql_executions", "sql_export", "sql_export_cancel", "sql_export_status",
-    "sql_page", "sql_start", "sql_status",
+    "sql_page", "sql_practices", "sql_start", "sql_status",
     "wizard_preview", "wizard_templates",
 })
 
@@ -394,6 +407,10 @@ def _start_integration_http(service: Service) -> None:
         service.integrations_sync_http()
     except Exception as exc:  # noqa: BLE001 - the app works without it; Settings shows why
         print(f"integrations: local API not started: {exc}", file=sys.stderr)
+    try:
+        service.editor_sync()  # the editor channel, if VS Code may run notebooks
+    except Exception as exc:  # noqa: BLE001 - likewise
+        print(f"integrations: editor channel not started: {exc}", file=sys.stderr)
 
 
 def _refresh_integration_launcher() -> None:

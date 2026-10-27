@@ -51,12 +51,15 @@ CONNECTION_SCOPES = ["https://api.fabric.microsoft.com/Connection.Read.All"]
 # Gateway names on the Data Factory Connections tab (Preview), asked for the first time it opens.
 GATEWAY_SCOPES = ["https://api.fabric.microsoft.com/Gateway.Read.All"]
 GRAPH_USER_SCOPES = ["https://graph.microsoft.com/User.ReadBasic.All"]
+# Finding an Entra ID group by name, and checking which suggested groups exist (Platform > Set up >
+# Domains, Access groups). Reads only; it needs an Entra admin's consent, and linking by object ID works without it.
+GRAPH_GROUP_SCOPES = ["https://graph.microsoft.com/Group.Read.All"]
 # Listing capacities (creating a workspace, the cost view's capacity size).
 CAPACITY_SCOPES = ["https://api.fabric.microsoft.com/Capacity.Read.All"]
 # Importing Fabric's domains and subdomains (Fabric's admin API). Only a Fabric administrator
 # can use it, and only they are asked for it, when they choose Import from Fabric.
 TENANT_READ_SCOPES = ["https://api.fabric.microsoft.com/Tenant.Read.All"]
-# Creating a domain in Fabric (Platform > Set up > Domains > New domain). Also a Fabric administrator's
+# Creating a domain in Fabric (New domain on Data mesh > Domains). Also a Fabric administrator's
 # alone, asked for only when they choose to create one there.
 TENANT_WRITE_SCOPES = ["https://api.fabric.microsoft.com/Tenant.ReadWrite.All"]
 # Adding someone to a workspace by email (Power BI's API, the same Power BI Service permission
@@ -69,6 +72,9 @@ POWERBI_TENANT_READ_SCOPES = ["https://analysis.windows.net/powerbi/api/Tenant.R
 # Queries on a Data warehouse or SQL analytics endpoint (SQL-004): its SQL connection takes a token for
 # Azure SQL's resource. Asked for the first time you run a query on a warehouse.
 WAREHOUSE_SCOPES = ["https://database.windows.net/user_impersonation"]
+# Reading a workspace's monitoring KQL database (WH-19): a Fabric Eventhouse takes a token for
+# Kusto's resource. Asked for the first time a warehouse's Monitoring tab reads it.
+KUSTO_SCOPES = ["https://kusto.kusto.windows.net/user_impersonation"]
 
 
 def resource_of(scope: str) -> str:
@@ -285,6 +291,9 @@ class Authenticator:
 
     def warehouse_token(self) -> str:
         return self._token(WAREHOUSE_SCOPES)
+
+    def kusto_token(self) -> str:
+        return self._token(KUSTO_SCOPES)
 
     def sign_out(self) -> None:
         for account in self.app.get_accounts():

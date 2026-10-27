@@ -143,7 +143,7 @@ def _writable(path: str, p: str) -> lakehouse.Attached:
         raise ValueError(f"{path}: change files and folders under Files/, not Files/ itself.")
     lh = lakehouse._current()
     # The same check table writes go through; runs for external tools refuse every write.
-    reason = lakehouse.write_guard(lh.name, "Files", p) if lakehouse.write_guard else None
+    reason = lakehouse.write_refusal(lh.name, "Files", p)
     if reason:
         raise PermissionError(reason)
     if lakehouse._proof() is not None:

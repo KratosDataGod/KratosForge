@@ -274,7 +274,7 @@ function policyDialog(options, p, done, template = null) {
 
 // ---------- where it applies, and why ----------
 
-// Exceptions in force for a policy, granted by approving a request on Platform > Requests.
+// Exceptions in force for a policy, granted by approving a request on Data mesh > Requests.
 function govExceptionCount(list) {
   return list.length ? h("div", { class: "small" }, h("span", { class: "pill-s wrn" }, `${list.length} exception${list.length === 1 ? "" : "s"} in force`)) : null;
 }
@@ -283,7 +283,7 @@ function govExceptions(p) {
   const list = p.exceptions || [];
   return h("div", { class: "card pad gov-exceptions" },
     h("div", { class: "row" }, h("b", { class: "grow" }, "Exceptions in force"),
-      btn("Ask for one", null, () => { closeDialog(); newRequestDialog(() => goPlatform("requests"), "exception"); }, "tool outline small")),
+      btn("Ask for one", null, () => { closeDialog(); newRequestDialog(() => goMeta("requests"), "exception"); }, "tool outline small")),
     h("p", { class: "muted-text small" }, "Where an exception covers a place, the policy shows there as excepted until its date instead of applying. Each ends on its own on its date. A platform admin grants one by approving a request."),
     ...(p.problems || []).map((x) => h("p", { class: "wrn-text small" }, x)),
     list.length ? h("table", { class: "list" },

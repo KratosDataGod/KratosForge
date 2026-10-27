@@ -6,7 +6,7 @@
 const PN_KINDS = [["request.waiting", "Request waiting on someone"], ["request.decided", "Request decided"],
   ["request.withdrawn", "Request withdrawn"], ["shortcut.broken", "Shortcut broken"], ["shortcut.fixed", "Shortcut fixed"],
   ["incident.impact", "Incident reaching data products"], ["product.changed", "Data product changed (to its followers)"]];
-const PN_WHERE = { requests: "Platform > Requests", health: "Shortcuts > Health", detail: "Monitor > Incidents", products: "OneLake > Data products" };
+const PN_WHERE = { requests: "Data mesh > Requests", health: "Shortcuts > Health", detail: "Monitor > Incidents", products: "Data mesh > Products" };
 
 // ---------- the bell ----------
 
@@ -58,8 +58,13 @@ function openPlatformNotice(n) {
     catalogPage.tab = "shortcuts";
     scPage.view = "health";
     go("onelake");
+  } else if (n.open.view === "onelake") {
+    openProducts();
+  } else if (n.open.view === "incident") {
+    incPage.filter = "active";
+    backToIncidents();
   } else {
-    goPlatform("requests");
+    goMeta("requests");
   }
 }
 

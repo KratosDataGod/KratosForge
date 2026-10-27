@@ -13,7 +13,7 @@ async function whLoadProjects() {
     const r = await rpc("wh_projects_list");
     Object.assign(whProjects, { state: "done", repos: r.repos, projects: r.projects, error: "" });
   } catch (err) {
-    Object.assign(whProjects, { state: "failed", error: friendlyError(err).text });
+    Object.assign(whProjects, { state: "failed", error: whWhy(err) });
   }
 }
 
@@ -21,6 +21,13 @@ async function whLoadProjects() {
 function whFailed(what, err) {
   const f = friendlyError(err);
   if (!f.cancelled) toast(`${what}: ${f.text}`, true);
+}
+
+// Why a call left something not loaded or not run, for the line that says so: friendlyError has no
+// text for a closed sign-in window, so it says that instead of nothing.
+function whWhy(err) {
+  const f = friendlyError(err);
+  return f.cancelled ? "The sign-in window was closed." : f.text;
 }
 
 const WH_KIND_LABELS = { schema: "Schema", table: "Table", view: "View", procedure: "Stored procedure", function: "Function" };
@@ -36,6 +43,11 @@ ORDER BY s.name, o.name;`;
 
 // User schemas: dbo, guest, INFORMATION_SCHEMA and sys are 1 to 4, database roles from 16384.
 const WH_SCHEMAS_SQL = `SELECT s.name FROM sys.schemas AS s WHERE s.schema_id BETWEEN 5 AND 16383 ORDER BY s.name;`;
+
+// Schemas Fabric makes and keeps itself in a warehouse (queryinsights, _rsc): they
+// aren't the project's, so Import, Compare and Deploy leave them out.
+const WH_FABRIC_SCHEMAS = new Set(["queryinsights", "_rsc", "sys", "information_schema"]);
+const whFabricSchema = (schema) => WH_FABRIC_SCHEMAS.has(String(schema || "").toLowerCase());
 
 // The script a new object's file starts with.
 function whNewObjectText(kind, schema, name) {
@@ -75,7 +87,7 @@ function whProject(ref, actions) {
     try {
       files[id] = { state: "done", data: await rpc("wh_project_files", { repo: project.repo, folder: project.folder }) };
     } catch (err) {
-      files[id] = { state: "failed", error: friendlyError(err).text };
+      files[id] = { state: "failed", error: whWhy(err) };
     }
     sqlPage.whRedraw?.();
   }
@@ -182,7 +194,8 @@ function whProject(ref, actions) {
 }
 
 // Every object in the warehouse as {kind, schema, name, text}: tables from the explorer's catalog,
-// views, procedures and functions from sys.sql_modules, and the schemas. Catalog queries in Fabric.
+// views, procedures and functions from sys.sql_modules, and the schemas, without Fabric's own
+// (WH_FABRIC_SCHEMAS). Catalog queries in Fabric.
 async function whScriptWarehouse(ref) {
   if (sqlPage.catalog?.key !== sqlRefKey(ref) || sqlPage.catalog.state !== "done") {
     await whLoadCatalog(ref, () => sqlPage.whRedraw?.());
@@ -198,7 +211,7 @@ async function whScriptWarehouse(ref) {
   for (const [schema, name, type, def] of modules.rows) {
     if (typeof def === "string" && def.trim()) out.push({ kind: WH_KIND_OF[type] || "function", schema, name, text: `${def.trim()}\nGO\n` });
   }
-  return out;
+  return out.filter((o) => !whFabricSchema(o.schema));
 }
 
 // Import from the warehouse: scripts it, shows what would change in the project, then writes.
@@ -322,6 +335,7 @@ async function whProjectCompare(ref, project) {
     const first = result.objects.findIndex((o) => o.state !== "same");
     sqlPage.whCompare = { key: sqlRefKey(ref), project, result, at: new Date(), filter: "all", picked: Math.max(0, first), objects };
     sqlPage.whCompareShown = true;
+    sqlPage.whMonitorShown = false;
     renderQuery();
   } catch (err) {
     whFailed("Could not compare", err);
@@ -456,6 +470,7 @@ async function whProjectDeploy(ref, project) {
   let plan;
   try {
     const objects = await whScriptWarehouse(ref);
+    await whEnvRead();
     plan = await rpc("wh_project_deploy_plan", { repo: project.repo, folder: project.folder, objects, environment: whEnv(ref) });
     // The engine's check on each change, before anything is sent: one it would refuse isn't offered.
     const whRef = { workspace_id: ref.workspace_id, item_id: ref.item_id, kind: ref.kind };
@@ -541,7 +556,7 @@ async function whProjectDeploy(ref, project) {
   for (const c of run) {
     toast(`Deploying ${results.length + 1} of ${run.length}: ${label(c)}...`);
     let status;
-    try { status = await whRunChange(ref, c.sql); } catch (err) { status = { state: "failed", error: friendlyError(err).text }; }
+    try { status = await whRunChange(ref, c.sql); } catch (err) { status = { state: "failed", error: whWhy(err) }; }
     results.push({ c, status });
     if (status.state !== "completed") break;
   }

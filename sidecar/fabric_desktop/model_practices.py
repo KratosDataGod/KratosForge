@@ -68,7 +68,7 @@ def rules() -> list[dict[str, Any]]:
 def _known_type(e: Any, column: str, contract: str) -> str | None:
     """The column's type in the model, or None when the project doesn't say."""
     if contract:
-        return semantic.tmdl_type(model_dictionary._delta_type(contract))
+        return semantic.tmdl_type(model_dictionary.delta_type(contract))
     if column == e.surrogate_key or column in e.key_columns or column in {lk.get("as") for lk in e.spec.get("lookup", [])}:
         return "int64"  # surrogate keys are whole numbers (LH_Keys, scd1 and scd2 dimensions)
     if e.mode == "scd2" and column in SCD2_TYPES:

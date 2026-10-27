@@ -75,7 +75,7 @@ class GovernanceMixin:
 
     def governance_overview(self, query: str = "", category: str = "", status: str = "") -> dict[str, Any]:
         """Policies (searchable), the fixed lists a policy form offers, who the caller is, and the
-        exceptions in force (granted on Platform > Requests)."""
+        exceptions in force (granted on Data mesh > Requests)."""
         p = self._policies()
         everything = p.call("list_policies")
         exceptions, problem = self._exceptions()

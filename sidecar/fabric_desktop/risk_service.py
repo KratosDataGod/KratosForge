@@ -259,11 +259,14 @@ class RiskMixin:
                   "result": current["result"], "user": self._wl_user(),  # type: ignore[attr-defined]
                   "warnings": [f["title"] for f in current["findings"] if f["outcome"] == risk.WARNING],
                   "note": str(note or "")[:500]}
+        self._risk_ack_write(record)
+        return record
+
+    def _risk_ack_write(self, record: dict[str, Any]) -> None:
         path = self.root / _ACKS  # type: ignore[attr-defined]
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(record) + "\n")
-        return record
 
     def risk_acknowledgements(self, limit: int = 50) -> list[dict[str, Any]]:
         try:

@@ -2,7 +2,8 @@
 
     project.toml                     the project's name, domain, subdomain and team
     metadata/products/<name>.toml    a data product: which entities other teams may read (its ports)
-    metadata/links/<alias>.toml      a link to another team's product port, read with [source] link
+    metadata/links/<alias>.toml      a link to another team's product port, read with [source] link, with the
+                                     product versions it accepts ("2", "2-3" or "2+")
 
 Layers can live in different workspaces by designation (``workspace = "ingest"`` in layers.toml;
 the workspaces are in environments.toml). Entities can carry starter catalog text in [catalog],
@@ -13,6 +14,7 @@ All of it is optional: a project without these files works exactly as before.
 
 from __future__ import annotations
 
+import datetime as dt
 import re
 import tomllib
 from dataclasses import dataclass
@@ -34,6 +36,35 @@ CLASSIFICATIONS = ("public", "internal", "confidential", "restricted")
 ENVIRONMENTS = ("dev", "test", "prod")
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,60}$")
 _PROJECT = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
+_ACCEPTS = re.compile(r"^(\d+)(?:\s*-\s*(\d+)|(\+))?$")
+
+
+def parse_accepts(value: Any) -> tuple[int, int | None]:
+    """A link's ``accepts``: "2" (that version), "2-3" (a range) or "2+" (that version or later), as
+    (lowest, highest), highest None for "or later". ValueError, in words a person can act on, otherwise."""
+    text = str(value).strip()
+    m = _ACCEPTS.match(text)
+    if not m or isinstance(value, bool):
+        raise ValueError(f"accepts is a version (\"2\"), a range (\"2-3\") or a version and later (\"2+\"), not {text!r}")
+    low = int(m.group(1))
+    high = None if m.group(3) else int(m.group(2) or low)
+    if high is not None and high < low:
+        raise ValueError(f"accepts {text!r} runs backwards: write the lower version first, like \"{high}-{low}\"")
+    return low, high
+
+
+def accepts_version(accepts: Any, version: Any) -> bool:
+    """Whether a link that accepts ``accepts`` can read product ``version``. A link without accepts
+    reads any version, as links did before versions were declared. A version that isn't a whole
+    number can't be checked against a range, so it isn't accepted."""
+    if accepts in (None, ""):
+        return True
+    low, high = parse_accepts(accepts)
+    try:
+        v = int(str(version).strip())
+    except ValueError:
+        return False
+    return low <= v and (high is None or v <= high)
 
 
 @dataclass
@@ -90,8 +121,14 @@ class Link:
     def columns(self) -> dict[str, str]:
         return dict(self.spec.get("columns", {}))
 
+    @property
+    def accepts(self) -> str:
+        """The product versions this link can read ("2", "2-3", "2+"); "" for any, as before versions."""
+        value = self.spec.get("accepts")
+        return "" if value is None else str(value).strip()
+
     def summary(self) -> dict[str, Any]:
-        return {"alias": self.alias, "product": self.product, "port": self.port,
+        return {"alias": self.alias, "product": self.product, "port": self.port, "accepts": self.accepts,
                 "reads": {env: self.reads(env) for env in ENVIRONMENTS},
                 "pinned": {env: self.location(env) for env in ENVIRONMENTS if self.location(env)},
                 "columns": self.columns, "description": self.spec.get("description", ""), "path": str(self.path)}
@@ -160,7 +197,7 @@ def write_project_file(root: Path, fields: dict[str, Any]) -> Path:
         return json.dumps(v)
 
     lines = ["# This project's place in your organization: its domain and the team that owns it.",
-             "# Domains come from your platform (Platform > Set up > Domains).", "", "[project]"]
+             "# Domains come from your platform (Data mesh > Domains).", "", "[project]"]
     for key in ("name", "domain", "subdomain", "team", "description"):
         if fields.get(key):
             lines.append(f"{key} = {q(str(fields[key]))}")
@@ -200,6 +237,8 @@ def write_link(root: Path, l: dict[str, Any]) -> Path:
     lines = ["# A link to another team's data product. Entities read it with [source] link = \"<alias>\".",
              f"alias = {json.dumps(alias)}", f"product = {json.dumps(str(l.get('product', '')))}",
              f"port = {json.dumps(str(l.get('port', '')))}"]
+    if str(l.get("accepts") or "").strip():
+        lines.append(f"accepts = {json.dumps(str(l['accepts']).strip())}  # the product versions this link can read")
     if l.get("description"):
         lines.append(f"description = {json.dumps(str(l['description']))}")
     reads = {env: str(v) for env, v in (l.get("reads") or {}).items() if env in ENVIRONMENTS and v}
@@ -277,6 +316,11 @@ def validate(project: Project) -> list[str]:
             errors.append(f"{where}: name must be lowercase letters, digits or _")
         if "/" not in l.product or not l.port:
             errors.append(f"{where}: product is \"<project>/<product>\" and port names one of its ports")
+        if l.accepts:
+            try:
+                parse_accepts(l.spec.get("accepts"))
+            except ValueError as exc:
+                errors.append(f"{where}: {exc}")
         for env, v in l.spec.get("reads", {}).items():
             if env not in ENVIRONMENTS or v not in ENVIRONMENTS:
                 errors.append(f"{where}: reads maps your environment to the product's (dev, test or prod)")
@@ -352,13 +396,48 @@ def publish_problems(project: Project, saved: dict[str, dict[str, Any]]) -> list
 WIDENING = {("int16", "int32"), ("int16", "int64"), ("int32", "int64"), ("float32", "float64"), ("int32", "float64")}
 
 
-def breaking_changes(project: Project, published: list[dict[str, Any]], env: str) -> tuple[list[str], list[str]]:
+def _plural(n: int, one: str, many: str) -> str:
+    return one if n == 1 else many
+
+
+def utc_today() -> dt.date:
+    """Today in UTC, the day the catalog (central/core.py) judges deprecation dates by, so this PC and
+    the platform agree near midnight."""
+    return dt.datetime.now(dt.timezone.utc).date()
+
+
+def _stops(product: dict[str, Any]) -> dt.date | None:
+    """When a catalog product deprecated with a date stops; None when it isn't, or the date can't be read."""
+    if product.get("status") != "deprecated":
+        return None
+    try:
+        return dt.date.fromisoformat(str(product.get("deprecated_on") or "").strip()[:10])
+    except ValueError:
+        return None
+
+
+def _shut_out(link: dict[str, Any], version: str) -> bool:
+    """Whether a catalog link's accepts leaves ``version`` out. Accepts the catalog holds but this app
+    can't read is the consumer's to fix, so it counts as leaving it out."""
+    try:
+        return not accepts_version(link.get("accepts"), version)
+    except ValueError:
+        return True
+
+
+def breaking_changes(project: Project, published: list[dict[str, Any]], env: str,
+                     today: dt.date | None = None) -> tuple[list[str], list[str]]:
     """Promote's rule for products other teams read: a port may not drop or change the type of a
     column it published in ``env`` while another project reads that environment, unless the
     product's ``version`` goes up. ``published`` is the catalog's list_products.
 
+    A reader that stored the columns it relies on (its link's [columns]) is only broken by a change
+    to one of those. When the version goes up, a reader whose ``accepts`` leaves the new version out
+    still blocks, unless the product was deprecated with a date that has passed: its readers were told.
+
     Returns (errors, notes): an error blocks the promote; a note says what a new version breaks."""
     me = project_name(project)
+    today = today or utc_today()
     errors, notes = [], []
     by_id = {p["id"]: p for p in published}
     for p in project.products.values():
@@ -367,27 +446,88 @@ def breaking_changes(project: Project, published: list[dict[str, Any]], env: str
         current = by_id.get(f"{me}/{p.name}")
         if current is None:
             continue  # never published: nobody can read it yet
-        readers = sorted({c["consumer_project"] for c in current.get("consumers", [])
-                          if env in (c.get("reads") or {}).values() and c["consumer_project"] != me})
-        if not readers:
+        links = [c for c in current.get("consumers", [])
+                 if env in (c.get("reads") or {}).values() and c["consumer_project"] != me]
+        if not links:
             continue
+        version = str(p.spec.get("version", 1))
+        raised = version != str(current.get("version") or "1")
+        stops = _stops(current)
+        told = stops is not None and stops <= today
         for port in p.ports:
             e = project.entities.get(port.get("entity", ""))
             was = next((x for x in current.get("ports", []) if x["port"] == port.get("name") and x["env"] == env), None)
             if e is None or was is None:
                 continue
             old, new = dict(was.get("columns") or {}), e.columns
-            changes = [f"drops {c}" for c in old if c not in new]
-            changes += [f"changes {c} from {old[c]} to {new[c]}" for c in old
-                        if c in new and new[c] != old[c] and (old[c], new[c]) not in WIDENING]
-            if not changes:
+            changed = {c: f"drops {c}" for c in old if c not in new}
+            changed |= {c: f"changes {c} from {old[c]} to {new[c]}" for c in old
+                        if c in new and new[c] != old[c] and (old[c], new[c]) not in WIDENING}
+            if not changed:
                 continue
-            what = (f"products/{p.name}: port {port.get('name')} {', '.join(changes)}, and "
-                    f"{len(readers)} other project{'s' if len(readers) != 1 else ''} read{'s' if len(readers) == 1 else ''} "
-                    f"it in {env} ({', '.join(readers)})")
-            if str(p.spec.get("version", 1)) != str(current.get("version") or "1"):
-                notes.append(f"{what}; publishing it as version {p.spec.get('version')}")
-            else:
-                errors.append(f"{what}. Keep the column{'s' if len(changes) != 1 else ''}, or raise version in "
+            on_port = [c for c in links if c.get("port") in (None, "", port.get("name"))]
+            # A reader that listed its columns relies on those alone; one that didn't relies on every column.
+            hit = [c for c in on_port if not c.get("columns") or set(c["columns"]) & set(changed)]
+            readers = sorted({c["consumer_project"] for c in hit})
+            if not readers:
+                if on_port:
+                    spared = sorted({c["consumer_project"] for c in on_port})
+                    notes.append(f"products/{p.name}: port {port.get('name')} {', '.join(changed.values())}, which "
+                                 f"none of the {len(spared)} other {_plural(len(spared), 'project', 'projects')} "
+                                 f"reading it in {env} rel{_plural(len(spared), 'ies', 'y')} on ({', '.join(spared)})")
+                continue
+            what = (f"products/{p.name}: port {port.get('name')} {', '.join(changed.values())}, and "
+                    f"{len(readers)} other {_plural(len(readers), 'project', 'projects')} "
+                    f"read{_plural(len(readers), 's', '')} it in {env} ({', '.join(readers)})")
+            if not raised:
+                errors.append(f"{what}. Keep the column{_plural(len(changed), '', 's')}, or raise version in "
                               f"products/{p.name}.toml to publish a breaking version")
+                continue
+            shut = [c for c in hit if _shut_out(c, version)]
+            out = sorted({f"{c['consumer_project']} (link {c.get('alias') or '?'} accepts {c.get('accepts')})" for c in shut})
+            if not out:
+                notes.append(f"{what}; publishing it as version {version}")
+            elif told:
+                notes.append(f"{what}; publishing it as version {version}. {len(out)} "
+                             f"{_plural(len(out), 'link doesn', 'links don')}'t accept it ({'; '.join(out)}), but "
+                             f"the product was deprecated on {stops.isoformat()}, so "
+                             f"{_plural(len(out), 'its reader', 'their readers')} had notice")
+            else:
+                try:
+                    wider = f"{parse_accepts(shut[0].get('accepts'))[0]}-{version}"
+                except ValueError:
+                    wider = version
+                errors.append(f"{what}. Version {version} is outside what {len(out)} "
+                              f"{_plural(len(out), 'link accepts', 'links accept')}: {'; '.join(out)}. "
+                              f"{_plural(len(out), 'Its project', 'Their projects')} can widen accepts in the link "
+                              f"(for example accepts = \"{wider}\") once {_plural(len(out), 'it reads', 'they read')} "
+                              f"the new version, or keep the column{_plural(len(changed), '', 's')}")
+    return errors, notes
+
+
+def deprecated_links(project: Project, published: list[dict[str, Any]],
+                     today: dt.date | None = None) -> tuple[list[str], list[str]]:
+    """Promote's rule for a project's links: a link to a product deprecated on a date that has come
+    blocks the promote; one deprecated with a date still ahead is a note saying when. Runs aren't
+    checked here: a running pipeline keeps reading until its team moves it."""
+    today = today or utc_today()
+    by_id = {p["id"]: p for p in published}
+    errors, notes = [], []
+    for l in project.links.values():
+        product = by_id.get(l.product) or {}
+        if product.get("status") != "deprecated":
+            continue
+        stops = _stops(product)
+        if stops is None and not str(product.get("deprecated_on") or "").strip():
+            notes.append(f"links/{l.alias}: {l.product} is deprecated, with no stop date set yet; "
+                         "ask its owner what replaces it")
+        elif stops is None:
+            notes.append(f"links/{l.alias}: {l.product} is deprecated (its stop date {product['deprecated_on']} "
+                         "can't be read); ask its owner what replaces it")
+        elif stops <= today:
+            errors.append(f"links/{l.alias}: {l.product} was deprecated on {stops.isoformat()} and its owner no longer "
+                          "supports it. Move the link to what replaces it, or remove it, before promoting")
+        else:
+            notes.append(f"links/{l.alias}: {l.product} is deprecated and stops on {stops.isoformat()}; "
+                         "move the link to what replaces it before then")
     return errors, notes

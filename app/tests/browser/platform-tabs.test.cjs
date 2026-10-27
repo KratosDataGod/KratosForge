@@ -25,24 +25,31 @@ after(async () => { if (app) await app.close(); });
 
 const tabs = () => page().locator(".page > .subtabs > .tab");
 
-test("five tabs, and Requests shows how many are waiting", { skip }, async () => {
+test("four tabs: requests are on Data mesh now, and the old link opens them there", { skip }, async () => {
   await page().evaluate(() => { state.user = "chris@contoso.com"; goPlatform("overview"); });
-  await page().waitForFunction(() => document.querySelector(".subtabs .tab-count")?.textContent === "2");
-  assert.deepStrictEqual((await tabs().allTextContents()).map((t) => t.trim()), ["Overview", "Requests2", "Set up", "Govern", "Settings"]);
+  await page().waitForSelector(".plat-stats");
+  assert.deepStrictEqual((await tabs().allTextContents()).map((t) => t.trim()), ["Overview", "Set up", "Govern", "Settings"]);
   assert.deepStrictEqual(asked, [], "Overview's own counts give the number: no second read of the requests");
   assert.strictEqual(await tabs().nth(0).getAttribute("aria-current"), "page");
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "platform-tabs.png") });
+  await page().click('.plat-stat:has-text("Requests waiting")');
+  await page().waitForFunction(() => state.view === "metadata" && state.meta.tab === "requests");
+  await page().evaluate(() => goPlatform("requests"));
+  await page().waitForFunction(() => state.view === "metadata" && state.meta.tab === "requests");
+  asked.length = 0;
+  await page().evaluate(() => goPlatform("overview"));
+  await page().waitForSelector(".plat-stats");
 });
 
-test("Set up opens a menu of its four pages, and the tab then names the page", { skip }, async () => {
+test("Set up opens a menu of its three pages, and the tab then names the page", { skip }, async () => {
   await page().locator(".subtabs .tab-menu").first().click();
   const menu = page().getByRole("menu");
-  assert.deepStrictEqual(await menu.getByRole("menuitem").allTextContents(), ["Landing zone", "Business keys", "Domains", "Glossary"]);
-  await menu.getByRole("menuitem", { name: "Domains" }).click();
-  await page().waitForFunction(() => platformPage.tab === "domains");
-  assert.deepStrictEqual(asked, [], "the count is kept from Overview");
+  assert.deepStrictEqual(await menu.getByRole("menuitem").allTextContents(), ["Landing zone", "Business keys", "Glossary"]);
+  await menu.getByRole("menuitem", { name: "Glossary" }).click();
+  await page().waitForFunction(() => platformPage.tab === "glossary");
+  assert.deepStrictEqual(asked, [], "no tab reads the requests now");
   const setUp = page().locator(".subtabs .tab-menu").first();
-  assert.match(await setUp.textContent(), /Set up: Domains/);
+  assert.match(await setUp.textContent(), /Set up: Glossary/);
   assert.strictEqual(await setUp.getAttribute("aria-current"), "page");
 });
 
@@ -52,9 +59,8 @@ test("Govern holds Governance and Audit; old links to any page still open it", {
   await page().keyboard.press("Escape");
   await page().evaluate(() => goPlatform("glossary"));
   await page().waitForFunction(() => /Set up: Glossary/.test(document.querySelector(".subtabs").textContent));
-  // Opened on another tab with no count yet, the bar reads the waiting requests once.
-  await page().evaluate(() => { platformPage.waiting = undefined; goPlatform("audit"); });
-  await page().waitForFunction(() => document.querySelector(".subtabs .tab-count")?.textContent === "2");
-  assert.deepStrictEqual(asked, [{ status: "waiting" }]);
+  await page().evaluate(() => goPlatform("audit"));
+  await page().waitForFunction(() => /Govern: Audit/.test(document.querySelector(".subtabs").textContent));
+  assert.deepStrictEqual(asked, []);
   assert.deepStrictEqual(app.errors, []);
 });

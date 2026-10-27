@@ -9,6 +9,8 @@ by the same rules, with these keys (app_settings.INTEGRATION_KEYS):
     integrations_max_permissions    the permission categories a tool may be given, for example
                                     ["READ_METADATA", "READ_DATA"] (default: all that are offered)
     integrations_http               false: the local HTTP API can't be switched on (default: allowed)
+    integrations_editors            false: editors such as VS Code can't be paired to run notebooks
+                                    on this PC (editor_service.py; default: the person decides)
     integrations_extensions         the extensions the person may turn on, by id, for example
                                     ["notebook-outline"]; [] allows none (default: any)
     receipt_redactions              parts of a receipt every export leaves out (the enterprise
@@ -43,9 +45,9 @@ def current() -> dict[str, Any]:
     """The policy as it applies now, with problems in the file reported rather than guessed at."""
     raw, error = _read()
     if error:  # the file is there but unreadable: everything off
-        return {"enabled": False, "max_permissions": [], "http": False, "extensions": [], "problems": [error],
+        return {"enabled": False, "max_permissions": [], "http": False, "editors": False, "extensions": [], "problems": [error],
                 "set": list(KEYS)}
-    out: dict[str, Any] = {"enabled": None, "max_permissions": list(PERMISSIONS), "http": True, "extensions": None,
+    out: dict[str, Any] = {"enabled": None, "max_permissions": list(PERMISSIONS), "http": True, "editors": True, "extensions": None,
                            "problems": [], "set": sorted(raw)}
     if "integrations" in raw:
         if raw["integrations"] is False:
@@ -69,6 +71,12 @@ def current() -> dict[str, Any]:
         else:
             out["problems"].append("integrations_http should be true or false")
             out["http"] = False
+    if "integrations_editors" in raw:
+        if isinstance(raw["integrations_editors"], bool):
+            out["editors"] = raw["integrations_editors"]
+        else:
+            out["problems"].append("integrations_editors should be true or false")
+            out["editors"] = False
     if "integrations_extensions" in raw:
         value = raw["integrations_extensions"]
         if _strings(value):

@@ -30,20 +30,19 @@ _QA017 = "kept for API compatibility, no screen yet (QA-017)"
 _LOCAL_RUNS = "sharing this PC's notebook runs with Optimize: engine only, the button waits on a mockup (docs/optimize/README.md)"
 _SUPERSEDED = "superseded on screen but kept for API compatibility (QA-017)"
 _INTERNAL = "used in-process by another Service method; RPC name kept, no screen (QA-017)"
+_BPA = "best practices check of a semantic model: engine first, screens wait on the mockup (docs/semantic-model-best-practices.md)"
 _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-017)"
 
 # Allowlisted methods with no UI caller, each with why it stays. Remove a name when the UI starts
 # calling it or when it leaves METHODS; the test below fails until you do.
 # Dropping a name from METHODS? Also drop it from the timeout list in app/src-tauri/src/watchdog.rs.
-_PRACTICES = "notebook best practices: engine only, the panel waits on Chris's mockup review (docs/notebook-best-practices.md)"
+_PRACTICES = "the notebook rules list, for a template editor to list them; the panel shows findings only (docs/notebook-best-practices.md)"
 
-_SQL_PRACTICES = "SQL best practices: engine only, the panel waits on Chris's mockup review (docs/sql-best-practices.md)"
+_SQL_PRACTICES = "the SQL rules list, for a template editor to list them; the SQL page shows findings only (docs/sql-best-practices.md)"
 
 
 NO_UI_CALLER: dict[str, str] = {
-    "notebook_practices": _PRACTICES,
     "notebook_practice_rules": _PRACTICES,
-    "sql_practices": _SQL_PRACTICES,
     "sql_practice_rules": _SQL_PRACTICES,
     # MCP / local HTTP API tools (in-process).
     "placement_advice": _MCP + "; Prove shows it later (docs/finops/placement-advice.md)",
@@ -54,6 +53,10 @@ NO_UI_CALLER: dict[str, str] = {
     "receipt_export": _MCP,
     "receipts_list": _MCP,
     "run_sql": _MCP,
+    # Best practices check (semantic-link-labs in Fabric).
+    "model_bpa_status": _BPA,
+    "model_bpa_risk": _BPA,
+    "model_bpa_check": _BPA,
     # CLI and headless agent (in-process).
     "preview_job": _CLI,
     "run_job": _CLI,

@@ -18,7 +18,8 @@ Tables (T-SQL schema.table; SQLite schema__table):
     catalog.project      metadata projects: domain, subdomain, team
     catalog.product      data products: access, version, status
     catalog.port         where each product port lives, per environment
-    catalog.link         which project reads which port
+    catalog.port_version each port's history: one row per environment each time its version or columns change
+    catalog.link         which project reads which port, the versions it accepts and the columns it relies on
     catalog.enrichment   description, tags, classification, glossary terms, steward of a table or column
     catalog.glossary     business terms
     catalog.audit        who changed what in the catalog
@@ -163,7 +164,10 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
              ("workspace_id", "text"), ("workspace_name", "text"), ("lakehouse_id", "text"), ("lakehouse_name", "text"),
              ("schema_name", "text"), ("table_name", "text"), ("columns", "long"), ("updated_at", "text")],
     "link": [("id", "key"), ("consumer_project", "text"), ("alias", "text"), ("product_id", "text"),
-             ("port", "text"), ("reads", "long"), ("updated_at", "text"), ("updated_by", "text")],
+             ("port", "text"), ("reads", "long"), ("updated_at", "text"), ("updated_by", "text"),
+             ("accepts", "text"), ("columns", "long")],
+    "port_version": [("id", "key"), ("product_id", "text"), ("port", "text"), ("env", "text"), ("version", "text"),
+                     ("columns", "long"), ("published_at", "text"), ("published_by", "text")],
     "enrichment": [("target", "key"), ("description", "long"), ("tags", "long"), ("classification", "text"),
                    ("terms", "long"), ("steward", "text"), ("certified", "text"), ("updated_at", "text"),
                    ("updated_by", "text")],
@@ -200,10 +204,21 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
                     ("endorsement", "text"), ("certified_by", "text"), ("scanned_at", "text"), ("scanned_by", "text")],
     "product_term": [("id", "key"), ("product_id", "text"), ("term", "text"), ("url", "long"), ("added_by", "text"),
                      ("added_at", "text")],
+    # When someone last used the platform from the app, to tell an owner who has gone quiet.
+    "person": [("user_name", "key"), ("last_seen", "text")],
+
+
+    # The last time a product's owner confirmed a project's access still stands (keyed like catalog.grant).
+    "grant_review": [("id", "key"), ("product_id", "text"), ("project", "text"), ("reviewed_by", "text"),
+                     ("reviewed_at", "text")],
     "follow": [("id", "key"), ("user_name", "text"), ("product_id", "text"), ("followed_at", "text")],
     # What each environment last published of a product, so a promote's changes are told once per environment.
     "product_env": [("id", "key"), ("product_id", "text"), ("env", "text"), ("version", "text"), ("status", "text"),
                     ("deprecated_on", "text"), ("published_at", "text")],
+    # An Entra ID group someone already has, linked to one of a domain's roles in one environment ("" for roles
+    # that span them), so the role uses it instead of the group the platform suggests (entra.py).
+    "entra_group": [("id", "key"), ("domain_id", "text"), ("role", "text"), ("env", "text"), ("group_id", "text"),
+                    ("group_name", "text"), ("linked_by", "text"), ("linked_at", "text")],
 }
 
 
@@ -236,7 +251,10 @@ def ensure_schema(db: Db) -> dict[str, Any]:
     created += ensure_landing_zones(db)
     created += ensure_shortcut_risks(db)
     created += ensure_trust_badges(db)
+    created += ensure_people(db)
+    created += ensure_grant_reviews(db)
     created += ensure_follows(db)
+    created += ensure_entra_groups(db)
     for hook in SCHEMA_HOOKS:
         created += hook(db)
     _upsert(db, "config", "setting", "name", {"name": "schema_version", "value": str(SCHEMA_VERSION)})
@@ -681,7 +699,9 @@ def list_projects(db: Db) -> list[dict[str, Any]]:
 
 
 def register_product(db: Db, product: dict[str, Any], ports: list[dict[str, Any]], env: str, by: str = "") -> dict[str, Any]:
-    """Publish a data product and where its ports live in one environment (done on promote)."""
+    """Publish a data product and where its ports live in one environment (done on promote). Each
+    port whose version or columns changed in ``env`` gets a row in its history (catalog.port_version);
+    ``history`` in the answer lists those ports, so a caller can tell an older function from none changed."""
     project = str(product.get("project") or "").strip()
     name = str(product.get("name") or "").strip()
     if not project or not name:
@@ -690,6 +710,7 @@ def register_product(db: Db, product: dict[str, Any], ports: list[dict[str, Any]
         raise PlatformError(f"access must be one of {', '.join(ACCESS)}")
     if product.get("status", "draft") not in STATUS:
         raise PlatformError(f"status must be one of {', '.join(STATUS)}")
+    ensure_contracts(db)
     pid = f"{project}/{name}"
     ensure_follows(db)
     before = _row(db, "product_env", "id", f"{pid}:{env}")
@@ -702,6 +723,7 @@ def register_product(db: Db, product: dict[str, Any], ports: list[dict[str, Any]
            "status": product.get("status", "draft"), "deprecated_on": product.get("deprecated_on") or None,
            "updated_at": _now(), "updated_by": by}
     _upsert(db, "catalog", "product", "id", row)
+    changed = []
     for p in ports:
         port = {"id": f"{pid}:{p['port']}:{env}", "product_id": pid, "port": p["port"], "entity": p.get("entity", ""),
                 "env": env, "workspace_id": p.get("workspace_id", ""), "workspace_name": p.get("workspace_name", ""),
@@ -709,17 +731,48 @@ def register_product(db: Db, product: dict[str, Any], ports: list[dict[str, Any]
                 "schema_name": p.get("schema", "dbo"), "table_name": p.get("table", ""),
                 "columns": json.dumps(p.get("columns", {})), "updated_at": _now()}
         _upsert(db, "catalog", "port", "id", port)
+        if _record_port_version(db, pid, p["port"], env, row["version"], p.get("columns") or {}, by):
+            changed.append(p["port"])
     changes = product_changes(before, row, old_ports, {p["port"]: p.get("columns", {}) for p in ports})
     _upsert(db, "catalog", "product_env", "id", {"id": f"{pid}:{env}", "product_id": pid, "env": env, "version": row["version"],
                                                  "status": row["status"], "deprecated_on": row["deprecated_on"] or "",
                                                  "published_at": _now()})
-    _audit(db, by, "publish product", pid, {"env": env, "ports": [p["port"] for p in ports],
+    _audit(db, by, "publish product", pid, {"env": env, "ports": [p["port"] for p in ports], "history": changed,
                                             **({"changes": changes} if changes else {})})
     db.commit()
-    out = dict(row, changes=changes)
+    out = dict(row, changes=changes, history=changed)
     if changes:
-        out["followers"] = product_followers(db, pid)
+        out["followers"] = _followers(db, pid)
     return out
+
+def _port_versions(db: Db, product_id: str, port: str = "", env: str = "") -> list[dict[str, Any]]:
+    """A product's port history, newest first. Reads only: none before the table exists."""
+    if not db.exists("catalog", "port_version"):
+        return []
+    rows = db.rows(f"SELECT * FROM {db.t('catalog', 'port_version')} WHERE product_id = ?", (product_id,))
+    rows = [dict(r, columns=json.loads(r["columns"] or "{}")) for r in rows
+            if (not port or r["port"] == port) and (not env or r["env"] == env)]
+    # Times are kept to the microsecond, and ids end in a random part so two publishes at once never collide.
+    return sorted(rows, key=lambda r: (r["published_at"] or "", r["id"]), reverse=True)
+
+
+def _record_port_version(db: Db, product_id: str, port: str, env: str, version: str, columns: dict[str, Any],
+                         by: str) -> bool:
+    """Add a history row when the port's version or columns differ from its latest one in ``env``."""
+    seen = _port_versions(db, product_id, port, env)
+    if seen and seen[0]["version"] == version and seen[0]["columns"] == dict(columns):
+        return False
+    at = dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
+    db.run(f"INSERT INTO {db.t('catalog', 'port_version')} (id, product_id, port, env, version, columns, published_at, "
+           "published_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+           (f"{product_id}:{port}:{env}:{at}:{uuid.uuid4().hex[:12]}", product_id, port, env, version,
+            json.dumps(dict(columns)), at, by or ""))
+    return True
+
+
+def product_history(db: Db, product_id: str) -> list[dict[str, Any]]:
+    """Every version of every port of a product, per environment, newest first. Reads only."""
+    return _port_versions(db, str(product_id or ""))
 
 
 def product_changes(before: dict[str, Any] | None, after: dict[str, Any], old_ports: dict[str, dict[str, Any]],
@@ -788,20 +841,195 @@ def unfollow_product(db: Db, product_id: str, by: str = "") -> list[str]:
 
 
 def list_follows(db: Db, by: str = "") -> list[str]:
-    """The products the caller follows."""
-    ensure_follows(db)
+    """The products the caller follows. A read: a platform without catalog.follow follows nothing."""
+    if not db.exists("catalog", "follow"):
+        return []
     return sorted(r["product_id"] for r in db.rows(f"SELECT product_id FROM {db.t('catalog', 'follow')} WHERE user_name = ?",
                                                      (_who(by),)))
 
 
-def product_followers(db: Db, product_id: str) -> list[str]:
-    """Everyone who hears about a product's changes: its followers and whoever linked a project to it."""
-    ensure_follows(db)
-    people = {r["user_name"] for r in db.rows(f"SELECT user_name FROM {db.t('catalog', 'follow')} WHERE product_id = ?",
-                                              (product_id,))}
+def product_followers(db: Db, product_id: str, by: str = "") -> list[str]:
+    """Everyone who hears about a product's changes: its followers and whoever linked a project to it.
+    Who follows what is personal data, so only the product's owners and platform admins may list it."""
+    product = _row(db, "product", "id", product_id) or {}
+    if not (is_admin(db, by) or _who(by) in _product_owners(product)):
+        raise PlatformError("Only the product's owner or a platform admin can see who follows it")
+    return _followers(db, product_id)
+
+
+def _followers(db: Db, product_id: str) -> list[str]:
+    people = ({r["user_name"] for r in db.rows(f"SELECT user_name FROM {db.t('catalog', 'follow')} WHERE product_id = ?",
+                                               (product_id,))}
+              if db.exists("catalog", "follow") else set())  # a read never creates the table
     people |= {_who(r["updated_by"]) for r in db.rows(f"SELECT updated_by FROM {db.t('catalog', 'link')} WHERE product_id = ?",
                                                       (product_id,)) if r["updated_by"]}
     return sorted(p for p in people if p)
+
+
+# --------------------------------------------------------------------------- Entra ID groups per domain
+# Each domain's roles (owners, creators, readers...) are given to Entra ID security groups, never to people.
+# The platform keeps two things: its naming pattern for the groups it suggests, and the groups people already
+# have that they linked to a role. The app writes scripts from these (entra.py); nothing here creates a group
+# or grants a role.
+
+# Role -> whether it is given per environment.
+ENTRA_ROLES = {"domain_admins": False, "domain_contributors": False, "workspace_admins": True, "creators": True,
+               "readers": True, "viewers": True, "stewards": False}
+ENTRA_ENVS = ("dev", "test", "prod")
+DEFAULT_GROUP_NAMING: dict[str, Any] = {
+    "pattern": "{PREFIX}-{DOMAIN}-{SUBDOMAIN}-{ROLE}-{ENV}", "prefix": "SG-FAB", "case": "upper", "domain_part": "id",
+    "words": {"domain_admins": "DOMAIN-ADMINS", "domain_contributors": "DOMAIN-CONTRIBUTORS",
+              "workspace_admins": "WSADMINS", "creators": "CREATORS", "readers": "READERS", "viewers": "VIEWERS",
+              "stewards": "STEWARDS"},
+    "roles_off": [],
+}
+_NAMING_SETTING = "entra_group_naming"
+_GROUP_PART = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$")
+_PATTERN = re.compile(r"^(?:[A-Za-z0-9_.-]|\{(?:PREFIX|DOMAIN|SUBDOMAIN|ROLE|ENV)\}){1,120}$")
+
+
+def entra_group_naming(db: Db) -> dict[str, Any]:
+    """The platform's naming pattern for the Entra ID groups it suggests: DEFAULT_GROUP_NAMING until an admin saves one.
+    What is stored is checked again on every read, so a value written to the table some other way never reaches
+    a script; one that fails the checks reads as the default."""
+    if db.exists("config", "setting"):
+        saved = db.rows(f"SELECT value FROM {db.t('config', 'setting')} WHERE name = ?", (_NAMING_SETTING,))
+        if saved and saved[0].get("value"):
+            try:
+                return checked_entra_naming(json.loads(saved[0]["value"]))
+            except (PlatformError, ValueError, TypeError, AttributeError):
+                pass
+    return json.loads(json.dumps(DEFAULT_GROUP_NAMING))
+
+
+def checked_entra_naming(naming: dict[str, Any], base: dict[str, Any] | None = None) -> dict[str, Any]:
+    """``naming`` laid over ``base`` (the default), every part checked: letters, digits, -, _ or . only, so a
+    name is safe in a script, on a command line and in Entra's mail nickname. Raises PlatformError."""
+    out = json.loads(json.dumps(base or DEFAULT_GROUP_NAMING))
+    if not isinstance(naming, dict):
+        raise PlatformError("The group naming is a set of named parts")
+    for k, v in naming.items():
+        if k not in DEFAULT_GROUP_NAMING:
+            raise PlatformError(f"{k} isn't part of the group naming")
+        if k == "pattern":
+            v = str(v or "").strip()
+            if not _PATTERN.fullmatch(v) or "{DOMAIN}" not in v or "{ROLE}" not in v:
+                raise PlatformError("The pattern needs {DOMAIN} and {ROLE}, and may use {PREFIX}, {SUBDOMAIN} and {ENV} "
+                                    "with letters, digits, -, _ or . between them (no spaces)")
+        elif k == "prefix":
+            v = str(v or "").strip()
+            if v and not _GROUP_PART.fullmatch(v):
+                raise PlatformError("The prefix is up to 40 letters, digits, -, _ or .")
+        elif k == "case":
+            if v not in ("upper", "lower", "as_typed"):
+                raise PlatformError("case is upper, lower or as_typed")
+        elif k == "domain_part":
+            if v not in ("id", "name"):
+                raise PlatformError("domain_part is id or name")
+        elif k == "words":
+            words = dict(out["words"])
+            for role, word in dict(v or {}).items():
+                if role not in ENTRA_ROLES:
+                    raise PlatformError(f"{role} isn't a domain role")
+                if not _GROUP_PART.fullmatch(str(word or "")):
+                    raise PlatformError(f"The word for {role} is up to 40 letters, digits, -, _ or .")
+                words[role] = str(word)
+            v = words
+        elif k == "roles_off":
+            v = sorted({str(r) for r in (v or [])})
+            if any(r not in ENTRA_ROLES for r in v):
+                raise PlatformError(f"roles_off names roles from: {', '.join(ENTRA_ROLES)}")
+        out[k] = v
+    return out
+
+
+def save_entra_group_naming(db: Db, naming: dict[str, Any], by: str = "") -> dict[str, Any]:
+    """Change the naming pattern. Platform admins only."""
+    require_admin(db, by, "change how Entra ID groups are named")
+    out = checked_entra_naming(naming or {}, entra_group_naming(db))
+    _upsert(db, "config", "setting", "name", {"name": _NAMING_SETTING, "value": json.dumps(out)})
+    _audit(db, by, "save Entra group naming", _NAMING_SETTING, out)
+    db.commit()
+    return out
+
+
+def ensure_entra_groups(db: Db) -> list[str]:
+    """catalog.entra_group, added after the mesh: additive, safe to run again; linking calls it."""
+    if db.exists("catalog", "entra_group"):
+        return []
+    db.run(f"CREATE TABLE {db.t('catalog', 'entra_group')} ({', '.join(_column(db, n, k) for n, k in _CATALOG['entra_group'])})")
+    db.commit()
+    return ["catalog.entra_group"]
+
+
+def list_entra_groups(db: Db, domain: str = "") -> list[dict[str, Any]]:
+    """The groups people linked to a domain's roles (every domain's without ``domain``). Reads only."""
+    if not db.exists("catalog", "entra_group"):
+        return []
+    if domain:
+        rows = db.rows(f"SELECT * FROM {db.t('catalog', 'entra_group')} WHERE domain_id = ?", (domain,))
+    else:
+        rows = db.rows(f"SELECT * FROM {db.t('catalog', 'entra_group')}")
+    return sorted(rows, key=lambda r: (r["domain_id"] or "", r["role"] or "", r["env"] or ""))
+
+
+def _require_domain_owner(db: Db, did: str, by: str, action: str) -> dict[str, Any]:
+    """The domain, when the caller is a platform admin or one of its owners (or its parent's)."""
+    domain = _row(db, "domain", "id", did)
+    if domain is None:
+        raise PlatformError(f"{did} isn't a domain")
+    if is_admin(db, by):
+        return domain
+    owners = _names(domain.get("owners"))
+    if domain.get("parent_id"):
+        owners |= _names((_row(db, "domain", "id", domain["parent_id"]) or {}).get("owners"))
+    if _who(by) and _who(by) in owners:
+        return domain
+    raise PlatformError(f"Only platform admins or {domain['name']}'s owners can {action}")
+
+
+def _entra_key(role: str, env: str) -> tuple[str, str]:
+    if role not in ENTRA_ROLES:
+        raise PlatformError(f"role must be one of {', '.join(ENTRA_ROLES)}")
+    env = str(env or "").strip().lower()
+    if ENTRA_ROLES[role] and env not in ENTRA_ENVS:
+        raise PlatformError(f"{role} is given per environment: env is one of {', '.join(ENTRA_ENVS)}")
+    if not ENTRA_ROLES[role]:
+        env = ""
+    return role, env
+
+
+def link_entra_group(db: Db, domain: str, role: str, env: str, group_id: str, group_name: str = "",
+                     by: str = "") -> list[dict[str, Any]]:
+    """Use an existing Entra ID group (its object ID) for one of a domain's roles. Platform admins or the
+    domain's owners. Nothing changes in Entra or Fabric. Returns the domain's linked groups."""
+    did = domain_id(domain)
+    role, env = _entra_key(role, env)
+    _require_domain_owner(db, did, by, "link groups to its roles")
+    gid = str(group_id or "").strip().lower()
+    if not _GUID.fullmatch(gid):
+        raise PlatformError("A group is linked by its object ID, like 00000000-0000-0000-0000-000000000000 "
+                            "(Microsoft Entra admin center > Groups > the group > Object ID)")
+    name = re.sub(r"[\x00-\x1f]", "", str(group_name or "")).strip()[:256] or gid
+    ensure_entra_groups(db)
+    row = {"id": f"{did}|{role}|{env}", "domain_id": did, "role": role, "env": env, "group_id": gid,
+           "group_name": name, "linked_by": by, "linked_at": _now()}
+    _upsert(db, "catalog", "entra_group", "id", row)
+    _audit(db, by, "link Entra group", row["id"], {"group_id": gid, "group_name": name})
+    db.commit()
+    return list_entra_groups(db, did)
+
+
+def unlink_entra_group(db: Db, domain: str, role: str, env: str = "", by: str = "") -> list[dict[str, Any]]:
+    """Go back to the suggested group for a role. Platform admins or the domain's owners."""
+    did = domain_id(domain)
+    role, env = _entra_key(role, env)
+    _require_domain_owner(db, did, by, "unlink groups from its roles")
+    if db.exists("catalog", "entra_group"):
+        db.run(f"DELETE FROM {db.t('catalog', 'entra_group')} WHERE id = ?", (f"{did}|{role}|{env}",))
+        _audit(db, by, "unlink Entra group", f"{did}|{role}|{env}")
+        db.commit()
+    return list_entra_groups(db, did)
 
 
 def list_products(db: Db) -> list[dict[str, Any]]:
@@ -812,7 +1040,10 @@ def list_products(db: Db) -> list[dict[str, Any]]:
     for p in products:
         p["granted"] = sorted(g["project"] for g in grants if g["product_id"] == p["id"])
         p["ports"] = [dict(x, columns=json.loads(x["columns"] or "{}")) for x in ports if x["product_id"] == p["id"]]
-        p["consumers"] = [dict(l, reads=json.loads(l["reads"] or "{}")) for l in links if l["product_id"] == p["id"]]
+        # A catalog made before versioned contracts has no accepts or columns on its links: read as none.
+        p["consumers"] = [dict(l, reads=json.loads(l["reads"] or "{}"), accepts=l.get("accepts") or "",
+                               columns=json.loads(l.get("columns") or "{}"))
+                          for l in links if l["product_id"] == p["id"]]
     return sorted(products, key=lambda p: p["id"])
 
 
@@ -823,14 +1054,38 @@ def resolve_port(db: Db, product_id: str, port: str, env: str) -> dict[str, Any]
     return found
 
 
+def _today() -> dt.date:
+    return dt.datetime.now(dt.timezone.utc).date()
+
+
+def _date(value: Any) -> dt.date | None:
+    """A deprecated_on date ("2026-12-31", or a time on that day); None when it isn't one."""
+    try:
+        return dt.date.fromisoformat(str(value or "").strip()[:10])
+    except ValueError:
+        return None
+
+
 def register_link(db: Db, consumer: str, alias: str, product_id: str, port: str, reads: dict[str, str],
-                  by: str = "") -> dict[str, Any]:
-    """A consumer project's link to a product port. Refused if the product isn't open to it."""
+                  by: str = "", accepts: str = "", columns: dict[str, Any] | None = None) -> dict[str, Any]:
+    """A consumer project's link to a product port. Refused if the product isn't open to it, or, for a
+    new link, if the product was deprecated on a date that has come. ``accepts`` is the product
+    versions the consumer can read ("2", "2-3" or "2+"); ``columns`` the ones it relies on."""
+    ensure_contracts(db)
     product = _row(db, "product", "id", product_id)
     if product is None:
         raise PlatformError(f"{product_id} isn't a published data product")
     if product["status"] == "draft":
         raise PlatformError(f"{product_id} is still a draft; its owner publishes it on promote")
+    accepts = str(accepts or "").strip()
+    if accepts and not _ACCEPTS.match(accepts):
+        raise PlatformError(f"accepts is a version (\"2\"), a range (\"2-3\") or a version and later (\"2+\"), "
+                            f"not {accepts!r}")
+    lid = f"{consumer}:{alias}"
+    stops = _date(product.get("deprecated_on"))
+    if product["status"] == "deprecated" and stops and stops <= _today() and _row(db, "link", "id", lid) is None:
+        owner = f" Ask its owner ({product['owner']}) what replaces it." if product.get("owner") else ""
+        raise PlatformError(f"{product_id} was deprecated on {stops.isoformat()} and takes no new links.{owner}")
     granted = _row(db, "grant", "id", f"{product_id}|{consumer}") is not None
     if product["access"] == "private" and product["project"] != consumer and not granted:
         raise PlatformError(f"{product_id} is private to {product['project']}. Ask its owner: Request access")
@@ -839,12 +1094,43 @@ def register_link(db: Db, consumer: str, alias: str, product_id: str, port: str,
         if mine.get("domain_id") != product.get("domain_id"):
             raise PlatformError(f"{product_id} is open to the {product.get('domain_id')} domain only. "
                                 "Ask its owner: Request access")
-    row = {"id": f"{consumer}:{alias}", "consumer_project": consumer, "alias": alias, "product_id": product_id,
-           "port": port, "reads": json.dumps(reads), "updated_at": _now(), "updated_by": by}
+    columns = {str(k): str(v) for k, v in (columns or {}).items()}
+    row = {"id": lid, "consumer_project": consumer, "alias": alias, "product_id": product_id,
+           "port": port, "reads": json.dumps(reads), "updated_at": _now(), "updated_by": by,
+           "accepts": accepts or None, "columns": json.dumps(columns) if columns else None}
     _upsert(db, "catalog", "link", "id", row)
-    _audit(db, by, "link", row["id"], {"product": product_id, "port": port, "reads": reads})
+    _audit(db, by, "link", row["id"], {"product": product_id, "port": port, "reads": reads, "accepts": accepts,
+                                       "columns": sorted(columns)})
     db.commit()
     return row
+
+
+# A link's accepted product versions: "2" (one), "2-3" (a range) or "2+" (that version or later).
+_ACCEPTS = re.compile(r"^\d+(?:\s*-\s*\d+|\+)?$")
+# Columns catalog.link gained with versioned contracts.
+_LINK_ADDED = (("accepts", "text"), ("columns", "long"))
+
+
+def ensure_contracts(db: Db) -> list[str]:
+    """Give a platform made before versioned contracts catalog.port_version and catalog.link's accepts
+    and columns. Additive only, and safe to run again; publishing a product and saving a link call it,
+    so a platform in Fabric gets them on first use."""
+    added = []
+    if not db.exists("catalog", "port_version"):
+        cols = _CATALOG["port_version"]
+        db.run(f"CREATE TABLE {db.t('catalog', 'port_version')} ({', '.join(_column(db, n, k) for n, k in cols)})")
+        added.append("catalog.port_version")
+    have = _columns(db, "link")
+    for col, kind in _LINK_ADDED:
+        if col not in have:
+            db.run(f"ALTER TABLE {db.t('catalog', 'link')} ADD {'' if db.tsql else 'COLUMN '}{_column(db, col, kind)}")
+            added.append(f"catalog.link.{col}")
+    if added:
+        db.commit()
+    return added
+
+
+SCHEMA_HOOKS.append(ensure_contracts)
 
 
 def save_enrichment(db: Db, target: str, fields: dict[str, Any], by: str = "") -> dict[str, Any]:
@@ -968,7 +1254,7 @@ def require_admin(db: Db, by: str, action: str) -> None:
     if not list_admins(db):
         raise PlatformError(f"Can't {action}: the platform has no admins yet. The person who set it up claims "
                             "admin in Platform > Settings.")
-    raise PlatformError(f"Only platform admins can {action}. Send a request in Platform > Requests, "
+    raise PlatformError(f"Only platform admins can {action}. Send a request in Data mesh > Requests, "
                         "or ask a platform admin.")
 
 
@@ -1314,7 +1600,7 @@ def save_landing_zone(db: Db, zone: dict[str, Any], by: str = "") -> list[dict[s
     if domain:
         domain = domain_id(domain)
         if not _row(db, "domain", "id", domain):
-            raise PlatformError(f"domain {domain} doesn't exist: add it first in Platform > Set up > Domains")
+            raise PlatformError(f"domain {domain} doesn't exist: add it first in Data mesh > Domains")
     readers = zone["readers"] if "readers" in zone else json.loads(before.get("readers") or "[]")
     if isinstance(readers, str):
         readers = re.split(r"[,;\n]", readers)
@@ -1714,9 +2000,166 @@ def revoke_grant(db: Db, product_id: str, project: str, by: str = "") -> list[di
     if not (is_admin(db, by) or _who(by) in _product_owners(product)):
         raise PlatformError("Only the product's owner or a platform admin can take access away")
     db.run(f"DELETE FROM {db.t('catalog', 'grant')} WHERE id = ?", (f"{product_id}|{project}",))
+    if db.exists("catalog", "grant_review"):
+        db.run(f"DELETE FROM {db.t('catalog', 'grant_review')} WHERE id = ?", (f"{product_id}|{project}",))
     _audit(db, by, "revoke access", product_id, {"project": project})
     db.commit()
     return list_grants(db, product_id)
+
+
+# --------------------------------------------------------------------------- owner coverage
+# Every domain, data product and landing zone source has an owner, and a second one to cover for
+# them. An owner the platform hasn't seen for a while is named, so someone can hand it over before
+# it's needed at 2am. "Seen" is the app using the platform as them, or any change they made.
+
+QUIET_DAYS = 60
+_UPN_LIKE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def ensure_people(db: Db) -> list[str]:
+    """catalog.person, added after the mesh: additive, safe to run again; note_seen and owner_coverage call it."""
+    if db.exists("catalog", "person"):
+        return []
+    db.run(f"CREATE TABLE {db.t('catalog', 'person')} ({', '.join(_column(db, n, k) for n, k in _CATALOG['person'])})")
+    db.commit()
+    return ["catalog.person"]
+
+
+def note_seen(db: Db, by: str = "") -> dict[str, Any]:
+    """Record that the caller used the platform today. At most one write a day per person."""
+    ensure_people(db)
+    who = _who(by)
+    if not who:
+        return {"user": "", "last_seen": ""}
+    found = _row(db, "person", "user_name", who) or {}
+    today = _now()[:10]
+    if str(found.get("last_seen") or "")[:10] != today:
+        _upsert(db, "catalog", "person", "user_name", {"user_name": who, "last_seen": _now()})
+        db.commit()
+    return {"user": who, "last_seen": today}
+
+
+def _last_seen(db: Db) -> dict[str, str]:
+    seen = ({r["user_name"]: str(r["last_seen"] or "") for r in db.rows(f"SELECT * FROM {db.t('catalog', 'person')}")}
+            if db.exists("catalog", "person") else {})  # a read never creates the table
+    for r in db.rows(f"SELECT by_user, MAX(at) AS at FROM {db.t('catalog', 'audit')} GROUP BY by_user"):
+        who = _who(r["by_user"])
+        if who and str(r["at"] or "") > seen.get(who, ""):
+            seen[who] = str(r["at"])
+    return seen
+
+
+def owner_coverage(db: Db, presence: bool = True) -> dict[str, Any]:
+    """Each domain, published data product and source with an owner problem: none, no second owner, or
+    an owner the platform hasn't seen for QUIET_DAYS. Owners written as names, not sign-ins, can't be
+    checked for being quiet, and are said to be so. Without ``presence`` (the organization hasn't turned
+    on platform_presence) nobody is checked for being quiet. Only reads (the catalog is open to everyone)."""
+    seen, now = _last_seen(db) if presence else {}, dt.datetime.now(dt.timezone.utc)
+
+    def quiet(owner: str) -> int | None:
+        if not presence or not _UPN_LIKE.match(owner):
+            return None
+        last = seen.get(owner)
+        if not last:
+            return -1
+        try:
+            days = (now - dt.datetime.fromisoformat(last)).days
+        except ValueError:
+            return -1
+        return days if days >= QUIET_DAYS else None
+
+    def check(kind: str, id_: str, name: str, owners_text: Any, opens: str) -> dict[str, Any]:
+        owners = sorted(_names(owners_text))
+        problems = []
+        if not owners:
+            problems.append("No owner")
+        elif len(owners) == 1:
+            problems.append("No second owner to cover")
+        for o in owners:
+            q = quiet(o)
+            if q == -1:
+                problems.append(f"{o} hasn't used the platform yet")
+            elif q is not None:
+                problems.append(f"{o} hasn't used the platform for {q} days")
+        unchecked = [o for o in owners if not _UPN_LIKE.match(o)]
+        return {"kind": kind, "id": id_, "name": name, "owners": owners, "problems": problems,
+                "unchecked": unchecked, "opens": opens}
+
+    rows = [check("domain", d["id"], d["name"] or d["id"], d.get("owners"), "domains")
+            for d in db.rows(f"SELECT * FROM {db.t('catalog', 'domain')}")]
+    rows += [check("product", p["id"], p["name"] or p["id"], p.get("owner"), "products")
+             for p in db.rows(f"SELECT * FROM {db.t('catalog', 'product')}") if p.get("status") != "draft"]
+    rows += [check("source", s["name"], s.get("title") or s["name"], s.get("owner"), "landing")
+             for s in db.rows(f"SELECT * FROM {db.t('catalog', 'source')}")]
+    gaps = [r for r in rows if r["problems"]]
+    order = {"No owner": 0}
+    gaps.sort(key=lambda r: (min(order.get(p, 1) for p in r["problems"]), r["kind"], r["name"].lower()))
+    return {"quiet_days": QUIET_DAYS, "presence": presence, "checked": len(rows), "covered": len(rows) - len(gaps),
+            "no_owner": sum("No owner" in r["problems"] for r in gaps), "gaps": gaps}
+
+
+# --------------------------------------------------------------------------- access reviews
+# Every quarter a product's owner confirms that each project given access still needs it, or takes
+# it away. A grant nobody confirmed is flagged, never taken away by itself.
+
+REVIEW_DAYS = 90
+
+
+def ensure_grant_reviews(db: Db) -> list[str]:
+    """catalog.grant_review, added after grants: additive, safe to run again; the review operations call it."""
+    if db.exists("catalog", "grant_review"):
+        return []
+    db.run(f"CREATE TABLE {db.t('catalog', 'grant_review')} ({', '.join(_column(db, n, k) for n, k in _CATALOG['grant_review'])})")
+    db.commit()
+    return ["catalog.grant_review"]
+
+
+def access_reviews(db: Db, by: str = "") -> dict[str, Any]:
+    """The grants the caller reviews (their own products', or every product's for a platform admin),
+    oldest confirmation first, each with when it was last confirmed and whether it's due. A read: a
+    platform without catalog.grant_review has no confirmations yet."""
+    admin, who = is_admin(db, by), _who(by)
+    products = {p["id"]: p for p in db.rows(f"SELECT id, name, owner FROM {db.t('catalog', 'product')}")}
+    reviews = ({r["id"]: r for r in db.rows(f"SELECT * FROM {db.t('catalog', 'grant_review')}")}
+               if db.exists("catalog", "grant_review") else {})
+    now = dt.datetime.now(dt.timezone.utc)
+    out = []
+    for g in db.rows(f"SELECT * FROM {db.t('catalog', 'grant')}"):
+        product = products.get(g["product_id"]) or {}
+        if not (admin or (who and who in _product_owners(product))):
+            continue
+        review = reviews.get(g["id"]) or {}
+        since = review.get("reviewed_at") or g.get("granted_at") or ""
+        try:
+            age = (now - dt.datetime.fromisoformat(since)).days
+        except ValueError:
+            age = REVIEW_DAYS
+        out.append({"product_id": g["product_id"], "product_name": product.get("name") or g["product_id"],
+                    "project": g["project"], "granted_by": g.get("granted_by") or "", "granted_at": g.get("granted_at") or "",
+                    "reviewed_by": review.get("reviewed_by") or "", "reviewed_at": review.get("reviewed_at") or "",
+                    "days": age, "due": age >= REVIEW_DAYS})
+    out.sort(key=lambda r: (-r["days"], r["product_id"], r["project"]))
+    return {"every_days": REVIEW_DAYS, "grants": out, "due": sum(r["due"] for r in out)}
+
+
+def confirm_access(db: Db, product_id: str, projects: list[str], by: str = "") -> dict[str, Any]:
+    """The product's owner (or a platform admin) confirms these projects still need access."""
+    product = _row(db, "product", "id", product_id) or {}
+    if not (is_admin(db, by) or _who(by) in _product_owners(product)):
+        raise PlatformError("Only the product's owner or a platform admin can confirm access")
+    granted = {g["project"] for g in list_grants(db, product_id)}
+    missing = sorted(set(projects or []) - granted)
+    if missing:
+        raise PlatformError(f"{', '.join(missing)} {'has' if len(missing) == 1 else 'have'} no access to {product_id} to confirm")
+    if not projects:
+        return access_reviews(db, by)  # nothing confirmed: nothing to record
+    ensure_grant_reviews(db)
+    for project in sorted(set(projects)):
+        _upsert(db, "catalog", "grant_review", "id", {"id": f"{product_id}|{project}", "product_id": product_id,
+                                                      "project": project, "reviewed_by": _who(by), "reviewed_at": _now()})
+    _audit(db, by, "confirm access", product_id, {"projects": sorted(set(projects))})
+    db.commit()
+    return access_reviews(db, by)
 
 
 # --------------------------------------------------------------------------- shortcuts
@@ -2187,6 +2630,7 @@ OPERATIONS = {
     "import_fabric_domains": import_fabric_domains,
     "register_project": register_project, "list_projects": list_projects, "register_product": register_product,
     "list_products": list_products, "resolve_port": resolve_port, "register_link": register_link,
+    "product_history": product_history,
     "save_enrichment": save_enrichment, "enrichment": enrichment, "list_glossary": list_glossary,
     "save_term": save_term, "audit": audit, "log_workload_action": log_workload_action,
     "whoami": whoami, "list_admins": list_admins, "claim_admin": claim_admin, "add_admin": add_admin,
@@ -2203,6 +2647,10 @@ OPERATIONS = {
     "withdraw_shortcut_risk": withdraw_shortcut_risk,
     "product_trust": product_trust, "record_endorsements": record_endorsements,
     "add_product_term": add_product_term, "remove_product_term": remove_product_term,
+    "note_seen": note_seen, "owner_coverage": owner_coverage,
+    "access_reviews": access_reviews, "confirm_access": confirm_access,
     "follow_product": follow_product, "unfollow_product": unfollow_product, "list_follows": list_follows,
     "product_followers": product_followers,
+    "entra_group_naming": entra_group_naming, "save_entra_group_naming": save_entra_group_naming,
+    "list_entra_groups": list_entra_groups, "link_entra_group": link_entra_group, "unlink_entra_group": unlink_entra_group,
 }

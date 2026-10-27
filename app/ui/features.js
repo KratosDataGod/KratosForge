@@ -45,6 +45,7 @@ const PREVIEW_FEATURES = {
   fabricEdit: "Edit Fabric notebooks on this PC",
   wizard: "New notebook wizard",
   deps: "Cell dependencies",
+  practices: "Notebook best practices",
   debug: "Breakpoints, variable history and watches",
   replay: "Failure replay bundles",
   inputs: "Parameters and widgets bar",
@@ -102,6 +103,7 @@ const PREVIEW_FEATURES = {
   trustBadges: "Endorsement and business terms",
   warehouse: "Warehouse queries",
   sqlResultViews: "Messages and Chart on the SQL page",
+  sqlPractices: "SQL best practices",
   bestPractices: "Best practices: checks and templates",
   updateBanner: "New build banner",
 };

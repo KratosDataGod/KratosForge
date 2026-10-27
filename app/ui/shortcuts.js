@@ -567,7 +567,7 @@ async function renderShortcuts() {
           needs.length ? needs.map((n) => h("div", { class: "sc-item sc-need" }, h("div", {}, h("b", {}, n.title), h("div", { class: "muted-text small" }, n.detail)), action(n)))
             : h("p", { class: "muted-text" }, "Nothing needs a shortcut change.")),
         h("div", { class: "card pad" }, h("b", {}, "One request system"),
-          h("p", { class: "small" }, "Shortcut requests are the platform's requests, next to key tables, sources and product access. They show here and on Platform > Requests. Approving one makes the shortcut as the person approving, then marks it approved."))));
+          h("p", { class: "small" }, "Shortcut requests are the platform's requests, next to key tables, sources and product access. They show here and on Data mesh > Requests. Approving one makes the shortcut as the person approving, then marks it approved."))));
   }
 
   drawViews(); draw();
@@ -773,7 +773,7 @@ async function shortcutDialog(mode, opts = {}) {
     }
     if (mode === "request" || verdict.blocked.length) {
       const res = await attempt(() => rpc("shortcut_request", { ...common, where: whereTo(), name: name.value.trim(), reason: reason.value.trim() }), "Request not sent");
-      if (res) done(`Asked for shortcut ${name.value.trim()}. It shows on Shortcuts > Requests and Platform > Requests.`);
+      if (res) done(`Asked for shortcut ${name.value.trim()}. It shows on Shortcuts > Requests and Data mesh > Requests.`);
       return;
     }
     const rows = await attempt(() => rpc("create_shortcut", { ...common, where: whereTo(), name: name.value.trim() }), "Shortcut not created");

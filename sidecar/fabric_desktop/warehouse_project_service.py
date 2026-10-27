@@ -46,6 +46,10 @@ MAX_OBJECTS = 5000            # objects in one import
 MAX_DEPTH = 6                 # folders below the project folder
 FIND_DEPTH = 4                # folders below a repository's root where projects are looked for
 KINDS = ("schema", "table", "view", "procedure", "function")
+# Schemas Fabric makes and keeps itself in a warehouse: never the project's, so Import, Compare and
+# Deploy leave them out (#807). The page leaves them out too (WH_FABRIC_SCHEMAS in whproject.js).
+FABRIC_SCHEMAS = {"queryinsights", "_rsc", "sys", "information_schema"}
+FABRIC_OWN = "Fabric makes and keeps this schema itself, so it isn't part of the project."
 FOLDERS = {"table": "Tables", "view": "Views", "procedure": "StoredProcedures", "function": "Functions"}
 SKIP_DIRS = {"bin", "obj", "node_modules"}
 PLATFORM_SCHEMA = "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json"
@@ -388,6 +392,8 @@ class WarehouseProjectMixin:
             try:
                 if kind not in KINDS or not name or (kind != "schema" and not schema):
                     raise ValueError("It isn't a table, view, procedure, function or schema with a name.")
+                if (schema or name).lower() in FABRIC_SCHEMAS:
+                    raise ValueError(FABRIC_OWN)
                 if len(text.encode("utf-8")) > MAX_FILE:
                     raise ValueError(f"Its script is larger than {MAX_FILE // 1024} KB.")
                 rel = where.get(_key(kind, schema, name))
@@ -445,6 +451,9 @@ class WarehouseProjectMixin:
             if not obj:
                 unread.append({"path": rel, "why": "It doesn't create a table, view, procedure, function or schema."})
                 continue
+            if obj["schema"].lower() in FABRIC_SCHEMAS:
+                unread.append({"path": rel, "why": FABRIC_OWN})
+                continue
             key = _key(obj["kind"], obj["schema"], obj["name"])
             if key in mine:
                 unread.append({"path": rel, "why": f"{obj['schema']}.{obj['name']} is also defined in {mine[key]['path']}."})
@@ -453,7 +462,7 @@ class WarehouseProjectMixin:
         theirs = {}
         for o in objects:
             kind, schema, name = str(o.get("kind") or ""), str(o.get("schema") or ""), str(o.get("name") or "")
-            if kind in KINDS and name and (schema or kind == "schema"):
+            if kind in KINDS and name and (schema or kind == "schema") and (schema or name).lower() not in FABRIC_SCHEMAS:
                 theirs[_key(kind, schema or name, name)] = {"kind": kind, "schema": schema or name, "name": name,
                                                             "text": str(o.get("text") or "")}
         rows = warehouse_compare.compare(mine, theirs)

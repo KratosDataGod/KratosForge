@@ -61,6 +61,10 @@ Wrong numbers in a report, a dashboard nobody can open, a source a team says is 
 
 **Report a problem** in the account menu is different: it reports a problem with the KratosForge app itself.
 
+## Who's affected (Preview)
+
+For an incident about a metadata table, the incident page lists the published data products whose ports carry that table in the environment, the projects linked to them, and who to tell (owners, people who linked a project, followers). **Tell them** posts one `incident.impact` notice through the platform's Teams routes, naming only the people you confirm, and a note on the incident records who was told. Details in the [user guide](user-guide.md#whos-affected-preview).
+
 ## Where incidents are kept
 
 There will be two choices, set by IT:
@@ -76,7 +80,7 @@ KratosForge doesn't try to be a full service desk: change management, problem re
 | --- | --- | --- |
 | 1 | Numbers, priorities, SLA targets, the timeline and reported incidents, in the engine | Released (no screens yet) |
 | 1b | Every incident change copied to the central KratosForge lakehouse, kept for good | This release |
-| 2 | Screens: the list with number, priority and SLA, the incident page with its timeline and what to do, **Report an incident** | Planned |
+| 2 | Screens: the list with number, priority and SLA, the incident page with its timeline and what to do, **Report an incident** | Partly released: the list and the incident page with Who's affected; numbers, priorities and SLAs aren't shown yet |
 | 3 | Incidents and requests that need you in the bell; Teams or email delivery | Planned |
 | 4 | Full history and reports: time to acknowledge, time to resolve, SLAs met | Planned |
 | 5 | Your service desk: ServiceNow, Jira Service Management or another tool | Planned |

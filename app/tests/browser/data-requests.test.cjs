@@ -38,7 +38,7 @@ after(async () => { if (app) await app.close(); });
 const waitFor = async (list) => { for (let i = 0; i < 50 && !list.length; i++) await page().waitForTimeout(20); };
 
 test("a data request row says what is asked for and by when, and the owner accepts it with a reply", { skip }, async () => {
-  await page().evaluate(() => { state.user = "bo@contoso.com"; goPlatform("requests"); });
+  await page().evaluate(() => { state.user = "bo@contoso.com"; meshRequests.show = "all"; goPlatform("requests"); });
   await page().waitForSelector('tr[data-request="d1"]');
   assert.match(await page().textContent('tr[data-request="d1"]'), /Data.*New data product from Sales.*Needed by 2026-11-30.*for ledger.*Churn by region/s);
   assert.match(await page().textContent('tr[data-request="d2"]'), /Change to c360.*Add a region column/s);

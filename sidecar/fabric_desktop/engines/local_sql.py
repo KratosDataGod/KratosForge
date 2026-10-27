@@ -222,7 +222,7 @@ def _databricks(code: str) -> list[Any]:
         raise ValueError(f"Could not read the query: {exc}") from None
     if not statements:
         raise ValueError("The query is empty.")
-    return [sql.spark_substring(sql._spark_dates(sql._spark_names(s))) for s in statements]
+    return [sql.spark_fixes(s) for s in statements]
 
 
 class DuckDBSession(_SqlSession):

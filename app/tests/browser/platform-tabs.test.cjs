@@ -36,7 +36,8 @@ test("four tabs: requests are on Data mesh now, and the old link opens them ther
   await page().waitForFunction(() => state.view === "metadata" && state.meta.tab === "requests");
   await page().evaluate(() => goPlatform("requests"));
   await page().waitForFunction(() => state.view === "metadata" && state.meta.tab === "requests");
-  await page().evaluate(() => { asked.length = 0; goPlatform("overview"); });
+  asked.length = 0;
+  await page().evaluate(() => goPlatform("overview"));
   await page().waitForSelector(".plat-stats");
 });
 

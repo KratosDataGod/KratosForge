@@ -1379,7 +1379,7 @@ test("engine messages point to Data mesh and Platform tabs that exist", () => {
   const mesh = new Set();
   for (const [, group, tabs] of groups) for (const [, tab] of tabs) mesh.add(`${group} > ${tab}`);
   const plat = new Set(platform.map(([, label]) => label));
-  // A page behind the Set up or Govern menu is named with its menu: "Platform > Set up > Business keys".
+  // A page on the Set up or Govern tab is named with its tab: "Platform > Set up > Business keys".
   const bar = vm.runInNewContext(`${/const PLATFORM_TAB_BAR = \[[\s\S]*?\n\];/.exec(read("platform.js"))[0].replace("const ", "")}; PLATFORM_TAB_BAR`);
   const engine = path.join(__dirname, "..", "..", "sidecar", "fabric_desktop");
   const files = [];

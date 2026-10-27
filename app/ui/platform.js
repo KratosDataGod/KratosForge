@@ -8,8 +8,8 @@ const PLATFORM_TABS = [
   ["overview", "Overview"], ["landing", "Landing zone"], ["keys", "Business keys"],
   ["glossary", "Glossary"], ["governance", "Governance"], ["audit", "Audit"], ["settings", "Settings"],
 ];
-// The tab bar (Cleaner KratosForge): four tabs, with the set-up screens and the governance screens each
-// behind one menu. Every tab above is still a page of its own, so "Platform > Business keys" still works.
+// The tab bar: four tabs, the way Data mesh groups its pages. Set up and Govern each hold several pages,
+// picked on the view row's switcher. Every tab above is still a page of its own, so "Platform > Business keys" still works.
 const PLATFORM_TAB_BAR = [
   ["overview", "Overview"],
   ["setup", "Set up", ["landing", "keys", "glossary"]],
@@ -58,7 +58,7 @@ async function renderPlatform() {
   setView(h("div", { class: "page" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Platform ", previewTag()), who)),
     platformTabBar(),
-    h("div", { class: "row mesh-view-row" }, perEnv ? envSeg : null, h("span", { class: "spacer" }), btn("Refresh", "sync", () => render(), "tool outline")),
+    h("div", { class: "row mesh-view-row" }, platformGroupSeg(), perEnv ? envSeg : null, h("span", { class: "spacer" }), btn("Refresh", "sync", () => render(), "tool outline")),
     body));
   p.me = await attempt(() => rpc("platform_whoami"), "Could not reach the platform");
   // Owner coverage's last-used date, only where policy turns on platform_presence; the engine notes it in the background.
@@ -77,22 +77,29 @@ async function renderPlatform() {
   await (tabs[p.tab] || platformOverviewTab)(body);
 }
 
+function platformOpen(id) {
+  if (id === "governance") govPage.open = null;
+  goPlatform(id);
+}
+
+function platformGroup() {
+  return PLATFORM_TAB_BAR.find(([id, , items]) => items ? items.includes(platformPage.tab) : id === platformPage.tab) || PLATFORM_TAB_BAR[0];
+}
+
 function platformTabBar() {
-  const p = platformPage;
+  const [here] = platformGroup();
+  return h("div", { class: "subtabs" }, PLATFORM_TAB_BAR.map(([id, text, items]) =>
+    h("button", { class: `tab${here === id ? " active" : ""}`, "aria-current": here === id ? "page" : null,
+      onclick: () => platformOpen(items ? items[0] : id) }, text)));
+}
+
+// A tab with several pages picks them on the view row, as Data mesh does.
+function platformGroupSeg() {
+  const [, text, items] = platformGroup();
+  if (!items) return null;
   const label = (id) => PLATFORM_TABS.find(([t]) => t === id)[1];
-  const open = (id) => { if (id === "governance") govPage.open = null; goPlatform(id); };
-  return h("div", { class: "subtabs" }, PLATFORM_TAB_BAR.map(([id, text, items]) => {
-    if (!items) {
-      return h("button", { class: `tab${p.tab === id ? " active" : ""}`, "aria-current": p.tab === id ? "page" : null,
-        onclick: () => open(id) }, text);
-    }
-    // A menu tab names the page it's on, so where you are is never hidden behind the menu.
-    const here = items.includes(p.tab);
-    const b = h("button", { class: `tab tab-menu${here ? " active" : ""}`, "aria-current": here ? "page" : null, "aria-haspopup": "menu",
-      onclick: () => showMenu(b, items.map((t) => ({ label: label(t), action: () => open(t) }))) },
-    text, here ? h("span", { class: "tab-here" }, `: ${label(p.tab)}`) : null, icon("chevronDown", 14));
-    return b;
-  }));
+  return h("div", { class: "seg platform-pages", role: "group", "aria-label": text }, items.map((id) =>
+    h("button", { class: platformPage.tab === id ? "on" : null, "aria-pressed": String(platformPage.tab === id), onclick: () => platformOpen(id) }, label(id))));
 }
 
 async function claimAdmin() {

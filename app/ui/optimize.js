@@ -28,6 +28,7 @@ async function renderOptimize() {
     h("div", { class: "page-head" }, h("div", {},
       h("h1", {}, "Optimize ", previewTag()), band,
       pageIntro("What your Fabric estate could do better, what was fixed and what it could save, shared with everyone on your optimization lakehouse. ",
+        "One lakehouse holds what every installation finds, fixes and saves, and your organization usually needs only one. Nothing here waits for it. ",
         learnMore("optimize-preview"))), actions),
     h("div", { class: "subtabs", role: "tablist", "aria-label": "Optimize views" }, OPTIMIZE_TABS.map(([id, label]) =>
       h("button", { class: `tab${optimizePage.tab === id ? " active" : ""}`, role: "tab", "aria-selected": optimizePage.tab === id ? "true" : "false",
@@ -69,7 +70,7 @@ function optimizeBand(status) {
   if (!status.allowed) return [["Shared optimization lakehouses are turned off by your organization. Cost and savings still shows this PC's figures."], []];
   const c = status.active;
   if (!c) {
-    return [["Results from this PC only. Share results with your team: one lakehouse holds what every installation finds, fixes and saves, and your organization usually needs only one. Nothing here waits for it."],
+    return [["Results from this PC only · not shared with your team yet"],
       [btn("Connect to a lakehouse", null, () => optimizeConnectFlow(), "tool outline"),
         btn("Create a lakehouse", "add", () => optimizeCreateFlow(), "tool primary")]];
   }

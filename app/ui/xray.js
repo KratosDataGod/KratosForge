@@ -310,7 +310,8 @@ async function stagingDialog(f, box, res) {
   const row = (k, v) => h("tr", {}, h("th", {}, k), h("td", {}, v));
   body.replaceChildren(
     h("p", { class: "text" }, p.ok
-      ? `${p.lakehouse_name} looks left over: ${p.kept} in the same workspace is newer, and nothing has been written to it for ${p.quiet_days} days or more.`
+      ? `${p.lakehouse_name} looks left over: ${p.kept} in the same workspace is newer, nothing has been written to it for ${p.quiet_days} days or more, `
+        + "and every dataflow in the workspace has refreshed since without writing to it."
       : `${p.lakehouse_name} stays. Nothing will be deleted:`),
     p.ok ? "" : h("ul", { class: "reason" }, p.why.map((w) => h("li", {}, w))),
     h("table", { class: "list compact" }, h("tbody", {},
@@ -318,9 +319,13 @@ async function stagingDialog(f, box, res) {
       row("Made", p.created ? when(p.created) : "Not known"),
       row("Last written", p.last_write ? when(p.last_write) : p.files === 0 ? "Never: it's empty" : "Not known"),
       row("Holds", p.files == null ? "Not known" : `${p.files.toLocaleString()} file${p.files === 1 ? "" : "s"}, ${bytesText(p.bytes)}`),
-      row("Kept", p.kept ? `${p.kept} (the newest, always kept)` : "None"))),
+      row("Kept", p.kept ? `${p.kept} (the newest, always kept)` : "None"),
+      row("Dataflows", (p.dataflows || []).length ? h("div", {}, p.dataflows.map((d) => h("div", {},
+        d.ok ? "✓ " : "✗ ", h("b", {}, d.name), h("span", { class: "muted-text small" },
+          d.names_it ? " names it" : d.last_refresh ? ` refreshed ${relTime(d.last_refresh)}` : " no completed refresh"))))
+        : "None found"))),
     h("p", { class: "muted-text small" }, "Fabric doesn't say which staging lakehouse a dataflow uses, so the newest is always kept, "
-      + "and an older one is offered only when nothing has been written to it lately. Only this lakehouse is deleted."));
+      + "and an older one goes only when every dataflow's refreshes and definition show it doesn't stage there. Only this lakehouse is deleted."));
   removeBtn.disabled = !p.ok;
 }
 

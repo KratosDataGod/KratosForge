@@ -22,10 +22,14 @@ const RESULT = { scanned: "2026-10-26T10:00:00Z", workspaces: 1, lakehouses: 4, 
   findings: [finding("a", OLD), finding("b", MID)], lakehouse_rows: [] };
 const PREVIEW = {
   a: { ok: true, why: [], lakehouse_name: OLD, created: "2026-09-26T14:43:05+00:00", kept: NEW, files: 214, bytes: 48.2 * 1024 ** 2,
-       last_write: "2026-09-26T15:01:12+00:00", quiet_days: 30, allowed: true },
+       last_write: "2026-09-26T15:01:12+00:00", quiet_days: 30, allowed: true,
+       dataflows: [{ name: "Sales load", item_id: "d1", names_it: false, ok: true, last_refresh: new Date(Date.now() - 86400e3).toISOString() },
+                   { name: "Customers", item_id: "d2", names_it: false, ok: true, last_refresh: new Date(Date.now() - 2 * 86400e3).toISOString() }] },
   b: { ok: false, lakehouse_name: MID, created: "2026-09-26T15:27:59+00:00", kept: NEW, files: 12, bytes: 3.1 * 1024 ** 2,
        last_write: new Date(Date.now() - 3 * 86400e3).toISOString(), quiet_days: 30, allowed: true,
-       why: ["Something was written to it 3 days ago, less than 30 days, so a dataflow may still be using it."] },
+       dataflows: [{ name: "Finance quarterly", item_id: "d3", names_it: false, ok: false, last_refresh: "2026-08-01T06:00:00+00:00" }],
+       why: ["Something was written to it 3 days ago, less than 30 days, so a dataflow may still be using it.",
+             "Finance quarterly last refreshed before the lakehouse was last written, so it may stage there."] },
 };
 
 const apps = [];
@@ -71,6 +75,7 @@ test("Remove shows what it holds, then deletes only after the red confirm with d
   await page.locator(`${card} .xray-item`, { hasText: OLD }).getByRole("button", { name: "Remove" }).click();
   await page.waitForSelector(".dialog table");
   assert.match(await page.textContent(".dialog"), /214 files, 48\.2 MB/);
+  assert.match(await page.textContent(".dialog"), /✓ Sales load refreshed/);
   assert.deepStrictEqual(calls.map((c) => c[0]), ["preview"], "it deleted before the confirm");
   await shot(page, "2-preview", ".dialog");
   await page.getByRole("button", { name: "Remove..." }).click();

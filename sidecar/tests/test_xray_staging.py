@@ -1,6 +1,7 @@
 """Leftover Dataflow Gen2 staging lakehouses in the Estate X-ray: found by the scan, checked again
 live before Remove, and the newest one in a workspace never offered. Fabric and OneLake are faked."""
 
+import base64
 import datetime as dt
 
 import pytest
@@ -52,6 +53,23 @@ class Fabric:
     def delete_lakehouse(self, ws, lid):
         self.deleted.append((ws, lid))
 
+    # Dataflows: df1 refreshed yesterday and names nothing; tests change FLOWS to try the rest.
+    flows = None
+
+    def list_items(self, ws):
+        return [{"id": k, "type": "Dataflow", "displayName": v["name"]} for k, v in (self.flows or {}).items()] + [
+            {"id": "g", "type": "Lakehouse", "displayName": "LH_Gold"}]
+
+    def get_item_definition(self, ws, item):
+        text = self.flows[item].get("definition", '{"queries": []}')
+        if text is None:
+            raise RuntimeError("legacy dataflow")
+        return {"definition": {"parts": [{"path": "queryMetadata.json", "payload": base64.b64encode(text.encode()).decode(),
+                                          "payloadType": "InlineBase64"}]}}
+
+    def list_job_instances(self, ws, item):
+        return self.flows[item].get("jobs", [])
+
 
 def test_scan_reads_no_staging_tables_and_lists_the_leftovers():
     read = []
@@ -87,9 +105,13 @@ def svc(tmp_path, monkeypatch):
             assert recursive
             return [e for e in contents[lh] if e["path"].startswith(directory)]
     monkeypatch.setattr(xs, "FileStore", Files)
+    flows = {"df1": {"name": "Sales load", "jobs": [{"status": "Completed", "startTimeUtc": ago(1)},
+                                                   {"status": "Failed", "startTimeUtc": ago(0)}]}}
+    monkeypatch.setattr(Fabric, "flows", flows)
     monkeypatch.setattr(xs, "FabricClient", lambda _t: Fabric(deleted))
     monkeypatch.setattr(Service, "auth", property(lambda self: type("A", (), {"storage_token": lambda _s: "s",
                                                                              "fabric_token": lambda _s: "f"})()), raising=False)
+    s.flows, s.ago = flows, ago
     return s, deleted, broken
 
 
@@ -143,3 +165,27 @@ def test_policy_can_turn_removing_off(svc, monkeypatch):
         s.xray_remove_staging("ws", "a", OLD)
     assert deleted == []
     assert app_settings.RESTRICTED["allow_staging_cleanup"] is False
+
+
+def test_every_dataflow_must_show_it_does_not_stage_there(svc):
+    s, deleted, _ = svc
+    p = s.xray_staging_preview("ws", "a")
+    assert p["ok"] and p["dataflows"] == [{"name": "Sales load", "item_id": "df1", "last_refresh": p["dataflows"][0]["last_refresh"],
+                                           "names_it": False, "ok": True}]
+    cases = {
+        "names it": {"name": "Named", "definition": '{"stagingLakehouseId": "A"}', "jobs": [{"status": "Completed", "startTimeUtc": s.ago(1)}]},
+        "quarterly": {"name": "Quarterly", "jobs": [{"status": "Completed", "startTimeUtc": s.ago(60)}]},
+        "never ran": {"name": "New", "jobs": [{"status": "Failed", "startTimeUtc": s.ago(1)}]},
+        "legacy": {"name": "Old", "definition": None},
+    }
+    for label, flow in cases.items():
+        s.flows["df2"] = flow
+        p = s.xray_staging_preview("ws", "a")
+        assert not p["ok"], label
+        assert flow["name"] in p["why"][-1], (label, p["why"])
+        with pytest.raises(ValueError, match="wasn't deleted"):
+            s.xray_remove_staging("ws", "a", OLD)
+    s.flows.clear()
+    p = s.xray_staging_preview("ws", "a")
+    assert not p["ok"] and "lists no Dataflow Gen2" in p["why"][-1]
+    assert deleted == []

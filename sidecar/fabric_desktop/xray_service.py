@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
 import json
 import logging
@@ -344,7 +345,8 @@ class XRayMixin:
         """Whether one staging lakehouse can be removed, read live from Fabric and OneLake (never
         from the scan): it must still exist with a staging name, a newer staging lakehouse must
         exist in the same workspace, and nothing may have been written to its Tables or Files for
-        STAGING_QUIET_DAYS. Anything that can't be read keeps it. Read only."""
+        STAGING_QUIET_DAYS, and every dataflow in the workspace must show it doesn't stage there
+        (_staging_dataflows). Anything that can't be read keeps it. Read only."""
         now = dt.datetime.now(dt.timezone.utc)
         group = [{"workspace_id": workspace_id, "workspace_name": "", "lakehouse_id": lh["id"], "lakehouse_name": lh["displayName"]}
                  for lh in FabricClient(self.auth.fabric_token).list_lakehouses(workspace_id)]  # type: ignore[attr-defined]
@@ -383,10 +385,61 @@ class XRayMixin:
                               else f"It was made {idle} day{'s' if idle != 1 else ''} ago" if idle is not None
                               else "When it was last written isn't known")
             out["why"][-1] += f", less than {xray.STAGING_QUIET_DAYS} days, so a dataflow may still be using it."
+        out["dataflows"] = self._staging_dataflows(workspace_id, lakehouse_id, name, _when(last), out["why"])
         if not out["allowed"]:
             out["why"].append("Your organization turned off removing staging lakehouses (allow_staging_cleanup in its policy file).")
         out["ok"] = not out["why"]
         return out
+
+    def _staging_dataflows(self, workspace_id: str, lakehouse_id: str, name: str, last_write: dt.datetime | None,
+                           why: list[str]) -> list[dict[str, Any]]:
+        """The proof that no dataflow in the workspace stages in this lakehouse: every dataflow has
+        a completed refresh that started after the lakehouse was last written (so a dataflow staging
+        there would have written to it since), and no dataflow's definition names it. Fabric doesn't
+        say which staging lakehouse a dataflow uses, so a dataflow that can't be shown not to use it
+        (never refreshed, history gone, definition unreadable) keeps it. Adds the reasons to ``why``;
+        returns one row per dataflow. Read only: getDefinition is a POST but changes nothing."""
+        fabric = FabricClient(self.auth.fabric_token)  # type: ignore[attr-defined]
+        try:
+            flows = [it for it in fabric.list_items(workspace_id) if it.get("type") == "Dataflow"]
+        except Exception as exc:  # noqa: BLE001 - not knowing the dataflows keeps it
+            why.append(f"The workspace's dataflows couldn't be listed ({describe(exc)}), so whether one stages in it isn't known.")
+            return []
+        if not flows:
+            why.append("Fabric lists no Dataflow Gen2 items in this workspace, and older dataflows aren't listed by its API, "
+                       "so whether one stages in it isn't known.")
+            return []
+        if last_write is None:
+            why.append("When it was last written isn't known, so refreshes can't show it's unused.")
+        rows = []
+        for flow in flows:
+            row = {"name": flow.get("displayName") or "", "item_id": flow.get("id") or "", "last_refresh": None,
+                   "names_it": None, "ok": False}
+            rows.append(row)
+            try:
+                text = _definition_text(fabric.get_item_definition(workspace_id, row["item_id"]))
+                row["names_it"] = any(re.search(rf"(?<![\w-]){re.escape(word)}(?![\w-])", text, re.IGNORECASE)
+                                      for word in (lakehouse_id, name))
+            except Exception as exc:  # noqa: BLE001 - an unread definition might name it
+                why.append(f"The definition of {row['name']} couldn't be read ({describe(exc)}).")
+                continue
+            if row["names_it"]:
+                why.append(f"The definition of {row['name']} names it.")
+                continue
+            try:
+                done = [j for j in fabric.list_job_instances(workspace_id, row["item_id"]) if j.get("status") == "Completed"]
+            except Exception as exc:  # noqa: BLE001 - no history: no proof
+                why.append(f"The refreshes of {row['name']} couldn't be read ({describe(exc)}).")
+                continue
+            started = max((t for t in (_when(j.get("startTimeUtc")) for j in done) if t), default=None)
+            row["last_refresh"] = started.isoformat(timespec="seconds") if started else None
+            if started is None:
+                why.append(f"{row['name']} has no completed refresh Fabric still lists, so it may stage there when it next runs.")
+            elif last_write is not None and started < last_write + STAGING_MARGIN:
+                why.append(f"{row['name']} last refreshed before the lakehouse was last written, so it may stage there.")
+            else:
+                row["ok"] = last_write is not None
+        return rows
 
     def xray_staging_preview(self, workspace_id: str, lakehouse_id: str) -> dict[str, Any]:
         """What removing one leftover staging lakehouse would delete, and anything that stops it."""
@@ -478,6 +531,37 @@ class XRayMixin:
 
 def _table_schema(table: DeltaTable) -> pl.Schema:
     return pl.from_arrow(pa.schema(table.schema().to_arrow()).empty_table()).schema  # type: ignore[union-attr]
+
+
+STAGING_MARGIN = dt.timedelta(hours=1)  # a refresh must start this long after the last write: clocks differ
+
+
+def _when(iso: Any) -> dt.datetime | None:
+    """An ISO time as UTC, or None."""
+    if not iso:
+        return None
+    try:
+        t = dt.datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)
+
+
+def _definition_text(definition: dict[str, Any]) -> str:
+    """Every part of an item definition, decoded, as one text to search. A definition with no
+    parts is unreadable, not proof of anything."""
+    parts = (definition.get("definition") or definition).get("parts") or []
+    out = []
+    for part in parts:
+        payload = part.get("payload") or ""
+        try:
+            out.append(base64.b64decode(payload).decode("utf-8", "replace") if part.get("payloadType", "InlineBase64") == "InlineBase64" else str(payload))
+        except ValueError:
+            out.append(str(payload))
+        out.append(str(part.get("path") or ""))
+    if not parts:
+        raise ValueError("Fabric returned no definition parts")
+    return "\n".join(out)
 
 
 def _finding_id(f: dict[str, Any]) -> str:

@@ -123,7 +123,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Dependencies:** none
 - **Owner:** Master product (unassigned) (FD-111 (analyzer is separate, PB-014))
 - **Mandatory (required):** Wrong-answer defects in local execution undermine the core promise and the rule that local results are never claimed equivalent without proof.
-- **Pull requests:** [#410](https://github.com/KratosDataGod/KratosForge/pull/410), [#692](https://github.com/KratosDataGod/KratosForge/pull/692)
+- **Pull requests:** [#410](https://github.com/KratosDataGod/KratosForge/pull/410), [#692](https://github.com/KratosDataGod/KratosForge/pull/692), [#762](https://github.com/KratosDataGod/KratosForge/pull/762), [#771](https://github.com/KratosDataGod/KratosForge/pull/771)
 - **Implementation package:** [pr-ready/PB-013.md](pr-ready/PB-013.md)
 - **Acceptance criteria:**
     - compute_check reports a variableLibrary notebook as able to run on the PC
@@ -347,7 +347,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Dependencies:** [PB-024](#pb-024), [PB-025](#pb-025), Decision D1 warehouse writes (Chris), Decision D3 live read query (Chris), Phases 3-5 need Chris's go
 - **Owner:** Build full warehouse development experience (WH-01..21, SF-01..06)
 - **Merged duplicates:** Absorbs PB-020 local warehouse simulation and the SQL sprint's SQL-004/005 screens
-- **Pull requests:** [#636](https://github.com/KratosDataGod/KratosForge/pull/636), [#637](https://github.com/KratosDataGod/KratosForge/pull/637), [#638](https://github.com/KratosDataGod/KratosForge/pull/638), [#639](https://github.com/KratosDataGod/KratosForge/pull/639), [#641](https://github.com/KratosDataGod/KratosForge/pull/641), [#645](https://github.com/KratosDataGod/KratosForge/pull/645), [#660](https://github.com/KratosDataGod/KratosForge/pull/660), [#662](https://github.com/KratosDataGod/KratosForge/pull/662), [#723](https://github.com/KratosDataGod/KratosForge/pull/723), [#727](https://github.com/KratosDataGod/KratosForge/pull/727), [#728](https://github.com/KratosDataGod/KratosForge/pull/728), [#729](https://github.com/KratosDataGod/KratosForge/pull/729), [#730](https://github.com/KratosDataGod/KratosForge/pull/730), [#731](https://github.com/KratosDataGod/KratosForge/pull/731)
+- **Pull requests:** [#636](https://github.com/KratosDataGod/KratosForge/pull/636), [#637](https://github.com/KratosDataGod/KratosForge/pull/637), [#638](https://github.com/KratosDataGod/KratosForge/pull/638), [#639](https://github.com/KratosDataGod/KratosForge/pull/639), [#641](https://github.com/KratosDataGod/KratosForge/pull/641), [#645](https://github.com/KratosDataGod/KratosForge/pull/645), [#660](https://github.com/KratosDataGod/KratosForge/pull/660), [#662](https://github.com/KratosDataGod/KratosForge/pull/662), [#723](https://github.com/KratosDataGod/KratosForge/pull/723), [#727](https://github.com/KratosDataGod/KratosForge/pull/727), [#728](https://github.com/KratosDataGod/KratosForge/pull/728), [#729](https://github.com/KratosDataGod/KratosForge/pull/729), [#730](https://github.com/KratosDataGod/KratosForge/pull/730), [#731](https://github.com/KratosDataGod/KratosForge/pull/731), [#743](https://github.com/KratosDataGod/KratosForge/pull/743), [#745](https://github.com/KratosDataGod/KratosForge/pull/745), [#747](https://github.com/KratosDataGod/KratosForge/pull/747), [#774](https://github.com/KratosDataGod/KratosForge/pull/774), [#783](https://github.com/KratosDataGod/KratosForge/pull/783), [#787](https://github.com/KratosDataGod/KratosForge/pull/787)
 - **Acceptance criteria:**
     - As defined in WH-01..21 by its owning thread
 
@@ -498,7 +498,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-ORC-08](FEATURE_INVENTORY.md#feat-orc-08)
 - **Dependencies:** [PB-035](#pb-035), [PB-036](#pb-036)
 - **Owner:** Local Fabric pipeline execution (ORCH-003, ORCH-004..010)
-- **Pull requests:** [#218](https://github.com/KratosDataGod/KratosForge/pull/218), [#319](https://github.com/KratosDataGod/KratosForge/pull/319), [#559](https://github.com/KratosDataGod/KratosForge/pull/559), [#563](https://github.com/KratosDataGod/KratosForge/pull/563), [#568](https://github.com/KratosDataGod/KratosForge/pull/568), [#578](https://github.com/KratosDataGod/KratosForge/pull/578), [#579](https://github.com/KratosDataGod/KratosForge/pull/579)
+- **Pull requests:** [#218](https://github.com/KratosDataGod/KratosForge/pull/218), [#319](https://github.com/KratosDataGod/KratosForge/pull/319), [#559](https://github.com/KratosDataGod/KratosForge/pull/559), [#563](https://github.com/KratosDataGod/KratosForge/pull/563), [#568](https://github.com/KratosDataGod/KratosForge/pull/568), [#578](https://github.com/KratosDataGod/KratosForge/pull/578), [#579](https://github.com/KratosDataGod/KratosForge/pull/579), [#791](https://github.com/KratosDataGod/KratosForge/pull/791)
 - **Acceptance criteria:**
     - As defined in ORCH-003 by its owning thread
 
@@ -573,7 +573,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Dependencies:** [PB-037](#pb-037), Chris reacts to the Data Factory mockup before any UI, Plan decision 3 (real exports)
 - **Owner:** Build full Data Factory experience (DF-1..10, Pipelines P5-P11)
 - **Merged duplicates:** Absorbs PB-030 (Copy job scope after D2) and the pipeline-authoring half of PB-035
-- **Pull requests:** [#640](https://github.com/KratosDataGod/KratosForge/pull/640), [#653](https://github.com/KratosDataGod/KratosForge/pull/653), [#665](https://github.com/KratosDataGod/KratosForge/pull/665), [#666](https://github.com/KratosDataGod/KratosForge/pull/666), [#667](https://github.com/KratosDataGod/KratosForge/pull/667), [#668](https://github.com/KratosDataGod/KratosForge/pull/668), [#669](https://github.com/KratosDataGod/KratosForge/pull/669), [#700](https://github.com/KratosDataGod/KratosForge/pull/700), [#709](https://github.com/KratosDataGod/KratosForge/pull/709), [#714](https://github.com/KratosDataGod/KratosForge/pull/714), [#724](https://github.com/KratosDataGod/KratosForge/pull/724), [#732](https://github.com/KratosDataGod/KratosForge/pull/732), [#735](https://github.com/KratosDataGod/KratosForge/pull/735), [#736](https://github.com/KratosDataGod/KratosForge/pull/736), [#737](https://github.com/KratosDataGod/KratosForge/pull/737), [#739](https://github.com/KratosDataGod/KratosForge/pull/739), [#740](https://github.com/KratosDataGod/KratosForge/pull/740), [#741](https://github.com/KratosDataGod/KratosForge/pull/741)
+- **Pull requests:** [#640](https://github.com/KratosDataGod/KratosForge/pull/640), [#653](https://github.com/KratosDataGod/KratosForge/pull/653), [#665](https://github.com/KratosDataGod/KratosForge/pull/665), [#666](https://github.com/KratosDataGod/KratosForge/pull/666), [#667](https://github.com/KratosDataGod/KratosForge/pull/667), [#668](https://github.com/KratosDataGod/KratosForge/pull/668), [#669](https://github.com/KratosDataGod/KratosForge/pull/669), [#700](https://github.com/KratosDataGod/KratosForge/pull/700), [#709](https://github.com/KratosDataGod/KratosForge/pull/709), [#714](https://github.com/KratosDataGod/KratosForge/pull/714), [#724](https://github.com/KratosDataGod/KratosForge/pull/724), [#732](https://github.com/KratosDataGod/KratosForge/pull/732), [#735](https://github.com/KratosDataGod/KratosForge/pull/735), [#736](https://github.com/KratosDataGod/KratosForge/pull/736), [#737](https://github.com/KratosDataGod/KratosForge/pull/737), [#739](https://github.com/KratosDataGod/KratosForge/pull/739), [#740](https://github.com/KratosDataGod/KratosForge/pull/740), [#741](https://github.com/KratosDataGod/KratosForge/pull/741), [#746](https://github.com/KratosDataGod/KratosForge/pull/746)
 - **Acceptance criteria:**
     - As defined in DF-1..10 by its owning thread
 
@@ -689,7 +689,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-META-19](FEATURE_INVENTORY.md#feat-meta-19), [FEAT-META-13](FEATURE_INVENTORY.md#feat-meta-13)
 - **Dependencies:** Chris reacts to the mockup, Chris decides whether Import may create new models
 - **Owner:** TMDL and OSI semantic model conversion (model_ossie_*)
-- **Pull requests:** [#599](https://github.com/KratosDataGod/KratosForge/pull/599), [#681](https://github.com/KratosDataGod/KratosForge/pull/681), [#716](https://github.com/KratosDataGod/KratosForge/pull/716)
+- **Pull requests:** [#599](https://github.com/KratosDataGod/KratosForge/pull/599), [#681](https://github.com/KratosDataGod/KratosForge/pull/681), [#716](https://github.com/KratosDataGod/KratosForge/pull/716), [#758](https://github.com/KratosDataGod/KratosForge/pull/758), [#777](https://github.com/KratosDataGod/KratosForge/pull/777)
 - **Acceptance criteria:**
     - Export, preview and import from the Semantic model tab with a confirm; Save TMDL to Git
 
@@ -774,7 +774,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-084](#pb-084) | One late-table alert, not two | P2 | Workload management | S | In review |
 | [PB-108](#pb-108) | Best-practice checks and governance templates | P1 | Enterprise governance foundation | L | Accepted |
 | [PB-111](#pb-111) | Check now covers SQL scripts and scheduled notebooks | P2 | Enterprise governance foundation | S | Proposed |
-| [PB-112](#pb-112) | Semantic model best-practice checks in governance policies | P2 | Best Practice Analyzer | M | Proposed |
+| [PB-112](#pb-112) | Semantic model best-practice checks in governance policies | P2 | Best Practice Analyzer | M | In review |
 
 ### PB-056
 
@@ -915,15 +915,15 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-112
 
-**Semantic model best-practice checks in governance policies** · P2 (score 1.8) · M · confidence Medium · Proposed
+**Semantic model best-practice checks in governance policies** · P2 (score 1.8) · M · confidence Medium · In review
 
 - **Problem:** No semantic model checker is registered, so a policy can't name Best Practice Analyzer rules and Check now can't run them.
 - **Proposed capability:** The BPA engine (#560) registers through governance_checks.register with runs_in="fabric"; Check now says those checks run in Fabric and use capacity, and stores their findings with store_fabric_findings.
-- **Current-state evidence:** PB-108 implementation review, finding 1 (docs/product/reviews/PB-108-643.md); #560 is an open draft
+- **Current-state evidence:** PB-108 implementation review, finding 1 (docs/product/reviews/PB-108-643.md); #560 is an open draft; PR #753 registers SM001-SM007 so a policy can name them; they read the model on this PC, so no capacity is used, unlike the criterion's Fabric run (BPA #560 is still a draft)
 - **Inventory features:** [FEAT-GOV-09](FEATURE_INVENTORY.md#feat-gov-09), [FEAT-META-13](FEATURE_INVENTORY.md#feat-meta-13)
 - **Dependencies:** [PB-108](#pb-108), Chris pastes the BPA cell error from the 2026-10-23 live run
 - **Owner:** Best Practice Analyzer (#560 model_bpa)
-- **Pull requests:** [#560](https://github.com/KratosDataGod/KratosForge/pull/560)
+- **Pull requests:** [#560](https://github.com/KratosDataGod/KratosForge/pull/560), [#753](https://github.com/KratosDataGod/KratosForge/pull/753)
 - **Acceptance criteria:**
     - A policy can name semantic model rules; Check now says they run in Fabric and use capacity before running them
 
@@ -1067,7 +1067,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Dependencies:** Theme (Chris's unit testing, 2026-10-18, items 9, 12, 13, 17, 18, 20): best-practice actions and in-app guidance on every page (item 18 routed to this thread)
 - **Owner:** UX and simplicity oversight (UX-001..021, PR-UX-13)
 - **Merged duplicates:** Overlaps PB-063, PB-072, PB-077, PB-078, PB-086 and PB-099 (noted on each item)
-- **Pull requests:** [#684](https://github.com/KratosDataGod/KratosForge/pull/684), [#699](https://github.com/KratosDataGod/KratosForge/pull/699), [#702](https://github.com/KratosDataGod/KratosForge/pull/702), [#703](https://github.com/KratosDataGod/KratosForge/pull/703), [#704](https://github.com/KratosDataGod/KratosForge/pull/704), [#705](https://github.com/KratosDataGod/KratosForge/pull/705), [#719](https://github.com/KratosDataGod/KratosForge/pull/719)
+- **Pull requests:** [#684](https://github.com/KratosDataGod/KratosForge/pull/684), [#699](https://github.com/KratosDataGod/KratosForge/pull/699), [#702](https://github.com/KratosDataGod/KratosForge/pull/702), [#703](https://github.com/KratosDataGod/KratosForge/pull/703), [#704](https://github.com/KratosDataGod/KratosForge/pull/704), [#705](https://github.com/KratosDataGod/KratosForge/pull/705), [#719](https://github.com/KratosDataGod/KratosForge/pull/719), [#747](https://github.com/KratosDataGod/KratosForge/pull/747), [#769](https://github.com/KratosDataGod/KratosForge/pull/769)
 - **Acceptance criteria:**
     - As defined in UX-001..021 by its owning thread
     - Routed items follow the owner named in docs/ux/backlog.md
@@ -1082,7 +1082,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-SHL-04](FEATURE_INVENTORY.md#feat-shl-04)
 - **Dependencies:** [PB-102](#pb-102)
 - **Owner:** Action-first experience (AF-1..AF-5)
-- **Pull requests:** [#722](https://github.com/KratosDataGod/KratosForge/pull/722)
+- **Pull requests:** [#722](https://github.com/KratosDataGod/KratosForge/pull/722), [#760](https://github.com/KratosDataGod/KratosForge/pull/760), [#776](https://github.com/KratosDataGod/KratosForge/pull/776)
 - **Acceptance criteria:**
     - As defined in AF-1..AF-5 by its owning thread
 
@@ -1331,7 +1331,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-EXT-01](FEATURE_INVENTORY.md#feat-ext-01), [FEAT-EXT-02](FEATURE_INVENTORY.md#feat-ext-02), [FEAT-EXT-06](FEATURE_INVENTORY.md#feat-ext-06), [FEAT-NB-17](FEATURE_INVENTORY.md#feat-nb-17)
 - **Dependencies:** Chris decides paired-editor runs without per-run approval, .vsix first then Marketplace (publisher account is Chris-only), DuckDB extension later
 - **Owner:** Bring VS Code developers to KratosForge (VS phases 0-4)
-- **Pull requests:** [#650](https://github.com/KratosDataGod/KratosForge/pull/650), [#652](https://github.com/KratosDataGod/KratosForge/pull/652), [#670](https://github.com/KratosDataGod/KratosForge/pull/670), [#695](https://github.com/KratosDataGod/KratosForge/pull/695), [#710](https://github.com/KratosDataGod/KratosForge/pull/710), [#712](https://github.com/KratosDataGod/KratosForge/pull/712)
+- **Pull requests:** [#650](https://github.com/KratosDataGod/KratosForge/pull/650), [#652](https://github.com/KratosDataGod/KratosForge/pull/652), [#670](https://github.com/KratosDataGod/KratosForge/pull/670), [#695](https://github.com/KratosDataGod/KratosForge/pull/695), [#710](https://github.com/KratosDataGod/KratosForge/pull/710), [#712](https://github.com/KratosDataGod/KratosForge/pull/712), [#742](https://github.com/KratosDataGod/KratosForge/pull/742), [#754](https://github.com/KratosDataGod/KratosForge/pull/754)
 - **Acceptance criteria:**
     - As defined in the thread's phases 0-4
 
@@ -1517,7 +1517,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Owner:** Codebase audit and hardening (HD-001..057)
 - **Mandatory (blocker):** HD-001..009 fix data-loss, security and update-integrity defects; AGENTS.md requires protecting OneLake data and update provenance.
 - **Merged duplicates:** Overlaps PB-001, PB-002, PB-003, PB-005..PB-008, PB-010, PB-042, PB-051, PB-064..PB-066, PB-068, PB-071, PB-073, PB-074 and others (noted on each item)
-- **Pull requests:** [#593](https://github.com/KratosDataGod/KratosForge/pull/593), [#618](https://github.com/KratosDataGod/KratosForge/pull/618), [#619](https://github.com/KratosDataGod/KratosForge/pull/619), [#621](https://github.com/KratosDataGod/KratosForge/pull/621), [#623](https://github.com/KratosDataGod/KratosForge/pull/623), [#624](https://github.com/KratosDataGod/KratosForge/pull/624), [#626](https://github.com/KratosDataGod/KratosForge/pull/626), [#659](https://github.com/KratosDataGod/KratosForge/pull/659), [#674](https://github.com/KratosDataGod/KratosForge/pull/674), [#676](https://github.com/KratosDataGod/KratosForge/pull/676), [#679](https://github.com/KratosDataGod/KratosForge/pull/679), [#689](https://github.com/KratosDataGod/KratosForge/pull/689), [#691](https://github.com/KratosDataGod/KratosForge/pull/691), [#698](https://github.com/KratosDataGod/KratosForge/pull/698), [#708](https://github.com/KratosDataGod/KratosForge/pull/708), [#715](https://github.com/KratosDataGod/KratosForge/pull/715), [#717](https://github.com/KratosDataGod/KratosForge/pull/717), [#721](https://github.com/KratosDataGod/KratosForge/pull/721)
+- **Pull requests:** [#593](https://github.com/KratosDataGod/KratosForge/pull/593), [#618](https://github.com/KratosDataGod/KratosForge/pull/618), [#619](https://github.com/KratosDataGod/KratosForge/pull/619), [#621](https://github.com/KratosDataGod/KratosForge/pull/621), [#623](https://github.com/KratosDataGod/KratosForge/pull/623), [#624](https://github.com/KratosDataGod/KratosForge/pull/624), [#626](https://github.com/KratosDataGod/KratosForge/pull/626), [#659](https://github.com/KratosDataGod/KratosForge/pull/659), [#674](https://github.com/KratosDataGod/KratosForge/pull/674), [#676](https://github.com/KratosDataGod/KratosForge/pull/676), [#679](https://github.com/KratosDataGod/KratosForge/pull/679), [#689](https://github.com/KratosDataGod/KratosForge/pull/689), [#691](https://github.com/KratosDataGod/KratosForge/pull/691), [#698](https://github.com/KratosDataGod/KratosForge/pull/698), [#708](https://github.com/KratosDataGod/KratosForge/pull/708), [#715](https://github.com/KratosDataGod/KratosForge/pull/715), [#717](https://github.com/KratosDataGod/KratosForge/pull/717), [#721](https://github.com/KratosDataGod/KratosForge/pull/721), [#757](https://github.com/KratosDataGod/KratosForge/pull/757), [#768](https://github.com/KratosDataGod/KratosForge/pull/768), [#786](https://github.com/KratosDataGod/KratosForge/pull/786)
 - **Acceptance criteria:**
     - As defined in HD-001..057 by its owning thread
     - Overlapping items here follow the owner named in that backlog
@@ -1713,7 +1713,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Owner:** Engineering quality review (QA-001..030, PR-QA-01..14)
 - **Mandatory (blocker):** QA-001 (Critical) and QA-002 lose data while reporting success; AGENTS.md requires protecting OneLake data. The quality review's release decision for main is FAIL on QA-001.
 - **Merged duplicates:** Overlaps the hardening and UX backlogs where docs/quality/ cites HD- or UX- ids; those owners keep them
-- **Pull requests:** [#585](https://github.com/KratosDataGod/KratosForge/pull/585), [#616](https://github.com/KratosDataGod/KratosForge/pull/616), [#661](https://github.com/KratosDataGod/KratosForge/pull/661), [#680](https://github.com/KratosDataGod/KratosForge/pull/680), [#711](https://github.com/KratosDataGod/KratosForge/pull/711), [#733](https://github.com/KratosDataGod/KratosForge/pull/733), [#738](https://github.com/KratosDataGod/KratosForge/pull/738)
+- **Pull requests:** [#585](https://github.com/KratosDataGod/KratosForge/pull/585), [#616](https://github.com/KratosDataGod/KratosForge/pull/616), [#661](https://github.com/KratosDataGod/KratosForge/pull/661), [#680](https://github.com/KratosDataGod/KratosForge/pull/680), [#711](https://github.com/KratosDataGod/KratosForge/pull/711), [#733](https://github.com/KratosDataGod/KratosForge/pull/733), [#738](https://github.com/KratosDataGod/KratosForge/pull/738), [#766](https://github.com/KratosDataGod/KratosForge/pull/766), [#775](https://github.com/KratosDataGod/KratosForge/pull/775), [#778](https://github.com/KratosDataGod/KratosForge/pull/778), [#781](https://github.com/KratosDataGod/KratosForge/pull/781), [#784](https://github.com/KratosDataGod/KratosForge/pull/784)
 - **Acceptance criteria:**
     - As defined in QA-001..030 and PR-QA-01..14 by its owning thread
     - Routed items follow the owner named in docs/quality/remediation.md

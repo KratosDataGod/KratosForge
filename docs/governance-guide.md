@@ -90,7 +90,7 @@ Your standard: every published data product in Sales loads within 6 hours, recor
 
 2. **Edit draft**: set `within_hours` to `6`, then **Publish** and **Assign** it to the Sales domain.
 3. Open a Sales project and choose **Check this project** > **Check now**. Each published product is checked: when it last loaded (from the run logs), the row count that load recorded, and its business terms (from the platform's catalog). A product that hasn't loaded yet shows **!** with why, never a pass.
-4. The product's page (OneLake > Data products) now shows its **Checklist** from this policy: **Fresh within 6 h**, alongside owner and steward, description, business terms and endorsement.
+4. The product's page (Data mesh > Products) now shows its **Checklist** from this policy: **Fresh within 6 h**, alongside owner and steward, description, business terms and endorsement.
 5. Happy with it? On the policy's page, **Save as template** keeps your version (`sales-contract-template`, tagged **Yours**) so other domains can start from it.
 
 Template changes are recorded in `catalog.policy_template` and **Platform > Audit**; **Use** writes only a policy draft.
@@ -138,9 +138,11 @@ With a platform Teams route set (**Settings > Notifications**), KratosForge post
 | It is approved or declined | `request.decided` | Whoever asked |
 | It is withdrawn | `request.withdrawn` | Platform admins and the product's owners |
 | A health check on **Shortcuts > Health** finds a shortcut broken, or fixed again | `shortcut.broken`, `shortcut.fixed` | Platform admins |
+| A data product is published as deprecated, or with a new `deprecated_on` (see [Data mesh](data-mesh.md#data-products)) | `product.deprecated` | The teams of the projects that link to it, and whoever saved each link |
+
 | Someone presses **Tell them** under **Who's affected** on an incident page ([user guide](user-guide.md#whos-affected-preview)) | `incident.impact` | The owners of the data products built on the incident's table, people who linked a project to them, and followers |
-| A promote to Prod deprecates a data product, changes its version, or adds, removes or retypes a port's columns (Preview) | `product.changed` | The product's followers and whoever linked a project to it. The message says what changed |
+| A promote to Prod deprecates a data product, changes its version, or adds, removes or retypes a port's columns (Preview) | `product.changed` | The product's followers and whoever linked a project to it. The message says what changed; a deprecation already sent as `product.deprecated` isn't repeated |
 
 - **Only what the channel may read.** A message names the request or shortcut and where to open it in the app. A request's reason and detail stay in the app. People are named by UPN. Anything that looks like a secret, a webhook address among them, is masked before it's stored or posted.
-- **Once each.** A request waiting, or a shortcut that stays broken, is posted once. A fix is posted only after its break was.
+- **Once each.** A request waiting, or a shortcut that stays broken, is posted once. A fix is posted only after its break was. A deprecation is posted once per date.
 - **Never in the way.** The request or check is made first. If the notice can't be sent, the change still stands and the app says the notice wasn't sent. Messages Teams doesn't take wait in the outbox and go out later.

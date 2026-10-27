@@ -21,7 +21,7 @@ from typing import Any
 from xml.sax.saxutils import escape
 
 from .fabric_run import WEEKDAYS, describe_schedule, schedule_configuration
-from .jsonfile import read_json, write_json
+from .jsonfile import read_json, read_text, write_json
 
 TASK_FOLDER = "FabricDesktop"
 RUNS_FILE = "schedule_runs.jsonl"
@@ -228,6 +228,16 @@ class LocalSchedules:
                 at = dt.datetime.fromtimestamp(path.stat().st_mtime, dt.timezone.utc)
             out.append({"file": path.name, "path": str(path), "at": at.isoformat(timespec="seconds")})
         return sorted(out, key=lambda x: x["at"], reverse=True)
+
+    def notebooks(self) -> set[str]:
+        """The notebooks an enabled schedule on this PC runs. Only reads: a torn file raises ValueError
+        and is left where it is."""
+        try:
+            data = json.loads(read_text(self.file))
+        except FileNotFoundError:
+            return set()
+        return {str(s["target"].get("name") or "") for s in data.get("schedules") or []
+                if s.get("enabled", True) and (s.get("target") or {}).get("kind") == "notebook"} - {""}
 
     def get(self, schedule_id: str) -> dict[str, Any]:
         found = next((s for s in self._load()["schedules"] if s["id"] == schedule_id), None)

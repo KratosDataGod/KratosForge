@@ -18,7 +18,7 @@ const IMPACT = { available: true, project: "sales", entity: "silver.orders", env
     { id: "sales/returns", name: "returns", owner: "", domain_id: "sales", status: "published", ports: ["all"], consumers: [] }],
   consumers: [{ project: "finance", alias: "orders", product_id: "sales/orders", port: "daily", linked_by: "ana@contoso.com" }],
   people: [{ upn: "ana@contoso.com", why: ["linked finance to sales/orders"] }, { upn: "olu@contoso.com", why: ["owns sales/orders"] }],
-  unreachable: ["sales team"] };
+  unreachable: ["sales team"], followers_hidden: ["sales/returns"] };
 
 before(async () => {
   if (skip) return;
@@ -46,6 +46,7 @@ test("the incident page shows who the incident reaches and tells them after a co
   assert.match(text, /No project links to it yet/);
   assert.match(text, /ana@contoso\.com · linked finance to sales\/orders/);
   assert.match(text, /Not an email, so not in the message: sales team/);
+  assert.match(text, /Followers of returns aren't listed or told: only a product's owner or a platform admin can see who follows it/);
   await card.getByRole("button", { name: "Tell them", exact: true }).click();
   const dialog = page().locator(".dialog, [role=dialog]").last();
   assert.match(await dialog.innerText(), /Tell 2 people about Orders late\?[\s\S]*naming ana@contoso\.com, olu@contoso\.com/);

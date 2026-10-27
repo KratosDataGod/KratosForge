@@ -13,6 +13,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import re
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +26,7 @@ from ..meta import mesh
 from ..meta.project import ENVIRONMENTS, GateError
 from ..onelake import FileStore, TableRef
 from ..redact import describe
-from . import core, keys_home
+from . import core, home, keys_home
 from . import setup as setup_mod
 from .client import FabricPlatform, LocalPlatform, PlatformKeys
 from .core import domain_id
@@ -35,6 +36,14 @@ from .requests_service import call_or_repair
 _log = logging.getLogger(__name__)
 
 CATALOG_ENV = "prod"  # domains, glossary and catalog text don't depend on the environment: they live in Prod's
+
+
+def _unknown_argument(exc: Exception) -> bool:
+    """Whether register_link was refused for naming accepts or columns, as a function older than
+    versioned contracts does. The catalog's own accepts refusal is checked on this PC first, so it
+    never gets here; any other refusal is real and is raised."""
+    message = str(exc)
+    return ("accepts" in message or "columns" in message) and "accepts is a version" not in message
 
 
 class PlatformMixin:
@@ -446,6 +455,35 @@ class PlatformMixin:
         me = self._catalog().call("whoami")
         return me | {"signed_in": bool(self._user()), "catalog_env": CATALOG_ENV}
 
+    def platform_note_seen(self) -> dict[str, Any]:
+        """Tell the platform this person used it today (owner coverage), once a day per app run, in the
+        background so the Platform page never waits on it. Only when the organization's policy turns on
+        platform_presence: it records each person's last-used date where anyone who reads the catalog sees it."""
+        user, today = self._user(), dt.date.today().isoformat()
+        if not app_settings.value("platform_presence"):
+            return {"noted": False, "reason": "off"}
+        if not user or getattr(self, "_seen_noted", None) == (user, today):
+            return {"noted": False, "reason": "already"}
+        self._seen_noted = (user, today)
+        threading.Thread(target=self._note_seen, args=(user,), daemon=True, name="note-seen").start()
+        return {"noted": True}
+
+    def _note_seen(self, user: str) -> None:
+        try:
+            self._catalog().call("note_seen")
+        except Exception as exc:  # noqa: BLE001 - only owner coverage's last-seen date depends on it; never in the way
+            _log.info("Couldn't note that %s used the platform: %s", user, describe(exc))
+
+    def platform_owner_coverage(self) -> dict[str, Any]:
+        """Domains, data products and sources without an owner, without a second owner, or whose owner
+        hasn't used the platform lately. Only reads."""
+        try:
+            return call_or_repair(self._catalog(), "owner_coverage", "check owners",
+                                  presence=bool(app_settings.value("platform_presence")))
+        except LookupError as exc:
+            return {"available": False, "problem": str(exc), "gaps": [], "checked": 0, "covered": 0, "no_owner": 0,
+                    "quiet_days": core.QUIET_DAYS}
+
     def platform_admins(self) -> list[dict[str, Any]]:
         return self._catalog().call("list_admins")
 
@@ -795,6 +833,19 @@ class PlatformMixin:
     def platform_revoke(self, product_id: str, project: str) -> list[dict[str, Any]]:
         return self._catalog().call("revoke_grant", product_id=product_id, project=project)
 
+    def platform_access_reviews(self) -> dict[str, Any]:
+        """The grants you review: your products', or all of them for a platform admin. Only reads.
+        A platform older than access reviews says so instead of failing the page."""
+        try:
+            return call_or_repair(self._catalog(), "access_reviews", "review access")
+        except LookupError as exc:
+            return {"available": False, "problem": str(exc), "grants": [], "due": 0, "every_days": core.REVIEW_DAYS}
+
+    def platform_confirm_access(self, product_id: str, projects: list[str]) -> dict[str, Any]:
+        """Confirm these projects still need access to the product. Writes catalog.grant_review."""
+        return call_or_repair(self._catalog(), "confirm_access", "review access", product_id=product_id,
+                              projects=list(projects or []))
+
     def platform_overview(self, env: str = "dev") -> dict[str, Any]:
         """The central team's home: counts, what needs a decision, the landing zone and each
         environment's platform."""
@@ -823,6 +874,56 @@ class PlatformMixin:
                            "requests": len(requests)},
                 "needs_you": [r for r in requests if r.get("can_decide")], "mine": [r for r in requests if r.get("mine")],
                 "landing": landing, "recent": catalog.call("audit", limit=8), "problems": problems}
+
+    def mesh_home(self, view: str = "team") -> dict[str, Any]:
+        """Data mesh > Home for one of its three views (central/home.py): ``team``, ``oncall`` or
+        ``org``. Only reads: the catalog, the open project's incident lists and, on call, the
+        landing zone. A source that can't be read is named in ``problems`` and its part is left out."""
+        if view not in home.VIEWS:
+            raise ValueError(f"view is one of {', '.join(home.VIEWS)}")
+        catalog, problems = self._catalog(), []
+
+        def read(what: str, fn: Any) -> Any:
+            try:
+                return fn()
+            except Exception as exc:  # noqa: BLE001 - Home shows what it could read and names the rest
+                problems.append(f"{what}: {describe(exc)}")
+                return None
+
+        try:
+            products = catalog.call("list_products")
+            me = catalog.call("whoami")
+        except Exception as exc:  # noqa: BLE001 - without the catalog there is no mesh to show
+            return {"view": view, "problem": describe(exc)}
+        try:
+            project = mesh.identity(self._project())  # type: ignore[attr-defined]
+        except LookupError:
+            project = None
+        incidents = []
+        if project is not None:
+            summary = read("Incidents", self.incidents_summary) or {"envs": []}  # type: ignore[attr-defined]
+            incidents = [i for e in summary["envs"] for i in e["incidents"]]
+            problems += [f"Incidents in {e['env']}: {e['observation'].get('detail') or e['observation'].get('label')}"
+                         for e in summary["envs"] if e["count"] is None and e["observation"].get("state") != "not_set_up"]
+        reach = home.incident_reach(products, incidents)
+        reviews = (read("Access reviews", lambda: catalog.call("access_reviews"))
+                   if "access_reviews" in core.OPERATIONS else None)
+        out: dict[str, Any] = {"view": view, "me": me, "project": project, "incidents_read": project is not None}
+        if view == "team":
+            requests = read("Requests", lambda: catalog.call("list_requests")) or []
+            follows = read("Following", lambda: catalog.call("list_follows"))
+            out["team"] = home.team(me.get("user") or "", project, products, requests, follows, reviews, reach)
+        elif view == "oncall":
+            landing = read("Landing zone", lambda: self.platform_landing("prod"))
+            shortcuts = read("Shortcuts", lambda: catalog.call("list_seen_shortcuts"))
+            coverage = (read("Owners", self.platform_owner_coverage)  # type: ignore[attr-defined]
+                        if "owner_coverage" in core.OPERATIONS else None)
+            out["oncall"] = home.oncall(reach, landing, shortcuts, coverage)
+        else:
+            domains = read("Domains", lambda: catalog.call("list_domains")) or []
+            requests = read("Requests", lambda: catalog.call("list_requests", status="waiting")) or []
+            out["org"] = home.org(domains, products, requests, reviews, reach, dt.datetime.now(dt.timezone.utc))
+        return out | {"problems": problems}
 
     def mesh_map(self) -> dict[str, Any]:
         """The whole mesh for Home's map: domains and subdomains, the projects in each, their
@@ -976,42 +1077,137 @@ class PlatformMixin:
 
     def mesh_publish(self, env: str) -> dict[str, Any]:
         """Record every published product's ports, with where they live in ``env``, in the catalog.
-        Promote does this; it can be run by hand after changing a product."""
+        Promote does this; it can be run by hand after changing a product. A product published as
+        deprecated for the first time, or with a new date, tells the projects that read it in Teams;
+        that notice never fails the publish."""
         project = self._project()  # type: ignore[attr-defined]
-        saved = self._catalog().call("enrichment", project=mesh.project_name(project))
+        catalog = self._catalog()
+        saved = catalog.call("enrichment", project=mesh.project_name(project))
         problems = mesh.publish_problems(project, saved)
         if problems:
             raise GateError("promote", problems)
         name = mesh.project_name(project)
-        done, unsent = [], []
+        before = self._published_before(catalog, project)
+        done, problems, events, tell = [], [], [], []
+        old_function = False
         for p in project.products.values():
             if p.status == "draft":
                 continue
             ports = [{"port": port["name"], **self._port_location(project, env, port["entity"])} for port in p.ports]
             info = p.summary() | {"project": name, "domain": project.info.get("domain", "")}
-            out = self._catalog().call("register_product", product=info, ports=ports, env=env)
+            out = catalog.call("register_product", product=info, ports=ports, env=env)
             done.append(p.name)
-            if env == "prod" and out.get("changes"):
-                # Readers hear about Prod, the environment their own projects read.
-                problem = self._governance_notify(  # type: ignore[attr-defined]
-                    lambda out=out: [e for e in [notices.product_changed(out, out["changes"], out.get("followers") or [], env)] if e])
-                if problem:
-                    unsent.append(problem)
-        return {"env": env, "published": done, **({"problems": unsent} if unsent else {})}
+            # The port history came with versioned contracts: an older UDF_Platform publishes without it.
+            old_function = old_function or not (isinstance(out, dict) and "history" in out)
+            told: set[str] = set()  # the people the deprecation notice names
+            if p.status == "deprecated":
+                if before is None:
+                    problems.append(f"products/{p.name} is deprecated, but the catalog's readers couldn't be read, so "
+                                    "no Teams notice went to them. Publish again to try once more.")
+                else:
+                    was = before.get(f"{name}/{p.name}")
+                    stops = str(info.get("deprecated_on") or "")
+                    if was and (was.get("status") != "deprecated" or str(was.get("deprecated_on") or "") != stops):
+                        event = notices.product_deprecated(was | {"deprecated_on": stops, "domain_id": info["domain"]},
+                                                           was.get("consumers") or [])
+                        if event:
+                            told = {u.lower() for u in event["to"]["people"]}
+                            events.append(event)
+                            tell += [{"product": was["id"], "project": c["consumer_project"], "alias": c.get("alias", ""),
+                                      "deprecated_on": stops} for c in was.get("consumers") or []
+                                     if c.get("consumer_project") and c["consumer_project"] != name]
+            # Readers hear about changes in Prod, the environment their own projects read. People the
+            # deprecation notice just named don't hear about the deprecation twice; other followers do.
+            changes = (out.get("changes") or []) if isinstance(out, dict) else []
+            if env == "prod" and changes:
+                me = (self._user() or "").lower()  # type: ignore[attr-defined]
+                followers = [f for f in out.get("followers") or [] if f.lower() != me]  # the promoter knows
+                rest = [c for c in changes if not c.startswith("Deprecated")]
+                for people, said, suffix in (([f for f in followers if f.lower() not in told], changes, ""),
+                                             ([f for f in followers if f.lower() in told], rest, ":told")):
+                    event = notices.product_changed(out, said, people, env)
+                    if event:
+                        events.append(event | {"dedupe": event["dedupe"] + suffix})
+        if old_function:
+            problems.append("Published, but the catalog keeps no port history yet: UDF_Platform is older than "
+                            "versioned contracts. A platform admin runs Platform > Settings > Finish or repair once.")
+        if events:
+            problem = self._governance_notify(lambda: events)  # type: ignore[attr-defined]
+            if problem:
+                problems.append(problem)
+        # Who was told, and what didn't happen, only when there is something to say.
+        return {"env": env, "published": done} | ({"told": tell} if tell else {}) | ({"problems": problems} if problems else {})
+
+    def _published_before(self, catalog: Any, project: Any) -> dict[str, dict[str, Any]] | None:
+        """The catalog's products before a publish, read only when one of the project's is deprecated
+        (to tell its readers once); None when they can't be read."""
+        if not any(p.status == "deprecated" for p in project.products.values()):
+            return {}
+        try:
+            return {p["id"]: p for p in catalog.call("list_products")}
+        except Exception as exc:  # noqa: BLE001 - publishing doesn't need it; only the notice does, and says so
+            _log.info("Products not read before publishing: %s", describe(exc))
+            return None
 
     def mesh_save_link(self, link: dict[str, Any]) -> dict[str, Any]:
-        """Write metadata/links/<alias>.toml and tell the producer's catalog entry who reads it."""
+        """Write metadata/links/<alias>.toml and tell the producer's catalog entry who reads it, the
+        versions it accepts and the columns it relies on. A new link without ``accepts`` accepts the
+        product's current version, so a later breaking version doesn't reach it unnoticed."""
         project = self._project()  # type: ignore[attr-defined]
         reads = {env: (link.get("reads") or {}).get(env, env) for env in ENVIRONMENTS}
+        alias = link.get("alias", "")
+        accepts = str(link.get("accepts") or "").strip()
+        if accepts:
+            try:
+                mesh.parse_accepts(accepts)
+            except ValueError as exc:
+                raise GateError("save", [f"links/{alias}: {exc}"]) from None
+        elif alias not in project.links:
+            accepts = self._current_version(link.get("product", ""))
+        columns = {str(k): str(v) for k, v in (link.get("columns") or {}).items()}
+        problems = []
         if not link.get("pinned"):
-            self._catalog().call("register_link", consumer=mesh.project_name(project), alias=link.get("alias", ""),
-                                 product_id=link.get("product", ""), port=link.get("port", ""), reads=reads)
-        mesh.write_link(project.root, link | {"reads": reads})
+            problems += self._register_link(consumer=mesh.project_name(project), alias=alias,
+                                            product_id=link.get("product", ""), port=link.get("port", ""),
+                                            reads=reads, accepts=accepts, columns=columns)
+        mesh.write_link(project.root, link | {"reads": reads, "accepts": accepts})
         project.reload()
-        problems = [e for e in mesh.validate(project) if e.startswith(f"links/{link.get('alias')}")]
-        if problems:
-            raise GateError("save", problems)
-        return self.mesh_overview()
+        errors = [e for e in mesh.validate(project) if e.startswith(f"links/{alias}")]
+        if errors:
+            raise GateError("save", errors)
+        out = self.mesh_overview()
+        out["problems"] = out.get("problems", []) + problems
+        return out
+
+    def _current_version(self, product_id: str) -> str:
+        """The product's version in the catalog, for a new link's accepts; "" (any) when it can't be read."""
+        try:
+            found = next((p for p in self._catalog().call("list_products") if p["id"] == product_id), None)
+        except Exception as exc:  # noqa: BLE001 - the link still saves; it accepts any version, as links did before
+            _log.info("Product version not read for a new link: %s", describe(exc))
+            return ""
+        version = str((found or {}).get("version") or "").strip()
+        return version if version.isdigit() else ""
+
+    def _register_link(self, **kwargs: Any) -> list[str]:
+        """register_link with the link's accepts and columns. An older UDF_Platform has neither: if it
+        refuses the call, the link is registered without them, and the answer says what to run. If the
+        call fails again, that refusal is the real one and is raised."""
+        catalog = self._catalog()
+        repair = ("The link is saved, but the catalog doesn't keep the versions it accepts or the columns it "
+                  "relies on yet: UDF_Platform is older than versioned contracts. A platform admin runs "
+                  "Platform > Settings > Finish or repair once.")
+        extra = {k: kwargs.pop(k) for k in ("accepts", "columns")}
+        try:
+            out = catalog.call("register_link", **kwargs, **extra)
+        except core.PlatformError as exc:
+            if not _unknown_argument(exc):
+                raise  # the catalog's own refusal (deprecated, private, not published): never saved without it
+            _log.info("register_link with accepts and columns: %s", describe(exc))
+            catalog.call("register_link", **kwargs)
+            return [repair]
+        # A function that took the call but didn't know the new fields answers without them.
+        return [] if isinstance(out, dict) and "accepts" in out else [repair]
 
     def mesh_delete_link(self, alias: str) -> dict[str, Any]:
         project = self._project()  # type: ignore[attr-defined]

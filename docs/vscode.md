@@ -78,7 +78,7 @@ Opening a notebook in VS Code doesn't run anything. Cells you run in VS Code use
 
 ## Run cells from VS Code
 
-Preview. The KratosForge extension for VS Code, which picks this up in VS Code's kernel picker, is on its way; this is the app's side of it.
+Preview. This needs the KratosForge extension for VS Code, which adds **KratosForge · This PC** to VS Code's kernel picker. It isn't published yet: until a `.vsix` is released, build it from `vscode/` in the repository (`npm ci`, then `npx @vscode/vsce package`) and install it with **Extensions: Install from VSIX…**.
 
 1. In **Settings > Integrations > VS Code**, turn on **Let VS Code run notebooks**. It's off until you do, and your organization can keep it off (`integrations_editors` in the [policy file](azure-setup.md#4-push-settings-to-everyone)).
 2. In VS Code, pick KratosForge as the notebook's kernel. KratosForge asks **Let VS Code run notebooks on this PC?** with the window's folder and a pairing code. Check VS Code shows the same code, choose how long to keep the pairing, and **Pair this window**.
@@ -94,13 +94,14 @@ What a paired window can and can't do:
 | Read the tables the notebook's lakehouse has | Publish, Run in Fabric and Side by side are done in KratosForge, not from VS Code |
 | See the cell's output and the notebook's variables | |
 
-- A pairing is bound to the folder it paired from: that window can't reach a notebook outside it, even with its token.
+- A pairing is bound to the folder it paired from (the workspace folder holding the notebook, or the notebook's own folder): that window can't reach a notebook outside it, even with its token. A whole drive, or no folder, can't be paired.
 - A pairing lasts until KratosForge closes (kept in memory only), 8 hours or 7 days, as you choose. Settings lists paired windows; **End** stops one at once, and turning the switch off ends them all. When the organization sets `integrations_editors` to `false`, the next call from any window is refused, every pairing ends and the engine stops listening.
 - Every run, Stop, pairing and OneLake answer is in the [audit trail](user-guide.md#audit-trail).
+- HTML a cell displays is shown as it is in VS Code's notebook output, as Jupyter kernels' is; tables KratosForge renders are escaped.
 - AI tools such as Copilot never pair: they keep asking before every run ([External AI tools](user-guide.md#external-ai-tools)).
 - The OneLake question is a guard rail, not a security control. It covers KratosForge's own write paths in the cell's thread; code that starts its own threads or processes, or calls OneLake directly with your sign-in, isn't asked about. A cell runs as you, as your own cells here do. To stop VS Code running cells at all, turn the switch off, or set `integrations_editors` to `false` in the policy file: that is the control.
 
-How it connects: while the switch is on, the engine listens on `127.0.0.1` on a port it picks, and writes the port with a random value (the "hello") to `editor-port` in your data folder (`%LOCALAPPDATA%\FabricDesktop`). Asking to pair needs the hello, so only programs that can read your data folder can ask, and you still have to say yes. A paired window sends a token with every call; only a hash of the token is kept. Requests from a web page, or with a `Host` that isn't this PC's loopback address, are refused.
+How it connects: while the switch is on, the engine listens on `127.0.0.1` on a port it picks, and writes the port with a random value (the "hello") to `editor-port` in your data folder (`%LOCALAPPDATA%\FabricDesktop`). Asking to pair needs the hello, so only programs that can read your data folder can ask, and you still have to say yes. A paired window sends a token with every call; only a hash of the token is kept. Requests from a web page, or with a `Host` that isn't this PC's loopback address, are refused. Before the extension sends the hello or a token, it checks that whatever answers on that port knows the hello (it asks for an HMAC of a random value), so another user on a shared PC who takes the port after KratosForge stops gets nothing. The extension stays off in VS Code's Restricted Mode.
 
 ## What it reads and writes
 

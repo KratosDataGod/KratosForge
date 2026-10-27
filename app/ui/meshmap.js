@@ -92,6 +92,6 @@ function drawMeshMap(m) {
       h("span", { class: "mesh-product public" }, "Open to everyone"), h("span", { class: "mesh-product domain" }, "Its domain"),
       h("span", { class: "mesh-product private" }, "By request"),
       h("span", { class: "spacer" }),
-      btn("Data products", "cube", () => { catalogPage.tab = "products"; go("onelake"); }, "tool link small"),
+      btn("Data products", "cube", () => openProducts(), "tool link small"),
       btn("Domains", "building", () => goPlatform("domains"), "tool link small")));
 }

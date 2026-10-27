@@ -555,6 +555,9 @@ class MetaMixin:
         errors += self._product_gate(project)
         breaking, notes = self._breaking_gate(project, target)
         errors += breaking
+        deprecated, link_notes = self._deprecation_gate(project)
+        errors += deprecated
+        notes += link_notes
         git = release.status(project.root)
         unreleased, more = self._release_gate(project, target, git)
         errors += unreleased
@@ -571,6 +574,9 @@ class MetaMixin:
         errors += self._product_gate(project)
         breaking, notes = self._breaking_gate(project, target)
         errors += breaking
+        deprecated, link_notes = self._deprecation_gate(project)
+        errors += deprecated
+        notes += link_notes
         git = release.status(project.root)
         unreleased, release_notes = self._release_gate(project, target, git)
         errors += unreleased
@@ -597,8 +603,11 @@ class MetaMixin:
             result["release"]["notes"] = release_notes
         if project.products:
             try:  # so other teams' links find this environment's tables
-                result["products"] = self.mesh_publish(target)["published"]  # type: ignore[attr-defined]
-            except Exception as exc:  # the promote itself worked; publish again from Data mesh > Domains > Data products
+                published = self.mesh_publish(target)  # type: ignore[attr-defined]
+                result["products"] = published["published"]
+                if published.get("problems"):
+                    result["product_problems"] = published["problems"]
+            except Exception as exc:  # the promote itself worked; publish again from Data mesh > Products and links > Data products
                 result["products"] = f"not published: {exc}"
         if self._compute(project, target) == "fabric":  # type: ignore[attr-defined]
             try:  # so scheduled runs in Fabric pick up the promoted version
@@ -769,7 +778,18 @@ class MetaMixin:
             published = self._catalog().call("list_products")  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001 - the promote itself doesn't need the catalog
             return [], [f"couldn't check what other projects read ({exc}); check the products' consumers before promoting"]
-        return mesh.breaking_changes(project, published, target)
+        return mesh.breaking_changes(project, published, target, mesh.utc_today())
+
+    def _deprecation_gate(self, project: Project) -> tuple[list[str], list[str]]:
+        """A link to a product deprecated on a date that has come blocks the promote; one with a date
+        ahead is a note (mesh.deprecated_links). Runs aren't stopped. Unreachable catalog: a note."""
+        if not project.links:
+            return [], []
+        try:
+            published = self._catalog().call("list_products")  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001 - the promote itself doesn't need the catalog
+            return [], [f"couldn't check whether the products this project links to are deprecated ({exc})"]
+        return mesh.deprecated_links(project, published, mesh.utc_today())
 
     def _product_gate(self, project: Project) -> list[str]:
         """Products other teams read must be documented and owned before they move on."""

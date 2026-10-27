@@ -252,7 +252,7 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 - Enhancement: a transfer request (Platform requests, new kind) accepted by the new owner; history kept. Depends: 2B. Validation: U. Needs: none. PR: —
 
 **18. Team service catalog** · Enhance · Stage 7
-- Today: OneLake > Data products lists published products.
+- Today: Data mesh > Products lists published products.
 - Enhancement: support terms, onboarding requirements and owners per product or service. Depends: 11. Validation: U, UI. PR: —
 
 **19. Change subscriptions** · Missing · Stage 6

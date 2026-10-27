@@ -1,0 +1,32 @@
+{
+  "name": "kratosforge",
+  "displayName": "KratosForge",
+  "description": "Run Fabric notebooks on this PC in KratosForge, from VS Code's kernel picker.",
+  "version": "0.1.0",
+  "publisher": "kratosbi",
+  "private": true,
+  "license": "SEE LICENSE IN README.md",
+  "repository": { "type": "git", "url": "https://github.com/KratosDataGod/KratosForge" },
+  "engines": { "vscode": "^1.95.0" },
+  "categories": ["Notebooks", "Data Science"],
+  "keywords": ["fabric", "notebook", "lakehouse", "spark", "kratosforge"],
+  "capabilities": { "untrustedWorkspaces": { "supported": false } },
+  "activationEvents": ["onNotebook:jupyter-notebook"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "kratosforge.pair", "title": "Pair this window with KratosForge", "category": "KratosForge" },
+      { "command": "kratosforge.unpair", "title": "End this window's pairing", "category": "KratosForge" },
+      { "command": "kratosforge.openInApp", "title": "Open in KratosForge", "category": "KratosForge" }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "test": "tsc -p . && node --test test/*.test.cjs"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "@types/vscode": "1.95.0",
+    "typescript": "5.7.2"
+  }
+}

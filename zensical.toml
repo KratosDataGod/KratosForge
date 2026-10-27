@@ -71,6 +71,7 @@ nav = [
     { "Where to run a notebook" = "finops/placement-advice.md" },
     { "Optimize lakehouse" = "optimize/README.md" },
     { "Metadata framework" = "metadata-guide.md" },
+    { "Semantic model best practices" = "semantic-model-best-practices.md" },
     { "Source control" = "source-control.md" },
     { "Working across teams" = "teams.md" },
     { "The platform" = "platform.md" },
@@ -160,6 +161,14 @@ nav = [
       { "AI tool test checklist" = "product/ai-integration-client-checklist.md" },
     ] },
     { "UI guidelines" = "ui-guidelines.md" },
+    { "Visual identity" = [
+      { "Visual style guide" = "design/KRATOSFORGE_VISUAL_STYLE_GUIDE.md" },
+      { "Animation tiers" = "animation-style-guide.md" },
+      { "Animation events" = "design/animation-events.md" },
+      { "Wolf character sheet" = "design/wolf-character-sheet.md" },
+      { "Asset manifest" = "design/assets.md" },
+      { "Examples" = "design/examples.md" },
+    ] },
     { "UX and simplicity" = [
       { "Assessment" = "ux/README.md" },
       { "Scorecard" = "ux/scorecard.md" },

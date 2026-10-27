@@ -1065,4 +1065,4 @@ def test_a_product_change_notice_names_its_followers_and_what_changed():
     assert event["open"] == {"view": "onelake", "tab": "products", "target": "crm/c360"}
     title, lines = pn.message(event)
     assert title == "Data product changed: c360"
-    assert "Version 1 to 2" in lines and lines[-1] == "Open it in KratosForge > OneLake > Data products."
+    assert "Version 1 to 2" in lines and lines[-1] == "Open it in KratosForge > Data mesh > Products."

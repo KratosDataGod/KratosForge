@@ -318,7 +318,7 @@ async function openImpactProduct(id) {
   const out = await platformCall("platform_products", {}, "Could not read the catalog");
   const prod = out?.products.find((x) => x.id === id);
   if (!prod) return;
-  productsPage.open = prod; catalogPage.tab = "products"; go("onelake");
+  openProducts(prod);
 }
 
 function tellImpacted(inc, out, reload) {

@@ -38,7 +38,7 @@ _TITLES = {"request.waiting": "Waiting on you", "request.decided": "Decided", "r
            "product.deprecated": "Data product deprecated", "incident.impact": "Incident upstream of your data",
            "product.changed": "Data product changed"}
 _WHERE = {"requests": "Platform > Requests", "health": "Shortcuts > Health", "links": "Data mesh > Products and links > Links",
-          "detail": "Monitor > Incidents", "products": "OneLake > Data products"}
+          "detail": "Monitor > Incidents", "products": "Data mesh > Products"}
 
 
 def _strs(value: Any, name: str) -> list[str]:

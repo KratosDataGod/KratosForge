@@ -1,7 +1,7 @@
 // Best practices: checks and templates (Preview). Three places:
 //   Platform > Govern > Governance > Templates   reusable policy definitions: built in, or your organization's
 //   Platform > Govern > Governance > Check this project   Check now runs the open project's policies on this PC (warn only)
-//   OneLake > Data products > a product  its checklist, from the contract template it follows
+//   Data mesh > Products > a product  its checklist, from the contract template it follows
 // The platform (central/policy.py) decides who may add templates; the checks are governance_checks.py.
 
 const BP_CATEGORY = { naming: "Naming", schema: "Schema", quality: "Quality", classification: "Classification",
@@ -172,7 +172,7 @@ function bpFix(fix, recheck) {
       const out = await platformCall("platform_products", {}, "Could not read the catalog");
       const prod = out?.products.find((x) => x.id === fix.product_id);
       if (!prod) return;
-      productsPage.open = prod; catalogPage.tab = "products"; go("onelake");
+      openProducts(prod);
     }, "tool link small");
   }
   return null;
@@ -195,7 +195,7 @@ function labelDialog(fix, recheck) {
     }, "tool primary")]);
 }
 
-// ---------- a data product's checklist (OneLake > Data products > a product) ----------
+// ---------- a data product's checklist (Data mesh > Products > a product) ----------
 
 function productChecklistCard(p) {
   const card = h("div", { class: "card pad bp-checklist" }, h("b", {}, "Checklist"), loading());

@@ -44,14 +44,14 @@ function mhTeam(t) {
       btn("Decide", null, () => mhOpenRequests("waiting"), "tool outline small"))))
       : h("p", { class: "muted-text" }, "Nothing is waiting on you."),
     t.reviews_due ? h("p", {}, `${mhPlural(t.reviews_due, "grant")} to your products ${t.reviews_due === 1 ? "is" : "are"} due an access review. `,
-      btn("Review", null, () => { catalogPage.tab = "products"; productsPage.reviewDue = true; go("onelake"); }, "tool link small")) : null);
+      btn("Review", null, () => openProducts(null, { reviewDue: true }), "tool link small")) : null);
   const asks = mhCard("Your asks", previewShown() ? btn("Ask for data", null, () => newRequestDialog(null, "data"), "tool outline small") : null,
     t.asks.length ? h("ul", { class: "mh-list" }, t.asks.map((r) => h("li", {},
       h("span", { class: "grow" }, mhRequestText(r)),
       h("span", { class: `small ${r.status === "approved" ? "" : "muted-text"}` }, `${REQUEST_STATUS[r.status] || r.status} · ${relTime(r.decided_at || r.requested_at)}`))))
       : h("p", { class: "muted-text" }, "You haven't asked for anything yet."),
     btn("Everything you sent", null, () => mhOpenRequests("mine"), "tool link small"));
-  const products = mhCard("Your products", btn("All products", null, () => { catalogPage.tab = "products"; go("onelake"); }, "tool link small"),
+  const products = mhCard("Your products", btn("All products", null, () => openProducts(), "tool link small"),
     t.products.length ? h("table", { class: "list" },
       h("thead", {}, h("tr", {}, ["Product", "Readers", "Owners", "Needs"].map((c) => h("th", {}, c)))),
       h("tbody", {}, t.products.map(product)))

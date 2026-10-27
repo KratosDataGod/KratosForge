@@ -90,7 +90,7 @@ Your standard: every published data product in Sales loads within 6 hours, recor
 
 2. **Edit draft**: set `within_hours` to `6`, then **Publish** and **Assign** it to the Sales domain.
 3. Open a Sales project and choose **Check this project** > **Check now**. Each published product is checked: when it last loaded (from the run logs), the row count that load recorded, and its business terms (from the platform's catalog). A product that hasn't loaded yet shows **!** with why, never a pass.
-4. The product's page (OneLake > Data products) now shows its **Checklist** from this policy: **Fresh within 6 h**, alongside owner and steward, description, business terms and endorsement.
+4. The product's page (Data mesh > Products) now shows its **Checklist** from this policy: **Fresh within 6 h**, alongside owner and steward, description, business terms and endorsement.
 5. Happy with it? On the policy's page, **Save as template** keeps your version (`sales-contract-template`, tagged **Yours**) so other domains can start from it.
 
 Template changes are recorded in `catalog.policy_template` and **Platform > Audit**; **Use** writes only a policy draft.

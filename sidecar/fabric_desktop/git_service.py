@@ -404,6 +404,10 @@ class GitMixin:
     def git_unstage(self, repo: str, paths: list[str] | None = None) -> dict[str, Any]:
         return self._repo(repo).unstage(paths)
 
+    def git_apply_hunk(self, repo: str, path: str, hunk: str, action: str, confirm: bool = False) -> dict[str, Any]:
+        """Stage, unstage or discard one block of a file's changes (``hunk`` is its id from git_diff)."""
+        return self._repo(repo).apply_hunk(path, hunk, action, confirm)
+
     def git_discard(self, repo: str, paths: list[str], confirm: bool = False) -> dict[str, Any]:
         return self._repo(repo).discard(paths, confirm=confirm)
 

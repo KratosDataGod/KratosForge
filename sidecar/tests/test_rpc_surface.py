@@ -35,13 +35,12 @@ _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-0
 # Allowlisted methods with no UI caller, each with why it stays. Remove a name when the UI starts
 # calling it or when it leaves METHODS; the test below fails until you do.
 # Dropping a name from METHODS? Also drop it from the timeout list in app/src-tauri/src/watchdog.rs.
-_PRACTICES = "notebook best practices: engine only, the panel waits on Chris's mockup review (docs/notebook-best-practices.md)"
+_PRACTICES = "the notebook rules list, for a template editor to list them; the panel shows findings only (docs/notebook-best-practices.md)"
 
 _SQL_PRACTICES = "SQL best practices: engine only, the panel waits on Chris's mockup review (docs/sql-best-practices.md)"
 
 
 NO_UI_CALLER: dict[str, str] = {
-    "notebook_practices": _PRACTICES,
     "notebook_practice_rules": _PRACTICES,
     "sql_practices": _SQL_PRACTICES,
     "sql_practice_rules": _SQL_PRACTICES,

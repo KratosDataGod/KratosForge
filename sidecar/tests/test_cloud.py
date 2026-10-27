@@ -397,7 +397,7 @@ def test_semantic_model_keeps_table_names_when_a_same_named_table_arrives():
 
     def entity(name, schema, table):
         return NS(name=name, layer="gold", schema=schema, table=table, keys=[], surrogate_key=None, mode="append",
-                  spec={}, columns=[])
+                  spec={}, columns=[], date_column=None)
     orders = entity("gold.orders", "sales", "orders")
     first, _ = semantic.plan(NS(entities={"gold.orders": orders}), "gold")
     assert [t.name for t in first] == ["orders"]

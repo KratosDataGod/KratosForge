@@ -82,6 +82,10 @@ def test_the_rules_are_registered_as_the_model_kind():
     ids = [r["id"] for r in gc.all_rules() if r["checker"] == "model"]
     assert ids == [f"SM00{n}" for n in range(1, 8)]
     assert all(r["kind"] == "model" and r["runs_in"] == "local" for r in gc.all_rules() if r["checker"] == "model")
+    # A checker that runs in Fabric can't take the kind over (and replace these rules); it needs its own.
+    with pytest.raises(ValueError, match="model rules already run in local"):
+        gc.register("model", lambda: [], lambda i, s: [], runs_in="fabric")
+    assert [r["id"] for r in gc.all_rules() if r["checker"] == "model"] == ids
 
 
 @pytest.fixture

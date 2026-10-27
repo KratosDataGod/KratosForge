@@ -124,6 +124,7 @@ The **Changes** tab lists **Conflicts**, **Staged** files (going into the next c
 
 - Click a file to see its diff, **Inline** or **Side by side**, with line numbers. For a notebook, **Notebook view** compares the cells instead of the raw JSON. **Open previous version** shows the last committed copy, read-only.
 - **Discard** always asks first and says what will be lost. A new file that was never committed is deleted, so the question says that too.
+- **Part of a file.** In the diff, each block of changed lines has its own buttons: **Stage block** and **Discard block…** in **Changes**, **Unstage block** in **Staged**. So one commit can take a fix and leave an experiment in the same file for later; while part of a file is staged, it shows in both lists. A block is applied only if it is still exactly what the diff showed: if the file changed since, nothing changes and the new diff is shown. **Discard block** asks first, says how many lines it throws away, and leaves the rest of the file as it is. Blocks aren't offered for a notebook in **Notebook view** (it compares cells, not lines: turn the view off to take the JSON's blocks), a new file Git doesn't track yet, a file that isn't text, or a file with conflicts; use the whole-file buttons there.
 - Write a message and press **Commit** (or Ctrl+Enter). With nothing staged, the button offers to stage everything and commit.
 
 ### Secrets are checked before every commit

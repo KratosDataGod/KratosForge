@@ -528,7 +528,10 @@ function gitDiffPanel() {
   else if (d.binary) body = h("p", { class: "muted-text pad" }, "This file isn't text, so there are no lines to compare.");
   else if (d.view === "conflict") body = gitConflictTable(d);
   else if (!d.hunks.length) body = h("p", { class: "muted-text pad" }, d.view === "notebook" ? "No code changed. Only outputs or run counts differ; turn off Notebook view to see them." : "No line changes.");
-  else body = gitPage.diffMode === "split" ? gitSplitTable(d.hunks) : gitInlineTable(d.hunks);
+  else {
+    const tools = gitHunkActions(sel, d);
+    body = gitPage.diffMode === "split" ? gitSplitTable(d.hunks, tools) : gitInlineTable(d.hunks, tools);
+  }
   return h("section", { id: "git-diff", class: "card git-diff" }, head,
     h("div", { class: "git-diff-body" }, body, d?.truncated ? h("p", { class: "muted-text pad" }, "Only the first 5,000 lines are shown.") : null));
 }
@@ -542,20 +545,29 @@ function gitConflictTable(d) {
       h("td", { class: "code", colspan: "2" }, l.text)))))));
 }
 
-function gitInlineTable(hunks) {
+// The header row of one block of changed lines, with its Stage, Unstage and Discard buttons when the
+// file's changes can be taken a block at a time.
+function gitHunkRow(hk, tools) {
+  const actions = tools && hk.id ? tools(hk) : null;
+  return h("tr", { class: "hunk" }, h("td", { colspan: "4" }, actions
+    ? h("div", { class: "row git-hunk-head" }, h("span", { class: "grow" }, hk.header), actions) : hk.header));
+}
+
+function gitInlineTable(hunks, tools) {
   return h("table", { class: "git-lines" }, h("tbody", {}, hunks.flatMap((hk) => [
-    h("tr", { class: "hunk" }, h("td", { colspan: "4" }, hk.header)),
+    gitHunkRow(hk, tools),
     ...hk.lines.map((l) => h("tr", { class: l.kind === "+" ? "add" : l.kind === "-" ? "del" : "" },
       h("td", { class: "ln" }, l.old ?? ""), h("td", { class: "ln" }, l.new ?? ""), h("td", { class: "sign" }, l.kind === " " ? "" : l.kind === "-" ? "−" : "+"),
       h("td", { class: "code" }, l.text)))])));
 }
 
-function gitSplitTable(hunks) {
+function gitSplitTable(hunks, tools) {
   const cell = (l, side) => l ? [h("td", { class: "ln" }, side === "l" ? l.old ?? "" : l.new ?? ""),
     h("td", { class: `code ${l.kind === "+" ? "add" : l.kind === "-" ? "del" : ""}` }, l.text)] : [h("td", { class: "ln" }), h("td", { class: "code blank" })];
   const cols = h("colgroup", {}, h("col", { class: "ln" }), h("col"), h("col", { class: "ln" }), h("col"));
+  let at = 0;  // header rows come in the hunks' order
   return h("table", { class: "git-lines split" }, cols, h("tbody", {}, gitSideBySide(hunks).map((r) => r.header
-    ? h("tr", { class: "hunk" }, h("td", { colspan: "4" }, r.header))
+    ? gitHunkRow(hunks[at++], tools)
     : h("tr", {}, ...cell(r.left?.kind === "+" ? null : r.left, "l"), ...cell(r.right?.kind === "-" ? null : r.right, "r")))));
 }
 
@@ -606,6 +618,29 @@ async function gitDiscard(paths, untracked) {
   if (!(await confirmDialog(untracked ? "Delete this file?" : "Discard changes?", text, untracked ? "Delete file" : "Discard changes", { danger: true }))) return;
   const st = await attempt(() => rpc("git_discard", { repo: gitCurrent(), paths, confirm: true }), "Not discarded");
   if (st) gitAfterChange(st);
+}
+
+// Stage, Unstage and Discard for one block, offered only where Git can take a file a block at a time:
+// a text diff of a tracked file, staged or not (not a notebook's cell view, a new file or a conflict).
+function gitHunkActions(sel, d) {
+  if (sel.base || d.view !== "text" || d.untracked || !["staged", "unstaged"].includes(sel.group)) return null;
+  const go = (hk, action) => () => gitApplyHunk(sel.path, hk, action);
+  return sel.group === "staged"
+    ? (hk) => [btn("Unstage block", null, go(hk, "unstage"), "tool outline small")]
+    : (hk) => [btn("Discard block…", null, go(hk, "discard"), "tool outline small"), btn("Stage block", null, go(hk, "stage"), "tool primary small")];
+}
+
+async function gitApplyHunk(path, hk, action) {
+  const n = hk.lines.filter((l) => l.kind !== " ").length;
+  if (action === "discard") {
+    const lines = hk.lines.filter((l) => l.new != null).map((l) => l.new);
+    const where = lines.length ? ` (lines ${lines[0]} to ${lines[lines.length - 1]})` : "";
+    if (!(await confirmDialog("Discard this block?", `Throws away these ${n} changed line${n === 1 ? "" : "s"} in ${path}${where}. The rest of the file stays as it is. This can't be undone.`,
+      "Discard block", { danger: true }))) return;
+  }
+  const st = await attempt(() => rpc("git_apply_hunk", { repo: gitCurrent(), path, hunk: hk.id, action, confirm: action === "discard" }),
+    { stage: "Not staged", unstage: "Not unstaged", discard: "Not discarded" }[action]);
+  await gitAfterChange(st || null);
 }
 
 async function gitCommit(allowSecrets = false) {

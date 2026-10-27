@@ -61,7 +61,7 @@ test("Set up in Fabric opens the setup itself, and Projects says it counts joine
 test("a platform set by policy offers no setup on Overview, as on Settings", { skip }, async () => {
   source = "policy";
   try {
-    await open("domains");
+    await open("glossary");
     await open("overview");
     await page().waitForSelector("text=Set by your organization's policy");
     assert.strictEqual((await page().$$('text="Set up in Fabric"')).length, 0);
@@ -85,7 +85,7 @@ test("Domains: subdomains are indented without a tree glyph, and Fabric domains 
 });
 
 test("only Landing zone and Business keys show the environment picker", { skip }, async () => {
-  await open("domains");
+  await open("glossary");
   assert.strictEqual(await headPicker(), null);
   await open("landing");
   assert.ok(await headPicker());

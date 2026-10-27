@@ -1,17 +1,17 @@
-// The Platform page: the central team's home. One landing zone, one key system, the domains and
-// glossary every team shares, and the requests domain teams send. Platform admins change these;
+// The Platform page: the central team's home. One landing zone, one key system, the glossary every
+// team shares, and the requests domain teams send. Domains are on Data mesh > Domains, below. Platform admins change these;
 // everyone else sees them and asks (Platform > Requests). The rules are enforced by the platform
 // itself (central/core.py), so this page only hides buttons a person can't use.
 
 const PLATFORM_TABS = [
-  ["overview", "Overview"], ["landing", "Landing zone"], ["keys", "Business keys"], ["domains", "Domains"],
+  ["overview", "Overview"], ["landing", "Landing zone"], ["keys", "Business keys"],
   ["glossary", "Glossary"], ["governance", "Governance"], ["requests", "Requests"], ["audit", "Audit"], ["settings", "Settings"],
 ];
 // The tab bar (Cleaner KratosForge): five tabs, with the set-up screens and the governance screens each
 // behind one menu. Every tab above is still a page of its own, so "Platform > Business keys" still works.
 const PLATFORM_TAB_BAR = [
   ["overview", "Overview"], ["requests", "Requests"],
-  ["setup", "Set up", ["landing", "keys", "domains", "glossary"]],
+  ["setup", "Set up", ["landing", "keys", "glossary"]],
   ["govern", "Govern", ["governance", "audit"]],
   ["settings", "Settings"],
 ];
@@ -21,6 +21,8 @@ const REQUEST_STATUS = { waiting: "Waiting", approved: "Approved", declined: "De
 const platformPage = { tab: "overview", env: "dev", requests: "waiting", source: null, me: null };
 
 function goPlatform(tab) {
+  // Domains moved to Data mesh > Domains; older links still land there.
+  if (tab === "domains") return goMeta("domains");
   platformPage.tab = tab || platformPage.tab;
   go("platform");
 }
@@ -42,6 +44,7 @@ function adminOnly(node) {
 
 async function renderPlatform() {
   const p = platformPage;
+  if (p.tab === "domains") { p.tab = "overview"; return goMeta("domains"); }
   const body = h("div", { class: "meta-body" });
   const envSeg = h("div", { class: "seg", role: "group", "aria-label": "Environment" },
     MESH_ENVS.map((env) => h("button", { class: p.env === env ? "on" : null, onclick: () => { p.env = env; render(); } }, ENV_LABEL[env])));
@@ -72,7 +75,7 @@ async function renderPlatform() {
       : "Domain teams see everything here and ask for what they need in Requests. ",
   p.me.can_claim ? h("a", { href: "#", onclick: (e) => { e.preventDefault(); claimAdmin(); } }, "Become its first admin") : null,
   p.me.can_claim ? ". " : null, learnMore("platform")].filter(Boolean));
-  const tabs = { overview: platformOverviewTab, landing: platformLandingTab, keys: platformKeysTab, domains: platformDomainsTab,
+  const tabs = { overview: platformOverviewTab, landing: platformLandingTab, keys: platformKeysTab,
     glossary: platformGlossaryTab, governance: platformGovernanceTab, requests: platformRequestsTab, audit: platformAuditTab, settings: platformSettingsTab };
   await (tabs[p.tab] || platformOverviewTab)(body);
 }
@@ -137,7 +140,7 @@ async function platformOverviewTab(body) {
   body.replaceChildren(withHowItWorks([
     o.problems.length || o.landing.problem ? h("div", { class: "problems" }, h("b", {}, "Couldn't read everything"), gateList([...o.problems, o.landing.problem].filter(Boolean))) : null,
     h("div", { class: "tiles plat-stats" },
-      platStat(c.domains, "Domains", c.subdomains ? `${c.subdomains} subdomain${c.subdomains === 1 ? "" : "s"}` : "", () => goPlatform("domains")),
+      platStat(c.domains, "Domains", c.subdomains ? `${c.subdomains} subdomain${c.subdomains === 1 ? "" : "s"}` : "", () => goMeta("domains")),
       platStat(c.projects, "Projects joined", c.teams ? `${c.teams} team${c.teams === 1 ? "" : "s"}, joined to a domain` : "joined to a domain in Data mesh",
         () => goMeta("domains")),
       platStat(c.key_tables, "Business key tables", `${c.keys.toLocaleString()} keys in ${ENV_LABEL[o.env]}`, () => goPlatform("keys")),
@@ -177,7 +180,7 @@ async function platformOverviewTab(body) {
 const COVERAGE_KIND = { domain: "Domain", product: "Data product", source: "Source" };
 function ownerCoverageCard() {
   const card = h("div", { class: "card pad owner-coverage" }, h("b", {}, "Owners"), loading());
-  const open = (g) => (g.opens === "products" ? () => { catalogPage.tab = "products"; go("onelake"); } : () => goPlatform(g.opens));
+  const open = (g) => (g.opens === "products" ? () => openProducts() : () => goPlatform(g.opens));
   rpc("platform_owner_coverage", {}).then((c) => {
     if (c.available === false) {
       card.replaceChildren(h("b", {}, "Owners"), h("p", { class: "muted-text small" }, c.problem));
@@ -1023,30 +1026,42 @@ async function platformRequestsTab(body) {
   howItWorks("platform.requests", REQUESTS_HOW)));
 }
 
-// ---------- domains, glossary, audit ----------
+// ---------- Data mesh > Domains: the organization's domains (it was Platform > Set up > Domains) ----------
 
-async function platformDomainsTab(body) {
-  const domains = await platformCall("platform_domains");
-  if (!domains || !stillHere("domains")) return;
-  const rerender = () => platformDomainsTab(body);
+async function renderMeshOrgDomainsTab(body) {
+  const here = () => state.view === "metadata" && state.meta.tab === "domains" && body.isConnected;
+  body.replaceChildren(loading("Reading the platform's domains..."));
+  // Admin buttons need to know who you are; Platform reads it too, so it's kept for both.
+  if (!platformPage.me) platformPage.me = await rpc("platform_whoami").catch(() => null);
+  const [domains, m] = await Promise.all([platformCall("platform_domains"), rpc("mesh_map", {}).catch(() => null)]);
+  if (!here()) return;
+  if (!domains) { body.replaceChildren(h("p", { class: "muted-text" }, "The platform's domains couldn't be read. Refresh to try again.")); return; }
+  const rerender = () => renderMeshOrgDomainsTab(body);
   const o = { domains };
-  body.replaceChildren(withHowItWorks(h("div", { class: "card pad" },
-    h("div", { class: "row" }, h("b", { class: "grow" }, "Your organization's domains"),
+  // Projects and published products per domain, from the same catalog read as the Map.
+  const projectsIn = (d) => (m?.projects || []).filter((p) => p.domain_id === d.id || p.subdomain_id === d.id);
+  const productsIn = (d) => (m?.products || []).filter((x) => projectsIn(d).some((p) => p.name === x.project));
+  const count = (n) => (m ? n : h("span", { class: "muted-text", title: "The catalog's projects couldn't be read" }, "—"));
+  body.replaceChildren(withHowItWorks(h("div", { class: "card pad mesh-domains" },
+    h("div", { class: "row" }, previewMarked("mesh", h("h2", { class: "grow" }, "Your organization's domains")),
+      btn("Glossary", null, () => goPlatform("glossary"), "tool link small",
+        { title: "The business glossary is kept on Platform > Set up > Glossary; tag tables with its terms on their About tab" }),
       adminOnly(h("span", { class: "row tight" },
         btn("Import from Fabric", "sync", () => importFabricDomains(rerender), "tool primary small",
           { title: "Bring in Fabric's domains and subdomains. Needs a Fabric administrator." }),
         btn("New domain", "add", () => domainDialog(o, null, rerender), "tool outline small")))),
-    h("p", { class: "muted-text small" }, "An area of the business that owns its data, like Sales or Finance; subdomains go one level deep. Projects join one in Data mesh > Domains. Domain owners keep their domain's glossary terms."),
+    h("p", { class: "muted-text small" }, "An area of the business that owns its data, like Sales or Finance; subdomains go one level deep. A project joins one on Domains > This project. Domain owners keep their domain's glossary terms. Platform admins create, import and edit domains here; everyone else reads them."),
     h("p", { class: "muted-text small" }, domains.some((d) => d.fabric_domain)
       ? "These follow the domains in Fabric's admin portal. Import again after a domain is added, renamed or moved there. "
       : "Start from the domains already in Fabric: Import from Fabric copies their names and subdomains here, so everyone can see them. ",
       "Reading Fabric's domain list needs a Fabric administrator; after that nobody else needs admin rights. ",
       "Each domain's admins in Fabric show as owners marked From Fabric until you set the platform's own."),
     domains.length ? h("table", { class: "list" },
-      h("thead", {}, h("tr", {}, ["Domain", "Description", "Owners", "Source", ""].map((x) => h("th", {}, x)))),
-      h("tbody", {}, domains.map((d) => h("tr", {},
+      h("thead", {}, h("tr", {}, ["Domain", "Description", "Owners", "Projects", "Products", "Source", ""].map((x) => h("th", {}, x)))),
+      h("tbody", {}, domains.map((d) => h("tr", { "data-domain": d.id },
         h("td", { class: d.parent_id ? "plat-subdomain" : null }, h("b", {}, d.name), h("div", { class: "muted-text small mono" }, d.parent_id ? `${d.id} · subdomain` : d.id)),
         h("td", {}, d.description || ""), h("td", {}, domainOwnersCell(d)),
+        h("td", {}, count(projectsIn(d).length)), h("td", {}, count(productsIn(d).length)),
         h("td", {}, d.fabric_domain ? h("span", { class: "badge", title: d.fabric_domain }, "From Fabric") : h("span", { class: "muted-text" }, "Only here")),
         h("td", {}, h("span", { class: "row tight" },
           btn("Access groups", null, () => entraGroupsDialog(d, domains), "tool small",
@@ -1059,14 +1074,16 @@ async function platformDomainsTab(body) {
             if (!(await confirmDialog(`Delete ${d.name}?`, why, "Delete", { danger: true }))) return;
             if (await platformCall("platform_delete_domain", { id: d.id }, "Not deleted")) rerender();
           }, "tool small danger")))))))))
-      : h("p", { class: "muted-text" }, "No domains yet.")),
+      : h("p", { class: "muted-text" }, platformPage.me?.admin ? "No domains yet. Import them from Fabric, or add one." : "No domains yet. A platform admin imports them from Fabric.")),
   howItWorks("platform.domains", {
-    reads: "The platform's domains. Import from Fabric reads Fabric's domains and each one's admins, as a Fabric administrator.",
-    changes: "New, Edit and Delete change the platform's catalog. New domain with Also create it in Fabric ticked also creates the domain (or subdomain) in Fabric's admin portal, for the whole organization, before saving it here; that needs a Fabric administrator. Nothing here renames, moves or deletes a domain in Fabric.",
-    results: "Everyone using this platform sees the same domains. Each change is kept on the Audit tab.",
+    reads: "The platform's domains, and the projects and published products in each, from the platform's catalog (SQL_Platform in Fabric, or the file on this PC). Import from Fabric reads Fabric's domains and each one's admins, as a Fabric administrator.",
+    changes: "New, Edit and Delete change the domain in the platform's catalog; only platform admins see them. New domain with Also create it in Fabric ticked also creates the domain (or subdomain) in Fabric's admin portal, for the whole organization, before saving it here; that needs a Fabric administrator. Nothing here renames, moves or deletes a domain in Fabric. Access groups saves which Entra ID group each of the domain's roles uses (catalog.entra_group) and its naming pattern; it creates nothing in Entra or Fabric, only scripts an admin runs.",
+    results: "Everyone using this platform sees the same domains. Each change is kept on Platform > Govern > Audit.",
     anchor: "platform",
   })));
 }
+
+// ---------- glossary, audit ----------
 
 async function platformGlossaryTab(body) {
   const [terms, domains] = await Promise.all([platformCall("platform_glossary"), platformCall("platform_domains")]);

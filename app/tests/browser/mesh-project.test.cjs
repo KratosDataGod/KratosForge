@@ -12,6 +12,7 @@ const entity = (name, layer) => ({ name, layer, source: "landing erp/orders", re
 before(async () => {
   if (skip) return;
   app = await openApp({ mocks: {
+    platform_domains: () => [{ id: "sales", name: "Sales", owners: "" }],
     meta_project: () => ({
       path: "C:/work/orders", name: "Orders", version: "3", templates: {},
       layers: [{ name: "bronze", lakehouse: "LH_Bronze", entities: 1 }], entities: [entity("erp_orders", "bronze")],
@@ -49,7 +50,8 @@ test("Project opens again on the tab last used there", { skip }, async () => {
   await page().click('.meta-groups .tab:has-text("Project")');
   await page().waitForSelector('.meta-project-groups .tab.active:has-text("Runs")');
   await page().click('.meta-groups .tab:has-text("Domains")');
-  await page().waitForSelector('.meta-tabs button:has-text("Domain and workspaces")');
-  assert.ok(await page().$('.meta-tabs button.on:has-text("Map")'));
+  await page().waitForSelector('.meta-tabs button:has-text("This project")');
+  assert.strictEqual(await page().evaluate(() => state.meta.tab), "domains", "Domains opens on the organization's domains");
+  await page().waitForSelector(".mesh-domains");
   assert.deepStrictEqual(app.errors, []);
 });

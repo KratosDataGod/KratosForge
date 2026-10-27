@@ -73,12 +73,13 @@ async function loadMetaProject() {
 // Data mesh's tabs, in groups so new features join a group instead of a long row.
 // [group id, label, [[tab id, label, preview feature id]], section]. The "mesh" section is the mesh
 // for everyone: Home (mesh-home.js) as each person sees it, Products (platform.js) every team's products, Requests (mesh-requests.js) everyone's
-// inbox, Domains. The "project" section is the open project's editor, behind one Project tab.
+// inbox, Domains (platform.js) the organization's domains with the Map and the open project's own
+// domain and workspaces. The "project" section is the open project's editor, behind one Project tab.
 const META_TAB_GROUPS = [
   ["home", "Home", [["home", "Home", "mesh"]], "mesh"],
   ["catalog", "Products", [["catalog", "Products", "mesh"]], "mesh"],
   ["requests", "Requests", [["requests", "Requests", "mesh"]], "mesh"],
-  ["overview", "Domains", [["overview", "Map", "mesh"], ["domains", "Domain and workspaces", "mesh"]], "mesh"],
+  ["domains", "Domains", [["domains", "Domains", "mesh"], ["overview", "Map", "mesh"], ["workspaces", "This project", "mesh"]], "mesh"],
   ["design", "Design", [["entities", "Entities"], ["layers", "Layers"], ["keys", "Surrogate keys"], ["sources", "Source systems"]], "project"],
   ["runs", "Runs", [["runs", "Runs"]], "project"],
   ["quality", "Quality", [["tests", "Tests", "tests"], ["health", "Table health", "health"], ["exceptions", "Exceptions"]], "project"],
@@ -87,7 +88,7 @@ const META_TAB_GROUPS = [
 ];
 
 // The tabs that show the whole mesh rather than the open project, so they show without one.
-const META_NO_PROJECT = ["home", "catalog", "requests"];
+const META_NO_PROJECT = ["home", "catalog", "requests", "domains", "overview"];
 
 function metaGroupOf(tab) {
   return META_TAB_GROUPS.find(([, , tabs]) => tabs.some(([id]) => id === tab)) || META_TAB_GROUPS[0];
@@ -146,7 +147,7 @@ async function renderMetadata() {
     body));
   const render = { home: renderMeshHomeTab, catalog: renderMeshCatalogTab, requests: renderMeshRequestsTab, overview: renderMeshOverviewTab, entities: renderEntitiesTab, layers: renderLayersTab, keys: renderKeysTab, sources: renderSourcesTab,
     runs: renderRunsTab, health: renderHealthTab, model: renderModelTab, tests: renderTestsTab, environments: renderEnvTab,
-    domains: renderMeshDomainsTab, products: renderMeshProductsTab, links: renderMeshLinksTab,
+    domains: renderMeshOrgDomainsTab, workspaces: renderMeshDomainsTab, products: renderMeshProductsTab, links: renderMeshLinksTab,
     exceptions: renderExceptionsTab }[m.tab];
   raiseExceptionNotices(p);
   await render(body, p);
@@ -157,14 +158,20 @@ async function renderMetadata() {
 function renderMetaNoProject(p) {
   const body = h("div", { class: "meta-body" });
   const tab = state.meta.tab;
+  const shown = (tabs) => tabs.filter(([id]) => META_NO_PROJECT.includes(id));
+  const groups = META_TAB_GROUPS.filter(([, , tabs]) => shown(tabs).length);
+  const group = metaGroupOf(tab);
   setView(h("div", { class: "page" },
     h("div", { class: "page-head" },
       h("div", {}, h("h1", {}, "Data mesh"), h("p", { class: "sub" }, "Your organization's data products, the requests on them and who owns what. ", learnMore("data-mesh"))),
       p.presets ? h("div", { class: "head-actions" }, btn("Set up a project", "add", () => renderMetaSetup(p), "tool outline")) : null),
-    h("div", { class: "subtabs meta-groups" }, META_TAB_GROUPS.filter(([id]) => META_NO_PROJECT.includes(id)).map(([id, label]) =>
-      h("button", { class: `tab${tab === id ? " active" : ""}`, onclick: () => goMeta(id) }, label))),
+    h("div", { class: "subtabs meta-groups" }, groups.map(([id, label, tabs]) =>
+      h("button", { class: `tab${group[0] === id ? " active" : ""}`, onclick: () => goMeta(shown(tabs)[0][0]) }, label))),
+    shown(group[2]).length > 1 ? h("div", { class: "seg meta-tabs", role: "group", "aria-label": group[1] }, shown(group[2]).map(([id, label]) =>
+      h("button", { class: tab === id ? "on" : null, onclick: () => goMeta(id) }, label))) : null,
     body));
-  return { home: renderMeshHomeTab, catalog: renderMeshCatalogTab, requests: renderMeshRequestsTab }[tab](body, p);
+  return { home: renderMeshHomeTab, catalog: renderMeshCatalogTab, requests: renderMeshRequestsTab, domains: renderMeshOrgDomainsTab,
+    overview: renderMeshOverviewTab }[tab](body, p);
 }
 
 // Where an environment's runs execute: "local" (this PC) or "fabric" (the workspace's capacity).
@@ -732,7 +739,7 @@ function renderLayersTab(body, p) {
         h("td", {}, i + 1),
         h("td", {}, h("b", {}, l.name), l.description ? h("div", { class: "muted-text" }, l.description) : null),
         h("td", { class: "mono small" }, `LH_${l.name[0].toUpperCase()}${l.name.slice(1)}`),
-        h("td", {}, h("select", { "aria-label": "Workspace", title: "Which workspace of each environment holds this layer's lakehouse (Data mesh > Domains > Domain and workspaces)",
+        h("td", {}, h("select", { "aria-label": "Workspace", title: "Which workspace of each environment holds this layer's lakehouse (Data mesh > Domains > This project)",
           onchange: (ev) => { l.workspace = ev.target.value; rerender(); } },
         h("option", { value: "" }, "Environment's own"),
         (p.designations || []).map((d) => h("option", { value: d.id, selected: l.workspace === d.id ? true : null }, d.label)))),

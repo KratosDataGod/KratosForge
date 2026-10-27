@@ -1,4 +1,4 @@
-"""Entra ID groups per domain (Preview): the Access groups dialog on Platform > Set up > Domains.
+"""Entra ID groups per domain (Preview): the Access groups dialog on Data mesh > Domains.
 
 Reads the platform's domains, its group naming and the groups people linked to roles, and writes scripts
 (central/entra.py) an Entra admin runs or follows by hand. Linking and naming are saved in the platform's

@@ -197,7 +197,7 @@ def write_project_file(root: Path, fields: dict[str, Any]) -> Path:
         return json.dumps(v)
 
     lines = ["# This project's place in your organization: its domain and the team that owns it.",
-             "# Domains come from your platform (Platform > Set up > Domains).", "", "[project]"]
+             "# Domains come from your platform (Data mesh > Domains).", "", "[project]"]
     for key in ("name", "domain", "subdomain", "team", "description"):
         if fields.get(key):
             lines.append(f"{key} = {q(str(fields[key]))}")

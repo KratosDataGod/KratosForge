@@ -1,6 +1,6 @@
-// Data mesh screens: this project's domain and workspaces, its data products, links to other
-// teams' products, and an entity's catalog text (About). Domains and the glossary are edited on
-// Platform > Set up > Domains and Platform > Set up > Glossary (platform.js). Domains, glossary and
+// Data mesh screens: this project's domain and workspaces (Domains > This project), its data products,
+// links to other teams' products, and an entity's catalog text (About). Domains are edited on
+// Data mesh > Domains and the glossary on Platform > Set up > Glossary (platform.js). Domains, glossary and
 // published products live in the platform (SQL_Platform, or a SQLite file on this PC until a
 // platform is set up in Platform > Settings); products and links are files in the project.
 
@@ -56,14 +56,14 @@ async function loadWorkspaceDomains(o, into, domain, subdomain, fillSubs) {
   if (others.length) lines.push(h("div", { class: "muted-text small" }, "Different domain in Fabric: ",
     others.map((w) => `${where(w)} is in ${nameOf(w.domain)}`).join("; "), "."));
   if (res.unnamed.length) lines.push(h("div", { class: "muted-text small" }, res.imported
-    ? "Some of your workspaces are in a Fabric domain the platform doesn't have yet. A platform admin who is a Fabric administrator can import it again on Platform > Set up > Domains."
-    : "Your workspaces are in Fabric domains, but their names aren't in the platform yet. Fabric only shows domain names to Fabric administrators: ask one to choose Import from Fabric on Platform > Set up > Domains."));
+    ? "Some of your workspaces are in a Fabric domain the platform doesn't have yet. A platform admin who is a Fabric administrator can import it again on Data mesh > Domains."
+    : "Your workspaces are in Fabric domains, but their names aren't in the platform yet. Fabric only shows domain names to Fabric administrators: ask one to choose Import from Fabric on Data mesh > Domains."));
   if (lines.length) into.replaceChildren(h("div", { class: "note small" }, icon("info", 16), h("div", {}, ...lines)));
 }
 
 async function renderMeshDomainsTab(body) {
   const o = await meshOverview();
-  if (!o || state.view !== "metadata" || state.meta.tab !== "domains") return;
+  if (!o || state.view !== "metadata" || state.meta.tab !== "workspaces") return;
   const rerender = () => renderMeshDomainsTab(body);
   const me = o.project;
   const top = o.domains.filter((d) => !d.parent_id);
@@ -117,27 +117,8 @@ async function renderMeshDomainsTab(body) {
         h("td", {}, layersOf(d).length ? layersOf(d).map(layerChip) : h("span", { class: "muted-text" }, "none")),
         ...MESH_ENVS.map((env) => cell(env, d)))))));
 
-  const domainRows = o.domains.map((d) => h("tr", {},
-    h("td", {}, d.parent_id ? h("span", { class: "muted-text" }, "↳ ") : null, h("b", {}, d.name),
-      d.fabric_domain ? h("span", { class: "badge", title: "Follows this domain in Fabric" }, "From Fabric") : null,
-      h("div", { class: "muted-text small mono" }, d.id)),
-    h("td", {}, d.description || h("span", { class: "muted-text" }, "")),
-    h("td", {}, domainOwnersCell(d)),
-    h("td", {}, o.projects.filter((p) => p.domain_id === d.id || p.subdomain_id === d.id).length)));
-  // Domains are edited in one place, Platform > Set up > Domains (UX-009); this list is for reading.
-  const domainsCard = h("div", { class: "card pad" },
-    h("div", { class: "row" }, h("b", { class: "grow" }, "Your organization's domains"),
-      btn("Glossary", null, () => goPlatform("glossary"), "tool link small",
-        { title: "The business glossary is kept on Platform > Set up > Glossary; tag tables with its terms on their About tab" }),
-      btn("Manage in Platform", "building", () => goPlatform("domains"), "tool outline small",
-        { title: "Platform admins create, import and edit domains on Platform > Set up > Domains" })),
-    platformNote(o),
-    o.domains.length ? h("table", { class: "list" },
-      h("thead", {}, h("tr", {}, ["Domain", "Description", "Owners", "Projects"].map((c) => h("th", {}, c)))),
-      h("tbody", {}, domainRows))
-      : emptyState({ title: "No domains yet",
-        text: "A domain is an area of the business that owns its data, like Sales or Finance. Platform admins create them on Platform > Set up > Domains." }));
-  body.replaceChildren(...[meshProblems(o), projectCard, workspacesCard, domainsCard].filter(Boolean));
+  // The organization's domains are listed, and edited by platform admins, on Domains > Domains.
+  body.replaceChildren(...[meshProblems(o), projectCard, workspacesCard, h("div", { class: "card pad" }, platformNote(o))].filter(Boolean));
 }
 
 // A domain's Fabric domain admins, read during Import from Fabric: names only, never used to grant anything.

@@ -816,7 +816,10 @@ async function renderHome() {
       const next = h("div", {}, items.length ? h("div", { class: "home-list" }, items.map((x) => h("div", { class: "home-item row" },
         h("span", { class: "grow" }, x.what, h("span", { class: "muted-text small" }, ` · ${x.where}`)), h("span", { class: "muted-text small" }, x.text))))
         : h("p", { class: "muted-text" }, "Nothing scheduled. Use Schedule on a notebook or on Data mesh, on this PC or in Fabric."),
-        btn("All schedules", "history", () => { monitorPage.panel = "schedules"; go("monitor"); }, "tool link small"));
+        // Opens the tab with the schedules listed here: Fabric schedules when every one of them is in Fabric.
+        btn("All schedules", "history", () => {
+          monitorPage.panel = items.length && items.every((x) => x.where === "Fabric") ? "fabric_schedules" : "schedules"; go("monitor");
+        }, "tool link small"));
       upcoming.replaceWith(next);
       return next;
     };
@@ -949,13 +952,18 @@ const MONITOR_OPS = [
 ];
 try { monitorPage.showFabric = localStorage.getItem("fd.monitor.fabric") !== "hidden"; } catch { /* default: shown */ }
 
-// The sentence about a Monitor panel is its Learn more link's tooltip, so the controls fit on one row;
-// the link is described by it too, so keyboard and screen reader users get it.
+// What each Monitor tab shows, as the line under the title with its Learn more link. Operations' views
+// say theirs in MONITOR_OPS.
+const MONITOR_ABOUT = {
+  runs: ["Everything this app ran or started, in every environment, on this PC and in Fabric", "monitor"],
+  schedules: ["Schedules Windows starts on this PC for KratosForge, even with the app closed, with how their last run went", "monitor"],
+  fabric_schedules: ["Schedules in Fabric's own job scheduler, on capacity, with how their last run went", "monitor"],
+};
+// The view row's places a tab fills: its own switcher (views) and status (tools), left of Refresh.
+const monitorSlots = {};
+
 function monitorAbout(text, anchor) {
-  const link = learnMore(anchor);
-  link.title = text;
-  link.setAttribute("aria-describedby", "monitor-about-text");
-  return h("span", { class: "monitor-about" }, link, h("span", { id: "monitor-about-text", class: "sr-only" }, text));
+  return h("span", { class: "monitor-about" }, text, ". ", learnMore(anchor));
 }
 
 async function renderMonitor() {
@@ -970,18 +978,19 @@ async function renderMonitor() {
   const local = kept || loading("Loading runs...", "monitor-empty");
   const slot = h("div", { class: "fabric-slot" },
     h("p", { class: "muted-text" }, "Opening the Fabric Monitoring hub. Sign in once and the app remembers it."));
-  const chip = (key, value, label) => h("button", { class: `chip${monitorPage[key] === value ? " on" : ""}`,
-    onclick: () => { monitorPage[key] = value; render(); } }, label);
+  // One switcher per filter, like every page's view row: the pressed button is the one in force.
+  const seg = (key, label, options) => h("div", { class: "seg", role: "group", "aria-label": label }, options.map(([value, text]) =>
+    h("button", { class: monitorPage[key] === value ? "on" : null, "aria-pressed": String(monitorPage[key] === value),
+      onclick: () => { monitorPage[key] = value; render(); } }, text)));
   const toggleFabric = () => {
     monitorPage.showFabric = !monitorPage.showFabric;
     try { localStorage.setItem("fd.monitor.fabric", monitorPage.showFabric ? "shown" : "hidden"); } catch { /* session only */ }
     render();
   };
-  const note = h("div", { class: "muted-text small" });
+  const note = h("div", { class: "muted-text small monitor-note" });
   const ops = MONITOR_OPS.filter((o) => !PREVIEW_FEATURES[o.feature] || previewShown());
   const op = ops.find((o) => o.panel === monitorPage.panel);
   if (op) monitorPage.opsView = op.panel;
-  const segment = (on, label, onclick) => h("button", { class: on ? "on" : null, onclick }, label);
   const show = (panel) => () => { monitorPage.panel = panel; render(); };
   // Only Runs shares the page with Fabric's hub; a list under it gets too little room (#190).
   // A section in a window of its own leaves a band here, and the other one gets the room.
@@ -990,31 +999,39 @@ async function renderMonitor() {
   const wide = !runsOut && monitorPage.panel !== "runs";
   const fabricHere = !POP_OUT && !wide;
   const fabricShown = fabricHere && monitorPage.showFabric && !fabricOut;
+  // The same layout as every page with tabs (docs/ui-guidelines.md, Page layout): the title with what
+  // this tab shows and its button, the tabs, the view row (filters left, Refresh right), the working area.
+  const about = op ? [op.text, op.anchor] : MONITOR_ABOUT[monitorPage.panel] || MONITOR_ABOUT.runs;
+  const tab = (on, label, onclick) => h("button", { class: `tab${on ? " active" : ""}`, onclick }, label);
+  const tabs = h("div", { class: "subtabs monitor-tabs", "aria-label": "Monitor" },
+    tab(monitorPage.panel === "runs", "Runs", show("runs")),
+    preview("schedules", tab(monitorPage.panel === "schedules", "KratosForge schedules", show("schedules"))),
+    preview("schedules", tab(monitorPage.panel === "fabric_schedules", "Fabric schedules", show("fabric_schedules"))),
+    ops.length ? tab(!!op, ["Operations", ops.every((o) => PREVIEW_FEATURES[o.feature]) ? previewTag() : null],
+      show(ops.some((o) => o.panel === monitorPage.opsView) ? monitorPage.opsView : ops[0].panel)) : null);
+  Object.assign(monitorSlots, { views: h("div", { class: "row tight mesh-views" }), tools: h("div", { class: "row tight mesh-tools" }) });
+  const refresh = () => {
+    monitorPage.fabricPipelinesRefresh = true;
+    schedulesPage.refresh = monitorPage.panel === "fabric_schedules";
+    forgetFabricActivities();
+    render();
+  };
+  const viewRow = h("div", { class: "row mesh-view-row monitor-view-row" },
+    monitorPage.panel !== "runs" ? null : [
+      seg("env", "Environment", [["all", "All"], ...Object.entries(ENV_LABEL)]),
+      seg("where", "Where it ran", [["any", "Anywhere"], ["local", "This PC"], ["fabric", "Fabric"]]),
+      h("label", { class: "check" }, h("input", { type: "checkbox", checked: monitorPage.problemsFirst ? true : null,
+        onchange: (e) => { monitorPage.problemsFirst = e.target.checked; render(); } }), "Problems first")],
+    op ? h("select", { class: "group-select", "aria-label": "Operations view", title: "Which Operations view to show",
+      onchange: (e) => show(e.target.value)() }, ops.map((o) => h("option", { value: o.panel, selected: o === op }, o.label))) : null,
+    monitorSlots.views, h("span", { class: "spacer" }), monitorSlots.tools,
+    op ? null : btn("Refresh", "sync", refresh, "tool outline"));
   setView(h("div", { class: `page monitor${fabricShown ? "" : " no-fabric"}${runsOut ? " runs-out" : ""}` },
-    runsOut ? poppedOutBand("runs", "From KratosForge", "monitor-local") : h("section", { class: "card monitor-local" },
-      h("div", { class: "monitor-band" },
-        h("h2", {}, "From KratosForge"),
-        h("div", { class: "seg", role: "group", "aria-label": "Show" },
-          segment(monitorPage.panel === "runs", "Runs", show("runs")),
-          preview("schedules", segment(monitorPage.panel === "schedules", "Schedules", show("schedules"))),
-          ops.length ? segment(!!op, ["Operations", ops.every((o) => PREVIEW_FEATURES[o.feature]) ? previewTag() : null],
-            show(ops.some((o) => o.panel === monitorPage.opsView) ? monitorPage.opsView : ops[0].panel)) : null),
-        op ? h("select", { class: "group-select", "aria-label": "Operations view", title: "Which Operations view to show",
-          onchange: (e) => show(e.target.value)() }, ops.map((o) => h("option", { value: o.panel, selected: o === op }, o.label))) : null,
-        monitorAbout(op ? op.text : monitorPage.panel === "schedules" ? "Every schedule, on this PC and in Fabric, with how its last run went"
-          : "Everything this app ran or started, in every environment, on this PC and in Fabric", op ? op.anchor : "monitor"),
-        h("span", { class: "spacer" }),
-        op ? null : btn("Refresh", "sync", () => { monitorPage.fabricPipelinesRefresh = true; forgetFabricActivities(); render(); }, "tool outline"),
-        popOutButton("runs")),
-      monitorPage.panel !== "runs" ? null : h("div", { class: "monitor-filters" },
-        h("div", { class: "row", role: "group", "aria-label": "Environment" },
-          chip("env", "all", "All"), Object.entries(ENV_LABEL).map(([id, label]) => chip("env", id, label))),
-        h("div", { class: "row", role: "group", "aria-label": "Where it ran" },
-          chip("where", "any", "Anywhere"), chip("where", "local", "This PC"), chip("where", "fabric", "Fabric")),
-        h("label", { class: "check" }, h("input", { type: "checkbox", checked: monitorPage.problemsFirst ? true : null,
-          onchange: (e) => { monitorPage.problemsFirst = e.target.checked; render(); } }), "Problems first"),
-        note),
-      local),
+    POP_OUT ? null : h("div", { class: "page-head" },
+      h("div", {}, h("h1", {}, "Monitor"), h("p", { class: "sub monitor-context" }, monitorAbout(...about))),
+      h("div", { class: "head-actions" }, runsOut ? null : popOutButton("runs", "Pop out runs"))),
+    runsOut ? poppedOutBand("runs", "From KratosForge", "monitor-local") : [tabs, viewRow, note,
+      h("section", { class: "card monitor-local" }, local)],
     !fabricHere ? null : fabricOut ? poppedOutBand("fabric", "In Fabric", "monitor-fabric") : h("section", { class: "card monitor-fabric" },
       h("div", { class: "monitor-band" },
         h("h2", {}, "In Fabric"),
@@ -1026,7 +1043,7 @@ async function renderMonitor() {
   if (fabricShown) dockFabricView(slot, "monitor", "monitor");
   else if (!POP_OUT) invoke("fabric_view_hide").catch(() => {});
   if (runsOut) return;
-  if (monitorPage.panel === "schedules") { local.replaceWith(schedulesPanel()); return; }
+  if (monitorPage.panel === "schedules" || monitorPage.panel === "fabric_schedules") { local.replaceWith(schedulesPanel()); return; }
   if (monitorPage.panel === "workloads") { local.replaceWith(workloadsPanel()); return; }
   if (monitorPage.panel === "incidents") { local.replaceWith(incidentsPanel()); return; }
   if (monitorPage.panel === "agents") { local.replaceWith(agentsPanel()); return; }
@@ -2671,7 +2688,8 @@ registerFeature({
   id: "monitor", rail: { label: "Monitor", icon: "monitor", order: 70, also: ["workload"] }, views: { monitor: renderMonitor },
   commands: [
     { label: "Runs", icon: "monitor", keywords: "monitor history failed", run: () => { monitorPage.panel = "runs"; go("monitor"); } },
-    { label: "Schedules", icon: "history", keywords: "monitor scheduled", preview: true, run: () => { monitorPage.panel = "schedules"; go("monitor"); } },
+    { label: "KratosForge schedules", icon: "history", keywords: "monitor scheduled schedules this pc", preview: true, run: () => { monitorPage.panel = "schedules"; go("monitor"); } },
+    { label: "Fabric schedules", icon: "history", keywords: "monitor scheduled schedules fabric", preview: true, run: () => { monitorPage.panel = "fabric_schedules"; go("monitor"); } },
     { label: "Cost", icon: "gauge", keywords: "monitor capacity cu spend", preview: true, run: () => { optimizePage.tab = "cost"; go("optimize"); } },
   ],
 });

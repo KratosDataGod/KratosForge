@@ -169,7 +169,7 @@ def test_one_list_has_this_pc_and_fabric(svc, monkeypatch):
 
 
 def test_a_schedules_file_that_was_set_aside_is_reported_on_the_schedules_page(svc):
-    # QA-011 follow-up: a torn schedules.json is moved aside; Monitor > Schedules must say so.
+    # QA-011 follow-up: a torn schedules.json is moved aside; Monitor > KratosForge schedules must say so.
     svc.notebooks.save("Daily", [{"type": "code", "source": "x = 1"}])
     svc.add_pc_schedule({"kind": "notebook", "name": "Daily"}, {"kind": "daily", "times": ["06:00"]})
     assert svc.all_schedules()["pc_set_aside"] == []

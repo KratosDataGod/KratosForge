@@ -55,6 +55,11 @@ test("with no project open, Data mesh opens on Home in My team for someone who o
   await open(".mh-card");
   assert.ok(views.length && views.every((v) => v === "team"), views.join());  // the app may render twice while it starts
   assert.ok(await page().$('button:has-text("Set up a project")'));
+  // The page's button and the tab's share one group at the right, the tab's primary last.
+  const head = await page().$$eval(".mesh-page .page-head > .head-actions", (g) => g.map((x) =>
+    [...x.querySelectorAll("button")].map((b) => b.textContent.replace("Preview", "").trim())));
+  assert.strictEqual(head.length, 1, "one right-hand group");
+  assert.strictEqual(head[0][0], "Set up a project");
   assert.strictEqual(await page().getAttribute('.seg button:has-text("My team")', "aria-pressed"), "true");
   assert.match(await page().textContent('.mh-card:has-text("Waiting on you")'), /Access: sales\/orders for finance/);
   assert.match(await page().textContent('.mh-card:has(h2:text-is("Your products"))'), /orders v3\s*2 projects\s*2\s*Incident upstream/);

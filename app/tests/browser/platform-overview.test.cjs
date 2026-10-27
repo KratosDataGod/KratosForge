@@ -30,7 +30,8 @@ const open = async (tab) => {
   await page().evaluate((t) => { state.user = "chris@contoso.com"; goPlatform(t); }, tab);
   await page().waitForFunction(() => platformPage.me);
 };
-const headPicker = () => page().$('.page-head [aria-label="Environment"]');
+// The environment picker sits on the view row, under the tabs (docs/ui-guidelines.md, Page layout).
+const headPicker = () => page().$('.mesh-view-row [aria-label="Environment"]');
 
 test("Overview's recent changes stay inside their card", { skip }, async () => {
   await open("overview");
@@ -40,9 +41,9 @@ test("Overview's recent changes stay inside their card", { skip }, async () => {
   assert.strictEqual(await page().getAttribute(".audit-row .mono", "title"), long);
 });
 
-test("Overview picks the environment on the landing zone card only", { skip }, async () => {
-  assert.strictEqual(await headPicker(), null);
-  assert.ok(await page().$('[aria-label="Landing zone environment"]'));
+test("Overview picks the environment once, on the view row, not again on the landing zone card", { skip }, async () => {
+  assert.ok(await headPicker());
+  assert.strictEqual(await page().$('[aria-label="Landing zone environment"]'), null);
 });
 
 test("an environment still on this PC offers to set it up in Fabric", { skip }, async () => {
@@ -84,7 +85,7 @@ test("Domains: subdomains are indented without a tree glyph, and Fabric domains 
   await page().evaluate(() => closeDialog());
 });
 
-test("only Landing zone and Business keys show the environment picker", { skip }, async () => {
+test("only Overview, Landing zone and Business keys show the environment picker", { skip }, async () => {
   await open("glossary");
   assert.strictEqual(await headPicker(), null);
   await open("landing");

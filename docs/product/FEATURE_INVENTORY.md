@@ -148,10 +148,10 @@ on quality.
 
 | Id | Feature | Status | Verification | Where people reach it | Next action |
 | --- | --- | --- | --- | --- | --- |
-| [FEAT-FAB-08](#feat-fab-08) | Fabric schedules | Implemented | Partially Verified | Notebook ribbon, Monitor > Schedules (Preview) | Allow editing a schedule's time; use the quiet token path in all_schedules. |
+| [FEAT-FAB-08](#feat-fab-08) | Fabric schedules | Implemented | Partially Verified | Notebook ribbon, Monitor > Fabric schedules (Preview) | Allow editing a schedule's time; use the quiet token path in all_schedules. |
 | [FEAT-FAB-10](#feat-fab-10) | Data Factory items: pipelines, copy jobs, dataflows and connections | Partially Implemented | Partially Verified | Pipelines page > Open from workspace, Copy jobs, Dataflows and Connections tabs (Preview) | DF-8 deploy through the platform repo needs Chris's go; tenant run of the DF-6 buttons. |
 | [FEAT-MESH-03](#feat-mesh-03) | Landing zone and source registry | Partially Implemented | Partially Verified | Platform > Landing zone (Preview) | Landing copy job requests (stage 4.1) and platform-repo landing zones merged; try on a tenant. |
-| [FEAT-ORC-01](#feat-orc-01) | PC schedules | Implemented | Partially Verified | Notebook ribbon, Data mesh, Monitor > Schedules (Preview) | Agent schedules cover Linux; Windows Task Scheduler runs need a Windows check. |
+| [FEAT-ORC-01](#feat-orc-01) | PC schedules | Implemented | Partially Verified | Notebook ribbon, Data mesh, Monitor > KratosForge schedules (Preview) | Agent schedules cover Linux; Windows Task Scheduler runs need a Windows check. |
 | [FEAT-ORC-02](#feat-orc-02) | Headless agent | Implemented | Partially Verified | CLI and agent.toml (no UI) | Verify on a tenant. |
 | [FEAT-ORC-04](#feat-orc-04) | Fabric pipeline mailbox | Implemented | Partially Verified | Fabric pipeline notebook + agent (Preview) | Run once on a tenant; record the writer's identity. |
 | [FEAT-ORC-06](#feat-orc-06) | Multiple workers | Partially Implemented | Partially Verified | agent.toml settings; no screen (Preview) | Run the mailbox on a tenant (PB-049), then build the app labels (multi-worker.md step 4). |
@@ -654,7 +654,7 @@ on quality.
 
 - **Pillar and category:** Enterprise services; Pipelines and Orchestration
 - **Status:** Implemented. **Verification:** Partially Verified.
-- **Where people reach it:** Notebook ribbon, Monitor > Schedules (Preview)
+- **Where people reach it:** Notebook ribbon, Monitor > Fabric schedules (Preview)
 - **Evidence:** test: sidecar/tests/test_cloud.py::test_schedule_configuration (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_schedules.py::test_one_list_has_this_pc_and_fabric
 - **Source:** `sidecar/fabric_desktop/schedule_service.py`, `sidecar/fabric_desktop/fabric_run.py`, `app/ui/schedules.js`
 - **Tests:** `sidecar/tests/test_schedules.py`
@@ -1583,7 +1583,7 @@ on quality.
 
 - **Pillar and category:** Local development; Pipelines and Orchestration
 - **Status:** Implemented. **Verification:** Partially Verified.
-- **Where people reach it:** Notebook ribbon, Data mesh, Monitor > Schedules (Preview)
+- **Where people reach it:** Notebook ribbon, Data mesh, Monitor > KratosForge schedules (Preview)
 - **Evidence:** test: sidecar/tests/test_schedules.py (passed in the 2026-10-22 refresh run at be3e45b); test: sidecar/tests/test_schedules.py::test_task_definition_runs_the_sidecar_quietly (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_schedules.py::test_a_run_still_going_is_not_started_twice
 - **Source:** `sidecar/fabric_desktop/local_schedules.py`, `sidecar/fabric_desktop/schedule_service.py`, `app/ui/schedules.js`
 - **Tests:** `sidecar/tests/test_schedules.py`

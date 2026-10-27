@@ -107,7 +107,7 @@ These prove where a file came from; they don't replace code signing, which is st
 
 ## Uninstall
 
-1. If you added schedules on this PC, remove them in **Monitor > Schedules** first. They live in Windows Task Scheduler under the `FabricDesktop` folder.
+1. If you added schedules on this PC, remove them in **Monitor > KratosForge schedules** first. They live in Windows Task Scheduler under the `FabricDesktop` folder.
 2. Close the app and delete `kratosforge.exe` (or `fabric-desktop.exe` on a copy that kept that name).
 3. Delete `%LOCALAPPDATA%\FabricDesktop` to remove the engine, your notebooks, settings and sign-in. Copy the `notebooks` folder somewhere first if you want to keep them.
 

@@ -37,7 +37,7 @@ The card's **Cores on this PC** sets how many of the PC's cores the run on this 
 | **All N cores** | Every core. Fast, but against a smaller Fabric session it compares hardware as much as engines. |
 | **Pick a number** | That many cores, for example to match a bigger Fabric session. |
 
-Held to fewer cores, the run's process may use only those processors (its CPU affinity, which Windows enforces and which every process it starts inherits), and DuckDB, Polars and `os.cpu_count()` are told the same number. Logical processors count as cores, as Fabric's vCores do. The result names the cores each side had.
+Held to fewer cores, the run's process may use only those processors (its CPU affinity, which Windows enforces and which every process it starts inherits), and DuckDB, Polars and `os.cpu_count()` are told the same number. Logical processors count as cores, as Fabric's vCores do. On a PC with more than 64 logical processors, Windows splits them into processor groups and the run is held to cores in one group. The result names the cores each side had.
 
 ## Reading the result
 

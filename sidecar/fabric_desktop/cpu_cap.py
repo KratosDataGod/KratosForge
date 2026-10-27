@@ -5,7 +5,8 @@ process calls ``from_env`` first thing. The cap is the process's CPU affinity, w
 enforces and every process it starts inherits (the TPC-H generator's parts), so DuckDB, Polars
 and any other thread pool get at most that many cores whatever they size themselves to. Pools
 that read a count are told it too: ``POLARS_MAX_THREADS``, ``PYTHON_CPU_COUNT`` (Python 3.13+)
-and ``os.cpu_count`` here for older Pythons.
+and ``os.cpu_count`` here for older Pythons; DuckDB, which sizes its pool from the hardware
+and reads no variable, gets ``threads`` on every connection the process opens.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from typing import Any
 
 ENV = "FABRIC_DESKTOP_CORES"
 
@@ -42,7 +44,29 @@ def from_env() -> int | None:
     os.cpu_count = lambda: cores  # type: ignore[assignment] - Python 3.13 does this for PYTHON_CPU_COUNT
     if hasattr(os, "process_cpu_count"):
         os.process_cpu_count = lambda: cores  # type: ignore[attr-defined,assignment]
+    _duckdb_threads(cores)
     return cores
+
+
+def _duckdb_threads(cores: int) -> None:
+    """Every DuckDB connection this process opens, and its default one, gets ``threads = cores``
+    unless the code asks for its own number."""
+    try:
+        import duckdb
+    except ImportError:
+        return
+    connect = duckdb.connect
+
+    def capped(database: Any = ":memory:", read_only: bool = False, config: dict[str, Any] | None = None,
+               **kwargs: Any) -> Any:
+        return connect(database, read_only, {"threads": cores, **(config or {})}, **kwargs)
+
+    capped.__doc__, capped.__wrapped__ = connect.__doc__, connect  # type: ignore[attr-defined]
+    duckdb.connect = capped  # type: ignore[assignment]
+    try:
+        duckdb.execute(f"SET threads = {int(cores)}")  # duckdb.sql() and friends use the default connection
+    except duckdb.Error as exc:
+        _log.warning("Couldn't set DuckDB's default connection to %s threads: %s", cores, exc)
 
 
 def limit(cores: int) -> bool:

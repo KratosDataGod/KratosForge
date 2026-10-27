@@ -73,9 +73,14 @@ def test_a_process_kernel_with_cores_runs_its_cells_on_them():
     k = ProcessKernel()
     k.cores = 1
     try:
-        res = k.run("import os, polars\nprint(len(os.sched_getaffinity(0)), os.cpu_count(), polars.thread_pool_size())")
+        res = k.run("import os, duckdb, polars\n"
+                    "threads = lambda con: con.execute(\"select current_setting('threads')\").fetchone()[0]\n"
+                    "print(len(os.sched_getaffinity(0)), os.cpu_count(), polars.thread_pool_size(),\n"
+                    "      threads(duckdb.connect()), threads(duckdb.connect(':memory:', config={'threads': 3})),\n"
+                    "      duckdb.sql(\"select current_setting('threads')\").fetchone()[0])")
         assert res["status"] == "ok", res
-        assert res["outputs"][0]["text"].split() == ["1", "1", "1"]
+        # DuckDB too, with a connection's own number kept.
+        assert res["outputs"][0]["text"].split() == ["1", "1", "1", "1", "3", "1"]
     finally:
         k.close()
 

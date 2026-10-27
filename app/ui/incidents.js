@@ -301,13 +301,17 @@ function incImpactBody(inc, out, reload) {
   const told = out.told ? h("p", { class: "muted-text small" }, `Told in Teams ${relTime(out.told.at)} by ${out.told.by}.`) : null;
   const unreachable = out.unreachable.length ? h("p", { class: "muted-text small" },
     `Not an email, so not in the message: ${out.unreachable.join(", ")}.`) : null;
+  // Who follows a product is personal data: the platform lists it only to its owners and admins.
+  const hiddenNames = (out.followers_hidden || []).map((id) => out.products.find((p) => p.id === id)?.name || id);
+  const hidden = hiddenNames.length ? h("p", { class: "muted-text small inc-impact-hidden" },
+    `Followers of ${hiddenNames.join(", ")} aren't listed or told: only a product's owner or a platform admin can see who follows it. Its owner can tell them.`) : null;
   const upns = out.people.map((p) => p.upn);
   const actions = upns.length ? h("div", { class: "row wrap" },
     btn(out.told ? "Tell them again" : "Tell them", "comment", () => tellImpacted(inc, out, reload), "tool primary small"),
     btn("Copy emails", "copyArrowRight", () => navigator.clipboard.writeText(upns.join("; ")).then(
       () => toast(`Copied ${upns.length} ${upns.length === 1 ? "email" : "emails"}.`), () => toast("Couldn't copy the emails.", true)), "tool outline small")) : null;
   return [h("p", { class: "sub" }, `${out.products.length} data ${out.products.length === 1 ? "product is" : "products are"} built on ${out.entity} in ${envName(inc.env)}.`),
-    products, h("h3", {}, "People to tell"), people, unreachable, told, actions];
+    products, h("h3", {}, "People to tell"), people, unreachable, hidden, told, actions];
 }
 
 async function openImpactProduct(id) {

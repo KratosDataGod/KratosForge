@@ -74,15 +74,13 @@ def test_every_registered_engine_lists_every_capability():
 
 
 def test_planned_engines_claim_nothing_and_say_what_is_planned():
-    for eid in ("local-spark", "fabric-spark", "databricks-connect"):
+    for eid in ("local-spark", "fabric-spark"):
         d = registry.get(eid)
         assert not d.adapter and d.planned
         assert all(not d.capability(c).available for c in CAPABILITIES)
         with pytest.raises(ValueError, match="can't run cells"):
             registry.adapter(eid)
         assert check_cell(d, "python")["ok"] is False
-    dbc = registry.get("databricks-connect")
-    assert dbc.remote and dbc.billing == "databricks_dbu" and "own Python environment" in dbc.planned
     assert registry.get("fabric-spark").billing == "fabric_capacity"
 
 

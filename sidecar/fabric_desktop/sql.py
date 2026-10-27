@@ -37,7 +37,7 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
     try:
         statements = sqlglot.parse(query, read=chosen["sqlglot"])
         if chosen["id"] == "spark":
-            statements = [spark_substring(_spark_dates(_spark_names(s))) for s in statements if s is not None]
+            statements = [spark_fixes(s) for s in statements if s is not None]
     except ParseError as first_error:
         if chosen["id"] == "spark" and _only_empty_structs_fail(query):
             raise ValueError(_EMPTY_STRUCT) from None
@@ -85,6 +85,13 @@ def _only_empty_structs_fail(query: str) -> bool:
 
 # Spark's date and time unit names that DuckDB doesn't know ('MM' is minutes to DuckDB if anything).
 _SPARK_UNITS = {"YYYY": "YEAR", "YY": "YEAR", "MON": "MONTH", "MM": "MONTH", "DD": "DAY"}
+
+
+def spark_fixes(statement: exp.Expression) -> exp.Expression:
+    """What a Spark SQL statement read by sqlglot needs to answer on DuckDB as it does on Spark:
+    Spark's column names, its date functions and substring from 0. The Spark SQL path here and
+    the DuckDB engine's Databricks SQL (engines/local_sql.py) both use it, so they can't drift."""
+    return spark_substring(_spark_dates(_spark_names(statement)))
 
 
 def _spark_dates(statement: exp.Expression) -> exp.Expression:

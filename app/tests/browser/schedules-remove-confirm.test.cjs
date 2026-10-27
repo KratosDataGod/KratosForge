@@ -1,4 +1,4 @@
-// UX-018: Remove on Monitor > KratosForge schedules asks first, in red, and Cancel removes nothing
+// UX-018: Remove on Monitor > KratosForge > Schedules asks first, in red, and Cancel removes nothing
 // (see harness.cjs for how to run it).
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");

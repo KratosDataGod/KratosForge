@@ -48,7 +48,7 @@ async function renderOptimize() {
   if (!status?.active) {
     fill(body, h("p", { class: "muted-text" }, status && !status.allowed
       ? "Your organization has turned off shared optimization lakehouses."
-      : "Connect an optimization lakehouse to see what every KratosForge installation found, and act on it together. Cost and savings works without one."));
+      : "Connect an optimization lakehouse to see what every KratosForge installation found, and act on it together. One lakehouse holds what every installation finds, fixes and saves, and your organization usually needs only one. Cost and savings works without one."));
     return;
   }
   fill(body, h("p", { class: "muted-text" }, "Reading shared results..."));
@@ -69,7 +69,7 @@ function optimizeBand(status) {
   if (!status.allowed) return [["Shared optimization lakehouses are turned off by your organization. Cost and savings still shows this PC's figures."], []];
   const c = status.active;
   if (!c) {
-    return [["Results from this PC only. Share results with your team: one lakehouse holds what every installation finds, fixes and saves, and your organization usually needs only one. Nothing here waits for it."],
+    return [["Results from this PC only · not shared with your team yet"],
       [btn("Connect to a lakehouse", null, () => optimizeConnectFlow(), "tool outline"),
         btn("Create a lakehouse", "add", () => optimizeCreateFlow(), "tool primary")]];
   }

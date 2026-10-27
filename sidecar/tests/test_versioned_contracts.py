@@ -294,7 +294,7 @@ def test_the_deprecation_event_fits_the_platform_notice_shape():
                                         {"consumer_project": "crm", "alias": "self"}])
     title, lines = message(check(event))
     assert title == "Data product deprecated: crm/customers stops on 2026-12-31"
-    assert lines[0] == "For ana@example.com, the team of project finance." and "Data mesh > Domains > Links" in lines[-1]
+    assert lines[0] == "For ana@example.com, the team of project finance." and "Data mesh > Products and links > Links" in lines[-1]
     assert notices.product_deprecated({"id": "crm/customers", "project": "crm"}, [{"consumer_project": "crm"}]) is None
 
 

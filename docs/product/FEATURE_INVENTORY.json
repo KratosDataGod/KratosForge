@@ -1128,7 +1128,7 @@
         "docs/notebooks.md"
       ],
       "ui": {
-        "surface": "Notebook ribbon, Monitor > Schedules",
+        "surface": "Notebook ribbon, Monitor > Fabric schedules",
         "preview": true
       },
       "limitations": [
@@ -4359,7 +4359,7 @@
         "docs/notebooks.md"
       ],
       "ui": {
-        "surface": "Notebook ribbon, Data mesh, Monitor > Schedules",
+        "surface": "Notebook ribbon, Data mesh, Monitor > KratosForge schedules",
         "preview": true
       },
       "next_action": "Agent schedules cover Linux; Windows Task Scheduler runs need a Windows check.",

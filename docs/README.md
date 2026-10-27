@@ -20,6 +20,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | Know where a CU or cost figure comes from and how far to trust it | [Capacity and cost evidence](finops/cost-evidence.md) |
 | Share optimization results across every installation in my organization | [Optimize](optimize/README.md) |
 | Build Bronze, Silver and Gold from config | [Metadata framework guide](metadata-guide.md) |
+| Check a semantic model against Best Practice Analyzer rules | [Semantic model best practices](semantic-model-best-practices.md) |
 | Set it up for several teams | [Working across teams](teams.md), [The platform](platform.md), [Data mesh](data-mesh.md), [Governance policies](governance.md) and the [governance guide](governance-guide.md) |
 | Watch and manage every OneLake shortcut: health, access, changes, requests | [Shortcut command center](shortcuts.md) |
 | Check a Fabric pipeline definition on my PC | [Pipeline definitions](orchestration/pipeline-definitions.md) |
@@ -83,6 +84,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [notebook-editor/variables.md](notebook-editor/variables.md) | Engineers, analysts | The Variables pane: filter, sort, memory, open data frames and containers |
 | [prove/how-proofs-work.md](prove/how-proofs-work.md) | Engineers, analysts | Proving a notebook: pinned inputs, sandboxed outputs, how results are verified, the scorecard and receipts (Preview) |
 | [metadata-guide.md](metadata-guide.md) | Engineers | The metadata framework step by step, from a new project to Prod, and a reference for every setting |
+| [semantic-model-best-practices.md](semantic-model-best-practices.md) | Engineers, BI developers | Best Practice Analyzer through semantic-link-labs in Fabric (Preview): what a check runs, writes and costs |
 | [platform.md](platform.md) | Platform owners | The central platform: one key system, one landing zone, the catalog; platform admins, requests, the Platform page; creating, joining, moving keys |
 | [governance.md](governance.md) | Platform owners, team leads | Governance policies (Preview): the policy registry, drafts and versions, enterprise to entity scopes, mandatory policies, governance.toml, who can change what |
 | [governance-guide.md](governance-guide.md) | Platform owners, team leads | Governance guide (Preview): draft to result, worked examples (naming, classification, ownership), what can be enforced and by whom |
@@ -107,6 +109,8 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [ai/README.md](ai/README.md) | Everyone | Connecting your own AI tool (Claude, Codex, Copilot, Cursor, any MCP client): setup for each, [workflows](ai/workflows.md), [instructions to paste](ai/agent-instructions.md) |
 | [architecture/ai-integration.md](architecture/ai-integration.md) | Contributors, admins | External AI tools through MCP and a local API, with no AI in the app: architecture, permissions, security ([backlog](product/ai-integration-backlog.md), [decisions](product/ai-integration-decisions.md), [security](product/ai-integration-security.md), [compatibility](product/ai-integration-compatibility.md), [AI tool test checklist](product/ai-integration-client-checklist.md)) |
 | [ui-guidelines.md](ui-guidelines.md) | Contributors | Where new features go in the UI |
+| [design/KRATOSFORGE_VISUAL_STYLE_GUIDE.md](design/KRATOSFORGE_VISUAL_STYLE_GUIDE.md) | Contributors, designers, agents | The visual identity, Forged Heroism: the canonical storyboard, palette, the wolf, the forge language, animation standards, consistency checks, image generation ([assets](design/assets.md), [wolf sheet](design/wolf-character-sheet.md), [event catalog](design/animation-events.md), [examples](design/examples.md)) |
+| [animation-style-guide.md](animation-style-guide.md) | Contributors, designers | The four animation tiers (Ember, Spark, Forge, Titan), brand fire and winter colours, motifs, timing and reduced-motion rules |
 | [ux/README.md](ux/README.md) | Contributors, product and release managers | UX and simplicity audit: scorecard, configuration, navigation, workflows, docs coverage, backlog (UX-nnn), usability release gates |
 | [ux/action-first.md](ux/action-first.md) | Contributors, product and release managers | Action-first standard, review checklist, measured baseline and backlog (AF-n); the shared action framework |
 | [enterprise-roadmap.md](enterprise-roadmap.md) | Platform owners | Milestones for running at enterprise scale |

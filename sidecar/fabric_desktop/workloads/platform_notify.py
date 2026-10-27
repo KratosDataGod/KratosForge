@@ -1,7 +1,7 @@
-"""Telling Teams channels about platform requests and broken shortcuts, once each.
+"""Telling Teams channels about platform requests, broken shortcuts and deprecated products, once each.
 
 Governance sends one event per change (a request waiting on someone, decided or withdrawn; a
-shortcut broken or fixed). Each event goes to the routes whose kinds and domains match it, or to
+shortcut broken or fixed; a data product deprecated, for the projects that read it). Each event goes to the routes whose kinds and domains match it, or to
 the default route when none does. An event is posted once per ``dedupe`` key: a shortcut that
 stays broken isn't posted again, and ``shortcut.fixed`` is posted only when its break was, then
 closes it, so the next break is news again. Quiet hours and Teams being unreachable work as for
@@ -25,18 +25,20 @@ from .. import redact
 from .notify import DEFAULT_ROUTE, KEEP_TRYING, Outbox, Quiet, failure, transaction
 
 KINDS = ("request.waiting", "request.decided", "request.withdrawn", "shortcut.broken", "shortcut.fixed",
-         "incident.impact", "product.changed")
+         "product.deprecated", "incident.impact", "product.changed")
 OPENS = {"request.waiting": "request", "shortcut.broken": "shortcut"}  # kinds that open a dedupe key
 CLOSES = {"request.decided": "request.waiting", "request.withdrawn": "request.waiting", "shortcut.fixed": "shortcut.broken"}
-VIEWS = {"platform": ("requests",), "shortcuts": ("health",), "incident": ("detail",), "onelake": ("products",)}
+VIEWS = {"platform": ("requests",), "shortcuts": ("health",), "metadata": ("links",), "incident": ("detail",),
+         "onelake": ("products",)}
 SEVERITIES = ("info", "warn")
 _UPN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-_ROLE = re.compile(r"^(platform_admin|requester|(domain_owner|product_owner):[A-Za-z0-9._-]+)$")
+_ROLE = re.compile(r"^(platform_admin|requester|(domain_owner|product_owner|project):[A-Za-z0-9._-]+)$")
 _TITLES = {"request.waiting": "Waiting on you", "request.decided": "Decided", "request.withdrawn": "Withdrawn",
            "shortcut.broken": "Shortcut broken", "shortcut.fixed": "Shortcut fixed",
-           "incident.impact": "Incident upstream of your data", "product.changed": "Data product changed"}
-_WHERE = {"requests": "Platform > Requests", "health": "Shortcuts > Health", "detail": "Monitor > Incidents",
-          "products": "Data mesh > Products"}
+           "product.deprecated": "Data product deprecated", "incident.impact": "Incident upstream of your data",
+           "product.changed": "Data product changed"}
+_WHERE = {"requests": "Platform > Requests", "health": "Shortcuts > Health", "links": "Data mesh > Products and links > Links",
+          "detail": "Monitor > Incidents", "products": "Data mesh > Products"}
 
 
 def _strs(value: Any, name: str) -> list[str]:
@@ -78,14 +80,15 @@ def validate(event: dict[str, Any]) -> dict[str, Any]:
     if bad := [p for p in people if not _UPN.match(p)]:
         raise ValueError(f"to.people are UPNs (name@domain), not {bad[0]!r}")
     if bad := [r for r in roles if not _ROLE.match(r)]:
-        raise ValueError(f"to.roles are platform_admin, requester, domain_owner:<id> or product_owner:<id>, not {bad[0]!r}")
+        raise ValueError(f"to.roles are platform_admin, requester, domain_owner:<id>, product_owner:<id> or "
+                         f"project:<name>, not {bad[0]!r}")
     if not people and not roles:
         raise ValueError("to names at least one person or role")
     out["to"] = {"people": people, "roles": roles}
     opened = event.get("open") or {}
     if not isinstance(opened, dict) or opened.get("view") not in VIEWS or opened.get("tab") not in VIEWS[opened.get("view")]:
         raise ValueError("open is {view: platform, tab: requests}, {view: shortcuts, tab: health}, "
-                         "{view: incident, tab: detail} or {view: onelake, tab: products}")
+                         "{view: metadata, tab: links}, {view: incident, tab: detail} or {view: onelake, tab: products}")
     out["open"] = {"view": opened["view"], "tab": opened["tab"], "target": str(opened.get("target") or "")}
     out["dedupe"] = str(event.get("dedupe") or f"{kind}:{out['id']}")
     return out
@@ -97,12 +100,14 @@ def recipients(to: dict[str, list[str]]) -> str:
     for role in to["roles"]:
         kind, _, target = role.partition(":")
         names.append({"platform_admin": "platform admins", "requester": "the requester",
-                      "domain_owner": f"owners of domain {target}", "product_owner": f"owners of data product {target}"}[kind])
+                      "domain_owner": f"owners of domain {target}", "product_owner": f"owners of data product {target}",
+                      "project": f"the team of project {target}"}[kind])
     return ", ".join(names)
 
 
 def message(event: dict[str, Any]) -> tuple[str, list[str]]:
-    """(title, lines) for one event. A request's detail stays out; a shortcut's says what broke."""
+    """(title, lines) for one event. A request's detail stays out; a shortcut's says what broke, and a
+    deprecated product's when it stops and which links read it."""
     lines = [f"For {recipients(event['to'])}."]
     scope = " · ".join(x for x in (f"Domain {event['domain']}" if event["domain"] else "",
                                    event["env"].title() if event["env"] else "") if x)

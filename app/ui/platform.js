@@ -57,6 +57,8 @@ async function renderPlatform() {
     platformTabBar(waiting),
     body));
   p.me = await attempt(() => rpc("platform_whoami"), "Could not reach the platform");
+  // Owner coverage's last-used date, only where policy turns on platform_presence; the engine notes it in the background.
+  if (p.me && !platformPage.seenNoted) { platformPage.seenNoted = true; rpc("platform_note_seen", {}).catch(() => {}); }
   if (state.view !== "platform") return;
   // Overview and Requests read the count with their own data; another tab reads it once, then keeps it.
   if (p.me && p.waiting === undefined && !["overview", "requests"].includes(p.tab)) {
@@ -161,13 +163,48 @@ async function platformOverviewTab(body) {
             h("td", {}, s.readers.length ? `${s.readers.length} project${s.readers.length === 1 ? "" : "s"}` : h("span", { class: "muted-text" }, "none"))))))
           : h("p", { class: "muted-text" }, "No sources in the landing zone yet."),
         h("b", {}, "Recent changes"),
-        auditList(o.recent, true)))].filter(Boolean),
+        auditList(o.recent, true))),
+    previewShown() ? ownerCoverageCard() : null].filter(Boolean),
   howItWorks("platform.overview", {
     reads: "Each environment's platform: its catalog in SQL_Platform in Fabric, or a file on this PC until that environment has a platform. It reads when the page opens and when you press Refresh.",
     changes: "Requests waiting for you can be approved or declined here; approving one makes what it asks for first, as you: a shortcut in OneLake, a workspace or a workspace role in Fabric, a domain or a policy exception in the platform. Domains, key tables and sources change on their own tabs, and only platform admins can change them.",
-    results: "Everyone who uses this platform sees the same counts, requests and recent changes. Each change is kept on the Audit tab.",
+    results: "Everyone who uses this platform sees the same counts, requests and recent changes. Each change is kept on the Audit tab. Owners reads every domain's, data product's and source's owners, and when each owner last used the platform; opening the platform from the app records that you used it today (catalog.person), once a day.",
     anchor: "platform",
   })));
+}
+
+// Platform > Overview > Owners (Preview): what has no owner, no second owner, or an owner who has gone quiet.
+const COVERAGE_KIND = { domain: "Domain", product: "Data product", source: "Source" };
+function ownerCoverageCard() {
+  const card = h("div", { class: "card pad owner-coverage" }, h("b", {}, "Owners"), loading());
+  const open = (g) => (g.opens === "products" ? () => { catalogPage.tab = "products"; go("onelake"); } : () => goPlatform(g.opens));
+  rpc("platform_owner_coverage", {}).then((c) => {
+    if (c.available === false) {
+      card.replaceChildren(h("b", {}, "Owners"), h("p", { class: "muted-text small" }, c.problem));
+      return;
+    }
+    const head = h("div", { class: "row tight" }, h("b", { class: "grow" }, "Owners"), previewTag(),
+      h("span", { class: "muted-text small" }, `${c.covered} of ${c.checked} covered`));
+    if (!c.gaps.length) {
+      card.replaceChildren(head, h("p", { class: "muted-text small" }, c.checked
+        ? (c.presence === false ? "Every domain, data product and source has two owners." : "Every domain, data product and source has two owners who have used the platform lately.")
+        : "No domains, data products or sources yet."));
+      return;
+    }
+    card.replaceChildren(head,
+      h("p", { class: "muted-text small" }, c.presence === false
+        ? "Each should have an owner and a second one to cover. Whether owners have gone quiet isn't checked: your organization hasn't turned on platform_presence."
+        : `Each should have an owner and a second one to cover, who have used the platform in the last ${c.quiet_days} days.`),
+      h("table", { class: "list" },
+        h("thead", {}, h("tr", {}, ["What", "Owners", "Why it's listed", ""].map((x) => h("th", {}, x)))),
+        h("tbody", {}, c.gaps.map((g) => h("tr", { "data-owned": `${g.kind}:${g.id}` },
+          h("td", {}, h("span", { class: "pill-s info" }, COVERAGE_KIND[g.kind] || g.kind), " ", h("b", {}, g.name)),
+          h("td", {}, g.owners.length ? g.owners.join(", ") : h("span", { class: "muted-text" }, "none"),
+            g.unchecked.length ? h("div", { class: "muted-text small" }, "Names, not sign-ins, can't be checked for being quiet") : null),
+          h("td", {}, g.problems.map((p) => h("div", { class: p === "No owner" ? "fail-text small" : "small" }, p))),
+          h("td", {}, btn("Open", null, open(g), "tool link small")))))));
+  }).catch((err) => card.replaceChildren(h("b", {}, "Owners"), h("p", { class: "fail-text small" }, trustError(err))));
+  return card;
 }
 
 // compact: two lines per change, for a narrow card (Overview); the Audit tab keeps the table.
@@ -1011,14 +1048,17 @@ async function platformDomainsTab(body) {
         h("td", { class: d.parent_id ? "plat-subdomain" : null }, h("b", {}, d.name), h("div", { class: "muted-text small mono" }, d.parent_id ? `${d.id} · subdomain` : d.id)),
         h("td", {}, d.description || ""), h("td", {}, domainOwnersCell(d)),
         h("td", {}, d.fabric_domain ? h("span", { class: "badge", title: d.fabric_domain }, "From Fabric") : h("span", { class: "muted-text" }, "Only here")),
-        h("td", {}, adminOnly(h("span", { class: "row tight" },
+        h("td", {}, h("span", { class: "row tight" },
+          btn("Access groups", null, () => entraGroupsDialog(d, domains), "tool small",
+            { title: "Entra ID groups for this domain's roles, with scripts to create them" }),
+          adminOnly(h("span", { class: "row tight" },
           btn(d.fabric_domain ? "Edit owners" : "Edit", null, () => domainDialog(o, d, rerender), "tool small"),
           btn("Delete", null, async () => {
             const why = "Only a domain no project or subdomain uses can be deleted." + (d.fabric_domain
               ? " It follows a domain in Fabric: delete that one in Fabric's admin portal first, or the next Import from Fabric brings it back." : "");
             if (!(await confirmDialog(`Delete ${d.name}?`, why, "Delete", { danger: true }))) return;
             if (await platformCall("platform_delete_domain", { id: d.id }, "Not deleted")) rerender();
-          }, "tool small danger"))))))))
+          }, "tool small danger")))))))))
       : h("p", { class: "muted-text" }, "No domains yet.")),
   howItWorks("platform.domains", {
     reads: "The platform's domains. Import from Fabric reads Fabric's domains and each one's admins, as a Fabric administrator.",
@@ -1268,7 +1308,7 @@ async function renderProductTrust(p) {
           pp.mine && p.project === pp.mine ? btn("Edit definition", null, () => goMeta("products"), "tool outline small") : null, btn("Ask for a change", null, () => newRequestDialog(null, "data", { product: p.id }), "tool outline small")),
         h("div", { class: "row" }, h("h2", { class: "trust-name" }, p.name), badges, previewTag()),
         h("div", { class: "muted-text small" }, p.description || ""), h("div", { class: "muted-text small mono" }, p.id), lastScan),
-      endorsement, terms, productChecklistCard(p), productAccessCard(p)),
+      endorsement, terms, productChecklistCard(p), productAccessCard(p), productDomainGroupsCard(p)),
     howItWorks("onelake.product-trust", {
       reads: "The product's endorsement as the last tenant scan read it, and its business terms, from the platform's catalog. Scan now reads Fabric's admin tenant scan (Power BI) of the workspaces the platform's published products live in, as you: only a Fabric administrator can. Nothing reads Purview.",
       changes: "Scan now writes what the scan read to catalog.endorsement in the platform's catalog. Adding or removing a term writes catalog.product_term. Take access away deletes that project's row in catalog.grant; links it already made stay. Ask for a change adds a request to catalog.request for the product's owner. Still needed records your confirmation in catalog.grant_review. Follow adds you to catalog.follow (Following takes you off). Nothing changes in Fabric or Purview: KratosForge can't set endorsement, and terms stay in Purview.",

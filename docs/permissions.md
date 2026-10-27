@@ -74,7 +74,7 @@ With your own app, KratosForge signs in with the browser (not Windows sign-in) a
 | Power BI Service | `Connection.Read.All` | Cloud connections when you create a shortcut, and the Data Factory Connections tab (Preview) | On first use |
 | Power BI Service | `Gateway.Read.All` | Gateway names on the Data Factory Connections tab (Preview). Declined, the tab still lists the connections | On first use |
 | Power BI Service | `Item.Execute.All` | Running or scheduling notebooks, starting pipelines, copy jobs and Dataflow Gen2 refreshes from Workloads, the Fabric runner and table maintenance in Fabric; calling the platform's functions (keys, catalog) | On first use |
-| Power BI Service | `Item.ReadWrite.All` | Creating, updating and (in the [live test](live-testing.md) only) deleting lakehouses, notebooks, pipelines, semantic models, variable libraries, the platform's SQL database and functions; reading a notebook's cells for its preview, for Edit on this PC and for the check before Publish ([Notebook files](notebook-files.md)); reading pipeline run history and activity runs for Monitor ([Data Factory](orchestration/data-factory.md), Preview) | At first sign-in |
+| Power BI Service | `Item.ReadWrite.All` | Creating, updating and deleting lakehouses (deleting only in the [live test](live-testing.md) and when you confirm **Remove** on a leftover Dataflow Gen2 staging lakehouse in the [Estate X-ray](xray-fixes.md#leftover-staging-lakehouses)), notebooks, pipelines, semantic models, variable libraries, the platform's SQL database and functions; reading a notebook's cells for its preview, for Edit on this PC and for the check before Publish ([Notebook files](notebook-files.md)); reading pipeline run history and activity runs for Monitor ([Data Factory](orchestration/data-factory.md), Preview) | At first sign-in |
 | Power BI Service | `OneLake.ReadWrite.All` | OneLake shortcuts and data access roles | On first use |
 | Power BI Service | `Tenant.Read.All` | Importing Fabric's domains and subdomains (**Platform > Domains > Import from Fabric**), reading tenant settings for the tenant settings history, and, when chosen, each capacity's tenant setting overrides for the capacity settings history; and Power BI's admin tenant scan for a data product's endorsement (**Scan now**, Preview), asked for Power BI's address (`https://analysis.windows.net/powerbi/api/Tenant.Read.All`, the same permission). Only works for a Fabric administrator; leave it out if no Fabric administrator uses KratosForge | Optional, when a Fabric administrator imports domains, reads tenant settings or scans endorsement |
 | Power BI Service | `Tenant.ReadWrite.All` | Creating a domain or subdomain in Fabric (**Platform > Domains > New domain**, with **Also create it in Fabric** ticked). Only works for a Fabric administrator; leave it out if no Fabric administrator creates domains from KratosForge | Optional, when a Fabric administrator creates a domain in Fabric |
@@ -127,12 +127,13 @@ Leave all of them empty to use Microsoft's sign-in.
 
 Every key is optional; leave out `client_id` to keep Microsoft's sign-in. `channel` is `stable` or `preview`; `support_url` is an `https://` link (a Teams channel, a ticket form) or a `mailto:` address.
 
-Four more keys are for control rather than convenience:
+Five more keys are for control rather than convenience:
 
 | Key | Effect |
 | --- | --- |
 | `allow_fabric_runs: false` | The app doesn't start jobs on Fabric capacity (Run in Fabric, Fabric schedules, Optimize, the Fabric side of a proof). People can still turn Fabric schedules off. It doesn't change what a person's own Fabric roles allow in the browser |
 | `allow_optimize_lakehouse: false` | The app doesn't create, connect to or write to shared optimization lakehouses ([Optimize](optimize/README.md)) |
+| `allow_staging_cleanup: false` | The Estate X-ray still lists leftover Dataflow Gen2 staging lakehouses but can't delete them ([X-ray fixes](xray-fixes.md#leftover-staging-lakehouses)) |
 | `allowed_tenants: ["<tenant id>", ...]` | Accounts from any other tenant are signed out again as soon as they sign in. With Microsoft's sign-in this is the only way to keep the app to your own tenant, because the sign-in itself is multitenant |
 | `auto_update: false` | The app never replaces itself; you roll out each build. See [Enterprise install](enterprise-install.md) |
 

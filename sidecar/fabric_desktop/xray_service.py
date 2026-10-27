@@ -201,9 +201,12 @@ class XRayMixin:
             prefix = f"abfss://{r['workspace_id']}@"
             n_adopted = sum(1 for a in adopted if a.startswith(prefix) and f"/{r['lakehouse_id']}/" in a)
             rows.append(r | {"managed": (r["workspace_id"], r["lakehouse_name"]) in managed, "adopted": n_adopted})
+        removed = self._settings().get("xray_removed") or {}  # type: ignore[attr-defined]
         findings = []
         for f in result.get("findings", []):
             fix = fixes.get(_finding_id(f))
+            if _finding_id(f) in removed:  # a leftover removed since this scan: nothing to wait for
+                fix = {"state": "fixed", "removed_at": removed[_finding_id(f)]}
             findings.append(f | {"id": _finding_id(f), "fixed": bool(fix and fix["state"] == "fixed"), "fix": fix})
         return result | {"lakehouse_rows": rows, "findings": findings}
 
@@ -334,6 +337,80 @@ class XRayMixin:
                                     "table": label, "workspace_id": workspace_id, "workspace_name": workspace_name,
                                     "item_id": lakehouse_id, "job_id": job_id})
         return run | {"keep_days": days, "why": why}
+
+    # ---- leftover Dataflow Gen2 staging lakehouses
+
+    def _staging_check(self, workspace_id: str, lakehouse_id: str) -> dict[str, Any]:
+        """Whether one staging lakehouse can be removed, read live from Fabric and OneLake (never
+        from the scan): it must still exist with a staging name, a newer staging lakehouse must
+        exist in the same workspace, and nothing may have been written to its Tables or Files for
+        STAGING_QUIET_DAYS. Anything that can't be read keeps it. Read only."""
+        now = dt.datetime.now(dt.timezone.utc)
+        group = [{"workspace_id": workspace_id, "workspace_name": "", "lakehouse_id": lh["id"], "lakehouse_name": lh["displayName"]}
+                 for lh in FabricClient(self.auth.fabric_token).list_lakehouses(workspace_id)]  # type: ignore[attr-defined]
+        me = next((lh for lh in group if lh["lakehouse_id"] == lakehouse_id), None)
+        if me is None:
+            raise ValueError("That lakehouse isn't in the workspace any more. Scan again.")
+        name = me["lakehouse_name"]
+        made = xray.staging_created(name)
+        out: dict[str, Any] = {"lakehouse_name": name, "created": made.isoformat(timespec="seconds") if made else None,
+                               "kept": None, "files": None, "bytes": None, "last_write": None,
+                               "quiet_days": xray.STAGING_QUIET_DAYS, "allowed": bool(app_settings.value("allow_staging_cleanup")),
+                               "ok": False, "why": []}
+        if not made:
+            out["why"].append(f"{name} isn't named like a Dataflow Gen2 staging lakehouse, so it isn't removed from here.")
+            return out
+        newest, older = xray.staging_split([lh for lh in group if xray.is_staging(lh["lakehouse_name"])])
+        out["kept"] = newest["lakehouse_name"] if newest else None
+        if lakehouse_id not in {lh["lakehouse_id"] for lh in older}:
+            out["why"].append(f"{name} is the newest staging lakehouse in this workspace, so dataflows may be staging in it.")
+        files = FileStore(self.auth.storage_token)  # type: ignore[attr-defined]
+        entries: list[dict[str, Any]] = []
+        try:
+            for folder in ("Tables", "Files"):
+                entries += [e for e in files.list(workspace_id, lakehouse_id, folder, recursive=True)]
+        except Exception as exc:  # noqa: BLE001 - not knowing what's in it keeps it
+            out["why"].append(f"Its tables and files couldn't be read ({describe(exc)}), so whether it's still used isn't known.")
+            return out
+        out["files"] = sum(1 for e in entries if not e["is_dir"])
+        out["bytes"] = sum(e["size"] for e in entries if not e["is_dir"])
+        stamps = [e["modified"] for e in entries if e.get("modified")]
+        last = max(stamps) if stamps else made.isoformat(timespec="seconds")
+        out["last_write"] = last if stamps else None
+        idle = xray._days_since(last, now)
+        if idle is None or idle < xray.STAGING_QUIET_DAYS:
+            out["why"].append(f"Something was written to it {idle} day{'s' if idle != 1 else ''} ago" if stamps and idle is not None
+                              else f"It was made {idle} day{'s' if idle != 1 else ''} ago" if idle is not None
+                              else "When it was last written isn't known")
+            out["why"][-1] += f", less than {xray.STAGING_QUIET_DAYS} days, so a dataflow may still be using it."
+        if not out["allowed"]:
+            out["why"].append("Your organization turned off removing staging lakehouses (allow_staging_cleanup in its policy file).")
+        out["ok"] = not out["why"]
+        return out
+
+    def xray_staging_preview(self, workspace_id: str, lakehouse_id: str) -> dict[str, Any]:
+        """What removing one leftover staging lakehouse would delete, and anything that stops it."""
+        return self._staging_check(workspace_id, lakehouse_id)
+
+    def xray_remove_staging(self, workspace_id: str, lakehouse_id: str, lakehouse_name: str,
+                            workspace_name: str = "", finding_id: str = "") -> dict[str, Any]:
+        """Delete one leftover staging lakehouse in Fabric, after checking again everything the
+        preview checked. ``lakehouse_name`` is the name the person confirmed: a lakehouse renamed
+        since is not deleted."""
+        check = self._staging_check(workspace_id, lakehouse_id)
+        if check["lakehouse_name"] != lakehouse_name:
+            raise ValueError(f"The lakehouse is now called {check['lakehouse_name']}, not {lakehouse_name}. Nothing was deleted; scan again.")
+        if not check["ok"]:
+            raise ValueError(f"{lakehouse_name} wasn't deleted. " + " ".join(check["why"]))
+        FabricClient(self.auth.fabric_token).delete_lakehouse(workspace_id, lakehouse_id)  # type: ignore[attr-defined]
+        removed_at = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+        _log.info("Removed leftover staging lakehouse %s (%s) in workspace %s; kept %s",
+                  lakehouse_name, lakehouse_id, workspace_name or workspace_id, check["kept"])
+        if finding_id:
+            removed = dict(self._settings().get("xray_removed") or {})  # type: ignore[attr-defined]
+            removed[finding_id] = removed_at
+            self._save_settings(xray_removed=removed)  # type: ignore[attr-defined]
+        return check | {"removed_at": removed_at}
 
     # ---- adopt a lakehouse into the metadata project
 

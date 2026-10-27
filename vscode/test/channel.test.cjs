@@ -65,8 +65,10 @@ test("a denied window stays unpaired", async () => {
   await engine.call("editor_set_enabled", { enabled: true });
   const ch = new Channel(dir);
   const asked = ch.pair("C:\\repos\\other", "KratosForge for VS Code 0.1.0", () => {}, () => false, 50);
+  // Attach the rejection check before answering, so the denial is never unhandled.
+  const denied = assert.rejects(asked, /denied/);
   await answer(false);
-  await assert.rejects(asked, /denied/);
+  await denied;
   assert.strictEqual(ch.token, "");
 });
 

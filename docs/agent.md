@@ -160,9 +160,11 @@ fabric-desktop agent status                          # queue counts, next schedu
 fabric-desktop agent enqueue prod                     # run every Prod entity now
 fabric-desktop agent enqueue prod silver.orders gold.fact_sales
 fabric-desktop agent enqueue prod silver.orders --cascade --backfill full   # rebuild it and everything downstream
+fabric-desktop agent requeue job-20261025-020000-ab12cd  # run a dead or failed job again, attempts reset
+fabric-desktop agent prune --dry-run                  # list the finished jobs prune would remove
 ```
 
-`enqueue` and `status` work while the service runs; they share the queue file. Stopping the service (SIGTERM, `systemctl stop`, `docker stop`, ending the task) stops taking new jobs and waits for running ones. A job cut off anyway runs again at the next start.
+`enqueue`, `status`, `requeue` and `prune` work while the service runs; they share the queue file. Stopping the service (SIGTERM, `systemctl stop`, `docker stop`, ending the task) stops taking new jobs and waits for running ones. A job cut off anyway runs again at the next start.
 
 | Job state | Meaning | What to do |
 | --- | --- | --- |
@@ -172,6 +174,10 @@ fabric-desktop agent enqueue prod silver.orders --cascade --backfill full   # re
 | `failed` | A table failed its checks, its config, or permissions | Read `error`, fix, enqueue again |
 | `dead` | Retryable errors on every try | Read `error`; usually network, throttling or a table held by another writer |
 | `cancelled` | A pipeline cancelled it, or its deadline passed, before it started | Nothing |
+
+**Requeue.** Once you've fixed what made a job `dead` or `failed`, `agent requeue <job id>` puts it back in the queue with its attempts reset to 0. The job records who requeued it (`requeued_by`, your OS user name), and the agent's audit log gets an `agent_requeue` line. A job that is queued, running, succeeded or cancelled is refused. So is one from a Fabric pipeline, since its request already says it finished: submit it again from the pipeline. A job whose schedule has already queued a newer run is refused too.
+
+**Pruning.** At start and then once a day, the agent removes `succeeded`, `failed` and `cancelled` jobs that finished more than `agent.queue_retention_days` days ago (default 30). `dead` jobs stay until you requeue them. Queued and running jobs are never removed. `agent prune` does the same now; `--days N` picks another age and `--dry-run` lists the jobs without removing them. Pruning removes rows from the agent's own `queue.sqlite3` only, never anything in OneLake, and it runs in one short transaction.
 
 ### Status records
 

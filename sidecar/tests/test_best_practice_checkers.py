@@ -1,5 +1,7 @@
 """The notebook and SQL checkers, as governance's Check now runs them."""
 
+import pytest
+
 from fabric_desktop import best_practice_checkers  # noqa: F401 - registers the checkers
 from fabric_desktop import governance_checks as gc
 
@@ -41,8 +43,9 @@ def test_check_now_runs_notebook_rules_and_says_when_nothing_is_there_to_check(t
 
     svc = Service(root=tmp_path / "app")
     svc.meta_init(str(tmp_path / "crm"), "3")
-    for pid, rule in (("collect", "NB003"), ("schemas", "SQ005")):
-        svc.governance_create({"id": pid, "name": pid, "category": "quality", "rule": rule})
+    for pid, rule, params in (("collect", "NB003", {}), ("schemas", "SQ005", {}),
+                              ("off", "NB003", {"enabled": {"value": False}})):
+        svc.governance_create({"id": pid, "name": pid, "category": "quality", "rule": rule, "params": params})
         svc.governance_publish(pid)
         svc.governance_assign(pid, "enterprise")
     svc.notebooks.save("nb_sales", [{"type": "code", "source": "rows = df.collect()"},
@@ -51,4 +54,26 @@ def test_check_now_runs_notebook_rules_and_says_when_nothing_is_there_to_check(t
     assert got["collect"]["status"] == "findings" and got["collect"]["checked"] == 1
     assert [f["object"] for f in got["collect"]["findings"]] == ["nb_sales: cell 1, line 1"]
     # Check now has no SQL scripts to give the SQL rules, so the policy isn't shown as passing.
-    assert got["schemas"]["status"] == "not_checked" and "(sql)" in got["schemas"]["note"]
+    assert got["schemas"]["status"] == "not_checked" and got["schemas"]["note"] == "Check now found nothing for its sql rules to check."
+    # A policy whose parameters turn its rules off isn't shown as passing either.
+    assert got["off"]["status"] == "not_checked" and "enabled = false" in got["off"]["note"]
+
+
+def test_practice_settings_come_from_the_policies_in_force(tmp_path):
+    from fabric_desktop.service import Service
+
+    svc = Service(root=tmp_path / "app")
+    svc.meta_init(str(tmp_path / "crm"), "3")
+    assert svc.governance_practice_settings("notebook") == {"settings": {}, "policies": [], "note": ""}
+    for pid, rule, sev, params in (("strict", "NB003, SQ005", "high", {}), ("lax", "NB003", "low", {}),
+                                   ("off", "NB009", "medium", {"enabled": {"value": False}})):
+        svc.governance_create({"id": pid, "name": pid, "category": "quality", "rule": rule, "severity": sev, "params": params})
+        svc.governance_publish(pid)
+        svc.governance_assign(pid, "enterprise")
+    got = svc.governance_practice_settings("notebook")
+    # Two policies name NB003: the worse severity. A policy that turns a rule off turns it off.
+    assert got["settings"] == {"NB003": {"enabled": True, "severity": "Error"}, "NB009": {"enabled": False, "severity": "Warning"}}
+    assert sorted(got["policies"]) == ["lax", "off", "strict"]
+    assert svc.governance_practice_settings("sql")["settings"] == {"SQ005": {"enabled": True, "severity": "Error"}}
+    with pytest.raises(ValueError):
+        svc.governance_practice_settings("model")

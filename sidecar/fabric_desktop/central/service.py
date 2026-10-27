@@ -30,6 +30,7 @@ from . import setup as setup_mod
 from .client import FabricPlatform, LocalPlatform, PlatformKeys
 from .core import domain_id
 from .migrate import migrate
+from .requests_service import call_or_repair
 
 _log = logging.getLogger(__name__)
 
@@ -359,7 +360,7 @@ class PlatformMixin:
         except FabricError as exc:
             if re.search(r"failed with 40[13]\b", str(exc)):
                 raise PermissionError("Only a Fabric administrator can read Fabric's domains. Ask one to open "
-                                      "Platform > Domains and choose Import from Fabric; after that, everyone "
+                                      "Platform > Set up > Domains and choose Import from Fabric; after that, everyone "
                                       "sees the domains here.") from exc
             raise
         unread = self._read_domain_admins(admin, fabric)
@@ -617,7 +618,7 @@ class PlatformMixin:
         self._require_platform_admin("create landing zones")
         cfg = self._central_landing()
         if not cfg:
-            raise LookupError("Set up the landing workspace first (Platform > Landing zone).")
+            raise LookupError("Set up the landing workspace first (Platform > Set up > Landing zone).")
         name = str(zone.get("name") or "").strip()
         if core.zone_key(name) == core.SHARED_ZONE:
             raise ValueError("Shared is made with the landing workspace; give the new zone another name")
@@ -769,7 +770,7 @@ class PlatformMixin:
             return
 
         def events() -> list[dict[str, Any]]:
-            kinds = ("access", "shortcut")
+            kinds = ("access", "shortcut", "data")
             products = self._catalog().call("list_products") if req.get("kind") in kinds else []
             event = build(req, products)
             return [event] if event else []
@@ -879,7 +880,27 @@ class PlatformMixin:
                 p["can_link"] = False
                 p["why"] = "requested" if (p["id"], me["name"]) in waiting else "request"
             p["linked"] = bool(me) and any(c["consumer_project"] == me["name"] for c in p.get("consumers", []))
-        return {"project": me, "products": products}
+        follows = self._my_follows()
+        for p in products:
+            p["following"] = p["id"] in (follows or [])
+        return {"project": me, "products": products, "can_follow": follows is not None}
+
+    def _my_follows(self) -> list[str] | None:
+        """The products the signed-in person follows; None when the platform is older than following."""
+        try:
+            return self._catalog().call("list_follows")
+        except LookupError:
+            return None
+        except core.PlatformError as exc:
+            if "list_follows" in str(exc):
+                return None
+            raise
+
+    def platform_follow(self, product_id: str, follow: bool = True) -> dict[str, Any]:
+        """Follow a product, or stop. Writes catalog.follow; returns the products you follow."""
+        op = "follow_product" if follow else "unfollow_product"
+        follows = call_or_repair(self._catalog(), op, "follow data products", product_id=product_id)
+        return {"following": follows}
 
     # ---- the open project in the mesh
 
@@ -985,22 +1006,31 @@ class PlatformMixin:
             done.append(p.name)
             # The port history came with versioned contracts: an older UDF_Platform publishes without it.
             old_function = old_function or not (isinstance(out, dict) and "history" in out)
-            if p.status != "deprecated":
-                continue
-            if before is None:
-                problems.append(f"products/{p.name} is deprecated, but the catalog's readers couldn't be read, so "
-                                "no Teams notice went to them. Publish again to try once more.")
-                continue
-            was = before.get(f"{name}/{p.name}")
-            stops = str(info.get("deprecated_on") or "")
-            if was and (was.get("status") != "deprecated" or str(was.get("deprecated_on") or "") != stops):
-                event = notices.product_deprecated(was | {"deprecated_on": stops, "domain_id": info["domain"]},
-                                                   was.get("consumers") or [])
+            told = False
+            if p.status == "deprecated":
+                if before is None:
+                    problems.append(f"products/{p.name} is deprecated, but the catalog's readers couldn't be read, so "
+                                    "no Teams notice went to them. Publish again to try once more.")
+                else:
+                    was = before.get(f"{name}/{p.name}")
+                    stops = str(info.get("deprecated_on") or "")
+                    if was and (was.get("status") != "deprecated" or str(was.get("deprecated_on") or "") != stops):
+                        event = notices.product_deprecated(was | {"deprecated_on": stops, "domain_id": info["domain"]},
+                                                           was.get("consumers") or [])
+                        if event:
+                            told = True
+                            events.append(event)
+                            tell += [{"product": was["id"], "project": c["consumer_project"], "alias": c.get("alias", ""),
+                                      "deprecated_on": stops} for c in was.get("consumers") or []
+                                     if c.get("consumer_project") and c["consumer_project"] != name]
+            # Readers hear about other changes in Prod, the environment their own projects read. A
+            # deprecation its readers were just told about isn't posted twice.
+            changes = [c for c in (out.get("changes") or []) if not (told and c.startswith("Deprecated"))] \
+                if isinstance(out, dict) else []
+            if env == "prod" and changes:
+                event = notices.product_changed(out, changes, out.get("followers") or [], env)
                 if event:
                     events.append(event)
-                    tell += [{"product": was["id"], "project": c["consumer_project"], "alias": c.get("alias", ""),
-                              "deprecated_on": stops} for c in was.get("consumers") or []
-                             if c.get("consumer_project") and c["consumer_project"] != name]
         if old_function:
             problems.append("Published, but the catalog keeps no port history yet: UDF_Platform is older than "
                             "versioned contracts. A platform admin runs Platform > Settings > Finish or repair once.")

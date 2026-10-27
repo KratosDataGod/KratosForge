@@ -335,7 +335,7 @@ function gitHelpers() {
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
   vm.runInNewContext(`${code}; Object.assign(this, { gitSplitPath, gitPillText, gitSideBySide, gitCommitLabel, gitGroupRepos, nbData, nbDataText,
-    platformChangeLines, platformStepText, PLATFORM_STATES });`, ctx);
+    platformChangeLines, platformStepText, PLATFORM_STATES, capacityLines, CAPACITY_STATES });`, ctx);
   return ctx;
 }
 
@@ -1367,6 +1367,8 @@ test("engine messages point to Data mesh and Platform tabs that exist", () => {
   const mesh = new Set();
   for (const [, group, tabs] of groups) for (const [, tab] of tabs) mesh.add(`${group} > ${tab}`);
   const plat = new Set(platform.map(([, label]) => label));
+  // A page behind the Set up or Govern menu is named with its menu: "Platform > Set up > Business keys".
+  const bar = vm.runInNewContext(`${/const PLATFORM_TAB_BAR = \[[\s\S]*?\n\];/.exec(read("platform.js"))[0].replace("const ", "")}; PLATFORM_TAB_BAR`);
   const engine = path.join(__dirname, "..", "..", "sidecar", "fabric_desktop");
   const files = [];
   const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) {
@@ -1380,7 +1382,11 @@ test("engine messages point to Data mesh and Platform tabs that exist", () => {
       const where = `${m[1]} > ${m[2]}`;
       if (![...mesh].some((t) => t.startsWith(where))) bad.push(`${path.basename(f)}: Data mesh > ${where}`);
     }
-    for (const m of src.matchAll(/Platform > ([A-Z][\w ]*?)(?=[).,"'\n])/g)) if (!plat.has(m[1])) bad.push(`${path.basename(f)}: Platform > ${m[1]}`);
+    for (const m of src.matchAll(/Platform > (?:(Set up|Govern) > )?([A-Z][\w ]*?)(?=[).,"'\n]| > )/g)) {
+      const menu = bar.find(([, label]) => label === m[1]);
+      const ok = m[1] ? menu?.[2].some((id) => platform.find(([t]) => t === id)[1] === m[2]) : bar.some(([, label, items]) => items && label === m[2]) || plat.has(m[2]) && !bar.some(([, , items]) => items?.some((id) => platform.find(([t]) => t === id)[1] === m[2]));
+      if (!ok) bad.push(`${path.basename(f)}: Platform > ${m[1] ? `${m[1]} > ` : ""}${m[2]}`);
+    }
   }
   assert.deepStrictEqual(bad, []);
 });
@@ -1533,6 +1539,9 @@ test("no raw HTML sinks in app/ui outside the reviewed list", () => {
     // <code>, <strong>, <em> and <u title>; headings and lists add only fixed tags. See the two
     // Markdown tests at the top of this file.
     `app.js: wrap.innerHTML = html.join("");`,
+    // sqlParsePlan(): Fabric's showplan parsed as XML ("application/xml" runs no script and loads nothing);
+    // the document is never put on the page, only attribute values are read and drawn as text with h().
+    `sqlplan.js: const doc = new DOMParser().parseFromString(String(xml || ""), "application/xml");`,
     // Data mesh map links: path coordinates are numbers from getBoundingClientRect, and the only data
     // (project and product ids in <title>) goes through esc().
     `meshmap.js: svg.innerHTML = \`<defs><marker id="mesh-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z"/></marker></defs>\${paths.join("")}\`;`
@@ -2101,7 +2110,7 @@ test("A scheduled run whose Teams alert didn't go out says so in Runs and Schedu
 });
 
 // motion.js with a small stand-in DOM and clock: what Forge animations make, and when they don't.
-function motionHarness({ setting = true, reduced = false, hidden = false, settings = null } = {}) {
+function motionHarness({ setting = true, reduced = false, hidden = false, settings = null, appLoaded = true } = {}) {
   let clock = 0;
   let timers = [];
   let watch = null;
@@ -2144,6 +2153,7 @@ function motionHarness({ setting = true, reduced = false, hidden = false, settin
       return n;
     },
   };
+  if (!appLoaded) delete ctx.state;  // app.js, which declares state, loads after motion.js
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path.join(ui, "motion.js"), "utf8"), ctx);
   ctx.advance = (ms) => {
@@ -2310,7 +2320,7 @@ test("Forge animations in the notebook: runs of several cells use the wolf track
 test("Motion & effects settings: four levels, family switches, reduced-motion choice, lockable, applied at once; CSS honours them", () => {
   const s = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   const card = s.match(/function motionSettingsCard\([\s\S]*?\n}\n/)[0];
-  assert.match(card, /h\("h2", \{\}, "Appearance"\),\n\s+h\("h3", \{\}, "Motion & effects"\)/);
+  assert.match(card, /h\("h2", \{\}, "Appearance"\),\n\s+h\("h3", \{\}, "Layout"\)[\s\S]*Object\.keys\(LAYOUT_CHOICES\)\.map\(choice\),\n\s+h\("h3", \{\}, "Motion & effects"\)/);
   assert.match(card, /type: "radio", name: "motion_level"/);
   assert.match(card, /disabled: locked\("motion_level"\) \? true : null, onchange: \(\) => save\(\{ motion_level: n \}\)/);
   assert.match(card, /\[0, 1, 2, 3\]\.map\(levelRow\)/);
@@ -2618,6 +2628,15 @@ test("Motion budget: at most three effects at once, each removed on time, the co
   assert.ok(strike && strike.kids.length >= 2, "the Wolf Run has no runner or trail");
 });
 
+test("Motion under load: a long task before app.js has loaded doesn't throw", () => {
+  // The load watch starts in motion.js, which loads before app.js declares state; a busy start-up
+  // (or a test run under parallel load) reported long tasks in between: "state is not defined".
+  const ctx = motionHarness({ appLoaded: false });
+  assert.doesNotThrow(() => ctx.longTasks(600));
+  assert.strictEqual(ctx.motionDiagnostics().drop, 1);
+  assert.doesNotThrow(() => ctx.advance(30000));  // the cooldown's applyMotion, still before app.js
+});
+
 test("Motion under load: long tasks past the budget drop effects a level for the cooldown, then it comes back", () => {
   const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
   ctx.longTasks(300);
@@ -2713,7 +2732,7 @@ test("a fold can start closed, and the choice made on this PC wins after that", 
   const localStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
   const h = (tag, attrs = {}, ...kids) => ({ tag, attrs, kids, classes: new Set(String(attrs.class || "").split(" ").filter(Boolean)),
     append(...k) { this.kids.push(...k); }, setAttribute(k, v) { this.attrs[k] = v; },
-    get classList() { const c = this.classes; return { toggle: (n, on) => (on ? c.add(n) : c.delete(n)) }; } });
+    get classList() { const c = this.classes; return { toggle: (n, on) => (on ? c.add(n) : c.delete(n)), contains: (n) => c.has(n) }; } });
   const ctx = { h, localStorage };
   vm.runInNewContext(`${src.match(/function foldable\([\s\S]*?\n}\n/)[0]}; this.f = foldable;`, ctx);
   assert.ok(!ctx.f("x", "Head", []).classes.has("folded"), "folds open unless asked");
@@ -2841,8 +2860,9 @@ test("every page links to its section of the user guide", () => {
   const views = new Map();
   for (const [, list] of all.matchAll(/views: \{([^}]*)\}/g)) for (const [, view, fn] of list.matchAll(/(\w+): (\w+)/g)) views.set(view, fn);
   assert.ok(views.size > 15, `only ${views.size} pages found`);
-  // The notebook's help belongs to its own guide; an agent's page has its link in the advice under its state.
-  const elsewhere = { notebook: null, agent: "agAdvice" };
+  // The notebook's help belongs to its own guide; an agent's page has its link in the advice under its state,
+  // and Monitor's is in monitorAbout beside its tabs.
+  const elsewhere = { notebook: null, agent: "agAdvice", monitor: "monitorAbout" };
   const missing = [...views].filter(([view, fn]) => {
     if (view in elsewhere) return elsewhere[view] && !(body(fn).includes(`${elsewhere[view]}(`) && body(elsewhere[view]).includes("learnMore("));
     return !/learnMore\(|howItWorks\(/.test(body(fn));
@@ -3667,6 +3687,37 @@ test("cell comments: mentions, selected lines and the panel's rows", () => {
   for (const hook of ["commentBadge(cell)", "commentMenuItems(cell)", "commentsToggle(nb)", "commentsPanel(nb)"]) assert.ok(nb.includes(hook), hook);
 });
 
+// The notebook's Best practices panel (nbpractices.js): the engine's cell numbers map back to the
+// notebook's cells (markdown cells aren't sent), counts by severity, and the panel is wired in.
+test("notebook best practices: cell numbers, counts and wiring", () => {
+  const src = fs.readFileSync(path.join(ui, "nbpractices.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(/const PRACTICE_SEVERITIES = .*\n/.exec(src)[0].replace("const ", "var "), ctx);
+  for (const name of ["practiceSources", "practiceRows", "practiceLabel"]) {
+    vm.runInContext(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`).exec(src)[0], ctx);
+  }
+  const plain = (v) => JSON.parse(JSON.stringify(v));
+  const cells = [{ type: "markdown", source: "# Load" }, { type: "code", source: "rows = df.collect()" },
+    { type: "markdown", source: "note" }, { type: "code", source: "" }];
+  const { sources, at } = ctx.practiceSources(cells);
+  assert.deepStrictEqual(plain(sources), ["rows = df.collect()", ""]);
+  const got = ctx.practiceRows({ findings: [{ rule_id: "NB003", severity: "Warning", cell: 1, line: 1 },
+    { rule_id: "NB001", severity: "Error", cell: 2, line: 3 }] }, at);
+  assert.deepStrictEqual(plain(got.rows.map((f) => [f.rule_id, f.n])), [["NB003", 2], ["NB001", 4]], "engine cell 1 is notebook cell 2");
+  assert.deepStrictEqual(plain(got.counts), { Error: 1, Warning: 1, Info: 0 });
+  assert.strictEqual(ctx.practiceLabel({ open: true, rows: got.rows }), "Best practices · 2");
+  assert.strictEqual(ctx.practiceLabel({ open: false, rows: got.rows }), "Best practices");
+  assert.strictEqual(ctx.practiceLabel(undefined), "Best practices");
+  // Read only: it never runs a cell or writes; findings only ever become text nodes.
+  assert.doesNotMatch(src, /innerHTML|runCell|markDirty|rpc\("(save|run)/);
+  assert.match(src, /rpc\("governance_practice_settings", \{ kind: "notebook" \}\)/);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  for (const hook of ["practicesToggle(nb)", "practicesPanel(nb)"]) assert.ok(nb.includes(hook), hook);
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="nbpractices.js"') > html.indexOf('src="notebook-comments.js"'));
+});
+
 // Notebook parity L3: a notebook's Runs panel lists this PC's scheduled runs and its Fabric runs.
 test("the notebook Runs panel labels each run and offers Refresh status only for Fabric runs still going", () => {
   const src = fs.readFileSync(path.join(ui, "runs.js"), "utf8");
@@ -3727,7 +3778,7 @@ this.payload = nbfExportPayload; this.menu = nbfExportMenu; this.b64 = nbfBase64
     "Fabric source (.py)", "Databricks source (.py)", "Web page (.html)"]);
   const bytes = new Uint8Array(70000).map((_, i) => i % 251);
   assert.strictEqual(ctx.b64(bytes.buffer), Buffer.from(bytes).toString("base64"));
-  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /btn\("Save a copy", "add", \(\) => nbSaveCopyDialog\(nb\.name\)\),[^\n]*nbfExportButton\(\),/);
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /ribbonMenu\("Share", [^\n]*btn\("Save a copy", "add", \(\) => nbSaveCopyDialog\(nb\.name\)\),[^\n]*nbfExportButton\(menu\)\]/);
   assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /btn\("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"\)/);
   assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /nbFormats: "Notebook import and export formats"/);
   assert.match(src, /changes: "Writes one new notebook file \(\.ipynb\) for each notebook in the file/);
@@ -4204,10 +4255,10 @@ test("a workload page says whether its actions reached the platform's audit", ()
   const ctx = { h: (tag, attrs, ...kids) => kids.join("") };
   vm.runInNewContext(`${fn}this.f = platformAuditNote;`, ctx);
   assert.strictEqual(ctx.f(null), null);
-  assert.strictEqual(ctx.f({ platform: "this_pc", waiting: 0 }), "Each one is also on Platform > Audit.");
+  assert.strictEqual(ctx.f({ platform: "this_pc", waiting: 0 }), "Each one is also on Platform > Govern > Audit.");
   assert.match(ctx.f({ platform: "fabric", waiting: 2, error: "Signed out." }),
-    /^2 actions or changes haven't reached Platform > Audit yet: Signed out\. This PC keeps them/);
-  assert.match(ctx.f({ platform: "fabric", waiting: 1, error: "" }), /^1 action or change hasn't reached Platform > Audit yet\. /);
+    /^2 actions or changes haven't reached Platform > Govern > Audit yet: Signed out\. This PC keeps them/);
+  assert.match(ctx.f({ platform: "fabric", waiting: 1, error: "" }), /^1 action or change hasn't reached Platform > Govern > Audit yet\. /);
   assert.match(ctx.f({ platform: "none", waiting: 3 }), /^Kept on this PC only: there's no platform yet\. 3 actions/);
   assert.strictEqual(ctx.f({ platform: "none", waiting: 0 }), "Kept on this PC only: there's no platform yet.");
 });
@@ -4906,6 +4957,16 @@ test("Remote runs (KF-MO-009): the navy wolf trots in an indeterminate bar, with
   assert.match(fs.readFileSync(path.join(ui, "activity.js"), "utf8"), /const remoteActivity = \(i\) => String\(i\.id \|\| ""\)\.startsWith\("fabric:"\) && i\.progress === undefined;/);
 });
 
+test("Forge events: every event in the registry is fired by the app, and the Preview window shows the navy wolf (MO-011)", () => {
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  const events = Object.keys(vm.runInContext("FORGE_EVENTS", ctx));
+  const app = fs.readdirSync(ui).filter((f) => f.endsWith(".js") && f !== "settings.js")
+    .map((f) => fs.readFileSync(path.join(ui, f), "utf8").replace(/const FORGE_EVENTS = \{[\s\S]*?\n\};/, "")).join("\n");
+  for (const name of events) assert.ok(app.includes(`"${name}"`), `${name} is in FORGE_EVENTS but nothing fires it`);
+  assert.match(fs.readFileSync(path.join(ui, "motion.js"), "utf8"), /forgeEvent\("notebook\.run\.finished", wolf\)/);
+  assert.match(fs.readFileSync(path.join(ui, "settings.js"), "utf8"), /row\("Navy wolf", [^\n]*\n\s+remoteHost, \(\) => \{ if \(!remoteHost\.childElementCount\) \{ remoteHost\.append\(remoteProgress\(/);
+});
+
 test("SQL Forge events (KF-MO-005): a slow success sparks, a failure plays the ember, after the redraw", () => {
   const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
   const events = vm.runInContext("FORGE_EVENTS", ctx);
@@ -4959,7 +5020,7 @@ test("Check for updates says what the channel has and offers an install only for
   assert.strictEqual(kind({ commit: null, latest: { commit: b } }), "local");
   const dialog = src.slice(src.indexOf("async function checkForUpdates"), src.indexOf("// ---------- What's new"));
   assert.match(dialog, /invoke\("check_for_update"\)/);
-  assert.match(dialog, /invoke\("update_app", \{ commit: latest\.commit \}\)/);
+  assert.match(dialog, /installUpdate\(latest\.commit, /);
   assert.match(dialog, /openLink\(latest\.page\)/);
   assert.match(src.slice(src.indexOf("function accountMenu"), src.indexOf("function channelLabel")), /"Check for updates".*checkForUpdates/);
 });
@@ -4982,13 +5043,15 @@ test("side by side times roll over and split This PC's time into processing and 
 });
 
 // Run in Fabric and side by side wait for the bar's last save, so they get the values it shows.
-test("Run in Fabric and side by side wait for the Parameters bar's values", () => {
+test("Run in Fabric, side by side and Prove wait for the Parameters bar's values", () => {
   assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"),
     /await nbInputsSaved\(\);[^\n]*\n[^\n]*\n\s*const run = await attempt\(\(\) => rpc\("run_notebook_in_fabric"/);
   assert.match(fs.readFileSync(path.join(ui, "sidebyside.js"), "utf8"),
     /await nbInputsSaved\(\);[^\n]*\n\s*const run = await attempt\(\(\) => rpc\("side_by_side_start"/);
+  assert.match(fs.readFileSync(path.join(ui, "prove.js"), "utf8"),
+    /await nbInputsSaved\(\);[^\n]*\n\s*const run = await attempt\(\(\) => rpc\("prove_start"/);
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
-  assert.match(doc, /\*\*Run in Fabric\*\* and \*\*Side by side\*\* use the bar's values too/);
+  assert.match(doc, /\*\*Run in Fabric\*\*, \*\*Side by side\*\* and \*\*Prove this notebook\*\* use the bar's values too/);
 });
 
 // Add to VS Code: the page sends only the tool's id; the shell builds the vscode: link itself
@@ -5002,3 +5065,124 @@ test("Add to VS Code passes only the tool's id to the shell", () => {
   assert.match(main, /fn add_to_vscode\(client_id: String, insiders: bool\)/);
   assert.match(main, /generate_handler!\[[\s\S]*add_to_vscode/);
 });
+
+test("the Capacity tab says how each capacity drifted from capacity.toml", () => {
+  const { capacityLines, CAPACITY_STATES } = gitHelpers();
+  assert.strictEqual(CAPACITY_STATES.not_visible, "not visible to you");
+  const lines = capacityLines({ state: "differs", fields: [{ field: "sku", git: "F4", fabric: "F8" }, { field: "state", git: "Active", fabric: "Paused" }],
+    workspaces: { same: 2, elsewhere: [{ id: "w1", name: "Sales", on: "F8 Dev" }, { id: "w2", name: "", on: null }],
+      not_in_git: [{ id: "w3", name: "Ad hoc" }], not_visible: [{ id: "w4", name: "Hidden" }] } });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(lines)), ["Size: Git F4, Fabric F8", "State: Git Active, Fabric Paused",
+    "Sales: Git expects it here; Fabric has it on F8 Dev", "w2: Git expects it here; Fabric has it on a capacity you can't see",
+    "Ad hoc: on this capacity in Fabric, not listed in capacity.toml", "Hidden: you can't see this workspace, so it isn't compared",
+    "2 workspaces are where Git expects"]);
+});
+
+// Settings > Advanced > OneLake writes > Files on this PC: what local writes hold, and the folder.
+test("Files on this PC says what local writes hold and where", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${meta.match(/function formatBytes\([\s\S]*?\n}\n/)[0]}${src.match(/function localWritesText\([\s\S]*?\n}\n/)[0]}; this.f = localWritesText;`, ctx);
+  assert.strictEqual(ctx.f({ files: 0, folder: "C:\\x\\staging", uploading: { files: 0 } }), "Empty · C:\\x\\staging");
+  assert.strictEqual(ctx.f({ files: 2, bytes: 3 * 1024 ** 3, folder: "C:\\x\\staging", uploading: { files: 2, bytes: 3 * 1024 ** 3 } }),
+    "3.0 GB in 2 files, 2 waiting to upload or left over (3.0 GB) · C:\\x\\staging");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app.slice(app.indexOf("function oneLakeWritesMenu"), app.indexOf("async function setNotebookOneLakeWrites")), /Open the folder of local writes/);
+  const clear = src.slice(src.indexOf("async function clearLocalWrites"));
+  assert.match(clear.slice(0, clear.indexOf("\n}\n")), /confirmDialog\("Delete left-overs\?"[\s\S]*danger: true[\s\S]*rpc\("local_writes_clear"\)/);
+});
+
+test("the Ossie card exports, previews and imports only after a confirm, and hides with preview features", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const card = meta.split("function ossieCard(plan)")[1].split("// ---------- profiling ----------")[0];
+  assert.match(card, /preview\("ossie", /, "the card is a Preview feature and hides with them");
+  assert.match(meta, /\n    ossieCard\(plan\),\n/, "the Semantic model tab shows the card");
+  for (const method of ["meta_model_ossie_models", "meta_model_ossie_export", "meta_model_ossie_save", "meta_model_ossie_read",
+    "meta_model_ossie_preview", "meta_model_ossie_import", "meta_model_tmdl_save"]) {
+    assert.match(card, new RegExp(`"${method}"`), `${method} has a caller`);
+  }
+  // The first import call only asks; the write carries confirmed after confirmDialog said yes, danger for Replace.
+  const go = card.split("go.onclick = async () => {")[1].split("showDialog(")[0];
+  assert.ok(go.indexOf("confirmDialog(") < go.indexOf("confirmed: true"), "confirm comes before the write");
+  assert.match(go, /\{ danger: c\.mode === "replace" \}/);
+  assert.match(go, /if \(!ok\) return;/);
+  assert.match(card, /OSSIE_MAX_BYTES/, "a file too large to be a model is refused before it's read");
+});
+
+test("the Direct Lake check is a Preview card that only reads, with fixes that open where the change is made", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const card = meta.split("function directLakeCard(plan, updateModel)")[1].split("// ---------- Apache Ossie")[0];
+  assert.match(card, /preview\("directLakeCheck", /, "the card is a Preview feature and hides with them");
+  assert.match(meta, /\n    directLakeCard\(plan, \(\) => build\(\)\),\n/, "the Semantic model tab shows the card");
+  for (const method of ["meta_model_directlake_setup", "meta_model_directlake_check"]) {
+    assert.match(card, new RegExp(`"${method}"`), `${method} has a caller`);
+  }
+  const calls = [...card.matchAll(/metaCall\("([a-z_]+)"/g)].map((x) => x[1]).sort();
+  assert.deepStrictEqual(calls, ["meta_model_directlake_check", "meta_model_directlake_setup", "meta_model_ossie_models"], "it calls nothing that writes");
+  assert.match(card, /reading from OneLake uses capacity/, "capacity wording (QA-008)");
+  assert.match(card, /goMeta\("health"\)/, "compacting happens in Table health");
+  const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  assert.match(features, /directLakeCheck: "Direct Lake check"/);
+});
+
+test("the data dictionary is a Preview card whose import saves only from its preview", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const card = meta.split("function dictionaryCard(plan)")[1].split("// ---------- Apache Ossie")[0];
+  assert.match(card, /preview\("dataDictionary", /, "the card is a Preview feature and hides with them");
+  assert.match(meta, /\n    dictionaryCard\(plan\),\n/, "the Semantic model tab shows the card");
+  for (const method of ["meta_model_dictionary", "meta_model_dictionary_export", "meta_model_dictionary_save",
+    "meta_model_dictionary_preview", "meta_model_dictionary_import"]) {
+    assert.match(card, new RegExp(`"${method}"`), `${method} has a caller`);
+  }
+  // The save happens only from the button the preview turns on, and only with something to save.
+  const dialog = card.split("function dictionaryImportDialog(plan, reload)")[1];
+  assert.ok(dialog.indexOf('"meta_model_dictionary_preview"') < dialog.indexOf('"meta_model_dictionary_import"'));
+  assert.match(dialog, /go\.disabled = !res\.changes\.length \|\| !!res\.problem;/);
+  assert.match(dialog, /DICTIONARY_MAX_BYTES/, "a file too large to be a dictionary is refused before it's read");
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /dataDictionary: "Data dictionary"/);
+});
+
+// kratosforge:// links (deep_link.rs): a link only shows a notebook or a page. The page's handler
+// opens or goes, and never runs, saves elsewhere, or publishes.
+test("A kratosforge:// link only shows something", () => {
+  const src = fs.readFileSync(path.join(ui, "vscode.js"), "utf8");
+  const body = src.slice(src.indexOf("async function showLink"), src.indexOf("async function listenForLinks"));
+  const calls = [...body.matchAll(/rpc\("([a-z_]+)"/g)].map((m) => m[1]).sort();
+  assert.deepStrictEqual(calls, ["list_notebooks", "notebook_name_for_path"]);
+  assert.ok(!/run|publish|execute/i.test(body.replace(/\/\/.*$/gm, "")), "the handler names nothing that runs");
+  const main = fs.readFileSync(path.join(__dirname, "..", "src-tauri", "src", "main.rs"), "utf8");
+  assert.match(main, /generate_handler!\[[\s\S]*take_pending_link/);
+  assert.match(main, /fn register_link_scheme\(\) \{\n    if !cfg!\(windows\) \|\| cfg!\(debug_assertions\)/);
+});
+
+// New build banner (settings.js): the startup check every 4 hours while the app is open. Only a
+// newer build shows it; a managed PC hears it's out with no install; Later hides that build only.
+test("the new build banner shows only a newer build, through the existing update check", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const fn = (name) => src.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  const ctx = {};
+  vm.runInNewContext(`${fn("updateCheckResult")}${fn("updateNotice")}; this.f = updateNotice;`, ctx);
+  const a = "5d69f21aa1b2c3d4e5f60718293a4b5c6d7e8f90", b = "a41c0e9aa1b2c3d4e5f60718293a4b5c6d7e8f90";
+  const newer = ctx.f({ commit: a, auto_update: true, latest: { commit: b, channel: "preview", page: "https://x/latest" } });
+  assert.strictEqual(newer.kind, "newer");
+  assert.strictEqual(newer.commit, b);
+  assert.match(newer.text, /a41c0e9 is out on Preview \(you're on 5d69f21\)/);
+  assert.strictEqual(ctx.f({ commit: a, auto_update: false, latest: { commit: b, channel: "stable" } }).kind, "managed");
+  assert.strictEqual(ctx.f({ commit: a, auto_update: true, latest: { commit: a, channel: "stable" } }), null);
+  assert.strictEqual(ctx.f({ commit: a, latest: { commit: null, error: "offline", channel: "stable" } }), null);
+  assert.strictEqual(ctx.f({ commit: a, auto_update: true, latest: { commit: b, refused: "older", channel: "stable" } }), null);
+  assert.strictEqual(ctx.f({ commit: null, latest: { commit: b } }), null);
+  const watch = fn("watchForUpdates");
+  assert.deepStrictEqual([...watch.matchAll(/invoke\("([a-z_]+)"/g)].map((m) => m[1]), ["check_for_update"], "no new phone-home");
+  assert.match(watch, /!updateWatchOn\(\) \|\| !previewShown\(\) \|\| !state\.commit/);
+  assert.match(src, /const UPDATE_WATCH_MS = 4 \* 60 \* 60 \* 1000;/);
+  const banner = fn("renderUpdateBanner");
+  assert.match(banner, /n\.commit === updateLater\(\)/, "Later hides that build only");
+  assert.match(banner, /installUpdate\(n\.commit/);
+  assert.match(fn("installUpdate"), /saveNotebook\(\)[\s\S]*invoke\("update_app", \{ commit \}\)/, "saves before it hands over");
+  assert.match(fn("checkForUpdates"), /installUpdate\(latest\.commit/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /scheduleUpdateWatch\(\);/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<\/header>\n  <div id="update-root"><\/div>/);
+});
+

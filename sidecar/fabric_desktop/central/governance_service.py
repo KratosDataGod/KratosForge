@@ -1,4 +1,4 @@
-"""Enterprise governance, as the desktop UI calls it: Platform > Governance.
+"""Enterprise governance, as the desktop UI calls it: Platform > Govern > Governance.
 
 Policies live in the platform's catalog (Prod's platform, like domains and the glossary), so
 every project in the organization reads the same ones. Who may change them is decided by the

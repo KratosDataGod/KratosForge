@@ -34,12 +34,12 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "platform_delete_source", "platform_landing", "platform_landing_files", "platform_landing_setup",
            "platform_create_landing_zone", "platform_delete_landing_zone", "platform_switch_landing_reads", "platform_requests", "platform_request",
            "platform_decide", "platform_withdraw", "platform_revoke", "platform_overview", "platform_products",
-           "platform_product_trust", "platform_scan_endorsement", "platform_add_product_term", "platform_remove_product_term",
+           "platform_product_trust", "platform_scan_endorsement", "platform_add_product_term", "platform_remove_product_term", "platform_follow",
            "governance_overview", "governance_policy", "governance_version", "governance_create", "governance_save_draft",
            "governance_discard_draft", "governance_publish", "governance_set_status", "governance_assign",
            "governance_unassign", "governance_applicability", "governance_resolve",
            "governance_templates", "governance_template_save", "governance_template_delete", "governance_template_use",
-           "governance_template_from_policy", "governance_template_authors", "governance_check_now", "governance_last_check",
+           "governance_template_from_policy", "governance_template_authors", "governance_check_now", "governance_last_check", "governance_practice_settings",
            "governance_product_checklist",
            "mesh_overview", "mesh_set_project", "mesh_save_product", "mesh_delete_product", "mesh_publish", "mesh_save_link",
            "mesh_delete_link", "mesh_resolve_links", "mesh_about", "mesh_save_about", "meta_set_designation",
@@ -76,6 +76,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "agents_list", "queue_list", "run_as_list", "incidents_list", "incidents_summary", "incidents_watch", "incidents_evaluate", "incident_acknowledge", "incident_assign", "incident_note",
            "incident_resolve",
            "incidents_board", "incident_sla_policy", "incident_report", "incident_set_priority", "incidents_history_sync", "incidents_history",
+           "incident_impact", "incident_tell_impacted",
            "notebook_environment", "receipts_list", "receipt_get", "receipt_export", "receipt_redactions",
            "prove_check", "prove_start", "prove_status", "prove_list", "prove_cancel", "prove_verify",
            "prove_delete_outputs", "prove_rules_get", "prove_rules_set", "receipt_save",
@@ -90,7 +91,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "git_compare", "git_file_at", "git_branches", "git_create_branch", "git_switch", "git_delete_branch",
            "git_restore_stash", "git_abort_merge", "git_settings", "git_set_identity", "git_add_remote",
            "git_path_info", "git_notebook_info", "git_create", "git_set_kind", "git_locations", "git_set_locations",
-           "git_platform_diff", "git_platform_export", "git_platform_deploy",
+           "git_platform_diff", "git_platform_export", "git_platform_deploy", "git_capacity_diff", "git_capacity_write", "git_apply_hunk", "git_vscode_plan", "git_vscode_apply",
            "notebook_places", "move_notebook", "audit_log",
            "pipeline_import", "pipeline_validate", "pipeline_inspect", "pipeline_export",
            "pipeline_compatibility", "pipeline_activity_registry",
@@ -98,6 +99,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "pipeline_list", "fabric_pipeline_runs", "fabric_pipeline_activity_runs",
            "workspace_pipelines", "workspace_pipeline_definition", "fabric_connections",
            "workspace_dataflows", "workspace_dataflow_definition", "fabric_dataflow_refreshes",
+           "workspace_copy_jobs", "workspace_copy_job_definition", "fabric_copy_job_runs",
            "git_path_info", "git_notebook_info", "audit_log", "telemetry_status", "telemetry_new_install_id"}
 
 
@@ -132,6 +134,11 @@ from .access_cache_service import METHODS as ACCESS_CACHE_METHODS  # noqa: E402
 
 METHODS |= ACCESS_CACHE_METHODS
 
+# Settings > Advanced > OneLake writes: the local write folders (local_writes_service.py).
+from .local_writes_service import METHODS as LOCAL_WRITES_METHODS  # noqa: E402
+
+METHODS |= LOCAL_WRITES_METHODS
+
 # A notebook's resources folder (notebook_resources_service.py).
 from .notebook_resources_service import METHODS as NOTEBOOK_RESOURCE_METHODS  # noqa: E402
 
@@ -141,6 +148,16 @@ METHODS |= NOTEBOOK_RESOURCE_METHODS
 from .model_ossie_service import METHODS as MODEL_OSSIE_METHODS  # noqa: E402
 
 METHODS |= MODEL_OSSIE_METHODS
+
+# Semantic model tab: the Direct Lake check (model_directlake_service.py).
+from .model_directlake_service import METHODS as MODEL_DIRECTLAKE_METHODS  # noqa: E402
+
+METHODS |= MODEL_DIRECTLAKE_METHODS
+
+# Semantic model tab: the data dictionary (model_dictionary_service.py).
+from .model_dictionary_service import METHODS as MODEL_DICTIONARY_METHODS  # noqa: E402
+
+METHODS |= MODEL_DICTIONARY_METHODS
 
 # Validate notebook (validate_service.py): code checks and a clean run in a fresh kernel.
 from .validate_service import METHODS as VALIDATE_METHODS  # noqa: E402
@@ -162,6 +179,14 @@ METHODS |= SQL_TEMPLATE_METHODS
 from .sql_queries_service import METHODS as SQL_QUERY_METHODS  # noqa: E402
 
 METHODS |= SQL_QUERY_METHODS
+# A warehouse as files in Fabric's Git layout (warehouse_project_service.py).
+from .warehouse_project_service import METHODS as WH_PROJECT_METHODS  # noqa: E402
+
+METHODS |= WH_PROJECT_METHODS
+# Workspace monitoring views for a warehouse (warehouse_monitoring_service.py).
+from .warehouse_monitoring_service import METHODS as WH_MONITORING_METHODS  # noqa: E402
+
+METHODS |= WH_MONITORING_METHODS
 
 # Folders for notebooks (notebook_folders_service.py): new, rename, delete when empty, move into one.
 from .notebook_folders_service import METHODS as NOTEBOOK_FOLDERS_METHODS  # noqa: E402
@@ -182,6 +207,12 @@ from .comments_service import METHODS as COMMENT_METHODS  # noqa: E402
 
 METHODS |= COMMENT_METHODS
 
+# Run cells from VS Code (editor_service.py): the editor channel's switch, pairing requests and
+# the OneLake writes paired windows ask for.
+from .editor_service import METHODS as EDITOR_METHODS  # noqa: E402
+
+METHODS |= EDITOR_METHODS
+
 
 # The calls the shell gives a short time limit (QUICK in app/src-tauri/src/watchdog.rs): they read
 # local state or the kernel and answer at once. They run in their own lane, so a long run, publish
@@ -190,7 +221,7 @@ METHODS |= COMMENT_METHODS
 # (new, save, rename) stay ordered with publish and delete, which save too: a publish queued behind a
 # long call must not write its older cells over an autosave that overtook it.
 QUICK = frozenset({
-    "app_settings", "debug_cell", "interrupt_cell", "kernel_complete", "kernel_info", "kernel_variables",
+    "app_settings", "debug_cell", "editor_pending", "editor_status", "interrupt_cell", "kernel_complete", "kernel_info", "kernel_variables",
     "list_notebooks", "notebook_comments_list", "notebook_debug_get", "notebook_dependencies",
     "notebook_environment", "notebook_folders", "notebook_resources", "notebook_version", "notebook_versions",
     "open_notebook", "poll_cell", "prove_list", "prove_rules_get", "prove_status",
@@ -373,15 +404,20 @@ def _start_integration_http(service: Service) -> None:
         service.integrations_sync_http()
     except Exception as exc:  # noqa: BLE001 - the app works without it; Settings shows why
         print(f"integrations: local API not started: {exc}", file=sys.stderr)
+    try:
+        service.editor_sync()  # the editor channel, if VS Code may run notebooks
+    except Exception as exc:  # noqa: BLE001 - likewise
+        print(f"integrations: editor channel not started: {exc}", file=sys.stderr)
 
 
 def _refresh_integration_launcher() -> None:
-    """After an update the engine is in a new folder: point the AI tools' launcher at it."""
+    """After an update the engine is in a new folder: point the AI tools' and the CLI's launchers at it."""
     try:
-        from .integrations.config import launcher_path, write_launcher
+        from .integrations.config import launcher_path, write_cli_launcher, write_launcher
         from .service import data_dir
         if launcher_path(data_dir()).exists():
             write_launcher(data_dir())
+        write_cli_launcher(data_dir())  # VS Code's Validate task runs it on every developer's PC
     except Exception as exc:  # noqa: BLE001 - never stop the engine over this
         print(f"integrations: could not update the launcher: {exc}", file=sys.stderr)
 

@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-10-25",
+  "updated": "2026-10-26",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -530,7 +530,7 @@
         "notebook.py %%sql MERGE path prints a note and returns ok",
         "notebookutils_local.py docstring names session; attribute absent",
         "local_schedules.py runs all cells; notebook.js skips frozen cells (inference from code reading)",
-        "Re-checked 2026-10-25: four of five defects fixed on main; only the Fabric-only message for session, warehouse and connections is left (pr-ready/PB-013.md)"
+        "Re-checked 2026-10-25: all five defects are fixed on main (pr-ready/PB-013.md)"
       ],
       "features": [
         "FEAT-NB-04",
@@ -561,7 +561,7 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In review",
       "mandatory_reason": "Wrong-answer defects in local execution undermine the core promise and the rule that local results are never claimed equivalent without proof.",
       "package": "docs/product/pr-ready/PB-013.md",
       "computed": {
@@ -569,7 +569,13 @@
         "cost": 2.0,
         "score": 2.56,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        410,
+        692,
+        762,
+        771
+      ]
     },
     {
       "id": "PB-014",
@@ -768,7 +774,9 @@
       "capability": "Record the Fabric item id on first publish and update that item afterwards.",
       "evidence": [
         "fabric_api.py save_notebook matches an existing notebook by displayName",
-        "workload_service.py _record_notebook_item already records the item id after publish, but publish doesn't use it"
+        "workload_service.py _record_notebook_item already records the item id after publish, but publish doesn't use it",
+        "PR #685: publish updates the Fabric notebook it published before, even after a rename",
+        "Implementation review docs/product/reviews/PB-018-685.md: Accepted with Documented Limitations (Chris 'I accept all 4', 2026-10-26, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpREfN9JPWyocAdUEQR2tzj9); limitations: publish after a rename not yet run on a tenant"
       ],
       "features": [
         "FEAT-FAB-06"
@@ -790,14 +798,17 @@
       "owner": "Master product (unassigned)",
       "effort": "S",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "Accepted",
       "package": "docs/product/pr-ready/PB-018.md",
       "computed": {
         "benefit": 2.7,
         "cost": 2.0,
         "score": 2.16,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        685
+      ]
     },
     {
       "id": "PB-019",
@@ -1523,7 +1534,8 @@
         563,
         568,
         578,
-        579
+        579,
+        791
       ],
       "features": [
         "FEAT-ORC-08"
@@ -1622,7 +1634,8 @@
       "capability": "Release-level rollback from meta.deployments and decision D1 enforced.",
       "evidence": [
         "meta/release.py",
-        "docs/scale-and-operations-plan.md D1"
+        "docs/scale-and-operations-plan.md D1",
+        "PR #707 (D1): Test and Prod in OneLake take only files a pushed commit holds; rollback is still open"
       ],
       "features": [
         "FEAT-META-09",
@@ -1655,7 +1668,8 @@
       "confidence": "Medium",
       "state": "Proposed",
       "prs": [
-        113
+        113,
+        707
       ],
       "computed": {
         "benefit": 3.25,
@@ -1712,7 +1726,9 @@
       "capability": "Retention for finished jobs and an agent requeue command.",
       "evidence": [
         "jobqueue.py has no prune (inference from code reading)",
-        "agent CLI has no requeue"
+        "agent CLI has no requeue",
+        "PR #689: finished agent jobs are pruned and `agent requeue` revives a dead job",
+        "Implementation review docs/product/reviews/PB-044-689.md: Accepted with Documented Limitations (Chris 'I accept all 4', 2026-10-26, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpREfN9JPWyocAdUEQR2tzj9); limitations: the package's manual requeue check and a live agent run are still to do"
       ],
       "features": [
         "FEAT-ORC-02"
@@ -1735,14 +1751,17 @@
       "owner": "Master product (unassigned)",
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "Accepted",
       "package": "docs/product/pr-ready/PB-044.md",
       "computed": {
         "benefit": 2.3,
         "cost": 1.0,
         "score": 2.3,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        689
+      ]
     },
     {
       "id": "PB-045",
@@ -2113,7 +2132,9 @@
       "problem": "Platform admins can't revoke a grant or list sources from the app though the engine supports both.",
       "capability": "Revoke in Platform > Access and a sources list.",
       "evidence": [
-        "platform_revoke and platform_sources have no caller in app/ui"
+        "platform_revoke and platform_sources have no caller in app/ui",
+        "PR #694: a product's page takes a project's access away (Preview); the source list screen is not checked here",
+        "Implementation review docs/product/reviews/PB-054-694.md: Accepted with Documented Limitations (Chris 'I accept all 4', 2026-10-26, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpREfN9JPWyocAdUEQR2tzj9); limitations: the sources list isn't built and revoke hasn't run against a tenant's UDF_Platform"
       ],
       "features": [
         "FEAT-MESH-01"
@@ -2134,13 +2155,16 @@
       "owner": "Master product (unassigned)",
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "Accepted",
       "computed": {
         "benefit": 2.3,
         "cost": 1.5,
         "score": 2.07,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        694
+      ]
     },
     {
       "id": "PB-056",
@@ -2510,7 +2534,9 @@
       "problem": "separate_promoter compares PC login names, not signed-in identities.",
       "capability": "Compare Entra object ids.",
       "evidence": [
-        "duties.py"
+        "duties.py",
+        "PR #721 (HD-030): the separate promoter compares Entra object ids",
+        "Implementation review docs/product/reviews/PB-065-721.md: Accepted with Documented Limitations (Chris 'I accept all 4', 2026-10-26, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpREfN9JPWyocAdUEQR2tzj9); limitations: not a security boundary, the switch is still in environments.toml, not tried with two PCs and one Entra account"
       ],
       "features": [
         "FEAT-GOV-04"
@@ -2534,7 +2560,7 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "Accepted",
       "external_dependencies": [
         "Overlaps HD-030 separation of duties by Entra id (staged roadmap) (Codebase audit and hardening backlog, PB-101)"
       ],
@@ -2543,7 +2569,10 @@
         "cost": 1.0,
         "score": 2.05,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        721
+      ]
     },
     {
       "id": "PB-066",
@@ -2598,7 +2627,8 @@
       "capability": "A run dialog showing the estimate and choices, and cleanup of files a stopped batch wrote.",
       "evidence": [
         "meta_preflight has no caller in app/ui",
-        "meta/batches.py"
+        "meta/batches.py",
+        "Delete left-overs in Settings and Runs on (#687, #706) removes orphan local write files; the run dialog is still open"
       ],
       "features": [
         "FEAT-META-06"
@@ -2633,7 +2663,11 @@
         "cost": 2.5,
         "score": 2.52,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        687,
+        706
+      ]
     },
     {
       "id": "PB-068",
@@ -2669,7 +2703,7 @@
       "state": "Proposed",
       "external_dependencies": [
         "Overlaps HD-032 T-SQL key import fails above 699 rows (staged roadmap) (Codebase audit and hardening backlog, PB-101)",
-        "Direction change (Chris's unit testing, 2026-10-18, item 25): keys move to one Fabric SQL database in a dedicated workspace shared by all environments (Chris, 2026-10-20: one for all)"
+        "Direction change (Chris's unit testing, 2026-10-18, item 25): one Fabric SQL database in a dedicated Keys workspace shared by all environments (Chris, 2026-10-20: one for all); built in PR #293, not yet moved on a live tenant"
       ],
       "computed": {
         "benefit": 3.45,
@@ -4046,7 +4080,21 @@
         621,
         623,
         624,
-        626
+        626,
+        659,
+        674,
+        676,
+        679,
+        689,
+        691,
+        698,
+        708,
+        715,
+        717,
+        721,
+        757,
+        768,
+        786
       ]
     },
     {
@@ -4095,7 +4143,18 @@
         "cost": 2.5,
         "score": 2.66,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        684,
+        699,
+        702,
+        703,
+        704,
+        705,
+        719,
+        747,
+        769
+      ]
     },
     {
       "id": "PB-103",
@@ -4146,7 +4205,17 @@
       },
       "prs": [
         585,
-        616
+        616,
+        661,
+        680,
+        711,
+        733,
+        738,
+        766,
+        775,
+        778,
+        781,
+        784
       ]
     },
     {
@@ -4291,7 +4360,21 @@
         638,
         639,
         641,
-        645
+        645,
+        660,
+        662,
+        723,
+        727,
+        728,
+        729,
+        730,
+        731,
+        743,
+        745,
+        747,
+        774,
+        783,
+        787
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -4348,7 +4431,25 @@
       "effort": "XL",
       "confidence": "Medium",
       "prs": [
-        640
+        640,
+        653,
+        665,
+        666,
+        667,
+        668,
+        669,
+        700,
+        709,
+        714,
+        724,
+        732,
+        735,
+        736,
+        737,
+        739,
+        740,
+        741,
+        746
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -4367,19 +4468,17 @@
       "capability": "Governance owns templates (policies with Check now, user-added rules, locks, exceptions); the Best Practice Analyzer thread owns the checkers (notebook NB001-012, SQL SQ001-010, semantic model BPA through semantic-link-labs in Fabric).",
       "evidence": [
         "Chris 2026-10-24: 'more on governance and best practices. Allow for people to add their own templates'",
-        "Draft PRs #560 (BPA engine), #643 (notebook rules), #648 (templates and Check now), #649 (SQL rules), #651 (RE2 naming checks)"
+        "Draft PRs #560 (BPA engine), #643 (notebook rules), #648 (templates and Check now), #649 (SQL rules), #651 (RE2 naming checks)",
+        "Implementation review docs/product/reviews/PB-108-643.md: Accepted with Documented Limitations (Chris 'Go on all', 2026-10-26, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpVYtS9wxoAC4YeAMMvSdTtB); limitations tracked in PB-111 and PB-112"
       ],
       "features": [
         "FEAT-GOV-05",
-        "FEAT-META-13"
+        "FEAT-GOV-09"
       ],
       "depends_on": [
         "PB-056"
       ],
-      "external_dependencies": [
-        "Chris pastes the BPA cell error from the 2026-10-23 live run",
-        "Quality verdicts on #643, #648, #649, #651"
-      ],
+      "external_dependencies": [],
       "acceptance": [
         "Each rule set registers through governance_checks.register and is off unless a policy names it",
         "Check now runs offline for notebooks and SQL; model checks say they run in Fabric and use capacity"
@@ -4401,13 +4500,15 @@
       ],
       "effort": "L",
       "confidence": "Medium",
-      "state": "In review",
+      "state": "Accepted",
       "prs": [
-        560,
         643,
         648,
         649,
-        651
+        651,
+        664,
+        671,
+        713
       ],
       "mandatory": "none",
       "computed": {
@@ -4415,6 +4516,102 @@
         "cost": 2.5,
         "score": 2.83,
         "priority": "P1"
+      }
+    },
+    {
+      "category": "Data Governance and Quality",
+      "mandatory": "none",
+      "confidence": "Medium",
+      "state": "Proposed",
+      "depends_on": [
+        "PB-108"
+      ],
+      "id": "PB-111",
+      "title": "Check now covers SQL scripts and scheduled notebooks",
+      "problem": "Check now has no SQL scripts to give the SQL rules SQ001-SQ010, and checks notebooks as unscheduled, so a policy naming SQ rules or NB004/NB008 always shows not checked.",
+      "capability": "Check now collects this PC's SQL scripts (project .sql files and saved queries) for the SQL rules, and marks notebooks that have a schedule so the scheduled-only rules NB004 and NB008 run on them.",
+      "evidence": [
+        "PB-108 implementation review, findings 2 and 5 (docs/product/reviews/PB-108-643.md)",
+        "docs/governance.md: Check now has no SQL scripts yet; NB004 and NB008 are for scheduled runs"
+      ],
+      "features": [
+        "FEAT-GOV-09"
+      ],
+      "acceptance": [
+        "A policy naming SQ rules shows pass or findings from this PC's SQL scripts, never not checked when scripts exist",
+        "NB004 and NB008 run in Check now on notebooks that have a schedule"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 1,
+        "enterprise_value": 4,
+        "differentiation": 2,
+        "strategic_alignment": 3,
+        "complexity": 2,
+        "risk": 1
+      },
+      "owner": "Enterprise governance foundation",
+      "source_refs": [
+        "central/checks_service.py governance_check_now"
+      ],
+      "effort": "S",
+      "computed": {
+        "benefit": 2.7,
+        "cost": 1.5,
+        "score": 2.43,
+        "priority": "P2"
+      }
+    },
+    {
+      "category": "Data Governance and Quality",
+      "mandatory": "none",
+      "confidence": "Medium",
+      "state": "In review",
+      "depends_on": [
+        "PB-108"
+      ],
+      "id": "PB-112",
+      "title": "Semantic model best-practice checks in governance policies",
+      "problem": "No semantic model checker is registered, so a policy can't name Best Practice Analyzer rules and Check now can't run them.",
+      "capability": "The BPA engine (#560) registers through governance_checks.register with runs_in=\"fabric\"; Check now says those checks run in Fabric and use capacity, and stores their findings with store_fabric_findings.",
+      "evidence": [
+        "PB-108 implementation review, finding 1 (docs/product/reviews/PB-108-643.md)",
+        "#560 is an open draft",
+        "PR #753 registers SM001-SM007 so a policy can name them; they read the model on this PC, so no capacity is used, unlike the criterion's Fabric run (BPA #560 is still a draft)"
+      ],
+      "features": [
+        "FEAT-GOV-09",
+        "FEAT-META-13"
+      ],
+      "external_dependencies": [
+        "Chris pastes the BPA cell error from the 2026-10-23 live run"
+      ],
+      "acceptance": [
+        "A policy can name semantic model rules; Check now says they run in Fabric and use capacity before running them"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 1,
+        "enterprise_value": 4,
+        "differentiation": 3,
+        "strategic_alignment": 4,
+        "complexity": 3,
+        "risk": 3
+      },
+      "owner": "Best Practice Analyzer",
+      "source_refs": [
+        "#560 model_bpa"
+      ],
+      "effort": "M",
+      "prs": [
+        560,
+        753
+      ],
+      "computed": {
+        "benefit": 3.0,
+        "cost": 3.0,
+        "score": 1.8,
+        "priority": "P2"
       }
     },
     {
@@ -4428,9 +4625,10 @@
         "#650 merged: the app never saves over a file another program changed"
       ],
       "features": [
+        "FEAT-EXT-01",
         "FEAT-EXT-02",
-        "FEAT-NB-17",
-        "FEAT-EXT-01"
+        "FEAT-EXT-06",
+        "FEAT-NB-17"
       ],
       "external_dependencies": [
         "Chris decides paired-editor runs without per-run approval",
@@ -4455,9 +4653,16 @@
       ],
       "effort": "XL",
       "confidence": "Low",
-      "state": "Proposed",
+      "state": "In progress",
       "prs": [
-        650
+        650,
+        652,
+        670,
+        695,
+        710,
+        712,
+        742,
+        754
       ],
       "mandatory": "none",
       "computed": {
@@ -4504,7 +4709,11 @@
       "confidence": "Medium",
       "state": "In progress",
       "prs": [
-        599
+        599,
+        681,
+        716,
+        758,
+        777
       ],
       "mandatory": "none",
       "computed": {
@@ -4512,6 +4721,53 @@
         "cost": 3.0,
         "score": 1.65,
         "priority": "P3"
+      }
+    },
+    {
+      "id": "PB-113",
+      "title": "Action-first experience program",
+      "category": "Developer Experience and Productivity",
+      "problem": "Pages open on information and settings, so people hunt for the next thing to do.",
+      "capability": "Owned and specified by the action-first thread (AF-1..AF-5); not restated here. AF-1 adds a shared action framework, the action-first standard and a baseline.",
+      "evidence": [
+        "AF-1 merged as #722"
+      ],
+      "features": [
+        "FEAT-SHL-04"
+      ],
+      "depends_on": [
+        "PB-102"
+      ],
+      "acceptance": [
+        "As defined in AF-1..AF-5 by its owning thread"
+      ],
+      "scores": {
+        "developer_value": 5,
+        "cu_reduction": 1,
+        "enterprise_value": 3,
+        "differentiation": 4,
+        "strategic_alignment": 5,
+        "complexity": 3,
+        "risk": 2
+      },
+      "owner": "Action-first experience",
+      "source_refs": [
+        "AF-1..AF-5"
+      ],
+      "effort": "L",
+      "confidence": "Medium",
+      "prs": [
+        722,
+        760,
+        776
+      ],
+      "mandatory": "none",
+      "state": "In progress",
+      "computed": {
+        "benefit": 3.55,
+        "cost": 2.5,
+        "score": 2.48,
+        "priority": "P2"
       }
     }
   ]

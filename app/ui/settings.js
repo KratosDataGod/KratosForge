@@ -25,6 +25,7 @@ const MICROSOFT_SIGN_IN = "Microsoft's Fabric sign-in (no app registration)";
 async function loadSettings() {
   state.settings = await rpc("app_settings").catch(() => state.settings || null);
   applyMotion();  // motion.js
+  applyAppearance();  // features.js
   return state.settings;
 }
 
@@ -32,6 +33,7 @@ async function saveSettings(changes, label = "Not saved") {
   const res = await attempt(() => rpc("save_app_settings", { changes }), label);
   if (res) state.settings = res;
   applyMotion();
+  applyAppearance();  // features.js
   return res;
 }
 
@@ -217,30 +219,132 @@ async function checkForUpdates() {
   const install = btn("Install and restart", "arrowDownload", async () => {
     install.disabled = true;
     later.disabled = true;
-    install.lastChild.textContent = "Downloading…";
-    if (state.notebook?.dirty && !(await saveNotebook())) {
-      install.disabled = later.disabled = false;
-      install.lastChild.textContent = "Install and restart";
-      return;
-    }
-    const unlisten = await window.__TAURI__.event.listen("component-log", (e) => {
-      const m = /^progress (\d+)/.exec(e.payload);
-      if (m) install.lastChild.textContent = m[1] === "100" ? "Restarting…" : `Downloading… ${m[1]}%`;
-    });
     try {
-      await invoke("update_app", { commit: latest.commit });
-      install.lastChild.textContent = "Restarting…";  // the new build takes over
+      if (await installUpdate(latest.commit, (label) => { install.lastChild.textContent = label; })) return;
+      install.lastChild.textContent = "Install and restart";
     } catch (err) {
       text.className = "error-text";
       text.textContent = `Update to build ${short(latest.commit)} failed: ${err} You are still on ${short(report.commit)}.`;
-      install.disabled = later.disabled = false;
       install.lastChild.textContent = "Try again";
-    } finally {
-      unlisten();
     }
+    install.disabled = later.disabled = false;
   }, "tool primary");
   const later = btn("Later", null, closeDialog, "tool outline");
   show([facts, text, note], [manual, h("span", { class: "spacer" }), later, install]);
+}
+
+// Saves the open notebook, then downloads the build and hands over to it, the same checked
+// download as at startup (update_app). False when the notebook wasn't saved; throws when the
+// update failed. setLabel shows how far the download is.
+async function installUpdate(commit, setLabel) {
+  if (state.notebook?.dirty && !(await saveNotebook())) return false;
+  setLabel("Downloading…");
+  const unlisten = await window.__TAURI__.event.listen("component-log", (e) => {
+    const m = /^progress (\d+)/.exec(e.payload);
+    if (m) setLabel(m[1] === "100" ? "Restarting…" : `Downloading… ${m[1]}%`);
+  });
+  try {
+    await invoke("update_app", { commit });
+    setLabel("Restarting…");  // the new build takes over
+    return true;
+  } finally {
+    unlisten();
+  }
+}
+
+// ---------- New build banner ----------
+
+// While the app is open, the same check as Check for updates (the channel's version.json, nothing
+// else sent) every 4 hours. A newer build shows a banner below the top bar and a bell entry; Later
+// hides the banner for that build only. Off in Settings > Updates, or with preview features hidden.
+const UPDATE_WATCH_OFF = "fd.updatewatch.off";
+const UPDATE_WATCH_LATER = "fd.updatewatch.later";
+const UPDATE_WATCH_MS = 4 * 60 * 60 * 1000;
+const updateWatch = { timer: null, notice: null, checkedAt: null, busy: false };
+
+function updateWatchOn() {
+  try { return localStorage.getItem(UPDATE_WATCH_OFF) !== "1"; } catch { return true; }
+}
+
+// What the banner says about a check_for_update report: null unless the channel has a newer build.
+// A PC whose organization rolls out builds hears it's out but gets no install.
+function updateNotice(report) {
+  const result = updateCheckResult(report);
+  if (result.kind !== "newer" && result.kind !== "managed") return null;
+  const short = (c) => c.slice(0, 7);
+  const channel = report.latest.channel === "preview" ? "Preview" : "Stable";
+  return {
+    kind: result.kind, commit: report.latest.commit, page: report.latest.page || "",
+    title: result.kind === "newer" ? "A new KratosForge build is ready." : `Build ${short(report.latest.commit)} is out.`,
+    text: result.kind === "newer"
+      ? `Build ${short(report.latest.commit)} is out on ${channel} (you're on ${short(report.commit)}). Restarting saves your open notebook and stops running cells.`
+      : "Your organization rolls out KratosForge updates, so ask IT when it reaches you.",
+  };
+}
+
+function scheduleUpdateWatch() {
+  clearTimeout(updateWatch.timer);
+  updateWatch.timer = setTimeout(watchForUpdates, UPDATE_WATCH_MS);
+}
+
+async function watchForUpdates() {
+  scheduleUpdateWatch();
+  if (!updateWatchOn() || !previewShown() || !state.commit) return;
+  let report;
+  try {
+    report = await invoke("check_for_update");
+  } catch {
+    return;  // offline or no Python: the next check tries again, and Check for updates says why
+  }
+  updateWatch.checkedAt = new Date();
+  updateWatch.notice = updateNotice(report);
+  const n = updateWatch.notice;
+  if (n && !activity.items.some((i) => i.id === `update:${n.commit}`)) {
+    logActivity({ id: `update:${n.commit}`, status: "update", notice: true, update: true,
+      title: n.kind === "newer" ? `Update ready: build ${n.commit.slice(0, 7)}` : n.title, text: n.text });
+  }
+  renderUpdateBanner();
+}
+
+function updateLater() {
+  try { return localStorage.getItem(UPDATE_WATCH_LATER) || ""; } catch { return ""; }
+}
+
+function renderUpdateBanner() {
+  const root = document.getElementById("update-root");
+  if (!root) return;
+  const n = updateWatch.notice;
+  if (!n || !updateWatchOn() || !previewShown() || n.commit === updateLater()) {
+    if (root.childElementCount) { root.replaceChildren(); placeFabricView(); }
+    return;
+  }
+  const later = () => {
+    try { localStorage.setItem(UPDATE_WATCH_LATER, n.commit); } catch { /* hidden until the app restarts */ }
+    updateWatch.notice = null;
+    renderUpdateBanner();
+  };
+  const text = h("div", { class: "grow" }, h("b", {}, n.title), " ", n.text);
+  const actions = [];
+  if (n.page) actions.push(btn("Release notes", null, () => openLink(n.page), "tool link small"));
+  if (n.kind === "newer") {
+    const restart = btn("Restart to update", "arrowDownload", async () => {
+      restart.disabled = true;
+      try {
+        if (await installUpdate(n.commit, (label) => { restart.lastChild.textContent = label; })) return;
+        restart.lastChild.textContent = "Restart to update";
+      } catch (err) {
+        text.replaceChildren(h("b", { class: "error-text" }, `Update to build ${n.commit.slice(0, 7)} failed: ${err}`),
+          " You are still on this build. Check for updates in the account menu can try again.");
+        restart.lastChild.textContent = "Try again";
+      }
+      restart.disabled = false;
+    }, "tool primary small");
+    actions.push(btn("Later", null, later, "tool outline small"), restart);
+  } else {
+    actions.push(btn("Dismiss", null, later, "tool outline small"));
+  }
+  root.replaceChildren(h("div", { class: "update-banner", role: "status" }, icon("arrowDownload", 18), text, ...actions));
+  placeFabricView();
 }
 
 // ---------- What's new ----------
@@ -412,8 +516,8 @@ const MOTION_LEVEL_HELP = ["No animation at all. Progress, results and errors st
   "Quick page and panel transitions only. No branded effects.",
   "Subtle sparks, embers and the wolf on real progress. Recommended.",
   "The same moments with more character: extra sparks, halftone and offset rings."];
-const MOTION_FAMILIES = [["motion_wolf", "Wolf animations", "The wolf on run progress, its arrival and the Wolf Run after long work."],
-  ["motion_sparks", "Forge sparks", "Sparks when work succeeds, the anvil strike after a deployment, the ember when something fails."],
+const MOTION_FAMILIES = [["motion_wolf", "Wolf animations", "The wolf on run progress, its arrival, the Wolf Run after long work, and the navy wolf on work in Fabric or with a remote."],
+  ["motion_sparks", "Forge sparks", "Sparks when work succeeds, the anvil strike after a deployment or promote, the ember when something fails."],
   ["motion_ambient", "Running indicators", "The glow on a running cell, the flow into a running pipeline step, the ring when work starts."]];
 // Achievement celebrations (off by default, #361) shows only while Profile (a Preview feature) can
 // award something; a switch that does nothing would only confuse.
@@ -434,7 +538,17 @@ function motionSettingsCard(s, locked) {
       onchange: (e) => save({ [key]: e.target.checked }) }),
     h("span", {}, on ? "On" : "Off"));
   const reduced = reducedMotion() && s.motion_follow_system?.value !== false;
+  const choice = (key) => {
+    const [title, help, options] = LAYOUT_CHOICES[key];
+    const now = layoutChoice(key);
+    return settingRow(title, help, h("div", { class: "seg", role: "group", "aria-label": title }, options.map(([value, label]) =>
+      h("button", { class: now === value ? "on" : "", "aria-pressed": String(now === value), disabled: locked(key) ? true : null,
+        onclick: () => now !== value && save({ [key]: value }) }, label))), source(key));
+  };
   return h("section", { class: "card pad motion-settings" }, h("h2", {}, "Appearance"),
+    h("h3", {}, "Layout"),
+    h("p", { class: "muted-text small" }, "How much every page shows. Nothing is removed: what you tuck away is one click from where it was."),
+    Object.keys(LAYOUT_CHOICES).map(choice),
     h("h3", {}, "Motion & effects"),
     h("p", { class: "muted-text small" }, "Effects only follow real work as it finishes; they never delay a run, take focus or cover your code. ",
       reduced ? h("b", {}, "Off now: Windows asks apps to reduce motion. ") : null, learnMore("motion-and-effects")),
@@ -470,6 +584,7 @@ function showMotionGallery() {
   const lane = h("span", { class: "motion-lane" }, "Kernel idle");
   const award = sample("Achievement earned: First Flame");
   const trackHost = h("span", { class: "motion-track" });
+  const remoteHost = h("span", { class: "motion-track" });
   const flowHost = h("div", { class: "motion-flow" });
   const flowNote = h("span", { class: "muted-text small" });
   let flowing = false;
@@ -501,7 +616,7 @@ function showMotionGallery() {
   const body = h("div", { class: "motion-gallery" },
     h("p", { class: "muted-text small" }, "Each effect plays on a sample at the level and switches set now. The samples are not real work, except the pipeline, "
       + "which runs a three-step sample (two short waits and a variable) on this PC and is kept in this PC's local pipeline run history. Nothing goes to Fabric."),
-    row("Forge Spark", "A cell, query or check succeeded.", spark, () => forgeEvent("notebook.cell.succeeded", spark)),
+    row("Forge Spark", "A cell, query, save, model build or Git push succeeded.", spark, () => forgeEvent("notebook.cell.succeeded", spark)),
     row("Controlled Failure", "Something failed. The red label is there from the first frame.", failed, () => forgeEvent("notebook.cell.failed", failed)),
     row("Pulse", "Run all started.", run, () => forgeEvent("notebook.run.started", run)),
     row("Wolf track and arrival", "Run all: the wolf sits at the share of cells done (sample: 4 steps).", trackHost, () => {
@@ -512,7 +627,9 @@ function showMotionGallery() {
       const tick = setInterval(() => { i += 1; if (i < 4) t.set(i, 4); else { clearInterval(tick); t.set(4, 4); t.arrive(); } }, 450);
     }),
     row("Wolf Run", "A cell that ran 10 s or more succeeded.", lane, () => forgeEvent("notebook.long.succeeded", lane)),
-    row("Anvil Strike", "A deployment succeeded.", deployed, () => forgeEvent("deploy.succeeded", deployed)),
+    row("Navy wolf", "Work in Fabric or with a remote that has no measure: the wolf trots in place on an empty track, with no fill or percentage.",
+      remoteHost, () => { if (!remoteHost.childElementCount) { remoteHost.append(remoteProgress("Sample run in Fabric")); setTimeout(() => remoteHost.replaceChildren(), 3000); } }),
+    row("Anvil Strike", "A deployment, a promote, a pipeline run or a Data mesh run succeeded.", deployed, () => forgeEvent("deploy.succeeded", deployed)),
     row("Cooling spark", "Validate passed, a proof matched, or Fabric confirmed a publish.", passed, () => forgeEvent("validate.passed", passed)),
     previewShown() ? row("Achievement Reveal", "Profile awarded you an achievement. Plays only with Achievement celebrations on.", award,
       () => forgeEvent("achievement.unlocked", award)) : null,
@@ -585,6 +702,15 @@ async function renderSettings() {
           try { localStorage.setItem(UPDATE_SPLASH_OFF, e.target.checked ? "0" : "1"); } catch { /* kept for this start */ }
           render();
         } }), h("span", {}, updateSplashOn() ? "On" : "Off"))),
+    preview("updateBanner", settingRow("Tell me when a new build is out",
+      "While KratosForge is open, checks your channel's version file every 4 hours, the same check as at startup; nothing else is sent. "
+        + (updateWatch.checkedAt ? `Last checked ${updateWatch.checkedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.` : "Not checked yet since this start."),
+      h("label", { class: "switch" }, h("input", { type: "checkbox", checked: updateWatchOn() ? true : null,
+        onchange: (e) => {
+          try { localStorage.setItem(UPDATE_WATCH_OFF, e.target.checked ? "0" : "1"); } catch { /* kept for this start */ }
+          renderUpdateBanner();
+          render();
+        } }), h("span", {}, updateWatchOn() ? "On" : "Off")))),
     h("div", { class: "row" }, btn("Check for updates", "sync", checkForUpdates, "tool link small"),
       btn("What's new in this build", "rocket", () => showWhatsNew(true), "tool link small"),
       btn("Show the update splash", "rocket", () => showUpdateSplash(true), "tool link small")));
@@ -658,7 +784,7 @@ async function renderSettings() {
     btn("Open Platform > Settings", "building", () => goPlatform("settings"), "tool outline"))) : null;
   setView(h("div", { class: "page settings" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
-      h("p", { class: "sub" }, "How KratosForge signs in, updates and talks to you. ", learnMore("settings")))),
+      pageIntro("How KratosForge signs in, updates and talks to you. ", learnMore("settings")))),
     tabs, tab === "integrations" ? integrations : [account, updates, display, previews, usage, platform, notify, about, advanced].filter(Boolean)));
   if (tab === "integrations") {
     renderIntegrationsTab(integrations);
@@ -739,7 +865,47 @@ function oneLakeWritesSection(s, locked) {
       h("label", { class: "switch" }, h("input", { type: "checkbox", checked: s.onelake_skip_unchanged.value ? true : null, disabled: locked("onelake_skip_unchanged") ? true : null,
         onchange: async (e) => { await saveSettings({ onelake_skip_unchanged: e.target.checked }); render(); } }),
       h("span", {}, s.onelake_skip_unchanged.value ? "On" : "Off")),
-      fixedBy(s, "onelake_skip_unchanged")));
+      fixedBy(s, "onelake_skip_unchanged")),
+    localWritesRow());
+}
+
+// The files local writes keep on this PC (local_writes_service.py), with a way to open each folder.
+function localWritesRow() {
+  const status = h("div", { class: "muted-text small" }, "Looking...");
+  const extra = h("div", { class: "local-writes" });
+  const open = btn("Open folder", "folderOpen", () => openLocalWrites(), "tool small");  // app.js
+  const clear = btn("Delete left-overs", "delete", () => clearLocalWrites(), "tool small", { disabled: true });
+  rpc("local_writes").then((w) => {
+    status.textContent = localWritesText(w);
+    clear.disabled = !w.files && !w.tpch.length;
+    extra.replaceChildren(...w.tpch.map((t) => h("div", { class: "row wrap" },
+      h("span", { class: "muted-text small grow" }, `TPC-H data left in the temp folder: ${formatBytes(t.bytes)}, ${t.folder}`),
+      btn("Open", "folderOpen", () => openLocalWrites(t.folder), "tool small"))));
+  }).catch(() => { status.textContent = "Couldn't read the folder."; });
+  return settingRow("Files on this PC",
+    "A write kept on this PC waits here until it has uploaded, then it's deleted, so this is normally empty. Open the folder to look, or Delete left-overs to clear up after a run that was ended mid-upload.",
+    h("div", { style: "display:flex;flex-direction:column;gap:6px" }, h("div", { class: "row wrap" }, status, open, clear), extra));
+}
+
+async function clearLocalWrites() {
+  const w = await attempt(() => rpc("local_writes"), "Couldn't read the folder");
+  if (!w) return;
+  const total = w.bytes + w.tpch.reduce((n, t) => n + t.bytes, 0);
+  const what = [w.files ? `${w.files.toLocaleString()} file${w.files === 1 ? "" : "s"} in ${w.folder}` : "",
+    ...w.tpch.map((t) => `TPC-H data in ${t.folder}`)].filter(Boolean);
+  if (!(await confirmDialog("Delete left-overs?", `This deletes ${formatBytes(total)} from this PC: ${what.join("; ")}. ` +
+    "Your tables in OneLake aren't touched. A write that hasn't finished uploading is lost, so it's refused while a notebook is running.",
+  "Delete", { danger: true }))) return;
+  const res = await attempt(() => rpc("local_writes_clear"), "Not deleted");
+  if (!res) return;
+  toast(`Deleted ${formatBytes(res.bytes)}.${res.in_use.length ? ` ${res.in_use.length} still in use, left: try again when it has finished.` : ""}`);
+  render();
+}
+
+function localWritesText(w) {
+  if (!w.files) return `Empty · ${w.folder}`;
+  const up = w.uploading.files ? `, ${w.uploading.files} waiting to upload or left over (${formatBytes(w.uploading.bytes)})` : "";
+  return `${formatBytes(w.bytes)} in ${w.files.toLocaleString()} file${w.files === 1 ? "" : "s"}${up} · ${w.folder}`;
 }
 
 // The SQL page's limits. Each is checked by the engine (app_settings.SQL_RANGES); a value set by the
@@ -764,6 +930,22 @@ function sqlSettingsSection(s, locked) {
     placeholder: "Empty: the app's data folder", readonly: locked("sql_temp_dir") ? true : null, "aria-readonly": locked("sql_temp_dir") ? "true" : null });
   rows.push(settingRow("Temp folder", "Where spilled data and results are kept while you page and export. A fast local drive with free space works best.",
     temp, fixedBy(s, "sql_temp_dir")));
+  // WH-10: off, the Warehouse page only reads; on, each change still asks first (sql_exec.py).
+  rows.push(settingRow("Warehouse changes", "Lets the Warehouse page change a warehouse (create, alter, insert, update, delete, run procedures) after you see what it changes and confirm. Off, every warehouse only reads.",
+    h("label", { class: "switch" }, h("input", { type: "checkbox", checked: s.sql_warehouse_writes.value ? true : null, disabled: locked("sql_warehouse_writes") ? true : null,
+      "aria-label": "Warehouse changes", onchange: async (e) => { await saveSettings({ sql_warehouse_writes: e.target.checked }); render(); } }),
+    h("span", {}, s.sql_warehouse_writes.value ? "On" : "Off")),
+    fixedBy(s, "sql_warehouse_writes")));
+  // WH-19: workspaces whose new warehouses get monitoring views without asking (whmonitor.js).
+  const auto = s.wh_monitoring_auto?.value || [];
+  rows.push(settingRow("Monitoring views without asking", "Workspaces where you said yes, on a build confirm, to monitoring views for new warehouses. The app builds a warehouse's KQL queryset when it opens one there. Remove a workspace and it asks again.",
+    auto.length ? h("ul", { class: "wh-mon-auto" }, auto.map((ws) => h("li", {}, h("span", {}, whMonWorkspaceName(ws)),
+      locked("wh_monitoring_auto") ? null : btn("Remove", null, async () => {
+        await saveSettings({ wh_monitoring_auto: auto.filter((w) => w !== ws) });
+        render();
+      }, "tool outline small", { "aria-label": `Remove ${whMonWorkspaceName(ws)}` }))))
+      : h("span", { class: "muted-text small" }, "None."),
+    fixedBy(s, "wh_monitoring_auto")));
   const save = async () => {
     const changes = {};
     for (const [key] of SQL_SETTINGS) {
@@ -919,10 +1101,13 @@ function rememberWrite(row, target) {
   } catch { /* not remembered */ }
 }
 
+// Whether Home shows Ready to work: until someone hides it.
+function readinessShown() {
+  try { return localStorage.getItem("fd.ready.hidden") !== "1"; } catch { return true; }
+}
+
 function readinessCard() {
-  let hidden = false;
-  try { hidden = localStorage.getItem("fd.ready.hidden") === "1"; } catch { /* shown */ }
-  if (hidden) return null;
+  if (!readinessShown()) return null;
   const box = h("section", { class: "card pad ready", "aria-labelledby": "ready-title" });
   let writeRow = null;
   try { writeRow = savedWriteRow(JSON.parse(localStorage.getItem("fd.ready.write") || "null"), state.user, state.tenant || null); } catch { /* ask again */ }
@@ -978,11 +1163,12 @@ function getStarted(project, notebookCount) {
   try { hidden = localStorage.getItem("fd.getstarted.hidden") === "1"; } catch { /* shown */ }
   if (hidden || project?.path) return null;
   const steps = [
-    [!!state.user, "Sign in with your work account", "So the app can see your Fabric workspaces.", () => signIn().then((ok) => ok && render())],
+    // Signing in is asked once on Home: by Ready to work while it shows, else here.
+    readinessShown() ? null : [!!state.user, "Sign in with your work account", "So the app can see your Fabric workspaces.", () => signIn().then((ok) => ok && render())],
     [done("lakehouse"), "Open a lakehouse", "Browse its tables and files, or query them with SQL.", () => go("onelake")],
     [notebookCount > 0, "Run a notebook on this PC", "Python and Spark-style code, run on your own processor.", () => newNotebook()],
     [false, "Set up a metadata project", "Describe your medallion tables once and let KratosForge build and run them.", () => go("metadata")],
-  ];
+  ].filter(Boolean);
   const box = h("section", { class: "card pad get-started" },
     h("div", { class: "row" }, h("h2", { class: "grow" }, "Get started"),
       btn("Hide", null, () => { try { localStorage.setItem("fd.getstarted.hidden", "1"); } catch { /* */ } box.remove(); }, "tool link small")),

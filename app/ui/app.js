@@ -206,6 +206,13 @@ function showDialog(title, body, actions = [], onClose = null) {
   const previous = dialogOnClose;
   dialogOnClose = onClose;
   document.getElementById("dialog-root").replaceChildren(overlay);
+  // A dialog's How this works says what its button changes, so it opens unfolded.
+  overlay.querySelectorAll(".how-it-works.folded").forEach((p) => {
+    p.classList.remove("folded");
+    const toggle = p.querySelector(":scope > .fold-head > .fold-toggle");
+    toggle?.setAttribute("aria-expanded", "true");
+    if (toggle) toggle.title = "Hide";
+  });
   previous?.();
   overlay.querySelector("input, select")?.focus();
   return overlay;
@@ -241,7 +248,7 @@ function showMenu(anchor, items) {
   closeMenu();
   const rect = anchor.getBoundingClientRect();
   const menu = h("div", { class: "menu", id: "menu", role: "menu", style: `left:${rect.left}px;top:${rect.bottom + 4}px` },
-    items.map((it) => it.info ? h("div", { class: "info", role: "presentation" }, it.info)
+    items.map((it) => it instanceof Node ? menuNode(it) : it.info ? h("div", { class: "info", role: "presentation" }, it.info)
       : btn(it.label, it.icon, () => { closeMenu(); it.action(); }, "tool", { role: "menuitem", tabindex: "-1" })));
   menuOpener = anchor;
   anchor.setAttribute?.("aria-expanded", "true");
@@ -249,11 +256,36 @@ function showMenu(anchor, items) {
   // A button near the right edge (Publish options): keep the menu on screen.
   const overflow = menu.getBoundingClientRect().right - (window.innerWidth - 8);
   if (overflow > 0) menu.style.left = `${Math.max(8, rect.left - overflow)}px`;
-  menu.querySelector("[role=menuitem]")?.focus();
+  menu.querySelector("[role=menuitem], [role=menuitemcheckbox]")?.focus();
   setTimeout(() => document.addEventListener("mousedown", closeMenuOutside), 0);
 }
 
 let menuOpener = null;
+
+// A ribbon button moved into a menu as it is (its Preview tag, on state and title kept): the menu
+// closes before its own click runs, so a button that opens a menu of its own can.
+function menuNode(node) {
+  node.setAttribute("role", node.getAttribute("aria-pressed") ? "menuitemcheckbox" : "menuitem");
+  if (node.hasAttribute("aria-pressed")) node.setAttribute("aria-checked", node.getAttribute("aria-pressed"));
+  node.setAttribute("tabindex", "-1");
+  node.addEventListener("click", () => {
+    // Focus goes back to the menu's button. The item may draw the page again, so find the new button by
+    // its data-menu-key; anything the item opened that took focus (a dialog, a panel's field) keeps it.
+    const key = menuOpener?.dataset?.menuKey;
+    closeMenu(true);
+    // The page may be drawn again a little later (a panel loading), so keep it up for a moment.
+    if (key) {
+      const until = performance.now() + 1000;
+      const keep = () => {
+        if (!document.activeElement || document.activeElement === document.body) document.querySelector(`[data-menu-key="${CSS.escape(key)}"]`)?.focus();
+        else if (!document.activeElement.matches(`[data-menu-key="${CSS.escape(key)}"]`)) return;  // something else took focus
+        if (performance.now() < until) requestAnimationFrame(keep);
+      };
+      requestAnimationFrame(keep);
+    }
+  }, true);
+  return node;
+}
 
 function closeMenuOutside(e) {
   if (!document.getElementById("menu")?.contains(e.target)) closeMenu();
@@ -273,7 +305,7 @@ function closeMenu(refocus = false) {
 document.addEventListener("keydown", (e) => {
   const menu = document.getElementById("menu");
   if (!menu) return;
-  const items = [...menu.querySelectorAll("[role=menuitem]")];
+  const items = [...menu.querySelectorAll("[role=menuitem], [role=menuitemcheckbox]")];
   const at = items.indexOf(document.activeElement);
   const move = isShortcut(e, "menu") ? { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[e.key] : undefined;
   if (isShortcut(e, "close")) { e.preventDefault(); e.stopImmediatePropagation(); closeMenu(true); }
@@ -644,7 +676,7 @@ function foldable(id, head, body, { cls = "card pad", always = null, start = fal
   const box = h("section", { class: `${cls} foldable${folded ? " folded" : ""}` });
   const toggle = h("button", { class: "fold-toggle", "aria-expanded": String(!folded), title: folded ? "Show" : "Hide",
     onclick: () => {
-      folded = !folded;
+      folded = !box.classList.contains("folded");
       try { localStorage.setItem(`fd.fold.${id}`, folded ? "1" : "0"); } catch { /* this session only */ }
       box.classList.toggle("folded", folded);
       toggle.setAttribute("aria-expanded", String(!folded));
@@ -707,13 +739,27 @@ async function renderHome() {
   const envSection = h("section", {}, h("h2", {}, "Environments"), envCards);
   let notebookCount = 0;
   const stamp = h("span", { class: "muted-text small" }, "Updated just now");
+  // Continue opens the notebook changed last; it appears once the list is read and there is one.
+  const resume = h("span", { class: "home-continue" });
+  const start = h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"), resume,
+    btn("New notebook", "notebook", newNotebook, "tool outline"),
+    btn("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"),
+    btn("New lakehouse", "lakehouse", () => newLakehouse(), "tool outline"),
+    btn("OneLake catalog", "onelake", () => go("onelake"), "tool outline"));
+  const recent = foldable("home.notebooks", h("h2", {}, "Recent notebooks"), h("div", {}, list,
+    btn("All notebooks", "notebook", () => go("notebooks"), "tool link small")));
+  const ready = readinessCard();
   const page = h("div", { class: "page home" },
     h("div", { class: "row home-head" },
       h("h1", { class: "grow" }, name ? `Welcome back, ${name}` : "Welcome to KratosForge"),
       stamp, btn("Refresh", null, () => { homeCache.done = false; render(); }, "tool link small"), learnMore("home")),
     summary,
-    readinessCard(),
-    signInCallout(),
+    // What people come to Home for first (AF-2, docs/ux/action-first.md): pick up the last notebook or
+    // start something; then readiness, problems and what is running.
+    start,
+    recent,
+    ready,
+    ready ? null : signInCallout(),  // the readiness card asks to sign in; only one place asks
     attention,
     h("div", { class: "home-attention", id: "home-fresh" }),
     yours,
@@ -722,13 +768,6 @@ async function renderHome() {
       h("section", { class: "card pad" }, h("h2", {}, "Coming up"), upcoming)),
     meshMapCard(),
     envSection,
-    h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"),
-      btn("New notebook", "notebook", newNotebook, "tool outline"),
-      btn("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"),
-      btn("New lakehouse", "lakehouse", () => newLakehouse(), "tool outline"),
-      btn("OneLake catalog", "onelake", () => go("onelake"), "tool outline")),
-    foldable("home.notebooks", h("h2", {}, "Recent notebooks"), h("div", {}, list,
-      btn("All notebooks", "notebook", () => go("notebooks"), "tool link small"))),
     xray);
   Object.assign(homeCache, { page, key: homeKey(), at: Date.now(), stamp, done: false });
   setView(page);
@@ -746,6 +785,8 @@ async function renderHome() {
   const notebooksDone = rpc("list_notebooks").catch(() => null).then((notebooks) => {
     if (!onHome()) return;
     notebookCount = (notebooks || []).length;
+    const last = (notebooks || []).reduce((a, n) => (!a || n.modified > a.modified ? n : a), null);
+    if (last) resume.replaceWith(btn(`Continue: ${last.name}`, "notebook", () => openNotebook(last.name), "tool primary"));
     const shown = (notebooks || []).filter((n) => matches(n.name)).slice(0, 8);
     list.replaceWith(shown.length ? h("table", { class: "list" },
       h("thead", {}, h("tr", {}, h("th", {}, "Name"), shown.some((n) => n.place) ? h("th", {}, "Saved in") : null, h("th", {}, "Modified"))),
@@ -820,9 +861,11 @@ async function renderHome() {
       const total = problems + late;
       summary.textContent = [
         total ? `${total} ${total === 1 ? "thing needs" : "things need"} your attention`
+          // Signed out, Fabric wasn't checked at all: say how to change that, not that all is well.
+          : !state.user ? "Sign in so KratosForge can check Fabric. Notebooks run on this PC either way"
           : unread.length ? "Nothing found that needs your attention" : "Nothing needs your attention",
         live.length ? `${live.length} running` : "",
-        unread.length ? `couldn't check ${unread.join(", ")}` : "",
+        unread.length && state.user ? `couldn't check ${unread.join(", ")}` : "",
       ].filter(Boolean).join(" · ") + ".";
     };
     state.homeSummary();
@@ -873,7 +916,7 @@ function tile(iconName, title, desc, onClick) {
 
 function renderCreate() {
   setView(h("div", { class: "page" },
-    h("h1", {}, "Create"), h("p", { class: "sub" }, "Items you create here run on this PC and store their data in OneLake. ", learnMore("create")),
+    h("h1", {}, "Create"), pageIntro("Items you create here run on this PC and store their data in OneLake. ", learnMore("create")),
     h("h2", {}, "Data engineering"),
     h("div", { class: "tiles" },
       tile("notebook", "Notebook", "Explore, transform and write Delta tables with Python", newNotebook),
@@ -904,6 +947,15 @@ const MONITOR_OPS = [
     text: "One record per problem, shared by everyone who can read the environment" },
 ];
 try { monitorPage.showFabric = localStorage.getItem("fd.monitor.fabric") !== "hidden"; } catch { /* default: shown */ }
+
+// The sentence about a Monitor panel is its Learn more link's tooltip, so the controls fit on one row;
+// the link is described by it too, so keyboard and screen reader users get it.
+function monitorAbout(text, anchor) {
+  const link = learnMore(anchor);
+  link.title = text;
+  link.setAttribute("aria-describedby", "monitor-about-text");
+  return h("span", { class: "monitor-about" }, link, h("span", { id: "monitor-about-text", class: "sr-only" }, text));
+}
 
 async function renderMonitor() {
   // Cost moved to Optimize > Cost and savings (testing item 36); an old link to it lands there.
@@ -946,15 +998,13 @@ async function renderMonitor() {
           preview("schedules", segment(monitorPage.panel === "schedules", "Schedules", show("schedules"))),
           ops.length ? segment(!!op, ["Operations", ops.every((o) => PREVIEW_FEATURES[o.feature]) ? previewTag() : null],
             show(ops.some((o) => o.panel === monitorPage.opsView) ? monitorPage.opsView : ops[0].panel)) : null),
-        h("span", { class: "muted-text" }, op ? op.text
-          : monitorPage.panel === "schedules" ? "Every schedule, on this PC and in Fabric, with how its last run went"
-          : "Everything this app ran or started, in every environment, on this PC and in Fabric", " ", learnMore(op ? op.anchor : "monitor")),
+        op ? h("select", { class: "group-select", "aria-label": "Operations view", title: "Which Operations view to show",
+          onchange: (e) => show(e.target.value)() }, ops.map((o) => h("option", { value: o.panel, selected: o === op }, o.label))) : null,
+        monitorAbout(op ? op.text : monitorPage.panel === "schedules" ? "Every schedule, on this PC and in Fabric, with how its last run went"
+          : "Everything this app ran or started, in every environment, on this PC and in Fabric", op ? op.anchor : "monitor"),
         h("span", { class: "spacer" }),
         op ? null : btn("Refresh", "sync", () => { monitorPage.fabricPipelinesRefresh = true; forgetFabricActivities(); render(); }, "tool outline"),
         popOutButton("runs")),
-      op ? h("div", { class: "monitor-filters", role: "group", "aria-label": "Operations" },
-        h("span", { class: "muted-text small" }, "Show"),
-        ops.map((o) => h("button", { class: `chip${o === op ? " on" : ""}`, "aria-pressed": String(o === op), onclick: show(o.panel) }, o.label))) : null,
       monitorPage.panel !== "runs" ? null : h("div", { class: "monitor-filters" },
         h("div", { class: "row", role: "group", "aria-label": "Environment" },
           chip("env", "all", "All"), Object.entries(ENV_LABEL).map(([id, label]) => chip("env", id, label))),
@@ -1001,13 +1051,20 @@ async function renderMonitor() {
     pipelines.error ? `Pipeline runs not shown: they couldn't be read (${pipelines.error.replace(/\.$/, "")})` : "",
     fabricPipelineRunNote(fabricPipelines),
   ].filter(Boolean).join(" · ");
-  // The Fabric pipeline scan runs in the background: draw Runs again when it's done.
+  // The Fabric pipeline scan runs in the background: ask only for it until it's done, then draw Runs again.
   clearTimeout(monitorPage.fabricPipelinesTimer);
-  if (fabricPipelines?.pending) {
-    monitorPage.fabricPipelinesTimer = setTimeout(() => {
-      if (state.view === "monitor" && monitorPage.panel === "runs") { monitorPage.refreshing = true; render(); }
+  const wait = monitorPage.fabricPipelinesWait = (monitorPage.fabricPipelinesWait || 0) + 1;  // a newer draw takes over
+  const onRuns = () => wait === monitorPage.fabricPipelinesWait && state.view === "monitor" && monitorPage.panel === "runs";
+  const waitForScan = () => {
+    monitorPage.fabricPipelinesTimer = setTimeout(async () => {
+      if (!onRuns()) return;
+      const out = await rpc("fabric_pipeline_runs", {}).catch(() => ({ pending: false }));
+      if (!onRuns()) return;
+      if (out.pending) waitForScan();
+      else { monitorPage.refreshing = true; render(); }
     }, 2500);
-  }
+  };
+  if (fabricPipelines?.pending) waitForScan();
   const rows = [
     ...(meta.runs || []).map((r) => ({
       at: r.started_at, status: r.status, activity: r.entity, kind: `Metadata run${r.backfill ? ` · backfill ${r.backfill}` : ""}`,
@@ -1052,7 +1109,7 @@ async function renderMonitor() {
         r.reason ? h("div", { class: "reason" }, r.reason) : null),
       h("td", {}, runEnvCell(r)), h("td", {}, r.ranOn || (r.where === "fabric" ? "Fabric" : "This PC")),
       h("td", {}, when(r.at)), h("td", { class: "n" }, r.tookText ?? took(r.seconds)), h("td", { class: "n" }, r.rows ?? ""),
-      h("td", { class: "n" }, r.open ? h("span", { class: "link-text" }, "Details") : r.pipelineRun ? pipelineRunDetails(r) : null)))))) :
+      h("td", { class: "n" }, r.open ? h("span", { class: "link-text" }, r.openLabel || "Details") : r.pipelineRun ? pipelineRunDetails(r) : null)))))) :
     h("p", { class: "muted-text monitor-empty" }, monitorPage.env !== "all" || monitorPage.where !== "any"
       ? "Nothing matches these filters." : "Nothing has run yet. Run a metadata entity or write a table from a notebook.");
   local.replaceWith(list);
@@ -1134,7 +1191,7 @@ async function renderWorkspaces() {
   const previewing = itemPreviewOn();
   if (itemPreview.target?.kind !== "item" && !itemPreview.parent) itemPreview.target = null;
   setView(h("div", { class: "page" }, h("h1", {}, "Workspaces"), workspacesTabs("workspaces"),
-    h("p", { class: "sub" }, "Your Fabric workspaces. Expand one to see its items, star your favorites and pin the ones you use most. ",
+    pageIntro("Your Fabric workspaces. Expand one to see its items, star your favorites and pin the ones you use most. ",
       previewing ? "Click an item to preview it. " : "", learnMore("workspaces")),
     signInCallout(), withHowItWorks([chips, previewing ? previewLayout(body, () => draw()) : body], howItWorks("workspaces", {
       reads: "Your Fabric workspaces and their items, from Fabric with your sign-in, when the page opens and when you expand a workspace. Item previews read only the item you click.",
@@ -1296,7 +1353,7 @@ async function renderWorkspace() {
   const ws = state.openWorkspace;
   const body = loading("Loading items...");
   setView(h("div", { class: "page" }, h("h1", {}, ws.displayName),
-    h("p", { class: "sub" }, "This workspace's lakehouses. ", learnMore("workspaces")),
+    pageIntro("This workspace's lakehouses. ", learnMore("workspaces")),
     h("div", { class: "toolbar", style: "padding:0;border:0;margin-bottom:16px" },
       btn("New lakehouse", "add", () => newLakehouse(ws), "tool outline"),
       btn("New notebook", "add", newNotebook, "tool outline")),
@@ -2086,7 +2143,7 @@ async function publishNotebook() {
   if (result) {
     nb.dirty = false;
     renderChrome();
-    toast(`Published ${nb.name} to ${ws} as a Fabric notebook item.`);
+    toast(`Published ${nb.name} to ${ws} as a Fabric notebook item.${result.note ? ` ${result.note}` : ""}`);
     // Fabric gave back the item it saved, so the publish is confirmed: the toast cools (motion.js).
     if (result.id) forgeEvent("publish.verified", document.getElementById("toast"));
   }
@@ -2135,7 +2192,14 @@ function oneLakeWritesMenu(nb) {
     option("local_first", "Write here, then upload in the background", "save"),
     option("direct", "Straight to OneLake (fast upload line)", "cloud"),
     option(null, `Same as Settings (${label(fallback)})`, "sync"),
+    { label: "Open the folder of local writes", icon: "folderOpen", action: () => openLocalWrites() },
   ];
+}
+
+// Where writes kept on this PC live (settings.js, local_writes_service.py): to look, or to clear up after a failed run.
+async function openLocalWrites(folder) {
+  const res = await attempt(() => rpc("local_writes_reveal", folder ? { folder } : {}), "Couldn't open the folder");
+  if (res) toast(`Opened ${res.shown} in File Explorer.`);
 }
 
 async function setNotebookOneLakeWrites(mode) {
@@ -2798,6 +2862,7 @@ function startMain() {
   checkComponents().finally(() => {
     state.starting = false;
     listenForPopOuts();  // popout.js
+    listenForLinks();  // vscode.js: kratosforge:// links, once the engine is up
     navRestore();  // the page you were on last time, or Home
     render();
     attempt(async () => {
@@ -2813,6 +2878,7 @@ function startMain() {
       render();
       trackFabricJobs();
       checkFreshness();
+      scheduleUpdateWatch();  // settings.js: the new build banner, every 4 hours while open
       // After an update the engine lives in a new folder: point this PC's scheduled runs at it.
       rpc("sync_pc_schedules").then((r) => r.error && toast(`Scheduled runs on this PC: ${friendlyError(r.error).text}`, true)).catch(() => {});
     }, "Could not start the Python sidecar");

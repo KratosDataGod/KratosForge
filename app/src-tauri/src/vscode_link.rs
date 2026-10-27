@@ -1,8 +1,9 @@
-// "Add to VS Code" in Settings > Integrations: the link VS Code's own MCP installer opens,
+// VS Code links the shell opens. "Add to VS Code" in Settings > Integrations: the link VS Code's own MCP installer opens,
 // vscode:mcp/install?<URL-encoded JSON server entry> (vscode-insiders: for Insiders). VS Code
 // shows the entry and asks before it adds it. The shell builds the whole link itself from a
 // client id and the launcher's fixed path, so the page can't make it open any other link.
-// Only std, so it is tested without a window or Windows.
+// "Open in VS Code" on a notebook: vscode://file/<path> (open_link). Only std, so it is tested
+// without a window or Windows.
 
 use std::path::Path;
 
@@ -58,6 +59,37 @@ pub fn install_link(launcher: &Path, client_id: &str, insiders: bool) -> Result<
     Ok(format!("{scheme}:mcp/install?{}", encode_component(&entry)))
 }
 
+/// The link that opens a notebook file, or a folder, in VS Code: vscode://file/<path>, with "\\"
+/// as "/" and everything but letters, digits, "/", ":" and "-_.~" percent-encoded.
+pub fn open_link(path: &Path, insiders: bool) -> Result<String, String> {
+    let text = path.to_str().ok_or("The path isn't valid text.")?.replace('\\', "/");
+    if !(text.starts_with('/') || text.as_bytes().get(1) == Some(&b':')) {
+        return Err("Only a full path can be opened in VS Code.".into());
+    }
+    if text.starts_with("//?/") || text.starts_with("//./") {
+        return Err("That kind of path can't be opened in VS Code.".into());
+    }
+    let mut out = String::new();
+    for b in text.bytes() {
+        if b.is_ascii_alphanumeric() || b"/:-_.~".contains(&b) {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    let scheme = if insiders { "vscode-insiders" } else { "vscode" };
+    // One slash goes: C:/x is file/C:/x and /home/x is file/home/x. A network path keeps its
+    // second one, so \\server\share\x is file//server/share/x.
+    Ok(format!("{scheme}://file/{}", out.strip_prefix('/').unwrap_or(&out)))
+}
+
+/// Whether `path` may be opened in VS Code: inside one of `allowed` (the app's notebooks folder
+/// and the repositories opened in Source control). Compared after resolving links and `..`.
+pub fn inside(path: &Path, allowed: &[std::path::PathBuf]) -> bool {
+    let Ok(p) = std::fs::canonicalize(path) else { return false };
+    allowed.iter().filter_map(|a| std::fs::canonicalize(a).ok()).any(|a| p.starts_with(&a))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,8 +134,33 @@ mod tests {
     }
 
     #[test]
+    fn file_links_use_forward_slashes_and_encode_the_rest() {
+        let link = open_link(&PathBuf::from(r"C:\Users\Chris Smith\notebooks\Sales #1.ipynb"), false).unwrap();
+        assert_eq!(link, "vscode://file/C:/Users/Chris%20Smith/notebooks/Sales%20%231.ipynb");
+        assert_eq!(open_link(&PathBuf::from("/home/c/nb"), true).unwrap(), "vscode-insiders://file/home/c/nb");
+        assert!(open_link(&PathBuf::from("notebooks/x.ipynb"), false).is_err());
+        assert_eq!(open_link(&PathBuf::from(r"\\server\share\Sales.ipynb"), false).unwrap(), "vscode://file//server/share/Sales.ipynb");
+        assert!(open_link(&PathBuf::from(r"\\?\C:\x.ipynb"), false).is_err());
+    }
+
+    #[test]
     fn non_ascii_paths_are_encoded_as_utf8() {
         let link = install_link(&PathBuf::from(r"C:\Users\José\bin\x.cmd"), "c", false).unwrap();
         assert!(link.contains("Jos%C3%A9"));
+    }
+
+    #[test]
+    fn only_paths_inside_known_folders_open() {
+        let root = std::env::temp_dir().join(format!("kf-vsl-{}", std::process::id()));
+        let notebooks = root.join("notebooks");
+        std::fs::create_dir_all(notebooks.join("Sales")).unwrap();
+        std::fs::create_dir_all(root.join("other")).unwrap();
+        let allowed = vec![notebooks.clone()];
+        assert!(inside(&notebooks, &allowed));
+        assert!(inside(&notebooks.join("Sales"), &allowed));
+        assert!(!inside(&root.join("other"), &allowed));
+        assert!(!inside(&notebooks.join("..").join("other"), &allowed));
+        assert!(!inside(&root.join("missing"), &allowed));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

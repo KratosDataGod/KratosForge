@@ -91,8 +91,9 @@ function nbDataText(data) {
 
 // A platform repository compared with what is deployed (item 37, stage 3).
 const PLATFORM_STATES = { same: "same", changed: "changed", only_git: "only in Git", only_deployed: "removed in Git" };
-const PLATFORM_GROUPS = { admins: "Admins", domains: "Domains", sources: "Source systems", key_tables: "Key tables",
-  glossary: "Glossary", shortcut_rules: "Shortcut rules", policies: "Policies" };
+const PLATFORM_GROUPS = { admins: "Admins", domains: "Domains", landing_zones: "Landing zones", sources: "Source systems",
+  key_tables: "Key tables", glossary: "Glossary", shortcut_rules: "Shortcut rules", policy_templates: "Policy templates",
+  policies: "Policies" };
 
 function platformValue(v) {
   if (Array.isArray(v)) return v.length ? v.join(", ") : "none";
@@ -120,6 +121,22 @@ function platformStepText(step, labels = {}) {
   return `${platformItemName(step, labels)}: ${what}`;
 }
 
+// A capacity repository's drift report (item 37, stage 4): capacity.toml compared with Fabric.
+const CAPACITY_STATES = { same: "same", differs: "differs", not_visible: "not visible to you", not_in_git: "not in Git" };
+
+// The lines under one capacity: settings that differ, then where the file's workspaces really are.
+function capacityLines(item) {
+  const w = item.workspaces;
+  const name = (x) => x.name || x.id;
+  return [
+    ...item.fields.map((f) => `${f.field === "sku" ? "Size" : f.field[0].toUpperCase() + f.field.slice(1)}: Git ${f.git}, Fabric ${f.fabric}`),
+    ...w.elsewhere.map((x) => `${name(x)}: Git expects it here; Fabric has it on ${x.on || "a capacity you can't see"}`),
+    ...w.not_in_git.map((x) => `${name(x)}: ${item.state === "not_in_git" ? "on this capacity" : "on this capacity in Fabric, not listed in capacity.toml"}`),
+    ...w.not_visible.map((x) => `${name(x)}: you can't see this workspace, so it isn't compared`),
+    w.same ? `${w.same} workspace${w.same === 1 ? " is" : "s are"} where Git expects` : null,
+  ].filter(Boolean);
+}
+
 // ---------- state ----------
 
 const gitPage = {
@@ -129,6 +146,7 @@ const gitPage = {
   message: "", branches: null, log: null, logRef: null, detail: null, compare: [], compared: null,
   settings: null, op: null, opTimer: null, refreshTimer: null, loading: false,
   platform: { env: "prod", key: null, diff: null, error: null },  // the Platform tab of a platform repository
+  capacity: { key: null, diff: null, error: null },  // the Capacity tab of a capacity repository
 };
 
 function gitCurrent() {
@@ -184,7 +202,7 @@ async function renderSourceControl() {
   }
   if (!gitCurrent()) {
     setView(h("div", { class: "page narrow" }, head,
-      h("p", { class: "sub" }, "Keep notebooks, SQL and metadata projects in Git: see every change, work on branches, and push to GitHub, Azure DevOps or any Git server. Everything here runs with your own Git on this PC."),
+      pageIntro("Keep notebooks, SQL and metadata projects in Git: see every change, work on branches, and push to GitHub, Azure DevOps or any Git server. Everything here runs with your own Git on this PC."),
       h("div", { class: "tiles" },
         tile("arrowDownload", "Clone a repository", "Copy a repository from GitHub, Azure DevOps or another Git server to this PC.", gitCloneDialog),
         tile("folderOpen", "Open a folder", "Use a repository that is already on this PC.", gitOpenDialog),
@@ -213,11 +231,12 @@ async function renderSourceControl() {
   const counts = st.staged.length + st.unstaged.length + st.untracked.length + st.conflicts.length;
   const tab = (id, label) => h("button", { class: `tab${gitPage.tab === id ? " active" : ""}`, onclick: () => { gitPage.tab = id; render(); } }, label);
   const isPlatform = gitKindOf(st.root).kind === "platform";
-  if (gitPage.tab === "platform" && !isPlatform) gitPage.tab = "changes";
+  const isCapacity = gitKindOf(st.root).kind === "capacity";
+  if ((gitPage.tab === "platform" && !isPlatform) || (gitPage.tab === "capacity" && !isCapacity)) gitPage.tab = "changes";
   const tabs = h("div", { class: "subtabs" }, tab("changes", counts ? `Changes ${counts}` : "Changes"),
-    isPlatform ? tab("platform", "Platform") : null, tab("branches", "Branches"),
+    isPlatform ? tab("platform", "Platform") : null, isCapacity ? tab("capacity", "Capacity") : null, tab("branches", "Branches"),
     tab("history", "History"), tab("settings", "Repository settings"));
-  const bodies = { changes: gitChangesTab, platform: gitPlatformTab, branches: gitBranchesTab, history: gitHistoryTab, settings: gitSettingsTab };
+  const bodies = { changes: gitChangesTab, platform: gitPlatformTab, capacity: gitCapacityTab, branches: gitBranchesTab, history: gitHistoryTab, settings: gitSettingsTab };
   setView(h("div", { class: "page git-page" }, gitHeader(st), gitOpBand(), gitMergeBanner(st), gitKindBanner(st), tabs,
     h("div", { class: "git-body" }, bodies[gitPage.tab](st))));
 }
@@ -259,6 +278,9 @@ function gitHeader(st) {
         gitKindOf(st.root).kind === "notebooks" ? btn("Data locations", "lakehouse",
           () => gitLocationsDialog(st.root, gitRepoName(st.root), gitAfterChange), "tool outline small",
           { title: "Where this repository's notebooks find their data in each environment" }) : null,
+        gitKindOf(st.root).kind === "notebooks" ? btn("Set up for VS Code", "code",
+          () => vscodeSetupDialog(st.root, gitRepoName(st.root), gitAfterChange), "tool outline small",
+          { title: "Add a validate task, the Copilot server and recommended extensions to this repository" }) : null,
         ...gitPage.title().slice(1)),
       h("p", { class: "sub git-sub" }, sub)),
     h("div", { class: "row wrap" }, remoteActions));
@@ -507,7 +529,10 @@ function gitDiffPanel() {
   else if (d.binary) body = h("p", { class: "muted-text pad" }, "This file isn't text, so there are no lines to compare.");
   else if (d.view === "conflict") body = gitConflictTable(d);
   else if (!d.hunks.length) body = h("p", { class: "muted-text pad" }, d.view === "notebook" ? "No code changed. Only outputs or run counts differ; turn off Notebook view to see them." : "No line changes.");
-  else body = gitPage.diffMode === "split" ? gitSplitTable(d.hunks) : gitInlineTable(d.hunks);
+  else {
+    const tools = gitHunkActions(sel, d);
+    body = gitPage.diffMode === "split" ? gitSplitTable(d.hunks, tools) : gitInlineTable(d.hunks, tools);
+  }
   return h("section", { id: "git-diff", class: "card git-diff" }, head,
     h("div", { class: "git-diff-body" }, body, d?.truncated ? h("p", { class: "muted-text pad" }, "Only the first 5,000 lines are shown.") : null));
 }
@@ -521,20 +546,29 @@ function gitConflictTable(d) {
       h("td", { class: "code", colspan: "2" }, l.text)))))));
 }
 
-function gitInlineTable(hunks) {
+// The header row of one block of changed lines, with its Stage, Unstage and Discard buttons when the
+// file's changes can be taken a block at a time.
+function gitHunkRow(hk, tools) {
+  const actions = tools && hk.id ? tools(hk) : null;
+  return h("tr", { class: "hunk" }, h("td", { colspan: "4" }, actions
+    ? h("div", { class: "row git-hunk-head" }, h("span", { class: "grow" }, hk.header), actions) : hk.header));
+}
+
+function gitInlineTable(hunks, tools) {
   return h("table", { class: "git-lines" }, h("tbody", {}, hunks.flatMap((hk) => [
-    h("tr", { class: "hunk" }, h("td", { colspan: "4" }, hk.header)),
+    gitHunkRow(hk, tools),
     ...hk.lines.map((l) => h("tr", { class: l.kind === "+" ? "add" : l.kind === "-" ? "del" : "" },
       h("td", { class: "ln" }, l.old ?? ""), h("td", { class: "ln" }, l.new ?? ""), h("td", { class: "sign" }, l.kind === " " ? "" : l.kind === "-" ? "−" : "+"),
       h("td", { class: "code" }, l.text)))])));
 }
 
-function gitSplitTable(hunks) {
+function gitSplitTable(hunks, tools) {
   const cell = (l, side) => l ? [h("td", { class: "ln" }, side === "l" ? l.old ?? "" : l.new ?? ""),
     h("td", { class: `code ${l.kind === "+" ? "add" : l.kind === "-" ? "del" : ""}` }, l.text)] : [h("td", { class: "ln" }), h("td", { class: "code blank" })];
   const cols = h("colgroup", {}, h("col", { class: "ln" }), h("col"), h("col", { class: "ln" }), h("col"));
+  let at = 0;  // header rows come in the hunks' order
   return h("table", { class: "git-lines split" }, cols, h("tbody", {}, gitSideBySide(hunks).map((r) => r.header
-    ? h("tr", { class: "hunk" }, h("td", { colspan: "4" }, r.header))
+    ? gitHunkRow(hunks[at++], tools)
     : h("tr", {}, ...cell(r.left?.kind === "+" ? null : r.left, "l"), ...cell(r.right?.kind === "-" ? null : r.right, "r")))));
 }
 
@@ -585,6 +619,29 @@ async function gitDiscard(paths, untracked) {
   if (!(await confirmDialog(untracked ? "Delete this file?" : "Discard changes?", text, untracked ? "Delete file" : "Discard changes", { danger: true }))) return;
   const st = await attempt(() => rpc("git_discard", { repo: gitCurrent(), paths, confirm: true }), "Not discarded");
   if (st) gitAfterChange(st);
+}
+
+// Stage, Unstage and Discard for one block, offered only where Git can take a file a block at a time:
+// a text diff of a tracked file, staged or not (not a notebook's cell view, a new file or a conflict).
+function gitHunkActions(sel, d) {
+  if (sel.base || d.view !== "text" || d.untracked || !["staged", "unstaged"].includes(sel.group)) return null;
+  const go = (hk, action) => () => gitApplyHunk(sel.path, hk, action);
+  return sel.group === "staged"
+    ? (hk) => [btn("Unstage block", null, go(hk, "unstage"), "tool outline small")]
+    : (hk) => [btn("Discard block…", null, go(hk, "discard"), "tool outline small"), btn("Stage block", null, go(hk, "stage"), "tool primary small")];
+}
+
+async function gitApplyHunk(path, hk, action) {
+  const n = hk.lines.filter((l) => l.kind !== " ").length;
+  if (action === "discard") {
+    const lines = hk.lines.filter((l) => l.new != null).map((l) => l.new);
+    const where = lines.length ? ` (lines ${lines[0]} to ${lines[lines.length - 1]})` : "";
+    if (!(await confirmDialog("Discard this block?", `Throws away these ${n} changed line${n === 1 ? "" : "s"} in ${path}${where}. The rest of the file stays as it is. This can't be undone.`,
+      "Discard block", { danger: true }))) return;
+  }
+  const st = await attempt(() => rpc("git_apply_hunk", { repo: gitCurrent(), path, hunk: hk.id, action, confirm: action === "discard" }),
+    { stage: "Not staged", unstage: "Not unstaged", discard: "Not discarded" }[action]);
+  await gitAfterChange(st || null);
 }
 
 async function gitCommit(allowSecrets = false) {
@@ -1119,6 +1176,79 @@ function gitPlatformTab(st) {
   return h("div", { class: "git-platform" }, bar, problems,
     d.policies_set_up ? null : h("p", { class: "muted-text small" }, "Policies aren't set up on this platform yet."),
     d.items.length ? groups : h("p", { class: "muted-text" }, "Nothing to compare yet. Export from the platform to start the files."));
+}
+
+// ---------- Capacity (a capacity repository: drift report, write Fabric's state to the file) ----------
+
+function gitCapacityReload() {
+  gitPage.capacity.key = null;
+  if (state.view === "source" && gitPage.tab === "capacity") render();
+}
+
+function gitCapacityTab(st) {
+  const p = gitPage.capacity;
+  if (p.key !== st.root) {
+    const key = st.root;
+    Object.assign(p, { key, diff: null, error: null });
+    rpc("git_capacity_diff", { repo: key })
+      .then((d) => { if (p.key === key) p.diff = d; })
+      .catch((err) => { if (p.key === key) p.error = friendlyError(err).text; })
+      .finally(() => { if (state.view === "source" && gitPage.tab === "capacity") render(); });
+  }
+  const d = p.diff;
+  const c = d?.counts;
+  const read = d ? new Date(d.read_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : null;
+  const bar = h("section", { class: "card pad" }, h("div", { class: "row wrap" },
+    h("b", {}, "Drift report"),
+    c ? h("span", { class: "muted-text small" }, `Read from Fabric at ${read} · ${c.same} same · ${c.differs} differ · ${c.not_in_git} not in Git · ${c.not_visible} not visible to you`) : null,
+    h("span", { class: "spacer" }),
+    btn("Refresh", "sync", gitCapacityReload, "tool outline small"),
+    d ? btn("Copy report", "copy", () => gitCapacityCopy(d), "tool outline small") : null,
+    btn("Write Fabric's state to capacity.toml…", "arrowDownload", () => gitCapacityWrite(st.root), "tool primary")),
+    h("p", { class: "muted-text small" }, "It only reads: no capacity is changed and no workspace is moved. Fix drift in the Fabric admin portal, or edit capacity.toml and commit if Git is the one that's wrong."));
+  const how = howItWorks("source.capacity", {
+    reads: "capacity.toml in this repository, and the capacities and workspaces Fabric shows you (GET /v1/capacities, GET /v1/workspaces). It starts no Fabric job and needs no admin role.",
+    changes: "Nothing in Fabric: it never resizes, pauses, resumes or assigns a capacity. Write Fabric's state to capacity.toml replaces that one file, after you confirm, as a change to review and commit.",
+    results: "On this tab. Copy report puts it on the clipboard as text.",
+    more: [["Not visible", "People see different capacities and workspaces. One Fabric doesn't show you isn't compared, and writing keeps it in the file as it is."]],
+    anchor: "capacity-repository" });
+  const wrap = (...kids) => withHowItWorks(h("div", { class: "git-platform" }, ...kids), how);
+  if (p.error) return wrap(bar, h("div", { class: "callout git-warn" }, icon("warning", 16), p.error));
+  if (!d) return wrap(bar, h("p", { class: "muted-text" }, "Reading capacities from Fabric…"));
+  const problems = d.problems.length ? h("div", { class: "callout git-warn" }, icon("warning", 16),
+    h("div", {}, h("b", {}, "These parts of capacity.toml can't be used:"), d.problems.map((x) => h("div", { class: "small" }, x)))) : null;
+  const cards = d.items.map((i) => h("section", { class: "card pad" },
+    h("div", { class: "row" }, h("h2", { class: "grow" }, i.name),
+      h("span", { class: `pill-s ${i.state === "same" ? "ok" : i.state === "not_visible" ? "info" : "warn"}` }, CAPACITY_STATES[i.state])),
+    i.state === "not_visible" ? h("p", { class: "muted-text small" }, "You can't see this capacity, so it isn't compared. Missing from your view doesn't mean it changed or was deleted.")
+      : h("div", { class: "small" }, capacityLines(i).map((l) => h("div", { class: "git-platform-item" }, l)))));
+  return wrap(bar, problems,
+    d.items.length ? cards : h("p", { class: "muted-text" }, "No capacities in capacity.toml, and Fabric shows you none. Write Fabric's state to start the file."));
+}
+
+function gitCapacityCopy(d) {
+  const text = d.items.map((i) => [`${i.name}: ${CAPACITY_STATES[i.state]}`, ...(i.state === "not_visible" ? [] : capacityLines(i).map((l) => `  ${l}`))].join("\n")).join("\n");
+  navigator.clipboard.writeText(`Capacity drift report, read ${d.read_at}\n${text}\n`).then(() => toast("Copied the report."), () => toast("Couldn't copy the report."));
+}
+
+// Replaces capacity.toml with what Fabric shows, as a change to review. Nothing in Fabric changes.
+async function gitCapacityWrite(root) {
+  if (!(await confirmDialog("Write Fabric's state to capacity.toml?",
+    "Replaces the file with the capacities, settings and workspaces Fabric shows you now. It's a change to review and commit. Nothing in Fabric changes. Capacities and workspaces you can't see stay in the file as they are.",
+    "Write the file"))) return;
+  let out = await attempt(() => rpc("git_capacity_write", { repo: root }), "Couldn't write capacity.toml");
+  if (!out) return;
+  if (out.needs_confirm) {
+    if (!(await confirmDialog("Replace changes you haven't committed?", out.message, "Replace and write", { danger: true }))) return;
+    out = await attempt(() => rpc("git_capacity_write", { repo: root, confirm: true }), "Couldn't write capacity.toml");
+    if (!out) return;
+  }
+  const hidden = out.kept.length + out.kept_workspaces.length;
+  const kept = hidden ? ` Kept ${out.kept.length ? `${out.kept.length} capacit${out.kept.length === 1 ? "y" : "ies"}` : ""}${out.kept.length && out.kept_workspaces.length ? " and " : ""}${out.kept_workspaces.length ? `${out.kept_workspaces.length} workspace${out.kept_workspaces.length === 1 ? "" : "s"}` : ""} you can't see.` : "";
+  toast(out.written.length ? `Wrote ${out.capacities} capacit${out.capacities === 1 ? "y" : "ies"} and ${out.workspaces} workspace${out.workspaces === 1 ? "" : "s"}. Review the change, then commit.${kept}`
+    : `capacity.toml already matches Fabric.${kept}`);
+  await gitAfterChange(out.status);
+  gitCapacityReload();
 }
 
 // Writes what is deployed into the repository as changes to review. Nothing is committed and

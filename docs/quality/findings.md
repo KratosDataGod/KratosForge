@@ -23,16 +23,16 @@ Severity:
 | --- | --- | --- | --- | --- |
 | QA-001 | Critical | Fake functionality | Spark writer options are stored and ignored; `replaceWhere` overwrites the whole table | PR-QA-01; fixed (#177) |
 | QA-002 | High | Hidden failure | A failed notebook save shows "Saved"; close and switch then drop the edits | PR-QA-02; fixed (#178, #661) |
-| QA-003 | High | Hidden failure | VACUUM falls back to Fabric's 7 days when the project or table setting can't be read | PR-QA-03 |
-| QA-004 | High | Hidden failure | Create model can overwrite an existing semantic model and silently leave tables out | PR-QA-03 |
+| QA-003 | High | Hidden failure | VACUUM falls back to Fabric's 7 days when the project or table setting can't be read | PR-QA-03; fixed (#180) |
+| QA-004 | High | Hidden failure | Create model can overwrite an existing semantic model and silently leave tables out | PR-QA-03; fixed (#180) |
 | QA-005 | High | Fail open | Shortcut rules and the access review treat a failed call as "nothing to enforce" and "no readers" | PR-QA-04; fix #247 (PASS), closed once merged |
 | QA-006 | High | Duplication | A Fabric 503 or 429 isn't retryable to the agent; five transient-error rules disagree | PR-QA-05; fixed (#179) |
 | QA-007 | Medium | Hidden failure | A failed lakehouse lookup guesses "schemas on", sending writes to the wrong folder | PR-QA-03; fixed (#180) |
 | QA-008 | Medium | Overclaim | "0 CU-s, measured" and "no Fabric capacity used" for runs that read and write OneLake | PR-QA-10; fixed (#200, #202, #221) |
 | QA-009 | Medium | Fake functionality | `notebookutils.notebook.runMultiple` ignores args, dependencies and timeouts | PR-QA-01; fixed (#177) |
-| QA-010 | Medium | Overclaim | X-ray marks a finding fixed when the job is submitted and hides it for good | PR-QA-03 |
-| QA-011 | Medium | Duplication | 9 atomic-write copies; settings and schedules are rewritten non-atomically and read a torn file as empty | PR-QA-06 |
-| QA-012 | Medium | Duplication | Two audit-chain writers; the app's caches the chain head across processes | PR-QA-06 |
+| QA-010 | Medium | Overclaim | X-ray marks a finding fixed when the job is submitted and hides it for good | PR-QA-03; fixed (#180) |
+| QA-011 | Medium | Duplication | 9 atomic-write copies; settings and schedules are rewritten non-atomically and read a torn file as empty | PR-QA-06; partly fixed (#309, #312, #313, #680) |
+| QA-012 | Medium | Duplication | Two audit-chain writers; the app's caches the chain head across processes | PR-QA-06; fixed (#182) |
 | QA-013 | Medium | Error handling | 237 broad exception handlers, 98 silent; "not set up" and "the call failed" share one branch | PR-QA-07; partly fixed by #263 (HD-055: CI blocks do-nothing handlers, 56 now log); 51 handlers that only set a default remain (101 on main by this definition) |
 | QA-014 | Medium | Architecture | `Service` is 347 public methods and 385 `type: ignore`; clients built at 43 sites; private `_token` is the real API | PR-QA-08 |
 | QA-015 | Medium | Architecture | Three hand-kept method lists make every feature PR touch the same files | PR-QA-09 |
@@ -41,18 +41,18 @@ Severity:
 | QA-018 | Medium | Weak tests | 22 of 41 Fabric client methods and every OneLake upload and delete never run, even against a fake | PR-QA-14 |
 | QA-019 | Medium | UI duplication | Confirm, tabs, pills, grids, polling and error handling re-built per page | PR-QA-11 to PR-QA-13 |
 | QA-020 | Medium | Overclaim | Untested Fabric-writing actions have no Preview tag; rail items never show one | PR-QA-10 |
-| QA-021 | Medium | Duplication | Teams alerts go two ways; the agent's job-failure alerts skip its retrying outbox | PR-QA-07 |
+| QA-021 | Medium | Duplication | Teams alerts go two ways; the agent's job-failure alerts skip its retrying outbox | PR-QA-07; fixed (#311) |
 | QA-022 | Medium | Duplication | Six SQLite connection idioms; twins drifted on durability; one leaks connections | PR-QA-06 |
 | QA-023 | Low | Duplication | Prove and side by side are near-clone background-run implementations | PR-QA-08 |
 | QA-024 | Low | Duplication | 13 date and time helpers with different rules for naive times and errors | PR-QA-06 |
 | QA-025 | Low | Duplication | Table URIs rebuilt by hand in four places, skipping name validation | PR-QA-08 |
 | QA-026 | Low | Fake functionality | `fs.exists` says False on 401/403, `mkdirs` does nothing, `read.schema()` is ignored | PR-QA-01; fixed (#177, #307, #547) |
-| QA-027 | Low | Hidden failure | Monitor > Schedules, readiness and run lists show partial results as complete | PR-QA-07 |
+| QA-027 | Low | Hidden failure | Monitor > Schedules, readiness and run lists show partial results as complete | PR-QA-07; fixed (#310) |
 | QA-028 | Low | Configuration | Windows-only dependencies aren't pinned in `constraints.txt` | PR-QA-06 |
 | QA-029 | Low | Dead code | A dead redaction fallback, unused symbols and production code only tests call | PR-QA-09 |
 | QA-030 | Low | Architecture | Domain modules import the service layer; six cycles through function-level imports | PR-QA-08 |
-| QA-032 | Medium | Unconfirmed write | Estate X-ray's Optimize starts a Fabric compaction job on click, with no confirm or risk check | Owner: Optimize; fix #231 (PASS) |
-| QA-033 | Medium | Unsafe retry | `meta/engine.py` `_after_commit` (main :367-381) repeats run_log, dq_results, schema_history, quarantine and watermark appends on any exception, so an append that committed and then raised (lost response, timeout after commit) writes the rows twice. Retry only errors that prove nothing was written (e.g. CommitFailedError), or make the append idempotent by run id | Owner: Hardening (found grading #256; pre-existing) |
+| QA-032 | Medium | Unconfirmed write | Estate X-ray's Optimize starts a Fabric compaction job on click, with no confirm or risk check | Owner: Optimize; fixed (#231) |
+| QA-033 | Medium | Unsafe retry | `meta/engine.py` `_after_commit` (main :367-381) repeats run_log, dq_results, schema_history, quarantine and watermark appends on any exception, so an append that committed and then raised (lost response, timeout after commit) writes the rows twice. Retry only errors that prove nothing was written (e.g. CommitFailedError), or make the append idempotent by run id | Owner: Hardening (found grading #256; pre-existing); fixed (#273) |
 
 ## Details
 
@@ -99,6 +99,8 @@ w.mode("overwrite").option("replaceWhere", "date = '2026-10-01'").saveAsTable("s
 
 **Fix.** PR-QA-03: only "no metadata project" (a specific exception) means nothing more to keep; any other failure stops the vacuum with the reason. **Verify:** tests with a broken project file and a failing table read: the vacuum is refused.
 
+**Status.** Fixed on `main` (#180). Only `NoMetadataProject` means nothing more to keep; any other failure to read the project or the table's setting stops the vacuum and says why, instead of falling back to 7 days (`xray_service.py`, `_xray_keep_days`).
+
 ### QA-004 Create model can overwrite an existing model (High)
 
 **Evidence: Code.** The plan (`sidecar/fabric_desktop/cloud_service.py:469-474`) sets `existing = None` when `list_semantic_models` fails, so the UI (`app/ui/meta.js:1121-1122`) offers **Create model**. `save_semantic_model` (`fabric_api.py:254-263`) then looks the name up again and, if it exists, calls `updateDefinition`, replacing the definition. A failed `table_schema` read (`cloud_service.py:500-508`) becomes `fields = None`, and the UI reports that table as "Not written yet, so left out" (`meta.js:1114`) inside a passing check. No confirmation precedes the overwrite.
@@ -106,6 +108,8 @@ w.mode("overwrite").option("replaceWhere", "date = '2026-10-01'").saveAsTable("s
 **Impact.** Measures, relationships and tables added in Fabric are replaced, and tables whose schema read failed disappear from the model, all after a screen that said "create".
 
 **Fix.** PR-QA-03: a failed lookup fails the plan; "not found" and "read failed" are different outcomes; an existing model gets a confirmation that names it. **Verify:** tests for each failure with a fake client.
+
+**Status.** Fixed on `main` (#180). A failed model lookup fails the plan ("whether SM_<layer> exists isn't known") instead of offering Create, a table whose schema can't be read stops the write and names it, and an existing model asks to confirm before it is replaced (`cloud_service.py`).
 
 ### QA-005 Governance checks fail open on errors (High)
 
@@ -166,6 +170,8 @@ The agent's requeue (`agent.py:212-215`) and the metadata engine (`meta/engine.p
 
 **Fix.** PR-QA-03: record "submitted" with the job id; mark fixed when the job completes; let a later scan show it again. **Verify:** a test where the job fails and the next scan still shows the finding.
 
+**Status.** Fixed on `main` (#180). A fix's Fabric job is recorded as submitted with its job id (`_xray_mark_submitted`), the finding shows "submitted" while it runs, "fixed" only when the Fabric runs log says the job completed, and "failed" with Fabric's reason otherwise; a scan after the job finished shows the finding again if the problem is still there (`_xray_fixes`).
+
 ### QA-011 Shared JSON files are rewritten non-atomically (Medium)
 
 **Evidence: Count and code.** About 25 JSON write sites; about 9 are atomic, using three temp-file schemes (fixed `.tmp`, uuid, `mkstemp`): `capacity.py:213-217`, `telemetry.py:102-106`, `git_service.py:61-65`, `prove_service.py:199-206`, `integrations/config.py:47-49`, `integrations/executions.py:197-198`, `notebook.py:907-909,930-932`, `localdata/projects.py:168-175`, `leases.py:82,118-120`. The files that matter most write in place: `settings.json` (`meta_service.py:58-66`, `runtime.py:61-64`, written by about eight mixins), schedules (`local_schedules.py:192-200`), `app_settings.py:253-255`, favorites and pins (`service.py:347,374`). Their readers return `{}` on `ValueError`. The twin of Prove's atomic save, `side_by_side_service._sbs_save` (`:99-106`), writes in place.
@@ -174,7 +180,7 @@ The agent's requeue (`agent.py:212-215`) and the metadata engine (`meta/engine.p
 
 **Fix.** PR-QA-06. **Verify:** a test that a corrupt file is moved aside (not overwritten) and every listed site uses the helper.
 
-**Status.** Partly fixed: the agent's `settings.json` (`runtime.py` `_save_settings`) and `schedules.json` (`local_schedules.py`) now go through `jsonfile.write_json` (same-folder temp file, fsync, `os.replace` with a bounded Windows retry) and `jsonfile.read_json`, which moves a torn file to `<name>.corrupt-<timestamp>` with a warning instead of letting the next save overwrite it (`tests/test_json_files.py`); lakehouse favorites, workspace favorites and pins (`service.py`) do the same, and the saved side-by-side comparisons (`side_by_side_service._sbs_save`, JSON lines) are swapped in with `jsonfile.write_text`; a torn line there copies the original aside and then swaps in the lines that still read, so later reads and saves keep them; if that swap fails, the original stays in place and the next read tries again. `meta_service.py` waits for #293, and `app_settings.py` remains.
+**Status.** Partly fixed: the agent's `settings.json` (`runtime.py` `_save_settings`) and `schedules.json` (`local_schedules.py`) now go through `jsonfile.write_json` (same-folder temp file, fsync, `os.replace` with a bounded Windows retry) and `jsonfile.read_json`, which moves a torn file to `<name>.corrupt-<timestamp>` with a warning instead of letting the next save overwrite it (`tests/test_json_files.py`); lakehouse favorites, workspace favorites and pins (`service.py`) do the same, and the saved side-by-side comparisons (`side_by_side_service._sbs_save`, JSON lines) are swapped in with `jsonfile.write_text`; a torn line there copies the original aside and then swaps in the lines that still read, so later reads and saves keep them; if that swap fails, the original stays in place and the next read tries again. `meta_service.py` writes through `jsonfile.write_text` too, and the person's own `app-settings.json` (`app_settings.save`, and the policy's last good copy) now does the same; a torn `app-settings.json` is set aside instead of being read as empty and overwritten by the next save (#680). Still their own copies of the temp-file-and-replace pattern: `capacity.py`, `leases.py` (local lease files), `localdata/projects.py`, `git_service.py`, `telemetry.py`, `auth.py` (token cache), `orchestration/runs.py`, `notebook_files.py`, `workloads/incident_history.py`, `usage/store.py` and `git/scopes.py`.
 
 ### QA-012 Two audit-chain writers (Medium)
 

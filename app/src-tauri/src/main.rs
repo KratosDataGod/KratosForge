@@ -13,9 +13,11 @@ use serde_json::{json, Value};
 use tauri::webview::{NewWindowResponse, WebviewBuilder};
 use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
 
+mod deep_link;
 mod engine_patch;
 mod exe_name;
 mod policy_file;
+mod policy_trust;
 mod replies;
 mod update_guard;
 mod vscode_link;
@@ -33,6 +35,12 @@ const BUILD_COMMIT: &str = env!("FABRIC_BUILD_COMMIT");
 
 /// The app (client) ID CI built in; the sidecar uses it unless policy or Settings name another.
 const BUILTIN_CLIENT_ID: &str = env!("FABRIC_BUILTIN_CLIENT_ID");
+/// The SHA-256 of this build's own engine zip and engine update zip, which CI builds before the
+/// exe and bakes in (build.rs); empty in local builds. The engine for this build must match them
+/// wherever it was downloaded from, so a changed copy on GitHub or in IT's own folder
+/// (engine_download_url) is refused even with a version.json made to match it.
+const BUILD_ENGINE_SHA256: &str = env!("FABRIC_BUILD_ENGINE_SHA256");
+const BUILD_ENGINE_UPDATE_SHA256: &str = env!("FABRIC_BUILD_ENGINE_UPDATE_SHA256");
 
 /// Reads one key of a settings file's text; None when the text isn't JSON or the key is missing.
 fn setting(text: &str, key: &str) -> Option<String> {
@@ -53,9 +61,60 @@ fn auto_update_allowed() -> bool {
     policy_allows_updates(&policy_text())
 }
 
+/// Whether the app registers kratosforge:// links: only `"register_link_scheme": false` in the
+/// policy file stops it.
+fn policy_allows_link_scheme(text: &str) -> bool {
+    let value: Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).unwrap_or(Value::Null);
+    value.get("register_link_scheme").and_then(Value::as_bool) != Some(false)
+}
+
 fn policy_allows_updates(text: &str) -> bool {
     let value: Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).unwrap_or(Value::Null);
     value.get("auto_update").and_then(Value::as_bool) != Some(false)
+}
+
+/// Where IT keeps this build's engine, from `"engine_download_url"` in the policy file: an https
+/// folder holding the files of this build's `build-*` release, copied unchanged, for networks that
+/// can't reach GitHub. Used only with `"auto_update": false`, since only then is the engine one
+/// known build; its version.json must still name this build (check_engine_build) and the zip must
+/// match its checksum. Those checks come from the same folder, so the folder is trusted only as far
+/// as the policy file: it is read from policy.json itself (never the per-user last good copy), and
+/// only when a standard user couldn't have written that file or its folder (policy_trust).
+fn engine_mirror() -> Option<String> {
+    engine_mirror_state().unwrap_or_else(|why| {
+        eprintln!("engine_download_url ignored, so the engine comes from GitHub: {why}");
+        None
+    })
+}
+
+/// The engine folder to use, or why a valid one in a managed policy file is ignored. The file's
+/// permissions are checked before it is read, so what is read is what only administrators wrote.
+fn engine_mirror_state() -> Result<Option<String>, String> {
+    let Some(dir) = std::env::var_os("ProgramData") else { return Ok(None) };
+    let file = PathBuf::from(dir).join("FabricDesktop").join("policy.json");
+    let trusted = policy_trust::admin_only(&file);
+    let text = std::fs::read_to_string(&file).unwrap_or_default();
+    if policy_allows_updates(&text) {
+        return Ok(None);
+    }
+    match (policy_engine_url(&text), trusted) {
+        (Some(url), Ok(())) => Ok(Some(url)),
+        (Some(_), Err(why)) => Err(why),
+        (None, _) => Ok(None),
+    }
+}
+
+/// `engine_download_url` when it is an https address with a host name and nothing else that could
+/// change where it leads (no user name, query, fragment, backslash or space), without its trailing /.
+fn policy_engine_url(text: &str) -> Option<String> {
+    let value: Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).ok()?;
+    let url = value.get("engine_download_url")?.as_str()?.trim().trim_end_matches('/');
+    let rest = url.strip_prefix("https://")?;
+    let authority = rest.split('/').next().unwrap_or("");
+    let (host, port) = authority.split_once(':').unwrap_or((authority, "443"));
+    let port_ok = !port.is_empty() && port.len() <= 5 && port.bytes().all(|b| b.is_ascii_digit());
+    let clean = url.is_ascii() && !url.bytes().any(|b| b.is_ascii_control() || b" ?#@\\%".contains(&b));
+    (clean && port_ok && dns_name(host)).then(|| url.to_owned())
 }
 
 /// Extra hosts the Fabric view may open for sign-in: the organization's own identity provider
@@ -89,7 +148,32 @@ fn dns_name(host: &str) -> bool {
 
 #[cfg(test)]
 mod policy_tests {
-    use super::policy_allows_updates;
+    use super::{policy_allows_link_scheme, policy_allows_updates, policy_engine_url};
+
+    #[test]
+    fn engine_download_url_is_an_https_folder_or_nothing() {
+        let url = |v: &str| policy_engine_url(&format!(r#"{{"engine_download_url": {v}}}"#));
+        assert_eq!(url(r#""https://files.contoso.com/kratosforge/build-1/""#).as_deref(),
+                   Some("https://files.contoso.com/kratosforge/build-1"));
+        assert_eq!(url(r#""https://files.contoso.com:8443/kf""#).as_deref(), Some("https://files.contoso.com:8443/kf"));
+        for bad in [r#""http://files.contoso.com/kf""#, r#""\\\\server\\share""#, r#""file:///C:/kf""#,
+                    r#""https://user:pw@files.contoso.com/kf""#, r#""https://files.contoso.com/kf?sig=x""#,
+                    r#""https://files.contoso.com/kf#x""#, r#""https://10.0.0.5/kf""#, r#""https:///kf""#,
+                    r#""https://files.contoso.com:/kf""#, r#""https://files.contoso.com/a b""#,
+                    r#""https://files.contoso.com/%2e%2e""#, r#""https://files.contoso.com\\kf""#, "true", "[]"] {
+            assert_eq!(url(bad), None, "{bad}");
+        }
+        assert_eq!(policy_engine_url("{}"), None);
+        assert_eq!(policy_engine_url("not json"), None);
+    }
+
+    #[test]
+    fn only_policy_false_stops_the_link_scheme() {
+        assert!(policy_allows_link_scheme(""));
+        assert!(policy_allows_link_scheme("{}"));
+        assert!(policy_allows_link_scheme(r#"{"register_link_scheme": "false"}"#));
+        assert!(!policy_allows_link_scheme(r#"{"register_link_scheme": false}"#));
+    }
 
     #[test]
     fn only_policy_false_stops_updates() {
@@ -176,7 +260,10 @@ fn missing_release_file(err: &str) -> bool {
 }
 
 fn release_file(tag: &str, file: &str) -> String {
-    format!("https://github.com/KratosDataGod/KratosForge/releases/download/{tag}/{file}")
+    match engine_mirror() {
+        Some(folder) => format!("{folder}/{file}"),
+        None => format!("https://github.com/KratosDataGod/KratosForge/releases/download/{tag}/{file}"),
+    }
 }
 
 /// One of Windows' own tools (curl.exe, tar.exe, rundll32.exe) by its full path. By bare name,
@@ -216,6 +303,20 @@ fn check_engine_zip(actual_sha256: &str, release: &Value) -> Result<Option<Strin
             .into()),
         None => Err("The engine's release gives no checksum for it, so it wasn't installed.".into()),
     }
+}
+
+/// Checks a downloaded zip of `build`'s engine against the checksum baked into this exe for its
+/// own engine (BUILD_ENGINE_SHA256 or BUILD_ENGINE_UPDATE_SHA256). An engine of another build
+/// (a self-updating PC moving to a newer one) or an exe built without one is checked only
+/// against its release, as before.
+fn check_pinned_engine(actual_sha256: &str, pinned: &str, build: Option<&str>, own_build: &str) -> Result<(), String> {
+    let own = build.is_none_or(|b| b.eq_ignore_ascii_case(own_build));
+    if pinned.is_empty() || !own || pinned.eq_ignore_ascii_case(actual_sha256) {
+        return Ok(());
+    }
+    Err("The engine download isn't the engine this app was built with, so it wasn't installed. \
+         Ask IT to copy this build's engine files again, unchanged."
+        .into())
 }
 
 /// Release builds run the bundled engine; local builds, and anyone who sets
@@ -424,6 +525,8 @@ impl Sidecar {
         let mut cmd = Command::new(python);
         cmd.args(["-m", "fabric_desktop.server"])
             .env("FABRIC_DESKTOP_BUILTIN_CLIENT_ID", BUILTIN_CLIENT_ID)
+            // So Settings > Help and about can say why IT's engine folder isn't used (app_settings).
+            .env("FABRIC_DESKTOP_ENGINE_URL_IGNORED", engine_mirror_state().err().unwrap_or_default())
             .current_dir(data_dir())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -815,7 +918,8 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
         let mut curl = Command::new(system_tool("curl.exe"));
         // Give up on a dead or stalled connection (under 1 KB/s for a minute) instead of
         // leaving "Downloading the engine" up for ever; Retry is then shown.
-        curl.args(["-L", "--fail", "-sS", "--connect-timeout", "20", "--speed-limit", "1024", "--speed-time", "60",
+        curl.args(["-L", "--proto", "=https", "--proto-redir", "=https"]);
+        curl.args(["--fail", "-sS", "--connect-timeout", "20", "--speed-limit", "1024", "--speed-time", "60",
                    "--retry", "2", "-H", "Cache-Control: no-cache", "-o"])
             .arg(&zip)
             .arg(format!("{}?nocache={nocache}", release_file(tag, "fabric-desktop-engine.zip")));
@@ -827,7 +931,8 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
             // Its checksum comes from the same release, fetched after the zip: CI uploads
             // version.json last, so it never names a zip older than the one just downloaded.
             let mut curl = Command::new(system_tool("curl.exe"));
-            curl.args(["-L", "--fail", "-sS", "--connect-timeout", "20", "--max-time", "60", "-H",
+            curl.args(["-L", "--proto", "=https", "--proto-redir", "=https"]);
+            curl.args(["--fail", "-sS", "--connect-timeout", "20", "--max-time", "60", "-H",
                        "Cache-Control: no-cache", "-o"])
                 .arg(&release_json)
                 .arg(format!("{}?nocache={nocache}", release_file(tag, "version.json")));
@@ -845,6 +950,14 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
     }
     if let Err(e) = result {
         let _ = std::fs::remove_file(&zip);
+        if let (Some(folder), true) = (engine_mirror(), missing_release_file(&e)) {
+            return Err(format!(
+                "Your organization keeps this app's engine at {folder}, and the engine for this build ({}) isn't \
+                 there, so none was installed. Ask IT to copy the files of release build-{} there.",
+                BUILD_COMMIT.get(..7).unwrap_or(BUILD_COMMIT),
+                BUILD_COMMIT.get(..12).unwrap_or(BUILD_COMMIT)
+            ));
+        }
         if !auto_update_allowed() && missing_release_file(&e) {
             return Err(format!(
                 "Your organization rolls out builds itself, and this app's build ({}) no longer has an engine to \
@@ -867,7 +980,9 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
     }
     say("Checking the download…");
     let sha = sha256_file(&zip)?;
-    let named = match check_engine_zip(&sha, &release) {
+    let named = match check_engine_zip(&sha, &release)
+        .and_then(|named| check_pinned_engine(&sha, BUILD_ENGINE_SHA256, named.as_deref(), BUILD_COMMIT).map(|()| named))
+    {
         Ok(named) => named,
         Err(e) => {
             let _ = std::fs::remove_file(&zip);
@@ -932,7 +1047,8 @@ fn update_engine_code(root: &std::path::Path, nocache: u64, say: &dyn Fn(&str)) 
     let tags = engine_tags();
     for tag in &tags {
         let mut curl = Command::new(system_tool("curl.exe"));
-        curl.args(["-L", "--fail", "-sS", "--connect-timeout", "20", "--max-time", "60", "-H",
+        curl.args(["-L", "--proto", "=https", "--proto-redir", "=https"]);
+        curl.args(["--fail", "-sS", "--connect-timeout", "20", "--max-time", "60", "-H",
                    "Cache-Control: no-cache", "-o"])
             .arg(&release_json)
             .arg(format!("{}?nocache={nocache}", release_file(tag, "version.json")));
@@ -968,13 +1084,17 @@ fn update_engine_code(root: &std::path::Path, nocache: u64, say: &dyn Fn(&str)) 
     say("Python and its packages are unchanged, so only the engine's own code is downloaded (a few MB)…");
     let zip = root.join("update.zip");
     let mut curl = Command::new(system_tool("curl.exe"));
-    curl.args(["-L", "--fail", "-sS", "--connect-timeout", "20", "--speed-limit", "1024", "--speed-time", "60",
+    curl.args(["-L", "--proto", "=https", "--proto-redir", "=https"]);
+    curl.args(["--fail", "-sS", "--connect-timeout", "20", "--speed-limit", "1024", "--speed-time", "60",
                "--retry", "2", "-H", "Cache-Control: no-cache", "-o"])
         .arg(&zip)
         .arg(format!("{}?nocache={nocache}", release_file(tag_used, engine_patch::UPDATE_ZIP)));
     let checked = run_tool(curl, "download the engine update")
         .and_then(|()| sha256_file(&zip))
-        .and_then(|sha| engine_patch::check_update_zip(&sha, &update_sha));
+        .and_then(|sha| {
+            engine_patch::check_update_zip(&sha, &update_sha)?;
+            check_pinned_engine(&sha, BUILD_ENGINE_UPDATE_SHA256, Some(&commit), BUILD_COMMIT)
+        });
     if let Err(e) = checked {
         let _ = std::fs::remove_file(&zip);
         return Err(e);
@@ -1022,6 +1142,8 @@ impl update_guard::Handover for ExeHandover<'_> {
 
     fn spawn(&mut self) -> Result<(), String> {
         let _ = std::fs::remove_file(&self.marker);
+        deep_link::start_handover(&data_dir());
+        INSTANCE.release(); // so the new exe claims it straight away
         self.child = Some(Command::new(&self.exe).args(["--updated-to", self.commit]).spawn().map_err(|e| e.to_string())?);
         if let Some(w) = self.app.get_webview_window("main") {
             let _ = w.hide();
@@ -1048,6 +1170,15 @@ impl update_guard::Handover for ExeHandover<'_> {
 
     fn resume(&mut self, engine_was_running: bool) {
         self.state.updating.store(false, Ordering::SeqCst);
+        // The new exe has ended (only then is an update undone); it may take a moment to let go.
+        let dir = data_dir();
+        for _ in 0..20 {
+            if INSTANCE.reclaim(&dir) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+        deep_link::end_handover(&dir); // only once it's ours again, so a link copy can't take it first
         if engine_was_running {
             // So the restored window works straight away; if this fails, the next call retries.
             if let Ok(mut guard) = self.state.sidecar.lock() {
@@ -1804,6 +1935,34 @@ fn open_with_handler(link: &str, what: &str) -> Result<(), String> {
     cmd.spawn().map(|_| ()).map_err(|e| format!("Could not open {what}: {e}"))
 }
 
+/// "Open in VS Code" on a notebook: opens a notebook file, or a folder of notebooks, in VS Code
+/// (or VS Code Insiders). Only an existing .ipynb file or folder inside a notebooks folder the app
+/// knows, so a page can't open anything else.
+#[tauri::command]
+fn open_in_vscode(path: String, insiders: bool) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    let notebook = p.is_file() && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("ipynb"));
+    if !(notebook || p.is_dir()) || !p.is_absolute() {
+        return Err(format!("Not a notebook or folder: {path}"));
+    }
+    if !vscode_link::inside(&p, &notebook_folders()) {
+        return Err(format!("Not in the notebooks folder or a repository opened in Source control: {path}"));
+    }
+    let link = vscode_link::open_link(&p, insiders)?;
+    open_with_handler(&link, if insiders { "VS Code Insiders. Is it installed?" } else { "VS Code. Is it installed?" })
+}
+
+/// The folders Open in VS Code may open: the app's notebooks folder and the repositories opened
+/// in Source control (git_repos.json, as git_service.py keeps it).
+fn notebook_folders() -> Vec<PathBuf> {
+    let dir = data_dir();
+    let repos: Value = std::fs::read_to_string(dir.join("git_repos.json")).ok()
+        .and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(Value::Null);
+    let mut out = vec![dir.join("notebooks")];
+    out.extend(repos["repos"].as_array().into_iter().flatten().filter_map(|r| r["path"].as_str()).map(PathBuf::from));
+    out
+}
+
 /// "Add to VS Code" (Settings > Integrations): asks VS Code, or VS Code Insiders, to add the
 /// KratosForge MCP server for a connected tool. VS Code shows the entry and asks before adding it.
 /// The link is built here from the id and the launcher's fixed path (vscode_link.rs).
@@ -1865,7 +2024,78 @@ fn output_frame(webview: &str) -> tauri::http::Response<Vec<u8>> {
         .unwrap()
 }
 
+/// A kratosforge:// link the app was started with, waiting for the page to ask for it (the page
+/// isn't listening yet when the app starts).
+struct PendingLink(Mutex<Option<String>>);
+
+#[tauri::command]
+fn take_pending_link(state: tauri::State<'_, PendingLink>) -> Option<String> {
+    state.0.lock().ok().and_then(|mut l| l.take())
+}
+
+/// Shows a link from another copy of the app (deep_link.rs): brings the window forward and tells
+/// the page what to show. Nothing the link says is run.
+fn show_link(app: &tauri::AppHandle, link: deep_link::Link) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+    let _ = app.emit_to("main", "deep-link", link.to_json());
+}
+
+/// Makes Windows open kratosforge:// links with this exe, for this Windows user. Release builds
+/// only, so a developer build never takes the links over. An organization that doesn't want the
+/// links sets `"register_link_scheme": false` in its policy file; the app then removes its own
+/// registration instead.
+fn register_link_scheme() {
+    if !cfg!(windows) || cfg!(debug_assertions) {
+        return;
+    }
+    let Ok(exe) = std::env::current_exe() else { return };
+    let allowed = policy_allows_link_scheme(&policy_text());
+    std::thread::spawn(move || {
+        let steps = if allowed { deep_link::register_args(&exe.to_string_lossy()) } else { vec![deep_link::unregister_args()] };
+        for args in steps {
+            let mut cmd = Command::new(system_tool("reg.exe"));
+            cmd.args(&args);
+            hide_window(&mut cmd);
+            if let Err(e) = cmd.status() {
+                eprintln!("kratosforge:// links not registered: {e}");
+                return;
+            }
+        }
+    });
+}
+
+/// This copy's instance lock, kept for the life of the process except while an update hands over.
+static INSTANCE: deep_link::InstanceLock = deep_link::InstanceLock::new();
+
+/// Makes this the one running copy of the app (deep_link::claim_instance), so two never share the
+/// sign-in cache and data. When another copy runs, hands it `url` (or just brings it to the front)
+/// and returns None: this copy stops. A copy started by an update waits for the old one to let go;
+/// any other copy leaves the lock alone while an update hands it over (deep_link::handing_over).
+fn claim_single_instance(url: Option<&str>, updating: bool) -> Option<Option<std::fs::File>> {
+    // 60 s for a copy an update started (the old copy lets go as it starts this one), or 5 s while
+    // another copy starts listening or an update hands over.
+    let tries = if updating { 240 } else { 20 };
+    match deep_link::claim_or_forward(&data_dir(), url.unwrap_or("kratosforge://"), updating, tries, std::time::Duration::from_millis(250)) {
+        deep_link::Claim::Run(lock) => Some(lock),
+        deep_link::Claim::Stop => None,
+    }
+}
+
 fn main() {
+    // A link is read before anything else. One that doesn't read as a link is never handed on:
+    // the app only says it wasn't opened (and why, when this copy is the one that runs).
+    let link = deep_link::link_arg(&std::env::args().collect::<Vec<_>>()).map(|url| match deep_link::parse(&url) {
+        Ok(parsed) => (url, parsed),
+        Err(e) => (deep_link::REFUSED.to_string(), deep_link::Link::Refused(e)),
+    });
+    let Some(instance) = claim_single_instance(link.as_ref().map(|(url, _)| url.as_str()), updated_to_arg().is_some()) else {
+        return;
+    };
+    INSTANCE.hold(instance);
+    let pending = link.map(|(_, parsed)| parsed.to_json());
     if let Ok(exe) = std::env::current_exe() {
         // Left behind by an update. exe.old is not removed here: it is kept until this exe has
         // shown its window (check_components), so a build that can't start can be put back.
@@ -1873,12 +2103,21 @@ fn main() {
         let _ = std::fs::remove_file(exe.with_extension("exe.failed"));
     }
     tauri::Builder::default()
+        .manage(PendingLink(Mutex::new(pending)))
+        .setup(|app| {
+            let handle = app.handle().clone();
+            if let Err(e) = deep_link::listen(&data_dir(), move |link| show_link(&handle, link)) {
+                eprintln!("kratosforge:// links from other copies won't arrive: {e}");
+            }
+            register_link_scheme();
+            Ok(())
+        })
         .manage(SidecarState { sidecar: Mutex::new(None), child: Mutex::new(None), updating: Default::default(), installing: Default::default() })
         .register_uri_scheme_protocol(OUTPUT_SCHEME, |ctx, _| output_frame(ctx.webview_label()))
         .on_window_event(on_window_event)
         .invoke_handler(tauri::generate_handler![
             rpc, stop_kernel, check_components, check_for_update, update_sidecar, update_app,
-            fabric_view_show, fabric_view_hide, fabric_view_action, open_doc, fabric_view_sign_out, open_link, add_to_vscode,
+            fabric_view_show, fabric_view_hide, fabric_view_action, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode, take_pending_link,
             pop_out_open, pop_out_close, pop_out_on_top, pop_out_list, pop_out_open_in_fabric
         ])
         .run(tauri::generate_context!())
@@ -1970,6 +2209,19 @@ mod integrity_tests {
         let release = json!({ "commit": BUILD, "engine_sha256": "ab".repeat(32) });
         let err = check_engine_zip(&"cd".repeat(32), &release).unwrap_err();
         assert!(err.contains("doesn't match the checksum"), "{err}");
+    }
+
+    #[test]
+    fn this_builds_engine_must_match_the_checksum_baked_into_the_exe() {
+        let (pin, other) = ("ab".repeat(32), "cd".repeat(32));
+        assert_eq!(check_pinned_engine(&pin.to_uppercase(), &pin, Some(BUILD), BUILD), Ok(()));
+        assert_eq!(check_pinned_engine(&pin, &pin, None, BUILD), Ok(()));
+        let err = check_pinned_engine(&other, &pin, Some(&BUILD.to_uppercase()), BUILD).unwrap_err();
+        assert!(err.contains("isn't the engine this app was built with"), "{err}");
+        assert!(check_pinned_engine(&other, &pin, None, BUILD).is_err());  // no build named: treated as this one
+        // Another build's engine (self-updating to a newer one) and local builds with no pin.
+        assert_eq!(check_pinned_engine(&other, &pin, Some(&"1".repeat(40)), BUILD), Ok(()));
+        assert_eq!(check_pinned_engine(&other, "", Some(BUILD), BUILD), Ok(()));
     }
 
     #[test]

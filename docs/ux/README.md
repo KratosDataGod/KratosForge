@@ -11,6 +11,7 @@ This folder is the user experience and simplicity oversight for KratosForge. It 
 | [Workflow optimization matrix](workflows.md) | The ten most common workflows: steps, inputs, dialogs and decisions now and proposed |
 | [Documentation coverage matrix](documentation-coverage.md) | Each feature mapped to its doc, in-app help link, troubleshooting and limits |
 | [Backlog and PR specifications](backlog.md) | The top 20 simplification opportunities (UX-001 to UX-020), grouped into focused pull requests |
+| [Action-first experience](action-first.md) | The action-first standard, review checklist, measured baseline and backlog (AF-n) |
 | [Usability release gates and PR reviews](release-review.md) | The UX review format for the Release Manager, the usability gates, and reviews of open pull requests |
 
 ## How this audit was done

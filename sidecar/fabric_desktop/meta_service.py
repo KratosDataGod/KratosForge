@@ -274,7 +274,8 @@ class MetaMixin:
                  "# keys_workspace_id is the workspace that holds LH_Keys, the surrogate keys.", ""]
         lines += ["# workspaces: a workspace per designation (ingest, product, serve, sandbox); layers pick one",
                   "# with workspace = \"...\" in layers.toml. keys = \"platform\": surrogate keys are in SQL_Platform.",
-                  "# require_commit = true: promote here only from files a pushed Git commit holds.", ""]
+                  "# require_commit: Test and Prod in OneLake only take files a pushed Git commit holds;",
+                  "# false lets a promote go ahead with a note, true asks it of an environment on this PC too.", ""]
         for name in ENVIRONMENTS:
             lines.append(f"[{name}]")
             lines += [f"{k} = {_toml(v)}" for k, v in envs.get(name, {}).items()]
@@ -586,7 +587,7 @@ class MetaMixin:
         uses_keys = bool(project.key_tables or project.source_systems)
         keys_store = self._keys_store(project, target, create=True) if uses_keys else None  # fails before promoting
         result = promote(project, src, target_store, dt.date.today(),
-                         release=release.record(project, source, target, git))
+                         release=release.record(project, source, target, git, self._signed_in_object_id()))
         if keys_store is not None:
             # Each environment issues its own keys; promote copies the source systems and seeds new key tables.
             result["keys"] = keys_mod.sync(project, keys_store)
@@ -665,7 +666,7 @@ class MetaMixin:
         if errors:
             raise GateError("rollback", errors)
         store = self._store(project, env)
-        result = rollback(project, store, version, duties.current_user())
+        result = rollback(project, store, version, duties.current_user(), self._signed_in_object_id())
         released = result.pop("project")
         if self._compute(project, env) == "fabric":  # type: ignore[attr-defined]
             try:  # so scheduled runs in Fabric run the release rolled back to
@@ -696,14 +697,31 @@ class MetaMixin:
         return {"env": env, "release": out, "problem": None}
 
     def _release_gate(self, project: Project, target: str, git: dict[str, Any]) -> tuple[list[str], list[str]]:
-        """Promoting files no pushed commit holds: blocked when the target environment sets
-        ``require_commit = true`` in environments.toml, otherwise a note (decision D1)."""
+        """Promoting files no pushed commit holds. Chris decided (D1, 2026-10-25) that Test and Prod
+        only take released files, so this blocks when the target's tables are in OneLake. An environment
+        kept on this PC is a note, as is any environment with ``require_commit = false`` in
+        environments.toml; ``require_commit = true`` blocks on this PC too."""
         found = release.problems(git)
         if not found or target == "dev":
             return [], []
-        if project.environments.get(target, {}).get("require_commit"):
-            return [f"{target.title()} only takes released files: {p}" for p in found], []
+        cfg = project.environments.get(target, {})
+        if cfg.get("require_commit", cfg.get("target", "onelake") != "local"):
+            errors = [f"{target.title()} only takes released files: {p}" for p in found]
+            if "require_commit" not in cfg:  # the default, not the team's own choice: say how to go ahead without Git
+                errors[-1] = errors[-1].rstrip(".") + (f". To promote without a pushed commit, set require_commit = false under [{target}] "
+                               "in environments.toml")
+            return errors, []
         return [], [f"The release record can't name a pushed commit that holds these files: {'; '.join(found)}"]
+
+    def _signed_in_object_id(self) -> str | None:
+        """The signed-in person's Entra object id, for release records; None when not signed in.
+        Never starts a sign-in."""
+        auth = getattr(self, "_auth", None)
+        try:
+            return getattr(auth, "signed_in_object_id", lambda: None)()
+        except Exception as exc:  # noqa: BLE001 - the record then names the PC login only
+            _log.info("No signed-in object id for the release record: %s", describe_error(exc))
+            return None
 
     def _duties_gate(self, project: Project, source: str, target: str,
                      src: Any = None, separation: bool = True) -> tuple[list[str], list[str]]:
@@ -723,10 +741,14 @@ class MetaMixin:
                         if r.get("env") == source and r.get("version") == project.version] if deps.height else []
             except Exception:  # noqa: BLE001 - promote_checks already says when the source can't be read
                 rows = []
-            problem = duties.separation_problem(source, target, project.version,
-                                                rows[-1].get("by") if rows else None, duties.current_user())
+            last = rows[-1] if rows else {}
+            their_id, my_id = duties.recorded_object_id(last.get("receipt")), self._signed_in_object_id()
+            problem = duties.separation_problem(source, target, project.version, last.get("by"),
+                                                duties.current_user(), their_id, my_id)
             if problem:
                 errors.append(problem)
+            if last and (note := duties.separation_note(their_id, my_id)):
+                notes.append(note)
         if cfg.get("target", "onelake") == "local":
             return errors, notes  # tables on this PC: no workspace roles to check
         auth = getattr(self, "_auth", None)  # already signed in by the store; never start a sign-in here
@@ -875,7 +897,7 @@ class MetaMixin:
             central = {t["name"] for t in self._keys_platform(env).call("list_key_tables")}  # type: ignore[attr-defined]
             if name not in central:
                 raise GateError("save", [f"{name} isn't one of the platform's key tables. Request it in "
-                                         "Platform > Business keys, or pick one from the list."])
+                                         "Platform > Set up > Business keys, or pick one from the list."])
         owner = ""
         try:
             owner = self.auth.signed_in_user() or ""  # type: ignore[attr-defined]

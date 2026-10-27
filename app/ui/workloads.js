@@ -71,7 +71,7 @@ function workloadsPanel() {
   return h("div", { class: "mon-how" }, withHowItWorks(box, howItWorks("monitor.workloads", {
     reads: "Your project's metadata entities, notebooks on this PC, and the pipelines, notebooks and Spark job definitions in the workspaces the app works in (pinned, your environments' and the ones your notebooks publish to), with their run records and Fabric's job history. Never your whole tenant. It reads when this view opens and when you press Refresh.",
     changes: "Nothing from the list. On a workload's page, Edit changes its owner, criticality and tags on this PC, and Run, Retry and Cancel the run first say which environment, where it runs, as whom and what it writes.",
-    results: "Ownership, tags, links and the action log stay on this PC in workloads.sqlite and aren't shared with your team yet. When there's a platform, each action and change is also written to its audit (Platform > Audit) with who, where, before, after and how it ended; until the platform takes a line, this PC keeps it and sends it again. A run you start writes where that environment's runs always write.",
+    results: "Ownership, tags, links and the action log stay on this PC in workloads.sqlite and aren't shared with your team yet. When there's a platform, each action and change is also written to its audit (Platform > Govern > Audit) with who, where, before, after and how it ended; until the platform takes a line, this PC keeps it and sends it again. A run you start writes where that environment's runs always write.",
     more: [["Not observed is not failing", "When your sign-in has expired or a workspace refuses access, a workload shows Not observed with the reason, never Failing. Its last reading shows as Cached, then Stale after an hour."]],
     anchor: "workloads-preview",
   })));
@@ -91,8 +91,8 @@ async function loadWorkloads(box, refresh) {
   const again = (changes = {}) => { Object.assign(wlPage, changes); loadWorkloads(box, false); };
   const chip = (v) => h("button", { class: `chip${wlPage.view === v.id ? " on" : ""}`,
     onclick: () => again({ view: v.id, offset: 0 }) }, `${v.label} · ${v.count}`);
-  const groupSeg = h("div", { class: "seg", role: "group", "aria-label": "Group by" },
-    WL_GROUPS.map(([id, label]) => h("button", { class: wlPage.group === id ? "on" : null, onclick: () => again({ group: id, offset: 0 }) }, label)));
+  const groupSelect = h("select", { class: "group-select", "aria-label": "Group by", onchange: (e) => again({ group: e.target.value, offset: 0 }) },
+    WL_GROUPS.map(([id, label]) => h("option", { value: id, selected: wlPage.group === id }, label)));
   const sources = h("div", { class: "wl-sources" }, (data.sources || []).map((s) => h("span", { class: "wl-source" }, obsPill(s),
     " ", s.source, s.detail ? h("span", { class: "muted-text small" }, ` · ${s.detail}`) : null)),
   data.scanning ? h("span", { class: "muted-text small" }, "Reading Fabric items in the background...") : null,
@@ -123,7 +123,7 @@ async function loadWorkloads(box, refresh) {
   }[wlPage.view] || (state.query ? "No workloads match your search." : "No workloads yet. Notebooks, metadata entities and Fabric items in your workspaces show here.");
   box.replaceChildren(
     h("div", { class: "monitor-filters" }, h("div", { class: "row wrap", role: "group", "aria-label": "Show" }, (data.views || []).map(chip)),
-      h("span", { class: "spacer" }), h("span", { class: "muted-text small" }, "Group by"), groupSeg),
+      h("span", { class: "spacer" }), h("label", { class: "muted-text small row" }, "Group by", groupSelect)),
     sources,
     rows.length ? h("div", { class: "monitor-scroll" }, h("table", { class: "list wl-list" },
       h("thead", {}, h("tr", {}, ["Health", "Workload", "Owner", "Deployed to", "Last run", "Can", "Observed"].map((c) => h("th", {}, c)))),
@@ -150,7 +150,7 @@ function workloadRow(r) {
   return h("tr", { class: "click", onclick: () => openWorkload(r.id) },
     h("td", {}, healthPill(r.health, r.health_label)),
     h("td", {}, h("div", {}, h("b", {}, r.name)),
-      h("div", { class: "muted-text small" }, [r.kind_label, r.description].filter(Boolean).join(" · ")),
+      h("div", { class: "muted-text small" }, [r.kind_label, r.description].filter(Boolean).join(" · "), r.preview ? [" ", previewTag()] : null),
       head ? h("div", { class: head.level === "failing" ? "reason" : "muted-text small" }, head.title, head.text ? `: ${head.text}` : "") : null),
     h("td", {}, ownerLine(r.owners), r.criticality ? h("div", { class: "muted-text small" }, `${r.criticality.value} criticality`) : null),
     h("td", {}, deploymentChips(r.deployments)),
@@ -181,7 +181,7 @@ async function renderWorkload() {
     h("div", { class: "row wrap wl-head" },
       h("div", { class: "grow" },
         h("h1", {}, w.name, " ", healthPill(w.health, w.health_label), preview("workloads", h("span", {}))),
-        h("p", { class: "sub" }, workloadSubtitle(w), " ", learnMore("workloads-preview")),
+        h("p", { class: "sub" }, workloadSubtitle(w), w.preview ? [" ", previewTag()] : null, " ", learnMore("workloads-preview")),
         capabilityChips(w.capabilities)),
       h("div", { class: "row" },
         primary ? btn(`Retry${primary.env ? ` in ${ENV_LABEL[primary.env] || primary.env}` : ""}`,
@@ -208,9 +208,9 @@ function platformAuditNote(a) {
   if (!a) return null;
   const n = a.waiting === 1 ? "1 action or change hasn't" : `${a.waiting} actions or changes haven't`;
   const text = a.platform === "none"
-    ? (a.waiting ? `Kept on this PC only: there's no platform yet. ${n} reached an audit; they go to Platform > Audit once a platform is set up.` : "Kept on this PC only: there's no platform yet.")
-    : a.waiting ? `${n} reached Platform > Audit yet${a.error ? `: ${a.error.replace(/\.$/, "")}` : ""}. This PC keeps them and sends them again.`
-      : "Each one is also on Platform > Audit.";
+    ? (a.waiting ? `Kept on this PC only: there's no platform yet. ${n} reached an audit; they go to Platform > Govern > Audit once a platform is set up.` : "Kept on this PC only: there's no platform yet.")
+    : a.waiting ? `${n} reached Platform > Govern > Audit yet${a.error ? `: ${a.error.replace(/\.$/, "")}` : ""}. This PC keeps them and sends them again.`
+      : "Each one is also on Platform > Govern > Audit.";
   return h("p", { class: "muted-text small" }, text);
 }
 
@@ -453,13 +453,14 @@ function actionsTable(w) {
 
 // verb is how the button that led here put it ("Retry"); otherwise the action's own name.
 // recheck reads the capacity again for the risk check (FINOPS-004) instead of using the last reading.
-async function confirmWorkloadAction(w, a, verb = "", recheck = false) {
-  const pre = await attempt(() => rpc("workload_preflight", { id: w.id, action: a.action, env: a.env || null }), "Couldn't check that action");
+// opts.pre is a preflight the caller already has; opts.done(res) runs after the action is sent.
+async function confirmWorkloadAction(w, a, verb = "", recheck = false, opts = {}) {
+  const pre = opts.pre || await attempt(() => rpc("workload_preflight", { id: w.id, action: a.action, env: a.env || null }), "Couldn't check that action");
   if (!pre) return;
   if (recheck && pre.risk) pre.risk = await rpc("risk_check", { id: w.id, action: a.action, env: a.env || null, refresh: true }).catch(() => pre.risk);
   if (!pre.allowed) {
     showDialog(`${a.label}?`, h("p", { class: "text" }, pre.reason), [
-      /sign in/i.test(pre.reason) ? btn("Sign in", null, async () => { closeDialog(); if (await signIn()) confirmWorkloadAction(w, a); }, "tool primary")
+      /sign in/i.test(pre.reason) ? btn("Sign in", null, async () => { closeDialog(); if (await signIn()) confirmWorkloadAction(w, a, verb, false, { done: opts.done, ends: opts.ends }); }, "tool primary")
         : btn("Close", null, closeDialog, "tool primary")]);
     return;
   }
@@ -475,9 +476,10 @@ async function confirmWorkloadAction(w, a, verb = "", recheck = false) {
       schedule_id: a.schedule_id || "", job_id: a.job_id || "" }), `${verb} didn't start`);
     if (!res) { wlPage.detail = null; if (state.view === "workload") render(); return; }
     const s = res.action?.status;
-    toast(s === "submitted" ? `${verb}: submitted. This page shows how it ends when the run finishes.`
+    toast(s === "submitted" ? `${verb}: submitted. ${opts.ends || "This page shows how it ends when the run finishes."}`
       : s === "failed" ? `${verb} failed: ${res.action.detail || "see the run"}` : `${verb}: done.`, s === "failed", { log: true });
     wlPage.detail = null;
+    if (opts.done) opts.done(res);
     if (state.view === "workload") render();
   };
   showDialog(a.action === "cancel" ? `Cancel the running job of ${pre.workload}?` : `${verb} ${pre.workload}${inEnv}?`, h("div", { class: "wl-confirm" },
@@ -488,10 +490,10 @@ async function confirmWorkloadAction(w, a, verb = "", recheck = false) {
       row("Target", pre.target),
       row("What happens", pre.consequence))),
     (pre.warnings || []).map((t) => h("div", { class: "callout wl-warning" }, icon("warning", 18), h("span", {}, t))),
-    riskPanel(pre.risk, { box, onRecheck: () => { closeDialog(); confirmWorkloadAction(w, a, verb, true); } }),
+    riskPanel(pre.risk, { box, onRecheck: () => { closeDialog(); confirmWorkloadAction(w, a, verb, true, { done: opts.done, ends: opts.ends }); } }),
     h("p", { class: "muted-text small" }, pre.risk?.note ? `${pre.risk.note} ` : "", pre.recorded)),
   pre.risk?.result === "blocked"
-    ? [btn("Check again", null, () => { closeDialog(); confirmWorkloadAction(w, a, verb, true); }, "tool outline"),
+    ? [btn("Check again", null, () => { closeDialog(); confirmWorkloadAction(w, a, verb, true, { done: opts.done, ends: opts.ends }); }, "tool outline"),
       btn("Close", null, closeDialog, "tool primary")]
     : [btn("Cancel", null, closeDialog, "tool outline"),
       btn(`${verb}${inEnv}`, null, go_, "tool primary")]);

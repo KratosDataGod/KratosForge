@@ -14,14 +14,18 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from . import notebook_cells
 from .fabric_api import FabricClient
 from .fabric_run import TERMINAL, describe_schedule
 from .fabric_step import is_step
-from .local_schedules import LocalSchedules, target_label
+from .local_schedules import LocalSchedules, check_target, target_label
+from .orchestration import definition as pipeline_definition
+from .orchestration.definition import DefinitionError
 from .redact import describe
 from .workloads.notify import Outbox, send, single
 
 _log = logging.getLogger(__name__)
+_PIPELINE_POLL = 0.25  # seconds between looks at a scheduled pipeline run
 
 SCHEDULE_ALERTS = "schedule_alerts.sqlite3"
 ALERTS_LOCK = "_alerts"  # a schedule_locks name no schedule id takes
@@ -66,6 +70,8 @@ class ScheduleMixin:
     def add_pc_schedule(self, target: dict[str, Any], schedule: dict[str, Any]) -> dict[str, Any]:
         if target.get("kind") == "notebook":
             self.notebooks.load(target.get("name", ""))  # type: ignore[attr-defined]  # it exists
+        elif target.get("kind") == "pipeline":
+            target = self._pipeline_schedule_target(target)
         elif target.get("kind") == "meta":
             project = self._project()  # type: ignore[attr-defined]
             unknown = [n for n in target.get("entities") or [] if n not in project.entities]
@@ -74,13 +80,39 @@ class ScheduleMixin:
         item = self.pc_schedules.add(target, schedule)
         return {"schedule": item, "windows": self.pc_schedules.scheduler.available}
 
-    def pc_schedules_for(self, kind: str, name: str = "", env: str = "") -> list[dict[str, Any]]:
-        """This PC's schedules for one notebook (kind "notebook"), one environment (kind "meta"), or all."""
+    def _pipeline_schedule_target(self, target: dict[str, Any]) -> dict[str, Any]:
+        """A pipeline schedule's target, once the pipeline is known to run here with these settings:
+        a scheduled run has no one to give a missing mock. The folder is read again at every run, so
+        a change pulled from Git is what the next run runs."""
+        target = check_target(target)
+        secure = set()
+        try:
+            imp = pipeline_definition.load(Path(target["path"]))
+            secure = {n for n, d in imp.pipeline.parameters.items()
+                      if isinstance(d, dict) and str(d.get("type", "")).lower() == "securestring"}
+        except (DefinitionError, OSError) as exc:
+            raise ValueError(f"Could not read the pipeline: {exc}") from exc
+        kept = sorted(secure & set(target["parameters"]))
+        if kept:
+            raise ValueError(f"{', '.join(kept)} {'is a SecureString' if len(kept) == 1 else 'are SecureStrings'}; "
+                             "a schedule doesn't keep secret values. Leave it out to use the pipeline's default.")
+        check = self.pipeline_run_check(path=target["path"], parameters=target["parameters"],  # type: ignore[attr-defined]
+                                        mocks=target["mocks"], notebooks=target["notebooks"] or None,
+                                        read_lakehouses=target["read_lakehouses"],
+                                        workspace_id=target["workspace_id"] or None,
+                                        sql_projects=target["sql_projects"] or None)
+        if not check["ok"]:
+            raise ValueError("The pipeline can't run on this PC with these settings: "
+                             + " ".join(p["message"] for p in check["problems"]))
+        return target | {"name": check["pipeline"]}
+
+    def pc_schedules_for(self, kind: str, name: str = "", env: str = "", path: str = "") -> list[dict[str, Any]]:
+        """This PC's schedules for one notebook (kind "notebook"), one environment (kind "meta"), one
+        pipeline folder (kind "pipeline"), or all."""
         if kind == "all":
             return self.pc_schedules.listing()
-        return [s for s in self.pc_schedules.listing()
-                if s["target"]["kind"] == kind and (s["target"].get("name") == name if kind == "notebook"
-                                                    else s["target"].get("env") == env)]
+        key, value = {"notebook": ("name", name), "pipeline": ("path", path)}.get(kind, ("env", env))
+        return [s for s in self.pc_schedules.listing() if s["target"]["kind"] == kind and s["target"].get(key) == value]
 
     def delete_pc_schedule(self, schedule_id: str) -> dict[str, Any]:
         self.pc_schedules.delete(schedule_id)
@@ -197,6 +229,8 @@ class ScheduleMixin:
         try:
             if s["target"]["kind"] == "notebook":
                 row |= self._run_notebook_here(s["target"]["name"])
+            elif s["target"]["kind"] == "pipeline":
+                row |= self._run_pipeline_here(s["target"])
             else:
                 row |= self._run_meta_here(s["target"]["env"], s["target"].get("entities") or None)
         except Exception as exc:
@@ -216,9 +250,9 @@ class ScheduleMixin:
         self.kernel.resources_dir = self._resources_dir(name)  # type: ignore[attr-defined]  # builtin/ paths
         self.kernel.onelake_writes = self._onelake_writes(name)  # type: ignore[attr-defined]
         # As Run all: code cells with something in them, and never a frozen one.
-        code = [c for c in nb["cells"] if c.get("type") != "markdown" and c.get("source", "").strip()]
-        frozen = sum(1 for c in code if (c.get("meta") or {}).get("frozen"))
-        code = [c for c in code if not (c.get("meta") or {}).get("frozen")]
+        frozen = sum(1 for c in nb["cells"] if notebook_cells.frozen(c) and c.get("type") != "markdown"
+                     and (c.get("source") or "").strip())
+        code = [c for c in nb["cells"] if notebook_cells.runs(c)]
         skipped = f", {frozen} frozen cell{'s' if frozen != 1 else ''} skipped" if frozen else ""
         if any(is_step(c) for c in code):  # it runs on Fabric Spark only when started from the notebook
             code = [c for c in code if not is_step(c)]
@@ -230,6 +264,32 @@ class ScheduleMixin:
                 why = f"{err.get('ename')}: {err.get('evalue')}" if err else res["status"]
                 return {"status": "failed", "message": f"Cell {i} of {len(code)} failed{skipped}: {why}", "cells": i}
         return {"status": "ok", "message": f"{len(code)} cell{'s' if len(code) != 1 else ''} ran{skipped}", "cells": len(code)}
+
+    def _run_pipeline_here(self, target: dict[str, Any]) -> dict[str, Any]:
+        """A local pipeline run with the schedule's settings, followed to its end. The run is kept with
+        the other local runs, so Monitor > Runs and the Pipelines page show it; ``run_id`` links to it."""
+        started = self.pipeline_run_start(path=target["path"], parameters=target.get("parameters"),  # type: ignore[attr-defined]
+                                          mocks=target.get("mocks"), notebooks=target.get("notebooks") or None,
+                                          read_lakehouses=bool(target.get("read_lakehouses")),
+                                          workspace_id=target.get("workspace_id") or None,
+                                          sql_projects=target.get("sql_projects") or None)
+        if not started["ok"]:
+            return {"status": "failed", "message": "The pipeline can't run on this PC now: "
+                    + " ".join(p["message"] for p in started["problems"])}
+        rid = started["run_id"]
+        record = self.pipeline_run_status(rid, values=False)  # type: ignore[attr-defined]
+        while record["state"] in ("pending", "running"):
+            time.sleep(_PIPELINE_POLL)
+            record = self.pipeline_run_status(rid, values=False)  # type: ignore[attr-defined]
+        record = self.pipeline_run_status(rid)  # type: ignore[attr-defined]  # with error messages
+        acts = record.get("activities") or []
+        mocked = sum(1 for a in acts if a.get("executed_by") == "mock")
+        what = f"{len(acts)} activit{'y' if len(acts) == 1 else 'ies'}" + (f", {mocked} mocked" if mocked else "")
+        if record["state"] == "succeeded":
+            return {"status": "ok", "message": f"{record['pipeline']} succeeded: {what}", "run_id": rid}
+        failed = next((a for a in acts if a.get("state") == "failed"), None)
+        why = f" {failed['name']}: {(failed.get('error') or {}).get('message') or 'failed'}" if failed else ""
+        return {"status": "failed", "message": f"{record['pipeline']} {record['state']}: {what}.{why}", "run_id": rid}
 
     def _run_meta_here(self, env: str, names: list[str] | None) -> dict[str, Any]:
         project = self._project()  # type: ignore[attr-defined]
@@ -425,9 +485,13 @@ class ScheduleMixin:
                         r["enabled"] = enabled
 
     def run_fabric_item_now(self, workspace_id: str, item_id: str, job_type: str, name: str,
-                            workspace_name: str = "") -> dict[str, Any]:
-        job_id = self.fabric_jobs.run_item_job(workspace_id, item_id, job_type)  # type: ignore[attr-defined]
+                            workspace_name: str = "", item_type: str = "") -> dict[str, Any]:
+        jobs = self.fabric_jobs  # type: ignore[attr-defined]
+        if item_type in jobs.EXECUTE_PATHS:  # a copy job or a dataflow: Data Factory, not Spark
+            job_id, engine = jobs.run_item_execute(workspace_id, item_id, item_type), "data_factory"
+        else:
+            job_id, engine = jobs.run_item_job(workspace_id, item_id, job_type), "spark"
         return self._log_fabric_run({"kind": "Scheduled item run", "name": name, "workspace_id": workspace_id,  # type: ignore[attr-defined]
                                      "workspace_name": workspace_name, "item_id": item_id, "job_id": job_id,
-                                     "engine": "spark"})
+                                     "engine": engine})
 

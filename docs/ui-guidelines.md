@@ -70,7 +70,10 @@ body.replaceChildren(withHowItWorks(content, howItWorks("platform.overview", {
 - Three short answers in plain words, then the guide link. Add more parts with `more: [["Undo", "..."]]` when a page needs them.
 - "What it changes" names anything that writes to Fabric or OneLake and says that it asks first.
 - The panel folds to its title and remembers that on the PC, so people who know the page can put it away.
-- It sits on the right, and moves under the content in a narrow window.
+- With **Beside the page**, it sits on the right, and moves under the content in a narrow window.
+- **On request** is the default for **Settings > Appearance > Layout > Explanations**: the panel leaves the page and opens as a drawer from the title bar's info button. That works for any panel made with `howItWorks`, so don't build a page's own toggle for it. A panel inside a Home card, a notebook side pane or query results starts folded to its title where it is, and a dialog's panel opens unfolded every time (showDialog), because it says what the dialog's button changes.
+- Write a page's one-line explanation of what it is for with `pageIntro(...)`, not a plain `p.sub`. On request it folds into the same drawer above the panel; a page with no panel gets an "About this page" drawer, and its Learn more link moves there. Keep facts and warnings (counts, a missing setup step) as plain `.sub` so they stay on the page.
+- Mark Preview features with `previewTag()` (or `preview`/`previewMarked`), never a tag of your own, so **Preview marks: Quiet dots** turns them into dots. A tag that's a direct child of an `h1` stays a full tag.
 
 ## Pop-out windows
 
@@ -84,6 +87,33 @@ A section people watch while they work elsewhere (a run list, a monitoring hub) 
 - The window's title is "KratosForge · *section title*", so it can be told apart on the taskbar.
 
 Adding a section today means listing it in three places: `POP_OUTS` in `main.rs` (its window title), `POP_OUT` in `app.js` and the section check in `listenForPopOuts` (`popout.js`). `startPopOut` opens Monitor; a section on another page moves that into a small registry (section, page, render) first, in its own pull request.
+
+## Action-first standard
+
+Each screen leads with its most valuable action, recommends a next step only from evidence, keeps every other permitted action reachable, and gives feedback for every action. The standard, review checklist, baseline and backlog are in [Action-first experience](ux/action-first.md). The shared code is `app/ui/actions.js`:
+
+```js
+defineAction({
+  id: "notebook.run_all", label: "Run all", icon: "play", contexts: ["notebook"],
+  risk: "moderate", where: "local", primary: true,
+  available: (ctx) => (ctx.busy ? "A run is already going." : true),   // a reason the person can read
+  run: (ctx) => runAll(),
+  done: (result) => ({ text: "Ran every cell", next: ["notebook.publish"] }),
+});
+
+defineRecommendation({
+  id: "notebook.warnings", contexts: ["notebook"], reason: "validation", basis: "verified",
+  action: "notebook.validate", when: (ctx) => (ctx.warnings ? { n: ctx.warnings } : null),
+  why: (e) => `${e.n} validation warnings to review before you publish`,
+});
+```
+
+- `risk` is `low`, `moderate` or `high`; `where` is `local`, `fabric` or `either`. A `high` action needs `confirm` (shown as a danger dialog) or `ownConfirm` naming the dialog that already asks; one with `spendsCapacity` needs `riskCheck` or `ownRiskCheck`. Without them `defineAction` throws when the app loads.
+- `available` is a hint for the screen. The engine still checks: an action that changes Fabric or data asks the engine first.
+- A page tells the framework what it knows with `provideActionContext(view, () => ({ ... }))`.
+- Every action is found by the command bar. `actionBar(ctx)` draws the primary button and a More menu; `nextSteps(ctx)` draws up to three recommendations; `runAction(id)` runs one with the checks above; `doneToast(text, nextIds)` ends with the next step.
+- Recommendations are ranked by `reason` alone (failure, safety, validation, unfinished, local, continue). Never add a score.
+- A recommendation's button says the action's `label` unless the recommendation gives its own `label` (text, or a function of the evidence), such as "Review warnings" for Validate.
 
 ## Words and help
 

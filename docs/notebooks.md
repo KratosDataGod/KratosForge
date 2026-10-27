@@ -284,14 +284,20 @@ The ribbon has four tabs:
 
 | Tab | What's on it |
 | --- | --- |
-| **Home** | Run all, Cancel, **Runs on**, Add data items, Save, Schedule (Preview), Recent runs (Preview), **Publish to OneLake** |
+| **Home** | Run all, Cancel, **Runs on**, **Check** (Side by side, Validate, Prove), Add data items, Save, **Share** (Save a copy, Versions, Export), Open in VS Code, **Schedule** (Schedule, Recent runs), **Publish to OneLake**. The buttons under Check and Schedule are also on the Run tab |
 | **Edit** | Add Code or Markdown cells, Move up or down, Split cell, Merge with below, Delete cell, Undo delete, **Parameter cell**, **Freeze**, Find and replace (every cell), Format notebook, Clear all outputs |
 | **Run** | Run all, Run cell, Run all above, Run cell and below, Run selected cells, Cancel, Runs on, Restart kernel, Restart and run all, Schedule, Recent runs |
 | **View** | Explorer, **Outline** (Markdown headings; click to jump), **Variables** (name, type, size and value of each variable, secrets hidden; click one to display it), collapse or expand all inputs and outputs, line numbers |
 
+**Run all** is the solid button: running is what you do most in a notebook. **Publish to OneLake** stays on the Home tab with its options arrow.
+
+**After a run.** When you run two or more cells on this PC, a line under the ribbon says how many ran and how long it took, or how many ran before the run stopped. It then offers the next step from what the run showed, with a button for each: **Go to the failed cell** when a cell failed, **Review warnings** (or **Review errors**) when Validate found some, **Save the notebook** when there are unsaved changes, and **Publish to OneLake** when a run of the whole notebook finished with every cell run. It recommends nothing it has no evidence for. Close the line with its **x**; the next run shows it again.
+
+The notebook's actions are in the command bar (Ctrl+K) too: Run all, Run the selected cell, Restart the kernel and run all, Validate, Save the notebook, Publish to OneLake, Run in Fabric and Go to the failed cell (Validate and Run in Fabric when Preview features are shown). One that can't run just now says why.
+
 A **Parameter cell** is the cell that pipelines and `notebookutils.notebook.run` pass values into, as in Fabric.
 
-**Parameters and widgets bar (Preview).** When a notebook has a parameter cell, or creates Databricks widgets with `dbutils.widgets`, a bar above the cells shows each value: the parameter cell's `name = value` lines (text, whole numbers, decimals and True/False) and each widget (text, dropdown, combobox and multiselect). Change a value there to run the notebook with it: when you run cells on this PC, the new values are set right after the parameter cell, as Fabric does with a run's parameters, and `dbutils.widgets.get` returns them from the start of every cell, including the cell that creates the widget. The notebook's code doesn't change, and the values are kept with the notebook on this PC. **Reset to code** puts back the values written in the code. A value that doesn't fit (a word where a whole number goes, a choice that isn't in the list) is shown in red and not used. The bar reads only values written as literals; a widget whose name or default is computed isn't listed. **Run in Fabric** and **Side by side** use the bar's values too: Fabric gets them as the run's parameters, which it sets right after the parameter cell, and side by side's run on this PC sets them as a run on this PC does. Widgets don't apply in Fabric, which has no `dbutils`. A value shown in red stops those runs before anything is published or started. Schedules and `notebook.run` use the code's values or the arguments they pass, not the bar's. A **frozen** cell can't be edited, run or deleted until you unfreeze it.
+**Parameters and widgets bar (Preview).** When a notebook has a parameter cell, or creates Databricks widgets with `dbutils.widgets`, a bar above the cells shows each value: the parameter cell's `name = value` lines (text, whole numbers, decimals and True/False) and each widget (text, dropdown, combobox and multiselect). Change a value there to run the notebook with it: when you run cells on this PC, the new values are set right after the parameter cell, as Fabric does with a run's parameters, and `dbutils.widgets.get` returns them from the start of every cell, including the cell that creates the widget. The notebook's code doesn't change, and the values are kept with the notebook on this PC. **Reset to code** puts back the values written in the code. A value that doesn't fit (a word where a whole number goes, a choice that isn't in the list) is shown in red and not used. The bar reads only values written as literals; a widget whose name or default is computed isn't listed. **Run in Fabric**, **Side by side** and **Prove this notebook** use the bar's values too: Fabric gets them as the run's parameters, which it sets right after the parameter cell, and the run on this PC sets them as a run on this PC does. A proof's receipt lists the parameters it ran with. Widgets don't apply in Fabric, which has no `dbutils`. A value shown in red stops those runs before anything is published or started. Schedules and `notebook.run` use the code's values or the arguments they pass, not the bar's. A **frozen** cell can't be edited, run or deleted until you unfreeze it, and every run of the notebook skips it, as Fabric does: Run all, schedules, pipeline steps, Validate, Prove, side by side, external tools' runs and `notebook.run`, `runMultiple` and `%run` from another notebook.
 
 ## Publish to OneLake
 
@@ -300,6 +306,7 @@ A **Parameter cell** is the cell that pipelines and `notebookutils.notebook.run`
 1. The first time, it asks which workspace (starting from the attached lakehouse's). The choice is saved in the notebook, so later publishes go straight there.
 2. The arrow next to **Publish** shows where it goes and has **Change workspace...**.
 3. The attached lakehouse stays the notebook's default lakehouse in Fabric, even when it lives in another workspace.
+4. Later publishes update the same Fabric notebook, found by its item id, so renaming it here or in Fabric doesn't make a second one. A rename here renames the Fabric notebook too; a rename in Fabric is kept. If that notebook was deleted in Fabric, publish updates one with the notebook's name in that workspace, or makes a new one, and says so.
 
 How it is published:
 
@@ -337,7 +344,7 @@ For either, choose **Repeat** (Every day, Some days of the week, or Every few mi
 
 ### Recent runs (Preview)
 
-**Recent runs** (Home or Run tab, or **Show this notebook's runs** in the command bar) opens a panel beside the cells with this notebook's last 50 runs, newest first, like Fabric's Recent runs. It lists:
+**Recent runs** (Home > Schedule, the Run tab, or **Show this notebook's runs** in the command bar) opens a panel beside the cells with this notebook's last 50 runs, newest first, like Fabric's Recent runs. It lists:
 
 - **This PC:** runs of the notebook's schedules on this PC, both on schedule and from **Run now**, including runs of a schedule you've since removed. **Details** shows when the run started and ended, how many cells ran, the result (for a failed run, which cell failed and why), and whether a failure's Teams alert couldn't be sent.
 - **Fabric:** runs this app started in Fabric for the notebook: **Run in Fabric**, **Prove this notebook**, **Side by side**, and **Run now** on its Fabric schedule in Monitor > Schedules. Once the app has published the notebook, its runs are matched by the Fabric item it was published to, so they stay listed after a rename and a same-named notebook in another workspace isn't mixed in; before that, by name in the notebook's publish workspace. Each says which workspace it ran in. **Open in Fabric** opens the notebook's page in Fabric, where its run history is.
@@ -378,7 +385,7 @@ The SQL query tab works like Fabric's. Open it with **SQL query** on a lakehouse
 | **Open in notebook** | Turns the query into `lakehouse.sql(...)` in a new notebook (Spark SQL only) |
 | **+** or **New SQL query** | Adds a query tab. Double-click a tab to rename it. |
 
-How it works: sqlglot translates your Spark SQL to DuckDB SQL, and DuckDB reads only the columns and files it needs from OneLake. Dates and times are worked out in UTC, as in Fabric's Spark, whatever this PC's time zone, so `year()` and `date_format()` give the same answer here as in Fabric. Each query runs in a process of its own with a time and memory limit (**Settings › SQL queries**). Queries only read; nothing in the lakehouse changes unless you **Save as table**. A query that would change a lakehouse table, a file on this PC or Fabric is refused before anything runs, and one that changes only its own session (a temp view) asks first. Query tabs, with their SQL and dialect, are kept per lakehouse between launches.
+How it works: sqlglot translates your Spark SQL to DuckDB SQL, and DuckDB reads only the columns and files it needs from OneLake. Dates and times are worked out in UTC, as in Fabric's Spark, whatever this PC's time zone, so `year()` and `date_format()` give the same answer here as in Fabric. Each query runs in a process of its own with a time and memory limit (**Settings › Advanced › SQL queries**). Queries only read; nothing in the lakehouse changes unless you **Save as table**. A query that would change a lakehouse table, a file on this PC or Fabric is refused before anything runs, and one that changes only its own session (a temp view) asks first. Query tabs, with their SQL and dialect, are kept per lakehouse between launches.
 
 ### Dialects
 
@@ -396,7 +403,7 @@ A query that runs here is not proof that it runs, or gives the same answer, in a
 
 ### Compatibility (preview)
 
-As you type, the query is checked against the engine picked in the dialect list, without running it: things that engine doesn't support are underlined, and the **Compatibility** panel beside the editor lists every finding with why, what to do, its confidence and its Microsoft source. **Export JSON** saves the report. See [SQL compatibility check](sql-compatibility.md).
+As you type, the query is checked against the engine picked in the dialect list, without running it: things that engine doesn't support are underlined, and the **Compatibility** panel beside the editor (it opens by itself for an error, a warning or SQL it couldn't verify, or from the chip beside **Format SQL**) lists every finding with why, what to do, its confidence and its Microsoft source. **Export JSON** saves the report. See [SQL compatibility check](sql-compatibility.md).
 
 ### Editor
 

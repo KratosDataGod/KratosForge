@@ -75,7 +75,8 @@ def releases(target: Store) -> list[dict[str, Any]]:
     return out
 
 
-def rollback(project: Project, target: Store, version: str, by: str | None = None) -> dict[str, Any]:
+def rollback(project: Project, target: Store, version: str, by: str | None = None,
+             object_id: str | None = None) -> dict[str, Any]:
     """Put ``target``'s environment back on an earlier release it ran, from the files it keeps.
 
     Nothing is copied from Dev, Git or the project folder: the environment's own copy of that
@@ -97,7 +98,7 @@ def rollback(project: Project, target: Store, version: str, by: str | None = Non
     if errors:
         raise GateError("rollback", errors)
     released = snapshot.restore(project, target, version)  # proves the files add up before anything is written
-    body = release_mod.rollback_record(released, target.env, version, current, earlier, by)
+    body = release_mod.rollback_record(released, target.env, version, current, earlier, by, object_id)
     row = {"env": target.env, "version": version, "source_env": target.env,
            "at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")} | release_mod.deployment_columns(body)
     target.meta_append("deployments", [row])

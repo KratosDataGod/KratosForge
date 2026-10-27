@@ -55,6 +55,19 @@ function dropEditor(cell) {
 
 // ---------- the screen ----------
 
+// A Home ribbon menu (UX cleanup, Cleaner KratosForge): buttons that each stay one click away on
+// the Run tab or in their own place are grouped behind one button, as they are (menuNode in app.js).
+// items(menu) is called on each open, so the menu always shows the current state; the button reads as
+// on while anything in it is on, and isn't shown when none of its buttons are (Preview features hidden).
+function ribbonMenu(label, iconName, items, title) {
+  const now = items(null).filter(Boolean);
+  if (!now.length) return null;
+  const on = now.some((b) => b.getAttribute("aria-pressed") === "true");
+  return h("button", { class: `tool${on ? " toggled" : ""}`, "aria-haspopup": "menu", "aria-expanded": "false", title, "data-menu-key": `ribbon-${label}`,
+    onclick: (e) => { const menu = e.currentTarget; showMenu(menu, items(menu).filter(Boolean)); } },
+  icon(iconName, 16), label, icon("chevronDown", 14));
+}
+
 function renderNotebook() {
   const nb = state.notebook;
   if (!nb) return go("home");
@@ -68,7 +81,7 @@ function renderNotebook() {
     onclick: () => { state.ribbonTab = t; renderNotebook(); },
   }, t[0].toUpperCase() + t.slice(1)));
 
-  const runAllBtn = btn("Run all", "play", runAll, "tool", { disabled: busy, "data-run": true });
+  const runAllBtn = btn("Run all", "play", runAll, "tool primary", { disabled: busy, "data-run": true });
   runAllBtn.querySelector("svg").classList.add("play");
   const cancelBtn = btn("Cancel", "stop", cancelRun, "tool", { disabled: !busy, "data-stop": true,
     title: "Stop the running cell. Variables from earlier cells are kept." });
@@ -85,13 +98,18 @@ function renderNotebook() {
     btn(label, iconName, onClick, `tool${on ? " toggled" : ""}`, { "aria-pressed": String(!!on), ...attrs });
 
   const toolbars = {
-    home: [runAllBtn, cancelBtn, computeBtn, sbsToggle(nb), validateToggle(nb), proveToggle(nb), h("div", { class: "sep" }), btn("Add data items", "lakehouse", openDataItems),
+    home: [runAllBtn, cancelBtn, computeBtn, ribbonMenu("Check", "ok", () => [sbsToggle(nb), validateToggle(nb), proveToggle(nb)],
+        "Side by side, Validate and Prove (also on the Run tab)"),
+      h("div", { class: "sep" }), btn("Add data items", "lakehouse", openDataItems),
       h("div", { class: "spacer" }), notebookDataChip(nb), gitNotebookChip(nb), btn("Save", "save", () => saveExplicitly(() => document.querySelector("button[data-save]")), "tool", { "data-save": true }),
-      btn("Save a copy", "add", () => nbSaveCopyDialog(nb.name)), btn("Versions", "history", nbVersions), nbfExportButton(),
-      preview("schedules", btn("Schedule", "history", scheduleNotebook, "tool")), runsToggle(nb),
-      h("div", { class: "split" }, btn("Publish to OneLake", "publish", publishNotebook, "tool primary",
+      ribbonMenu("Share", "arrowUpload", (menu) => [btn("Save a copy", "add", () => nbSaveCopyDialog(nb.name)), btn("Versions", "history", nbVersions), nbfExportButton(menu)],
+        "Save a copy, Versions and Export"),
+      vscodeButton(nb),
+      ribbonMenu("Schedule", "history", () => [preview("schedules", btn("Schedule", "history", scheduleNotebook, "tool")), runsToggle(nb)],
+        "Schedule this notebook and see its recent runs (also on the Run tab)"),
+      h("div", { class: "split" }, btn("Publish to OneLake", "publish", publishNotebook, "tool outline",
         { title: nb.workspace?.workspace_id ? `Publish to ${nb.workspace.workspace_name}` : "Publish to a Fabric workspace you pick" }),
-      h("button", { class: "tool primary split-more", "aria-label": "Publish options", title: "Publish options",
+      h("button", { class: "tool outline split-more", "aria-label": "Publish options", title: "Publish options",
         onclick: (e) => showMenu(e.currentTarget, publishMenu(nb)) }, icon("chevronDown", 14)))],
     edit: [btn("Code", "add", () => addCell("code")), btn("Markdown", "add", () => addCell("markdown")),
       h("div", { class: "sep" }), btn("Move up", "up", () => moveCell(-1)), btn("Move down", "down", () => moveCell(1)),
@@ -118,7 +136,7 @@ function renderNotebook() {
         if (!on) state.explorerTab = "outline";
         renderNotebook();
       }),
-      toggleBtn("Variables", "braces", state.showVariables, toggleVariables), depsToggle(), commentsToggle(nb),
+      toggleBtn("Variables", "braces", state.showVariables, toggleVariables), depsToggle(), commentsToggle(nb), practicesToggle(nb),
       h("div", { class: "sep" }),
       btn("Collapse all inputs", "up", () => setAll("source_hidden", true)), btn("Expand all inputs", "down", () => setAll("source_hidden", false)),
       btn("Collapse all outputs", "up", () => setAll("outputs_hidden", true)), btn("Expand all outputs", "down", () => setAll("outputs_hidden", false)),
@@ -139,8 +157,9 @@ function renderNotebook() {
   setView(
     h("div", { class: "ribbon" }, h("div", { class: "ribbon-tabs", role: "tablist", "aria-label": "Ribbon" }, tabs),
       h("div", { class: "toolbar" }, toolbars[state.ribbonTab])),
+    ...[nbNextLine(nb)].filter(Boolean),  // replaceChildren would write "null"
     h("div", { class: "nb-body" }, state.showExplorer ? renderExplorer() : null, cells,
-      state.showVariables ? renderVariables() : null, commentsPanel(nb), runsPanel(nb), provePanel(nb), validatePanel(nb)),
+      state.showVariables ? renderVariables() : null, commentsPanel(nb), practicesPanel(nb), runsPanel(nb), provePanel(nb), validatePanel(nb)),
     h("footer", { class: "statusbar" },
       h("span", {}, h("span", { class: `dot ${state.kernel}` }), kernelLabel()),
       sessionsButton(), environmentButton(nb),
@@ -428,7 +447,7 @@ function statusLine(cell) {
   const s = cell.status;
   const label = { queued: ["busy", "Queued"], running: cell.paused ? ["busy", "Paused"] : ["busy", "Running"], ok: ["ok", "Succeeded"],
     error: ["bad", "Failed"], stopped: ["bad", "Stopped"], cancelled: ["bad", "Cancelled"] }[s];
-  return h("div", { class: "cell-status", "data-s": s }, h("span", { class: label[0] }, label[1]),
+  return h("div", { class: "cell-status", "data-s": s, "data-where": isFabricStep(cell) ? "fabric" : null }, h("span", { class: label[0] }, label[1]),
     s === "running" && cell.seconds != null ? h("span", {}, `${cell.seconds.toFixed(1)} s`) : null,
     s === "running" && cell.progress != null ? h("span", { class: "cell-progress", title: "How far the running query is" },
       h("progress", { max: 100, value: cell.progress, "aria-label": "Query progress" }), `Query ${Math.floor(cell.progress)}%`) : null,
@@ -1504,9 +1523,12 @@ async function runCells(cells) {
   const started = performance.now();
   const done = (ran) => {
     if (code.length < 2) return;
-    nb.lastRun = { ran, of: code.length, seconds: (performance.now() - started) / 1000 };
+    // whole: the run covered every cell Run all would run, not a selection (nbnext.js offers Publish only then).
+    const whole = nb.cells.filter((c) => c.type === "code" && c.source.trim() && !c.meta?.frozen).length === code.length;
+    nb.lastRun = { ran, of: code.length, seconds: (performance.now() - started) / 1000, whole };
     const el = state.notebook === nb && document.querySelector(".statusbar .last-run");
     if (el) el.textContent = nbLastRunText(nb.lastRun);
+    refreshNbNextLine(nb);  // nbnext.js: the next step after the run
   };
   code.forEach((c) => { c.status = "queued"; c.outputs = []; });
   setKernel("busy", nb);

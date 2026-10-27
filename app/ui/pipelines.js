@@ -267,6 +267,8 @@ function plPill(verdict) {
 
 async function renderPipelines() {
   if (plPage.area === "connections") return renderDfConnections();
+  if (plPage.area === "copyjobs") return renderDfCopyJobs();
+  if (plPage.area === "dataflows") return renderDfDataflows();
   const p = plPage.pipeline;
   if (!p) {
     setView(h("div", { class: "page" }, dfAreaTabs(), h("h1", {}, "Pipelines ", previewTag()),
@@ -327,7 +329,7 @@ function plGraph(p, verdicts, problems) {
       onclick: () => { plPage.selected = a.path; render(); } },
       h("b", {}, a.name), h("span", { class: "muted-text" }, entry.title || a.type),
       plAfter(a) ? h("span", { class: "muted-text small" }, plAfter(a)) : null,
-      kids.map(([branch, list]) => h("span", { class: "pl-inner" }, h("span", { class: "muted-text small" }, plBranch(branch)),
+      kids.map(([branch, list]) => h("span", { class: "pl-inner" }, h("span", { class: "muted-text small" }, plBranch(branch, a.case_values)),
         list.map((k) => h("span", { class: "pl-inner-row" }, k.name, " ", plPill(verdicts.get(k.path) || "here"))))),
       a.inactive ? h("span", { class: "pill-s neu" }, "Inactive") : plPill(verdicts.get(a.path) || "here"));
   };
@@ -340,9 +342,13 @@ function plGraph(p, verdicts, problems) {
   return [graph, sel ? plDetail(sel, verdicts.get(sel.path), problems) : null];
 }
 
-function plBranch(branch) {
+// A container's branch as people say it. Switch cases come from the engine as cases[0], cases[1] ...
+// and read as their value, as in Fabric: Case "emea". A case with no text value reads Case 1.
+function plBranch(branch, values = []) {
+  const c = /^cases\[(\d+)\]$/.exec(branch);
+  const value = c ? values[Number(c[1])] : null;
   return { activities: "Each item:", ifTrueActivities: "If true:", ifFalseActivities: "If false:", defaultActivities: "Default:" }[branch]
-    || (branch.startsWith("case ") ? `${branch}:` : `${branch}:`);
+    || (c ? (typeof value === "string" ? `Case "${value}":` : `Case ${Number(c[1]) + 1}:`) : `${branch}:`);
 }
 
 function plDetail(a, verdict, problems) {
@@ -637,7 +643,7 @@ async function renderPipelineRun() {
   if (!plPage.run || plPage.run.run_id !== id) {
     setView(h("div", { class: "page" }, loading("Reading the run...")));
     const run = await attempt(() => rpc("pipeline_run_status", { run_id: id }), "Could not read the run");
-    if (!run || plPage.runId !== id) return;
+    if (!run || plPage.runId !== id) { if (plPulse === id) plPulse = null; return; }  // a run never drawn never pulses later
     plPage.run = run;
     if (state.view !== "pipelineRun") return;
   }
@@ -742,5 +748,9 @@ registerFeature({
     { label: "Open a pipeline", icon: "flow", keywords: "pipeline fabric data factory run local datapipeline", run: () => pipelineOpenDialog() },
     { label: "Data Factory connections", icon: "flow", keywords: "connection gateway fabric data factory used by missing",
       run: () => { plPage.area = "connections"; go("pipelines"); } },
+    { label: "Copy jobs", icon: "flow", keywords: "copy job fabric data factory ingest incremental cdc",
+      run: () => { plPage.area = "copyjobs"; go("pipelines"); } },
+    { label: "Dataflows", icon: "flow", keywords: "dataflow gen2 power query m fabric data factory refresh",
+      run: () => { plPage.area = "dataflows"; go("pipelines"); } },
   ],
 });

@@ -145,6 +145,12 @@ class Entity:
     def surrogate_key(self) -> str | None:
         return self.spec.get("scd", {}).get("surrogate_key")
 
+    @property
+    def date_column(self) -> str | None:
+        """The date column that makes this dimension the semantic model's date table ([model] date_column)."""
+        model = self.spec.get("model")
+        return (model.get("date_column") or None) if isinstance(model, dict) else None
+
     def logic_hash(self) -> str:
         logic = {k: self.spec.get(k) for k in LOGIC_KEYS}
         for section, key in OPERATIONAL_KEYS:  # how a run reads, not what it produces
@@ -534,6 +540,16 @@ def validate(project: Project, today: dt.date | None = None) -> list[str]:
                 errors.append(f"{e.name}: dimensions need a business key in [contract] keys")
             if e.mode == "scd2" and not s.get("scd", {}).get("tracked"):
                 errors.append(f"{e.name}: Type 2 dimensions need [scd] tracked columns")
+        model = s.get("model", {})
+        if not isinstance(model, dict) or not isinstance(model.get("date_column", ""), str):
+            errors.append(f'{e.name}: [model] date_column names a date column, like date_column = "date"')
+        elif e.date_column:
+            if e.mode not in ("scd1", "scd2") or not e.surrogate_key:
+                errors.append(f"{e.name}: [model] date_column is for a dimension (scd1 or scd2 with a surrogate key), "
+                              "which facts relate to")
+            elif str(e.columns.get(e.date_column, "")).lower() not in ("date", "datetime"):
+                errors.append(f"{e.name}: [model] date_column {e.date_column} must be a contract column of type date "
+                              "or datetime")
         files = s.get("source", {}).get("files", "") or s.get("source", {}).get("landing", "")
         if files and (Path(files).is_absolute() or re.match(r"^[A-Za-z]:", files)):
             errors.append(f"{e.name}: source path {files} only exists on this PC; put the files in the "

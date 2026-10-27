@@ -43,9 +43,12 @@ Last checked against `main` c9874896 (2026-10-23). Nothing in this pack has been
 | The app | `login.microsoftonline.com` | Sign-in | When someone signs in or a token renews | Microsoft identity platform; Windows account broker |
 | The app | `api.fabric.microsoft.com`, `onelake.dfs.fabric.microsoft.com`, `api.powerbi.com`, `graph.microsoft.com` | Fabric items, jobs, OneLake files and tables, semantic models, people lookups | When someone uses those features | HTTPS with the person's token; writes are version-checked and ask first where they replace data |
 | The app | `app.fabric.microsoft.com`, `app.powerbi.com`, Microsoft sign-in hosts, and any identity provider hosts IT lists in `fabric_view_sign_in_hosts` | Fabric's own pages, shown inside the app | When someone opens them | The embedded view opens only those hosts over `https`; every other link opens in the default browser. SmartScreen stays on. Its cookies are encrypted with Windows DPAPI |
-| The app | `github.com` and its release hosts | Update check and downloads | Each time the app starts, unless the policy turns updates off | SHA-256 checked against the release's `version.json`; not yet signed |
+| The app | `pypi.org`, `files.pythonhosted.org` (or the organization's own package index) | Python packages | When someone runs `%pip install` or sets up an environment, or a build without a bundled engine installs its engine | pip's HTTPS; the engine's own packages are pinned to the versions in `sidecar/constraints.txt` |
+| The app | `github.com` and its release hosts (`objects.githubusercontent.com`, `release-assets.githubusercontent.com`; `codeload.github.com` for a build without a bundled engine), or IT's own engine folder (`engine_download_url`) | Update check and downloads | Each time the app starts, unless the policy turns updates off | SHA-256 checked against the release's `version.json`; not yet signed |
 | The app | The organization's central lakehouse (`FabricDesktop_Central`) | Optimization results and other organization-wide tables | Only after someone connects it and agrees to each first write | The person's token; `allow_optimize_lakehouse: false` turns it off |
 | The app | `onelake.table.fabric.microsoft.com` | Lists of OneLake tables and their schemas | When someone browses lakehouse tables | HTTPS with the person's token; reads only |
+| The app | `*.kusto.fabric.microsoft.com` (the workspace's monitoring Eventhouse) | Fixed read-only KQL queries for one warehouse | Only when someone opens a warehouse's Monitoring tab | The person's Kusto token, sent only to an address of exactly that form read from Fabric |
+| The app | The person's Databricks workspace (`*.azuredatabricks.net`) | SQL statements, cancel, EXPLAIN, Unity Catalog lists | Only after the person confirms a session on that warehouse | A token from the Databricks CLI or a service principal secret reference, held in memory only |
 | The app | The person's own Git remotes (Azure DevOps, GitHub, GitLab, Bitbucket or another host they add) | Notebook and item source they push or pull | Only when someone connects a repository and pushes, pulls or clones | Git's own HTTPS sign-in to that host |
 | Notebooks run on the PC | `{vault}.vault.azure.net`, plus Kusto, storage and Power BI token audiences | Secrets and tokens the notebook asks for (`notebookutils.credentials`) | Only when notebook code calls `getSecret` or `getToken` | The person's own token for that resource |
 | Notebooks run on the PC | Any host the notebook's own code calls | Whatever that code sends | When the notebook runs | Same as any script the person runs; the app doesn't filter it |
@@ -64,7 +67,7 @@ These are the flows the app itself starts, from the hosts named in its source co
 | SHA-256 checksums | `version.json` on each release | Enforced by the app for the exe and the engine |
 | Dependency scanning | `pip-audit` and `cargo audit` in CI on every pull request | In place |
 | Pinned dependencies | `sidecar/constraints.txt`, `Cargo.lock` with `--locked` | In place |
-| Pinned CI actions | Third-party actions in `ci.yml` pinned by commit | In place; two smaller workflows still pin by tag (SH-8) |
+| Pinned CI actions | Every action in every workflow pinned by commit | In place (SH-8 closed) |
 | Code signing | Authenticode via Azure Trusted Signing | **Not in place**: needs the signing account |
 
 ## Still open

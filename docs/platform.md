@@ -64,8 +64,8 @@ Inside the platform:
 | Who | Can change |
 | --- | --- |
 | **Platform admins** | Domains, business key tables, landing zone sources, shared glossary terms, governance policies and their exceptions, shortcut rules and accepted shortcut risks ([shortcuts.md](shortcuts.md#accept-a-crossed-environment)), the list of admins, and every request |
-| **A domain's owners** (set on the domain) | Their domain's glossary terms, and which governance policies apply to their domain (tightening only) |
-| **A data product's owner** | Who else may read their product (access requests) |
+| **A domain's owners** (set on the domain) | Requests for a new data product from their domain, their domain's glossary terms, and which governance policies apply to their domain (tightening only) |
+| **A data product's owner** | Who else may read their product (access requests), and requests for a change to it |
 | **Everyone** | Catalog text (descriptions, tags, classification), their own products and links, and requests |
 
 The platform checks these itself on every call, as the person Fabric says is calling (a user data function reads the caller from Fabric, never from what the app sends). The app hides buttons you can't use, but that's only a convenience. Whoever sets the platform up is its first admin; a platform with no admin lets the first person who signs in claim it on **Platform > Settings**, and always keeps at least one. Admins are kept in each environment's `SQL_Platform`; adding or removing one on the Platform page changes all of them.
@@ -75,6 +75,8 @@ Every change is recorded with who made it and when (**Platform > Audit**). Actio
 ## The Platform page
 
 The rail's **Platform** page is the central team's home, and the same screens show every other team what the platform offers.
+
+Its tabs are **Overview**, **Requests** (with how many are waiting), **Set up** (a menu of **Landing zone**, **Business keys**, **Domains** and **Glossary**), **Govern** (a menu of **Governance** and **Audit**) and **Settings**. On a page from a menu, the tab names it, for example **Set up: Domains**. In these docs, **Platform > Business keys** means Set up > Business keys.
 
 - **Overview:** counts, requests that need you, each environment's platform, landing zone sources (late ones first in red) and recent changes.
 - **Landing zone:** each source in `LH_Landing` for the environment picked at the top: its entities, newest files, last arrival, how often it's expected and which projects read it. A source that hasn't arrived within its expected hours (plus a quarter) shows **late**. Folders in the landing zone that no admin registered show **not registered**.
@@ -98,6 +100,7 @@ What only someone else may give is asked for, not taken:
 | **Access to a workspace** (Preview): a role (Viewer, Contributor, Member or Admin) for you or a group | Platform > Requests > New request | A platform admin | Gives the person or group the role, as the person approving (or changes the role they have) |
 | **A domain** or subdomain (Preview): name, parent, description, owners | Platform > Requests > New request | A platform admin | Creates it in Fabric, as the person approving, and keeps it in the platform linked to it, where every team sees it. That needs a Fabric administrator: if Fabric refuses, the request stays waiting, and a Fabric administrator can approve it, or the approver can create it in the platform only (**Domains > New domain** without **Also create it in Fabric**) and approve again. A name Fabric already has fails with a hint to **Import from Fabric**. A subdomain whose parent isn't in Fabric is saved in the platform only |
 | **An exception to a governance policy** (Preview): the policy, a project, domain or workspace, until when (a year at most) and why | Platform > Requests > New request, or a policy's **Where it applies > Ask for one** | A platform admin | Records the exception in the platform's catalog (`catalog.policy_exception`), in the audit and in the policy's history. Where the policy is resolved for that place, it shows **Excepted until <date>: <why>** instead of applying. It ends on its own on its date |
+| **Data from another team** (Preview): a new data product from a domain, or a change to a product, what it's for and an optional date it's needed by | Platform > Requests > New request, OneLake > Data products > **Ask for data**, or a product's page > **Ask for a change** | The domain's owners for a new product, the product's owner for a change (or a platform admin) | Nothing is made. **Accept** asks for a reply saying how and when the team will do it, and the person who asked sees it on the request. A platform made before this answers that it's older than the app: a platform admin runs **Finish or repair** once |
 
 Every field is checked when the request is sent: a workspace name Fabric wouldn't take, a role that isn't one, an admin who isn't an email, UPN or object ID, a domain that's already there, a date past a year: the request is refused then, not on approval. Approving makes what was asked for first, as the person approving, and only then marks the request approved, after **Approve** says what will be made. If a step fails, the request stays waiting and the error names the step. A workspace request remembers what it already made (the workspace, and which admins were added), and the workspace's description names the request, so approving again carries on instead of making a second one; a workspace of the same name that the request didn't make is never taken over.
 
@@ -105,7 +108,7 @@ Who may decide a request is checked by the platform itself. For workspace access
 
 After this update, a platform admin runs **Platform > Settings > Finish or repair** once, so `UDF_Platform` knows the new kinds and has `record_request_progress` and `list_policy_exceptions`. Until then, sending one of these says so.
 
-Each request records who sent it, why, who decided and a note. A request can be withdrawn while it waits. A product owner can take access away again; existing links stay in the project but no new link is allowed.
+Each request records who sent it, why, who decided and a note. A request can be withdrawn while it waits. A product owner or a platform admin can take access away again on the product's page (**OneLake > Data products >** the product **> Access given > Take access away**, Preview), after a confirm. Existing links stay in the project and their runs keep reading, but no new link is allowed until the project asks again. To stop reads too, remove the project's OneLake data access role on the Product workspace.
 
 ### Notices to Teams (Preview)
 
@@ -158,6 +161,8 @@ In this release:
 - In Fabric, if the catalog's `UDF_Platform` is older than landing zones, choose **Finish or repair** for Prod in **Platform > Settings** first, so it has the new functions; until the Shared zone is in the catalog, nothing changes.
 
 Other PCs pick up the landing workspace the first time they open **Platform > Landing zone**; an organization that sets the platform in `policy.json` adds it there as `platform.landing` (`workspace_id`, `workspace_name`, `lakehouse_id`). **New landing zone** creates its lakehouse in the landing workspace and needs the workspace set up first. Creating the workspace and lakehouses uses the Fabric permissions sign-in already asks for (`Workspace.ReadWrite.All`, `Item.ReadWrite.All`), and reading and writing the zones in OneLake uses capacity.
+
+Zones and each source's zone can also be kept in a [platform repository](source-control.md#platform-repository) (`landing_zones/<id>.toml`, and `zone` in `sources/<code>.toml`). Its deploy creates missing zones the same way **New landing zone** does, never removes one, and never switches reads: that stays the manual step above.
 
 ## One list of source systems (Preview)
 

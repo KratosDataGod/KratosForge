@@ -140,6 +140,9 @@ With a platform Teams route set (**Settings > Notifications**), KratosForge post
 | A health check on **Shortcuts > Health** finds a shortcut broken, or fixed again | `shortcut.broken`, `shortcut.fixed` | Platform admins |
 | A data product is published as deprecated, or with a new `deprecated_on` (see [Data mesh](data-mesh.md#data-products)) | `product.deprecated` | The teams of the projects that link to it, and whoever saved each link |
 
+| Someone presses **Tell them** under **Who's affected** on an incident page ([user guide](user-guide.md#whos-affected-preview)) | `incident.impact` | The owners of the data products built on the incident's table, people who linked a project to them, and followers |
+| A promote to Prod deprecates a data product, changes its version, or adds, removes or retypes a port's columns (Preview) | `product.changed` | The product's followers and whoever linked a project to it. The message says what changed; a deprecation already sent as `product.deprecated` isn't repeated |
+
 - **Only what the channel may read.** A message names the request or shortcut and where to open it in the app. A request's reason and detail stay in the app. People are named by UPN. Anything that looks like a secret, a webhook address among them, is masked before it's stored or posted.
 - **Once each.** A request waiting, or a shortcut that stays broken, is posted once. A fix is posted only after its break was. A deprecation is posted once per date.
 - **Never in the way.** The request or check is made first. If the notice can't be sent, the change still stands and the app says the notice wasn't sent. Messages Teams doesn't take wait in the outbox and go out later.

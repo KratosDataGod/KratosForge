@@ -5,8 +5,8 @@ Azure Databricks, or both. This page describes the two foundations that work is 
 they can do today, and what is planned. **Nothing on this page has a screen in the app yet**: it
 is the engine underneath, built and tested first so the screens can't promise more than it does.
 
-- An **engine** is what runs a notebook cell: Python on this PC, DuckDB, SQLite, Polars, and
-  later Fabric Spark, Databricks Connect and Databricks SQL warehouses.
+- An **engine** is what runs a notebook cell: Python on this PC, DuckDB, SQLite, Polars and
+  a Databricks SQL warehouse (Preview, tested against fakes), and later Fabric Spark and Databricks Connect.
 - A **connection profile** says which platforms a piece of work uses, where, how it signs in,
   which engine it runs on by default, and whether it may start remote compute.
 
@@ -26,18 +26,19 @@ refuses to register an engine that claims more than it has an adapter and tests 
 ### Compatibility matrix
 
 "Tested" means automated tests in this repository, on Linux and Windows CI, with no cloud. Nothing
-here has run against a Fabric tenant or a Databricks workspace.
+here has run against a Fabric tenant or a Databricks workspace yet: the Databricks SQL warehouse
+engine is tested against fakes of Databricks' documented APIs, and stays Preview until it has.
 
 | Engine | Where it runs | Languages | SQL | Cancel | Plan | Variables | Billed | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Python (this PC) | This PC, its own process | Python native; PySpark simulated | (use a SQL engine) | Native | No | Native | Nothing | Tested |
-| DuckDB (this PC) | This PC | SQL | DuckDB native; Spark SQL translated | Native | Native | No | Nothing | Tested |
+| DuckDB (this PC) | This PC | SQL | DuckDB native; Spark SQL and Databricks SQL translated | Native | Native | No | Nothing | Tested |
 | SQLite (this PC) | This PC | SQL | SQLite native | Native | Native | No | Nothing | Tested |
 | Polars SQL (this PC) | This PC | SQL | Polars SQL partial | **No** (the query finishes) | Native | No | Nothing | Tested |
 | Apache Spark (this PC) | This PC | none yet | none yet | | | | Nothing | Planned |
 | Fabric Spark (remote) | Fabric capacity | none yet | none yet | | | | Fabric capacity | Planned, Preview |
 | Databricks Connect (remote) | Databricks compute | none yet | none yet | | | | DBUs | Planned, Preview |
-| Databricks SQL warehouse (remote) | Databricks | none yet | none yet | | | | DBUs | Planned, Preview |
+| Databricks SQL warehouse (remote) | Your Databricks SQL warehouse | SQL | Databricks SQL native | Native | Partial (EXPLAIN on the warehouse) | No | DBUs | Preview, tested against fakes |
 
 Engines on this PC bill nothing themselves. **Reading or writing OneLake from this PC still uses
 Fabric capacity**, so "runs on this PC" never means "uses no capacity".
@@ -45,6 +46,43 @@ Fabric capacity**, so "runs on this PC" never means "uses no capacity".
 A session's database file (an existing DuckDB or SQLite file) is opened read-only. Each session is
 its own in-memory database or Python process: two notebooks never see each other's tables or
 variables, and closing a session frees everything it held.
+
+A SQL session never reaches past its own database. DuckDB refuses COPY, EXPORT, ATTACH, INSTALL and
+LOAD before anything in the cell runs (the same statements the SQL query page refuses), and its
+connection can't read or write files on this PC, load extensions or reach the network at all.
+SQLite refuses ATTACH and DETACH, so a cell can't create or open another database file. Polars
+reads the files a cell names with read_parquet or read_csv, and never writes one.
+
+The Python engine uses the notebook's own session (the same process **Stop** ends), so it needs
+**Run notebooks in their own process** turned on in Settings. With it off every notebook shares one
+kernel, and a notebook sharing another notebook's session shares its process too; in both cases the
+engine says what to change instead of running.
+
+## Databricks SQL warehouse (Preview)
+
+SQL cells can run on a Databricks SQL warehouse in your workspace, through Databricks' documented
+Statement Execution API. A cell may hold several statements; they run in order and the last one's
+result is shown, with the warehouse's exact row count. **Cancel** stops the statement on the
+warehouse. **Catalog** lists Unity Catalog catalogs, schemas and tables without starting the
+warehouse. **Plan** runs EXPLAIN on the warehouse.
+
+- **It bills DBUs.** A statement sent to a stopped warehouse starts it, and a running warehouse
+  bills Databricks units until its own auto-stop. KratosForge never stops your warehouse and never
+  sends a cell there without your confirmation or your profile's policy.
+- **Sign-in** comes from where you already keep it: a Databricks CLI profile (signed in with
+  `databricks auth login`, or holding a service principal or personal access token), browser
+  sign-in through the Databricks CLI, or a service principal whose secret is an `env:` or `credman:`
+  reference. The token stays in memory for the session and is never written anywhere.
+- **Cells can change data.** Once the session is open, a cell's CREATE, INSERT, MERGE or DROP runs
+  on the warehouse with no further confirm, as in a Databricks notebook. The confirm is for starting
+  the session, not for each statement.
+- **Try it on this PC first.** The DuckDB engine runs Databricks SQL translated by sqlglot, so you can
+  write and test a warehouse query against local tables without starting the warehouse. Unity
+  Catalog three-part names need that catalog and schema in the local session, and Delta-only
+  commands don't run there.
+- **Limits:** a statement still running after two hours is cancelled. Results come back inline, so the warehouse refuses one over 25 MB (add a LIMIT), and
+  only the first result chunk is previewed. Billed DBUs are in Databricks' system billing tables,
+  per warehouse and hour, so the engine reports measured seconds only.
 
 ## Switching engines
 
@@ -127,8 +165,9 @@ and outputs stay. A notebook with unsaved changes must be saved or discarded fir
 ## Not yet
 
 - No screens: the notebook's engine picker and profile setup come next, after a mockup.
-- No Databricks sign-in, workspace discovery or execution yet; those need the Databricks SDK and
-  will be labeled Preview until tested against a live workspace.
+- Databricks SQL warehouses sign in through the Databricks CLI or a service principal and run SQL
+  through the Statement Execution API, tested against fakes only. Databricks workspace discovery and
+  Databricks Connect aren't built yet, and stay Preview until tested against a live workspace.
 - Databricks Connect will run in its own Python environment: it ships its own PySpark, which would
   otherwise change what `spark` means in every local notebook. Its version is checked before
   anything starts (Databricks Runtime 16.4 or later, or serverless, for this app's Python 3.12).

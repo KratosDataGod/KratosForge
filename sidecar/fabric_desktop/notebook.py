@@ -42,7 +42,7 @@ from typing import Any, Callable, Iterator
 
 import pyarrow as pa
 
-from . import chart_output
+from . import chart_output, notebook_cells
 from . import notebook_resources
 from . import magics
 from . import history
@@ -306,6 +306,11 @@ class _Run:
         self.guest: str | None = None  # the notebook whose cell this is, in a shared session (Kernel.as_guest)
         self.notebook = ""  # its name, for the other notebooks in the session
         self.done = threading.Event()
+        # Cancel only interrupts the cell's thread once it is inside _execute's handlers (``armed``).
+        # A Cancel before that sets ``cancel_requested``, and the thread stops itself when it arms.
+        self.cancel_lock = threading.Lock()
+        self.armed = False
+        self.cancel_requested = False
         self.watches: list[dict[str, Any]] | None = None
         self._reset()
         self.debugger: Any = None  # debugger.Debugger when the cell runs with breakpoints
@@ -603,6 +608,9 @@ class Kernel:
         # "local_first": a cell's lakehouse writes upload in the background and the cell waits for
         # them at its end (write_queue); "direct": each write_table returns once it is in OneLake.
         self.onelake_writes = "local_first"
+        # Set before each cell (service._start_cell); asked before every write the cell makes, by
+        # the cell's thread (lakehouse.cell_write_checks). None for the app's own cells.
+        self.write_check: Any = None
         self._writes: Any = None
         self._current: _Run | None = None
         self._widget_lock = threading.Lock()
@@ -918,6 +926,9 @@ class Kernel:
         self._current = self._last_runs[run.guest] = run
         run.thread = threading.Thread(target=self._execute, args=(code, run, list(watches or [])), daemon=True,
                                       name=f"cell-{self.count}")
+        if self.write_check is not None:
+            from . import lakehouse
+            lakehouse.cell_write_checks[run.thread] = self.write_check
         run.thread.start()
         return run.snapshot()
 
@@ -952,13 +963,14 @@ class Kernel:
         with contextlib.suppress(Exception):
             from . import spark_local
             spark_local.interrupt()
-        # A cell that was just started may not have its thread running yet (no ident): wait for it.
-        deadline = time.monotonic() + 2.0
-        while run.thread.ident is None and not run.done.is_set() and time.monotonic() < deadline:
-            time.sleep(0.01)
-        if run.thread.ident is None:
-            return {"interrupted": False}
-        ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(run.thread.ident), ctypes.py_object(KeyboardInterrupt))
+        # A cell that was just started may not be in _execute yet: an interrupt raised there (in the
+        # thread's start-up, or before the handlers) would end the thread without finishing the run.
+        # Such a cell stops itself as soon as it gets there.
+        # The interrupt is sent under the lock, so the cell can't disarm between the check and the send.
+        with run.cancel_lock:
+            run.cancel_requested = True
+            if run.armed:
+                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(run.thread.ident), ctypes.py_object(KeyboardInterrupt))
         run.done.wait(2.0)
         return {"interrupted": True, "stopped": run.done.is_set()}
 
@@ -971,6 +983,7 @@ class Kernel:
 
     def run(self, code: str) -> dict[str, Any]:
         """Run ``code`` to the end and return its result (used by tests and scripts)."""
+        self.write_check = None  # the app's own run
         self.start(code)
         run = self._current
         assert run is not None
@@ -993,6 +1006,12 @@ class Kernel:
         writes = None
         write_queue.cell_writes.stats = run.onelake
         try:
+            with run.cancel_lock:
+                run.armed = True
+                cancelled = run.cancel_requested
+            if cancelled:  # Cancel came before the cell got here
+                run.add({"type": "text", "text": "Cancelled. Variables are kept."})
+                raise KeyboardInterrupt
             writes = self._write_queue()
             try:
                 if run.debugger is not None:
@@ -1018,6 +1037,11 @@ class Kernel:
         except KeyboardInterrupt:  # an interrupt that landed while the first one was being handled
             status = "cancelled"
         finally:
+            try:
+                with run.cancel_lock:  # from here a Cancel waits for the run to finish instead of raising in it
+                    run.armed = False
+            except KeyboardInterrupt:  # one sent just before the disarm, raised as the cell takes the lock
+                status = "cancelled"
             if writes is not None:
                 write_queue.cell_writes.queue = None
                 writes.flush(cancel=True)  # only left after a second Cancel: drop what hasn't started
@@ -1538,10 +1562,10 @@ class Kernel:
             namespace.update(arguments)
         run = getattr(self._local, "run", None)
         for cell in cells:
-            if cell.get("type") == "markdown" or not cell.get("source", "").strip():
+            # Not frozen cells (Fabric skips them in a referenced run too), and not the Fabric step,
+            # which runs on Fabric Spark only when started from its own notebook (fabric_step.py).
+            if not notebook_cells.runs(cell, skip_fabric_step=True):
                 continue
-            if (cell.get("meta") or {}).get("fabric_step"):
-                continue  # runs on Fabric Spark only when started from its own notebook (fabric_step.py)
             try:
                 late = f"A cell of {name!r} didn't finish within {cell_timeout or 0:g} seconds."
                 with _deadline(cell_timeout, late) as fired:

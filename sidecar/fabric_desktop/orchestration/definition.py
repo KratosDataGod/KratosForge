@@ -242,6 +242,8 @@ def _parse(text: str, what: str, duplicates: list[str]) -> Any:
     except json.JSONDecodeError as exc:
         raise DefinitionError(f"{what} isn't valid JSON: {exc.msg} at line {exc.lineno}, column {exc.colno}.",
                               "invalid_json", hint="Check for a missing comma, quote or bracket near that place.") from None
+    except RecursionError:
+        raise DefinitionError(f"{what} is nested too deeply to be a pipeline definition.", "invalid_json") from None
 
 
 def _parts(wrapper: dict[str, Any]) -> list[Any]:

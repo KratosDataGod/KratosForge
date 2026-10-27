@@ -512,7 +512,7 @@ class OneLakeStore(Store):
         name = zone.get("lakehouse_name") or LANDING_LAKEHOUSE
         if not zone.get("lakehouse_id") or not zone.get("workspace_id"):
             raise LookupError(f"the landing zone {zone.get('name') or zone.get('id')} has no lakehouse yet: "
-                              "a platform admin sets it up in Platform > Landing zone")
+                              "a platform admin sets it up in Platform > Set up > Landing zone")
         self.lakehouse_ids[name] = zone["lakehouse_id"]
         self.lakehouse_workspaces[name] = zone["workspace_id"]
         return name

@@ -257,6 +257,26 @@ def test_deprecating_a_product_tells_its_readers_once_and_a_failed_notice_doesnt
     assert next(p for p in svc._catalog().call("list_products") if p["id"] == "crm/customers")["deprecated_on"] == later
 
 
+def test_a_prod_deprecation_is_told_once_not_again_as_a_product_change(svc, monkeypatch):
+    svc.meta_set_environment("prod", target="local")
+    monkeypatch.setattr(svc, "_user", lambda: "chris@example.com")
+    svc._local_platforms = {}  # the catalog asks who's signed in again
+    svc._catalog().call("register_link", consumer="finance", alias="crm_customers", product_id="crm/customers",
+                        port="customers", reads={"prod": "prod"})
+    sent = []
+    monkeypatch.setattr(svc, "platform_notify", lambda events: sent.extend(events) or {"sent": len(events)})
+    _version(svc, "1", access="private")
+    svc.mesh_publish("prod")  # Prod's first publish: nothing to compare with yet
+    sent.clear()
+    stops = (TODAY + dt.timedelta(days=60)).isoformat()
+    _version(svc, "2", access="private", status="deprecated", deprecated_on=stops)
+    out = svc.mesh_publish("prod")
+    assert out["told"][0]["project"] == "finance"
+    kinds = {e["kind"]: e for e in sent}
+    assert set(kinds) == {"product.deprecated", "product.changed"}
+    assert kinds["product.changed"]["detail"] == "Version 1 to 2", "the deprecation isn't posted twice"
+
+
 def test_the_deprecation_event_fits_the_platform_notice_shape():
     from fabric_desktop import governance_notices as notices
     from fabric_desktop.workloads.platform_notify import message, validate as check

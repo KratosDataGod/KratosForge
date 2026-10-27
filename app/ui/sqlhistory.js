@@ -99,8 +99,9 @@ function whHistory(ref, actions) {
         onclick: () => actions.open(`Run at ${when(e.at)}`, e.sql) },
       h("span", { class: "wh-h-sql" }, first.trim()),
       h("span", { class: `wh-h-meta${["failed", "timed_out"].includes(e.state) ? " bad" : ""}` },
-        [when(e.at), state, e.seconds != null ? `${Number(e.seconds).toFixed(1)} s` : null,
-          e.state === "completed" ? `${(e.rows || 0).toLocaleString()} row${e.rows === 1 ? "" : "s"}` : null].filter(Boolean).join(" · "))));
+        [when(e.at), state, e.seconds != null ? took(e.seconds) : null,
+          e.state === "completed" ? `${(e.rows || 0).toLocaleString()} row${e.rows === 1 ? "" : "s"}` : null].filter(Boolean).join(" · "),
+        e.change ? h("span", { class: "wh-h-change" }, ` · Change${e.affected != null && e.state === "completed" ? `, ${Number(e.affected).toLocaleString()} affected` : ""}`) : null)));
     }
     if (all.length) rows.push(btn("Clear history", null, async () => {
       if (!(await confirmDialog("Clear history", `Remove the ${all.length} run${all.length === 1 ? "" : "s"} kept for ${ref.name} on this PC? Saved queries and open tabs stay.`, "Clear", { danger: true }))) return;

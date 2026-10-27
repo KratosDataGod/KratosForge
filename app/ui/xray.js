@@ -1,7 +1,7 @@
 // Estate X-ray on Home: every lakehouse you can reach, read once, with what needs attention
 // ranked first and a fix on each line. "Adopt" turns a lakehouse's tables into metadata entities.
 
-const xrayPage = { data: null, timer: null, kind: "all", showAll: false, folded: false };
+const xrayPage = { data: null, timer: null, kind: "all", showAll: false, folded: false, watching: null };
 
 const XRAY_KINDS = {
   small_files: "Small files", unidentified: "Unidentified", access: "Access", cost: "Cost",
@@ -45,6 +45,14 @@ async function loadXray(box, refresh) {
   if (!res || state.view !== "home" || !box.isConnected) return;
   xrayPage.data = res;
   drawXray(box, res);
+  // A scan this card watched run ends: the numbers glow once, or the ember beside why it stopped. A
+  // scan that ended before the card was drawn plays nothing (motion.js).
+  if (res.running) xrayPage.watching = box;
+  else if (xrayPage.watching === box) {
+    xrayPage.watching = null;
+    if (res.error) forgeEvent("xray.scan.failed", box.querySelector(".reason"));
+    else if (res.result) forgeEvent("xray.scan.finished", box.querySelector(".xray-stats"));
+  }
   if (res.running && !res.paused) xrayPage.timer = setTimeout(() => loadXray(box, false), 2000);
 }
 
@@ -82,9 +90,12 @@ function drawXray(box, res) {
   const progress = res.running ? h("div", { class: "xray-progress" },
     h("div", { class: "row" }, h("b", {}, res.paused ? `Paused: ${(res.progress?.phase || "scanning").toLowerCase()}` : res.progress?.phase || "Scanning"),
       res.progress?.total ? h("span", { class: "muted-text small" }, `${res.progress.done} of ${res.progress.total}`) : null),
-    h("div", { class: "progress" }, res.progress?.total
-      ? h("div", { class: `bar${res.paused ? " paused" : ""}`, style: `width:${Math.max(4, Math.round(100 * res.progress.done / res.progress.total))}%` })
-      : h("div", { class: `bar${res.paused ? " paused" : " indeterminate"}` }))) : null;
+    // Before the scan can count what it reads, the navy wolf trots in place (motion.js remoteProgress):
+    // it reads Fabric, and has no measure yet. Paused, the grey bar stands still.
+    res.progress?.total
+      ? h("div", { class: "progress" }, h("div", { class: `bar${res.paused ? " paused" : ""}`, style: `width:${Math.max(4, Math.round(100 * res.progress.done / res.progress.total))}%` }))
+      : res.paused ? h("div", { class: "progress" }, h("div", { class: "bar paused" }))
+      : remoteProgress("Estate X-ray scan", "Reading Fabric")) : null;
   if (!result) {
     fill(box, head(h("div", { class: "row" }, scanBtn)), progress,
       res.error ? h("p", { class: "reason" }, `The scan stopped: ${friendlyError(res.error).text}`) : null,

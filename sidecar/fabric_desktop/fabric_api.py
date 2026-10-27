@@ -35,6 +35,11 @@ def lakehouse_name_problem(name: str) -> str:
             f"starting with a letter. For example {suggestion}.")
 
 
+def _notebook_definition(ipynb: bytes) -> dict[str, Any]:
+    return {"format": "ipynb", "parts": [{"path": "notebook-content.ipynb",
+                                          "payload": base64.b64encode(ipynb).decode(), "payloadType": "InlineBase64"}]}
+
+
 class FabricError(RuntimeError):
     def __init__(self, message: str, code: str | None = None, status: int | None = None):
         super().__init__(message)
@@ -216,6 +221,29 @@ class FabricClient:
         """A warehouse, with its SQL connection string (``properties.connectionString``)."""
         return self._request("GET", f"/workspaces/{workspace_id}/warehouses/{warehouse_id}").json()
 
+    def list_kql_databases(self, workspace_id: str) -> list[dict[str, Any]]:
+        """A workspace's KQL databases, each with ``properties.queryServiceUri`` (WH-19)."""
+        return self._paged(f"/workspaces/{workspace_id}/kqlDatabases")
+
+    def get_kql_database(self, workspace_id: str, database_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/workspaces/{workspace_id}/kqlDatabases/{database_id}").json()
+
+    def list_kql_querysets(self, workspace_id: str) -> list[dict[str, Any]]:
+        return self._paged(f"/workspaces/{workspace_id}/kqlQuerysets")
+
+    def create_kql_queryset(self, workspace_id: str, name: str, definition: dict[str, Any],
+                            description: str = "") -> dict[str, Any]:
+        """Create a KQL queryset from its definition (RealTimeQueryset.json)."""
+        body: dict[str, Any] = {"displayName": name, "definition": definition}
+        if description:
+            body["description"] = description
+        return self._wait(self._request("POST", f"/workspaces/{workspace_id}/kqlQuerysets", json=body))
+
+    def update_item_definition(self, workspace_id: str, item_id: str, definition: dict[str, Any]) -> dict[str, Any]:
+        """Replace an item's definition (all its parts)."""
+        return self._wait(self._request("POST", f"/workspaces/{workspace_id}/items/{item_id}/updateDefinition",
+                                        json={"definition": definition}))
+
     def find_lakehouse(self, workspace_id: str, name: str) -> dict[str, Any] | None:
         return next((lh for lh in self.list_lakehouses(workspace_id) if lh["displayName"] == name), None)
 
@@ -229,20 +257,46 @@ class FabricClient:
 
     def save_notebook(self, workspace_id: str, name: str, ipynb: bytes) -> dict[str, Any]:
         """Create the notebook item, or replace its definition if one with this name exists."""
-        definition = {"format": "ipynb", "parts": [{
-            "path": "notebook-content.ipynb",
-            "payload": base64.b64encode(ipynb).decode(),
-            "payloadType": "InlineBase64",
-        }]}
         existing = next((n for n in self.list_notebooks(workspace_id) if n["displayName"] == name), None)
         if existing is None:
-            body = {"displayName": name, "definition": definition}
+            body = {"displayName": name, "definition": _notebook_definition(ipynb)}
             return self._wait(self._request("POST", f"/workspaces/{workspace_id}/notebooks", json=body))
-        url = f"/workspaces/{workspace_id}/notebooks/{existing['id']}/updateDefinition"
-        self._wait(self._request("POST", url, json={"definition": definition}))
-        return existing
+        return self.update_notebook(workspace_id, existing, name, ipynb)
+
+    def get_notebook(self, workspace_id: str, item_id: str) -> dict[str, Any] | None:
+        """The notebook item ``item_id`` in that workspace, or None when it isn't there (deleted)."""
+        try:
+            item = self._request("GET", f"/workspaces/{workspace_id}/notebooks/{item_id}").json()
+        except FabricError as exc:
+            if exc.status == 404:
+                return None
+            raise
+        return item if item.get("workspaceId", workspace_id) == workspace_id else None
+
+    def update_notebook(self, workspace_id: str, item: dict[str, Any], name: str, ipynb: bytes) -> dict[str, Any]:
+        """Replace ``item``'s definition, renaming it to ``name`` first when that isn't its name."""
+        if item.get("displayName") != name:
+            self._request("PATCH", f"/workspaces/{workspace_id}/notebooks/{item['id']}", json={"displayName": name})
+            item = item | {"displayName": name}
+        url = f"/workspaces/{workspace_id}/notebooks/{item['id']}/updateDefinition"
+        self._wait(self._request("POST", url, json={"definition": _notebook_definition(ipynb)}))
+        return item
 
     # ---- Fabric's job scheduler: run an item on Fabric capacity, now or on a schedule
+
+    # Items Fabric runs through their own "execute" job, at a path of their own type (the job type is
+    # in the path, not the jobType query): copy jobs and Dataflow Gen2.
+    EXECUTE_PATHS = {"CopyJob": "copyJobs", "Dataflow": "dataflows"}
+
+    def run_item_execute(self, workspace_id: str, item_id: str, item_type: str) -> str:
+        """Start a copy job or a Dataflow Gen2 refresh and return the job instance id."""
+        _check_fabric_runs_allowed("starting jobs in Fabric")
+        path = self.EXECUTE_PATHS[item_type]
+        resp = self._request("POST", f"/workspaces/{workspace_id}/{path}/{item_id}/jobs/execute/instances")
+        location = resp.headers.get("Location", "")
+        if not location:
+            raise FabricError(f"Fabric accepted the {item_type} run but returned no job instance")
+        return location.rstrip("/").rsplit("/", 1)[-1]
 
     def run_item_job(self, workspace_id: str, item_id: str, job_type: str,
                      execution_data: dict[str, Any] | None = None, item_path: str = "items") -> str:
@@ -504,6 +558,10 @@ class FabricClient:
     def list_connections(self) -> list[dict[str, Any]]:
         """Cloud connections the user can use (ADLS Gen2 and S3 shortcuts need one)."""
         return self._paged("/connections")
+
+    def list_gateways(self) -> list[dict[str, Any]]:
+        """On-premises and virtual network gateways the user can see. Needs Gateway.Read.All."""
+        return self._paged("/gateways")
 
     # ---- variable libraries
 

@@ -79,6 +79,7 @@ def row(w: dict[str, Any]) -> dict[str, Any]:
                key=lambda r: str(r.get("started_at") or ""), default=None)
     return {
         "id": w["id"], "kind": w["kind"], "kind_label": w["kind_label"], "name": w["name"],
+        "preview": bool(w.get("preview")),
         "description": w.get("description", ""), "group": w["group"], "owners": w.get("owners") or {},
         "criticality": w.get("criticality"), "tags": w.get("tags") or [], "health": w["health"],
         "health_label": w["health_label"], "readiness": w["readiness"], "unowned": w["unowned"],

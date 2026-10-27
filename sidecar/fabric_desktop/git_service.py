@@ -20,12 +20,33 @@ from pathlib import Path
 from typing import Any
 
 from .git import cli
+from . import vscode_setup
 from .git.cli import GitError
-from .git import platform_files, scopes
+from .git import capacity_files, platform_files, scopes
 from .git.ops import Operations
 from .git.repo import Repository, _folder, init as git_init
+from .integrations.config import write_cli_launcher
 
 MAX_REPOS = 50
+_OLDER_FUNCTIONS = ("The platform's functions are older than this app. Open Platform > Settings, choose "
+                    "Finish or repair, then try again.")
+
+
+def _newer_op(cat: Any, op: str, **kwargs: Any) -> Any:
+    """A platform read that came with an update (landing zones, policy templates). A UDF_Platform made
+    before it has no such function: Fabric answers 404 (LookupError), or the platform says it has no
+    such operation. Either way, say what to do."""
+    from .central.core import PlatformError
+
+    try:
+        return cat.call(op, **kwargs)
+    except LookupError:
+        raise GitError(_OLDER_FUNCTIONS, kind="invalid") from None
+    except PlatformError as exc:
+        text = str(exc).lower()
+        if op in str(exc) and ("not found" in text or "no operation" in text):
+            raise GitError(_OLDER_FUNCTIONS, kind="invalid") from None
+        raise
 
 
 class GitMixin:
@@ -173,6 +194,53 @@ class GitMixin:
         r = self._repo(repo)
         return {**scopes.set_kind(r, kind, confirm), "status": r.status()}
 
+    # ---- a capacity repository: capacity.toml, and a drift report against Fabric (reads only)
+
+    def _capacity_repo(self, repo: str) -> Repository:
+        r = self._repo(repo)
+        if scopes.read_kind(r.root) != "capacity":
+            raise GitError("This repository doesn't hold capacity definitions. Create a capacity repository, "
+                           "or choose what this one holds.", kind="invalid")
+        return r
+
+    def _fabric_capacities(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """The capacities and workspaces Fabric shows the signed-in person. Only reads."""
+        from .auth import CAPACITY_SCOPES
+        from .fabric_api import FabricClient
+
+        caps = FabricClient(lambda: self.auth._token(CAPACITY_SCOPES)).list_capacities()  # type: ignore[attr-defined]
+        return caps, self.fabric.list_workspaces()  # type: ignore[attr-defined]
+
+    def git_capacity_diff(self, repo: str) -> dict[str, Any]:
+        """The drift report: the repository's capacity.toml compared with what Fabric shows.
+        Reads only: nothing in the repository or in Fabric changes."""
+        r = self._capacity_repo(repo)
+        git = capacity_files.read(r.root)
+        caps, workspaces = self._fabric_capacities()
+        items = capacity_files.compare(git["capacities"], capacity_files.from_fabric(caps, workspaces), workspaces)
+        return {"items": items, "counts": capacity_files.summary(items), "problems": git["problems"],
+                "read_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+
+    def git_capacity_write(self, repo: str, confirm: bool = False) -> dict[str, Any]:
+        """Writes what Fabric shows into capacity.toml, as a change to review. Capacities this
+        person can't see keep their sections. Nothing is committed and nothing in Fabric changes."""
+        r = self._capacity_repo(repo)
+        st = r.status()
+        uncommitted = any(e["path"] == capacity_files.FILE
+                          for k in ("staged", "unstaged", "untracked", "conflicts") for e in st.get(k) or [])
+        git = capacity_files.read(r.root)
+        if git["problems"]:
+            raise GitError(f"{git['problems'][0]} Fix the file first, so nothing in it is lost.", kind="invalid")
+        caps, workspaces = self._fabric_capacities()
+        try:
+            out = capacity_files.write(r.root, git["capacities"], capacity_files.from_fabric(caps, workspaces),
+                                       uncommitted, confirm, workspaces)
+        except GitError as exc:
+            if exc.kind == "confirm":
+                return {"needs_confirm": True, "message": str(exc)}
+            raise
+        return out | {"status": r.status()}
+
     # ---- a platform repository: definitions in Git, deployed in each environment's platform
 
     def _platform_repo(self, repo: str) -> Repository:
@@ -204,15 +272,16 @@ class GitMixin:
         try:
             ready = cat.call("policies_ready")
         except LookupError:  # a platform whose functions predate this check
-            raise GitError("The platform's functions are older than this app. Open Platform > Settings, choose "
-                           "Finish or repair, then try again.", kind="invalid") from None
-        policies = None
-        if ready:
+            raise GitError(_OLDER_FUNCTIONS, kind="invalid") from None
+        policies = templates = None
+        if ready:  # templates sit with policies: reading them on a platform without policies would make their table
             policies = [cat.call("get_policy", id=p["id"]) for p in cat.call("list_policies")]
+            templates = _newer_op(cat, "list_policy_templates")["templates"]
         return platform_files.from_platform({
             "domains": cat.call("list_domains"), "sources": cat.call("list_sources"), "key_tables": tables,
+            "landing_zones": _newer_op(cat, "list_landing_zones"),
             "glossary": cat.call("list_glossary"), "admins": admins, "shortcut_rules": cat.call("shortcut_rules"),
-            "policies": policies, "projects": cat.call("list_projects")})
+            "policies": policies, "policy_templates": templates, "projects": cat.call("list_projects")})
 
     def git_platform_diff(self, repo: str, env: str = "prod") -> dict[str, Any]:
         """The platform repository's files compared with what ``env``'s platform has deployed.
@@ -300,7 +369,10 @@ class GitMixin:
         for step in p["steps"]:
             client = clients[step["env"] or cat_env]
             try:
-                res = client.call(step["op"], **step["args"])
+                if step["op"] in platform_files.APP_OPS:  # the app's own create path: a zone's lakehouse first
+                    res = getattr(self, step["op"])(**step["args"])
+                else:
+                    res = client.call(step["op"], **step["args"])
                 if step["op"] == "adopt_sources" and res.get("conflicts"):  # reported, not raised: stop here
                     raise GitError("; ".join(res["conflicts"]), kind="invalid")
             except Exception as exc:  # noqa: BLE001 - stop at the first refusal and say where
@@ -354,6 +426,10 @@ class GitMixin:
 
     def git_unstage(self, repo: str, paths: list[str] | None = None) -> dict[str, Any]:
         return self._repo(repo).unstage(paths)
+
+    def git_apply_hunk(self, repo: str, path: str, hunk: str, action: str, confirm: bool = False) -> dict[str, Any]:
+        """Stage, unstage or discard one block of a file's changes (``hunk`` is its id from git_diff)."""
+        return self._repo(repo).apply_hunk(path, hunk, action, confirm)
 
     def git_discard(self, repo: str, paths: list[str], confirm: bool = False) -> dict[str, Any]:
         return self._repo(repo).discard(paths, confirm=confirm)
@@ -415,6 +491,22 @@ class GitMixin:
 
     def git_add_remote(self, repo: str, url: str, name: str = "origin") -> dict[str, Any]:
         return {"remotes": self._repo(repo).add_remote(name, url)}
+
+    def git_vscode_plan(self, repo: str) -> dict[str, Any]:
+        """The files Set up for VS Code would add to ``repo`` (vscode_setup.py). Reads only."""
+        r = self._repo(repo)
+        return {"name": r.root.name} | vscode_setup.plan(r.root)
+
+    def git_vscode_apply(self, repo: str, files: list[str]) -> dict[str, Any]:
+        """Adds the chosen files that aren't there yet, and the ``kratosforge`` launcher their task
+        runs. Nothing is committed: they show as changes in Source control."""
+        r = self._repo(repo)
+        try:
+            out = vscode_setup.apply(r.root, files)
+        except ValueError as exc:
+            raise GitError(str(exc), kind="invalid") from exc
+        write_cli_launcher(self.root)
+        return out | {"status": r.status()}
 
     def git_path_info(self, path: str) -> dict[str, Any] | None:
         """Which opened repository holds ``path``, its branch and the file's state; None when none does.

@@ -225,6 +225,16 @@ def test_hidden_state_fails_the_clean_run_and_leaves_the_persons_kernel_alone(sv
     assert any(v["name"] == "leftover" for v in svc.kernel.variables())
 
 
+def test_the_clean_run_skips_the_run_on_fabric_cell_and_says_so(svc):
+    # It runs only on Fabric Spark; on this PC it would write without V-Order.
+    cells = [code("x = 1"), {"type": "code", "source": "raise RuntimeError('ran here')", "meta": {"fabric_step": True}}]
+    st = done(svc, call(svc, "notebook_validate_start", name="Step", cells=cells, runs_on="pc")["id"])
+    assert st["run"]["status"] == "ok" and st["cells_total"] == 1 and st["verdict"] == "ready"
+    assert st["summary"].endswith("Cell 2 is marked Run on Fabric, which runs only on Fabric Spark, so this run on this PC skipped it.")
+    [f] = [f for f in st["findings"] if f["code"] == "fabric_step"]
+    assert f["cell"] == 2 and f["severity"] == "info"
+
+
 def test_a_failing_cell_is_reported_with_its_error_and_secrets_removed(svc):
     cells = [code("raise ValueError('bad rows password=hunter22')")]
     st = done(svc, call(svc, "notebook_validate_start", name="Fails", cells=cells)["id"])

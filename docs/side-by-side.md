@@ -8,7 +8,7 @@ Side by side runs one notebook on your PC and in Fabric, one after the other, an
 ## Turn it on
 
 1. Open a notebook and attach a lakehouse (**Add data items**). Both runs read and write that lakehouse's real tables.
-2. On the ribbon's **Home** or **Run** tab, select **Side by side**. It shows **Side by side: On**. The toggle is remembered for this notebook on this PC.
+2. Select **Side by side** on the ribbon's **Run** tab, or under **Check** on the **Home** tab. It shows **Side by side: On**. The toggle is remembered for this notebook on this PC.
 3. Select **Run all**.
 
 With the toggle off, Run all works as before. You can also find it in the command bar (Ctrl+K): type *side by side*.
@@ -87,7 +87,7 @@ Generates the TPC-H tables with DuckDB's tpch extension and writes them to the a
 | 10 | 60 million | 10 GB | A real load |
 | 30 | 180 million | 30 GB | A PC with 64 GB of memory or more |
 
-Run it once, on this PC (Run all with Side by side off) or in Fabric. Nothing is in the repository but the code: the data is generated when you run it, at any size. The data is generated in parts, one process per core (up to 16), each into a database file in a temporary folder, so it uses all your cores and a scale factor bigger than your memory still works; together the parts are exactly the rows one generator call makes. Each table is written as one stream, read `batch_rows` rows at a time, and the temporary folder is deleted once the tables are written. Write the scale factor in the cell itself: the Parameters bar changes it only for runs on this PC, so a side by side run would compare different sizes.
+Run it once, on this PC (Run all with Side by side off) or in Fabric. Nothing is in the repository but the code: the data is generated when you run it, at any size. The data is generated in parts, one process per core (up to 16), each into a database file in a temporary folder, so it uses all your cores and a scale factor bigger than your memory still works; together the parts are exactly the rows one generator call makes. Each table is written as one stream, read `batch_rows` rows at a time, and the temporary folder is deleted when the write cell ends, whether or not the writes worked (or when the session ends, if the write cell never runs). Set the scale factor in the Parameters bar or in the cell itself: a side by side run gives both runs the bar's values, so both sides generate the same size.
 
 The extension comes from DuckDB's extension site; if your network blocks it, the notebook installs the same extension from PyPI (`duckdb-extension-tpch`).
 

@@ -146,7 +146,7 @@ async function refreshProveCheck(nb) {
   }
   try {
     const [check, rules, history] = await Promise.all([
-      rpc("prove_check", notebookPayload()),
+      rpc("prove_check", publishPayload()),
       rpc("prove_rules_get", { name: nb.name }).catch(() => ({})),
       rpc("prove_list", { name: nb.name, limit: 5 }).catch(() => []),
     ]);
@@ -167,7 +167,8 @@ async function startProof(nb) {
   const p = nb.prove;
   if (!(await ensureSignedIn())) return;
   const rules = p.rules || {};
-  const run = await attempt(() => rpc("prove_start", { ...notebookPayload(), rules }), "Could not start the proof");
+  await nbInputsSaved();  // nbinputs.js: both runs get the values the Parameters bar shows
+  const run = await attempt(() => rpc("prove_start", { ...publishPayload(), rules }), "Could not start the proof");
   if (run) depsRestarted();  // it restarts the kernel (deps.js)
   if (!run) return;
   nb.dirty = false;

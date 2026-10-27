@@ -50,14 +50,15 @@ async function renderPlatform() {
   const envSeg = h("div", { class: "seg", role: "group", "aria-label": "Environment" },
     MESH_ENVS.map((env) => h("button", { class: p.env === env ? "on" : null, onclick: () => { p.env = env; render(); } }, ENV_LABEL[env])));
   const who = h("p", { class: "sub" }, "Loading...");
+  // The page layout every tabbed page shares (docs/ui-guidelines.md): title, tabs, then the view row with
+  // the environment on the left and Refresh on the right. Only Overview, the landing zone and business
+  // keys are kept per environment; the glossary, governance and audit are organization-wide, so they
+  // show no environment picker.
+  const perEnv = p.tab === "overview" || (["landing", "keys"].includes(p.tab) && !(p.tab === "landing" && p.landingCentral) && !(p.tab === "keys" && p.keysShared));
   setView(h("div", { class: "page" },
-    h("div", { class: "page-head" },
-      h("div", {}, h("h1", {}, "Platform ", previewTag()), who),
-      // Only the landing zone and business keys are kept per environment; the glossary, governance and
-      // audit are organization-wide, so the other tabs show no environment picker (Overview has its own).
-      h("div", { class: "head-actions" }, ["landing", "keys"].includes(p.tab) && !(p.tab === "landing" && p.landingCentral) && !(p.tab === "keys" && p.keysShared) ? envSeg : null,
-        btn("Refresh", "sync", () => render(), "tool outline"))),
+    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Platform ", previewTag()), who)),
     platformTabBar(),
+    h("div", { class: "row mesh-view-row" }, perEnv ? envSeg : null, h("span", { class: "spacer" }), btn("Refresh", "sync", () => render(), "tool outline")),
     body));
   p.me = await attempt(() => rpc("platform_whoami"), "Could not reach the platform");
   // Owner coverage's last-used date, only where policy turns on platform_presence; the engine notes it in the background.
@@ -141,10 +142,8 @@ async function platformOverviewTab(body) {
         h("b", {}, "Each environment's platform"), health),
       h("div", { class: "card pad" },
         h("div", { class: "row" }, h("b", { class: "grow" }, "Landing zone"),
-          // One landing workspace is the same for every environment, so it has no environment picker.
-          o.landing.central ? h("span", { class: "muted-text small" }, "Read by Dev, Test and Prod")
-            : h("div", { class: "seg small", role: "group", "aria-label": "Landing zone environment" }, MESH_ENVS.map((env) =>
-              h("button", { class: platformPage.env === env ? "on" : null, onclick: () => { platformPage.env = env; render(); } }, ENV_LABEL[env]))),
+          // The environment picker above the page chooses which one; one landing workspace serves them all.
+          h("span", { class: "muted-text small" }, o.landing.central ? "Read by Dev, Test and Prod" : ENV_LABEL[o.env]),
           btn("Open", null, () => goPlatform("landing"), "tool link small")),
         late.length ? h("p", { class: "fail-text small" }, `${late.map((s) => s.name).join(", ")} ${late.length === 1 ? "is" : "are"} late.`) : null,
         (o.landing.sources || []).length ? h("table", { class: "list" },

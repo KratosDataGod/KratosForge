@@ -1764,7 +1764,7 @@ test("moving keys into one database previews first, and cancelling it is a dange
   assert.ok(cancel.indexOf("danger: true") < cancel.indexOf("approve: true"));
   assert.match(mesh, /\.\.\.MESH_ENVS\.map\(row\), keysRow\(s, policy\)\)/);
   const platform = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
-  assert.match(platform, /!\(p\.tab === "keys" && p\.keysShared\) \? envSeg : null/);
+  assert.match(platform, /!\(p\.tab === "keys" && p\.keysShared\)\);\n[\s\S]*?perEnv \? envSeg : null/);
   assert.match(platform, /k\.shared \? "Key tables in SQL_Keys"/);
   const how = platform.match(/howItWorks\("platform\.keys", \{[\s\S]*?\n  \}\)/)?.[0] || "";
   for (const write of [/SQL_Keys and UDF_Keys, which uses Fabric capacity/, /copies every key table/, /new numbers/, /closes each environment's old key tables/, /removes the copied tables/]) {

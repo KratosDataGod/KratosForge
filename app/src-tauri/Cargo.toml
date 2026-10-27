@@ -4,6 +4,11 @@ version = "0.1.0"
 description = "Run data jobs locally and publish Delta tables to Microsoft Fabric OneLake"
 edition = "2021"
 
+# The program file is kratosforge.exe (exe_name.rs). The package keeps its legacy name.
+[[bin]]
+name = "kratosforge"
+path = "src/main.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -15,7 +20,8 @@ serde_json = "1"
 sha2 = "0.10"
 
 # The Fabric view's own WebView2 environment, which can sign in with the Windows account,
-# and DPAPI, which encrypts its saved sign-in.
+# DPAPI, which encrypts its saved sign-in, and the policy file's owner and rights (policy_trust.rs).
 [target."cfg(windows)".dependencies]
 webview2-com = "0.39"
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_Security",
+                                            "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_UI_Shell"] }

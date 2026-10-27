@@ -19,18 +19,21 @@ WATCH_SECONDS, so a sudden spike can go past the limit before it's seen.
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import itertools
 import json
 import os
+import re
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
-from . import lakehouse
+from . import lakehouse, notebook
 from .frames import GONE, FrameGone
 
 DOWNLOAD_SECONDS = 1800.0  # writing a whole result to Downloads, or a first page of a large query
@@ -39,6 +42,73 @@ ANSWER_SECONDS = 15.0  # a request that isn't a long poll; a kernel that misses 
 STOPPED_TEXT = "Stopped. The notebook's Python process was ended, so variables were cleared."
 WATCH_SECONDS = 1.0
 TIME_GRACE_SECONDS = 30.0
+
+# The environment of a kernel that runs code for an external AI tool (HD-012): nothing from the
+# engine's environment but these, so a token or secret someone put in an environment variable
+# (an agent's client secret, a CI token) never reaches the tool's code. This is not a sandbox:
+# the code still runs as the person and can read their files, the token cache included (HD-013).
+# Matched without regard to case, as Windows does. Each one is here because Python or the
+# libraries a cell uses need it:
+EXTERNAL_ENV_ALLOW = (
+    "PATH",          # finding programs and the DLLs native packages load
+    "PATHEXT",       # Windows: which extensions are programs (shutil.which, subprocess)
+    "SYSTEMROOT",    # Windows: Python's sockets, random numbers and DLL loading fail without it
+    "WINDIR",        # Windows: same folder as SYSTEMROOT; some native libraries read this name
+    "COMSPEC",       # Windows: the shell for subprocess(shell=True) and os.system
+    # Windows: platform.machine() falls back to these when its WMI query fails (as it can on a busy
+    # PC); without them it is "" and Polars' CPU check refuses to import ("unknown feature flag").
+    "PROCESSOR_ARCHITECTURE", "PROCESSOR_ARCHITEW6432", "PROCESSOR_IDENTIFIER", "NUMBER_OF_PROCESSORS",
+    "TEMP", "TMP",   # tempfile, DuckDB and Arrow spill files; otherwise they fall back to the current folder
+    "TMPDIR",        # the same on Linux and macOS
+    "USERPROFILE",   # Windows: the home folder (Path.home(), "~"); DuckDB keeps its extensions there
+    "HOME",          # the same on Linux and macOS
+    "LANG", "LANGUAGE", "LC_ALL",  # locale: text encoding and formatting; LC_* below
+    # Networks that set their proxy or TLS-inspection certificate only here: without them OneLake
+    # reads fail. A user name and password in a proxy address are removed (_without_credentials).
+    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+    "REQUESTS_CA_BUNDLE", "SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE",
+)
+EXTERNAL_ENV_PREFIXES = ("LC_",)
+# Set by the engine itself, never copied from its environment (the library paths at each start).
+EXTERNAL_ENV_SET = ("PYTHONUNBUFFERED", "PYTHONPATH", "FABRIC_DESKTOP_LIBRARY_PATHS")
+_PROXY_ENV = {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"}
+_PROXY_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://")
+_HOST_PORT = re.compile(r"(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(:\d+)?")
+
+
+def _without_credentials(proxy: str) -> str:
+    """``http://user:secret@proxy:8080`` as ``http://proxy:8080``: the tool's code gets the proxy's
+    address but not the password for it. A proxy that needs one refuses the tool's requests.
+
+    The user name and password end at the last "@" before the host. A password may hold an
+    unencoded "/" (``u:pa/ss@proxy``), so an "@" after a "/" counts as part of the path only
+    when what comes before that "/" is already a host and port (``proxy:8080/path@x``)."""
+    proxy = proxy.strip()
+    scheme = m.group(0) if (m := _PROXY_SCHEME.match(proxy)) else ""
+    rest = proxy[len(scheme):]
+    if "@" not in rest:
+        return proxy
+    head = rest.split("/", 1)[0]
+    if "@" in head:
+        return scheme + head.rpartition("@")[2] + rest[len(head):]
+    if _HOST_PORT.fullmatch(head):
+        return proxy  # the "@" is in the path
+    return scheme + rest.rpartition("@")[2]
+
+
+def external_environment(parent: dict[str, str] | None = None) -> dict[str, str]:
+    """The environment for a kernel that runs an external tool's code: only the allowlisted
+    variables of ``parent`` (the engine's environment), plus what the engine sets itself."""
+    parent = dict(os.environ if parent is None else parent)
+    allow = {name.upper() for name in EXTERNAL_ENV_ALLOW}
+    env = {k: v for k, v in parent.items() if k.upper() in allow or k.upper().startswith(EXTERNAL_ENV_PREFIXES)}
+    for name in [k for k in env if k.upper() in _PROXY_ENV]:
+        env[name] = _without_credentials(env[name])
+    # The kernel imports the engine's own code from where this engine runs it (a source checkout in
+    # development; the embeddable Python's own ._pth ignores PYTHONPATH in release builds).
+    env["PYTHONPATH"] = str(Path(__file__).resolve().parent.parent)
+    env["PYTHONUNBUFFERED"] = "1"
+    return env
 
 
 class KernelGone(RuntimeError):
@@ -50,19 +120,26 @@ class ProcessKernel:
                  load_notebook: Callable[[str], list[dict[str, Any]]] | None = None,
                  variable_libraries: Callable[[str], dict[str, str] | None] | None = None,
                  proof_options: Callable[[], dict[str, str]] | None = None,
-                 command: list[str] | None = None):
+                 command: list[str] | None = None, env: Callable[[], dict[str, str]] | None = None):
         self.calls: dict[str, Callable[..., Any]] = {
             "token": token or _no("tokens"),
             "load_notebook": load_notebook or _no("other notebooks"),
             "variable_libraries": variable_libraries or (lambda name: None),
-            "write_guard": lambda name, schema, table: lakehouse.write_guard(name, schema, table) if lakehouse.write_guard else None,
+            "write_guard": self._write_refusal,
             "proof_options": lambda: (self._proof_options or (lambda: {}))(),
         }
         self._proof_options = proof_options
         self.command = command or [sys.executable, "-m", "fabric_desktop.kernel_host"]
+        # The child's environment, made at each start. The person's own kernels get theirs, as
+        # they expect; an external tool's kernel passes external_environment (HD-012).
+        self.env = env or (lambda: dict(os.environ, PYTHONUNBUFFERED="1"))
         self.notebook_name = ""
         self.widget_values: dict[str, str] = {}
         self.resources_dir = ""  # passed with each cell (notebook.Kernel.resources_dir)
+        self.onelake_writes = "local_first"  # likewise (notebook.Kernel.onelake_writes)
+        # Set before each cell (service._start_cell): asked before every write the cell makes, as for
+        # a cell a paired VS Code window started (editor_service.py). None for the app's own cells.
+        self.write_check: Callable[[str, str, str], str | None] | None = None
         self._lock = threading.Lock()  # one process at a time: starting, stopping
         self._proc: subprocess.Popen[str] | None = None
         self._tree: _Tree | None = None  # the process and everything its cells start
@@ -81,6 +158,31 @@ class ProcessKernel:
         self._interrupted_at: float | None = None
         self.limit_hit = ""  # "time" or "memory" when a limit stopped the last cell
         self.library_paths: list[str] = []  # a notebook environment's folders, after the engine's (environments.py)
+        self.output_dir: Path | None = None  # where the process puts output past the cap (notebook.SPILL_DIR_ENV)
+        # A shared session (kernel_sessions.share): requests made under as_guest carry the guest
+        # notebook's name, and the child answers with that notebook's variables and cells.
+        self._guest = threading.local()
+        self._owner: str | None = None  # the notebook whose cell is running (or ran last)
+        self._owner_name = ""
+
+    @contextlib.contextmanager
+    def as_guest(self, notebook: str | None) -> Iterator[None]:
+        before = getattr(self._guest, "name", None)
+        self._guest.name = notebook or None
+        try:
+            yield
+        finally:
+            self._guest.name = before
+
+    def _guest_name(self) -> str | None:
+        return getattr(self._guest, "name", None)
+
+    def forget_guest(self, notebook: str) -> dict[str, Any]:
+        """A guest left or restarted: its variables go; the process and the other notebooks' stay."""
+        if self._proc is None or self._proc.poll() is not None:
+            return {"forgotten": False}
+        with self.as_guest(None):
+            return self._request("forget_guest", spawn=False, notebook=notebook)
 
     # ---- the process
 
@@ -89,11 +191,16 @@ class ProcessKernel:
             if self._proc is not None and self._proc.poll() is None:
                 return self._proc
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            self._clear_output_dir()  # a process that crashed or hit a limit left its files
+            if self.output_dir is None:
+                with contextlib.suppress(OSError):
+                    self.output_dir = Path(tempfile.mkdtemp(prefix=notebook.SPILL_DIR_PREFIX))
+            extra = {notebook.SPILL_DIR_ENV: str(self.output_dir)} if self.output_dir else {}
             proc = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=None,
                                     text=True, encoding="utf-8", bufsize=1, creationflags=flags,
                                     start_new_session=sys.platform != "win32",
-                                    env=dict(os.environ, PYTHONUNBUFFERED="1",
-                                             FABRIC_DESKTOP_LIBRARY_PATHS=os.pathsep.join(self.library_paths)))
+                                    env=dict(self.env(),
+                                             FABRIC_DESKTOP_LIBRARY_PATHS=os.pathsep.join(self.library_paths), **extra))
             if self._tree is not None:
                 self._tree.release()  # processes a crashed kernel left behind
             self._tree = _Tree(proc)
@@ -215,6 +322,8 @@ class ProcessKernel:
         proc = self._ensure() if spawn else self._proc
         if proc is None or proc.poll() is not None:
             raise KernelGone("The notebook's Python process stopped.")
+        if guest := self._guest_name():
+            args["guest"] = guest
         rid = f"p{next(self._ids)}"
         slot: dict[str, Any] = {"done": threading.Event()}
         self._waiting[rid] = slot
@@ -232,10 +341,15 @@ class ProcessKernel:
             raise RuntimeError(err.get("message") or err.get("type"))
         return slot.get("result")
 
+    def _write_refusal(self, name: str, schema: str, table: str) -> str | None:
+        reason = lakehouse.write_guard(name, schema, table) if lakehouse.write_guard else None
+        check = self.write_check
+        return reason or (check(name, schema, table) if check else None)
+
     def _sync_lakehouse(self) -> None:
         """Pass the engine's attached lakehouse (and whether tables are guarded) to the kernel."""
         a = lakehouse._attached
-        guard = lakehouse.write_guard is not None
+        guard = lakehouse.write_guard is not None or self.write_check is not None
         context = None if a is None else {
             "workspace_id": a.workspace_id, "lakehouse_id": a.lakehouse_id, "name": a.name,
             "workspace_name": a.workspace_name, "work_dir": str(a.work_dir),
@@ -258,6 +372,10 @@ class ProcessKernel:
             snap = self.poll()
             if snap["status"] == "running":
                 raise RuntimeError("A cell is already running. Wait for it, or Cancel it.")
+            if snap.get("session_running"):
+                raise RuntimeError(f"{self._owner_name or 'Another notebook'} is running a cell in this shared session. "
+                                   "Its notebooks run one cell at a time; wait for it, or Cancel it there.")
+        self._owner, self._owner_name = self._guest_name(), self.notebook_name
         self._ended = ""
         self.limit_hit = ""
         self._interrupted_at = None
@@ -269,7 +387,8 @@ class ProcessKernel:
             self._started_at = time.monotonic()
         try:
             snap = self._request("start", code=code, notebook_name=self.notebook_name,
-                                 widget_values=dict(self.widget_values), resources_dir=self.resources_dir, watches=list(watches or []),
+                                 widget_values=dict(self.widget_values), resources_dir=self.resources_dir, onelake_writes=self.onelake_writes,
+                                 watches=list(watches or []),
                                  breakpoints=list(breakpoints or []), step=step)
         except KernelGone:
             # The cell ended its process before the start was even answered (os._exit, a crash).
@@ -283,6 +402,15 @@ class ProcessKernel:
         return snap
 
     def poll(self, known_version: int = -1, wait: float = 0.0) -> dict[str, Any]:
+        if self._guest_name() != self._owner:
+            # Another notebook's cell in a shared session: this notebook sees the session busy, not its cell.
+            idle = {"status": "idle", "execution_count": self.count, "version": 0, "seconds": 0, "outputs": []}
+            if self._proc is None or self._proc.poll() is not None:
+                return idle
+            try:
+                return self._request("poll", timeout=min(wait, 2.0) + ANSWER_SECONDS, spawn=False, version=known_version, wait=wait)
+            except KernelGone:
+                return idle
         if self._proc is None or self._proc.poll() is not None:
             if self._last is None:
                 return {"status": "idle", "execution_count": self.count, "version": 0, "seconds": 0, "outputs": []}
@@ -332,7 +460,12 @@ class ProcessKernel:
         deadline = time.monotonic() + 5
         while self._proc is proc and time.monotonic() < deadline:  # the reader marks it gone
             time.sleep(0.02)
+        self._clear_output_dir()
         return {"stopped": True}
+
+    def _clear_output_dir(self) -> None:
+        if self.output_dir is not None:
+            notebook.clear_spill_dir(self.output_dir)
 
     def restart(self) -> None:
         """A fresh process, so a restart also gives back the memory the notebook used."""
@@ -345,6 +478,7 @@ class ProcessKernel:
 
     def run(self, code: str) -> dict[str, Any]:
         """Run ``code`` to the end and return its result (scheduled runs, tests)."""
+        self.write_check = None  # the app's own run
         snap = self.start(code)
         version = -1
         outputs = snap.get("outputs") or []
@@ -353,7 +487,8 @@ class ProcessKernel:
             version = snap.get("version", version)
             if snap.get("outputs") is not None:
                 outputs = snap["outputs"]
-        return {"status": snap["status"], "execution_count": snap["execution_count"], "outputs": outputs}
+        return {"status": snap["status"], "execution_count": snap["execution_count"], "outputs": outputs,
+                **({"onelake": snap["onelake"]} if "onelake" in snap else {})}
 
     def debug(self, action: str, expression: str | None = None) -> dict[str, Any]:
         from .debugger import EVAL_SECONDS
@@ -404,6 +539,11 @@ class ProcessKernel:
             raise FrameGone(GONE)
         return self._request("frame_profile", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame)
 
+    def frame_query_profile(self, frame: str) -> dict[str, Any]:
+        if not self.alive():
+            raise FrameGone(GONE)
+        return self._request("frame_query_profile", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame)
+
     def ipywidget_event(self, model: str, event: dict[str, Any], root: str | None = None) -> dict[str, Any]:
         """A control changed in the app; its handlers run in the cell process (widgets.py)."""
         if not self.alive():
@@ -445,6 +585,11 @@ class ProcessKernel:
     def close(self) -> None:
         if self._proc is not None and self._proc.poll() is None:
             self.stop()
+        if self.output_dir is not None:
+            self._clear_output_dir()
+            with contextlib.suppress(OSError):
+                self.output_dir.rmdir()
+            self.output_dir = None
 
 
 class _Tree:

@@ -21,10 +21,11 @@ A program that can already run commands as you on this PC. It can read your file
 | Threat | Control | Where |
 | --- | --- | --- |
 | Client reads a token or secret | No capability returns tokens, connection strings or credentials; results and errors pass through secret redaction; Python output is scanned for token-shaped strings | Registry, `invoke` |
-| Client runs code it shouldn't | `EXECUTE_LOCAL_CODE` not granted by default; every execution needs approval in the app showing the code; runs in a process kernel with a timeout | Permissions, executions |
+| Client runs code it shouldn't | `EXECUTE_LOCAL_CODE` not granted by default; every execution needs approval in the app showing the code; runs in a process kernel with a timeout and only an allowlisted environment (no secrets from environment variables; still not a sandbox: it can read the sign-in cache) | Permissions, executions |
 | Client reads local files through SQL | External SQL is one read-only statement and runs with DuckDB external access off and configuration locked | Executions |
 | Code reaches Fabric or writes OneLake | Code gets only a storage token; table writes through the engine are refused; workspace-limited tools can't run code | Executions, permissions |
 | Client reads data it shouldn't | Rows need `READ_DATA`; resources are schema-only; Fabric enforces the person's own access on every OneLake read | Permissions, resources |
+| A workspace-limited client reaches another workspace | Every capability declares which workspaces it reaches and one check enforces it before any approval: by argument, by the notebook, proof, receipt or execution it names, or by filtering lists; one that can't tell is refused. A notebook or workload id outside the limit is refused while an id that doesn't exist is reported as not found, so a limited tool can tell whether an id exists, though not what it holds. To find a workspace's capacity, the risk check reads the list of capacities the signed-in person can see (`GET /capacities`), not only that workspace's, and returns only the one it found | Permissions, `scope.py` |
 | Client writes to OneLake or changes Fabric | Not offered in the first release | Registry |
 | Client approves its own request | Approvals are decided only through the app's RPC; no MCP tool or REST endpoint changes permissions or approvals | Permissions |
 | Approval reused for other arguments | Single-use, bound to a SHA-256 of the canonical arguments, expires; a notebook run's arguments include its code cells and their SHA-256, read before asking | Permissions |
@@ -46,6 +47,7 @@ In `%ProgramData%\FabricDesktop\policy.json`:
 | `integrations` | `false` turns external AI integration off on this PC; the switch in Settings shows "Set by your organization" |
 | `integrations_max_permissions` | The permission categories clients may be granted, for example `["READ_METADATA", "READ_DATA"]`; anything else can't be granted |
 | `integrations_http` | `false` stops the local HTTP API being switched on |
+| `integrations_editors` | `false` stops VS Code windows being paired to run notebooks (the editor channel, docs/vscode.md) |
 | `integrations_extensions` | The extensions that may be turned on, by id, for example `["notebook-outline"]`; `[]` allows none |
 
 A value of the wrong type fails closed: integrations off, or no permission categories, or no HTTP, or no extensions, or every receipt part left out. A policy file that exists but can't be read is replaced by the last copy that could be read, or, with no copy, applies all of those at once, and both the integrations and the rest of KratosForge read it through the same loader (`app_settings.read_policy()`).

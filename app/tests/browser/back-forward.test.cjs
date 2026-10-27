@@ -12,7 +12,10 @@ const rail = (label) => page().locator("#rail-main .rail-item, #rail-bottom .rai
 
 before(async () => {
   if (skip) return;
-  app = await openApp();
+  // Served over http, as the shell serves the app, not from file://. Chromium's localStorage for
+  // file:// pages sometimes doesn't survive a reload under load (the reloaded page reads none of it),
+  // which made "a restart reopens the last page" fail now and then with no app change involved.
+  app = await openApp({ csp: true });
   await page().waitForSelector("#rail-main .rail-item");
   await page().waitForFunction(() => nav.restored);
 });
@@ -65,4 +68,5 @@ test("a restart reopens the last page", { skip }, async () => {
   assert.strictEqual(await page().locator("#rail-main .rail-item[aria-current=page]").textContent(), "Create");
   assert.ok(await page().isDisabled("#nav-back"), "a fresh start has no history to go back to");
   assert.deepStrictEqual(app.errors, []);
+  assert.deepStrictEqual(app.violations, [], "the shell's Content Security Policy blocked something");
 });

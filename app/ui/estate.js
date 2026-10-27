@@ -535,28 +535,43 @@ function lakehouseRows(data) {
 
 // ---------- OneLake page: Access tab ----------
 
-const accessPage = { extra: [], data: null, lakehouse: null, lh: null };
+const accessPage = { extra: [], data: null, lakehouse: null, lh: null, view: "all" };
+// All workspaces reads the access cache (access-cache.js); the other two ask Fabric directly.
+const ACCESS_VIEWS = [["all", "All workspaces"], ["roles", "Environments"], ["tables", "Table access"]];
 
 async function renderAccess() {
   const ap = accessPage;
+  const view = ACCESS_VIEWS.some(([id]) => id === ap.view) ? ap.view : "all";
   const people = h("div", { class: "estate" }, h("p", { class: "muted-text" }, state.user ? "Reading workspace roles..." : ""));
   const lhSlot = h("div", { class: "estate" });
+  const allSlot = h("div", { class: "estate" }, h("p", { class: "muted-text" }, state.user ? "Reading the access cache..." : ""));
+  const seg = h("div", { class: "seg", role: "group", "aria-label": "Show" }, ACCESS_VIEWS.map(([id, label]) =>
+    h("button", { class: view === id ? "on" : null, onclick: () => { ap.view = id; render(); } }, label)));
+  const body = view === "all" ? allSlot
+    : view === "roles" ? h("div", { class: "card pad" }, h("h2", { class: "flush" }, "Workspace roles"), people)
+      : h("div", { class: "card pad" }, h("h2", { class: "flush" }, "Table access in a lakehouse"), lhSlot);
   setView(h("div", { class: "page" }, signInCallout(), onelakeTabs(),
     h("div", { class: "page-head" },
       h("div", {}, h("h1", {}, "Access"),
-        h("p", { class: "sub" }, "Who can reach each environment's workspace, and who can read which tables. Changes apply in Fabric right away.")),
-      h("div", { class: "head-actions" },
-        btn("Add a workspace", "add", addReviewWorkspace, "tool outline"),
-        btn("Give access", "person", () => grantDialog(), "tool outline"),
-        btn("Refresh", "sync", () => { ap.data = null; ap.lh = null; render(); }, "tool outline"))),
-    h("div", { class: "card pad" }, h("h2", { class: "flush" }, "Workspace roles"), people),
-    h("div", { class: "card pad" }, h("h2", { class: "flush" }, "Table access in a lakehouse"), lhSlot)));
+        h("p", { class: "sub" }, view === "all" ? "Who can reach every workspace you can open, from the access cache, with what's worth a look."
+          : "Who can reach each environment's workspace, and who can read which tables. Changes apply in Fabric right away.")),
+      h("div", { class: "head-actions" }, seg,
+        view === "roles" ? btn("Add a workspace", "add", addReviewWorkspace, "tool outline") : null,
+        view === "roles" ? btn("Give access", "person", () => grantDialog(), "tool outline") : null,
+        view !== "all" ? btn("Refresh", "sync", () => { ap.data = null; ap.lh = null; render(); }, "tool outline") : null)),
+    view === "all" ? withHowItWorks(body, howItWorks("onelake.access-all", {
+      reads: "Each workspace's roles and each lakehouse's OneLake data access roles, as you, from Fabric, when you refresh. You only see workspaces you can open in Fabric.",
+      changes: "Refresh changes adds rows to the access cache in the central lakehouse, only for what changed since the last refresh. Nothing in the workspaces it reads changes. The first refresh asks before adding the cache's tables. Who may read it asks before it changes the central lakehouse's OneLake security roles.",
+      results: "One row per workspace with its people, groups, apps and guests, and what's worth a look. A workspace whose roles couldn't be read keeps its last known list, marked out of date. Fixes open Environments or Table access, which ask before changing anything in Fabric.",
+      anchor: "access-preview",
+    })) : body));
   if (!state.user) return;
+  if (view === "all") { renderAccessAll(allSlot); return; }
+  if (view === "tables") { drawLakehouseAccess(lhSlot); return; }
   if (!ap.data) ap.data = await attempt(() => rpc("access_review", { extra: ap.extra }), "Could not read workspace roles");
   if (state.view !== "onelake" || catalogPage.tab !== "access") return;
   if (!ap.data) { fill(people, h("p", { class: "muted-text" }, "Couldn't read the workspace roles. Details are in Activity (the bell).")); return; }
   fill(people, ...accessTable(ap.data));
-  drawLakehouseAccess(lhSlot);
 }
 
 async function addReviewWorkspace() {

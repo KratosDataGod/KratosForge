@@ -64,6 +64,7 @@ The mesh's domains and subdomains are the ones defined in Fabric (Admin portal >
 | Step | Who | Needs |
 | --- | --- | --- |
 | **Platform > Domains > Import from Fabric** copies every Fabric domain and subdomain into the platform's catalog | A platform admin who is also a **Fabric administrator** | Fabric's domain list is an admin API (`GET /v1/admin/domains`, `Tenant.Read.All`). KratosForge asks for it only at this step. Each domain's admins are read too (`GET /v1/admin/domains/{id}/roleAssignments`, same permission). No app registration |
+| **Platform > Domains > New domain** creates the domain or subdomain in Fabric, then keeps it in the platform linked to it (Preview) | A platform admin who is also a **Fabric administrator** | `POST /v1/admin/domains` with `Tenant.ReadWrite.All`, asked for only at this step. The platform's checks (name, parent, platform admin) run first, so a domain the platform would refuse is never created in Fabric. Someone who isn't a Fabric administrator is told so, and can save the domain in the platform only. Not yet tried against a real tenant |
 | Seeing the domains, joining one, and the mesh map on Home | Everyone | Nothing: the names are read from the platform's catalog |
 | **Data mesh > Domains** shows which Fabric domain each of the project's workspaces is in, with **Use it** to pick it | Anyone who can see the workspace | Nothing new: each workspace says its domain to its members. Without an import, only the domain's id is known, so the tab asks for a Fabric administrator to import |
 
@@ -129,9 +130,32 @@ entity = "gold.dim_customer"
 
 The check knows which projects read a port, not which columns each one uses, so dropping any published column counts as breaking.
 
+## Follow a product (Preview)
+
+**Follow** on a product's page (**OneLake > Data products >** the product) tells you in Teams when a promote to Prod changes it: it's deprecated (and when it stops), it has a new version, or a port's columns are added, removed or retyped. Whoever links a project to a product follows it without asking, so its readers hear too. **Following** on the list shows only the products you follow; choose **Following** on a product's page to stop.
+
+Only Prod counts, because that's what readers' projects read. Each environment keeps what it last published (`catalog.product_env`), so a change is told once, when it reaches Prod, not again on the next promote. The notice goes to the platform's Teams routes as `product.changed`, naming the people it's for ([governance-guide.md](governance-guide.md)). A platform made before following shows no Follow button until a platform admin runs **Finish or repair** once.
+
+## Endorsement and business terms
+
+Preview. **OneLake > Data products**, then select a product's name. The product's page shows two trust signals next to its name.
+
+**Endorsement** (Certified, Promoted or Master data) is set in Fabric, on the item's settings. KratosForge reads it and never sets it. The item is the lakehouse each port lives in, in the highest environment the product is published to (Prod, else Test, else Dev).
+
+- **Only Fabric administrators can read it.** Fabric shows endorsement through an API only in Power BI's admin tenant scan (`POST /v1.0/myorg/admin/workspaces/getInfo`, then `scanStatus` and `scanResult`); Fabric's Get Item doesn't return it. **Scan now** shows to platform admins. It works for one who is also a Fabric administrator; anyone else is told so and nothing is saved.
+- **What a scan reads and writes.** It scans only the workspaces the platform's published products live in, at most 100 a call, and asks for no lineage, data sources, schemas, expressions or users. It writes what it read for each product item to `catalog.endorsement` in the platform's catalog: the endorsement, who certified it when Fabric says, when, and who scanned. Each scan is in the platform's audit log, without the certifier's name.
+- **Everyone sees the last scan.** The badge shows with "From the tenant scan" and its age. Before any scan, or for an item the latest scan didn't report, the badge is a grey **Endorsement unknown**: KratosForge never guesses, and a later scan that doesn't confirm an old badge takes it away. **See it in Fabric** opens the item there. Under the product's name, **Last tenant scan** says when the newest of its items was read. When a product's items differ (say one lakehouse is Certified and another unknown), the badge by its name is a grey **Endorsement varies**, and the Endorsement card lists each item with its own badge.
+- **To change it,** open the item's settings in Fabric. Scan again to update the badge.
+
+**Business terms** are a term's name and a link to it in Microsoft Purview, so people can read the definition where your organization keeps it. **Add a term** asks for the term and **Link to the term in Purview**: copy the address from Purview. It must be an `https` link on `purview.microsoft.com` or `web.purview.azure.com`; anything else is refused. KratosForge doesn't read Purview: its sign-in can't get a Purview token, so the terms are what your stewards type. The product's owner or a platform admin adds and removes them (removing asks first); each change writes `catalog.product_term` and the platform's audit log. The term itself stays in Purview.
+
+An older UDF_Platform doesn't have these functions yet. The page then says: *After an update, a platform admin runs Platform > Settings > Finish or repair once.*
+
 ## Links
 
-**OneLake > Data products > Link**, **Data products > Other teams' products > Link**, or **Links > New link.** Pick a product and port, a name for it, and which of their environments each of yours reads. Dev usually reads their Prod, so you build against real data without copying it. The catalog refuses a link to a draft, to a private product, or to a domain product from another domain, unless the product's owner let your project in: **OneLake > Data products > Request access** sends them a request, and once they approve it on **Platform > Requests**, **Link** works. Approving lets the link be made; the owner still gives read access in OneLake (a data access role on their Product workspace).
+**OneLake > Data products > Link**, **Data products > Other teams' products > Link**, or **Links > New link.** Pick a product and port, a name for it, and which of their environments each of yours reads. Dev usually reads their Prod, so you build against real data without copying it. The catalog refuses a link to a draft, to a private product, or to a domain product from another domain, unless the product's owner let your project in: **OneLake > Data products > Request access** sends them a request, and once they approve it on **Platform > Requests**, **Link** works. Approving lets the link be made; the owner still gives read access in OneLake (a data access role on their Product workspace). The owner can take that access away later on the product's page under **Access given**; a link already made stays.
+
+**Ask for data (Preview).** When the product you need doesn't exist yet, or needs a change, ask the team that would make it: **OneLake > Data products > Ask for data**, or **Ask for a change** on a product's page. Say what you need it for and, if it matters, by when. A new product goes to its domain's owners, a change to the product's owner, and either can be answered by a platform admin. Whoever accepts replies with how and when, and you see the answer on **Platform > Requests**. Nothing is built for you: accepting is the team's promise, recorded in the platform's audit log.
 
 An entity reads a link like any source:
 
@@ -148,6 +172,8 @@ table = "abfss://<workspace id>@onelake.dfs.fabric.microsoft.com/<lakehouse id>/
 ```
 
 The **Links** tab shows where each link points in the picked environment, and which entities use it. A link that an entity still reads can't be removed.
+
+When a table behind a product has an incident, the incident page lists the products built on it, the projects linked to them and who to tell, with **Tell them** to post it in Teams. See [Who's affected](user-guide.md#whos-affected-preview).
 
 ## Catalog text (About)
 

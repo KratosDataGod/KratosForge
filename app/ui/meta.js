@@ -4,7 +4,7 @@
 
 state.meta = {
   project: null,       // summary from meta_project
-  tab: "overview",     // overview | entities | layers | keys | sources | runs | health | model | tests | environments | domains | products | links
+  tab: "overview",     // overview | entities | layers | keys | sources | runs | health | model | tests | exceptions | environments | domains | products | links
   env: (() => { try { return localStorage.getItem("fd.env") || "dev"; } catch { return "dev"; } })(),  // set from the top bar
   entity: null,        // open entity detail
   layersDraft: null,   // unsaved layer edits
@@ -53,10 +53,11 @@ function showGateError(err, title = "That was blocked") {
   }
 }
 
-async function metaCall(method, params, title) {
+async function metaCall(method, params, title, onError) {
   try {
     return await rpc(method, params);
   } catch (err) {
+    onError?.(err);
     showGateError(err, title);
     return undefined;
   }
@@ -74,7 +75,7 @@ const META_TAB_GROUPS = [
   ["overview", "Overview", [["overview", "Domains", "mesh"]]],
   ["design", "Design", [["entities", "Entities"], ["layers", "Layers"], ["keys", "Surrogate keys"], ["sources", "Source systems"]]],
   ["runs", "Runs", [["runs", "Runs"]]],
-  ["quality", "Quality", [["tests", "Tests", "tests"], ["health", "Table health", "health"]]],
+  ["quality", "Quality", [["tests", "Tests", "tests"], ["health", "Table health", "health"], ["exceptions", "Exceptions"]]],
   ["mesh", "Domains", [["domains", "Domain and workspaces", "mesh"], ["products", "Data products", "mesh"], ["links", "Links", "mesh"]]],
   ["deploy", "Deploy", [["environments", "Environments and promote"], ["model", "Semantic model", "model"]]],
 ];
@@ -119,6 +120,7 @@ async function renderMetadata() {
         btn(inFabric(p, m.env) ? "Run all in Fabric" : "Run all", "play", () => runEntities(null), "tool primary",
           { disabled: p.errors.length ? true : null }))),
     problemsBanner(p.errors),
+    exceptionBanner(p),
     h("div", { class: "subtabs meta-groups" }, META_TAB_GROUPS.filter(([, , tabs]) => visible(tabs).length).map(([id, label, tabs]) =>
       h("button", { class: `tab${group[0] === id ? " active" : ""}`, onclick: () => goMeta(visible(tabs)[0][0]) }, label))),
     visible(group[2]).length > 1 ? h("div", { class: "seg meta-tabs", role: "group", "aria-label": group[1] }, visible(group[2]).map(([id, label, previewId]) =>
@@ -126,7 +128,9 @@ async function renderMetadata() {
     body));
   const render = { overview: renderMeshOverviewTab, entities: renderEntitiesTab, layers: renderLayersTab, keys: renderKeysTab, sources: renderSourcesTab,
     runs: renderRunsTab, health: renderHealthTab, model: renderModelTab, tests: renderTestsTab, environments: renderEnvTab,
-    domains: renderMeshDomainsTab, products: renderMeshProductsTab, links: renderMeshLinksTab }[m.tab];
+    domains: renderMeshDomainsTab, products: renderMeshProductsTab, links: renderMeshLinksTab,
+    exceptions: renderExceptionsTab }[m.tab];
+  raiseExceptionNotices(p);
   await render(body, p);
 }
 
@@ -142,6 +146,74 @@ function problemsBanner(errors) {
       h("b", {}, `${errors.length} problem${errors.length === 1 ? "" : "s"} to fix`),
       h("span", { class: "muted-text" }, "Runs and promote stay blocked until the project passes the save gate.")),
     gateList(errors));
+}
+
+const RULE_LABEL = {
+  owner: "Needs an owner", custom_code_owner: "Custom code needs an owner",
+  custom_code_test: "Custom code needs a test", key_not_null: "Key can't be empty",
+  key_unique: "Key must be unique", surrogate_keys: "Surrogate keys",
+};
+const EXCEPTION_STATUS = {
+  active: ["pass", "In force"], permanent: ["neu", "No end date"], expiring: ["wrn", "About to end"],
+  expired: ["fail", "Ended"], invalid: ["fail", "Check the date"],
+};
+
+// One activity item when an exception is about to end, has ended, or its date doesn't parse.
+// The id includes the day, so the bell shows it once a day rather than on every refresh.
+function exceptionNotice(row, day) {
+  if (!row || (row.status !== "expiring" && row.status !== "expired" && row.status !== "invalid")) return null;
+  const expiring = row.status === "expiring";
+  return {
+    id: `exception:${row.entity}:${row.rule}:${row.expires}:${day}`,
+    status: expiring ? "info" : "failed",
+    notice: expiring,
+    title: expiring ? "An approved exception is about to end" : "An approved exception needs attention",
+    text: row.notice,
+  };
+}
+
+function raiseExceptionNotices(p) {
+  const day = new Date().toISOString().slice(0, 10);
+  for (const row of p.exception_notices || []) {
+    const item = exceptionNotice(row, day);
+    if (item) logActivity(item);
+  }
+}
+
+function exceptionBanner(p) {
+  const rows = (p.exception_notices || []).filter((r) => r.status === "expiring");
+  if (!rows.length) return null;
+  return h("div", { class: "problems" },
+    h("div", { class: "row" }, icon("warning", 18),
+      h("b", {}, `${rows.length} approved exception${rows.length === 1 ? " is" : "s are"} about to end`),
+      h("span", { class: "spacer" }),
+      btn("Review", null, () => goMeta("exceptions"), "tool outline")),
+    h("ul", { class: "gate-list" }, rows.map((r) => h("li", {}, r.notice))));
+}
+
+function renderExceptionsTab(body, p) {
+  const rows = p.exception_notices || [];
+  if (!rows.length) {
+    body.replaceChildren(emptyState({ title: "No approved exceptions",
+      text: ["When a rule genuinely doesn't fit, add it to exceptions.toml with the table, the rule, why, who approved it and when it ends. One that is about to end shows here and in the bell. ",
+        learnMore("approved-exceptions")] }));
+    return;
+  }
+  body.replaceChildren(
+    h("p", { class: "muted-text" }, "Approved exceptions to a save-gate rule. The owner is the table's owner. ", learnMore("approved-exceptions")),
+    h("table", { class: "list" },
+      h("thead", {}, h("tr", {}, ["Table", "Rule", "Owner", "Reason", "Approver", "Ends", ""].map((c) => h("th", {}, c)))),
+      h("tbody", {}, rows.map((r) => {
+        const [cls, label] = EXCEPTION_STATUS[r.status] || ["neu", r.status];
+        return h("tr", {},
+          h("td", {}, h("span", { class: "mono" }, r.entity || "—")),
+          h("td", {}, RULE_LABEL[r.rule] || r.rule || "—"),
+          h("td", {}, r.owner || h("span", { class: "muted-text" }, "No owner")),
+          h("td", {}, r.reason || h("span", { class: "muted-text" }, "No reason")),
+          h("td", {}, r.approver || h("span", { class: "muted-text" }, "No approver")),
+          h("td", {}, r.expires === "permanent" ? "No end date" : r.expires),
+          h("td", {}, h("span", { class: `pill-s ${cls}` }, label)));
+      }))));
 }
 
 function renderMetaSetup(p) {
@@ -160,7 +232,7 @@ function renderMetaSetup(p) {
   const openPath = h("input", { id: "meta-open-path", placeholder: "C:\\Users\\you\\Documents\\metadata" });
   setView(h("div", { class: "page narrow" },
     h("h1", {}, "Set up a metadata project"),
-    h("p", { class: "sub" }, "A metadata project is a folder you keep in Git. Each table is one file that says where its data comes from, how to clean and check it, and how to load it. Each layer gets its own lakehouse, so layers never mix."),
+    pageIntro("A metadata project is a folder you keep in Git. Each table is one file that says where its data comes from, how to clean and check it, and how to load it. Each layer gets its own lakehouse, so layers never mix."),
     h("div", { class: "card pad" },
       h("h2", { class: "flush" }, "Create a new project"),
       h("label", { class: "field" }, "Folder", path),
@@ -441,6 +513,8 @@ function dataTable(preview) {
 // ---------- running ----------
 
 async function runEntities(names, opts = {}) {
+  // The button that started it, for the Pulse once the sign-in and risk check let the run start (Run all on the page head otherwise).
+  const trigger = document.activeElement?.closest?.("button");
   const p = state.meta.project;
   let label = names ? names.join(", ") : `all ${p.entities.length} entities`;
   const env = state.meta.env;
@@ -454,13 +528,27 @@ async function runEntities(names, opts = {}) {
   } else {
     toast(`Running ${label} in ${ENV_LABEL[env]}...`);
   }
+  forgeEvent("mesh.run.started", trigger?.isConnected ? trigger : document.querySelector(".page-head .head-actions .tool.primary"));
   const results = await metaCall("meta_run", { names: only, env, backfill: opts.backfill || null, cascade: !!opts.cascade }, "Run blocked");
   if (!results) return;
   if (results[0]?.status === "submitted") return watchMetaFabricRun(results[0], only ? label : "Run all");
   const decision = results.find((r) => r.status === "needs_decision");
   logRunActivity(`${only ? label : "Run all"} · ${ENV_LABEL[env]}`, results, "on this PC", env);
   showRunResults(results, decision);
+  metaRunFx(results, metaResultsHead());
   render();
+}
+
+// One effect for the whole batch (motion.js), never one per table: the Anvil Strike when every table
+// succeeded, the ember when any failed. A batch waiting on a decision plays nothing; so does a stop.
+function metaRunFx(results, anchor) {
+  if (results.some((r) => r.status === "failed")) forgeEvent("mesh.run.failed", anchor);
+  else if (results.length && results.every((r) => r.status === "ok")) forgeEvent("mesh.run.succeeded", anchor);
+}
+
+// The results dialog's heading ("3 of 3 succeeded"), where the batch's effect plays.
+function metaResultsHead() {
+  return document.querySelector("#dialog-root .dialog-head");
 }
 
 // The risk check (FINOPS-004) for the entities in the run, read in one batch, shown as one dialog
@@ -522,12 +610,14 @@ async function watchMetaFabricRun(run, label) {
       logRunActivity(title, res.results, "in Fabric", run.env, id);
       if (here) showRunResults(res.results, res.results.find((r) => r.status === "needs_decision"));
       else toast(`${title} finished in Fabric. The bell has the results.`, false);
+      metaRunFx(res.results, here ? metaResultsHead() : document.getElementById("toast"));
     } else {
       logActivity({ id, status: "failed", text: res.message || `The run ${res.status.toLowerCase()} before it saved any results.` });
       if (here) showDialog(`The Fabric run ${res.status.toLowerCase()}`, h("div", { class: "scroll" },
         h("p", { class: "text" }, res.message || "The runner stopped before it saved any results."),
         h("p", { class: "muted-text" }, "Open it from Monitor to see the notebook's output in Fabric.")),
       [btn("Close", null, closeDialog, "tool primary")]);
+      if (here && res.status === "Failed") forgeEvent("mesh.run.failed", metaResultsHead());
     }
     if (here) render();
     return;
@@ -719,8 +809,15 @@ async function renderEnvTab(body, p) {
         btn(`Promote to ${ENV_LABEL[target]}`, "publish", async () => {
           if (!state.user && !(await signIn())) return;
           toast(`Promoting to ${ENV_LABEL[target]}...`);
-          const res = await metaCall("meta_promote", { source, target }, "Promote blocked");
-          if (res) { toast(`${ENV_LABEL[target]} is now on metadata ${res.version}`, false, { log: true }); render(); }
+          let cancelled = false;
+          const res = await metaCall("meta_promote", { source, target }, "Promote blocked", (err) => { cancelled = friendlyError(err).cancelled; });
+          // Anvil Strike on the message once the target is on the new version; the ember beside the
+          // error when the promote fails, and nothing for a cancelled sign-in (motion.js).
+          if (res) {
+            toast(`${ENV_LABEL[target]} is now on metadata ${res.version}`, false, { log: true });
+            render();
+            forgeEvent("promote.succeeded", document.getElementById("toast"));
+          } else if (!cancelled) forgeEvent("promote.failed", document.getElementById("toast"));
         }, "tool primary small")),
       h("p", { class: "muted-text" }, "Needs the project to pass the save gate, its tests to pass, and every table's last run here to be green on this exact metadata version. Lakehouses that don't exist yet are created."),
       box, promoteImpact(source, target), lastRelease(target, render));
@@ -871,7 +968,7 @@ async function renderKeysTab(body) {
       if (!k.local && !state.user && !(await signIn())) return;
       const res = await metaCall("meta_keys_sync", { env: k.env }, "Not synced");
       if (res) {
-        if (res.missing?.length) toast(`Not in the platform yet: ${res.missing.map((n) => `sk.${n}`).join(", ")}. Request them in Platform > Business keys.`, true);
+        if (res.missing?.length) toast(`Not in the platform yet: ${res.missing.map((n) => `sk.${n}`).join(", ")}. Request them in Platform > Set up > Business keys.`, true);
         else toast(res.platform ? `Every key table is in the platform${res.created.length ? `; created ${res.created.map((n) => `sk.${n}`).join(", ")}` : ""}`
           : `Synced: ${res.config.source_system} source systems${res.created.length ? `, created ${res.created.map((n) => `sk.${n}`).join(", ")}` : ""}`);
         rerender();
@@ -1065,7 +1162,7 @@ async function renderSourcesTab(body) {
       btn(fromPlatform ? "Save connection" : "Save", "save", save, "tool primary small")),
     h("b", {}, "General"),
     fromPlatform ? h("div", { class: "row" },
-      h("p", { class: "muted-text small grow" }, "Name, id, owner and type are kept once for every project in Platform > Landing zone > Sources. Only the connection is this project's own."),
+      h("p", { class: "muted-text small grow" }, "Name, id, owner and type are kept once for every project in Platform > Set up > Landing zone > Sources. Only the connection is this project's own."),
       btn("Edit in Platform", "building", () => { platformPage.source = current.platform.name; goPlatform("landing"); }, "tool link small")) : null,
     h("div", { class: "form-grid" },
       field("Source system id (never changes)", draft.id, (v) => { draft.id = v; }, { type: "number", min: "1", readonly: m.source === "new" ? null : true }),
@@ -1109,8 +1206,8 @@ function readSourceDialog(plat, env, pick) {
           if (res) { closeDialog(); toast(`This project now reads ${p.code}`); pick(p.source_id); }
         }, "tool outline small"))))))
       : h("p", { class: "muted-text" }, plat.length ? "This project already reads every source in the platform." : "The platform has no sources yet."),
-    h("p", { class: "muted-text small" }, "Missing one? Platform admins add sources on Platform > Landing zone; anyone can request one there.")), [
-    btn("Open Platform > Landing zone", "building", () => { closeDialog(); goPlatform("landing"); }, "tool outline"),
+    h("p", { class: "muted-text small" }, "Missing one? Platform admins add sources on Platform > Set up > Landing zone; anyone can request one there.")), [
+    btn("Open Platform > Set up > Landing zone", "building", () => { closeDialog(); goPlatform("landing"); }, "tool outline"),
     btn("Close", null, closeDialog, "tool primary")]);
 }
 
@@ -1241,8 +1338,13 @@ async function renderModelTab(body) {
   const result = h("div", {});
   const build = async (replace = false) => {
     toast(`Building ${name.value} in ${plan.workspace_name || "the workspace"}...`);
-    const res = await metaCall("meta_build_model", { env: m.env, layer: plan.layer, name: name.value, replace }, "Model not built");
-    if (!res) return;
+    let cancelled = false;
+    const res = await metaCall("meta_build_model", { env: m.env, layer: plan.layer, name: name.value, replace }, "Model not built",
+      (err) => { cancelled = friendlyError(err).cancelled; });
+    if (!res) {  // the ember beside the error (a gate's list opens as a dialog over it); a cancelled sign-in plays nothing
+      if (!cancelled) forgeEvent("model.build.failed", document.getElementById("toast"));  // motion.js
+      return;
+    }
     if (res.confirm) {  // the model exists: nothing is written until the user says to replace it
       const c = res.confirm;
       if (await confirmDialog(`Replace ${c.name}?`,
@@ -1258,15 +1360,19 @@ async function renderModelTab(body) {
       res.relationships_left_out?.length ? ` Relationships left out because their column isn't in the model: ${res.relationships_left_out.join(", ")}.` : "",
       res.endpoint_refreshed ? "" : " The SQL endpoint refresh didn't run; if a table is missing, refresh the lakehouse in Fabric and build again.",
       res.url ? btn("Open in Fabric", "open", () => openInFabric(res.url), "tool link small") : null));
+    forgeEvent("model.built", result.firstChild);  // Forge Spark once Fabric has the model (motion.js)
   };
   body.replaceChildren(
     h("div", { class: "card pad" },
       h("div", { class: "row wrap" }, h("b", {}, "Direct Lake semantic model"), h("span", { class: "spacer" }),
         plan.existing ? btn("Open in Fabric", "open", () => openInFabric(plan.existing.url), "tool outline small") : null,
         btn(plan.existing ? "Update model" : "Create model", "cube", () => build(), "tool primary small")),
-      h("p", { class: "muted-text" }, `Reads ${plan.lakehouse} in ${plan.workspace_name || plan.workspace_id} through its SQL analytics endpoint, with no import and no refresh schedule. Relationships come from the metadata. Surrogate keys and the framework's _run_id and _loaded_at columns are hidden; every fact gets a row count measure. Updating keeps every column's lineage tag, so reports built on the model keep working.`),
+      h("p", { class: "muted-text" }, `Reads ${plan.lakehouse} in ${plan.workspace_name || plan.workspace_id} through its SQL analytics endpoint, with no import and no refresh schedule. Relationships come from the metadata. Surrogate keys and the framework's _run_id and _loaded_at columns are hidden; every fact gets a row count measure and a total measure for each numeric column, and no column sums on its own. Updating keeps every column's lineage tag, so reports built on the model keep working.`),
       h("div", { class: "row wrap" }, h("label", { class: "field" }, "Layer", layer), h("label", { class: "field grow" }, "Model name", name)),
       result),
+    directLakeCard(plan, () => build()),
+    dictionaryCard(plan),
+    ossieCard(plan),
     h("div", { class: "entity-grid" },
       h("div", { class: "card pad grow" }, h("b", {}, `Tables (${plan.tables.length})`),
         h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["Table", "Kind", "Delta table", "Entity"].map((c) => h("th", {}, c)))),
@@ -1279,6 +1385,406 @@ async function renderModelTab(body) {
             h("span", { class: "mono" }, `→ ${r.to_table}.${r.to_column}`),
             h("span", { class: "muted-text" }, r.active ? r.why : `inactive: ${r.why}`)))))))
           : h("p", { class: "muted-text" }, "None found. Facts relate to a dimension through a [[lookup]] block, or a column named like the dimension's surrogate key.")))));
+}
+
+// ---------- Data dictionary (model_dictionary_service.py) ----------
+
+const DICTIONARY_MAX_BYTES = 5 * 1024 * 1024;
+const DICTIONARY_SHOWN = 12;
+
+// Every table, column and measure of the layer's model with its description; null when preview features are hidden.
+function dictionaryCard(plan) {
+  const title = preview("dataDictionary", h("b", {}, "Data dictionary "));
+  if (!title) return null;
+  const body = h("div", { class: "dict-body" }, h("p", { class: "muted-text" }, "Reading the descriptions..."));
+  const load = async () => {
+    const out = await metaCall("meta_model_dictionary", { layer: plan.layer }, "Data dictionary not read");
+    if (!out) { fill(body); return; }
+    fill(body, dictionaryTable(out));
+  };
+  load();
+  const exportCsv = btn("Export CSV", "arrowDownload", async () => {
+    const res = await metaCall("meta_model_dictionary_export", { layer: plan.layer }, "Not exported");
+    if (res) toast(`Saved ${res.rows.toLocaleString()} rows to ${res.path}`);
+  }, "tool primary small");
+  const save = btn("Save to the project", "save", async () => {
+    const res = await metaCall("meta_model_dictionary_save", { layer: plan.layer }, "Not saved");
+    if (res) toast(`Saved ${res.path}: it shows in Changes, ready to commit`);
+  }, "tool outline small");
+  return h("div", { class: "card pad dict-card" },
+    h("div", { class: "row wrap" }, title, h("span", { class: "spacer" }),
+      btn("Import descriptions...", "arrowUpload", () => dictionaryImportDialog(plan, load), "tool outline small"), save, exportCsv),
+    h("p", { class: "muted-text" }, `Every table, column and measure in ${plan.name}, with the description people see in the catalog. Export it to edit in Excel, then import it back: the descriptions are saved to the catalog, and Update model writes them into the model, where they show in Power BI's field list.`),
+    body,
+    howItWorks("dataDictionary", {
+      reads: "The metadata project and the catalog (what the About card saved, else the [catalog] text in each entity's file).",
+      changes: "Export writes a new CSV in Downloads. Save to the project writes semantic/" + plan.name + ".dictionary.csv for Git. Import saves descriptions and classifications to the catalog after you see every change; a catalog in Fabric uses capacity to save. Nothing in Fabric's model changes until Update model.",
+      results: "Update model writes the descriptions into the model's TMDL.",
+      more: [["Where the idea comes from", "Elegant BI's data dictionary and description scripts for Tabular Editor (MIT), written here for the metadata project."]],
+      anchor: "data-dictionary",
+    }));
+}
+
+function dictionaryTable(out) {
+  const c = out.counts;
+  const missing = c.columns - c.columns_described;
+  const rows = (items) => items.map((x) => h("tr", {},
+    h("td", { class: "mono" }, x.table), h("td", { class: x.name ? "mono" : "muted-text" }, x.name || "(table)"),
+    h("td", {}, h("span", { class: `pill-s ${x.kind === "measure" ? "info" : "neu"}` }, x.kind[0].toUpperCase() + x.kind.slice(1))),
+    h("td", { class: "mono" }, x.type),
+    h("td", { class: x.description ? null : "muted-text" }, x.description || h("i", {}, "No description")),
+    h("td", {}, x.classification ? x.classification[0].toUpperCase() + x.classification.slice(1) : "")));
+  const tbody = h("tbody", {}, rows(out.items.slice(0, DICTIONARY_SHOWN)));
+  const more = out.items.length > DICTIONARY_SHOWN ? btn(`Show all ${out.items.length} rows`, null, (e) => {
+    fill(tbody, ...rows(out.items));
+    e.currentTarget.remove();
+  }, "tool link small") : null;
+  return h("div", { class: "dict-out" },
+    h("div", { class: "row wrap dict-counts" },
+      h("span", {}, h("b", {}, String(c.columns_described)), ` of ${c.columns} columns described`),
+      h("span", {}, h("b", {}, String(c.tables_described)), ` of ${c.tables} tables described`),
+      h("span", {}, h("b", {}, String(c.measures)), " measures, described for you"),
+      missing ? h("span", { class: "pill-s wrn" }, `${missing} column${missing === 1 ? " has" : "s have"} no description`) : null),
+    out.problem ? h("p", { class: "warn-text" }, `The catalog couldn't be read, so this shows the text in Git only (${out.problem}).`) : null,
+    h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["Table", "Column or measure", "Kind", "Type", "Description", "Classification"].map((x) => h("th", {}, x)))), tbody),
+    more);
+}
+
+// Pick an edited dictionary, see every change, then save.
+function dictionaryImportDialog(plan, reload) {
+  const picked = { text: "", name: "" };
+  const input = h("input", { type: "file", accept: ".csv,text/csv", "aria-label": "Data dictionary CSV" });
+  const out = h("div", { class: "dict-preview" });
+  const go = btn("Save changes", "save", null, "tool primary");
+  go.disabled = true;
+  input.onchange = async () => {
+    const f = input.files[0];
+    go.disabled = true;
+    if (!f) return;
+    if (f.size > DICTIONARY_MAX_BYTES) { fill(out, h("p", { class: "error-text" }, "The file is larger than 5 MB, so it isn't a data dictionary.")); return; }
+    Object.assign(picked, { text: await f.text(), name: f.name });
+    fill(out, h("p", { class: "muted-text" }, "Reading the file..."));
+    const res = await metaCall("meta_model_dictionary_preview", { text: picked.text, layer: plan.layer }, "Not read");
+    if (!res) { fill(out); return; }
+    const field = { description: "Description", classification: "Classification" };
+    const cap = (t) => (/^(public|internal|confidential|restricted)$/.test(t) ? t[0].toUpperCase() + t.slice(1) : t);
+    fill(out,
+      h("div", { class: "row wrap" }, h("span", { class: "pill-s pass" }, `${res.changes.length} to change`),
+        h("span", { class: "pill-s neu" }, `${res.unchanged} unchanged`),
+        res.skipped.length ? h("span", { class: "pill-s wrn" }, `${res.skipped.length} skipped`) : null),
+      res.changes.length ? h("table", { class: "list" }, h("thead", {}, h("tr", {}, ["Table or column", "What", "Now", "From the file"].map((x) => h("th", {}, x)))),
+        h("tbody", {}, res.changes.map((r) => h("tr", {}, h("td", { class: "mono" }, r.object), h("td", {}, field[r.field]),
+          h("td", { class: r.now ? null : "muted-text" }, r.now ? cap(r.now) : h("i", {}, "none")), h("td", {}, cap(r.new))))))
+        : h("p", { class: "muted-text" }, "Nothing changes: the catalog already has this text."),
+      res.skipped.length ? h("div", { class: "card pad warn-box" }, h("b", {}, `Skipped (${res.skipped.length})`),
+        h("ul", { class: "gate-list" }, res.skipped.map((x) => h("li", {}, h("span", { class: "mono" }, x.object), `, row ${x.row}: ${x.reason}`)))) : null,
+      res.problem ? h("p", { class: "error-text" }, `The catalog can't be reached, so nothing can be saved now (${res.problem}).`) : null);
+    go.textContent = `Save ${res.changes.length} change${res.changes.length === 1 ? "" : "s"}`;
+    go.disabled = !res.changes.length || !!res.problem;
+  };
+  go.onclick = async () => {
+    go.disabled = true;
+    const res = await metaCall("meta_model_dictionary_import", { text: picked.text, layer: plan.layer, confirmed: true }, "Not saved");
+    if (!res) { go.disabled = false; return; }
+    closeDialog();
+    toast(`Saved ${res.changes.length} change${res.changes.length === 1 ? "" : "s"} from ${picked.name} to the catalog. Update model writes them into the model.`);
+    reload();
+  };
+  showDialog("Import descriptions", h("div", { class: "scroll dict-import" },
+    h("label", { class: "field" }, "Edited data dictionary (CSV)", input),
+    out,
+    h("p", { class: "muted-text" }, "Takes descriptions and classifications for tables and columns. A blank cell leaves the text as it is; measure rows are skipped, since their descriptions are written for you. Saves to the catalog, as the About card does; the model in Fabric doesn't change until you Update model.")),
+  [btn("Cancel", null, closeDialog, "tool outline"), go]);
+}
+
+// ---------- Direct Lake check (model_directlake_service.py) ----------
+
+const DL_SEVERITY = { fail: ["Would fail", "fail"], warn: ["Falls back", "wrn"], info: ["Info", "info"] };
+
+// What would make a model fall back to DirectQuery or fail; null when preview features are hidden. Reads only.
+function directLakeCard(plan, updateModel) {
+  const title = preview("directLakeCheck", h("b", {}, "Direct Lake check "));
+  if (!title) return null;
+  const m = state.meta;
+  const result = h("div", { class: "dl-result" });
+  const model = h("select", { "aria-label": "Model to check" },
+    h("option", { value: plan.existing ? plan.name : "" }, plan.existing ? `${plan.name} (this layer's model)` : "Reading the workspace's models..."));
+  const sku = h("select", { "aria-label": "Capacity limits" }, h("option", { value: "" }, "Reading the capacity..."));
+  const keys = h("input", { type: "checkbox" });
+  const checkBtn = btn("Check now", "search", () => run(), "tool primary small");
+  metaCall("meta_model_ossie_models", { env: m.env }, "Models not listed").then((res) => {
+    if (!res) return;
+    fill(model, ...(res.models.length ? res.models.map((x) => h("option", { value: x.name, selected: x.name === plan.name ? true : null },
+      x.name === plan.name ? `${x.name} (this layer's model)` : x.name)) : [h("option", { value: "" }, "No semantic models in this workspace yet")]));
+  });
+  metaCall("meta_model_directlake_setup", { env: m.env }, "Capacity not read").then((res) => {
+    if (!res) return;
+    const known = res.sku;
+    fill(sku, ...(known ? [] : [h("option", { value: "" }, res.capacity_sku ? `${res.capacity_sku} (no Direct Lake limits known)` : "Pick the capacity")]),
+      ...res.skus.map((x) => h("option", { value: x, selected: x === known ? true : null }, x === known ? `${x} (this workspace's capacity)` : x)));
+  });
+  const run = async () => {
+    if (!model.value) { toast("Pick a model to check"); return; }
+    checkBtn.disabled = true;
+    fill(result, h("p", { class: "muted-text" }, `Reading ${model.value}'s definition and its Delta tables...`));
+    const out = await metaCall("meta_model_directlake_check", { env: m.env, name: model.value, sku: sku.value, keys: keys.checked }, "Not checked");
+    checkBtn.disabled = false;
+    if (!out) { fill(result); return; }
+    fill(result, directLakeResult(out, plan, updateModel));
+  };
+  return h("div", { class: "card pad dl-card" },
+    h("div", { class: "row wrap" }, title, h("span", { class: "spacer" }), checkBtn),
+    h("p", { class: "muted-text" }, "Finds what would make the model fall back to DirectQuery, or fail, before people query it: tables past the capacity's Direct Lake limits, columns the Delta table no longer has, relationship keys that aren't unique, and fact rows whose key has no match, which Power BI shows under (Blank). It reads the model's definition from Fabric and each table's Delta log from OneLake, then checks on this PC. It starts no Fabric job; reading from OneLake uses capacity."),
+    h("div", { class: "row wrap" }, h("label", { class: "field grow" }, "Model", model), h("label", { class: "field" }, "Limits for capacity", sku),
+      h("label", { class: "check" }, keys, " Also check relationship keys: unique, and a match for every row (reads those columns from OneLake)")),
+    result,
+    howItWorks("directLakeCheck", {
+      reads: "The model's definition from Fabric (getDefinition, read only), each table's Delta log and Parquet footers from OneLake, and both key columns of each relationship when you tick the box.",
+      changes: "Nothing. Fixes open where you make them: Update model, or Table health to compact a table.",
+      results: "Shown here only.",
+      more: [["Where the limits come from", "Microsoft's Direct Lake guardrails for the capacity you pick. The idea comes from Microsoft's semantic-link-labs (MIT) and Elegant BI's blank row finder for Tabular Editor (MIT); the check is written for this PC and needs no notebook."]],
+      anchor: "direct-lake-check",
+    }));
+}
+
+function directLakeFix(f, plan, updateModel) {
+  if (f.fix === "update_model") return btn("Update model", "cube", updateModel, "tool link small");
+  if (f.fix === "compact") return btn("Compact in Table health", "open", () => goMeta("health"), "tool link small");
+  const entity = plan.tables.find((t) => t.name === f.table)?.entity;
+  if (f.fix === "show_rows" && entity) return btn("Open the table", "open", () => openEntity(entity), "tool link small");
+  return h("span", { class: "muted-text" }, "");
+}
+
+function directLakeResult(out, plan, updateModel) {
+  if (!out.direct_lake) return h("p", { class: "muted-text" }, `${out.name} has no Direct Lake tables, so there's nothing to check.`);
+  const c = out.counts;
+  const tile = (label, n, cls) => h("div", { class: "dl-tile" }, h("span", { class: "muted-text" }, label), h("b", { class: cls }, String(n)));
+  const lim = out.limits;
+  const num = (n) => (n === null || n === undefined ? "" : Number(n).toLocaleString());
+  const over = (n, limit) => (lim && n !== null && n !== undefined ? (n > limit ? "n over" : n >= limit * 0.9 ? "n near" : "n") : "n");
+  return h("div", { class: "dl-out" },
+    h("div", { class: "dl-tiles" }, tile("Would fail", c.fail, "fail-text"), tile("Would fall back or slow down", c.warn, "warn-text"),
+      tile("Worth knowing", c.info, "info-text"),
+      h("div", { class: "dl-tile" }, h("span", { class: "muted-text" }, "Fallback setting"),
+        h("b", {}, out.behavior.toLowerCase() === "directlakeonly" ? "Direct Lake only" : "Automatic"),
+        h("span", { class: "muted-text" }, out.storage === "onelake" ? "Direct Lake on OneLake: past a limit, refresh fails"
+          : out.behavior.toLowerCase() === "directlakeonly" ? "Past a limit, queries fail" : "Past a limit, queries go to DirectQuery"))),
+    out.findings.length ? h("table", { class: "mini" },
+      h("thead", {}, h("tr", {}, ["Severity", "Table", "Check", "What we found", "Fix"].map((x) => h("th", {}, x)))),
+      h("tbody", {}, out.findings.map((f) => h("tr", {},
+        h("td", {}, h("span", { class: `pill-s ${DL_SEVERITY[f.severity][1]}` }, DL_SEVERITY[f.severity][0])),
+        h("td", { class: "mono" }, f.table || "Model"), h("td", {}, f.check), h("td", {}, f.message),
+        h("td", {}, directLakeFix(f, plan, updateModel))))))
+      : h("div", { class: "pass-box" }, icon("ok", 16), ` Nothing found${lim ? ` at ${lim.sku}'s limits` : ""}.`),
+    out.unread.length ? h("div", { class: "card pad warn-box" }, h("b", {}, `Couldn't check (${out.unread.length})`),
+      h("ul", { class: "gate-list" }, out.unread.map((u) => h("li", {}, h("span", { class: "mono" }, u.table), `: ${u.reason}`)))) : null,
+    lim ? null : h("p", { class: "muted-text" }, "Pick the capacity to compare each table with its Direct Lake limits."),
+    out.tables.length ? h("details", {}, h("summary", {}, lim ? `Every table against ${lim.sku}'s limits` : "Every table"),
+      h("table", { class: "mini" }, h("thead", {}, h("tr", {},
+        h("th", {}, "Table"), h("th", {}, "Delta table"),
+        h("th", { class: "n" }, lim ? `Rows (limit ${num(lim.rows)})` : "Rows"),
+        h("th", { class: "n" }, lim ? `Parquet files (limit ${num(lim.files)})` : "Parquet files"),
+        h("th", { class: "n" }, lim ? `Row groups (limit ${num(lim.row_groups)})` : "Row groups"),
+        h("th", { class: "n" }, "Size on OneLake"))),
+        h("tbody", {}, out.tables.map((t) => h("tr", {}, h("td", { class: "mono" }, t.table), h("td", { class: "mono" }, t.delta_table),
+          t.exists ? [
+            h("td", { class: over(t.rows, lim?.rows) }, num(t.rows)), h("td", { class: over(t.files, lim?.files) }, num(t.files)),
+            h("td", { class: over(t.row_groups, lim?.row_groups) }, (t.row_groups_estimated ? "about " : "") + num(t.row_groups)),
+            h("td", { class: "n" }, formatBytes(t.bytes))]
+            : h("td", { colspan: 4, class: "muted-text" }, "No Delta table")))),
+        lim?.model_bytes ? h("tfoot", {}, h("tr", {}, h("td", { colspan: 5, class: "muted-text" }, "Model total"),
+          h("td", { class: over(out.model_bytes, lim.model_bytes) }, `${formatBytes(out.model_bytes)} of ${formatBytes(lim.model_bytes)}`))) : null),
+      h("p", { class: "muted-text" }, "Row groups come from each file's Parquet footer, up to 200 files a table; above that they're estimated from a sample and marked \"about\".")) : null,
+    h("p", { class: "muted-text" }, `Checked ${relTime(out.checked_at)}.`));
+}
+
+// ---------- Apache Ossie: export and import a semantic model (model_ossie_service.py) ----------
+
+const OSSIE_MAX_BYTES = 20 * 1024 * 1024;
+const OSSIE_CHANGE = { add: ["Add", "pass"], change: ["Change", "info"], remove: ["Remove", "fail"], needs_dax: ["Needs DAX", "wrn"] };
+
+// The Open Semantic Interchange card under the Direct Lake one; null when preview features are hidden.
+function ossieCard(plan) {
+  const title = preview("ossie", h("b", {}, "Open Semantic Interchange (Apache Ossie) "));
+  if (!title) return null;
+  const m = state.meta;
+  const result = h("div", { class: "ossie-result" });
+  // Values say where the model is read from: "fabric:<name>" in the environment's workspace, "git:<folder>" in
+  // the project's folder (semantic/<name>.SemanticModel, read on this PC with no Fabric call).
+  const model = h("select", { "aria-label": "Model to export" },
+    h("option", { value: plan.existing ? `fabric:${plan.name}` : "" }, plan.existing ? `${plan.name} (this layer's model)` : "Reading the models..."));
+  const sql = h("input", { type: "checkbox", checked: true });
+  Promise.all([
+    rpc("meta_model_ossie_models", { env: m.env }).catch((err) => ({ error: err.message || String(err) })),
+    rpc("meta_model_ossie_folders", {}).catch(() => ({ folders: [] })),
+  ]).then(([fab, git]) => {
+    const keep = model.value || `fabric:${plan.name}`;
+    const opt = (value, label) => h("option", { value, selected: value === keep ? true : null }, label);
+    const inFabric = fab.error ? [h("option", { value: "", disabled: true }, fab.error)]
+      : fab.models.length ? fab.models.map((x) => opt(`fabric:${x.name}`, x.name === plan.name ? `${x.name} (this layer's model)` : x.name))
+        : [h("option", { value: "", disabled: true }, "No semantic models in this workspace yet")];
+    model.replaceChildren(
+      h("optgroup", { label: fab.workspace_name ? `In Fabric (${fab.workspace_name})` : "In Fabric" }, inFabric),
+      git.folders.length ? h("optgroup", { label: "In Git, on this PC" }, git.folders.map((f) => opt(`git:${f.path}`, `${f.name} (${f.path})`))) : null);
+    if (!model.value) model.value = git.folders.length ? `git:${git.folders[0].path}` : "";
+  });
+  const exportModel = async () => {
+    if (!model.value) { toast("Pick a model to export", true); return; }
+    const [where, ...rest] = model.value.split(":");
+    const target = rest.join(":");
+    fill(result, h("p", { class: "muted-text" }, where === "git"
+      ? `Reading ${target} on this PC and converting it...` : `Reading ${target} from Fabric and converting it on this PC...`));
+    const out = where === "git"
+      ? await metaCall("meta_model_ossie_export_folder", { path: target, translate_dax: sql.checked }, "Not exported")
+      : await metaCall("meta_model_ossie_export", { env: m.env, name: target, translate_dax: sql.checked }, "Not exported");
+    if (!out) { fill(result); return; }
+    fill(result, ossieExportResult(out));
+  };
+  return h("div", { class: "card pad ossie-card" },
+    h("div", { class: "row wrap" }, title, h("span", { class: "spacer" }),
+      btn("Import from Ossie...", "arrowUpload", () => ossieImportDialog(plan, result), "tool outline small"),
+      btn("Export to Ossie", "arrowDownload", exportModel, "tool primary small")),
+    h("p", { class: "muted-text" }, "Ossie is the open format Snowflake, dbt, Databricks and others read for semantic models. Export reads the model's definition from Fabric, or its TMDL kept in Git, and converts it on this PC; nothing in Fabric changes. A model sent to Ossie and back comes back the same, because Power BI details travel in the file's Power BI section."),
+    h("div", { class: "row wrap" }, h("label", { class: "field" }, "Model", model),
+      h("label", { class: "check" }, sql, "Also write simple measures as portable SQL")),
+    result,
+    howItWorks("ossie", {
+      reads: "The model's definition from Fabric (getDefinition, read only), its TMDL under semantic/ in the project's folder (no Fabric call), or the Ossie file you pick.",
+      changes: "Export changes nothing until you save the file into the metadata project's folder. Import writes the model's definition in Fabric (or creates a new model) only after you confirm; no refresh runs. Save TMDL to Git writes the model's TMDL files under semantic/ in the project's folder.",
+      results: "Files under semantic/ in the metadata project, ready to commit in Source control.",
+      more: [["How it converts", "On this PC, with the Apache Ossie Microsoft converter. No AI is involved, and nothing leaves this PC except the Fabric calls above."]],
+    }));
+}
+
+function ossieReportList(rows) {
+  return rows.length ? h("ul", { class: "gate-list" }, rows.map((r) => h("li", {}, h("span", { class: "mono" }, r.object), ` ${r.message}`))) : null;
+}
+
+function ossieExportResult(out) {
+  const c = out.counts;
+  const kept = out.report.filter((r) => r.kind === "kept");
+  const lost = out.report.filter((r) => r.kind === "lost");
+  const path = h("input", { class: "mono", value: out.path, "aria-label": "Save in the project as" });
+  const save = btn("Save to Git", "save", async () => {
+    const res = await metaCall("meta_model_ossie_save", { path: path.value.trim(), text: out.yaml }, "Not saved");
+    if (res) toast(`Saved ${res.path}. It's in Source control, ready to commit.`);
+  }, "tool primary small");
+  const copy = btn("Copy", "copyArrowRight", () => attempt(() => navigator.clipboard.writeText(out.yaml).then(() => toast("Copied the Ossie YAML")), "Could not copy"), "tool outline small");
+  return h("div", { class: "ossie-export" },
+    h("div", { class: "pass-box" }, icon("ok", 16),
+      `Converted ${out.model}: ${c.datasets} datasets, ${c.fields} fields, ${c.metrics} measures (${c.portable_metrics} also as SQL), ${c.relationships} relationship${c.relationships === 1 ? "" : "s"}.`,
+      kept.length ? ` ${kept.length} thing${kept.length === 1 ? "" : "s"} only Power BI understands ${kept.length === 1 ? "is" : "are"} kept in the Power BI section.` : ""),
+    h("div", { class: "ossie-groups" },
+      h("div", { class: "card pad" }, h("b", {}, "Portable (any Ossie tool)"),
+        h("p", { class: "muted-text" }, `Tables, columns, keys, ${c.relationships} relationships, descriptions, and ${c.portable_metrics} measure${c.portable_metrics === 1 ? "" : "s"} as SQL.`)),
+      h("div", { class: "card pad" }, h("b", {}, `Kept for Fabric only (${kept.length})`),
+        ossieReportList(kept) || h("p", { class: "muted-text" }, "Nothing: the whole model is portable.")),
+      h("div", { class: "card pad" }, h("b", {}, `Not converted (${lost.length})`),
+        ossieReportList(lost) || h("p", { class: "muted-text" }, "Nothing. Every object is either portable or kept."))),
+    h("pre", { class: "ossie-yaml mono" }, out.yaml.split("\n").slice(0, 40).join("\n") + (out.yaml.split("\n").length > 40 ? "\n..." : "")),
+    h("div", { class: "row wrap" }, h("label", { class: "field grow" }, "Save in the project as", path), save, copy));
+}
+
+// Pick an Ossie file, choose update, replace or new, see every change, then confirm.
+function ossieImportDialog(plan, result) {
+  const m = state.meta;
+  const picked = { text: "", name: "" };
+  const input = h("input", { type: "file", accept: ".yaml,.yml,.json", "aria-label": "Ossie file" });
+  const projectPath = h("input", { class: "mono", placeholder: "semantic/model.ossie.yaml", "aria-label": "Ossie file in the project" });
+  const mode = h("select", { "aria-label": "Into" },
+    plan.existing ? h("option", { value: "update", selected: true }, `Update ${plan.name} (keeps its roles and hierarchies)`) : null,
+    plan.existing ? h("option", { value: "replace" }, `Replace ${plan.name}`) : null,
+    h("option", { value: "new", selected: plan.existing ? null : true }, `New model in ${plan.workspace_name || "the workspace"}`));
+  const name = h("input", { placeholder: "The name in the file", "aria-label": "New model name" });
+  const nameField = h("label", { class: "field grow", hidden: !!plan.existing }, "New model name", name);
+  const out = h("div", { class: "ossie-preview" });
+  const keep = new Map();  // removals the person unticked "Keep it" on
+  const go = btn("Import", "arrowUpload", null, "tool primary");
+  go.disabled = true;
+  const target = () => (mode.value === "new" ? name.value.trim() : plan.name);
+  const refresh = async () => {
+    go.disabled = true;
+    nameField.hidden = mode.value !== "new";
+    if (!picked.text) return;
+    fill(out, h("p", { class: "muted-text" }, "Checking what changes..."));
+    const res = await metaCall("meta_model_ossie_preview", { env: m.env, text: picked.text, name: target(), mode: mode.value, layer: plan.layer }, "Not checked");
+    if (!res) { fill(out); return; }
+    keep.clear();
+    const lost = res.report.filter((r) => r.kind === "lost");
+    fill(out,
+      h("b", {}, res.exists ? `What changes in ${res.name}` : `What ${res.name} gets`),
+      res.changes.length ? h("table", { class: "list" }, h("thead", {}, h("tr", {}, ["Change", "Object", "Detail"].map((c) => h("th", {}, c)))),
+        h("tbody", {}, res.changes.map((r) => {
+          const [label, cls] = OSSIE_CHANGE[r.change] || [r.change, "neu"];
+          const kept = res.removable.includes(r.object) ? h("label", { class: "check" },
+            h("input", { type: "checkbox", checked: true, onchange: (e) => { if (e.target.checked) keep.delete(r.object); else keep.set(r.object, true); } }), "Keep it") : null;
+          return h("tr", { class: r.change === "needs_dax" ? "warn-row" : null },
+            h("td", {}, h("span", { class: `pill-s ${cls}` }, label)), h("td", { class: "mono" }, r.object),
+            h("td", {}, r.change === "remove" ? h("span", {}, res.removable.includes(r.object) ? "Not in the Ossie file. " : "", kept) : r.detail));
+        }))) : h("p", { class: "muted-text" }, "Nothing changes: the model already matches the file."),
+      lost.length ? h("div", { class: "card pad warn-box" }, h("b", {}, `Can't carry over (${lost.length})`), ossieReportList(lost)) : null);
+    go.textContent = `${{ update: "Update", replace: "Replace", new: "Create" }[mode.value]} ${res.name}...`;
+    go.disabled = false;
+  };
+  input.onchange = async () => {
+    const f = input.files[0];
+    if (!f) return;
+    if (f.size > OSSIE_MAX_BYTES) { fill(out, h("p", { class: "error-text" }, "The file is larger than 20 MB, so it isn't an Ossie model.")); return; }
+    Object.assign(picked, { text: await f.text(), name: f.name });
+    projectPath.value = "";
+    refresh();
+  };
+  const readProject = btn("Read", null, async () => {
+    const res = await metaCall("meta_model_ossie_read", { path: projectPath.value.trim() }, "Not read");
+    if (!res) return;
+    Object.assign(picked, { text: res.text, name: res.path });
+    input.value = "";
+    refresh();
+  }, "tool outline small");
+  mode.onchange = refresh;
+  name.onchange = refresh;
+  go.onclick = async () => {
+    const params = { env: m.env, text: picked.text, name: target(), mode: mode.value, layer: plan.layer, remove: [...keep.keys()] };
+    const ask = await metaCall("meta_model_ossie_import", params, "Not imported");
+    if (!ask?.confirm) return;
+    const c = ask.confirm, n = c.counts || {};
+    const parts = [n.add && `${n.add} added`, n.change && `${n.change} changed`, n.remove && `${n.remove} removed`].filter(Boolean).join(", ") || "no changes";
+    const blanks = n.needs_dax ? ` ${n.needs_dax} measure${n.needs_dax === 1 ? " is" : "s are"} BLANK() until someone writes ${n.needs_dax === 1 ? "it" : "them"} in DAX.` : "";
+    const ok = await confirmDialog(`${{ update: "Update", replace: "Replace", new: "Create" }[c.mode]} ${c.name}?`,
+      c.mode === "replace"
+        ? `${c.name} in ${c.workspace_name || "the workspace"} becomes exactly what ${picked.name} holds (${parts}). Measures, roles and hierarchies added in Fabric that the file doesn't have are lost.${blanks} No refresh runs.`
+        : c.mode === "new"
+          ? `Creates ${c.name} in ${c.workspace_name || "the workspace"} from ${picked.name}.${blanks} No refresh runs.`
+          : `${c.name} in ${c.workspace_name || "the workspace"} gets ${parts} from ${picked.name}. Its roles, hierarchies and the measures you kept stay as they are.${blanks} No refresh runs.`,
+      `${{ update: "Update", replace: "Replace", new: "Create" }[c.mode]} ${c.name}`, { danger: c.mode === "replace" });
+    if (!ok) return;
+    toast(`Writing ${c.name} in Fabric...`);
+    const res = await metaCall("meta_model_ossie_import", { ...params, confirmed: true }, "Not imported");
+    if (res) fill(result, ossieImportResult(res, picked.name));
+  };
+  showDialog("Import from Ossie", h("div", { class: "scroll ossie-import" },
+    h("div", { class: "row wrap" }, h("label", { class: "field grow" }, "Ossie file on this PC", input),
+      h("label", { class: "field grow" }, "Or in the project", h("span", { class: "row tight" }, projectPath, readProject))),
+    h("div", { class: "row wrap" }, h("label", { class: "field grow" }, "Into", mode), nameField),
+    out,
+    h("p", { class: "muted-text" }, "Writes the model definition only. No refresh runs.")),
+  [btn("Cancel", null, closeDialog, "tool outline"), go]);
+}
+
+function ossieImportResult(res, file) {
+  const n = res.counts || {};
+  const saveTmdl = btn("Save TMDL to Git", "save", async () => {
+    const out = await metaCall("meta_model_tmdl_save", { env: state.meta.env, name: res.name }, "TMDL not saved");
+    if (out) toast(`Saved ${out.files} file${out.files === 1 ? "" : "s"} to ${out.folder}${out.removed.length ? `, removed ${out.removed.length} Fabric no longer has` : ""}. It's in Source control, ready to commit.`);
+  }, "tool primary small");
+  return h("div", { class: "ossie-done" },
+    h("div", { class: "pass-box" }, icon("ok", 16),
+      `${res.created ? "Created" : res.mode === "replace" ? "Replaced" : "Updated"} ${res.name} from ${file}: ${[n.add && `${n.add} added`, n.change && `${n.change} changed`, n.remove && `${n.remove} removed`].filter(Boolean).join(", ") || "no changes"}.`,
+      res.url ? btn("Open in Fabric", "open", () => openInFabric(res.url), "tool link small") : null),
+    res.needs_dax.length ? h("div", { class: "card pad warn-box" },
+      `${res.needs_dax.length} measure${res.needs_dax.length === 1 ? " needs" : "s need"} DAX before reports use ${res.needs_dax.length === 1 ? "it" : "them"}; ${res.needs_dax.length === 1 ? "it shows" : "they show"} blank until then: `,
+      h("span", { class: "mono" }, res.needs_dax.join(", "))) : null,
+    h("div", { class: "row wrap" }, h("span", { class: "muted-text grow" }, `Keep Git in step: the model's TMDL, read back from Fabric, goes to semantic/${res.name}.SemanticModel/ next to the Ossie file.`), saveTmdl));
 }
 
 // ---------- profiling ----------

@@ -46,6 +46,9 @@ APPEND_KEY = "fabric_desktop_append"
 # Columns the quarantine adds to each held row: why, which run, when, and the row's own id.
 QUARANTINE_COLUMNS = ["_check", "_run_id", "_loaded_at", "_qid"]
 FAR_PAST = dt.date(1900, 1, 1)
+# The Unknown member's date in a dimension that is the semantic model's date table ([model] date_column):
+# Power BI refuses a date table with a blank date. It's day 0 of Excel and Power BI's date serials.
+UNKNOWN_DATE = dt.date(1899, 12, 30)
 FAR_FUTURE = dt.date(9999, 12, 31)
 _SIMPLE_TYPES: dict[str, pl.DataType] = {
     "string": pl.String, "str": pl.String, "int64": pl.Int64, "bigint": pl.Int64, "int32": pl.Int32,
@@ -253,6 +256,26 @@ class Engine:
     def lakehouse(self, entity: Entity) -> str:
         return self.project.layer(entity.layer).lakehouse
 
+    def landing_lakehouse(self, pattern: str) -> str:
+        """Where a [source] landing pattern's files are: with central landing (Preview), the lakehouse
+        of its source's zone, the same for every environment; else this environment's LH_Landing.
+        A zone Dev and Test don't read stops the entity there."""
+        source = pattern.strip("/").split("/")[0]
+        find = getattr(self.store, "landing_zone", None)
+        try:
+            zone = find(source) if find else None
+        except Exception as exc:  # noqa: BLE001 - any catalog problem stops the entity with its reason
+            raise CheckStop(f"the landing zones couldn't be read from the platform's catalog ({exc})") from exc
+        if zone is None:
+            return LANDING_LAKEHOUSE
+        if self.store.env in ("dev", "test") and zone.get("devtest") != "read":
+            kind = "secure zone" if zone.get("secure") else "zone"
+            raise CheckStop(f"{source} is in the {kind} {zone.get('name') or zone.get('id')}, which Dev and Test don't read")
+        try:
+            return self.store.landing_lakehouse(zone)
+        except LookupError as exc:
+            raise CheckStop(str(exc)) from exc
+
     def read_entity(self, name: str) -> pl.DataFrame | None:
         e = self.project.entities[name]
         return self.store.read(self.lakehouse(e), e.schema, e.table)
@@ -437,12 +460,12 @@ class Engine:
         if not src:
             df, detail = pl.DataFrame(), "no source: the custom step provides the rows"
         elif "files" in src or "landing" in src:
-            where = LANDING_LAKEHOUSE if "landing" in src else self.lakehouse(e)
             pattern = src.get("landing") or src["files"]
+            where = self.landing_lakehouse(pattern) if "landing" in src else self.lakehouse(e)
             try:
                 listed = self.store.list_files(where, pattern)
             except LookupError as exc:
-                if where != LANDING_LAKEHOUSE:
+                if "landing" not in src:
                     raise
                 raise CheckStop(f"there's no landing zone for {self.store.env} yet: create or join the platform in "
                                 f"Platform > Settings ({exc})") from exc
@@ -508,9 +531,11 @@ class Engine:
         wm_col = e.spec.get("load", {}).get("watermark")
         if e.mode == "incremental" and wm_col and not full:
             wm = self._watermark(e)
-            if wm is not None and wm_col in names:
-                after = (wm_col, _wm_literal(wm, schema[wm_col]))
-                lf = lf.filter(pl.col(wm_col) > after[1])
+            # The watermark is a contract column, saved from the output; the source may call it something else.
+            src_wm = {v: k for k, v in (src.get("rename") or {}).items()}.get(wm_col, wm_col)
+            if wm is not None and src_wm in names:
+                after = (src_wm, _wm_literal(wm, schema[src_wm]))
+                lf = lf.filter(pl.col(src_wm) > after[1])
                 detail = f"incremental, {wm_col} after {wm}"
         keep = self._source_columns(e, names)
         total = len([c for c in names if c not in SYSTEM_COLUMNS])
@@ -1102,6 +1127,9 @@ class Engine:
             return changed
         if df.select(bk).is_duplicated().any():
             return f"rewrote the table because new rows repeat a key ({', '.join(bk)})"
+        if needs_unknown_date(lf, e):
+            # The MERGE never touches the Unknown member, so the one rewrite that gives it a date is a full one.
+            return f"rewrote the table once to give the Unknown member the date {UNKNOWN_DATE}, for the model's date table"
         arrived = df.height
         near = lf  # range filters skip files by their statistics; semi joins keep exactly the keys asked for
         keys = df.select(bk).unique().drop_nulls()
@@ -1195,6 +1223,7 @@ class Engine:
             info = f"rebuilt: {df.height} rows from the full source"
         else:
             out, info = df, f"replaced with {plural(df.height, 'row')}"
+        out = with_unknown_date(out, e)
         if why:
             info = f"{info}; {why}"
         version = self.store.write(lh, e.schema, e.table, out, mode="overwrite", metadata=metadata,
@@ -1285,9 +1314,34 @@ def unknown_member(schema: pl.Schema, e: Entity) -> pl.DataFrame:
     for c, t in schema.items():
         row[c] = "Unknown" if t == pl.String and c not in e.keys and not c.startswith("_") else None
     row[e.surrogate_key] = -1
+    if e.date_column in schema:
+        row[e.date_column] = _unknown_date(schema[e.date_column])
     if "valid_from" in schema:
         row |= {"valid_from": FAR_PAST, "valid_to": FAR_FUTURE, "is_current": True}
     return pl.DataFrame([row], schema=schema)
+
+
+def _unknown_date(dtype: Any) -> Any:
+    return dt.datetime.combine(UNKNOWN_DATE, dt.time()) if isinstance(dtype, pl.Datetime) else UNKNOWN_DATE
+
+
+def needs_unknown_date(df: pl.DataFrame | pl.LazyFrame | None, e: Entity) -> bool:
+    """Whether the table's Unknown member has no date yet, though the entity is the model's date table."""
+    col, sk = e.date_column, e.surrogate_key
+    if df is None or not col or not sk or col not in df.collect_schema():
+        return False
+    rows = df.lazy().filter((pl.col(sk) == -1) & pl.col(col).is_null()).select(pl.len()).collect().item()
+    return bool(rows)
+
+
+def with_unknown_date(df: pl.DataFrame, e: Entity) -> pl.DataFrame:
+    """The table with its Unknown member's date filled in, when the entity is the model's date table."""
+    col, sk = e.date_column, e.surrogate_key
+    if not col or not sk or col not in df.columns:
+        return df
+    return df.with_columns(pl.when((pl.col(sk) == -1) & pl.col(col).is_null())
+                           .then(pl.lit(_unknown_date(df.schema[col]), dtype=df.schema[col]))
+                           .otherwise(pl.col(col)).alias(col))
 
 
 def _ordered(df: pl.DataFrame, e: Entity) -> pl.DataFrame:

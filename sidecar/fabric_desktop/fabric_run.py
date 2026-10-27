@@ -102,9 +102,22 @@ def _fabric_desktop_module(workspace_id, lakehouse_id, name, schemas, root=None,
     lh.read_table = lambda table: _pl.from_arrow(lh.open_table(table).to_pyarrow_table())
     lh.files = lambda directory="Files": sorted(f"{directory.rstrip('/')}/{n}" for n in _os.listdir(f"{mount}/{directory}"))
 
-    def write_table(data, table, mode="overwrite"):
+    def write_table(data, table, mode="overwrite", schema_mode=None, upload=None, skip_unchanged=None):
         if isinstance(data, _pl.LazyFrame):
             data = data.collect()
+        rows = [0]
+        if hasattr(data, "read_all"):  # a stream of batches, as the PC takes
+            if lh._proof is not None:
+                data = data.read_all()  # a proof may write it more than once
+            else:
+                import pyarrow as _pa
+                stream = data
+
+                def counted():
+                    for batch in stream:
+                        rows[0] += batch.num_rows
+                        yield batch
+                data = _pa.RecordBatchReader.from_batches(stream.schema, counted())  # never all in memory
         arrow = data.to_arrow() if isinstance(data, _pl.DataFrame) else data
 
         def write(target, rows, how="overwrite"):
@@ -113,7 +126,7 @@ def _fabric_desktop_module(workspace_id, lakehouse_id, name, schemas, root=None,
         target = lh._proof.write_location(*parts(table), mode, write) if lh._proof is not None else uri(table)
         write(target, arrow, mode)
         version = _DeltaTable(target, storage_options=opts()).version()
-        print(f"Wrote {arrow.num_rows} rows to {table} (Delta version {version})")
+        print(f"Wrote {getattr(arrow, 'num_rows', rows[0])} rows to {table} (Delta version {version})")
         return version
     lh.write_table = write_table
 
@@ -246,6 +259,10 @@ _FABRIC_ONLY = [
     # Streams run here as trigger(availableNow=True) (spark_stream.py); these kinds don't.
     (re.compile(r"\.trigger\(\s*continuous\s*="), "runs a continuous stream"),
     (re.compile(r"""\.format\(\s*["'](kafka|eventhubs|socket|rate)["']"""), "streams from Kafka, Event Hubs or a socket"),
+    (re.compile(r"\bspark\.sql\(\s*[rfbu]*[\"']+\s*(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.I),
+     "changes table rows in place with spark.sql (MERGE, UPDATE or DELETE), which runs in Fabric only"),
+    (re.compile(r"\.option\(\s*[\"'](replaceWhere|partitionOverwriteMode)[\"']", re.I),
+     "uses a write option this PC doesn't have (replaceWhere or partitionOverwriteMode); ignoring it would replace the whole table"),
     (re.compile(r"\b(notebookutils|mssparkutils)\.(fs\.(mount|unmount)|lakehouse\.(create|update|delete|loadTable)|notebook\.(create|update|updateDefinition|delete)\b|warehouse|"
                 r"udf|connections)\b"), "uses Fabric notebook utilities that need Fabric"),
 ]

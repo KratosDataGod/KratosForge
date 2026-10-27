@@ -35,6 +35,11 @@ def lakehouse_name_problem(name: str) -> str:
             f"starting with a letter. For example {suggestion}.")
 
 
+def _notebook_definition(ipynb: bytes) -> dict[str, Any]:
+    return {"format": "ipynb", "parts": [{"path": "notebook-content.ipynb",
+                                          "payload": base64.b64encode(ipynb).decode(), "payloadType": "InlineBase64"}]}
+
+
 class FabricError(RuntimeError):
     def __init__(self, message: str, code: str | None = None, status: int | None = None):
         super().__init__(message)
@@ -173,6 +178,11 @@ class FabricClient:
                                   f"or use another name.", exc.code) from exc
             raise
 
+    def assign_to_capacity(self, workspace_id: str, capacity_id: str) -> None:
+        """Put a workspace on a capacity. Needs the workspace's Admin role and Contributor on the capacity;
+        the same permission (Workspace.ReadWrite.All) as creating it."""
+        self._request("POST", f"/workspaces/{workspace_id}/assignToCapacity", json={"capacityId": capacity_id})
+
     def list_lakehouses(self, workspace_id: str) -> list[dict[str, Any]]:
         return self._paged(f"/workspaces/{workspace_id}/lakehouses")
 
@@ -207,6 +217,33 @@ class FabricClient:
         items it created itself and recorded in its ledger."""
         self._request("DELETE", f"/workspaces/{workspace_id}/items/{item_id}")
 
+    def get_warehouse(self, workspace_id: str, warehouse_id: str) -> dict[str, Any]:
+        """A warehouse, with its SQL connection string (``properties.connectionString``)."""
+        return self._request("GET", f"/workspaces/{workspace_id}/warehouses/{warehouse_id}").json()
+
+    def list_kql_databases(self, workspace_id: str) -> list[dict[str, Any]]:
+        """A workspace's KQL databases, each with ``properties.queryServiceUri`` (WH-19)."""
+        return self._paged(f"/workspaces/{workspace_id}/kqlDatabases")
+
+    def get_kql_database(self, workspace_id: str, database_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/workspaces/{workspace_id}/kqlDatabases/{database_id}").json()
+
+    def list_kql_querysets(self, workspace_id: str) -> list[dict[str, Any]]:
+        return self._paged(f"/workspaces/{workspace_id}/kqlQuerysets")
+
+    def create_kql_queryset(self, workspace_id: str, name: str, definition: dict[str, Any],
+                            description: str = "") -> dict[str, Any]:
+        """Create a KQL queryset from its definition (RealTimeQueryset.json)."""
+        body: dict[str, Any] = {"displayName": name, "definition": definition}
+        if description:
+            body["description"] = description
+        return self._wait(self._request("POST", f"/workspaces/{workspace_id}/kqlQuerysets", json=body))
+
+    def update_item_definition(self, workspace_id: str, item_id: str, definition: dict[str, Any]) -> dict[str, Any]:
+        """Replace an item's definition (all its parts)."""
+        return self._wait(self._request("POST", f"/workspaces/{workspace_id}/items/{item_id}/updateDefinition",
+                                        json={"definition": definition}))
+
     def find_lakehouse(self, workspace_id: str, name: str) -> dict[str, Any] | None:
         return next((lh for lh in self.list_lakehouses(workspace_id) if lh["displayName"] == name), None)
 
@@ -220,20 +257,46 @@ class FabricClient:
 
     def save_notebook(self, workspace_id: str, name: str, ipynb: bytes) -> dict[str, Any]:
         """Create the notebook item, or replace its definition if one with this name exists."""
-        definition = {"format": "ipynb", "parts": [{
-            "path": "notebook-content.ipynb",
-            "payload": base64.b64encode(ipynb).decode(),
-            "payloadType": "InlineBase64",
-        }]}
         existing = next((n for n in self.list_notebooks(workspace_id) if n["displayName"] == name), None)
         if existing is None:
-            body = {"displayName": name, "definition": definition}
+            body = {"displayName": name, "definition": _notebook_definition(ipynb)}
             return self._wait(self._request("POST", f"/workspaces/{workspace_id}/notebooks", json=body))
-        url = f"/workspaces/{workspace_id}/notebooks/{existing['id']}/updateDefinition"
-        self._wait(self._request("POST", url, json={"definition": definition}))
-        return existing
+        return self.update_notebook(workspace_id, existing, name, ipynb)
+
+    def get_notebook(self, workspace_id: str, item_id: str) -> dict[str, Any] | None:
+        """The notebook item ``item_id`` in that workspace, or None when it isn't there (deleted)."""
+        try:
+            item = self._request("GET", f"/workspaces/{workspace_id}/notebooks/{item_id}").json()
+        except FabricError as exc:
+            if exc.status == 404:
+                return None
+            raise
+        return item if item.get("workspaceId", workspace_id) == workspace_id else None
+
+    def update_notebook(self, workspace_id: str, item: dict[str, Any], name: str, ipynb: bytes) -> dict[str, Any]:
+        """Replace ``item``'s definition, renaming it to ``name`` first when that isn't its name."""
+        if item.get("displayName") != name:
+            self._request("PATCH", f"/workspaces/{workspace_id}/notebooks/{item['id']}", json={"displayName": name})
+            item = item | {"displayName": name}
+        url = f"/workspaces/{workspace_id}/notebooks/{item['id']}/updateDefinition"
+        self._wait(self._request("POST", url, json={"definition": _notebook_definition(ipynb)}))
+        return item
 
     # ---- Fabric's job scheduler: run an item on Fabric capacity, now or on a schedule
+
+    # Items Fabric runs through their own "execute" job, at a path of their own type (the job type is
+    # in the path, not the jobType query): copy jobs and Dataflow Gen2.
+    EXECUTE_PATHS = {"CopyJob": "copyJobs", "Dataflow": "dataflows"}
+
+    def run_item_execute(self, workspace_id: str, item_id: str, item_type: str) -> str:
+        """Start a copy job or a Dataflow Gen2 refresh and return the job instance id."""
+        _check_fabric_runs_allowed("starting jobs in Fabric")
+        path = self.EXECUTE_PATHS[item_type]
+        resp = self._request("POST", f"/workspaces/{workspace_id}/{path}/{item_id}/jobs/execute/instances")
+        location = resp.headers.get("Location", "")
+        if not location:
+            raise FabricError(f"Fabric accepted the {item_type} run but returned no job instance")
+        return location.rstrip("/").rsplit("/", 1)[-1]
 
     def run_item_job(self, workspace_id: str, item_id: str, job_type: str,
                      execution_data: dict[str, Any] | None = None, item_path: str = "items") -> str:
@@ -274,6 +337,16 @@ class FabricClient:
         """The item's job runs, newest first (Fabric keeps them for a while)."""
         runs = self._paged(f"/workspaces/{workspace_id}/items/{item_id}/jobs/instances")
         return sorted(runs, key=lambda r: r.get("startTimeUtc") or "", reverse=True)
+
+    def query_activity_runs(self, workspace_id: str, job_id: str, updated_after: str,
+                            updated_before: str) -> list[dict[str, Any]]:
+        """The activity runs of one pipeline run (its job instance id), newest first. A query, not a job:
+        it reads run history and uses no capacity. Fabric needs the time window."""
+        body = {"filters": [], "orderBy": [{"orderBy": "ActivityRunStart", "order": "DESC"}],
+                "lastUpdatedAfter": updated_after, "lastUpdatedBefore": updated_before}
+        data = self._request("POST", f"/workspaces/{workspace_id}/datapipelines/pipelineruns/{job_id}/queryactivityruns",
+                             json=body).json()
+        return data if isinstance(data, list) else (data or {}).get("value", [])
 
     def delete_schedule(self, workspace_id: str, item_id: str, job_type: str, schedule_id: str) -> None:
         self._request("DELETE", f"/workspaces/{workspace_id}/items/{item_id}/jobs/{job_type}/schedules/{schedule_id}")
@@ -353,6 +426,38 @@ class FabricClient:
         url = f"/workspaces/{workspace_id}/sqlEndpoints/{sql_endpoint_id}/refreshMetadata"
         return self._wait(self._request("POST", url, json={}))
 
+    # ---- Power BI's admin tenant scan (endorsement)
+
+    SCAN_BATCH = 100  # workspaces per getInfo call: Power BI's limit
+
+    def admin_scan_workspaces(self, workspace_ids: list[str], poll_seconds: float = 2) -> list[dict[str, Any]]:
+        """Power BI's admin tenant scan (metadata scanning) of these workspaces: each workspace with its
+        items (datasets, reports, dataflows, datamarts and Fabric items), which carry endorsementDetails
+        when endorsed. Fabric administrators only (Tenant.Read.All on Power BI); anyone else gets 401/403.
+        Read-only: asks for no lineage, data sources, schemas, expressions or users."""
+        ids = [w for w in dict.fromkeys(str(w).strip() for w in workspace_ids) if w]
+        found: list[dict[str, Any]] = []
+        polls = max(1, int(self._poll_timeout / poll_seconds))
+        for i in range(0, len(ids), self.SCAN_BATCH):
+            started = self._request("POST", f"{POWERBI_ADMIN}/workspaces/getInfo", json={"workspaces": ids[i:i + self.SCAN_BATCH]},
+                                    params={"lineage": "false", "datasourceDetails": "false", "datasetSchema": "false",
+                                            "datasetExpressions": "false", "getArtifactUsers": "false"}).json()
+            scan = str(started.get("id") or "")
+            if not scan:
+                raise FabricError("Fabric's tenant scan didn't start: no scan id came back")
+            for n in range(polls):
+                status = self._request("GET", f"{POWERBI_ADMIN}/workspaces/scanStatus/{scan}").json()
+                state = str(status.get("status") or "")
+                if state == "Succeeded":
+                    break
+                if state == "Failed":
+                    raise FabricError(f"Fabric's tenant scan failed: {status.get('error') or 'no reason given'}")
+                if n == polls - 1:
+                    raise FabricError("Fabric's tenant scan didn't finish in time. Scan again in a few minutes.")
+                self._sleep(poll_seconds)
+            found += self._request("GET", f"{POWERBI_ADMIN}/workspaces/scanResult/{scan}").json().get("workspaces", [])
+        return found
+
     # ---- domains
 
     def list_admin_domains(self) -> list[dict[str, Any]]:
@@ -360,6 +465,16 @@ class FabricClient:
         Fabric administrators only (Tenant.Read.All); anyone else gets 401/403."""
         body = self._request("GET", "/admin/domains", params={"preview": "false"}).json()
         return body.get("domains", body.get("value", []))
+
+    def create_admin_domain(self, name: str, description: str = "", parent_id: str = "") -> dict[str, Any]:
+        """Create a domain, or a subdomain of ``parent_id``, in Fabric: {id, displayName, description,
+        parentDomainId}. Fabric administrators only (Tenant.ReadWrite.All); anyone else gets 401/403."""
+        body: dict[str, Any] = {"displayName": name}
+        if description:
+            body["description"] = description
+        if parent_id:
+            body["parentDomainId"] = parent_id
+        return self._request("POST", "/admin/domains", params={"preview": "false"}, json=body).json()
 
     def list_admin_domain_role_assignments(self, domain_id: str) -> list[dict[str, Any]]:
         """A domain's role assignments (Admins, Contributors): [{id, principal: {id, displayName,
@@ -443,6 +558,10 @@ class FabricClient:
     def list_connections(self) -> list[dict[str, Any]]:
         """Cloud connections the user can use (ADLS Gen2 and S3 shortcuts need one)."""
         return self._paged("/connections")
+
+    def list_gateways(self) -> list[dict[str, Any]]:
+        """On-premises and virtual network gateways the user can see. Needs Gateway.Read.All."""
+        return self._paged("/gateways")
 
     # ---- variable libraries
 

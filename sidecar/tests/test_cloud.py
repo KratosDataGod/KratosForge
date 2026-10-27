@@ -1,6 +1,7 @@
 """Run in Fabric, schedules, table maintenance, the Direct Lake model and profiling."""
 
 import ast
+import base64
 import io
 import json
 import sys
@@ -90,6 +91,14 @@ def test_setup_cell_runs_a_notebook_against_the_mounted_lakehouse(tmp_path, monk
     assert shim.read_table("dbo.by_region").sort("region")["amount"].to_list() == [2, 4]
     assert shim.sql("SELECT sum(amount) AS total FROM by_region")["total"].to_list() == [6]
     assert shim.files() == ["Files/sales.csv"]
+    # A stream (as the TPC-H data notebook writes) goes to Delta batch by batch, as one commit.
+    import pyarrow as pa
+    big = pa.table({"id": list(range(10))})
+    seen = []
+    ns["_write_deltalake"] = lambda uri, data, **kw: (seen.append(type(data).__name__),
+                                                      real_write(local(uri), data, mode=kw["mode"], schema_mode=kw["schema_mode"]))
+    assert shim.write_table(pa.RecordBatchReader.from_batches(big.schema, big.to_batches(max_chunksize=3)), "dbo.ids") == 0
+    assert seen == ["RecordBatchReader"] and sorted(shim.read_table("dbo.ids")["id"].to_list()) == list(range(10))
 
 
 def test_setup_cell_names_tables_like_the_pc_in_a_lakehouse_without_schemas(monkeypatch):
@@ -199,6 +208,12 @@ class FakeFabric:
         self.models = [{"id": "m1", "displayName": name}]
         return {"id": "m1", "created": True}
 
+    def get_item_definition(self, ws, item_id, fmt=None):
+        self.calls.append(("definition", item_id, fmt))
+        parts = [c for c in self.calls if c[0] == "model"][-1][2]
+        return {"definition": {"parts": [{"path": p, "payload": base64.b64encode(t.encode()).decode(),
+                                          "payloadType": "InlineBase64"} for p, t in parts.items()]}}
+
 
 class CloudService(Service):
     fake = None
@@ -290,13 +305,22 @@ def test_onelake_run_queues_maintenance_and_builds_the_model(svc, tmp_path, monk
     fact = parts["definition/tables/fact_sales.tmdl"]
     assert "\t\tmode: directLake" in fact and "\t\t\tschemaName: dbo" in fact
     assert "column customer_sk\n\t\tdataType: int64\n\t\tisHidden" in fact
-    assert "column net_amount\n\t\tdataType: double" in fact and "summarizeBy: sum" in fact
+    assert "column net_amount\n\t\tdataType: double" in fact and "summarizeBy: sum" not in fact
+    assert "\tmeasure 'fact_sales total net_amount' = SUM(fact_sales[net_amount])\n\t\tformatString: #,0.00" in fact
+    assert "total customer_sk" not in fact
     assert 'Sql.Database("abc.datawarehouse.fabric.microsoft.com", "sql1")' in parts["definition/expressions.tmdl"]
     assert "fromColumn: fact_sales.customer_sk\n\ttoColumn: dim_customer.customer_sk" in parts["definition/relationships.tmdl"]
     # Building again asks first, since it replaces the model's definition; then keeps every lineage tag.
     assert svc.meta_build_model("test")["confirm"]["name"] == "SM_Gold"
     assert len([c for c in svc.fake.calls if c[0] == "model"]) == 1
     svc.meta_build_model("test", replace=True)
+    reads = [c for c in svc.fake.calls if c[0] == "definition"]
+    assert reads == [("definition", "m1", "TMDL")]  # updating reads the model's table names first
+    model = {"id": "m1", "displayName": "SM_Gold"}
+    assert svc._kept_table_names(project, "gold", store.workspace_id, model, fresh=False)["gold.fact_sales"] == "fact_sales"
+    assert len([c for c in svc.fake.calls if c[0] == "definition"]) == 1  # the plan reuses that read
+    svc._kept_table_names(project, "gold", store.workspace_id, model)
+    assert len([c for c in svc.fake.calls if c[0] == "definition"]) == 2  # building reads it again
     again = [c for c in svc.fake.calls if c[0] == "model"][-1][2]
     assert again == parts
 
@@ -314,6 +338,30 @@ def test_quote_and_types():
     assert semantic.quote("fact sales") == "'fact sales'" and semantic.quote("ok_1") == "ok_1"
     assert semantic.tmdl_type("decimal(10,2)") == "decimal" and semantic.tmdl_type("timestamp_ntz") == "dateTime"
     assert semantic.tmdl_type("array<string>") is None
+
+
+def test_semantic_model_totals_instead_of_summarizing():
+    def fact(name, cols):
+        return semantic.ModelTable(name, f"gold.{name}", "dbo", name, columns=cols, keys=["order_id"])
+    sales = fact("fact_sales", [("order_id", "long"), ("customer_sk", "long"), ("qty", "long"), ("amount", "decimal(10,2)"),
+                                ("odd]name", "double"), ("_run_id", "long"), ("note", "string")])
+    dim = semantic.ModelTable("dim_customer", "gold.dim_customer", "dbo", "dim_customer", columns=[("age", "long")],
+                              is_dimension=True)
+    first = semantic.build([sales, dim], [], "srv", "ep")
+    s, d = first["definition/tables/fact_sales.tmdl"], first["definition/tables/dim_customer.tmdl"]
+    assert "summarizeBy: sum" not in s + d
+    assert "\tmeasure 'fact_sales total qty' = SUM(fact_sales[qty])\n\t\tformatString: #,0\n" in s
+    assert "\tmeasure 'fact_sales total amount' = SUM(fact_sales[amount])\n\t\tformatString: #,0.00\n" in s
+    assert "\tmeasure 'fact_sales total odd]name' = SUM(fact_sales[odd]]name])" in s
+    for key in ("order_id", "customer_sk", "_run_id", "note"):  # keys, hidden and text columns get no total
+        assert f"total {key}" not in s
+    assert "measure" not in d
+    # Reports bind measures by name: a second fact with the same column leaves the first fact's measures as they were.
+    returns = fact("fact_returns", [("order_id", "long"), ("amount", "double")])
+    second = semantic.build([sales, returns, dim], [], "srv", "ep")
+    assert second["definition/tables/fact_sales.tmdl"] == s
+    assert "\tmeasure 'fact_returns total amount' = SUM(fact_returns[amount])" in second["definition/tables/fact_returns.tmdl"]
+    assert second == semantic.build([sales, returns, dim], [], "srv", "ep")  # lineage tags stay put
 
 
 def test_the_model_names_columns_direct_lake_cant_read_and_never_relates_on_them(svc, tmp_path, monkeypatch):
@@ -342,3 +390,41 @@ def test_the_model_names_columns_direct_lake_cant_read_and_never_relates_on_them
     assert "column tags" not in fact and "column customer_sk" not in fact
     assert semantic.left_out(semantic.ModelTable("t", "e", "dbo", "t", columns=[("a", "long"), ("b", "map<string,int>")])) \
         == [{"table": "t", "column": "b", "type": "map<string,int>"}]
+
+
+def test_semantic_model_keeps_table_names_when_a_same_named_table_arrives():
+    from types import SimpleNamespace as NS
+
+    def entity(name, schema, table):
+        return NS(name=name, layer="gold", schema=schema, table=table, keys=[], surrogate_key=None, mode="append",
+                  spec={}, columns=[], date_column=None)
+    orders = entity("gold.orders", "sales", "orders")
+    first, _ = semantic.plan(NS(entities={"gold.orders": orders}), "gold")
+    assert [t.name for t in first] == ["orders"]
+    first[0].columns = [("amount", "double")]
+    parts = semantic.build(first, [], "srv", "ep")
+    # A second orders table arrives in another schema: without the model's names both would be renamed.
+    project = NS(entities={"gold.orders": orders, "gold.returns_orders": entity("gold.returns_orders", "returns", "orders")})
+    assert [t.name for t in semantic.plan(project, "gold")[0]] == ["sales_orders", "returns_orders"]
+    kept = semantic.table_names(parts, list(project.entities))
+    assert kept == {"gold.orders": "orders"}
+    assert [t.name for t in semantic.plan(project, "gold", kept)[0]] == ["orders", "returns_orders"]
+    # Quoted names round-trip, and a name two entities claim is not kept for either.
+    quoted = semantic.build([semantic.ModelTable("it's", "gold.x", "dbo", "x", columns=[("a", "long")])], [], "s", "e")
+    assert semantic.table_names(quoted, ["gold.x"]) == {"gold.x": "it's"}
+    # Fabric may write a /// description above the table line and other properties before its lineage tag.
+    tagged = parts["definition/tables/orders.tmdl"]
+    head, rest = tagged.split("\n", 1)
+    described = f"/// Orders placed\r\n{head}\r\n\tdataCategory: Uncategorized\r\n" + rest.replace("\n", "\r\n")
+    assert semantic.table_names({"definition/tables/orders.tmdl": described}, ["gold.orders"]) == {"gold.orders": "orders"}
+    # Only the table's own lineage tag counts, not a column's or measure's (indented twice).
+    untagged = "table orders\n\n\tcolumn amount\n\t\tlineageTag: " + semantic.tag("table", "gold.orders") + "\n"
+    assert semantic.table_names({"definition/tables/orders.tmdl": untagged}, ["gold.orders"]) == {}
+    clash = semantic.plan(project, "gold", {"gold.orders": "orders", "gold.returns_orders": "orders"})[0]
+    assert [t.name for t in clash] == ["sales_orders", "returns_orders"]
+
+
+def test_semantic_model_update_stops_when_its_definition_cant_be_read(svc, monkeypatch):
+    monkeypatch.setattr(svc.fake, "get_item_definition", lambda *a, **k: (_ for _ in ()).throw(OSError("throttled")))
+    with pytest.raises(RuntimeError, match="table names aren't known"):  # guessing would rename tables reports use
+        svc._kept_table_names(svc._project(), "gold", "ws", {"id": "m1", "displayName": "SM_Gold"})

@@ -224,7 +224,7 @@ def test_the_run_dialog_carries_the_risk_and_the_run_itself_does_not_wait_for_it
     pre = svc.workload_preflight(item, "run_item")
     assert pre["allowed"] and pre["risk"]["result"] == risk.UNKNOWN and "boom" in pre["risk"]["summary"]
     assert svc.workload_preflight(item, "run_item", assess=False)["risk"] is None
-    monkeypatch.setattr(svc, "run_fabric_item_now", lambda ws, it, job, name, ws_name="": svc._log_fabric_run(
+    monkeypatch.setattr(svc, "run_fabric_item_now", lambda ws, it, job, name, ws_name="", item_type="": svc._log_fabric_run(
         {"kind": "Scheduled item run", "name": name, "workspace_id": ws, "item_id": it, "job_id": "job-1"}))
     assert svc.workload_act(item, "run_item")["action"]["status"] == "submitted"  # the check didn't run
 
@@ -247,6 +247,19 @@ def test_warnings_can_be_acknowledged_and_recorded_but_blocked_or_changed_result
     assert svc.risk_acknowledgements()[0]["risk_id"] == r["id"]
     line = json.loads((svc.root / "risk_acknowledgements.jsonl").read_text().splitlines()[-1])
     assert line["user"] and line["result"] == risk.WARNING
+
+
+def test_a_fabric_step_is_checked_against_the_attached_lakehouses_workspace(svc, item):  # noqa: F811
+    # The live run (2026-10-23): the step's notebook has no Fabric deployment, so the check used to
+    # raise and the UI went ahead unchecked. It reads the lakehouse's workspace capacity instead.
+    svc.notebooks.save("Gold load", [{"type": "code", "source": "x = 1", "meta": {"fabric_step": True}}],
+                       {"workspace_id": "ws1", "workspace_name": "Sales Dev", "lakehouse_id": "lh1", "name": "LH"})
+    r = svc.risk_check(model.notebook_id("Gold load"), "run_fabric_step")
+    assert r["result"] == risk.BLOCKED and by_check(r)["capacity"]["title"] == "fabcapdev is paused"
+    assert ReadOnlyFabric.calls == ["list_capacities", "get_workspace ws1"]
+    svc.notebooks.save("Local", [{"type": "code", "source": "x = 1", "meta": {}}], None)
+    with pytest.raises(ValueError, match="Attach a OneLake lakehouse"):
+        svc.risk_check(model.notebook_id("Local"), "run_fabric_step")
 
 
 def test_settings_turn_warnings_on_and_off(svc):  # noqa: F811

@@ -23,6 +23,7 @@ const MOTION = {
   strike: { ms: 650, gap: 1500, level: 2, family: "sparks", build: anvilParts },  // a deployment succeeded
   wolfrun: { ms: 900, gap: 5000, level: 2, family: "wolf", build: wolfRunParts },  // long work finished
   achieve: { ms: 900, gap: 3000, level: 2, family: "achievements" },  // for the developer profile (#327)
+  cool: { ms: 500, gap: 300, level: 2, family: "sparks" },       // a check passed: the badge glows orange and cools
 };
 // What happened -> the effect it plays. Only finished, real state changes are listed; nothing here
 // is told about work before it is confirmed.
@@ -39,7 +40,30 @@ const FORGE_EVENTS = {
   "pipeline.failed": "fail",
   "deploy.succeeded": "strike",
   "deploy.failed": "fail",
+  "fabric.run.started": "pulse",
+  "fabric.run.succeeded": "arrive",
+  "fabric.run.failed": "fail",
+  "mesh.run.started": "pulse",
+  "mesh.run.succeeded": "strike",
+  "mesh.run.failed": "fail",
+  "promote.succeeded": "strike",
+  "promote.failed": "fail",
+  "xray.scan.finished": "arrive",
+  "xray.scan.failed": "fail",
+  "model.built": "spark",
+  "model.build.failed": "fail",
+  "git.op.succeeded": "spark",
+  "git.op.failed": "fail",
+  "notebook.saved": "spark",
+  "sql.succeeded": "spark",
+  "sql.failed": "fail",
   "achievement.unlocked": "achieve",
+  "validate.passed": "cool",
+  "validate.failed": "fail",
+  "prove.matched": "cool",
+  "prove.failed": "fail",
+  "publish.verified": "cool",
+  "publish.failed": "fail",
 };
 // Runs shorter than this never show the progress track, so quick runs don't flash it.
 const WOLF_DELAY_MS = 600;
@@ -72,7 +96,8 @@ function reducedMotion() {
 }
 
 function motionSetting(key, fallback) {
-  const v = state.settings?.[key]?.value;
+  // The load watch below can call this before app.js has declared state (a busy start-up).
+  const v = typeof state === "undefined" ? undefined : state.settings?.[key]?.value;
   return v === undefined ? fallback : v;
 }
 
@@ -229,7 +254,7 @@ function wolfTrack(where, label, unit, engine = "") {
       const wolf = el?.querySelector(".wolf");
       over = true;
       clearTimeout(timer);
-      if (!wolf || !fx(wolf, "arrive")) { stop(); return; }
+      if (!wolf || !forgeEvent("notebook.run.finished", wolf)) { stop(); return; }
       wolf.classList.add("arriving");
       const gone = el;
       el = null;
@@ -239,6 +264,17 @@ function wolfTrack(where, label, unit, engine = "") {
     stop,
     get shown() { return !!el; },
   };
+}
+
+// A run elsewhere (in Fabric) that reports no measurable progress: an indeterminate bar with no fill,
+// percentage or time estimate, the wolf trotting in place in Kratos navy (wolf family, level 2+), and
+// the words saying where it runs. Without the wolf the plain indeterminate bar shows instead.
+function remoteProgress(label, where = "Running in Fabric") {
+  const wolf = motionOn("wolf") ? h("span", { class: "wolf wolf-idle", "aria-hidden": "true" }, wolfIcon()) : null;
+  return h("div", { class: "remote-progress" },
+    h("div", { class: "progress remote", role: "progressbar", "aria-label": label, "aria-valuetext": where },
+      h("div", { class: "bar indeterminate" }), wolf),
+    h("span", { class: "remote-where" }, where));
 }
 
 // Energy Flow: a pipeline run's top-level activities as a row of nodes joined by links, drawn from
@@ -311,9 +347,10 @@ function announce(text) {
 }
 
 // Long main-thread tasks (WebView2 and Chromium report them) add up; past the budget, effects drop a
-// level for a while. Decorative motion never competes with the work.
-if (typeof PerformanceObserver === "function" && PerformanceObserver.supportedEntryTypes?.includes("longtask")) {
-  new PerformanceObserver((list) => {
+// level for a while. Decorative motion never competes with the work. Kept as motionLoadWatch so a
+// test can stop it and check one effect without the machine's load deciding the outcome.
+const motionLoadWatch = typeof PerformanceObserver === "function" && PerformanceObserver.supportedEntryTypes?.includes("longtask")
+  ? new PerformanceObserver((list) => {
     const now = performance.now();
     loadTasks = loadTasks.concat(list.getEntries().map((e) => [e.startTime, e.duration])).filter(([t]) => now - t < LOAD_WINDOW_MS);
     motionStats.loadMs = Math.round(loadTasks.reduce((s, [, d]) => s + d, 0));
@@ -323,11 +360,96 @@ if (typeof PerformanceObserver === "function" && PerformanceObserver.supportedEn
       applyMotion();
       setTimeout(applyMotion, LOAD_COOLDOWN_MS + 50);
     }
-  }).observe({ type: "longtask", buffered: false });
-}
+  }) : null;
+motionLoadWatch?.observe({ type: "longtask", buffered: false });
 if (typeof matchMedia === "function") matchMedia("(prefers-reduced-motion: reduce)").addEventListener?.("change", applyMotion);
 // Ambient loops (the embers behind the wolf, the running cell's glow) pause while the app isn't in front.
 const motionPause = () => { document.documentElement.dataset.motionPaused = document.hidden || !document.hasFocus() ? "on" : "off"; };
 addEventListener("blur", motionPause);
 addEventListener("focus", motionPause);
 document.addEventListener("visibilitychange", motionPause);
+
+// Panel and dialog transitions (KF-MO-003). Dialogs, the activity tray and side panes slide and fade in
+// at Minimal and above (styles.css, .mo-in); nothing at Off or while Windows reduces motion. The way in
+// never holds focus back: the element is in the page, focusable, from the first frame. On the way out
+// the real dialog or tray goes at once (focus returns, screen readers lose it) and a blank card where
+// it was fades, so nothing closed can be clicked or read while it fades. Escape closes with no fade.
+const PANE_OUT_MS = 160;
+const SIDE_PANES = ["explorer", "varpane", "provepane", "validatepane", "runspane", "commentspane"];
+const PANES = ["overlay", "tray", ...SIDE_PANES];
+let paneEscAt = -Infinity;
+let paneView;
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") paneEscAt = Date.now(); }, true);
+
+const paneClass = (el) => PANES.find((c) => el.classList.contains(c));
+
+function panesIn(nodes) {
+  const out = [];
+  for (const n of nodes) if (n.nodeType === 1) out.push(n, ...n.querySelectorAll(PANES.map((c) => `.${c}`).join(", ")));
+  return out.filter(paneClass);
+}
+
+// Marks newly opened dialogs, the tray and side panes so CSS plays their way in. A redraw that swaps a
+// pane for a fresh copy of itself isn't an opening, and neither is a page opening with its panes.
+function motionPanes(records) {
+  if (typeof state !== "object") return;  // the page is still loading app.js
+  const samePage = state.view === paneView;
+  paneView = state.view;
+  if (motionLevel() < 1 || document.hidden) return;
+  const added = panesIn(records.flatMap((r) => [...r.addedNodes]));
+  if (!added.length) return;
+  const redrawn = new Map(panesIn(records.flatMap((r) => [...r.removedNodes])).map((el) => [paneClass(el), el]));
+  const now = performance.now();
+  for (const el of added) {
+    const kind = paneClass(el);
+    if (!el.isConnected) continue;
+    if (redrawn.has(kind)) {
+      // Redrawn while still on its way in (the tray redraws as its notices arrive): the copy carries on
+      // from where the first one was, rather than jumping to the end.
+      const old = redrawn.get(kind);
+      if (old.moEntering) paneIn(el, now - old.moInAt);
+      continue;
+    }
+    if (kind === "overlay" && (el.parentElement?.id !== "dialog-root" || el.classList.contains("splash"))) continue;
+    if (SIDE_PANES.includes(kind) && !samePage) continue;
+    paneIn(el, 0);
+  }
+}
+
+// Entering lasts until the element's own way-in animation ends, so the CSS duration is the only clock.
+function paneIn(el, since) {
+  el.moInAt = performance.now() - since;
+  el.moEntering = true;
+  const done = (e) => { if (e.target === el) el.moEntering = false; };
+  el.addEventListener("animationend", done);
+  el.addEventListener("animationcancel", done);
+  el.classList.add("mo-in");
+  // The first copy's animationend may not have been dispatched yet when its time was already up.
+  if (since && since >= parseFloat(getComputedStyle(el).animationDuration) * 1000) {
+    el.classList.remove("mo-in");
+    el.moEntering = false;
+    return;
+  }
+  if (since) for (const x of [el, el.querySelector(":scope > .dialog")]) if (x) x.style.animationDelay = `-${Math.round(since)}ms`;
+}
+if (typeof MutationObserver === "function" && document.body) new MutationObserver(motionPanes).observe(document.body, { childList: true, subtree: true });
+
+// Call just before taking an open dialog (its .overlay) or the tray away: a blank card where it was
+// fades out. Returns the card, or null when nothing fades (Off, reduced motion, Escape, hidden window).
+function motionLeave(el) {
+  if (!el?.isConnected || motionLevel() < 1 || document.hidden || Date.now() - paneEscAt < 250) return null;
+  const box = (from, cls) => {
+    const r = from.getBoundingClientRect();
+    const d = h("div", { class: cls });
+    Object.assign(d.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+    return d;
+  };
+  const overlay = el.classList.contains("overlay");
+  const card = overlay ? el.querySelector(".dialog") : el;
+  const ghost = h("div", { class: "mo-ghost", "aria-hidden": "true" },
+    overlay ? box(el, "mo-ghost-veil") : null,
+    card ? box(card, `mo-ghost-card${overlay ? "" : " side"}`) : null);
+  document.body.append(ghost);
+  setTimeout(() => ghost.remove(), PANE_OUT_MS + 60);
+  return ghost;
+}

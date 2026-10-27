@@ -185,7 +185,8 @@ def _q(name: str) -> str:
 
 def _duckdb_expr(expr: str) -> str:
     """A Spark SQL expression in DuckDB SQL."""
-    return sqlglot.transpile(f"SELECT {expr}", read="spark", write="duckdb")[0][len("SELECT "):]
+    from . import sql as spark_sql
+    return spark_sql.spark_substring(sqlglot.parse_one(f"SELECT {expr}", read="spark")).sql("duckdb")[len("SELECT "):]
 
 
 def _new(df: DataFrame, rel: Any) -> DataFrame:

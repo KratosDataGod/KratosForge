@@ -12,9 +12,10 @@ There is no installer, store or package feed. The product is two files published
 
 | Piece | What it is | Built by |
 | --- | --- | --- |
-| `fabric-desktop.exe` | The Tauri 2 shell with the UI (`app/`) | CI `shell` job, `cargo build --release --locked` on Windows |
+| `kratosforge.exe` (and the same file as `fabric-desktop.exe`) | The Tauri 2 shell with the UI (`app/`). Builds before the name changed download only `fabric-desktop.exe`, so CI and Promote publish both | CI `shell` job, `cargo build --release --locked` on Windows |
 | `fabric-desktop-engine.zip` | python.org's embeddable Python 3.12 plus the `fabric_desktop` engine (`sidecar/`) and every pinned package in `sidecar/constraints.txt` | CI `engine` job on Windows |
-| `version.json` | The build's commit, What's new notes, 30 days of history, and the SHA-256 of the exe and engine | CI `release` job |
+| `fabric-desktop-engine-update.zip` | Only the engine's own files (`fabric_desktop`, its dist-info and launcher, and `engine.json`), a few MB. A PC whose installed engine has the same runtime key (the same Python and packages) updates from this instead of the whole engine (`app/src-tauri/src/engine_patch.rs`) | CI `engine` job on Windows |
+| `version.json` | The build's commit, What's new notes, 30 days of history, the SHA-256 of the exe, engine and engine update, and the engine's runtime key (`.github/scripts/engine_runtime.py`) | CI `release` job |
 | SBOMs | `sbom-app.cdx.json`, `sbom-engine.cdx.json` (CycloneDX) | CI `sbom-app` and `engine` jobs |
 
 The headless agent's Linux image (`deploy/linux/Dockerfile`) is built and started in CI but not published anywhere. The docs site is published to GitHub Pages by `docs.yml` on every merge that touches `docs/`.
@@ -26,7 +27,7 @@ The headless agent's Linux image (`deploy/linux/Dockerfile`) is built and starte
 | **Preview** | `latest` (prerelease) | Every merge to `main` whose CI is green and is still `main`'s newest commit when the release job runs | Automatic (`ci.yml` `release` job) |
 | **Stable** (the default) | `stable` | Someone runs **Promote to stable**, which copies the exe, engine and `version.json` from `latest`, or from a named build | The product owner (Chris), by hand, or the release manager on his explicit go for that promotion |
 
-The app reads the commit from the channel's `version.json`, not from the release's target commit (that field goes stale after a promote). Both channels publish with one shared concurrency group, `release-assets`, so a promote never copies a half-replaced Preview.
+The app reads the commit from the channel's `version.json`, not from the release's target commit (that field goes stale after a promote). `version.json` carries `published`, the Unix time CI or Promote wrote it. The app installs whatever build the channel names, older or newer than the one running, but refuses a `version.json` published before the newest one it has already accepted from that channel, and one without the exe's checksum (HD-022). So anything that republishes a channel by hand must write a new `published` stamp, or PCs that saw the newer one will refuse it. Both channels publish with one shared concurrency group, `release-assets`, so a promote never copies a half-replaced Preview.
 
 ### Per-build releases
 
@@ -64,12 +65,13 @@ Run on every release-management pass. It is safe to repeat: it changes nothing o
 4. **Order the batch.** Smallest blast radius first: docs-only, then single-module fixes, then features; stacked PRs in stack order; PRs whose CI hasn't finished or is unproven last. Nearly every UI PR appends to `app/tests/ui.test.cjs`, so two UI PRs always conflict after the first merges: chain them (each branch merges the previous) so one CI round proves the whole chain.
 5. **Validate the integrated result**, not just each PR. On the trial branch, run what CI runs that can run on Linux:
    - `node --test app/tests/ui.test.cjs`
+   - `node --test --test-concurrency=1 "app/tests/browser/*.test.cjs"` with Playwright 1.56.1 on `NODE_PATH` and the sidecar installed (the `ui-browser` job)
    - `cd sidecar && python -m pip install -e ".[dev]" -c constraints.txt && python -m pytest -q`
    Windows-only jobs (engine build, shell build, Windows pytest) are taken from each PR's own CI and are re-proven by the post-merge CI run on `main`.
 6. **Repair** only what integration broke: a conflict where both sides' intent is clear, resolved so neither change is lost, on the integration branch or as a corrective PR. Anything that changes a feature's behaviour goes back to its owner with a corrective request (format below). Two incompatible designs go to Chris as a decision, never a compromise invented here.
 7. **Ask for the merge round.** One question to Chris naming the PRs, the order and the evidence. Nothing merges without his go for that round.
 8. **Merge** in order, waiting for each merge's `main` CI where the next PR conflicts with it. Watch the Preview publish of `main`'s newest commit.
-9. **Verify Preview.** The `latest` release's `version.json` names `main`'s tip and its `exe_sha256` and `engine_sha256` equal the GitHub digests of the uploaded assets (`curl -s https://api.github.com/repos/KratosDataGod/KratosForge/releases/tags/latest | jq '.assets[] | {name, digest}'`). If the engine zip is missing, re-run the failed release job of `main`'s tip run.
+9. **Verify Preview.** The `latest` release's `version.json` names `main`'s tip and its `exe_sha256`, `engine_sha256` and `engine_update_sha256` equal the GitHub digests of the uploaded assets (`curl -s https://api.github.com/repos/KratosDataGod/KratosForge/releases/tags/latest | jq '.assets[] | {name, digest}'`). If the engine zip is missing, re-run the failed release job of `main`'s tip run.
 10. **Report** in the thread: what was reviewed, merged, fixed, what failed and what is blocked.
 
 ### PR states
@@ -114,7 +116,13 @@ A Stable promotion is the production release. Before asking Chris for it:
 
 ## Rollback
 
-`fabric-desktop.exe.old` is deleted at startup and is not a rollback. A rollback is a promotion of an earlier build. In order of preference:
+A rollback is a promotion of an earlier build.
+
+**How PCs follow a channel rollback.** The app doesn't refuse a build because it is older than the one running; it refuses a `version.json` that is older than the newest one it has seen on that channel. A rollback republishes the earlier build's exe, engine and `version.json` (same `commit` and checksums) with a new `published` stamp, which Promote writes on every run. PCs then accept it as the channel's newest release and install the earlier build at their next start. A cached copy of the release it replaced is refused, because its stamp is earlier. A `version.json` uploaded by hand (see **Older builds** below) must set `published` to the current time.
+
+**On one PC,** an update ends the running build's local engine (a run still in progress is stopped, not waited for; if a call still holds the engine 10 seconds later, the update is refused and the running build carries on), then keeps the previous exe as `kratosforge.exe.old` until the new build has opened its window; if the new build exits before that, the previous exe is put back, restarts its engine and keeps running. Builds from before HD-022 never confirm their start, so a rollback to one of them is left running after 90 seconds rather than undone. After a successful start `.old` is removed, so it is not a way to go back to an earlier build later.
+
+In order of preference:
 
 1. **Fix forward.** Revert the offending PR on `main` (a revert PR, merged by Chris), let Preview publish, then promote. This is the normal path.
 2. **Promote an earlier build to Stable.** Find the previous Stable commit in [release history](release-history.md). Run **Actions > Promote to stable** with **build** set to that commit (or its `build-*` tag) and notes that say what was rolled back and why. Promote checks the files against that build's `version.json` before it copies them. Self-updating Stable PCs move to it at their next start. This replaces production files and needs Chris's explicit go.
@@ -122,18 +130,18 @@ A Stable promotion is the production release. Before asking Chris for it:
 
 Two limits today:
 
-- **Older builds.** A build published before per-build releases began has no `build-*` release, so it can't be promoted again. For one of those, rebuild it: re-run that commit's `main` CI run if its artifacts are still retained (GitHub keeps workflow artifacts 90 days by default), verify against the build's provenance attestation, and upload to `stable` with a matching `version.json`.
+- **Older builds.** A build published before per-build releases began has no `build-*` release, so it can't be promoted again. For one of those, rebuild it: re-run that commit's `main` CI run if its artifacts are still retained (GitHub keeps workflow artifacts 90 days by default), verify against the build's provenance attestation, and upload to `stable` with a matching `version.json` stamped with a new `published` time.
 - **Preview can't be rolled back by promotion.** `latest` always follows `main`. Fix forward instead.
 
 ### Pinning a build
 
 An organization can stay on one build while the channels move on. Turn off self-updating (`"auto_update": false` in the policy file, [enterprise install](../enterprise-install.md)) and deploy the exe from that build's release:
 
-`https://github.com/KratosDataGod/fabric-desktop/releases/download/build-<12 characters>/fabric-desktop.exe`
+`https://github.com/KratosDataGod/KratosForge/releases/download/build-<12 characters>/kratosforge.exe` (builds from before the name changed have only `fabric-desktop.exe`)
 
 The engine zip, `version.json` and SBOMs are next to it under the same tag. `version.json` gives the SHA-256 of the exe and the engine to check a copy against.
 
-The app itself can't be pointed at a `build-*` release yet. It downloads its engine from its channel's current release (`stable` or `latest`). So a pinned exe runs on a PC whose engine for that build is already installed. A PC that has to download the engine gets the channel's current engine, which doesn't match, and is told to ask IT for the current exe. Letting the app or policy name a build for the engine download is a follow-up.
+With `"auto_update": false` the app downloads its engine only from its own build's `build-*` release, never the channel's (`stable` or `latest`), so a pinned exe gets the matching engine for as long as its release is kept. Once that release is deleted, a PC that has to download the engine is told this build no longer has one and to ask IT for the current exe. Self-updating PCs take the engine from their channel's current release.
 
 Reverting the app does not revert what a newer build wrote: local settings, schedules, run history, the metadata store and anything in OneLake stay as the newer build left them. Before shipping a change to a stored format, its PR must say whether an older build can still read it.
 

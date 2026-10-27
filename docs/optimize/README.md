@@ -107,7 +107,7 @@ The central lakehouse holds more than Optimize's tables. Each feature that keeps
 | Prefix | Owner | Holds |
 | --- | --- | --- |
 | `fdopt_` | Optimize | Findings, recommendations, measurements and savings, plus the installations, audit and settings every family shares |
-| `fdacc_` | Governance (planned) | The access cache: who can reach what, updated with changes only |
+| `fdacc_` | Governance (Preview) | The access cache: who can reach what, updated with changes only ([below](#the-access-cache-fdacc_)) |
 | `fdcap_` | FinOps (Preview) | [Capacity settings history](#capacity-settings-history) |
 | `fdten_` | Enterprise readiness (Preview) | [Tenant settings history](#tenant-settings-history) |
 | `fdinc_` | Incident management (planned) | Incident history |
@@ -123,6 +123,19 @@ A family whose tables name people keeps them in a schema of its own (for example
 - leaves every other role as it is, and records the change in `fdopt_audit`.
 
 It reads the roles again just before it writes, and refuses if what it would change is no longer what you confirmed; Fabric also refuses the write if someone changes the roles in between. It refuses, and changes nothing, when the central lakehouse has no schemas (hiding the tables would mean listing every other table, which would hide tables added later), when OneLake security is off or there is no DefaultReader, when DefaultReader has more than one rule or was given part of that schema on purpose, or when the role name is already used for something else. A schema created later stays hidden from DefaultReader until someone adds it in OneLake > Access; the confirmation says so. It uses the `OneLake.ReadWrite.All` permission that OneLake > Access already uses ([Permissions](../permissions.md)), and the right in Fabric to manage the lakehouse's roles.
+
+### The access cache (`fdacc_`)
+
+The access cache lets OneLake > Access show every workspace at once instead of asking Fabric about each one each time. A refresh asks Fabric, as you, for each workspace's roles and each lakehouse's OneLake data access roles, and writes to the central lakehouse only, in its own `access` schema:
+
+- `fdacc_scans`: one row per workspace and lakehouse looked at, with when, whether the roles could be read, and why not;
+- `fdacc_workspace_roles` and `fdacc_data_access_roles`: what was seen, only when it changed since the last refresh. An unchanged workspace adds one scan row and nothing else.
+
+A refresh changes nothing in the workspaces it looks at. When a workspace's roles can't be read, the cache keeps the last list it could read and marks it out of date, never an empty list. You only see cached workspaces you can open in Fabric. The cache keeps names, ids, types (person, group, app), whether someone is a guest, and roles; it keeps no email addresses. The first refresh asks before adding the tables. Refreshing needs write access to the central lakehouse; reading needs read access.
+
+Keeping the cache to some people: **Who may read it** (`access_cache_protect`) uses the central lakehouse's `central_restrict`. DefaultReader stops reading the `access` schema and keeps its members and everything else it read. A new role, `AccessCacheReaders`, lets the people and groups you pick read it. It shows the planned change and asks first, and the change is recorded in `fdopt_audit`. It needs OneLake security turned on for the central lakehouse, and a lakehouse with schemas. Until you protect it, anyone who can read the central lakehouse's tables can read the cache.
+
+The cache is shown in OneLake > Access > **All workspaces** ([user guide](../user-guide.md#access-preview)).
 
 ### Tenant settings history
 
@@ -164,7 +177,7 @@ A read of the capacities you can see (`GET /v1/capacities`, `Capacity.Read.All`,
 **Optimize > Settings history** (Preview) shows both histories in one list. It only reads the six tables above until you press a button:
 
 - **Capacities last read** and **Tenant settings last read**: the newest successful read of each.
-- **Read capacities now** calls `capacity_settings_read`; **Read tenant settings (administrators)** calls `tenant_settings_read`. Each reads Fabric once and adds rows. The first read in a lakehouse asks before it creates the tables.
+- **Read capacities now** calls `capacity_settings_read`, with `admin=True` when **Include capacity overrides (administrators)** is ticked (off each time the app starts). When the capacities were read but the overrides weren't, the message says so instead of only "nothing changed"; **Read tenant settings (administrators)** calls `tenant_settings_read`. Each reads Fabric once and adds rows. The first read in a lakehouse asks before it creates the tables.
 - A warning lists reads that failed since the last good one, one line per kind with how many and the latest reason: changes made then weren't seen.
 - Anyone who can read the central lakehouse sees the tab's history, including tenant settings an administrator read; the tab says so.
 - **Changes** lists each change as "between" two reads, with the scope (Tenant, or the capacity's latest name), the setting and its old and new values. **Show** filters to the tenant, all capacities or one capacity.

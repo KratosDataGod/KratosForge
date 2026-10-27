@@ -9,8 +9,8 @@ A proof runs one notebook on your PC and in Fabric as a controlled experiment, c
 
 1. **Check.** The notebook is read before anything runs. A proof starts only if every read and write goes through `from fabric_desktop import lakehouse`, because that is what a proof can pin and contain. It doesn't start when a cell uses Spark (in Fabric, Spark reads and writes the lakehouse directly), opens a Delta table with `deltalake` itself, changes files with `notebookutils.fs`, or runs SQL that creates or changes tables. Each reason names the cell and line. Network calls, files written on the machine, other notebooks run with `%run`, and use of the clock or random values don't block a proof; they are listed as warnings and kept in the receipt.
 2. **Pin the inputs.** The Delta version of every table in the attached lakehouse is recorded. Both runs read every table at that version, even if someone writes to it meanwhile. A table created after the proof starts doesn't exist for either run.
-3. **Run on this PC.** The kernel restarts and runs every code cell in order, with the random seed fixed (Python's `random`, and NumPy's when it is installed) and, on Linux and macOS, the time zone set to UTC. Writes go to the proof's own folder in the lakehouse: `Files/_fabric_desktop/proofs/<proof>/pc/tables/<schema>/<table>`. A cell that reads a table it wrote earlier reads that copy. The first append to an existing table starts from a copy of its pinned version, so both runs change the same starting state.
-4. **Run in Fabric.** A copy of the notebook is published as **<notebook>_proof** in the notebook's workspace and run with Fabric's job scheduler. Your own published notebook, and any schedule on it, isn't touched. The copy has two extra cells: the first loads the same proof code used on your PC (copied word for word, so both sides follow the same rules) and the last saves what the run read, wrote and ran on to `Files/_fabric_desktop/proofs/<proof>/fabric/log.json`. Writes go to `.../<proof>/fabric/tables/...`.
+3. **Run on this PC.** The kernel restarts and runs every code cell in order, with the notebook's Parameters bar values set right after the parameter cell, as a run on this PC does, and with the random seed fixed (Python's `random`, and NumPy's when it is installed) and, on Linux and macOS, the time zone set to UTC. Writes go to the proof's own folder in the lakehouse: `Files/_fabric_desktop/proofs/<proof>/pc/tables/<schema>/<table>`. A cell that reads a table it wrote earlier reads that copy. The first append to an existing table starts from a copy of its pinned version, so both runs change the same starting state.
+4. **Run in Fabric.** A copy of the notebook is published as **<notebook>_proof** in the notebook's workspace and run with Fabric's job scheduler. Your own published notebook, and any schedule on it, isn't touched. The copy has two extra cells: the first loads the same proof code used on your PC (copied word for word, so both sides follow the same rules) and the last saves what the run read, wrote and ran on to `Files/_fabric_desktop/proofs/<proof>/fabric/log.json`. Writes go to `.../<proof>/fabric/tables/...`. The Parameters bar's values go to the job as its parameters, which Fabric sets right after the parameter cell. A value the bar shows in red stops the proof before anything is published or run.
 5. **Verify.** For every table either run wrote, the two outputs are compared under the rules below. The lakehouse's own tables are checked again: if any changed during the proof, something else wrote them, and the result is **inconclusive**. Files both runs read are compared by SHA-256; different content also makes the result inconclusive.
 6. **Score and record.** A scorecard and an immutable receipt are saved (see below).
 
@@ -37,12 +37,14 @@ Each table's result has a **level**:
 | --- | --- | --- |
 | `keys` | none | Columns that identify a row. |
 | `ignore` | none | Columns left out, such as a load timestamp. |
-| `abs`, `rel` | 0, 1e-9 | Numbers match when they differ by at most `abs`, or by at most `rel` times the larger value. Two engines adding the same numbers in a different order differ around 1e-15. |
+| `abs`, `rel` | 0, 1e-9 | Numbers match when they differ by at most `abs`, or by at most `rel` times the larger value. Two engines adding the same numbers in a different order differ around 1e-15. With both at 0, whole numbers and decimals are compared exactly, digit for digit (1.50 equals 1.5); a difference too small to show as a floating-point number is counted but its size isn't shown. |
 | `columns` | none | Tolerances for one column: `{"amount": {"abs": 0.01}}`. |
 | `timestamps` | `us` | Compare timestamps to the microsecond, millisecond (`ms`) or second (`s`). Timestamps are compared in UTC. |
 | `limit_rows` | 5,000,000 | Above this, compare fingerprints only. |
 
 A column of whole numbers on one side and decimals on the other (for example an average one engine returns as an integer type) is compared as numbers under these tolerances, and the result notes it. Any other type difference makes the table differ.
+
+A key column that is text on one side and numbers on the other is matched as text, so rows still pair up; the type difference already makes the table differ. A rule that isn't valid (a negative or non-numeric tolerance, a row limit that isn't a whole number, `keys` that aren't column names) is refused with a message saying what it should be, and nothing is compared.
 
 Rules can be set for all tables and per table. A finished proof can be verified again under other rules without running anything (`prove_verify`), for example to see whether a difference is within a tolerance; that check can be saved as its own receipt pointing at the proof's.
 
@@ -67,6 +69,7 @@ A receipt is a JSON document whose id is the SHA-256 of its content (keys sorted
 
 - the notebook's code: each cell's stable id and source hash, and one revision hash over all of them;
 - the inputs: tables and the versions read on each side, files and their SHA-256;
+- the parameters both runs used (the Parameters bar's values when the proof started);
 - the environment on each side: Python and the versions of the packages the notebook imports;
 - who ran it (your user and tenant) and where (workspace and lakehouse);
 - each run's status and measurements, each table's verification with its level and rules, the scorecard, and the limitations found;

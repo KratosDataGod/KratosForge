@@ -30,8 +30,8 @@ function selectedCell() {
 function cellLang(cell) {
   if (cell.type === "markdown") return "markdown";
   const first = cell.source.trimStart().split("\n", 1)[0].trim();
-  if (first.startsWith("%%sql") || first === "%sql") return "sql";
-  if (first.startsWith("%%html")) return "html";
+  if (/^%%sql\b/.test(first) || first === "%sql") return "sql";
+  if (/^%%html\b/.test(first)) return "html";
   return "python";
 }
 
@@ -55,6 +55,19 @@ function dropEditor(cell) {
 
 // ---------- the screen ----------
 
+// A Home ribbon menu (UX cleanup, Cleaner KratosForge): buttons that each stay one click away on
+// the Run tab or in their own place are grouped behind one button, as they are (menuNode in app.js).
+// items(menu) is called on each open, so the menu always shows the current state; the button reads as
+// on while anything in it is on, and isn't shown when none of its buttons are (Preview features hidden).
+function ribbonMenu(label, iconName, items, title) {
+  const now = items(null).filter(Boolean);
+  if (!now.length) return null;
+  const on = now.some((b) => b.getAttribute("aria-pressed") === "true");
+  return h("button", { class: `tool${on ? " toggled" : ""}`, "aria-haspopup": "menu", "aria-expanded": "false", title, "data-menu-key": `ribbon-${label}`,
+    onclick: (e) => { const menu = e.currentTarget; showMenu(menu, items(menu).filter(Boolean)); } },
+  icon(iconName, 16), label, icon("chevronDown", 14));
+}
+
 function renderNotebook() {
   const nb = state.notebook;
   if (!nb) return go("home");
@@ -68,7 +81,7 @@ function renderNotebook() {
     onclick: () => { state.ribbonTab = t; renderNotebook(); },
   }, t[0].toUpperCase() + t.slice(1)));
 
-  const runAllBtn = btn("Run all", "play", runAll, "tool", { disabled: busy, "data-run": true });
+  const runAllBtn = btn("Run all", "play", runAll, "tool primary", { disabled: busy, "data-run": true });
   runAllBtn.querySelector("svg").classList.add("play");
   const cancelBtn = btn("Cancel", "stop", cancelRun, "tool", { disabled: !busy, "data-stop": true,
     title: "Stop the running cell. Variables from earlier cells are kept." });
@@ -85,13 +98,18 @@ function renderNotebook() {
     btn(label, iconName, onClick, `tool${on ? " toggled" : ""}`, { "aria-pressed": String(!!on), ...attrs });
 
   const toolbars = {
-    home: [runAllBtn, cancelBtn, computeBtn, sbsToggle(nb), validateToggle(nb), proveToggle(nb), h("div", { class: "sep" }), btn("Add data items", "lakehouse", openDataItems),
-      h("div", { class: "spacer" }), notebookDataChip(nb), gitNotebookChip(nb), btn("Save", "save", saveNotebook),
-      btn("Save a copy", "add", () => nbSaveCopyDialog(nb.name)), btn("Versions", "history", nbVersions), nbfExportButton(),
-      preview("schedules", btn("Schedule", "history", scheduleNotebook, "tool")), runsToggle(nb),
-      h("div", { class: "split" }, btn("Publish to OneLake", "publish", publishNotebook, "tool primary",
+    home: [runAllBtn, cancelBtn, computeBtn, ribbonMenu("Check", "ok", () => [sbsToggle(nb), validateToggle(nb), proveToggle(nb)],
+        "Side by side, Validate and Prove (also on the Run tab)"),
+      h("div", { class: "sep" }), btn("Add data items", "lakehouse", openDataItems),
+      h("div", { class: "spacer" }), notebookDataChip(nb), gitNotebookChip(nb), btn("Save", "save", () => saveExplicitly(() => document.querySelector("button[data-save]")), "tool", { "data-save": true }),
+      ribbonMenu("Share", "arrowUpload", (menu) => [btn("Save a copy", "add", () => nbSaveCopyDialog(nb.name)), btn("Versions", "history", nbVersions), nbfExportButton(menu)],
+        "Save a copy, Versions and Export"),
+      vscodeButton(nb),
+      ribbonMenu("Schedule", "history", () => [preview("schedules", btn("Schedule", "history", scheduleNotebook, "tool")), runsToggle(nb)],
+        "Schedule this notebook and see its recent runs (also on the Run tab)"),
+      h("div", { class: "split" }, btn("Publish to OneLake", "publish", publishNotebook, "tool outline",
         { title: nb.workspace?.workspace_id ? `Publish to ${nb.workspace.workspace_name}` : "Publish to a Fabric workspace you pick" }),
-      h("button", { class: "tool primary split-more", "aria-label": "Publish options", title: "Publish options",
+      h("button", { class: "tool outline split-more", "aria-label": "Publish options", title: "Publish options",
         onclick: (e) => showMenu(e.currentTarget, publishMenu(nb)) }, icon("chevronDown", 14)))],
     edit: [btn("Code", "add", () => addCell("code")), btn("Markdown", "add", () => addCell("markdown")),
       h("div", { class: "sep" }), btn("Move up", "up", () => moveCell(-1)), btn("Move down", "down", () => moveCell(1)),
@@ -101,6 +119,7 @@ function renderNotebook() {
       toggleBtn("Parameter cell", "braces", isParams(sel), () => toggleParams(sel), { disabled: sel.type !== "code" }),
       toggleBtn("Freeze", "shield", sel.meta?.frozen, () => toggleFreeze(sel)),
       btn("Find and replace", "search", () => openFind(true), "tool", { title: "Find and replace in every cell (Ctrl+H)" }),
+      btn("Format notebook", "code", formatNotebook, "tool", { title: "Format every code cell: Python in Black's style, SQL in the SQL page's style (nbformat.js)" }),
       h("div", { class: "sep" }), btn("Clear all outputs", "clear", clearOutputs)],
     run: [runAllBtn, btn("Run cell", "play", () => runCell(selectedCell()), "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
       btn("Run all above", "up", runAbove, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
@@ -117,7 +136,7 @@ function renderNotebook() {
         if (!on) state.explorerTab = "outline";
         renderNotebook();
       }),
-      toggleBtn("Variables", "braces", state.showVariables, toggleVariables), depsToggle(), commentsToggle(nb),
+      toggleBtn("Variables", "braces", state.showVariables, toggleVariables), depsToggle(), commentsToggle(nb), practicesToggle(nb),
       h("div", { class: "sep" }),
       btn("Collapse all inputs", "up", () => setAll("source_hidden", true)), btn("Expand all inputs", "down", () => setAll("source_hidden", false)),
       btn("Collapse all outputs", "up", () => setAll("outputs_hidden", true)), btn("Expand all outputs", "down", () => setAll("outputs_hidden", false)),
@@ -138,8 +157,9 @@ function renderNotebook() {
   setView(
     h("div", { class: "ribbon" }, h("div", { class: "ribbon-tabs", role: "tablist", "aria-label": "Ribbon" }, tabs),
       h("div", { class: "toolbar" }, toolbars[state.ribbonTab])),
+    ...[nbNextLine(nb)].filter(Boolean),  // replaceChildren would write "null"
     h("div", { class: "nb-body" }, state.showExplorer ? renderExplorer() : null, cells,
-      state.showVariables ? renderVariables() : null, commentsPanel(nb), runsPanel(nb), provePanel(nb), validatePanel(nb)),
+      state.showVariables ? renderVariables() : null, commentsPanel(nb), practicesPanel(nb), runsPanel(nb), provePanel(nb), validatePanel(nb)),
     h("footer", { class: "statusbar" },
       h("span", {}, h("span", { class: `dot ${state.kernel}` }), kernelLabel()),
       sessionsButton(), environmentButton(nb),
@@ -148,7 +168,7 @@ function renderNotebook() {
       h("span", { class: "last-run" }, nbLastRunText(nb.lastRun)),
       h("span", {}, fabricMode ? `Compute: Fabric capacity in ${publishWorkspaceName(nb)}`
         : `Compute: Python ${state.python || "3"} on this PC, no Fabric job`),
-      nb.fabricRun ? h("span", {}, `Last Fabric run: ${nb.fabricRun.status === "NotStarted" ? "starting" : nb.fabricRun.status}`) : null));
+      nbFabricRunStatus(nb)));
   document.querySelector(".cells").scrollTop = scrollTop;
   editors.forEach((v) => v.requestMeasure());
   depsChanged();
@@ -191,11 +211,13 @@ function renderExplorer() {
   const fromLocations = nbData(state.notebook).from === "locations";
   const tab = (id, label) => h("button", { class: `tab${state.explorerTab === id ? " active" : ""}`,
     onclick: () => { state.explorerTab = id; renderNotebook(); } }, label);
-  const tabs = h("div", { class: "explorer-tabs" }, tab("data", "Data items"), tab("outline", "Outline"), tab("resources", "Resources"));
+  const tabs = h("div", { class: "explorer-tabs" }, tab("data", "Data items"), tab("outline", "Outline"), tab("resources", "Resources"), tab("notebooks", "Notebooks"));
   const content = h("div", { class: "explorer-content" });
 
   if (state.explorerTab === "outline") {
     content.append(renderOutline());
+  } else if (state.explorerTab === "notebooks") {
+    content.append(nbExplorerNotebooks());  // grouped by folder (notebook-files.js)
   } else if (state.explorerTab === "resources") {
     content.append(nbResourcesSection(state.notebook), h("div", { class: "nb-res-head" }, h("b", {}, "Code snippets")),
       h("div", { class: "muted-text", style: "padding:4px 4px 10px" }, "Click a snippet to add it as a new cell."),
@@ -231,9 +253,8 @@ function renderOutline() {
   const items = [];
   state.notebook.cells.forEach((cell) => {
     if (cell.type === "markdown") {
-      for (const line of cell.source.split("\n")) {
-        const m = line.match(/^(#{1,4})\s+(.+)$/);
-        if (m) items.push({ cell, level: m[1].length, text: m[2].replace(/[*_`]/g, "") });
+      for (const hd of markdownHeadings(cell.source)) {  // nbcells.js: skips fenced code blocks
+        if (hd.level <= 4) items.push({ cell, level: hd.level, text: hd.text.replace(/[*_`]/g, "") });
       }
     } else if (isParams(cell)) {
       items.push({ cell, level: 1, text: "Parameters" });
@@ -324,6 +345,7 @@ function renderCell(cell) {
     LANGS.map(([v, label]) => h("option", { value: v, selected: cellLang(cell) === v || null }, label))),
     isParams(cell) ? h("span", { class: "tag" }, "Parameters") : null,
     meta.frozen ? h("span", { class: "tag frozen-tag" }, icon("shield", 12), "Frozen") : null,
+    fabricStepBadge(cell),  // fabricstep.js
     cell.type === "code" ? depsHead(cell) : null,
     ...cellHeadExtras(cell),
     commentBadge(cell),  // notebook-comments.js
@@ -405,10 +427,12 @@ function cellMenu(cell) {
     items.push({ label: isParams(cell) ? "Remove parameter tag" : "Toggle parameter cell", icon: "braces", action: () => toggleParams(cell) });
     items.push({ label: cell.meta.outputs_hidden ? "Show output" : "Hide output", icon: "panel", action: () => setMeta(cell, "outputs_hidden", !cell.meta.outputs_hidden) });
     items.push({ label: "Clear output", icon: "clear", action: () => { cell.outputs = []; cell.status = null; updateCell(cell); } });
+    items.push({ label: "Format cell", icon: "code", action: () => formatCells([cell]) });  // nbformat.js
     if (dbgOn() && !nbWhere(state.notebook).fabric) {  // debugging.js
       items.push({ label: "Debug cell (pause at the first line)", icon: "play", action: () => debugCell(cell) });
     }
   }
+  items.push(...fabricStepMenuItems(cell));  // fabricstep.js
   items.push({ label: cell.meta.frozen ? "Unfreeze cell" : "Freeze cell", icon: "shield", action: () => toggleFreeze(cell) });
   items.push({ label: "Split cell at cursor", icon: "code", action: () => splitCell(cell) });
   items.push({ label: "Merge with cell below", icon: "down", action: () => mergeBelow(cell) });
@@ -423,9 +447,11 @@ function statusLine(cell) {
   const s = cell.status;
   const label = { queued: ["busy", "Queued"], running: cell.paused ? ["busy", "Paused"] : ["busy", "Running"], ok: ["ok", "Succeeded"],
     error: ["bad", "Failed"], stopped: ["bad", "Stopped"], cancelled: ["bad", "Cancelled"] }[s];
-  return h("div", { class: "cell-status", "data-s": s }, h("span", { class: label[0] }, label[1]),
+  return h("div", { class: "cell-status", "data-s": s, "data-where": isFabricStep(cell) ? "fabric" : null }, h("span", { class: label[0] }, label[1]),
     s === "running" && cell.seconds != null ? h("span", {}, `${cell.seconds.toFixed(1)} s`) : null,
-    s === "ok" || s === "error" || s === "cancelled" ? h("span", {}, cell.partial ? "Ran the selection on this PC" : "Ran on this PC") : null,
+    s === "running" && cell.progress != null ? h("span", { class: "cell-progress", title: "How far the running query is" },
+      h("progress", { max: 100, value: cell.progress, "aria-label": "Query progress" }), `Query ${Math.floor(cell.progress)}%`) : null,
+    s === "ok" || s === "error" || s === "cancelled" ? h("span", {}, isFabricStep(cell) ? "Fabric step" : cell.partial ? "Ran the selection on this PC" : "Ran on this PC") : null,
     cell.seconds != null && s !== "running" && s !== "queued" ? h("span", {}, `${cell.seconds.toFixed(1)} s`) : null,
     cell.finishedAt && s !== "running" ? h("span", {}, cell.finishedAt) : null);
 }
@@ -495,6 +521,7 @@ function addCell(type, atEnd = false, offset = 1) {
   cells.splice(offset > 0 ? i + 1 : Math.max(i, 0), 0, cell);
   state.selected = cell.id;
   markDirty();
+  revealCell(cell);  // nbcells.js: added inside a collapsed section (below its heading): open it
   renderNotebook();
   document.querySelector(`[data-cell="${cell.id}"]`)?.scrollIntoView({ block: "nearest" });
   enterEditMode(cell);
@@ -515,15 +542,11 @@ function setSource(cell, source) {
   }
 }
 
+// Moves past the next shown cell; a collapsed heading takes its section along (nbcells.js).
 function moveCell(delta, cell = selectedCell()) {
-  const cells = state.notebook.cells;
-  const i = cells.indexOf(cell);
-  const j = i + delta;
-  if (j < 0 || j >= cells.length) return;
-  [cells[i], cells[j]] = [cells[j], cells[i]];
+  if (moveShown([cell], delta) !== "moved") return;
   state.selected = cell.id;
   markDirty();
-  revealCell(cell);  // moved into a collapsed section: open it rather than hide the cell
   renderNotebook();
   refreshOutline();
 }
@@ -573,17 +596,19 @@ function pasteCell(cell, offset) {
   const copy = copies[0];
   state.selected = copy.id;
   markDirty();
+  copies.forEach(revealCell);  // pasted into a collapsed section: open it
   renderNotebook();
   enterCommandMode(copy);
 }
 
 function splitCell(cell) {
-  if (cell.meta?.frozen) return;
+  if (cell.meta?.frozen) { toast("This cell is frozen. Unfreeze it on the Edit tab to change it."); return; }
   const view = editors.get(cell.id);
   const pos = view ? view.state.selection.main.head : cell.source.length;
   const before = cell.source.slice(0, pos).replace(/\n$/, "");
   let after = cell.source.slice(pos).replace(/^\n/, "");
-  const magic = MAGIC[cellLang(cell)];
+  // The second half keeps the cell's magic as the cell writes it: Fabric's %%sql or Databricks' %sql.
+  const magic = MAGIC[cellLang(cell)] && cell.source.trimStart().split(/\s/, 1)[0];
   if (magic && !after.trimStart().startsWith(magic)) after = `${magic}\n${after}`;
   setSource(cell, before);
   const cells = state.notebook.cells;
@@ -603,7 +628,10 @@ function mergeBelow(cell) {
 }
 
 function setLanguage(cell, lang) {
-  const body = cell.source.replace(/^\s*(%%(sql|html|pyspark|python)[^\n]*|%(sql|python)[ \t]*(?=\n|$))\n?/, "");
+  // The picker is disabled on a frozen cell; M and Y in command mode come here too.
+  if (cell.meta?.frozen) { toast("This cell is frozen. Unfreeze it on the Edit tab to change it."); return; }
+  // The old language's magic line goes, including Databricks' %md and %%markdown, so M on a %md cell keeps only its text.
+  const body = cell.source.replace(/^\s*(%%(sql|html|pyspark|python|md|markdown)\b[^\n]*|%(sql|python|md)[ \t]*(?=\n|$))\n?/, "");
   const wasMarkdown = cell.type === "markdown";
   if (lang === "markdown") {
     cell.type = "markdown";
@@ -798,11 +826,13 @@ function editorFor(cell) {
         CM.highlightSpecialChars(), CM.history(), CM.drawSelection(), CM.dropCursor(), CM.indentOnInput(),
         CM.bracketMatching(), CM.closeBrackets(), CM.highlightActiveLine(), CM.highlightSelectionMatches(),
         CM.syntaxHighlighting(editorHighlight),
+        // Before langComp: its completion keymap, also at highest precedence, would otherwise take Esc
+        // while suggestions are still being fetched, with nothing on screen.
+        CM.Prec.highest(CM.keymap.of(keys)),
         langComp.of(languageFor(cell)),
         readOnlyComp.of(readOnly(cell)),
         findHighlighter(cell),  // nbfind.js
         dataItemDrop(cell),  // nbdrag.js: tables and files dragged from the Explorer
-        CM.Prec.highest(CM.keymap.of(keys)),
         CM.keymap.of([...CM.closeBracketsKeymap, ...CM.defaultKeymap, ...CM.searchKeymap, ...CM.historyKeymap,
           ...CM.foldKeymap, ...CM.completionKeymap, CM.indentWithTab]),
         CM.placeholder(cell.type === "markdown" ? "Write Markdown. Press Shift+Enter to render."
@@ -854,10 +884,17 @@ function cellKeymap(cell) {
     { key: "Shift-Enter", run: run(true, false) },
     { key: "Mod-Enter", run: run(false, false) },
     { key: "Alt-Enter", run: run(false, true) },
-    { key: "Escape", run: () => { editors.get(cell.id)?.contentDOM.blur(); enterCommandMode(cell); return true; } },
-    { key: "Mod-Shift-Minus", run: () => { splitCell(cell); return true; } },
+    // A suggestion list on screen takes Esc first (it closes); otherwise Esc leaves for command mode.
+    { key: "Escape", run: (view) => {
+      if (view.dom.querySelector(".cm-tooltip-autocomplete")) return false;
+      view.contentDOM.blur();
+      enterCommandMode(cell);
+      return true;
+    } },
+    { key: "Mod-Shift--", run: () => { splitCell(cell); return true; } },  // CodeMirror names keys by their character
     { key: "Mod-/", run: CM.toggleComment },
     { key: "F9", run: () => dbgToggleAtCursor(cell) },
+    { key: "Shift-Alt-f", run: () => { formatCells([cell]); return true; } },
   ];
 }
 
@@ -895,11 +932,43 @@ document.addEventListener("keydown", (e) => {
   if (handled) e.preventDefault();
 });
 
+// The keys above and the editor's own (editorKeys), listed in the Keyboard shortcuts dialog while a
+// notebook is open. The select (nbselect.js) and find (nbfind.js) keys are listed beside their handlers.
+{
+  const inNotebook = () => state.view === "notebook";
+  registerShortcuts("Notebook", [
+    { keys: ["Shift+Enter"], label: "Run the cell and select the next one", when: inNotebook },
+    { keys: ["Ctrl+Enter"], label: "Run the cell", when: inNotebook },
+    { keys: ["Alt+Enter"], label: "Run the cell and add a code cell below", when: inNotebook },
+    { keys: ["Esc"], label: "While editing: leave the cell for command mode, where the single-letter keys below work", when: inNotebook },
+    { keys: ["Enter"], label: "In command mode: edit the selected cell", when: inNotebook },
+    { keys: ["Up", "Down", "K", "J"], label: "In command mode: select the cell above or below", when: inNotebook },
+    { keys: ["A", "B"], label: "In command mode: add a code cell above or below", when: inNotebook },
+    { keys: ["DD"], label: "In command mode: delete the cell", when: inNotebook },
+    { keys: ["Z"], label: "In command mode: put the last deleted cell back", when: inNotebook },
+    { keys: ["M", "Y"], label: "In command mode: make the cell Markdown or code", when: inNotebook },
+    { keys: ["C", "X"], label: "In command mode: copy or cut the cell", when: inNotebook },
+    { keys: ["V", "Shift+V"], label: "In command mode: paste below or above", when: inNotebook },
+    { keys: ["O"], label: "In command mode: show or hide the cell's output", when: inNotebook },
+    { keys: ["Shift+L"], label: "In command mode: show or hide line numbers", when: inNotebook },
+    { keys: ["Ctrl+Space"], label: "While editing: suggest names, attributes and table names", when: inNotebook },
+    { keys: ["Ctrl+/"], label: "While editing: comment or uncomment the selected lines", when: inNotebook },
+    { keys: ["Ctrl+Shift+-"], label: "While editing: split the cell at the cursor", when: inNotebook },
+  ]);
+}
+
 // ---------- outputs ----------
+
+// The image types the engine sends (notebook.py _IMAGE_MIMES, plus SVG), as base64.
+const IMAGE_OUTPUT_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml"]);
+function imageOutputOk(o) {
+  return IMAGE_OUTPUT_TYPES.has(o.mime) && typeof o.data === "string" && /^[A-Za-z0-9+/=\s]*$/.test(o.data);
+}
 
 function renderOutput(o, cell) {
   if (o.type === "stream" || o.type === "text") return h("div", { class: "output" }, h("pre", {}, o.text));
   if (o.type === "widget") return renderWidgetOutput(o, cell);  // ipywidgets.js
+  if (o.type === "fabric_step") return fabricStepOutput(o, cell);  // fabricstep.js
   if (o.type === "error" && cell && limitStop(o)) return limitOutput(o, cell);
   if (o.type === "error") {
     return h("div", { class: "output error" }, h("div", { class: "ename" }, `${o.ename}: ${o.evalue}`),
@@ -907,9 +976,13 @@ function renderOutput(o, cell) {
   }
   if (o.type === "table") return renderTableOutput(o, cell);
   if (o.type === "image") {
+    // Only picture types become a data: URL (HD-052): a notebook file from elsewhere can carry any type.
+    if (!imageOutputOk(o)) return h("div", { class: "output" }, "This output says it is an image, but isn't one KratosForge shows.");
     return h("div", { class: "output" }, h("img", { class: "out-img", alt: "Chart from this cell", src: `data:${o.mime};base64,${o.data}` }));
   }
   if (o.type === "html") return h("div", { class: "output" }, htmlFrame(o.html));
+  if (o.type === "vegalite") return renderVegaLite(o);
+  if (o.type === "plotly") return renderPlotly(o);
   // Markdown from %%md, IPython.display.Markdown or _repr_markdown_: the Markdown cell's escaping renderer.
   if (o.type === "markdown") return h("div", { class: "output md-view" }, markdown(o.text));
   if (o.type === "json") return h("div", { class: "output json-output" }, jsonTree(o.data, null, 0));
@@ -961,6 +1034,61 @@ function htmlFrame(html) {
   return frame;
 }
 
+// Altair charts (chart_output.py): the Vega-Lite spec, drawn by the Vega libraries (vendor/vega) inside a
+// sandboxed output frame, inline, since the frame can't load scripts; the app's page never runs them.
+// The libraries load once, when the first chart shows.
+let vegaSource = null;
+function loadVega() {
+  vegaSource ||= new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "vendor/vega/vega-frame.js";
+    script.onload = () => resolve(window.fdVegaSource);
+    script.onerror = () => { vegaSource = null; reject(new Error("Could not load the chart libraries. Reload the app and run the cell again.")); };
+    document.head.append(script);
+  });
+  return vegaSource;
+}
+
+function vegaPage(source, spec) {
+  // JSON is a JS expression; with every < escaped, nothing in the spec can end the script tag.
+  const data = JSON.stringify(spec).replace(/</g, "\\u003c");
+  return `<!doctype html><meta charset="utf-8"><style>body{margin:0;font:13px "Segoe UI",system-ui,sans-serif}</style>` +
+    `<div id="chart"></div><script>${source}<\/script><script>vegaEmbed("#chart", ${data}, { actions: false, renderer: "svg" })` +
+    `.catch(function (e) { document.getElementById("chart").textContent = "This chart can't draw: " + (e && e.message || e); });<\/script>`;
+}
+
+function renderVegaLite(o) {
+  const wrap = h("div", { class: "output" }, h("div", { class: "out-bar" }, previewMarked("altair", h("span", { class: "muted-text" }, "Altair chart"))));
+  loadVega().then((source) => wrap.append(htmlFrame(vegaPage(source, o.spec))),
+    (err) => wrap.append(h("div", { class: "more", role: "alert" }, friendlyError(err))));
+  return wrap;
+}
+
+// plotly figures (chart_output.py): the figure's JSON, drawn by plotly.js inside a sandboxed output frame,
+// inline, as Vega is. plotly.js (about 5 MB) comes from the engine's own plotly package, so it matches the
+// figure's version; it's read once, when the first figure shows, rather than sent with every output.
+let plotlySource = null;
+function loadPlotly() {
+  plotlySource ||= rpc("notebook_plotly_js").then((r) => r.source, (err) => { plotlySource = null; throw err; });
+  return plotlySource;
+}
+
+function plotlyPage(source, figure) {
+  // As in vegaPage: with every < escaped, nothing in the figure can end the script tag.
+  const data = JSON.stringify(figure).replace(/</g, "\\u003c");
+  return `<!doctype html><meta charset="utf-8"><style>body{margin:0}</style><div id="chart"></div>` +
+    `<script>${source}<\/script><script>var f = ${data};` +
+    `Plotly.newPlot("chart", f.data || [], f.layout || {}, Object.assign({ responsive: true }, f.config || {}))` +
+    `.catch(function (e) { document.getElementById("chart").textContent = "This chart can't draw: " + (e && e.message || e); });<\/script>`;
+}
+
+function renderPlotly(o) {
+  const wrap = h("div", { class: "output" });
+  loadPlotly().then((source) => wrap.append(htmlFrame(plotlyPage(source, o.figure))),
+    (err) => wrap.append(h("div", { class: "more", role: "alert" }, friendlyError(err))));
+  return wrap;
+}
+
 window.addEventListener("message", (e) => {
   const height = e.data?.fdFrameHeight;
   if (typeof height !== "number") return;
@@ -983,8 +1111,16 @@ function renderTableOutput(o, cell) {
   const redraw = () => wrap.replaceWith(renderTableOutput(o, cell));
   const seg = (id, label) => h("button", { class: `seg${o.view === id ? " on" : ""}`, "aria-pressed": String(o.view === id),
     onclick: () => { o.view = id; redraw(); } }, label);
+  // Several charts of one result (Databricks' "+ Visualization"): "chart" is the first, "chart-2" the second...
+  const many = o.frame && cell && typeof chartCount === "function";
+  const charts = many ? chartCount(cell) : 1;
+  if (/^chart-\d+$/.test(o.view) && +o.view.slice(6) > charts) o.view = "chart";
+  const chartSegs = Array.from({ length: charts }, (_, i) => seg(i ? `chart-${i + 1}` : "chart", many ? chartName(cell, i) : "Chart"));
+  const add = many && charts < MAX_CHARTS ? previewMarked("severalCharts", h("button", { class: "seg seg-add", "aria-label": "Add a chart of this result",
+    onclick: () => { o.view = `chart-${addChart(o, numericColumns(o), cell) + 1}`; redraw(); } }, "+ Chart")) : null;
   const bar = h("div", { class: "out-bar" }, h("div", { class: "segs", role: "group", "aria-label": "View" },
-    seg("table", "Table"), seg("chart", "Chart"), seg("inspect", "Inspect"), o.frame ? seg("clean", "Clean") : null));
+    seg("table", "Table"), chartSegs, add, seg("inspect", "Inspect"), o.frame ? seg("clean", "Clean") : null,
+    o.frame && o.spark ? seg("qprofile", "Query profile") : null));
   wrap.append(bar);
   const numeric = numericColumns(o);
   const count = typeof o.total_rows === "number"
@@ -1011,14 +1147,18 @@ function renderTableOutput(o, cell) {
     search.addEventListener("input", () => { o.q = search.value; draw(); });
     wrap.append(body, h("div", { class: "more" }, count));
     draw();
-  } else if (o.view === "chart" && o.frame) {
+  } else if ((o.view === "chart" || /^chart-\d+$/.test(o.view)) && o.frame) {
     bar.append(h("span", { class: "spacer" }), previewMarked("chartBuilder", h("span", { class: "muted-text" }, "Chart of every row")));
-    wrap.append(renderChartBuilder(o, numeric, cell));
+    const i = o.view === "chart" ? 0 : +o.view.slice(6) - 1;
+    wrap.append(renderChartBuilder(o, numeric, cell, i, (n, what) => { if (what === "removed") o.view = n > 1 ? `chart-${n}` : "chart"; redraw(); }));
   } else if (o.view === "chart") {
     wrap.append(renderChart(o, numeric), h("div", { class: "more" }, `Chart of ${count.toLowerCase()}`));
   } else if (o.view === "clean" && o.frame) {
     bar.append(h("span", { class: "spacer" }), previewMarked("dataWrangler", h("span", { class: "muted-text" }, "Data Wrangler")));
     wrap.append(renderWrangler(o, cell));
+  } else if (o.view === "qprofile" && o.frame) {
+    bar.append(h("span", { class: "spacer" }), previewMarked("queryProfile", h("span", { class: "muted-text" }, "Query profile")));
+    wrap.append(renderQueryProfile(o));
   } else if (o.frame && !o.profileGone) {
     wrap.append(renderFrameProfile(o, numeric, count));
   } else {
@@ -1294,6 +1434,7 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
     toast("This cell is frozen, so it doesn't run. Unfreeze it on the Edit tab.");
     return true;
   }
+  if (isFabricStep(cell)) return runFabricStep(cell, nb);  // fabricstep.js: on Fabric Spark, not this PC
   if (kernelBusy(nb) && cell.status !== "queued") {
     const other = nb.kernelStatus !== "busy" && [...openNotebooks.values()].find((o) => o.kernelStatus === "busy");
     if (other) toast(`A cell is running in ${other.name}. Notebooks share one kernel unless Run notebooks in their own process is on in Settings.`);
@@ -1311,6 +1452,7 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
   let last = null;
   try {
     const watches = await dbgWatches(nb);  // debugging.js
+    await nbInputsSaved();  // nbinputs.js: a value just changed in the bar is the one that runs
     let snap = await rpc("start_cell", { code: cell.source + nbInputSuffix(cell), lakehouse_ref: nbLakehouse(nb), notebook: nb.name,
       ...(timeLimit ? {} : { time_limit: false }), ...(watches.length ? { watches } : {}), ...(code != null ? { code } : dbgStartArgs(cell, debug)) });
     for (;;) {
@@ -1318,6 +1460,7 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
       cell.count = snap.execution_count;
       cell.seconds = snap.seconds;
       const pauseMoved = dbgSnapshot(cell, snap);  // debugging.js
+      cell.progress = snap.status === "running" ? snap.progress ?? null : null;  // a DuckDB query's %, while one runs
       if (snap.status !== "running") break;
       // While paused, redraw only when the pause changes, so the debugger's input keeps what's typed.
       if (state.notebook?.cells.includes(cell) && (!cell.paused || pauseMoved || snap.outputs)) updateResults(cell);
@@ -1375,13 +1518,17 @@ function cellFx(cell) {
 async function runCells(cells) {
   const nb = state.notebook;
   const code = cells.filter((c) => c.type === "code" && c.source.trim() && !c.meta?.frozen);
+  if (!(await fabricStepPrecheck(nb, code))) return;  // fabricstep.js: before any cell runs
   nb.cancelRequested = false;
   const started = performance.now();
   const done = (ran) => {
     if (code.length < 2) return;
-    nb.lastRun = { ran, of: code.length, seconds: (performance.now() - started) / 1000 };
+    // whole: the run covered every cell Run all would run, not a selection (nbnext.js offers Publish only then).
+    const whole = nb.cells.filter((c) => c.type === "code" && c.source.trim() && !c.meta?.frozen).length === code.length;
+    nb.lastRun = { ran, of: code.length, seconds: (performance.now() - started) / 1000, whole };
     const el = state.notebook === nb && document.querySelector(".statusbar .last-run");
     if (el) el.textContent = nbLastRunText(nb.lastRun);
+    refreshNbNextLine(nb);  // nbnext.js: the next step after the run
   };
   code.forEach((c) => { c.status = "queued"; c.outputs = []; });
   setKernel("busy", nb);

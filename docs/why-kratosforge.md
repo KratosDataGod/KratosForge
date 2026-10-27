@@ -8,7 +8,7 @@ KratosForge brings that same philosophy to Microsoft Fabric.
 
 Thanks to OneLake and open Delta Lake formats, developers can now go a step further. They can build and execute data engineering workloads using local compute resources while reading and writing data directly to OneLake. That data is immediately available to Microsoft Fabric workloads, including Warehouses, Lakehouses, Power BI, and AI.
 
-![KratosForge: build locally, run in your infrastructure, read and write directly to OneLake, and consume in every Microsoft Fabric workload](fabric-desktop-model.png)
+![KratosForge: build locally, run in your infrastructure, read and write directly to OneLake, and consume in every Microsoft Fabric workload](kratosforge-model.png)
 
 The result is a new approach to Fabric development:
 

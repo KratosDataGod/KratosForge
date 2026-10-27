@@ -52,10 +52,10 @@ def test_publish_refuses_before_writing(tmp_path):
     uri = str(tmp_path / "events")
     write_deltalake(uri, pa.table({"id": [1]}), configuration=OUTSIDE)
 
-    class Ref:  # publish() only needs the table's address
+    class Ref:  # publish() only needs the table's address and name (for its lease)
         pass
     ref = Ref()
-    ref.uri = uri
+    ref.uri, ref.schema, ref.table = uri, "dbo", "events"
     with pytest.raises(delta_profile.ProfileViolation):
         publish.publish(pa.table({"id": [2]}), ref, "append", "token")
     assert DeltaTable(uri).version() == 0
@@ -79,3 +79,29 @@ def test_a_table_taken_outside_by_the_write_is_reported_not_failed(tmp_path, cap
 
 def test_no_table_yet_is_fine(tmp_path):
     delta_profile.check_target(str(tmp_path / "missing"))
+
+
+def test_publish_loads_an_existing_tables_log_once(tmp_path, monkeypatch):
+    """On OneLake each load is a round trip per commit file, so the check, the write and the new
+    version share one load."""
+    uri = str(tmp_path / "events")
+    write_deltalake(uri, pa.table({"id": [1]}))
+    write_deltalake(uri, pa.table({"id": [2]}), mode="append")
+    loads = []
+
+    class Counted(DeltaTable):
+        def __init__(self, *a, **k):
+            loads.append(a[0] if a else k.get("table_uri"))
+            super().__init__(*a, **k)
+    monkeypatch.setattr(delta_profile, "DeltaTable", Counted)
+    monkeypatch.setattr(publish, "DeltaTable", Counted)
+
+    class Ref:
+        pass
+    ref = Ref()
+    ref.uri, ref.schema, ref.table = uri, "dbo", "events"
+    table = publish.publish(pa.table({"id": [3]}), ref, "append", "token")
+    assert table.version() == 2 and len(loads) == 1
+    assert sorted(DeltaTable(uri).to_pyarrow_table().column("id").to_pylist()) == [1, 2, 3]
+    table = publish.publish(pa.table({"name": ["a"]}), ref, "overwrite", "token")  # schema replaced, as before
+    assert table.version() == 3 and table.schema().to_arrow().names == ["name"] and len(loads) == 2

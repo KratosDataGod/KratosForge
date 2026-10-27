@@ -37,9 +37,42 @@ def test_polars_job_runs_locally():
 
 def test_staged_table_matches_fabric_profile(tmp_path):
     data = run_local(Job.load(EXAMPLES / "sales_by_region.toml"))
-    table = stage_locally(data, tmp_path / "stage")
+    (tmp_path / "stage" / "part-0.parquet").parent.mkdir()
+    (tmp_path / "stage" / "part-0.parquet").write_bytes(b"x" * 1000)  # an old build's full copy
+    table = stage_locally(data, tmp_path, "stage")
     assert table.protocol().min_reader_version == 1
-    assert table.to_pyarrow_table().num_rows == 3
+    assert table.schema().to_arrow().names == data.schema.names
+    assert list(tmp_path.iterdir()) == []  # checked, then deleted: nothing stays on disk, old copies neither
+
+
+def test_staging_still_refuses_a_schema_outside_the_profile(tmp_path):
+    import datetime as dt
+    data = pa.table({"at": pa.array([dt.datetime(2026, 1, 1)], pa.timestamp("us"))})  # timestamp_ntz: reader 3
+    with pytest.raises(delta_profile.ProfileViolation, match="reader version 3"):
+        stage_locally(data, tmp_path, "stage")
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("name", ["..", "../../victim", "_writes", "a/b", "", "."])
+def test_staging_never_deletes_outside_its_own_folder(tmp_path, name):
+    """A job's name becomes a folder whose old contents are deleted: a name pointing anywhere else is refused."""
+    root = tmp_path / "app" / "staging"
+    keep = [tmp_path / "app" / "notebooks" / "a.ipynb", tmp_path / "victim" / "b.txt", root / "_writes" / "w.arrow"]
+    for f in keep:
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("x")
+    with pytest.raises(ValueError):
+        stage_locally(pa.table({"a": [1]}), root, name)
+    with pytest.raises(ValueError):
+        stage_locally(pa.table({"a": [1]}), root, str(tmp_path / "victim"))  # an absolute path
+    assert all(f.exists() for f in keep)
+
+
+@pytest.mark.parametrize("name", ["..", "../x", "C:\\Users\\x", "/etc", "_writes", " "])
+def test_job_names_must_be_plain_folder_names(tmp_path, name):
+    job = Job(name=name, engine="duckdb", base_dir=tmp_path, target=Target("ws", "lh", "t"), sql="select 1")
+    with pytest.raises(ValueError, match="job name"):
+        job.validate()
 
 
 def test_profile_rejects_v2_checkpoints(tmp_path):
@@ -175,6 +208,7 @@ def test_storage_token_has_half_an_hour_left_for_long_onelake_writes(tmp_path):
 
 
 def test_token_cache_survives_damage_and_is_swapped_in_whole(tmp_path):
+    from fabric_desktop import auth as auth_mod
     from fabric_desktop.auth import Authenticator
     path = tmp_path / "cache.bin"
     path.write_text('{"AccessToken": {"half-writ')  # e.g. two runs wrote it at once before
@@ -182,7 +216,7 @@ def test_token_cache_survives_damage_and_is_swapped_in_whole(tmp_path):
     auth.cache.add({"client_id": auth.client_id, "scope": ["s"], "token_endpoint": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
                     "response": {"access_token": "a", "expires_in": 3600, "token_type": "Bearer"}})
     auth._save()
-    assert "AccessToken" in path.read_text() and list(tmp_path.iterdir()) == [path]
+    assert "AccessToken" in auth_mod.read_cache(path)[0] and list(tmp_path.iterdir()) == [path]  # encrypted on Windows
     Authenticator("11111111-2222-3333-4444-555555555555", cache_path=path)  # reads back cleanly
 
 

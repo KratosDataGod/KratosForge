@@ -69,3 +69,42 @@ test("a bad value says what's wrong, and Reset puts back the code's values", { s
   assert.strictEqual(await bar.getByLabel(/^run_date/).inputValue(), "2026-01-01");
   assert.strictEqual(await bar.getByLabel(/^Environment/).inputValue(), "dev");
 });
+
+test("two quick changes and an immediate run keep both values, even when saving is slow", { skip }, async () => {
+  const bar = page().locator(".nb-inputs");
+  // Each save takes a while, as on a busy PC: the second change starts before the first has saved.
+  await page().evaluate(() => {
+    window.__fdCallFast = window.__fdCall;  // harness.cjs: every engine call goes through it
+    window.__fdCall = async (method, params) => {
+      if (method === "notebook_inputs_set") await new Promise((r) => setTimeout(r, 400));
+      return window.__fdCallFast(method, params);
+    };
+  });
+  try {
+    await bar.getByLabel(/^full_load/).selectOption("True");
+    await bar.getByLabel(/^Environment/).selectOption("test");
+    await page().evaluate(() => runCells(state.notebook.cells));
+    await page().locator(".cell").nth(2).getByText("2026-01-01 100000 True test East,West").waitFor({ timeout: 60000 });
+    const kept = await page().evaluate(() => [state.nbInputs.parameters.find((p) => p.name === "full_load").value,
+      state.nbInputs.widgets.find((w) => w.name === "env").value]);
+    assert.deepStrictEqual(kept, ["True", "test"]);
+  } finally {
+    await page().evaluate(() => { window.__fdCall = window.__fdCallFast; });
+  }
+});
+
+test("a save that fails partway doesn't stop later saves or runs", { skip }, async () => {
+  const bar = page().locator(".nb-inputs");
+  // Drawing the bar after the first save throws once; the queue has to carry on past it.
+  await page().evaluate(() => {
+    window.renderInputsReal = renderInputs;
+    window.renderInputs = () => { window.renderInputs = window.renderInputsReal; throw new Error("draw failed"); };
+  });
+  await bar.getByLabel(/^Environment/).selectOption("prod");
+  await page().locator("#toast", { hasText: "Could not keep the value" }).waitFor();
+  await page().waitForFunction(() => renderInputs === window.renderInputsReal);
+  await bar.getByLabel(/^full_load/).selectOption("False");
+  await page().evaluate(() => runCells(state.notebook.cells));
+  await page().locator(".cell").nth(2).getByText("2026-01-01 100000 False prod East,West").waitFor({ timeout: 60000 });
+  assert.deepStrictEqual(app.errors, []);
+});

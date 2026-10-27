@@ -40,6 +40,10 @@ def _say(event: str, **fields: Any) -> None:
 
 
 def run(job: dict[str, Any]) -> None:
+    if job.get("target") == "warehouse":  # SQL-004: one read query in Fabric (warehouse.py)
+        from . import warehouse
+        warehouse.run(job, lambda: str(_ask("warehouse_token") or ""), _say)
+        return
     import duckdb
     import pyarrow as pa
     import pyarrow.ipc as ipc
@@ -79,14 +83,9 @@ def run(job: dict[str, Any]) -> None:
     _say("started", permission=sql_policy.strongest(verdicts))
 
     views: dict[str, str] = {}
-
-    def is_local(name: str) -> bool:
-        return bool(con.execute("SELECT 1 FROM duckdb_tables() WHERE table_name = ? UNION ALL "
-                                "SELECT 1 FROM duckdb_views() WHERE view_name = ?", [name, name]).fetchall())
-
     result = None
     for statement in statements:
-        sql.bind_tables(statement, con, views, is_local)
+        sql.bind_tables(statement, con, views, lambda name: sql.is_local(con, name))
         result = con.execute(statement.sql("duckdb"))
 
     out = Path(job["out"])
@@ -128,8 +127,9 @@ _asked: dict[str, Any] = {}
 
 
 def _ask(name: str) -> Any:
-    """Ask the engine, once, for something only it has: ``token`` (the storage token) or
-    ``schemas_enabled`` (the lakehouse's layout, from Fabric). Asked the first time a lakehouse
+    """Ask the engine, once, for something only it has: ``token`` (the storage token),
+    ``warehouse_token`` (a warehouse run's Azure SQL token) or ``schemas_enabled`` (the lakehouse's
+    layout, from Fabric). Asked the first time a lakehouse
     table is read, so a query that reads no table never needs a sign-in. Kept in memory only."""
     if name not in _asked:
         _say("call", name=name)

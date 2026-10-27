@@ -26,6 +26,10 @@ What code an external tool runs can do is limited on purpose:
 - Other notebooks can't be run from it (``%run``, ``notebookutils.notebook.run``): their code
   wasn't shown to the person. The app's own kernels still run them.
 - Output is capped, images and HTML are left out, and every string has secrets removed.
+- The kernel's environment has only the variables Python needs to start (kernel_proc.EXTERNAL_ENV_ALLOW:
+  PATH, the Windows system folders, temp, home, locale, proxy and certificate settings), so a secret in an environment variable
+  isn't visible to the code. It isn't a sandbox: the code runs as the person and can read their
+  files, including the token cache, until that cache is encrypted (HD-013).
 
 The person approves every Python and notebook run in the app, with the code shown; a notebook run
 is bound to the SHA-256 of the cells shown and runs exactly those (services.bind_notebook).
@@ -172,7 +176,7 @@ class ExecutionManager:
 
     def _new_kernel(self) -> Any:
         from .. import lakehouse
-        from ..kernel_proc import ProcessKernel
+        from ..kernel_proc import ProcessKernel, external_environment
 
         class ExternalKernel(ProcessKernel):
             def _sync_lakehouse(self) -> None:
@@ -184,7 +188,8 @@ class ExecutionManager:
                 finally:
                     lakehouse.write_guard = saved
 
-        kernel = ExternalKernel(token=self._token, load_notebook=self._other_notebook, command=self.kernel_command)
+        kernel = ExternalKernel(token=self._token, load_notebook=self._other_notebook, command=self.kernel_command,
+                                env=external_environment)
         kernel.calls["write_guard"] = lambda name, schema, table: WRITE_REFUSED
         return kernel
 
@@ -361,8 +366,11 @@ class ExecutionManager:
         return IntegrationError("cancelled", "The query was cancelled.")
 
     def run_cells(self, run: Execution, cells: list[str], lakehouse_ref: dict[str, str] | None,
-                  notebook: str = "") -> dict[str, Any]:
-        """Run code cells in order in a fresh process kernel, then end it."""
+                  notebook: str = "", skipped: str = "") -> dict[str, Any]:
+        """Run code cells in order in a fresh process kernel, then end it. ``skipped`` says what
+        the run left out, in its log and result."""
+        if skipped:
+            run.log(skipped)
         kernel = self._kernel_factory()
         kernel.notebook_name = notebook
         where = getattr(self.service, "_resources_dir", None)  # builtin/ paths, as in the notebook
@@ -406,4 +414,4 @@ class ExecutionManager:
         if failed is not None:
             run.state = "failed"
             run.error = {"code": "failed", "message": f"Cell {failed['cell']} failed.", "retryable": False}
-        return {"cells": done, "cells_total": len(cells), "cells_run": len(done)}
+        return {"cells": done, "cells_total": len(cells), "cells_run": len(done)} | ({"skipped": skipped} if skipped else {})

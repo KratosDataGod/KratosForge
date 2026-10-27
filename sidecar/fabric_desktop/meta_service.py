@@ -28,6 +28,7 @@ from .meta.promote import promote_checks, releases, rollback
 from .meta.store import LANDING_LAKEHOUSE, META_LAKEHOUSE, Store, ran_on
 from .meta.templates import TEMPLATES, describe, entity_text, init_project
 from .redact import describe as describe_error
+from .jsonfile import read_json, write_json, write_text
 
 _log = logging.getLogger(__name__)
 
@@ -102,14 +103,11 @@ class MetaMixin:
         return self.root / "settings.json"
 
     def _settings(self) -> dict[str, Any]:
-        try:
-            return json.loads(self.settings_file.read_text(encoding="utf-8"))
-        except (FileNotFoundError, ValueError):
-            return {}
+        settings = read_json(self.settings_file, {})
+        return settings if isinstance(settings, dict) else {}
 
     def _save_settings(self, **changes: Any) -> None:
-        self.settings_file.parent.mkdir(parents=True, exist_ok=True)
-        self.settings_file.write_text(json.dumps(self._settings() | changes, indent=2), encoding="utf-8")
+        write_json(self.settings_file, self._settings() | changes)
 
     def _source_options(self) -> dict[str, str]:
         """OneLake access for source tables outside the environment (adopted lakehouse tables)."""
@@ -182,7 +180,9 @@ class MetaMixin:
             raise ValueError(f"environment must be one of {', '.join(ENVIRONMENTS)}")
         cfg = project.environments.get(env, {})
         if cfg.get("target", "onelake" if env != "dev" else "local") == "local":
-            return LocalStore(project.local_data / env, env, landing=self._landing_dir(env))
+            store: Store = LocalStore(project.local_data / env, env, landing=self._landing_dir(env))
+            store.landing_zones = self._landing_resolver(local=True)  # type: ignore[attr-defined]
+            return store
         ws = cfg.get("workspace_id")
         if not ws:
             raise LookupError(f"Assign a workspace to {env.title()} first (Data mesh > Deploy > Environments and promote).")
@@ -205,14 +205,17 @@ class MetaMixin:
                 if name not in existing:
                     existing[name] = fabric.create_lakehouse(
                         space, name, "Managed by KratosForge's metadata framework")["id"]
-        # The organization's landing zone is the platform's, never created here.
+        # The organization's landing zone is the platform's, never created here. With the central landing
+        # workspace (Preview), each source's zone is looked up on the first landing read instead.
         platform = self._platform_config().get(env, {})  # type: ignore[attr-defined]
         if platform.get("landing_id"):
             existing[LANDING_LAKEHOUSE] = platform["landing_id"]
             where[LANDING_LAKEHOUSE] = platform["workspace_id"]
-        return OneLakeStore(env, ws, existing, lambda: self.auth.storage_token(),  # type: ignore[attr-defined]
-                            self.root / "onelake-cache",
-                            lakehouse_workspaces={n: w for n, w in where.items() if w != ws})
+        store = OneLakeStore(env, ws, existing, lambda: self.auth.storage_token(),  # type: ignore[attr-defined]
+                             self.root / "onelake-cache",
+                             lakehouse_workspaces={n: w for n, w in where.items() if w != ws})
+        store.landing_zones = self._landing_resolver()  # type: ignore[attr-defined]
+        return store
 
     def _landing_dir(self, env: str) -> Path:
         """This PC's landing zone for a local environment, shared by every project on the PC."""
@@ -271,12 +274,13 @@ class MetaMixin:
                  "# keys_workspace_id is the workspace that holds LH_Keys, the surrogate keys.", ""]
         lines += ["# workspaces: a workspace per designation (ingest, product, serve, sandbox); layers pick one",
                   "# with workspace = \"...\" in layers.toml. keys = \"platform\": surrogate keys are in SQL_Platform.",
-                  "# require_commit = true: promote here only from files a pushed Git commit holds.", ""]
+                  "# require_commit: Test and Prod in OneLake only take files a pushed Git commit holds;",
+                  "# false lets a promote go ahead with a note, true asks it of an environment on this PC too.", ""]
         for name in ENVIRONMENTS:
             lines.append(f"[{name}]")
             lines += [f"{k} = {_toml(v)}" for k, v in envs.get(name, {}).items()]
             lines.append("")
-        (project.root / "environments.toml").write_text("\n".join(lines), encoding="utf-8")
+        write_text(project.root / "environments.toml", "\n".join(lines))
 
     def meta_set_environment(self, env: str, workspace_id: str | None = None, workspace_name: str | None = None,
                              target: str | None = None) -> dict[str, Any]:
@@ -369,8 +373,9 @@ class MetaMixin:
             downstream = impact(project, name) if name in project.entities else []
             if downstream:
                 raise GateError("save", [f"can't rename {name}: {', '.join(downstream)} read it"])
+        write_text(path, text)
+        if new_name != name:  # only once the new file is in place, so a failed save loses neither
             (project.entities_dir / f"{name}.toml").unlink(missing_ok=True)
-        path.write_text(text, encoding="utf-8")
         return self.meta_entity(new_name)
 
     def meta_new_entity(self, template: str, name: str, source: str = "", keys: list[str] | None = None,
@@ -387,7 +392,9 @@ class MetaMixin:
         if template in ("files", "landing") and source:
             try:
                 store = self._store(project, "dev")
-                where = LANDING_LAKEHOUSE if template == "landing" else project.layer(layer).lakehouse
+                # Dev reads no zone it doesn't read in a run: the contract then starts with a placeholder.
+                where = (Engine(project, store).landing_lakehouse(source) if template == "landing"
+                         else project.layer(layer).lakehouse)
                 sample, _ = store.read_files(where, source)
             except Exception:  # no files yet: the contract starts with a placeholder column
                 sample = None
@@ -401,8 +408,8 @@ class MetaMixin:
             p = project.root / rel
             if not p.exists():
                 p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_text(content, encoding="utf-8")
-        (project.entities_dir / f"{name}.toml").write_text(text, encoding="utf-8")
+                write_text(p, content)
+        write_text(project.entities_dir / f"{name}.toml", text)
         return self.meta_entity(name)
 
     def meta_delete_entity(self, name: str) -> dict[str, Any]:
@@ -574,7 +581,7 @@ class MetaMixin:
         uses_keys = bool(project.key_tables or project.source_systems)
         keys_store = self._keys_store(project, target, create=True) if uses_keys else None  # fails before promoting
         result = promote(project, src, target_store, dt.date.today(),
-                         release=release.record(project, source, target, git))
+                         release=release.record(project, source, target, git, self._signed_in_object_id()))
         if keys_store is not None:
             # Each environment issues its own keys; promote copies the source systems and seeds new key tables.
             result["keys"] = keys_mod.sync(project, keys_store)
@@ -650,7 +657,7 @@ class MetaMixin:
         if errors:
             raise GateError("rollback", errors)
         store = self._store(project, env)
-        result = rollback(project, store, version, duties.current_user())
+        result = rollback(project, store, version, duties.current_user(), self._signed_in_object_id())
         released = result.pop("project")
         if self._compute(project, env) == "fabric":  # type: ignore[attr-defined]
             try:  # so scheduled runs in Fabric run the release rolled back to
@@ -681,14 +688,31 @@ class MetaMixin:
         return {"env": env, "release": out, "problem": None}
 
     def _release_gate(self, project: Project, target: str, git: dict[str, Any]) -> tuple[list[str], list[str]]:
-        """Promoting files no pushed commit holds: blocked when the target environment sets
-        ``require_commit = true`` in environments.toml, otherwise a note (decision D1)."""
+        """Promoting files no pushed commit holds. Chris decided (D1, 2026-10-25) that Test and Prod
+        only take released files, so this blocks when the target's tables are in OneLake. An environment
+        kept on this PC is a note, as is any environment with ``require_commit = false`` in
+        environments.toml; ``require_commit = true`` blocks on this PC too."""
         found = release.problems(git)
         if not found or target == "dev":
             return [], []
-        if project.environments.get(target, {}).get("require_commit"):
-            return [f"{target.title()} only takes released files: {p}" for p in found], []
+        cfg = project.environments.get(target, {})
+        if cfg.get("require_commit", cfg.get("target", "onelake") != "local"):
+            errors = [f"{target.title()} only takes released files: {p}" for p in found]
+            if "require_commit" not in cfg:  # the default, not the team's own choice: say how to go ahead without Git
+                errors[-1] = errors[-1].rstrip(".") + (f". To promote without a pushed commit, set require_commit = false under [{target}] "
+                               "in environments.toml")
+            return errors, []
         return [], [f"The release record can't name a pushed commit that holds these files: {'; '.join(found)}"]
+
+    def _signed_in_object_id(self) -> str | None:
+        """The signed-in person's Entra object id, for release records; None when not signed in.
+        Never starts a sign-in."""
+        auth = getattr(self, "_auth", None)
+        try:
+            return getattr(auth, "signed_in_object_id", lambda: None)()
+        except Exception as exc:  # noqa: BLE001 - the record then names the PC login only
+            _log.info("No signed-in object id for the release record: %s", describe_error(exc))
+            return None
 
     def _duties_gate(self, project: Project, source: str, target: str,
                      src: Any = None, separation: bool = True) -> tuple[list[str], list[str]]:
@@ -708,10 +732,14 @@ class MetaMixin:
                         if r.get("env") == source and r.get("version") == project.version] if deps.height else []
             except Exception:  # noqa: BLE001 - promote_checks already says when the source can't be read
                 rows = []
-            problem = duties.separation_problem(source, target, project.version,
-                                                rows[-1].get("by") if rows else None, duties.current_user())
+            last = rows[-1] if rows else {}
+            their_id, my_id = duties.recorded_object_id(last.get("receipt")), self._signed_in_object_id()
+            problem = duties.separation_problem(source, target, project.version, last.get("by"),
+                                                duties.current_user(), their_id, my_id)
             if problem:
                 errors.append(problem)
+            if last and (note := duties.separation_note(their_id, my_id)):
+                notes.append(note)
         if cfg.get("target", "onelake") == "local":
             return errors, notes  # tables on this PC: no workspace roles to check
         auth = getattr(self, "_auth", None)  # already signed in by the store; never start a sign-in here
@@ -849,7 +877,7 @@ class MetaMixin:
             central = {t["name"] for t in self._keys_platform(env).call("list_key_tables")}  # type: ignore[attr-defined]
             if name not in central:
                 raise GateError("save", [f"{name} isn't one of the platform's key tables. Request it in "
-                                         "Platform > Business keys, or pick one from the list."])
+                                         "Platform > Set up > Business keys, or pick one from the list."])
         owner = ""
         try:
             owner = self.auth.signed_in_user() or ""  # type: ignore[attr-defined]
@@ -900,7 +928,7 @@ class MetaMixin:
             if old is None:
                 path.unlink()
             else:
-                path.write_text(old, encoding="utf-8")
+                write_text(path, old)
             raise GateError("save", problems)
         return self.meta_keys(env)
 

@@ -7,7 +7,8 @@
 - A **policy** is a standard your organization writes once, like "table names are snake_case and at most 60 characters".
 - You **publish** it, which freezes that version, and **assign** it where it applies: the whole enterprise, a domain, a project or one table.
 - Each project works out which policies apply to it, and **Explain** shows why.
-- **Today nothing is enforced by a policy.** Policies are recorded, versioned, assigned and explained, but no check runs against them yet. Checks come with GOV-002 (checking a project on your PC) and GOV-003 (blocking promote and deploy). Until then, a policy set to **Block** shows as **Block (not enforced yet)**.
+- **Policies warn; nothing blocks yet.** **Check now** (Preview) checks the open project against its policies on your PC and lists what to look at, but it stops nothing. Blocking promote and deploy comes with GOV-003. Until then, a policy set to **Block** shows as **Block (not enforced yet)**.
+- **Start from a template.** Four built-in templates (table names, product owners, sensitive column labels, a data contract) and your organization's own make a policy in a few clicks. See [a worked template](#4-from-a-template-a-data-contract).
 
 Some standards are already enforced today by the app's own gates, without a policy. The [enforcement table](#what-can-be-enforced) below lists them, so you know which standards already hold.
 
@@ -20,11 +21,11 @@ Each step below is saved in the platform's catalog: the policy and its versions 
 3. **Assign it.** On the policy's **Where it applies** tab, choose **Assign** and pick a scope. An assignment can tighten the policy for that scope. If the policy is **Mandatory**, scopes below may only make it stricter.
 4. **See the result.** **Where it applies** lists every project the policy reaches. **Explain** next to a project shows each step: which scope introduced it, what each scope changed, and anything that was ignored and why.
 5. **Tighten it in a project.** A project can tighten or add policies in `governance.toml`, reviewed in Git like any other project file.
-6. **(Coming with GOV-002 and GOV-003)** The policy's **Checked by** rule runs against the project. An Advisory finding is shown, a Warn finding is shown as a warning, and a Block finding stops promote or deploy until it's fixed or an exception is approved.
+6. **Check the project.** Platform > Governance > **Check this project** > **Check now** runs each policy's **Checked by** rules on your PC and lists what to look at, with a fix or a link to where to fix it. It's warn only. **(Coming with GOV-003)** A Block finding stops promote or deploy until it's fixed or an exception is approved.
 
 ## Worked examples
 
-The ids and **Checked by** rule names below are illustrative. Use your own. The rule names become real check names with GOV-002.
+The ids below are illustrative; use your own. **Checked by** names rules from the registry ([the rules](governance.md#the-rules)); a name no checker has is listed as not checked.
 
 ### 1. A naming policy
 
@@ -39,7 +40,7 @@ Your standard: Silver and Gold table names are lowercase snake_case, at most 60 
 | Can be assigned at | Enterprise, domain, project |
 | Applies to | Layers: silver, gold |
 | Checked by | `naming.table_name` |
-| Parameters | `max_length = 60` (stricter: lower), `pattern = "snake_case"` (fixed) |
+| Parameters | `max_length = 60` (stricter: lower), `pattern = "^[a-z][a-z0-9_]*$"` (a regular expression, fixed), `layers = ["silver", "gold"]` (stricter: more items) |
 | How to fix | Rename the entity file and its `name`; the save gate shows what reads it |
 
 Publish it and assign it at **Enterprise**. The Finance domain owners then assign it to Finance with `max_length = 40`. That's allowed because 40 is stricter. If a Finance project's `governance.toml` sets `max_length = 80`, that change is ignored, and Explain lists it as a conflict.
@@ -58,7 +59,7 @@ Your standard: every Gold table has a classification set, and tables classified 
 | Checked by | `classification.required` |
 | How to fix | Set the classification on the entity's About card (Data mesh > entity > About) |
 
-Classification here is the catalog's own (Public, Internal, Confidential, Restricted). It is not a Microsoft Purview sensitivity label. Labels, and what Fabric does with them (DLP, downstream inheritance), stay in Purview.
+Check now checks the first half (every Gold table classified); the Restricted-in-Public-product half has no rule yet. Classification here is the catalog's own (Public, Internal, Confidential, Restricted). It is not a Microsoft Purview sensitivity label. Labels, and what Fabric does with them (DLP, downstream inheritance), stay in Purview.
 
 ### 3. An ownership policy
 
@@ -73,7 +74,26 @@ Your standard: every entity with custom code has an owner, and every data produc
 | Checked by | `ownership.entity_owner`, `ownership.product_owner` |
 | Exceptions | Allowed, with an approver and an expiry |
 
-The save gate already requires an owner for custom code (see the table below), so for that part the policy records the standard the app already holds. The product part becomes enforceable with GOV-002.
+The save gate already requires an owner for custom code (see the table below), so for that part the policy records the standard the app already holds. Check now checks both parts and warns; blocking comes with GOV-003.
+
+### 4. From a template: a data contract
+
+Your standard: every published data product in Sales loads within 6 hours, records its row count, and links its business terms in Purview. The built-in **Data contract** template already says most of it.
+
+1. **Platform > Governance > Templates**, **Data contract** > **Use**. Give the policy the id `sales-contract` and the name `Sales data contract`. A draft is made from the template's definition:
+
+   | Field | Value |
+   | --- | --- |
+   | Category | Data contract requirements |
+   | Checked by | `contract.freshness, contract.row_count, contract.terms_linked` |
+   | Parameters | `within_hours = 24` (stricter: lower), `min_rows = 1` (stricter: higher) |
+
+2. **Edit draft**: set `within_hours` to `6`, then **Publish** and **Assign** it to the Sales domain.
+3. Open a Sales project and choose **Check this project** > **Check now**. Each published product is checked: when it last loaded (from the run logs), the row count that load recorded, and its business terms (from the platform's catalog). A product that hasn't loaded yet shows **!** with why, never a pass.
+4. The product's page (OneLake > Data products) now shows its **Checklist** from this policy: **Fresh within 6 h**, alongside owner and steward, description, business terms and endorsement.
+5. Happy with it? On the policy's page, **Save as template** keeps your version (`sales-contract-template`, tagged **Yours**) so other domains can start from it.
+
+Template changes are recorded in `catalog.policy_template` and **Platform > Audit**; **Use** writes only a policy draft.
 
 ## What can be enforced
 
@@ -99,8 +119,28 @@ Two things no KratosForge setting can do: stop a workspace Contributor from maki
 
 ## Exceptions
 
-When a standard genuinely doesn't fit, an exception records why, who approved it and until when. Today exceptions live in a project's `exceptions.toml` and apply to the save gate's rules (see [the metadata guide](metadata-guide.md#6-quality-checks-quarantine-and-the-four-gates)). Exception requests against registry policies, approved on Platform > Requests, come with the GOV items that follow GOV-002.
+When a standard genuinely doesn't fit, an exception records why, who approved it and until when.
+
+- **Registry policies (Preview).** Ask on **Platform > Requests > New request > An exception to a policy**: the policy, the project, domain or workspace it's for, until when (a year at most) and why. A policy whose definition doesn't allow exceptions refuses the request. A platform admin approves it; the platform records it in `catalog.policy_exception`, the audit and the policy's history. It shows on the policy's **Where it applies** tab, the policy list counts it, and **Explain** for a project it covers says **Excepted until <date>: <why>**. It ends on its own on its date. Policies don't check projects yet (GOV-002), so today an exception is a recorded, visible decision; once a policy's rule runs, an active exception turns its finding into that note instead of a violation.
+- **The save gate's rules** keep their exceptions in a project's `exceptions.toml` (see [the metadata guide](metadata-guide.md#6-quality-checks-quarantine-and-the-four-gates)).
 
 ## When the platform can't be reached
 
 Checks that depend on the platform fail closed. When a rule can't be read, KratosForge stops the step and says why instead of acting as if there were no rule (see [Governance policies](governance.md)).
+
+## Teams notices for requests and shortcuts
+
+With a platform Teams route set (**Settings > Notifications**), KratosForge posts:
+
+| When | Kind | For |
+| --- | --- | --- |
+| A request is made (a key table, a source, access to a data product, a shortcut, a workspace, access to a workspace, a domain, an exception to a policy) | `request.waiting` | Platform admins, and the data product's owners when it names one |
+| It is approved or declined | `request.decided` | Whoever asked |
+| It is withdrawn | `request.withdrawn` | Platform admins and the product's owners |
+| A health check on **Shortcuts > Health** finds a shortcut broken, or fixed again | `shortcut.broken`, `shortcut.fixed` | Platform admins |
+| Someone presses **Tell them** under **Who's affected** on an incident page ([user guide](user-guide.md#whos-affected-preview)) | `incident.impact` | The owners of the data products built on the incident's table, people who linked a project to them, and followers |
+| A promote to Prod deprecates a data product, changes its version, or adds, removes or retypes a port's columns (Preview) | `product.changed` | The product's followers and whoever linked a project to it. The message says what changed |
+
+- **Only what the channel may read.** A message names the request or shortcut and where to open it in the app. A request's reason and detail stay in the app. People are named by UPN. Anything that looks like a secret, a webhook address among them, is masked before it's stored or posted.
+- **Once each.** A request waiting, or a shortcut that stays broken, is posted once. A fix is posted only after its break was.
+- **Never in the way.** The request or check is made first. If the notice can't be sent, the change still stands and the app says the notice wasn't sent. Messages Teams doesn't take wait in the outbox and go out later.

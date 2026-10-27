@@ -9,6 +9,7 @@ is ``lakehouse.write_table``.
 
 from __future__ import annotations
 
+import itertools
 import re
 from typing import Any, Callable, Iterator
 
@@ -16,9 +17,13 @@ import duckdb
 import pyarrow as pa
 import sqlglot
 from sqlglot import exp
-from sqlglot.errors import ParseError
+from sqlglot.errors import ParseError, TokenError
+from sqlglot.tokens import TokenType
 
 from . import lakehouse, sql_dialects
+
+# View names stay unique on a connection even after superseded ones are dropped (superseded).
+_VIEW_NAMES = itertools.count()
 
 
 def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
@@ -32,8 +37,10 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
     try:
         statements = sqlglot.parse(query, read=chosen["sqlglot"])
         if chosen["id"] == "spark":
-            statements = [_spark_dates(s) for s in statements if s is not None]
+            statements = [spark_substring(_spark_dates(_spark_names(s))) for s in statements if s is not None]
     except ParseError as first_error:
+        if chosen["id"] == "spark" and _only_empty_structs_fail(query):
+            raise ValueError(_EMPTY_STRUCT) from None
         if chosen["id"] != "spark":
             raise ValueError(f"Could not read the query: {first_error}") from None
         try:
@@ -44,6 +51,36 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
     if not statements:
         raise ValueError("The query is empty.")
     return statements
+
+
+_EMPTY_STRUCT = "An empty struct<> isn't supported on this PC. Give the struct at least one field, like struct<id: int>."
+
+
+def _only_empty_structs_fail(query: str) -> bool:
+    """Whether the query reads once each empty struct<> is given a field: only then is struct<> the
+    error to name (not a 'struct<>' inside a string, nor a query with another mistake)."""
+    try:
+        tokens = sqlglot.tokenize(query, read="spark")
+    except TokenError:  # a query the tokenizer refuses has another error to report
+        return False
+    spans = []
+    for i, token in enumerate(tokens[:-1]):
+        after = tokens[i + 1]
+        if token.token_type == TokenType.STRUCT:
+            if after.token_type == TokenType.NEQ:
+                spans.append((after.start, after.end))
+            elif after.token_type == TokenType.LT and i + 2 < len(tokens) and tokens[i + 2].token_type == TokenType.GT:
+                spans.append((after.start, tokens[i + 2].end))
+    if not spans:
+        return False
+    filled = query
+    for start, end in reversed(spans):
+        filled = filled[:start] + "<x: int>" + filled[end + 1:]
+    try:
+        sqlglot.parse(filled, read="spark")
+    except ParseError:
+        return False
+    return True
 
 
 # Spark's date and time unit names that DuckDB doesn't know ('MM' is minutes to DuckDB if anything).
@@ -67,6 +104,175 @@ def _spark_dates(statement: exp.Expression) -> exp.Expression:
     return statement
 
 
+_TIME_TYPES = "'DATE', 'TIMESTAMP', 'TIMESTAMP WITH TIME ZONE', 'TIMESTAMP_S', 'TIMESTAMP_MS', 'TIMESTAMP_NS'"
+
+
+def _strptime_format(node: exp.Expression) -> tuple[str, bool]:
+    """The DuckDB strptime format, as SQL, for a Spark datetime pattern sqlglot has read into ``node``,
+    and whether the pattern has a year. S, SS and SSS (fractions of a second) become %g, and quoted
+    text ('T', 'Z') stays literal; anything else sqlglot leaves untranslated is refused, since
+    strptime would quietly match nothing."""
+    from sqlglot.dialects.duckdb import DuckDB
+    from sqlglot.dialects.spark import Spark
+    # sqlglot has already turned pattern letters into its own %-codes, inside quotes too: turn
+    # those back into the letters they came from (the shortest spelling of each).
+    letters: dict[str, str] = {}
+    for spark, code in sorted(Spark.TIME_MAPPING.items(), key=lambda kv: -len(kv[0])):
+        letters[code] = spark
+    codes = re.compile("|".join(re.escape(c) for c in sorted(letters, key=len, reverse=True)))
+    generator = DuckDB().generator()
+    out = []
+    for i, piece in enumerate(re.split(r"('(?:[^']|'')*')", node.args["format"].name)):
+        if i % 2:  # 'quoted text', as Spark writes a literal ('' is a quote)
+            text = "'" if piece == "''" else codes.sub(lambda m: letters[m.group()], piece[1:-1]).replace("''", "'")
+            out.append(text.replace("%", "%%"))
+            continue
+        piece = generator.format_time(exp.StrToUnix(format=exp.Literal.string(piece))) or "''"
+        piece = re.sub(r"(?<![%S])S{1,3}(?!S)", "%g", sqlglot.parse_one(piece, read="duckdb").name)
+        if re.search(r"[A-Za-z']", re.sub(r"%-?[A-Za-z%]", "", piece)):
+            raise ValueError(f"unix_timestamp can't read part of its format ({piece}) on this PC. Use pattern "
+                             "letters such as yyyy, MM, dd, HH, mm, ss and SSS.")
+        out.append(piece)
+    fmt = "".join(out)
+    return exp.Literal.string(fmt).sql("duckdb"), bool(re.search(r"%-?[Yy]", fmt.replace("%%", "")))
+
+
+def _as_timestamp(value: exp.Expression) -> str:
+    """A date, timestamp or text as a timestamp, as Spark reads one (text that isn't one is NULL)."""
+    return f"TRY_CAST({value.sql('duckdb')} AS TIMESTAMP)"
+
+
+_SLICE_INDEX_0 = ("The index 0 is invalid. An index shall be either < 0 or > 0 "
+                  "(the first element has index 1).")
+_SLICE_LENGTH = "Unexpected value for length in function slice: length must be greater than or equal to 0."
+
+
+# Functions this module rewrites into longer DuckDB SQL; a select of one keeps the name Spark gives it.
+_REWRITTEN = (exp.IgnoreNulls, exp.AddMonths, exp.StrToUnix, exp.Substring, exp.ArraySlice, exp.MonthsBetween,
+              exp.TsOrDsAdd, exp.DateTrunc, exp.TimestampTrunc)
+
+
+def _spark_names(statement: exp.Expression) -> exp.Expression:
+    """Name a selected expression this module rewrites as Spark names it ("add_months(d, 1)"), not after
+    the DuckDB SQL it becomes."""
+    for select in statement.find_all(exp.Select):
+        for i, column in enumerate(select.expressions):
+            if isinstance(column, (exp.Alias, exp.Column, exp.Star)) or not column.find(*_REWRITTEN):
+                continue
+            name = column.sql("spark", normalize_functions="lower")
+            select.expressions[i] = exp.alias_(column, name, quoted=True)
+            select.expressions[i].parent = select
+    return statement
+
+
+def spark_substring(node: exp.Expression) -> exp.Expression:
+    """Spark's substring counts position 0 as 1 (substring('hello', 0, 2) is 'he'); DuckDB starts
+    before the first character and returns 'h'.
+
+    unix_timestamp also takes a date or timestamp (DuckDB's strptime takes only text), reads its
+    value in the session time zone, is NULL for text that doesn't match the format, and is a whole
+    number of seconds, as in Spark.
+
+    add_months is a date, as in Spark, also for text or a timestamp (text that isn't a date is NULL).
+
+    slice refuses index 0 and a negative length, and element_at an array's index 0, as in Spark.
+
+    months_between counts the time of day and rounds to 8 digits, as in Spark.
+
+    first(x, true) and last(x, true) skip NULLs as aggregates too (DuckDB takes IGNORE NULLS only
+    in a window)."""
+    for ignore in list(node.find_all(exp.IgnoreNulls)):
+        agg = ignore.this
+        if not isinstance(agg, (exp.First, exp.Last, exp.FirstValue, exp.LastValue)):
+            continue
+        name = "first" if isinstance(agg, (exp.First, exp.FirstValue)) else "last"
+        value = agg.this.sql("duckdb")
+        if isinstance(ignore.parent, exp.Window):  # sqlglot drops the IGNORE NULLS DuckDB's windows take
+            window = ignore.parent.copy()
+            window.set("this", exp.column("__fd_ignoring__"))
+            text = window.sql("duckdb").replace("__fd_ignoring__", f"{name}_value({value} IGNORE NULLS)", 1)
+            target = ignore.parent
+        else:
+            text, target = f"{name}({value}) FILTER (WHERE {value} IS NOT NULL)", ignore
+        swapped = target.replace(sqlglot.parse_one(text, read="duckdb"))
+        node = swapped if target is node else node
+    for months in list(node.find_all(exp.AddMonths)):  # Spark's add_months is a date, whatever it's given
+        months.set("this", exp.TryCast(this=exp.TryCast(this=months.this, to=exp.DataType.build("TIMESTAMP")),
+                                       to=exp.DataType.build("DATE")))
+        swapped = months.replace(exp.cast(months.copy(), exp.DataType.Type.DATE))
+        node = swapped if months is node else node
+    for kind in node.find_all(exp.DataType):  # struct< > reads as a struct with no fields
+        if kind.this == exp.DataType.Type.STRUCT and not kind.expressions:
+            raise ValueError(_EMPTY_STRUCT)
+    for constraint in list(node.find_all(exp.NotNullColumnConstraint)):  # DuckDB has no NOT NULL in a struct
+        column = constraint.parent.parent if constraint.parent else None
+        if isinstance(column, exp.ColumnDef) and isinstance(column.parent, exp.DataType):
+            constraint.parent.pop()
+    for part in list(node.find_all(exp.ArraySlice)):  # Spark refuses index 0 and a negative length
+        if not part.args.get("is_length"):
+            continue
+        for key, refused, message in (("start", lambda n: n == 0, _SLICE_INDEX_0),
+                                      ("end", lambda n: n < 0, _SLICE_LENGTH)):
+            value = part.args.get(key)
+            if value is None:
+                continue
+            v = value.sql("duckdb")
+            try:
+                if not refused(int(v)):
+                    continue  # a whole number Spark takes
+            except ValueError:
+                pass
+            test = "= 0" if key == "start" else "< 0"
+            part.set(key, sqlglot.parse_one(
+                f"CASE WHEN {v} {test} THEN error({exp.Literal.string(message).sql('duckdb')}) ELSE {v} END",
+                read="duckdb"))
+    for item in list(node.find_all(exp.Bracket)):  # element_at: an array's index 0 is refused
+        if item.args.get("offset") != 1 or item.args.get("safe") or len(item.expressions) != 1:
+            continue
+        v = item.expressions[0].sql("duckdb")
+        try:
+            if int(v) != 0:
+                continue
+        except ValueError:
+            pass
+        item.set("expressions", [sqlglot.parse_one(
+            f"CASE WHEN {v} = 0 AND typeof({item.this.sql('duckdb')}) LIKE '%[]' "
+            f"THEN error({exp.Literal.string(_SLICE_INDEX_0).sql('duckdb')}) ELSE {v} END", read="duckdb")])
+    for between in list(node.find_all(exp.MonthsBetween)):
+        later, earlier = (_as_timestamp(between.this), _as_timestamp(between.expression))
+        months = (f"((year({later}) * 12 + month({later})) - (year({earlier}) * 12 + month({earlier})))")
+        same = (f"day({later}) = day({earlier}) OR (day({later}) = day(last_day({later})) "
+                f"AND day({earlier}) = day(last_day({earlier})))")
+        seconds = f"(epoch({later}) - epoch(date_trunc('day', {later})) - epoch({earlier}) + epoch(date_trunc('day', {earlier})))"
+        value = (f"CASE WHEN {same} THEN CAST({months} AS DOUBLE) ELSE {months} + "
+                 f"((day({later}) - day({earlier})) * 86400 + {seconds}) / 2678400.0 END")
+        roundoff = between.args.get("roundoff")
+        if not (isinstance(roundoff, exp.Boolean) and roundoff.this is False):
+            value = f"round({value}, 8)"
+        swapped = between.replace(sqlglot.parse_one(value, read="duckdb"))
+        node = swapped if between is node else node
+    for unix in list(node.find_all(exp.StrToUnix)):
+        value = unix.this.sql("duckdb")
+        fmt, has_year = _strptime_format(unix) if unix.args.get("format") else ("'%Y-%m-%d %H:%M:%S'", True)
+        # Without a year Spark reads the date as 1970-01-01; strptime starts from 1900-01-01.
+        parsed = f"try_strptime(CAST({value} AS VARCHAR), {fmt})" + ("" if has_year else " + INTERVAL 70 YEAR")
+        swapped = unix.replace(sqlglot.parse_one(
+            f"CAST(floor(epoch(CASE WHEN typeof({value}) IN ({_TIME_TYPES}) THEN TRY_CAST({value} AS TIMESTAMPTZ) "
+            f"ELSE CAST({parsed} AS TIMESTAMPTZ) END)) AS BIGINT)", read="duckdb"))
+        node = swapped if unix is node else node
+    for sub in list(node.find_all(exp.Substring)):
+        start = sub.args.get("start")
+        if start is None:
+            continue
+        if isinstance(start, exp.Literal) and not start.is_string:
+            if start.this == "0":
+                sub.set("start", exp.Literal.number(1))
+        elif not isinstance(start, (exp.Literal, exp.Neg)):  # -3 counts from the end in both
+            sub.set("start", exp.Case(ifs=[exp.If(this=exp.EQ(this=start.copy(), expression=exp.Literal.number(0)),
+                                                  true=exp.Literal.number(1))], default=start.copy()))
+    return node
+
+
 def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views: dict[str, str],
                 is_local: Callable[[str], bool] = lambda _name: False) -> None:
     """Point every lakehouse table ``statement`` names at a Delta dataset registered on ``con``.
@@ -87,14 +293,45 @@ def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views
         # lakehouse.table_ref checks the parts: a catalog is only allowed as the lakehouse's own name.
         name = ".".join(p for p in (table.catalog, table.db, table.name) if p)
         point = _time_travel(table)  # VERSION AS OF n, TIMESTAMP AS OF '...', or Databricks' sales@v3
-        key = name.lower() if point is None else f"{name.lower()}@{point}"
+        opened = None
+        if point is None:
+            # The latest version is looked up each time, so a table written since an earlier statement
+            # on a long-lived connection (spark on this PC) is read as it is now, as Spark does. Its
+            # location is part of the key: in a proof, a table it wrote is read from the proof's copy.
+            opened = lakehouse.open_table(name)
+            key = f"{name.lower()}@{opened.table_uri}#{opened.version()}"
+        else:
+            key = f"{name.lower()}@{point}"
         if key not in views:
-            views[key] = f"__lakehouse_table_{len(views)}"
-            opened = lakehouse.open_table(name) if point is None else lakehouse.open_table(name, **point_args(point))
+            views[key] = f"__lakehouse_table_{next(_VIEW_NAMES)}"
+            opened = opened or lakehouse.open_table(name, **point_args(point))
             con.register(views[key], opened.to_pyarrow_dataset())
         # Keep the name the query used as the alias, so sales.Country still resolves.
         alias = table.args.get("alias") or exp.TableAlias(this=exp.to_identifier(table.name))
         table.replace(exp.Table(this=exp.to_identifier(views[key]), alias=alias))
+
+
+def is_local(con: duckdb.DuckDBPyConnection, name: str) -> bool:
+    """Whether ``name`` is a view or table already on ``con`` (a temp view an earlier statement made),
+    for bind_tables. Case is ignored, as identifiers are in Spark SQL and DuckDB."""
+    return bool(con.execute("SELECT 1 FROM duckdb_views() WHERE lower(view_name) = lower(?) "
+                            "UNION ALL SELECT 1 FROM duckdb_tables() WHERE lower(table_name) = lower(?)",
+                            [name, name]).fetchall())
+
+
+def superseded(views: dict[str, str]) -> list[str]:
+    """Keys in ``views`` (from bind_tables) for a table's latest version that a newer version of the
+    same table, registered later, replaced. A time travel point is never superseded."""
+    newest: dict[str, str] = {}
+    old = []
+    for key in views:  # in the order they were registered
+        if "#" not in key:
+            continue
+        table = key.rpartition("#")[0]
+        if table in newest:
+            old.append(newest[table])
+        newest[table] = key
+    return old
 
 
 def _time_travel(table: exp.Table) -> str | None:
@@ -211,7 +448,7 @@ def _execute(query: str, dialect: str, sandbox: bool) -> tuple[duckdb.DuckDBPyCo
     result = None
     for statement in parse(query, dialect):
         statement = history_query(statement, con, views)
-        bind_tables(statement, con, views)
+        bind_tables(statement, con, views, lambda name: is_local(con, name))
         result = con.execute(statement.sql("duckdb"))
     return con, result
 

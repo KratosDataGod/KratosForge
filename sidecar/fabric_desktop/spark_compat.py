@@ -23,6 +23,7 @@ from duckdb.experimental.spark.sql.column import Column
 from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.group import GroupedData
 from sqlglot import exp
+from . import sql as spark_sql
 
 _ids = itertools.count()
 
@@ -42,7 +43,7 @@ def _col_sql(c: Any) -> str:
 
 def spark_expr(text: str) -> str:
     """One Spark SQL expression as DuckDB SQL."""
-    return sqlglot.transpile(text, read="spark", write="duckdb")[0]
+    return spark_sql.spark_substring(sqlglot.parse_one(text, read="spark")).sql("duckdb")
 
 
 def _call(spark_sql: str, *cols: Any) -> Column:
@@ -52,6 +53,16 @@ def _call(spark_sql: str, *cols: Any) -> Column:
     for hole, c in zip(holes, cols):
         text = re.sub(rf'"?{hole}"?', lambda _m, c=c: f"({_col_sql(c)})" if _col_sql(c) != "*" else "*", text)
     return _sql(text)
+
+
+def _name_of(c: Any) -> str:
+    """A column's name, given its name or a plain column; a string literal is named by its text, as in Spark."""
+    if isinstance(c, str):
+        return c
+    text = str(c.expr)
+    if len(text) > 1 and text[0] == text[-1] == "'":
+        return text[1:-1].replace("''", "'")
+    return text.strip('"').replace('""', '"')
 
 
 def _lit(value: Any) -> str:
@@ -124,8 +135,12 @@ def datediff(end: Any, start: Any) -> Column:
     return _call("datediff({0}, {1})", end, start)
 
 
-def months_between(date1: Any, date2: Any, roundOff: bool = True) -> Column:  # noqa: N803, ARG001
-    return _call("months_between({0}, {1})", date1, date2)
+def months_between(date1: Any, date2: Any, roundOff: bool = True) -> Column:  # noqa: N803
+    """Months from ``date2`` to ``date1``, counting the time of day and rounded to 8 digits unless
+    ``roundOff`` is False, as in Spark."""
+    flag = "true" if roundOff else "false"
+    return _call(f"months_between({{0}}, {{1}}, {flag})", date1, date2).alias(
+        f"months_between({_name_of(date1)}, {_name_of(date2)}, {flag})")
 
 
 def from_unixtime(timestamp: Any, format: str = "yyyy-MM-dd HH:mm:ss") -> Column:  # noqa: A002
@@ -133,9 +148,10 @@ def from_unixtime(timestamp: Any, format: str = "yyyy-MM-dd HH:mm:ss") -> Column
 
 
 def unix_timestamp(timestamp: Any = None, format: str = "yyyy-MM-dd HH:mm:ss") -> Column:  # noqa: A002
+    """Seconds since 1970 of a date, a timestamp or text in ``format``, as Spark names it."""
     if timestamp is None:
-        return _sql("CAST(epoch(current_timestamp) AS BIGINT)")
-    return _sql(f"CAST(({_call(f'unix_timestamp({{0}}, {_lit(format)})', timestamp).expr}) AS BIGINT)")
+        return _sql("CAST(epoch(current_timestamp) AS BIGINT)").alias(f"unix_timestamp(current_timestamp(), {format})")
+    return _call(f"unix_timestamp({{0}}, {_lit(format)})", timestamp).alias(f"unix_timestamp({_name_of(timestamp)}, {format})")
 
 
 def size(col: Any) -> Column:
@@ -143,7 +159,11 @@ def size(col: Any) -> Column:
 
 
 def element_at(col: Any, extraction: Any) -> Column:
-    return _call(f"element_at({{0}}, {_lit(extraction)})", col)
+    """An array's element (1-based; index 0 is refused) or a map's value, as in Spark."""
+    if isinstance(extraction, Column):
+        return _call("element_at({0}, {1})", col, extraction).alias(
+            f"element_at({_name_of(col)}, {_name_of(extraction)})")
+    return _call(f"element_at({{0}}, {_lit(extraction)})", col).alias(f"element_at({_name_of(col)}, {extraction})")
 
 
 def get_json_object(col: Any, path: str) -> Column:
@@ -243,15 +263,66 @@ def to_json(col: Any, options: Any = None) -> Column:
     return _call("to_json({0})", col)
 
 
+def substring(str: Any, pos: int, len: int) -> Column:  # noqa: A002
+    """Position 0 counts as 1, as in Spark."""
+    return _call(f"substring({{0}}, {int(pos)}, {int(len)})", str).alias(f"substring({_name_of(str)}, {int(pos)}, {int(len)})")
+
+
+def concat(*cols: Any) -> Column:
+    """NULL when any input is NULL, as in Spark (DuckDB's concat skips NULLs)."""
+    return _call(f"concat({', '.join('{%d}' % i for i in range(len(cols)))})", *cols).alias(
+        f"concat({', '.join(_name_of(c) for c in cols)})")
+
+
+def slice(x: Any, start: Any, length: Any) -> Column:  # noqa: A001
+    """``length`` elements from ``start`` (1-based; negative counts from the end), as in Spark."""
+    cols = [x] + [v for v in (start, length) if not isinstance(v, int)]
+    holes = iter(f"{{{i}}}" for i in range(1, len(cols)))
+    args = ", ".join(str(v) if isinstance(v, int) else next(holes) for v in (start, length))
+    return _call(f"slice({{0}}, {args})", *cols).alias(
+        f"slice({_name_of(x)}, {', '.join(str(v) if isinstance(v, int) else _name_of(v) for v in (start, length))})")
+
+
+def add_months(start: Any, months: Any) -> Column:
+    """A date ``months`` months after ``start``, also for text or a timestamp, as in Spark."""
+    if isinstance(months, int):
+        return _call(f"add_months({{0}}, {months})", start).alias(f"add_months({_name_of(start)}, {months})")
+    return _call("add_months({0}, {1})", start, months).alias(
+        f"add_months({_name_of(start)}, {_name_of(months)})")
+
+
+def initcap(col: Any) -> Column:
+    """Each word's first letter upper case and the rest lower case, as in Spark (DuckDB's initcap
+    only upper-cases first letters)."""
+    return _call("initcap({0})", col).alias(f"initcap({_name_of(col)})")
+
+
 def expr(text: str) -> Column:
     """A Spark SQL expression. ``AS name`` names the column, as in Spark."""
-    parsed = sqlglot.parse_one(text, read="spark")
+    parsed = spark_sql.spark_substring(sqlglot.parse_one(text, read="spark"))
     if isinstance(parsed, exp.Alias):
         return _sql(parsed.this.sql("duckdb")).alias(parsed.alias)
     return _sql(parsed.sql("duckdb"))
 
 
 _count = F.count
+_first, _last = F.first, F.last
+
+
+def first(col: Any, ignorenulls: bool = False) -> Column:
+    """``ignorenulls=True`` gives the first value that isn't NULL, as in Spark."""
+    if not ignorenulls:
+        return _first(col)
+    q = _col_sql(col)
+    return _sql(f"first({q}) FILTER (WHERE {q} IS NOT NULL)").alias(f"first({_name_of(col)})")
+
+
+def last(col: Any, ignorenulls: bool = False) -> Column:
+    """``ignorenulls=True`` gives the last value that isn't NULL, as in Spark."""
+    if not ignorenulls:
+        return _last(col)
+    q = _col_sql(col)
+    return _sql(f"last({q}) FILTER (WHERE {q} IS NOT NULL)").alias(f"last({_name_of(col)})")
 
 
 def count(col: Any) -> Column:
@@ -347,31 +418,62 @@ def _ordered(name: str, fn: Any) -> Any:
     return order
 
 
+_IGNORING_NULLS = re.compile(r'^"?(first|last)"?\((.*)\) FILTER \(WHERE \(\2 IS NOT NULL\)\)$', re.S)
+
+
 def _over(self: Column, window: WindowSpec) -> Column:
-    return _sql(f"{self.expr} OVER ({window.sql()})")
+    text = str(self.expr)
+    if m := _IGNORING_NULLS.match(text):  # F.first(x, True).over(w): a window takes IGNORE NULLS, not FILTER
+        text = f"{m.group(1)}_value({m.group(2)} IGNORE NULLS)"
+    return _sql(f"{text} OVER ({window.sql()})")
 
 
 # ---- DataFrame
 
-def _named(df: DataFrame, sql: str) -> DataFrame:
-    """A DataFrame from SQL over this one, which the SQL calls ``t``."""
-    return DataFrame(df.relation.query("t", sql), df.session)
+_SAMPLE_ROW = "__fd_row"
+
+
+def _frame(df: DataFrame, relation: Any) -> DataFrame:
+    """A DataFrame on ``relation``, built from ``df``'s with DuckDB's relation API. No view is
+    named for it: a named view lives on the session and keeps its data in memory until the
+    kernel restarts, and a notebook's own view could share the name."""
+    return DataFrame(relation, df.session)
 
 
 def _agg(self: DataFrame, *exprs: Any) -> DataFrame:
     if len(exprs) == 1 and isinstance(exprs[0], dict):
-        exprs = tuple(_dict_agg(exprs[0]))
+        exprs = tuple(_dict_agg(self, exprs[0]))
     return DataFrame(self.relation.aggregate([c.expr for c in exprs]), self.session)
 
 
-def _dict_agg(spec: dict[str, str]) -> list[Column]:
+def _grouped_agg(fn: Any) -> Any:
+    """``df.groupBy("k").agg({"x": "avg"})``: DuckDB's GroupedData takes only columns."""
+    def agg(self: GroupedData, *exprs: Any) -> DataFrame:
+        if len(exprs) == 1 and isinstance(exprs[0], dict):
+            exprs = tuple(_dict_agg(self._df, exprs[0]))
+        if not self._grouping._cols:  # groupBy() with no columns: one row over the whole frame, as in Spark
+            return _agg(self._df, *exprs)
+        return fn(self, *exprs)
+    agg.__doc__ = fn.__doc__
+    return agg
+
+
+def _dict_agg(df: DataFrame, spec: dict[str, str]) -> list[Column]:
+    """Spark's {column: function} form, its columns named as Spark names them (``avg(x)``, also for
+    "mean"; ``count(1)`` for {"*": "count"}), the column in the frame's own spelling."""
     names = {"avg": "avg", "mean": "avg", "sum": "sum", "min": "min", "max": "max", "count": "count", "first": "first",
              "last": "last", "stddev": "stddev_samp", "variance": "var_samp"}
+    shown = {"mean": "avg"}
     out = []
     for column, fn in spec.items():
         if fn.lower() not in names:
             raise ValueError(f"agg doesn't know {fn!r}. Use one of: {', '.join(sorted(names))}.")
-        out.append(_sql(f"{names[fn.lower()]}({_col_sql(column)})").alias(f"{fn.lower()}({column})"))
+        label = shown.get(fn.lower(), fn.lower())
+        if column == "*" and fn.lower() == "count":
+            out.append(_sql("count(*)").alias("count(1)"))
+            continue
+        column = _known(df, column)[0]
+        out.append(_sql(f"{names[fn.lower()]}({_col_sql(column)})").alias(f"{label}({column})"))
     return out
 
 
@@ -406,13 +508,31 @@ def _fillable(dtype: str, value: Any) -> bool:
     return False
 
 
+def _known(df: DataFrame, names: Any) -> list[str]:
+    """Column names as Spark resolves them, ignoring case, in the frame's own spelling; one that
+    isn't there is an error, as in Spark, not skipped."""
+    from duckdb.experimental.spark.errors import AnalysisException
+    by_lower = {c.lower(): c for c in df.columns}
+    out = []
+    for name in [names] if isinstance(names, str) else list(names):
+        if name in df.columns:
+            out.append(name)
+        elif (found := by_lower.get(str(name).lower())) is not None:
+            out.append(found)
+        else:
+            raise AnalysisException(message=f"[UNRESOLVED_COLUMN.WITH_SUGGESTION] A column or function parameter "
+                                    f"with name `{name}` cannot be resolved. Did you mean one of the following? "
+                                    f"{df.columns}.")
+    return out
+
+
 def _fillna(self: DataFrame, value: Any, subset: Any = None) -> DataFrame:
     if isinstance(value, dict):
-        fills = value
+        fills = dict(zip(_known(self, value), value.values()))
     else:
         if not isinstance(value, (bool, int, float, str)):
             raise TypeError("fillna takes a number, text, a boolean or a dict of column to value.")
-        wanted = [subset] if isinstance(subset, str) else list(subset or [c for c, _ in _types(self)])
+        wanted = _known(self, subset) if subset else [c for c, _ in _types(self)]
         fills = {c: value for c, t in _types(self) if c in wanted and _fillable(t, value)}
     cols = []
     for c, t in _types(self):
@@ -429,20 +549,25 @@ def _types(df: DataFrame) -> list[tuple[str, str]]:
     return [(name, str(t)) for name, t in zip(df.relation.columns, df.relation.types)]
 
 
-def _dropna(self: DataFrame, how: str = "any", thresh: int | None = None, subset: Any = None) -> DataFrame:
-    cols = [subset] if isinstance(subset, str) else list(subset or self.columns)
+def _dropna(self: DataFrame, how: str | None = "any", thresh: int | None = None, subset: Any = None) -> DataFrame:
+    if how is not None and how not in ("any", "all"):  # None counts as "all", as in PySpark
+        raise ValueError(f"how ({how!r}) should be 'any' or 'all'")  # PySpark's own check
+    cols = _known(self, subset) if subset else self.columns
     if not cols:
         return self
     present = " + ".join(f"CAST({_col_sql(c)} IS NOT NULL AS INT)" for c in cols)
     need = thresh if thresh is not None else (len(cols) if how == "any" else 1)
-    return _named(self, f"SELECT * FROM t WHERE ({present}) >= {int(need)}")
+    return _frame(self, self.relation.filter(f"({present}) >= {int(need)}"))
 
 
 def _replace(self: DataFrame, to_replace: Any, value: Any = None, subset: Any = None) -> DataFrame:
+    if isinstance(to_replace, (list, tuple)) and isinstance(value, (list, tuple)) and len(to_replace) != len(value):
+        raise ValueError("to_replace and value lists should be of the same length. "
+                         f"Got {len(to_replace)} and {len(value)}")  # PySpark's own check
     mapping = to_replace if isinstance(to_replace, dict) else (
         dict(zip(to_replace, value if isinstance(value, (list, tuple)) else [value] * len(to_replace)))
         if isinstance(to_replace, (list, tuple)) else {to_replace: value})
-    wanted = [subset] if isinstance(subset, str) else list(subset or self.columns)
+    wanted = _known(self, subset) if subset else self.columns
     sample = next(iter(mapping))
     cols = []
     for c, t in _types(self):
@@ -473,19 +598,88 @@ class DataFrameNaFunctions:
 
 def _describe(self: DataFrame, *cols: str) -> DataFrame:
     """count, mean, stddev, min and max of each column, as text, as Spark's describe() shows them."""
-    names = list(_flat(cols)) or [c for c, t in _types(self) if _NUMERIC.match(t) or t.upper() == "VARCHAR"]
+    names = _known(self, list(_flat(cols))) or [c for c, t in _types(self) if _NUMERIC.match(t) or t.upper() == "VARCHAR"]
+    return _stats(self, names, ("count", "mean", "stddev", "min", "max"))
+
+
+_SUMMARY = ("count", "mean", "stddev", "min", "25%", "50%", "75%", "max")
+_PERCENT = re.compile(r"^(\d+(?:\.\d+)?)%$")
+
+
+def _summary(self: DataFrame, *statistics: str) -> DataFrame:
+    """Spark's summary(): the statistics it names (default count, mean, stddev, min, quartiles, max) of every
+    number and string column. It takes statistics, not columns; select the columns first."""
+    stats = tuple(_flat(statistics)) or _SUMMARY
+    for stat in stats:
+        pct = _PERCENT.match(str(stat))
+        if not (stat in ("count", "mean", "stddev", "min", "max", "count_distinct", "approx_count_distinct")
+                or (pct and float(pct.group(1)) <= 100)):
+            raise ValueError(f"{stat} is not a recognised statistic. Use count, mean, stddev, min, max, "
+                             "count_distinct, approx_count_distinct or a percentile such as 75%.")
+    names = [c for c, t in _types(self) if _NUMERIC.match(t) or t.upper() == "VARCHAR"]
+    return _stats(self, names, stats)
+
+
+def _stats(self: DataFrame, names: list[str], stats: Any) -> DataFrame:
     types_ = dict(_types(self))
     rows = []
-    for stat in ("count", "mean", "stddev", "min", "max"):
+    for stat in stats:
         parts = []
         for c in names:
             q = _col_sql(c)
             numeric = bool(_NUMERIC.match(types_[c]))
-            sql = {"count": f"count({q})", "mean": f"avg({q})" if numeric else "NULL",
-                   "stddev": f"stddev_samp({q})" if numeric else "NULL", "min": f"min({q})", "max": f"max({q})"}[stat]
+            if pct := _PERCENT.match(stat):  # Spark's approximate percentile is an actual value, as quantile_disc
+                sql = f"quantile_disc({q}, {float(pct.group(1)) / 100})" if numeric else "NULL"
+            else:
+                sql = {"count": f"count({q})", "mean": f"avg({q})" if numeric else "NULL",
+                       "stddev": f"stddev_samp({q})" if numeric else "NULL", "min": f"min({q})", "max": f"max({q})",
+                       "count_distinct": f"count(DISTINCT {q})",
+                       "approx_count_distinct": f"approx_count_distinct({q})"}[stat]
             parts.append(f"CAST({sql} AS VARCHAR) AS {q}")
-        rows.append(f"SELECT '{stat}' AS summary, {', '.join(parts)} FROM t")
-    return _named(self, " UNION ALL ".join(rows))
+        rows.append(self.relation.aggregate(f"'{stat}' AS summary, {', '.join(parts)}"))
+    out = rows[0]
+    for row in rows[1:]:
+        out = out.union(row)
+    return _frame(self, out)
+
+
+def _drop_cols(fn: Any) -> Any:
+    """``df.drop("ID")`` drops ``id``: Spark resolves names ignoring case (a name that isn't there is skipped).
+    Dropping every column is refused: Spark keeps a frame with no columns, which DuckDB can't hold."""
+    def drop(self: DataFrame, *cols: Any) -> DataFrame:
+        by_lower = {c.lower(): c for c in self.columns}
+
+        def resolve(c: Any) -> Any:  # F.col("ID") names the column too; another expression is left as given
+            name = c if isinstance(c, str) else c.expr.get_name() if isinstance(c, Column) else None
+            if isinstance(c, Column) and len(name) > 1 and name[0] == name[-1] == "`":
+                name = name[1:-1]
+            return by_lower.get(name.lower(), c) if name is not None else c
+        cols = tuple(resolve(c) for c in cols)
+        gone = {c if isinstance(c, str) else c.expr.get_name() for c in cols if isinstance(c, (str, Column))}
+        if self.columns and not set(self.columns) - gone:
+            raise ValueError(f"drop would leave no columns ({', '.join(self.columns)}). Spark keeps an empty "
+                             "frame here, but this PC's engine can't hold one; keep at least one column.")
+        return fn(self, *cols)
+    drop.__doc__ = fn.__doc__
+    return drop
+
+
+def _with_column_renamed(fn: Any) -> Any:
+    """Spark: "a no-op if the schema doesn't contain the given column name"."""
+    def rename(self: DataFrame, existing: str, new: str) -> DataFrame:
+        if existing.lower() not in (c.lower() for c in self.columns):
+            return self
+        return fn(self, existing, new)
+    rename.__doc__ = fn.__doc__
+    return rename
+
+
+def _drop_duplicates(fn: Any) -> Any:
+    """An unknown column in ``subset`` is Spark's error, not DuckDB's binder error."""
+    def dedupe(self: DataFrame, subset: Any = None) -> DataFrame:
+        return fn(self, _known(self, subset) if subset else subset)
+    dedupe.__doc__ = fn.__doc__
+    return dedupe
 
 
 def _sample(self: DataFrame, withReplacement: Any = None, fraction: float | None = None,  # noqa: N803
@@ -494,9 +688,18 @@ def _sample(self: DataFrame, withReplacement: Any = None, fraction: float | None
         withReplacement, fraction, seed = None, withReplacement, fraction  # noqa: N806
     if withReplacement:
         raise NotImplementedError("sample(withReplacement=True) isn't supported on this PC. Leave it out to sample without replacement.")
-    pct = max(0.0, min(100.0, float(fraction or 0) * 100))
-    repeat = f", {int(seed)}" if seed is not None else ""
-    return _named(self, f"SELECT * FROM t USING SAMPLE {pct}% (bernoulli{repeat})")
+    if fraction is None:
+        raise TypeError("sample() needs a fraction, like df.sample(0.1).")
+    if not 0.0 <= float(fraction) <= 1.0:  # Spark refuses this too: the fraction is a probability per row
+        raise ValueError(f"Sampling fraction ({fraction}) must be on interval [0, 1] without replacement.")
+    keep = float(fraction)
+    if seed is None:
+        return _frame(self, self.relation.filter(f"random() < {keep!r}"))
+    # A seed picks the same rows each time: each row's place, hashed with the seed, against the fraction.
+    cols = ", ".join(_col_sql(c) for c in self.columns)
+    numbered = self.relation.project(f"*, row_number() OVER () AS {_SAMPLE_ROW}")
+    picked = numbered.filter(f"hash({_SAMPLE_ROW}, {int(seed)}) % 1000000 < {int(keep * 1000000)}")
+    return _frame(self, picked.project(cols))
 
 
 def _subtract(self: DataFrame, other: DataFrame) -> DataFrame:
@@ -505,10 +708,25 @@ def _subtract(self: DataFrame, other: DataFrame) -> DataFrame:
 
 def _unpivot(self: DataFrame, ids: Any, values: Any, variableColumnName: str, valueColumnName: str) -> DataFrame:  # noqa: N803
     ids = [ids] if isinstance(ids, (str, Column)) else list(ids)
-    values = [values] if isinstance(values, (str, Column)) else list(values or [c for c in self.columns if c not in ids])
-    return _named(self, f"SELECT {', '.join(_col_sql(c) for c in ids)}, {_col_sql(variableColumnName)}, "
-                        f"{_col_sql(valueColumnName)} FROM (UNPIVOT t ON {', '.join(_col_sql(c) for c in values)} "
-                        f"INTO NAME {_col_sql(variableColumnName)} VALUE {_col_sql(valueColumnName)})")
+    # values=None is every column that isn't an id, as in Spark; an empty list names none, which Spark refuses.
+    values = [values] if isinstance(values, (str, Column)) else list(
+        [c for c in self.columns if c not in ids] if values is None else values)
+    if not values:
+        raise ValueError("[UNPIVOT_REQUIRES_VALUE_COLUMNS] At least one value column needs to be specified for "
+                         "UNPIVOT, all columns specified as ids.")
+    # One projection per value column, stacked, then put back in row order (each row's values together),
+    # as Spark's DataFrame.unpivot returns them. Unlike SQL's UNPIVOT, it keeps a null value.
+    id_cols = ", ".join(_col_sql(c) for c in ids)
+    numbered = self.relation.project(f"*, row_number() OVER () AS {_SAMPLE_ROW}")
+    parts = [numbered.project(f"{id_cols + ', ' if ids else ''}{_lit(_name_of(v))} AS {_col_sql(variableColumnName)}, "
+                              f"{_col_sql(v)} AS {_col_sql(valueColumnName)}, {_SAMPLE_ROW}, {i} AS {_SAMPLE_ROW}_col")
+             for i, v in enumerate(values)]
+    out = parts[0]
+    for part in parts[1:]:
+        out = out.union(part)
+    out = out.order(f"{_SAMPLE_ROW}, {_SAMPLE_ROW}_col")
+    keep = [c for c in (*map(_name_of, ids), variableColumnName, valueColumnName)]
+    return _frame(self, out.project(", ".join(_col_sql(c) for c in keep)))
 
 
 def _same_self(fn: Any) -> Any:
@@ -537,6 +755,8 @@ class PivotedData:
 
     def agg(self, *exprs: Column) -> DataFrame:
         df = self._grouped._df
+        if len(exprs) == 1 and isinstance(exprs[0], dict):
+            exprs = tuple(_dict_agg(df, exprs[0]))
         values = self._values
         if values is None:  # Spark finds them, sorted
             values = sorted(r[0] for r in df.select(self._column).distinct().collect() if r[0] is not None)
@@ -588,7 +808,8 @@ def install() -> None:
     if getattr(DataFrame, "_fd_compat", False):
         return
     for name, fn in FUNCTIONS.items():
-        if name == "count" or not hasattr(F, name):
+        if name in ("count", "substring", "concat", "initcap", "first", "last", "slice",
+                    "add_months", "months_between", "element_at") or not hasattr(F, name):
             setattr(F, name, fn)
     F.expr = expr  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
     Column.over = _over  # type: ignore[attr-defined]
@@ -602,7 +823,10 @@ def install() -> None:
     DataFrame.replace = _replace  # type: ignore[attr-defined]
     DataFrame.na = property(DataFrameNaFunctions)  # type: ignore[attr-defined]
     DataFrame.describe = _describe  # type: ignore[attr-defined]
-    DataFrame.summary = _describe  # type: ignore[attr-defined]
+    DataFrame.summary = _summary  # type: ignore[attr-defined]
+    DataFrame.drop = _drop_cols(DataFrame.drop)  # type: ignore[method-assign]
+    DataFrame.withColumnRenamed = _with_column_renamed(DataFrame.withColumnRenamed)  # type: ignore[method-assign]
+    DataFrame.dropDuplicates = DataFrame.drop_duplicates = _drop_duplicates(DataFrame.dropDuplicates)  # type: ignore[method-assign]
     DataFrame.sample = _sample  # type: ignore[attr-defined]
     DataFrame.subtract = _subtract  # type: ignore[attr-defined]
     DataFrame.unpivot = DataFrame.melt = _unpivot  # type: ignore[attr-defined]
@@ -613,5 +837,6 @@ def install() -> None:
         if not hasattr(DataFrame, name):
             setattr(DataFrame, name, _same)
     GroupedData.pivot = _pivot  # type: ignore[attr-defined]
+    GroupedData.agg = _grouped_agg(GroupedData.agg)  # type: ignore[method-assign]
     # spark.conf is spark_api.LocalRuntimeConfig, set on each session (spark_local).
     DataFrame._fd_compat = True  # type: ignore[attr-defined]

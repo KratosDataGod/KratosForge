@@ -148,7 +148,8 @@ test("proof rules from the form keep only what was filled in", () => {
   const { proveRulesFrom } = proveHelpers();
   assert.deepStrictEqual(JSON.parse(JSON.stringify(proveRulesFrom({ keys: " id, region ,", ignore: "", abs: "", rel: "1e-6", timestamps: "us" }))),
     { keys: ["id", "region"], rel: 1e-6 });
-  assert.ok(Number.isNaN(proveRulesFrom({ abs: "abc" }).abs), "a bad number goes to the engine, which refuses it");
+  // A bad number reaches the engine, which refuses it; NaN would arrive as null and mean "the default".
+  assert.strictEqual(JSON.parse(JSON.stringify(proveRulesFrom({ abs: "abc" }))).abs, "abc");
 });
 
 test("a scorecard never shows an estimate or a missing number as measured", () => {
@@ -334,7 +335,7 @@ function gitHelpers() {
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
   vm.runInNewContext(`${code}; Object.assign(this, { gitSplitPath, gitPillText, gitSideBySide, gitCommitLabel, gitGroupRepos, nbData, nbDataText,
-    platformChangeLines, platformStepText, PLATFORM_STATES });`, ctx);
+    platformChangeLines, platformStepText, PLATFORM_STATES, capacityLines, CAPACITY_STATES });`, ctx);
   return ctx;
 }
 
@@ -358,6 +359,24 @@ test("the commit button says what it will commit, and refuses with conflicts", (
   assert.strictEqual(gitCommitLabel(gitStatus()), "Nothing to commit");
   assert.strictEqual(gitCommitLabel(gitStatus({ merging: true, conflicts: [{}] })), "Fix the conflicts to commit");
   assert.strictEqual(gitCommitLabel(gitStatus({ merging: true })), "Commit the merge to main");
+});
+
+test("an exception about to end raises one notice a day, and an ended one is a problem", () => {
+  const src = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function exceptionNotice\([\s\S]*?\n}\n/)[0]}; this.exceptionNotice = exceptionNotice;`, ctx);
+  const row = { entity: "gold.fact_sales", rule: "custom_code_test", expires: "2026-10-20", status: "expiring",
+    notice: "gold.fact_sales: the exception for custom_code_test expires in 5 days (2026-10-20)" };
+  const notice = ctx.exceptionNotice(row, "2026-10-15");
+  assert.strictEqual(notice.id, "exception:gold.fact_sales:custom_code_test:2026-10-20:2026-10-15");
+  assert.strictEqual(notice.status, "info");
+  assert.strictEqual(notice.notice, true);
+  assert.match(notice.text, /expires in 5 days/);
+  assert.strictEqual(ctx.exceptionNotice({ ...row, status: "active" }, "2026-10-15"), null);
+  const ended = ctx.exceptionNotice({ ...row, status: "expired" }, "2026-10-21");
+  assert.strictEqual(ended.status, "failed");
+  assert.strictEqual(ended.notice, false);
+  assert.match(src, /\["exceptions", "Exceptions"\]/);
 });
 
 test("side by side pairs removed and added lines and keeps context on both sides", () => {
@@ -388,6 +407,7 @@ test("a cost figure shows its classification, and an unknown one never reads as 
   // Every figure in the Cost panel goes through measureFigure, which adds the badge.
   const body = src.match(/function costBody\([\s\S]*?\n}\n/)[0];
   assert.ok(!/money\(t\.(cost|saved)/.test(body) && !/cuHours\(t\./.test(body), "a raw total is shown without its classification");
+
   // FINOPS-005: savings come from Fabric runs of the same table, and runs with none are said to be left out.
   assert.ok(/never from how long it took here/.test(body) && !/Scenario: what runs on this PC/.test(body));
   assert.ok(/t\.uncalibrated_runs/.test(body) && !/scenario_cu/.test(body), "the rough scenario isn't shown as the saving");
@@ -835,7 +855,12 @@ test("the risk gate passes quietly, never runs a blocked item and needs the tick
   const ctx = { h: node, icon: () => null, measureBadge: () => null, previewMarked: (_, n) => n,
     btn: (label, _i, onClick) => ({ label, onClick }), closeDialog: () => { dialog = null; },
     showDialog: (title, body, actions) => { dialog = { title, actions }; }, toast: (t) => toasts.push(t),
-    attempt: (fn) => fn(), rpc: async (m, p) => (m === "risk_acknowledge" ? (acks.push(p), { ok: true }) : ctx.result) };
+    attempt: (fn) => fn(), friendlyError: (e) => ({ text: e.message }),
+    rpc: async (m, p) => {
+      if (m === "risk_acknowledge") return (acks.push(p), { ok: true });
+      if (ctx.result instanceof Error) throw ctx.result;
+      return ctx.result;
+    } };
   vm.runInNewContext(`${src}; Object.assign(this, { riskGate });`, ctx);
   const target = { id: "notebook:nb", action: "run_in_fabric", title: "Run?", alt: { label: "Run on this PC", run: () => ctx.ran.push("pc") } };
   ctx.ran = [];
@@ -869,11 +894,24 @@ test("the risk gate passes quietly, never runs a blocked item and needs the tick
   await press("Run anyway");
   assert.strictEqual(await gate, true);
   assert.deepStrictEqual(acks.map((a) => a.risk_id), ["r2"]);
+
+  // A check that couldn't run never goes ahead silently and never blocks: the reason, then Continue or Cancel.
+  ctx.result = new Error("This notebook has no deployment.");
+  for (const [label, expected] of [["Cancel", false], ["Continue", true]]) {
+    gate = ctx.riskGate(target);
+    await settle();
+    assert.ok(dialog, "an error shows a dialog");
+    assert.deepStrictEqual(Array.from(dialog.actions, (a) => a.label), ["Cancel", "Continue"]);
+    press(label);
+    assert.strictEqual(await gate, expected);
+  }
+  assert.deepStrictEqual(acks.map((a) => a.risk_id), ["r2"], "nothing is acknowledged when nothing was checked");
 });
 
 test("only Monitor > Runs shares the page with Fabric's hub, so Schedules and Cost get the whole page (#190)", () => {
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  assert.match(src, /const wide = monitorPage\.panel !== "runs";/);
+  // With From KratosForge in its own window (Pop out), Monitor here is the hub's band and the hub.
+  assert.match(src, /const wide = !runsOut && monitorPage\.panel !== "runs";/);
 });
 
 // The pure helpers at the top of replay.js.
@@ -1026,8 +1064,9 @@ test("a failed save says so and keeps the notebook open and dirty", async () => 
     clearTimeout: () => {}, renderChrome: () => {}, setComputeCheck: () => {}, loadIntoState: () => { calls.push("load"); },
     go: () => {}, closeDialog: () => {}, markDirty: () => {}, saveTimer: null,
   };
-  vm.runInNewContext(["attempt", "notebookPayload", "saveNotebook", "openNotebook", "newNotebook"].map(fn).join("\n") +
-    "; this.saveNotebook = saveNotebook; this.openNotebook = openNotebook; this.newNotebook = newNotebook;", ctx);
+  vm.runInNewContext(["attempt", "notebookPayload", "saveNotebook", "openNotebook", "newNotebook", "setNotebookCompute"].map(fn).join("\n") +
+    "; this.saveNotebook = saveNotebook; this.openNotebook = openNotebook; this.newNotebook = newNotebook;" +
+    " this.setNotebookCompute = setNotebookCompute;", ctx);
   const nb = { name: "nb", cells: [], dirty: true, lakehouse: null };
   ctx.state = { notebook: nb };
   assert.strictEqual(await ctx.saveNotebook(), false);
@@ -1038,9 +1077,19 @@ test("a failed save says so and keeps the notebook open and dirty", async () => 
   assert.deepStrictEqual(calls, ["save_notebook", "save_notebook", "save_notebook"]);
   assert.ok(toasts.length === 3 && toasts.every(([t, err]) => err && t.includes("disk full")));
   // Ctrl+S and closing the notebook use the result.
-  assert.match(src, /saveNotebook\(\)\.then\(\(ok\) => \{ if \(ok\) toast\("Saved"\); \}\)/);
+  assert.match(src, /saveExplicitly\(\(\) => \{ toast\("Saved"\);/);
+  assert.match(src, /const el = ok \? anchor\(\) : null;/, "Ctrl+S says Saved when the save failed");
   assert.match(src, /state\.notebook\?\.dirty && !\(await saveNotebook\(\)\)\) return false;/);
   assert.match(src, /if \(await onClose\(\) === false\) return;/);
+  // Changing where it runs doesn't say "now runs in Fabric" when that change wasn't saved.
+  Object.assign(ctx, { nbWhere: (n) => ({ fabric: n.compute === "fabric" }), renderNotebook: () => {} });
+  toasts.length = 0;
+  await ctx.setNotebookCompute("fabric");
+  assert.ok(toasts.length === 1 && toasts[0][1], JSON.stringify(toasts));
+  nb.compute = undefined;
+  // Opening a replay bundle doesn't replace a notebook whose save failed.
+  const replay = fs.readFileSync(path.join(ui, "replay.js"), "utf8");
+  assert.match(replay, /if \(state\.notebook\?\.dirty && !\(await saveNotebook\(\)\)\) return;[^\n]*\n\s*loadIntoState\(nb\);/);
   // A save that works still clears dirty.
   ctx.rpc = async () => ({});
   assert.strictEqual(await ctx.saveNotebook(), true);
@@ -1289,10 +1338,10 @@ test("Runs > Env says why a row has no environment, for this PC and for Fabric (
   vm.runInNewContext(`${src.match(/function runEnvCell\([\s\S]*?\n}\n/)[0]}; this.runEnvCell = runEnvCell;`, ctx);
   assert.strictEqual(ctx.runEnvCell({ env: "prod", where: "fabric" }), "Prod");
   const pc = ctx.runEnvCell({ env: "", where: "local" });
-  assert.strictEqual(pc.text, "None");
+  assert.strictEqual(pc.text, "No environment");
   assert.match(pc.attrs.title, /this PC's schedules/);
   const fabric = ctx.runEnvCell({ env: "", where: "fabric" });
-  assert.strictEqual(fabric.text, "None");
+  assert.strictEqual(fabric.text, "No environment");
   assert.match(fabric.attrs.title, /Fabric workspace/);
   assert.doesNotMatch(fabric.attrs.title, /this PC/);
 });
@@ -1318,6 +1367,8 @@ test("engine messages point to Data mesh and Platform tabs that exist", () => {
   const mesh = new Set();
   for (const [, group, tabs] of groups) for (const [, tab] of tabs) mesh.add(`${group} > ${tab}`);
   const plat = new Set(platform.map(([, label]) => label));
+  // A page behind the Set up or Govern menu is named with its menu: "Platform > Set up > Business keys".
+  const bar = vm.runInNewContext(`${/const PLATFORM_TAB_BAR = \[[\s\S]*?\n\];/.exec(read("platform.js"))[0].replace("const ", "")}; PLATFORM_TAB_BAR`);
   const engine = path.join(__dirname, "..", "..", "sidecar", "fabric_desktop");
   const files = [];
   const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) {
@@ -1331,7 +1382,11 @@ test("engine messages point to Data mesh and Platform tabs that exist", () => {
       const where = `${m[1]} > ${m[2]}`;
       if (![...mesh].some((t) => t.startsWith(where))) bad.push(`${path.basename(f)}: Data mesh > ${where}`);
     }
-    for (const m of src.matchAll(/Platform > ([A-Z][\w ]*?)(?=[).,"'\n])/g)) if (!plat.has(m[1])) bad.push(`${path.basename(f)}: Platform > ${m[1]}`);
+    for (const m of src.matchAll(/Platform > (?:(Set up|Govern) > )?([A-Z][\w ]*?)(?=[).,"'\n]| > )/g)) {
+      const menu = bar.find(([, label]) => label === m[1]);
+      const ok = m[1] ? menu?.[2].some((id) => platform.find(([t]) => t === id)[1] === m[2]) : bar.some(([, label, items]) => items && label === m[2]) || plat.has(m[2]) && !bar.some(([, , items]) => items?.some((id) => platform.find(([t]) => t === id)[1] === m[2]));
+      if (!ok) bad.push(`${path.basename(f)}: Platform > ${m[1] ? `${m[1]} > ` : ""}${m[2]}`);
+    }
   }
   assert.deepStrictEqual(bad, []);
 });
@@ -1447,6 +1502,111 @@ test("a failed shortcut rules check isn't swallowed and an incomplete reader lis
   assert.match(estate, /res\.partial \?/);
 });
 
+// Plan step 7: OneLake > Access > All workspaces reads the access cache and flags what's worth a look.
+test("the access cache view flags what's worth a look and asks before setting anything up", () => {
+  const src = fs.readFileSync(path.join(ui, "access-cache.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src}\nthis.flags = accessCacheFlags; this.filters = ACCESS_CACHE_FILTERS;`, ctx);
+  const w = {
+    people: [{ name: "Ann", type: "User", role: "Admin", guest: false }, { name: "Readers", type: "Group", role: "Viewer", guest: false },
+      { name: "Bo", type: "User", role: "Viewer", guest: true }, { name: "Loader", type: "ServicePrincipal", role: "Admin", guest: false }],
+    lakehouses: [{ item_name: "LH_Gold", known: true, roles: [] }, { item_name: "LH_Unread", known: false, roles: [] }],
+    summary: { guests: 1 }, stale: false,
+  };
+  const flags = ctx.flags(w);
+  assert.strictEqual(flags.map((f) => f.kind).join(), "byname,guests,apps,nosecurity");
+  assert.strictEqual(flags[3].lakehouse.item_name, "LH_Gold");  // a lakehouse never read isn't flagged as having no roles
+  const keep = Object.fromEntries(ctx.filters.map(([id, , fn]) => [id, fn]));
+  assert.ok(keep.byname(w, flags) && keep.guests(w, flags) && !keep.stale(w, flags));
+  assert.ok(keep.stale({ ...w, lakehouses: [{ stale: true }] }, []));
+  // The first refresh and the role change only happen after the person confirms the sidecar's plan.
+  assert.match(src, /includes\("Confirm to continue"\)[\s\S]*confirmDialog[\s\S]*approve: true/);
+  const estate = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
+  const panel = estate.match(/howItWorks\("onelake\.access-all", \{[\s\S]*?\n    \}\)/)?.[0] || "";
+  assert.match(panel, /changes: "Refresh changes adds rows to the access cache in the central lakehouse/);
+  assert.match(panel, /OneLake security roles/);
+});
+
+// HD-052 (UI-8): pages are built with h(), which only makes text nodes, so data can't become markup.
+// A new raw HTML (or code) sink in app/ui fails here unless it is reviewed and added below with why
+// it is safe. Keys are the file and the exact trimmed line, so editing an allowed line needs a new review.
+test("no raw HTML sinks in app/ui outside the reviewed list", () => {
+  const sink = /\.(?:innerHTML|outerHTML)\b|\binsertAdjacentHTML\b|\bdocument\.write(?:ln)?\b|\bcreateContextualFragment\b|\bDOMParser\b|\b(?:set|parse)HTMLUnsafe\b|\bsrcdoc\b|\beval\s*\(|\bnew Function\b|\bFunction\s*\(/;
+  const allowed = new Set([
+    // markdown(): a fixed placeholder string, no data.
+    `app.js: wrap.innerHTML = '<p class="placeholder">Empty Markdown cell. Double-click to edit.</p>';`,
+    // markdown(): every piece of cell text goes through inlineMd(), which esc()apes &<>"' before adding
+    // <code>, <strong>, <em> and <u title>; headings and lists add only fixed tags. See the two
+    // Markdown tests at the top of this file.
+    `app.js: wrap.innerHTML = html.join("");`,
+    // sqlParsePlan(): Fabric's showplan parsed as XML ("application/xml" runs no script and loads nothing);
+    // the document is never put on the page, only attribute values are read and drawn as text with h().
+    `sqlplan.js: const doc = new DOMParser().parseFromString(String(xml || ""), "application/xml");`,
+    // Data mesh map links: path coordinates are numbers from getBoundingClientRect, and the only data
+    // (project and product ids in <title>) goes through esc().
+    `meshmap.js: svg.innerHTML = \`<defs><marker id="mesh-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z"/></marker></defs>\${paths.join("")}\`;`
+  ]);
+  const found = [];
+  const walk = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) { if (e.name !== "vendor") walk(p); continue; }
+      if (!/\.(js|html)$/.test(e.name)) continue;
+      const rel = path.relative(ui, p).split(path.sep).join("/");
+      for (const line of fs.readFileSync(p, "utf8").split("\n")) if (sink.test(line)) found.push(`${rel}: ${line.trim()}`);
+    }
+  };
+  walk(ui);
+  assert.deepStrictEqual(found.filter((f) => !allowed.has(f)), [], "a new raw HTML sink: build it with h(), or review it and add it to the list");
+  assert.deepStrictEqual([...allowed].filter((a) => !found.includes(a)), [], "an allowed sink is gone from the code: remove it from the list");
+});
+
+// HD-052: no href, src or other URL attribute is built from data, and nothing navigates the app's
+// window. Links open through open_link (https and mailto only) or openInFabric. A new URL sink
+// fails here unless it is reviewed and added below with why it is safe; literal values pass.
+test("no URL sinks built from data in app/ui outside the reviewed list", () => {
+  const attr = "href|src|srcset|action|formaction|xlink:href|poster|data|ping|background";
+  const sink = new RegExp(
+    `\\b(?:href|src|srcset|formaction|poster|ping)\\s*:\\s*(?!["'][^"'\`$]*["'])[^\\s,}]` +  // h("a", { href: x }): only a quoted literal passes
+    `|[{,]\\s*(?:href|src|srcset|formaction|poster|ping)\\s*[,}]` +  // h("a", { href }): shorthand takes a variable
+    `|\\.(?:href|src|srcset|action|formAction|poster|ping)\\s*=(?!=)` +  // node.src = x
+    `|setAttribute(?:NS)?\\([^)]*["'](?:${attr})["']` +
+    `|\\bwindow\\.open\\(|(?<!(?:const|let|var)\\s+)\\blocation\\s*=(?!=)|\\blocation\\.(?:href\\s*=(?!=)|assign|replace)\\b`);
+  const allowed = new Set([
+    // Image output: only the picture types imageOutputOk() accepts, with base64 data, and <img> never runs script.
+    "notebook.js: return h(\"div\", { class: \"output\" }, h(\"img\", { class: \"out-img\", alt: \"Chart from this cell\", src: `data:${o.mime};base64,${o.data}` }));",
+    // HTML output frame: the shell's fixed frame URL, no data (HD-020).
+    "notebook.js: src: window.__TAURI__.core.convertFileSrc(\"frame\", \"nbout\") });",
+    // Vega charts: a fixed file in vendor/.
+    "notebook.js: script.src = \"vendor/vega/vega-frame.js\";",
+  ]);
+  const found = [];
+  const walk = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) { if (e.name !== "vendor") walk(p); continue; }
+      if (!/\.(js|html)$/.test(e.name)) continue;
+      const rel = path.relative(ui, p).split(path.sep).join("/");
+      for (const line of fs.readFileSync(p, "utf8").split("\n")) if (sink.test(line)) found.push(`${rel}: ${line.trim()}`);
+    }
+  };
+  walk(ui);
+  assert.deepStrictEqual(found.filter((f) => !allowed.has(f)), [], "a new URL sink: use a literal, open_link or openInFabric, or review it and add it to the list");
+  assert.deepStrictEqual([...allowed].filter((a) => !found.includes(a)), [], "an allowed URL sink is gone from the code: remove it from the list");
+});
+
+test("an image output is shown only for picture types with base64 data", () => {
+  const src = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const fn = src.match(/const IMAGE_OUTPUT_TYPES[\s\S]*?\nfunction imageOutputOk[\s\S]*?\n}\n/)[0];
+  const imageOutputOk = new Function(`${fn}; return imageOutputOk;`)();
+  assert.ok(imageOutputOk({ mime: "image/png", data: "iVBORw0KGgo=" }));
+  assert.ok(imageOutputOk({ mime: "image/svg+xml", data: "PHN2Zy8+\n" }));
+  for (const bad of [{ mime: "text/html", data: "PGI+" }, { mime: "image/png;x", data: "AAAA" },
+    { mime: "image/png", data: "AAAA\" onerror=x" }, { mime: "image/png", data: 1 }, { mime: undefined, data: "AAAA" }]) {
+    assert.ok(!imageOutputOk(bad), JSON.stringify(bad));
+  }
+});
+
 // HD-020 (SH-1, UI-1): the page has a Content Security Policy, and notebook HTML output runs on
 // its own origin, never in the app's, where the Tauri API is.
 test("the app has a strict CSP and notebook HTML output stays off the app's origin", () => {
@@ -1531,7 +1691,7 @@ test("the app is called KratosForge everywhere people read it, and identifiers s
   assert.match(settings, /"aria-labelledby": "splash-title", "aria-describedby": "splash-text"/);
   assert.match(settings, /label: "About the new name: KratosForge"/);
   const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
-  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\n  \.overlay\.splash/);
+  assert.match(css, /\.splash-still, \.splash-still :is\(\.splash-emblem/);  // Off, Minimal and reduced motion show the forge still
 });
 
 test("the Platform tab says what differs between Git and the platform, and what a deploy will do", () => {
@@ -1729,7 +1889,7 @@ function followHarness(statuses) {
       }
       return [];
     },
-    setKernel() {}, renderNotebook() {}, updateResults() {}, registerFeature() {}, previewShown: () => true,
+    setKernel() {}, renderNotebook() {}, forgeEvent() {}, profileEarned() {}, updateResults() {}, registerFeature() {}, previewShown: () => true,
     logActivity: (item) => calls.bell.push(item),
     toast: (text) => calls.toasts.push(text),
     document: { querySelector: () => null, querySelectorAll: () => [] },
@@ -1813,6 +1973,7 @@ function dialogHelpers() {
     h: node, icon: () => node("svg"), btn: (label, _i, onClick, cls) => node("button", { class: cls, onclick: onClick }, label),
     MutationObserver: class { observe() {} disconnect() {} },
     document: { getElementById: () => root, addEventListener: (t, fn) => { (docOn[t] ||= []).push(fn); } },
+    motionLeave: () => null,  // motion.js: the fade after a dialog goes
   };
   vm.runInNewContext(`${code}; Object.assign(this, { showDialog, closeDialog, askText, pickWorkspace, confirmDialog });`, ctx);
   const overlay = () => root.kids[0];
@@ -1949,9 +2110,10 @@ test("A scheduled run whose Teams alert didn't go out says so in Runs and Schedu
 });
 
 // motion.js with a small stand-in DOM and clock: what Forge animations make, and when they don't.
-function motionHarness({ setting = true, reduced = false, hidden = false, settings = null } = {}) {
+function motionHarness({ setting = true, reduced = false, hidden = false, settings = null, appLoaded = true } = {}) {
   let clock = 0;
   let timers = [];
+  let watch = null;
   const node = (cls = "") => {
     const n = {
       cls: new Set(String(cls).split(" ").filter(Boolean)), kids: [], attrs: {}, style: {}, parent: null, textContent: "",
@@ -1980,6 +2142,10 @@ function motionHarness({ setting = true, reduced = false, hidden = false, settin
     setTimeout: (fn, ms) => { const t = { at: clock + ms, fn }; timers.push(t); return t; },
     clearTimeout: (t) => { timers = timers.filter((x) => x !== t); },
     Date: { now: () => clock },
+    performance: { now: () => clock },
+    // The long-task watch, fed by longTasks() below instead of the machine's load.
+    PerformanceObserver: Object.assign(function (cb) { watch = cb; this.observe = () => {}; this.disconnect = () => { watch = null; }; },
+      { supportedEntryTypes: ["longtask"] }),
     h: (tag, attrs = {}, ...children) => {
       const n = node(attrs.class || "");
       for (const [k, v] of Object.entries(attrs)) if (k !== "class") n.attrs[k] = v;
@@ -1987,6 +2153,7 @@ function motionHarness({ setting = true, reduced = false, hidden = false, settin
       return n;
     },
   };
+  if (!appLoaded) delete ctx.state;  // app.js, which declares state, loads after motion.js
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path.join(ui, "motion.js"), "utf8"), ctx);
   ctx.advance = (ms) => {
@@ -1996,6 +2163,8 @@ function motionHarness({ setting = true, reduced = false, hidden = false, settin
   const page = node();  // anchors the tests make sit on the page, as real ones do
   ctx.node = (cls) => { const n = node(cls); page.append(n); return n; };
   ctx.live = live;
+  // Long main-thread tasks of these durations (ms), each starting now.
+  ctx.longTasks = (...durations) => watch?.({ getEntries: () => durations.map((duration) => ({ startTime: clock, duration })) });
   return ctx;
 }
 
@@ -2151,15 +2320,18 @@ test("Forge animations in the notebook: runs of several cells use the wolf track
 test("Motion & effects settings: four levels, family switches, reduced-motion choice, lockable, applied at once; CSS honours them", () => {
   const s = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   const card = s.match(/function motionSettingsCard\([\s\S]*?\n}\n/)[0];
-  assert.match(card, /h\("h2", \{\}, "Appearance"\),\n\s+h\("h3", \{\}, "Motion & effects"\)/);
+  assert.match(card, /h\("h2", \{\}, "Appearance"\),\n\s+h\("h3", \{\}, "Layout"\)[\s\S]*Object\.keys\(LAYOUT_CHOICES\)\.map\(choice\),\n\s+h\("h3", \{\}, "Motion & effects"\)/);
   assert.match(card, /type: "radio", name: "motion_level"/);
   assert.match(card, /disabled: locked\("motion_level"\) \? true : null, onchange: \(\) => save\(\{ motion_level: n \}\)/);
   assert.match(card, /\[0, 1, 2, 3\]\.map\(levelRow\)/);
-  assert.match(card, /toggle\(key, label, s\[key\]\?\.value !== false, level < 2\)/, "family switches don't grey out below Refined");
+  assert.match(card, /toggle\(key, label, s\[key\]\?\.value \?\? key !== "motion_achievements", level < 2\)/, "family switches don't grey out below Refined");
   assert.match(card, /disabled: disabled \|\| locked\(key\) \? true : null/);
   assert.match(card, /"Respect Windows' reduced-motion setting"/);
   for (const key of ["motion_wolf", "motion_sparks", "motion_ambient"]) assert.match(s, new RegExp(`\\["${key}", "`));
-  assert.doesNotMatch(s, /\["motion_achievements", "/, "the achievements switch shows before the profile can award anything");
+  // Achievement celebrations shows only while Profile (Preview) can award something (#361).
+  assert.match(s, /const motionFamilies = \(\) => \(previewShown\(\) \? \[\.\.\.MOTION_FAMILIES, MOTION_ACHIEVEMENTS\] : MOTION_FAMILIES\);/);
+  assert.match(card, /motionFamilies\(\)\.map\(/);
+  assert.match(s, /previewShown\(\) \? row\("Achievement Reveal", [^\n]*\n\s+\(\) => forgeEvent\("achievement\.unlocked", award\)\) : null,/);
   assert.match(s, /\["motion_ambient", "Running indicators",/);
   assert.match(s, /const display = s\.motion_level \? motionSettingsCard\(s, locked\) : null;/);
   assert.match(s, /\[account, updates, display, previews,/);
@@ -2168,7 +2340,7 @@ test("Motion & effects settings: four levels, family switches, reduced-motion ch
   const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
   assert.match(css, /html\[data-motion="off"\] \.fx, html\[data-motion="off"\] \.wolf \{ display: none; \}/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{ html:not\(\[data-motion-override\]\) :is\(\.fx, \.wolf\) \{ display: none; \}/);
-  assert.match(css, /html\[data-fx-wolf="off"\] \.wolf, html\[data-fx-sparks="off"\] :is\(\.fx-spark, \.fx-fail, \.fx-strike\),/);
+  assert.match(css, /html\[data-fx-wolf="off"\] \.wolf, html\[data-fx-sparks="off"\] :is\(\.fx-spark, \.fx-fail, \.fx-strike, \.fx-cool\),/);
   // Effects animate only transform and opacity, so they never move the layout.
   const keyframes = [...css.matchAll(/@keyframes fx-[\w-]+ \{([^\n]*)\}\n/g)].map((m) => m[1]);
   assert.ok(keyframes.length >= 6, "fx keyframes not found");
@@ -2212,7 +2384,8 @@ test("Notebook files: commands, Home link, ribbon, Fabric preview and the Publis
   assert.deepStrictEqual([...registered.map((f) => f.id)], ["notebookFiles"]);
   assert.ok(registered[0].views.notebooks);
   assert.deepStrictEqual([...registered[0].commands.map((c) => c.label)],
-    ["All notebooks", "Search inside notebooks", "Open a notebook file", "Save a copy of this notebook"]);
+    ["All notebooks", "Search inside notebooks", "Open a notebook file", "Save a copy of this notebook", "New notebook folder",
+      "Move this notebook to a folder"]);
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   assert.match(app, /also: \["notebooks"\]/);
   assert.match(app, /btn\("All notebooks", "notebook", \(\) => go\("notebooks"\)/);
@@ -2241,7 +2414,7 @@ test("the update splash lists the build's notes and each change since the build 
   assert.match(src, /const UPDATE_SPLASH_OFF = "fd\.updatesplash\.off"/);
   assert.match(src, /if \(!asked && !updateSplashOn\(\)\) \{ showWhatsNew\(\); return false; \}/);
   assert.match(src, /label: "Show the update splash"/);
-  assert.match(fs.readFileSync(path.join(ui, "styles.css"), "utf8"), /\.splash-actions, \.splash-optout \{ animation: none; \}/);
+  assert.match(fs.readFileSync(path.join(ui, "styles.css"), "utf8"), /\.splash-actions, \.splash-optout\) \{ animation: none; \}/);
 });
 
 // UX-018: every schedule Remove asks first, names what stops, and points at Off.
@@ -2455,6 +2628,45 @@ test("Motion budget: at most three effects at once, each removed on time, the co
   assert.ok(strike && strike.kids.length >= 2, "the Wolf Run has no runner or trail");
 });
 
+test("Motion under load: a long task before app.js has loaded doesn't throw", () => {
+  // The load watch starts in motion.js, which loads before app.js declares state; a busy start-up
+  // (or a test run under parallel load) reported long tasks in between: "state is not defined".
+  const ctx = motionHarness({ appLoaded: false });
+  assert.doesNotThrow(() => ctx.longTasks(600));
+  assert.strictEqual(ctx.motionDiagnostics().drop, 1);
+  assert.doesNotThrow(() => ctx.advance(30000));  // the cooldown's applyMotion, still before app.js
+});
+
+test("Motion under load: long tasks past the budget drop effects a level for the cooldown, then it comes back", () => {
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  ctx.longTasks(300);
+  ctx.advance(5001);
+  ctx.longTasks(300);  // the first left the window, so this is 300 ms, not 600
+  assert.strictEqual(ctx.motionLevel(), 2, "dropped under the budget");
+  ctx.longTasks(250);
+  assert.strictEqual(ctx.motionLevel(), 1, "550 ms of long tasks in the window did not drop a level");
+  assert.strictEqual(ctx.document.documentElement.dataset.motionLevel, "1", "<html> still says the chosen level");
+  assert.strictEqual(ctx.fx(ctx.node(), "spark"), null, "a branded effect played under load");
+  assert.strictEqual(ctx.motionDiagnostics().skipped.level, 1);
+  ctx.advance(20000);
+  ctx.longTasks(600);  // more load during the cooldown neither drops again nor extends it
+  assert.strictEqual(ctx.motionLevel(), 1);
+  assert.strictEqual(ctx.motionDiagnostics().drop, 1);
+  ctx.advance(9999);
+  assert.strictEqual(ctx.motionLevel(), 1, "the cooldown ended early");
+  ctx.advance(1);
+  assert.strictEqual(ctx.motionLevel(), 2, "the cooldown ran past 30 s");
+  ctx.advance(50);
+  assert.strictEqual(ctx.document.documentElement.dataset.motionLevel, "2", "<html> was not told the level came back");
+  assert.ok(ctx.fx(ctx.node(), "spark"), "no spark after the cooldown");
+  const expressive = motionHarness({ settings: { motion_level: { value: 3 } } });
+  expressive.longTasks(600);
+  assert.strictEqual(expressive.motionLevel(), 2, "Expressive under load is not Refined");
+  const minimal = motionHarness({ settings: { motion_level: { value: 1 } } });
+  minimal.longTasks(600);
+  assert.strictEqual(minimal.motionLevel(), 1, "load took Minimal lower");
+});
+
 test("Forge events: every event names a real effect, unknown ones play nothing, and each is counted", () => {
   const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
   const events = vm.runInContext("FORGE_EVENTS", ctx);
@@ -2520,7 +2732,7 @@ test("a fold can start closed, and the choice made on this PC wins after that", 
   const localStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
   const h = (tag, attrs = {}, ...kids) => ({ tag, attrs, kids, classes: new Set(String(attrs.class || "").split(" ").filter(Boolean)),
     append(...k) { this.kids.push(...k); }, setAttribute(k, v) { this.attrs[k] = v; },
-    get classList() { const c = this.classes; return { toggle: (n, on) => (on ? c.add(n) : c.delete(n)) }; } });
+    get classList() { const c = this.classes; return { toggle: (n, on) => (on ? c.add(n) : c.delete(n)), contains: (n) => c.has(n) }; } });
   const ctx = { h, localStorage };
   vm.runInNewContext(`${src.match(/function foldable\([\s\S]*?\n}\n/)[0]}; this.f = foldable;`, ctx);
   assert.ok(!ctx.f("x", "Head", []).classes.has("folded"), "folds open unless asked");
@@ -2611,6 +2823,7 @@ test("the global key handlers and the Keyboard shortcuts dialog read one table",
   assert.ok(ctx.isShortcut(key(" "), "open") && ctx.isShortcut(key("Enter"), "open"));
   assert.ok(!ctx.isShortcut(key("ArrowLeft"), "menu") && ctx.isShortcut(key("ArrowLeft"), "tabs"));
   assert.ok(!ctx.isShortcut(key("x"), "nothing"));
+  assert.ok(ctx.isShortcut(key("ArrowLeft", { altKey: true }), "history") && !ctx.isShortcut(key("ArrowLeft"), "history"));
   // "?" typed in a box stays a character.
   const el = (tagName, inEditor = false) => ({ tagName, isContentEditable: false, closest: () => (inEditor ? {} : null) });
   assert.ok(ctx.typingIn(el("INPUT")) && ctx.typingIn(el("TEXTAREA")) && ctx.typingIn(el("DIV", true)));
@@ -2623,7 +2836,7 @@ test("the global key handlers and the Keyboard shortcuts dialog read one table",
   inNotebook = true;
   const groups = ctx.shortcutGroups();
   assert.deepStrictEqual([...groups.map(([g, list]) => [g, list.length])],
-    [["Anywhere", 3], ["Moving around", 2], ["Menus and tabs", 2], ["Notebook", 1]]);
+    [["Anywhere", 3], ["Moving around", 3], ["Menus and tabs", 2], ["Notebook", 1]]);
   assert.ok(!ctx.isShortcut(key("Enter", { shiftKey: true }), undefined), "an entry without an id matches nothing");
   // The dialog lists the registry, opens from the command bar and Settings, and points at the notebook keys.
   const dialog = features.match(/function shortcutsDialog\([\s\S]*?\n}\n/)[0];
@@ -2647,8 +2860,9 @@ test("every page links to its section of the user guide", () => {
   const views = new Map();
   for (const [, list] of all.matchAll(/views: \{([^}]*)\}/g)) for (const [, view, fn] of list.matchAll(/(\w+): (\w+)/g)) views.set(view, fn);
   assert.ok(views.size > 15, `only ${views.size} pages found`);
-  // The notebook's help belongs to its own guide; an agent's page has its link in the advice under its state.
-  const elsewhere = { notebook: null, agent: "agAdvice" };
+  // The notebook's help belongs to its own guide; an agent's page has its link in the advice under its state,
+  // and Monitor's is in monitorAbout beside its tabs.
+  const elsewhere = { notebook: null, agent: "agAdvice", monitor: "monitorAbout" };
   const missing = [...views].filter(([view, fn]) => {
     if (view in elsewhere) return elsewhere[view] && !(body(fn).includes(`${elsewhere[view]}(`) && body(elsewhere[view]).includes("learnMore("));
     return !/learnMore\(|howItWorks\(/.test(body(fn));
@@ -2662,7 +2876,7 @@ function navHarness({ stored = null, preview = true } = {}) {
   const store = new Map(stored ? [["fd.nav.last", JSON.stringify(stored)]] : []);
   const dialogRoot = { childElementCount: 0 };
   const ctx = {
-    console, h: () => ({}), icon: () => ({}), renders: 0,
+    console, h: () => ({}), icon: () => ({}), renders: 0, POP_OUT: null,
     state: { view: "home", meta: { tab: "overview", entity: null }, notebook: null, openWorkspace: null, lakehouseView: null, settingsTab: "general" },
     monitorPage: { panel: "runs" }, catalogPage: { tab: "catalog" }, optimizePage: { tab: "overview" },
     platformPage: { tab: "overview" }, gitPage: { tab: "changes" }, wlPage: { id: null }, incPage: { id: null, env_of: null },
@@ -3045,6 +3259,15 @@ test("the keys card says where keys come from instead of an LH_Keys MERGE", () =
   assert.match(card, /Keys come from \$\{e\.keys_from\}/);
 });
 
+// A running cell shows how far its spark query is when the engine can tell (spark_local.progress).
+test("a running cell shows its query's progress and drops it when the cell ends", () => {
+  const n = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(n, /cell\.progress = snap\.status === "running" \? snap\.progress \?\? null : null;/);
+  const line = /function statusLine\(cell\) \{[\s\S]*?\n\}\n/.exec(n)[0];
+  assert.match(line, /s === "running" && cell\.progress != null \? h\("span", \{ class: "cell-progress"/);
+  assert.match(line, /h\("progress", \{ max: 100, value: cell\.progress, "aria-label": "Query progress" \}\)/);
+});
+
 // PySpark on this PC: the notebooks page lists what KratosForge adds to DuckDB's Spark API.
 test("notebooks docs list the PySpark calls added on this PC", () => {
   const page = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
@@ -3247,7 +3470,7 @@ test("Profile opens from the account menu and the command bar, and Validate pass
   assert.match(p, /confirmDialog\("Delete your profile data\?"[\s\S]*?\{ danger: true, typeToConfirm: "DELETE" \}/);
   assert.match(p, /aria-valuenow/, "the XP bar has no progressbar values");
   assert.match(p, /const RECORDING_ON = "Recording is on: [^"]*Turn it off in Profile > Settings\."/);
-  assert.match(p, /a\.id === "first-flame"\) \? ` \$\{RECORDING_ON\}`/, "the first achievement toast doesn't say recording is on");
+  assert.match(p, /a\.first\) \? ` \$\{RECORDING_ON\}`/, "the first achievement toast doesn't say recording is on");
   const s = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   assert.match(s, /previewShown\(\) \? \{ label: "Profile \(Preview\)"/);
   assert.match(s, /showMenu\(anchor, items\.filter\(Boolean\)\)/);
@@ -3276,7 +3499,7 @@ test("the profile report preview renders headings, bullets and source tags witho
 // cell's language.
 test("Ctrl+Shift+Enter runs the selection or the cursor's line, dedented, with the cell's magic", () => {
   const src = fs.readFileSync(path.join(ui, "nbselect.js"), "utf8");
-  const ctx = { document: { addEventListener() {} }, MAGIC: { sql: "%%sql", html: "%%html" } };
+  const ctx = { document: { addEventListener() {} }, registerShortcuts() {}, MAGIC: { sql: "%%sql", html: "%%html" } };
   vm.createContext(ctx);
   vm.runInContext(`${src}\nthis.f = selectionCode;`, ctx);
   ctx.cellLang = (c) => c.lang;
@@ -3288,6 +3511,8 @@ test("Ctrl+Shift+Enter runs the selection or the cursor's line, dedented, with t
   const sql = { lang: "sql" };
   assert.strictEqual(ctx.f(sql, "%%sql\nSELECT 1;\nSELECT 2", 16, 24), "%%sql\nSELECT 2");
   assert.strictEqual(ctx.f(sql, "%%sql\nSELECT 1", 2, 2), null);  // the magic line alone
+  assert.strictEqual(ctx.f(sql, "%sql\nSELECT 1;\nSELECT 2", 15, 23), "%sql\nSELECT 2");  // Databricks' %sql stays %sql
+  assert.strictEqual(ctx.f(sql, "%sql\nSELECT 1", 2, 2), null);
 });
 
 test("several selected cells: the notebook hooks are in place", () => {
@@ -3305,13 +3530,29 @@ test("a collapsed heading hides the cells up to the next heading of the same or 
   const src = fs.readFileSync(path.join(ui, "nbcells.js"), "utf8");
   const ctx = { document: { addEventListener() {} } };
   vm.createContext(ctx);
-  vm.runInContext(`${src}\nthis.f = { collapsedCells, headingLevel, visibleCells };`, ctx);
+  vm.runInContext(`${src}\nthis.f = { collapsedCells, headingLevel, visibleCells };\nthis.markdownHeadings = markdownHeadings;`, ctx);
   const { collapsedCells, headingLevel, visibleCells } = ctx.f;
   const md = (id, source, collapsed) => ({ id, type: "markdown", source, meta: collapsed ? { heading_collapsed: true } : {} });
   const code = (id) => ({ id, type: "code", source: "# not a heading", meta: { heading_collapsed: true } });
   assert.strictEqual(headingLevel(md(1, "Intro\n\n## Two")), 2);
   assert.strictEqual(headingLevel(md(1, "#hashtag")), 0);
   assert.strictEqual(headingLevel(code(1)), 0);
+  // A comment inside a fenced code block isn't a heading.
+  assert.strictEqual(headingLevel(md(1, "Example:\n```python\n# load the table\n```")), 0);
+  assert.strictEqual(headingLevel(md(1, "~~~\n# x\n~~~\n### After")), 3);
+  assert.strictEqual(headingLevel(md(1, "````\n```\n# x\n````\n## Out")), 2);
+  // A fence with an info string doesn't close one (CommonMark).
+  assert.strictEqual(headingLevel(md(1, "```\n```python\n# x\n```\n### After")), 3);
+  // Setext headings: a line underlined with === is level 1, with --- level 2; a --- after a blank line or a list isn't.
+  assert.strictEqual(headingLevel(md(1, "Title\n=====")), 1);
+  assert.strictEqual(headingLevel(md(1, "Intro text\n\nSection\n---")), 2);
+  assert.strictEqual(headingLevel(md(1, "Some text\n\n---\n")), 0);
+  assert.strictEqual(headingLevel(md(1, "- item\n---")), 0);
+  assert.strictEqual(headingLevel(md(1, "    indented code\n---")), 0);  // an indented code line isn't heading text
+  assert.strictEqual(headingLevel(md(1, "- item\ncontinues here\n---")), 0);  // nor a list item's next line
+  assert.strictEqual(headingLevel(md(1, "- item\n\nAfter the list\n---")), 2);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(ctx.markdownHeadings("A long\ntitle\n===\n\n## Next"))),
+    [{ level: 1, text: "A long title" }, { level: 2, text: "Next" }]);
   const cells = [md(1, "# A", true), code(2), md(3, "## A.1", true), code(4), md(5, "# B"), code(6), md(7, "### C", true), code(8)];
   const { hidden, counts } = collapsedCells(cells);
   assert.deepStrictEqual([...hidden].sort(), [2, 3, 4, 8]);
@@ -3365,7 +3606,7 @@ test("dropping a table or file inserts its load code on an empty line, else its 
 // the replacement, and edits applied from the end of a cell.
 test("notebook find matches every cell with case, whole word and regex, and replaces with groups", () => {
   const src = fs.readFileSync(path.join(ui, "nbfind.js"), "utf8");
-  const ctx = { CM: { StateEffect: { define: () => ({}) } }, document: { addEventListener() {} } };
+  const ctx = { CM: { StateEffect: { define: () => ({}) } }, document: { addEventListener() {} }, registerShortcuts() {} };
   vm.createContext(ctx);
   vm.runInContext(`${src}\nthis.f = { findMatches, findReplacement, findApply };`, ctx);
   const { findMatches, findReplacement, findApply } = ctx.f;
@@ -3446,6 +3687,37 @@ test("cell comments: mentions, selected lines and the panel's rows", () => {
   for (const hook of ["commentBadge(cell)", "commentMenuItems(cell)", "commentsToggle(nb)", "commentsPanel(nb)"]) assert.ok(nb.includes(hook), hook);
 });
 
+// The notebook's Best practices panel (nbpractices.js): the engine's cell numbers map back to the
+// notebook's cells (markdown cells aren't sent), counts by severity, and the panel is wired in.
+test("notebook best practices: cell numbers, counts and wiring", () => {
+  const src = fs.readFileSync(path.join(ui, "nbpractices.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(/const PRACTICE_SEVERITIES = .*\n/.exec(src)[0].replace("const ", "var "), ctx);
+  for (const name of ["practiceSources", "practiceRows", "practiceLabel"]) {
+    vm.runInContext(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`).exec(src)[0], ctx);
+  }
+  const plain = (v) => JSON.parse(JSON.stringify(v));
+  const cells = [{ type: "markdown", source: "# Load" }, { type: "code", source: "rows = df.collect()" },
+    { type: "markdown", source: "note" }, { type: "code", source: "" }];
+  const { sources, at } = ctx.practiceSources(cells);
+  assert.deepStrictEqual(plain(sources), ["rows = df.collect()", ""]);
+  const got = ctx.practiceRows({ findings: [{ rule_id: "NB003", severity: "Warning", cell: 1, line: 1 },
+    { rule_id: "NB001", severity: "Error", cell: 2, line: 3 }] }, at);
+  assert.deepStrictEqual(plain(got.rows.map((f) => [f.rule_id, f.n])), [["NB003", 2], ["NB001", 4]], "engine cell 1 is notebook cell 2");
+  assert.deepStrictEqual(plain(got.counts), { Error: 1, Warning: 1, Info: 0 });
+  assert.strictEqual(ctx.practiceLabel({ open: true, rows: got.rows }), "Best practices · 2");
+  assert.strictEqual(ctx.practiceLabel({ open: false, rows: got.rows }), "Best practices");
+  assert.strictEqual(ctx.practiceLabel(undefined), "Best practices");
+  // Read only: it never runs a cell or writes; findings only ever become text nodes.
+  assert.doesNotMatch(src, /innerHTML|runCell|markDirty|rpc\("(save|run)/);
+  assert.match(src, /rpc\("governance_practice_settings", \{ kind: "notebook" \}\)/);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  for (const hook of ["practicesToggle(nb)", "practicesPanel(nb)"]) assert.ok(nb.includes(hook), hook);
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="nbpractices.js"') > html.indexOf('src="notebook-comments.js"'));
+});
+
 // Notebook parity L3: a notebook's Runs panel lists this PC's scheduled runs and its Fabric runs.
 test("the notebook Runs panel labels each run and offers Refresh status only for Fabric runs still going", () => {
   const src = fs.readFileSync(path.join(ui, "runs.js"), "utf8");
@@ -3506,7 +3778,7 @@ this.payload = nbfExportPayload; this.menu = nbfExportMenu; this.b64 = nbfBase64
     "Fabric source (.py)", "Databricks source (.py)", "Web page (.html)"]);
   const bytes = new Uint8Array(70000).map((_, i) => i % 251);
   assert.strictEqual(ctx.b64(bytes.buffer), Buffer.from(bytes).toString("base64"));
-  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /btn\("Save a copy", "add", \(\) => nbSaveCopyDialog\(nb\.name\)\),[^\n]*nbfExportButton\(\),/);
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /ribbonMenu\("Share", [^\n]*btn\("Save a copy", "add", \(\) => nbSaveCopyDialog\(nb\.name\)\),[^\n]*nbfExportButton\(menu\)\]/);
   assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /btn\("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"\)/);
   assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /nbFormats: "Notebook import and export formats"/);
   assert.match(src, /changes: "Writes one new notebook file \(\.ipynb\) for each notebook in the file/);
@@ -3590,6 +3862,16 @@ test("Settings history names capacities, filters by scope and asks before creati
   await ctx.read("tenant_settings_read", "Tenant settings");
   assert.strictEqual(JSON.stringify(ctx.toasts.at(-1)), '["Tenant settings: Only a Fabric administrator can read tenant settings.",true]');
   assert.strictEqual(ctx.renders, 2);
+  // Include capacity overrides passes admin, and says when the capacities were read but the overrides weren't.
+  ctx.calls.length = 0;
+  for (const [overrides, toast] of [["read", '["Capacities read: nothing changed",false]'],
+    ["unreadable", '["Capacities read: nothing changed. Overrides weren\'t read: only a Fabric administrator can read them.",true]'],
+    ["failed", '["Capacities read: nothing changed. Overrides couldn\'t be read this time.",true]']]) {
+    ctx.rpc = async (method, args) => (ctx.calls.push([method, JSON.stringify(args)]), { outcome: "read", overrides, changes: [] });
+    await ctx.read("capacity_settings_read", "Capacities", { admin: true });
+    assert.strictEqual(JSON.stringify(ctx.toasts.at(-1)), toast);
+  }
+  assert.ok(ctx.calls.every(([, a]) => a === '{"admin":true}'), JSON.stringify(ctx.calls));
 
   const how = src.match(/howItWorks\("optimize\.settings", \{[\s\S]*?\n  \}\)/)[0];
   for (const t of ["fdcap_snapshot", "fdcap_change", "fdcap_read", "fdten_snapshot", "fdten_change", "fdten_read", "no tenant or capacity setting is ever changed", "asks before it creates the tables"]) {
@@ -3649,7 +3931,7 @@ function chartsHarness(answer) {
     document: { createElementNS: (_ns, tag) => node(tag) },
     rpc: async (m, a) => { calls.push([m, a]); return typeof answer === "function" ? answer(a) : answer; } };
   vm.createContext(ctx);
-  vm.runInContext(src + "\nthis.api = { chartConfig, renderChartBuilder, chartSvg };", ctx);
+  vm.runInContext(src + "\nthis.api = { chartConfig, renderChartBuilder, chartSvg, addChart, removeChart, chartName, chartCount };", ctx);
   return { ctx, calls, dirty: () => dirty, node };
 }
 const allNodes = (n, out = []) => { if (n && typeof n === "object") { out.push(n); (n.kids || []).forEach((k) => allNodes(k, out)); } return out; };
@@ -3679,6 +3961,47 @@ test("the chart builder asks the engine for every row and keeps the cell's chart
   assert.match(nb, /o\.view \|\|= o\.summary \? "inspect" : o\.frame && cell\?\.meta\?\.chart \? "chart" : "table";/);
   assert.match(nb, /previewMarked\("chartBuilder"/);
   assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="notebook\.js"><\/script>\n  <script src="charts\.js"><\/script>/);
+});
+
+test("one result keeps several charts, each with its own settings in the cell", async () => {
+  const d = { kind: "bar", rows: 2, truncated: false, categories: ["East"], series: [{ name: null, values: [1] }] };
+  const { ctx, calls, dirty } = chartsHarness(d);
+  const o = { frame: "f", columns: ["region", "month", "amount"], rows: [["East", "Jan", 1]] };
+  const cell = { meta: {} };
+  const numeric = [false, false, true];
+  assert.strictEqual(ctx.api.chartCount(cell), 1);
+  assert.strictEqual(ctx.api.chartName(cell, 0), "Chart");
+  assert.strictEqual(ctx.api.addChart(o, numeric, cell), 1);
+  assert.strictEqual(ctx.api.chartCount(cell), 2);
+  assert.ok(cell.meta.chart, "adding a chart saves the first one too, where older builds read it");
+  assert.strictEqual(ctx.api.chartName(cell, 1), "Chart 2");
+  let removed = null;
+  const box = ctx.api.renderChartBuilder(o, numeric, cell, 1, (n, what) => { removed = [n, what]; });
+  const x = allNodes(box).find((n) => n.tag === "select" && n.attrs["aria-label"] === "X axis");
+  x.attrs.onchange({ target: { value: "month" } });
+  assert.strictEqual(cell.meta.charts[0].x, "month");
+  assert.strictEqual(cell.meta.chart.x, "region", "a second chart's settings stay its own");
+  assert.strictEqual(ctx.api.chartConfig(o, numeric, cell, 0).x, "region");
+  const title = allNodes(box.replaced).find((n) => n.tag === "input");
+  title.value = "Amount by month, all regions in one chart";
+  title.listeners.change();
+  assert.deepStrictEqual(removed, [1, "renamed"]);
+  assert.strictEqual(ctx.api.chartName(cell, 1), "Amount by month, all re…");
+  const twins = { meta: { chart: { title: "Sales" }, charts: [{ title: "Sales" }, { title: "Sales" }] } };
+  assert.deepStrictEqual([0, 1, 2].map((n) => ctx.api.chartName(twins, n)), ["Sales", "Sales (2)", "Sales (3)"]);
+  assert.ok(dirty() >= 3);
+  assert.ok(!allNodes(ctx.api.renderChartBuilder(o, numeric, cell, 0)).some((n) => n.tag === "button" && n.kids.includes("Remove chart")));
+  const rm = allNodes(box.replaced).find((n) => n.tag === "button" && n.kids.includes("Remove chart"));
+  rm.attrs.onclick();
+  assert.deepStrictEqual(removed, [1, "removed"]);
+  assert.strictEqual(cell.meta.charts, undefined);
+  assert.strictEqual(ctx.api.chartCount(cell), 1);
+  await new Promise((r) => setImmediate(r));
+  assert.ok(calls.length >= 2);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /previewMarked\("severalCharts"/);
+  assert.match(nb, /charts < MAX_CHARTS/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /severalCharts: "Several charts per result"/);
 });
 
 test("every chart kind draws marks with a tooltip, and an empty result says so", () => {
@@ -3849,7 +4172,7 @@ test("parameters and widgets bar sits above the cells and adds its values to the
   assert.match(nb, /code: cell\.source \+ nbInputSuffix\(cell\)/);
   const bar = fs.readFileSync(path.join(ui, "nbinputs.js"), "utf8");
   assert.match(bar, /previewMarked\("inputs"/);
-  assert.match(bar, /Runs on this PC use these values; the notebook's code doesn't change\./);
+  assert.match(bar, /Runs on this PC, in Fabric and side by side use these values; the notebook's code doesn't change\./);
   assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /inputs: "Parameters and widgets bar"/);
   const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
   assert.ok(html.indexOf('<script src="nbinputs.js"></script>') > html.indexOf('<script src="notebook.js"></script>'));
@@ -3902,6 +4225,51 @@ test("variables filter on name or type and sort by name, type or memory with unk
   assert.deepStrictEqual(names({ sort: "name", desc: true }), ["sdf", "sales", "Count", "cfg"]);
   assert.strictEqual(rows[0].name, "sales");  // the kernel's rows aren't reordered
   assert.doesNotMatch(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /function variableTable/);
+});
+
+// Notebook %pip: the magics page says installs go to the notebook's own environment.
+test("the magics page documents %pip installing into the notebook's environment", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /## Installing packages with %pip/);
+  assert.match(doc, /\(notebooks\.md#notebook-environments-preview\)/);
+});
+
+// Notebook %autoreload: the magics page documents autoreload and %aimport.
+test("the magics page documents %autoreload and %aimport", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /### Editing your own modules: %autoreload/);
+  assert.match(doc, /`%load_ext autoreload`, `%autoreload 2`, `%aimport name`/);
+});
+
+// Notebook %run -b: the magics and resources pages say how to run a file from Built-in resources.
+test("the magics page documents %run -b and the resources page links to it", () => {
+  const root = path.join(__dirname, "..", "..");
+  const magicsDoc = fs.readFileSync(path.join(root, "docs", "notebook-magics.md"), "utf8");
+  assert.match(magicsDoc, /### Running a file from the notebook's resources: %run -b/);
+  assert.match(fs.readFileSync(path.join(root, "docs", "notebook-resources.md"), "utf8"), /notebook-magics\.md#running-a-file-from-the-notebooks-resources-run-b/);
+});
+
+test("a workload page says whether its actions reached the platform's audit", () => {
+  const src = fs.readFileSync(path.join(ui, "workloads.js"), "utf8");
+  const fn = /function platformAuditNote\([\s\S]*?\n}\n/.exec(src)[0];
+  const ctx = { h: (tag, attrs, ...kids) => kids.join("") };
+  vm.runInNewContext(`${fn}this.f = platformAuditNote;`, ctx);
+  assert.strictEqual(ctx.f(null), null);
+  assert.strictEqual(ctx.f({ platform: "this_pc", waiting: 0 }), "Each one is also on Platform > Govern > Audit.");
+  assert.match(ctx.f({ platform: "fabric", waiting: 2, error: "Signed out." }),
+    /^2 actions or changes haven't reached Platform > Govern > Audit yet: Signed out\. This PC keeps them/);
+  assert.match(ctx.f({ platform: "fabric", waiting: 1, error: "" }), /^1 action or change hasn't reached Platform > Govern > Audit yet\. /);
+  assert.match(ctx.f({ platform: "none", waiting: 3 }), /^Kept on this PC only: there's no platform yet\. 3 actions/);
+  assert.strictEqual(ctx.f({ platform: "none", waiting: 0 }), "Kept on this PC only: there's no platform yet.");
+});
+
+test("the notebook, several-cells and find keys are listed in the Keyboard shortcuts dialog", () => {
+  for (const [file, group, key] of [["notebook.js", "Notebook", "Shift+Enter"], ["nbselect.js", "Notebook: several cells", "Shift+M"], ["nbfind.js", "Notebook: find and replace", "Ctrl+H"]]) {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    const at = src.indexOf(`registerShortcuts(${JSON.stringify(group)}`);
+    assert.ok(at > 0, `${file} registers ${group}`);
+    assert.ok(src.slice(at, src.indexOf("]);", at)).includes(`"${key}"`), `${group} lists ${key}`);
+  }
 });
 
 // ipywidgets (ipywidgets.js): the kernel holds the state; a change goes to notebook_ipywidget_event and the answer is drawn.
@@ -3974,3 +4342,847 @@ test("a widget after a restart asks for its cell again, and a busy kernel's refu
   const d = busy.ctx.api.drawWidget({ id: "w9", kind: "slider", description: "", disabled: true, value: 1, min: 0, max: 2, step: 1 }, () => {}, null, 0);
   assert.strictEqual(allNodes(d).find((n) => n.tag === "input").attrs.disabled, true);
 });
+
+// notebookutils.udf.getFunctions lists a User data functions item; calls run in Fabric.
+test("notebook docs describe udf.getFunctions as read only, Preview", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /\| `udf` \(Preview\) \| `getFunctions\(name, workspaceId\)` reads a User data functions item as you/);
+  assert.match(doc, /Calling a function runs it in Fabric on its workspace's capacity, so on this PC the call says so instead/);
+});
+
+// Altair charts (renderVegaLite): the spec goes into the frame's script with every < escaped, so text in
+// the data can't end the script tag, and the Vega libraries are the vendored build, not a CDN.
+test("an Altair chart's spec can't break out of the frame's script", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(/function vegaPage\([\s\S]*?\n}\n/.exec(nb)[0] + "\nthis.vegaPage = vegaPage;", ctx);
+  const evil = "</script><script>parent.postMessage('x','*')</script><!--";
+  const page = ctx.vegaPage("/* vega */", { data: { values: [{ name: evil }] }, mark: "bar" });
+  assert.strictEqual(page.match(/<\/script>/g).length, 2, "only the page's own two scripts end");
+  assert.ok(!page.includes(evil) && !page.includes("<!--"));
+  const json = /vegaEmbed\("#chart", ([\s\S]*?), \{ actions/.exec(page)[1];
+  assert.strictEqual(JSON.parse(json).data.values[0].name, evil, "the spec arrives unchanged");
+  const loader = /function loadVega\([\s\S]*?\n}\n/.exec(nb)[0];
+  assert.match(loader, /script\.src = "vendor\/vega\/vega-frame\.js"/);
+  const built = fs.readFileSync(path.join(ui, "vendor", "vega", "vega-frame.js"), "utf8");
+  assert.match(built.split("\n")[0], /vega 6\.4\.0, vega-lite 6\.4\.3, vega-embed 7\.3\.0/);
+  assert.ok(!/<\/script|<!--/i.test(built));
+});
+
+// Folders for notebooks (notebook-files.js, notebook_folders_service.py): the grouped tree, where a
+// notebook can move, and the folder actions' wiring.
+function notebookFolderHelpers() {
+  const src = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
+  const ctx = { registerFeature() {} };
+  vm.runInNewContext(`${src}; Object.assign(this, { nbFolderTree, nbFolderChoices, nbNameInFolder, nbLeaf, nbFolderOf, nbFolderDepth, nbRenameProblemLines });`, ctx);
+  return ctx;
+}
+
+test("notebooks group into a folder tree per place, with counts that include subfolders and empty folders", () => {
+  const { nbFolderTree } = notebookFolderHelpers();
+  const repo = { root: "C:/r", label: "repo" };
+  const list = [{ name: "Sales/Daily load" }, { name: "Sales/Archive/Q1" }, { name: "Top" }, { name: "Silver/Orders", place: repo }];
+  const folders = [{ path: "Sales", place: null }, { path: "Sales/Archive", place: null }, { path: "Scratch", place: null }, { path: "Silver", place: repo }];
+  const tree = nbFolderTree(list, folders);
+  const plain = (f) => ({ name: f.name, count: f.count, books: f.notebooks.map((n) => n.name), sub: f.folders.map(plain) });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(tree.folders.map(plain))), [
+    { name: "Sales", count: 2, books: ["Sales/Daily load"], sub: [{ name: "Archive", count: 1, books: ["Sales/Archive/Q1"], sub: [] }] },
+    { name: "Scratch", count: 0, books: [], sub: [] },
+    { name: "Silver", count: 1, books: ["Silver/Orders"], sub: [] },
+  ]);
+  assert.deepStrictEqual([...tree.loose.map((n) => n.name)], ["Top"]);
+  // A notebook in a folder the folder listing hasn't caught up with still gets its folder.
+  assert.strictEqual(nbFolderTree([{ name: "New/X" }], []).folders[0].count, 1);
+});
+
+test("a notebook moves to folders of its own place, keeping its own name", () => {
+  const { nbFolderChoices, nbNameInFolder, nbLeaf, nbFolderOf, nbFolderDepth } = notebookFolderHelpers();
+  const repo = { root: "C:/r", label: "repo" };
+  const folders = [{ path: "Sales" }, { path: "Finance", place: null }, { path: "Silver", place: repo }];
+  assert.deepStrictEqual([...nbFolderChoices(folders, null)], ["", "Finance", "Sales"]);
+  assert.deepStrictEqual([...nbFolderChoices(folders, repo)], ["", "Silver"]);
+  assert.strictEqual(nbNameInFolder("Explore orders", "Sales"), "Sales/Explore orders");
+  assert.strictEqual(nbNameInFolder("Sales/Archive/Q1", ""), "Q1");
+  assert.deepStrictEqual([nbLeaf("A/B/C"), nbFolderOf("A/B/C"), nbFolderOf("C"), nbFolderDepth("A/B"), nbFolderDepth("")], ["C", "A/B", "", 2, 0]);
+});
+
+test("folder actions are wired: a menu entry, New folder, the empty-only delete in red, Preview on publish, docs", () => {
+  const files = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
+  assert.match(files, /label: "Move to folder…", icon: "folder", action: \(\) => nbMoveToFolderDialog\(n, folders\)/);
+  assert.match(files, /btn\("New folder", "folder", \(\) => nbNewFolderDialog\(null/);
+  assert.match(files, /confirmDialog\(`Delete folder \$\{f\.path\}\?`, .*"Delete", \{ danger: true \}\)/);
+  // A folder with notebooks in it is refused before anything is asked or sent.
+  assert.match(files, /if \(f\.count\) \{\n\s+nbFolderRefusal\(f, /);
+  assert.match(files, /previewMarked\("notebookFolderPublish", /);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /notebookFolderPublish: "Publishing notebooks from folders"/);
+  for (const m of ["notebook_folders", "notebook_folder_create", "notebook_folder_rename", "notebook_folder_delete", "notebook_move_to_folder"]) {
+    assert.ok(files.includes(`"${m}"`), `the UI calls ${m}`);
+  }
+  assert.match(files, /function nbFoldersHowItWorks\(\)/);
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /tab\("notebooks", "Notebooks"\)/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /rpc\("new_notebook", into\?\.folder \? \{ place, folder: into\.folder \} : \{ place \}\)/);
+  const root = path.join(__dirname, "..", "..");
+  for (const f of ["README.md", "docs/README.md", "docs/user-guide.md", "zensical.toml"]) {
+    assert.match(fs.readFileSync(path.join(root, f), "utf8"), /notebook-folders\.md/, `${f} links the folders page`);
+  }
+});
+
+test("a move that leaves something behind names it and says what to do", () => {
+  const { nbRenameProblemLines } = notebookFolderHelpers();
+  const lines = nbRenameProblemLines([{ notebook: "EMEA/B", was: "Sales/B", step: "schedules", error: "OSError: disk full" }]);
+  assert.deepStrictEqual([...lines], ["EMEA/B (was Sales/B): its schedules didn't follow (OSError: disk full). Open Monitor > Schedules and point its schedule on this PC at the new name."]);
+  assert.deepStrictEqual([...nbRenameProblemLines([])], []);
+  const files = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
+  assert.strictEqual(files.match(/nbRenameWarning\((out|ok)\.problems\)/g).length, 3);
+});
+
+test("Format code (nbformat.js): the engine call, its hooks in notebook.js and the shortcut", () => {
+  const src = fs.readFileSync(path.join(ui, "nbformat.js"), "utf8");
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="nbformat.js"') > html.indexOf('src="notebook.js"'));
+  assert.match(src, /rpc\("notebook_format", \{ sources: sent \}\)/);
+  assert.match(src, /c\.source === sent\[i\]/, "a cell typed in while formatting keeps what was typed");
+  assert.match(nb, /\{ key: "Shift-Alt-f", run: \(\) => \{ formatCells\(\[cell\]\); return true; \} \}/);
+  assert.match(nb, /btn\("Format notebook", "code", formatNotebook/);
+  assert.match(nb, /label: "Format cell"/);
+  assert.match(src, /registerShortcuts\("Notebook", \[\s*\{ keys: \["Shift\+Alt\+F"\]/);
+});
+
+// Notebook history: the magics page documents In, Out and %history.
+test("the magics page documents In, Out and %history", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /\| `In`, `Out`, `_`, `__`, `___`/);
+  assert.match(doc, /\| `%history`, `%history -n 4-6`/);
+});
+
+// Spark on this PC: createDataFrame takes a DDL schema string.
+test("the Spark on this PC page says createDataFrame reads a DDL schema string", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`spark.createDataFrame` takes a list of column names, a `StructType` or a DDL string/);
+  assert.match(doc, /A `NOT NULL` field\nrefuses a row with a null there/);
+});
+
+// Magics hardening: the magics page says how to write Windows paths with spaces.
+test("the magics page says to quote paths with spaces and keeps backslashes", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /Put a path with spaces in quotes/);
+  assert.match(doc, /inside double quotes `\\"` is a quote/);
+});
+
+// Spark on this PC: the NOT NULL check names PySpark's error and verifySchema.
+test("the Spark on this PC page names the NOT NULL error and verifySchema", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`\[FIELD_NOT_NULLABLE_WITH_NAME\]` error; `verifySchema=False` skips the check/);
+});
+
+// Spark on this PC: NOT NULL covers array elements and map values.
+test("the Spark on this PC page says NOT NULL covers array elements and map values", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /for array elements or map values a `StructType` declares\nnon-nullable/);
+});
+
+// Spark on this PC: an empty struct<> is refused with a clear message.
+test("the Spark on this PC page says an empty struct<> isn't supported", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /An empty `struct<>` isn't supported here/);
+});
+
+// Magics: _sqldf follows the last statement with -- and /* */ comments skipped.
+test("the magics page says _sqldf reads the last statement past comments", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /What counts is the cell's last statement,\n  with `--` and `\/\* \*\/` comments skipped/);
+});
+
+// Magics: %timeit names options it doesn't take; %who filters by type.
+test("the magics page says %timeit -o isn't supported and %who filters by type", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /Other IPython options such as `-o` and `-q` say they aren't supported/);
+  assert.match(doc, /`%who str int` lists only those types/);
+});
+
+// Magics: %pip takes combined quiet flags and refuses options after a package in a requirements file.
+test("the magics page says %pip takes -qU and refuses options after a package", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /even after a\n  package on the same line/);
+  assert.match(doc, /\(also combined, like `-qU`\) and `-rfile.txt` work as\n  in pip/);
+});
+
+// Magics: autoreload repoints a number or string only under its own name.
+test("the magics page says autoreload leaves your own values alone", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /A number or string follows only\n  under its own name/);
+  assert.match(doc, /also `pip install --user`\n  ones/);
+});
+
+// Magics: %run and %%writefile refuse what they would otherwise drop.
+test("the magics page says %run and %%writefile refuse leftover words", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /Anything else on the line is an\n  error rather than being dropped/);
+  assert.match(doc, /A name with spaces needs quotes, or the cell says so instead of writing to the first word/);
+});
+
+// Magics: %env says when a name can't be set.
+test("the magics page says %env refuses a name it can't set", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /`%env 1BAD=x` says so instead of doing nothing/);
+});
+
+// Magics: a CTE that inserts isn't a query; %env's space form explains a bad name.
+test("the magics page says WITH ... INSERT is a write and covers %env 1BAD x", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /`WITH x AS \(\.\.\.\) INSERT INTO \.\.\.` is a write, not a query/);
+  assert.match(doc, /and so does `%env 1BAD x`/);
+});
+
+// Spark on this PC: sample, dropna and unpivot check their arguments.
+test("the Spark on this PC page says sample, dropna and unpivot check arguments as Spark does", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`sample`, `dropna` and `unpivot` check their arguments as Spark does/);
+});
+
+// Spark on this PC: na functions and describe refuse unknown columns.
+test("the Spark on this PC page says na functions name a missing column", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`\[UNRESOLVED_COLUMN\]` error instead of skipping it, and `replace` refuses lists of different lengths/);
+});
+
+// Spark on this PC: agg's dict form works after groupBy and pivot.
+test("the Spark on this PC page says agg takes a dict after groupBy and pivot", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`agg` takes Spark's `\{column: function\}` form after `groupBy` and `pivot` too/);
+});
+
+// Spark on this PC: drop and withColumnRenamed skip a missing column, as Spark does.
+test("the Spark on this PC page says drop and withColumnRenamed skip a missing column", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`drop` and `withColumnRenamed` match names ignoring case and skip a column that isn't there/);
+});
+
+// Spark on this PC: dropping every column says why it can't.
+test("the Spark on this PC page says dropping every column is an error", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /Dropping every column is an error here: Spark keeps a frame with no columns/);
+});
+
+// Spark on this PC: summary takes statistics and adds quartiles.
+test("the Spark on this PC page says summary takes statistics and adds quartiles", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`summary` takes statistics, not columns, and\nadds the quartiles/);
+});
+
+// Spark on this PC: substring position 0 and concat with a NULL match Spark.
+test("the Spark on this PC page says substring counts position 0 as 1 and concat keeps NULL", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`substring` counts position 0 as 1 and `concat` is NULL when any input is NULL/);
+});
+
+// Spark on this PC: initcap lower-cases the rest of each word.
+test("the Spark on this PC page says initcap lower-cases the rest of each word", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`initcap` lower-cases the rest of each word, as Spark does/);
+});
+
+// Spark on this PC: unix_timestamp takes dates and timestamps.
+test("the Spark on this PC page says unix_timestamp takes a date or timestamp", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`unix_timestamp` takes a date or timestamp as well as text, reads it in the session\ntime zone/);
+});
+
+// Spark on this PC: unix_timestamp without a year starts from 1970, as Spark does.
+test("the Spark on this PC page says a pattern without a year reads from 1970-01-01", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /A pattern without a year reads its date from 1970-01-01, as Spark does/);
+});
+
+// Spark on this PC: quoted repeated pattern letters, groupBy() and ignorenulls.
+test("the Spark on this PC page covers quoted 'yyyy', groupBy() and first/last ignoring NULLs", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /Quoted text that repeats a pattern letter \(`'yyyy'`\)/);
+  assert.match(doc, /`groupBy\(\)` with no columns aggregates the whole frame/);
+});
+
+// Query profile (qprofile.js): runs only when asked, says it reads OneLake again, and lists each step.
+test("the query profile runs only when asked, warns about capacity and lists each step with its share", async () => {
+  const src = fs.readFileSync(path.join(ui, "qprofile.js"), "utf8");
+  const { node } = chartsHarness(null);
+  const calls = [];
+  let copied = null;
+  let answer = { seconds: 1.38, rows: 6, rows_scanned: 12480113, peak_memory: 212 * 1024 * 1024, more_steps: 0, steps: [
+    { depth: 0, name: "ORDER_BY", rows: 6, seconds: 0.001, share: 0.001, details: { "Order By": "revenue DESC" } },
+    { depth: 1, name: "HASH_GROUP_BY", rows: 6, seconds: 0.29, share: 0.21, details: { Groups: "region" } },
+    { depth: 2, name: "SEQ_SCAN", rows: 12480113, seconds: 0.97, share: 0.71, details: { Table: "silver.orders", Filters: "status='shipped'" } }] };
+  const ctx = { h: node, friendlyError: (e) => `failed: ${e.message}`, toast: () => {}, attempt: (fn) => fn(),
+    btn: (label, _i, onclick, _c, attrs = {}) => node("button", { onclick, ...attrs }, label),
+    navigator: { clipboard: { writeText: async (t) => { copied = t; } } },
+    rpc: async (m, a) => { calls.push([m, a]); if (answer instanceof Error) throw answer; return answer; } };
+  vm.createContext(ctx);
+  vm.runInContext(src + "\nthis.api = { renderQueryProfile, qprofileText, qprofileBytes };", ctx);
+  const o = { frame: "f", spark: true };
+  const box = ctx.api.renderQueryProfile(o);
+  assert.strictEqual(calls.length, 0, "nothing runs until asked");
+  const text = (n) => allNodes(n).flatMap((x) => x.kids.filter((k) => typeof k === "string")).join(" ");
+  assert.match(text(box), /read from OneLake again, which uses capacity/);
+  allNodes(box).find((n) => n.tag === "button" && n.kids.includes("Profile the query")).attrs.onclick();
+  await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(plain(calls[0]), ["notebook_frame_query_profile", { frame: "f" }]);
+  const t = text(box);
+  assert.match(t, /Read table/);
+  assert.match(t, /silver\.orders/);
+  assert.match(t, /Slowest step/);
+  assert.match(t, /12,480,113/);
+  assert.match(t, /212 MB/);
+  const slow = allNodes(box).filter((n) => n.tag === "tr" && n.attrs.class === "slowest");
+  assert.strictEqual(slow.length, 1);
+  assert.match(text(slow[0]), /Read table/);
+  allNodes(box).find((n) => n.tag === "button" && n.kids.includes("Copy as text")).attrs.onclick();
+  await new Promise((r) => setImmediate(r));
+  assert.match(copied, /^Query profile: 1\.38 s/);
+  assert.match(copied, /\n    Read table \(silver\.orders\): 12,480,113 rows, 0\.97 s, 71%/);
+  // A restart since the result says to run the cell again; an error keeps the last profile.
+  answer = new Error("boom");
+  allNodes(box).find((n) => n.tag === "button" && n.kids.includes("Run again")).attrs.onclick();
+  await new Promise((r) => setImmediate(r));
+  assert.match(text(box), /failed: boom/);
+  assert.match(text(box), /Read table/);
+  answer = { gone: true };
+  allNodes(box).find((n) => n.tag === "button" && n.kids.includes("Run again")).attrs.onclick();
+  await new Promise((r) => setImmediate(r));
+  assert.match(text(box), /Run the cell again/);
+  assert.strictEqual(ctx.api.qprofileBytes(1.1 * 1024 ** 3), "1.1 GB");
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /o\.frame && o\.spark \? seg\("qprofile", "Query profile"\) : null/);
+  assert.match(nb, /previewMarked\("queryProfile"/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /queryProfile: "Query profile"/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="ipywidgets\.js"><\/script>\n  <script src="qprofile\.js"><\/script>/);
+  assert.doesNotMatch(src, /innerHTML|insertAdjacentHTML|outerHTML/);
+});
+
+// Spark on this PC: slice takes a length and add_months returns a date.
+test("the Spark on this PC page says slice takes a length and add_months returns a date", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`slice\(arr, start, length\)` takes a length and counts a\nnegative start from the end, and `add_months` returns a date/);
+});
+
+// Spark on this PC: slice refuses index 0 and add_months reads text.
+test("the Spark on this PC page says slice refuses index 0 and add_months reads text as a date", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`slice` refuses index 0 and a negative\nlength with Spark's error/);
+  assert.match(doc, /`add_months` reads text as a date \(text that isn't a date gives NULL\)/);
+});
+
+// Spark on this PC: element_at index 0 and months_between rounding.
+test("the Spark on this PC page says element_at refuses index 0 and months_between rounds to 8 digits", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`element_at` refuses an array's index 0, and `months_between` counts the time of day and rounds to 8 digits/);
+});
+
+// Pop-out windows (Preview): the shell opens only these sections, and the app's own page in their
+// windows is the only part that gets the app's permissions; their Fabric views get none.
+test("pop-out windows load popout.js after app.js and get no more than the main window", () => {
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="app.js"') < html.indexOf('src="popout.js"'), "popout.js uses app.js's helpers");
+  const cap = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "src-tauri", "capabilities", "default.json"), "utf8"));
+  assert.deepStrictEqual(cap.windows, ["main"]);
+  assert.deepStrictEqual(cap.webviews, ["pop-out-runs", "pop-out-fabric"]);
+  assert.deepStrictEqual(cap.permissions, ["core:default"]);
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /const POP_OUT = \["runs", "fabric"\]\.find/);
+  const shell = fs.readFileSync(path.join(__dirname, "..", "src-tauri", "src", "main.rs"), "utf8");
+  assert.match(shell, /const POP_OUTS: \[\(&str, &str\); 2\] = \[\("runs", [^)]*\), \("fabric", [^)]*\)\];/);
+});
+
+// Shared sessions (sessions.js): Share sends the picked notebook to join this one's session; a guest can Leave.
+test("Share adds another notebook to this session, and a notebook that shares one can leave it", async () => {
+  const src = fs.readFileSync(path.join(ui, "sessions.js"), "utf8");
+  const { node } = chartsHarness(null);
+  const calls = [];
+  const dialogs = [];
+  const toasts = [];
+  const confirms = [];
+  let data = { process: true, notes: [], shared: {}, max_sessions: 5, idle_minutes: 0, sessions: [
+    { notebook: "Sales cleanup", process: true, status: "idle", pid: 10, memory_bytes: 1, cells_run: 3, last_used: 1, active: true, shared_with: [] },
+    { notebook: "Customer churn", process: true, status: "idle", pid: 11, memory_bytes: 1, cells_run: 1, last_used: 1, active: false, shared_with: [] }] };
+  const ctx = { h: node, btn: (label, _i, onclick, _c, attrs = {}) => node("button", { onclick, ...attrs }, label),
+    preview: (_id, n) => n, previewMarked: (_id, n) => n, toast: (t) => toasts.push(t), attempt: (fn) => fn(),
+    when: String, formatBytes: String, go: () => {}, openNotebook: () => {}, renderNotebook: () => {},
+    closeDialog: () => {}, showDialog: (title, body) => dialogs.push(body),
+    confirmDialog: async (title, text, ok, opts) => { confirms.push([title, text, ok, opts.danger]); return true; },
+    openNotebooks: new Map([["Sales cleanup", {}], ["Sales report", {}]]), state: { notebook: { name: "Sales cleanup" }, view: "notebook" },
+    rpc: async (m, a) => { calls.push([m, a]); return m === "kernel_sessions" ? data : m === "kernel_session_share" ? { host: a.host } : { left: "Sales cleanup" }; } };
+  vm.createContext(ctx);
+  vm.runInContext(src + "\nthis.api = { sessionsDialog, sessionsButton, sharedCount: (n) => sharedCount(n) };", ctx);
+  await ctx.api.sessionsDialog();
+  const text = (n) => allNodes(n).flatMap((x) => x.kids.filter((k) => typeof k === "string")).join(" ");
+  const select = allNodes(dialogs[0]).find((n) => n.tag === "select");
+  assert.deepStrictEqual(select.kids.map((o) => o.attrs.value), ["Customer churn", "Sales report"]);
+  assert.match(text(dialogs[0]), /Share this notebook's session with/);
+  assert.match(text(dialogs[0]), /same default lakehouse and environment/);
+  select.value = "Sales report";
+  allNodes(dialogs[0]).find((n) => n.tag === "button" && n.kids.includes("Share")).attrs.onclick();
+  await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(plain(calls.find(([m]) => m === "kernel_session_share")[1]), { notebook: "Sales report", host: "Sales cleanup" });
+  assert.deepStrictEqual(confirms[0].slice(2), ["Share", true]);
+  assert.match(confirms[0][1], /Sales report's own session ends and its variables are cleared/);
+  assert.match(toasts.join(" "), /Sales report now shares Sales cleanup's session. Its variables were cleared/);
+  // The host's row names its guests, and the status bar says the session is shared.
+  data = { ...data, shared: { "Sales report": "Sales cleanup" }, sessions: [{ ...data.sessions[0], shared_with: ["Sales report"] }] };
+  await ctx.api.sessionsDialog();
+  assert.match(text(dialogs[dialogs.length - 1]), /Shared with Sales report/);
+  assert.strictEqual(ctx.api.sharedCount("Sales report"), 2);
+  assert.ok(ctx.api.sessionsButton().kids.includes("Shared session · 2 notebooks"));
+  // A notebook that shares one says whose, and leaves it.
+  ctx.state.notebook = { name: "Sales report" };
+  await ctx.api.sessionsDialog();
+  const last = dialogs[dialogs.length - 1];
+  assert.match(text(last), /Sales report shares Sales cleanup's session/);
+  allNodes(last).find((n) => n.tag === "button" && n.kids.includes("Leave")).attrs.onclick();
+  await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(plain(calls.find(([m]) => m === "kernel_session_leave")[1]), { notebook: "Sales report" });
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /sharedSessions: "Shared notebook sessions"/);
+});
+
+// The pure helpers at the top of pipelines.js (Pipelines, Preview).
+function pipelineHelpers() {
+  const src = fs.readFileSync(path.join(ui, "pipelines.js"), "utf8");
+  const code = src.slice(src.indexOf("const PL_SETUP"), src.indexOf("// UTF-8 text as base64"));
+  const ctx = {};
+  vm.runInNewContext(`${code}; Object.assign(this, { plVerdict, plLayers, plAfter, plTimelineRows, plBar, plParamValue, plParamText, plStorable });`, ctx);
+  return ctx;
+}
+
+test("pipelines: an activity runs here, needs a mock or runs only in Fabric", () => {
+  const { plVerdict } = pipelineHelpers();
+  const copy = { path: "$.a[1]", classification: "static" };
+  assert.strictEqual(plVerdict(copy, [{ path: "$.a[1]", code: "not_local" }]), "mock");
+  // What the Run dialog settles (a notebook to pick, lakehouse reads to allow) doesn't need a mock.
+  assert.strictEqual(plVerdict({ path: "$.a[3]", classification: "local" }, [{ path: "$.a[3]", code: "notebook_unmapped" }]), "here");
+  assert.strictEqual(plVerdict({ path: "$.a[3]", classification: "local" }, [{ path: "$.a[30]", code: "not_local" }]), "here");
+  assert.strictEqual(plVerdict({ path: "$.a[4]", classification: "unsupported" }, []), "fabric");
+});
+
+test("pipelines: the graph puts each activity a column after what it depends on", () => {
+  const { plLayers, plAfter } = pipelineHelpers();
+  const acts = [
+    { name: "C", depends_on: [{ activity: "A", conditions: ["Succeeded"] }, { activity: "B", conditions: ["Failed"] }] },
+    { name: "A", depends_on: [] },
+    { name: "B", depends_on: [{ activity: "A", conditions: ["Succeeded"] }] },
+    { name: "D", depends_on: [{ activity: "missing" }] },
+  ];
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(plLayers(acts).map((l) => l.map((a) => a.name)))), [["A", "D"], ["B"], ["C"]]);
+  // A cycle (validation reports it) still draws every activity, once.
+  const cycle = plLayers([{ name: "X", depends_on: [{ activity: "Y" }] }, { name: "Y", depends_on: [{ activity: "X" }] }]);
+  assert.strictEqual(cycle.flat().map((a) => a.name).sort().join(), "X,Y");
+  assert.strictEqual(plAfter(acts[0]), "after A, B fails");
+  assert.strictEqual(plAfter({ depends_on: [{ activity: "V", conditions: ["Succeeded", "Failed"] }] }), "after V or fails");
+  assert.strictEqual(plAfter(acts[1]), "");
+});
+
+test("pipelines: the run view nests iterations and child pipelines under their parent", () => {
+  const { plTimelineRows, plBar } = pipelineHelpers();
+  const record = { activities: [
+    { id: "1", name: "Loop" }, { id: "2", name: "Step", parent: "1", label: "iteration 0" },
+    { id: "3", name: "Child", child_run: { activities: [{ id: "c1", name: "Inner" }] } },
+    { id: "4", name: "Step", parent: "1", label: "iteration 1" },
+  ] };
+  const rows = plTimelineRows(record);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(rows.map((r) => [r.act.name, r.depth]))), [["Loop", 0], ["Step", 1], ["Step", 1], ["Child", 0], ["Inner", 1]]);
+  // Within a loop, rows go by iteration, then in the order they ran.
+  const loop = plTimelineRows({ activities: [{ id: "L", name: "L" },
+    { id: "a0", name: "A", parent: "L", label: "iteration 0" }, { id: "a1", name: "A", parent: "L", label: "iteration 1" },
+    { id: "b0", name: "B", parent: "L", label: "iteration 0" }, { id: "b1", name: "B", parent: "L", label: "iteration 1" }] });
+  assert.strictEqual(loop.map((r) => r.act.id).join(), "L,a0,b0,a1,b1");
+  const bar = plBar({ started: "2026-10-23T10:00:05Z", ended: "2026-10-23T10:00:10Z" }, "2026-10-23T10:00:00Z", "2026-10-23T10:00:20Z");
+  assert.deepStrictEqual({ ...bar }, { left: 25, width: 25 });
+  assert.deepStrictEqual({ ...plBar({ started: "x" }, "2026-10-23T10:00:00Z", "2026-10-23T10:00:20Z") }, { left: 0, width: 0 });
+});
+
+test("pipelines: parameters are typed as Fabric declares them", () => {
+  const { plParamValue, plParamText } = pipelineHelpers();
+  assert.strictEqual(plParamValue("String", "[1]"), "[1]");
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(plParamValue("array", '["a", "b"]'))), ["a", "b"]);
+  assert.strictEqual(plParamValue("int", "3"), 3);
+  assert.strictEqual(plParamValue("int", " "), undefined);
+  assert.throws(() => plParamValue("object", "{nope"));
+  assert.strictEqual(plParamText("string", "x"), "x");
+  assert.strictEqual(plParamText("array", ["a"]), '["a"]');
+  assert.strictEqual(plParamText("int", undefined), "");
+});
+
+test("pipelines: SecureString values and network leave are never kept on this PC", () => {
+  const { plStorable } = pipelineHelpers();
+  const kept = plStorable({ parameters: { day: "2026-10-23", token: "s3cret", Key: "k" }, allow_uncontained: true, keep_outputs: true },
+    [{ name: "day", type: "String" }, { name: "token", type: "SecureString" }, { name: "Key", type: "securestring" }]);
+  assert.strictEqual(JSON.stringify(kept.parameters), '{"day":"2026-10-23"}');
+  assert.strictEqual(kept.allow_uncontained, false);
+  assert.strictEqual(kept.keep_outputs, true);
+  assert.doesNotMatch(JSON.stringify(kept), /s3cret/);
+});
+
+// Panel and dialog transitions (KF-MO-003): Minimal and above, transform and opacity only, never at Off.
+test("Panel transitions: the fade-out card is made at Minimal, not at Off or with reduced motion, and hides from readers", () => {
+  const at = (level, opts = {}) => {
+    const ctx = motionHarness({ ...opts, settings: { motion_level: { value: level } } });
+    ctx.document.body = ctx.node();
+    const dialog = ctx.node("overlay");
+    dialog.querySelector = () => null;
+    dialog.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 });
+    return [ctx, dialog];
+  };
+  for (const [level, opts] of [[0, {}], [3, { reduced: true }]]) {
+    const [ctx, dialog] = at(level, opts);
+    assert.strictEqual(ctx.motionLeave(dialog), null, `a card faded at level ${level}${opts.reduced ? " with reduced motion" : ""}`);
+  }
+  const [ctx, dialog] = at(1);
+  const ghost = ctx.motionLeave(dialog);
+  assert.ok(ghost, "no card faded at Minimal");
+  assert.strictEqual(ghost.attrs["aria-hidden"], "true");
+  assert.ok(ghost.cls.has("mo-ghost") && !ghost.cls.has("overlay"), "the fading card can be mistaken for the dialog");
+  assert.strictEqual(ghost.parent, ctx.document.body);
+  ctx.advance(250);
+  assert.strictEqual(ghost.parent, null, "the fading card stayed");
+  assert.strictEqual(ctx.motionLeave(null), null);
+});
+
+test("Panel transitions: the dialog and tray go before anything fades, and the CSS animates only transform and opacity", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /motionLeave\(root\.querySelector\(":scope > \.overlay"\)\);\n\s*root\.replaceChildren\(\);/, "closeDialog doesn't take the dialog away at once");
+  assert.match(fs.readFileSync(path.join(ui, "activity.js"), "utf8"), /motionLeave\(root\.querySelector\(":scope > \.tray"\)\); root\.replaceChildren\(\);/);
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  const frames = [...css.matchAll(/@keyframes (mo-[\w-]+) \{(.*)\}\n/g)];
+  assert.ok(frames.length >= 6);
+  for (const [, name, body] of frames) {
+    for (const [, prop] of body.matchAll(/([\w-]+)\s*:/g)) assert.ok(["opacity", "transform"].includes(prop), `${name} animates ${prop}`);
+  }
+  assert.match(css, /html\[data-motion-level="0"\] :is\(\.mo-in, \.mo-in > \.dialog\) \{ animation: none; \}/);
+  assert.match(css, /html\[data-motion-level="0"\] \.mo-ghost \{ display: none; \}/);
+  const ins = [...css.matchAll(/\.mo-in[^{]*\{ animation: [\w-]+ (\d+)ms/g)];
+  assert.ok(ins.length >= 4);
+  for (const m of ins) assert.ok(+m[1] >= 150 && +m[1] <= 250, `${m[0]} is outside 150-250 ms`);
+});
+
+// The cooling spark (KF-MO-006): Validate, Prove and a confirmed publish cool; their failures are embers.
+test("Cooling spark: a passed check cools for 500 ms, then is gone; failures play the ember", () => {
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  const events = vm.runInContext("FORGE_EVENTS", ctx);
+  for (const name of ["validate.passed", "prove.matched", "publish.verified"]) assert.strictEqual(events[name], "cool", name);
+  for (const name of ["validate.failed", "prove.failed", "publish.failed"]) assert.strictEqual(events[name], "fail", name);
+  const badge = ctx.node();
+  const el = ctx.forgeEvent("validate.passed", badge);
+  assert.ok(el && el.cls.has("fx-cool") && el.attrs["aria-hidden"] === "true", "no cooling spark");
+  assert.strictEqual(ctx.live.textContent, "", "the cooling spark announced itself");
+  ctx.advance(599);
+  assert.strictEqual(badge.kids.length, 1, "removed before it finished cooling");
+  ctx.advance(1);
+  assert.strictEqual(badge.kids.length, 0, "the cooling spark stayed");
+  assert.strictEqual(motionHarness({ settings: { motion_level: { value: 2 }, motion_sparks: { value: false } } }).forgeEvent("prove.matched", ctx.node()), null,
+    "the cooling spark ignored the sparks switch");
+  assert.strictEqual(motionHarness({ settings: { motion_level: { value: 1 } } }).forgeEvent("publish.verified", ctx.node()), null, "it played at Minimal");
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  for (const rule of css.match(/@keyframes fx-cool-[a-z]+ \{[^\n]*\n/g)) assert.doesNotMatch(rule, /color|background|width|height|top|left/, "cooling animates more than transform and opacity");
+  const validate = fs.readFileSync(path.join(ui, "validate.js"), "utf8");
+  assert.match(validate, /if \(r\.state !== "cancelled"\) forgeEvent\(ok \? "validate\.passed" : "validate\.failed"/, "a cancelled clean run would play an effect");
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /if \(result\.id\) forgeEvent\("publish\.verified"/, "a publish cools before Fabric gave back the item");
+});
+
+// KF-MO-008 Achievement Reveal (profile.js profileEarned): one message and one reveal per new award,
+// nothing for an award already shown (this session or a stored one), kept per account.
+test("Achievement Reveal: a new award is announced and revealed once, a repeat never, and deleting the profile resets it", () => {
+  const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
+  const src = p.slice(p.indexOf("const PROFILE_CELEBRATED"), p.indexOf("registerFeature("));
+  const stored = {};
+  const said = [];
+  const revealed = [];
+  const toastEl = { id: "toast" };
+  const ctx = {
+    state: { user: "dev@contoso.com" }, RECORDING_ON: "Recording is on.",
+    localStorage: { getItem: (k) => stored[k] ?? null, setItem: (k, v) => { stored[k] = v; } },
+    setTimeout: (fn) => fn(),
+    toast: (text) => said.push(text),
+    forgeEvent: (name, anchor) => revealed.push([name, anchor.id]),
+    document: { getElementById: (id) => (id === "toast" ? toastEl : null) },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(`${src}; this.profileEarned = profileEarned; this.profileForget = profileForget;`, ctx);
+  const first = { id: "first-flame", name: "First Flame", xp: 50, first: true };  // the engine marks the profile's first award
+  const steady = { id: "steady-hand", name: "Steady Hand", xp: 100 };
+  ctx.profileEarned([first, steady]);
+  assert.deepStrictEqual(said, ["Achievement earned: First Flame (+50 XP), Steady Hand (+100 XP). See it in Profile. Recording is on."]);
+  assert.deepStrictEqual(revealed, [["achievement.unlocked", "toast"]], "not one reveal for the message");
+  ctx.profileEarned([first]);
+  ctx.profileEarned([]);
+  ctx.profileEarned(undefined);
+  assert.strictEqual(said.length, 1, "a repeat was announced");
+  assert.strictEqual(revealed.length, 1, "a repeat was revealed");
+  assert.deepStrictEqual(JSON.parse(stored["kf.profile.celebrated"]), ["dev@contoso.com|first-flame", "dev@contoso.com|steady-hand"]);
+  ctx.state.user = "other@contoso.com";  // another account's profile earns its own
+  ctx.profileEarned([first]);
+  assert.strictEqual(revealed.length, 2);
+  ctx.state.user = "dev@contoso.com";
+  ctx.profileForget();
+  assert.deepStrictEqual(JSON.parse(stored["kf.profile.celebrated"]), ["other@contoso.com|first-flame"], "deleting one profile forgot another's");
+  ctx.profileEarned([first]);
+  assert.strictEqual(revealed.length, 3, "an award earned again after deleting the profile stayed silent");
+  // Storage that can't be read or written still never repeats within the session.
+  ctx.localStorage.getItem = () => { throw new Error("blocked"); };
+  ctx.localStorage.setItem = () => { throw new Error("blocked"); };
+  ctx.profileEarned([first]);
+  assert.strictEqual(revealed.length, 3);
+  assert.match(p, /if \(await attempt\(\(\) => rpc\("profile_delete", \{\}\), "Could not delete your profile data"\)\) \{\n\s+profileForget\(\);/);
+});
+
+test("Remote runs (KF-MO-009): the navy wolf trots in an indeterminate bar, with no fill or count, and goes with the motion", () => {
+  const find = (n, cls) => [n, ...n.all()].find((k) => k.cls.has(cls)) || null;
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  const el = ctx.remoteProgress("Sales · Notebook run");
+  const bar = find(el, "progress");
+  assert.strictEqual(bar.attrs.role, "progressbar");
+  assert.strictEqual(bar.attrs["aria-label"], "Sales · Notebook run");
+  assert.strictEqual(bar.attrs["aria-valuetext"], "Running in Fabric");
+  for (const k of ["aria-valuenow", "aria-valuemax"]) assert.ok(!(k in bar.attrs), `an indeterminate bar has ${k}`);
+  assert.strictEqual(find(el, "wolf-idle")?.attrs["aria-hidden"], "true", "no wolf at Refined");
+  assert.ok(!find(el, "wolf-fill"), "a remote run has a fill");
+  assert.ok(find(el, "remote-where"), "nothing says where it runs");
+  for (const opts of [{ settings: { motion_level: { value: 1 } } }, { reduced: true }, { settings: { motion_level: { value: 2 }, motion_wolf: { value: false } } }]) {
+    const quiet = motionHarness(opts).remoteProgress("Sales · Notebook run");
+    assert.strictEqual(find(quiet, "wolf"), null, `a wolf trotted: ${JSON.stringify(opts)}`);
+    assert.ok(find(quiet, "indeterminate"), `the bar went with the wolf: ${JSON.stringify(opts)}`);
+    assert.ok(find(quiet, "remote-where"), "the words saying where it runs went with the wolf");
+  }
+  // The bar hides only while the wolf can show; only jobs the app started in Fabric get it.
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  assert.match(css, /\.wolf\.wolf-idle \{[^}]*animation: fx-trot/);
+  assert.match(css, /html\[data-motion="on"\]:not\(\[data-fx-wolf="off"\]\) \.progress\.remote:has\(\.wolf-idle\) > \.bar \{ display: none; \}/);
+  assert.match(fs.readFileSync(path.join(ui, "activity.js"), "utf8"), /const remoteActivity = \(i\) => String\(i\.id \|\| ""\)\.startsWith\("fabric:"\) && i\.progress === undefined;/);
+});
+
+test("Forge events: every event in the registry is fired by the app, and the Preview window shows the navy wolf (MO-011)", () => {
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  const events = Object.keys(vm.runInContext("FORGE_EVENTS", ctx));
+  const app = fs.readdirSync(ui).filter((f) => f.endsWith(".js") && f !== "settings.js")
+    .map((f) => fs.readFileSync(path.join(ui, f), "utf8").replace(/const FORGE_EVENTS = \{[\s\S]*?\n\};/, "")).join("\n");
+  for (const name of events) assert.ok(app.includes(`"${name}"`), `${name} is in FORGE_EVENTS but nothing fires it`);
+  assert.match(fs.readFileSync(path.join(ui, "motion.js"), "utf8"), /forgeEvent\("notebook\.run\.finished", wolf\)/);
+  assert.match(fs.readFileSync(path.join(ui, "settings.js"), "utf8"), /row\("Navy wolf", [^\n]*\n\s+remoteHost, \(\) => \{ if \(!remoteHost\.childElementCount\) \{ remoteHost\.append\(remoteProgress\(/);
+});
+
+test("SQL Forge events (KF-MO-005): a slow success sparks, a failure plays the ember, after the redraw", () => {
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  const events = vm.runInContext("FORGE_EVENTS", ctx);
+  assert.strictEqual(events["sql.succeeded"], "spark");
+  assert.strictEqual(events["sql.failed"], "fail");
+  const q = fs.readFileSync(path.join(ui, "query.js"), "utf8");
+  assert.match(q, /const SQL_SPARK_SECONDS = 2;/);
+  const run = /async function run\(query[\s\S]*?\n  }\n/.exec(q)[0];
+  assert.ok(run.lastIndexOf("runFx(status, allow)") > run.lastIndexOf("sqlPage.redraw?.()"), "the effect plays before the redraw replaces the pill");
+});
+
+test("Profile shows proofs, and Journey and Achievements only while progression is on (KF-DX-002)", () => {
+  const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
+  assert.match(p, /p\.settings\.progression \? tab\("journey", "Journey"\) : null/);
+  assert.match(p, /p\.settings\.progression \? tab\("achievements", "Achievements"\) : null/);
+  assert.match(p, /if \(!p\.settings\.progression && \["journey", "achievements"\]\.includes\(profilePage\.tab\)\) profilePage\.tab = "overview";/);
+  assert.match(p, /const proved = r\.type === "prove\.match";/);
+  const v = fs.readFileSync(path.join(ui, "prove.js"), "utf8");
+  assert.match(v, /toast\(`\$\{nb\.name\}: \$\{text\}`, r\.state === "failed"\);\n  if \(r\.state === "done"\) profileEarned\(r\.earned\);/);
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  const block = css.slice(css.indexOf("/* Profile (profile.js)"), css.indexOf("@media (max-width: 900px) { .profile-grid"));
+  assert.doesNotMatch(block.replace(/#fff\b/g, ""), /#[0-9a-f]{3,6}\b/i, "profile styles use tokens");
+});
+
+// Spark on this PC: NOT NULL inside a struct and names of rewritten SQL functions.
+test("the Spark on this PC page says NOT NULL inside a struct isn't checked and SQL keeps function names", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`NOT NULL` on a field inside a struct\nis accepted in SQL but not checked/);
+  assert.match(doc, /without an alias gets a short name close to Spark's/);
+});
+
+// Spark on this PC: rewritten SQL function names are close to Spark's, not identical.
+test("the Spark on this PC page says how SQL function names differ from Spark's", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /Spark's names differ for literals \(it drops their quotes\) and add defaults such as\n`months_between`'s `roundOff`/);
+});
+
+// Check for updates (account menu, Settings): only a newer build on a self-updating PC offers
+// Install and restart; everything else says why and offers the channel's release page.
+test("Check for updates says what the channel has and offers an install only for a newer build", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function updateCheckResult\([\s\S]*?\n}\n/)[0]}; this.f = updateCheckResult;`, ctx);
+  const a = "5d69f21aa1b2c3d4e5f60718293a4b5c6d7e8f90", b = "a41c0e9aa1b2c3d4e5f60718293a4b5c6d7e8f90";
+  const kind = (report) => ctx.f(report).kind;
+  assert.strictEqual(kind({ commit: a, auto_update: true, latest: { commit: b, channel: "preview" } }), "newer");
+  assert.match(ctx.f({ commit: a, auto_update: true, latest: { commit: a, channel: "preview" } }).text, /up to date.*Preview/);
+  assert.strictEqual(kind({ commit: a, auto_update: false, latest: { commit: b, channel: "stable" } }), "managed");
+  assert.match(ctx.f({ commit: a, latest: { commit: null, error: "URLError: offline", channel: "stable" } }).text, /Stable channel: URLError/);
+  assert.strictEqual(kind({ commit: a, auto_update: true, latest: { commit: b, refused: "older than the last one", channel: "preview" } }), "error");
+  assert.strictEqual(kind({ commit: null, latest: { commit: b } }), "local");
+  const dialog = src.slice(src.indexOf("async function checkForUpdates"), src.indexOf("// ---------- What's new"));
+  assert.match(dialog, /invoke\("check_for_update"\)/);
+  assert.match(dialog, /installUpdate\(latest\.commit, /);
+  assert.match(dialog, /openLink\(latest\.page\)/);
+  assert.match(src.slice(src.indexOf("function accountMenu"), src.indexOf("function channelLabel")), /"Check for updates".*checkForUpdates/);
+});
+
+// Side by side: This PC's time split into processing and waiting on OneLake uploads.
+test("side by side times roll over and split This PC's time into processing and uploads", () => {
+  const src = fs.readFileSync(path.join(ui, "sidebyside.js"), "utf8");
+  const ctx = { h: (tag, attrs, ...kids) => ({ tag, attrs, text: kids.flat().filter((k) => typeof k === "string").join("") }) };
+  const fn = (name) => src.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  vm.runInNewContext(`${fn("sbsTime")}${fn("sbsSize")}${fn("sbsLocalSplit")}; Object.assign(this, { sbsTime, sbsLocalSplit });`, ctx);
+  assert.strictEqual(ctx.sbsTime(779.6), "13 min 0 s");  // was "12 min 60 s"
+  assert.strictEqual(ctx.sbsTime(59.97), "1 min 0 s");
+  assert.strictEqual(ctx.sbsTime(12.34), "12.3 s");
+  assert.strictEqual(ctx.sbsTime(7199), "2 h 0 min");
+  const lines = ctx.sbsLocalSplit({ seconds: 780, processing_seconds: 130, upload_wait_seconds: 650,
+    upload: { seconds: 700, tables: 8, rows: 86000000, bytes: 3.3e9, skipped: 1, mb_per_second: 4.71 } });
+  assert.strictEqual(lines[0].text, "Processing on this PC 2 min 10 sWaiting for OneLake uploads 10 min 50 s");
+  assert.strictEqual(lines[1].text, "Uploaded 3.3 GB to OneLake in 11 min 40 s · about 4.7 MB/s · 1 unchanged, skipped");
+  assert.strictEqual(ctx.sbsLocalSplit({ seconds: 5 })[0].text, "No wait to start");  // a run from before the split
+});
+
+// Run in Fabric and side by side wait for the bar's last save, so they get the values it shows.
+test("Run in Fabric, side by side and Prove wait for the Parameters bar's values", () => {
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"),
+    /await nbInputsSaved\(\);[^\n]*\n[^\n]*\n\s*const run = await attempt\(\(\) => rpc\("run_notebook_in_fabric"/);
+  assert.match(fs.readFileSync(path.join(ui, "sidebyside.js"), "utf8"),
+    /await nbInputsSaved\(\);[^\n]*\n\s*const run = await attempt\(\(\) => rpc\("side_by_side_start"/);
+  assert.match(fs.readFileSync(path.join(ui, "prove.js"), "utf8"),
+    /await nbInputsSaved\(\);[^\n]*\n\s*const run = await attempt\(\(\) => rpc\("prove_start"/);
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /\*\*Run in Fabric\*\*, \*\*Side by side\*\* and \*\*Prove this notebook\*\* use the bar's values too/);
+});
+
+// Add to VS Code: the page sends only the tool's id; the shell builds the vscode: link itself
+// (vscode_link.rs), so no page can make it open another link.
+test("Add to VS Code passes only the tool's id to the shell", () => {
+  const src = fs.readFileSync(path.join(ui, "integrations.js"), "utf8");
+  const calls = src.match(/invoke\("add_to_vscode", \{[^}]*\}/g) || [];
+  assert.deepStrictEqual(calls, ['invoke("add_to_vscode", { clientId: client.id, insiders }']);
+  assert.ok(!/vscode:mcp|vscode-insiders:/.test(src), "the link is built in the shell, not the page");
+  const main = fs.readFileSync(path.join(__dirname, "..", "src-tauri", "src", "main.rs"), "utf8");
+  assert.match(main, /fn add_to_vscode\(client_id: String, insiders: bool\)/);
+  assert.match(main, /generate_handler!\[[\s\S]*add_to_vscode/);
+});
+
+test("the Capacity tab says how each capacity drifted from capacity.toml", () => {
+  const { capacityLines, CAPACITY_STATES } = gitHelpers();
+  assert.strictEqual(CAPACITY_STATES.not_visible, "not visible to you");
+  const lines = capacityLines({ state: "differs", fields: [{ field: "sku", git: "F4", fabric: "F8" }, { field: "state", git: "Active", fabric: "Paused" }],
+    workspaces: { same: 2, elsewhere: [{ id: "w1", name: "Sales", on: "F8 Dev" }, { id: "w2", name: "", on: null }],
+      not_in_git: [{ id: "w3", name: "Ad hoc" }], not_visible: [{ id: "w4", name: "Hidden" }] } });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(lines)), ["Size: Git F4, Fabric F8", "State: Git Active, Fabric Paused",
+    "Sales: Git expects it here; Fabric has it on F8 Dev", "w2: Git expects it here; Fabric has it on a capacity you can't see",
+    "Ad hoc: on this capacity in Fabric, not listed in capacity.toml", "Hidden: you can't see this workspace, so it isn't compared",
+    "2 workspaces are where Git expects"]);
+});
+
+// Settings > Advanced > OneLake writes > Files on this PC: what local writes hold, and the folder.
+test("Files on this PC says what local writes hold and where", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${meta.match(/function formatBytes\([\s\S]*?\n}\n/)[0]}${src.match(/function localWritesText\([\s\S]*?\n}\n/)[0]}; this.f = localWritesText;`, ctx);
+  assert.strictEqual(ctx.f({ files: 0, folder: "C:\\x\\staging", uploading: { files: 0 } }), "Empty · C:\\x\\staging");
+  assert.strictEqual(ctx.f({ files: 2, bytes: 3 * 1024 ** 3, folder: "C:\\x\\staging", uploading: { files: 2, bytes: 3 * 1024 ** 3 } }),
+    "3.0 GB in 2 files, 2 waiting to upload or left over (3.0 GB) · C:\\x\\staging");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app.slice(app.indexOf("function oneLakeWritesMenu"), app.indexOf("async function setNotebookOneLakeWrites")), /Open the folder of local writes/);
+  const clear = src.slice(src.indexOf("async function clearLocalWrites"));
+  assert.match(clear.slice(0, clear.indexOf("\n}\n")), /confirmDialog\("Delete left-overs\?"[\s\S]*danger: true[\s\S]*rpc\("local_writes_clear"\)/);
+});
+
+test("the Ossie card exports, previews and imports only after a confirm, and hides with preview features", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const card = meta.split("function ossieCard(plan)")[1].split("// ---------- profiling ----------")[0];
+  assert.match(card, /preview\("ossie", /, "the card is a Preview feature and hides with them");
+  assert.match(meta, /\n    ossieCard\(plan\),\n/, "the Semantic model tab shows the card");
+  for (const method of ["meta_model_ossie_models", "meta_model_ossie_export", "meta_model_ossie_save", "meta_model_ossie_read",
+    "meta_model_ossie_preview", "meta_model_ossie_import", "meta_model_tmdl_save"]) {
+    assert.match(card, new RegExp(`"${method}"`), `${method} has a caller`);
+  }
+  // The first import call only asks; the write carries confirmed after confirmDialog said yes, danger for Replace.
+  const go = card.split("go.onclick = async () => {")[1].split("showDialog(")[0];
+  assert.ok(go.indexOf("confirmDialog(") < go.indexOf("confirmed: true"), "confirm comes before the write");
+  assert.match(go, /\{ danger: c\.mode === "replace" \}/);
+  assert.match(go, /if \(!ok\) return;/);
+  assert.match(card, /OSSIE_MAX_BYTES/, "a file too large to be a model is refused before it's read");
+});
+
+test("the Direct Lake check is a Preview card that only reads, with fixes that open where the change is made", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const card = meta.split("function directLakeCard(plan, updateModel)")[1].split("// ---------- Apache Ossie")[0];
+  assert.match(card, /preview\("directLakeCheck", /, "the card is a Preview feature and hides with them");
+  assert.match(meta, /\n    directLakeCard\(plan, \(\) => build\(\)\),\n/, "the Semantic model tab shows the card");
+  for (const method of ["meta_model_directlake_setup", "meta_model_directlake_check"]) {
+    assert.match(card, new RegExp(`"${method}"`), `${method} has a caller`);
+  }
+  const calls = [...card.matchAll(/metaCall\("([a-z_]+)"/g)].map((x) => x[1]).sort();
+  assert.deepStrictEqual(calls, ["meta_model_directlake_check", "meta_model_directlake_setup", "meta_model_ossie_models"], "it calls nothing that writes");
+  assert.match(card, /reading from OneLake uses capacity/, "capacity wording (QA-008)");
+  assert.match(card, /goMeta\("health"\)/, "compacting happens in Table health");
+  const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  assert.match(features, /directLakeCheck: "Direct Lake check"/);
+});
+
+test("the data dictionary is a Preview card whose import saves only from its preview", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const card = meta.split("function dictionaryCard(plan)")[1].split("// ---------- Apache Ossie")[0];
+  assert.match(card, /preview\("dataDictionary", /, "the card is a Preview feature and hides with them");
+  assert.match(meta, /\n    dictionaryCard\(plan\),\n/, "the Semantic model tab shows the card");
+  for (const method of ["meta_model_dictionary", "meta_model_dictionary_export", "meta_model_dictionary_save",
+    "meta_model_dictionary_preview", "meta_model_dictionary_import"]) {
+    assert.match(card, new RegExp(`"${method}"`), `${method} has a caller`);
+  }
+  // The save happens only from the button the preview turns on, and only with something to save.
+  const dialog = card.split("function dictionaryImportDialog(plan, reload)")[1];
+  assert.ok(dialog.indexOf('"meta_model_dictionary_preview"') < dialog.indexOf('"meta_model_dictionary_import"'));
+  assert.match(dialog, /go\.disabled = !res\.changes\.length \|\| !!res\.problem;/);
+  assert.match(dialog, /DICTIONARY_MAX_BYTES/, "a file too large to be a dictionary is refused before it's read");
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /dataDictionary: "Data dictionary"/);
+});
+
+// kratosforge:// links (deep_link.rs): a link only shows a notebook or a page. The page's handler
+// opens or goes, and never runs, saves elsewhere, or publishes.
+test("A kratosforge:// link only shows something", () => {
+  const src = fs.readFileSync(path.join(ui, "vscode.js"), "utf8");
+  const body = src.slice(src.indexOf("async function showLink"), src.indexOf("async function listenForLinks"));
+  const calls = [...body.matchAll(/rpc\("([a-z_]+)"/g)].map((m) => m[1]).sort();
+  assert.deepStrictEqual(calls, ["list_notebooks", "notebook_name_for_path"]);
+  assert.ok(!/run|publish|execute/i.test(body.replace(/\/\/.*$/gm, "")), "the handler names nothing that runs");
+  const main = fs.readFileSync(path.join(__dirname, "..", "src-tauri", "src", "main.rs"), "utf8");
+  assert.match(main, /generate_handler!\[[\s\S]*take_pending_link/);
+  assert.match(main, /fn register_link_scheme\(\) \{\n    if !cfg!\(windows\) \|\| cfg!\(debug_assertions\)/);
+});
+
+// New build banner (settings.js): the startup check every 4 hours while the app is open. Only a
+// newer build shows it; a managed PC hears it's out with no install; Later hides that build only.
+test("the new build banner shows only a newer build, through the existing update check", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const fn = (name) => src.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  const ctx = {};
+  vm.runInNewContext(`${fn("updateCheckResult")}${fn("updateNotice")}; this.f = updateNotice;`, ctx);
+  const a = "5d69f21aa1b2c3d4e5f60718293a4b5c6d7e8f90", b = "a41c0e9aa1b2c3d4e5f60718293a4b5c6d7e8f90";
+  const newer = ctx.f({ commit: a, auto_update: true, latest: { commit: b, channel: "preview", page: "https://x/latest" } });
+  assert.strictEqual(newer.kind, "newer");
+  assert.strictEqual(newer.commit, b);
+  assert.match(newer.text, /a41c0e9 is out on Preview \(you're on 5d69f21\)/);
+  assert.strictEqual(ctx.f({ commit: a, auto_update: false, latest: { commit: b, channel: "stable" } }).kind, "managed");
+  assert.strictEqual(ctx.f({ commit: a, auto_update: true, latest: { commit: a, channel: "stable" } }), null);
+  assert.strictEqual(ctx.f({ commit: a, latest: { commit: null, error: "offline", channel: "stable" } }), null);
+  assert.strictEqual(ctx.f({ commit: a, auto_update: true, latest: { commit: b, refused: "older", channel: "stable" } }), null);
+  assert.strictEqual(ctx.f({ commit: null, latest: { commit: b } }), null);
+  const watch = fn("watchForUpdates");
+  assert.deepStrictEqual([...watch.matchAll(/invoke\("([a-z_]+)"/g)].map((m) => m[1]), ["check_for_update"], "no new phone-home");
+  assert.match(watch, /!updateWatchOn\(\) \|\| !previewShown\(\) \|\| !state\.commit/);
+  assert.match(src, /const UPDATE_WATCH_MS = 4 \* 60 \* 60 \* 1000;/);
+  const banner = fn("renderUpdateBanner");
+  assert.match(banner, /n\.commit === updateLater\(\)/, "Later hides that build only");
+  assert.match(banner, /installUpdate\(n\.commit/);
+  assert.match(fn("installUpdate"), /saveNotebook\(\)[\s\S]*invoke\("update_app", \{ commit \}\)/, "saves before it hands over");
+  assert.match(fn("checkForUpdates"), /installUpdate\(latest\.commit/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /scheduleUpdateWatch\(\);/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<\/header>\n  <div id="update-root"><\/div>/);
+});
+

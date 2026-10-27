@@ -74,7 +74,7 @@ def test_every_registered_engine_lists_every_capability():
 
 
 def test_planned_engines_claim_nothing_and_say_what_is_planned():
-    for eid in ("local-spark", "fabric-spark", "databricks-connect", "databricks-sql"):
+    for eid in ("local-spark", "fabric-spark", "databricks-connect"):
         d = registry.get(eid)
         assert not d.adapter and d.planned
         assert all(not d.capability(c).available for c in CAPABILITIES)
@@ -472,3 +472,138 @@ def test_estimates_say_what_they_assume_and_bills_say_where_they_came_from():
         UsageRecord("x", "dollars", 1, "measured")
     with pytest.raises(ValueError, match="negative"):
         UsageRecord("x", "seconds", -1, "measured")
+
+
+# ---------------------------------------------------------------- nothing outside the session
+
+
+@pytest.mark.parametrize("statement", ["COPY (SELECT 1) TO '{d}/out.csv'", "ATTACH '{d}/other.duckdb'",
+                                       "INSTALL httpfs", "EXPORT DATABASE '{d}/dump'"])
+def test_duckdb_sessions_refuse_statements_that_reach_outside(tmp_path, statement):
+    s = registry.adapter("local-duckdb").open_session(SessionConfig("nb"))
+    try:
+        r = s.execute(sql(statement.format(d=tmp_path.as_posix())))
+        assert r.status == "error", r.outputs
+        assert r.outputs[0]["ename"] in ("OutsideSession", "PermissionException"), r.outputs
+        assert list(tmp_path.iterdir()) == []
+        assert s.execute(sql("SELECT 1 AS still_works")).status == "ok"
+    finally:
+        s.close()
+
+
+def test_duckdb_refusal_names_the_statement_and_plan_refuses_too(tmp_path):
+    s = registry.adapter("local-duckdb").open_session(SessionConfig("nb"))
+    try:
+        r = s.execute(sql(f"CREATE TABLE t AS SELECT 1 AS x; COPY t TO '{tmp_path.as_posix()}/o.csv'"))
+        assert r.outputs[0]["ename"] == "OutsideSession" and "COPY" in r.outputs[0]["evalue"]
+        assert "statement 2" in r.outputs[0]["evalue"]
+        assert not any(t["name"] == "t" for t in s.catalog())  # refused before anything ran
+        from fabric_desktop.engines.local_sql import OutsideSession
+        with pytest.raises(OutsideSession):
+            s.plan("INSTALL httpfs")
+    finally:
+        s.close()
+
+
+def test_duckdb_sessions_cant_read_local_files_even_when_the_classifier_allows_it(tmp_path):
+    f = tmp_path / "a.csv"
+    f.write_text("x\n1\n")
+    s = registry.adapter("local-duckdb").open_session(SessionConfig("nb"))
+    try:
+        r = s.execute(sql(f"SELECT * FROM read_csv('{f.as_posix()}')"))
+        assert r.status == "error" and "Permission" in r.outputs[0]["evalue"]
+        assert s.execute(sql("CREATE TABLE mine AS SELECT 1 AS x; INSERT INTO mine VALUES (2); "
+                             "SELECT count(*) AS n FROM mine")).outputs[0]["rows"] == [[2]]
+    finally:
+        s.close()
+
+
+def test_sqlite_sessions_refuse_attach(tmp_path):
+    s = registry.adapter("local-sqlite").open_session(SessionConfig("nb"))
+    try:
+        r = s.execute(sql(f"ATTACH DATABASE '{(tmp_path / 'other.db').as_posix()}' AS other"))
+        assert r.status == "error" and "not authorized" in r.outputs[0]["evalue"]
+        assert list(tmp_path.iterdir()) == []
+        assert s.execute(sql("CREATE TABLE t (x INTEGER); INSERT INTO t VALUES (1); SELECT x FROM t")).status == "ok"
+    finally:
+        s.close()
+
+
+# ---------------------------------------------------------------- Python engine on the notebook's sessions
+
+
+class StoppableKernel(FakeKernel):
+    def __init__(self):
+        super().__init__()
+        self.stopped = 0
+
+    def stop(self):
+        self.stopped += 1
+        return {"stopped": True}
+
+
+def _sessions(process=True):
+    from fabric_desktop.kernel_sessions import KernelSessions
+    made = []
+
+    def make(_in_process):
+        made.append(StoppableKernel())
+        return made[-1]
+    return KernelSessions(make, lambda: process), made
+
+
+def test_python_engine_uses_the_notebooks_own_kernel_and_stop_on_close():
+    sessions, made = _sessions()
+    adapter = registry.adapter("local-python", notebook_sessions=sessions)
+    assert adapter.describe().id == "local-python"
+    s = adapter.open_session(SessionConfig("sales"))
+    assert s._kernel is sessions.kernel("sales") is made[0]  # one kernel, not a second process
+    assert s.execute(CellRequest("print('ab'); 42")).status == "ok"
+    s.close()
+    assert made[0].stopped == 1 and s.closed and not made[0].closed
+
+
+def test_python_engine_on_shared_or_in_engine_kernels_says_what_to_change():
+    sessions, _ = _sessions(process=False)
+    with pytest.raises(Unsupported, match="own process"):
+        registry.adapter("local-python", notebook_sessions=sessions).open_session(SessionConfig("a"))
+    sessions, _ = _sessions()
+    sessions.share("b", "a")
+    with pytest.raises(Unsupported, match="shares a's session"):
+        registry.adapter("local-python", notebook_sessions=sessions).open_session(SessionConfig("b"))
+    assert registry.adapter("local-python", notebook_sessions=sessions).open_session(SessionConfig("a"))
+
+
+def test_databricks_sql_runs_on_duckdb_translated():
+    d = registry.get("local-duckdb")
+    v = check_cell(d, "sql", "databricks")
+    assert v["ok"] and v["level"] == "translated" and "without starting a warehouse" in v["reason"]
+    s = registry.adapter("local-duckdb").open_session(SessionConfig("nb"))
+    try:
+        s.execute(CellRequest("CREATE TABLE t AS SELECT * FROM VALUES (1, 'a'), (1, 'b'), (2, NULL) AS v(k, x)",
+                              "sql", "databricks"))
+        r = s.execute(CellRequest("SELECT k, nvl(x, 'none') AS x FROM t "
+                                  "QUALIFY row_number() OVER (PARTITION BY k ORDER BY x) = 1 ORDER BY k",
+                                  "sql", "databricks"))
+        assert r.status == "ok" and r.rows == 2
+        r = s.execute(CellRequest("COPY t TO 'out.csv'", "sql", "databricks"))
+        assert r.status == "error"
+    finally:
+        s.close()
+
+
+@pytest.mark.parametrize("query", [
+    "SELECT substring('abcdef', 0, 2)",
+    "SELECT date_add(DATE'2024-03-05', 1)",
+    "SELECT trunc(DATE'2024-03-05', 'MM')",
+    "SELECT unix_timestamp('2024-01-01', 'yyyy-MM-dd')",
+    "SELECT add_months(DATE'2024-01-31', 1)",
+])
+def test_databricks_sql_on_duckdb_answers_as_spark_sql_does(query):
+    s = registry.adapter("local-duckdb").open_session(SessionConfig("nb"))
+    try:
+        spark = s.execute(CellRequest(query, "sql", "spark")).outputs[0]
+        dbx = s.execute(CellRequest(query, "sql", "databricks")).outputs[0]
+        assert spark.get("type") != "error" and dbx == spark
+    finally:
+        s.close()

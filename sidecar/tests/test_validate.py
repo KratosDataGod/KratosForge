@@ -13,6 +13,7 @@ import pytest
 from deltalake import DeltaTable, write_deltalake
 
 from fabric_desktop import lakehouse, validate
+from fabric_desktop.fabric_run import compute_check
 from fabric_desktop.server import handle
 from fabric_desktop.service import Service
 
@@ -103,11 +104,29 @@ def test_the_run_plan_refuses_writes_it_cannot_contain_and_lists_what_it_cannot_
                                                  "text": "A clean run really makes the call."}]
 
 
-def test_spark_notebooks_get_code_checks_only_for_now():
+def test_spark_notebooks_get_a_clean_run_on_this_pcs_spark():
     out = validate.check([code("df = spark.read.table('dbo.orders')\ndisplay(df)")], LH, "pc")
-    [f] = findings(out, "spark_code_checks_only")
-    assert f["severity"] == "info" and f["cell"] == 1 and not out["run"]["ok"]
-    assert any("doesn't run Spark cells yet" in t for t in out["limits"])
+    [f] = findings(out, "spark_local")
+    assert f["severity"] == "info" and f["cell"] == 1 and out["run"]["ok"]
+    assert any("PySpark-compatible engine (DuckDB)" in t for t in out["limits"])
+    # A proof still can't take a Spark notebook to Fabric, and pipelines keep their own rule.
+    assert not validate.run_plan([code("spark.read.table('dbo.orders')")], LH)["ok"]
+
+
+def test_spark_features_this_pc_lacks_stop_a_pc_run():
+    stops = lambda src: [r["text"] for r in compute_check([code(src)], LH)["local"]["reasons"]]
+    assert "in place with spark.sql" in stops("spark.sql('MERGE INTO dbo.t USING s ON t.id = s.id')")[0]
+    assert stops('spark.sql("""\n  DELETE FROM dbo.t WHERE x = 1""")')
+    assert stops("spark.sql(f\"UPDATE dbo.t SET x = 1\")")
+    assert "replaceWhere" in stops("df.write.option('replaceWhere', 'd > 1').saveAsTable('dbo.t')")[0]
+    assert stops("spark.sql('SELECT * FROM dbo.t')") == [] and stops("df.write.mode('overwrite').saveAsTable('dbo.t')") == []
+
+
+def test_spark_file_writes_outside_the_lakehouse_are_listed():
+    effects = lambda src: [f["title"] for f in findings(validate.check([code(src)], None), "side_effect")]
+    assert effects("df.write.mode('overwrite').parquet('C:/out/orders')")
+    assert effects("df.write.csv(path)")
+    assert effects("df.write.parquet('Files/out/orders')") == [] and effects("df.write.saveAsTable('dbo.t')") == []
 
 
 def test_local_files_and_keys_the_code_checks_find():
@@ -144,7 +163,7 @@ def svc(tmp_path, monkeypatch):
     lh = tmp_path / "lake"
     write_deltalake(str(lh / "Tables" / "dbo" / "orders"), pa.table({"id": [1, 2, 3], "amount": [10.0, 20.0, 5.0]}))
     s = Service(client_id="x", root=tmp_path / "app")
-    s._auth = type("Auth", (), {"storage_token": lambda self: "tok"})()
+    s._auth = type("Auth", (), {"storage_token": lambda self: "tok", "signed_in_user": lambda self: "a@b.c", "signed_in_tenant": lambda self: "t1"})()
     s._schema_cache = {"lh1": True}
     monkeypatch.setattr(s, "_proof_location", lambda ref: (str(lh), lambda: {}))
     monkeypatch.setattr(s, "_proof_tables", lambda ref: LocalTables(lh / "Tables"))
@@ -206,6 +225,16 @@ def test_hidden_state_fails_the_clean_run_and_leaves_the_persons_kernel_alone(sv
     assert any(v["name"] == "leftover" for v in svc.kernel.variables())
 
 
+def test_the_clean_run_skips_the_run_on_fabric_cell_and_says_so(svc):
+    # It runs only on Fabric Spark; on this PC it would write without V-Order.
+    cells = [code("x = 1"), {"type": "code", "source": "raise RuntimeError('ran here')", "meta": {"fabric_step": True}}]
+    st = done(svc, call(svc, "notebook_validate_start", name="Step", cells=cells, runs_on="pc")["id"])
+    assert st["run"]["status"] == "ok" and st["cells_total"] == 1 and st["verdict"] == "ready"
+    assert st["summary"].endswith("Cell 2 is marked Run on Fabric, which runs only on Fabric Spark, so this run on this PC skipped it.")
+    [f] = [f for f in st["findings"] if f["code"] == "fabric_step"]
+    assert f["cell"] == 2 and f["severity"] == "info"
+
+
 def test_a_failing_cell_is_reported_with_its_error_and_secrets_removed(svc):
     cells = [code("raise ValueError('bad rows password=hunter22')")]
     st = done(svc, call(svc, "notebook_validate_start", name="Fails", cells=cells)["id"])
@@ -220,9 +249,74 @@ def test_the_clean_run_asks_first_and_refuses_what_it_cannot_contain(svc):
     assert "can't contain cell 1" in refused(svc, "notebook_validate_start", name="Direct", cells=direct, lakehouse_ref=LH)
 
 
-def test_a_spark_notebook_is_told_it_gets_code_checks_only(svc):
-    cells = [code("df = spark.read.table('dbo.orders')\ndf.write.saveAsTable('dbo.copy')")]
-    assert "code checks only" in refused(svc, "notebook_validate_start", name="Spark", cells=cells, lakehouse_ref=LH)
+def test_a_spark_notebook_gets_a_clean_run_with_its_writes_in_the_sandbox(svc):
+    before = DeltaTable(str(svc.lh / "Tables" / "dbo" / "orders")).version()
+    cells = [code("df = spark.read.table('dbo.orders')"),
+             code("df.filter(df.amount > 0).write.mode('overwrite').saveAsTable('dbo.copy')"),
+             code("print(spark.table('dbo.copy').count())")]
+    st = done(svc, call(svc, "notebook_validate_start", name="Spark", cells=cells, lakehouse_ref=LH, runs_on="pc")["id"])
+    assert st["run"]["status"] == "ok", st
+    assert [c["status"] for c in st["cells"]] == ["ok", "ok", "ok"]
+    assert st["run"]["sandbox_tables"] == ["dbo.copy"]
+    assert not (svc.lh / "Tables" / "dbo" / "copy").exists()  # never the lakehouse's own tables
+    assert DeltaTable(str(svc.lh / "Tables" / "dbo" / "orders")).version() == before
+    assert any(f["code"] == "spark_local" for f in st["findings"])
+
+
+def _lakehouse_files(root: Path) -> dict[str, str]:
+    """Every file under the lakehouse folder and a hash of its bytes."""
+    import hashlib
+    return {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob("*") if p.is_file()}
+
+
+# Every way a Spark cell writes a table (#436), with the table it lands in and the rows a later
+# cell then reads from it, in the sandbox: dbo.orders has 3 rows.
+SPARK_TABLE_WRITES = [
+    ("df.write.mode('overwrite').saveAsTable('dbo.orders')", "dbo.orders", 3),
+    ("df.write.mode('append').saveAsTable('dbo.orders')", "dbo.orders", 6),
+    ("df.write.insertInto('dbo.orders')", "dbo.orders", 6),
+    ("df.write.format('delta').mode('overwrite').save('Tables/dbo/orders')", "dbo.orders", 3),
+    ("spark.sql('INSERT INTO dbo.orders SELECT * FROM dbo.orders')", "dbo.orders", 6),
+    ("spark.sql('CREATE TABLE dbo.ctas AS SELECT * FROM dbo.orders WHERE amount > 5')", "dbo.ctas", 2),
+    ("spark.sql(\"INSERT INTO dbo.orders VALUES (4, 1.0)\")", "dbo.orders", 4),
+]
+
+
+@pytest.mark.parametrize("write, table, rows", SPARK_TABLE_WRITES, ids=[w for w, _, _ in SPARK_TABLE_WRITES])
+def test_every_spark_table_write_in_a_clean_run_lands_in_the_sandbox(svc, write, table, rows):
+    before = _lakehouse_files(svc.lh)
+    cells = [code("df = spark.read.table('dbo.orders')"), code(write),
+             code(f"assert spark.table({table!r}).count() == {rows}, spark.table({table!r}).count()")]
+    st = done(svc, call(svc, "notebook_validate_start", name="Writes", cells=cells, lakehouse_ref=LH, runs_on="pc")["id"])
+    assert [c["status"] for c in st["cells"]] == ["ok", "ok", "ok"], st["findings"]
+    assert st["run"]["sandbox_tables"] == [table]
+    # Byte for byte, the lakehouse is as it was: no table, log entry or leftover sandbox file.
+    assert _lakehouse_files(svc.lh) == before
+
+
+@pytest.mark.parametrize("write", ["df.write.mode('overwrite').parquet('Files/out/p')",
+                                   "df.write.mode('overwrite').csv('Files/out/c')"])
+def test_a_spark_file_write_in_a_clean_run_stops_and_writes_nothing(svc, write):
+    before = _lakehouse_files(svc.lh)
+    cells = [code("df = spark.read.table('dbo.orders')"), code(write)]
+    st = done(svc, call(svc, "notebook_validate_start", name="Files", cells=cells, lakehouse_ref=LH, runs_on="pc")["id"])
+    assert st["run"]["failed_cell"] == 2 and [c["status"] for c in st["cells"]] == ["ok", "error"]
+    [f] = [f for f in st["findings"] if f["code"] == "run_failed"]
+    assert "Writing files to Files/out/" in f["text"] and "runs in Fabric" in f["text"]
+    assert _lakehouse_files(svc.lh) == before
+
+
+@pytest.mark.parametrize("statement, says", [("DROP TABLE dbo.orders", "DROP TABLE removes dbo.orders from the lakehouse"),
+                                              ("TRUNCATE TABLE orders", "TRUNCATE TABLE empties orders in place")])
+def test_drop_or_truncate_in_a_clean_run_stops_with_a_clear_message(svc, statement, says):
+    # These stopped with DuckDB's own parser or binder error.
+    before = _lakehouse_files(svc.lh)
+    cells = [code("df = spark.read.table('dbo.orders')"), code(f"spark.sql({statement!r})")]
+    st = done(svc, call(svc, "notebook_validate_start", name="Drop", cells=cells, lakehouse_ref=LH, runs_on="pc")["id"])
+    assert st["run"]["failed_cell"] == 2 and [c["status"] for c in st["cells"]] == ["ok", "error"]
+    [f] = [f for f in st["findings"] if f["code"] == "run_failed"]
+    assert says in f["text"] and "runs in Fabric" in f["text"], f["text"]
+    assert _lakehouse_files(svc.lh) == before
 
 
 def test_one_validation_at_a_time_and_cancel_ends_it(svc):

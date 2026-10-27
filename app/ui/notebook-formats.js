@@ -30,8 +30,9 @@ function nbfExportMenu() {
     ...NBF_EXPORTS.map((x) => ({ label: x.label, icon: "arrowDownload", action: () => nbfExport(x.format) }))];
 }
 
-function nbfExportButton() {
-  return previewMarked("nbFormats", btn("Export", "arrowDownload", (e) => showMenu(e.currentTarget, nbfExportMenu()), "tool",
+// anchor: where the formats menu opens when the button itself sits in a menu (the ribbon's Share).
+function nbfExportButton(anchor = null) {
+  return previewMarked("nbFormats", btn("Export", "arrowDownload", (e) => showMenu(anchor || e.currentTarget, nbfExportMenu()), "tool",
     { title: "Save this notebook as .ipynb, Fabric or Databricks source, or a web page" }));
 }
 

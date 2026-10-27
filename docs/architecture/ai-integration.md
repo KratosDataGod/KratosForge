@@ -109,6 +109,7 @@ Each capability carries:
 | `limitations` | Known limits, shown to clients |
 | `version` | Bumped when the schema changes incompatibly |
 | `source` | `core` or the extension id that registered it |
+| `workspaces` | How a tool limited to some workspaces is kept inside them (`integrations/scope.py`): `none` (reaches no workspace), `argument` (its `workspace_id` names it), `filtered` (a list that leaves out the rest), `unknown` (can't be confined, so a limited tool can't use it), or a function that reads which workspaces the call reaches. Unset is treated as `unknown` |
 
 The registry is dynamic: `Registry.register()` adds a capability with validation of its schemas and permission, and `unregister()` removes it. Built-in capabilities are registered at import time; extensions register theirs when enabled (section 8).
 
@@ -132,7 +133,7 @@ How a call is decided, in order (in `invoke`):
 1. Integrations are on (the person's switch, and not turned off by IT policy `integrations`).
 2. The client is known and not revoked. Unknown clients get nothing.
 3. The capability is available and its category is granted to this client and allowed by policy (`integrations_max_permissions`).
-4. Targets are in scope: approved folders for file work; workspaces in the client's list when the person set one.
+4. Targets are in scope: approved folders for file work; workspaces in the client's list when the person set one. Every capability is checked, not only those with a `workspace_id` argument: one that names a notebook, proof, receipt, side-by-side run, execution or the metadata project is checked against the workspaces that thing points at (its lakehouse, where it publishes, where it ran; for the metadata project or one of its environments, each environment's workspace and each designation's workspace); lists (workspaces, notebooks, proofs, receipts, side-by-side runs, executions, projects) leave out what is elsewhere, and their totals count only what is left. A capability that can't tell which workspace it would reach (the run-risk check, an extension that doesn't declare `workspaces`, a record saved without workspace ids, or a designation named without its workspace id) is refused to a limited tool and listed as unavailable to it. The check runs before any approval is asked for.
 5. If the capability needs approval, the request appears in the app (bell and **Settings > Integrations**) showing the client, the operation, the target and, for code, the code itself. The person approves or denies. An approval is single-use and bound to a hash of the exact arguments, so a client can't get approval for one thing and run another.
 6. The service runs under the person's own Fabric and Entra permissions. Integration never adds access the person doesn't have.
 
@@ -204,7 +205,8 @@ An extension is a named, versioned set of capabilities with the permission categ
 | Its capability ids start with its own prefix (`notebook-outline` gives `notebook_outline_...`) | Two extensions can't collide, and a tool can see where a capability comes from |
 | Each capability's permission is one the extension declared, and its `source` is the extension | What the person sees before turning it on is what it can ask for |
 | A resource is under `fabric-desktop://ext/<extension id>/` | It can't stand in for a core resource |
-| Everything the registry checks for any capability (schemas, read-only means a read permission, destructive means approval) | No second, weaker path |
+| Everything the registry checks for any capability (schemas, read-only means a read permission, destructive means approval, a valid `workspaces` declaration) | No second, weaker path |
+| A capability that doesn't declare `workspaces` still loads, but is refused to a tool limited to some workspaces | It can't reach a workspace by not saying which one it reaches |
 | All of its capabilities register, or none do | A half-loaded extension never shows up |
 
 Extensions are off until the person turns each on in **Settings > Integrations > Extensions**. The policy key `integrations_extensions` (a list of ids) limits which ones can be turned on; `[]` or an unreadable value allows none, and one already on is taken away at the next sync. The switches live in the integration store, and each server process's `ExtensionHost.sync()` runs every 2 seconds, so a change reaches every MCP and HTTP server without a restart.

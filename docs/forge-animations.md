@@ -23,9 +23,9 @@ At Refined and Expressive, a switch for each family turns it off:
 
 | Switch | Effects |
 | --- | --- |
-| Wolf animations | The wolf on Run all progress, its arrival, the Wolf Run after long work |
-| Forge sparks | Forge Spark, Anvil Strike, the failure ember |
-| Running indicators | The glow on a running cell, the flow into a running pipeline step, the ring when Run all starts |
+| Wolf animations | The wolf on Run all progress, its arrival, the Wolf Run after long work, the navy wolf on runs in Fabric, on a notebook's Fabric step, on Git push, pull, fetch and clone, and on an Estate X-ray scan before it can count |
+| Forge sparks | Forge Spark, Anvil Strike, the cooling spark, the failure ember, the sparks and embers on the forge splash |
+| Running indicators | The glow on a running cell, the flow into a running pipeline step, the ring when work starts (Run all, a pipeline run, a Data mesh run, a notebook run in Fabric) |
 
 **Preview effects** plays each effect on a sample, and runs a three-step sample pipeline on this PC
 (two short waits and a variable) to show Energy Flow. That run is kept in this PC's local pipeline
@@ -56,15 +56,36 @@ Every key can be fixed in the policy file ([Azure setup](azure-setup.md#4-push-s
 | Run all (or Run above, Run below) starts | **Pulse**: one orange ring off the Run all button | the button | 0.35 s |
 | Run all takes longer than 0.6 s | The status bar says **Cell 3 of 8 on this PC**, with the wolf at the share of cells done and embers rising behind it | status bar | until the run ends |
 | Run all finishes | **Wolf Arrival**: the wolf glows once at the end and the track goes | status bar | 0.55 s |
+| A job the app started in Fabric is running | The bell and Home show the wolf trotting in place in Kratos navy on an empty track, with **Running in Fabric** beside it. Fabric reports no measurable progress, so there is no fill, percentage or time estimate; with the wolf off, the plain indeterminate bar shows | the bell, Home | while running |
 | A cell is running | A small breathing ember on **Running** (forge orange, because notebook cells run on this PC) | the cell's status | while running |
-| A pipeline activity runs | **Energy Flow**: the link into the running activity carries a moving dash; each activity says Queued, In progress, Succeeded, Failed, Skipped or Cancelled in words | pipeline flow | while running |
-| A pipeline activity finishes | It settles with one glow (succeeded) or the failure ember | the activity | 0.45 s |
-| A pipeline run succeeds | **Anvil Strike** (shown in Preview effects until the pipeline run screen arrives) | the run's result | 0.65 s |
+| A notebook runs in Fabric (Runs on: Fabric, Run all) | **Pulse** on Run all once Fabric has the run; the status bar shows the navy wolf trotting in place with "Running in Fabric" and Fabric's state, no fill or percentage; the status bar's "Last Fabric run" glows once when it completes, or shows the failure ember when it fails. Cancelled plays nothing | Run all, then the status bar | 0.35 s, while running, 0.55 s |
+| A notebook's Fabric step runs (the last cell, marked Run on Fabric) | Its output line shows the navy wolf trotting in place beside "Queued on Fabric" or "Running on Fabric", no fill or percentage, and the breathing ember on **Running** is navy, since the cell runs in Fabric, not on this PC. When Fabric completes it, **Succeeded** glows once; a failed step gets the failure ember beside **Failed**; cancelled plays nothing | the cell's output and status | while running, then 0.55 s or 0.45 s |
+| A SQL query succeeds after more than 2 s | **Forge Spark** on **Succeeded**. Quicker queries show nothing | the Results band | 0.4 s |
+| A SQL query fails or times out | **Controlled Failure**: the ember beside **Failed**; the error is there from the first frame | the Results band | 0.45 s |
+| You start a pipeline run (Pipelines > Run on this PC) | **Pulse** on **Stop** as the run view opens | the run's Stop button | 0.35 s |
+| A pipeline activity runs | **Energy Flow** above the run's time line: the link into the running activity carries a moving dash; each activity says Queued, In progress, Succeeded, Failed, Skipped or Cancelled in words | pipeline flow | while running |
+| A pipeline activity finishes | It settles with one glow (succeeded) or the failure ember, once, while you watch | the activity | 0.45 s |
+| A pipeline run you're watching ends | **Anvil Strike** when it succeeds; a run with mocks isn't a real success and gets none. A failed run shows the one ember of the activity that failed. A run opened after it ended plays nothing | the flow | 0.65 s |
+| A Validate clean run passes (Ready, or Ready with warnings) | **Cooling spark**: the verdict glows forge orange, then cools to the success colour. A run that isn't ready gets the failure ember beside its verdict; a cancelled run plays nothing | the Validate verdict | 0.5 s |
+| Prove finds both runs made the same results | **Cooling spark** on the **Same** verdict; **Differs** or a failed proof gets the failure ember | the Prove verdict | 0.5 s |
+| Publish to Fabric, once Fabric gives back the notebook item it saved | **Cooling spark** on the "Published" message; a failed publish gets the failure ember beside the error | beside the message | 0.5 s |
 | A platform deployment succeeds (Source control) | **Anvil Strike**: a small anvil drops onto the "Deployed" message and two sparks fly. No shake, no flash | beside the message | 0.65 s |
-| Your developer profile records a milestone | **Achievement Reveal**: a ring and an offset outline reveal the badge once. Off unless you turn on **Achievement celebrations**, which appears when the developer profile ships | the badge | 0.9 s |
+| Data mesh Run all, or a run of some tables (on this PC or in Fabric) | **Pulse** once on the button that started it. When the results come, one effect for the whole batch, never one per table: **Anvil Strike** when every table succeeded, the failure ember when any failed. A table waiting on a decision, or a Fabric run that was cancelled, plays nothing | the button, then the results' heading (or the message, away from Data mesh) | 0.35 s, then 0.65 s or 0.45 s |
+| Git push, pull, fetch or clone talks to the remote (Source control) | The band shows the navy wolf trotting in place on an empty track with what Git is doing ("Talking to the remote"), no fill or percentage; once Git counts objects, the bar shows its percentage. With the wolf off, the plain indeterminate bar shows | the Git band | while running |
+| A Git push, pull or clone finishes | **Forge Spark** on the message when it is done (a fetch only looks, so it plays nothing); the failure ember beside the error when it fails; cancelling plays nothing | beside the message | 0.4 s or 0.45 s |
+| A Direct Lake semantic model is created or updated (Data mesh > Semantic model) | **Forge Spark** once Fabric gives back the model, on the "Created" or "Updated" message. A build that fails gets the failure ember beside the error; asking whether to replace a model, or a cancelled sign-in, plays nothing | beside the message or error | 0.4 s or 0.45 s |
+| You promote Dev to Test or Test to Prod (Data mesh > Environments) | **Anvil Strike** on the message once the target is on the new metadata version; a promote that fails or is blocked gets the failure ember beside the error. A cancelled sign-in plays nothing | beside the message | 0.65 s or 0.45 s |
+| An Estate X-ray scan starts reading (Home) | Until the scan can count what it reads, the navy wolf trots in place with "Reading Fabric", no fill or percentage; then the bar shows how many it has read. Paused, the grey bar stands still. With the wolf off, the plain indeterminate bar shows | the X-ray card | while running |
+| An Estate X-ray scan you're watching ends | **Wolf Arrival**: the numbers glow once; a scan that stopped gets the failure ember beside why. A scan that ended before you opened Home plays nothing | the X-ray numbers or the reason | 0.55 s or 0.45 s |
+| A platform deployment fails (Source control) | **Controlled Failure**: the ember beside the note saying where the deploy stopped, or beside the error when the engine refused it. A cancelled sign-in plays nothing | beside the note or error | 0.45 s |
+| You save a notebook yourself (**Save**, or **Ctrl+S**) | **Forge Spark** once the save is written: on **Save**, or on the "Saved" message for Ctrl+S. At most one every 5 s; autosave and the saves other actions make first (Publish, Run in Fabric, closing) never spark | the Save button or the message | 0.4 s |
+| Profile awards you an achievement | **Achievement Reveal**: a ring and an offset outline reveal the message naming it, once per award (never again for the same award, even after a restart). Off unless you turn on **Achievement celebrations**, shown while Preview features are on | the achievement message | 0.9 s |
+| KratosForge starts on a new build, or for the first time as KratosForge (the forge splash) | The emblem strikes the anvil, sparks fly and embers rise behind the name. Off and Minimal show it still, as does Windows' reduced motion unless you unticked **Respect Windows' reduced-motion setting**; with **Forge sparks** off the emblem strikes but no sparks fly and no embers rise. The embers wait while the window is in the background | the whole window | about 2 s, embers until you close it |
+| A dialog opens or closes (Minimal and above) | The dialog rises and fades in; focus is inside it from the first frame. On close it is gone at once and a blank card fades where it was. **Escape** closes with no fade | the dialog | 0.2 s in, 0.16 s out |
+| The Activity tray or a side pane opens (Explorer, Variables, Comments, Runs, Prove, Validate; Minimal and above) | It slides 16 px in from its edge and fades in. A page that opens with its panes doesn't animate them, and redraws never replay it. The tray leaves like a dialog | the tray or pane | 0.22 s |
 
 During Run all, cells don't spark one by one; the track shows the progress instead. Stop and
-Cancel show nothing. Activities inside ForEach and Until are counted on their parent
+Cancel show nothing, on a notebook or a SQL query. Activities inside ForEach and Until are counted on their parent
 ("In progress · 4 of 9"), never animated one by one. A pipeline flow always says where it runs:
 **Local run on this PC (not run in Fabric)** for a local run.
 
@@ -115,6 +136,8 @@ happened, and the engine decides whether and how it shows.
 - `MOTION`: each kind's length (`ms`), minimum gap, lowest level, family and optional `build`
   for extra parts (the anvil, the running wolf).
 - `wolfTrack(where, label, unit, engine)`: step progress with the wolf, real fractions only.
+- `remoteProgress(label, where)`: an indeterminate bar for a run elsewhere (in Fabric), with the
+  navy wolf trotting in place and the words saying where it runs. No value, no fill.
 - `pipelineFlow(container)`: `update(status)` draws a `pipeline_run_status` result as linked
   activities and fires the activity events.
 - `viewTransition(view)`: called by `setView`; animates only when the page changes.

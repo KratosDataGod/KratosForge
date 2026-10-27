@@ -27,7 +27,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from . import cleanup, envprofile, lakehouse, receipts, redact, validate
+from . import cleanup, envprofile, lakehouse, notebook_cells, receipts, redact, validate
 from .kernel_proc import ProcessKernel
 from .proof_runtime import PROOF_ROOT
 
@@ -119,20 +119,16 @@ class ValidateMixin:
         with self._validate_lock:
             if self._validate_running():
                 raise RuntimeError("A validation is already running. Wait for it, or cancel it.")
-            plan = validate.run_plan(cells, lakehouse_ref)
+            plan = validate.run_plan(cells, lakehouse_ref, spark=True)
             if not plan["ok"]:
                 b = plan["blockers"][0]
-                if b["text"].startswith("uses Spark"):
-                    raise ValueError(f"A clean run doesn't run Spark cells yet (cell {b['cell']} uses Spark), so this "
-                                     "notebook gets code checks only for now.")
                 raise ValueError(f"A clean run can't contain cell {b['cell']}: it {b['text']}. "
                                  "Change that cell to read and write through the lakehouse module, or run it yourself.")
             if plan["uncontained"] and not allow_uncontained:
                 u = plan["uncontained"][0]
                 raise PermissionError(f"Confirm to continue. Cell {u['cell']}: {u['text']}")
             static = validate.check(cells, lakehouse_ref, _runs_on(runs_on), self._fabric_observed())  # type: ignore[attr-defined]
-            code = [(n, c) for n, c in enumerate(cells, 1) if c.get("type") != "markdown"
-                    and (c.get("source") or "").strip() and not (c.get("meta") or {}).get("frozen")]
+            code = [(n, c) for n, c in enumerate(cells, 1) if notebook_cells.runs(c, skip_fabric_step=True)]
             rid = "validate-" + time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
             record: dict[str, Any] = {
                 "id": rid, "name": name,
@@ -222,6 +218,7 @@ class ValidateMixin:
             record["_kernel"] = kernel
             kernel.notebook_name = record["name"]
             kernel.resources_dir = self._resources_dir(record["name"])  # type: ignore[attr-defined]
+            kernel.onelake_writes = self._onelake_writes(record["name"])  # type: ignore[attr-defined]
             if lakehouse_ref:
                 schemas = self._schemas_enabled(lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"])  # type: ignore[attr-defined]
                 pins = self._proof_tables(lakehouse_ref).versions()  # type: ignore[attr-defined]
@@ -301,6 +298,8 @@ class ValidateMixin:
             "cancelled": "Cancelled. Nothing was written to the lakehouse's tables.",
             "error": "The clean run couldn't finish.",
         }.get(run["status"], "")
+        if run["status"] in ("ok", "failed") and (skipped := notebook_cells.skipped_step(cells)):
+            record["summary"] += " " + skipped
         record["cell"] = None
         record["finished_at"] = _now()
         modules = sorted({m["module"] for c in cells if c.get("type") != "markdown"

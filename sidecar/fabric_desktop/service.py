@@ -21,7 +21,7 @@ from .redact import describe
 from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, Authenticator
 from .fabric_api import FabricClient
-from . import app_settings, jsonfile, lakehouse, sql, sql_dialects, sql_exec, sql_format, sqlcompat
+from . import app_settings, jsonfile, lakehouse, sql, sql_dialects, sql_exec, sql_format, sqlcompat, warehouse
 from .filenames import file_stem
 from .frames import DOWNLOAD_FORMATS, GONE, FrameGone
 from .jobs import Job, run_local
@@ -39,13 +39,22 @@ from .xray_service import XRayMixin
 from .preview_service import PreviewMixin
 from .central.service import PlatformMixin
 from .central.governance_service import GovernanceMixin
+from .central.checks_service import ChecksMixin
+from .central.requests_service import RequestsMixin
+from .central.trust_service import TrustMixin
 from .shortcut_service import ShortcutMixin
 from .workload_service import WorkloadMixin
 from .incident_service import IncidentMixin
 from .incident_desk import IncidentDeskMixin
 from .platform_notify_service import PlatformNotifyMixin
+from .access_cache_service import AccessCacheMixin
 from .git_service import GitMixin
 from .pipeline_service import PipelineMixin, PipelineRunMixin
+from .fabric_pipeline_runs_service import FabricPipelineRunsMixin
+from .workspace_pipelines_service import WorkspacePipelinesMixin
+from .fabric_connections_service import FabricConnectionsMixin
+from .workspace_copy_jobs_service import WorkspaceCopyJobsMixin
+from .workspace_dataflows_service import WorkspaceDataflowsMixin
 from .integrations.app_service import IntegrationsMixin
 from .localdata_service import LocalDataMixin
 from .risk_service import RiskMixin
@@ -54,10 +63,20 @@ from .optimize_service import OptimizeMixin
 from .tenant_history_service import TenantHistoryMixin
 from .capacity_history_service import CapacityHistoryMixin
 from .validate_service import ValidateMixin
+from .model_ossie_service import ModelOssieMixin
+from .model_directlake_service import ModelDirectLakeMixin
+from .model_dictionary_service import ModelDictionaryMixin
 from .environment_service import EnvironmentMixin
+from .local_writes_service import LocalWritesMixin
 from .notebook_resources_service import NotebookResourcesMixin
 from .notebook_files_service import NotebookFilesMixin
+from .editor_service import EditorMixin
+from .notebook_folders_service import NotebookFoldersMixin
 from .notebook_formats_service import NotebookFormatsMixin
+from .sql_templates_service import SqlTemplatesMixin
+from .sql_queries_service import SqlQueriesMixin
+from .warehouse_project_service import WarehouseProjectMixin
+from .warehouse_monitoring_service import WarehouseMonitoringMixin
 from .notebook_versions_service import NotebookVersionsMixin
 from . import notebook_versions
 from .progress_service import ProgressMixin
@@ -80,12 +99,20 @@ def data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
-class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin):
+
+def _lakehouse_key(ref: Any) -> Any:
+    """A lakehouse reference's identity: its id, else its name."""
+    if isinstance(ref, dict):
+        return ref.get("lakehouse_id") or ref.get("name") or None
+    return ref or None
+
+class Service(TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, RequestsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
         self.root = root or data_dir()
         self._auth: Authenticator | None = None
+        self._auth_lock = threading.Lock()
         self.sessions = KernelSessions(self._new_kernel, lambda: bool(app_settings.value("kernel_process")),
                                        max_sessions=lambda: int(app_settings.value("kernel_max_sessions") or 0),
                                        idle_minutes=lambda: float(app_settings.value("kernel_idle_minutes") or 0),
@@ -99,9 +126,12 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
     def auth(self) -> Authenticator:
         # The app ID can change on the Settings page; a new one needs a new sign-in.
         client_id = self._client_id or app_settings.value("client_id")
-        if self._auth is None or getattr(self._auth, "client_id", client_id) != client_id:
-            self._auth = Authenticator(client_id, interactive=not self.headless)
-        return self._auth
+        # Built once: building it asks Microsoft for its sign-in endpoints (and on Windows starts the
+        # sign-in broker), so calls arriving together, as a tool's do, must not each build one.
+        with self._auth_lock:
+            if self._auth is None or getattr(self._auth, "client_id", client_id) != client_id:
+                self._auth = Authenticator(client_id, interactive=not self.headless)
+            return self._auth
 
     @property
     def audit(self) -> AuditLog:
@@ -223,6 +253,7 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
     def kernel_sessions(self) -> dict[str, Any]:
         """The Sessions list: each notebook's session, and sessions stopped since the last look."""
         return {"process": self.sessions.in_process, "sessions": self.sessions.describe(),
+                "shared": self.sessions.joined(),
                 "notes": self.sessions.take_notes(), "max_sessions": int(app_settings.value("kernel_max_sessions") or 0),
                 "idle_minutes": float(app_settings.value("kernel_idle_minutes") or 0)}
 
@@ -232,6 +263,34 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
         if self.proof_busy() and (notebook is None or notebook == self.sessions.active):
             raise RuntimeError("A proof is using the kernel. Cancel the proof first.")
         return self.sessions.stop(self.sessions.active if notebook is None else notebook)
+
+    def kernel_session_share(self, notebook: str, host: str) -> dict[str, Any]:
+        """``notebook`` joins ``host``'s session, as Fabric's high-concurrency sessions do: same
+        ``spark``, temp views and settings, one cell at a time, variables of its own. Like Fabric,
+        both need the same default lakehouse and environment. ``notebook``'s own session ends."""
+        if self.proof_busy():
+            raise RuntimeError("A proof is using a notebook's kernel. Share sessions when it has finished.")
+        host = self.sessions.host_of(host) or host
+        lakehouse_of = self._saved_lakehouse
+        if lakehouse_of(notebook) != lakehouse_of(host):
+            raise RuntimeError(f"{notebook} and {host} have different default lakehouses. Notebooks in a shared "
+                               "session use the same one, as in Fabric; change one of them first.")
+        if self.environments.of(notebook) != self.environments.of(host):
+            raise RuntimeError(f"{notebook} and {host} use different environments. Notebooks in a shared session "
+                               "use the same one, as in Fabric; change one of them first.")
+        return self.sessions.share(notebook, host)
+
+    def _saved_lakehouse(self, name: str) -> Any:
+        """A notebook's saved default lakehouse, by id (or name), for a shared session's match."""
+        try:
+            ref = self.notebooks.load(name).get("lakehouse")
+        except (OSError, KeyError, ValueError):
+            return None  # a notebook that isn't saved yet has none
+        return _lakehouse_key(ref)
+
+    def kernel_session_leave(self, notebook: str) -> dict[str, Any]:
+        """``notebook`` leaves its shared session; its next cell starts a session of its own."""
+        return self.sessions.leave(notebook)
 
     def app_settings(self) -> dict[str, Any]:
         return {**app_settings.load(), "policy_file": str(app_settings.policy_path()),
@@ -447,7 +506,9 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
                  notebook: str | None = None) -> dict[str, Any]:
         self._replay_guard(None)
         self._attach(lakehouse_ref)
-        return self.sessions.kernel(notebook).run(code)
+        kernel = self.sessions.kernel(notebook)
+        kernel.onelake_writes = self._onelake_writes(notebook)
+        return kernel.run(code)
 
     # The app runs cells with start_cell, then polls: output shows while the cell runs, and
     # interrupt_cell stops it without clearing variables.
@@ -459,10 +520,21 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
         ``watches`` are expressions shown in the Variables pane, evaluated after the cell.
         ``breakpoints`` (line numbers) or ``step`` (pause at the first line) run it under the
         debugger; ``debug_cell`` resumes it."""
+        return self._start_cell(code, lakehouse_ref, notebook, time_limit, watches, breakpoints, step)
+
+    def _start_cell(self, code: str, lakehouse_ref: dict[str, str] | None = None, notebook: str | None = None,
+                    time_limit: bool = True, watches: list[str] | None = None, breakpoints: list[int] | None = None,
+                    step: bool = False, write_check: Any = None) -> dict[str, Any]:
+        """start_cell, with ``write_check`` asked before each write the cell makes (a cell a paired
+        VS Code window started, editor_service.py). The app's own cells have none."""
         breakpoints = check_breakpoints(breakpoints)
         if self.proof_busy():
             raise RuntimeError("A proof is running this notebook's kernel. Wait for it, or cancel it.")
         self._replay_guard(notebook)  # prove_service: a replay's cells run only inside it
+        host = self.sessions.host_of(notebook)
+        if host and lakehouse_ref and _lakehouse_key(lakehouse_ref) != self._saved_lakehouse(host):
+            raise RuntimeError(f"{notebook} shares {host}'s session but now has another default lakehouse. Change it "
+                               f"back to {host}'s, or leave the shared session (Sessions).")
         # Busy is checked before attaching, under the lock external runs take: a refused start must
         # not re-point the running cell, and an external run can't re-point this one as it starts.
         if not self.attach_lock.acquire(timeout=ATTACH_WAIT_SECONDS):
@@ -483,6 +555,8 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
             # Values set in the Widgets bar, so a cell that creates a widget and reads it gets them.
             kernel.widget_values = dict((self._saved_inputs(notebook) or {}).get("widgets") or {})
             kernel.resources_dir = self._resources_dir(notebook)
+            kernel.onelake_writes = self._onelake_writes(notebook)
+            kernel.write_check = write_check
             if isinstance(kernel, ProcessKernel):
                 return kernel.start(code, time_limit=time_limit, watches=check_watches(watches),
                                     breakpoints=breakpoints, step=bool(step))
@@ -491,18 +565,29 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
             self.attach_lock.release()
 
     # ``notebook`` names whose kernel to ask; without it, the open notebook's.
+    # Looking at a notebook's session never makes one: a new session can stop another notebook's
+    # idle one to make room (Settings cap), clearing its variables just because a notebook opened.
+
     def poll_cell(self, version: int = -1, wait: float = 0.0, notebook: str | None = None) -> dict[str, Any]:
-        return self.sessions.kernel(notebook).poll(version, wait)
+        session = self.sessions.session(notebook, create=False)
+        if session is None:
+            return {"status": "idle", "execution_count": 0, "version": 0, "seconds": 0, "outputs": []}
+        return session.kernel.poll(version, wait)
 
     def interrupt_cell(self, notebook: str | None = None) -> dict[str, Any]:
-        return self.sessions.kernel(notebook).interrupt()
+        session = self.sessions.session(notebook, create=False)
+        return session.kernel.interrupt() if session is not None else {"interrupted": False}
 
     def debug_cell(self, action: str, expression: str | None = None, notebook: str | None = None) -> dict[str, Any]:
         """A cell paused under the debugger: continue, step, next, out, or eval ``expression`` where it is."""
-        return self.sessions.kernel(notebook).debug(action, expression)
+        session = self.sessions.session(notebook, create=False)
+        if session is None:
+            raise RuntimeError("No cell is running under the debugger.")
+        return session.kernel.debug(action, expression)
 
     def kernel_variables(self, notebook: str | None = None) -> list[dict[str, Any]]:
-        return self.sessions.kernel(notebook).variables()
+        session = self.sessions.session(notebook, create=False)
+        return session.kernel.variables() if session is not None else []
 
     def kernel_complete(self, code: str, cursor: int | None = None, notebook: str | None = None) -> dict[str, Any]:
         return self.sessions.kernel(notebook).complete(code, cursor)
@@ -515,6 +600,29 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
         """The first Python syntax error in a cell, for the editor's red underline."""
         from .intellisense import syntax_problems
         return syntax_problems(source)
+
+    def notebook_format(self, sources: list[str]) -> list[dict[str, Any]]:
+        """Format cells (Python with ruff, %%sql with the SQL formatter) without running them."""
+        from .code_format import format_cells
+        if not isinstance(sources, list):
+            raise ValueError("sources must be a list of cell sources")
+        return format_cells(sources)
+
+    def notebook_plotly_js(self) -> dict[str, Any]:
+        """plotly.js for the app to draw plotly outputs with, read once per app start (chart_output.py)."""
+        from .chart_output import plotly_js
+        return plotly_js()
+
+    def notebook_practices(self, sources: list[str], scheduled: bool = False,
+                           settings: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
+        """Best-practice findings for a notebook's code cells, read on this PC without running them."""
+        from .notebook_practices import check
+        return check(sources, bool(scheduled), settings)
+
+    def notebook_practice_rules(self) -> list[dict[str, Any]]:
+        """The notebook best-practice rules, for a template to turn on or off."""
+        from .notebook_practices import rules
+        return rules()
 
     def kernel_variable_detail(self, name: str) -> dict[str, Any]:
         return self.kernel.variable_detail(str(name))
@@ -545,6 +653,16 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
         """Inspect: a profile of every row of a cell's result (display(df, summary=True))."""
         try:
             return self.kernel.frame_profile(frame=frame)
+        except (FrameGone, RuntimeError) as exc:
+            if isinstance(exc, FrameGone) or str(exc) == GONE:
+                return {"frame": frame, "gone": True, "message": GONE}
+            raise
+
+    def notebook_frame_query_profile(self, frame: str) -> dict[str, Any]:
+        """Query profile: the query behind a cell's spark or %%sql result, run again under DuckDB's
+        profiler, step by step (rows, time, share of the total). Reads only."""
+        try:
+            return self.kernel.frame_query_profile(frame=frame)
         except (FrameGone, RuntimeError) as exc:
             if isinstance(exc, FrameGone) or str(exc) == GONE:
                 return {"frame": frame, "gone": True, "message": GONE}
@@ -645,6 +763,17 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
         """Check SQL against a Fabric engine's documented rules, without running it or calling Fabric."""
         return sqlcompat.analyze(query, target)
 
+    def sql_practices(self, query: str, target: str = "warehouse",
+                      settings: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
+        """Best-practice findings for T-SQL, read on this PC without running it (sqlcompat/practices.py)."""
+        from .sqlcompat import practices
+        return practices.check(query, target, settings)
+
+    def sql_practice_rules(self) -> list[dict[str, Any]]:
+        """The SQL best-practice rules, for a template to turn on or off."""
+        from .sqlcompat import practices
+        return practices.rules()
+
     def sql_compat_profiles(self) -> dict[str, Any]:
         """What each engine supports, the rule set's version and the rules, for the panel and the docs."""
         return {"rule_version": sqlcompat.RULE_VERSION, "profiles": sqlcompat.profiles(),
@@ -680,7 +809,9 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
             self._sql_runs = sql_exec.SqlExecutions(
                 self.root, token=lambda: self.auth.storage_token(), audit=self._audit_sql_run,
                 schemas_enabled=lambda ref: self._schemas_enabled(ref["workspace_id"], ref["lakehouse_id"]),
-                local_engine=lambda project: self.local_data.engine(project))
+                local_engine=lambda project: self.local_data.engine(project),
+                warehouse_token=lambda: self.auth.warehouse_token(),
+                resolve_warehouse=lambda ref: warehouse.resolve(self.fabric, ref))
         return self._sql_runs
 
     def _audit_sql_run(self, action: str, outcome: str, seconds: float, params: dict[str, Any]) -> None:
@@ -691,15 +822,24 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
 
     def sql_start(self, query: str, lakehouse_ref: dict[str, Any] | None = None, dialect: str = "spark",
                   allow: list[str] | None = None, target: str = "lakehouse", project: str = "",
-                  confirm: bool = False, dry_run: bool = False) -> dict[str, Any]:
+                  confirm: bool = False, dry_run: bool = False,
+                  warehouse_ref: dict[str, Any] | None = None, confirm_name: str = "",
+                  estimated_plan: bool = False) -> dict[str, Any]:
         """Queue a query on this PC. ``allow`` adds "local_mutation" after the person confirmed it;
         lakehouse writes and Fabric changes are never allowed here (sql_policy.py).
 
         ``target="local"`` runs it in local data project ``project``: it may change the project's
         own tables, and ``confirm`` lets DROP, TRUNCATE and DELETE or UPDATE without WHERE run.
-        ``dry_run`` only says what each statement would do; nothing runs."""
+        ``target="warehouse"`` (Preview) runs one T-SQL query that only reads on ``warehouse_ref``
+        (``workspace_id``, ``item_id``, ``kind`` "warehouse" or "endpoint"), in Fabric: it uses capacity.
+        With ``allow=["warehouse_write"]``, ``confirm`` and ``confirm_name`` (the warehouse's name, as
+        the person confirmed it) it may change the warehouse (WH-10, sql_exec.py).
+
+        ``dry_run`` only says what each statement would do; nothing runs. ``estimated_plan`` (warehouse,
+        a query that reads) returns Fabric's estimated plan as showplan XML instead of running it."""
         return self.sql_runs.start(query, lakehouse_ref, dialect, allow, target=target, project=project,
-                                   confirm=confirm, dry_run=dry_run)
+                                   confirm=confirm, dry_run=dry_run, warehouse_ref=warehouse_ref,
+                                   confirm_name=confirm_name, estimated_plan=estimated_plan)
 
     def sql_status(self, execution: str) -> dict[str, Any]:
         return self.sql_runs.status(execution)
@@ -801,9 +941,10 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
     def list_notebooks(self) -> list[dict[str, Any]]:
         return self.notebooks.list()
 
-    def new_notebook(self, place: str | None = None) -> dict[str, Any]:
-        """A new notebook in the app's own folder, or in the notebooks repository at ``place``."""
-        nb = self.notebooks.new(place=place)
+    def new_notebook(self, place: str | None = None, folder: str = "") -> dict[str, Any]:
+        """A new notebook in the app's own folder, or in the notebooks repository at ``place``;
+        inside ``folder`` ("Sales") when given (notebook_folders)."""
+        nb = self.notebooks.new(place=place, folder_name=folder or "")
         self.sessions.active = nb["name"]
         return self._with_place(nb)
 
@@ -812,7 +953,27 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
         self.sessions.active = name  # its session, if it has one, is the one Run, Stop and proofs use
         self.sessions.reap_idle()
         return self._with_place(nb) | {"check": compute_check(nb["cells"], nb["lakehouse"]),
-                                       "replay": self.notebooks.extra(name, "replay")}  # a replay notebook (prove_service)
+                                       "replay": self.notebooks.extra(name, "replay"),  # a replay notebook (prove_service)
+                                       "onelake_writes": self.notebooks.extra(name, "onelake_writes")}
+
+    def _onelake_writes(self, name: str | None) -> str:
+        """How the notebook's cells write to OneLake: its own choice, else the Settings default."""
+        mode = None
+        if name:
+            try:
+                mode = self.notebooks.extra(name, "onelake_writes")
+            except (OSError, ValueError):  # not saved yet
+                mode = None
+        return mode if mode in lakehouse.UPLOADS else app_settings.value("onelake_writes")
+
+    def notebook_onelake_writes_set(self, name: str, mode: str | None) -> dict[str, Any]:
+        """Keeps the notebook's own OneLake writes choice: "local_first" (write here, upload in the
+        background, the cell ends when it's in), "direct" (each write returns once it's in OneLake),
+        or None to follow Settings. Takes effect from the next cell run."""
+        if mode not in (None, "", *lakehouse.UPLOADS):
+            raise ValueError(f"OneLake writes must be one of {', '.join(lakehouse.UPLOADS)}")
+        self.notebooks.set_extra(name, "onelake_writes", mode or None)
+        return {"onelake_writes": mode or None, "effective": self._onelake_writes(name)}
 
     def notebook_inputs(self, name: str, cells: list[dict[str, Any]]) -> dict[str, Any]:
         """The Parameters and Widgets bar for these cells, with the values saved for the notebook."""
@@ -827,6 +988,20 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
             return self.notebooks.extra(name, "inputs")
         except (OSError, ValueError):  # not saved yet, or a name no file can have
             return None
+
+    def _bar_parameters(self, name: str, cells: list[dict[str, Any]]) -> dict[str, Any]:
+        """The Parameters bar's values, kept with the notebook, as a Fabric run's parameters
+        (notebook_inputs.fabric_parameters); ValueError for a value the bar shows in red."""
+        from .notebook_inputs import fabric_parameters
+        return fabric_parameters(_with_ids(cells), self._saved_inputs(name))
+
+    def _bar_suffixes(self, name: str, cells: list[dict[str, Any]]) -> list[str]:
+        """For a run on this PC the engine starts itself (side by side): the code to add after each
+        cell, by position, as runCell adds it (nbinputs.js)."""
+        from .notebook_inputs import inputs
+        ided = _with_ids(cells)
+        suffix = inputs(ided, self._saved_inputs(name))["suffix"]
+        return [suffix.get(c["cell_id"], "") for c in ided]
 
     def notebook_inputs_set(self, name: str, cells: list[dict[str, Any]], values: dict[str, Any]) -> dict[str, Any]:
         """Keeps the bar's values with the notebook (its code doesn't change); empty values forget them."""
@@ -853,9 +1028,19 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
         return self.notebooks.move(name, place)
 
     def save_notebook(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
-                      compute: str | None = None, workspace: dict[str, str] | None = None) -> dict[str, Any]:
-        """Save the notebook, and say whether it can run on this PC and in Fabric as it now stands."""
-        out = self.notebooks.save(name, cells, lakehouse_ref, compute, workspace)
+                      compute: str | None = None, workspace: dict[str, str] | None = None,
+                      disk_stamp: str | None = None) -> dict[str, Any]:
+        """Save the notebook, and say whether it can run on this PC and in Fabric as it now stands.
+
+        ``disk_stamp`` (from open_notebook or the last save): when another program, such as VS Code,
+        changed the file since, nothing is saved and ``changed_on_disk`` comes back. Both the file's
+        version and these cells are kept under Versions first, so whichever the person picks, or
+        if they pick neither, nothing is lost. ``outside_copy`` is where a file that isn't a
+        notebook any more (Git conflict markers) was copied."""
+        out = self.notebooks.save(name, cells, lakehouse_ref, compute, workspace, disk_stamp)
+        if out.get("changed_on_disk"):
+            copy = self._keep_both_sides(name, cells, lakehouse_ref, compute, workspace, bool(out.get("unreadable")))
+            return out | ({"outside_copy": copy} if copy else {})
         self._keep_version(name)
         return out | {"check": compute_check(cells, lakehouse_ref)}
 
@@ -876,13 +1061,26 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
 
     def rename_notebook(self, name: str, new_name: str) -> dict[str, Any]:
         out = self.notebooks.rename(name, new_name)
-        self.sessions.rename(name, new_name)  # its session (and variables) go with it
-        self.environments.rename_notebook(name, new_name)
-        self.workload_store.rename_link(name, new_name)  # its Fabric item stays linked
-        try:
-            notebook_versions.rename(self._versions_root, name, new_name)  # its versions follow it
-        except OSError as exc:
-            _log.warning("Couldn't move the versions of %r: %s", name, exc)
+        return out | self._notebook_renamed(name, new_name)
+
+    def _notebook_renamed(self, name: str, new_name: str) -> dict[str, Any]:
+        """After a notebook's file was renamed (or moved into a folder, notebook_folders): what is kept
+        by its name follows it. Every step runs even when another fails, since the file has already
+        moved: returns {"schedules_moved": [ids], "problems": [{"notebook", "step", "error"}]}."""
+        out: dict[str, Any] = {"schedules_moved": [], "problems": []}
+        steps = [
+            ("session", lambda: self.sessions.rename(name, new_name)),  # its session (and variables) go with it
+            ("environment", lambda: self.environments.rename_notebook(name, new_name)),
+            ("Fabric link", lambda: self.workload_store.rename_link(name, new_name)),  # its Fabric item stays linked
+            ("versions", lambda: notebook_versions.rename(self._versions_root, name, new_name)),
+            ("schedules", lambda: out.__setitem__("schedules_moved", self.pc_schedules.rename_notebook(name, new_name))),
+        ]
+        for step, run in steps:
+            try:
+                run()
+            except Exception as exc:  # noqa: BLE001 - logged and reported; the other steps still run
+                _log.warning("Couldn't move the %s of %r to %r: %s", step, name, new_name, describe(exc))
+                out["problems"].append({"notebook": new_name, "was": name, "step": step, "error": describe(exc)})
         return out
 
     def delete_notebook(self, name: str) -> dict[str, Any]:
@@ -926,3 +1124,7 @@ def _apply_limits(kernel: ProcessKernel) -> None:
     gb = float(app_settings.value("kernel_memory_limit_gb") or 0)
     kernel.time_limit = minutes * 60 or None
     kernel.memory_limit = int(gb * 1024 ** 3) or None
+
+
+def _with_ids(cells: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [c if c.get("cell_id") else {**c, "cell_id": f"cell-{n}"} for n, c in enumerate(cells)]

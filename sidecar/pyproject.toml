@@ -9,7 +9,7 @@ description = "Run data jobs on your own machine and publish Delta tables to Mic
 requires-python = ">=3.11"
 dependencies = [
     "duckdb>=1.1",
-    "sqlglot>=25",
+    "sqlglot>=30.12",  # 30.12: the Apache Ossie converter (_vendor/ossie_microsoft)
     "polars>=1.20",
     "pyarrow>=16",
     "deltalake>=0.25",
@@ -38,6 +38,16 @@ dependencies = [
     # External AI tools reach the engine through the Model Context Protocol (fabric_desktop.integrations).
     # The official SDK; it also brings the local HTTP server (starlette, uvicorn) the local API uses.
     "mcp>=2.3,<3",
+    # Format cell and Format notebook (code_format.py), Black's style as Fabric and Databricks format
+    # Python. One program of its own, no dependencies; about 11 MB as a wheel, 25 MB installed.
+    "ruff>=0.17,<0.18",
+    # Queries on a Fabric Data warehouse or SQL analytics endpoint (SQL-004). Microsoft's driver: it brings
+    # its own ODBC Driver 18, so nobody installs anything, and takes the sign-in token we already hold.
+    # It also brings azure-identity, which the app doesn't use for sign-in. About 15 MB of wheels, 41 MB installed.
+    "mssql-python>=1.16,<1.17",
+    # Semantic models to and from Apache Ossie (the vendored converter in _vendor/ossie_microsoft
+    # needs PyYAML and sqlglot>=30.12; bokeh brings PyYAML already, so this only makes it explicit).
+    "PyYAML>=6",
 ]
 
 [project.optional-dependencies]
@@ -48,6 +58,10 @@ fabric-desktop = "fabric_desktop.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["fabric_desktop*"]
+
+[tool.setuptools.package-data]
+# Vendored third-party code ships with its license and notice.
+"fabric_desktop._vendor.ossie_microsoft" = ["LICENSE", "NOTICE", "README.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

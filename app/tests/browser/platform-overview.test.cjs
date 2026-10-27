@@ -21,6 +21,8 @@ before(async () => {
     platform_domains: () => [{ id: "sales", name: "Sales", fabric_domain: "f-sales", owners: "" },
       { id: "reseller", name: "Reseller", parent_id: "sales", fabric_domain: "f-res", owners: "" },
       { id: "local", name: "Local", owners: "" }] } });
+  // These check the panel beside the page, the layout people get from Settings > Appearance > Explanations.
+  await app.page.evaluate(() => { state.settings = { ...(state.settings || {}), ui_explanations: { value: "beside" } }; applyAppearance(); });
 });
 after(async () => { if (app) await app.close(); });
 

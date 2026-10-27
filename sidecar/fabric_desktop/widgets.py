@@ -18,8 +18,10 @@ import contextlib
 import importlib.abc
 import importlib.machinery
 import itertools
+import json
 import sys
 import threading
+import traceback
 import types
 from collections import OrderedDict
 from typing import Any, Callable, Iterator
@@ -197,6 +199,8 @@ class _Number(ValueWidget):
 
     def __init__(self, value: Any = None, min: Any = 0, max: Any = 100, step: Any = 1, **kw: Any):  # noqa: A002
         object.__setattr__(self, "_state", {"min": self._cast(min), "max": self._cast(max), "step": self._cast(step)})
+        if self._bounded:
+            _check_bounds(self._state["min"], self._state["max"])
         kw.setdefault("readout", True)
         kw.setdefault("continuous_update", True)
         kw.setdefault("orientation", "horizontal")
@@ -212,6 +216,15 @@ class _Number(ValueWidget):
             value = min(max(value, self._state.get("min", value)), self._state.get("max", value))
         return value
 
+    def _set(self, name: str, value: Any) -> None:
+        bound = self._bounded and name in ("min", "max")
+        if bound:
+            value = self._cast(value)
+            _check_bounds(*(value if name == n else self._state[n] for n in ("min", "max")), setting=name)
+        super()._set(name, value)
+        if bound:
+            self.value = self._state["value"]  # clamps into the new bounds, as ipywidgets does
+
     def _from_app(self, value: Any) -> Any:
         return self._cast(float(value)) if self._cast is int else float(value)
 
@@ -221,6 +234,11 @@ class _Number(ValueWidget):
             out.update(min=self.min, max=self.max)
         out["step"] = self.step
         return out
+
+
+def _check_bounds(lo: Any, hi: Any, setting: str = "min") -> None:
+    if lo > hi:  # worded as ipywidgets words it, after the bound being set
+        raise TraitError(f"setting max < min ({hi} < {lo})" if setting == "max" else f"setting min > max ({lo} > {hi})")
 
 
 class IntSlider(_Number):
@@ -269,6 +287,7 @@ class _Range(ValueWidget):
     def __init__(self, value: Any = None, min: Any = 0, max: Any = 100, step: Any = 1, **kw: Any):  # noqa: A002
         object.__setattr__(self, "_state", {"min": self._cast(min), "max": self._cast(max), "step": self._cast(step)})
         lo, hi = self._state["min"], self._state["max"]
+        _check_bounds(lo, hi)
         super().__init__(value=value if value is not None else (lo + (hi - lo) // 4 if self._cast is int else lo + (hi - lo) / 4,
                                                                lo + 3 * (hi - lo) // 4 if self._cast is int else lo + 3 * (hi - lo) / 4), **kw)
 
@@ -278,6 +297,15 @@ class _Range(ValueWidget):
             lo, hi = self._state.get("min", a), self._state.get("max", b)
             return (min(max(a, lo), hi), min(max(b, lo), hi))
         return self._cast(value) if name in ("min", "max", "step") else value
+
+    def _set(self, name: str, value: Any) -> None:
+        bound = name in ("min", "max")
+        if bound:
+            value = self._cast(value)
+            _check_bounds(*(value if name == n else self._state[n] for n in ("min", "max")), setting=name)
+        super()._set(name, value)
+        if bound:
+            self.value = self._state["value"]
 
     def _from_app(self, value: Any) -> Any:
         return tuple(float(v) for v in value)
@@ -395,8 +423,10 @@ class _Selection(ValueWidget):
         pairs = self._state.get("options", [])
         if name == "options":
             pairs = _pairs(value)
-            self._state["options"] = pairs
-            return super()._set("index", 0 if pairs else None)
+            super()._set("options", pairs)
+            # New options select the first one, as ipywidgets does, so value and label follow.
+            self._state["index"] = None
+            return self._set("index", 0 if pairs else None)
         if name == "index":
             i = None if value is None else int(value)
             if i is not None and not 0 <= i < len(pairs):
@@ -455,12 +485,35 @@ class SelectionSlider(_Selection):
 
 class SelectMultiple(ValueWidget):
     _kind = "multiselect"
-    _traits = ValueWidget._traits + ("options", "index")
+    _traits = ValueWidget._traits + ("options", "index", "label")
 
-    def __init__(self, options: Any = (), value: Any = (), **kw: Any):
-        object.__setattr__(self, "_state", {"options": _pairs(options), "index": ()})
+    def __init__(self, options: Any = (), value: Any = (), index: Any = None, label: Any = None, **kw: Any):
+        object.__setattr__(self, "_state", {"options": _pairs(options), "index": (), "label": ()})
         super().__init__(**kw)
-        self.value = tuple(value)
+        if label is not None:
+            self.label = label
+        elif index is not None:
+            self.index = index
+        else:
+            self.value = tuple(value)
+
+    def _set(self, name: str, value: Any) -> None:
+        pairs = self._state["options"]
+        if name == "index":
+            idx = [int(i) for i in value]
+            bad = [i for i in idx if not 0 <= i < len(pairs)]
+            if bad:
+                raise ValueError(f"index {bad[0]} is out of range")
+            return self._set("value", tuple(pairs[i][1] for i in idx))
+        if name == "label":
+            labels = [lab for lab, _ in pairs]
+            missing = [lab for lab in value if lab not in labels]
+            if missing:
+                raise ValueError(f"{missing[0]!r} isn't one of the options")
+            return self._set("value", tuple(pairs[labels.index(lab)][1] for lab in value))
+        super()._set(name, value)
+        if name == "options":
+            self.value = ()  # new options clear the selection, as ipywidgets does
 
     def _default(self) -> Any:
         return ()
@@ -474,6 +527,7 @@ class SelectMultiple(ValueWidget):
                     raise ValueError(f"{item!r} isn't one of the options")
                 idx.append(values.index(item))
             self._state["index"] = tuple(idx)
+            self._state["label"] = tuple(self._state["options"][i][0] for i in idx)
             return tuple(value)
         if name == "options":
             return _pairs(value)
@@ -519,8 +573,37 @@ class Output(DOMWidget):
 
     def __init__(self, **kw: Any):
         super().__init__(**kw)
-        object.__setattr__(self, "outputs", [])
+        object.__setattr__(self, "_outputs", [])
+        object.__setattr__(self, "_tail", [])  # text printed since, joined onto the last stream output when read
+        object.__setattr__(self, "_lock", threading.Lock())
         object.__setattr__(self, "_stack", [])
+        self._recount()
+
+    @property
+    def outputs(self) -> list[dict[str, Any]]:
+        with self._lock:
+            self._join()
+            return self._outputs
+
+    @outputs.setter
+    def outputs(self, value: Any) -> None:  # ``out.outputs = ()`` clears it, as in ipywidgets
+        with self._lock:
+            object.__setattr__(self, "_outputs", list(value))
+            object.__setattr__(self, "_tail", [])
+        self._recount()  # the caps count from here, as after clear_output()
+
+    def _join(self) -> None:
+        """Join the printed text kept in pieces; one join instead of copying the text on every print."""
+        if self._tail:
+            self._outputs[-1] = {"type": "stream", "text": self._outputs[-1]["text"] + "".join(self._tail)}
+            self._tail.clear()
+
+    def _recount(self) -> None:
+        # The same caps as a cell's own output (notebook.STREAM_CHARS, RICH_CHARS), counted from the
+        # last clear_output: a control's handler can add to one Output on every click.
+        object.__setattr__(self, "_chars", 0)
+        object.__setattr__(self, "_rich", 0)
+        object.__setattr__(self, "_cut", set())
 
     def __enter__(self) -> "Output":
         if registry.capture is None:
@@ -536,7 +619,7 @@ class Output(DOMWidget):
         return False
 
     def clear_output(self, wait: bool = False) -> None:
-        self.outputs.clear()
+        self.outputs = []
 
     def append_stdout(self, text: str) -> None:
         self._write(text)
@@ -560,18 +643,60 @@ class Output(DOMWidget):
 
     # what a captured block writes
     def _write(self, text: str) -> None:
-        if not text:
+        from .notebook import STREAM_CHARS
+        if not text or "stream" in self._cut:
             return
-        if self.outputs and self.outputs[-1].get("type") == "stream":
-            self.outputs[-1] = {"type": "stream", "text": self.outputs[-1]["text"] + text}
-        else:
-            self.outputs.append({"type": "stream", "text": text})
+        room = STREAM_CHARS - self._chars
+        part = text[:room]
+        object.__setattr__(self, "_chars", self._chars + len(part))
+        with self._lock:
+            if part and self._outputs and self._outputs[-1].get("type") == "stream":
+                self._tail.append(part)
+            elif part:
+                self._outputs.append({"type": "stream", "text": part})
+        if len(text) > room:
+            self._cut.add("stream")
+            self._append({"type": "text", "text": f"Output truncated: this output printed more than "
+                                                  f"{STREAM_CHARS:,} characters. clear_output() starts it again."})
 
     def _add(self, output: dict[str, Any]) -> None:
-        self.outputs.append(output)
+        from .notebook import RICH_CHARS
+        if output.get("type") != "error":  # an error always shows
+            if "rich" in self._cut:
+                return
+            size = len(json.dumps(output, default=str))
+            if self._rich + size > RICH_CHARS:
+                self._cut.add("rich")
+                output = {"type": "text", "text": f"Output truncated: this output's tables, charts and HTML passed "
+                                                  f"{RICH_CHARS // 1_000_000} MB, so later ones aren't shown."}
+            else:
+                object.__setattr__(self, "_rich", self._rich + size)
+        self._append(output)
+
+    def _append(self, output: dict[str, Any]) -> None:
+        with self._lock:
+            self._join()
+            self._outputs.append(output)
+
+    def _replace(self, display_id: str, output: dict[str, Any]) -> None:
+        """update_display inside ``with out:``: the outputs shown with ``display_id`` become
+        ``output``, under the same rich cap as ``_add``."""
+        from .notebook import _replace_capped
+        with self._lock:
+            self._join()
+            hits = [i for i, o in enumerate(self._outputs) if o.get("display_id") == display_id]
+            if not hits:
+                return
+            rich, output = _replace_capped(self._outputs, hits, output, self._rich)
+            object.__setattr__(self, "_rich", rich)
+            for i in hits:
+                self._outputs[i] = output
 
     def _extra(self, depth: int, seen: set[str]) -> dict[str, Any]:
-        return {"outputs": [_nested(o, depth, seen) for o in self.outputs]}
+        with self._lock:
+            self._join()
+            outputs = list(self._outputs)
+        return {"outputs": [_nested(o, depth, seen) for o in outputs]}
 
 
 def _nested(output: dict[str, Any], depth: int, seen: set[str]) -> dict[str, Any]:
@@ -608,11 +733,28 @@ class GridBox(Box):
     pass
 
 
-class Accordion(Box):
+class _Titled(Box):
+    """Accordion and Tab keep titles and the selected index, as ipywidgets does. The app draws the children stacked."""
+    _traits = Box._traits + ("titles", "selected_index")
+
+    def __init__(self, children: Any = (), titles: Any = (), selected_index: Any = None, **kw: Any):
+        super().__init__(children=children, titles=tuple(titles), selected_index=selected_index, **kw)
+
+    def set_title(self, index: int, title: Any) -> None:
+        titles = list(self.titles) + [""] * (len(self.children) - len(self.titles))
+        titles[int(index)] = "" if title is None else str(title)
+        self.titles = tuple(titles)
+
+    def get_title(self, index: int) -> str:
+        titles = self.titles
+        return titles[int(index)] if 0 <= int(index) < len(titles) else ""
+
+
+class Accordion(_Titled):
     pass
 
 
-class Tab(Box):
+class Tab(_Titled):
     pass
 
 
@@ -709,9 +851,21 @@ class interactive(VBox):  # noqa: N801 - ipywidgets' name
     def update(self, *_a: Any) -> None:
         self.out.clear_output()
         with self.out:
-            self.result = self.f(**self.kwargs)
+            try:
+                self.result = self.f(**self.kwargs)
+            except Exception as exc:  # noqa: BLE001 - as ipywidgets: the error shows in the output and the controls stay
+                self.out._add(_error_output(exc))
+                return
             if self.result is not None and registry.show is not None:
                 registry.show(self.result)
+
+
+def _error_output(exc: Exception) -> dict[str, Any]:
+    """The error a cell would show, without this module's own frames."""
+    frames = [f for f in traceback.extract_tb(exc.__traceback__) if f.filename != __file__]
+    lines = traceback.format_list(frames) + traceback.format_exception_only(type(exc), exc)
+    return {"type": "error", "ename": type(exc).__name__, "evalue": str(exc),
+            "traceback": "Traceback (most recent call last):\n" + "".join(lines)}
 
 
 def interact(__interact_f: Callable[..., Any] | None = None, **kwargs: Any) -> Any:
@@ -748,7 +902,11 @@ def interactive_output(f: Callable[..., Any], controls: dict[str, Widget]) -> Ou
     def run(*_a: Any) -> None:
         out.clear_output()
         with out:
-            result = f(**{k: w.value for k, w in controls.items()})
+            try:
+                result = f(**{k: w.value for k, w in controls.items()})
+            except Exception as exc:  # noqa: BLE001 - as ipywidgets: the error shows in the output
+                out._add(_error_output(exc))
+                return
             if result is not None and registry.show is not None:
                 registry.show(result)
     for w in controls.values():
@@ -757,19 +915,73 @@ def interactive_output(f: Callable[..., Any], controls: dict[str, Widget]) -> Ou
     return out
 
 
-def jslink(*_a: Any, **_kw: Any) -> None:
-    raise NotImplementedError("jslink needs a browser-side link; use observe() to keep two widgets in step.")
 
 
-def link(source: tuple[Widget, str], target: tuple[Widget, str]) -> None:
-    """Keep ``target``'s trait equal to ``source``'s (one way, then back)."""
-    (sw, sn), (tw, tn) = source, target
-    setattr(tw, tn, getattr(sw, sn))
-    sw.observe(lambda c: setattr(tw, tn, c["new"]), names=sn)
-    tw.observe(lambda c: setattr(sw, sn, c["new"]), names=tn)
+class TraitError(Exception):
+    """As traitlets' TraitError: bounds where min > max, or a link whose two transforms don't undo each other."""
 
 
-dlink = link
+class _Link:
+    """What ``link`` and ``dlink`` return, as traitlets does: ``unlink()`` stops it. While one side is
+    being set, a change coming back from the other is ignored; if that leaves the two sides out of
+    step (transforms that aren't each other's inverse), it's a broken link, as in traitlets."""
+
+    def __init__(self, source: tuple[Widget, str], target: tuple[Widget, str],
+                 forward: Callable[[Any], Any] | None, backward: Callable[[Any], Any] | None, both: bool):
+        self.source, self.target = source, target
+        (sw, sn), (tw, tn) = source, target
+        to = forward or (lambda v: v)
+        back = backward or (lambda v: v)
+        self._updating = False
+
+        def update(src: Widget, sname: str, dst: Widget, dname: str, fn: Callable[[Any], Any]) -> Callable[[Any], None]:
+            def handler(change: Any) -> None:
+                if self._updating:
+                    return
+                self._updating = True
+                try:
+                    setattr(dst, dname, fn(change["new"]))
+                    if both and getattr(src, sname) != change["new"]:
+                        raise TraitError(f"Broken link {self}: the source value changed while updating the target.")
+                finally:
+                    self._updating = False
+            return handler
+
+        setattr(tw, tn, to(getattr(sw, sn)))
+        self._handlers = [(sw, update(sw, sn, tw, tn, to), sn)]
+        if both:
+            self._handlers.append((tw, update(tw, tn, sw, sn, back), tn))
+        for w, handler, name in self._handlers:
+            w.observe(handler, names=name)
+
+    def __repr__(self) -> str:
+        (sw, sn), (tw, tn) = self.source, self.target
+        return f"<link {type(sw).__name__}.{sn} -> {type(tw).__name__}.{tn}>"
+
+    def unlink(self) -> None:
+        for w, handler, name in self._handlers:
+            w.unobserve(handler, names=name)
+        self._handlers = []
+
+
+def link(source: tuple[Widget, str], target: tuple[Widget, str], transform: Any = None) -> _Link:
+    """Keep two traits equal both ways; ``transform`` is a (forward, backward) pair of functions."""
+    forward, backward = transform if transform else (None, None)
+    return _Link(source, target, forward, backward, both=True)
+
+
+def dlink(source: tuple[Widget, str], target: tuple[Widget, str], transform: Callable[[Any], Any] | None = None) -> _Link:
+    """Copy ``source``'s trait to ``target``'s whenever it changes, one way, through ``transform``."""
+    return _Link(source, target, transform, None, both=False)
+
+
+def jslink(source: tuple[Widget, str], target: tuple[Widget, str]) -> _Link:
+    """In Jupyter the browser keeps the two in step; here the kernel holds every widget, so it does."""
+    return link(source, target)
+
+
+def jsdlink(source: tuple[Widget, str], target: tuple[Widget, str]) -> _Link:
+    return dlink(source, target)
 
 
 # ---- helpers
@@ -796,11 +1008,15 @@ def _plain(value: Any) -> Any:
 
 # ---- the event from the app
 
+class WidgetGone(LookupError):
+    """The app's control points at a widget the kernel no longer holds."""
+
+
 def handle(model: str, event: dict[str, Any]) -> None:
     """Apply one change from the app: a new value, an index, a click or a submit."""
     w = registry.get(model)
     if w is None:
-        raise LookupError(model)
+        raise WidgetGone(model)
     if w.disabled:
         return
     w._event(dict(event or {}))
@@ -812,7 +1028,7 @@ def build() -> types.ModuleType:
     mod = types.ModuleType("ipywidgets", "ipywidgets isn't drawn by Jupyter here; KratosForge provides these widgets.")
     for name, value in list(globals().items()):
         if isinstance(value, type) and issubclass(value, (Widget, Layout)) or name in (
-                "interact", "interactive", "interact_manual", "interactive_output", "fixed", "link", "dlink", "jslink", "Layout",
+                "interact", "interactive", "interact_manual", "interactive_output", "fixed", "link", "dlink", "jslink", "jsdlink", "TraitError", "Layout",
                 "Style", "Change"):
             setattr(mod, name, value)
     mod.__version__ = __version__  # type: ignore[attr-defined]

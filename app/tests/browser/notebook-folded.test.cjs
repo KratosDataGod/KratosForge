@@ -59,3 +59,62 @@ test("Find opens the folded section that holds a match", { skip }, async () => {
   assert.strictEqual(await bar.count(), 1);
   assert.deepStrictEqual(app.errors, []);
 });
+
+const reload = () => page().evaluate((cells) => { loadIntoState({ name: "Folded", cells: structuredClone(cells) }); go("notebook"); }, CELLS);
+const order = () => ids(() => state.notebook.cells.map((c) => c.cell_id));
+const shown = () => ids(() => [...document.querySelectorAll(".cell")].map((e) => state.notebook.cells.find((c) => String(c.id) === e.dataset.cell).cell_id));
+
+test("cells selected next to each other on screen move together across a folded section, which keeps its cells", { skip }, async () => {
+  await reload();
+  await page().evaluate(() => { selectCell(state.notebook.cells[3]); enterCommandMode(state.notebook.cells[3]); });  // "# Open" (its gutter holds the fold chevron)
+  await page().keyboard.press("Shift+ArrowUp");
+  assert.deepStrictEqual(await selected(), ["h", "h2"]);
+  await page().keyboard.press("Alt+ArrowUp");
+  assert.deepStrictEqual(await order(), ["h", "hidden", "h2", "c1", "c2"]);
+  assert.deepStrictEqual(await shown(), ["h", "h2", "c1", "c2"]);
+  assert.strictEqual(await page().locator("#toast", { hasText: "next to each other" }).count(), 0);
+});
+
+test("moving a folded heading takes its hidden cells, and a cell that showed isn't hidden by the move", { skip }, async () => {
+  await reload();
+  await page().evaluate(() => moveCell(-1, state.notebook.cells[1]));  // the cell's Move up button
+  assert.deepStrictEqual(await order(), ["h", "hidden", "c1", "h2", "c2"]);
+  // c1 is now under "# Folded": the section opens rather than hide it.
+  assert.deepStrictEqual(await shown(), ["h", "hidden", "c1", "h2", "c2"]);
+  await reload();
+  await page().evaluate(() => moveCell(1, state.notebook.cells[1]));
+  assert.deepStrictEqual(await order(), ["c1", "h2", "h", "hidden", "c2"]);
+  assert.deepStrictEqual(await shown(), ["c1", "h2", "h", "hidden", "c2"]);
+});
+
+test("dragging a folded heading below another cell brings its hidden cells", { skip }, async () => {
+  await reload();
+  await page().evaluate(() => { const [c1, h, , , c2] = state.notebook.cells; moveCellTo(h, c2, true); });
+  assert.deepStrictEqual(await order(), ["c1", "h2", "c2", "h", "hidden"]);
+  assert.deepStrictEqual(await shown(), ["c1", "h2", "c2", "h"]);
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("a cell added or pasted below a folded heading opens the section instead of going in hidden", { skip }, async () => {
+  await reload();
+  await page().evaluate(() => { selectCell(state.notebook.cells[1]); enterCommandMode(state.notebook.cells[1]); });
+  await page().keyboard.press("b");
+  const added = await ids(() => state.notebook.cells[2]);
+  assert.strictEqual(added.type, "code");
+  assert.strictEqual(added.source, "");
+  assert.strictEqual(await page().locator(`[data-cell="${added.id}"]`).count(), 1, "the new cell is on screen");
+  assert.strictEqual(await ids(() => document.activeElement?.closest("[data-cell]")?.dataset.cell), String(added.id));
+  await page().keyboard.type("typed = 1");
+  assert.strictEqual(await ids(() => state.notebook.cells[2].source), "typed = 1");
+
+  await reload();
+  await page().evaluate(() => { const [c1, h] = state.notebook.cells; copyCell(c1); pasteCell(h, 1); });
+  assert.deepStrictEqual(await ids(() => state.notebook.cells.map((c) => c.source)), ["a = 1", "# Folded", "a = 1", "needle = 2", "# Open", "b = 3"]);
+  assert.strictEqual(await page().locator(".cell").count(), 6);
+
+  await reload();
+  await page().evaluate(() => { state.notebook.cells[3].meta.heading_collapsed = true; renderNotebook(); });  // fold "# Open" too
+  await page().getByRole("button", { name: "Code" }).last().click();  // + Code at the end of the notebook
+  assert.strictEqual(await page().locator(".cell").count(), 5);  // c1, h, h2, c2 and the new cell
+  assert.deepStrictEqual(app.errors, []);
+});

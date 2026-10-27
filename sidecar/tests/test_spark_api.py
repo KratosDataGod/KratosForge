@@ -67,7 +67,7 @@ def test_dataframe_methods_fabric_code_uses():
     assert run(setup + "df.repartition(4).coalesce(1).persist().unpersist().hint('broadcast').count()") == "3"
     assert run(setup + "df.tail(1)[0]['id']") == "3"
     assert run(setup + "df.sample(fraction=1.0, seed=1).count()") == "3"
-    assert run(setup + "df.unpivot('id', ['x'], 'col', 'val').count()") == "2"  # UNPIVOT drops nulls, like Spark's
+    assert run(setup + "df.unpivot('id', ['x'], 'col', 'val').count()") == "3"  # DataFrame.unpivot keeps nulls, as in Spark 3.5
     assert run(setup + "df.createTempView('v1')\nspark.sql('SELECT count(*) AS n FROM v1').collect()[0]['n']") == "3"
     assert run(setup + "spark.catalog.tableExists('v1')") == "False"
     assert run(setup + "df.createOrReplaceTempView('v2')\nspark.catalog.tableExists('v2')") == "True"

@@ -54,6 +54,18 @@ def test_cells_run_in_another_process_with_the_same_kernel(kernel):
     assert out["outputs"] == [{"type": "text", "text": "'token-for-storage'"}]
 
 
+def test_the_persons_own_kernel_keeps_their_environment(monkeypatch):
+    """Only external-tool runs get the allowlisted environment (HD-012); the person's own
+    notebooks see the variables they set, as they expect."""
+    monkeypatch.setenv("FABRIC_DESKTOP_TEST_SECRET", "theirs")
+    k = ProcessKernel()
+    try:
+        out = k.run("import os\nos.environ.get('FABRIC_DESKTOP_TEST_SECRET')")
+    finally:
+        k.close()
+    assert out["outputs"] == [{"type": "text", "text": "'theirs'"}]
+
+
 def test_cancel_keeps_variables_and_stop_ends_only_the_process(kernel):
     kernel.run("kept = 1")
     kernel.start("import time\nwhile True:\n    time.sleep(0.05)")
@@ -254,6 +266,7 @@ def test_a_cell_that_ignores_the_interrupt_has_its_process_ended(kernel, quick_l
     kernel.time_limit = 0.5
     snap = until_done(kernel)
     assert snap["status"] == "error" and "didn't stop when interrupted" in text(snap)
+    kernel.time_limit = None  # the check runs in a fresh process, whose start a slow runner can take past 0.5 s
     out = kernel.run("'kept' in dir()")
     assert out["outputs"] == [{"type": "text", "text": "False"}] and kernel.pid != pid
 
@@ -335,3 +348,19 @@ def test_variable_detail_comes_from_the_kernel_process(kernel):
     assert out["status"] == "ok", out
     assert kernel.variable_detail("frame")["columns"] == [{"name": "a", "type": "Int64"}]
     assert [i["value"] for i in kernel.variable_detail("items")["items"]] == ["1", "'two'"]
+
+
+def test_stop_restart_and_close_delete_the_processs_output_files(kernel):
+    big = "print('x' * 1_100_000)"
+    assert kernel.run(big)["status"] == "ok"
+    folder = kernel.output_dir
+    assert folder is not None and len(list(folder.glob("kratosforge-output-*.txt"))) == 1
+    kernel.stop()
+    assert not list(folder.glob("*"))
+    kernel.run(big)
+    assert len(list(folder.glob("*"))) == 1
+    kernel.restart()
+    assert not list(folder.glob("*"))
+    kernel.run(big)
+    kernel.close()
+    assert not folder.exists() and kernel.output_dir is None

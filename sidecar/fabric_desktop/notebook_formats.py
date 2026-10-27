@@ -159,6 +159,12 @@ def _nb_output(o: dict[str, Any]) -> dict[str, Any] | None:
         return {"output_type": "display_data", "metadata": {}, "data": {o["mime"]: data, "text/plain": ["<image>"]}}
     if kind == "html":
         return {"output_type": "display_data", "metadata": {}, "data": {"text/html": _text_lines(str(o.get("html", "")))}}
+    if kind == "vegalite" and isinstance(o.get("spec"), dict):  # an Altair chart; Jupyter draws it from the spec
+        return {"output_type": "display_data", "metadata": {},
+                "data": {"application/vnd.vegalite.v6+json": o["spec"], "text/plain": ["<VegaLite 6 object>"]}}
+    if kind == "plotly" and isinstance(o.get("figure"), dict):  # a plotly figure; Jupyter draws it from the JSON
+        return {"output_type": "display_data", "metadata": {},
+                "data": {"application/vnd.plotly.v1+json": o["figure"], "text/plain": ["<Plotly figure>"]}}
     return None
 
 
@@ -219,6 +225,10 @@ def _html_output(o: dict[str, Any]) -> str:
         return f'<div class="out"><img alt="Chart from this cell" src="data:{o["mime"]};base64,{o["data"]}"></div>'
     if kind == "html":
         return '<div class="out skipped">HTML output isn\'t included in the page, so nothing in it can run.</div>'
+    if kind == "vegalite":
+        return '<div class="out skipped">Altair charts aren\'t included in the page, so nothing in it can run.</div>'
+    if kind == "plotly":
+        return '<div class="out skipped">plotly charts aren\'t included in the page, so nothing in it can run.</div>'
     return ""
 
 
@@ -413,7 +423,7 @@ def parse_ipynb(text: str) -> dict[str, Any]:
         raise ValueError("The file is larger than 32 MB, so it wasn't read.")
     try:
         nb = json.loads(text)
-    except ValueError:
+    except (ValueError, RecursionError):  # RecursionError: nested too deep to be a notebook
         raise ValueError("This .ipynb file isn't valid JSON, so it can't be imported.") from None
     if not isinstance(nb, dict) or not isinstance(nb.get("cells"), list):
         raise ValueError("This .ipynb file has no cells list, so it isn't a Jupyter notebook.")

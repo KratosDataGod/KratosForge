@@ -25,7 +25,7 @@ _MCP = "MCP/HTTP tool calls the same Service method in-process (integrations/ser
 _CLI = "CLI or headless agent calls the same Service method in-process (cli.py, agent.py); no screen"
 _LOCAL = "local data projects: engine only, no screen yet (docs/local-data.md, QA-017, UX-004)"
 _INCIDENTS = "incident desk stage 1: engine released, screens are stage 2 (docs/incidents.md)"
-_NOTIFY = "governance Teams notices: engine only, no settings screen yet (platform_notify_service.py)"
+_NOTIFY = "governance Teams notices: governance sends the events; the UI only reads and sets routes (platform_notify_service.py)"
 _QA017 = "kept for API compatibility, no screen yet (QA-017)"
 _LOCAL_RUNS = "sharing this PC's notebook runs with Optimize: engine only, the button waits on a mockup (docs/optimize/README.md)"
 _SUPERSEDED = "superseded on screen but kept for API compatibility (QA-017)"
@@ -35,18 +35,21 @@ _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-0
 # Allowlisted methods with no UI caller, each with why it stays. Remove a name when the UI starts
 # calling it or when it leaves METHODS; the test below fails until you do.
 # Dropping a name from METHODS? Also drop it from the timeout list in app/src-tauri/src/watchdog.rs.
+_PRACTICES = "the notebook rules list, for a template editor to list them; the panel shows findings only (docs/notebook-best-practices.md)"
+
+_SQL_PRACTICES = "SQL best practices: engine only, the panel waits on Chris's mockup review (docs/sql-best-practices.md)"
+
+
 NO_UI_CALLER: dict[str, str] = {
+    "notebook_practice_rules": _PRACTICES,
+    "sql_practices": _SQL_PRACTICES,
+    "sql_practice_rules": _SQL_PRACTICES,
     # MCP / local HTTP API tools (in-process).
     "placement_advice": _MCP + "; Prove shows it later (docs/finops/placement-advice.md)",
     "notebook_environment": _MCP,
     "pipeline_activity_registry": _MCP,
-    "pipeline_compatibility": _MCP,
-    "pipeline_export": _MCP,
     "pipeline_inspect": _MCP,
     "pipeline_validate": _MCP,
-    "pipeline_run_check": _MCP,
-    "pipeline_run_cancel": _MCP,
-    "pipeline_runs": _MCP,
     "receipt_export": _MCP,
     "receipts_list": _MCP,
     "run_sql": _MCP,
@@ -54,7 +57,6 @@ NO_UI_CALLER: dict[str, str] = {
     "preview_job": _CLI,
     "run_job": _CLI,
     # Local data projects.
-    "list_local_projects": _LOCAL,
     "list_local_tables": _LOCAL,
     "local_add_source": _LOCAL,
     "local_close_project": _LOCAL,
@@ -84,9 +86,6 @@ NO_UI_CALLER: dict[str, str] = {
     "incidents_history": _INCIDENTS,
     "incidents_history_sync": _INCIDENTS,
     "platform_notify": _NOTIFY,
-    "platform_notify_open": _NOTIFY,
-    "platform_notify_save": _NOTIFY,
-    "platform_notify_settings": _NOTIFY,
     "governance_version": _NO_SCREEN,
     "kernel_info": _NO_SCREEN,
     "meta_git_status": _NO_SCREEN,
@@ -105,7 +104,6 @@ NO_UI_CALLER: dict[str, str] = {
     # Reused in-process by another method.
     "all_shortcuts": _INTERNAL,  # shortcut_service
     "list_shortcuts": _NO_SCREEN,  # removal candidate: estate/shortcut services call api.list_shortcuts, not this
-    "cancel_fabric_run": _INTERNAL,  # workload_service; no button in Activity
     "meta_preflight": _INTERNAL,  # risk_service
     "git_path_info": _INTERNAL,  # git_service
     "git_repos": _INTERNAL,  # git_service
@@ -117,8 +115,6 @@ NO_UI_CALLER: dict[str, str] = {
     "meta_diff": _QA017,
     "meta_preview": _QA017,
     "notebook_diff": _QA017,
-    "pipeline_import": _QA017,
-    "platform_revoke": _QA017,
     "platform_sources": _QA017,
     "workload_actions": _QA017,
 }

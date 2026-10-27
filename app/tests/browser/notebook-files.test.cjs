@@ -43,7 +43,7 @@ after(async () => { if (app) await app.close(); });
 test("All notebooks lists every notebook, and search finds code inside cells and jumps to the cell", { skip }, async () => {
   await page().getByRole("heading", { name: "All notebooks" }).waitFor();
   await page().getByRole("button", { name: "Daily sales", exact: true }).waitFor();
-  assert.strictEqual(await page().locator(".nbf-page tbody tr").count(), 3);
+  assert.strictEqual(await page().locator(".nbf-results tbody tr").count(), 3);
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "notebook-files-list.png") });
   await page().getByRole("searchbox", { name: "Search notebook names and code" }).fill("region_map");
   await page().getByText("3 matches in 2 of 3 notebooks").waitFor();
@@ -58,7 +58,8 @@ test("All notebooks lists every notebook, and search finds code inside cells and
 });
 
 test("Save a copy keeps the original; Delete asks, keeps it in Recently deleted, and Restore puts it back", { skip }, async () => {
-  await page().getByRole("button", { name: "Save a copy", exact: true }).click();
+  await page().getByRole("button", { name: "Share" }).click();
+  await page().getByRole("menuitem", { name: "Save a copy", exact: true }).click();
   const dialog = page().getByRole("dialog", { name: "Save a copy of Daily sales" });
   assert.strictEqual(await dialog.getByRole("textbox", { name: "Name" }).inputValue(), "Daily sales 2");
   await dialog.getByRole("button", { name: "Save copy" }).click();

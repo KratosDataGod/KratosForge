@@ -17,6 +17,7 @@ import base64
 import datetime as dt
 import hashlib
 import json
+import logging
 import re
 import threading
 import time
@@ -24,8 +25,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from . import app_settings, depgraph, envprofile, proof, receipts, replay, scorecard, verify, wizard
-from .notebook import check_watches
+from . import app_settings, depgraph, envprofile, notebook_cells, proof, receipts, redact, replay, scorecard, verify, wizard
+from .notebook import check_watches, leaf_name
 from .fabric_run import TERMINAL, fabric_ipynb
 from .kernel_proc import ProcessKernel
 from .measure import RunMeter
@@ -40,6 +41,8 @@ POLL_SECONDS = 5
 MAX_FABRIC_SECONDS = 6 * 3600
 RUNNING = ("preparing", "pc", "fabric", "verifying")
 PROOF_SUFFIX = "_proof"
+
+_log = logging.getLogger(__name__)
 
 
 def _now() -> str:
@@ -554,8 +557,12 @@ class ProveMixin:
     # ---- what the app calls
 
     def prove_check(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
-                    compute: str | None = None, workspace: dict[str, str] | None = None) -> dict[str, Any]:
-        """The plan before a proof: what will happen, what blocks it, what it can't contain."""
+                    compute: str | None = None, workspace: dict[str, str] | None = None,
+                    location_ref: dict[str, str] | None = None) -> dict[str, Any]:
+        """The plan before a proof: what will happen, what blocks it, what it can't contain.
+        ``location_ref`` is the notebook repository's lakehouse for the current environment, used
+        when the notebook has none of its own (as a run of its cells does)."""
+        lakehouse_ref = lakehouse_ref or location_ref
         check = proof.check(cells, lakehouse_ref)
         env = envprofile.check(cells, self._fabric_observed())
         ws = None
@@ -575,9 +582,13 @@ class ProveMixin:
 
     def prove_start(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
                     compute: str | None = None, workspace: dict[str, str] | None = None,
-                    rules: dict[str, Any] | None = None, parameters: dict[str, Any] | None = None) -> dict[str, Any]:
+                    rules: dict[str, Any] | None = None, location_ref: dict[str, str] | None = None) -> dict[str, Any]:
         """Start a proof; returns at once and prove_status follows it. ``rules`` are verification rules
-        (verify.py), as {"default": {...}, "tables": {"dbo.t": {...}}}."""
+        (verify.py), as {"default": {...}, "tables": {"dbo.t": {...}}}. ``location_ref`` is the
+        repository location's lakehouse, used when the notebook has none; it isn't saved into the
+        notebook, so the notebook keeps following the environment. Both runs use the Parameters
+        bar's values, as side by side does."""
+        saved_ref, lakehouse_ref = lakehouse_ref, lakehouse_ref or location_ref
         if self.proof_busy():
             raise RuntimeError("A proof is already running. Wait for it, or cancel it.")
         self._replay_refuse(name, "proving it")
@@ -591,24 +602,28 @@ class ProveMixin:
             where = f"Cell {b['cell']} " if b.get("cell") else ""
             raise ValueError(f"This notebook can't be proven yet: {where}{b['text']}")
         rules = _normalized_rules(rules or {})  # refuse bad rules now, not after two runs
+        # Fabric gets them as the run's parameters, this PC as the lines runCell adds after the
+        # parameter cell. A value the bar shows in red stops it here.
+        parameters = self._bar_parameters(name, cells)  # type: ignore[attr-defined]
+        suffixes = self._bar_suffixes(name, cells)  # type: ignore[attr-defined]
         assert lakehouse_ref is not None
-        saved = self.notebooks.save(name, cells, lakehouse_ref, compute, workspace)  # type: ignore[attr-defined]
+        saved = self.notebooks.save(name, cells, saved_ref, compute, workspace)  # type: ignore[attr-defined]
         cells = [dict(c) | {"cell_id": cid} for c, cid in zip(cells, saved["cell_ids"])]
         ws = self._publish_workspace(name, lakehouse_ref, workspace)  # type: ignore[attr-defined]
         self.auth.storage_token()  # type: ignore[attr-defined]  # sign in now, while the app is in front
         self.auth.fabric_token()  # type: ignore[attr-defined]
-        code = [i for i, c in enumerate(cells) if c.get("type") != "markdown" and (c.get("source") or "").strip()
-                and not (c.get("meta") or {}).get("frozen")]
+        code = [i for i, c in enumerate(cells) if notebook_cells.runs(c)]
         record: dict[str, Any] = {
             "id": time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6], "name": name, "state": "preparing",
             "started_at": _now(), "finished_at": None, "message": "",
             "lakehouse": {k: lakehouse_ref.get(k, "") for k in ("name", "workspace_id", "workspace_name", "lakehouse_id")},
-            "workspace_name": ws["workspace_name"], "machine": machine(), "check": check, "rules": rules,
-            "parameters": parameters or {}, "code": receipts.code_revision(cells),
+            "workspace_id": ws["workspace_id"], "workspace_name": ws["workspace_name"], "machine": machine(),
+            "check": check, "rules": rules,
+            "parameters": parameters, "code": receipts.code_revision(cells),
             "pc": {"status": "pending", "cell": None, "cells_total": len(code), "cells": {}},
             "fabric": {"status": "pending", "engine": "python"},
             "inputs": {}, "shared": {}, "tables": [], "verdict": None, "scorecard": None, "receipt_id": None,
-            "_cancel": False}
+            "_cancel": False, "_suffixes": suffixes}
         self._proof_state()[record["id"]] = record
         threading.Thread(target=self._proof_run, args=(record, cells, code, lakehouse_ref, ws), daemon=True,
                          name=f"proof-{record['id']}").start()
@@ -719,6 +734,11 @@ class ProveMixin:
             record["receipt_id"] = self.receipts.put(self._proof_receipt(record | {"state": final}))
         except Exception as exc:  # noqa: BLE001 - the record still says what happened
             record["message"] = (record["message"] + f" The receipt couldn't be saved: {exc}").strip()
+        if final == "done":
+            try:
+                record["earned"] = self._progress_observe_proof(record | {"state": final})  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001 - the profile never changes a proof's result
+                _log.warning("The proof couldn't be added to the profile: %s", redact.describe(exc))
         record["state"] = final
         self._proof_save(record)
 
@@ -733,6 +753,8 @@ class ProveMixin:
         kernel.restart()
         kernel.notebook_name = record["name"]
         kernel.resources_dir = self._resources_dir(record["name"])  # type: ignore[attr-defined]
+        kernel.widget_values = dict((self._saved_inputs(record["name"]) or {}).get("widgets") or {})  # type: ignore[attr-defined]
+        suffixes = record.get("_suffixes") or []
         kernel.bind_proof(config, "pc", root, options)
         status = "ok"
         try:
@@ -742,7 +764,10 @@ class ProveMixin:
                         status = "cancelled"
                         break
                     pc["cell"] = n
-                    kernel.start(cells[i]["source"])
+                    extra = suffixes[i] if i < len(suffixes) else ""
+                    kernel.start(cells[i]["source"] + (f"\n{extra}" if extra else ""))
+                    if record["_cancel"]:  # Cancel landed while the cell was starting: its interrupt may have missed it
+                        kernel.interrupt()
                     snap = kernel.poll(-1, 0.0)
                     outputs = snap.get("outputs") or []
                     while snap["status"] == "running":
@@ -778,14 +803,16 @@ class ProveMixin:
         started = time.monotonic()
         schemas = not config["flat"]
         ipynb = json.dumps(fabric_ipynb([first] + cells + [last], lakehouse_ref, schemas)).encode()
-        item_name = f"{record['name']}{PROOF_SUFFIX}"
+        item_name = f"{leaf_name(record['name'])}{PROOF_SUFFIX}"  # Fabric names have no folders
         item = self.fabric.save_notebook(ws["workspace_id"], item_name, ipynb)  # type: ignore[attr-defined]
         if not item.get("id"):
             item = next((n for n in self.fabric.list_notebooks(ws["workspace_id"])  # type: ignore[attr-defined]
                          if n["displayName"] == item_name), item)
         from .cloud_service import FABRIC_APP
         url = f"{FABRIC_APP}/groups/{ws['workspace_id']}/synapsenotebooks/{item.get('id')}?experience=fabric-developer"
-        job_id = self.fabric_jobs.run_item_job(ws["workspace_id"], item["id"], NOTEBOOK_JOB)  # type: ignore[attr-defined]
+        parameters = record.get("parameters")
+        job_id = self.fabric_jobs.run_item_job(ws["workspace_id"], item["id"], NOTEBOOK_JOB,  # type: ignore[attr-defined]
+                                               {"parameters": parameters} if parameters else None)
         f.update(status="running", job_id=job_id, item_id=item["id"], item_name=item_name,
                  workspace_id=ws["workspace_id"], url=url, submitted_at=_now())
         self._log_fabric_run({"kind": "Notebook run", "name": item_name, "workspace_id": ws["workspace_id"],  # type: ignore[attr-defined]

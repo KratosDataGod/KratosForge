@@ -4,6 +4,7 @@ request is sent, and mv keeps its source until the copy is there."""
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import pytest
@@ -12,7 +13,7 @@ import requests
 from fabric_desktop import lakehouse, notebookutils_local
 from fabric_desktop.onelake import FileStore
 
-MUTATIONS = {"upload", "delete"}
+MUTATIONS = {"upload", "delete", "mkdir"}
 
 
 class FakeStore:
@@ -46,14 +47,20 @@ class FakeStore:
                     if p.startswith(d + "/") and (recursive or "/" not in p[len(d) + 1:])]
         return entries[:max_results] if max_results else entries
 
-    def read_bytes(self, ws, lh, path):
-        self.calls.append(("read_bytes", path))
-        return self.files.get(path)
+    def read_bytes(self, ws, lh, path, length=None):
+        self.calls.append(("read_bytes", path) if length is None else ("read_bytes", path, length))
+        data = self.files.get(path)
+        return data if data is None or length is None else data[:length]
 
     def upload(self, ws, lh, path, data):
         self.calls.append(("upload", path))
         if not self.lose_uploads:
             self.files[path] = data
+
+    def mkdir(self, ws, lh, path):
+        self.calls.append(("mkdir", path))
+        parts = path.strip("/").split("/")
+        self.folders.update("/".join(parts[:i]) for i in range(1, len(parts) + 1))  # parents too, as OneLake does
 
     def delete(self, ws, lh, path, recursive=True):
         self.calls.append(("delete", (path, recursive)))
@@ -262,3 +269,149 @@ def test_ls_gives_modify_time_in_milliseconds(tmp_path):
     assert info.modifyTime == 1_700_000_000_000 and info.modificationTime == info.modifyTime
     assert notebookutils_local._millis("2026-10-20T12:00:00+00:00") == 1_792_497_600_000
     assert notebookutils_local._millis("") == 0 and notebookutils_local._millis("junk") == 0
+
+
+@pytest.mark.parametrize("dest", ["Files/one.txt", "/lakehouse/default/Files/one.txt", "Files/raw/sub", "Files/raw/"])
+def test_mv_and_cp_refuse_a_path_onto_or_into_itself(store, fs, dest):
+    src = "Files/raw" if dest.startswith("Files/raw") else "Files/one.txt"
+    before = dict(store.files)
+    with pytest.raises(ValueError, match="inside it"):
+        fs.mv(src, dest, overwrite=True)
+    with pytest.raises(ValueError, match="inside it"):
+        fs.cp(src, dest, recurse=True)
+    assert store.files == before and store.mutations() == []
+
+
+def test_local_mv_into_itself_keeps_the_folder(tmp_path, fs):
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "a.txt").write_text("hi")
+    with pytest.raises(ValueError, match="inside it"):
+        fs.mv(f"file:{tmp_path}/data", f"file:{tmp_path}/data/../data/sub")
+    assert (tmp_path / "data" / "a.txt").read_text() == "hi"
+    fs.cp(f"file:{tmp_path}/data", f"file:{tmp_path}/data2", recurse=True)  # a sibling with the same prefix is fine
+    assert (tmp_path / "data2" / "a.txt").read_text() == "hi"
+
+
+def test_a_windows_file_uri_names_the_drive(monkeypatch):
+    monkeypatch.setattr(notebookutils_local.os, "name", "nt")
+    assert notebookutils_local._split("file:///C:/data/a.csv") == ("local", "C:/data/a.csv")
+    assert notebookutils_local._split("file:/D:\\x") == ("local", "D:\\x")
+    assert notebookutils_local._split("file:C:/data") == ("local", "C:/data")
+    monkeypatch.setattr(notebookutils_local.os, "name", "posix")
+    assert notebookutils_local._split("file:///C:/data") == ("local", "/C:/data")
+
+
+def test_a_link_to_the_source_counts_as_the_source(tmp_path, fs):
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "a.txt").write_text("only copy")
+    try:
+        (tmp_path / "alias.txt").symlink_to(tmp_path / "data" / "a.txt")
+        (tmp_path / "linked").symlink_to(tmp_path / "data", target_is_directory=True)
+    except OSError:
+        pytest.skip("this account can't create symlinks")
+    with pytest.raises(ValueError, match="inside it"):
+        fs.mv(f"file:{tmp_path}/data/a.txt", f"file:{tmp_path}/alias.txt", overwrite=True)
+    with pytest.raises(ValueError, match="inside it"):
+        fs.mv(f"file:{tmp_path}/data", f"file:{tmp_path}/linked/sub")
+    assert (tmp_path / "data" / "a.txt").read_text() == "only copy"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="junctions are Windows folders links")
+def test_a_junction_to_the_source_counts_as_the_source(tmp_path, fs):
+    import subprocess
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "a.txt").write_text("only copy")
+    subprocess.run(["cmd", "/c", "mklink", "/J", str(tmp_path / "junction"), str(tmp_path / "data")],
+                   check=True, capture_output=True)
+    with pytest.raises(ValueError, match="inside it"):
+        fs.mv(f"file:{tmp_path}/data/a.txt", f"file:{tmp_path}/junction/a.txt", overwrite=True)
+    assert (tmp_path / "data" / "a.txt").read_text() == "only copy"
+
+
+def test_doubled_slashes_dont_hide_the_source(store, fs):
+    with pytest.raises(ValueError, match="inside it"):
+        fs.mv("Files/raw", "Files//raw/./sub")
+    assert store.mutations() == []
+
+
+@pytest.mark.parametrize("dest", ["Files/one%2Etxt", "Files/%72aw/sub", "Files\\raw\\sub"])
+def test_an_encoded_onelake_path_is_the_path_it_decodes_to(store, fs, dest):
+    src = "Files/one.txt" if "one" in dest else "Files/raw"
+    with pytest.raises(ValueError, match="inside it"):
+        fs.mv(src, dest, overwrite=True)
+    assert store.mutations() == []
+
+
+def test_an_encoded_local_name_is_its_own_file(tmp_path, fs):
+    (tmp_path / "a b.txt").write_text("spaced")
+    fs.mv(f"file:{tmp_path}/a b.txt", f"file:{tmp_path}/a%20b.txt")
+    assert (tmp_path / "a%20b.txt").read_text() == "spaced" and not (tmp_path / "a b.txt").exists()
+
+
+def test_mkdirs_creates_a_lakehouse_folder_through_the_guards(store, fs, monkeypatch):
+    assert fs.mkdirs("Files/new/deep") and fs.exists("Files/new/deep") and fs.ls("Files/new/deep") == []
+    assert ("mkdir", "Files/new/deep") in store.calls
+    for bad in ("Tables/x", "Files"):
+        with pytest.raises((PermissionError, ValueError)):
+            fs.mkdirs(bad)
+    store.calls.clear()
+    monkeypatch.setattr(lakehouse, "proof", object())
+    monkeypatch.setattr(lakehouse, "proof_exempt_thread", None)
+    with pytest.raises(PermissionError, match="proof"):
+        fs.mkdirs("Files/during-proof")
+    assert store.mutations() == []
+
+
+def test_the_files_and_tables_roots_exist(store, fs):
+    assert fs.exists("Files") and fs.exists("Files/") and fs.exists("/lakehouse/default/Files") and fs.exists("Tables")
+    assert not fs.exists("Files/nope.txt")
+
+
+def test_ls_of_a_file_lists_that_file(store, fs, tmp_path):
+    [info] = fs.ls("Files/one.txt")
+    assert (info.name, info.path, info.size, info.isFile) == ("one.txt", "Files/one.txt", 5, True)
+    with pytest.raises(requests.HTTPError):
+        fs.ls("Files/missing")
+    (tmp_path / "f.txt").write_text("abc")
+    [local] = fs.ls(f"file:{tmp_path}/f.txt")
+    assert (local.name, local.size) == ("f.txt", 3)
+
+
+def test_ls_lists_a_link_whose_target_is_gone(tmp_path, fs):
+    (tmp_path / "d").mkdir()
+    (tmp_path / "d" / "ok.txt").write_text("x")
+    try:
+        (tmp_path / "d" / "dangling").symlink_to(tmp_path / "nope")
+    except OSError:
+        pytest.skip("this account can't create symlinks")
+    assert sorted(i.name for i in fs.ls(f"file:{tmp_path}/d")) == ["dangling", "ok.txt"]
+
+
+def test_head_reads_only_the_bytes_it_shows(store, fs, tmp_path):
+    store.files["Files/big.csv"] = b"x" * 1_000_000
+    assert fs.head("Files/big.csv", 10) == "x" * 10
+    assert ("read_bytes", "Files/big.csv", 10) in store.calls
+    assert fs.head("Files/big.csv", 0) == ""
+    (tmp_path / "big.txt").write_bytes(b"y" * 1_000_000)
+    assert fs.head(f"file:{tmp_path}/big.txt", 5) == "yyyyy"
+
+
+def test_mkdirs_on_a_file_says_so(store, fs, tmp_path):
+    with pytest.raises(FileExistsError, match="is a file"):
+        fs.mkdirs("Files/one.txt/")
+    assert store.mutations() == []
+    (tmp_path / "f.txt").write_text("x")
+    with pytest.raises(FileExistsError):
+        fs.mkdirs(f"file:{tmp_path}/f.txt")
+
+
+def test_fastcp_copies_a_folder_by_default_as_in_fabric(store, fs, tmp_path):
+    assert fs.fastcp("Files/raw", "Files/copy")
+    assert store.files["Files/copy/a.csv"] == b"a,b\n1,2\n" and store.files["Files/copy/b.csv"] == b"x\n"
+    # azcopy's options are accepted and change nothing; recurse=False is cp's refusal for a local folder.
+    (tmp_path / "local").mkdir()
+    (tmp_path / "local" / "f.txt").write_text("hi")
+    assert fs.fastcp("Files/one.txt", "Files/two.txt", extraConfigs={"flags": "--overwrite=true"})
+    assert store.files["Files/two.txt"] == b"hello"
+    with pytest.raises(IsADirectoryError, match="Pass recurse=True"):
+        fs.fastcp(f"file:{tmp_path / 'local'}", "Files/local", recurse=False)

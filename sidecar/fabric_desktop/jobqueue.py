@@ -7,6 +7,9 @@ so it runs again rather than staying "running" forever. A job that fails with an
 retrying waits ``backoff * 2^(attempt-1)`` (capped) and runs again until ``max_attempts``; after
 that it is ``dead`` and needs a person. A job whose tables failed their checks is ``failed``:
 running it again would fail the same way. A queued job can be ``cancelled`` instead.
+
+A person can :meth:`JobQueue.requeue` a ``dead`` or ``failed`` job once they've fixed the cause, and
+:meth:`JobQueue.prune` removes finished jobs once they're old, so the file doesn't grow forever.
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ from typing import Any, Callable, Iterator
 
 STATES = ("queued", "running", "succeeded", "failed", "dead", "cancelled")
 ACTIVE = ("queued", "running")
+PRUNABLE = ("succeeded", "failed", "cancelled")  # dead jobs stay until a person requeues them
 
 _SCHEMA = """
 create table if not exists jobs (
@@ -59,6 +63,12 @@ class JobQueue:
         self.backoff_seconds, self.max_backoff_seconds = backoff_seconds, max_backoff_seconds
         self._local = threading.local()
         self._db().executescript(_SCHEMA)  # executescript commits on its own
+        if "requeued_by" not in {r["name"] for r in self._db().execute("pragma table_info(jobs)")}:
+            try:  # a queue file from before requeue
+                self._db().execute("alter table jobs add column requeued_by text")
+            except sqlite3.OperationalError as exc:
+                if "duplicate column" not in str(exc):  # another process added it first
+                    raise
 
     def _db(self) -> sqlite3.Connection:
         db = getattr(self._local, "db", None)
@@ -183,6 +193,39 @@ class JobQueue:
                              " where id = ? and (state = 'queued' or (state = 'running' and owner = ?))",
                              (self.clock(), reason, job_id, owner))
             return cur.rowcount == 1
+
+    def requeue(self, job_id: str, by: str) -> dict[str, Any]:
+        """Put a ``dead`` or ``failed`` job back in the queue with its attempts reset, recording ``by``.
+        Raises LookupError for an unknown job and ValueError for one that can't go back."""
+        with self._tx() as db:
+            job = db.execute("select * from jobs where id = ?", (job_id,)).fetchone()
+            if job is None:
+                raise LookupError(f"There is no job {job_id} in this agent's queue.")
+            if job["state"] not in ("dead", "failed"):
+                raise ValueError(f"Job {job_id} is {job['state']}; only a dead or failed job can be requeued.")
+            if (job["dedupe_key"] or "").startswith("pipeline:"):  # its status file says it finished
+                raise ValueError(f"Job {job_id} came from a Fabric pipeline; submit the request again from the pipeline.")
+            if job["dedupe_key"] and db.execute("select 1 from jobs where dedupe_key = ? and state in ('queued', 'running')",
+                                                (job["dedupe_key"],)).fetchone():
+                raise ValueError(f"Job {job_id} has a newer run queued or running; it wasn't requeued.")
+            db.execute("update jobs set state = 'queued', attempts = 0, next_at = ?, owner = null, lease_until = null,"
+                       " started_at = null, finished_at = null, result = null, error = null, requeued_by = ? where id = ?",
+                       (self.clock(), by, job_id))
+            return self._row(db.execute("select * from jobs where id = ?", (job_id,)).fetchone())  # type: ignore[return-value]
+
+    def prune(self, older_than_days: float, dry_run: bool = False) -> list[str]:
+        """Remove succeeded, failed and cancelled jobs that finished more than ``older_than_days`` ago,
+        in one transaction; queued, running and dead jobs stay. With ``dry_run``, only list them.
+        Returns their ids. Only queue rows go; nothing in OneLake is touched."""
+        cutoff = self.clock() - older_than_days * 86400
+        where = (f"state in ({', '.join('?' * len(PRUNABLE))}) and finished_at is not null and finished_at < ?",
+                 (*PRUNABLE, cutoff))
+        if dry_run:
+            return [r["id"] for r in self._db().execute(f"select id from jobs where {where[0]}", where[1])]
+        with self._tx() as db:
+            ids = [r["id"] for r in db.execute(f"select id from jobs where {where[0]}", where[1])]
+            db.execute(f"delete from jobs where {where[0]}", where[1])
+            return ids
 
     def set_payload(self, job_id: str, payload: dict[str, Any]) -> bool:
         """Change what a queued job will do (a retry narrowed to the tables that didn't finish)."""

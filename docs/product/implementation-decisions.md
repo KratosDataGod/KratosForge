@@ -20,7 +20,7 @@ A workspace qualifies only when its description contains `fabric-desktop-live-te
 
 ## D-E5: No new dependencies without a reason in the pull request (2026-10-17)
 
-The harness and redaction use the existing packages (`requests`, `deltalake`, `pyarrow`, `msal`). Encrypting the token cache would add `msal-extensions` and is held for a decision (D-C2).
+The harness and redaction use the existing packages (`requests`, `deltalake`, `pyarrow`, `msal`). Encrypting the token cache (D-C2, approved 2026-10-23) calls Windows DPAPI through ctypes, so it adds no package.
 
 ## D-E6: One branch per pull request (2026-10-17)
 
@@ -42,5 +42,4 @@ Chris chose "last known good" for HD-010. A policy file that exists but can't be
 
 | Id | Question | Recommendation | Blocks |
 | --- | --- | --- | --- |
-| D-C2 | Add `msal-extensions` to encrypt the token cache with Windows DPAPI | Yes; it is Microsoft's own package for this | FD-131b |
 | D-C3 | Create an Azure Trusted Signing account | Yes; it unblocks signing, MSI packaging and Smart App Control | FD-103, FD-104 |

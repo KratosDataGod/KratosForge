@@ -13,10 +13,13 @@ function proveNames(text) {
   return String(text || "").split(",").map((s) => s.trim()).filter(Boolean);
 }
 
-// A number from a form field, or undefined when it's empty. NaN stays NaN so the engine refuses it.
+// A number from a form field, or undefined when it's empty. Text that isn't a number goes to the
+// engine as typed so it refuses it (NaN would be sent as null and read as "use the default").
 function proveNumber(text) {
   const t = String(text ?? "").trim();
-  return t === "" ? undefined : Number(t);
+  if (t === "") return undefined;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : t;
 }
 
 // Rules for one table from the rules form's values; only what was filled in.
@@ -143,7 +146,7 @@ async function refreshProveCheck(nb) {
   }
   try {
     const [check, rules, history] = await Promise.all([
-      rpc("prove_check", notebookPayload()),
+      rpc("prove_check", publishPayload()),
       rpc("prove_rules_get", { name: nb.name }).catch(() => ({})),
       rpc("prove_list", { name: nb.name, limit: 5 }).catch(() => []),
     ]);
@@ -164,7 +167,8 @@ async function startProof(nb) {
   const p = nb.prove;
   if (!(await ensureSignedIn())) return;
   const rules = p.rules || {};
-  const run = await attempt(() => rpc("prove_start", { ...notebookPayload(), rules }), "Could not start the proof");
+  await nbInputsSaved();  // nbinputs.js: both runs get the values the Parameters bar shows
+  const run = await attempt(() => rpc("prove_start", { ...publishPayload(), rules }), "Could not start the proof");
   if (run) depsRestarted();  // it restarts the kernel (deps.js)
   if (!run) return;
   nb.dirty = false;
@@ -194,8 +198,13 @@ async function followProof(nb, id) {
   const text = r.state === "cancelled" ? "Cancelled." : r.verdict?.text || r.message || r.state;
   logActivity({ id: `prove:${id}`, status: r.verdict?.verdict === "same" ? "ok" : "error", title: `${nb.name} · Prove`, text });
   toast(`${nb.name}: ${text}`, r.state === "failed");
+  if (r.state === "done") profileEarned(r.earned);
   nb.prove.history = await rpc("prove_list", { name: nb.name, limit: 5 }).catch(() => nb.prove.history);
   drawProve(nb);
+  // The verdict pill cools when both runs match; an ember when they differ or the proof failed (motion.js).
+  const pill = state.notebook === nb && state.view === "notebook" ? document.querySelector(".provepane .prove-body .pill-s") : null;
+  if (r.verdict?.verdict === "same") forgeEvent("prove.matched", pill);
+  else if (r.state === "failed" || r.verdict?.verdict === "differs") forgeEvent("prove.failed", pill);
 }
 
 async function cancelProof(nb) {

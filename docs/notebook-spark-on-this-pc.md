@@ -19,6 +19,42 @@ In a notebook on this PC, `spark` is DuckDB's PySpark-compatible API wired to th
 
 Calls that only change how Spark spreads or keeps work across a cluster (`repartition`, `coalesce`, `persist`, `cache`, `checkpoint`, `hint`) are accepted and do nothing, since everything runs in one process here. `spark.catalog.tableExists` checks temp views and the attached lakehouse. The tables below are generated from the code (`spark_api.coverage_markdown()`), and a test fails if they fall out of step.
 
+`spark.createDataFrame` takes a list of column names, a `StructType` or a DDL string such as
+`"id int NOT NULL, name string, tags array<int>, address struct<city:string, zip:string>"`. A `NOT NULL` field
+refuses a row with a null there, as Spark does (also inside structs, and for array elements or map values a `StructType` declares
+non-nullable, with PySpark's
+`[FIELD_NOT_NULLABLE_WITH_NAME]` error; `verifySchema=False` skips the check); a column `COMMENT` is accepted and left out, since it belongs to a
+table's catalog. `df.schema` shows every field as nullable on this PC.
+
+`sample`, `dropna` and `unpivot` check their arguments as Spark does: a fraction outside 0 to 1, a `how`
+other than `any` or `all`, and an empty list of value columns are errors rather than quietly clamped or widened.
+`na.fill`, `na.drop`, `na.replace` and `describe` name a column that isn't there with Spark's
+`[UNRESOLVED_COLUMN]` error instead of skipping it, and `replace` refuses lists of different lengths.
+`agg` takes Spark's `{column: function}` form after `groupBy` and `pivot` too, and names the result as Spark does
+(`avg(x)` for `"mean"`, `count(1)` for `{"*": "count"}`).
+`drop` and `withColumnRenamed` match names ignoring case and skip a column that isn't there, as Spark does, and
+`dropDuplicates` names a missing column with `[UNRESOLVED_COLUMN]`. Dropping every column is an error here: Spark keeps a frame with no columns,
+which DuckDB can't hold. `drop` also takes `F.col("ID")` for `id`. `summary` takes statistics, not columns, and
+adds the quartiles (`25%`, `50%`, `75%`) as Spark does; describe a few columns with `describe`.
+`substring` counts position 0 as 1 and `concat` is NULL when any input is NULL, as in Spark, in
+`F.substring`, `F.concat`, `selectExpr` and `spark.sql` alike. `initcap` lower-cases the rest of each word, as Spark does
+(`hELLO` becomes `Hello`). `unix_timestamp` takes a date or timestamp as well as text, reads it in the session
+time zone, and is NULL for text that doesn't match the format, as in Spark. Its format reads fractions of a second (`SSS`)
+and quoted text such as `'T'` and `'Z'`; a pattern letter this PC can't read is an error rather than a NULL.
+A pattern without a year reads its date from 1970-01-01, as Spark does. Quoted text that repeats a pattern letter (`'yyyy'`)
+isn't read back as written, so such a pattern gives NULL; keep quoted text to words such as `'T'`, `'Z'` or `'at'`.
+`groupBy()` with no columns aggregates the whole frame, and `first` and `last` with `ignorenulls=True` (or
+`first(x, true)` in SQL, in a window too) skip NULLs, as in Spark. `slice(arr, start, length)` takes a length and counts a
+negative start from the end, and `add_months` returns a date, as in Spark. `slice` refuses index 0 and a negative
+length with Spark's error, and `add_months` reads text as a date (text that isn't a date gives NULL).
+`element_at` refuses an array's index 0, and `months_between` counts the time of day and rounds to 8 digits
+(unless `roundOff` is false), as in Spark. An empty `struct<>` isn't supported here,
+since DuckDB can't store a struct with no fields; give it at least one. `NOT NULL` on a field inside a struct
+is accepted in SQL but not checked, since DuckDB has no such constraint. In SQL, a selected `add_months`,
+`months_between`, `substring` or `slice` without an alias gets a short name close to Spark's, such as
+`add_months(d, 1)`; Spark's names differ for literals (it drops their quotes) and add defaults such as
+`months_between`'s `roundOff`.
+
 ### DataFrame: 79 of 102
 
 | Method | On this PC |

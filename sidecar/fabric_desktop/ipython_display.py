@@ -33,6 +33,8 @@ class DisplayObject:
     _binary = False
 
     def __repr__(self) -> str:
+        if self.data is None and self.url:  # IPython fetches the URL; the engine doesn't, so name it
+            return f"{type(self).__name__}: {self.url}"
         return f"<{type(self).__module__}.{type(self).__name__} object>"
 
 
@@ -142,7 +144,27 @@ class Javascript(TextDisplayObject):
         return str(self.data or "")
 
 
-def build(display: Callable[..., None], clear_output: Callable[..., None]) -> types.ModuleType:
+class DisplayHandle:
+    """What ``display(..., display_id=True)`` returns, as IPython's: ``update`` redraws that output."""
+
+    def __init__(self, display_id: str | None = None, display: Callable[..., Any] | None = None):
+        import uuid
+        self.display_id = display_id or uuid.uuid4().hex
+        self._display = display
+
+    def __repr__(self) -> str:
+        return f"<DisplayHandle display_id={self.display_id}>"
+
+    def display(self, obj: Any, **kwargs: Any) -> None:
+        if self._display is not None:
+            self._display(obj, display_id=self.display_id, **kwargs)
+
+    def update(self, obj: Any, **kwargs: Any) -> None:
+        if self._display is not None:
+            self._display(obj, display_id=self.display_id, update=True, **kwargs)
+
+
+def build(display: Callable[..., Any], clear_output: Callable[..., None]) -> types.ModuleType:
     """The ``IPython`` package and its ``IPython.display`` module, bound to one kernel."""
     mod = types.ModuleType("IPython.display", __doc__)
     for name, value in (("DisplayObject", DisplayObject), ("TextDisplayObject", TextDisplayObject), ("HTML", HTML),
@@ -151,6 +173,16 @@ def build(display: Callable[..., None], clear_output: Callable[..., None]) -> ty
         setattr(mod, name, value)
     mod.display = display
     mod.clear_output = clear_output
+
+    def update_display(obj: Any, *, display_id: Any, **kwargs: Any) -> None:
+        display(obj, display_id=display_id, update=True, **kwargs)
+    mod.update_display = update_display
+
+    class BoundHandle(DisplayHandle):
+        def __init__(self, display_id: str | None = None):
+            super().__init__(display_id, display)
+    BoundHandle.__name__ = BoundHandle.__qualname__ = "DisplayHandle"
+    mod.DisplayHandle = BoundHandle
 
     def display_kind(cls: type) -> Callable[..., None]:
         return lambda *objs, raw=False, **_kw: display(*(cls(o) if not raw or isinstance(o, str) else o for o in objs))
@@ -163,6 +195,11 @@ def build(display: Callable[..., None], clear_output: Callable[..., None]) -> ty
     pkg = types.ModuleType("IPython", "IPython isn't installed here; KratosForge provides IPython.display.")
     pkg.display = mod  # type: ignore[attr-defined]
     pkg.__path__ = []  # type: ignore[attr-defined]  # so "import IPython.display" finds the submodule
+    # Older notebooks import from IPython.core.display: the same module.
+    core = types.ModuleType("IPython.core", "IPython.core.display only, as KratosForge provides it.")
+    core.display = mod  # type: ignore[attr-defined]
+    core.__path__ = []  # type: ignore[attr-defined]
+    pkg.core = core  # type: ignore[attr-defined]
     pkg.get_ipython = lambda: None  # type: ignore[attr-defined]  # no interactive shell, so libraries take their plain path
     pkg.version_info = (8, 30, 0, "")  # type: ignore[attr-defined]  # the IPython.display API this stands in for
     pkg.__version__ = "8.30.0"  # type: ignore[attr-defined]
@@ -175,7 +212,7 @@ class _Finder(importlib.abc.MetaPathFinder, importlib.abc.Loader):
     that, because libraries change course when they see an ``IPython`` module (matplotlib reads
     ``IPython.version_info`` on every figure)."""
 
-    NAMES = ("IPython", "IPython.display")
+    NAMES = ("IPython", "IPython.display", "IPython.core", "IPython.core.display")
 
     def __init__(self) -> None:
         self.pkg: types.ModuleType | None = None
@@ -183,11 +220,11 @@ class _Finder(importlib.abc.MetaPathFinder, importlib.abc.Loader):
     def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> importlib.machinery.ModuleSpec | None:
         if fullname not in self.NAMES or self.pkg is None:
             return None
-        return importlib.machinery.ModuleSpec(fullname, self, is_package=fullname == "IPython")
+        return importlib.machinery.ModuleSpec(fullname, self, is_package=fullname in ("IPython", "IPython.core"))
 
     def create_module(self, spec: importlib.machinery.ModuleSpec) -> types.ModuleType:
         assert self.pkg is not None
-        return self.pkg if spec.name == "IPython" else self.pkg.display  # type: ignore[attr-defined]
+        return {"IPython": self.pkg, "IPython.core": self.pkg.core}.get(spec.name, self.pkg.display)  # type: ignore[attr-defined]
 
     def exec_module(self, module: types.ModuleType) -> None:
         return None
@@ -204,7 +241,8 @@ def install(pkg: types.ModuleType) -> None:
     if _finder not in sys.meta_path:
         sys.meta_path.append(_finder)
     if getattr(sys.modules.get("IPython"), "__kratosforge__", False):
-        for name, fresh in (("IPython", pkg), ("IPython.display", pkg.display)):  # type: ignore[attr-defined]
+        for name, fresh in (("IPython", pkg), ("IPython.display", pkg.display), ("IPython.core", pkg.core),  # type: ignore[attr-defined]
+                            ("IPython.core.display", pkg.display)):  # type: ignore[attr-defined]
             mod = sys.modules.get(name)
             if mod is not None:
                 mod.__dict__.update({k: v for k, v in fresh.__dict__.items() if not k.startswith("__")})

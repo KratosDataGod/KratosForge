@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import email.utils
+import os
 import re
 import time
 from dataclasses import dataclass
@@ -50,9 +51,23 @@ class TableRef:
         return f"abfss://{self.workspace_id}@{DFS_HOST}/{self.lakehouse_id}/Tables/{folder}"
 
 
+# Uploads on a slow line. delta-rs sends each data file as 5 MB parts, 10 at a time, with several
+# files in flight, and object_store gives each request 30 s and all its retries 180 s. On a 42 Mbps
+# upload, tens of parts share about 5 MB/s, so a part can take longer than 30 s: it times out and is
+# sent again, and the table write fails after 3 minutes ("error sending request", issue #785).
+# Fewer parts at once (still enough to fill a fast line), and time limits that let a slow line
+# finish a part, instead of retrying it from the start. Read once, at the process's first write,
+# so set here, before any; a value set in the environment wins.
+os.environ.setdefault("DELTARS_MAX_CONCURRENCY_TASKS", "4")  # parts in flight for one file
+os.environ.setdefault("DELTARS_MAX_IN_FLIGHT_UPLOAD_BYTES", str(256 * 1024 * 1024))  # files in flight, by size
+REQUEST_TIMEOUT = "600s"  # one part: 5 MB in 10 minutes is 8 KB/s
+RETRY_TIMEOUT = "1800s"  # a part's tries, all together: longer than one try, so a timed-out part is tried again
+
+
 def storage_options(token: str) -> dict[str, str]:
     """delta-rs / object_store options for OneLake with a user bearer token."""
-    return {"bearer_token": token, "use_fabric_endpoint": "true"}
+    return {"bearer_token": token, "use_fabric_endpoint": "true",
+            "timeout": REQUEST_TIMEOUT, "connect_timeout": "30s", "retry_timeout": RETRY_TIMEOUT}
 
 
 class TableCatalog:
@@ -117,9 +132,9 @@ class FileStore:
         self._http = session or http_session.session()
         self._sleep = sleep
 
-    def _read(self, url: str, **kwargs: Any) -> requests.Response:
-        return send_with_retry(lambda: self._http.get(url, headers=self._headers(), **kwargs), "GET",
-                               sleep=self._sleep)
+    def _read(self, url: str, extra_headers: dict[str, str] | None = None, **kwargs: Any) -> requests.Response:
+        return send_with_retry(lambda: self._http.get(url, headers={**self._headers(), **(extra_headers or {})},
+                                                      **kwargs), "GET", sleep=self._sleep)
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._token()}", "x-ms-version": "2023-11-03"}
@@ -178,14 +193,18 @@ class FileStore:
                     f.write(chunk)
         return dest
 
-    def read_bytes(self, workspace_id: str, lakehouse_id: str, path: str) -> bytes | None:
-        """A small file's content, or None when it doesn't exist."""
+    def read_bytes(self, workspace_id: str, lakehouse_id: str, path: str, length: int | None = None) -> bytes | None:
+        """A small file's content, or None when it doesn't exist. With ``length``, only its first
+        ``length`` bytes are asked for (a Range request), so peeking at a large file is cheap."""
         url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{item_path(path)}"
-        resp = self._read(url, timeout=60)
+        ranged = {"Range": f"bytes=0-{length - 1}"} if length else None
+        resp = self._read(url, extra_headers=ranged, timeout=60)
         if resp.status_code == 404:
             return None
+        if ranged and resp.status_code == 416:  # an empty file has no byte 0
+            return b""
         resp.raise_for_status()
-        return resp.content
+        return resp.content[:length] if length else resp.content
 
     def upload(self, workspace_id: str, lakehouse_id: str, path: str, data: bytes) -> None:
         """Create or replace a file: create, append, then flush (the ADLS Gen2 way)."""
@@ -197,6 +216,15 @@ class FileStore:
             if body is not None and not body:
                 continue  # an empty file needs no append
             resp = self._http.request(method, url, params=params, data=body, headers=self._headers(), timeout=300)
+            resp.raise_for_status()
+
+    def mkdir(self, workspace_id: str, lakehouse_id: str, path: str) -> None:
+        """Create a folder (and any missing parents). One that is already there is left as it is:
+        If-None-Match makes OneLake answer 409 instead of touching it."""
+        url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{item_path(path)}"
+        resp = self._http.request("PUT", url, params={"resource": "directory"},
+                                  headers={**self._headers(), "If-None-Match": "*"}, timeout=60)
+        if resp.status_code != 409:
             resp.raise_for_status()
 
     def delete(self, workspace_id: str, lakehouse_id: str, path: str, recursive: bool = True) -> None:

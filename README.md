@@ -2,15 +2,15 @@
 
 ![KratosForge](docs/brand/kratosforge-wordmark.png)
 
-*Formerly Fabric Desktop. [What changed and what didn't](docs/kratosforge.md).*
+*Some files, folders and settings keep a legacy name so nothing breaks: [which ones and why](docs/kratosforge.md).*
 
 Do your Microsoft Fabric data engineering on your own Windows PC: notebooks, Spark SQL queries, jobs and a metadata-driven medallion framework. Results are written straight into OneLake as Delta tables. A run on this PC starts no Fabric job, which cuts Fabric CU use; its OneLake reads and writes still use capacity.
 
-![KratosForge in a Microsoft Fabric solution: develop locally, execute on your infrastructure, store and consume in Microsoft Fabric](docs/fabric-desktop-solution.png)
+![KratosForge in a Microsoft Fabric solution: develop locally, execute on your infrastructure, store and consume in Microsoft Fabric](docs/kratosforge-solution.png)
 
 **Develop with KratosForge. Execute on your infrastructure. Store and consume in Microsoft Fabric.** The picture above is where the product is headed. Today the desktop app and a single-node [headless agent](docs/agent.md) are built; multiple workers, resource governance and pipeline hand-off are later milestones in the [enterprise roadmap](docs/enterprise-roadmap.md).
 
-**Why it exists:** Power BI took off because developers could build on their own machine and deploy to the cloud. KratosForge brings that model to data engineering. Read the story in **[Bringing the Power BI Model to Data Engineering](docs/why-fabric-desktop.md)**.
+**Why it exists:** Power BI took off because developers could build on their own machine and deploy to the cloud. KratosForge brings that model to data engineering. Read the story in **[Bringing the Power BI Model to Data Engineering](docs/why-kratosforge.md)**.
 
 ![KratosForge architecture](docs/architecture.svg)
 
@@ -30,24 +30,33 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 
 | Document | What it covers |
 | --- | --- |
-| [docs/kratosforge.md](docs/kratosforge.md) | Fabric Desktop is now KratosForge: what changed, and which names stay so nothing breaks |
+| [docs/kratosforge.md](docs/kratosforge.md) | Legacy names: which files, folders and settings keep an earlier name so nothing breaks |
 | [docs/install.md](docs/install.md) | Installing on a PC: requirements, first start, Windows blocking the engine, updates and channels, where files live, uninstalling |
 | [docs/backup.md](docs/backup.md) | Backing up and restoring what the app keeps only on your PC, without sign-in tokens |
-| [docs/enterprise-install.md](docs/enterprise-install.md) | Rolling the app out with Intune or Configuration Manager: what to deploy, self-updating or managed updates, rollback, failed updates, network access |
+| [docs/enterprise-install.md](docs/enterprise-install.md) | Rolling the app out with Intune or Configuration Manager: what to deploy, self-updating or managed updates, hosting the engine on your own server, rollback, failed updates, network access |
 | [docs/azure-setup.md](docs/azure-setup.md) | Configuring Fabric for an organization: tenant settings, sign-in policies, the optional policy file, workspaces, capacity and access |
 | [docs/permissions.md](docs/permissions.md) | How sign-in works (no app registration), what each feature uses, an optional own app registration with its permissions in alphabetical order, and what the agent needs |
 | [docs/telemetry.md](docs/telemetry.md) | Opt-in usage data: every field sent, what is never sent, and how IT turns it off |
+| [docs/end-user-terms.md](docs/end-user-terms.md) | Draft end-user terms (not in effect yet), including what shipping Microsoft's ODBC driver requires |
 | [docs/security.md](docs/security.md) | The security model: what is protected, trust boundaries, how downloads and updates are checked, and what is still open |
+| [docs/evidence-pack.md](docs/evidence-pack.md) | The security evidence pack: data flows, documents, build and release evidence, and what is still open, for a security review |
 | [docs/hardening/README.md](docs/hardening/README.md) | The enterprise hardening audit: evidence-based scorecard, [findings](docs/hardening/findings.md), [backlog](docs/hardening/backlog.md) and [release gates](docs/hardening/readiness-checklist.md) |
 | [docs/user-guide.md](docs/user-guide.md) | Every page of the app and how to use it |
 | [docs/notebooks.md](docs/notebooks.md) | Notebooks and SQL on your PC, Fabric code that works here, publishing, Run in Fabric and schedules |
 | [docs/notebook-spark-on-this-pc.md](docs/notebook-spark-on-this-pc.md) | Which PySpark methods and Spark settings work in a notebook on this PC |
 | [docs/sql-compatibility.md](docs/sql-compatibility.md) | The SQL compatibility check: what each Fabric SQL engine supports, findings, export, rules |
+| [docs/semantic-model-rules.md](docs/semantic-model-rules.md) | Best Practice Analyzer rules for the semantic model Update model writes, checked on this PC from the metadata project |
+| [docs/sql-best-practices.md](docs/sql-best-practices.md) | Best-practice checks on Warehouse and SQL endpoint T-SQL, read on this PC without running it |
+| [docs/warehouse.md](docs/warehouse.md) | Warehouses (Preview): the Warehouse page, T-SQL on a Fabric warehouse or SQL analytics endpoint (runs in Fabric, uses capacity), changes after a preview and confirm, the warehouse project in Git with compare and deploy, Monitoring from Fabric's workspace monitoring (reads use capacity), and the plan |
 | [docs/sql-execution.md](docs/sql-execution.md) | Running SQL page queries on this PC: states, Stop, limits, paging, export, what a query may do |
 | [docs/local-data.md](docs/local-data.md) | Local data projects (Preview): folders of CSV, JSON and Parquet files as SQL tables on your PC, kept between sessions, starting no Fabric job |
 | [docs/notebook-resources.md](docs/notebook-resources.md) | Notebook resources: files kept beside a notebook and read as `builtin/<file>`, like Fabric's built-in resources |
 | [docs/notebook-magics.md](docs/notebook-magics.md) | Notebook magics and cell languages: `%%sql` results in `_sqldf`, `%sql` inside Python, and which magics run on this PC |
 | [docs/notebook-files.md](docs/notebook-files.md) | Notebook files: search inside notebooks, open a notebook file, save a copy, delete and restore, and edit a Fabric notebook on this PC (Preview) |
+| [docs/vscode.md](docs/vscode.md) | VS Code and KratosForge on the same notebooks: Open in VS Code, editing in both, `kratosforge://` links back, repository setup, Copilot (Preview) |
+| [docs/notebook-fabric-step.md](docs/notebook-fabric-step.md) | Run the last cell on Fabric Spark after the others run on this PC, to V-Order tables for Direct Lake |
+| [docs/notebook-best-practices.md](docs/notebook-best-practices.md) | Best-practice checks on a notebook's code, read on this PC without running it |
+| [docs/notebook-folders.md](docs/notebook-folders.md) | Notebook folders: group notebooks into folders, move a notebook into one, rename a folder, delete an empty one |
 | [docs/validate-notebook.md](docs/validate-notebook.md) | Validate a notebook: code checks, a clean run from the top with sandboxed writes, and Clean up for imports, spacing and suggestions (Preview) |
 | [docs/notebook-import-export.md](docs/notebook-import-export.md) | Fabric and Databricks notebook formats: import Fabric or Databricks source and .dbc archives, export as .ipynb, Fabric or Databricks source or HTML (Preview) |
 | [docs/notebook-versions.md](docs/notebook-versions.md) | Notebook version history: a version per save, checkpoints, Compare and Restore |
@@ -59,8 +68,10 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/notebook-editor/find-and-replace.md](docs/notebook-editor/find-and-replace.md) | Find and replace across every cell of a notebook: match case, whole word, regular expressions, Replace all with undo |
 | [docs/engines.md](docs/engines.md) | Execution engines with honest capability levels, remote compute approval, and connection profiles for Fabric, Databricks or both (Preview) |
 | [docs/notebook-comments.md](docs/notebook-comments.md) | Comments on notebook cells: threads on a cell or lines of its code, replies, resolve, and the Comments panel, kept in the notebook file |
+| [docs/notebook-editor/format-code.md](docs/notebook-editor/format-code.md) | Format a notebook cell or the whole notebook: Python in Black's style with ruff, %%sql cells as Format SQL lays them out |
 | [docs/notebook-editor/intellisense.md](docs/notebook-editor/intellisense.md) | Notebook IntelliSense: hover docs, signature help, docs in autocomplete and syntax errors as you type, all from the local kernel |
 | [docs/notebook-editor/variables.md](docs/notebook-editor/variables.md) | The notebook Variables pane: filter, sort by memory, open data frames, lists and dicts |
+| [docs/prove/how-proofs-work.md](docs/prove/how-proofs-work.md) | Prove this notebook (Preview): pinned inputs, sandboxed outputs, how results are verified, the scorecard and receipts |
 | [docs/side-by-side.md](docs/side-by-side.md) | Running a notebook on this PC and in Fabric side by side: time, cost and a check that both wrote the same results, plus the TPC-H benchmark ([examples/benchmark](examples/benchmark)) |
 | [docs/finops/capacity.md](docs/finops/capacity.md) | The capacity each environment is on and whether it is running: read only, with freshness and what to do when it can't be read |
 | [docs/finops/risk-check.md](docs/finops/risk-check.md) | The risk check before a run: pass, warning, blocked or unknown, with evidence for each finding |
@@ -71,8 +82,11 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/metadata-guide.md](docs/metadata-guide.md) | The metadata framework from a new project to Prod, with a reference for every setting |
 | [docs/platform.md](docs/platform.md) | The central platform: one business key system and one landing zone for every team, the catalog, and moving keys into it |
 | [docs/governance.md](docs/governance.md) | Governance policies (Preview): define standards once in the platform, publish versions that never change, apply them by enterprise, domain, project or table, and see why each applies |
+| [docs/direct-lake-check.md](docs/direct-lake-check.md) | The Direct Lake check (Preview): what would make a semantic model fall back to DirectQuery or fail, checked on this PC against the capacity's limits |
+| [docs/data-dictionary.md](docs/data-dictionary.md) | The data dictionary (Preview): every table, column and measure of a layer's model with its description, exported to Excel and imported back with a preview of each change |
+| [docs/semantic-model-ossie.md](docs/semantic-model-ossie.md) | Semantic models to and from Apache Ossie (Preview): export a model to a `.ossie.yaml` file, or import one with a preview of every change |
 | [docs/governance-guide.md](docs/governance-guide.md) | Governance guide (Preview): how a policy goes from draft to result, three worked examples, and what KratosForge, Fabric, Purview and Entra can each enforce |
-| [docs/data-mesh.md](docs/data-mesh.md) | Domains, workspace designations, data products, links between teams and catalog text |
+| [docs/data-mesh.md](docs/data-mesh.md) | Domains, workspace designations, data products, links between teams, asking another team for data, following a product, and catalog text |
 | [docs/shortcuts.md](docs/shortcuts.md) | The shortcut command center: every OneLake shortcut's health, who can read it, rules, change history with undo, and requests |
 | [docs/source-control.md](docs/source-control.md) | Source control (Preview): clone, diffs, branches, commit, pull and push in the app, the secret check, repository kinds, the platform repository (compare, export, deploy), and what it doesn't do yet |
 | [docs/orchestration/pipeline-definitions.md](docs/orchestration/pipeline-definitions.md) | Reading, checking and converting Fabric pipeline definitions on your PC, with nothing run in Fabric (Preview) |
@@ -83,7 +97,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/release-management/README.md](docs/release-management/README.md) | How a merge becomes a Preview build and a Stable release, who approves each step, integrating parallel pull requests, rollback and versioning, with the current [release status](docs/release-management/release-status.md) |
 | [docs/live-testing.md](docs/live-testing.md) | Checking sign-in, the Fabric API, OneLake and Delta on your own tenant against a workspace set aside for tests (`fabric-desktop live-test`) |
 | [docs/ideas.md](docs/ideas.md) | Submitting ideas to the public Ideas forum, voting, and how ideas are prioritized |
-| [docs/why-fabric-desktop.md](docs/why-fabric-desktop.md) | Why KratosForge is needed: bringing Power BI's build-locally, deploy-to-the-cloud model to data engineering |
+| [docs/why-kratosforge.md](docs/why-kratosforge.md) | Why KratosForge is needed: bringing Power BI's build-locally, deploy-to-the-cloud model to data engineering |
 | [docs/architecture.md](docs/architecture.md) | How the app, the sidecar and OneLake fit together |
 | [docs/ai/README.md](docs/ai/README.md) | Connecting your own AI tool to KratosForge: setup for each tool, workflows and instructions to paste |
 | [docs/architecture/ai-integration.md](docs/architecture/ai-integration.md) | Using your own AI tool (Claude, Codex, Copilot, Cursor, any MCP client) with KratosForge: architecture, permissions, plan |
@@ -93,13 +107,14 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/local-data-engine-plan.md](docs/local-data-engine-plan.md) | The local data engine and OneLake publishing program (FD-LDE-001 to 020): repository audit, implementation matrix, owners and PR plan |
 | [docs/scale-and-operations-plan.md](docs/scale-and-operations-plan.md) | The staged plan for large tables, ingestion, Git releases, pipeline hand-off, lineage and monitoring: what exists, what's missing, PRs in order, and what each needs verified |
 | [docs/product/enterprise-gap-analysis.md](docs/product/enterprise-gap-analysis.md) | The enterprise product program: gap analysis for FD-101 to FD-140, the [backlog](docs/product/enterprise-backlog.md), [decisions](docs/product/implementation-decisions.md) and [release readiness](docs/product/release-readiness.md) |
-| [docs/product/PRODUCT_MANAGEMENT_PROCESS.md](docs/product/PRODUCT_MANAGEMENT_PROCESS.md) | How work is chosen, ranked, built and accepted: the [feature inventory](docs/product/FEATURE_INVENTORY.md), [backlog](docs/product/PRODUCT_BACKLOG.md), [prioritized roadmap](docs/product/PRIORITIZED_ROADMAP.md), [PR-ready specs](docs/product/pr-ready/README.md), [implementation review](docs/product/IMPLEMENTATION_REVIEW_PROCESS.md) and [competitive matrix](docs/product/COMPETITIVE_CAPABILITY_MATRIX.md) |
+| [docs/product/PRODUCT_MANAGEMENT_PROCESS.md](docs/product/PRODUCT_MANAGEMENT_PROCESS.md) | How work is chosen, ranked, built and accepted: the [feature inventory](docs/product/FEATURE_INVENTORY.md), [backlog](docs/product/PRODUCT_BACKLOG.md), [prioritized roadmap](docs/product/PRIORITIZED_ROADMAP.md), [PR-ready specs](docs/product/pr-ready/README.md), [implementation review](docs/product/IMPLEMENTATION_REVIEW_PROCESS.md), [competitive matrix](docs/product/COMPETITIVE_CAPABILITY_MATRIX.md) and [development status](docs/product/DEVELOPMENT_STATUS.md) |
 | [docs/optimize/plan.md](docs/optimize/plan.md) | The Optimize program (PR-OPT-001 to 009): audit, risks, data model, PRs in order |
 | [docs/finops/plan.md](docs/finops/plan.md) | The administration and FinOps program (FINOPS-001 to 005): audit of what exists, overlaps with other programs, PRs in order |
 | [docs/ui-guidelines.md](docs/ui-guidelines.md) | Where new features go in the UI |
 | [docs/animation-style-guide.md](docs/animation-style-guide.md) | The four animation tiers, brand fire and winter colours, motifs and timing for new effects |
 | [docs/ux/README.md](docs/ux/README.md) | UX and simplicity audit: scores, backlog and usability release gates |
 | [docs/orchestration/plan.md](docs/orchestration/plan.md) | Fabric pipelines on this PC (ORCH-001 to ORCH-010): definition engine, compatibility registry and local execution, with a [continuation note](docs/orchestration/continuation.md) |
+| [docs/orchestration/data-factory.md](docs/orchestration/data-factory.md) | Data Factory beyond pipelines (DF-1 to DF-10): Fabric pipeline runs in Monitor, copy jobs, Dataflow Gen2 and connections; reads, plus Run and Refresh in Fabric after a confirm |
 | [docs/workloads/plan.md](docs/workloads/plan.md) | The workload operations program: inventory, ownership, health, incidents, releases and value across this PC, agents and Fabric, with all 100 backlog items and a [continuation note](docs/workloads/continuation.md) |
 | [docs/incidents.md](docs/incidents.md) | Incidents and your service desk: numbers, priorities, SLAs, reported incidents, and where incidents are kept |
 | [docs/quality/README.md](docs/quality/README.md) | Engineering quality baseline: scorecard, [findings](docs/quality/findings.md) (QA-nnn), [remediation plan](docs/quality/remediation.md) and the [PR quality gate](docs/quality/pr-review.md) |
@@ -137,12 +152,12 @@ fabric-desktop run ..\examples\sales_by_region.toml   # set workspace_id in the 
 
 ### Desktop app
 
-Download [fabric-desktop.exe](https://github.com/KratosDataGod/KratosForge/releases/download/stable/fabric-desktop.exe) from the **Releases** section of the repository page and double-click it. There are two update channels: **Stable** (the default) moves only when someone runs the **Promote to stable** workflow, and **Preview** gets every green build of `main` (the `latest` release). People pick theirs in **Settings > Updates**. Windows SmartScreen may warn while the exe is not signed; choose **More info > Run anyway**. The app brings its own engine (Python plus the sidecar and its packages) in `%LOCALAPPDATA%\FabricDesktop\engine`, so the PC needs no Python. To run the sidecar with a Python of your own instead, set `FABRIC_DESKTOP_PYTHON` to its full path and pip-install the sidecar there.
+Download `kratosforge.exe` from the [Stable release](https://github.com/KratosDataGod/KratosForge/releases/tag/stable) and double-click it. A release made before the name changed has it as `fabric-desktop.exe`: the same app, which takes the new name after its first update. There are two update channels: **Stable** (the default) moves only when someone runs the **Promote to stable** workflow, and **Preview** gets every green build of `main` (the `latest` release). People pick theirs in **Settings > Updates**. Windows SmartScreen may warn while the exe is not signed; choose **More info > Run anyway**. The app brings its own engine (Python plus the sidecar and its packages) in `%LOCALAPPDATA%\FabricDesktop\engine`, so the PC needs no Python. To run the sidecar with a Python of your own instead, set `FABRIC_DESKTOP_PYTHON` to its full path and pip-install the sidecar there.
 
 Each time it starts, the app checks its components before anything else runs. The check only shows a window when something is updating or needs attention:
 
 - **KratosForge:** if a newer build has been released on this PC's channel, it downloads it straight away, checks the file really is that build, replaces the exe in place and restarts. The account menu shows which build is running.
-- **Local engine:** the engine built from the same commit as the exe, so the two always match. A missing or older engine is downloaded from the release (`fabric-desktop-engine.zip`) and unpacked automatically. With `FABRIC_DESKTOP_PYTHON` set, the sidecar is pip-installed into that Python instead (it must be 3.11 or later), and an editable (`pip install -e`) install is left alone.
+- **Local engine:** the engine built from the same commit as the exe, so the two always match. A missing or older engine is downloaded from the release (`fabric-desktop-engine.zip`) and unpacked automatically. When only the engine's own code changed (most builds), just that is downloaded (`fabric-desktop-engine-update.zip`, a few MB) and swapped into a copy of the installed engine (hard links, so no extra space). With `FABRIC_DESKTOP_PYTHON` set, the sidecar is pip-installed into that Python instead (it must be 3.11 or later), and an editable (`pip install -e`) install is left alone.
 - **Blocked by Windows:** if Smart App Control or an organization's App Control policy refuses the engine's DLLs, the check names the blocked packages and says what to do instead of reinstalling.
 
 Exes you build yourself skip the update check and leave the sidecar as you installed it.
@@ -282,7 +297,13 @@ Changing settings in `environments.toml` no longer changes the metadata version,
 
 **Data mesh > Table health** reads every managed table's Delta log in the chosen environment: files, size, average file size, versions since the last VACUUM, the last OPTIMIZE and whether the files are V-Ordered, with advice for each. In Test and Prod (OneLake), **Optimize** runs Fabric's table maintenance job on the workspace's capacity: OPTIMIZE with V-Order, which Direct Lake and the SQL analytics endpoint read fastest, then VACUUM keeping 7 days. Tables written from this PC have no V-Order until it runs, so by default every table a Test or Prod run writes is optimized right after the run; untick **Optimize every table a run writes** to turn that off for an environment (`optimize_after_run` in `environments.toml`). In Dev, **Compact** does the same on this PC with delta-rs, without V-Order.
 
-**Data mesh > Semantic model** builds a Direct Lake semantic model over a layer's tables (the last layer, usually Gold) in Test or Prod. It reads the layer's lakehouse through its SQL analytics endpoint, with no import and no refresh schedule. Each entity is a table, facts get a row count measure, and relationships come from the metadata: a fact's `[[lookup]]` names the dimension and its key, and any other column named like a dimension's surrogate key joins to it. Surrogate keys, `_run_id` and `_loaded_at` are hidden. **Create model** creates `SM_<Layer>` in the environment's workspace (you can rename it); building again updates it in place and keeps every lineage tag, so reports on it keep working. The app asks the SQL endpoint to pick up new tables first.
+**Data mesh > Semantic model** builds a Direct Lake semantic model over a layer's tables (the last layer, usually Gold) in Test or Prod. It reads the layer's lakehouse through its SQL analytics endpoint, with no import and no refresh schedule. Each entity is a table, facts get a row count measure and a total measure for each numeric column that isn't a key, named after its table and column (no column sums on its own, as Best Practice Analyzer's rules ask), and relationships come from the metadata: a fact's `[[lookup]]` names the dimension and its key, and any other column named like a dimension's surrogate key joins to it. Surrogate keys, `_run_id` and `_loaded_at` are hidden. A date dimension whose entity sets `[model] date_column` is marked as the date table. **Create model** creates `SM_<Layer>` in the environment's workspace (you can rename it); building again updates it in place and keeps every lineage tag, so reports on it keep working. The app asks the SQL endpoint to pick up new tables first.
+
+**Open Semantic Interchange** on the same tab (Preview) converts a semantic model to and from [Apache Ossie](https://ossie.apache.org/), the open semantic model format Snowflake, dbt and Databricks read: export a model to a `.ossie.yaml` file in Git, or import one with a preview of every change before it's written. Power BI details Ossie can't hold (roles, hierarchies, DAX) travel in the file's Power BI section, so a round trip comes back the same. See [docs/semantic-model-ossie.md](docs/semantic-model-ossie.md).
+
+**Direct Lake check** on the same tab (Preview) finds what would make a model fall back to DirectQuery, or fail, before anyone queries it: tables past the capacity's Direct Lake limits (Parquet files, row groups, rows), columns the Delta table no longer has, types Direct Lake can't read, relationship keys that aren't unique, and fact rows whose key has no match, which Power BI shows under (Blank). It reads the model's definition from Fabric and each table's Delta log from OneLake, and checks on this PC; it starts no Fabric job, though reading from OneLake uses capacity. See [docs/direct-lake-check.md](docs/direct-lake-check.md).
+
+**Data dictionary** on the same tab (Preview) lists every table, column and measure of the model with its description from the catalog. Export it to a CSV, edit it in Excel and import it back with a preview of every change; Update model then writes the descriptions into the model, where Power BI shows them. See [docs/data-dictionary.md](docs/data-dictionary.md).
 
 ### Compare, schema drift, quarantine replay and freshness
 

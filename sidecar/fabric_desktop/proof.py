@@ -23,6 +23,7 @@ from typing import Any
 
 from . import magics, proof_runtime
 from .fabric_run import compute_check, uses_local_module, uses_spark
+from .fabric_step import STEP_REFUSED, is_step
 
 RUNTIME_SOURCE = Path(proof_runtime.__file__).read_text(encoding="utf-8")
 
@@ -41,7 +42,9 @@ _WARNINGS = [
      "calls a network service; the proof can't contain or compare what that does"),
     (re.compile(r"\bopen\s*\((?:[^,()]|\([^()]*\))*,\s*(?:mode\s*=\s*)?[\"'][rbt]*[wax+]|\bopen\s*\([^)]*\bmode\s*=\s*[\"'][rbt]*[wax+]"
                 r"|\.write_(text|bytes)\s*\(|\bos\.(remove|unlink|rename|makedirs)\b|\bshutil\."
-                r"|\.to_(csv|parquet|excel|json|pickle|feather)\s*\(\s*(?![A-Za-z_]\w*\s*=)[^)\s]"),
+                r"|\.to_(csv|parquet|excel|json|pickle|feather)\s*\(\s*(?![A-Za-z_]\w*\s*=)[^)\s]"
+                # Spark's df.write...parquet(path) or csv(path) to a path outside the lakehouse.
+                r"|\.write(?:\.\w+\([^()]*\))*\.(?:parquet|csv)\s*\(\s*(?![rfu]?[\"'](?:Files/|Tables/|abfss://|/lakehouse/))[^)\s]"),
      "writes or changes files on the machine running it; those aren't compared"),
     (re.compile(r"\b(notebookutils|mssparkutils|dbutils)\.notebook\.(run|runMultiple)\b|^\s*%run\b", re.M),
      "runs another notebook, which isn't checked or contained by the proof"),
@@ -71,6 +74,9 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None) -> dict
             row["line"], row["code"] = _line(source, pos)
         bucket.append(row)
 
+    step = next(((i, c) for i, c in enumerate(cells, 1) if is_step(c)), None)
+    if step:
+        add(blockers, step[0], step[1], STEP_REFUSED)
     if not lakehouse:
         add(blockers, None, None, "No lakehouse is attached. A proof pins the attached lakehouse's tables and writes to its own folder there.")
     if not uses_local_module(cells):

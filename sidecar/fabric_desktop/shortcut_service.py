@@ -15,15 +15,18 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from . import access as access_mod
+from . import governance_notices as notices
 from . import shortcut_center as center
 from . import shortcuts as shortcuts_mod
 from .auth import ONELAKE_SCOPES
+from .central import core
 from .fabric_api import FabricClient
 from .meta.project import ENVIRONMENTS
 from .onelake import FileStore
 from .redact import describe
 
 _log = logging.getLogger(__name__)
+RISKS_REPAIR = "After an update, a platform admin runs Platform > Settings > Finish or repair once."
 
 
 class ShortcutMixin:
@@ -70,6 +73,7 @@ class ShortcutMixin:
         refs = {l["lakehouse_id"]: l for l in lakehouses}
         envs = self._sc_envs()
         names = {l["workspace_id"]: l.get("workspace_name", "") for l in lakehouses}
+        lh_names = {l["lakehouse_id"]: l.get("name", "") for l in lakehouses}
         rows = []
         for lh_id, items in inv["items"].items():
             ref = refs.get(lh_id)
@@ -87,7 +91,11 @@ class ShortcutMixin:
             self._sc_call("record_shortcuts", problems, {}, lakehouses=scanned, shortcuts=[
                 {"lakehouse_id": r["lakehouse_id"], "workspace_id": r["host_workspace_id"],
                  "workspace_name": r["workspace_name"], "lakehouse_name": r["lakehouse_name"], "path": r["path"],
-                 "name": r["name"], "target": r["rest_target"]} for r in rows])
+                 "name": r["name"], "target": r["rest_target"],
+                 # the target's names while it's there, so it can be named (and found) once it's gone
+                 "target_workspace_name": names.get(r.get("workspace_id") or "", "") if r["target_type"] == "OneLake" else "",
+                 "target_lakehouse_name": lh_names.get(r.get("item_id") or "", "") if r["target_type"] == "OneLake" else ""}
+                for r in rows])
         seen = {s["id"]: s for s in self._sc_call("list_seen_shortcuts", problems, [])}
         products = center.port_index(self._sc_call("list_products", problems, []))
         for r in rows:
@@ -103,9 +111,15 @@ class ShortcutMixin:
             r["target_env"] = (center.env_of(r.get("workspace_id") or "", names.get(r.get("workspace_id") or "", ""), envs)
                                if r["target_type"] == "OneLake" else "")
             r["product"] = products.get(center.target_key(r))
+            if r["target_type"] == "OneLake":
+                r["target_workspace_name"] = names.get(r.get("workspace_id") or "") or stored.get("target_workspace_name") or ""
+                r["target_lakehouse_name"] = lh_names.get(r.get("item_id") or "") or stored.get("target_lakehouse_name") or ""
         flagged = center.risks(rows, envs)
         for r in rows:
             r["risks"] = flagged.get(r["id"], [])
+            r["same_env_target"] = (center.same_env_target(r, envs, lakehouses)
+                                    if any(x["kind"] == "cross_env" for x in r["risks"]) else None)
+        center.accept_risks(rows, self._sc_accepted(problems))
         requests = [q for q in self._sc_call("list_requests", problems, []) if q.get("kind") == "shortcut"]
         week = [c for c in self._sc_call("shortcut_changes", problems, [], days=7)
                 if c["kind"] in ("added", "removed", "repointed")]
@@ -115,11 +129,12 @@ class ShortcutMixin:
         for r in rows:
             c = last.get(r["id"])
             r["last_change"] = {k: c[k] for k in ("at", "kind", "by_user", "how")} if c else None
-        rows.sort(key=lambda r: (r["health"] != "broken", r["health"] != "unreachable", not r["risks"],
+        rows.sort(key=lambda r: (r["health"] != "broken", r["health"] != "unreachable", not center.open_risks(r),
                                  f"{r['workspace_name']} {r['lakehouse_name']} {r['full_path']}".lower()))
         return {"pending": False, "rows": rows, "errors": inv.get("errors", {}), "problems": problems,
                 "counts": center.counts(rows, week, requests), "needs": center.needs(rows, requests),
-                "requests": requests, "checked_at": max((r["checked_at"] for r in rows), default="")}
+                "requests": requests, "checked_at": max((r["checked_at"] for r in rows), default=""),
+                "admin": self._sc_admin()}
 
     # ---- health
 
@@ -151,7 +166,87 @@ class ShortcutMixin:
             results = list(pool.map(check, items))
         problems: list[str] = []
         changes = self._sc_call("record_shortcut_health", problems, [], results=results)
+        problem = self._governance_notify(lambda: notices.shortcut_events(changes))  # type: ignore[attr-defined]
+        if problem:
+            problems.append(problem)
         return {"results": results, "changes": changes, "problems": problems}
+
+    # ---- a lakehouse that's gone: find where it went, repoint many at once
+
+    def _sc_lakehouses(self) -> list[dict[str, str]]:
+        """Every lakehouse in every workspace the person can list, as the catalog lists them."""
+        token = self.auth.fabric_token()  # type: ignore[attr-defined]  # once: MSAL stays on one thread
+        api = FabricClient(lambda: token)
+
+        def listing(ws: dict[str, Any]) -> list[dict[str, str]]:
+            try:
+                found = FabricClient(lambda: token).list_lakehouses(ws["id"])
+            except Exception as exc:  # noqa: BLE001 - a paused capacity, no access: list the rest
+                _log.info("Couldn't list the lakehouses of workspace %s: %s", ws.get("id"), describe(exc))
+                return []
+            return [{"workspace_id": ws["id"], "workspace_name": ws.get("displayName", ""), "lakehouse_id": lh["id"],
+                     "lakehouse_name": lh.get("displayName", "")} for lh in found]
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            return [l for found in pool.map(listing, api.list_workspaces()) for l in found]
+
+    def shortcut_find_moved(self, shortcuts: list[dict[str, Any]]) -> dict[str, Any]:
+        """Broken OneLake shortcuts whose target lakehouse is gone: a lakehouse with its name that the
+        person can list, and which of the shortcuts' tables or folders are there, asked of OneLake
+        the way a health check asks. Reads nothing else and changes nothing.
+        Returns {candidate: {workspace_id, workspace_name, lakehouse_id, lakehouse_name} or None,
+        found: [shortcut ids], missing: [shortcut ids]}."""
+        name = next((s.get("target_lakehouse_name") for s in shortcuts if s.get("target_lakehouse_name")), "")
+        gone = next((s.get("item_id") for s in shortcuts if s.get("item_id")), "")
+        empty = {"candidate": None, "found": [], "missing": [s["id"] for s in shortcuts], "name": name}
+        if not name or not shortcuts:
+            return empty
+        candidates = center.moved_candidates(name, gone, self._sc_lakehouses())[:5]
+        if not candidates:
+            return empty
+        token = self.auth.storage_token()  # type: ignore[attr-defined]
+        files = FileStore(lambda: token)
+
+        def there(pair: tuple[dict[str, str], dict[str, Any]]) -> bool:
+            cand, s = pair
+            status, _ = files.probe(cand["workspace_id"], cand["lakehouse_id"], str(s.get("target_path") or "").strip("/"))
+            return status is not None and 200 <= status < 300
+
+        best: tuple[dict[str, str], list[str]] | None = None
+        for cand in candidates:
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                hits = list(pool.map(there, [(cand, s) for s in shortcuts]))
+            found = [s["id"] for s, hit in zip(shortcuts, hits) if hit]
+            if best is None or len(found) > len(best[1]):
+                best = (cand, found)
+        cand, found = best  # type: ignore[misc]
+        return {"candidate": cand, "found": found, "missing": [s["id"] for s in shortcuts if s["id"] not in found],
+                "name": name}
+
+    def shortcut_repoint_many(self, items: list[dict[str, Any]], workspace_id: str, lakehouse_id: str,
+                              workspace_name: str = "", lakehouse_name: str = "") -> dict[str, Any]:
+        """Repoint several OneLake shortcuts at one lakehouse. Each keeps its name, place and target
+        path; only the lakehouse changes. One at a time with shortcut_repoint, so one that fails is
+        put back as it was and the rest carry on. ``items``: the command center's rows."""
+        done: list[str] = []
+        failed: list[dict[str, str]] = []
+        warnings: list[str] = []
+        problems: list[str] = []
+        note = f"Repointed with {len(items) - 1} more at {lakehouse_name or lakehouse_id}" if len(items) > 1 else ""
+        for s in items:
+            source = {"type": "oneLake", "workspace_id": workspace_id, "item_id": lakehouse_id,
+                      "path": str(s.get("target_path") or "").strip("/")}
+            try:
+                out = self.shortcut_repoint(s["host_workspace_id"], s["lakehouse_id"], s["path"], s["name"], source,
+                                            s.get("lakehouse_name", ""), s.get("workspace_name", ""), workspace_name, note)
+            except Exception as exc:  # noqa: BLE001 - one failure doesn't stop the rest
+                _log.info("Repointing shortcut %s failed: %s", s.get("name"), describe(exc))
+                failed.append({"name": str(s.get("name")), "error": str(exc)})
+                continue
+            done.append(str(s["name"]))
+            warnings += [w for w in out.get("warnings") or [] if w not in warnings]
+            problems += [p for p in out.get("problems") or [] if p not in problems]
+        return {"done": done, "failed": failed, "warnings": warnings, "problems": problems}
 
     # ---- who can read it
 
@@ -241,6 +336,39 @@ class ShortcutMixin:
     def shortcut_save_rules(self, rules: dict[str, Any]) -> dict[str, Any]:
         self._catalog().call("save_shortcut_rules", rules=rules)  # type: ignore[attr-defined]
         return self.shortcut_rules()
+
+    def _sc_risk_call(self, op: str, **kwargs: Any) -> Any:
+        """Accepted risks came with an update: a UDF_Platform made before it has no such function,
+        and Fabric answers 404, which the client reads as "UDF_Platform wasn't found". Say what to do."""
+        missing = f"The platform can't keep accepted shortcut risks yet: UDF_Platform has no {op} function. {RISKS_REPAIR}"
+        try:
+            return self._catalog().call(op, **kwargs)  # type: ignore[attr-defined]
+        except LookupError as exc:
+            _log.info("%s: %s", op, describe(exc))
+            raise LookupError(missing) from exc
+        except core.PlatformError as exc:
+            if op in str(exc) and ("not found" in str(exc).lower() or "no operation" in str(exc).lower()):
+                _log.info("%s: %s", op, describe(exc))
+                raise LookupError(missing) from exc
+            raise
+
+    def _sc_accepted(self, problems: list[str]) -> list[dict[str, Any]]:
+        """The accepted risks; none, with a problem line, when the platform can't say."""
+        try:
+            return self._sc_risk_call("list_shortcut_risks")
+        except Exception as exc:  # noqa: BLE001 - the shortcuts still show, every risk flagged
+            msg = str(exc) if isinstance(exc, LookupError) else f"The platform couldn't list shortcut risks: {exc}"
+            if msg not in problems:
+                problems.append(msg)
+            return []
+
+    def shortcut_accept_risk(self, shortcut_id: str, kind: str, reason: str) -> dict[str, Any]:
+        """A platform admin accepts a flagged risk (Dev reading Prod on purpose), and says why."""
+        return self._sc_risk_call("accept_shortcut_risk", shortcut_id=shortcut_id, kind=kind, reason=reason)
+
+    def shortcut_withdraw_risk(self, shortcut_id: str, kind: str) -> dict[str, Any]:
+        """Take back an accepted risk, so the shortcut is flagged again."""
+        return {"accepted": self._sc_risk_call("withdraw_shortcut_risk", shortcut_id=shortcut_id, kind=kind)}
 
     def _sc_new(self, workspace_id: str, workspace_name: str, source: dict[str, Any],
                 target_workspace_name: str = "") -> dict[str, Any]:

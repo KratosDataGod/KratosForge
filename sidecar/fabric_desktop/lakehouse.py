@@ -14,14 +14,16 @@ locally; only the input file download and the Delta write touch OneLake.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import threading
 import time
+import weakref
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 import polars as pl
 import pyarrow as pa
@@ -31,6 +33,7 @@ from deltalake.exceptions import TableNotFoundError
 from .onelake import FileStore, TableRef, storage_options
 from .publish import publish, resolve_schema_mode, stage_locally
 from .redact import describe
+from .retrying import data_upload_dropped
 
 _log = logging.getLogger(__name__)
 
@@ -56,13 +59,42 @@ class WriteResult:
     rows: int
     delta_version: int
     uri: str
+    skipped: bool = False  # the table already held exactly these rows, so nothing was uploaded
 
     def __repr__(self) -> str:
+        if self.skipped:
+            return (f"{self.table} unchanged: it already holds these {self.rows} rows at Delta version "
+                    f"{self.delta_version}, so nothing was uploaded")
         text = f"Wrote {self.rows} rows to {self.table} (Delta version {self.delta_version})"
         if self.delta_version == 0:
             # Fabric lists a table written from outside under Unidentified until the lakehouse is refreshed.
             text += ". New table: refresh the lakehouse in Fabric if it shows under Unidentified"
         return text
+
+
+class PendingWrite:
+    """write_table's answer while the write uploads in the background: anything that needs the
+    committed version (``delta_version``, ``skipped``, printing it) waits for the upload."""
+
+    def __init__(self, table: str, rows: int, uri: str, future: Any):
+        self.table, self.rows, self.uri = table, rows, uri
+        self._future = future
+
+    def result(self) -> WriteResult:
+        return self._future.result()
+
+    @property
+    def delta_version(self) -> int:
+        return self.result().delta_version
+
+    @property
+    def skipped(self) -> bool:
+        return self.result().skipped
+
+    def __repr__(self) -> str:
+        if self._future.cancelled() or self._future.exception() is not None:
+            return f"{self.table}: not written (the cell's error says why)"  # the kernel reports it once, at the cell's end
+        return repr(self.result())
 
 
 _attached: Attached | None = None
@@ -97,8 +129,8 @@ def _record(kind: str, key: str, entry: Callable[[], dict[str, Any]]) -> None:
         _log.info("Couldn't record a read for replay: %s", describe(exc))
 
 
-def _record_table(ref: TableRef, version: int | None, first: str) -> None:
-    lh = _current()
+def _record_table(ref: TableRef, version: int | None, first: str, lh: Attached | None = None) -> None:
+    lh = lh or _current()  # a background write passes the lakehouse it was made in
     _record("tables", f"{ref.lakehouse_id}/{ref.schema}.{ref.table}".lower(), lambda: {
         "table": f"{ref.schema}.{ref.table}", "version": version, "first": first,
         "workspace_id": ref.workspace_id, "lakehouse_id": ref.lakehouse_id, "lakehouse": lh.name})
@@ -112,6 +144,21 @@ def _proof() -> Any:
 # Set by the service when a metadata project is open: returns why a table may not be
 # written from a notebook (it is managed by the framework), or None.
 write_guard: Callable[[str, str, str], str | None] | None = None
+
+# Checks for the writes of one cell, by the thread the engine's own kernel runs it on: a cell a
+# paired VS Code window started asks in the app before each write (editor_service.py). A process
+# kernel asks the engine through its write_guard call instead (kernel_proc.ProcessKernel.write_check).
+cell_write_checks: "weakref.WeakKeyDictionary[threading.Thread, Callable[[str, str, str], str | None]]" = \
+    weakref.WeakKeyDictionary()
+
+
+def write_refusal(name: str, schema: str, table: str) -> str | None:
+    """Why this write may not happen (the open metadata project, or the cell's own check), or None."""
+    reason = write_guard(name, schema, table) if write_guard else None
+    if reason:
+        return reason
+    check = cell_write_checks.get(threading.current_thread())
+    return check(name, schema, table) if check else None
 
 
 def attach(context: Attached | None) -> None:
@@ -272,6 +319,7 @@ def table_history(table: str, limit: int | None = None) -> pl.DataFrame:
 
 def _open_table(table: str, record: bool = True) -> DeltaTable:
     ref = table_ref(table)
+    _see_own_writes()
     if (p := _proof()) is not None:
         from .proof_runtime import ProofTableMissing
         try:
@@ -286,9 +334,18 @@ def _open_table(table: str, record: bool = True) -> DeltaTable:
             _record_table(ref, opened.version(), "read")
         return opened
     except TableNotFoundError as e:
-        folder = ref.uri.split("/Tables/", 1)[1]
-        raise TableNotFoundError(f"No Delta table at Tables/{folder} in {_current().name}. "
-                                 f"Check the name in the Explorer. ({e})") from None
+        lh, folder = _current().name, ref.uri.split("/Tables/", 1)[1]
+        shown = ref.table if ref.flat else f"{ref.schema}.{ref.table}"
+        # Nothing there (delta-rs says "No files in log segment" for an empty or missing folder in
+        # OneLake): say so plainly. Anything else keeps delta-rs's words.
+        detail = "" if any(m in str(e) for m in _MISSING) else f" ({e})"
+        raise TableNotFoundError(f"{shown} isn't in {lh}: there's no Delta table at Tables/{folder}{detail}. "
+                                 f"Check the name in the Explorer, or run the notebook that creates it "
+                                 f"with {lh} attached first.") from None
+
+
+# delta-rs's words for a table folder with no Delta log in it.
+_MISSING = ("No files in log segment", "does not exist")
 
 
 def table_exists(table: str) -> bool:
@@ -309,6 +366,7 @@ def read_table(table: str, version: int | None = None, timestamp: Any = None) ->
 def sql(query: str) -> pl.DataFrame:
     """Run Spark SQL over the attached lakehouse's tables on this PC, e.g. ``sql("SELECT * FROM sales")``."""
     from . import sql as engine
+    _see_own_writes()
     return pl.from_arrow(engine.run(query))
 
 
@@ -331,38 +389,178 @@ def _to_arrow(data: Any) -> pa.Table:
     return pa.table(data)
 
 
-def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str | None = "auto") -> WriteResult:
+UPLOADS = ("local_first", "direct")
+
+
+def _queue() -> Any:
+    """The write queue of the cell running on this thread (write_queue.cell_writes)."""
+    from .write_queue import cell_writes
+    return getattr(cell_writes, "queue", None)
+
+
+def _see_own_writes() -> None:
+    """A read waits for the cell's own writes still uploading, so it sees them."""
+    if (q := _queue()) is not None:
+        from . import write_queue
+        stats = write_queue.stats()
+        with stats.waiting() if stats is not None else contextlib.nullcontext():
+            q.wait()
+
+
+def _setting(key: str, default: Any) -> Any:
+    from . import app_settings
+    try:
+        return app_settings.value(key)
+    except Exception as exc:  # noqa: BLE001 - a broken settings file keeps the default
+        _log.info("Couldn't read the %s setting, using %r: %s", key, default, describe(exc))
+        return default
+
+
+def _stream(data: Any) -> tuple[pa.Schema, Iterator[pa.Table]] | None:
+    """A stream of batches (a RecordBatchReader, DuckDB's reader, or any iterable of tables, batches
+    or data frames) as its schema and its parts; None for data that is one table."""
+    if isinstance(data, (pa.Table, pl.DataFrame, pl.LazyFrame, pa.RecordBatch)) or \
+            type(data).__module__.startswith(("duckdb", "pandas")) and not isinstance(data, pa.RecordBatchReader):
+        if not (type(data).__module__.startswith("duckdb") and hasattr(data, "read_next_batch")):
+            return None
+    if isinstance(data, pa.RecordBatchReader) or hasattr(data, "read_next_batch"):
+        reader = data if isinstance(data, pa.RecordBatchReader) else pa.RecordBatchReader.from_stream(data)
+        return reader.schema, (pa.Table.from_batches([b]) for b in reader)
+    if isinstance(data, (dict, list, tuple)) or not hasattr(data, "__iter__"):
+        return None
+    parts = (_to_arrow(p) if not isinstance(p, pa.RecordBatch) else pa.Table.from_batches([p]) for p in iter(data))
+    first = next(parts, None)
+    if first is None:
+        raise ValueError("write_table was given an empty stream: there's no schema to write. Pass a table instead.")
+
+    def chain() -> Iterator[pa.Table]:
+        yield first
+        yield from parts
+    return first.schema, chain()
+
+
+# A table write whose data file upload was dropped (retrying.data_upload_dropped) is written again,
+# whole: nothing of it was committed. On top of object_store's own retries of each part.
+UPLOAD_ATTEMPTS = 3
+UPLOAD_RETRY_WAIT = 15.0  # seconds, then twice that
+
+
+def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str | None = "auto",
+                upload: str | None = None, skip_unchanged: bool | None = None) -> WriteResult | PendingWrite:
     """Write ``data`` to the attached lakehouse as the Delta table ``schema.table``.
 
+    ``data`` is a table (polars, pandas, Arrow, DuckDB) or a stream of batches (a RecordBatchReader,
+    DuckDB's ``fetch_record_batch``, or any iterable of tables): a stream is written as one commit,
+    spilled to this PC's disk on the way so it never has to fit in memory.
+
     ``schema_mode``: "auto" (the default) replaces the schema on overwrite; None refuses a
-    different schema, as Spark does; "merge" adds new columns; "overwrite" replaces it."""
+    different schema, as Spark does; "merge" adds new columns; "overwrite" replaces it.
+
+    ``upload``: "direct" writes to OneLake before returning. Otherwise (None or "local_first"), in a
+    notebook set to write local first (its OneLake writes choice, or the app's onelake_writes), the
+    write is kept on this PC and uploads in the background while the cell goes on; the cell ends
+    when its writes are in. Elsewhere (scripts, Fabric) every write is direct.
+
+    ``skip_unchanged``: an overwrite of exactly the rows this app last wrote to the table uploads
+    nothing; None follows the onelake_skip_unchanged setting."""
+    from . import write_queue
     if mode not in MODES:
         raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
+    if upload not in (None, *UPLOADS):
+        raise ValueError(f"upload must be one of {UPLOADS}, got {upload!r}")
     resolve_schema_mode(mode, schema_mode)
     started = time.monotonic()
     lh = _current()
     ref = table_ref(table)
-    reason = write_guard(lh.name, ref.schema, ref.table) if write_guard else None
+    reason = write_refusal(lh.name, ref.schema, ref.table)
     if reason:
         raise PermissionError(reason)
-    arrow = _to_arrow(data)
-    stage_locally(arrow, lh.work_dir / "staging" / lh.lakehouse_id / ref.schema / ref.table)
+    streamed = _stream(data)
+    arrow, spill = None, None
+    if streamed is None:
+        arrow = _to_arrow(data)
+        schema = arrow.schema
+    else:
+        schema = streamed[0]
+    stage_locally(schema.empty_table(), lh.work_dir / "staging", lh.lakehouse_id, ref.schema, ref.table)
     if (p := _proof()) is not None:
+        if arrow is None:
+            arrow = pa.concat_tables(list(streamed[1]), promote_options="none") if streamed else schema.empty_table()
         return _write_proof(p, arrow, ref, mode, schema_mode)
-    token = lh.storage_token()
-    delta = publish(arrow, ref, mode, token) if schema_mode == "auto" else publish(arrow, ref, mode, token, schema_mode=schema_mode)
-    result = WriteResult(f"{ref.schema}.{ref.table}", arrow.num_rows, delta.version(), ref.uri)
-    # A table the notebook writes before reading starts, for a replay, at the version before that write.
-    _record_table(ref, result.delta_version - 1 if result.delta_version > 0 else None, "write")
-    if lh.history_file:
-        record = {"job": f"Notebook write to {lh.name}", "table_uri": ref.uri, "mode": mode,
-                  "rows": result.rows, "delta_version": result.delta_version,
-                  "seconds": round(time.monotonic() - started, 2),
-                  "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
-        lh.history_file.parent.mkdir(parents=True, exist_ok=True)
-        with lh.history_file.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(record) + "\n")
-    return result
+    if skip_unchanged is None:
+        skip_unchanged = bool(_setting("onelake_skip_unchanged", True))
+    parts: list[tuple[int, int, int]] = []
+    if arrow is not None:
+        rows = arrow.num_rows
+        if mode == "overwrite":
+            parts.append(write_queue.fingerprint_part(arrow))
+    else:
+        spill = write_queue.Spill(lh.work_dir / "staging" / "_writes", schema)
+        try:
+            for part in streamed[1]:
+                if part.schema != schema:
+                    part = part.cast(schema)
+                if mode == "overwrite":
+                    parts.append(write_queue.fingerprint_part(part))
+                for batch in part.to_batches():
+                    spill.add(batch)
+        except BaseException:
+            spill.close()
+            spill.remove()
+            raise
+        spill.close()
+        rows = spill.rows
+    fingerprint = write_queue.fingerprint(schema, write_queue.combine(parts)) if mode == "overwrite" else None
+    name_ = f"{ref.schema}.{ref.table}"
+    stats = write_queue.stats()  # the cell's, for its timing; a background write runs on another thread
+
+    def commit() -> WriteResult:
+        uploading = time.monotonic()
+        try:
+            for attempt in range(UPLOAD_ATTEMPTS):
+                try:
+                    delta = publish(arrow if arrow is not None else spill.reader(), ref, mode, lh.storage_token(),
+                                    schema_mode=schema_mode, rows=fingerprint, skip_unchanged=skip_unchanged)
+                    break
+                except Exception as exc:  # noqa: BLE001 - only a dropped data file upload is tried again
+                    if attempt == UPLOAD_ATTEMPTS - 1 or not data_upload_dropped(exc):
+                        raise
+                    wait = UPLOAD_RETRY_WAIT * (attempt + 1)
+                    _log.warning("Writing %s again in %.0f s: a data file's upload was dropped (%s)", name_, wait, describe(exc))
+                    time.sleep(wait)
+        finally:
+            if spill is not None:
+                spill.remove()
+        skipped = bool(getattr(delta, "skipped", False))
+        result = WriteResult(name_, rows, delta.version(), ref.uri, skipped)
+        if stats is not None:
+            stats.wrote(uploading, 0 if skipped else rows, getattr(delta, "written_bytes", None), skipped)
+        # A table the notebook writes before reading starts, for a replay, at the version before that write.
+        _record_table(ref, result.delta_version if skipped else
+                      result.delta_version - 1 if result.delta_version > 0 else None, "write", lh)
+        if lh.history_file:
+            record = {"job": f"Notebook write to {lh.name}", "table_uri": ref.uri, "mode": mode,
+                      "rows": result.rows, "delta_version": result.delta_version,
+                      "seconds": round(time.monotonic() - started, 2),
+                      "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+            if skipped:
+                record["skipped"] = "unchanged"
+            lh.history_file.parent.mkdir(parents=True, exist_ok=True)
+            with lh.history_file.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(record) + "\n")
+        return result
+
+    queue = _queue()  # set for this cell when its notebook writes local first (notebook.py)
+    with stats.waiting() if stats is not None else contextlib.nullcontext():
+        if queue is None or upload == "direct":
+            if queue is not None:
+                queue.wait()  # in order with the cell's writes still uploading
+            return commit()
+        # Returns at once, unless the writes already waiting hold too much of this PC's memory.
+        future = queue.submit(ref.uri, name_, arrow.nbytes if arrow is not None else 0, commit)
+    if spill is not None:  # a write cancelled before it started never runs commit(), which removes it
+        future.add_done_callback(lambda f: spill.remove() if f.cancelled() else None)
+    return PendingWrite(name_, rows, ref.uri, future)
 
 
 def _write_proof(proof: Any, arrow: pa.Table, ref: TableRef, mode: str, schema_mode: str | None = "auto") -> WriteResult:

@@ -198,6 +198,55 @@ def test_a_switch_while_the_sweep_has_a_session_out_hands_it_over_to_close():
     assert sessions.kernel("nb") is not held  # a fresh kernel after the switch, not one from before it
 
 
+def test_opening_a_notebook_with_no_session_leaves_the_others_variables(svc):
+    class Kept(FakeKernel):
+        def variables(self):
+            return [{"name": "x", "value": "1"}]
+
+    made = []
+    svc.sessions = KernelSessions(lambda _p: made.append(Kept()) or made[-1], lambda: True, max_sessions=lambda: 2)
+    a, b = svc.sessions.kernel("A"), svc.sessions.kernel("B")  # the cap is reached
+    # What the app asks when it opens notebook C, which has never run a cell.
+    assert call(svc, "kernel_variables", notebook="C") == []
+    assert call(svc, "poll_cell", notebook="C")["status"] == "idle"
+    assert call(svc, "interrupt_cell", notebook="C") == {"interrupted": False}
+    with pytest.raises(Exception, match="No cell is running under the debugger"):
+        call(svc, "debug_cell", action="continue", notebook="C")
+    assert made == [a, b] and not a.closed and not b.closed  # no session made, none stopped for room
+    assert call(svc, "kernel_variables", notebook="A") == [{"name": "x", "value": "1"}]
+    assert svc.sessions.take_notes() == []
+
+
+def test_making_room_never_stops_the_open_notebooks_session():
+    sessions = KernelSessions(lambda _p: FakeKernel(), lambda: True, max_sessions=lambda: 2)
+    opened, other = sessions.kernel("Open"), sessions.kernel("Other")
+    sessions.session("Open").last_used = 0  # the least recently used, but it's the open notebook
+    sessions.active = "Open"
+    sessions.kernel("Proof")  # a proof of a third notebook needs a session
+    assert not opened.closed and other.closed
+    assert "Other" in sessions.take_notes()[0]
+
+
+def test_a_rename_while_the_sweep_has_the_session_out_keeps_it():
+    sessions = KernelSessions(lambda _p: FakeKernel(), lambda: True, idle_minutes=lambda: 10)
+    held = sessions.kernel("Old")
+    sessions.session("Old").last_used = time.time() - 3600
+    checks = []
+    checked = held.poll
+
+    def poll(*args, **kwargs):  # idle at the sweep's check; renamed and looked up before it closes
+        checks.append(1)
+        if len(checks) == 2:
+            sessions.rename("Old", "New")
+            assert sessions.kernel("New") is held
+        return checked(*args, **kwargs)
+
+    held.poll = poll
+    sessions.reap_idle()
+    assert not held.closed and sessions.kernels() == [held]
+    assert sessions.session("Old", create=False) is None
+
+
 def test_settings_limits_are_checked(svc):
     with pytest.raises(Exception, match="between 0 and 20"):
         call(svc, "save_app_settings", changes={"kernel_max_sessions": 50})

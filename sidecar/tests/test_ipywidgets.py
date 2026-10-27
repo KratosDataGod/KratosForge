@@ -215,3 +215,59 @@ def test_an_event_goes_to_its_notebooks_session(tmp_path, monkeypatch):
     finally:
         for kernel in s.sessions.kernels():
             getattr(kernel, "close", lambda: None)()
+
+
+def test_an_output_widget_is_capped_like_a_cell(monkeypatch):
+    from fabric_desktop import notebook
+    monkeypatch.setattr(notebook, "STREAM_CHARS", 10)
+    monkeypatch.setattr(notebook, "RICH_CHARS", 1_000)
+    k = Kernel()
+    k.run("import ipywidgets as w\nout = w.Output()\nb = w.Button()\n"
+          "def click(_):\n    with out:\n        print('abcdef')\n        displayHTML('x' * 400)\n"
+          "b.on_click(click)")
+    for _ in range(4):
+        k.ipywidget_event(k.namespace["b"].model_id, {"click": True})
+    outs = k.namespace["out"].outputs
+    assert "".join(o["text"] for o in outs if o["type"] == "stream") == "abcdef\nabc"
+    notes = [o["text"] for o in outs if o["type"] == "text"]
+    assert len(notes) == 2 and "more than 10 characters" in notes[0]
+    assert sum(o["type"] == "html" for o in outs) == 2
+    k.namespace["out"].clear_output()
+    k.ipywidget_event(k.namespace["b"].model_id, {"click": True})
+    assert [o["type"] for o in k.namespace["out"].outputs] == ["stream", "html"]
+
+
+def test_an_error_in_an_output_widget_shows_past_the_cap(monkeypatch):
+    from fabric_desktop import notebook
+    monkeypatch.setattr(notebook, "RICH_CHARS", 500)
+    out = widgets.Output()
+    for _ in range(3):
+        out._add({"type": "html", "html": "x" * 300})
+    out._add({"type": "error", "ename": "ValueError", "evalue": "boom", "traceback": ""})
+    assert [o["type"] for o in out.outputs] == ["html", "text", "error"]
+
+
+def test_an_output_widget_joins_printed_text_in_order():
+    out = widgets.Output()
+    for part in "abc":
+        out.append_stdout(part)
+    out._add({"type": "html", "html": "<b>x</b>"})
+    out.append_stdout("d")
+    out.append_stdout("e")
+    assert out.outputs == [{"type": "stream", "text": "abc"}, {"type": "html", "html": "<b>x</b>"},
+                           {"type": "stream", "text": "de"}]
+    out.outputs = ()
+    out.append_stdout("f")
+    assert out.outputs == [{"type": "stream", "text": "f"}]
+
+
+def test_setting_an_output_widgets_outputs_starts_the_caps_again(monkeypatch):
+    from fabric_desktop import notebook
+    monkeypatch.setattr(notebook, "STREAM_CHARS", 5)
+    out = widgets.Output()
+    out.append_stdout("abcdefgh")
+    out.append_stdout("dropped")
+    assert out.outputs[0] == {"type": "stream", "text": "abcde"}
+    out.outputs = ()
+    out.append_stdout("new")
+    assert out.outputs == [{"type": "stream", "text": "new"}]

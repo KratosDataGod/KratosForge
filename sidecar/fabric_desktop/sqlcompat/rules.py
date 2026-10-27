@@ -509,13 +509,17 @@ _SPARK_SYNTAX = [
 ]
 
 
+_SECURABLE_CLASSES = {"SCHEMA", "OBJECT", "DATABASE", "ROLE", "USER", "TYPE", "LOGIN", "CERTIFICATE"}
+
+
 @check
 def _spark_syntax(s: Stmt):
     for words, construct, fix in _SPARK_SYNTAX:
         for i in s.find(*words):
             yield _hit("SYN-009", s.toks[i], s.toks[i + len(words) - 1], construct=construct, fix=fix)
     for i, t in enumerate(s.toks):
-        if t.type == TokenType.DCOLON:
+        # GRANT, DENY or REVOKE ... ON SCHEMA::sales is T-SQL's securable class, not a cast.
+        if t.type == TokenType.DCOLON and not (i >= 2 and s.toks[i - 1].kw in _SECURABLE_CLASSES and s.toks[i - 2].kw == "ON"):
             yield _hit("SYN-009", t, construct="The :: cast", fix="Use CAST(value AS type).")
     for i in _spark_types(s):
         t = s.toks[i]
@@ -1170,6 +1174,15 @@ _DROPPABLE = {"TABLE", "VIEW", "SCHEMA", "DATABASE", "PROCEDURE", "PROC", "FUNCT
               "TRIGGER", "SYNONYM", "SEQUENCE", "USER", "ROLE", "TYPE"}
 
 
+def _update_statistics(s: Stmt, i: int) -> bool:
+    """UPDATE STATISTICS t, not an UPDATE of a table named statistics (which has SET). The T-SQL
+    tokenizer folds the rest of UPDATE STATISTICS into one token, so SET is looked for in the text."""
+    toks = s.toks
+    if not (toks[i].kw == "UPDATE" and i + 1 < len(toks) and toks[i + 1].kw == "STATISTICS"):
+        return False
+    return not re.search(r"\bSET\b", s.text[toks[i + 1].end - s.start:], re.IGNORECASE)
+
+
 @check
 def _destructive(s: Stmt):
     toks = s.toks
@@ -1179,7 +1192,7 @@ def _destructive(s: Stmt):
             yield _hit("DES-001", toks[i], nxt, name="procedure" if nxt.kw == "PROC" else nxt.kw.lower())
         elif verb == "TRUNCATE":
             yield _hit("DES-002", toks[i], nxt or toks[i])
-        elif verb in ("DELETE", "UPDATE") and not _where_follows(s, i):
+        elif verb in ("DELETE", "UPDATE") and not _where_follows(s, i) and not _update_statistics(s, i):
             yield _hit("DES-003", toks[i], name=verb)
     for i in s.find("INSERT", "OVERWRITE"):
         yield _hit("DES-004", toks[i], toks[i + 1], name="INSERT OVERWRITE")

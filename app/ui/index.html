@@ -32,10 +32,12 @@
     <div class="topbar-right">
       <div id="git-slot" class="git-slot"></div>
       <div id="env-slot" class="env-slot"></div>
+      <button id="how-toggle" class="bell how-toggle" title="How this works" aria-label="How this works" aria-expanded="false" hidden><span data-icon="info" data-size="18"></span></button>
       <button id="bell" class="bell" aria-label="Activity"></button>
       <button id="account" class="avatar" title="Sign in" aria-label="Sign in">?</button>
     </div>
   </header>
+  <div id="update-root"></div>
 
   <div class="body">
     <nav id="rail" class="rail" aria-label="Main">
@@ -57,24 +59,38 @@
   <script src="icons.js"></script>
   <script src="motion.js"></script>
   <script src="features.js"></script>
+  <script src="actions.js"></script>
   <script src="activity.js"></script>
   <script src="vendor/codemirror/codemirror.js"></script>
   <script src="sqleditor.js"></script>
   <script src="catalog-groups.js"></script>
   <script src="query.js"></script>
+  <script src="warehouse.js"></script>
+  <script src="sqltemplates.js"></script>
+  <script src="sqlqueries.js"></script>
+  <script src="sqlhistory.js"></script>
+  <script src="sqlchanges.js"></script>
+  <script src="whproject.js"></script>
+  <script src="whmonitor.js"></script>
+  <script src="sqlplan.js"></script>
   <script src="app.js"></script>
+  <script src="popout.js"></script>
   <script src="item-preview.js"></script>
   <script src="notebook.js"></script>
   <script src="charts.js"></script>
   <script src="wrangler.js"></script>
   <script src="ipywidgets.js"></script>
+  <script src="qprofile.js"></script>
+  <script src="sqlchart.js"></script>
   <script src="notebook-formats.js"></script>
   <script src="nbfind.js"></script>
   <script src="nbdrag.js"></script>
   <script src="nbcells.js"></script>
   <script src="nbselect.js"></script>
   <script src="nbinputs.js"></script>
+  <script src="fabricstep.js"></script>
   <script src="nbintel.js"></script>
+  <script src="nbformat.js"></script>
   <script src="nbvars.js"></script>
   <script src="sidebyside.js"></script>
   <script src="prove.js"></script>
@@ -82,8 +98,13 @@
   <script src="notebook-files.js"></script>
   <script src="notebook-versions.js"></script>
   <script src="runs.js"></script>
+  <script src="pipelines.js"></script>
+  <script src="df-connections.js"></script>
+  <script src="df-copy-jobs.js"></script>
+  <script src="df-dataflows.js"></script>
   <script src="profile.js"></script>
   <script src="notebook-comments.js"></script>
+  <script src="nbpractices.js"></script>
   <script src="wizard.js"></script>
   <script src="deps.js"></script>
   <script src="debugging.js"></script>
@@ -95,10 +116,12 @@
   <script src="mesh.js"></script>
   <script src="platform.js"></script>
   <script src="governance.js"></script>
+  <script src="governance-checks.js"></script>
   <script src="meshmap.js"></script>
   <script src="meshflow.js"></script>
   <script src="dataops.js"></script>
   <script src="estate.js"></script>
+  <script src="access-cache.js"></script>
   <script src="shortcuts.js"></script>
   <script src="schedules.js"></script>
   <script src="risk.js"></script>
@@ -110,7 +133,11 @@
   <script src="xray.js"></script>
   <script src="optimize.js"></script>
   <script src="integrations.js"></script>
+  <script src="vscode.js"></script>
+  <script src="platform-notices.js"></script>
+  <script src="pipeline-runs.js"></script>
   <script src="settings.js"></script>
   <script src="git.js"></script>
+  <script src="nbnext.js"></script>
 </body>
 </html>

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from . import sql_exec
 from .localdata import LocalData
 from .localdata.transform import Transforms
 
@@ -81,13 +82,22 @@ class LocalDataMixin:
         return self.local_data.engine(project).set_override(table, columns)
 
     def local_query(self, project: str, query: str, dialect: str = "duckdb", limit: int = 1000,
-                    timeout: float | None = None) -> dict[str, Any]:
-        return self.local_data.engine(project).execute(query, dialect=dialect, limit=limit, timeout=timeout)
+                    timeout: float | None = None, confirm: bool = False) -> dict[str, Any]:
+        """Run a query in the project and return its first ``limit`` rows. It goes through the same
+        statement checks as a managed local run (sql_policy.py): reading files outside the project,
+        COPY, ATTACH, INSTALL, SET and the like never run, and DROP, TRUNCATE, CREATE OR REPLACE and
+        DELETE or UPDATE without WHERE run only with ``confirm``."""
+        engine = self.local_data.engine(project)  # KeyError for a project that doesn't exist
+        _check_local(query, dialect, bool(confirm))
+        return engine.execute(query, dialect=dialect, limit=limit, timeout=timeout)
 
     def local_explain(self, project: str, query: str, dialect: str = "duckdb", analyze: bool = False,
                       timeout: float | None = None) -> dict[str, Any]:
-        """How the local engine runs one query; ``analyze`` runs it and reports each operator's rows and time."""
-        return self.local_data.engine(project).explain(query, dialect=dialect, analyze=analyze, timeout=timeout)
+        """How the local engine runs one query; ``analyze`` runs it and reports each operator's rows and time.
+        The query gets local_query's statement checks first, since ``analyze`` runs it."""
+        engine = self.local_data.engine(project)
+        _check_local(query, dialect)
+        return engine.explain(query, dialect=dialect, analyze=analyze, timeout=timeout)
 
     # Deprecated (KF-DE-027): background queries run as managed SQL runs now, sql_start with
     # target="local" (sql_exec.py): one lifecycle, with paging and export. These three forward to it
@@ -140,8 +150,11 @@ class LocalDataMixin:
                           schema_mode: str | None = None, dry_run: bool = False,
                           timeout: float | None = None) -> dict[str, Any]:
         """Write a query's rows to a Delta table in the project, in one commit. ``dry_run`` runs the
-        query and says what would be written, writing nothing."""
-        return self.local_data.engine(project).write_delta(table, query, mode=mode, dialect=dialect,
+        query and says what would be written, writing nothing. The query gets local_query's
+        statement checks first."""
+        engine = self.local_data.engine(project)
+        _check_local(query, dialect)
+        return engine.write_delta(table, query, mode=mode, dialect=dialect,
                                                            partition_by=partition_by, schema_mode=schema_mode,
                                                            dry_run=dry_run, timeout=timeout)
 
@@ -149,8 +162,10 @@ class LocalDataMixin:
                            confirm: bool = False, timeout: float | None = None) -> dict[str, Any]:
         """Run one MERGE INTO, UPDATE or DELETE on a Delta table in the project, in one commit.
         ``dry_run`` says how many rows would change, changing nothing; an UPDATE or DELETE without
-        WHERE needs ``confirm``."""
-        return self.local_data.engine(project).change_delta(query, dialect=dialect, dry_run=dry_run,
+        WHERE needs ``confirm``. The query gets local_query's statement checks first."""
+        engine = self.local_data.engine(project)
+        _check_local(query, dialect, bool(confirm))
+        return engine.change_delta(query, dialect=dialect, dry_run=dry_run,
                                                             confirm=confirm, timeout=timeout)
 
     def local_transform_plan(self, project: str) -> dict[str, Any]:
@@ -161,7 +176,8 @@ class LocalDataMixin:
                             steps: list[str] | None = None, dry_run: bool = False) -> dict[str, Any]:
         """Run the project's SQL steps in order, each making its table. ``steps``: these and the steps
         that read their tables. ``dry_run`` checks each query and makes nothing."""
-        return Transforms(self.local_data.engine(project)).run(params=params, only=steps, dry_run=dry_run)
+        return Transforms(self.local_data.engine(project), check=_check_local).run(params=params, only=steps,
+                                                                                    dry_run=dry_run)
 
     def local_transform_runs(self, project: str, limit: int = 20) -> dict[str, Any]:
         return {"runs": Transforms(self.local_data.engine(project)).runs(limit)}
@@ -173,3 +189,10 @@ class LocalDataMixin:
         """Delete one of the project's Delta tables with every version. Without ``confirm``, only
         says what would be deleted."""
         return self.local_data.engine(project).drop_delta(table, confirm)
+
+
+def _check_local(query: str, dialect: str, confirm: bool = False) -> None:
+    """Refuse a query a managed local run would refuse (sql_exec.check_local), before it runs."""
+    _verdicts, stop = sql_exec.check_local(query, dialect, confirm)
+    if stop is not None:
+        raise PermissionError(sql_exec.local_refusal_message(stop))

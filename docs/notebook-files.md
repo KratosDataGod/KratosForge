@@ -6,7 +6,7 @@ Find, open, copy and delete notebooks, and edit a Fabric notebook on this PC. Ev
 
 On **Home**, under **Recent notebooks**, select **All notebooks**. The page lists every notebook in the app's own folder and in your notebooks repositories (Source control), with where it's saved, the Fabric workspace it was last published to, and when it changed. When you have a repository, the **Saved in** chips filter the list.
 
-Each row's **⋯** menu has **Open**, **Save a copy**, **Rename**, **Move to another place** and **Delete**. The command bar (Ctrl+K) finds **All notebooks**, **Search inside notebooks**, **Open a notebook file** and **Save a copy of this notebook**.
+Each row's **⋯** menu has **Open**, **Save a copy**, **Rename**, **Move to folder**, **Move to another place** and **Delete**. Notebooks can be grouped into folders: see [Notebook folders](notebook-folders.md). The command bar (Ctrl+K) finds **All notebooks**, **Search inside notebooks**, **Open a notebook file** and **Save a copy of this notebook**.
 
 ## Search inside notebooks
 
@@ -27,6 +27,17 @@ When you already have a notebook with the file's name, a free name is suggested.
 ## Save a copy
 
 **Save a copy** on the notebook's **Home** tab, or on All notebooks, saves the notebook under a new name, in the place you pick. The copy has the same cells, lakehouse, parameters and publish workspace; the original stays as it is. The copy isn't published: its first **Publish** makes a new Fabric item under the copy's name. The original keeps its Fabric item, its schedules and its Prove history.
+
+## Edit the same notebook in VS Code or another program
+
+Notebooks are plain `.ipynb` files, so you can open the app's notebooks folder, or a notebooks repository, in VS Code, Jupyter or any other editor while KratosForge is open. KratosForge never saves over a change another program made: before each save it checks whether the file's cells changed on disk since it read them (outputs and metadata don't count). If they did, nothing is saved and it asks:
+
+- **Load its version** shows the file as the other program saved it. Your unsaved edits here are dropped.
+- **Keep mine** saves what you see here over it.
+
+Before it asks, both sides are kept under **Versions**: the other program's as **Changed outside the app**, and yours as **Not saved (changed outside)**. So whichever you pick, or if you close the app without picking, you can restore the other one. Closing the question keeps your edits on screen unsaved, and it's asked again at the next save. **Load its version** waits while a cell is running. Publish, Run in Fabric and adding a Fabric schedule save first, so they never publish over an outside change either.
+
+If the file isn't a notebook any more, for example a Git merge left conflict markers in it, only **Keep mine** is offered. A copy of the file as it was is kept beside the notebook's versions (`%LOCALAPPDATA%\FabricDesktop\notebook-versions\<notebook>\outside-<time>.ipynb`), and the question shows where.
 
 ## Delete and restore
 

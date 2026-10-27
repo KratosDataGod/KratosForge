@@ -124,6 +124,18 @@ test("on any other Fabric page Open in KratosForge says what it needs and opens 
   }
 });
 
+test("with preview features hidden there's no Open in KratosForge and a name opens Fabric", { skip }, async () => {
+  settings.show_preview = { value: false, source: "user" };
+  await page().evaluate(() => loadSettings());
+  await page().evaluate(() => go("fabric"));
+  await page().waitForSelector(".fabric-page .fabric-slot");
+  assert.strictEqual(await page().getByRole("button", { name: /Open in KratosForge/ }).count(), 0);
+  await openWorkspace();
+  assert.strictEqual(await page().getByRole("button", { name: "AdventureWorks_Warehouse" }).getAttribute("title"), "Open in Fabric");
+  delete settings.show_preview;
+  await page().evaluate(() => loadSettings());
+});
+
 test("Settings > Advanced has the choice, saved when picked", { skip }, async () => {
   await page().evaluate(() => {
     const s = { ...state.settings, sql_temp_dir: { value: "" }, sql_warehouse_writes: { value: true }, wh_monitoring_auto: { value: [] } };

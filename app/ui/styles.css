@@ -2466,8 +2466,9 @@ html[data-motion-level="0"] .mo-ghost { display: none; }
 .copy-job-line { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; padding: 8px 0; border-top: 1px solid var(--border); }
 
 /* The Fabric portal tab in full screen (app.js renderFabric): the embedded Fabric view fills the window
-   under a slim band, which keeps the way out since keys pressed inside Fabric never reach the app. */
-body.fabric-full .topbar, body.fabric-full .rail, body.fabric-full #update-root,
+   under a slim band, which keeps the way out since keys pressed inside Fabric never reach the app. A new
+   build's banner (#update-root) still shows above it. */
+body.fabric-full .topbar, body.fabric-full .rail,
 body.fabric-full .fabric-page .subtabs, body.fabric-full .fabric-page .how-it-works { display: none; }
 body.fabric-full .fabric-page { padding: 0; }
 body.fabric-full .fabric-page .with-how { display: flex; gap: 0; }

@@ -10,6 +10,7 @@ from fabric_desktop import app_settings, xray
 import fabric_desktop.xray_service as xs
 from fabric_desktop.service import Service
 
+WS = "0f2c9a4e-1b3d-4e5f-8a6b-7c8d9e0f1a2b"
 OLD, MID, NEW = ("StagingLakehouseForDataflows_20260926144305", "StagingLakehouseForDataflows_20260926152759",
                  "StagingLakehouseForDataflows_20260926153358")
 
@@ -37,14 +38,14 @@ def test_older_staging_lakehouses_are_findings_and_the_newest_is_kept():
 
 
 class Fabric:
-    lakehouses = {"ws": [{"id": "a", "displayName": OLD}, {"id": "b", "displayName": MID}, {"id": "c", "displayName": NEW},
+    lakehouses = {WS: [{"id": "a", "displayName": OLD}, {"id": "b", "displayName": MID}, {"id": "c", "displayName": NEW},
                          {"id": "g", "displayName": "LH_Gold"}]}
 
     def __init__(self, deleted):
         self.deleted = deleted
 
     def list_workspaces(self):
-        return [{"id": "ws", "displayName": "Sales"}]
+        return [{"id": WS, "displayName": "Sales"}]
 
     def list_lakehouses(self, ws):
         return self.lakehouses[ws]
@@ -121,7 +122,7 @@ def svc(tmp_path, monkeypatch):
 
 def test_preview_says_what_it_holds_and_writes_nothing(svc):
     s, deleted, _ = svc
-    p = s.xray_staging_preview("ws", "a")
+    p = s.xray_staging_preview(WS, "a")
     assert p["ok"] and p["why"] == [] and p["kept"] == NEW
     assert (p["files"], p["bytes"]) == (1, 1000) and p["last_write"]
     assert deleted == []
@@ -129,33 +130,33 @@ def test_preview_says_what_it_holds_and_writes_nothing(svc):
 
 def test_a_recent_write_the_newest_or_an_unreadable_one_is_never_removed(svc):
     s, deleted, broken = svc
-    recent = s.xray_staging_preview("ws", "b")
+    recent = s.xray_staging_preview(WS, "b")
     assert not recent["ok"] and "3 days ago" in recent["why"][0]
-    newest = s.xray_staging_preview("ws", "c")
+    newest = s.xray_staging_preview(WS, "c")
     assert not newest["ok"] and "newest" in newest["why"][0]
-    gold = s.xray_staging_preview("ws", "g")
+    gold = s.xray_staging_preview(WS, "g")
     assert not gold["ok"] and "isn't named like" in gold["why"][0]
     broken.add("a")
-    assert not s.xray_staging_preview("ws", "a")["ok"]
+    assert not s.xray_staging_preview(WS, "a")["ok"]
     for lid, name in (("b", MID), ("c", NEW), ("g", "LH_Gold"), ("a", OLD)):
         with pytest.raises(ValueError, match="wasn't deleted"):
-            s.xray_remove_staging("ws", lid, name)
+            s.xray_remove_staging(WS, lid, name)
     assert deleted == []
 
 
 def test_remove_checks_again_and_deletes_only_that_lakehouse(svc):
     s, deleted, _ = svc
     with pytest.raises(ValueError, match="now called"):
-        s.xray_remove_staging("ws", "a", MID)  # the name the person confirmed must still be its name
+        s.xray_remove_staging(WS, "a", MID)  # the name the person confirmed must still be its name
     with pytest.raises(ValueError, match="isn't in the workspace"):
-        s.xray_remove_staging("ws", "zz", OLD)
+        s.xray_remove_staging(WS, "zz", OLD)
     assert deleted == []
     s._save_settings(xray_removed={"old": "2026-01-01T00:00:00+00:00"})
-    out = s.xray_remove_staging("ws", "a", OLD, "Sales", finding_id="staging|ws|a||||")
-    assert list(s._settings()["xray_removed"]) == ["staging|ws|a||||"]  # older than 90 days: dropped
-    assert deleted == [("ws", "a")] and out["removed_at"]
+    out = s.xray_remove_staging(WS, "a", OLD, "Sales", finding_id=f"staging|{WS}|a||||")
+    assert list(s._settings()["xray_removed"]) == [f"staging|{WS}|a||||"]  # older than 90 days: dropped
+    assert deleted == [(WS, "a")] and out["removed_at"]
     s._xray_file.parent.mkdir(parents=True, exist_ok=True)
-    found = {"id": "x", "kind": "staging", "workspace_id": "ws", "lakehouse_id": "a", "severity": "low", "title": "t"}
+    found = {"id": "x", "kind": "staging", "workspace_id": WS, "lakehouse_id": "a", "severity": "low", "title": "t"}
     annotated = s._xray_annotate({"scanned": "2026-10-26T00:00:00+00:00", "findings": [found]}, refresh=False)
     assert annotated["findings"][0]["fixed"] is True
 
@@ -163,17 +164,17 @@ def test_remove_checks_again_and_deletes_only_that_lakehouse(svc):
 def test_policy_can_turn_removing_off(svc, monkeypatch):
     s, deleted, _ = svc
     monkeypatch.setattr(app_settings, "value", lambda k: False if k == "allow_staging_cleanup" else True)
-    p = s.xray_staging_preview("ws", "a")
+    p = s.xray_staging_preview(WS, "a")
     assert not p["ok"] and "allow_staging_cleanup" in p["why"][-1]
     with pytest.raises(ValueError):
-        s.xray_remove_staging("ws", "a", OLD)
+        s.xray_remove_staging(WS, "a", OLD)
     assert deleted == []
     assert app_settings.RESTRICTED["allow_staging_cleanup"] is False
 
 
 def test_every_dataflow_must_show_it_does_not_stage_there(svc):
     s, deleted, _ = svc
-    p = s.xray_staging_preview("ws", "a")
+    p = s.xray_staging_preview(WS, "a")
     assert p["ok"] and p["dataflows"] == [{"name": "Sales load", "item_id": "df1", "last_refresh": p["dataflows"][0]["last_refresh"],
                                            "names_it": False, "ok": True}]
     cases = {
@@ -184,13 +185,13 @@ def test_every_dataflow_must_show_it_does_not_stage_there(svc):
     }
     for label, flow in cases.items():
         s.flows["df2"] = flow
-        p = s.xray_staging_preview("ws", "a")
+        p = s.xray_staging_preview(WS, "a")
         assert not p["ok"], label
         assert flow["name"] in p["why"][-1], (label, p["why"])
         with pytest.raises(ValueError, match="wasn't deleted"):
-            s.xray_remove_staging("ws", "a", OLD)
+            s.xray_remove_staging(WS, "a", OLD)
     s.flows.clear()
-    p = s.xray_staging_preview("ws", "a")
+    p = s.xray_staging_preview(WS, "a")
     assert not p["ok"] and "lists no Dataflow Gen2" in p["why"][-1]
     assert deleted == []
 
@@ -198,16 +199,23 @@ def test_every_dataflow_must_show_it_does_not_stage_there(svc):
 def test_older_dataflows_fabric_does_not_list_keep_it(svc, monkeypatch):
     s, deleted, _ = svc
     s.older.append({"objectId": "DF1", "name": "Sales load"})  # the same dataflow, in both lists
-    assert s.xray_staging_preview("ws", "a")["ok"]
+    assert s.xray_staging_preview(WS, "a")["ok"]
     s.older.append({"objectId": "gen1", "name": "Quarterly Gen1"})
-    p = s.xray_staging_preview("ws", "a")
+    p = s.xray_staging_preview(WS, "a")
     assert not p["ok"] and "Quarterly Gen1" in p["why"][-1]
 
     def unreadable(self, ws):
         raise PermissionError("Dataflow.Read.All not granted")
     monkeypatch.setattr(Service, "_powerbi_dataflows", unreadable)
-    p = s.xray_staging_preview("ws", "a")
+    p = s.xray_staging_preview(WS, "a")
     assert not p["ok"] and "Power BI's list" in p["why"][-1]
     with pytest.raises(ValueError, match="wasn't deleted"):
-        s.xray_remove_staging("ws", "a", OLD)
+        s.xray_remove_staging(WS, "a", OLD)
+    assert deleted == []
+
+
+def test_a_workspace_that_is_not_an_id_is_refused(svc):
+    s, deleted, _ = svc
+    with pytest.raises(ValueError, match="Pick a workspace"):
+        s.xray_staging_preview("../admin", "a")
     assert deleted == []

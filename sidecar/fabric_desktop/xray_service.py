@@ -347,6 +347,8 @@ class XRayMixin:
         exist in the same workspace, and nothing may have been written to its Tables or Files for
         STAGING_QUIET_DAYS, and every dataflow in the workspace must show it doesn't stage there
         (_staging_dataflows). Anything that can't be read keeps it. Read only."""
+        if not _GUID.fullmatch(str(workspace_id or "")):
+            raise ValueError("Pick a workspace: its Fabric id is needed.")
         now = dt.datetime.now(dt.timezone.utc)
         group = [{"workspace_id": workspace_id, "workspace_name": "", "lakehouse_id": lh["id"], "lakehouse_name": lh["displayName"]}
                  for lh in FabricClient(self.auth.fabric_token).list_lakehouses(workspace_id)]  # type: ignore[attr-defined]
@@ -553,6 +555,7 @@ def _table_schema(table: DeltaTable) -> pl.Schema:
     return pl.from_arrow(pa.schema(table.schema().to_arrow()).empty_table()).schema  # type: ignore[union-attr]
 
 
+_GUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 STAGING_MARGIN = dt.timedelta(hours=1)  # a refresh must start this long after the last write: clocks differ
 
 

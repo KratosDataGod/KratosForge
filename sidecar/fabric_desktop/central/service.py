@@ -13,6 +13,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import re
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -453,6 +454,35 @@ class PlatformMixin:
     def platform_whoami(self) -> dict[str, Any]:
         me = self._catalog().call("whoami")
         return me | {"signed_in": bool(self._user()), "catalog_env": CATALOG_ENV}
+
+    def platform_note_seen(self) -> dict[str, Any]:
+        """Tell the platform this person used it today (owner coverage), once a day per app run, in the
+        background so the Platform page never waits on it. Only when the organization's policy turns on
+        platform_presence: it records each person's last-used date where anyone who reads the catalog sees it."""
+        user, today = self._user(), dt.date.today().isoformat()
+        if not app_settings.value("platform_presence"):
+            return {"noted": False, "reason": "off"}
+        if not user or getattr(self, "_seen_noted", None) == (user, today):
+            return {"noted": False, "reason": "already"}
+        self._seen_noted = (user, today)
+        threading.Thread(target=self._note_seen, args=(user,), daemon=True, name="note-seen").start()
+        return {"noted": True}
+
+    def _note_seen(self, user: str) -> None:
+        try:
+            self._catalog().call("note_seen")
+        except Exception as exc:  # noqa: BLE001 - only owner coverage's last-seen date depends on it; never in the way
+            _log.info("Couldn't note that %s used the platform: %s", user, describe(exc))
+
+    def platform_owner_coverage(self) -> dict[str, Any]:
+        """Domains, data products and sources without an owner, without a second owner, or whose owner
+        hasn't used the platform lately. Only reads."""
+        try:
+            return call_or_repair(self._catalog(), "owner_coverage", "check owners",
+                                  presence=bool(app_settings.value("platform_presence")))
+        except LookupError as exc:
+            return {"available": False, "problem": str(exc), "gaps": [], "checked": 0, "covered": 0, "no_owner": 0,
+                    "quiet_days": core.QUIET_DAYS}
 
     def platform_admins(self) -> list[dict[str, Any]]:
         return self._catalog().call("list_admins")

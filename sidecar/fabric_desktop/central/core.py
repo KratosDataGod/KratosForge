@@ -204,6 +204,10 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
                     ("endorsement", "text"), ("certified_by", "text"), ("scanned_at", "text"), ("scanned_by", "text")],
     "product_term": [("id", "key"), ("product_id", "text"), ("term", "text"), ("url", "long"), ("added_by", "text"),
                      ("added_at", "text")],
+    # When someone last used the platform from the app, to tell an owner who has gone quiet.
+    "person": [("user_name", "key"), ("last_seen", "text")],
+
+
     # The last time a product's owner confirmed a project's access still stands (keyed like catalog.grant).
     "grant_review": [("id", "key"), ("product_id", "text"), ("project", "text"), ("reviewed_by", "text"),
                      ("reviewed_at", "text")],
@@ -247,6 +251,7 @@ def ensure_schema(db: Db) -> dict[str, Any]:
     created += ensure_landing_zones(db)
     created += ensure_shortcut_risks(db)
     created += ensure_trust_badges(db)
+    created += ensure_people(db)
     created += ensure_grant_reviews(db)
     created += ensure_follows(db)
     created += ensure_entra_groups(db)
@@ -2002,6 +2007,97 @@ def revoke_grant(db: Db, product_id: str, project: str, by: str = "") -> list[di
     return list_grants(db, product_id)
 
 
+# --------------------------------------------------------------------------- owner coverage
+# Every domain, data product and landing zone source has an owner, and a second one to cover for
+# them. An owner the platform hasn't seen for a while is named, so someone can hand it over before
+# it's needed at 2am. "Seen" is the app using the platform as them, or any change they made.
+
+QUIET_DAYS = 60
+_UPN_LIKE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def ensure_people(db: Db) -> list[str]:
+    """catalog.person, added after the mesh: additive, safe to run again; note_seen and owner_coverage call it."""
+    if db.exists("catalog", "person"):
+        return []
+    db.run(f"CREATE TABLE {db.t('catalog', 'person')} ({', '.join(_column(db, n, k) for n, k in _CATALOG['person'])})")
+    db.commit()
+    return ["catalog.person"]
+
+
+def note_seen(db: Db, by: str = "") -> dict[str, Any]:
+    """Record that the caller used the platform today. At most one write a day per person."""
+    ensure_people(db)
+    who = _who(by)
+    if not who:
+        return {"user": "", "last_seen": ""}
+    found = _row(db, "person", "user_name", who) or {}
+    today = _now()[:10]
+    if str(found.get("last_seen") or "")[:10] != today:
+        _upsert(db, "catalog", "person", "user_name", {"user_name": who, "last_seen": _now()})
+        db.commit()
+    return {"user": who, "last_seen": today}
+
+
+def _last_seen(db: Db) -> dict[str, str]:
+    seen = ({r["user_name"]: str(r["last_seen"] or "") for r in db.rows(f"SELECT * FROM {db.t('catalog', 'person')}")}
+            if db.exists("catalog", "person") else {})  # a read never creates the table
+    for r in db.rows(f"SELECT by_user, MAX(at) AS at FROM {db.t('catalog', 'audit')} GROUP BY by_user"):
+        who = _who(r["by_user"])
+        if who and str(r["at"] or "") > seen.get(who, ""):
+            seen[who] = str(r["at"])
+    return seen
+
+
+def owner_coverage(db: Db, presence: bool = True) -> dict[str, Any]:
+    """Each domain, published data product and source with an owner problem: none, no second owner, or
+    an owner the platform hasn't seen for QUIET_DAYS. Owners written as names, not sign-ins, can't be
+    checked for being quiet, and are said to be so. Without ``presence`` (the organization hasn't turned
+    on platform_presence) nobody is checked for being quiet. Only reads (the catalog is open to everyone)."""
+    seen, now = _last_seen(db) if presence else {}, dt.datetime.now(dt.timezone.utc)
+
+    def quiet(owner: str) -> int | None:
+        if not presence or not _UPN_LIKE.match(owner):
+            return None
+        last = seen.get(owner)
+        if not last:
+            return -1
+        try:
+            days = (now - dt.datetime.fromisoformat(last)).days
+        except ValueError:
+            return -1
+        return days if days >= QUIET_DAYS else None
+
+    def check(kind: str, id_: str, name: str, owners_text: Any, opens: str) -> dict[str, Any]:
+        owners = sorted(_names(owners_text))
+        problems = []
+        if not owners:
+            problems.append("No owner")
+        elif len(owners) == 1:
+            problems.append("No second owner to cover")
+        for o in owners:
+            q = quiet(o)
+            if q == -1:
+                problems.append(f"{o} hasn't used the platform yet")
+            elif q is not None:
+                problems.append(f"{o} hasn't used the platform for {q} days")
+        unchecked = [o for o in owners if not _UPN_LIKE.match(o)]
+        return {"kind": kind, "id": id_, "name": name, "owners": owners, "problems": problems,
+                "unchecked": unchecked, "opens": opens}
+
+    rows = [check("domain", d["id"], d["name"] or d["id"], d.get("owners"), "domains")
+            for d in db.rows(f"SELECT * FROM {db.t('catalog', 'domain')}")]
+    rows += [check("product", p["id"], p["name"] or p["id"], p.get("owner"), "products")
+             for p in db.rows(f"SELECT * FROM {db.t('catalog', 'product')}") if p.get("status") != "draft"]
+    rows += [check("source", s["name"], s.get("title") or s["name"], s.get("owner"), "landing")
+             for s in db.rows(f"SELECT * FROM {db.t('catalog', 'source')}")]
+    gaps = [r for r in rows if r["problems"]]
+    order = {"No owner": 0}
+    gaps.sort(key=lambda r: (min(order.get(p, 1) for p in r["problems"]), r["kind"], r["name"].lower()))
+    return {"quiet_days": QUIET_DAYS, "presence": presence, "checked": len(rows), "covered": len(rows) - len(gaps),
+            "no_owner": sum("No owner" in r["problems"] for r in gaps), "gaps": gaps}
+
+
 # --------------------------------------------------------------------------- access reviews
 # Every quarter a product's owner confirms that each project given access still needs it, or takes
 # it away. A grant nobody confirmed is flagged, never taken away by itself.
@@ -2551,6 +2647,7 @@ OPERATIONS = {
     "withdraw_shortcut_risk": withdraw_shortcut_risk,
     "product_trust": product_trust, "record_endorsements": record_endorsements,
     "add_product_term": add_product_term, "remove_product_term": remove_product_term,
+    "note_seen": note_seen, "owner_coverage": owner_coverage,
     "access_reviews": access_reviews, "confirm_access": confirm_access,
     "follow_product": follow_product, "unfollow_product": unfollow_product, "list_follows": list_follows,
     "product_followers": product_followers,

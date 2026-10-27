@@ -92,6 +92,7 @@ A policy file that sets everything an organization usually wants:
 | `sql_page_rows` | 100 to 10000 (default `1000`) | Rows per page of SQL page results |
 | `sql_result_retention_hours` | 0 to 168 (default `24`; `0` keeps them until the app closes) | How long a finished SQL page query's result is kept for paging and export |
 | `sql_warehouse_writes` | `true` or `false` (default `true`) | Whether the Warehouse page may change a warehouse (DDL, DML, EXEC). Each change still shows what it changes and asks first; `false` makes every warehouse read-only in the app |
+| `platform_presence` | `true` or `false` (default `false`) | Whether the app records the date each person last used the platform in its catalog, where everyone with access to the catalog can read it. Owner coverage uses it to name owners who have gone quiet. Personal data: see [Security](security.md#personal-data-in-the-platforms-catalog) |
 | `wh_monitoring_views` | `true` or `false` (default `true`) | Whether a warehouse's Monitoring tab may build monitoring views (KQL querysets) in Fabric, after a confirm. `false` stops building for everyone; the tab still reads monitoring ([Warehouse: Monitoring](warehouse.md#monitoring-preview)) |
 | `sql_temp_dir` | A full folder path (default: the app's data folder) | Where SQL page queries spill data and keep results |
 | `sql_time_limit_minutes` | 0 to 1440 (default `10`; `0` for no limit) | Minutes an SQL page query may run before it's stopped |

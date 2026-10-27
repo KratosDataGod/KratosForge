@@ -571,6 +571,21 @@ def unlink_entra_group(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionCo
     return _run(sqlDB, "unlink_entra_group", ctx, domain=domain, role=role, env=env)
 
 
+# ---- owner coverage (Preview)
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def note_seen(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext) -> dict:
+    return _run(sqlDB, "note_seen", ctx)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def owner_coverage(sqlDB: fn.FabricSqlConnection, presence: bool = True) -> dict:
+    return _run(sqlDB, "owner_coverage", presence=presence)
+
+
 # ---- access reviews (Preview)
 
 @udf.connection(argName="sqlDB", alias="platform")

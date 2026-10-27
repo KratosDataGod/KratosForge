@@ -375,6 +375,21 @@ async function landingSetupDialog(l, done) {
     h("option", { value: "" }, "No capacity (lakehouses need one)"));
 }
 
+// The Copy job a request made for this source (scale plan 4.1, Preview).
+function copyJobLine(s) {
+  const j = s.copy_job;
+  const run = btn("Run now...", null, async () => {
+    if (!(await confirmDialog(`Run ${j.name} now?`, `It copies ${j.tables} table${j.tables === 1 ? "" : "s"} into the landing zone in Fabric. It uses capacity, and the gateway reads the source.`, "Run now"))) return;
+    if (!(await riskGate({ id: `fabric:${j.workspace_id}:${j.id}`, action: "run_item", title: `Run ${j.name} now?`, runLabel: "Run now" }))) return;
+    if (await platformCall("run_fabric_item_now", { workspace_id: j.workspace_id, item_id: j.id, job_type: "Execute", name: j.name, item_type: "CopyJob" }, "Not started"))
+      toast(`${j.name} started; it shows in Monitor > Runs`, false, { log: true });
+  }, "tool outline small");
+  return h("div", { class: "copy-job-line" },
+    h("div", {}, h("b", {}, "Lands with "), h("span", { class: "mono" }, j.name), " ", previewTag(),
+      h("div", { class: "muted-text small" }, `A Copy job made from a request: ${j.tables} table${j.tables === 1 ? "" : "s"}${j.times?.length ? `, daily at ${j.times.join(", ")} UTC` : ", no schedule"}. Changing its tables is a new request; edit the job itself in Fabric.`)),
+    adminOnly(run));
+}
+
 function sourceDetail(s, l, rerender) {
   const files = h("div", {}, h("p", { class: "muted-text small" }, "Loading files..."));
   platformCall("platform_landing_files", { env: l.env, source: s.name, limit: 8 }).then((fs) => {
@@ -394,6 +409,7 @@ function sourceDetail(s, l, rerender) {
     s.registered ? h("p", { class: "muted-text small" }, `${s.code} · id ${s.source_id ?? "not given yet"}${s.system_type ? ` · ${s.system_type}` : ""}`) : null,
     zone ? h("p", { class: "muted-text small" }, `In the ${zone.secure ? "secure " : ""}zone ${zone.name}, ${zone.lakehouse_name}. ${zoneDevTest(zone)}`) : null,
     h("p", { class: "muted-text small" }, s.description || "", s.owner ? ` Owner ${s.owner}.` : ""),
+    s.copy_job ? copyJobLine(s) : null,
     h("b", {}, "Entities"),
     s.entities.length ? h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["Entity", "Files", "Size", "Newest"].map((x) => h("th", {}, x)))),
       h("tbody", {}, s.entities.map((e) => h("tr", {}, h("td", { class: "mono" }, e.name || "(top)"), h("td", {}, e.files), h("td", {}, bytes(e.size)), h("td", {}, when(e.newest))))))
@@ -504,6 +520,7 @@ function keyTableDialog(done, shared = false) {
 // ---------- requests ----------
 
 function requestDialog(kind, target, done, extra = {}) {
+  if (kind === "source") return sourceRequestDialog(target, done);
   const name = h("input", { value: target || "", placeholder: kind === "key_table" ? "supplier" : kind === "source" ? "shopify" : "", disabled: kind === "access" ? true : null });
   const bk = h("input", { placeholder: "supplier_id" });
   const reason = h("textarea", { rows: 2, placeholder: "What it's for" });
@@ -518,6 +535,74 @@ function requestDialog(kind, target, done, extra = {}) {
       if (!name.value.trim()) { name.focus(); return; }
       const detail = kind === "key_table" ? { business_key: bk.value.trim(), description: reason.value.trim() } : {};
       const res = await platformCall("platform_request", { kind, target: name.value.trim(), reason: reason.value.trim(), detail }, "Not sent");
+      if (res) { closeDialog(); toast("Request sent", false, { log: true }); done?.(); }
+    }, "tool primary")]);
+}
+
+// A source in the landing zone (scale plan 4.1, Preview): optionally with the Copy job that lands it.
+// A platform admin approves it, and approving makes the job as them (central/landing_copy_service.py).
+async function sourceRequestDialog(target, done) {
+  const name = h("input", { value: target || "", placeholder: "erp", "aria-label": "Folder name" });
+  const owner = h("input", { placeholder: "sales-data@contoso.com", "aria-label": "Owner" });
+  const hours = h("input", { value: "24", inputmode: "decimal", "aria-label": "Expected every (hours)" });
+  const why = h("textarea", { rows: 2, placeholder: "What it's for", "aria-label": "Why" });
+  const withJob = h("input", { type: "checkbox", checked: true });
+  const conn = h("select", { "aria-label": "Fabric connection" }, h("option", { value: "" }, "Reading your connections..."));
+  const time = h("input", { value: "02:00", placeholder: "02:00", "aria-label": "Time of day (UTC)" });
+  const tables = h("div", { class: "src-tables" });
+  const addRow = (t = {}) => {
+    const table = h("input", { value: t.table || "", placeholder: "dbo.Customer", class: "mono", "aria-label": "Table" });
+    const mode = h("select", { "aria-label": "Each run copies" }, reqOptions([["full", "The whole table"], ["incremental", "New and changed rows"]], t.mode || "full"));
+    const column = h("input", { value: t.column || "", placeholder: "ModifiedAt", class: "mono", "aria-label": "Column" });
+    const show = () => { column.disabled = mode.value !== "incremental"; };
+    mode.onchange = show;
+    show();
+    const row = h("div", { class: "src-table-row" }, table, mode, column,
+      btn("", "dismiss", () => row.remove(), "tool small", { "aria-label": "Remove this table", title: "Remove" }));
+    row.read = () => ({ table: table.value.trim(), mode: mode.value, column: column.value.trim() });
+    row.focusTable = () => table.focus();
+    tables.append(row);
+  };
+  addRow();
+  const jobBox = h("div", {},
+    reqField("Fabric connection", conn, "From Data Factory > Connections. Its password stays in Fabric; KratosForge never reads it."),
+    h("b", { class: "small" }, "Tables"),
+    h("div", { class: "src-table-row muted-text small" }, h("span", {}, "Table"), h("span", {}, "Each run copies"), h("span", {}, "Column"), h("span", {})),
+    tables, btn("Add a table", "add", () => addRow(), "tool outline small"),
+    reqField("Every day at (UTC)", time, "Leave blank for no schedule: the central team runs it when it's needed."));
+  withJob.onchange = () => { jobBox.hidden = !withJob.checked; };
+  let connections = [];
+  (async () => {
+    for (let i = 0; i < 20 && document.body.contains(conn); i++) {
+      const out = await reqQuietly("fabric_connections");
+      if (out && !out.pending) {
+        connections = (out.connections || []).filter((c) => /sql/i.test(c.type || ""));
+        conn.replaceChildren(...reqOptions(connections.length ? [["", "Pick one"], ...connections.map((c) => [c.id, `${c.name}${c.type ? ` (${c.type})` : ""}`])]
+          : [["", out?.error ? "Couldn't read your connections" : "No SQL Server connection you can use: add one in Fabric"]]));
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 2500));
+    }
+  })();
+  showDialog("Request a source", h("div", {},
+    h("p", { class: "text" }, "A platform admin approves it. ", previewTag()),
+    h("div", { class: "req-two" }, reqField("Folder name", name, "Files land in LH_Landing/Files/<folder>/<table>/"), reqField("Owner", owner)),
+    reqField("Expected every (hours)", hours),
+    h("label", { class: "check" }, withJob, " Land it with a Copy job: approving makes it in the landing workspace"),
+    jobBox, reqField("Why", why)), [
+    btn("Cancel", null, closeDialog, "tool outline"),
+    btn("Send request", null, async () => {
+      if (!name.value.trim()) { name.focus(); return; }
+      const detail = { owner: owner.value.trim(), expected_hours: hours.value.trim() };
+      if (withJob.checked) {
+        if (!conn.value) { conn.focus(); return; }
+        const rows = [...tables.children].map((r) => r.read()).filter((t) => t.table);
+        if (!rows.length) { tables.firstElementChild?.focusTable(); return; }
+        const c = connections.find((x) => x.id === conn.value);
+        detail.copy = { connection_id: conn.value, connection_name: c ? `${c.name}${c.path ? `: ${c.path}` : ""}` : "",
+          tables: rows, times: time.value.trim() ? [time.value.trim()] : [] };
+      }
+      const res = await platformCall("platform_request", { kind: "source", target: name.value.trim(), reason: why.value.trim(), detail }, "Not sent");
       if (res) { closeDialog(); toast("Request sent", false, { log: true }); done?.(); }
     }, "tool primary")]);
 }
@@ -659,7 +744,11 @@ REQUEST_FORMS.data = async function data(box, prefill = {}) {
     ? reqField("From the domain", domain, "Its owners decide. A platform admin can too.")
     : reqField("Data product", product, "Its owner decides. A platform admin can too."));
   const seg = h("div", { class: "seg", role: "group", "aria-label": "What kind" }, [["new", "A new data product"], ["change", "A change to one"]].map(([k, t]) =>
-    h("button", { class: k === what ? "on" : null, onclick: (e) => { what = k; seg.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === e.currentTarget)); draw(); } }, t)));
+    h("button", { class: k === what ? "on" : null, "aria-pressed": String(k === what), onclick: (e) => {
+      what = k;
+      seg.querySelectorAll("button").forEach((b) => { b.classList.toggle("on", b === e.currentTarget); b.setAttribute("aria-pressed", String(b === e.currentTarget)); });
+      draw();
+    } }, t)));
   draw();
   box.replaceChildren(h("div", { class: "field" }, "What kind", seg), which, reqField("What you need", needs),
     reqField("Needed by", by, "Optional. The team answers with how and when."));
@@ -707,6 +796,11 @@ function requestDetail(r) {
   const muted = (text) => (text ? h("span", { class: "muted-text" }, text) : null);
   const names = (list) => (list || []).map((a) => a.name || a.email || a.id).join(", ");
   if (r.kind === "shortcut") return [h("b", {}, d.name), muted(` in ${d.workspace_name || ""} / ${d.lakehouse_name || ""}`)];
+  if (r.kind === "source" && d.copy) {
+    const t = d.copy.tables || [];
+    return [h("b", { class: "mono" }, r.target), h("div", { class: "muted-text small" },
+      `Copy job: ${t.length} table${t.length === 1 ? "" : "s"} from ${d.copy.connection_name || "a Fabric connection"}${d.copy.times?.length ? `, daily at ${d.copy.times.join(", ")} UTC` : ""}`)];
+  }
   if (r.kind === "workspace") {
     return [h("b", {}, r.target), h("div", { class: "muted-text small" },
       [d.domain_name ? `${d.domain_name} domain` : null, d.capacity_name || (d.capacity_id ? "a capacity" : "capacity: the approver picks"),
@@ -773,6 +867,7 @@ async function confirmApproval(r) {
       inFabric ? "Create and approve" : "Save and approve");
     return ok ? {} : null;
   }
+  if (r.kind === "source" && d.copy) return confirmCopyJob(r);
   if (r.kind === "exception") {
     const ok = await confirmDialog(`Grant an exception to ${d.policy_name || r.target}?`,
       `The platform records the exception for ${d.scope} ${d.scope_target} until ${d.until}, with its reason, and adds it to the policy's history. Where the policy is resolved there, it shows as "Excepted until ${d.until}" instead of applying. It ends on its own on that date.`,
@@ -780,6 +875,39 @@ async function confirmApproval(r) {
     return ok ? {} : null;
   }
   return {};
+}
+
+// Where the Copy job writes, with one landing workspace: the zone comes from the request, so the
+// approver sees it (a secure zone, or Shared, which every domain and Dev and Test read).
+function landsIn(where, central) {
+  if (!where) return h("p", { class: "wrn-text small" }, `In ${central.workspace_name || "the landing workspace"}; its zone couldn't be read, so check the request before approving.`);
+  if (where.problem) return h("p", { class: "fail-text small" }, where.problem);
+  return h("p", { class: "text" }, "It writes to ", h("b", {}, `${where.lakehouse_name || "the zone's lakehouse"}`),
+    `, the ${where.secure ? "secure " : ""}zone ${where.zone_name}, in ${where.workspace_name || "the landing workspace"}. `,
+    where.zone === "shared" ? "Every domain, and Dev and Test, read the Shared zone." : where.secure ? "Only the readers its data access role allows see it." : "");
+}
+
+// Approving a source with a Copy job (scale plan 4.1): what it makes, where, and that runs use capacity.
+async function confirmCopyJob(r) {
+  const c = r.detail.copy;
+  const st = await reqQuietly("platform_status");
+  const central = st?.landing?.central ? st.landing : null;
+  const env = h("select", { "aria-label": "Environment" }, reqOptions(MESH_ENVS.map((e) => [e, ENV_LABEL[e]]), "prod"));
+  const ok = await new Promise((resolve) => showDialog(`Approve source ${r.target}?`, h("div", {},
+    h("p", { class: "text" }, "Approving makes, as you:"),
+    h("ol", { class: "text" },
+      h("li", {}, `The source ${r.target} in the landing zone${r.detail.owner ? `, owned by ${r.detail.owner}` : ""}.`),
+      h("li", {}, "A Copy job ", h("b", { class: "mono" }, `CJ_Landing_${r.target}`), ` reading ${c.connection_name || "the Fabric connection"}, writing Parquet to:`,
+        h("table", { class: "mini" }, h("tbody", {}, c.tables.map((t) => h("tr", {}, h("td", { class: "mono" }, t.table),
+          h("td", { class: "mono" }, `Files/${r.target}/${t.folder}/`),
+          h("td", {}, t.mode === "incremental" ? `rows changed since the last run, by ${t.column}` : "the whole table")))))),
+      c.times?.length ? h("li", {}, `Its schedule: every day at ${c.times.join(", ")} UTC.`) : null),
+    central ? landsIn(r.lands_in, central)
+      : reqField("Into the LH_Landing of", env, "There's no one landing workspace yet, so pick the environment whose platform workspace it lands in."),
+    h("p", { class: "wrn-text small" }, "Creating it starts no run. Each run uses capacity, and the gateway reads the source. Copy jobs made here are Preview: not yet run against a real tenant.")), [
+    btn("Cancel", null, () => { closeDialog(); resolve(false); }, "tool outline"),
+    btn("Approve and make it", null, () => { closeDialog(); resolve(true); }, "tool primary")]));
+  return ok ? (central ? {} : { env: env.value }) : null;
 }
 
 function requestTable(rows, rerender, compact = false) {
@@ -822,7 +950,7 @@ function requestTable(rows, rerender, compact = false) {
       compact ? h("td", {}) : h("td", {}, h("span", { class: `pill-s ${r.status === "approved" ? "pass" : r.status === "waiting" ? "wrn" : "neu"}` }, REQUEST_STATUS[r.status]),
         r.decided_by ? h("div", { class: "muted-text small" }, `${r.decided_by}, ${relTime(r.decided_at)}`) : null),
       h("td", {}, h("span", { class: "row tight" },
-        r.can_decide ? btn(r.kind === "workspace" ? "Approve and create" : r.kind === "data" ? "Accept" : "Approve", null, () => decide(r, true), "tool primary small") : null,
+        r.can_decide ? btn(r.kind === "workspace" ? "Approve and create" : r.kind === "source" && r.detail?.copy ? "Approve and make it" : r.kind === "data" ? "Accept" : "Approve", null, () => decide(r, true), "tool primary small") : null,
         r.can_decide ? btn("Decline", null, () => decide(r, false), "tool outline small") : null,
         r.mine && r.status === "waiting" ? btn("Withdraw", null, async () => {
           if (await platformCall("platform_withdraw", { id: r.id }, "Not withdrawn")) rerender();
@@ -831,8 +959,8 @@ function requestTable(rows, rerender, compact = false) {
 
 // What Requests reads and writes, on Platform and on Data mesh > Requests (mesh-requests.js).
 const REQUESTS_HOW = {
-  reads: "The requests in the platform's catalog (SQL_Platform in Fabric, or a file on this PC), when the tab opens. New request also lists the domains, capacities, workspaces and policies you can see, to pick from.",
-  changes: "Sending adds a request to the catalog. Approving makes what was asked for first, as you: a key table or source in the platform; a shortcut in OneLake; a workspace in Fabric on its capacity, with its admins added; a role in a workspace; a domain created in Fabric and kept in the platform (in the platform only when its parent isn't in Fabric; creating it in Fabric needs a Fabric administrator); an exception recorded in the platform for its policy; access to a data product given in the catalog. Then the request is marked approved. Accepting a data request records your reply and builds nothing. Declining records your note; Withdraw marks your own request withdrawn. If a step fails, the request stays waiting and the error names the step.",
+  reads: "The requests in the platform's catalog (SQL_Platform in Fabric, or a file on this PC), when the tab opens. New request also lists the domains, capacities, workspaces and policies you can see, to pick from, and Request a source lists the Fabric connections you can use (never their credentials).",
+  changes: "Sending adds a request to the catalog. Approving makes what was asked for first, as you: a key table or source in the platform (for a source asking for a Copy job, first the Copy job CJ_Landing_<source> in the landing workspace, writing to LH_Landing/Files/<source>/<table>/, and its daily schedule, Preview); a shortcut in OneLake; a workspace in Fabric on its capacity, with its admins added; a role in a workspace; a domain created in Fabric and kept in the platform (in the platform only when its parent isn't in Fabric; creating it in Fabric needs a Fabric administrator); an exception recorded in the platform for its policy; access to a data product given in the catalog. Then the request is marked approved. Accepting a data request records your reply and builds nothing. Declining records your note; Withdraw marks your own request withdrawn. If a step fails, the request stays waiting and the error names the step.",
   results: "Everyone sees requests here and in the bell, and the platform's Teams routes get a notice (no email yet). A workspace's domain in Fabric is set by a Fabric administrator in Fabric's admin portal. Every change is on the Audit tab.",
   anchor: "platform",
 };
@@ -980,7 +1108,7 @@ registerFeature({
 
 // ---------- OneLake > Data products: every team's products, for everyone ----------
 
-const productsPage = { query: "", domain: "all", open: null, following: false };
+const productsPage = { query: "", domain: "all", open: null, following: false, reviewDue: false };
 
 async function renderDataProducts() {
   const pp = productsPage;
@@ -996,17 +1124,19 @@ async function renderDataProducts() {
         btn("Refresh", "sync", () => render(), "tool outline")),
       list),
     howItWorks("onelake.products", {
-      reads: "Every team's published data products, their ports and readers, from the platform's catalog (SQL_Platform in Fabric, or the file on this PC). It reads when the tab opens and when you press Refresh.",
+      reads: "Every team's published data products, their ports and readers, from the platform's catalog (SQL_Platform in Fabric, or the file on this PC), and, for the products you own, which grants are due for their access review. It reads when the tab opens and when you press Refresh.",
       changes: "Link writes a link file in your open metadata project on this PC and records your project as a reader in the platform's catalog. Request access adds a request to the platform's catalog for the product's owner, and Ask for data adds one for the domain's or product's owners. None of them touches the product's tables in OneLake, and nothing else here writes.",
       results: "The product's owner sees your request on Platform > Requests and decides it, and sees your project among the product's readers. A link shows on your project's Links tab.",
       anchor: "data-products-preview",
     }))));
-  const out = await platformCall("platform_products", {}, "Could not read the catalog");
+  const [out, reviews] = await Promise.all([platformCall("platform_products", {}, "Could not read the catalog"),
+    previewShown() ? rpc("platform_access_reviews", {}).catch(() => null) : null]);
   if (!out || state.view !== "onelake" || catalogPage.tab !== "products") return;
+  const dueFor = new Set((reviews?.grants || []).filter((g) => g.due).map((g) => g.product_id));
   const domains = [...new Set(out.products.map((p) => p.domain_id).filter(Boolean))].sort();
   const draw = () => {
     const q = pp.query.toLowerCase();
-    const shown = out.products.filter((p) => (pp.domain === "all" || p.domain_id === pp.domain) && (!pp.following || p.following)
+    const shown = out.products.filter((p) => (pp.domain === "all" || p.domain_id === pp.domain) && (!pp.following || p.following) && (!pp.reviewDue || dueFor.has(p.id))
       && (!q || `${p.name} ${p.description} ${p.owner} ${p.project} ${p.ports.map((x) => x.port).join(" ")}`.toLowerCase().includes(q)));
     const action = (p) => p.linked ? h("span", { class: "pill-s pass" }, "Linked")
       : p.can_link ? btn("Link", "databaseLink", async () => {
@@ -1016,6 +1146,10 @@ async function renderDataProducts() {
         : p.why === "request" ? btn("Request access", null, () => requestDialog("access", p.id, draw, { title: p.name, owner: p.owner }), "tool outline small")
           : p.why === "requested" ? h("span", { class: "pill-s wrn" }, "Requested") : h("span", { class: "muted-text small" }, p.why);
     list.replaceChildren(...[
+      reviews?.due ? h("div", { class: "row tight access-review-band" }, icon("shield", 16),
+        h("span", { class: "grow" }, `Access review: ${reviews.due} grant${reviews.due === 1 ? "" : "s"} on your products ${reviews.due === 1 ? "hasn't" : "haven't"} been confirmed for ${reviews.every_days} days. Open each product and confirm who still needs it, or take access away.`),
+        h("button", { class: `chip review-chip${pp.reviewDue ? " on" : ""}`, "aria-pressed": String(pp.reviewDue),
+          onclick: () => { pp.reviewDue = !pp.reviewDue; draw(); } }, `Review due (${dueFor.size})`)) : null,
       h("div", { class: "row", role: "group", "aria-label": "Domain" },
         ["all", ...domains].map((d) => h("button", { class: `chip${pp.domain === d ? " on" : ""}`, onclick: () => { pp.domain = d; draw(); } }, d === "all" ? "All domains" : d)),
         out.can_follow && previewShown() ? h("button", { class: `chip follow-chip${pp.following ? " on" : ""}`, "aria-pressed": String(pp.following),
@@ -1113,7 +1247,7 @@ async function renderProductTrust(p) {
       endorsement, terms, productChecklistCard(p), productAccessCard(p)),
     howItWorks("onelake.product-trust", {
       reads: "The product's endorsement as the last tenant scan read it, and its business terms, from the platform's catalog. Scan now reads Fabric's admin tenant scan (Power BI) of the workspaces the platform's published products live in, as you: only a Fabric administrator can. Nothing reads Purview.",
-      changes: "Scan now writes what the scan read to catalog.endorsement in the platform's catalog. Adding or removing a term writes catalog.product_term. Take access away deletes that project's row in catalog.grant; links it already made stay. Ask for a change adds a request to catalog.request for the product's owner. Follow adds you to catalog.follow (Following takes you off). Nothing changes in Fabric or Purview: KratosForge can't set endorsement, and terms stay in Purview.",
+      changes: "Scan now writes what the scan read to catalog.endorsement in the platform's catalog. Adding or removing a term writes catalog.product_term. Take access away deletes that project's row in catalog.grant; links it already made stay. Ask for a change adds a request to catalog.request for the product's owner. Still needed records your confirmation in catalog.grant_review. Follow adds you to catalog.follow (Following takes you off). Nothing changes in Fabric or Purview: KratosForge can't set endorsement, and terms stay in Purview.",
       results: "Everyone who opens this product sees the last scan's badge and when it was read, and each term with a link to it in Purview. Each scan, term change and access taken away is in the platform's audit log. When a promote to Prod deprecates the product, changes its version or changes a port's columns, its followers and the people who linked a project to it are named in a Teams notice that says what changed.",
       anchor: "endorsement-and-business-terms-preview",
     }))));
@@ -1160,10 +1294,20 @@ async function renderProductTrust(p) {
 // can; the catalog checks that again. Links projects already made stay, so their runs keep reading.
 function productAccessCard(p) {
   const card = h("div", { class: "card pad product-access" }, h("b", {}, "Access given"), loading());
+  let reviews = null;
   const draw = async () => {
     let me;
     try { me = await rpc("platform_whoami", {}); } catch { me = {}; }
     const mine = !!me.admin || String(p.owner || "").toLowerCase().split(/[,;]/).map((x) => x.trim()).includes(String(me.user || "").toLowerCase());
+    if (mine && previewShown() && !reviews) reviews = await rpc("platform_access_reviews", {}).catch(() => null);
+    const review = (proj) => (reviews?.grants || []).find((g) => g.product_id === p.id && g.project === proj);
+    const confirmed = (proj) => {
+      const r = review(proj);
+      if (!r) return null;
+      const text = r.reviewed_at ? `Confirmed ${relTime(r.reviewed_at)}` : `Given ${r.granted_at ? relTime(r.granted_at) : ""}, never confirmed`;
+      return h("span", {}, r.due ? h("span", { class: "pill-s wrn" }, "Review due") : null, " ", h("span", { class: "muted-text small" }, text));
+    };
+    const reviewing = !!reviews && reviews.available !== false;
     const linked = (proj) => (p.consumers || []).some((c) => c.consumer_project === proj);
     const open = p.access === "public" ? "Everyone can link to it without being given access."
       : p.access === "domain" ? `Projects in ${p.domain_id || "its domain"} can link to it without being given access.` : "";
@@ -1171,13 +1315,27 @@ function productAccessCard(p) {
     card.replaceChildren(h("div", { class: "row tight" }, h("b", {}, "Access given"), previewTag()),
       open ? h("p", { class: "muted-text small" }, open) : null,
       granted.length ? h("table", { class: "list" },
-        h("thead", {}, h("tr", {}, ["Project", "Linked", ""].map((x) => h("th", {}, x)))),
+        h("thead", {}, h("tr", {}, ["Project", "Linked", reviewing ? "Review" : null, ""].filter((x) => x !== null).map((x) => h("th", {}, x)))),
         h("tbody", {}, granted.map((proj) => h("tr", { "data-project": proj },
           h("td", {}, h("b", {}, proj)),
           h("td", {}, linked(proj) ? h("span", { class: "pill-s pass" }, "Linked") : h("span", { class: "muted-text small" }, "Not yet")),
-          h("td", {}, mine ? btn("Take access away", null, () => revoke(proj), "tool outline small") : null)))))
+          reviewing ? h("td", { class: "access-review" }, confirmed(proj)) : null,
+          h("td", {}, mine ? h("span", { class: "row tight" }, reviewing ? btn("Still needed", null, () => confirm([proj]), "tool outline small") : null,
+            btn("Take access away", null, () => revoke(proj), "tool outline small")) : null)))))
         : h("p", { class: "muted-text small" }, "No project has been given access yet."),
+      reviewing && granted.length > 1 ? h("div", { class: "row tight" }, btn("All still needed", null, () => confirm(granted), "tool outline small"),
+        h("span", { class: "muted-text small" }, `Confirm every ${reviews.every_days} days who still needs access. Nothing is taken away by itself.`)) : null,
+      reviews?.available === false ? h("p", { class: "muted-text small" }, reviews.problem) : null,
       mine || !granted.length ? null : h("p", { class: "muted-text small" }, "Only the product's owner or a platform admin can take access away."));
+  };
+  const confirm = async (projects) => {
+    try {
+      reviews = await rpc("platform_confirm_access", { product_id: p.id, projects });
+      toast(projects.length === 1 ? `Confirmed ${projects[0]} still needs ${p.name}.` : `Confirmed all ${projects.length} projects still need ${p.name}.`);
+      draw();
+    } catch (err) {
+      card.append(h("p", { class: "fail-text small" }, trustError(err)));
+    }
   };
   const revoke = async (proj) => {
     const keeps = (p.consumers || []).some((c) => c.consumer_project === proj)
@@ -1188,6 +1346,7 @@ function productAccessCard(p) {
     try {
       const left = await rpc("platform_revoke", { product_id: p.id, project: proj });
       p.granted = left.map((g) => g.project).sort();
+      if (reviews?.grants) reviews.grants = reviews.grants.filter((g) => !(g.product_id === p.id && g.project === proj));
       toast(`${proj} no longer has access to ${p.name}.`);
       draw();
     } catch (err) {

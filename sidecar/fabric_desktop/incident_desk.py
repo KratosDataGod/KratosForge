@@ -82,17 +82,22 @@ class IncidentDeskMixin:
             raise LookupError("That incident isn't in the list any more.")
         return found
 
-    def _followers(self, product_ids: list[str]) -> dict[str, list[str]]:
-        """Each product's followers, on a platform that keeps them; none on one that doesn't."""
+    def _followers(self, product_ids: list[str]) -> tuple[dict[str, list[str]], list[str]]:
+        """Each product's followers, on a platform that keeps them, and the products whose followers
+        it wouldn't list to you: who follows what is personal data, so only a product's owners and
+        platform admins see it. Neither on a platform that doesn't keep followers."""
         if "product_followers" not in core.OPERATIONS:
-            return {}
+            return {}, []
         out: dict[str, list[str]] = {}
+        hidden: list[str] = []
         for pid in product_ids:
             try:
                 out[pid] = self._catalog().call("product_followers", product_id=pid)  # type: ignore[attr-defined]
-            except (core.PlatformError, LookupError):  # an older UDF_Platform: owners and links still count
-                return {}
-        return out
+            except core.PlatformError:  # not this product's owner or a platform admin
+                hidden.append(pid)
+            except LookupError:  # an older UDF_Platform: owners and links still count
+                return {}, []
+        return out, hidden
 
     def incident_impact(self, env: str, id: str) -> dict[str, Any]:
         """The data products built on this incident's workload in its environment, the projects
@@ -104,10 +109,10 @@ class IncidentDeskMixin:
             return {"available": False, "reason": "This incident isn't about a table, so no data product is built on it."}
         products = self._catalog().call("list_products")  # type: ignore[attr-defined]
         first = impact.blast_radius(products, *where, env)
-        out = impact.blast_radius(products, *where, env, self._followers([p["id"] for p in first["products"]]),
-                                  me=self._wl_user() or "")  # type: ignore[attr-defined]
+        followers, hidden = self._followers([p["id"] for p in first["products"]])
+        out = impact.blast_radius(products, *where, env, followers, me=self._wl_user() or "")  # type: ignore[attr-defined]
         told = [n for n in inc.get("notes") or [] if str(n.get("text", "")).startswith(_TOLD)]
-        return out | {"available": True, "told": told[-1] if told else None}
+        return out | {"available": True, "told": told[-1] if told else None, "followers_hidden": hidden}
 
     def incident_tell_impacted(self, env: str, id: str, people: list[str]) -> dict[str, Any]:
         """Post one Teams notice naming the people this incident reaches, through the platform's

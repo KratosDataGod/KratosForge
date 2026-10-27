@@ -174,6 +174,10 @@ class Client:
     def warehouse(self, warehouse_id: str) -> dict[str, Any]:
         return self._call("GET", f"/api/2.0/sql/warehouses/{_checked_id(warehouse_id, 'SQL warehouse')}")
 
+    def cluster(self, cluster_id: str) -> dict[str, Any]:
+        """A cluster's spark_version and state (Clusters API). Reading never starts it."""
+        return self._call("GET", "/api/2.1/clusters/get", params={"cluster_id": _checked_id(cluster_id, "cluster")})
+
     def submit(self, body: dict[str, Any]) -> dict[str, Any]:
         return self._call("POST", "/api/2.0/sql/statements", json=body)
 

@@ -28,7 +28,13 @@ All of it happens on the **Platform** page (central team, and requests from ever
 | **On call** | Whoever is on call | Active incidents that reach a data product, with its readers and owners, who to wake, landing sources late in Prod, shortcuts broken at their last check, and owner gaps |
 | **Organization** | The CDO and domain leads | Totals, one row per top-level domain (subdomains count toward their parent), and requests that have waited more than 5 days |
 
-Home only reads: the catalog (products, requests, follows, access reviews, domains, shortcuts, owner coverage), the landing zone on On call, and the incident lists of the project open on this PC. Each card opens the page that acts: **Decide** opens Platform > Requests, a product opens its page, an incident opens it in Monitor. Something it couldn't read is named at the top and its card says so, rather than showing a zero. Incidents need a project open, because incident lists belong to a project's environments.
+Home only reads: the catalog (products, requests, follows, access reviews, domains, shortcuts, owner coverage), the landing zone on On call, and the incident lists of the project open on this PC. Each card opens the page that acts: **Decide** opens [Requests](#requests-preview), a product opens its page, an incident opens it in Monitor. Something it couldn't read is named at the top and its card says so, rather than showing a zero. Incidents need a project open, because incident lists belong to a project's environments.
+
+## Requests (Preview)
+
+**Data mesh > Requests** is everyone's inbox for the mesh, and works with no project open. **Waiting on you** lists what you can decide: a data product's owner decides who else may read it and changes to it, a domain's owners answer requests for a new product from their domain, and platform admins decide the rest and can decide any request. **Sent by you** lists what you asked for, who decided it and their note. **Everything** shows every request in the catalog. It opens on Waiting on you when something waits on you, and on Sent by you otherwise.
+
+These are the same requests, buttons and checks as **Platform > Requests**: Approve does what was asked (for access, it gives the project access in the catalog), Accept on a data request records your reply and builds nothing, Decline records your note, and Withdraw takes back your own request. **Ask for data** and **New request** send one.
 
 ## From domains to tables
 
@@ -133,22 +139,27 @@ entity = "gold.dim_customer"
 
 **Status** is `draft`, `published` or `deprecated` (with `deprecated_on`, the date it stops). Promote publishes every non-draft product to the catalog with where its ports live in the target environment; **Publish to the catalog** does the same by hand.
 
+**History.** Each publish that changes a port's `version` or columns adds a row to the port's history in the catalog (`catalog.port_version`), one per environment: the version, the columns and types, when and by whom. Publishing the same thing again adds nothing. The platform's `product_history` operation lists a product's rows, newest first; it only reads.
+
 **The product gate.** A product open to anyone or to the domain can't be published, and its project can't be promoted, until it has a description and an owner and every port has a table description and a description on every column. The entity's **About** card shows what's missing.
 
 **Breaking changes.** On promote, KratosForge compares each port's columns with what the catalog holds for that port in the target environment.
 
 - **What blocks the promote.** A column dropped, or a type changed (other than widening, such as `int32` to `int64` or `float32` to `float64`), while another project reads that environment. The message names the projects, for example *port customers drops email, and 1 other project reads it in test (finance)*.
-- **What doesn't.** Added columns pass. So does anything nobody else reads yet.
-- **How to make a breaking change on purpose.** Raise `version` in the product's file. The promote then goes through and says what the new version breaks.
+- **What doesn't.** Added columns pass. So does anything nobody else reads yet. A reader whose link lists the columns it relies on (its `[columns]`) is only broken by a change to one of those: dropping a column no reader relies on is a note, not a block.
+- **How to make a breaking change on purpose.** Raise `version` in the product's file. The promote then goes through and says what the new version breaks, unless a reader's link doesn't accept the new version (see [Links](#links)): then it blocks, naming each such link and saying its project can widen `accepts`. Readers whose links don't say `accepts` get the note, as before.
+- **After a deprecation date.** When the product was deprecated with a `deprecated_on` that has passed, its readers have had their notice, so a link that doesn't accept the new version is a note, not a block.
 - **If the platform can't be reached.** The check says so and doesn't block.
 
-The check knows which projects read a port, not which columns each one uses, so dropping any published column counts as breaking.
+A reader that hasn't listed its columns counts as relying on every column of the port it links to.
+
+**Deprecating a product.** Set `status = "deprecated"` and `deprecated_on`, then promote or publish. The first publish as deprecated, or one with a new date, sends one Teams notice (`product.deprecated`) to the projects that link to it, through the platform's Teams routes (see [the governance guide](governance-guide.md#teams-notices-for-requests-and-shortcuts)); the publish's answer lists who was told. A notice that can't be sent never stops the publish: the answer says so. From the date on, the catalog takes no new links to it, and a project that still links to it can't promote until it moves the link (before the date, its promote gets a note saying when). Runs aren't stopped: a running pipeline keeps reading until its team moves it.
 
 ## Follow a product (Preview)
 
 **Follow** on a product's page (**OneLake > Data products >** the product) tells you in Teams when a promote to Prod changes it: it's deprecated (and when it stops), it has a new version, or a port's columns are added, removed or retyped. Whoever links a project to a product follows it without asking, so its readers hear too. **Following** on the list shows only the products you follow; choose **Following** on a product's page to stop.
 
-Only Prod counts, because that's what readers' projects read. Each environment keeps what it last published (`catalog.product_env`), so a change is told once, when it reaches Prod, not again on the next promote. The notice goes to the platform's Teams routes as `product.changed`, naming the people it's for ([governance-guide.md](governance-guide.md)), except whoever promoted it. Who follows a product is personal data: only its owners and platform admins can list its followers. A platform made before following shows no Follow button until a platform admin runs **Finish or repair** once.
+Only Prod counts, because that's what readers' projects read. Each environment keeps what it last published (`catalog.product_env`), so a change is told once, when it reaches Prod, not again on the next promote. The notice goes to the platform's Teams routes as `product.changed`, naming the people it's for ([governance-guide.md](governance-guide.md)), except whoever promoted it. Who follows a product is personal data: only its owners and platform admins can list its followers. People a deprecation was already sent to as `product.deprecated` don't get it again in `product.changed`; other followers do. A platform made before following shows no Follow button until a platform admin runs **Finish or repair** once.
 
 ## Endorsement and business terms
 
@@ -186,6 +197,20 @@ table = "abfss://<workspace id>@onelake.dfs.fabric.microsoft.com/<lakehouse id>/
 ```
 
 The **Links** tab shows where each link points in the picked environment, and which entities use it. A link that an entity still reads can't be removed.
+
+**Which versions a link accepts.** A link can say which versions of the product it can read, and which columns it relies on:
+
+```toml
+accepts = "2"        # only version 2; "2-3" is a range, "2+" is version 2 or later
+
+[columns]
+customer_id = "int64"
+email = "string"
+```
+
+A new link saved without `accepts` gets the product's current version from the catalog, so a later breaking version doesn't reach it unnoticed: the producer's promote stops until you widen `accepts` (for example to `"2-3"`) once your project reads the new version. Links made before this have no `accepts` and read any version, as they always did. Anything other than these three forms fails the save gate. Both are kept in the catalog with the link, so the producer's promote can check them.
+
+An older UDF_Platform keeps neither. The link still saves, with `accepts` in its file, and says: *A platform admin runs Platform > Settings > Finish or repair once.* The same goes for a product's history: the publish works, and says the history needs **Finish or repair**.
 
 When a table behind a product has an incident, the incident page lists the products built on it, the projects linked to them and who to tell, with **Tell them** to post it in Teams. See [Who's affected](user-guide.md#whos-affected-preview).
 

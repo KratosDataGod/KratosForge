@@ -957,6 +957,14 @@ function requestTable(rows, rerender, compact = false) {
         }, "tool outline small") : null))))));
 }
 
+// What Requests reads and writes, on Platform and on Data mesh > Requests (mesh-requests.js).
+const REQUESTS_HOW = {
+  reads: "The requests in the platform's catalog (SQL_Platform in Fabric, or a file on this PC), when the tab opens. New request also lists the domains, capacities, workspaces and policies you can see, to pick from, and Request a source lists the Fabric connections you can use (never their credentials).",
+  changes: "Sending adds a request to the catalog. Approving makes what was asked for first, as you: a key table or source in the platform (for a source asking for a Copy job, first the Copy job CJ_Landing_<source> in the landing workspace, writing to LH_Landing/Files/<source>/<table>/, and its daily schedule, Preview); a shortcut in OneLake; a workspace in Fabric on its capacity, with its admins added; a role in a workspace; a domain created in Fabric and kept in the platform (in the platform only when its parent isn't in Fabric; creating it in Fabric needs a Fabric administrator); an exception recorded in the platform for its policy; access to a data product given in the catalog. Then the request is marked approved. Accepting a data request records your reply and builds nothing. Declining records your note; Withdraw marks your own request withdrawn. If a step fails, the request stays waiting and the error names the step.",
+  results: "Everyone sees requests here and in the bell, and the platform's Teams routes get a notice (no email yet). A workspace's domain in Fabric is set by a Fabric administrator in Fabric's admin portal. Every change is on the Audit tab.",
+  anchor: "platform",
+};
+
 async function platformRequestsTab(body) {
   const p = platformPage;
   const all = await platformCall("platform_requests", {}, "Could not read requests");
@@ -975,12 +983,7 @@ async function platformRequestsTab(body) {
       btn("New request", "add", () => newRequestDialog(rerender), "tool primary small")),
     h("p", { class: "muted-text small" }, "Platform admins decide key tables, sources, workspaces, workspace access, domains and policy exceptions. A data product's owner decides who else may read it; ask from the OneLake catalog. A domain's owners answer requests for a new data product from their domain, and a product's owner requests for a change to it."),
     requestTable(shown, rerender)),
-  howItWorks("platform.requests", {
-    reads: "The requests in the platform's catalog (SQL_Platform in Fabric, or a file on this PC), when the tab opens. New request also lists the domains, capacities, workspaces and policies you can see, to pick from, and Request a source lists the Fabric connections you can use (never their credentials).",
-    changes: "Sending adds a request to the catalog. Approving makes what was asked for first, as you: a key table or source in the platform (for a source asking for a Copy job, first the Copy job CJ_Landing_<source> in the landing workspace, writing to LH_Landing/Files/<source>/<table>/, and its daily schedule, Preview); a shortcut in OneLake; a workspace in Fabric on its capacity, with its admins added; a role in a workspace; a domain created in Fabric and kept in the platform (in the platform only when its parent isn't in Fabric; creating it in Fabric needs a Fabric administrator); an exception recorded in the platform for its policy. Then the request is marked approved. If a step fails, the request stays waiting and the error names the step.",
-    results: "Everyone sees requests here and in the bell, and the platform's Teams routes get a notice (no email yet). A workspace's domain in Fabric is set by a Fabric administrator in Fabric's admin portal. Every change is on the Audit tab.",
-    anchor: "platform",
-  })));
+  howItWorks("platform.requests", REQUESTS_HOW)));
 }
 
 // ---------- domains, glossary, audit ----------

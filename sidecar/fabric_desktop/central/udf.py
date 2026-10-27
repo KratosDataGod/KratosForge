@@ -178,9 +178,15 @@ def resolve_port(sqlDB: fn.FabricSqlConnection, product_id: str, port: str, env:
 @udf.context(argName="ctx")
 @udf.function()
 def register_link(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, consumer: str, alias: str,
-                  product_id: str, port: str, reads: dict) -> dict:
+                  product_id: str, port: str, reads: dict, accepts: str = "", columns: dict = {}) -> dict:  # noqa: B006 - read only
     return _run(sqlDB, "register_link", ctx, consumer=consumer, alias=alias, product_id=product_id, port=port,
-                reads=reads)
+                reads=reads, accepts=accepts, columns=columns)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def product_history(sqlDB: fn.FabricSqlConnection, product_id: str) -> list:
+    return _run(sqlDB, "product_history", product_id=product_id)
 
 
 @udf.connection(argName="sqlDB", alias="platform")

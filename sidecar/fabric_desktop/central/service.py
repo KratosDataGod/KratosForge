@@ -310,7 +310,7 @@ class PlatformMixin:
             raise ValueError("A domain needs a name")
         did = domain_id(domain.get("id") or name)
         if not self._catalog().call("whoami").get("admin"):
-            raise PermissionError("Only platform admins can create domains. Send a request in Platform > Requests.")
+            raise PermissionError("Only platform admins can create domains. Send a request in Data mesh > Requests.")
         known = {d["id"]: d for d in self.platform_domains()}
         same = known.get(did) or next((d for d in known.values() if d["name"].strip().lower() == name.lower()), None)
         if same:

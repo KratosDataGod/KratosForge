@@ -377,7 +377,7 @@ business_key = "customer_id"     # or ["source_code", "customer_id"]
 
 With a [platform](platform.md) in Fabric, an environment's keys come from `SQL_Platform` instead, one key system for every team. A project that already issued keys in `LH_Keys` moves them with **Move keys** on this tab: every key keeps its number, each row is checked, and only then does the environment switch (`keys = "platform"` in `environments.toml`).
 
-In an environment whose keys are in the platform, the project doesn't make its own key tables. **Use a key table** picks one of the platform's (it still writes `metadata/keys/<name>.toml`, so the project says which keys it uses). Only platform admins add key tables: **Request a new one** sends a request to **Platform > Requests**, and the key table shows in the list once it's approved. A run that needs a key table the platform doesn't have stops and says to request it; **Sync** lists any that are missing.
+In an environment whose keys are in the platform, the project doesn't make its own key tables. **Use a key table** picks one of the platform's (it still writes `metadata/keys/<name>.toml`, so the project says which keys it uses). Only platform admins add key tables: **Request a new one** sends a request to **Data mesh > Requests**, and the key table shows in the list once it's approved. A run that needs a key table the platform doesn't have stops and says to request it; **Sync** lists any that are missing.
 
 ## 9. Source systems and the variable library
 

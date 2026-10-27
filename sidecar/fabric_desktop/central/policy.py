@@ -12,7 +12,7 @@ Tables (T-SQL catalog.<table>; SQLite catalog__<table>):
     catalog.policy_assignment  where a policy applies: enterprise, a domain, a project or an entity
     catalog.policy_event       each policy's history: created, edited, published, deprecated, ...
     catalog.policy_exception   exceptions to a policy for a project, domain or workspace, each until a date,
-                               granted by approving an exception request (Platform > Requests)
+                               granted by approving an exception request (Data mesh > Requests)
     catalog.policy_template    your organization's policy templates: reusable definitions in a policy's own
                                shape (built-in templates ship in BUILTIN_TEMPLATES and never change)
 
@@ -421,7 +421,7 @@ def policy_version(db: Db, id: str, version: int) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- exceptions
-# Asked for on Platform > Requests (core.request, kind "exception"), granted by a platform admin
+# Asked for on Data mesh > Requests (core.request, kind "exception"), granted by a platform admin
 # approving it. An exception lasts until its date (that day included), then ends on its own.
 
 

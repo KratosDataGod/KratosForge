@@ -138,7 +138,7 @@ Fabric can't change where a shortcut points, so **Repoint** removes the shortcut
 
 **Request a shortcut** asks for a shortcut you can't make yourself, for example into a lakehouse where you have no role, or when the rules say only platform admins make shortcuts. Say which lakehouse, where in it, its name, what it points at, and why.
 
-Shortcut requests are the [platform's requests](platform.md#requests), next to key tables, sources and access to data products. They show on **Shortcuts > Requests** and **Platform > Requests**.
+Shortcut requests are the [platform's requests](platform.md#requests), next to key tables, sources and access to data products. They show on **Shortcuts > Requests** and **Data mesh > Requests**.
 
 - A **platform admin** decides any shortcut request. When the shortcut points at a data product, its **owner** can decide it too.
 - **Approve** makes the shortcut first, as the person approving, then marks the request approved. If making it fails (no role on that workspace, or a rule blocks it), the request stays waiting and the error says why.

@@ -1254,7 +1254,7 @@ def require_admin(db: Db, by: str, action: str) -> None:
     if not list_admins(db):
         raise PlatformError(f"Can't {action}: the platform has no admins yet. The person who set it up claims "
                             "admin in Platform > Settings.")
-    raise PlatformError(f"Only platform admins can {action}. Send a request in Platform > Requests, "
+    raise PlatformError(f"Only platform admins can {action}. Send a request in Data mesh > Requests, "
                         "or ask a platform admin.")
 
 

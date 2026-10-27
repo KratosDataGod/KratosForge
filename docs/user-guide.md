@@ -318,9 +318,9 @@ A workspace's **solution** is its name without that environment word, so `Adv Wr
 **Data mesh > Products** (OneLake's Data products tab opens it) lists every team's published [data products](data-mesh.md#data-products), from the platform's catalog, so anyone can find what other teams share without opening their project. Filter by domain or search by name, port or owner. Each row shows who owns it, who it's open to, its ports and how many projects read it, and what your open metadata project can do:
 
 - **Link** opens the new link dialog for that product (it's open to everyone, to your domain, or its owner let your project in).
-- **Request access** asks the product's owner to let your project link to it. They approve it on **Platform > Requests**; then **Link** shows here.
+- **Request access** asks the product's owner to let your project link to it. They approve it on **Data mesh > Requests**; then **Link** shows here.
 - **Linked**: your project already reads it.
-- **Ask for data** (above the list) asks a domain's owners for a new data product; **Ask for a change** on a product's page asks its owner for a change. Accepting records the team's reply on **Platform > Requests**; nothing is built for you ([Ask for data](data-mesh.md)).
+- **Ask for data** (above the list) asks a domain's owners for a new data product; **Ask for a change** on a product's page asks its owner for a change. Accepting records the team's reply on **Data mesh > Requests**; nothing is built for you ([Ask for data](data-mesh.md)).
 - **Follow** on a product's page tells you in Teams when a promote to Prod deprecates it, gives it a new version or changes a port's columns; **Following** filters the list to the products you follow. Linking a project to a product follows it for you ([Follow a product](data-mesh.md#follow-a-product-preview)).
 
 Products works with no metadata project open. Select a product's name to open its page: its endorsement and business terms, checklist and who has access. For a product of the project open on this PC, **Edit definition** opens **Data mesh > Project > Products and links**, where its file is edited.
@@ -376,7 +376,7 @@ The **Data mesh** page (it was called Metadata) is where your metadata project l
 | --- | --- |
 | Home (Preview) | The page opens here, even with no project open: **My team**, **On call** or **Organization**, the mesh as each of them sees it. Read only. See [Data mesh](data-mesh.md#home-the-mesh-for-who-you-are-preview) |
 | Products (Preview) | Every team's published data products and each product's page, with no project needed. It was OneLake > Data products. See [Data products](#data-products-preview) |
-| Requests (Preview) | Everyone's requests, with no project needed: **Waiting on you**, **Sent by you** and **Everything**. The same requests and decisions as Platform > Requests. See [Data mesh](data-mesh.md#requests-preview) |
+| Requests (Preview) | Everyone's requests, with no project needed: **Waiting on you**, **Sent by you** and **Everything**. It was Platform > Requests; older links open it here. See [Data mesh](data-mesh.md#requests-preview) |
 | Domains (Preview) | **Domains**: every domain and subdomain with its owners, projects and published products, and **Access groups**; platform admins import, add, edit and delete domains here. Works without a project. **Map**: your organization's domains and how they feed each other; open a domain to see its projects, their layers, products and readers, then a layer of the project on this PC to see each table's whole lineage, from its source files to the projects that read its products. Read only. See [Data mesh](data-mesh.md#from-domains-to-tables). **This project**: the open project's domain and the workspace each layer uses. The glossary is on **Platform > Set up > Glossary** |
 | Project | The open project, in five groups. **Design**: Entities, Layers, Surrogate keys, Source systems. **Runs**: every run, with its steps, rows and problems. **Quality**: Tests, Table health and Exceptions. **Products and links** (Preview): the project's own data products and its links to other teams'. **Deploy**: Environments and promote, Semantic model. Project opens on the tab you last used |
 
@@ -400,19 +400,19 @@ The full walkthrough, from setting up a project to promoting to Prod, and a refe
 
 ## Platform
 
-The Platform page (Preview) is the central data team's home, and where every other team sees what the platform offers and asks for what it needs. **Platform admins** (the central team) create domains, business key tables and landing zone sources, and decide requests; everyone else sees the same screens and sends requests. The platform itself checks who may do what, so hiding a button is only a convenience. Details in [The platform](platform.md#the-platform-page).
+The Platform page (Preview) is the central data team's setup: the landing zone, business keys, glossary, governance, audit and the platform's settings. Every other team sees what the platform offers there. **Platform admins** (the central team) create business key tables and landing zone sources, and decide requests on Data mesh > Requests; everyone else sees the same screens and sends requests. The platform itself checks who may do what, so hiding a button is only a convenience. Details in [The platform](platform.md#the-platform-page).
 
 | Tab | What's there |
 | --- | --- |
 | **Overview** | Counts of domains, projects, key tables, data products and waiting requests; requests that need you; each environment's platform; the landing zone's sources and which are late; recent changes |
 | **Landing zone** | The one list of source systems for every project, each with its id, and what landed in `LH_Landing` for the environment picked at the top right: its entities, newest files, when it last arrived and when it's expected, and which projects read it. Admins **Add source**; others **Request a source**. Projects pick theirs on Data mesh > Source systems ([One list of source systems](platform.md#one-list-of-source-systems-preview)) |
 | **Business keys** | The platform's key tables (`sk.<name>`) with their business key and key counts. Admins choose **New key table**, which makes it in Dev, Test and Prod at once; others **Request a key table** |
-| **Domains** | Your organization's domains and subdomains, with their owners |
 | **Glossary** | Shared terms. Admins keep shared terms; a domain's owners keep their domain's terms |
 | **Governance** | The organization's governance policies: search them, read each version, see where each applies and why ([Governance](#governance)) |
-| **Requests** | Waiting, decided and your own requests: key tables, sources, access to data products, and data from another team (Preview). **Approve** does what was asked; **Accept** on a data request records the team's reply and builds nothing |
 | **Audit** | Every change in the catalog and who made it |
 | **Settings** | Where each environment's platform is ([Platform settings](#platform-settings)) and the platform's admins |
+
+Domains and requests are on Data mesh: **Data mesh > Domains** and **Data mesh > Requests**. Older links to Platform's Domains and Requests open them there.
 
 Whoever creates the platform in Fabric becomes its first admin. Admins add other admins on **Settings**; a platform always keeps at least one.
 
@@ -640,7 +640,7 @@ Anything your organization has set shows "Set by your organization's policy" and
 - **Quiet hours** (this PC's clock, like `22:00-07:00`) hold notices until they end. **Send during quiet hours anyway** lets warnings, or everything else, through.
 - When notices haven't reached Teams, because quiet hours hold them or Teams didn't answer, the section says how many. They wait on this PC for up to three days.
 
-The bell's **Platform** filter lists the requests still waiting and shortcuts still broken that this PC's notices know about, each with **Open in Platform > Requests** or **Open in Shortcuts > Health**, plus a line for notices that haven't reached Teams. Another PC or Fabric may already have settled some. A request's reason never shows there or in Teams. The filter appears once a route is set or a notice is open.
+The bell's **Platform** filter lists the requests still waiting and shortcuts still broken that this PC's notices know about, each with **Open in Data mesh > Requests** or **Open in Shortcuts > Health**, plus a line for notices that haven't reached Teams. Another PC or Fabric may already have settled some. A request's reason never shows there or in Teams. The filter appears once a route is set or a notice is open.
 
 The requests and shortcut pages don't send notices yet, so routes set now start posting when they do.
 

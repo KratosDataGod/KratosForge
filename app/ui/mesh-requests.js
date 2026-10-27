@@ -1,6 +1,6 @@
 // Data mesh > Requests: everyone's inbox. Waiting on you is what you can decide (a product's owner its
 // access and change requests, a domain's owners new products, admins the rest); Sent by you is what
-// you asked for and what happened to it. The same requests and decisions as Platform > Requests.
+// you asked for and what happened to it. It was Platform > Requests; older links open it here.
 
 const meshRequests = { show: null };
 

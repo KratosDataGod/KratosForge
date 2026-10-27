@@ -31,6 +31,7 @@ New here? Install first ([install.md](install.md)). Setting it up for others? St
 | **Environment picker** | Top bar, on Data mesh pages only | Dev, Test or Prod. Every Data mesh page shows the environment picked here. The pill next to it says where that environment runs, for example "Runs in Fabric · Sales - Test"; click it to change that. |
 | **Bell** | Top right | The activity tray (below). The number on it counts what is running plus new problems; it turns red when there's a problem you haven't seen. |
 | **Account circle** | Top right | Your initial, or **?** when signed out. Opens the account menu. |
+| **Info button** | Title bar, beside the page's title | Opens the page's one-line explanation and its **How this works** panel (what the page reads, what it changes, where results go) as a drawer. With **Settings > Appearance > Layout > Explanations** set to **Beside the page**, they show on the page instead ([Layout](#layout)). |
 
 ### Command bar (Ctrl+K)
 
@@ -133,7 +134,7 @@ On **All notebooks**, **New folder** makes a folder, and a notebook's **⋯** me
 
 ### Ready to work
 
-A short list that says whether this PC can do real work yet. Each check only reads, and none opens a sign-in window. The **How this works** panel beside the list says what it reads, the one thing it can write and where results are kept.
+A short list that says whether this PC can do real work yet. Each check only reads, and none opens a sign-in window. The **How this works** panel under the list (folded to its title until you open it) says what it reads, the one thing it can write and where results are kept.
 
 | Check | Ready when | If not |
 | --- | --- | --- |
@@ -161,7 +162,7 @@ The X-ray reads every lakehouse you can reach and lists what needs attention, wo
 - **Your lakehouses** lists every lakehouse it read. **Adopt** on a lakehouse turns its tables into metadata entities, so the framework manages them from then on.
 - When this PC is connected to a central lakehouse you can write to (**Settings > Optimize lakehouses**), each scan also adds its lakehouse and table findings there, with a recommendation for each one Optimize or Vacuum fixes, so **Optimize > Opportunities** shows them. Anyone who can read the central lakehouse can read those rows, including the workspace, lakehouse and table names of every workspace your scan reached, even ones they can't open in Fabric. The app hides items a person can't open, but that is a courtesy, not security. Guests' and apps' names and cost estimates stay on this PC. A line under the totals says what was added, or why it couldn't be.
 - Every finding and its fix is explained in [xray-fixes.md](xray-fixes.md).
-- **How this works**, beside the findings, says what the scan reads and which three buttons write: **Optimize**, **Vacuum** and **Adopt**, each of which asks first.
+- **How this works**, folded under the findings until you open it, says what the scan reads and which three buttons write: **Optimize**, **Vacuum** and **Adopt**, each of which asks first.
 
 ## Create
 
@@ -319,6 +320,8 @@ Every team's published [data products](data-mesh.md#data-products), from the pla
 - **Link** opens the new link dialog for that product (it's open to everyone, to your domain, or its owner let your project in).
 - **Request access** asks the product's owner to let your project link to it. They approve it on **Platform > Requests**; then **Link** shows here.
 - **Linked**: your project already reads it.
+- **Ask for data** (above the list) asks a domain's owners for a new data product; **Ask for a change** on a product's page asks its owner for a change. Accepting records the team's reply on **Platform > Requests**; nothing is built for you ([Ask for data](data-mesh.md)).
+- **Follow** on a product's page tells you in Teams when a promote to Prod deprecates it, gives it a new version or changes a port's columns; **Following** filters the list to the products you follow. Linking a project to a product follows it for you ([Follow a product](data-mesh.md#follow-a-product-preview)).
 
 Select a product's name to open its page: its endorsement and business terms.
 
@@ -408,7 +411,7 @@ The Platform page (Preview) is the central data team's home, and where every oth
 | **Domains** | Your organization's domains and subdomains, with their owners |
 | **Glossary** | Shared terms. Admins keep shared terms; a domain's owners keep their domain's terms |
 | **Governance** | The organization's governance policies: search them, read each version, see where each applies and why ([Governance](#governance)) |
-| **Requests** | Waiting, decided and your own requests: key tables, sources, and access to data products. **Approve** does what was asked |
+| **Requests** | Waiting, decided and your own requests: key tables, sources, access to data products, and data from another team (Preview). **Approve** does what was asked; **Accept** on a data request records the team's reply and builds nothing |
 | **Audit** | Every change in the catalog and who made it |
 | **Settings** | Where each environment's platform is ([Platform settings](#platform-settings)) and the platform's admins |
 
@@ -430,7 +433,7 @@ Whoever creates the platform in Fabric becomes its first admin. Admins add other
 
 It signs in with your Windows account when that is the same work account you use in the app, so there's usually no password prompt. Otherwise sign in once; the app keeps that sign-in between launches, encrypted for your Windows account in `%LOCALAPPDATA%\FabricDesktop\fabric-view-signin.bin`. Delete that file to make it forget. Links that leave Fabric open in your default browser.
 
-**How this works**, beside the portal, says that the app reads nothing from it and that changes you make there go to Fabric with Fabric's own prompts.
+**How this works**, from the title bar's info button, says that the app reads nothing from it and that changes you make there go to Fabric with Fabric's own prompts.
 
 The portal used to have its own page in the left rail; that place now holds [Optimize](#optimize-preview). Type **Fabric** in the command bar (Ctrl+K) to open it from anywhere.
 
@@ -482,7 +485,7 @@ Each window has **Keep on top** and **Dock back**. Closing the window docks the 
 
 A workload is something you build and run: a metadata entity (one per table, in each environment it is configured for), a notebook on this PC (with its Fabric item when it has one), or a pipeline, notebook or Spark job definition in the workspaces the app works in (the ones you pinned, your environments' workspaces and the ones your notebooks publish to). KratosForge never reads your whole tenant.
 
-**How this works**, beside the list, says what it reads (and that it never reads your whole tenant), what you can change from it, and where ownership and the action log are kept. It folds to its title, and the app remembers that.
+**How this works**, from the title bar's info button, says what it reads (and that it never reads your whole tenant), what you can change from it, and where ownership and the action log are kept. It folds to its title, and the app remembers that.
 
 **The list.** Views across the top: **Needs attention**, **Mine**, **Unowned**, **On this PC**, **In Fabric**, **Production** and **All**, each with its count. **Group by**, a dropdown on the same row, picks Project, Owner, Environment or None. The search box filters by name, owner, environment, tag or state. Each row shows:
 
@@ -525,7 +528,7 @@ Ownership, criticality, tags, links and the action log are kept on this PC in `w
 
 An incident is one record per problem in an environment: a table whose last run failed, a run waiting for a decision, a late table, a missed [reliability objective](metadata-guide.md#reliability-objectives-preview), an agent that stopped reporting, or an environment that couldn't be read. An environment that isn't set up yet (no workspace assigned) isn't a problem, so it opens no incident; **Check now** says it isn't set up. The list lives in the environment's `LH_Meta`, so everyone who can read the environment, and every agent that serves it, sees the same incidents. Two people or agents seeing the same failure open one incident, not two.
 
-**How this works**, beside the list, says what the page reads, which of its actions write to the shared list, when the app posts to Teams, and that an environment that can't be read is never counted as a failing workload. It folds to its title, and the app remembers that.
+**How this works**, from the title bar's info button, says what the page reads, which of its actions write to the shared list, when the app posts to Teams, and that an environment that can't be read is never counted as a failing workload. It folds to its title, and the app remembers that.
 
 **The list.** Pick the environment (each chip shows its active count, or why it can't be read) and **Active**, **Mine** (incidents assigned to you) or **Resolved**. Each row shows the state (**Open**, **Acknowledged**, **Recovered**, **Cleared** or **Resolved**), the problem with its evidence and a **Likely** category for failed runs, when it opened and who opened it, how often it was seen, its owner, and whether it was escalated.
 
@@ -551,7 +554,7 @@ For an incident about a metadata table, the incident page shows **Who's affected
 
 An [agent](agent.md) is KratosForge running on your own server. Every minute or so it writes a status record to each environment it serves, in that environment's `LH_Meta`. Monitor > Operations > Agents reads those records. It never reaches the agent's server, and nothing on it starts, stops or changes an agent.
 
-**How this works**, beside the list, says what the page reads, that it changes nothing and stores nothing, what an agent is, the four steps to set one up (each linked to its section of the [agent guide](agent.md)), and what is coming: shared schedules and takeover (Preview, off by default). It folds to its title, and the app remembers that.
+**How this works**, from the title bar's info button, says what the page reads, that it changes nothing and stores nothing, what an agent is, the four steps to set one up (each linked to its section of the [agent guide](agent.md)), and what is coming: shared schedules and takeover (Preview, off by default). It folds to its title, and the app remembers that.
 
 **The list.** The line above it says, for each environment, how many agents serve it and when it was read, or why it couldn't be read (for example, no access to its `LH_Meta`). Each row shows:
 
@@ -579,7 +582,7 @@ It also lists its last jobs. When the agent has stopped reporting or is older th
 
 ### Queue (Preview)
 
-Each place work runs has its own scheduler and queue: Windows Task Scheduler on this PC, each agent's own queue, and Fabric's scheduler. Monitor > Operations > Queue puts them in one list and says, on every row, which one owns it. It never starts, stops or reorders anything. **How this works**, beside the list, says what it reads, that it changes and stores nothing, and what **Unknown** and **Missed** mean.
+Each place work runs has its own scheduler and queue: Windows Task Scheduler on this PC, each agent's own queue, and Fabric's scheduler. Monitor > Operations > Queue puts them in one list and says, on every row, which one owns it. It never starts, stops or reorders anything. **How this works**, from the title bar's info button, says what it reads, that it changes and stores nothing, and what **Unknown** and **Missed** mean.
 
 The line at the top says how each source was read. **This PC** is its schedules. **Agents** come from their status records. **Fabric** is the jobs this app started, as last checked, and the Fabric schedules that Monitor > Schedules last read. The Queue page makes no Fabric call of its own. Until Schedules has read Fabric's schedules, the line says so, with a link.
 
@@ -592,7 +595,7 @@ A run Windows Task Scheduler started on this PC isn't listed while it runs; it s
 
 ### Run as (Preview)
 
-Monitor > Operations > Run as lists each place your workloads run and says which identity runs them there, the credential it uses, and where data and credentials go. It only reads: nothing here signs in, renews a certificate or changes access. Renewing a certificate or fixing an identity happens in Microsoft Entra and on the agent's server. **How this works**, beside the list, says what it reads, that it changes and stores nothing, and what **Unknown** and **Not visible** mean.
+Monitor > Operations > Run as lists each place your workloads run and says which identity runs them there, the credential it uses, and where data and credentials go. It only reads: nothing here signs in, renews a certificate or changes access. Renewing a certificate or fixing an identity happens in Microsoft Entra and on the agent's server. **How this works**, from the title bar's info button, says what it reads, that it changes and stores nothing, and what **Unknown** and **Not visible** mean.
 
 - **This PC** and **Fabric jobs from this app** run as you. If you are signed out, they say so. Your organization's policy is shown where it applies: how long local run results are kept, which tenants you may sign in to, and whether this app may start jobs on Fabric capacity.
 - **Each agent** runs as the identity in its `agent.toml`: a service principal, a managed identity or a user sign-in. The app never sees its ids. Agents report facts about their credential in their [status record](agent.md#status-records): a certificate's end date, and when their last token request worked or failed. An agent never publishes the credential, its path or its thumbprint. A secret's or a managed identity's expiry isn't visible to the agent, so it isn't shown. An older agent that doesn't report these facts shows **Unknown**.

@@ -5,8 +5,8 @@ Azure Databricks, or both. This page describes the two foundations that work is 
 they can do today, and what is planned. **Nothing on this page has a screen in the app yet**: it
 is the engine underneath, built and tested first so the screens can't promise more than it does.
 
-- An **engine** is what runs a notebook cell: Python on this PC, DuckDB, SQLite, Polars, and
-  later Fabric Spark, Databricks Connect and Databricks SQL warehouses.
+- An **engine** is what runs a notebook cell: Python on this PC, DuckDB, SQLite, Polars and
+  a Databricks SQL warehouse (Preview, tested against fakes), and later Fabric Spark and Databricks Connect.
 - A **connection profile** says which platforms a piece of work uses, where, how it signs in,
   which engine it runs on by default, and whether it may start remote compute.
 
@@ -165,8 +165,9 @@ and outputs stay. A notebook with unsaved changes must be saved or discarded fir
 ## Not yet
 
 - No screens: the notebook's engine picker and profile setup come next, after a mockup.
-- No Databricks sign-in, workspace discovery or execution yet; those need the Databricks SDK and
-  will be labeled Preview until tested against a live workspace.
+- Databricks SQL warehouses sign in through the Databricks CLI or a service principal and run SQL
+  through the Statement Execution API, tested against fakes only. Databricks workspace discovery and
+  Databricks Connect aren't built yet, and stay Preview until tested against a live workspace.
 - Databricks Connect will run in its own Python environment: it ships its own PySpark, which would
   otherwise change what `spark` means in every local notebook. Its version is checked before
   anything starts (Databricks Runtime 16.4 or later, or serverless, for this app's Python 3.12).

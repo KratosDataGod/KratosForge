@@ -150,8 +150,8 @@ fabric-desktop pipeline schedule .\pl_hourly.DataPipeline --every-minutes 60 --m
 - **The pipeline must already run here.** Nobody is there to give a mock when a schedule fires, so the schedule is refused until every step runs on this PC or has a mock. The options are the same as `pipeline run`: `--param`, `--mocks`, `--notebook`, `--read-lakehouse`, `--workspace` and `--sql-project`.
 - **SecureString values are never kept.** A schedule refuses a value for a SecureString parameter, and the pipeline's default is used instead.
 - **The folder is read again at every run,** so a change pulled from Git is what the next run runs. If the change adds a step that needs a mock, that run fails before anything starts and says why.
-- **Each run is a normal local run.** It is kept with the other runs (Monitor > Runs and the pipeline's **Runs** tab show it). The schedule's line in **Monitor > KratosForge schedules** shows how the last run went, and a run that is still going when the next one is due makes that next one skip.
-- **Turning off or removing** a schedule works from **Monitor > KratosForge schedules**, as for notebook schedules. There's no way to add one from the Pipelines page yet.
+- **Each run is a normal local run.** It is kept with the other runs (Monitor > Runs and the pipeline's **Runs** tab show it). The schedule's line in **Monitor > KratosForge > Schedules** shows how the last run went, and a run that is still going when the next one is due makes that next one skip.
+- **Turning off or removing** a schedule works from **Monitor > KratosForge > Schedules**, as for notebook schedules. There's no way to add one from the Pipelines page yet.
 
 The engine method is `add_pc_schedule` with a `pipeline` target: `{"kind": "pipeline", "path", "parameters", "mocks", "notebooks", "read_lakehouses", "workspace_id", "sql_projects"}`. `pc_schedules_for("pipeline", path=...)` lists one folder's schedules.
 

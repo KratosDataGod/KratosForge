@@ -76,7 +76,7 @@ function runAsPanel() {
   const box = h("div", { class: "inc-panel" }, h("p", { class: "muted-text monitor-empty" }, "Reading who runs what..."));
   loadRunAs(box);
   return h("div", { class: "mon-how" }, withHowItWorks(box, howItWorks("monitor.runas", {
-    reads: "Your sign-in on this PC and your organization's policy, each agent's status record in the environments' LH_Meta, and the Fabric schedules Monitor > Fabric schedules last read. It makes no Fabric call.",
+    reads: "Your sign-in on this PC and your organization's policy, each agent's status record in the environments' LH_Meta, and the Fabric schedules Monitor > Fabric > Schedules last read. It makes no Fabric call.",
     changes: "Nothing. Nothing here signs in, renews a certificate, rotates a secret or changes access. That happens in Microsoft Entra and on the agent's server.",
     results: "Nothing is stored. Agents report facts about their credential (a certificate's end date, their last token request), never the credential, its path or its thumbprint.",
     more: [["Unknown and Not visible", "Unknown means an older agent doesn't report it. Not visible means Fabric or Azure holds the credential and doesn't say when it lapses. Neither means it is broken."]],

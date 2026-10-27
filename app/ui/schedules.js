@@ -1,6 +1,6 @@
 // Schedules: on this PC (Windows Task Scheduler starts them, even with the app closed) or in
 // Fabric (its job scheduler, on capacity). One dialog adds them for a notebook or an environment;
-// Monitor > KratosForge schedules and Fabric schedules list every one.
+// Monitor > KratosForge > Schedules and Fabric schedules list every one.
 
 // What a run of a schedule on this PC did, as a pill.
 function scheduleRunPill(last) {
@@ -34,7 +34,7 @@ function confirmRemoveSchedule(what, text, fabric, offHere = true) {
   const how = fabric ? "Fabric deletes the schedule and stops starting runs from it."
     : "Its Windows task is deleted and it stops running on this PC.";
   return confirmDialog(`Remove the schedule for ${what}?`,
-    `${text}. ${how} Past runs stay where they are. To stop it for a while instead, turn it Off${offHere ? "" : " in Monitor > Fabric schedules"}.`, "Remove", { danger: true });
+    `${text}. ${how} Past runs stay where they are. To stop it for a while instead, turn it Off${offHere ? "" : " in Monitor > Fabric > Schedules"}.`, "Remove", { danger: true });
 }
 
 // Rows for this PC's schedules; actions redraw through `changed`.
@@ -127,12 +127,12 @@ async function openScheduleDialog(o) {
   showDialog(o.title, h("div", { class: "scroll" },
     h("div", { class: "compute-row" }, h("span", { class: "muted-text small" }, "Runs on"), seg),
     intro, list, h("b", {}, "Add a schedule"), form.fields,
-    h("p", { class: "muted-text small" }, "Every schedule, on this PC and in Fabric, is listed in Monitor > KratosForge schedules and Fabric schedules.")),
+    h("p", { class: "muted-text small" }, "Every schedule, on this PC and in Fabric, is listed in Monitor > KratosForge > Schedules and Fabric schedules.")),
   [btn("Close", null, closeDialog, "tool outline"), btn("Add schedule", "add", add, "tool primary")]);
   draw();
 }
 
-// ---------- Monitor > KratosForge schedules and Fabric schedules ----------
+// ---------- Monitor > KratosForge > Schedules and Fabric schedules ----------
 
 // Monitor has two schedule tabs: KratosForge schedules (panel "schedules", those Windows starts on this
 // PC) and Fabric schedules (panel "fabric_schedules", Fabric's job scheduler). Both read all_schedules.

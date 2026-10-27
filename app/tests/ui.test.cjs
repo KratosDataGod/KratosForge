@@ -908,10 +908,10 @@ test("the risk gate passes quietly, never runs a blocked item and needs the tick
   assert.deepStrictEqual(acks.map((a) => a.risk_id), ["r2"], "nothing is acknowledged when nothing was checked");
 });
 
-test("only Monitor > Runs shares the page with Fabric's hub, so Schedules and Cost get the whole page (#190)", () => {
+test("Fabric's hub is a Monitor tab of its own, so no list shares the page with it (#190)", () => {
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  // With From KratosForge in its own window (Pop out), Monitor here is the hub's band and the hub.
-  assert.match(src, /const wide = !runsOut && monitorPage\.panel !== "runs";/);
+  assert.match(src, /const hubShown = hub && !POP_OUT && !fabricOut;/);
+  assert.match(src, /page monitor\$\{hubShown \? "" : " no-fabric"\}/);
 });
 
 // The pure helpers at the top of replay.js.
@@ -1300,7 +1300,7 @@ test("Home doesn't say nothing needs attention when run history or Fabric jobs c
   assert.match(src, /couldn't check \$\{unread\.join\(", "\)\}/);
 });
 
-test("Monitor has four tabs, and Operations holds the workload views in the mockup's order (UX-010)", () => {
+test("Monitor's tabs are by source, and Operations holds the workload views in the mockup's order (UX-010)", () => {
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const literal = src.match(/const MONITOR_OPS = (\[[\s\S]*?\n\]);/)[1];
   const ops = JSON.parse(JSON.stringify(vm.runInNewContext(literal)));
@@ -1309,9 +1309,12 @@ test("Monitor has four tabs, and Operations holds the workload views in the mock
   assert.deepStrictEqual(ops.map((o) => o.panel), ["workloads", "queue", "agents", "runas", "incidents"]);
   const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
   for (const o of ops) assert.ok(features.includes(`${o.feature}:`), `${o.feature} is a registered preview feature`);
-  const tabs = src.slice(src.indexOf('const tabs = h("div", { class: "subtabs monitor-tabs"'), src.indexOf("Object.assign(monitorSlots"));
-  assert.deepStrictEqual([...tabs.matchAll(/"(Runs|KratosForge schedules|Fabric schedules|Schedules|Operations|Cost|Workloads|Queue|Agents|Run as|Incidents)"/g)].map((m) => m[1]),
-    ["Runs", "KratosForge schedules", "Fabric schedules", "Operations"]);
+  const sources = vm.runInNewContext(`${/const MONITOR_SOURCES = \[[\s\S]*?\];/.exec(src)[0].replace("const ", "")}; MONITOR_SOURCES`);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(sources.map(([, label]) => label))), ["KratosForge", "Fabric"]);
+  // Each tab's pages are on the view row's switcher.
+  const pages = src.slice(src.indexOf("const pages = source ==="), src.indexOf("const shown = pages.filter"));
+  assert.deepStrictEqual([...pages.matchAll(/"(Monitoring hub|Schedules|Runs|Operations)"/g)].map((m) => m[1]),
+    ["Monitoring hub", "Schedules", "Runs", "Schedules", "Operations"]);
 });
 
 test("Home's All schedules opens Fabric schedules when every upcoming schedule is in Fabric, else KratosForge schedules", () => {
@@ -2446,7 +2449,7 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.strictEqual(ok, "Remove");
   assert.strictEqual(opts.danger, true);
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true)[1], /Fabric deletes the schedule/);
-  assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Fabric schedules\.$/);
+  assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Fabric > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
 
@@ -4466,7 +4469,7 @@ test("folder actions are wired: a menu entry, New folder, the empty-only delete 
 test("a move that leaves something behind names it and says what to do", () => {
   const { nbRenameProblemLines } = notebookFolderHelpers();
   const lines = nbRenameProblemLines([{ notebook: "EMEA/B", was: "Sales/B", step: "schedules", error: "OSError: disk full" }]);
-  assert.deepStrictEqual([...lines], ["EMEA/B (was Sales/B): its schedules didn't follow (OSError: disk full). Open Monitor > KratosForge schedules and point its schedule on this PC at the new name."]);
+  assert.deepStrictEqual([...lines], ["EMEA/B (was Sales/B): its schedules didn't follow (OSError: disk full). Open Monitor > KratosForge > Schedules and point its schedule on this PC at the new name."]);
   assert.deepStrictEqual([...nbRenameProblemLines([])], []);
   const files = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
   assert.strictEqual(files.match(/nbRenameWarning\((out|ok)\.problems\)/g).length, 3);

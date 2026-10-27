@@ -1066,3 +1066,46 @@ def test_a_product_change_notice_names_its_followers_and_what_changed():
     title, lines = pn.message(event)
     assert title == "Data product changed: c360"
     assert "Version 1 to 2" in lines and lines[-1] == "Open it in KratosForge > Data mesh > Products."
+
+
+def _owned_product(platform):
+    platform.call("save_domain", domain={"name": "Sales"})
+    platform.call("register_project", project={"name": "crm", "domain": "sales"})
+    product = {"project": "crm", "name": "c360", "domain": "sales", "access": "public", "status": "published",
+               "owner": "bo@example.com"}
+    _as(platform, "bo@example.com").call("register_product", product=product, ports=[], env="prod")
+    return product
+
+
+def test_only_a_products_owners_or_an_admin_publish_it_again(platform):
+    product = _owned_product(platform)
+    eve = _as(platform, "eve@example.com")
+    with pytest.raises(core.PlatformError, match="Only crm/c360's owners or a platform admin"):
+        eve.call("register_product", product=dict(product, owner="eve@example.com", status="deprecated",
+                                                  deprecated_on="2020-01-01"), ports=[], env="prod")
+    with pytest.raises(core.PlatformError, match="owners or a platform admin"):
+        eve.call("register_product", product=product, ports=[], env="dev")  # every environment
+    row = [p for p in platform.call("list_products") if p["id"] == "crm/c360"][0]
+    assert (row["owner"], row["status"], row["updated_by"]) == ("bo@example.com", "published", "bo@example.com")
+    # An owner, in any case, and a platform admin both may.
+    _as(platform, "Bo@Example.com").call("register_product", product=dict(product, version="2"), ports=[], env="prod")
+    platform.call("register_product", product=dict(product, version="3"), ports=[], env="prod")
+
+
+def test_the_last_publisher_of_a_product_owned_by_a_team_publishes_it_again(platform):
+    product = dict(_owned_product(platform), owner="Customer team")  # a team name: no one to match
+    _as(platform, "bo@example.com").call("register_product", product=product, ports=[], env="prod")
+    _as(platform, "bo@example.com").call("register_product", product=dict(product, version="2"), ports=[], env="prod")
+    with pytest.raises(core.PlatformError, match="owners or a platform admin"):
+        _as(platform, "eve@example.com").call("register_product", product=product, ports=[], env="prod")
+
+
+def test_a_first_publish_naming_only_other_people_as_owners_is_refused(platform):
+    platform.call("register_project", project={"name": "crm"})
+    product = {"project": "crm", "name": "orders", "access": "public", "status": "published", "owner": "bo@example.com"}
+    eve = _as(platform, "eve@example.com")
+    with pytest.raises(core.PlatformError, match="add yourself to its owners"):
+        eve.call("register_product", product=product, ports=[], env="prod")
+    assert not [p for p in platform.call("list_products") if p["id"] == "crm/orders"]
+    eve.call("register_product", product=dict(product, owner="bo@example.com; eve@example.com"), ports=[], env="prod")
+    eve.call("register_product", product=dict(product, name="returns", owner="Orders team"), ports=[], env="prod")

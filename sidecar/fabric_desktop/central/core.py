@@ -755,9 +755,8 @@ def _may_publish(db: Db, pid: str, existing: dict[str, Any] | None, product: dic
     who = _who(by)
     if existing is not None:
         owners, last = _product_owners(existing), _who(existing.get("updated_by"))
-        # A row from before this check that names no owner and no publisher has no one to ask.
-        if not owners and not last:
-            return
+        # UDF_Platform has always recorded the publisher, so a row naming no owner and no publisher
+        # can't be told from one anyone could claim: only an admin publishes it again.
         if who and (who in owners or who == last):
             return
         raise PlatformError(f"Only {pid}'s owners or a platform admin can publish it. Its owners are "

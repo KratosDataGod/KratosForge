@@ -263,6 +263,7 @@ def test_a_prod_deprecation_is_told_once_not_again_as_a_product_change(svc, monk
     svc._local_platforms = {}  # the catalog asks who's signed in again
     svc._catalog().call("register_link", consumer="finance", alias="crm_customers", product_id="crm/customers",
                         port="customers", reads={"prod": "prod"})
+    svc._catalog().call("add_admin", user="ops@example.com")  # ops publishes a product they don't own
     monkeypatch.setattr(svc, "_user", lambda: "bo@example.com")  # follows, with no link of their own
     svc._local_platforms = {}
     svc.platform_follow("crm/customers")

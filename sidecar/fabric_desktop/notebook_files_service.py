@@ -221,13 +221,14 @@ def _no_link_below(top: str, full: str) -> bool:
     return True
 
 
-# Windows reparse tags that point somewhere else. Others, such as OneDrive's Files On-Demand
-# placeholders, are files and folders in place and pass.
-_LINK_TAGS = (0xA000000C, 0xA0000003)  # IO_REPARSE_TAG_SYMLINK, IO_REPARSE_TAG_MOUNT_POINT (a junction)
+# Windows reparse tags with the name-surrogate bit point somewhere else: symbolic links (0xA000000C),
+# junctions (0xA0000003), WSL links (0xA000001D) and any future link tag. Others, such as OneDrive's
+# Files On-Demand placeholders (0x9000001A), are files and folders in place and pass.
+_NAME_SURROGATE = 0x20000000  # IsReparseTagNameSurrogate
 
 
 def _is_link(st: os.stat_result) -> bool:
-    return stat.S_ISLNK(st.st_mode) or getattr(st, "st_reparse_tag", 0) in _LINK_TAGS
+    return stat.S_ISLNK(st.st_mode) or bool(getattr(st, "st_reparse_tag", 0) & _NAME_SURROGATE)
 
 
 def _local_path(path: Any) -> bool:

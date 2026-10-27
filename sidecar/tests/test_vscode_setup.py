@@ -191,8 +191,9 @@ def test_only_links_and_junctions_count_as_links_not_cloud_files():
     plain = 0o100644
     assert _is_link(SimpleNamespace(st_mode=plain, st_reparse_tag=0xA000000C))  # symbolic link
     assert _is_link(SimpleNamespace(st_mode=plain, st_reparse_tag=0xA0000003))  # junction
+    assert _is_link(SimpleNamespace(st_mode=plain, st_reparse_tag=0xA000001D))  # WSL symbolic link
     assert _is_link(SimpleNamespace(st_mode=0o120777))
-    for cloud in (0x9000001A, 0x9000101A, 0x9000601A):  # OneDrive Files On-Demand placeholders
+    for cloud in (0x9000001A, 0x9000101A, 0x9000601A, 0x8000001B):  # OneDrive placeholders, app exec alias
         assert not _is_link(SimpleNamespace(st_mode=plain, st_reparse_tag=cloud))
     assert not _is_link(SimpleNamespace(st_mode=plain))
 

@@ -43,7 +43,7 @@ function pcScheduleRows(rows, changed, { showWhat = false } = {}) {
     h("td", {}, onOffButton(s.enabled, async (on) => {
       if (await attempt(() => rpc("set_pc_schedule_enabled", { schedule_id: s.id, enabled: on }), on ? "Not turned on" : "Not paused")) changed();
     })),
-    showWhat ? h("td", {}, h("b", {}, s.label), h("div", { class: "muted-text small" }, s.target.kind === "notebook" ? "Notebook" : "Metadata run")) : null,
+    showWhat ? h("td", {}, h("b", {}, s.label), h("div", { class: "muted-text small" }, ({ notebook: "Notebook", pipeline: "Pipeline" })[s.target.kind] || "Metadata run")) : null,
     h("td", {}, s.text),
     h("td", {}, s.enabled ? nextRunText(s.next_run) : h("span", { class: "muted-text" }, "Paused")),
     h("td", {}, scheduleRunPill(s.last), s.last ? h("span", { class: "muted-text small" }, " ", when(s.last.started)) : null,

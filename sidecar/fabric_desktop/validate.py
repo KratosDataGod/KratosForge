@@ -22,7 +22,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from . import depgraph, envprofile, proof
+from . import depgraph, envprofile, notebook_cells, proof
 from .fabric_run import compute_check, uses_spark
 from .git import secrets
 
@@ -165,6 +165,11 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None, runs_on
     if frozen:
         out.append(finding("info", "frozen", f"Frozen: cell{'s' if len(frozen) > 1 else ''} {', '.join(map(str, frozen))}",
                            "Frozen cells don't run, here or in a clean run.", "", frozen[0], cells))
+    step = notebook_cells.step_cell(cells)
+    if step:
+        out.append(finding("info", "fabric_step", f"Runs on Fabric: cell {step}",
+                           "It runs only on Fabric Spark, after the cells before it run here, so a clean run on this "
+                           "PC skips it.", "", step, cells))
     reads = sorted({r["name"] for info in graph["cells"] for r in info["reads"] if r["kind"] == "table"})
     writes = sorted({w["name"] for info in graph["cells"] for w in info["writes"] if w["kind"] == "table"})
     if lakehouse:
@@ -194,10 +199,11 @@ def run_plan(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None, spar
     lakehouse.open_table and writes them through lakehouse.write_table, which the proof runtime pins
     and redirects like any other cell's. proof.check blocks Spark for a proof's Fabric side only."""
     pr = proof.check(cells, lakehouse)
-    blockers = [b for b in pr["blockers"] if b.get("cell") and _escapes(b["text"])
+    step = notebook_cells.step_cell(cells)  # a clean run skips it
+    blockers = [b for b in pr["blockers"] if b.get("cell") and b["cell"] != step and _escapes(b["text"])
                 and not (spark and b["text"].startswith("uses Spark"))]
     uncontained = [{"cell": w["cell"], "cell_id": w.get("cell_id"), "line": w.get("line"), "text": _effect(w["text"])[1]}
-                   for w in pr["warnings"] if not w["text"].startswith("uses the clock")]
+                   for w in pr["warnings"] if w["cell"] != step and not w["text"].startswith("uses the clock")]
     return {"ok": not blockers, "blockers": blockers, "uncontained": uncontained,
             "sandbox": bool(lakehouse)}
 

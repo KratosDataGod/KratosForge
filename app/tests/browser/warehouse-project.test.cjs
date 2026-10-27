@@ -142,15 +142,15 @@ test("Compare lists each object's state, shows the difference and can take the w
   assert.strictEqual(await view.locator(".wh-cmp-line.changed").count(), 2, "one changed line, both sides");
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "wh-12-compare.png") });
 
-  await view.getByRole("option", { name: /dbo\.vw_Targets/ }).click();
+  await view.getByRole("button", { name: /dbo\.vw_Targets/ }).click();
   await view.locator(".wh-cmp-diff").waitFor();
   assert.doesNotMatch(await view.locator(".wh-cmp-pane").textContent(), /null/, "no empty part shows as text");
-  await view.getByRole("option", { name: /dbo\.vw_Sales/ }).click();
+  await view.getByRole("button", { name: /dbo\.vw_Sales/ }).click();
   // A file that came in since the compare, at the place vw_Sales would go, is never overwritten without asking.
   const decoy = "CREATE VIEW dbo.vw_Other AS SELECT 9 AS z\n";
   fs.writeFileSync(file("dbo", "Views", "vw_Sales.sql"), decoy);
   await view.getByRole("button", { name: "Take the warehouse's version" }).click();
-  await page().waitForFunction(() => /already holds another script, so dbo\.vw_Sales wasn't written/.test([...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" ")));
+  await page().waitForFunction(() => /Could not write dbo\.vw_Sales: Its file would be dbo\/Views\/vw_Sales\.sql, which already defines dbo\.vw_Other\./.test([...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" ")));
   assert.strictEqual(fs.readFileSync(file("dbo", "Views", "vw_Sales.sql"), "utf8"), decoy);
   fs.rmSync(file("dbo", "Views", "vw_Sales.sql"));
   await view.getByRole("button", { name: "Take the warehouse's version" }).dispatchEvent("click");  // under the error toast
@@ -159,11 +159,11 @@ test("Compare lists each object's state, shows the difference and can take the w
   await page().waitForFunction(() => /Only in warehouse 0.*Same 3/.test(document.querySelector(".wh-cmp-chips")?.textContent || ""));
 
   await view.getByRole("button", { name: "Same 3" }).click();
-  assert.strictEqual(await view.getByRole("option").count(), 3);
+  assert.strictEqual(await view.locator(".wh-cmp-item").count(), 3);
   await view.getByRole("button", { name: "Changed 1" }).click();
-  await view.getByRole("option", { name: /dbo\.DimCustomer/ }).click();
+  await view.getByRole("button", { name: /dbo\.DimCustomer/ }).click();
   await view.getByRole("button", { name: "Take the warehouse's version" }).click();
-  const replace = page().getByRole("dialog", { name: "Take the warehouse's version" });
+  const replace = page().getByRole("dialog", { name: "Replace dbo/Tables/DimCustomer.sql?" });
   assert.match(await replace.getByRole("button", { name: "Replace" }).getAttribute("class"), /danger/, "replacing a file is a danger confirm");
   await replace.getByRole("button", { name: "Cancel" }).click();
   await view.getByRole("button", { name: "Open file" }).click();
@@ -178,6 +178,34 @@ test("a SQL analytics endpoint has no Project tab", { skip }, async () => {
   await page().evaluate(() => openWarehouseQuery({ kind: "endpoint", workspace_id: "ws1", workspace_name: "Sales Dev", item_id: "lh1", name: "LH_Gold" }));
   await page().waitForSelector(".warehouse-page .sql-edit .cm-editor");
   assert.strictEqual(await projectTab().count(), 0);
+});
+
+test("Compare with its sign-in window closed shows no error; any other failure says what failed", { skip }, async () => {
+  const toasts = () => page().evaluate(() => [...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" "));
+  // The engine's answer to wh_project_compare, swapped for an error on its way to the page.
+  const failCompare = (message) => page().evaluate((m) => {
+    window.realCall ??= window.__fdCall;
+    window.compareAsked = 0;
+    window.__fdCall = async (method, params) => {
+      if (method !== "wh_project_compare") return window.realCall(method, params);
+      window.compareAsked++;
+      return { error: m };
+    };
+  }, message);
+  try {
+    await page().evaluate((wh) => openWarehouseQuery(wh), WH);
+    await projectTab().click();
+    await failCompare("SignInCancelled: closed");
+    await panel().getByRole("button", { name: "Compare with WH_Gold" }).click();
+    await page().waitForFunction(() => window.compareAsked === 1);
+    await page().waitForTimeout(200);
+    assert.doesNotMatch(await toasts(), /Could not compare/);
+    await failCompare("The warehouse didn't answer.");
+    await panel().getByRole("button", { name: "Compare with WH_Gold" }).click();
+    await page().waitForFunction(() => /Could not compare: The warehouse didn't answer/.test([...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" ")));
+  } finally {
+    await page().evaluate(() => { if (window.realCall) window.__fdCall = window.realCall; });
+  }
 });
 
 test("nothing on the page threw", { skip }, async () => {

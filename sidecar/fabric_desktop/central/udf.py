@@ -497,6 +497,36 @@ def remove_product_term(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionC
     return _run(sqlDB, "remove_product_term", ctx, product_id=product_id, term=term)
 
 
+# ---- following a data product (Preview)
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def follow_product(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, product_id: str) -> list:
+    return _run(sqlDB, "follow_product", ctx, product_id=product_id)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def unfollow_product(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, product_id: str) -> list:
+    return _run(sqlDB, "unfollow_product", ctx, product_id=product_id)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def list_follows(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext) -> list:
+    return _run(sqlDB, "list_follows", ctx)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def product_followers(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, product_id: str) -> list:
+    return _run(sqlDB, "product_followers", ctx, product_id=product_id)
+
+
 # ---- owner coverage (Preview)
 
 @udf.connection(argName="sqlDB", alias="platform")

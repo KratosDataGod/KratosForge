@@ -10,19 +10,47 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
+import stat
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from . import model_ossie
+from . import model_ossie, tmdl
 from .jsonfile import write_text
 from .meta.store import OneLakeStore
+from .notebook_files_service import _is_link
 
 METHODS = {"meta_model_ossie_models", "meta_model_ossie_export", "meta_model_ossie_save", "meta_model_ossie_read",
-           "meta_model_ossie_preview", "meta_model_ossie_import", "meta_model_tmdl_save"}
+           "meta_model_ossie_preview", "meta_model_ossie_import", "meta_model_tmdl_save",
+           "meta_model_ossie_folders", "meta_model_ossie_export_folder"}
 FOLDER = "semantic"
 MODES = ("update", "replace", "new")
 _SAFE = re.compile(r"[^A-Za-z0-9 _.-]+")
+
+
+def _real(path: Path, kind: Any) -> bool:
+    """Whether ``path`` is a folder or file (``kind`` is stat.S_ISDIR or S_ISREG) in place, never a symbolic
+    link, junction or other Windows link, which could point outside the project or at a network share. Only
+    lstat is called, so a link's target is never opened."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    return not _is_link(st) and kind(st.st_mode)
+
+
+def _tmdl_files(top: Path) -> list[Path]:
+    """The .tmdl files under ``top``, never going into a link or junction."""
+    found: list[Path] = []
+    with os.scandir(top) as entries:
+        for e in entries:
+            here = Path(e.path)
+            if _real(here, stat.S_ISDIR):
+                found += _tmdl_files(here)
+            elif e.name.endswith(".tmdl") and _real(here, stat.S_ISREG):
+                found.append(here)
+    return found
 
 
 class ModelOssieMixin:
@@ -65,6 +93,55 @@ class ModelOssieMixin:
             raise LookupError(f"There's no semantic model named {name} in {cfg.get('workspace_name') or 'the workspace'}")
         out = model_ossie.export(self._model_bim(cfg["workspace_id"], model), translate_dax=translate_dax)
         return out | {"model": name, "path": f"{FOLDER}/{_SAFE.sub('_', name).strip() or 'model'}.ossie.yaml"}
+
+    def _model_folders(self, project: Any) -> list[Path]:
+        base = Path(project.root, FOLDER)
+        if not _real(base, stat.S_ISDIR):
+            return []
+        return sorted((Path(e.path) for e in os.scandir(base)
+                       if e.name.endswith(".SemanticModel") and _real(Path(e.path), stat.S_ISDIR)), key=lambda p: p.name.lower())
+
+    def meta_model_ossie_folders(self) -> dict[str, Any]:
+        """The semantic models kept in the project's folder (semantic/<name>.SemanticModel/, the Power BI
+        project layout Save TMDL to Git writes), which Export reads on this PC with no Fabric call."""
+        project = self._project()  # type: ignore[attr-defined]
+        return {"folders": [{"path": p.relative_to(project.root).as_posix(), "name": p.name.removesuffix(".SemanticModel")}
+                            for p in self._model_folders(project)]}
+
+    def meta_model_ossie_export_folder(self, path: str, translate_dax: bool = True) -> dict[str, Any]:
+        """A model kept in the project's folder as Ossie YAML, read from its TMDL (or model.bim) on this PC.
+        Nothing is read from Fabric and nothing is saved. The report also lists anything the TMDL reader left out."""
+        project = self._project()  # type: ignore[attr-defined]
+        rel = PurePosixPath(path.replace("\\", "/"))
+        folder = next((p for p in self._model_folders(project) if p.relative_to(project.root).as_posix() == rel.as_posix()), None)
+        if folder is None:
+            raise LookupError(f"There's no model folder {path}; pick one from {FOLDER}/<name>.SemanticModel")
+        name = folder.name.removesuffix(".SemanticModel")
+        definition = folder / "definition"
+        if _real(definition, stat.S_ISDIR):
+            files: dict[str, str] = {}
+            total = 0
+            for f in sorted(_tmdl_files(definition)):
+                total += f.stat().st_size
+                if total > tmdl.MAX_CHARS * 4:
+                    raise ValueError(f"{name}'s TMDL is too large to read on this PC")
+                files[f.relative_to(folder).as_posix()] = f.read_text(encoding="utf-8-sig")
+            bim, read_report = tmdl.to_bim(files, name)
+        elif _real(folder / "model.bim", stat.S_ISREG):
+            if (folder / "model.bim").stat().st_size > tmdl.MAX_CHARS * 4:
+                raise ValueError(f"{name}'s model.bim is too large to read on this PC")
+            try:
+                bim, read_report = json.loads((folder / "model.bim").read_text(encoding="utf-8-sig")), []
+            except RecursionError:
+                raise ValueError(f"{path}/model.bim is nested too deeply to be a semantic model") from None
+            if not isinstance(bim, dict):
+                raise ValueError(f"{path}/model.bim isn't a semantic model")
+            bim["name"] = name
+        else:
+            raise ValueError(f"{path} has neither definition/ (TMDL) nor model.bim")
+        out = model_ossie.export(bim, translate_dax=translate_dax)
+        return out | {"model": name, "report": read_report + out["report"],
+                      "path": f"{FOLDER}/{_SAFE.sub('_', name).strip() or 'model'}.ossie.yaml"}
 
     def _ossie_path(self, project: Any, path: str, suffixes: tuple[str, ...]) -> Path:
         rel = PurePosixPath(path.replace("\\", "/"))

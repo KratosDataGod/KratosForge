@@ -48,8 +48,9 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [notebooks.md](notebooks.md) | Engineers, analysts | Notebooks on your PC, Fabric code that works here, publishing, Run in Fabric, schedules, SQL query |
 | [notebook-spark-on-this-pc.md](notebook-spark-on-this-pc.md) | Engineers | Which PySpark methods and Spark settings work on this PC |
 | [sql-compatibility.md](sql-compatibility.md) | Engineers, analysts | Checking SQL against Fabric Warehouse, SQL analytics endpoint, SQL database and Spark before running it; the rules and their sources |
+| [semantic-model-rules.md](semantic-model-rules.md) | Engineers, BI developers | Best Practice Analyzer rules for the semantic model Update model writes, checked on this PC (Preview) |
 | [sql-best-practices.md](sql-best-practices.md) | Engineers, analysts | Best-practice checks on Warehouse and SQL endpoint T-SQL, read on this PC without running it (Preview) |
-| [warehouse.md](warehouse.md) | Engineers, analysts | Warehouses (Preview): the Warehouse page, read-only T-SQL on a Fabric warehouse or SQL analytics endpoint, what runs in Fabric, the plan |
+| [warehouse.md](warehouse.md) | Engineers, analysts | Warehouses (Preview): the Warehouse page, T-SQL on a Fabric warehouse or SQL analytics endpoint, changes after a preview and confirm, the warehouse project in Git with compare and deploy, what runs in Fabric, the plan |
 | [sql-execution.md](sql-execution.md) | Engineers, analysts, IT | How SQL page queries run on this PC: Stop, time and memory limits, paging, CSV/Parquet export, what a query may change, audit |
 | [local-data.md](local-data.md) | Engineers, analysts | Local data projects (Preview): folders of files as SQL tables on your PC, naming rules, limits, where it is kept |
 | [side-by-side.md](side-by-side.md) | Engineers, analysts | Running a notebook on this PC and in Fabric side by side, how results are checked, and the TPC-H benchmark |
@@ -62,7 +63,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [notebook-resources.md](notebook-resources.md) | Engineers, analysts | Notebook resources: files beside a notebook, read in cells as `builtin/<file>`, and where they go |
 | [notebook-magics.md](notebook-magics.md) | Engineers, analysts | Notebook magics and cell languages: SQL results in `_sqldf`, `%sql` inside Python, what runs on this PC |
 | [notebook-files.md](notebook-files.md) | Engineers, analysts | All notebooks and search inside them, open a notebook file, save a copy, delete and restore, and edit a Fabric notebook on this PC (Preview) |
-| [vscode.md](vscode.md) | Engineers | VS Code and KratosForge on the same notebooks: Open in VS Code, editing in both, Copilot (Preview) |
+| [vscode.md](vscode.md) | Engineers | VS Code and KratosForge on the same notebooks: Open in VS Code, editing in both, `kratosforge://` links back, repository setup, Copilot (Preview) |
 | [notebook-fabric-step.md](notebook-fabric-step.md) | Engineers | Run the last cell on Fabric Spark after the others run on this PC, to V-Order tables for Direct Lake (Preview) |
 | [notebook-best-practices.md](notebook-best-practices.md) | Engineers | Best-practice checks on a notebook's code, read on this PC without running it (Preview) |
 | [notebook-folders.md](notebook-folders.md) | Engineers, analysts | Notebook folders: group notebooks into folders, move a notebook into one, rename a folder, delete an empty one; publishing from a folder (Preview) |
@@ -86,6 +87,8 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [governance.md](governance.md) | Platform owners, team leads | Governance policies (Preview): the policy registry, drafts and versions, enterprise to entity scopes, mandatory policies, governance.toml, who can change what |
 | [governance-guide.md](governance-guide.md) | Platform owners, team leads | Governance guide (Preview): draft to result, worked examples (naming, classification, ownership), what can be enforced and by whom |
 | [data-mesh.md](data-mesh.md) | Team leads, engineers | Domains, workspace designations, data products, links between teams, catalog text |
+| [direct-lake-check.md](direct-lake-check.md) | Engineers, team leads | The Direct Lake check (Preview): Direct Lake limits per capacity, schema drift and relationship keys, checked on this PC |
+| [data-dictionary.md](data-dictionary.md) | Engineers, data stewards | The data dictionary (Preview): descriptions for a layer's model, exported to Excel and imported back, then written into the model |
 | [semantic-model-ossie.md](semantic-model-ossie.md) | Engineers, team leads | Semantic models to and from Apache Ossie (Preview): export to a `.ossie.yaml` file, import with a preview of every change, what a round trip keeps |
 | [shortcuts.md](shortcuts.md) | Engineers, platform owners | The shortcut command center: health checks, who can read a shortcut, shortcut rules, change history with undo, repointing, requests |
 | [source-control.md](source-control.md) | Engineers, analysts | Source control (Preview): clone, diffs, branches, commit, pull and push, the secret check, what it doesn't do yet |
@@ -118,7 +121,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [finops/plan.md](finops/plan.md) | Contributors, platform owners | The administration and FinOps program (FINOPS-001 to 005): audit, overlaps, PRs |
 | [product/enterprise-gap-analysis.md](product/enterprise-gap-analysis.md) | Platform owners, contributors | The enterprise product program: what exists for each capability FD-101 to FD-140, what's missing and who owns it ([backlog](product/enterprise-backlog.md), [decisions](product/implementation-decisions.md)) |
 | [product/release-readiness.md](product/release-readiness.md) | Platform owners | What must be true before an enterprise pilot, the capability matrix and the pilot checklist |
-| [product/PRODUCT_MANAGEMENT_PROCESS.md](product/PRODUCT_MANAGEMENT_PROCESS.md) | Product owner, contributors | How work is chosen, ranked, built and accepted: the [feature inventory](product/FEATURE_INVENTORY.md), [backlog](product/PRODUCT_BACKLOG.md), [roadmap](product/PRIORITIZED_ROADMAP.md), [PR-ready specs](product/pr-ready/README.md), [implementation review](product/IMPLEMENTATION_REVIEW_PROCESS.md) and [competitive matrix](product/COMPETITIVE_CAPABILITY_MATRIX.md) |
+| [product/PRODUCT_MANAGEMENT_PROCESS.md](product/PRODUCT_MANAGEMENT_PROCESS.md) | Product owner, contributors | How work is chosen, ranked, built and accepted: the [feature inventory](product/FEATURE_INVENTORY.md), [backlog](product/PRODUCT_BACKLOG.md), [roadmap](product/PRIORITIZED_ROADMAP.md), [PR-ready specs](product/pr-ready/README.md), [implementation review](product/IMPLEMENTATION_REVIEW_PROCESS.md), [competitive matrix](product/COMPETITIVE_CAPABILITY_MATRIX.md) and [development status](product/DEVELOPMENT_STATUS.md) |
 | [why-kratosforge.md](why-kratosforge.md) | Everyone | Why it exists: the Power BI model for data engineering |
 | [CONTRIBUTING.md](https://github.com/KratosDataGod/KratosForge/blob/main/CONTRIBUTING.md) | Contributors | Setting up, rules for changes, pull requests |
 
@@ -159,6 +162,7 @@ KratosForge is new, and it's honest about what has been proven.
 | New notebook wizard | Create > Notebook from a template |
 | Notebook import and export formats | Home > Import from Fabric or Databricks; a notebook's Home tab > Share > Export ([notebook-import-export.md](notebook-import-export.md)) |
 | Cell dependencies | Notebook ribbon, View and Run tabs (with Run stale cells) |
+| Notebook best practices | Notebook ribbon, View tab > Best practices ([notebook-best-practices.md](notebook-best-practices.md)) |
 | Parameters and widgets bar | Notebook, above the cells (parameter cell values and Databricks widgets) |
 | Failure replay bundles | Under a cell that failed on this PC; Create > Open replay bundle |
 | Notebook sessions | Notebook status bar > Sessions (a session per notebook, several running at once; limits in Settings > Preview features) |
@@ -173,6 +177,8 @@ KratosForge is new, and it's honest about what has been proven.
 | Table health | Data mesh > Quality (with Optimize) |
 | Semantic model | Data mesh > Deploy |
 | Semantic models and Apache Ossie | Data mesh > Deploy > Semantic model ([semantic-model-ossie.md](semantic-model-ossie.md)) |
+| Direct Lake check | Data mesh > Deploy > Semantic model ([direct-lake-check.md](direct-lake-check.md)) |
+| Data dictionary | Data mesh > Deploy > Semantic model ([data-dictionary.md](data-dictionary.md)) |
 | Tests | Data mesh > Quality |
 | Estate X-ray | Home |
 | Optimize | Optimize |

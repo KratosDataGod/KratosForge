@@ -44,6 +44,7 @@ With Microsoft's sign-in, KratosForge asks each Microsoft API for its default ac
 | Seeing which Fabric domain a project's workspaces are in | Fabric | Yes. Any workspace member can read it |
 | The [live test](live-testing.md): creating and deleting a throwaway lakehouse, OneLake files and a Delta table in a workspace marked for tests | Fabric, OneLake (Azure Storage) | Yes. Nothing new is asked; you need Contributor or higher on the test workspace |
 | Queries on a Data warehouse or SQL analytics endpoint (Preview, [SQL execution](sql-execution.md#queries-on-a-warehouse-preview)) | Azure SQL (`https://database.windows.net/.default`) | Not yet tried; the first live query checks it. If Microsoft's app is refused, warehouse queries need your own app registration with Azure SQL Database `user_impersonation` |
+| A warehouse's Monitoring tab (Preview, [Warehouse](warehouse.md#monitoring-preview)): reading the workspace's monitoring KQL database | Kusto (`https://kusto.kusto.windows.net/.default`) | Not yet tried; the first Monitoring tab read checks it. If Microsoft's app is refused, monitoring reads need your own app registration with Azure Data Explorer `user_impersonation` |
 | `notebookutils.credentials.getSecret` in notebooks on the PC | Azure Key Vault | Possibly not. Needs your own app registration |
 | `notebookutils.credentials.getToken` in notebooks on the PC | The API the notebook names: `storage` (Azure Storage), `pbi` (Power BI Service), `keyvault` (Azure Key Vault), `kusto` (Azure Data Explorer) or any resource URL | For Azure Storage and Power BI Service, yes. For any other API, possibly not; with your own app registration, add that API's permission |
 
@@ -66,6 +67,7 @@ With your own app, KratosForge signs in with the browser (not Windows sign-in) a
 | --- | --- | --- | --- |
 | Azure Key Vault | `user_impersonation` | Notebooks reading secrets with `notebookutils.credentials.getSecret` on this PC | Optional, when a notebook asks |
 | Azure SQL Database | `user_impersonation` | Queries on a Data warehouse or SQL analytics endpoint (Preview, [SQL execution](sql-execution.md#queries-on-a-warehouse-preview)), and changes to a warehouse you confirm, including deploys from a warehouse project (WH-10, WH-13, same scope; Fabric's own permissions on the warehouse decide what you can change) | On first use |
+| Azure Data Explorer | `user_impersonation` | Reading a workspace's monitoring KQL database on a warehouse's Monitoring tab (WH-19, Preview). Building its monitoring views creates KQL querysets with Fabric's `Item.ReadWrite.All`, which sign-in already asks for | On first use |
 | Azure Storage | `user_impersonation` | Reading and writing OneLake: tables, files, the Fabric runner bundle; listing the platform's landing zone | At first sign-in |
 | Microsoft Graph | `User.ReadBasic.All` | Adding someone to a data access role who has no role in the workspace yet | Optional, on first use |
 | Power BI Service | `Capacity.Read.All` | Listing capacities when you create a workspace, the size and status of each environment's capacity (Optimize > Cost and savings, Data mesh > Environments), and reading capacities for the capacity settings history (`capacity_settings_read`, Preview: Optimize > Settings history; it only reads), and the capacity repository's drift report (`git_capacity_diff`, Preview: Source control > Capacity; it only reads) | On first use |
@@ -177,7 +179,9 @@ Each connected tool gets some of these categories, in alphabetical order:
 | `WRITE_LOCAL_FILES` | Create and change notebooks in the notebook folder on the PC | Offered; asks first unless pre-approved |
 | `WRITE_ONELAKE` | Write tables and files in OneLake | Not offered |
 
-Policy keys `integrations`, `integrations_http`, `integrations_max_permissions` and `integrations_extensions` ([azure-setup.md](azure-setup.md#4-push-settings-to-everyone)) turn integrations off, cap the categories or limit which extensions can be turned on. Extensions add capabilities in these same categories; they add no new ones. The threat model is in [ai-integration-security.md](product/ai-integration-security.md).
+Policy keys `integrations`, `integrations_http`, `integrations_editors`, `integrations_max_permissions` and `integrations_extensions` ([azure-setup.md](azure-setup.md#4-push-settings-to-everyone)) turn integrations off, cap the categories or limit which extensions can be turned on. Extensions add capabilities in these same categories; they add no new ones. The threat model is in [ai-integration-security.md](product/ai-integration-security.md).
+
+A paired VS Code window ([Run cells from VS Code](vscode.md#run-cells-from-vs-code)) runs cells as you, with your sign-in, in notebooks inside the folder it paired from. The OneLake write question it gets is a guard rail, not a control; `integrations_editors: false` is the control, and it ends every pairing at the next call.
 
 ## Keeping this page right
 

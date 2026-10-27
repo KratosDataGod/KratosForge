@@ -17,6 +17,7 @@ mod deep_link;
 mod engine_patch;
 mod exe_name;
 mod policy_file;
+mod policy_trust;
 mod replies;
 mod update_guard;
 mod vscode_link;
@@ -34,6 +35,12 @@ const BUILD_COMMIT: &str = env!("FABRIC_BUILD_COMMIT");
 
 /// The app (client) ID CI built in; the sidecar uses it unless policy or Settings name another.
 const BUILTIN_CLIENT_ID: &str = env!("FABRIC_BUILTIN_CLIENT_ID");
+/// The SHA-256 of this build's own engine zip and engine update zip, which CI builds before the
+/// exe and bakes in (build.rs); empty in local builds. The engine for this build must match them
+/// wherever it was downloaded from, so a changed copy on GitHub or in IT's own folder
+/// (engine_download_url) is refused even with a version.json made to match it.
+const BUILD_ENGINE_SHA256: &str = env!("FABRIC_BUILD_ENGINE_SHA256");
+const BUILD_ENGINE_UPDATE_SHA256: &str = env!("FABRIC_BUILD_ENGINE_UPDATE_SHA256");
 
 /// Reads one key of a settings file's text; None when the text isn't JSON or the key is missing.
 fn setting(text: &str, key: &str) -> Option<String> {
@@ -64,6 +71,50 @@ fn policy_allows_link_scheme(text: &str) -> bool {
 fn policy_allows_updates(text: &str) -> bool {
     let value: Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).unwrap_or(Value::Null);
     value.get("auto_update").and_then(Value::as_bool) != Some(false)
+}
+
+/// Where IT keeps this build's engine, from `"engine_download_url"` in the policy file: an https
+/// folder holding the files of this build's `build-*` release, copied unchanged, for networks that
+/// can't reach GitHub. Used only with `"auto_update": false`, since only then is the engine one
+/// known build; its version.json must still name this build (check_engine_build) and the zip must
+/// match its checksum. Those checks come from the same folder, so the folder is trusted only as far
+/// as the policy file: it is read from policy.json itself (never the per-user last good copy), and
+/// only when a standard user couldn't have written that file or its folder (policy_trust).
+fn engine_mirror() -> Option<String> {
+    engine_mirror_state().unwrap_or_else(|why| {
+        eprintln!("engine_download_url ignored, so the engine comes from GitHub: {why}");
+        None
+    })
+}
+
+/// The engine folder to use, or why a valid one in a managed policy file is ignored. The file's
+/// permissions are checked before it is read, so what is read is what only administrators wrote.
+fn engine_mirror_state() -> Result<Option<String>, String> {
+    let Some(dir) = std::env::var_os("ProgramData") else { return Ok(None) };
+    let file = PathBuf::from(dir).join("FabricDesktop").join("policy.json");
+    let trusted = policy_trust::admin_only(&file);
+    let text = std::fs::read_to_string(&file).unwrap_or_default();
+    if policy_allows_updates(&text) {
+        return Ok(None);
+    }
+    match (policy_engine_url(&text), trusted) {
+        (Some(url), Ok(())) => Ok(Some(url)),
+        (Some(_), Err(why)) => Err(why),
+        (None, _) => Ok(None),
+    }
+}
+
+/// `engine_download_url` when it is an https address with a host name and nothing else that could
+/// change where it leads (no user name, query, fragment, backslash or space), without its trailing /.
+fn policy_engine_url(text: &str) -> Option<String> {
+    let value: Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).ok()?;
+    let url = value.get("engine_download_url")?.as_str()?.trim().trim_end_matches('/');
+    let rest = url.strip_prefix("https://")?;
+    let authority = rest.split('/').next().unwrap_or("");
+    let (host, port) = authority.split_once(':').unwrap_or((authority, "443"));
+    let port_ok = !port.is_empty() && port.len() <= 5 && port.bytes().all(|b| b.is_ascii_digit());
+    let clean = url.is_ascii() && !url.bytes().any(|b| b.is_ascii_control() || b" ?#@\\%".contains(&b));
+    (clean && port_ok && dns_name(host)).then(|| url.to_owned())
 }
 
 /// Extra hosts the Fabric view may open for sign-in: the organization's own identity provider
@@ -97,7 +148,24 @@ fn dns_name(host: &str) -> bool {
 
 #[cfg(test)]
 mod policy_tests {
-    use super::{policy_allows_link_scheme, policy_allows_updates};
+    use super::{policy_allows_link_scheme, policy_allows_updates, policy_engine_url};
+
+    #[test]
+    fn engine_download_url_is_an_https_folder_or_nothing() {
+        let url = |v: &str| policy_engine_url(&format!(r#"{{"engine_download_url": {v}}}"#));
+        assert_eq!(url(r#""https://files.contoso.com/kratosforge/build-1/""#).as_deref(),
+                   Some("https://files.contoso.com/kratosforge/build-1"));
+        assert_eq!(url(r#""https://files.contoso.com:8443/kf""#).as_deref(), Some("https://files.contoso.com:8443/kf"));
+        for bad in [r#""http://files.contoso.com/kf""#, r#""\\\\server\\share""#, r#""file:///C:/kf""#,
+                    r#""https://user:pw@files.contoso.com/kf""#, r#""https://files.contoso.com/kf?sig=x""#,
+                    r#""https://files.contoso.com/kf#x""#, r#""https://10.0.0.5/kf""#, r#""https:///kf""#,
+                    r#""https://files.contoso.com:/kf""#, r#""https://files.contoso.com/a b""#,
+                    r#""https://files.contoso.com/%2e%2e""#, r#""https://files.contoso.com\\kf""#, "true", "[]"] {
+            assert_eq!(url(bad), None, "{bad}");
+        }
+        assert_eq!(policy_engine_url("{}"), None);
+        assert_eq!(policy_engine_url("not json"), None);
+    }
 
     #[test]
     fn only_policy_false_stops_the_link_scheme() {
@@ -192,7 +260,10 @@ fn missing_release_file(err: &str) -> bool {
 }
 
 fn release_file(tag: &str, file: &str) -> String {
-    format!("https://github.com/KratosDataGod/KratosForge/releases/download/{tag}/{file}")
+    match engine_mirror() {
+        Some(folder) => format!("{folder}/{file}"),
+        None => format!("https://github.com/KratosDataGod/KratosForge/releases/download/{tag}/{file}"),
+    }
 }
 
 /// One of Windows' own tools (curl.exe, tar.exe, rundll32.exe) by its full path. By bare name,
@@ -232,6 +303,20 @@ fn check_engine_zip(actual_sha256: &str, release: &Value) -> Result<Option<Strin
             .into()),
         None => Err("The engine's release gives no checksum for it, so it wasn't installed.".into()),
     }
+}
+
+/// Checks a downloaded zip of `build`'s engine against the checksum baked into this exe for its
+/// own engine (BUILD_ENGINE_SHA256 or BUILD_ENGINE_UPDATE_SHA256). An engine of another build
+/// (a self-updating PC moving to a newer one) or an exe built without one is checked only
+/// against its release, as before.
+fn check_pinned_engine(actual_sha256: &str, pinned: &str, build: Option<&str>, own_build: &str) -> Result<(), String> {
+    let own = build.is_none_or(|b| b.eq_ignore_ascii_case(own_build));
+    if pinned.is_empty() || !own || pinned.eq_ignore_ascii_case(actual_sha256) {
+        return Ok(());
+    }
+    Err("The engine download isn't the engine this app was built with, so it wasn't installed. \
+         Ask IT to copy this build's engine files again, unchanged."
+        .into())
 }
 
 /// Release builds run the bundled engine; local builds, and anyone who sets
@@ -440,6 +525,8 @@ impl Sidecar {
         let mut cmd = Command::new(python);
         cmd.args(["-m", "fabric_desktop.server"])
             .env("FABRIC_DESKTOP_BUILTIN_CLIENT_ID", BUILTIN_CLIENT_ID)
+            // So Settings > Help and about can say why IT's engine folder isn't used (app_settings).
+            .env("FABRIC_DESKTOP_ENGINE_URL_IGNORED", engine_mirror_state().err().unwrap_or_default())
             .current_dir(data_dir())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -831,7 +918,8 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
         let mut curl = Command::new(system_tool("curl.exe"));
         // Give up on a dead or stalled connection (under 1 KB/s for a minute) instead of
         // leaving "Downloading the engine" up for ever; Retry is then shown.
-        curl.args(["-L", "--fail", "-sS", "--connect-timeout", "20", "--speed-limit", "1024", "--speed-time", "60",
+        curl.args(["-L", "--proto", "=https", "--proto-redir", "=https"]);
+        curl.args(["--fail", "-sS", "--connect-timeout", "20", "--speed-limit", "1024", "--speed-time", "60",
                    "--retry", "2", "-H", "Cache-Control: no-cache", "-o"])
             .arg(&zip)
             .arg(format!("{}?nocache={nocache}", release_file(tag, "fabric-desktop-engine.zip")));
@@ -843,7 +931,8 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
             // Its checksum comes from the same release, fetched after the zip: CI uploads
             // version.json last, so it never names a zip older than the one just downloaded.
             let mut curl = Command::new(system_tool("curl.exe"));
-            curl.args(["-L", "--fail", "-sS", "--connect-timeout", "20", "--max-time", "60", "-H",
+            curl.args(["-L", "--proto", "=https", "--proto-redir", "=https"]);
+            curl.args(["--fail", "-sS", "--connect-timeout", "20", "--max-time", "60", "-H",
                        "Cache-Control: no-cache", "-o"])
                 .arg(&release_json)
                 .arg(format!("{}?nocache={nocache}", release_file(tag, "version.json")));
@@ -861,6 +950,14 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
     }
     if let Err(e) = result {
         let _ = std::fs::remove_file(&zip);
+        if let (Some(folder), true) = (engine_mirror(), missing_release_file(&e)) {
+            return Err(format!(
+                "Your organization keeps this app's engine at {folder}, and the engine for this build ({}) isn't \
+                 there, so none was installed. Ask IT to copy the files of release build-{} there.",
+                BUILD_COMMIT.get(..7).unwrap_or(BUILD_COMMIT),
+                BUILD_COMMIT.get(..12).unwrap_or(BUILD_COMMIT)
+            ));
+        }
         if !auto_update_allowed() && missing_release_file(&e) {
             return Err(format!(
                 "Your organization rolls out builds itself, and this app's build ({}) no longer has an engine to \
@@ -883,7 +980,9 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
     }
     say("Checking the download…");
     let sha = sha256_file(&zip)?;
-    let named = match check_engine_zip(&sha, &release) {
+    let named = match check_engine_zip(&sha, &release)
+        .and_then(|named| check_pinned_engine(&sha, BUILD_ENGINE_SHA256, named.as_deref(), BUILD_COMMIT).map(|()| named))
+    {
         Ok(named) => named,
         Err(e) => {
             let _ = std::fs::remove_file(&zip);
@@ -948,7 +1047,8 @@ fn update_engine_code(root: &std::path::Path, nocache: u64, say: &dyn Fn(&str)) 
     let tags = engine_tags();
     for tag in &tags {
         let mut curl = Command::new(system_tool("curl.exe"));
-        curl.args(["-L", "--fail", "-sS", "--connect-timeout", "20", "--max-time", "60", "-H",
+        curl.args(["-L", "--proto", "=https", "--proto-redir", "=https"]);
+        curl.args(["--fail", "-sS", "--connect-timeout", "20", "--max-time", "60", "-H",
                    "Cache-Control: no-cache", "-o"])
             .arg(&release_json)
             .arg(format!("{}?nocache={nocache}", release_file(tag, "version.json")));
@@ -984,13 +1084,17 @@ fn update_engine_code(root: &std::path::Path, nocache: u64, say: &dyn Fn(&str)) 
     say("Python and its packages are unchanged, so only the engine's own code is downloaded (a few MB)…");
     let zip = root.join("update.zip");
     let mut curl = Command::new(system_tool("curl.exe"));
-    curl.args(["-L", "--fail", "-sS", "--connect-timeout", "20", "--speed-limit", "1024", "--speed-time", "60",
+    curl.args(["-L", "--proto", "=https", "--proto-redir", "=https"]);
+    curl.args(["--fail", "-sS", "--connect-timeout", "20", "--speed-limit", "1024", "--speed-time", "60",
                "--retry", "2", "-H", "Cache-Control: no-cache", "-o"])
         .arg(&zip)
         .arg(format!("{}?nocache={nocache}", release_file(tag_used, engine_patch::UPDATE_ZIP)));
     let checked = run_tool(curl, "download the engine update")
         .and_then(|()| sha256_file(&zip))
-        .and_then(|sha| engine_patch::check_update_zip(&sha, &update_sha));
+        .and_then(|sha| {
+            engine_patch::check_update_zip(&sha, &update_sha)?;
+            check_pinned_engine(&sha, BUILD_ENGINE_UPDATE_SHA256, Some(&commit), BUILD_COMMIT)
+        });
     if let Err(e) = checked {
         let _ = std::fs::remove_file(&zip);
         return Err(e);
@@ -2105,6 +2209,19 @@ mod integrity_tests {
         let release = json!({ "commit": BUILD, "engine_sha256": "ab".repeat(32) });
         let err = check_engine_zip(&"cd".repeat(32), &release).unwrap_err();
         assert!(err.contains("doesn't match the checksum"), "{err}");
+    }
+
+    #[test]
+    fn this_builds_engine_must_match_the_checksum_baked_into_the_exe() {
+        let (pin, other) = ("ab".repeat(32), "cd".repeat(32));
+        assert_eq!(check_pinned_engine(&pin.to_uppercase(), &pin, Some(BUILD), BUILD), Ok(()));
+        assert_eq!(check_pinned_engine(&pin, &pin, None, BUILD), Ok(()));
+        let err = check_pinned_engine(&other, &pin, Some(&BUILD.to_uppercase()), BUILD).unwrap_err();
+        assert!(err.contains("isn't the engine this app was built with"), "{err}");
+        assert!(check_pinned_engine(&other, &pin, None, BUILD).is_err());  // no build named: treated as this one
+        // Another build's engine (self-updating to a newer one) and local builds with no pin.
+        assert_eq!(check_pinned_engine(&other, &pin, Some(&"1".repeat(40)), BUILD), Ok(()));
+        assert_eq!(check_pinned_engine(&other, "", Some(BUILD), BUILD), Ok(()));
     }
 
     #[test]

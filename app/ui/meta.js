@@ -226,7 +226,11 @@ function renderMetaNoProject(p) {
       h("button", { class: tab === id ? "on" : null, "aria-pressed": String(tab === id), onclick: () => goMeta(id) }, label))) : null,
     body,
   }));
-  if (p.presets) meshSlots.actions.before(h("div", { class: "head-actions" }, btn("Set up a project", "add", () => renderMetaSetup(p), "tool outline")));
+  if (p.presets) {
+    const wrap = h("div", { class: "head-actions" });
+    meshSlots.actions.replaceWith(wrap);
+    wrap.append(btn("Set up a project", "add", () => renderMetaSetup(p), "tool outline"), meshSlots.actions);
+  }
   return { home: renderMeshHomeTab, catalog: renderMeshCatalogTab, requests: renderMeshRequestsTab, domains: renderMeshOrgDomainsTab,
     overview: renderMeshOverviewTab }[tab](body, p);
 }

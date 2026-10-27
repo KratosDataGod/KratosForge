@@ -205,12 +205,12 @@ on quality.
 | [FEAT-META-17](#feat-meta-17) | Column lineage | Implemented | Partially Verified | Entity page > Lineage > Columns (Preview) | Implementation review of PR #124. |
 | [FEAT-GOV-01](#feat-gov-01) | Freshness promises and Teams alerts | Implemented | Partially Verified | Entity > Freshness, Home | Merge with incidents so a late table posts once (agent.md notes duplicates). |
 | [FEAT-GOV-02](#feat-gov-02) | Project tests gate promote | Implemented | Partially Verified | Data mesh > Quality > Tests (Preview) | Fold into the Git program's validation framework (FD-113). |
-| [FEAT-GOV-03](#feat-gov-03) | Governance exceptions | Implemented | Partially Verified | Metadata project, Platform > Governance > Requests (Preview) | Implementation review of #603 and #605 (PB-059). |
+| [FEAT-GOV-03](#feat-gov-03) | Governance exceptions | Implemented | Partially Verified | Metadata project, Data mesh > Requests (Preview) | Implementation review of #603 and #605 (PB-059). |
 | [FEAT-GOV-05](#feat-gov-05) | Enterprise governance policy registry and offline validation | Partially Implemented | Partially Verified | None | GOV-002 offline validation, after Chris approves |
 | [FEAT-GOV-06](#feat-gov-06) | Sensitive data classification | Missing | Unverified | None | Owned by the governance foundation thread; complement Purview, don't duplicate it. |
 | [FEAT-GOV-07](#feat-gov-07) | Reliability objectives | Implemented but Not Exposed | Partially Verified | None (agent incidents only) | Show in the workload page with incidents (PB-047). |
 | [FEAT-MESH-05](#feat-mesh-05) | Breaking-change check for data products | Implemented | Partially Verified | Promote card | Versioned contracts (#701): accepted versions and deprecation dates block only readers that need it. |
-| [FEAT-GOV-08](#feat-gov-08) | Governance requests | Implemented | Partially Verified | Platform > Governance > Requests (Preview) | Governance steps 8 and 12 wait on Chris's two read-only PC checks. |
+| [FEAT-GOV-08](#feat-gov-08) | Governance requests | Implemented | Partially Verified | Data mesh > Requests (Preview) | Governance steps 8 and 12 wait on Chris's two read-only PC checks. |
 | [FEAT-GOV-09](#feat-gov-09) | Best-practice checks and templates | Implemented | Partially Verified | Platform > Governance > Best practices; data product checklist (Preview) | PB-111 (#798) and BPA (#560) merged; a live BPA run and central policies on a tenant are what's left. |
 
 ### Developer Experience and Productivity
@@ -1424,7 +1424,7 @@ on quality.
 
 - **Pillar and category:** Enterprise services; Data Governance and Quality
 - **Status:** Implemented. **Verification:** Partially Verified.
-- **Where people reach it:** Metadata project, Platform > Governance > Requests (Preview)
+- **Where people reach it:** Metadata project, Data mesh > Requests (Preview)
 - **Evidence:** test: sidecar/tests/test_meta.py::test_05e_exceptions_expire (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_meta.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: sidecar/tests/test_requests_core_four.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs))
 - **Source:** `sidecar/fabric_desktop/meta/project.py`
 - **Tests:** `sidecar/tests/test_meta.py`, `sidecar/tests/test_requests_core_four.py`
@@ -2453,7 +2453,7 @@ on quality.
 
 - **Pillar and category:** Enterprise services; Data Governance and Quality
 - **Status:** Implemented. **Verification:** Partially Verified.
-- **Where people reach it:** Platform > Governance > Requests (Preview)
+- **Where people reach it:** Data mesh > Requests (Preview)
 - **Evidence:** test: sidecar/tests/test_requests_core_four.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: app/tests/browser/requests-core-four.test.cjs (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs))
 - **Source:** `sidecar/fabric_desktop/central/requests_service.py`, `sidecar/fabric_desktop/central/governance_service.py`, `app/ui/governance.js`
 - **Tests:** `sidecar/tests/test_requests_core_four.py`, `app/tests/browser/requests-core-four.test.cjs`

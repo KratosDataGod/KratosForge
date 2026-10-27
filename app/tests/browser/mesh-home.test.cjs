@@ -60,7 +60,7 @@ test("with no project open, Data mesh opens on Home in My team for someone who o
   assert.match(await page().textContent('.mh-card:has(h2:text-is("Your products"))'), /orders v3\s*2 projects\s*2\s*Incident upstream/);
   assert.match(await page().textContent('.mh-card:has-text("Data you depend on")'), /stores.*Deprecated, stops 2026-11-30/);
   assert.match(await page().textContent(".how-it-works"), /Nothing\. Each card opens the page that acts/);
-  assert.ok(await page().$(".mh .preview-tag"), "the page shows it is in Preview");
+  assert.ok(await page().$('.meta-groups .tab.active:has-text("Home") .preview-tag'), "the tab shows it is in Preview");
 });
 
 test("On call lists incidents that reach products, who to wake, and names what it couldn't read", { skip }, async () => {

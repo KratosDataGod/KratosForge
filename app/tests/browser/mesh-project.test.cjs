@@ -28,7 +28,8 @@ before(async () => {
 });
 after(async () => { if (app) await app.close(); });
 
-const tabs = (sel) => page().$$eval(`${sel} > .tab`, (b) => b.map((x) => x.textContent));
+// A tab's Preview tag is part of its text.
+const tabs = (sel) => page().$$eval(`${sel} > .tab`, (b) => b.map((x) => x.textContent.replace("Preview", "").trim()));
 
 test("the top tabs are the mesh's, and Project holds the editor", { skip }, async () => {
   assert.deepStrictEqual(await tabs(".meta-groups"), ["Home", "Products", "Requests", "Domains", "Project"]);

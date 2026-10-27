@@ -533,6 +533,44 @@ def product_followers(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionCon
     return _run(sqlDB, "product_followers", ctx, product_id=product_id)
 
 
+# ---- Entra ID groups per domain (Preview)
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def entra_group_naming(sqlDB: fn.FabricSqlConnection) -> dict:
+    return _run(sqlDB, "entra_group_naming")
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def save_entra_group_naming(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, naming: dict) -> dict:
+    return _run(sqlDB, "save_entra_group_naming", ctx, naming=naming)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def list_entra_groups(sqlDB: fn.FabricSqlConnection, domain: str = "") -> list:
+    return _run(sqlDB, "list_entra_groups", domain=domain)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def link_entra_group(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, domain: str, role: str, env: str,
+                     group_id: str, group_name: str = "") -> list:
+    return _run(sqlDB, "link_entra_group", ctx, domain=domain, role=role, env=env, group_id=group_id,
+                group_name=group_name)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def unlink_entra_group(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, domain: str, role: str,
+                       env: str = "") -> list:
+    return _run(sqlDB, "unlink_entra_group", ctx, domain=domain, role=role, env=env)
+
+
 # ---- owner coverage (Preview)
 
 @udf.connection(argName="sqlDB", alias="platform")

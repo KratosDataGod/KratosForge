@@ -1048,14 +1048,17 @@ async function platformDomainsTab(body) {
         h("td", { class: d.parent_id ? "plat-subdomain" : null }, h("b", {}, d.name), h("div", { class: "muted-text small mono" }, d.parent_id ? `${d.id} · subdomain` : d.id)),
         h("td", {}, d.description || ""), h("td", {}, domainOwnersCell(d)),
         h("td", {}, d.fabric_domain ? h("span", { class: "badge", title: d.fabric_domain }, "From Fabric") : h("span", { class: "muted-text" }, "Only here")),
-        h("td", {}, adminOnly(h("span", { class: "row tight" },
+        h("td", {}, h("span", { class: "row tight" },
+          btn("Access groups", null, () => entraGroupsDialog(d, domains), "tool small",
+            { title: "Entra ID groups for this domain's roles, with scripts to create them" }),
+          adminOnly(h("span", { class: "row tight" },
           btn(d.fabric_domain ? "Edit owners" : "Edit", null, () => domainDialog(o, d, rerender), "tool small"),
           btn("Delete", null, async () => {
             const why = "Only a domain no project or subdomain uses can be deleted." + (d.fabric_domain
               ? " It follows a domain in Fabric: delete that one in Fabric's admin portal first, or the next Import from Fabric brings it back." : "");
             if (!(await confirmDialog(`Delete ${d.name}?`, why, "Delete", { danger: true }))) return;
             if (await platformCall("platform_delete_domain", { id: d.id }, "Not deleted")) rerender();
-          }, "tool small danger"))))))))
+          }, "tool small danger")))))))))
       : h("p", { class: "muted-text" }, "No domains yet.")),
   howItWorks("platform.domains", {
     reads: "The platform's domains. Import from Fabric reads Fabric's domains and each one's admins, as a Fabric administrator.",
@@ -1281,7 +1284,7 @@ async function renderProductTrust(p) {
           h("span", { class: "spacer" }), followButton(p), btn("Ask for a change", null, () => newRequestDialog(null, "data", { product: p.id }), "tool outline small")),
         h("div", { class: "row" }, h("h2", { class: "trust-name" }, p.name), badges, previewTag()),
         h("div", { class: "muted-text small" }, p.description || ""), h("div", { class: "muted-text small mono" }, p.id), lastScan),
-      endorsement, terms, productChecklistCard(p), productAccessCard(p)),
+      endorsement, terms, productChecklistCard(p), productAccessCard(p), productDomainGroupsCard(p)),
     howItWorks("onelake.product-trust", {
       reads: "The product's endorsement as the last tenant scan read it, and its business terms, from the platform's catalog. Scan now reads Fabric's admin tenant scan (Power BI) of the workspaces the platform's published products live in, as you: only a Fabric administrator can. Nothing reads Purview.",
       changes: "Scan now writes what the scan read to catalog.endorsement in the platform's catalog. Adding or removing a term writes catalog.product_term. Take access away deletes that project's row in catalog.grant; links it already made stay. Ask for a change adds a request to catalog.request for the product's owner. Still needed records your confirmation in catalog.grant_review. Follow adds you to catalog.follow (Following takes you off). Nothing changes in Fabric or Purview: KratosForge can't set endorsement, and terms stay in Purview.",

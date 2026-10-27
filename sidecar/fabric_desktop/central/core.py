@@ -215,6 +215,10 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
     # What each environment last published of a product, so a promote's changes are told once per environment.
     "product_env": [("id", "key"), ("product_id", "text"), ("env", "text"), ("version", "text"), ("status", "text"),
                     ("deprecated_on", "text"), ("published_at", "text")],
+    # An Entra ID group someone already has, linked to one of a domain's roles in one environment ("" for roles
+    # that span them), so the role uses it instead of the group the platform suggests (entra.py).
+    "entra_group": [("id", "key"), ("domain_id", "text"), ("role", "text"), ("env", "text"), ("group_id", "text"),
+                    ("group_name", "text"), ("linked_by", "text"), ("linked_at", "text")],
 }
 
 
@@ -250,6 +254,7 @@ def ensure_schema(db: Db) -> dict[str, Any]:
     created += ensure_people(db)
     created += ensure_grant_reviews(db)
     created += ensure_follows(db)
+    created += ensure_entra_groups(db)
     for hook in SCHEMA_HOOKS:
         created += hook(db)
     _upsert(db, "config", "setting", "name", {"name": "schema_version", "value": str(SCHEMA_VERSION)})
@@ -859,6 +864,172 @@ def _followers(db: Db, product_id: str) -> list[str]:
     people |= {_who(r["updated_by"]) for r in db.rows(f"SELECT updated_by FROM {db.t('catalog', 'link')} WHERE product_id = ?",
                                                       (product_id,)) if r["updated_by"]}
     return sorted(p for p in people if p)
+
+
+# --------------------------------------------------------------------------- Entra ID groups per domain
+# Each domain's roles (owners, creators, readers...) are given to Entra ID security groups, never to people.
+# The platform keeps two things: its naming pattern for the groups it suggests, and the groups people already
+# have that they linked to a role. The app writes scripts from these (entra.py); nothing here creates a group
+# or grants a role.
+
+# Role -> whether it is given per environment.
+ENTRA_ROLES = {"domain_admins": False, "domain_contributors": False, "workspace_admins": True, "creators": True,
+               "readers": True, "viewers": True, "stewards": False}
+ENTRA_ENVS = ("dev", "test", "prod")
+DEFAULT_GROUP_NAMING: dict[str, Any] = {
+    "pattern": "{PREFIX}-{DOMAIN}-{SUBDOMAIN}-{ROLE}-{ENV}", "prefix": "SG-FAB", "case": "upper", "domain_part": "id",
+    "words": {"domain_admins": "DOMAIN-ADMINS", "domain_contributors": "DOMAIN-CONTRIBUTORS",
+              "workspace_admins": "WSADMINS", "creators": "CREATORS", "readers": "READERS", "viewers": "VIEWERS",
+              "stewards": "STEWARDS"},
+    "roles_off": [],
+}
+_NAMING_SETTING = "entra_group_naming"
+_GROUP_PART = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$")
+_PATTERN = re.compile(r"^(?:[A-Za-z0-9_.-]|\{(?:PREFIX|DOMAIN|SUBDOMAIN|ROLE|ENV)\}){1,120}$")
+
+
+def entra_group_naming(db: Db) -> dict[str, Any]:
+    """The platform's naming pattern for the Entra ID groups it suggests: DEFAULT_GROUP_NAMING until an admin saves one.
+    What is stored is checked again on every read, so a value written to the table some other way never reaches
+    a script; one that fails the checks reads as the default."""
+    if db.exists("config", "setting"):
+        saved = db.rows(f"SELECT value FROM {db.t('config', 'setting')} WHERE name = ?", (_NAMING_SETTING,))
+        if saved and saved[0].get("value"):
+            try:
+                return checked_entra_naming(json.loads(saved[0]["value"]))
+            except (PlatformError, ValueError, TypeError, AttributeError):
+                pass
+    return json.loads(json.dumps(DEFAULT_GROUP_NAMING))
+
+
+def checked_entra_naming(naming: dict[str, Any], base: dict[str, Any] | None = None) -> dict[str, Any]:
+    """``naming`` laid over ``base`` (the default), every part checked: letters, digits, -, _ or . only, so a
+    name is safe in a script, on a command line and in Entra's mail nickname. Raises PlatformError."""
+    out = json.loads(json.dumps(base or DEFAULT_GROUP_NAMING))
+    if not isinstance(naming, dict):
+        raise PlatformError("The group naming is a set of named parts")
+    for k, v in naming.items():
+        if k not in DEFAULT_GROUP_NAMING:
+            raise PlatformError(f"{k} isn't part of the group naming")
+        if k == "pattern":
+            v = str(v or "").strip()
+            if not _PATTERN.fullmatch(v) or "{DOMAIN}" not in v or "{ROLE}" not in v:
+                raise PlatformError("The pattern needs {DOMAIN} and {ROLE}, and may use {PREFIX}, {SUBDOMAIN} and {ENV} "
+                                    "with letters, digits, -, _ or . between them (no spaces)")
+        elif k == "prefix":
+            v = str(v or "").strip()
+            if v and not _GROUP_PART.fullmatch(v):
+                raise PlatformError("The prefix is up to 40 letters, digits, -, _ or .")
+        elif k == "case":
+            if v not in ("upper", "lower", "as_typed"):
+                raise PlatformError("case is upper, lower or as_typed")
+        elif k == "domain_part":
+            if v not in ("id", "name"):
+                raise PlatformError("domain_part is id or name")
+        elif k == "words":
+            words = dict(out["words"])
+            for role, word in dict(v or {}).items():
+                if role not in ENTRA_ROLES:
+                    raise PlatformError(f"{role} isn't a domain role")
+                if not _GROUP_PART.fullmatch(str(word or "")):
+                    raise PlatformError(f"The word for {role} is up to 40 letters, digits, -, _ or .")
+                words[role] = str(word)
+            v = words
+        elif k == "roles_off":
+            v = sorted({str(r) for r in (v or [])})
+            if any(r not in ENTRA_ROLES for r in v):
+                raise PlatformError(f"roles_off names roles from: {', '.join(ENTRA_ROLES)}")
+        out[k] = v
+    return out
+
+
+def save_entra_group_naming(db: Db, naming: dict[str, Any], by: str = "") -> dict[str, Any]:
+    """Change the naming pattern. Platform admins only."""
+    require_admin(db, by, "change how Entra ID groups are named")
+    out = checked_entra_naming(naming or {}, entra_group_naming(db))
+    _upsert(db, "config", "setting", "name", {"name": _NAMING_SETTING, "value": json.dumps(out)})
+    _audit(db, by, "save Entra group naming", _NAMING_SETTING, out)
+    db.commit()
+    return out
+
+
+def ensure_entra_groups(db: Db) -> list[str]:
+    """catalog.entra_group, added after the mesh: additive, safe to run again; linking calls it."""
+    if db.exists("catalog", "entra_group"):
+        return []
+    db.run(f"CREATE TABLE {db.t('catalog', 'entra_group')} ({', '.join(_column(db, n, k) for n, k in _CATALOG['entra_group'])})")
+    db.commit()
+    return ["catalog.entra_group"]
+
+
+def list_entra_groups(db: Db, domain: str = "") -> list[dict[str, Any]]:
+    """The groups people linked to a domain's roles (every domain's without ``domain``). Reads only."""
+    if not db.exists("catalog", "entra_group"):
+        return []
+    if domain:
+        rows = db.rows(f"SELECT * FROM {db.t('catalog', 'entra_group')} WHERE domain_id = ?", (domain,))
+    else:
+        rows = db.rows(f"SELECT * FROM {db.t('catalog', 'entra_group')}")
+    return sorted(rows, key=lambda r: (r["domain_id"] or "", r["role"] or "", r["env"] or ""))
+
+
+def _require_domain_owner(db: Db, did: str, by: str, action: str) -> dict[str, Any]:
+    """The domain, when the caller is a platform admin or one of its owners (or its parent's)."""
+    domain = _row(db, "domain", "id", did)
+    if domain is None:
+        raise PlatformError(f"{did} isn't a domain")
+    if is_admin(db, by):
+        return domain
+    owners = _names(domain.get("owners"))
+    if domain.get("parent_id"):
+        owners |= _names((_row(db, "domain", "id", domain["parent_id"]) or {}).get("owners"))
+    if _who(by) and _who(by) in owners:
+        return domain
+    raise PlatformError(f"Only platform admins or {domain['name']}'s owners can {action}")
+
+
+def _entra_key(role: str, env: str) -> tuple[str, str]:
+    if role not in ENTRA_ROLES:
+        raise PlatformError(f"role must be one of {', '.join(ENTRA_ROLES)}")
+    env = str(env or "").strip().lower()
+    if ENTRA_ROLES[role] and env not in ENTRA_ENVS:
+        raise PlatformError(f"{role} is given per environment: env is one of {', '.join(ENTRA_ENVS)}")
+    if not ENTRA_ROLES[role]:
+        env = ""
+    return role, env
+
+
+def link_entra_group(db: Db, domain: str, role: str, env: str, group_id: str, group_name: str = "",
+                     by: str = "") -> list[dict[str, Any]]:
+    """Use an existing Entra ID group (its object ID) for one of a domain's roles. Platform admins or the
+    domain's owners. Nothing changes in Entra or Fabric. Returns the domain's linked groups."""
+    did = domain_id(domain)
+    role, env = _entra_key(role, env)
+    _require_domain_owner(db, did, by, "link groups to its roles")
+    gid = str(group_id or "").strip().lower()
+    if not _GUID.fullmatch(gid):
+        raise PlatformError("A group is linked by its object ID, like 00000000-0000-0000-0000-000000000000 "
+                            "(Microsoft Entra admin center > Groups > the group > Object ID)")
+    name = re.sub(r"[\x00-\x1f]", "", str(group_name or "")).strip()[:256] or gid
+    ensure_entra_groups(db)
+    row = {"id": f"{did}|{role}|{env}", "domain_id": did, "role": role, "env": env, "group_id": gid,
+           "group_name": name, "linked_by": by, "linked_at": _now()}
+    _upsert(db, "catalog", "entra_group", "id", row)
+    _audit(db, by, "link Entra group", row["id"], {"group_id": gid, "group_name": name})
+    db.commit()
+    return list_entra_groups(db, did)
+
+
+def unlink_entra_group(db: Db, domain: str, role: str, env: str = "", by: str = "") -> list[dict[str, Any]]:
+    """Go back to the suggested group for a role. Platform admins or the domain's owners."""
+    did = domain_id(domain)
+    role, env = _entra_key(role, env)
+    _require_domain_owner(db, did, by, "unlink groups from its roles")
+    if db.exists("catalog", "entra_group"):
+        db.run(f"DELETE FROM {db.t('catalog', 'entra_group')} WHERE id = ?", (f"{did}|{role}|{env}",))
+        _audit(db, by, "unlink Entra group", f"{did}|{role}|{env}")
+        db.commit()
+    return list_entra_groups(db, did)
 
 
 def list_products(db: Db) -> list[dict[str, Any]]:
@@ -2480,4 +2651,6 @@ OPERATIONS = {
     "access_reviews": access_reviews, "confirm_access": confirm_access,
     "follow_product": follow_product, "unfollow_product": unfollow_product, "list_follows": list_follows,
     "product_followers": product_followers,
+    "entra_group_naming": entra_group_naming, "save_entra_group_naming": save_entra_group_naming,
+    "list_entra_groups": list_entra_groups, "link_entra_group": link_entra_group, "unlink_entra_group": unlink_entra_group,
 }

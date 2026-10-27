@@ -82,6 +82,28 @@ Its tabs are **Overview**, **Requests** (with how many are waiting), **Set up** 
 - **Landing zone:** each source in `LH_Landing` for the environment picked at the top: its entities, newest files, last arrival, how often it's expected and which projects read it. A source that hasn't arrived within its expected hours (plus a quarter) shows **late**. Folders in the landing zone that no admin registered show **not registered**.
 - **Business keys:** the platform's key tables. **New key table** (admins) makes it in Dev, Test and Prod at once, so every environment has the same tables.
 - **Domains** and **Glossary:** your organization's domains and shared terms. This is the only place they're created and edited; Data mesh > Domains lists the domains and links here. **Import from Fabric** brings in the domains and subdomains defined in Fabric; it needs a Fabric administrator. **New domain** creates the domain in Fabric too (Preview), unless you untick **Also create it in Fabric**: that also needs a Fabric administrator, and someone who isn't one is told so and can keep the domain in the platform only. A subdomain is created in Fabric only when its parent is in Fabric. A domain that follows Fabric offers **Edit owners** (its name and parent follow Fabric); delete it in Fabric first, or the next import brings it back. See [Domains come from Fabric](data-mesh.md#domains-come-from-fabric).
+
+### Entra ID groups per domain (Preview)
+
+Each domain row on **Platform > Set up > Domains** has **Access groups**: one Entra ID security group per role, so access goes to groups, never to people, and a joiner or leaver is one membership change.
+
+| Role | Who goes in | What it gets in Fabric | Environments |
+| --- | --- | --- | --- |
+| Domain owners | The people accountable for the domain's data | Domain admin on the domain | All |
+| Domain contributors | Workspace admins allowed to put workspaces in the domain | Domain contributor on the domain | All |
+| Workspace admins | The domain's platform leads (keep Prod to a few named people) | Admin on the domain's workspaces | Dev, Test, Prod |
+| Creators | Data engineers and analysts who build | Contributor on the domain's workspaces | Dev, Test |
+| Data readers | Other teams approved to read the domain's data products | Read through a OneLake data access role; no workspace role | Prod |
+| Report viewers | Business users of the domain's reports | Viewer on the domain's workspaces, or its app's audience | Prod |
+| Data stewards | People who keep the domain's glossary terms and descriptions | No Fabric role (the glossary here, Purview data curator if you use it) | All |
+
+- **Names** come from one pattern for every domain, which platform admins change with **Naming**. The default is `{PREFIX}-{DOMAIN}-{SUBDOMAIN}-{ROLE}-{ENV}` with the prefix `SG-FAB`, so Sales gets `SG-FAB-SALES-READERS-PROD`. An empty part takes its separator with it. Names use letters, digits, `-`, `_` and `.` only, and the mail nickname is the name in lower case (64 characters at most). A role can be turned off so no group is suggested for it.
+- **Link existing group** uses a group you already have for a role instead of the suggested one: find it by name, or paste its object ID. Platform admins and the domain's owners (or its parent domain's) can link. Distribution lists are shown but can't be picked: they can't hold Fabric roles. Links are kept in `catalog.entra_group` and on the Audit tab.
+- **Scripts:** **Graph PowerShell** and **az CLI** create the suggested groups that don't exist yet, with the domain's owners (those written as emails) as group owners, and leave linked roles out. **By hand (CSV)** lists every group with the steps to build them in the Entra admin center. **Fabric role assignments** is PowerShell that gives each group its domain role (Fabric's admin API, needs a Fabric administrator) and its workspace roles in the workspaces that hold the domain's data products; data readers are added to OneLake data access roles by hand. Every script is safe to run again. **Copy** or **Save to Downloads** (a new file, never replacing one).
+- **Check in Entra** reads which suggested groups already exist and whether linked ones are still there.
+- KratosForge creates no group and grants no role itself: an Entra admin runs the scripts, signed in as themselves. Reading groups needs `Group.Read.All` ([Permissions](permissions.md)), which needs an Entra admin's consent; linking by object ID works without it.
+- A data product's page shows **Access to the domain**: the readers, viewers and owners groups to ask for.
+- After an update, a platform admin runs **Platform > Settings > Finish or repair** once before groups can be linked or the naming saved; until then the dialog uses the default naming.
 - **Governance:** the organization's governance policies, their versions, where each applies and why. See [Governance policies](governance.md).
 - **Requests:** what domain teams asked for, and what was decided. **New request** asks for a workspace, access to a workspace, a domain or an exception to a policy (Preview), and links to the other kinds.
 - **Audit** and **Settings** (where each environment's platform is, and its admins).

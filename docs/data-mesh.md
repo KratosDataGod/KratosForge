@@ -79,6 +79,8 @@ Nothing else in the project changes, and a project without `project.toml` works 
 
 The mesh's domains and subdomains are the ones defined in Fabric (Admin portal > Domains), so a project's domain here is the same one its workspaces have in Fabric.
 
+Each domain's roles (owners, contributors, workspace admins, creators, readers, viewers, stewards) go to Entra ID security groups: **Access groups** on a domain suggests a name for each, links groups you already have, and writes the scripts to create them. See [Entra ID groups per domain](platform.md#entra-id-groups-per-domain-preview).
+
 | Step | Who | Needs |
 | --- | --- | --- |
 | **Platform > Domains > Import from Fabric** copies every Fabric domain and subdomain into the platform's catalog | A platform admin who is also a **Fabric administrator** | Fabric's domain list is an admin API (`GET /v1/admin/domains`, `Tenant.Read.All`). KratosForge asks for it only at this step. Each domain's admins are read too (`GET /v1/admin/domains/{id}/roleAssignments`, same permission). No app registration |

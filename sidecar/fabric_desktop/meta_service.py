@@ -607,7 +607,7 @@ class MetaMixin:
                 result["products"] = published["published"]
                 if published.get("problems"):
                     result["product_problems"] = published["problems"]
-            except Exception as exc:  # the promote itself worked; publish again from Data mesh > Domains > Data products
+            except Exception as exc:  # the promote itself worked; publish again from Data mesh > Products and links > Data products
                 result["products"] = f"not published: {exc}"
         if self._compute(project, target) == "fabric":  # type: ignore[attr-defined]
             try:  # so scheduled runs in Fabric pick up the promoted version

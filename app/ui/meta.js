@@ -4,7 +4,8 @@
 
 state.meta = {
   project: null,       // summary from meta_project
-  tab: "home",         // home | overview | entities | layers | keys | sources | runs | health | model | tests | exceptions | environments | domains | products | links
+  projectTab: null,    // the Project tab last open, where Project opens again
+  tab: "home",         // home | requests | overview | entities | layers | keys | sources | runs | health | model | tests | exceptions | environments | domains | products | links
   env: (() => { try { return localStorage.getItem("fd.env") || "dev"; } catch { return "dev"; } })(),  // set from the top bar
   entity: null,        // open entity detail
   layersDraft: null,   // unsaved layer edits
@@ -70,17 +71,18 @@ async function loadMetaProject() {
 }
 
 // Data mesh's tabs, in groups so new features join a group instead of a long row.
-// [group id, label, [[tab id, label, preview feature id]]]. Home (mesh-home.js) is the mesh as each
-// person sees it, and Requests (mesh-requests.js) everyone's inbox; neither needs a project open.
+// [group id, label, [[tab id, label, preview feature id]], section]. The "mesh" section is the mesh
+// for everyone: Home (mesh-home.js) as each person sees it, Requests (mesh-requests.js) everyone's
+// inbox, Domains. The "project" section is the open project's editor, behind one Project tab.
 const META_TAB_GROUPS = [
-  ["home", "Home", [["home", "Home", "mesh"]]],
-  ["requests", "Requests", [["requests", "Requests", "mesh"]]],
-  ["overview", "Overview", [["overview", "Domains", "mesh"]]],
-  ["design", "Design", [["entities", "Entities"], ["layers", "Layers"], ["keys", "Surrogate keys"], ["sources", "Source systems"]]],
-  ["runs", "Runs", [["runs", "Runs"]]],
-  ["quality", "Quality", [["tests", "Tests", "tests"], ["health", "Table health", "health"], ["exceptions", "Exceptions"]]],
-  ["mesh", "Domains", [["domains", "Domain and workspaces", "mesh"], ["products", "Data products", "mesh"], ["links", "Links", "mesh"]]],
-  ["deploy", "Deploy", [["environments", "Environments and promote"], ["model", "Semantic model", "model"]]],
+  ["home", "Home", [["home", "Home", "mesh"]], "mesh"],
+  ["requests", "Requests", [["requests", "Requests", "mesh"]], "mesh"],
+  ["overview", "Domains", [["overview", "Map", "mesh"], ["domains", "Domain and workspaces", "mesh"]], "mesh"],
+  ["design", "Design", [["entities", "Entities"], ["layers", "Layers"], ["keys", "Surrogate keys"], ["sources", "Source systems"]], "project"],
+  ["runs", "Runs", [["runs", "Runs"]], "project"],
+  ["quality", "Quality", [["tests", "Tests", "tests"], ["health", "Table health", "health"], ["exceptions", "Exceptions"]], "project"],
+  ["publish", "Products and links", [["products", "Data products", "mesh"], ["links", "Links", "mesh"]], "project"],
+  ["deploy", "Deploy", [["environments", "Environments and promote"], ["model", "Semantic model", "model"]], "project"],
 ];
 
 // The tabs that show the whole mesh rather than the open project, so they show without one.
@@ -108,6 +110,10 @@ async function renderMetadata() {
   const visible = (tabs) => tabs.filter(([, , previewId]) => !previewId || previewShown());
   if (!visible(metaGroupOf(m.tab)[2]).some(([id]) => id === m.tab)) m.tab = visible(metaGroupOf(m.tab)[2])[0]?.[0] || "entities";
   const group = metaGroupOf(m.tab);
+  const inProject = group[3] === "project";
+  if (inProject) m.projectTab = m.tab;  // Project opens where you left it
+  const shownGroups = (section) => META_TAB_GROUPS.filter(([, , tabs, sec]) => sec === section && visible(tabs).length);
+  const groupTab = ([id, label, tabs]) => h("button", { class: `tab${group[0] === id ? " active" : ""}`, onclick: () => goMeta(visible(tabs)[0][0]) }, label);
   const tabLabel = (label, previewId) => {
     const node = h("span", {}, label);
     return previewId ? preview(previewId, node) : node;
@@ -117,18 +123,21 @@ async function renderMetadata() {
     h("div", { class: "page-head" },
       h("div", {},
         h("h1", {}, "Data mesh"),
-        h("p", { class: "sub" }, "Every table is a file in ", h("span", { class: "mono" }, p.path),
-          ". Metadata version ", h("span", { class: "mono" }, p.version), ". ", learnMore("data-mesh"))),
-      h("div", { class: "head-actions" },
+        inProject ? h("p", { class: "sub" }, "Every table is a file in ", h("span", { class: "mono" }, p.path),
+          ". Metadata version ", h("span", { class: "mono" }, p.version), ". ", learnMore("data-mesh"))
+          : h("p", { class: "sub" }, "Your organization's data products, the requests on them and who owns what. ", learnMore("data-mesh"))),
+      inProject ? h("div", { class: "head-actions" },
         btn("New entity", "add", newEntityDialog, "tool outline"),
         preview("schedules", btn("Schedule", "history", () => scheduleMetaRuns(m.env), "tool outline",
           { title: `Run every entity in ${ENV_LABEL[m.env]} on a schedule, on this PC or in Fabric` })),
         btn(inFabric(p, m.env) ? "Run all in Fabric" : "Run all", "play", () => runEntities(null), "tool primary",
-          { disabled: p.errors.length ? true : null }))),
+          { disabled: p.errors.length ? true : null })) : null),
+    // Problems and ending exceptions show on every tab: runs and promote stay blocked until they're fixed.
     problemsBanner(p.errors),
     exceptionBanner(p),
-    h("div", { class: "subtabs meta-groups" }, META_TAB_GROUPS.filter(([, , tabs]) => visible(tabs).length).map(([id, label, tabs]) =>
-      h("button", { class: `tab${group[0] === id ? " active" : ""}`, onclick: () => goMeta(visible(tabs)[0][0]) }, label))),
+    h("div", { class: "subtabs meta-groups" }, shownGroups("mesh").map(groupTab),
+      h("button", { class: `tab${inProject ? " active" : ""}`, onclick: () => goMeta(m.projectTab || "entities") }, "Project")),
+    inProject ? h("div", { class: "subtabs meta-project-groups", "aria-label": "Project" }, shownGroups("project").map(groupTab)) : null,
     visible(group[2]).length > 1 ? h("div", { class: "seg meta-tabs", role: "group", "aria-label": group[1] }, visible(group[2]).map(([id, label, previewId]) =>
       h("button", { class: m.tab === id ? "on" : null, onclick: () => goMeta(id) }, tabLabel(label, previewId)))) : null,
     body));

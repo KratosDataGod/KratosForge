@@ -1314,6 +1314,15 @@ test("Monitor has four tabs, and Operations holds the workload views in the mock
     ["Runs", "KratosForge schedules", "Fabric schedules", "Operations"]);
 });
 
+test("Home's All schedules opens Fabric schedules when every upcoming schedule is in Fabric, else KratosForge schedules", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const at = src.indexOf('btn("All schedules"');
+  const link = src.slice(at, src.indexOf('"tool link small")', at));
+  assert.match(link, /items\.length && items\.every\(\(x\) => x\.where === "Fabric"\) \? "fabric_schedules" : "schedules"/);
+  // "Fabric" is the where Home gives a Fabric schedule's row.
+  assert.match(src, /where: "Fabric", text: sc\.text/);
+});
+
 test("Monitor > Agents explains agents beside the list, with links to sections of agent.md (testing item 34)", () => {
   const src = fs.readFileSync(path.join(ui, "agents.js"), "utf8");
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "agent.md"), "utf8");

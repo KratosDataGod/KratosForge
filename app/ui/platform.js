@@ -76,12 +76,6 @@ async function renderPlatform() {
   await (tabs[p.tab] || platformOverviewTab)(body);
 }
 
-function showWaiting(n) {
-  platformPage.waiting = n;
-  const el = document.querySelector(".subtabs .tab-count");
-  if (el) el.textContent = n ? n.toLocaleString() : "";
-}
-
 function platformTabBar() {
   const p = platformPage;
   const label = (id) => PLATFORM_TABS.find(([t]) => t === id)[1];
@@ -121,7 +115,6 @@ async function platformOverviewTab(body) {
   const o = await platformCall("platform_overview", { env: platformPage.env }, "Could not load the platform");
   if (!o || !stillHere("overview")) return;
   const c = o.counts;
-  showWaiting(c.requests);
   const late = (o.landing.sources || []).filter((s) => s.late);
   // One row per environment, so the card stays narrow enough to sit beside the landing zone.
   const health = h("table", { class: "list" }, h("tbody", {}, MESH_ENVS.map((env) => {

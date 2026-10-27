@@ -26,9 +26,9 @@ function mhRequestText(r) {
   return [h("b", {}, `${what}: `), r.target || "", r.project ? h("span", { class: "muted-text" }, ` for ${r.project}`) : null];
 }
 
-function mhOpenRequests(filter) {
-  platformPage.requests = filter;
-  goPlatform("requests");
+function mhOpenRequests(show) {
+  meshRequests.show = show;
+  goMeta("requests");
 }
 
 function mhTeam(t) {
@@ -113,7 +113,7 @@ function mhOrg(g) {
         h("td", {}, d.needs.length ? d.needs.join(" · ") : h("span", { class: "muted-text" }, "Nothing"))))))
       : emptyState({ title: "No domains yet", text: "A platform admin imports the organization's Fabric domains on Platform > Set up > Domains.",
         action: btn("Open Domains", "building", () => goPlatform("domains"), "tool outline small") }));
-  const stale = mhCard(`Waiting over ${g.stale_days} days`, btn("Open Requests", null, () => mhOpenRequests("waiting"), "tool link small"),
+  const stale = mhCard(`Waiting over ${g.stale_days} days`, btn("Open Requests", null, () => mhOpenRequests("all"), "tool link small"),
     g.stale.length ? h("ul", { class: "mh-list" }, g.stale.map((r) => h("li", {},
       h("span", { class: "grow" }, mhRequestText(r)), h("span", { class: "muted-text small" }, `${r.days} days`))))
       : h("p", { class: "muted-text" }, "No request has waited that long."));
@@ -154,7 +154,7 @@ async function renderMeshHomeTab(body, p) {
     main),
   howItWorks("mesh.home", {
     reads: "Data products, requests, follows, access reviews and domains from the platform's catalog. On call also reads the landing zone, the shortcuts the catalog has seen and owner coverage. Incidents come from the open project's incident lists in each environment.",
-    changes: "Nothing. Each card opens the page that acts: Requests to decide, a product to review access, Monitor to work an incident.",
+    changes: "Nothing. Each card opens the page that acts: Data mesh > Requests to decide, a product to review access, Monitor to work an incident.",
     results: "My team, On call and Organization show the same catalog to everyone; your view choice is remembered on this PC.",
     anchor: "data-mesh",
   })));

@@ -12,6 +12,7 @@ import base64
 import datetime as dt
 import json
 import logging
+import re
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -21,7 +22,7 @@ from typing import Any
 import polars as pl
 from deltalake.exceptions import TableNotFoundError
 
-from . import maintenance, notebook_files, profiling, semantic
+from . import fabric_step, maintenance, notebook_files, profiling, semantic
 from .auth import FABRIC_SCOPES, STORAGE_SCOPES
 from .fabric_api import FabricClient, FabricError
 from .fabric_compute import BUNDLE_DIR, RESULTS_DIR, RUNNER, bundle_files, bundle_hash, run_parameters, runner_ipynb
@@ -32,7 +33,7 @@ from .meta import keys as keys_mod
 from .meta_service import NoMetadataProject
 from .notebook import leaf_name
 from .meta.store import META_LAKEHOUSE, META_SCHEMAS, LocalStore, OneLakeStore
-from .onelake import FileStore
+from .onelake import FileStore, TableRef, storage_options
 from .redact import describe
 
 _log = logging.getLogger(__name__)
@@ -43,6 +44,8 @@ class FabricChanged(RuntimeError):
 
 NOTEBOOK_JOB = "RunNotebook"
 FABRIC_APP = "https://app.fabric.microsoft.com"
+# A OneLake lakehouse is addressed by GUIDs; anything else is one Fabric can't reach.
+_GUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
 
 def _now() -> str:
@@ -186,12 +189,17 @@ class CloudMixin:
         doc = fabric_ipynb(fabric_cells or cells, lakehouse_ref, schemas)
         item_name = leaf_name(name)  # a notebook in a folder (notebook_folders) is named without it in Fabric
         self._fabric_name_free(name, ws)
+        target, note = self._published_item(name, ws["workspace_id"])
         if not replace_fabric_changes:
-            change = self._fabric_change(name, ws["workspace_id"], doc)
+            change = self._fabric_change(name, ws["workspace_id"], doc, target=(target,))
             if change and change["changed"]:
                 raise FabricChanged(f"{name} changed in Fabric after it was last published from here, so it wasn't "
                                     "published. Publish it from the notebook to see the changes and choose.")
-        item = self.fabric.save_notebook(ws["workspace_id"], item_name, json.dumps(doc).encode())  # type: ignore[attr-defined]
+        if target is not None:  # the item it published before (by id), or the one with its name
+            item = self.fabric.update_notebook(ws["workspace_id"], target, self._fabric_item_name(name, target),  # type: ignore[attr-defined]
+                                               json.dumps(doc).encode())
+        else:
+            item = self.fabric.save_notebook(ws["workspace_id"], item_name, json.dumps(doc).encode())  # type: ignore[attr-defined]
         if not item.get("id"):  # a create can come back without the item; look it up
             item = next((n for n in self.fabric.list_notebooks(ws["workspace_id"])  # type: ignore[attr-defined]
                          if n["displayName"] == item_name), item)
@@ -199,27 +207,32 @@ class CloudMixin:
             self._record_notebook_item(name, ws["workspace_id"], item["id"], ws["workspace_name"])  # type: ignore[attr-defined]
         if item.get("id"):
             try:
-                notebook_files.remember_published(Path(self.root) / "published", item["id"], ws["workspace_id"], doc)  # type: ignore[attr-defined]
+                notebook_files.remember_published(Path(self.root) / "published", item["id"], ws["workspace_id"], doc,  # type: ignore[attr-defined]
+                                                  name=item_name)
             except (OSError, ValueError) as exc:  # the publish happened; only the next change check is lost
                 _log.warning("Couldn't keep what was published for %r: %s", name, describe(exc))
         return {"name": name, "workspace_id": ws["workspace_id"], "workspace_name": ws["workspace_name"],
-                "id": item.get("id"),
+                "id": item.get("id"), "item_name": item.get("displayName") or item_name, "note": note,
                 "url": f"{FABRIC_APP}/groups/{ws['workspace_id']}/synapsenotebooks/{item.get('id')}"
                        "?experience=fabric-developer"}
 
-    def _fabric_change(self, name: str, workspace_id: str, doc: dict[str, Any] | None) -> dict[str, Any] | None:
+    def _fabric_change(self, name: str, workspace_id: str, doc: dict[str, Any] | None,
+                       target: tuple[dict[str, Any] | None] | None = None) -> dict[str, Any] | None:
         """How the notebook's Fabric item changed since this app last published it, or None when
-        that isn't known (never published from here, or the item is gone)."""
+        that isn't known (never published from here, or the item is gone). ``target``, when given,
+        is the item Publish writes, already looked up (_published_item)."""
         link = self.workload_store.links().get(name) if hasattr(self, "workload_store") else None  # type: ignore[attr-defined]
         if not link or link["workspace_id"] != workspace_id:
             return None
-        # Publish writes the item that has this name, so check that one: when it isn't the linked item
-        # (renamed in Fabric, and someone made another under this name), Publish would replace theirs.
-        try:
-            target = self._notebook_item(name, workspace_id)
-        except FabricError as exc:
-            raise RuntimeError(f"Couldn't check whether {name} changed in Fabric ({describe(exc)}), so it wasn't "
-                               "published. Try again.") from exc
+        # Check the item Publish writes: the linked one while it is there; when it is gone, the one with
+        # this name, and if someone else made that one, Publish would replace theirs.
+        if target is None:
+            try:
+                target = (self._published_item(name, workspace_id)[0],)
+            except FabricError as exc:
+                raise RuntimeError(f"Couldn't check whether {name} changed in Fabric ({describe(exc)}), so it wasn't "
+                                   "published. Try again.") from exc
+        target = target[0]
         if target is None:
             return None  # Publish makes a new item; nothing is replaced
         if target["id"] != link["item_id"]:
@@ -256,16 +269,130 @@ class CloudMixin:
                                compute: str | None = None, workspace: dict[str, str] | None = None,
                                location_ref: dict[str, str] | None = None,
                                replace_fabric_changes: bool = False) -> dict[str, Any]:
-        """Publish the notebook, then run it on its workspace's Fabric capacity."""
+        """Publish the notebook, then run it on its workspace's Fabric capacity, with the values set in
+        its Parameters bar as the run's parameters (the published code keeps its own)."""
+        parameters = self._bar_parameters(name, cells)  # type: ignore[attr-defined]
         item = self._publish(name, cells, lakehouse_ref, compute, workspace, location_ref=location_ref,
                              replace_fabric_changes=replace_fabric_changes)
         lakehouse_ref = lakehouse_ref or location_ref
-        job_id = self.fabric_jobs.run_item_job(item["workspace_id"], item["id"], NOTEBOOK_JOB)  # type: ignore[attr-defined]
+        job_id = self.fabric_jobs.run_item_job(item["workspace_id"], item["id"], NOTEBOOK_JOB,  # type: ignore[attr-defined]
+                                               {"parameters": parameters} if parameters else None)
         # As published: a Python notebook, or Spark (what the cost view counts it as).
         engine = "python" if lakehouse_ref and uses_local_module(cells) and not uses_spark(cells) else "spark"
         return self._log_fabric_run({"kind": "Notebook run", "name": name, "workspace_id": item["workspace_id"],
                                      "workspace_name": item["workspace_name"], "engine": engine,
                                      "item_id": item["id"], "job_id": job_id, "url": item["url"]})
+
+    # ---- the Fabric step: a notebook's last cell, run on Fabric Spark (fabric_step.py)
+
+    def _step_where(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None) -> dict[str, Any]:
+        index = fabric_step.step_index(cells)
+        if index is None:
+            raise ValueError(f"No cell in {name} is marked Run on Fabric.")
+        if not lakehouse_ref or not all(_GUID.match(str(lakehouse_ref.get(k) or "")) for k in ("workspace_id", "lakehouse_id")):
+            raise ValueError("Fabric can't reach this notebook's lakehouse. Attach a OneLake lakehouse to run "
+                             "the last cell on Fabric. Nothing was sent.")
+        return {"index": index, "item_name": fabric_step.step_name(name),
+                "workspace_id": lakehouse_ref["workspace_id"], "workspace_name": lakehouse_ref.get("workspace_name", ""),
+                "lakehouse": lakehouse_ref.get("name", ""),
+                "tables": fabric_step.optimized_tables(cells[index].get("source", ""))}
+
+    def notebook_vorder_cell(self, cells: list[dict[str, Any]], tables: list[str], picked: list[str] | None = None,
+                             rewrite_all: bool = False) -> dict[str, Any]:
+        """For "Insert V-Order cell": which of the lakehouse's ``tables`` the notebook's code names
+        (ticked first), and, once tables are ``picked``, the cell's code. Reads only."""
+        return {"candidates": fabric_step.vorder_candidates(cells, tables),
+                "source": fabric_step.vorder_source(picked, rewrite_all) if picked else None}
+
+    def notebook_fabric_step_check(self, name: str, cells: list[dict[str, Any]],
+                                   lakehouse_ref: dict[str, str] | None = None) -> dict[str, Any]:
+        """Before Run all or running the marked cell: where the Fabric step would run and which tables
+        it V-Orders, or why it can't (``problem``). Reads only."""
+        try:
+            where = self._step_where(name, cells, lakehouse_ref)
+            fabric_step.step_ipynb(name, cells[where["index"]], lakehouse_ref or {}, "check")  # code Spark can run
+        except ValueError as exc:
+            return {"ok": False, "problem": str(exc)}
+        return {"ok": True} | where
+
+    def run_notebook_fabric_step(self, name: str, cells: list[dict[str, Any]],
+                                 lakehouse_ref: dict[str, str] | None) -> dict[str, Any]:
+        """Publish the marked last cell as the "<name> (Fabric step)" Spark notebook in the lakehouse's
+        workspace, replacing the one there, and start it on that workspace's Fabric capacity."""
+        self._replay_refuse(name, "running its last cell on Fabric")  # type: ignore[attr-defined]
+        where = self._step_where(name, cells, lakehouse_ref)
+        lakehouse_ref = lakehouse_ref or {}  # _step_where refused a missing one
+        request_id = f"fds-{dt.datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:6]}"
+        doc = fabric_step.step_ipynb(name, cells[where["index"]], lakehouse_ref, request_id)
+        ws = where["workspace_id"]
+        item = self.fabric.save_notebook(ws, where["item_name"], json.dumps(doc).encode())  # type: ignore[attr-defined]
+        item_id = item.get("id") or (self._notebook_item(where["item_name"], ws) or {}).get("id")
+        if not item_id:
+            raise LookupError(f"{where['item_name']} was published but Fabric didn't return its id; try again")
+        job_id = self.fabric_jobs.run_item_job(ws, item_id, NOTEBOOK_JOB)  # type: ignore[attr-defined]
+        return self._log_fabric_run({
+            "kind": "Fabric step", "name": name, "workspace_id": ws, "workspace_name": where["workspace_name"],
+            "engine": "spark", "item_id": item_id, "job_id": job_id, "request_id": request_id,
+            "lakehouse_id": lakehouse_ref["lakehouse_id"], "tables": where["tables"],
+            "url": f"{FABRIC_APP}/groups/{ws}/synapsenotebooks/{item_id}?experience=fabric-developer"})
+
+    def notebook_fabric_step_result(self, request_id: str) -> dict[str, Any]:
+        """A Fabric step's status; once it ended, what the cell printed and, for each table it
+        OPTIMIZEd, whether the Delta log now shows V-Order since the last write."""
+        run = next((r for r in self.fabric_runs(200) if r.get("request_id") == request_id), None)
+        if run is None:
+            raise KeyError(f"no Fabric step {request_id}")
+        out: dict[str, Any] = {k: run.get(k) for k in ("status", "message", "url", "job_id", "workspace_id",
+                                                         "item_id", "started_at", "finished_at")}
+        out |= {"output": None, "tables": []}
+        if run["status"] not in TERMINAL:
+            return out
+        token = self.auth.storage_token()  # type: ignore[attr-defined]
+        try:
+            data = FileStore(lambda: token).read_bytes(run["workspace_id"], run["lakehouse_id"],
+                                                        fabric_step.result_path(request_id))
+            out["output"] = json.loads(data) if data else None
+        except Exception as exc:  # the run's status still shows; the output is in Fabric
+            _log.warning("Couldn't read the Fabric step's output: %s", describe(exc))
+        if run["status"] == "Completed" and run.get("tables"):
+            flat = not self._schemas_enabled(run["workspace_id"], run["lakehouse_id"])  # type: ignore[attr-defined]
+            for table in run["tables"]:
+                schema, _, name = table.rpartition(".")
+                try:
+                    uri = TableRef(run["workspace_id"], run["lakehouse_id"], schema or "dbo", name, flat=flat).uri
+                    h = maintenance.health(uri, storage_options(token))
+                    entry = {"table": table, "v_ordered": None, "files": h.get("files"), "last_optimize": h.get("last_optimize")}
+                    if h["exists"]:
+                        # The files' footers say whether they're V-Ordered; the Delta log only hints.
+                        f = maintenance.vorder_files(uri, storage_options(token))
+                        entry |= {"v_ordered": f["files"] > 0 and f["v_ordered"] == f["checked"],
+                                  "files": f["files"], "checked": f["checked"], "v_ordered_files": f["v_ordered"]}
+                    out["tables"].append(entry)
+                except Exception as exc:  # one table not readable doesn't hide the others
+                    out["tables"].append({"table": table, "v_ordered": None, "message": describe(exc)})
+        return out
+
+    def _published_item(self, name: str, workspace_id: str) -> tuple[dict[str, Any] | None, str]:
+        """The Fabric item Publish writes for notebook ``name`` (PB-018), and a note to show. It is the
+        item this app recorded for it in that workspace, found by id so a rename here or in Fabric
+        doesn't make a second item. When that one was deleted, it is the notebook with its name (None:
+        Publish creates one). With no recorded item it is None, and save_notebook matches by name as before."""
+        link = self.workload_store.links().get(name) if hasattr(self, "workload_store") else None  # type: ignore[attr-defined]
+        if link and link.get("workspace_id") == workspace_id and link.get("item_id"):
+            item = self.fabric.get_notebook(workspace_id, link["item_id"])  # type: ignore[attr-defined]
+            if item is not None:
+                return item | {"id": link["item_id"]}, ""
+            found = self._notebook_item(name, workspace_id)
+            return found, ("" if found else f"The Fabric notebook {name} was published to before was deleted, "
+                                            "so a new one was made.")
+        return None, ""
+
+    def _fabric_item_name(self, name: str, item: dict[str, Any]) -> str:
+        """The name to give ``item`` on publish: the notebook's (without its folders) when it was renamed
+        here since it was last published to that item, else the item's own, so a rename in Fabric stays."""
+        last = notebook_files.published(Path(self.root) / "published", item["id"]) or {}  # type: ignore[attr-defined]
+        local = leaf_name(name)
+        return local if last.get("name") and last["name"] != local else item.get("displayName") or local
 
     def _notebook_item(self, name: str, workspace_id: str) -> dict[str, Any] | None:
         """The notebook item Publish writes: the one named after the notebook, without its folders."""
@@ -289,7 +416,7 @@ class CloudMixin:
     def notebook_schedules(self, name: str, lakehouse_ref: dict[str, str] | None = None,
                            workspace: dict[str, str] | None = None) -> dict[str, Any]:
         ws = self._publish_workspace(name, lakehouse_ref, workspace)
-        item = self._notebook_item(name, ws["workspace_id"])
+        item = self._published_item(name, ws["workspace_id"])[0] or self._notebook_item(name, ws["workspace_id"])
         if item is None:
             return {"published": False, "schedules": [], "workspace_id": ws["workspace_id"],
                     "workspace_name": ws["workspace_name"]}
@@ -313,7 +440,7 @@ class CloudMixin:
     def delete_notebook_schedule(self, name: str, schedule_id: str, lakehouse_ref: dict[str, str] | None = None,
                                  workspace: dict[str, str] | None = None) -> dict[str, Any]:
         ws = self._publish_workspace(name, lakehouse_ref, workspace)
-        item = self._notebook_item(name, ws["workspace_id"])
+        item = self._published_item(name, ws["workspace_id"])[0] or self._notebook_item(name, ws["workspace_id"])
         if item is None:
             raise LookupError(f"{name} isn't published in {ws['workspace_name'] or 'that workspace'}")
         self.fabric_jobs.delete_schedule(ws["workspace_id"], item["id"], NOTEBOOK_JOB, schedule_id)  # type: ignore[attr-defined]
@@ -461,6 +588,9 @@ class CloudMixin:
         if project.links:  # where each link points in this environment, resolved now for the runner
             resolve = self._link_table(project, env)  # type: ignore[attr-defined]
             config["links"] = {alias: resolve(alias) for alias in project.links}
+        if store.landing_zones is not None and any(e.spec.get("source", {}).get("landing")
+                                                   for e in project.entities.values()):
+            config["landing"] = store.landing_map()  # each source's zone, resolved now like links
         files = bundle_files(project.root, config)
         digest = bundle_hash(files)
         try:
@@ -670,7 +800,8 @@ class CloudMixin:
             fabric.refresh_sql_endpoint(store.workspace_of(lakehouse), endpoint["id"])
         except Exception:
             refreshed = False
-        parts = semantic.build(tables, rels, endpoint["connectionString"], endpoint["id"])
+        parts = semantic.build(tables, rels, endpoint["connectionString"], endpoint["id"],
+                               self.model_descriptions(project, layer))  # type: ignore[attr-defined]
         try:
             model = fabric.save_semantic_model(store.workspace_id, name, parts,
                                                f"Direct Lake over {lakehouse}, built by KratosForge from the metadata project",

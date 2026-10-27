@@ -20,7 +20,8 @@ const RUNS = [
 
 async function openNotebook(app) {
   await app.page.evaluate((cells) => { loadIntoState({ name: "Daily sales", cells }); go("notebook"); }, CELLS);
-  await app.page.getByRole("button", { name: /^Recent runs/ }).click();
+  await app.page.getByRole("button", { name: "Schedule" }).click();
+  await app.page.getByRole("menuitemcheckbox", { name: /^Recent runs/ }).click();
   return app.page.locator(".runspane");
 }
 
@@ -49,6 +50,8 @@ after(async () => {
 test("with no runs, the panel says how to schedule the notebook or run it in Fabric", { skip }, async () => {
   const pane = await openNotebook(empty);
   await pane.getByText("No runs yet.").waitFor();
+  const how = pane.locator(".how-it-works .fold-toggle");
+  if (await how.getAttribute("aria-expanded") === "false") await how.click();
   const text = await pane.innerText();
   assert.match(text, /Schedule \(Home or Run tab\) runs the saved notebook at set times/);
   assert.match(text, /set Runs on to Fabric and press Run all/);
@@ -92,7 +95,8 @@ test("Refresh status asks for the Fabric run's status and keeps details open", {
   assert.strictEqual(await pane.getByRole("button", { name: "Refresh status" }).count(), 0, "nothing left to ask about");
   assert.strictEqual(await pane.locator(".nbrun-detail").count(), 1, "the open details stay open");
   // Opening Validate closes Runs: one panel beside the cells at a time.
-  await listed.page.getByRole("button", { name: /^Validate/ }).first().click();
+  await listed.page.getByRole("button", { name: "Check" }).click();
+  await listed.page.getByRole("menuitemcheckbox", { name: /^Validate/ }).click();
   await listed.page.locator(".validatepane").waitFor();
   assert.strictEqual(await listed.page.locator(".runspane").count(), 0);
 });

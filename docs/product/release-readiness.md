@@ -2,11 +2,13 @@
 
 What must be true before KratosForge goes to an enterprise pilot, and where each piece stands. Updated as items in the [enterprise backlog](enterprise-backlog.md) land.
 
-Last updated 2026-10-18 at `main` a346145. The current gate status, with acceptance criteria and evidence, is the [readiness checklist](../hardening/readiness-checklist.md) from the hardening audit.
+Last updated 2026-10-26 at `main` bb084c6b. The current gate status, with acceptance criteria and evidence, is the [readiness checklist](../hardening/readiness-checklist.md) from the hardening audit.
 
 ## Verdict today
 
-**Not ready for an enterprise pilot.** Two gates need Chris: a run of the live test harness on a non-production workspace (G1) and a code signing account (G2). The [hardening audit](../hardening/findings.md) defects are being fixed in their own PRs; the readiness checklist says which are still open.
+**Not ready for a company-wide rollout.** Two gates need Chris: a run of the live test harness on a non-production workspace (G1) and a code signing account (G2). Until the builds are signed, App Control for Business, Smart App Control and many EDR tools will block or flag the exe and the engine, so a large organization can't approve it. The hardening audit's other High findings are fixed; the [readiness checklist](../hardening/readiness-checklist.md) has the current gate status.
+
+**A small pilot is possible before signing** once the harness has passed, on PCs that don't enforce App Control or Smart App Control, following the [pilot acceptance checklist](#pilot-acceptance-checklist).
 
 ## What's missing for an enterprise-approved app
 
@@ -16,11 +18,11 @@ An enterprise security or IT team approving KratosForge would ask for each of th
 | --- | --- | --- | --- |
 | 1 | Code signing | Smart App Control, App Control and many EDR tools block or flag the unsigned exe and engine | Chris: Azure Trusted Signing account (D-C3), then signing in CI |
 | 2 | Live tenant verification | Nothing has been proven on a real tenant, including sign-in with no app registration | Chris: one run of the FD-101 harness on a non-production workspace |
-| 3 | Token cache encryption | The MSAL token cache is a plain file in the user's profile; security reviews expect it protected with Windows DPAPI | Chris: decision D-C2 |
-| 4 | Pin a build and roll back | Each channel keeps only its newest build, so IT can't hold a known build or go back one | Release management: keep every build as its own release asset |
+| 3 | Token cache encryption | Done: the MSAL token cache is encrypted with Windows DPAPI for the person's Windows account (HD-013) | Windows check |
+| 4 | Pin a build and roll back | Partly done: each build is kept as its own `build-<commit>` release (the newest 20, and every Stable build), IT can deploy and hold any of them, and with `"auto_update": false` the app only installs its own build's engine. No rollback drill has been run | Release management (HD-028) |
 | 5 | Managed install package | Intune and Configuration Manager deploy MSI or MSIX; today it's one exe plus a policy file copied by script | A packaging PR, which needs signing (1) first |
-| 6 | Security evidence pack | Reviewers want one place with the security model, data flows, permissions, SBOM and provenance, plus a privacy statement and support terms. The pieces exist ([security](../security.md), [permissions](../permissions.md), [telemetry](../telemetry.md); SBOMs and build provenance attestations are made for each Preview build, but the Stable release carries only the exe, engine and version.json) but aren't collected, and there is no privacy statement or support terms | Enterprise readiness can assemble the pack; privacy statement and support terms need Chris as publisher |
-| 7 | Open High security findings | A security review will find them: no Content Security Policy ([SH-1](../hardening/findings.md#sh-1-high-no-content-security-policy-tauri-api-on-the-page)), and updates prove integrity but not who published them ([SH-2](../hardening/findings.md#sh-2-high-updates-prove-integrity-not-authenticity)). The third, run-notebook approvals not bound to the code (EN-1), was fixed in #156 | Hardening: HD-020; HD-021 also needs signing (1) |
+| 6 | Security evidence pack | Reviewers want one place with the security model, data flows, permissions, SBOM and provenance, plus a privacy statement and support terms. The pieces exist ([security](../security.md), [permissions](../permissions.md), [telemetry](../telemetry.md); SBOMs and build provenance attestations are made for each Preview build, but the Stable release carries only the exe, engine and version.json) but aren't collected, and there is no privacy statement or support terms | The pack is assembled: [Security evidence pack](../evidence-pack.md). The privacy statement and support terms need Chris as publisher |
+| 7 | Open High security findings | One is left: updates prove integrity but not who published them ([SH-2](../hardening/findings.md#sh-2-high-updates-prove-integrity-not-authenticity)). The Content Security Policy (SH-1, #250) and binding run-notebook approvals to their code (EN-1, #156) are fixed | HD-021, which needs signing (1) |
 | 8 | Tested features | Run in Fabric, schedules, Prove, the metadata framework against OneLake and the agent are Preview: built to documented APIs, untested on a tenant | Live tenant runs (2), feature by feature |
 
 Settings could show the parts of this a person can see on their own PC (signed build, policy applied, token cache protected, updates managed by IT). That is a UI change, so it starts with a mockup.
@@ -32,11 +34,11 @@ Settings could show the parts of this a person can see on their own PC (signed b
 | G1 Live verification | The FD-101 harness run on a non-production workspace with every check passing, results attached below | Harness merged (#80); not run yet |
 | G2 Signed builds | Azure Trusted Signing account (D-C3), signing in CI (PR #28) | Blocked on Chris |
 | G3 Update integrity | FD-102a (checksums enforced), FD-103 (scanning, SBOM, provenance) | Merged (#82, #86, #88) |
-| G4 Admin controls | FD-105 policies, FD-104 deployment guide | Merged (#90). A broken policy file keeps the last good copy (#165, merged). Pinning a build and rollback still need per-build releases |
-| G5 Data protection | FD-131a redaction, FD-138 safe support report, FD-131b local retention | Merged (#84, #95, and more secret patterns in #181). Token cache encryption waits on D-C2 |
+| G4 Admin controls | FD-105 policies, FD-104 deployment guide | Merged (#90). A broken policy file keeps the last good copy (#165). Each build is kept as its own release, so IT can pin one (#241). IT can host the engine on its own network (`engine_download_url`, #757) |
+| G5 Data protection | FD-131a redaction, FD-138 safe support report, FD-131b local retention | Merged (#84, #95, and more secret patterns in #181). Token cache encrypted with DPAPI on Windows (HD-013) |
 | G6 Audit | FD-125 audit trail | Merged (#89, and one chain across processes in #182) |
 | G7 Recovery | FD-126 backup and restore | Merged (#91) |
-| G8 Documentation | This page, the security model, install, enterprise install, backup, troubleshooting | Written; a security evidence pack and privacy statement are missing (row 6 above) |
+| G8 Documentation | This page, the security model, install, enterprise install, backup, troubleshooting | Written, with a [security evidence pack](../evidence-pack.md). The privacy statement and support terms are missing (row 6 above) |
 
 ## Supported capability matrix
 
@@ -93,8 +95,8 @@ None yet. When the FD-101 harness is run, its `summary.md` goes here with the da
 - It isn't code signed, so Smart App Control can block the engine.
 - Spark runs on the PC through DuckDB's PySpark API and Spark SQL translation, so not every Spark API works. The compatibility check says which cells won't.
 - Concurrent writers to one table are protected by leases and version-checked commits. That is untested on OneLake.
-- Releases keep only the newest build of each channel, so a build can't be pinned and there is no one-step rollback.
-- The update check uses GitHub, which limits checks to 60 an hour per internet address.
+- There is no one-step rollback: a maintainer promotes an earlier build, or IT deploys an older exe ([rollback](../release-management/README.md#rollback)).
+- Updates and the first engine download come from GitHub's release downloads (not its API), unless IT hosts the engine itself.
 - No MSI or MSIX package yet. Deployment copies one exe.
 
 ## Pilot acceptance checklist

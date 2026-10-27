@@ -22,7 +22,7 @@ T-SQL is checked and formatted here but never run on this PC.
 
 ## Findings
 
-Findings are underlined in the editor, marked in the gutter and listed in the **Compatibility** panel beside it. Hover an underline, or pick a finding in the panel, to see:
+Findings are underlined in the editor, marked in the gutter and listed in the **Compatibility** panel beside it. A chip beside **Format SQL** shows the outcome (**No known problems**, **2 warnings**, **1 error**, **Not verified** when some of the SQL couldn't be checked, **Not checked** when the check didn't run); only **No known problems** is green. The panel opens by itself when the check finds an error or a warning or couldn't verify part of the SQL, and the chip opens or closes it at any time. Closed by hand, it stays closed until the findings change. Hover an underline, or pick a finding in the panel, to see:
 
 - the **severity** and **rule ID** (for example `SYN-001`);
 - what's wrong and **why**, in the engine's terms;
@@ -57,7 +57,7 @@ Queries over 100,000 characters are checked when you press **Check now** in the 
 
 ## Rules
 
-Rule set **2026.10.2**, from Microsoft Learn and the Apache Spark 3.5 reference as they read on 2026-10-17. Each Microsoft page's "last updated" date is kept in `sidecar/fabric_desktop/sqlcompat/profiles.py`. DDL-007 (ALTER TABLE) is an error except ALTER COLUMN, which is a warning because it is in preview.
+Rule set **2026.10.3**, from Microsoft Learn and the Apache Spark 3.5 reference as they read on 2026-10-17. Each Microsoft page's "last updated" date is kept in `sidecar/fabric_desktop/sqlcompat/profiles.py`. DDL-007 (ALTER TABLE) is an error except ALTER COLUMN, which is a warning because it is in preview. 2026.10.3 stops reading T-SQL's `GRANT`, `DENY` or `REVOKE ... ON SCHEMA::name` (and the other securable classes after `ON`) as a Spark `::` cast, and `UPDATE STATISTICS` (with no `SET`) as an UPDATE without WHERE.
 
 | Rule | Finding | Severity | Engines | Confidence | Source |
 | --- | --- | --- | --- | --- | --- |

@@ -208,7 +208,7 @@ Large tables come first because every later stage runs through the same write pa
 
 ## Decisions needed
 
-- **D1.** Should promotion to Test and Prod require a committed, pushed revision (recommended), or only warn? 5.1 ships with a warning and a per-environment `require_commit` setting; the answer decides the default.
+- **D1.** Should promotion to Test and Prod require a committed, pushed revision (recommended), or only warn? *Decided 2026-10-25: Chris chose Block.* Test and Prod in OneLake block files no pushed commit holds; an environment kept on this PC stays a note, and `require_commit` overrides either way.
 - **D2.** Who creates landing-zone writers (Copy jobs into LH_Landing): only the central platform team (current assumption, matching [platform.md](platform.md)), or domain teams through a request the central team approves? Blocks 4.1.
 
 ## Dependencies outside this plan
@@ -244,3 +244,4 @@ On a non-production workspace with an environment set to "Tables in: Workspace":
 | 2026-10-16 | Stage 1.2 built and measured ([PR #61](https://github.com/KratosDataGod/KratosForge/pull/61)). |
 | 2026-10-16 | Capability 9 and the agent, queue and release views moved to the Workload management program; 9.3 built ([PR #58](https://github.com/KratosDataGod/KratosForge/pull/58)). |
 | 2026-10-16 | Plan written; capabilities 2, 3, 6, 10 assigned to the notebook program; stage 1.1 built and measured ([PR #56](https://github.com/KratosDataGod/KratosForge/pull/56)). |
+| 2026-10-25 | D1 decided (Block): `require_commit` is on by default for Test and Prod in OneLake. |

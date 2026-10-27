@@ -1,6 +1,8 @@
 """Notebook files: what the app calls (notebook_files.py does the work).
 
-Reads: ``notebook_listing``, ``notebook_search``, ``notebook_import_check``, ``notebook_delete_check``,
+Reads: ``notebook_file_path``, ``notebook_disk_stamp`` and ``notebook_name_for_path`` (VS Code
+alongside the app, and kratosforge:// links),
+``notebook_listing``, ``notebook_search``, ``notebook_import_check``, ``notebook_delete_check``,
 ``notebook_deleted`` and ``notebook_fabric_check`` (reads a Fabric item's definition; nothing in
 Fabric changes and no Fabric job runs).
 
@@ -11,14 +13,19 @@ Recently deleted, turning off this PC's schedules that run it), ``notebook_resto
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+import re
+import stat
 from pathlib import Path
 from typing import Any
 
 from . import notebook_files as files
+from .notebook import disk_stamp, leaf_name
 from .redact import describe
 
-METHODS = {"notebook_listing", "notebook_search", "notebook_save_copy", "notebook_import_check", "notebook_import",
+METHODS = {"notebook_file_path", "notebook_disk_stamp", "notebook_name_for_path", "notebook_listing", "notebook_search", "notebook_save_copy", "notebook_import_check", "notebook_import",
            "notebook_delete_check", "notebook_delete", "notebook_deleted", "notebook_restore",
            "notebook_fabric_check", "notebook_from_fabric",
            "notebook_publish_check"}  # cloud_service.py: what changed in Fabric before a Publish
@@ -30,6 +37,55 @@ class NotebookFilesMixin:
     @property
     def _published_dir(self) -> Path:
         return Path(self.root) / "published"  # type: ignore[attr-defined]
+
+    def notebook_file_path(self, name: str) -> dict[str, Any]:
+        """Where the notebook's file is, for Open in VS Code: the file, its folder, and the
+        repository holding it (None for the app's own notebooks folder)."""
+        path = self.notebooks.path(name)  # type: ignore[attr-defined]
+        if not path.is_file():
+            raise ValueError(f"There's no notebook named {name!r}.")
+        place = self.notebooks.place_of(name)  # type: ignore[attr-defined]
+        return {"path": str(path), "folder": str(path.parent),
+                "repo_root": place["root"] if place else None, "repo_label": place["label"] if place else None,
+                "notebooks_folder": str(self.notebooks.folder)}  # type: ignore[attr-defined]
+
+    def notebook_disk_stamp(self, name: str) -> dict[str, Any]:
+        """The saved file's ``disk_stamp`` (notebook.disk_stamp), so the screen can tell whether another
+        program, such as VS Code, changed it. None when the file is gone or isn't a notebook."""
+        try:
+            nb = json.loads(self.notebooks.path(name).read_text(encoding="utf-8"))  # type: ignore[attr-defined]
+            return {"disk_stamp": disk_stamp(nb) if isinstance(nb, dict) else None}
+        except (OSError, ValueError):
+            return {"disk_stamp": None}
+
+    def notebook_name_for_path(self, path: str) -> dict[str, Any]:
+        """The notebook a file is, for a kratosforge://notebook?path=... link: its name when the file is
+        in the app's notebooks folder or a notebooks repository this PC opened, else None.
+
+        The path is checked as text first, with no file system call: a network path (\\\\host\\share,
+        //host/share, \\\\host@SSL\\dav) or a device path is refused, and so is anything outside those
+        folders, because even looking at such a path makes Windows contact the host with the person's
+        sign-in. Only a path that passes is resolved and read, and only when no folder or file below
+        the known folder is a link or junction, which could point at a share."""
+        if not _local_path(path):
+            return {"name": None}
+        full = os.path.abspath(path)
+        if not full.lower().endswith(".ipynb"):
+            return {"name": None}
+        for _place, folder in self.notebooks._folders():  # type: ignore[attr-defined]
+            top = os.path.abspath(folder)
+            if not os.path.normcase(full).startswith(os.path.normcase(top).rstrip("\\/") + os.sep):
+                continue
+            name = Path(os.path.relpath(full, top)).with_suffix("").as_posix()
+            if not _no_link_below(top, full):
+                continue
+            try:
+                p = Path(full).resolve()
+                if p.is_file() and self.notebooks.path(name).resolve() == p:  # type: ignore[attr-defined]
+                    return {"name": name}
+            except (OSError, ValueError):
+                pass
+        return {"name": None}
 
     def notebook_listing(self) -> list[dict[str, Any]]:
         """Every notebook (as list_notebooks), with the Fabric workspace it was last published to."""
@@ -140,10 +196,46 @@ class NotebookFilesMixin:
         definition = self.fabric.get_item_definition(workspace_id, item_id, "ipynb")  # type: ignore[attr-defined]
         item = {"workspace_id": workspace_id, "workspace_name": workspace_name, "item_id": item_id, "name": name}
         out = files.from_fabric(self.notebooks, definition, item, place, None)  # type: ignore[attr-defined]
-        files.remember_published(self._published_dir, item_id, workspace_id, files.ipynb_of(definition))
+        files.remember_published(self._published_dir, item_id, workspace_id, files.ipynb_of(definition),
+                                 name=leaf_name(out["name"]))
         try:
             self.workload_store.record_link(out["name"], workspace_id, item_id, workspace_name, how="recorded",  # type: ignore[attr-defined]
                                             by=self._wl_user())  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001 - the notebook is saved; Publish finds the item by name
             _log.warning("Couldn't record notebook %r's Fabric item: %s", out["name"], describe(exc))
         return out
+
+
+def _no_link_below(top: str, full: str) -> bool:
+    """Whether every folder and file from ``top`` down to ``full`` is a plain one: lstat looks at
+    each without following it, and the walk stops at the first link, junction or missing part."""
+    here = top
+    for part in Path(os.path.relpath(full, top)).parts:
+        here = os.path.join(here, part)
+        try:
+            st = os.lstat(here)
+        except (OSError, ValueError):
+            return False
+        if _is_link(st):  # a symbolic link or junction; cloud placeholders pass
+            return False
+    return True
+
+
+# Windows reparse tags with the name-surrogate bit point somewhere else: symbolic links (0xA000000C),
+# junctions (0xA0000003), WSL links (0xA000001D) and any future link tag. Others, such as OneDrive's
+# Files On-Demand placeholders (0x9000001A), are files and folders in place and pass.
+_NAME_SURROGATE = 0x20000000  # IsReparseTagNameSurrogate
+
+
+def _is_link(st: os.stat_result) -> bool:
+    return stat.S_ISLNK(st.st_mode) or bool(getattr(st, "st_reparse_tag", 0) & _NAME_SURROGATE)
+
+
+def _local_path(path: Any) -> bool:
+    """A full path on a drive (C:\\... or C:/...); off Windows, an absolute path that isn't //host.
+    Never a network or device path: \\\\host\\share, //host/share, \\\\?\\, \\\\.\\."""
+    if not isinstance(path, str) or "\x00" in path:
+        return False
+    if os.name == "nt":
+        return bool(re.match(r"[A-Za-z]:[\\/]", path))
+    return path.startswith("/") and not path.startswith(("//", "/\\"))

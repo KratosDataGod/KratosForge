@@ -11,6 +11,15 @@ surrogate key on every row. Template notebooks start with the same MERGE, writte
 
 LH_Keys lives in its own workspace per environment (``keys_workspace_id`` in environments.toml);
 Dev keeps it on this PC. The ``config`` schema holds the source system tables, ``sk`` the key tables.
+
+A composite business key is its parts, each trimmed, joined with ``||``; it is NULL (the row gets -1)
+when any part is NULL or blank. Inside a part of a composite key each ``|`` is written ``\\|``, so
+("A||B", "C") is ``A\\|\\|B||C`` and ("A", "B||C") is ``A||B\\|\\|C``: two different keys never give the
+same text. Escaped, a part never has two ``|`` in a row, so a run of one ``|`` is an escaped one, two a
+separator, and three an escaped one ending a part and then a separator. A part without ``|`` is
+written as it is (a ``\\`` alone is not escaped), and a single-column key is never escaped, so those
+keys keep the text and the surrogate key they had before this rule. A composite key with a ``|`` in a
+part gets new text, so its next run issues it a new key; the row it had stays in the key table.
 """
 
 from __future__ import annotations
@@ -39,6 +48,7 @@ CONFIG_SCHEMA = "config"
 UNKNOWN_KEY = -1
 UNKNOWN_BK = "UNKNOWN"
 BK_SEPARATOR = "||"
+BK_ESCAPE = "\\"  # put before each | inside a part of a composite business key
 SOURCE_SYSTEMS_FILE = "source_systems.toml"
 ENVIRONMENTS = ("dev", "test", "prod")
 SYSTEM_TYPES = ("SQL Server", "Azure SQL", "Oracle", "PostgreSQL", "MySQL", "Snowflake", "Dataverse",
@@ -232,9 +242,14 @@ def validate_keys(project: Project, today: dt.date | None = None) -> list[str]:
 
 
 def business_key(columns: list[str]) -> pl.Expr:
-    """The business key as text: each part trimmed, parts joined with ||, null when any part is missing."""
+    """The business key as text: each part trimmed, parts joined with ||, null when any part is missing.
+
+    In a composite key each | inside a part is written \\| (see the module docstring)."""
     parts = [pl.col(c).cast(pl.String).str.strip_chars().replace("", None) for c in columns]
-    return parts[0] if len(parts) == 1 else pl.concat_str(parts, separator=BK_SEPARATOR)
+    if len(parts) == 1:
+        return parts[0]
+    return pl.concat_str([p.str.replace_all("|", BK_ESCAPE + "|", literal=True) for p in parts],
+                         separator=BK_SEPARATOR)
 
 
 def read_keys(store: Store, kt: KeyTable) -> pl.DataFrame:
@@ -378,7 +393,14 @@ def _spark_name(workspace: str, lakehouse: str, schema: str, table: str) -> str:
 def _spark_bk(columns: list[str], alias: str = "") -> str:
     a = f"{alias}." if alias else ""
     parts = [f"NULLIF(TRIM(CAST({a}{c} AS STRING)), '')" for c in columns]
-    return parts[0] if len(parts) == 1 else f"CONCAT_WS('{BK_SEPARATOR}', {', '.join(parts)})"
+    if len(parts) == 1:
+        return parts[0]
+    # Each | in a part becomes \| as in business_key. CHR(92) is the backslash, written so that it
+    # doesn't depend on how Spark reads backslashes in string literals.
+    parts = [f"REPLACE({p}, '|', CONCAT(CHR({ord(BK_ESCAPE)}), '|'))" for p in parts]
+    # CONCAT, not CONCAT_WS: CONCAT_WS skips NULL parts, CONCAT gives NULL when any part is missing,
+    # as business_key does, so the row gets -1 and no key is issued for what's left.
+    return f"CONCAT({f', {BK_SEPARATOR!r}, '.join(parts)})"
 
 
 def merge_sql(project: Project, e: Entity, keys_workspace: str = "") -> str:
@@ -392,7 +414,6 @@ def merge_sql(project: Project, e: Entity, keys_workspace: str = "") -> str:
         kt = project.key_tables[b["table"]]
         target = _spark_name(keys_workspace, KEYS_LAKEHOUSE, KEY_SCHEMA, kt.table)
         bk_cols = b["business_key"]
-        not_null = " AND ".join(f"{c} IS NOT NULL" for c in bk_cols)
         out += [
             f"-- {i}. New business keys get the next {kt.sk}. Existing ones keep theirs.",
             f"MERGE INTO {target} AS k",
@@ -400,8 +421,7 @@ def merge_sql(project: Project, e: Entity, keys_workspace: str = "") -> str:
             f"    SELECT n.{kt.bk},",
             f"           CAST(m.max_sk + ROW_NUMBER() OVER (ORDER BY n.{kt.bk}) AS INT) AS {kt.sk}",
             f"    FROM (SELECT DISTINCT {_spark_bk(bk_cols)} AS {kt.bk}",
-            f"          FROM {source}",
-            f"          WHERE {not_null}) n",
+            f"          FROM {source}) n",
             f"    LEFT ANTI JOIN {target} e ON e.{kt.bk} = n.{kt.bk}",
             f"    CROSS JOIN (SELECT GREATEST(COALESCE(MAX({kt.sk}), 0), 0) AS max_sk FROM {target}) m",
             f"    WHERE n.{kt.bk} IS NOT NULL",

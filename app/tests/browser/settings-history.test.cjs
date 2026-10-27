@@ -19,7 +19,8 @@ before(async () => {
   app = await openApp({ mocks: {
     optimize_status: () => ({ allowed: true, default_name: "FabricDesktop_Central", installation_id: "x", label: "", active: CONN, connections: [CONN] }),
     tenant_settings_history: () => HIST,
-    capacity_settings_read: ({ approve }) => {
+    capacity_settings_read: ({ approve, admin }) => {
+      if (admin) return { outcome: "read", read_at: "2026-10-20T12:00:00+00:00", overrides: "unreadable", changes: [] };
       if (!approve) throw new Error("PermissionError: Settings history adds fdcap_snapshot, fdcap_change and fdcap_read to FabricDesktop_Central. Confirm to continue.");
       approved = true; return { outcome: "read", read_at: "2026-10-20T12:00:00+00:00", changes: [] };
     },
@@ -63,5 +64,18 @@ test("a non-administrator's tenant read says why", { skip }, async () => {
   tenantAnswer = { outcome: "unreadable", reason: "Only a Fabric administrator can read tenant settings (Tenant.Read.All).", changes: [] };
   await p().getByText("Read tenant settings (administrators)").click();
   await p().waitForFunction(() => document.body.textContent.includes("Only a Fabric administrator"));
+  assert.deepStrictEqual(app.errors, []);
+});
+test("Include capacity overrides asks Fabric for them only when ticked, and says when they weren't read", { skip }, async () => {
+  const reads = () => app.calls.filter((c) => c.method === "capacity_settings_read");
+  const before = reads().length;
+  const box = p().getByLabel("Include capacity overrides (administrators)");
+  assert.strictEqual(await box.isChecked(), false);
+  assert.ok(reads().slice(0, before).every((c) => !c.params?.admin), "nothing asks for overrides unless ticked");
+  await box.check();
+  await p().getByText("Read capacities now").click();
+  await p().waitForFunction(() => document.body.textContent.includes("Overrides weren't read"));
+  assert.strictEqual(reads().length, before + 1);
+  assert.strictEqual(reads().at(-1).params.admin, true);
   assert.deepStrictEqual(app.errors, []);
 });

@@ -1,0 +1,249 @@
+"""Connections for the Data Factory page (DF-5): what uses each one, per environment, reads only."""
+
+import base64
+import json
+import time
+from types import SimpleNamespace
+
+import pytest
+
+from fabric_desktop import audit, server
+from fabric_desktop import fabric_connections_service as fcs
+from fabric_desktop import schedule_service
+from fabric_desktop.auth import SignInError, sign_in_error
+from fabric_desktop.service import Service
+
+SQL = "5a1c7d2e-0000-4000-8000-000000000001"
+S3 = "5a1c7d2e-0000-4000-8000-000000000002"
+GONE = "5a1c7d2e-0000-4000-8000-0000000000ff"
+TOKEN = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJl"
+
+
+def _definition(*parts):
+    return {"definition": {"parts": [{"path": f"p{i}.json", "payloadType": "InlineBase64",
+                                      "payload": base64.b64encode(json.dumps(p).encode()).decode()} for i, p in enumerate(parts)]}}
+
+
+PIPELINE = {"properties": {"activities": [
+    {"name": "Copy customers", "type": "Copy", "typeProperties": {
+        "source": {"datasetSettings": {"externalReferences": {"connection": SQL.upper()}}}}},
+    {"name": "Each", "type": "ForEach", "typeProperties": {"activities": [
+        {"name": "Copy events", "type": "Copy", "externalReferences": {"connection": S3}}]}}]}}
+
+
+class FakeFabric:
+    calls: list = []
+
+    def __init__(self, token):
+        self.token = token()
+
+    def list_workspaces(self):
+        return [{"id": "ws-dev", "displayName": "Sales Dev"}, {"id": "ws-test", "displayName": "Sales Test"},
+                {"id": "ws-x", "displayName": "Other"}]
+
+    def list_connections(self):
+        assert self.token == "conn-tok"
+        return [{"id": SQL, "displayName": "sql-erp-prod", "connectivityType": "OnPremisesGateway", "gatewayId": "gw-1",
+                 "privacyLevel": "Organizational",
+                 "connectionDetails": {"type": "SQL", "path": f"erp.contoso.local;Password={TOKEN}"},
+                 "credentialDetails": {"credentialType": "Basic"}},
+                {"id": S3, "displayName": "s3-events", "connectivityType": "ShareableCloud",
+                 "connectionDetails": {"type": "AmazonS3", "path": "https://events.s3.amazonaws.com"}},
+                {"id": "web", "displayName": "web-fx-rates", "connectionDetails": {"type": "Web"}}]
+
+    def list_gateways(self):
+        assert self.token == "gw-tok"
+        return [{"id": "GW-1", "type": "OnPremises", "displayName": "gw-onprem-01", "numberOfMemberGateways": 2}]
+
+    def list_items(self, ws):
+        return {"ws-dev": [{"id": "pl1", "type": "DataPipeline", "displayName": "pl_customer_load"},
+                           {"id": "cj1", "type": "CopyJob", "displayName": "cj_erp_customers"},
+                           {"id": "nb1", "type": "Notebook", "displayName": "Load"}],
+                "ws-test": [{"id": "pl2", "type": "DataPipeline", "displayName": "pl_customer_load"},
+                            {"id": "pl3", "type": "DataPipeline", "displayName": "pl_broken"}],
+                "ws-x": []}[ws]
+
+    def get_item_definition(self, ws, item, fmt=None):
+        FakeFabric.calls.append(item)
+        if item == "pl3":
+            raise RuntimeError("403")
+        if item == "cj1":
+            return _definition({"properties": {"source": {"connectionSettings": {"externalReferences": {"connection": SQL}}}}})
+        if item == "pl2":
+            return _definition({"properties": {"activities": [{"externalReferences": {"connection": GONE}}]}})
+        return _definition(PIPELINE, {"metadata": {"type": "DataPipeline"}})
+
+
+class FakeAuth:
+    def fabric_token(self):
+        return "tok"
+
+    def _token(self, scopes):
+        return {tuple(fcs.CONNECTION_SCOPES): "conn-tok", tuple(fcs.GATEWAY_SCOPES): "gw-tok"}[tuple(scopes)]
+
+
+@pytest.fixture
+def svc(tmp_path, monkeypatch):
+    FakeFabric.calls = []
+    for mod in (fcs, schedule_service):
+        monkeypatch.setattr(mod, "FabricClient", FakeFabric)
+    monkeypatch.setattr(Service, "auth", property(lambda self: FakeAuth()))
+    s = Service(root=tmp_path / "app")
+    envs = {"prod": {}, "test": {"workspace_id": "ws-test"}, "dev": {"workspace_id": "ws-dev"}}
+    monkeypatch.setattr(s, "_project", lambda: SimpleNamespace(environments=envs))
+    return s
+
+
+def _settled(svc, **kw):
+    out = svc.fabric_connections(**kw)
+    for _ in range(200):
+        if not out["pending"]:
+            return out
+        time.sleep(0.02)
+        out = svc.fabric_connections()
+    raise AssertionError("scan never finished")
+
+
+def test_each_connection_lists_what_uses_it_in_each_environment(svc):
+    out = _settled(svc)
+    assert [w["env"] for w in out["workspaces"]] == ["dev", "test"]  # prod has no workspace
+    rows = {r["name"]: r for r in out["connections"]}
+    assert list(rows) == ["s3-events", "sql-erp-prod", "web-fx-rates"]
+    sql = rows["sql-erp-prod"]
+    assert [(u["env"], u["item_name"], u["item_type"]) for u in sql["used_by"]] == [
+        ("dev", "pl_customer_load", "pipeline"), ("dev", "cj_erp_customers", "copy job")]
+    assert (sql["type"], sql["connectivity"], sql["gateway_id"], sql["credential_type"]) == (
+        "SQL", "OnPremisesGateway", "gw-1", "Basic")
+    assert [u["item_name"] for u in rows["s3-events"]["used_by"]] == ["pl_customer_load"]  # nested in a ForEach
+    assert rows["web-fx-rates"]["used_by"] == []
+    assert (out["items"], out["missed"], out["skipped"]) == (4, 1, 0)
+
+
+def test_a_connection_nobody_here_can_use_is_missing(svc):
+    out = _settled(svc)
+    assert [(m["id"], [u["env"] for u in m["used_by"]]) for m in out["missing"]] == [(GONE, ["test"])]
+
+
+def test_nothing_secret_comes_back(svc):
+    out = _settled(svc)
+    text = json.dumps(out)
+    assert TOKEN not in text and "Password=" not in text.replace("Password=[removed]", "")
+
+
+def test_the_scan_is_cached_until_refresh(svc):
+    _settled(svc)
+    reads = len(FakeFabric.calls)
+    _settled(svc)
+    assert len(FakeFabric.calls) == reads
+    _settled(svc, refresh=True)
+    assert len(FakeFabric.calls) == reads * 2
+
+
+def test_without_environments_it_checks_the_schedules_workspaces(svc, monkeypatch):
+    monkeypatch.setattr(svc, "_project", lambda: (_ for _ in ()).throw(FileNotFoundError("no project")))
+    svc.set_workspace_mark("ws-dev", "pins", True)
+    out = _settled(svc)
+    assert [(w["id"], w["env"]) for w in out["workspaces"]] == [("ws-dev", "")]
+
+
+def test_signed_out_says_so_without_a_scan(svc, monkeypatch):
+    class NoAuth(FakeAuth):
+        def fabric_token(self):
+            raise RuntimeError("Sign in first")
+    monkeypatch.setattr(Service, "auth", property(lambda self: NoAuth()))
+    out = svc.fabric_connections()
+    assert out["pending"] is False and "Sign in first" in out["error"] and FakeFabric.calls == []
+    # Signing in afterwards needs no Refresh: an error isn't cached.
+    monkeypatch.setattr(Service, "auth", property(lambda self: FakeAuth()))
+    assert "error" not in _settled(svc) and FakeFabric.calls
+
+
+def test_connection_ids_walks_every_level():
+    assert fcs.connection_ids([{"a": {"externalReferences": {"connection": " X "}}}, {"externalReferences": {}}]) == {"x"}
+
+
+def test_read_only_and_not_quick():
+    assert "fabric_connections" in server.METHODS and "fabric_connections" in audit.READ_ONLY
+    assert "fabric_connections" not in server.QUICK
+
+
+def test_gateway_names_come_with_their_connections(svc):
+    rows = {r["name"]: r for r in _settled(svc)["connections"]}
+    sql = rows["sql-erp-prod"]
+    assert (sql["gateway_id"], sql["gateway_name"], sql["gateway_members"]) == ("gw-1", "gw-onprem-01", 2)
+    assert rows["s3-events"]["gateway_name"] == ""
+
+
+def test_without_gateway_access_the_connections_still_list(svc, monkeypatch):
+    asked = []
+
+    class NoGateways(FakeAuth):
+        def _token(self, scopes):
+            if scopes == fcs.GATEWAY_SCOPES:
+                asked.append(1)
+                raise SignInError("AADSTS65001", "consent declined")
+            return super()._token(scopes)
+    monkeypatch.setattr(Service, "auth", property(lambda self: NoGateways()))
+    out = _settled(svc)
+    assert len(out["connections"]) == 3 and "consent declined" in out["gateways_error"]
+    assert all(r["gateway_name"] == "" for r in out["connections"])
+    # The decline is kept: Refresh doesn't ask again.
+    assert "consent declined" in _settled(svc, refresh=True)["gateways_error"] and len(asked) == 1
+
+
+@pytest.mark.parametrize("failure", [RuntimeError("connection reset"), SignInError("temporarily_unavailable", "busy"),
+                                     sign_in_error({"error": "server_error", "error_description": "AADSTS90033: busy"})])
+def test_a_passing_gateway_sign_in_failure_asks_again(svc, monkeypatch, failure):
+    asked = []
+
+    class Flaky(FakeAuth):
+        def _token(self, scopes):
+            if scopes == fcs.GATEWAY_SCOPES and not asked:
+                asked.append(1)
+                raise failure
+            return super()._token(scopes)
+    monkeypatch.setattr(Service, "auth", property(lambda self: Flaky()))
+    assert _settled(svc)["gateways_error"]
+    out = _settled(svc, refresh=True)
+    assert out["gateways_error"] == "" and {r["gateway_name"] for r in out["connections"]} == {"gw-onprem-01", ""}
+
+
+def _dataflow_definition(*ids):
+    meta = {"queriesMetadata": {}, "connections": [
+        {"path": "erp", "kind": "SQL", "connectionId": json.dumps({"ClusterId": "c", "DatasourceId": i})} for i in ids]}
+    return {"definition": {"parts": [
+        {"path": "queryMetadata.json", "payload": base64.b64encode(json.dumps(meta).encode()).decode(), "payloadType": "InlineBase64"},
+        {"path": "mashup.pq", "payload": base64.b64encode(b"section Section1;\nshared Q = 1;").decode(), "payloadType": "InlineBase64"}]}}
+
+
+def test_a_dataflow_counts_as_using_the_connections_its_metadata_names(svc, monkeypatch):
+    items = FakeFabric.list_items
+    definition = FakeFabric.get_item_definition
+    monkeypatch.setattr(FakeFabric, "list_items", lambda self, ws: items(self, ws) + (
+        [{"id": "df1", "type": "Dataflow", "displayName": "df_products"}] if ws == "ws-dev" else []))
+    monkeypatch.setattr(FakeFabric, "get_item_definition", lambda self, ws, item, fmt=None: _dataflow_definition(
+        S3.upper(), "5a1c7d2e-0000-4000-8000-0000000000ee") if item == "df1" else definition(self, ws, item, fmt))
+    out = _settled(svc)
+    rows = {r["name"]: r for r in out["connections"]}
+    assert [(u["item_name"], u["item_type"]) for u in rows["s3-events"]["used_by"]][-1] == ("df_products", "dataflow")
+    # An id a dataflow names that isn't a connection here isn't called missing (unverified mapping).
+    assert [m["id"] for m in out["missing"]] == [GONE] and out["items"] == 5
+
+
+@pytest.mark.parametrize("broken", [
+    {"definition": {"parts": "not a list"}},
+    {"definition": {"parts": [{"path": "queryMetadata.json", "payloadType": "InlineBase64",
+                               "payload": base64.b64encode(json.dumps({"connections": 3}).encode()).decode()},
+                              {"path": "mashup.pq", "payloadType": "InlineBase64", "payload": base64.b64encode(b"section S;").decode()}]}},
+])
+def test_a_definition_in_an_odd_shape_is_counted_not_the_end_of_the_scan(svc, monkeypatch, broken):
+    items = FakeFabric.list_items
+    definition = FakeFabric.get_item_definition
+    monkeypatch.setattr(FakeFabric, "list_items", lambda self, ws: items(self, ws) + (
+        [{"id": "df1", "type": "Dataflow", "displayName": "df_odd"}, {"id": "pl9", "type": "DataPipeline", "displayName": "pl_odd"}]
+        if ws == "ws-dev" else []))
+    monkeypatch.setattr(FakeFabric, "get_item_definition",
+                        lambda self, ws, item, fmt=None: broken if item in ("df1", "pl9") else definition(self, ws, item, fmt))
+    out = _settled(svc)
+    assert "error" not in out and len(out["connections"]) == 3
+    assert out["missed"] == 1 + (2 if isinstance(broken["definition"]["parts"], str) else 1)  # pl3's 403, then the odd ones

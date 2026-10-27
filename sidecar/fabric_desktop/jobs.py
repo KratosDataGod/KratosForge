@@ -72,6 +72,9 @@ class Job:
             raise ValueError(f"target.mode must be one of {MODES}")
         check_name("schema", self.target.schema)
         check_name("table", self.target.table)
+        # The name is a folder on this PC (publish.stage_locally), so it must stay one plain folder name.
+        if not self.name.strip() or self.name in (".", "..", "_writes") or any(c in self.name for c in "/\\:"):
+            raise ValueError(f"Invalid job name {self.name!r}: use a plain name, without / \\ : or .., and not _writes.")
 
 
 @contextmanager

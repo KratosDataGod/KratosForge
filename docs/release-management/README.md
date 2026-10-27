@@ -12,7 +12,7 @@ There is no installer, store or package feed. The product is two files published
 
 | Piece | What it is | Built by |
 | --- | --- | --- |
-| `fabric-desktop.exe` | The Tauri 2 shell with the UI (`app/`) | CI `shell` job, `cargo build --release --locked` on Windows |
+| `kratosforge.exe` (and the same file as `fabric-desktop.exe`) | The Tauri 2 shell with the UI (`app/`). Builds before the name changed download only `fabric-desktop.exe`, so CI and Promote publish both | CI `shell` job, `cargo build --release --locked` on Windows |
 | `fabric-desktop-engine.zip` | python.org's embeddable Python 3.12 plus the `fabric_desktop` engine (`sidecar/`) and every pinned package in `sidecar/constraints.txt` | CI `engine` job on Windows |
 | `fabric-desktop-engine-update.zip` | Only the engine's own files (`fabric_desktop`, its dist-info and launcher, and `engine.json`), a few MB. A PC whose installed engine has the same runtime key (the same Python and packages) updates from this instead of the whole engine (`app/src-tauri/src/engine_patch.rs`) | CI `engine` job on Windows |
 | `version.json` | The build's commit, What's new notes, 30 days of history, the SHA-256 of the exe, engine and engine update, and the engine's runtime key (`.github/scripts/engine_runtime.py`) | CI `release` job |
@@ -120,7 +120,7 @@ A rollback is a promotion of an earlier build.
 
 **How PCs follow a channel rollback.** The app doesn't refuse a build because it is older than the one running; it refuses a `version.json` that is older than the newest one it has seen on that channel. A rollback republishes the earlier build's exe, engine and `version.json` (same `commit` and checksums) with a new `published` stamp, which Promote writes on every run. PCs then accept it as the channel's newest release and install the earlier build at their next start. A cached copy of the release it replaced is refused, because its stamp is earlier. A `version.json` uploaded by hand (see **Older builds** below) must set `published` to the current time.
 
-**On one PC,** an update ends the running build's local engine (a run still in progress is stopped, not waited for), then keeps the previous exe as `fabric-desktop.exe.old` until the new build has opened its window; if the new build exits before that, the previous exe is put back, restarts its engine and keeps running. Builds from before HD-022 never confirm their start, so a rollback to one of them is left running after 90 seconds rather than undone. After a successful start `.old` is removed, so it is not a way to go back to an earlier build later.
+**On one PC,** an update ends the running build's local engine (a run still in progress is stopped, not waited for; if a call still holds the engine 10 seconds later, the update is refused and the running build carries on), then keeps the previous exe as `kratosforge.exe.old` until the new build has opened its window; if the new build exits before that, the previous exe is put back, restarts its engine and keeps running. Builds from before HD-022 never confirm their start, so a rollback to one of them is left running after 90 seconds rather than undone. After a successful start `.old` is removed, so it is not a way to go back to an earlier build later.
 
 In order of preference:
 
@@ -137,11 +137,11 @@ Two limits today:
 
 An organization can stay on one build while the channels move on. Turn off self-updating (`"auto_update": false` in the policy file, [enterprise install](../enterprise-install.md)) and deploy the exe from that build's release:
 
-`https://github.com/KratosDataGod/fabric-desktop/releases/download/build-<12 characters>/fabric-desktop.exe`
+`https://github.com/KratosDataGod/KratosForge/releases/download/build-<12 characters>/kratosforge.exe` (builds from before the name changed have only `fabric-desktop.exe`)
 
 The engine zip, `version.json` and SBOMs are next to it under the same tag. `version.json` gives the SHA-256 of the exe and the engine to check a copy against.
 
-The app itself can't be pointed at a `build-*` release yet. It downloads its engine from its channel's current release (`stable` or `latest`). So a pinned exe runs on a PC whose engine for that build is already installed. A PC that has to download the engine gets the channel's current engine, which doesn't match, and is told to ask IT for the current exe. Letting the app or policy name a build for the engine download is a follow-up.
+With `"auto_update": false` the app downloads its engine only from its own build's `build-*` release, never the channel's (`stable` or `latest`), so a pinned exe gets the matching engine for as long as its release is kept. Once that release is deleted, a PC that has to download the engine is told this build no longer has one and to ask IT for the current exe. Self-updating PCs take the engine from their channel's current release.
 
 Reverting the app does not revert what a newer build wrote: local settings, schedules, run history, the metadata store and anything in OneLake stay as the newer build left them. Before shipping a change to a stored format, its PR must say whether an older build can still read it.
 

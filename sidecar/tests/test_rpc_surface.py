@@ -36,18 +36,21 @@ _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-0
 # Allowlisted methods with no UI caller, each with why it stays. Remove a name when the UI starts
 # calling it or when it leaves METHODS; the test below fails until you do.
 # Dropping a name from METHODS? Also drop it from the timeout list in app/src-tauri/src/watchdog.rs.
+_PRACTICES = "the notebook rules list, for a template editor to list them; the panel shows findings only (docs/notebook-best-practices.md)"
+
+_SQL_PRACTICES = "SQL best practices: engine only, the panel waits on Chris's mockup review (docs/sql-best-practices.md)"
+
+
 NO_UI_CALLER: dict[str, str] = {
+    "notebook_practice_rules": _PRACTICES,
+    "sql_practices": _SQL_PRACTICES,
+    "sql_practice_rules": _SQL_PRACTICES,
     # MCP / local HTTP API tools (in-process).
     "placement_advice": _MCP + "; Prove shows it later (docs/finops/placement-advice.md)",
     "notebook_environment": _MCP,
     "pipeline_activity_registry": _MCP,
-    "pipeline_compatibility": _MCP,
-    "pipeline_export": _MCP,
     "pipeline_inspect": _MCP,
     "pipeline_validate": _MCP,
-    "pipeline_run_check": _MCP,
-    "pipeline_run_cancel": _MCP,
-    "pipeline_runs": _MCP,
     "receipt_export": _MCP,
     "receipts_list": _MCP,
     "run_sql": _MCP,
@@ -59,7 +62,6 @@ NO_UI_CALLER: dict[str, str] = {
     "preview_job": _CLI,
     "run_job": _CLI,
     # Local data projects.
-    "list_local_projects": _LOCAL,
     "list_local_tables": _LOCAL,
     "local_add_source": _LOCAL,
     "local_close_project": _LOCAL,
@@ -107,7 +109,6 @@ NO_UI_CALLER: dict[str, str] = {
     # Reused in-process by another method.
     "all_shortcuts": _INTERNAL,  # shortcut_service
     "list_shortcuts": _NO_SCREEN,  # removal candidate: estate/shortcut services call api.list_shortcuts, not this
-    "cancel_fabric_run": _INTERNAL,  # workload_service; no button in Activity
     "meta_preflight": _INTERNAL,  # risk_service
     "git_path_info": _INTERNAL,  # git_service
     "git_repos": _INTERNAL,  # git_service
@@ -119,8 +120,6 @@ NO_UI_CALLER: dict[str, str] = {
     "meta_diff": _QA017,
     "meta_preview": _QA017,
     "notebook_diff": _QA017,
-    "pipeline_import": _QA017,
-    "platform_revoke": _QA017,
     "platform_sources": _QA017,
     "workload_actions": _QA017,
 }

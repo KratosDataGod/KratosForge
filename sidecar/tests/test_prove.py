@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -96,11 +97,13 @@ class FakeFabric:
     def get_lakehouse(self, ws, lh):
         return {"properties": {"defaultSchema": "dbo"}}
 
-    def run_item_job(self, ws, item, job):
+    def run_item_job(self, ws, item, job, execution_data=None):
         if self.before_run:
             self.before_run()
         name, nb = self.saved[-1]
-        self.ran = run_published(nb, self.svc.lh_root, self.svc.tmp, self.env)
+        self.execution_data = execution_data
+        self.ran = run_published(with_parameters(nb, (execution_data or {}).get("parameters")),
+                                 self.svc.lh_root, self.svc.tmp, self.env)
         return "job1"
 
     def job_instance(self, ws, item, job):
@@ -110,6 +113,16 @@ class FakeFabric:
 
     def cancel_job(self, ws, item, job):
         pass
+
+
+def with_parameters(nb: dict, parameters: dict | None) -> dict:
+    """The notebook as Fabric runs it with a job's parameters: a cell setting them after the
+    parameter cell."""
+    if not parameters:
+        return nb
+    at = next(i + 1 for i, c in enumerate(nb["cells"]) if "parameters" in c.get("metadata", {}).get("tags", []))
+    cell = {"cell_type": "code", "metadata": {}, "source": [f"{k} = {v['value']!r}\n" for k, v in parameters.items()]}
+    return nb | {"cells": nb["cells"][:at] + [cell] + nb["cells"][at:]}
 
 
 def run_published(nb: dict, lh_root: Path, tmp: Path, env: dict) -> subprocess.CompletedProcess:
@@ -278,6 +291,35 @@ def test_a_proof_runs_both_sides_from_pinned_inputs_without_touching_shared_tabl
     assert call(svc, "prove_list", name="Order values")[0]["id"] == out["id"]
 
 
+def test_a_matching_proof_earns_proof_forged_once(svc):
+    svc.fake = FakeFabric(svc)
+    out = wait(svc, call(svc, "prove_start", **payload())["id"])
+    assert out["verdict"]["verdict"] == "same", out
+    assert out["earned"] == [{"id": "proof-forged", "name": "Proof Forged", "xp": 150, "first": True}]
+    row = call(svc, "profile_get")["evidence"][0]
+    assert row["type"] == "prove.match" and row["ref"]["id"] == out["receipt_id"]
+
+
+def test_both_runs_use_the_parameters_bar_values(svc):
+    # With the code's own factor (1) on this PC and the bar's (3) in Fabric, the results would differ.
+    cells = [dict(c) for c in CELLS]
+    cells.insert(2, {"type": "code", "source": "factor = 1", "meta": {"tags": ["parameters"]}})
+    cells[4] = cells[4] | {"source": cells[4]["source"].replace("pl.col('rate')", "pl.col('rate') * factor")}
+    cells = [c | {"cell_id": f"c{i}"} for i, c in enumerate(cells)]
+    svc.fake = FakeFabric(svc)
+    call(svc, "save_notebook", name="Order values", cells=cells, lakehouse_ref=LAKEHOUSE)
+    call(svc, "notebook_inputs_set", name="Order values", cells=cells, values={"parameters": {"factor": "3"}})
+    out = wait(svc, call(svc, "prove_start", **payload(cells))["id"])
+    assert out["verdict"]["verdict"] == "same", out
+    assert svc.fake.execution_data == {"parameters": {"factor": {"value": 3, "type": "int"}}}
+    assert out["parameters"] == {"factor": {"value": 3, "type": "int"}} and "_suffixes" not in out
+    assert call(svc, "receipt_get", id=out["receipt_id"])["receipt"]["notebook"]["parameters"] == out["parameters"]
+    # A value the bar shows in red stops the proof before either run starts.
+    call(svc, "notebook_inputs_set", name="Order values", cells=cells, values={"parameters": {"factor": "three"}})
+    refused = handle(svc, json.dumps({"id": 1, "method": "prove_start", "params": payload(cells)}))
+    assert "Type a whole number" in refused["error"]
+
+
 def test_tiny_floating_point_drift_passes_the_default_tolerance(svc):
     svc.fake = FakeFabric(svc, env={"FD_FAKE_FABRIC_DRIFT": "1"})
     out = wait(svc, call(svc, "prove_start", **payload())["id"])
@@ -355,19 +397,26 @@ def test_cancel_that_lands_while_a_cell_is_starting_stops_it(svc, monkeypatch):
     # Windows CI: Cancel landed after the proof moved to the next cell but before that cell's
     # thread ran, and interrupt failed on the thread's missing id (TypeError), or found the last
     # cell already done and the long cell then ran to its end.
+    # The patch goes in before the proof starts: patched after, the proof's thread could reach the
+    # long cell first (Windows CI, #728), so nothing cancelled it and it ran to its end.
+    # The proof's thread can also reach the long cell before prove_start has returned its id (#748),
+    # so the patch waits for the id rather than reading it straight away.
     svc.fake = FakeFabric(svc)
     cells = CELLS[:2] + [{"type": "code", "source": "import time\nfor _ in range(400):\n    time.sleep(0.05)"}] + CELLS[3:]
-    started = call(svc, "prove_start", **payload(cells))
-    start = Kernel.start
+    start, started, cancelled, has_id = Kernel.start, {}, [], threading.Event()
 
     def cancel_first(self, code, *args, **kwargs):
         if "range(400)" in code:
-            assert call(svc, "prove_cancel", id=started["id"]) == {"cancelled": True}
+            assert has_id.wait(10), "prove_start never returned"
+            cancelled.append(call(svc, "prove_cancel", id=started["id"]))
         return start(self, code, *args, **kwargs)
 
     monkeypatch.setattr(Kernel, "start", cancel_first)
     began = time.monotonic()
+    started.update(call(svc, "prove_start", **payload(cells)))
+    has_id.set()
     out = wait(svc, started["id"])
+    assert cancelled == [{"cancelled": True}]
     assert out["state"] == "cancelled" and time.monotonic() - began < 15, out["pc"]  # the cell alone takes 20 s
     assert out["pc"]["cells"]["2"]["status"] != "ok" and svc.fake.saved == []
 
@@ -393,6 +442,69 @@ def test_interrupt_waits_for_a_cell_thread_that_hasnt_started_yet(monkeypatch):
     assert answers == [{"interrupted": True, "stopped": True}]
     assert k.poll(-1, 0.0)["status"] == "cancelled"
 
+
+
+def test_interrupt_before_the_cell_reaches_its_handlers_still_cancels_it(monkeypatch):
+    # Windows CI: the interrupt was raised as soon as the thread had an id, which can be before
+    # _execute's handlers. The thread then died there, the run never finished and Prove waited on it.
+    import threading
+    k = Kernel()
+    execute, entered = Kernel._execute, threading.Event()
+
+    def late(self, *args, **kwargs):
+        entered.set()
+        time.sleep(0.5)  # the thread runs, but isn't in _execute yet
+        return execute(self, *args, **kwargs)
+
+    monkeypatch.setattr(Kernel, "_execute", late)
+    k.start("import time\nfor _ in range(400):\n    time.sleep(0.05)")
+    assert entered.wait(5)
+    assert k.interrupt() == {"interrupted": True, "stopped": True}
+    snap = k.poll(-1, 0.0)
+    assert snap["status"] == "cancelled" and any("Cancelled" in o.get("text", "") for o in snap["outputs"])
+    monkeypatch.undo()
+    assert k.run("x = 1")["status"] == "ok"  # the kernel takes the next cell
+
+
+def test_interrupt_while_a_cell_is_finishing_lets_it_finish(monkeypatch):
+    # An interrupt raised in _execute's finally (before run.finish) would end the thread with the run
+    # never finished, the same hang as an interrupt before its handlers.
+    import threading
+    from fabric_desktop import notebook
+    k = Kernel()
+    finish, entered = notebook._Run.finish, threading.Event()
+
+    def slow_finish(self, status):
+        entered.set()
+        time.sleep(0.5)  # in the finally: Cancel must not raise here
+        return finish(self, status)
+
+    monkeypatch.setattr(notebook._Run, "finish", slow_finish)
+    k.start("x = 1")
+    assert entered.wait(5)
+    assert k.interrupt() == {"interrupted": True, "stopped": True}
+    assert k.poll(-1, 0.0)["status"] == "ok"
+
+
+def test_interrupt_is_sent_while_holding_the_cancel_lock(monkeypatch):
+    # Sent after the lock was released, the cell could disarm in between and get the interrupt in its finally.
+    import ctypes
+    from fabric_desktop import notebook
+    k = Kernel()
+    k.start("import time\nfor _ in range(400):\n    time.sleep(0.05)")
+    run = k._current
+    deadline = time.monotonic() + 5
+    while not run.armed and time.monotonic() < deadline:
+        time.sleep(0.01)
+    send, held = ctypes.pythonapi.PyThreadState_SetAsyncExc, []
+
+    def recording(ident, exc):
+        held.append(run.cancel_lock.locked())
+        return send(ident, exc)
+
+    monkeypatch.setattr(notebook.ctypes.pythonapi, "PyThreadState_SetAsyncExc", recording)
+    assert k.interrupt() == {"interrupted": True, "stopped": True}
+    assert held == [True] and k.poll(-1, 0.0)["status"] == "cancelled"
 
 def test_the_kernel_refuses_cells_while_a_proof_runs_and_one_proof_at_a_time(svc):
     svc.fake = FakeFabric(svc)
@@ -447,6 +559,17 @@ def test_bad_rules_are_refused_before_anything_runs(svc):
     svc.fake = FakeFabric(svc)
     out = handle(svc, json.dumps({"id": 1, "method": "prove_start", "params": payload(rules={"default": {"tolerance": 1}})}))
     assert "Unknown comparison rule" in out["error"] and svc.fake.saved == []
+
+
+def test_a_proof_uses_the_repository_location_without_saving_it_into_the_notebook(svc):
+    # A notebook in a notebooks repository with no lakehouse of its own (publishPayload's location_ref).
+    svc.fake = FakeFabric(svc)
+    given = payload(lakehouse_ref=None, location_ref=LAKEHOUSE)
+    assert call(svc, "prove_check", **given)["check"]["ok"]
+    out = wait(svc, call(svc, "prove_start", **given)["id"])
+    assert out["state"] == "done", out["message"]
+    assert out["lakehouse"]["lakehouse_id"] == LAKEHOUSE["lakehouse_id"]
+    assert svc.notebooks.load("Order values").get("lakehouse") is None  # it keeps following the environment
 
 
 def test_prove_check_describes_the_plan(svc):

@@ -123,6 +123,10 @@ jobs:
     # Smart App Control blocks those packages' DLLs unless they are signed, so they are
     # signed here once a Trusted Signing account is set up (see README, "Code signing").
     runs-on: windows-latest
+    # The shell bakes these into the exe, so it installs only this engine (main.rs check_pinned_engine).
+    outputs:
+      engine_sha256: ${{ steps.zip.outputs.engine_sha256 }}
+      engine_update_sha256: ${{ steps.zip.outputs.engine_update_sha256 }}
     env:
       PYTHON_VERSION: "3.12.10"
       # From https://www.python.org/downloads/release/python-31210/ (Windows embeddable package, 64-bit).
@@ -197,6 +201,7 @@ jobs:
           path: sbom-engine.cdx.json
           if-no-files-found: error
       - name: Zip the engine
+        id: zip
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -214,6 +219,8 @@ jobs:
           if ($LASTEXITCODE) { exit 1 }
           Pop-Location
           "Engine $((Get-Item fabric-desktop-engine.zip).Length) bytes, update $((Get-Item $out).Length) bytes"
+          "engine_sha256=$((Get-FileHash fabric-desktop-engine.zip -Algorithm SHA256).Hash.ToLower())" >> $env:GITHUB_OUTPUT
+          "engine_update_sha256=$((Get-FileHash $out -Algorithm SHA256).Hash.ToLower())" >> $env:GITHUB_OUTPUT
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fabric-desktop-engine
@@ -224,6 +231,8 @@ jobs:
 
   shell:
     runs-on: windows-latest
+    # After the engine, whose zips' checksums the exe carries.
+    needs: engine
     defaults:
       run:
         working-directory: app/src-tauri
@@ -242,6 +251,8 @@ jobs:
           # Builds of main carry their commit, so the app can tell when a newer release exists.
           FABRIC_RELEASE_COMMIT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha || '' }}
           FABRIC_CLIENT_ID: ${{ vars.FABRIC_CLIENT_ID }}
+          FABRIC_ENGINE_SHA256: ${{ needs.engine.outputs.engine_sha256 }}
+          FABRIC_ENGINE_UPDATE_SHA256: ${{ needs.engine.outputs.engine_update_sha256 }}
       # The shell's unit tests (update checksums, update policy, sign-in cookies, engine time
       # limits), before the exe is signed or published. Same profile and environment as the build
       # above, so the build script doesn't rerun and the compiled crates are reused.
@@ -250,6 +261,8 @@ jobs:
         env:
           FABRIC_RELEASE_COMMIT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha || '' }}
           FABRIC_CLIENT_ID: ${{ vars.FABRIC_CLIENT_ID }}
+          FABRIC_ENGINE_SHA256: ${{ needs.engine.outputs.engine_sha256 }}
+          FABRIC_ENGINE_UPDATE_SHA256: ${{ needs.engine.outputs.engine_update_sha256 }}
       - name: Sign the exe
         # Only builds of main are signed: pull request code never runs next to the signing secrets.
         if: vars.TRUSTED_SIGNING_ACCOUNT != '' && github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -261,14 +274,14 @@ jobs:
           endpoint: ${{ vars.TRUSTED_SIGNING_ENDPOINT }}
           trusted-signing-account-name: ${{ vars.TRUSTED_SIGNING_ACCOUNT }}
           certificate-profile-name: ${{ vars.TRUSTED_SIGNING_PROFILE }}
-          files: ${{ github.workspace }}\app\src-tauri\target\release\fabric-desktop.exe
+          files: ${{ github.workspace }}\app\src-tauri\target\release\kratosforge.exe
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fabric-desktop-windows
-          path: app/src-tauri/target/release/fabric-desktop.exe
+          path: app/src-tauri/target/release/kratosforge.exe
           if-no-files-found: error
 
   release:
@@ -307,11 +320,15 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: sbom-app
+      # The exe is kratosforge.exe. Builds from before it download only fabric-desktop.exe, so every
+      # release also carries the same file under that name (app/src-tauri/src/exe_name.rs).
+      - run: cp kratosforge.exe fabric-desktop.exe
       # Signed proof that these exact files were built by this workflow from this commit.
       # Anyone can check a download with: gh attestation verify <file> -R KratosDataGod/KratosForge
       - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-path: |
+            kratosforge.exe
             fabric-desktop.exe
             fabric-desktop-engine.zip
             fabric-desktop-engine-update.zip
@@ -335,7 +352,7 @@ jobs:
           RUNTIME=$(unzip -p fabric-desktop-engine.zip engine.json | tr -d '\r' | jq -r '.runtime // ""')
           [[ "$RUNTIME" =~ ^[0-9a-f]{64}$ ]] || { echo "The engine's engine.json has no runtime key"; exit 1; }
           jq -n --arg commit "$GITHUB_SHA" --arg notes "$NOTES" --slurpfile history history.json \
-            --arg exe "$(sha256sum fabric-desktop.exe | cut -d' ' -f1)" \
+            --arg exe "$(sha256sum kratosforge.exe | cut -d' ' -f1)" \
             --arg engine "$(sha256sum fabric-desktop-engine.zip | cut -d' ' -f1)" \
             --arg update "$(sha256sum fabric-desktop-engine-update.zip | cut -d' ' -f1)" \
             --arg runtime "$RUNTIME" \
@@ -346,7 +363,7 @@ jobs:
           # pinned, or promoted to Stable again to roll back, after Preview has moved on. It goes
           # first, so the build Preview names always has one. version.json last, as for latest.
           BUILD_TAG="build-${GITHUB_SHA::12}"
-          BUILD_FILES=(fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json)
+          BUILD_FILES=(kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json)
           if gh release view "$BUILD_TAG" > /dev/null 2>&1; then
             ASSETS=$(gh release view "$BUILD_TAG" --json assets --jq '.assets[].name')
             if grep -qx version.json <<< "$ASSETS"; then
@@ -370,16 +387,16 @@ jobs:
               --target "$GITHUB_SHA" --prerelease --latest=false
             gh release upload "$BUILD_TAG" version.json
           fi
-          BODY="Built automatically from ${GITHUB_SHA::7} on main. Download fabric-desktop.exe and double-click it."
+          BODY="Built automatically from ${GITHUB_SHA::7} on main. Download kratosforge.exe and double-click it."
           if gh release view latest > /dev/null 2>&1; then
             # Replace the files in place rather than deleting the release, so PCs checking for an
             # update never find it missing. version.json goes last: it names the new build.
-            gh release upload latest fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json --clobber
+            gh release upload latest kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json --clobber
             gh release upload latest version.json --clobber
             gh api -X PATCH "repos/$GH_REPO/git/refs/tags/latest" -f sha="$GITHUB_SHA" -F force=true
             gh release edit latest --notes "$BODY"
           else
-            gh release create latest fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json version.json \
+            gh release create latest kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json version.json \
               --title "KratosForge (latest build)" --notes "$BODY" --target "$GITHUB_SHA" --prerelease
           fi
           # Delete per-build releases (and their tags) beyond the newest KEEP_BUILDS. A build that was

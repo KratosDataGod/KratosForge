@@ -41,13 +41,25 @@ def _settings(path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _policy(policy: Path, saved: Path) -> dict:
+    """The organization's policy file; when it exists but can't be read as a JSON object, the last
+    copy the sidecar could read (policy-last-good.json). A missing file is no policy."""
+    try:
+        data = json.loads(policy.read_text(encoding="utf-8-sig"))
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError):
+        data = None
+    return data if isinstance(data, dict) else _settings(saved)
+
+
 def channel() -> str:
-    """This PC's update channel: the organization's policy file wins over the Settings page.
-    The same rule as the sidecar's app_settings.py; this file can't import it."""
+    """This PC's update channel: the organization's policy file (or its last good copy) wins over
+    the Settings page. The same rule as the sidecar's app_settings.py; this file can't import it."""
     policy = Path(os.environ.get("ProgramData") or "/etc") / "FabricDesktop" / "policy.json"
     user = Path(os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()) / "FabricDesktop" / "app-settings.json"
-    for path in (policy, user):
-        value = _settings(path).get("channel")
+    for settings in (_policy(policy, user.with_name("policy-last-good.json")), _settings(user)):
+        value = settings.get("channel")
         if value in CHANNEL_TAGS:
             return value
     return "stable"
@@ -59,6 +71,26 @@ def release_url(name: str = "") -> str:
 
 def sidecar_url(commit: str) -> str:
     return f"https://github.com/{REPO}/archive/{commit}.zip#subdirectory=sidecar"
+
+
+def download_sidecar(commit: str, folder: str) -> Path:
+    """That commit's sidecar/ folder, downloaded once and unpacked into folder. Its constraints.txt
+    holds the exact package versions that commit was tested with (SH-9)."""
+    import zipfile
+    archive = Path(folder) / "source.zip"
+    with _get(sidecar_url(commit).split("#", 1)[0], timeout=120) as resp, open(archive, "wb") as out:
+        while chunk := resp.read(1 << 20):
+            out.write(chunk)
+    with zipfile.ZipFile(archive) as zf:
+        # GitHub's archives hold one top folder, <repo>-<commit>/.
+        members = [m for m in zf.namelist() if m.split("/")[1:2] == ["sidecar"]]
+        if not members:
+            raise ValueError("the download has no sidecar folder")
+        zf.extractall(folder, members)  # zipfile drops ".." and absolute parts of names
+    source = Path(folder) / members[0].split("/", 1)[0] / "sidecar"
+    if not (source / "constraints.txt").is_file():
+        raise ValueError("the download has no sidecar/constraints.txt")
+    return source
 
 
 def installed_sidecar() -> dict:
@@ -286,20 +318,34 @@ def check() -> dict:
     }
 
 
+def latest() -> dict:
+    """The channel's newest build for "Check for updates", without the engine check that only
+    startup needs, plus the release page to download it from by hand."""
+    info = latest_release()
+    info["page"] = f"https://github.com/{REPO}/releases/tag/{CHANNEL_TAGS[info.get('tag') or channel()]}"
+    return info
+
+
 def install_sidecar(commit: str) -> int:
-    url = sidecar_url(commit)
-    pip = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--progress-bar", "off"]
-    # The first install brings in any new dependencies. The second replaces the
-    # package itself even when its version string has not changed; it is quiet,
-    # because it would print the same collecting and building lines again.
-    steps = [("Installing the engine's packages", [url]),
-             (f"Installing engine build {commit[:7]}", ["--quiet", "--force-reinstall", "--no-deps", url])]
-    for title, args in steps:
-        print(f"== {title}", flush=True)
-        code = subprocess.call(pip + args, stdout=sys.stdout, stderr=subprocess.STDOUT,
-                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        if code:
-            return code
+    print(f"== Downloading engine build {commit[:7]}", flush=True)
+    with tempfile.TemporaryDirectory() as folder:
+        try:
+            source = str(download_sidecar(commit, folder))
+        except Exception as exc:  # noqa: BLE001 - shown to the person as the reason
+            print(f"Couldn't download engine build {commit[:7]}: {exc}", flush=True)
+            return 1
+        pip = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--progress-bar", "off"]
+        # The first install brings in any new dependencies, at the versions in that commit's
+        # constraints.txt, which CI tested (SH-9). The second replaces the package itself even when
+        # its version string has not changed; it is quiet, because it would print the same lines again.
+        steps = [("Installing the engine's packages", ["-c", str(Path(source) / "constraints.txt"), source]),
+                 (f"Installing engine build {commit[:7]}", ["--quiet", "--force-reinstall", "--no-deps", source])]
+        for title, args in steps:
+            print(f"== {title}", flush=True)
+            code = subprocess.call(pip + args, stdout=sys.stdout, stderr=subprocess.STDOUT,
+                                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            if code:
+                return code
     error = load_error()
     if error:
         blocked = blocked_files()
@@ -328,18 +374,33 @@ def release_sha256(tag: str, commit: str) -> str | None:
     return sha if re.fullmatch(r"[0-9a-f]{64}", sha) else ""
 
 
+# The exe's release asset names, newest first. Releases publish both (exe_name.rs); a release
+# from before kratosforge.exe, such as an earlier build Stable was rolled back to, has only the second.
+APP_ASSETS = ("kratosforge.exe", "fabric-desktop.exe")
+
+
+def _open_app(tag: str, nocache: bool):
+    """The exe's download from a release, under whichever name it has."""
+    for i, name in enumerate(APP_ASSETS):
+        url = f"{release_url(tag)}/{name}" + (f"?nocache={int(time.time())}" if nocache else "")
+        try:
+            return _get(url, timeout=30)
+        except urllib.error.HTTPError as exc:
+            if exc.code != 404 or i == len(APP_ASSETS) - 1:
+                raise
+
+
 def download_app(dest: str, commit: str = "") -> int:
     """Download the latest exe. With a commit, check the file is that build, since each
     exe carries its commit; a stale cached copy is fetched once more, then refused."""
     tags = release_channels()
     for attempt in range(2):
-        url = f"{release_url(tags[0])}/fabric-desktop.exe" + (f"?nocache={int(time.time())}" if attempt else "")
         try:
-            resp = _get(url, timeout=30)
+            resp = _open_app(tags[0], bool(attempt))
         except urllib.error.HTTPError as exc:
             if exc.code == 404 and len(tags) > 1:  # no stable release yet: Preview
                 tags.pop(0)
-                resp = _get(f"{release_url(tags[0])}/fabric-desktop.exe?nocache={int(time.time())}", timeout=30)
+                resp = _open_app(tags[0], True)
             else:
                 raise
         digest = hashlib.sha256()
@@ -382,6 +443,9 @@ def main(argv: list[str]) -> int:
     command, args = argv[0], argv[1:]
     if command == "check":
         print(json.dumps(check()))
+        return 0
+    if command == "latest":
+        print(json.dumps(latest()))
         return 0
     if command == "install-sidecar":
         return install_sidecar(args[0])

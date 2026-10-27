@@ -104,7 +104,7 @@ Split in two so each change is reviewable on its own.
 ### FD-104 Enterprise installation and updates (P0)
 
 - **Acceptance criteria:** a documented per-machine and silent deployment path (copy the exe and policy file with Intune or Group Policy); policy settings to turn automatic updates off or pin a version; documented rollback and recovery from a failed engine install; uninstall steps that list every folder.
-- **Remaining after #90:** releases keep only the newest build per channel and the engine always comes from the channel's current release, so pinning a build and real rollback need per-build release assets (a release workflow change for maintainer review). Since HD-022 the app keeps `fabric-desktop.exe.old` only until the new build has started (and puts it back if it doesn't), so it is not a rollback path either.
+- **Remaining after #90:** releases keep only the newest build per channel and the engine always comes from the channel's current release, so pinning a build and real rollback need per-build release assets (a release workflow change for maintainer review). Since HD-022 the app keeps the previous exe (`kratosforge.exe.old`) only until the new build has started (and puts it back if it doesn't), so it is not a rollback path either.
 - **Blocked part:** an MSI or MSIX package and a quiet Smart App Control experience need code signing (PR #28).
 
 ### FD-105 Configuration policies (P0)
@@ -126,6 +126,7 @@ Split in two so each change is reviewable on its own.
 ### FD-129 Governance exceptions (P1)
 
 - **Acceptance criteria:** exceptions in `exceptions.toml` show in the app with owner, reason, approver and expiry; expiring ones raise a notice; adding one records who asked and who approved in the audit trail (FD-125).
+- **In the app:** Data mesh > Quality > Exceptions lists each exception with the table's owner, the reason, the approver and the expiry. One that ends within 14 days raises a notice on the bell and a banner on Data mesh. Still open: asking for an exception in the app, and recording who asked and who approved in the audit trail.
 
 ### FD-130 Multi-team permissions (P1)
 

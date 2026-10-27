@@ -678,6 +678,20 @@ class Output(DOMWidget):
             self._join()
             self._outputs.append(output)
 
+    def _replace(self, display_id: str, output: dict[str, Any]) -> None:
+        """update_display inside ``with out:``: the outputs shown with ``display_id`` become
+        ``output``, under the same rich cap as ``_add``."""
+        from .notebook import _replace_capped
+        with self._lock:
+            self._join()
+            hits = [i for i, o in enumerate(self._outputs) if o.get("display_id") == display_id]
+            if not hits:
+                return
+            rich, output = _replace_capped(self._outputs, hits, output, self._rich)
+            object.__setattr__(self, "_rich", rich)
+            for i in hits:
+                self._outputs[i] = output
+
     def _extra(self, depth: int, seen: set[str]) -> dict[str, Any]:
         with self._lock:
             self._join()

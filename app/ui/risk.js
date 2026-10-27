@@ -65,12 +65,23 @@ async function riskProceed(target, risk, box) {
     risk_id: risk.id }), "Not started"));
 }
 
+// The risk check failed to run at all (the engine refused or broke): an Unknown result that says
+// why. It is advice, so it never blocks; the person decides with the reason in front of them.
+function riskCheckFailed(err) {
+  const why = String(friendlyError(err).text || "no reason given").replace(/\.$/, "");
+  return { result: "unknown", label: "Unknown", summary: "The risk check couldn't run",
+    findings: [{ check: "risk_check", outcome: "unknown", title: `${why}.` }],
+    note: "Nothing was checked, so nothing is known about what could stop or slow this run. Continue runs it anyway.",
+    failed: true };
+}
+
 // Before a run that has no dialog of its own (notebook Run in Fabric, Data mesh Run): nothing to
-// show when it passes or can't be checked; otherwise a dialog. Resolves true to go ahead.
+// show when it passes or the check found nothing it could judge; otherwise a dialog, including when
+// the check couldn't run at all. Resolves true to go ahead.
 // target: { id, action, env, title, runLabel, alt: { label, run } }.
 async function riskGate(target, refresh = false) {
-  const risk = await rpc("risk_check", { id: target.id, action: target.action, env: target.env || null, refresh }).catch(() => null);
-  if (!risk || risk.result === "pass" || risk.result === "unknown") return true;
+  const risk = await rpc("risk_check", { id: target.id, action: target.action, env: target.env || null, refresh }).catch(riskCheckFailed);
+  if (!risk || risk.result === "pass" || (risk.result === "unknown" && !risk.failed)) return true;
   return new Promise((resolve) => {
     const box = riskAckBox(risk);
     const again = async () => { closeDialog(); resolve(await riskGate(target, true)); };
@@ -78,6 +89,8 @@ async function riskGate(target, refresh = false) {
       ? [btn("Check again", null, again, "tool outline"),
         target.alt && riskLocalAlternative(risk) ? btn(target.alt.label, null, () => { closeDialog(); resolve(false); target.alt.run(); }, "tool outline") : null,
         btn("Close", null, () => { closeDialog(); resolve(false); }, "tool primary")]
+      : risk.failed ? [btn("Cancel", null, () => { closeDialog(); resolve(false); }, "tool outline"),
+        btn("Continue", null, () => { closeDialog(); resolve(true); }, "tool primary")]
       : [btn("Cancel", null, () => { closeDialog(); resolve(false); }, "tool outline"),
         btn(target.runLabel || "Run anyway", null, async () => {
           if (!(await riskProceed(target, risk, box))) return;

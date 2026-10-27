@@ -51,7 +51,7 @@ def test_a_fabric_run_reaches_the_platform_only_when_fabric_says_how_it_ended(sv
     _platform(svc)
     scan(svc, monkeypatch)
     wid = model.fabric_id("ws1", "pl1")
-    monkeypatch.setattr(svc, "run_fabric_item_now", lambda ws, item, job, name, ws_name="": svc._log_fabric_run(
+    monkeypatch.setattr(svc, "run_fabric_item_now", lambda ws, item, job, name, ws_name="", item_type="": svc._log_fabric_run(
         {"kind": "Scheduled item run", "name": name, "workspace_id": ws, "workspace_name": ws_name,
          "item_id": item, "job_id": "job-1"}))
     svc.workload_act(wid, "run_item")

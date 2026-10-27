@@ -20,6 +20,7 @@ from .orchestration.definition import Activity, DefinitionError, ImportedPipelin
 from .orchestration.runner import PipelineRun, RunRefused
 from .orchestration.runs import RunStore
 from .orchestration.validate import own_json, summary, validate
+from .pipeline_data import LocalData
 from .pipeline_notebooks import LocalNotebooks
 
 HIDDEN = "(hidden)"
@@ -60,6 +61,10 @@ def _activity(a: Activity, deep: bool) -> dict[str, Any]:
         row["type_properties"] = sorted(a.type_properties)
     if a.children:
         row["children"] = {branch: [_activity(k, deep) for k in kids] for branch, kids in a.children.items()}
+    if isinstance(a.type_properties.get("cases"), list):
+        # A Switch's case values, by position, so cases[0] can read as its value; None when it has no text value.
+        row["case_values"] = [c.get("value") if isinstance(c, dict) and isinstance(c.get("value"), str) else None
+                              for c in a.type_properties["cases"]]
     return row
 
 
@@ -155,7 +160,8 @@ class PipelineRunMixin:
     def _prepare(self, text: str | None, path: str | None, parameters: dict[str, Any] | None,
                  mocks: dict[str, Any] | None, children: dict[str, str] | None,
                  notebooks: dict[str, str] | None = None, allow_uncontained: bool = False,
-                 keep_outputs: bool = False, **options: Any) -> PipelineRun:
+                 keep_outputs: bool = False, read_lakehouses: bool = False, workspace_id: str | None = None,
+                 sql_projects: dict[str, str] | None = None, **options: Any) -> PipelineRun:
         imp = read(text, path)
         kids = {}
         for key, definition_text in (children or {}).items():
@@ -169,17 +175,45 @@ class PipelineRunMixin:
         # caller that names the notebooks: external tools' calls (integrations/services.py) don't.
         runner = (LocalNotebooks(self, run_id, notebooks, allow_uncontained, keep_outputs)
                   if notebooks is not None and hasattr(self, "_validate_kernel") and hasattr(self, "notebooks") else None)
+        if sql_projects is not None and not isinstance(sql_projects, dict):
+            raise DefinitionError("sql_projects must be {activity or connection name: local data project}.", "bad_request")
+        # Lookup, Get Metadata and Script read lakehouses only when the person starts the run with
+        # lakehouse reads on, and Script runs in a local data project only when the person names it;
+        # external tools' calls do neither, so there they still need mocks.
+        data = (LocalData(self, run_id, runner, workspace_id, lakehouse_reads=read_lakehouses, sql_projects=sql_projects)
+                if (read_lakehouses or sql_projects) and hasattr(self, "_proof_location") else None)
         return PipelineRun(imp, parameters=parameters, mocks=mocks, children=kids, run_id=run_id, notebooks=runner,
-                           **options)
+                           data=data, **options)
+
+    def _pipeline_list_files(self, ref: dict[str, str], rel: str) -> list[dict[str, Any]]:
+        """Children of a folder under the lakehouse's Files (Get Metadata's childItems)."""
+        from .onelake import FileStore
+        return FileStore(self.auth.storage_token).list(ref["workspace_id"], ref["lakehouse_id"], rel)  # type: ignore[attr-defined]
+
+    def _pipeline_file_info(self, ref: dict[str, str], rel: str) -> dict[str, Any] | None:
+        """``{"is_dir", "size", "modified"}`` of a file or folder under Files, or None when it isn't there."""
+        import requests
+        parent, _, name = rel.rpartition("/")
+        if not parent:
+            return {"is_dir": True, "size": 0, "modified": ""}   # Files itself
+        try:
+            entries = self._pipeline_list_files(ref, parent)
+        except requests.HTTPError as exc:
+            if exc.response is not None and exc.response.status_code == 404:
+                return None
+            raise
+        return next((e for e in entries if e["name"] == name), None)
 
     def pipeline_run_check(self, text: str | None = None, path: str | None = None,
                            parameters: dict[str, Any] | None = None, mocks: dict[str, Any] | None = None,
                            children: dict[str, str] | None = None, notebooks: dict[str, str] | None = None,
-                           allow_uncontained: bool = False) -> dict[str, Any]:
+                           allow_uncontained: bool = False, read_lakehouses: bool = False,
+                           workspace_id: str | None = None, sql_projects: dict[str, str] | None = None) -> dict[str, Any]:
         """Whether this pipeline can run on this PC with these parameters, mocks and notebooks, and
         if not, why, activity by activity. Runs nothing."""
         try:
-            run = self._prepare(text, path, parameters, mocks, children, notebooks, allow_uncontained)
+            run = self._prepare(text, path, parameters, mocks, children, notebooks, allow_uncontained,
+                                read_lakehouses=read_lakehouses, workspace_id=workspace_id, sql_projects=sql_projects)
         except DefinitionError as exc:
             return {"ok": False, "problems": [exc.to_json()]}
         problems = run.check()
@@ -190,7 +224,9 @@ class PipelineRunMixin:
                            parameters: dict[str, Any] | None = None, mocks: dict[str, Any] | None = None,
                            children: dict[str, str] | None = None, max_parallel: int = 4, wait_scale: float = 1.0,
                            timeout_seconds: float | None = None, notebooks: dict[str, str] | None = None,
-                           allow_uncontained: bool = False, keep_outputs: bool = False) -> dict[str, Any]:
+                           allow_uncontained: bool = False, keep_outputs: bool = False,
+                           read_lakehouses: bool = False, workspace_id: str | None = None,
+                           sql_projects: dict[str, str] | None = None) -> dict[str, Any]:
         """Start a local run in the background and return its id at once. Refuses (with the
         problems) when an activity can't run here and has no mock. Nothing is sent to Fabric.
 
@@ -198,7 +234,11 @@ class PipelineRunMixin:
         notebookId: notebook name}). Notebook steps read the lakehouse's tables and write to the
         run's own folder in it, deleted when the run ends unless ``keep_outputs``; a notebook that
         calls the network or reads files on this PC needs ``allow_uncontained``. Without
-        ``notebooks``, Notebook activities need a mock."""
+        ``notebooks``, Notebook activities need a mock. With ``read_lakehouses``, Lookup and Get
+        Metadata read the lakehouse their dataset names (pipeline_data.py), at the same pinned table
+        versions; ``workspace_id`` is the pipeline's own workspace, for datasets that leave it out.
+        Script runs read-only T-SQL on a lakehouse with ``read_lakehouses``, or in the local data
+        project ``sql_projects`` names for it ({activity or connection name: project})."""
         store, live = self._runs()
         store.recover(set(live))
         if sum(1 for r in live.values() if r.state in ("pending", "running")) >= MAX_RUNS:
@@ -207,13 +247,16 @@ class PipelineRunMixin:
                                                "path": "$"}]}
         try:
             run = self._prepare(text, path, parameters, mocks, children, notebooks, allow_uncontained, keep_outputs,
+                                read_lakehouses=read_lakehouses, workspace_id=workspace_id, sql_projects=sql_projects,
                                 max_parallel=max_parallel, wait_scale=wait_scale, timeout_seconds=timeout_seconds)
         except DefinitionError as exc:
             return {"ok": False, "problems": [exc.to_json()]}
         problems = run.check()
         if problems:
             return {"ok": False, "problems": problems}
-        if run.notebooks is not None and run.notebooks.lakehouses(run.pipeline.all_activities()):
+        acts = run.pipeline.all_activities()
+        if (run.notebooks is not None and run.notebooks.lakehouses(acts)) or (
+                run.data is not None and run.data.lakehouses(acts)):
             self.auth.storage_token()  # type: ignore[attr-defined]  # sign in now, while the app is in front
         last = [0.0]
 
@@ -271,6 +314,33 @@ class PipelineRunMixin:
             run.notebooks.stop()
         return {"cancelled": True, "state": "cancelling"}
 
+    def pipeline_list(self) -> dict[str, Any]:
+        """The pipelines in the repositories this PC opened (Fabric Git ``<name>.DataPipeline``
+        folders), with their activity count and the state of their last run here. Reads only."""
+        repos = self.git_repos()["repos"] if hasattr(self, "git_repos") else []  # type: ignore[attr-defined]
+        last: dict[str, dict[str, Any]] = {}
+        for r in self.pipeline_runs(limit=200)["runs"]:   # newest first
+            last.setdefault(r.get("pipeline") or "", r)
+        out: list[dict[str, Any]] = []
+        for repo in repos:
+            if not repo.get("exists"):
+                continue
+            root = Path(repo["path"])
+            for folder in _pipeline_folders(root):
+                row: dict[str, Any] = {"path": str(folder), "repo": repo.get("name") or root.name,
+                                       "relative": folder.relative_to(root).as_posix()}
+                try:
+                    imp = definition.load(folder)
+                    row |= {"name": imp.pipeline.name, "activity_count": len(imp.pipeline.all_activities())}
+                except DefinitionError as exc:
+                    row |= {"name": folder.name.removesuffix(".DataPipeline"), "problem": str(exc)}
+                run = last.get(row["name"])
+                row["last_run"] = {"state": run["state"], "started": run.get("started")} if run else None
+                out.append(row)
+                if len(out) >= _LIST_LIMIT:
+                    return {"pipelines": out, "truncated": True}
+        return {"pipelines": out, "truncated": False}
+
     def pipeline_runs(self, limit: int = 50) -> dict[str, Any]:
         """Recent local runs, newest first, without activity details."""
         store, live = self._runs()
@@ -280,6 +350,24 @@ class PipelineRunMixin:
         keep = ("run_id", "pipeline", "state", "stop_reason", "started", "ended", "seconds", "counts", "options")
         ordered = sorted(rows.values(), key=lambda r: r.get("started") or "", reverse=True)[:limit]
         return {"runs": [{k: r.get(k) for k in keep} for r in ordered]}
+
+
+_LIST_LIMIT = 200    # pipelines listed from repositories
+_LIST_DEPTH = 4      # folder levels searched under a repository's root
+_SKIP = {".git", "node_modules", ".venv", "venv", "__pycache__"}
+
+
+def _pipeline_folders(root: Path, depth: int = 0):
+    """``<name>.DataPipeline`` folders under root, a few levels down, in name order."""
+    try:
+        entries = sorted((p for p in root.iterdir() if p.is_dir() and not p.is_symlink()), key=lambda p: p.name.lower())
+    except OSError:
+        return
+    for p in entries:
+        if p.name.endswith(".DataPipeline"):
+            yield p
+        elif depth < _LIST_DEPTH and p.name not in _SKIP and not p.name.startswith("."):
+            yield from _pipeline_folders(p, depth + 1)
 
 
 def _without_values(record: dict[str, Any]) -> dict[str, Any]:

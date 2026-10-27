@@ -28,6 +28,12 @@ Keys:
                      levels 2 and 3; motion_achievements the same, but false by default
     motion_follow_system  true (default): Windows' reduced-motion setting turns decorative motion
                      off whatever the level; false lets the chosen level apply anyway
+    ui_explanations  "on_request" (default): each page's How this works panel and its one-line
+                     explanation open from the title bar's info button; "beside": they show on the
+                     page (Settings > Appearance > Layout)
+    ui_preview_marks  "tags" (default): Preview features carry a Preview tag; "dots": a small dot,
+                     with the tag kept on page titles
+    ui_density       "comfortable" (default) or "compact": spacing in tables, lists and toolbars
     kernel_process   true to run each notebook's cells in a Python process of its own, so Stop
                      and crashes end only that process (default false while in preview)
     cell_time_limit_minutes  with kernel_process: minutes a cell may run before it's interrupted;
@@ -57,6 +63,13 @@ Keys:
     local_retention_days  IT only: local copies of lakehouse data (file previews, staged writes, the
                      metadata framework's download cache) are deleted after this many days unused;
                      0 keeps them (default 30)
+    onelake_writes   "local_first" (default): a notebook cell's table writes are staged on this PC and
+                     upload in the background while the cell goes on; the cell ends when they're in.
+                     "direct": each write goes to OneLake before the next line runs
+    onelake_compression  "zstd" (default) or "snappy": the Parquet codec for tables written to
+                     OneLake from this PC. zstd files are about a quarter smaller, so they upload faster
+    onelake_skip_unchanged  true (default): an overwrite whose rows match what this app last wrote to
+                     the table uploads nothing and makes no new version
     sql_page_rows    the SQL page: rows on each page of a result (default 1000, 100 to 10000)
     sql_time_limit_minutes  the SQL page: minutes a query may run before it's stopped (default 10,
                      0 for no limit, at most 1440)
@@ -67,6 +80,13 @@ Keys:
                      app data folder's sql-runs)
     sql_result_retention_hours  the SQL page: hours a finished query's result is kept for paging and
                      export (default 24, 0 keeps it only until the app closes, at most 168)
+    sql_warehouse_writes  the Warehouse page: false refuses every change to a warehouse (DDL, DML,
+                     EXEC), so the page only reads; IT can fix it either way (default true; each
+                     change still needs its own confirm)
+    wh_monitoring_views  the Warehouse page's Monitoring tab: false stops the app creating monitoring
+                     views (KQL querysets) in Fabric; reading monitoring still works (default true)
+    wh_monitoring_auto  the workspaces whose warehouses get monitoring views without asking again,
+                     by workspace id; the person adds one when they tick it on the build confirm
     telemetry        true to send daily usage counts (telemetry.py); off unless the person turns it on,
                      and IT can fix it either way (default false)
     telemetry_connection_string  IT only: an Application Insights connection string, so usage data
@@ -78,6 +98,8 @@ Keys:
     fabric_view_sign_in_hosts  IT only, read by the shell: exact host names of the organization's
                      own identity provider (AD FS, Okta, Ping), which the Fabric view may open during
                      sign-in, e.g. ["adfs.contoso.com"] (default: none)
+    register_link_scheme  IT only, read by the shell: false stops the app registering kratosforge://
+                     links for the Windows user, and removes a registration it made (default true)
 
 The same file also holds the integrations_* and receipt_redactions keys; integrations/policy.py
 reads them through read_policy() here, so both read the file by the same rules.
@@ -100,6 +122,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from . import jsonfile
 from .auth import MICROSOFT_CLIENT_ID
 
 CHANNELS = ("stable", "preview")
@@ -136,8 +159,12 @@ SQL_RANGES: dict[str, tuple[int, int]] = {"sql_page_rows": (100, 10_000), "sql_t
                                           "sql_result_retention_hours": (0, 7 * 24)}
 DEFAULTS.update({"sql_page_rows": 1000, "sql_time_limit_minutes": 10, "sql_memory_limit_percent": 60,
                  "sql_max_concurrent": 2, "sql_temp_dir": "", "sql_result_retention_hours": 24})
-TYPES.update({key: int for key in SQL_RANGES} | {"sql_temp_dir": str})
-USER_KEYS += (*SQL_RANGES, "sql_temp_dir")
+DEFAULTS["sql_warehouse_writes"] = True
+TYPES.update({key: int for key in SQL_RANGES} | {"sql_temp_dir": str, "sql_warehouse_writes": bool})
+USER_KEYS += (*SQL_RANGES, "sql_temp_dir", "sql_warehouse_writes")
+DEFAULTS.update({"wh_monitoring_views": True, "wh_monitoring_auto": []})
+TYPES.update({"wh_monitoring_views": bool, "wh_monitoring_auto": list})
+USER_KEYS += ("wh_monitoring_views", "wh_monitoring_auto")
 
 # Motion and effects (app/ui/motion.js): the visual intensity level and one switch per family.
 MOTION_LEVELS = (0, 3)
@@ -150,20 +177,33 @@ USER_KEYS += ("motion_level", *MOTION_SWITCHES)
 # Incident SLA targets (workloads/sla.py checks the shape and says what it ignored).
 DEFAULTS["incident_sla"] = {}
 TYPES["incident_sla"] = dict
+# OneLake writes from notebooks on this PC (lakehouse.write_table, publish). onelake_writes is the
+# default for notebooks that don't choose; each notebook can set its own.
+CHOICES = {"onelake_writes": ("local_first", "direct"), "onelake_compression": ("zstd", "snappy")}
+DEFAULTS.update({"onelake_writes": "local_first", "onelake_compression": "zstd", "onelake_skip_unchanged": True})
+TYPES.update({"onelake_writes": str, "onelake_compression": str, "onelake_skip_unchanged": bool})
+USER_KEYS += ("onelake_writes", "onelake_compression", "onelake_skip_unchanged")
+# Layout (app/ui/features.js applyAppearance): how every page shows the same things; nothing is hidden.
+CHOICES.update({"ui_explanations": ("beside", "on_request"), "ui_preview_marks": ("tags", "dots"),
+                "ui_density": ("comfortable", "compact")})
+DEFAULTS.update({"ui_explanations": "on_request", "ui_preview_marks": "tags", "ui_density": "comfortable"})
+TYPES.update({"ui_explanations": str, "ui_preview_marks": str, "ui_density": str})
+USER_KEYS += ("ui_explanations", "ui_preview_marks", "ui_density")
 # Read by integrations/policy.py, which decides what each means; listed here so the policy file has
 # one list of settings.
 INTEGRATION_KEYS = ("integrations", "integrations_max_permissions", "integrations_http", "integrations_extensions",
-                    "receipt_redactions")
+                    "integrations_editors", "receipt_redactions")
 # Read only by the shell (main.rs), which applies them itself; listed so the file has one list of
 # settings and policy_problems() can say what the shell will skip.
-SHELL_KEYS = ("fabric_view_sign_in_hosts",)
+SHELL_KEYS = ("fabric_view_sign_in_hosts", "register_link_scheme", "engine_download_url")
 POLICY_KEYS = (*DEFAULTS, *INTEGRATION_KEYS, *SHELL_KEYS)
 # No real tenant has the nil GUID, so allowed_tenants of just this lets no account sign in.
 NO_TENANT = "00000000-0000-0000-0000-000000000000"
 # The restrictions among DEFAULTS, and the value each takes when the policy file or that key can't
 # be read. Updates (auto_update, channel) are enforced by the shell, which reads the file itself.
 RESTRICTED: dict[str, Any] = {"allow_fabric_runs": False, "allowed_tenants": [NO_TENANT], "show_preview": False,
-                              "telemetry": False}
+                              "telemetry": False, "sql_warehouse_writes": False,
+                              "wh_monitoring_views": False}
 
 
 def policy_path() -> Path:
@@ -177,9 +217,17 @@ def user_path() -> Path:
 
 
 def _read(path: Path) -> dict[str, Any]:
+    """The person's own settings. A file that can't be parsed (a write cut short, a bad hand edit) is
+    moved aside as ``<name>.corrupt-<timestamp>`` rather than left for the next save to overwrite (QA-011)."""
     try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError):
+        data = json.loads(jsonfile.read_text(path).lstrip("\ufeff"))
+    except ValueError:  # UnicodeDecodeError too
+        try:
+            jsonfile.set_aside(path, then="your settings are back to their defaults until you change one")
+        except OSError:
+            pass
+        return {}
+    except OSError:
         return {}
     return {k: v for k, v in data.items() if k in DEFAULTS} if isinstance(data, dict) else {}
 
@@ -222,10 +270,7 @@ def _save_copy(saved: Path, text: str) -> None:
     try:
         if saved.exists() and saved.read_text(encoding="utf-8") == text:
             return
-        saved.parent.mkdir(parents=True, exist_ok=True)
-        tmp = saved.with_name(f"{saved.name}.{os.getpid()}.tmp")
-        tmp.write_text(text, encoding="utf-8")
-        os.replace(tmp, saved)
+        jsonfile.write_text(saved, text)
     except OSError:  # no copy this time; the policy itself still applies
         pass
 
@@ -290,6 +335,12 @@ def policy_problems() -> list[str]:
             continue  # integrations/policy.py checks these, below
         elif key == "fabric_view_sign_in_hosts":
             problems.extend(_sign_in_host_problems(value))
+        elif key == "engine_download_url":
+            problems.extend(_engine_url_problems(value, data.get("auto_update")))
+        elif key == "register_link_scheme":
+            if not isinstance(value, bool):
+                problems.append(f"register_link_scheme should be bool, not {type(value).__name__}, so the app keeps "
+                                "registering kratosforge:// links")
         elif not _typed(key, value):
             kind = TYPES[key]
             name = " or ".join(t.__name__ for t in kind) if isinstance(kind, tuple) else kind.__name__
@@ -297,6 +348,8 @@ def policy_problems() -> list[str]:
                             + (", so it takes its most restrictive value" if key in RESTRICTED else ""))
         elif key == "channel" and value not in CHANNELS:
             problems.append(f"channel must be one of {', '.join(CHANNELS)}")
+        elif key in CHOICES and value not in CHOICES[key]:
+            problems.append(f"{key} must be one of {', '.join(CHOICES[key])}")
         elif key == "motion_level" and not MOTION_LEVELS[0] <= value <= MOTION_LEVELS[1]:
             problems.append(f"motion_level must be between {MOTION_LEVELS[0]} and {MOTION_LEVELS[1]}")
         elif key in SQL_RANGES and not SQL_RANGES[key][0] <= value <= SQL_RANGES[key][1]:
@@ -341,6 +394,31 @@ def _sign_in_host_problems(value: Any) -> list[str]:
     bad = [v for v in value if not (isinstance(v, str) and dns_name(v))]
     return [f"fabric_view_sign_in_hosts: {json.dumps(v)} isn't a host name like adfs.contoso.com "
             "(no *, https://, port or path), so it's skipped" for v in bad]
+
+
+def engine_url_ok(url: str) -> bool:
+    """An engine folder as the shell's policy_engine_url() in main.rs accepts it: https, a host name
+    with an optional port, and no user name, query, fragment, backslash, space or % escape."""
+    if not url.startswith("https://") or not url.isascii() or any(c in url for c in " ?#@\\%"):
+        return False
+    if any(ord(c) < 32 or ord(c) == 127 for c in url):
+        return False
+    host, _, port = url[len("https://"):].split("/", 1)[0].partition(":")
+    return dns_name(host) and (not _ or (port.isdigit() and len(port) <= 5))
+
+
+def _engine_url_problems(value: Any, auto_update: Any) -> list[str]:
+    """What the shell skips in engine_download_url (it reads the key itself)."""
+    if not (isinstance(value, str) and engine_url_ok(value.strip())):
+        return [f"engine_download_url: {json.dumps(value)} isn't an https folder address like "
+                "https://files.contoso.com/kratosforge (no user name, ? or #), so the engine comes from GitHub"]
+    if auto_update is not False:
+        return ['engine_download_url is used only with "auto_update": false, so the engine comes from GitHub']
+    ignored = os.environ.get("FABRIC_DESKTOP_ENGINE_URL_IGNORED", "")  # the shell's own check, at start
+    if ignored:
+        return [f"engine_download_url is ignored, so the engine comes from GitHub: {ignored}. Push policy.json "
+                "as SYSTEM (Intune, Group Policy) or from an elevated prompt, so only administrators can change it"]
+    return []
 
 
 def user_can_change(path: Path) -> bool:
@@ -406,6 +484,8 @@ def _in_range(key: str, value: Any) -> bool:
         return 0 <= value <= LIMITS[key]
     if key == "motion_level":
         return MOTION_LEVELS[0] <= value <= MOTION_LEVELS[1]
+    if key in CHOICES:
+        return value in CHOICES[key]
     return True
 
 
@@ -478,6 +558,8 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
                              f"here wouldn't be used. Remove the variable and restart KratosForge to set it here")
         if key == "channel" and new not in CHANNELS:
             raise ValueError(f"channel must be one of {', '.join(CHANNELS)}")
+        if key in CHOICES and new not in (None, "", *CHOICES[key]):
+            raise ValueError(f"{key} must be one of {', '.join(CHOICES[key])}")
         if key in SQL_RANGES:
             new = _sql_number(key, new)
         if key == "sql_temp_dir":
@@ -486,7 +568,7 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
             new = str(new or "").strip()
             if new and not valid_client_id(new):
                 raise ValueError("That isn't an app (client) ID. It looks like 00000000-0000-0000-0000-000000000000.")
-        if key in ("show_preview", "kernel_process", "telemetry", "forge_animations", *MOTION_SWITCHES):
+        if key in ("show_preview", "kernel_process", "telemetry", "forge_animations", "onelake_skip_unchanged", *MOTION_SWITCHES):
             new = bool(new)
         if key == "motion_level" and new is not None and (
                 isinstance(new, bool) or not isinstance(new, int) or not MOTION_LEVELS[0] <= new <= MOTION_LEVELS[1]):
@@ -497,9 +579,7 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
             user.pop(key, None)
         else:
             user[key] = new
-    path = user_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(user, indent=2), encoding="utf-8")
+    jsonfile.write_json(user_path(), user)  # readers see the old file or the new one, never half (QA-011)
     return load()
 
 

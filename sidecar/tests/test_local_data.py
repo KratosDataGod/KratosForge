@@ -340,6 +340,39 @@ def test_app_calls(tmp_path, data):
     svc.local_data.close_all()
 
 
+def test_local_query_makes_the_managed_run_checks(tmp_path, data):
+    """local_query runs in this process with no worker, so it classes the statements as sql_start
+    does for target="local" before the engine sees them."""
+    svc = Service(root=tmp_path / "app")
+    outside = tmp_path / "outside.csv"
+    outside.write_text("secret\n42\n")
+
+    def call(method, **params):
+        return server.handle(svc, json.dumps({"id": 1, "method": method, "params": params}))
+    pid = call("local_create_project", name="Checks")["result"]["id"]
+    call("local_add_source", project=pid, path=str(data))
+    for query in (f"SELECT * FROM read_csv('{outside}')", f"COPY dbo.orders TO '{tmp_path / 'out.csv'}'",
+                  "SET enable_external_access = true", "INSTALL httpfs",
+                  f"SELECT 1; SELECT * FROM '{outside}'"):
+        reply = call("local_query", project=pid, query=query)
+        assert "nothing ran" in reply.get("error", ""), (query, reply)
+    assert not (tmp_path / "out.csv").exists()
+    # T-SQL is checked as the DuckDB SQL it becomes.
+    reply = call("local_query", project=pid, query=f"SELECT * FROM OPENROWSET(BULK '{outside}') AS r", dialect="tsql")
+    assert "error" in reply
+    assert call("local_query", project=pid, query="CREATE TABLE t AS SELECT 1 AS a")["result"]
+    assert call("local_query", project=pid, query="INSERT INTO t VALUES (2)")["result"]
+    reply = call("local_query", project=pid, query="DROP TABLE t")
+    assert "needs confirming" in reply["error"]
+    assert call("local_query", project=pid, query="SELECT count(*) FROM t")["result"]["rows"] == [[2]]
+    assert "result" in call("local_query", project=pid, query="DROP TABLE t", confirm=True)
+    # EXPLAIN ANALYZE runs the query, so local_explain checks it too.
+    reply = call("local_explain", project=pid, query=f"SELECT * FROM read_csv('{outside}')", analyze=True)
+    assert "nothing ran" in reply.get("error", ""), reply
+    assert "result" in call("local_explain", project=pid, query="SELECT * FROM dbo.orders", analyze=True)
+    svc.local_data.close_all()
+
+
 def test_partitioned_delta_tables_keep_their_partition_columns(local, tmp_path):
     d = tmp_path / "lake"
     write_deltalake(str(d / "by_year"), pa.table({"year": [2025, 2026, 2026], "v": [1, 2, 3]}), partition_by=["year"])
@@ -427,3 +460,40 @@ def test_cancel_right_after_start_never_leaves_it_running(local):
                 break
             time.sleep(0.05)
         assert status["state"] == "cancelled"
+
+
+def test_the_engine_itself_reaches_only_the_projects_folders(local, tmp_path, data):
+    """Behind the statement checks (sql_exec.check_local): DuckDB itself is locked to the project's
+    folder and its sources, so SQL that reaches the engine without those checks still can't read
+    or write anything else, attach another database, install an extension or undo the lock."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.csv").write_text("s\n42\n")
+    pid = local.create("Locked")["id"]
+    local.add_source(pid, str(data))
+    engine = local.engine(pid)
+    assert engine.execute("SELECT count(*) FROM dbo.orders")["rows"] == [[3]]
+    assert engine.execute(f"SELECT count(*) FROM read_csv('{data / 'Sales' / 'Customer.csv'}')")["rows"] == [[3]]
+    for sql in (f"SELECT * FROM read_csv('{outside / 'secret.csv'}')",
+                f"COPY (SELECT 1 AS a) TO '{outside / 'out.csv'}'",
+                f"ATTACH '{outside / 'other.duckdb'}' AS other",
+                "SELECT * FROM read_parquet('https://example.com/x.parquet')",
+                "INSTALL httpfs",
+                "SET enable_external_access = true",
+                f"SET allowed_directories = ['{outside}']"):
+        with pytest.raises(Exception):
+            engine.execute(sql)
+    assert sorted(p.name for p in outside.iterdir()) == ["secret.csv"]
+    # The project's own folder still works: its tables, and files written inside it.
+    engine.execute("CREATE TABLE kept AS SELECT 1 AS a")
+    engine.execute(f"COPY kept TO '{engine.project.root / 'tmp' / 'kept.csv'}'")
+    # A folder added later is reachable: the connection is opened again with it, keeping tables.
+    engine.execute("CREATE TEMP TABLE scratch AS SELECT 1 AS a")
+    local.add_source(pid, str(outside))
+    assert engine.execute(f"SELECT * FROM read_csv('{outside / 'secret.csv'}')")["rows"] == [[42]]
+    assert engine.execute("SELECT a FROM kept")["rows"] == [[1]]
+    with pytest.raises(Exception):
+        engine.execute("SELECT * FROM scratch")  # temporary tables don't survive the new connection
+    engine.remove_source(str(outside.resolve()))
+    with pytest.raises(Exception):
+        engine.execute(f"SELECT * FROM read_csv('{outside / 'secret.csv'}')")

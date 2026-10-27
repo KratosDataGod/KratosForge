@@ -9,6 +9,8 @@ body:
 
         This is **public**. Don't include tenant names, workspace or item IDs, data, connection strings or passwords. Ideas and feature requests go to the [Ideas forum](https://github.com/KratosDataGod/KratosForge/discussions/categories/ideas) instead.
 
+        **A security problem?** Don't file it here. Report it privately: [SECURITY.md](https://github.com/KratosDataGod/KratosForge/blob/main/SECURITY.md).
+
         Common problems and their fixes: [docs/troubleshooting.md](https://github.com/KratosDataGod/KratosForge/blob/main/docs/troubleshooting.md)
   - type: textarea
     id: what
@@ -39,4 +41,23 @@ body:
         - Stable
         - Preview
         - Built from source
+        - Not sure
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where in the app
+      options:
+        - Notebooks
+        - SQL
+        - Lakehouses and OneLake
+        - Pipelines and Data Factory
+        - Warehouse
+        - Source control, Git and VS Code
+        - Prove and Side by side
+        - Governance and data products
+        - Optimize and cost
+        - Monitor
+        - Sign-in and settings
+        - Install and updates
+        - Headless agent
         - Not sure

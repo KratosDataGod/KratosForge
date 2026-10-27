@@ -172,13 +172,16 @@ def test_dependency_order_and_parallel_branches():
 def test_independent_activities_run_in_parallel_up_to_max_parallel():
     text = pipeline(act("M1", "Copy", source={}, sink={}), act("M2", "Copy", source={}, sink={}))
     mocks = {"M1": {"seconds": 0.3}, "M2": {"seconds": 0.3}}
-    t = time.monotonic()
-    run(text, mocks=mocks, wait_scale=1, max_parallel=2)
-    both = time.monotonic() - t
-    t = time.monotonic()
-    run(text, mocks=mocks, wait_scale=1, max_parallel=1)
-    one = time.monotonic() - t
-    assert both < 0.5 and one >= 0.55
+
+    def took(max_parallel):
+        t = time.monotonic()
+        run(text, mocks=mocks, wait_scale=1, max_parallel=max_parallel)
+        return time.monotonic() - t
+
+    # Compare the two runs with each other, not with a fixed limit, so a slow CI machine can't flake
+    # it: both carry the same overhead, and only one-at-a-time waits out the second 0.3 s mock.
+    both, one = took(2), took(1)
+    assert one >= 0.55 and one - both >= 0.15, (both, one)
 
 
 @pytest.mark.parametrize("conditions,parent_fails,expected", [
@@ -435,6 +438,43 @@ def test_invoke_pipeline_by_id_and_child_failure():
     assert r.state == "failed" and row["error"]["errorCode"] == "LocalChildFailed"
 
 
+def test_wait_on_completion_false_moves_on_without_the_child():
+    # Plan P0 (B8): Fabric starts the child and the activity succeeds; the next step doesn't wait for it.
+    slow = pipeline(wait("Slow", 2), name="slow")
+    text = pipeline(act("Call", "ExecutePipeline", pipeline={"referenceName": "slow"}, waitOnCompletion=False),
+                    setvar("Next", "v", "go", ["Call"]), variables={"v": {"type": "String"}})
+    r = run(text, children={"slow": loads(slow)}, wait_scale=1)
+    rows = {a["name"]: a for a in r.to_json()["activities"] if not a["label"]}
+    call, nxt = rows["Call"], rows["Next"]
+    assert r.state == "succeeded" and call["output"] == {"pipelineRunId": call["child_run"]["run_id"]}
+    assert call["wait_on_completion"] is False and call["seconds"] < 1.5
+    # The run's record waits for the child, so the child's whole run is in it.
+    assert call["child_run"]["state"] == "succeeded" and nxt["ended"] < call["child_run"]["ended"]
+
+
+def test_a_child_nothing_waits_on_doesnt_fail_the_run():
+    failing = pipeline(fail("Nope"), name="bad")
+    r = run(pipeline(act("Inv", "InvokePipeline", pipelineId="abc", workspaceId="w", waitOnCompletion=False)),
+            children={"abc": loads(failing)})
+    row = r.to_json()["activities"][0]
+    assert r.state == "succeeded" and row["state"] == "succeeded" and row["child_run"]["state"] == "failed"
+
+
+def test_cancel_stops_a_child_nothing_waits_on():
+    slow = pipeline(wait("Slow", 60), name="slow")
+    r = PipelineRun(loads(pipeline(act("Call", "ExecutePipeline", pipeline={"referenceName": "slow"},
+                                       waitOnCompletion=False))), children={"slow": loads(slow)})
+    t = threading.Thread(target=r.run)
+    t.start()
+    end = time.monotonic() + 10
+    while not (r.records and r.records[0]["state"] == "succeeded") and time.monotonic() < end:
+        time.sleep(0.02)
+    r.cancel()
+    t.join(10)
+    assert not t.is_alive() and r.state == "cancelled"
+    assert r.to_json()["activities"][0]["child_run"]["state"] == "cancelled"
+
+
 def test_child_needing_fabric_refuses_the_parent():
     child = pipeline(act("C", "Copy", source={}, sink={}), name="c")
     with pytest.raises(RunRefused, match="In child pipeline c"):
@@ -581,6 +621,25 @@ def test_capabilities(tmp_path):
     assert listed["runs"][0]["run_id"] == rid
 
 
+def test_external_tools_mock_notebook_lookup_and_get_metadata(tmp_path):
+    reg = capability_registry()
+    ctx = CallContext(Caller("cl_test", "test"), timeout=5)
+    svc = Svc(tmp_path)
+    ls = {"name": "LH", "properties": {"type": "Lakehouse", "typeProperties": {"workspaceId": "w", "artifactId": "a"}}}
+    data = {"type": "LakehouseTable", "linkedService": ls, "typeProperties": {"table": "t"}}
+    text = pipeline(act("NB", "TridentNotebook", notebookId="n1", workspaceId="w"),
+                    act("LK", "Lookup", datasetSettings=data, source={}),
+                    act("GM", "GetMetadata", datasetSettings=data, fieldList=["columnCount"]))
+    checked = reg.invoke(svc, "fabric_desktop_check_pipeline_run", {"definition": text}, ctx)
+    assert [p["activity"] for p in checked["problems"]] == ["NB", "LK", "GM"]
+    # The external tool can't pass the CLI's --notebook or --read-lakehouse, so it is told to mock.
+    assert all("Give a mock for it" in p["message"] and "--" not in p["message"] for p in checked["problems"])
+    mocks = {"NB": {"output": {"exitValue": "ok"}}, "LK": {"output": {"firstRow": {"n": 1}}},
+             "GM": {"output": {"columnCount": 3}}}
+    checked = reg.invoke(svc, "fabric_desktop_check_pipeline_run", {"definition": text, "mocks": mocks}, ctx)
+    assert checked["ok"] is True and sorted(checked["mocked"]) == ["GM", "LK", "NB"]
+
+
 def test_registry_marks_control_flow_local():
     reg = default_registry()
     for type_ in ("SetVariable", "AppendVariable", "IfCondition", "Switch", "ForEach", "Until", "Wait", "Fail",
@@ -624,3 +683,35 @@ def test_notebook_cleanup_runs_before_the_run_reports_its_end():
     r = PipelineRun(loads(pipeline(act("N", "TridentNotebook", notebookId="x"))), wait_scale=0, notebooks=Notebooks())
     r.run()
     assert seen == ["running"] and r.state == "succeeded"
+
+
+def test_pipelines_in_open_repositories_are_listed_with_their_last_run(tmp_path):
+    import shutil
+    repo = tmp_path / "repo"
+    shutil.copytree(FIXTURES / "pl_orders_daily.DataPipeline", repo / "pipelines" / "pl_orders_daily.DataPipeline")
+    broken = repo / "deep" / "a" / "b" / "pl_broken.DataPipeline"
+    broken.mkdir(parents=True)
+    (repo / ".git" / "x.DataPipeline").mkdir(parents=True)        # never looked in
+    (repo / "a" / "b" / "c" / "d" / "e" / "far.DataPipeline").mkdir(parents=True)   # too deep
+
+    class Repos(Svc):
+        def git_repos(self):
+            return {"repos": [{"path": str(repo), "name": "platform", "exists": True},
+                              {"path": str(tmp_path / "gone"), "name": "gone", "exists": False}]}
+
+    svc = Repos(tmp_path / "data")
+    out = svc.pipeline_list()
+    assert out["truncated"] is False
+    rows = {r["relative"]: r for r in out["pipelines"]}
+    assert set(rows) == {"pipelines/pl_orders_daily.DataPipeline", "deep/a/b/pl_broken.DataPipeline"}
+    ok = rows["pipelines/pl_orders_daily.DataPipeline"]
+    assert ok["name"] == "pl_orders_daily" and ok["repo"] == "platform" and ok["activity_count"] > 0
+    assert ok["last_run"] is None
+    assert rows["deep/a/b/pl_broken.DataPipeline"]["problem"].startswith("pl_broken.DataPipeline has no pipeline-content.json")
+    record = svc.pipeline_run_start(text=json.dumps({"name": "pl_orders_daily", "properties": {"activities": [
+        {"name": "W", "type": "Wait", "typeProperties": {"waitTimeInSeconds": 0}}]}}))
+    finish(svc, record["run_id"])
+    assert svc.pipeline_list()["pipelines"][1]["last_run"]["state"] == "succeeded"
+    assert "pipeline_list" in server.METHODS and "pipeline_list" in audit.READ_ONLY
+    # Without the Git service (an external tool's service), nothing is listed.
+    assert Svc(tmp_path / "other").pipeline_list() == {"pipelines": [], "truncated": False}

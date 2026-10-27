@@ -83,8 +83,8 @@ function mfDomains(m, draw) {
   if (m.problem && !m.domains.length) return h("p", { class: "muted-text" }, "The platform's catalog couldn't be read: ", m.problem);
   if (!m.domains.length && !m.projects.length) {
     return emptyState({ title: "No domains yet",
-      text: "Start from the domains your organization already has in Fabric: a platform admin who is a Fabric administrator imports them on Platform > Domains.",
-      action: btn("Open Platform > Domains", "building", () => goPlatform("domains"), "tool outline small") });
+      text: "Start from the domains your organization already has in Fabric: a platform admin who is a Fabric administrator imports them on Platform > Set up > Domains.",
+      action: btn("Open Platform > Set up > Domains", "building", () => goPlatform("domains"), "tool outline small") });
   }
   const open = (id) => { Object.assign(meshFlow, { domain: id, sub: null, layer: null, table: null }); draw(); };
   const mine = mfDomainOf(m, m.me);

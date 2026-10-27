@@ -143,7 +143,7 @@ def _writable(path: str, p: str) -> lakehouse.Attached:
         raise ValueError(f"{path}: change files and folders under Files/, not Files/ itself.")
     lh = lakehouse._current()
     # The same check table writes go through; runs for external tools refuse every write.
-    reason = lakehouse.write_guard(lh.name, "Files", p) if lakehouse.write_guard else None
+    reason = lakehouse.write_refusal(lh.name, "Files", p)
     if reason:
         raise PermissionError(reason)
     if lakehouse._proof() is not None:
@@ -286,6 +286,11 @@ def _make_fs() -> types.SimpleNamespace:
         _write(dest, _read(src))
         return True
 
+    def fastcp(src: str, dest: str, recurse: bool = True, extraConfigs: Any = None) -> bool:  # noqa: N803, ARG001
+        """Fabric copies with azcopy here; on this PC it is cp, and copies a folder unless told not to, as
+        Fabric's fastcp does. extraConfigs are azcopy's options, so they change nothing on this PC."""
+        return cp(src, dest, recurse)
+
     def rm(path: str, recurse: bool = False) -> bool:
         where, p = _split(path)
         if where == "local":
@@ -345,6 +350,9 @@ def _make_fs() -> types.SimpleNamespace:
         # As in Fabric the folder is created now, so exists() and ls() find it before any file is
         # written into it. The write guard and a proof are asked first, as for every other change.
         lh = _writable(path, p)
+        # OneLake answers 409 for a file at that path as for a folder; a file there is an error, as in Fabric.
+        if (_entry(path) or {}).get("is_dir") is False:
+            raise FileExistsError(f"{path} is a file, so a folder can't be made there.")
         _store().mkdir(lh.workspace_id, lh.lakehouse_id, p)
         return True
 
@@ -367,9 +375,10 @@ def _make_fs() -> types.SimpleNamespace:
         raise NotImplementedError("Mounting other storage runs in Fabric. On this PC, read the attached lakehouse.")
 
     def help(*_a: Any) -> None:  # noqa: A001
-        print("notebookutils.fs on this PC: ls, head, put, append, cp, mv, rm, mkdirs, exists, getMountPath")
+        print("notebookutils.fs on this PC: ls, head, put, append, cp, fastcp (the same copy as cp), mv, rm, mkdirs, "
+              "exists, getMountPath")
 
-    return types.SimpleNamespace(ls=ls, head=head, put=put, append=append, cp=cp, fastcp=cp, mv=mv, rm=rm,
+    return types.SimpleNamespace(ls=ls, head=head, put=put, append=append, cp=cp, fastcp=fastcp, mv=mv, rm=rm,
                                  mkdirs=mkdirs, exists=exists, getMountPath=getMountPath, mount=mount,
                                  unmount=mount, mounts=lambda: [], help=help)
 

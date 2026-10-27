@@ -4,7 +4,7 @@ The metadata framework builds and runs your medallion layers (Bronze, Silver, Go
 
 This guide goes from an empty folder to Prod. The [reference](#reference) at the end lists every setting.
 
-> **Tested and not yet tested.** Everything that runs on your PC, including Dev on the PC, the four gates and every load mode, is covered by automated tests on every build. Features that talk to Fabric (promote to Test and Prod, runs in Fabric, Optimize, the semantic model, history and restore, the variable library) are built to Fabric's documented APIs but haven't yet been tried on a live tenant. Several are tagged **Preview** in the app.
+> **Tested and not yet tested.** Everything that runs on your PC, including Dev on the PC, the four gates and every load mode, is covered by automated tests on every build. Features that talk to Fabric (promote to Test and Prod, runs in Fabric, Optimize, the semantic model, history and restore, the variable library) are built to Fabric's documented APIs but haven't yet been tried on a live tenant. Several are tagged **Preview** in the app. Some things this guide marks Preview are settings in your project files rather than screens, such as reading **in batches** (`batch_by`), [reliability objectives](#reliability-objectives-preview) and [release records](#release-records). Turning Preview features off (`show_preview`) hides screens only, so these still run whenever a project sets them.
 
 ## Ideas in one page
 
@@ -18,7 +18,7 @@ This guide goes from an empty folder to Prod. The [reference](#reference) at the
 | **Gates** | Rules enforced at four points (save, write, promote, after) so the standards are followed without anyone policing them. |
 | **Promote** | Moving a tested metadata version from Dev to Test, or Test to Prod. |
 | **LH_Meta** | A lakehouse per environment that holds the run log, check results, watermarks, schema history and deployments. |
-| **LH_Keys** | A lakehouse per environment, in a shared Keys workspace, that issues surrogate keys. |
+| **Keys** | Where surrogate keys are issued. Recommended: one keys database for Dev, Test and Prod, in one Keys workspace ([platform.md](platform.md#one-keys-database-for-dev-test-and-prod)). Without it, `LH_Keys`, a lakehouse per environment. |
 
 ## 1. Set up a project
 
@@ -206,7 +206,7 @@ Checks run before every write. Each has an `on_fail`:
 
 The table commit comes first and everything in step 4 follows it, together with the quarantined rows. Only the table commit is ever retried, so a failure after it can't put the rows in twice: the run reports the rows as written and says what it couldn't record. Each commit also carries its watermark, so if saving `meta.watermarks` failed, the next run goes by the commit and doesn't load the same rows again. A run whose table write fails quarantines nothing.
 
-**Exceptions.** When a rule genuinely doesn't fit, add an approved exception to `exceptions.toml` with the entity, the rule, a reason, an approver and an expiry date (or `permanent`). An expired exception fails the save gate again.
+**Exceptions.** When a rule genuinely doesn't fit, add an approved exception to `exceptions.toml` with the entity, the rule, a reason, an approver and an expiry date (or `permanent`). An expired exception fails the save gate again. **Data mesh > Quality > Exceptions** shows each one with the table's owner, the reason, the approver and the end date. One that ends within 14 days raises a notice on the bell and a banner on Data mesh, so it can be renewed or the rule met before runs and promote are blocked.
 
 ```toml
 [[exception]]
@@ -304,7 +304,7 @@ The record goes into the target's `meta.deployments` row:
 | `dirty` | True when files that make up the metadata version differed from that commit. Local data (`.local`), caches and `environments.toml` don't count |
 | `pushed` | True when the commit was on the upstream branch |
 | `engine_version`, `lock_hash` | The engine version, and a hash of the versions of the packages it computes with (Polars, delta-rs, DuckDB, PyArrow) |
-| `by` | The PC login name that promoted |
+| `by` | The PC login name that promoted. The receipt's `identity` also has `object_id`, the promoter's Microsoft Entra object id, when they were signed in |
 | `receipt`, `receipt_id` | The whole record as a [run receipt](notebooks.md) of kind `release`, and its SHA-256 id. Anyone with the row can recompute the id to check the record wasn't changed |
 
 Rows written before this existed have these columns empty.
@@ -323,14 +323,15 @@ Tables keep their rows. A table whose logic changes asks whether to rebuild on i
 
 Each promote card shows the **Last release** to its target: the metadata version, the commit and whether it was pushed, the engine, who promoted it and when, and whether the stored record still matches its id (**checks out**). **Copy record** copies the whole record.
 
-If the files can't be named by a pushed commit (uncommitted changes, unpushed commits, no upstream branch, or no Git), the promote still goes ahead and the promote card says so. To require a pushed commit instead, set `require_commit = true` for that environment in `environments.toml`:
+Test and Prod in OneLake only take released files. If the files can't be named by a pushed commit (uncommitted changes, unpushed commits, no upstream branch, or no Git), a promote to an environment whose tables are in OneLake is blocked until they are committed and pushed. An environment kept on this PC goes ahead, and the promote card says so. `require_commit` in `environments.toml` changes this for one environment:
 
 ```toml
-[prod]
-require_commit = true
-```
+[test]
+require_commit = false   # go ahead with a note instead
 
-Promote to that environment is then blocked until the files are committed and pushed.
+[prod]
+require_commit = true    # block even when this environment is on this PC
+```
 
 ### Who can promote
 
@@ -343,7 +344,7 @@ To have a second person release to Prod, set `separate_promoter = true` for Prod
 separate_promoter = true
 ```
 
-Whoever promoted a metadata version to Test then can't also promote it to Prod. The check compares PC login names in the [release record](#release-records)'s `by` column. That makes it a team process check, not a security boundary: to make sure only release managers can change Prod, give only them Contributor or higher on the Prod workspaces.
+Whoever promoted a metadata version to Test then can't also promote it to Prod. It counts you as the same person when your Microsoft Entra object id matches the one in the [release record](#release-records)'s receipt, which catches one person on two PC logins, or when your PC login name matches the `by` column, so signing in with a second account on the same login doesn't get around it. A login several people share counts as one person. When either id is missing (you aren't signed in, or the version was promoted to Test before releases recorded the id) only the login names are compared, and the promote card says so. Either way it's a team process check, not a security boundary, and `environments.toml` isn't part of the metadata version, so whoever edits it can turn the check off: to make sure only release managers can change Prod, give only them Contributor or higher on the Prod workspaces.
 
 ### This PC or Fabric runs each environment
 
@@ -353,7 +354,7 @@ With **Fabric** (Preview), **Run all** (and running one entity, backfills and re
 
 ## 8. Surrogate keys
 
-Surrogate keys are issued in one place per environment: `LH_Keys`, in a dedicated Keys workspace (Dev keeps it on the PC). Each business key has its own key table, `sk.<name>`, with three columns: `<name>_sk` (INT), `<name>_bk` (the business key, unique) and `create_date`. Customer ABC gets one key, say 123, and every source that has Customer ABC maps to 123.
+Surrogate keys are issued in one place. The recommended setup is [one keys database for Dev, Test and Prod](platform.md#one-keys-database-for-dev-test-and-prod) (Preview), in one Keys workspace, so a business key has the same surrogate key in every environment. Without the [platform](platform.md), each environment issues its own keys in `LH_Keys`, in a dedicated Keys workspace (Dev keeps it on the PC); the rest of this section describes that setup. Each business key has its own key table, `sk.<name>`, with three columns: `<name>_sk` (INT), `<name>_bk` (the business key, unique) and `create_date`. Customer ABC gets one key, say 123, and every source that has Customer ABC maps to 123.
 
 **Sync to LH_Keys** is in Preview for Fabric environments: it has not yet been run on a tenant.
 
@@ -403,6 +404,14 @@ lib.CRM_server_host
 - No column sums on its own (`summarizeBy: none`, as Best Practice Analyzer's rules ask). Instead each fact gets a total measure for every visible numeric column that isn't a key, named like its row count measure: `fact_sales total net_amount`. Names don't change as the model grows, so reports keep their measures. Visuals that already sum a column keep their aggregation.
 - Relationships come from the metadata: a fact's `[[lookup]]` names the dimension and key, and any other column named like a dimension's surrogate key joins to it.
 - Surrogate keys, `_run_id` and `_loaded_at` are hidden.
+- **Date table.** A date dimension becomes the model's date table (*Mark as date table* in Power BI, so time intelligence like `TOTALYTD` works) when its entity names the date column:
+
+  ```toml
+  [model]
+  date_column = "day"
+  ```
+
+  The entity must be a dimension (`scd1` or `scd2` with a surrogate key) and the column a contract column of type `date` or `datetime`. Power BI refuses a date table with a blank date, so this dimension's Unknown member gets the date 1899-12-30 (day 0 of Power BI's date serials) instead of a blank one. A dimension that already exists is rewritten once on its next run to give its Unknown member that date (the write step says so); later runs merge as usual. Facts still point unmatched rows at -1, and visuals show them under 1899-12-30.
 - Two entities whose Delta tables share a name are qualified by schema (`sales_orders`). **Update model** first reads the model's definition and keeps the names its tables already have, so when a second `orders` table arrives only the newcomer is qualified, and reports keep their tables and measures. If the definition can't be read, nothing is written.
 - **Create model** makes `SM_<Layer>` in the environment's workspace (rename it if you like). **Update model** updates it in place and keeps every lineage tag, so reports built on it keep working.
 - If a model with that name already exists (for example after a rename), KratosForge asks first: the confirmation names the model and says its definition will be replaced, including measures, tables and relationships added to it in Fabric. Nothing is written until you confirm.
@@ -506,6 +515,7 @@ business_key = "order_id"
 | `[[keys]]` | `table`, `business_key` | Surrogate keys from `LH_Keys` |
 | `[[lookup]]` | `dim`, `on`, `as`, `at` | A dimension's surrogate key as of the fact's date |
 | `[scd]` | `surrogate_key`, `tracked`, `type1` | Dimension settings |
+| `[model]` | `date_column` | Makes the dimension the semantic model's date table (see [section 10](#10-semantic-model-preview)) |
 | `[hooks]` | `after_clean`, `before_write`, `reads`, `adds`, `owner`, `test` | Your Python at a fixed point |
 | `[step]` | `custom`, `reads`, `owner`, `test` | Your Python replaces the transform |
 | `[params]` | any | Values your code reads from `ctx.params` |
@@ -531,7 +541,7 @@ One section per environment (`[dev]`, `[test]`, `[prod]`):
 | `optimize_after_run` | Optimize every table a run writes (Test and Prod) |
 | `keys` | `platform` (keys in `SQL_Platform`) or `lakehouse` (`LH_Keys`). Unset, keys come from the platform once the environment has one in Fabric, unless the project already has `LH_Keys` |
 | `workspaces` | A workspace per designation, like `{ ingest = { id = "...", name = "Sales Ingest - Test" } }` |
-| `require_commit` | `true`: promote here only from files a pushed Git commit holds ([Release records](#release-records)) |
+| `require_commit` | Whether promote here takes only files a pushed Git commit holds. On by default for an environment in OneLake, off for one on this PC; `false` or `true` overrides it ([Release records](#release-records)) |
 | `separate_promoter` | `true`: whoever promoted this version to the environment before can't promote it here ([Who can promote](#who-can-promote)) |
 
 Changing this file doesn't change the metadata version, so it never forces a re-promote.
@@ -554,7 +564,7 @@ KratosForge works out where every column comes from by reading the project's fil
 | --- | --- |
 | Every row | `_run_id`, `_loaded_at` |
 | Type 2 dimensions | `valid_from`, `valid_to`, `is_current` |
-| Dimensions | The surrogate key column, and an Unknown member at -1 |
+| Dimensions | The surrogate key column, and an Unknown member at -1 (dated 1899-12-30 in the model's date table) |
 | `LH_Meta` | `meta.run_log`, `meta.dq_results`, `meta.watermarks`, `meta.schema_history`, `meta.deployments` |
 | Each layer lakehouse | `quarantine.<schema>_<table>` for held-back rows |
 | `LH_Keys` | `sk.<name>` per key table; `config.source_system`, `config.source_connection` |

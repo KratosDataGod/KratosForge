@@ -68,8 +68,13 @@ A policy file that sets everything an organization usually wants:
 | `cell_time_limit_minutes` | A number, `0` for none | With `kernel_process`: minutes a notebook cell may run before it's interrupted (Preview; none by default) |
 | `channel` | `stable` or `preview` | Fixes the update channel |
 | `client_id` | Your own app's Application (client) ID | Only with step 3. Leave it out to keep Microsoft's sign-in |
+| `register_link_scheme` | `true` (default) or `false` | `false` stops the app registering `kratosforge://` links for the Windows user, and removes a registration it made earlier, so links from VS Code, a terminal or a browser don't open the app ([Links into KratosForge](vscode.md#links-into-kratosforge)). Read by the app itself at start |
+| `engine_download_url` | An `https://` folder address, such as `"https://files.contoso.com/kratosforge/build-0123456789ab"` | Only with `"auto_update": false`. The app downloads its engine from this folder instead of GitHub, for networks that can't reach GitHub. Put the files of the build's `build-<commit>` release there unchanged: `fabric-desktop-engine.zip`, `version.json` and `fabric-desktop-engine-update.zip`. The app still installs only an engine whose `version.json` names its own build and whose zip matches the checksum there. No user name, `?` or `#` in the address, so the folder must be readable without signing in, for example on an internal web server. Read by the app itself ([Enterprise install](enterprise-install.md#host-the-engine-yourself)) |
 | `fabric_view_sign_in_hosts` | A list of exact host names, for example `["adfs.contoso.com", "contoso.okta.com"]` | Only if your tenant's sign-in hands off to your own identity provider (AD FS, Okta, Ping and similar). The Fabric view (Monitor and Fabric pages) opens only Fabric and Microsoft sign-in pages and sends every other page to the default browser, so without this key people can't sign in inside it. Hosts here are treated like Microsoft's sign-in hosts: `https` only, default port, no user name in the link. Each entry must be a whole host name: no `*`, `https://`, port or path. Entries that aren't are skipped and listed in **Settings > Help and about**. Read by the app itself when the view opens; a missing or unreadable file adds no hosts ([Security](security.md#threats-and-what-stops-them)) |
 | `motion_level` | `0` to `3` (default `2`) | Visual intensity: 0 Off, 1 Minimal, 2 Refined, 3 Expressive ([Motion and effects](forge-animations.md)). Progress and results show the same at every level |
+| `ui_explanations` | `"on_request"` or `"beside"` (default `"on_request"`) | Where each page's How this works panel and one-line explanation show: from the title bar's info button, or on the page ([Layout](user-guide.md#layout)) |
+| `ui_preview_marks` | `"tags"` or `"dots"` (default `"tags"`) | How features still in preview are marked: a Preview tag, or a small dot with the tag kept on page titles |
+| `ui_density` | `"comfortable"` or `"compact"` (default `"comfortable"`) | Spacing in tables, lists and toolbars |
 | `motion_wolf`, `motion_sparks`, `motion_ambient` | `true` (default) or `false` | `false` turns that family of effects off |
 | `motion_achievements` | `true` or `false` (default) | `true` turns on achievement celebrations from the developer profile |
 | `motion_follow_system` | `true` (default) or `false` | `true`: Windows' reduced-motion setting turns motion off whatever the level. People can untick it to keep motion under reduced motion; set it to `true` here to stop that |
@@ -77,32 +82,38 @@ A policy file that sets everything an organization usually wants:
 | `incident_sla` | Minutes per priority: `{"P1": {"acknowledge_minutes": 15, "resolve_minutes": 240}, ...}`, `0` for no target | Your own targets for acknowledging and resolving incidents; priorities left out keep the defaults ([Incidents](incidents.md#slas)) |
 | `kernel_memory_limit_gb` | A number, `0` for none | With `kernel_process`: gigabytes a notebook's process may use before it's ended (Preview; none by default) |
 | `kernel_process` | `true` or `false` | Runs notebook cells in a Python process of their own, so Stop and crashes end only that process (Preview; off by default) |
-| `local_retention_days` | A whole number of days (default `30`; `0` keeps them) | Local copies of lakehouse data that haven't been used for this long are deleted when the app starts: file previews, tables staged before a publish, the metadata framework's download cache. Notebooks, settings and history are never deleted |
+| `local_retention_days` | A whole number of days (default `30`; `0` keeps them) | Local copies of lakehouse data that haven't been used for this long are deleted when the app starts: file previews and the metadata framework's download cache. Notebooks, settings and history are never deleted |
+| `onelake_compression` | `"zstd"` or `"snappy"` (default `"zstd"`) | How table files written from this PC are compressed. Zstandard files are about a quarter smaller, so they upload sooner ([Writing to OneLake](architecture.md#writing-to-onelake)) |
+| `onelake_skip_unchanged` | `true` or `false` (default `true`) | An overwrite of exactly the rows a table already holds from KratosForge uploads nothing |
+| `onelake_writes` | `"local_first"` or `"direct"` (default `"local_first"`) | The default for notebooks that don't choose: write on this PC and upload in the background, or straight to OneLake. Each notebook can still choose its own unless the policy fixes this |
 | `show_preview` | `true` or `false` | Shows or hides every feature tagged Preview |
 | `sql_max_concurrent` | 1 to 8 (default `2`) | SQL page queries that run at once; more wait in a queue ([SQL execution](sql-execution.md#limits)) |
 | `sql_memory_limit_percent` | 10 to 90 (default `60`) | Share of the PC's memory one SQL page query may use; more spills to the temp folder |
 | `sql_page_rows` | 100 to 10000 (default `1000`) | Rows per page of SQL page results |
 | `sql_result_retention_hours` | 0 to 168 (default `24`; `0` keeps them until the app closes) | How long a finished SQL page query's result is kept for paging and export |
+| `sql_warehouse_writes` | `true` or `false` (default `true`) | Whether the Warehouse page may change a warehouse (DDL, DML, EXEC). Each change still shows what it changes and asks first; `false` makes every warehouse read-only in the app |
+| `wh_monitoring_views` | `true` or `false` (default `true`) | Whether a warehouse's Monitoring tab may build monitoring views (KQL querysets) in Fabric, after a confirm. `false` stops building for everyone; the tab still reads monitoring ([Warehouse: Monitoring](warehouse.md#monitoring-preview)) |
 | `sql_temp_dir` | A full folder path (default: the app's data folder) | Where SQL page queries spill data and keep results |
 | `sql_time_limit_minutes` | 0 to 1440 (default `10`; `0` for no limit) | Minutes an SQL page query may run before it's stopped |
 | `support_url` | An `https://` link or a `mailto:` address | Where **Report a problem** sends people, instead of GitHub |
 | `integrations` | `false` | Turns off external AI tools (MCP and the local API) on the PC; see [permissions.md: External AI tools](permissions.md#external-ai-tools) |
 | `integrations_http` | `false` | Stops anyone switching on the local HTTP API; MCP over stdio still works if integrations are on |
+| `integrations_editors` | `false` | Stops anyone letting VS Code windows run notebooks on this PC ([Run cells from VS Code](vscode.md#run-cells-from-vs-code)); existing pairings stop working |
 | `integrations_max_permissions` | A list, for example `["READ_METADATA", "READ_DATA"]` | The most an external AI tool can be given |
 | `integrations_extensions` | A list of extension ids, for example `["notebook-outline"]`; `[]` for none | Which extensions people can turn on in Settings > Integrations |
 
 A key that is misspelled is ignored. An invalid file or key fails closed for anything the file can restrict, so a mistake never opens up what you meant to lock down:
 
 - **The file is there but can't be read** (a stray comma, not one JSON object, no permission to open it): each PC keeps using the last copy of the file it could read, as Group Policy keeps its last applied settings, until you fix it. Each PC saves that copy whenever it reads a valid file, and deletes it when the file is removed. The copy is `%LOCALAPPDATA%\FabricDesktop\policy-last-good.json`. It sits in the person's own profile, so someone could edit it, but it only counts while the real file is broken, and **Settings > Help and about** says when it is in use.
-- **The file can't be read and the PC has never read a valid one** (a new PC whose first file is broken): none of it applies, and every restriction takes its most restrictive value until you fix it. People can still sign in and work on their PC, but there are no runs in Fabric, Preview features and telemetry are off, external AI tools are off with no permissions, no HTTP API and no extensions, and receipt exports leave out every part. Other settings (`client_id`, `channel`, `support_url`, `platform`, the SQL and notebook limits, `local_retention_days`) go back to what they'd be with no file.
-- **A restriction has the wrong kind of value** (`"false"` in quotes instead of `false`): that key takes its most restrictive value. `allow_fabric_runs`, `show_preview`, `telemetry`, `integrations` and `integrations_http` become `false`; `allowed_tenants` lets no account sign in; `integrations_max_permissions` and `integrations_extensions` allow none; `receipt_redactions` leaves out every part.
+- **The file can't be read and the PC has never read a valid one** (a new PC whose first file is broken): none of it applies, and every restriction takes its most restrictive value until you fix it. People can still sign in and work on their PC, but there are no runs in Fabric, no warehouse changes or monitoring views, Preview features and telemetry are off, external AI tools are off with no permissions, no HTTP API and no extensions, and receipt exports leave out every part. Other settings (`client_id`, `channel`, `support_url`, `platform`, the SQL and notebook limits, `local_retention_days`) go back to what they'd be with no file.
+- **A restriction has the wrong kind of value** (`"false"` in quotes instead of `false`): that key takes its most restrictive value. `allow_fabric_runs`, `show_preview`, `telemetry`, `sql_warehouse_writes`, `wh_monitoring_views`, `integrations`, `integrations_http` and `integrations_editors` become `false`; `allowed_tenants` lets no account sign in; `integrations_max_permissions` and `integrations_extensions` allow none; `receipt_redactions` leaves out every part.
 - **Any other key has the wrong kind of value**: it's ignored, and the person's own choice or the default applies.
 
 With no policy file at all, nothing is restricted. **Settings > Help and about** lists every problem in the file and what KratosForge did about it. Check there after you push a new file.
 
 `fabric_view_sign_in_hosts` is also read by the app itself, not the engine: an unreadable file, a value that isn't a list, or an entry that isn't a host name adds no sign-in host. The last copy of the file isn't used for it.
 
-`auto_update` and `channel` are also read by the app's updater, which still treats an unreadable file or a wrongly typed `auto_update` as no setting, so the app keeps updating itself on the channel chosen in Settings (Stable unless someone picked Preview).
+`auto_update` and `channel` are also read by the app's updater, which follows the same last copy while the file can't be read. With no copy, or for a wrongly typed `auto_update`, it treats them as no setting, so the app keeps updating itself on the channel chosen in Settings (Stable unless someone picked Preview).
 
 Every key is optional. More detail is in [permissions.md: Rolling out to your organization](permissions.md#rolling-out-to-your-organization).
 
@@ -115,7 +126,7 @@ Notebooks and SQL queries can use any lakehouse a person can open. The **metadat
 | What | How many | Holds |
 | --- | --- | --- |
 | **Environment workspaces** | One each for Dev, Test and Prod, per project | One lakehouse per layer (`LH_Bronze`, `LH_Silver`, `LH_Gold`, or whatever layers the project has), plus `LH_Meta` for run logs, checks and watermarks. |
-| **Keys workspace** | One per environment, shared by every project that shares business keys | `LH_Keys`: one table per business key (`sk.customer`, `sk.product`) and the source system configuration. |
+| **Keys workspace** | One for the organization, shared by Dev, Test and Prod and by every project ([one keys database](platform.md#one-keys-database-for-dev-test-and-prod), Preview) | `SQL_Keys`, with one table per business key (`keys.customer`, `keys.product`), and `UDF_Keys`. Customer ABC gets the same key in every environment. Without the platform, each environment keeps its own `LH_Keys` instead ([metadata-guide.md](metadata-guide.md#8-surrogate-keys)). |
 
 Things to know:
 

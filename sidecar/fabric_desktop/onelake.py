@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import email.utils
+import os
 import re
 import time
 from dataclasses import dataclass
@@ -50,9 +51,23 @@ class TableRef:
         return f"abfss://{self.workspace_id}@{DFS_HOST}/{self.lakehouse_id}/Tables/{folder}"
 
 
+# Uploads on a slow line. delta-rs sends each data file as 5 MB parts, 10 at a time, with several
+# files in flight, and object_store gives each request 30 s and all its retries 180 s. On a 42 Mbps
+# upload, tens of parts share about 5 MB/s, so a part can take longer than 30 s: it times out and is
+# sent again, and the table write fails after 3 minutes ("error sending request", issue #785).
+# Fewer parts at once (still enough to fill a fast line), and time limits that let a slow line
+# finish a part, instead of retrying it from the start. Read once, at the process's first write,
+# so set here, before any; a value set in the environment wins.
+os.environ.setdefault("DELTARS_MAX_CONCURRENCY_TASKS", "4")  # parts in flight for one file
+os.environ.setdefault("DELTARS_MAX_IN_FLIGHT_UPLOAD_BYTES", str(256 * 1024 * 1024))  # files in flight, by size
+REQUEST_TIMEOUT = "600s"  # one part: 5 MB in 10 minutes is 8 KB/s
+RETRY_TIMEOUT = "1800s"  # a part's tries, all together: longer than one try, so a timed-out part is tried again
+
+
 def storage_options(token: str) -> dict[str, str]:
     """delta-rs / object_store options for OneLake with a user bearer token."""
-    return {"bearer_token": token, "use_fabric_endpoint": "true"}
+    return {"bearer_token": token, "use_fabric_endpoint": "true",
+            "timeout": REQUEST_TIMEOUT, "connect_timeout": "30s", "retry_timeout": RETRY_TIMEOUT}
 
 
 class TableCatalog:

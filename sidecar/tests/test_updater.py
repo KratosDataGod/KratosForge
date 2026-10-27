@@ -111,6 +111,24 @@ def test_channel_defaults_to_stable_and_policy_wins(settings_dirs):
     assert updater.channel() == "preview"
 
 
+def test_channel_uses_the_last_good_policy_when_the_policy_is_unreadable(settings_dirs):
+    # As the sidecar does (app_settings._policy_file), so the channel matches what Settings shows (#419).
+    policy, user = settings_dirs
+    saved = user.with_name("policy-last-good.json")
+    user.write_text(json.dumps({"channel": "preview"}))
+    saved.write_text(json.dumps({"channel": "stable"}))
+    assert updater.channel() == "preview"  # no policy file: the copy left over doesn't apply
+    for broken in ('{"channel": "preview",}', "[]", ""):
+        policy.write_text(broken)
+        assert updater.channel() == "stable", broken
+    policy.write_bytes(b"\xff\xfe{}")  # not UTF-8
+    assert updater.channel() == "stable"
+    saved.write_text("not json")  # no usable copy either: the user's channel
+    assert updater.channel() == "preview"
+    policy.write_text(json.dumps({"channel": "stable"}))
+    assert updater.channel() == "stable"
+
+
 def test_latest_release_reads_the_channels_version_json(monkeypatch, settings_dirs):
     seen = serve(monkeypatch, {"/stable/version.json": json.dumps({"commit": SHA, "notes": "Settings page"}).encode()})
     assert updater.latest_release() == {"commit": SHA, "error": None, "channel": "stable", "notes": "Settings page", "history": [],
@@ -167,10 +185,11 @@ def test_download_app_follows_preview_without_a_stable_release(monkeypatch, sett
     import urllib.error
     exe = b"MZ..." + SHA.encode()
     seen = serve(monkeypatch, {"/stable/": urllib.error.HTTPError("u", 404, "Not Found", {}, None),
-                               "/latest/fabric-desktop.exe": exe,
+                               "/latest/kratosforge.exe": exe,
                                "/latest/version.json": json.dumps({"commit": SHA, "exe_sha256": hashlib.sha256(exe).hexdigest()}).encode()})
     assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 0
-    assert all("/latest/" in url for url, _ in seen[1:])
+    # Stable is missing under both names before Preview is tried.
+    assert all("/stable/" in url for url, _ in seen[:2]) and all("/latest/" in url for url, _ in seen[2:])
 
 
 def test_preview_channel_does_not_fall_back(monkeypatch, settings_dirs):
@@ -183,20 +202,20 @@ def test_preview_channel_does_not_fall_back(monkeypatch, settings_dirs):
 def test_download_app_refuses_a_release_without_a_checksum(monkeypatch, tmp_path, capsys):
     # A version.json that names the build but gives no checksum: the download can't be checked (HD-022).
     for info in ({"commit": SHA}, {"commit": SHA, "exe_sha256": "not-a-checksum"}):
-        serve(monkeypatch, {"fabric-desktop.exe": b"MZ..." + SHA.encode() + b"...", "version.json": json.dumps(info).encode()})
+        serve(monkeypatch, {"kratosforge.exe": b"MZ..." + SHA.encode() + b"...", "version.json": json.dumps(info).encode()})
         assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 1
         assert "gives no checksum" in capsys.readouterr().out
 
 
 def test_download_app_refuses_when_the_checksum_cant_be_read(monkeypatch, tmp_path, capsys):
-    serve(monkeypatch, {"fabric-desktop.exe": b"MZ..." + SHA.encode()})  # no version.json
+    serve(monkeypatch, {"kratosforge.exe": b"MZ..." + SHA.encode()})  # no version.json
     assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 1
     assert "Could not read build 0123456's checksum" in capsys.readouterr().out
 
 
 def test_download_app_waits_while_the_release_names_another_build(monkeypatch, tmp_path, capsys):
     other = json.dumps({"commit": "f" * 40, "exe_sha256": "0" * 64}).encode()
-    serve(monkeypatch, {"fabric-desktop.exe": b"MZ..." + SHA.encode(), "version.json": other})
+    serve(monkeypatch, {"kratosforge.exe": b"MZ..." + SHA.encode(), "version.json": other})
     assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 1
 
 
@@ -205,9 +224,9 @@ def test_download_app_refuses_a_stale_copy(monkeypatch, tmp_path, capsys):
     stale = b"MZ...old build..."
     # Even with a matching checksum, the file must carry the build's commit.
     info = {"commit": SHA, "exe_sha256": hashlib.sha256(stale).hexdigest()}
-    seen = serve(monkeypatch, {"fabric-desktop.exe": stale, "version.json": json.dumps(info).encode()})
+    seen = serve(monkeypatch, {"kratosforge.exe": stale, "version.json": json.dumps(info).encode()})
     assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 1
-    exe = [url for url, _ in seen if "fabric-desktop.exe" in url]
+    exe = [url for url, _ in seen if "kratosforge.exe" in url]
     assert len(exe) == 2 and "nocache=" in exe[1]
     assert "not build 0123456 yet" in capsys.readouterr().out
 
@@ -216,9 +235,9 @@ def test_download_app_checks_the_checksum(monkeypatch, tmp_path, capsys):
     import hashlib
     good = b"MZ..." + SHA.encode()
     info = {"commit": SHA, "exe_sha256": hashlib.sha256(good).hexdigest()}
-    serve(monkeypatch, {"version.json": json.dumps(info).encode(), "fabric-desktop.exe": good})
+    serve(monkeypatch, {"version.json": json.dumps(info).encode(), "kratosforge.exe": good})
     assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 0
-    serve(monkeypatch, {"version.json": json.dumps(info).encode(), "fabric-desktop.exe": good + b"tampered"})
+    serve(monkeypatch, {"version.json": json.dumps(info).encode(), "kratosforge.exe": good + b"tampered"})
     assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 1
     assert "checksum" in capsys.readouterr().out
 
@@ -234,24 +253,103 @@ def test_download_app_refuses_a_cut_off_download(monkeypatch, tmp_path, capsys):
     assert "stopped at" in capsys.readouterr().out
 
 
-def test_install_sidecar_reinstalls_from_commit(monkeypatch):
-    calls = []
+def test_download_app_takes_the_legacy_name_from_an_older_release(monkeypatch, tmp_path):
+    # A build-* release from before kratosforge.exe (Stable rolled back to it) has only fabric-desktop.exe.
+    import hashlib
+    import urllib.error
+    exe = b"MZ..." + SHA.encode()
+    seen = serve(monkeypatch, {"/kratosforge.exe": urllib.error.HTTPError("u", 404, "Not Found", {}, None),
+                               "/fabric-desktop.exe": exe,
+                               "version.json": json.dumps({"commit": SHA, "exe_sha256": hashlib.sha256(exe).hexdigest()}).encode()})
+    assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 0
+    assert (tmp_path / "new.exe").read_bytes() == exe
+    assert [url.split("?")[0].rsplit("/", 1)[1] for url, _ in seen[:2]] == ["kratosforge.exe", "fabric-desktop.exe"]
+    assert "/stable/" in seen[0][0] and "/stable/" in seen[1][0], "the same release, not Preview"
+
+
+def test_download_app_asks_for_kratosforge_exe_first(monkeypatch, tmp_path):
+    import hashlib
+    exe = b"MZ..." + SHA.encode()
+    seen = serve(monkeypatch, {"/kratosforge.exe": exe,
+                               "version.json": json.dumps({"commit": SHA, "exe_sha256": hashlib.sha256(exe).hexdigest()}).encode()})
+    assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 0
+    assert not any("fabric-desktop.exe" in url for url, _ in seen)
+
+
+def source_zip(constraints=True, extra=()):
+    """A GitHub source archive: one top folder holding sidecar/."""
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        top = f"KratosForge-{SHA}/"
+        zf.writestr(top + "README.md", "readme")
+        zf.writestr(top + "sidecar/pyproject.toml", "[project]\nname = 'fabric-desktop'\n")
+        if constraints:
+            zf.writestr(top + "sidecar/constraints.txt", "msal==1.39.0\n")
+        for name, data in extra:
+            zf.writestr(name, data)
+    return buf.getvalue()
+
+
+@pytest.fixture
+def archive(monkeypatch):
+    return serve(monkeypatch, {f"/archive/{SHA}.zip": source_zip()})
+
+
+def test_install_sidecar_installs_the_commit_with_its_own_constraints(monkeypatch, archive):
+    """SH-9: the packages are the versions in that commit's constraints.txt, read from the one
+    archive the updater downloads, so no other host is needed."""
+    calls, seen_files = [], []
+
+    def call(cmd, **kwargs):
+        calls.append(cmd)
+        seen_files.append((Path(cmd[-1]) / "pyproject.toml").is_file())
+        if "-c" in cmd:
+            seen_files.append(Path(cmd[cmd.index("-c") + 1]).read_text())
+        return 0
     monkeypatch.setattr(updater, "load_error", lambda: None)
-    monkeypatch.setattr(updater.subprocess, "call", lambda cmd, **kwargs: calls.append(cmd) or 0)
+    monkeypatch.setattr(updater.subprocess, "call", call)
     assert updater.install_sidecar(SHA) == 0
-    url = f"https://github.com/KratosDataGod/KratosForge/archive/{SHA}.zip#subdirectory=sidecar"
-    assert calls[0][-1] == url and "--force-reinstall" not in calls[0]
-    assert calls[1][-3:] == ["--force-reinstall", "--no-deps", url]
+    assert [url for url, _ in archive] == [f"https://github.com/KratosDataGod/KratosForge/archive/{SHA}.zip"]
+    source = calls[0][-1]
+    assert Path(source).name == "sidecar" and "--force-reinstall" not in calls[0]
+    assert calls[0][-3:-1] == ["-c", str(Path(source) / "constraints.txt")]
+    assert calls[1][-4:] == ["--quiet", "--force-reinstall", "--no-deps", source]
+    assert seen_files == [True, "msal==1.39.0\n", True]
+    assert not Path(source).exists()  # the download is removed afterwards
 
 
-def test_install_sidecar_stops_on_failure(monkeypatch):
+def test_install_sidecar_refuses_a_download_without_constraints(monkeypatch, capsys):
+    serve(monkeypatch, {f"/archive/{SHA}.zip": source_zip(constraints=False)})
+    calls = []
+    monkeypatch.setattr(updater.subprocess, "call", lambda cmd, **kwargs: calls.append(cmd) or 0)
+    assert updater.install_sidecar(SHA) == 1
+    assert calls == [] and "constraints.txt" in capsys.readouterr().out
+
+
+def test_install_sidecar_unpacks_only_the_sidecar_folder(monkeypatch, tmp_path):
+    serve(monkeypatch, {f"/archive/{SHA}.zip": source_zip(extra=[("../outside.txt", "x")])})
+    (tmp_path / "d").mkdir()
+    source = updater.download_sidecar(SHA, str(tmp_path / "d"))
+    assert sorted(p.name for p in source.iterdir()) == ["constraints.txt", "pyproject.toml"]
+    assert not (tmp_path / "outside.txt").exists() and not (source.parent / "README.md").exists()
+
+
+def test_install_sidecar_offline_says_so(monkeypatch, capsys):
+    serve(monkeypatch, {"github": OSError("no network")})
+    assert updater.install_sidecar(SHA) == 1
+    assert "no network" in capsys.readouterr().out
+
+
+def test_install_sidecar_stops_on_failure(monkeypatch, archive):
     calls = []
     monkeypatch.setattr(updater.subprocess, "call", lambda cmd, **kwargs: calls.append(cmd) or 1)
     assert updater.install_sidecar(SHA) == 1
     assert len(calls) == 1
 
 
-def test_install_sidecar_fails_when_it_does_not_start(monkeypatch, capsys):
+def test_install_sidecar_fails_when_it_does_not_start(monkeypatch, capsys, archive):
     monkeypatch.setattr(updater.subprocess, "call", lambda cmd, **kwargs: 0)
     monkeypatch.setattr(updater, "load_error", lambda: "ModuleNotFoundError: No module named 'fabric_desktop.meta'")
     assert updater.install_sidecar(SHA) == 1
@@ -278,6 +376,22 @@ def test_check_reports_python(monkeypatch, capsys):
     assert report["latest"]["commit"] == SHA
     assert set(report["sidecar"]) == {"version", "commit", "editable", "error", "blocked", "cached"}
     assert report["sidecar"]["error"] is None
+
+
+def test_latest_reports_the_channels_build_and_release_page(monkeypatch, capsys):
+    # "Check for updates": the build and where to download it by hand, without the engine check.
+    monkeypatch.setattr(updater, "installed_sidecar", lambda: pytest.fail("the manual check doesn't check the engine"))
+    monkeypatch.setattr(updater, "latest_release", lambda: {"commit": SHA, "error": None, "tag": "preview"})
+    assert updater.main(["latest"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["commit"] == SHA
+    assert report["page"] == "https://github.com/KratosDataGod/KratosForge/releases/tag/latest"
+
+
+def test_latest_offline_still_names_the_channels_release_page(monkeypatch):
+    monkeypatch.setattr(updater, "channel", lambda: "stable")
+    monkeypatch.setattr(updater, "latest_release", lambda: {"commit": None, "error": "URLError: offline"})
+    assert updater.latest()["page"] == "https://github.com/KratosDataGod/KratosForge/releases/tag/stable"
 
 
 class FakeFile(str):
@@ -326,7 +440,7 @@ def test_sidecar_packages_follows_dependencies():
     assert {"fabric-desktop", "pyarrow", "polars", "cryptography"} <= names
 
 
-def test_install_sidecar_reports_blocked_files(monkeypatch, capsys):
+def test_install_sidecar_reports_blocked_files(monkeypatch, capsys, archive):
     blocked = {"packages": {"pyarrow": ["pyarrow/lib.pyd"]}, "by": "policy", "smart_app_control": None, "location": "x"}
     monkeypatch.setattr(updater.subprocess, "call", lambda cmd, **kwargs: 0)
     monkeypatch.setattr(updater, "load_error", lambda: "ImportError: DLL load failed while importing lib")

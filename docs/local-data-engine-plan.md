@@ -29,7 +29,7 @@ Baseline: `python -m pytest -q` in `sidecar/` on Linux, Python 3.13, with the pi
 | SQL editor | Draft PR #118 (SQL-001) | CodeMirror editor with completion and formatting for the SQL page. |
 | Fabric SQL dialect analyzer | Draft PR #120 (SQL-002) | Versioned profiles and rules (`sqlcompat/`), compatibility report, 193 regression cases. This is most of FD-LDE-014. |
 | Managed execution | SQL-003, in progress in the SQL thread | Cancel, timeouts, paging and streamed export for the SQL page. |
-| Notebook reads and writes | `lakehouse.py` | `read_csv/parquet/json`, `read_table`, `write_table` (overwrite or append) to OneLake Delta, with a local staging copy checked against the Fabric-safe Delta profile. |
+| Notebook reads and writes | `lakehouse.py` | `read_csv/parquet/json`, `read_table`, `write_table` (overwrite or append) to OneLake Delta, with a local staging table (schema only) checked against the Fabric-safe Delta profile. |
 | Local Delta tables | `meta/store.py` `LocalStore`, metadata projects with "Tables in: This PC only" | Bronze, Silver and Gold as local Delta folders, with MERGE (`merge_insert`, `upsert`) and streaming writes. |
 | Fabric-safe Delta profile | `delta_profile.py` | Reader 1, writer 2, no deletion vectors, column mapping or V2 checkpoints, so Fabric readers handle what we write. |
 | OneLake Files | `onelake.py` `FileStore` | List, download, read, upload (create, append, flush), delete. Upload is a single append with no conflict check or chunking. |

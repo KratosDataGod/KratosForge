@@ -1,4 +1,4 @@
-"""Altair charts and plotly's fig.show() in a cell's output (chart_output.py)."""
+"""Altair charts and plotly figures in a cell's output (chart_output.py)."""
 
 from __future__ import annotations
 
@@ -56,12 +56,40 @@ def test_plotly_fig_show_draws_in_the_cell(monkeypatch):
         monkeypatch.delitem(sys.modules, name)
     out = Kernel().run("import plotly.express as px\npx.bar(x=[1, 2], y=[3, 4]).show()\nprint('after')")
     assert out["status"] == "ok", out
-    html, after = out["outputs"]
-    assert html["type"] == "html" and "Plotly.newPlot" in html["html"] and '<script src="https' not in html["html"]
+    chart, after = out["outputs"]
+    assert chart["type"] == "plotly" and chart["figure"]["data"][0]["type"] == "bar"
     assert after == {"type": "stream", "text": "after\n"}
     # A renderer the notebook picks is still used.
     out = Kernel().run("import plotly.io as pio\npio.renderers.default = 'json'\nprint(pio.renderers.default)")
     assert out["outputs"][-1]["text"] == "json\n"
+
+
+def test_a_plotly_figure_is_its_json_wherever_it_is_shown_and_plotly_js_comes_once(monkeypatch):
+    k = Kernel()
+    k.run("import plotly.io")
+    import plotly.io as pio
+    monkeypatch.setattr(pio.renderers, "default", "kratosforge")  # an earlier test's notebook picked "json"
+    k.run("import plotly.graph_objects as go\nfig = go.Figure(go.Bar(x=['a', 'b'], y=[3, 4]))")
+    for code in ("fig", "display(fig)", "fig.show()"):
+        out = k.run(code)
+        assert out["status"] == "ok", (code, out)
+        [chart] = out["outputs"]
+        assert chart["type"] == "plotly" and chart["figure"]["data"][0]["x"] == ["a", "b"], code
+        # The output carries the figure, not plotly.js (about 5 MB) with it.
+        assert len(json.dumps(chart)) < 20_000, code
+    js = chart_output.plotly_js()
+    import plotly
+    assert js["version"] == plotly.__version__ and "Plotly" in js["source"] and len(js["source"]) > 1_000_000
+
+
+def test_a_notebook_exported_with_outputs_keeps_plotly_figures_for_jupyter_and_leaves_them_out_of_html():
+    from fabric_desktop.notebook_formats import to_html
+    figure = {"data": [{"type": "bar", "x": [1], "y": [2]}], "layout": {}}
+    cells = [{"type": "code", "source": "fig", "outputs": [{"type": "plotly", "figure": figure}]}]
+    [out] = json.loads(to_ipynb_text(cells, True))["cells"][0]["outputs"]
+    assert out["data"]["application/vnd.plotly.v1+json"] == figure
+    page = to_html("Charts", cells)
+    assert "plotly charts aren't included in the page" in page and '"bar"' not in page
 
 
 def test_a_notebook_exported_with_outputs_keeps_altair_charts_for_jupyter():

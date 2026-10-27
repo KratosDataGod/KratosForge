@@ -1,7 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions for the main window",
+  "description": "Permissions for the main window and the app's own page in each pop-out window (not the Fabric views docked in them)",
   "windows": ["main"],
+  "webviews": ["pop-out-runs", "pop-out-fabric"],
   "permissions": ["core:default"]
 }

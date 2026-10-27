@@ -6,7 +6,9 @@ output, or raises ``ActivityFailed``. Adapters never touch data, files or the ne
 variables, choose branches, loop, wait, fail, filter, and run a child pipeline whose definition is
 on this PC. Behaviour follows Microsoft's Data Factory documentation and is not compared with
 Fabric yet. The Notebook adapter only reads its parameters; the run's notebook runner
-(``NotebookRunner``, given by the engine) runs the notebook.
+(``NotebookRunner``, given by the engine) runs the notebook. Lookup and Get Metadata only evaluate
+their dataset settings; the run's data reader (``DataReader``, given by the engine) reads the
+lakehouse.
 """
 
 from __future__ import annotations
@@ -45,9 +47,11 @@ class ActivityContext(Protocol):
 
     def set_return_value(self, key: str, value: Any) -> None: ...
 
-    def run_child(self, activity: Activity, key: str, parameters: dict[str, Any]) -> dict[str, Any]: ...
+    def run_child(self, activity: Activity, key: str, parameters: dict[str, Any], wait: bool = True) -> dict[str, Any]: ...
 
     def run_notebook(self, activity: Activity, parameters: dict[str, Any]) -> dict[str, Any]: ...
+
+    def read_data(self, activity: Activity, properties: dict[str, Any]) -> dict[str, Any]: ...
 
     def note(self, **fields: Any) -> None: ...
 
@@ -286,6 +290,19 @@ class Notebook(LocalAdapter):
         return ctx.run_notebook(activity, params)
 
 
+class ReadData(LocalAdapter):
+    """Lookup, Get Metadata and Script: their dataset settings and scripts are evaluated here (a
+    ForEach often names the table with item()); the run's data reader does the reading."""
+
+    def execute(self, activity: Activity, ctx: ActivityContext) -> Any:
+        tp = activity.type_properties
+        props = {k: _eval(tp.get(k), ctx.scope, k) for k in ("datasetSettings", "source", "firstRowOnly", "fieldList",
+                                                             "scripts", "scriptBlockExecutionTimeout") if k in tp}
+        if "linkedService" in activity.raw:   # Script names its connection on the activity itself
+            props["linkedService"] = _eval(activity.raw["linkedService"], ctx.scope, "linkedService")
+        return ctx.read_data(activity, props)
+
+
 class ExecutePipeline(LocalAdapter):
     container = True
 
@@ -293,9 +310,10 @@ class ExecutePipeline(LocalAdapter):
         params = _eval(activity.type_properties.get("parameters") or {}, ctx.scope, "parameters")
         if not isinstance(params, dict):
             raise ActivityFailed("parameters must be an object.", "LocalExpressionError")
-        if activity.type_properties.get("waitOnCompletion") is False:
+        wait = activity.type_properties.get("waitOnCompletion") is not False
+        if not wait:
             ctx.note(wait_on_completion=False)
-        return ctx.run_child(activity, child_key(activity), params)
+        return ctx.run_child(activity, child_key(activity), params, wait)
 
 
 def _timespan(text: str) -> float:

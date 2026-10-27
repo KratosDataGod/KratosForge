@@ -50,9 +50,10 @@ function untestedTag(kind) {
 
 async function renderIntegrationsTab(box) {
   box.replaceChildren(loading());
-  const [status, activity] = await Promise.all([
+  const [status, activity, editor] = await Promise.all([
     rpc("integrations_status").catch((err) => ({ error: friendlyError(err).text })),
     rpc("integrations_activity", { limit: 50 }).catch(() => []),
+    rpc("editor_status").catch(() => null),
   ]);
   if (!box.isConnected) return;
   integ.status = status;
@@ -64,6 +65,7 @@ async function renderIntegrationsTab(box) {
   const refresh = () => renderIntegrationsTab(box);
   box.replaceChildren(...[
     switchCard(status, refresh),
+    editor ? vscodeRunCard(editor, refresh) : null,
     status.enabled ? connectCard(status, refresh) : null,
     status.enabled ? toolsCard(status, refresh) : null,
     status.enabled && (status.extensions || []).length ? extensionsCard(status, refresh) : null,
@@ -243,6 +245,22 @@ function addTool(status, refresh) {
   [btn("Cancel", null, closeDialog, "tool outline"), btn("Next", null, next, "tool primary")]);
 }
 
+// VS Code's own MCP install link adds the server. The shell builds the link from the
+// tool's id (add_to_vscode in main.rs), and VS Code shows the entry and asks before adding it.
+function addToVsCode(client, insiders = false) {
+  return attempt(() => invoke("add_to_vscode", { clientId: client.id, insiders }).then(() =>
+    toast(`VS Code is asking whether to add KratosForge for ${client.name}. Then use Copilot Chat in Agent mode.`)),
+  "Couldn't open VS Code");
+}
+
+function vsCodeBox(client) {
+  return h("div", { class: "integ-vscode" },
+    h("div", { class: "grow" }, h("b", {}, "Add to VS Code"),
+      h("div", { class: "small" }, "Opens VS Code, which shows you the KratosForge server and asks before it adds it to your user settings. Then open Copilot Chat in Agent mode and ask: \u201cWhat lakehouses can you see in KratosForge?\u201d")),
+    btn("Add to VS Code", null, () => addToVsCode(client), "tool primary"),
+    btn("VS Code Insiders", null, () => addToVsCode(client, true), "tool outline small"));
+}
+
 function setupDialog(client, token, kind) {
   const snippet = client.config[kind] || client.config["other-mcp"];
   const result = h("p", { class: "muted-text small" });
@@ -253,7 +271,9 @@ function setupDialog(client, token, kind) {
     result.textContent = res.message;
   };
   showDialog(`Connect ${client.name}`, h("div", { class: "setup integ-scroll" },
-    h("p", { class: "muted-text small" }, "Step 2 of 2. Paste this into your tool once."),
+    h("p", { class: "muted-text small" }, kind === "vscode" ? "Step 2 of 2. Add KratosForge to VS Code once." : "Step 2 of 2. Paste this into your tool once."),
+    kind === "vscode" ? vsCodeBox(client) : null,
+    kind === "vscode" && snippet ? h("div", { class: "muted-text small" }, "Or set it up by hand, for one workspace:") : null,
     snippet ? h("div", {}, h("div", { class: "muted-text small" }, snippet.where),
       h("button", { class: "snippet", onclick: () => copyText(snippet.text, "Setup") }, h("span", { class: "t" }, "Copy"), h("code", {}, snippet.text))) : null,
     token ? h("div", { class: "warn-box" }, h("b", {}, "Token, shown once: "), h("span", { class: "mono" }, token), " ",
@@ -283,6 +303,7 @@ function editTool(status, c, refresh) {
   showDialog(`Edit ${c.name}`, h("div", { class: "setup integ-scroll" },
     h("label", { class: "field" }, "Name", name), perms.node,
     h("label", { class: "field" }, "Only these workspace ids (comma separated). A tool limited to some workspaces can't run code, and sees only notebooks, proofs and receipts in them.", workspaces),
+    c.kind === "vscode" ? vsCodeBox(c) : null,
     c.kind !== "http" && c.config[c.kind] ? h("div", {}, h("div", { class: "muted-text small" }, c.config[c.kind].where),
       h("button", { class: "snippet", onclick: () => copyText(c.config[c.kind].text, "Setup") }, h("span", { class: "t" }, "Copy setup"), h("code", {}, c.config[c.kind].text))) : null),
   [c.transport === "http" ? btn("New token", null, newToken, "tool outline") : null, h("span", { class: "spacer" }),

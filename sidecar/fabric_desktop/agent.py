@@ -21,7 +21,7 @@ import os
 import signal
 import threading
 import time
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
@@ -36,7 +36,7 @@ from .mailbox import Mailbox
 from .meta import mesh as mesh_mod
 from .meta.engine import Abandoned
 from .runtime import Runtime
-from .workloads import evaluate, model
+from .workloads import evaluate
 from .workloads.incidents import IncidentLog
 from .workloads.agents import read_status
 from .workloads.notify import DEFAULT_ROUTE, Outbox, Quiet, Route, Routing, failure, send, single
@@ -74,6 +74,7 @@ class Agent:
         self._pool = ThreadPoolExecutor(max_workers=config.concurrency, thread_name_prefix="job")
         self.started_at = clock()
         self._status_at = 0.0
+        self._pruned_at: float | None = None
         self._controls: dict[str, Any] = {}
         self.mailbox: Mailbox | None = None
         self._mailbox_at = 0.0
@@ -139,8 +140,7 @@ class Agent:
                 project = self.runtime._project()
                 runs = self.runtime.meta_runs(env, 2000)
             except Exception as exc:
-                state, message = model.classify_error(exc)
-                signals = [evaluate.cant_evaluate(env, state, message)]
+                signals, _ = evaluate.unreadable(env, exc)
             else:
                 specs = {n: e.spec for n, e in project.entities.items()}
                 signals = evaluate.signals(mesh_mod.project_name(project), specs, runs, env, now=now,
@@ -390,6 +390,21 @@ class Agent:
             self._status_at = self.clock()
             self.publish_status()
             self.send_waiting_alerts()
+        if self._pruned_at is None or self.clock() - self._pruned_at >= 86400:
+            self._pruned_at = self.clock()
+            self.prune_queue()
+
+    def prune_queue(self) -> None:
+        """Remove finished jobs older than queue_retention_days. Last in the pass, after the mailbox has
+        brought pipeline statuses up to date. A failure is logged and tried again the next day."""
+        try:
+            gone = self.queue.prune(self.config.queue_retention_days)
+        except Exception as exc:
+            self.log.warning("couldn't prune the queue", extra=fields(error=f"{type(exc).__name__}: {exc}"))
+            return
+        if gone:
+            self.log.info("finished jobs removed from the queue",
+                          extra=fields(jobs=len(gone), older_than_days=self.config.queue_retention_days))
 
     def _guarded(self, job: dict[str, Any]) -> None:
         if self.mailbox:
@@ -425,6 +440,11 @@ class Agent:
             self.stopping.wait(self.config.poll_seconds)
         self.log.info("agent stopping: waiting for running jobs", extra=fields(running=list(self._running)))
         self.publish_status("stopping")
+        running = [f for f in self._running.values() if not f.done()]
+        while running:  # keep the record fresh, or a peer takes over a request still running here
+            running = list(wait(running, timeout=self.config.status_seconds).not_done)
+            if running:
+                self.publish_status("stopping")
         self._pool.shutdown(wait=True)
         self.publish_status("stopped")
         self.log.info("agent stopped")

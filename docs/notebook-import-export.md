@@ -4,7 +4,7 @@ KratosForge reads and writes notebooks in the formats Fabric, Databricks and Jup
 
 ## Export
 
-Open a notebook and select **Export** on the **Home** tab, or search for "Export notebook" in the command bar (Ctrl+K).
+Open a notebook and select **Share > Export** on the **Home** tab, or search for "Export notebook" in the command bar (Ctrl+K).
 
 | Choice | What you get |
 | --- | --- |

@@ -68,9 +68,10 @@ def _new_outputs(before: list[dict[str, Any]], after: list[dict[str, Any]]) -> l
 class PythonSession:
     engine = PYTHON.id
 
-    def __init__(self, config: SessionConfig, kernel: Any) -> None:
+    def __init__(self, config: SessionConfig, kernel: Any, on_close: Callable[[], Any] | None = None) -> None:
         self.notebook = config.notebook
         self._kernel = kernel
+        self._on_close = on_close or kernel.close
         self._kernel.notebook_name = config.notebook
         self._closed = False
 
@@ -124,7 +125,7 @@ class PythonSession:
         if self._closed:
             return
         self._closed = True
-        self._kernel.close()
+        self._on_close()
 
 
 class PythonAdapter:
@@ -144,3 +145,31 @@ class PythonAdapter:
         else:
             kernel = self._factory()
         return PythonSession(config, kernel)
+
+
+class NotebookSessionsAdapter:
+    """The Python engine on the app's notebook sessions (kernel_sessions.KernelSessions), so the engine
+    and the notebook use the same kernel per notebook and nothing keeps a second set of processes.
+
+    It needs "Run notebooks in their own process" on: with it off every notebook shares the one
+    in-engine kernel, and a notebook sharing another's session (high concurrency) shares its process
+    and ``spark``. Both would break the engine's promise that a session shares nothing, so opening
+    one says what to change instead. Closing the engine session stops that notebook's process, as
+    Stop does; the notebook's next cell starts a fresh one."""
+
+    def __init__(self, sessions: Any) -> None:
+        self._sessions = sessions
+
+    def describe(self) -> EngineDescriptor:
+        return PYTHON
+
+    def open_session(self, config: SessionConfig, authorization: Any = None) -> PythonSession:
+        if not self._sessions.in_process:
+            raise Unsupported("The Python engine runs each notebook in a process of its own. Turn on "
+                              "\"Run notebooks in their own process\" in Settings to use it.")
+        host = self._sessions.host_of(config.notebook)
+        if host is not None:
+            raise Unsupported(f"{config.notebook} shares {host}'s session, so it shares that process and its spark. "
+                              "Leave the shared session to give it an engine session of its own.")
+        kernel = self._sessions.kernel(config.notebook)
+        return PythonSession(config, kernel, on_close=lambda: self._sessions.stop(config.notebook))

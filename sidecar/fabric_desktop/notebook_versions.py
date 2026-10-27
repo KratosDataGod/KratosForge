@@ -33,7 +33,7 @@ KEEP_DAYS = 30
 MAX_AUTO = 100
 MAX_CHECKPOINTS = 200
 LABEL_CHARS = 80
-KINDS = ("auto", "checkpoint", "before restore")
+KINDS = ("auto", "checkpoint", "before restore", "changed outside", "not saved")
 _ID = re.compile(r"^[0-9]{14}-[0-9a-f]{8}$")
 INDEX = "index.json"
 _ENTRY = ("id", "t", "at", "kind", "label", "hash", "cells", "code")
@@ -222,6 +222,16 @@ def delete(root: Path, name: str, vid: str) -> None:
         _save_index(folder, [e for e in entries if e["id"] != vid])
 
 
+def keep_copy(root: Path, name: str, src: Path) -> Path:
+    """A byte copy of a notebook's file that isn't a notebook the app can read any more (a Git merge
+    left conflict markers in it), kept beside its versions as ``outside-<time>.ipynb``."""
+    folder = _folder(root, name)
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / f"outside-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}.ipynb"
+    shutil.copyfile(src, target)
+    return target
+
+
 def rename(root: Path, name: str, new_name: str) -> None:
     """Versions follow a renamed notebook. When versions are already kept under the new name (an
     earlier notebook of that name), both sets are kept together; ids never clash."""
@@ -232,7 +242,7 @@ def rename(root: Path, name: str, new_name: str) -> None:
     # the notebooks in it (subfolders here) stay, and only this notebook's own files move.
     if dest.exists() or dest.is_relative_to(src) or any(p.is_dir() for p in src.iterdir()):
         dest.mkdir(parents=True, exist_ok=True)
-        for p in src.glob("*.json"):
+        for p in [*src.glob("*.json"), *src.glob("outside-*.ipynb")]:
             target = dest / p.name
             if not target.exists():
                 shutil.move(str(p), str(target))

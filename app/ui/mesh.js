@@ -1,6 +1,6 @@
 // Data mesh screens: this project's domain and workspaces, its data products, links to other
 // teams' products, and an entity's catalog text (About). Domains and the glossary are edited on
-// Platform > Domains and Platform > Glossary (platform.js). Domains, glossary and
+// Platform > Set up > Domains and Platform > Set up > Glossary (platform.js). Domains, glossary and
 // published products live in the platform (SQL_Platform, or a SQLite file on this PC until a
 // platform is set up in Platform > Settings); products and links are files in the project.
 
@@ -56,8 +56,8 @@ async function loadWorkspaceDomains(o, into, domain, subdomain, fillSubs) {
   if (others.length) lines.push(h("div", { class: "muted-text small" }, "Different domain in Fabric: ",
     others.map((w) => `${where(w)} is in ${nameOf(w.domain)}`).join("; "), "."));
   if (res.unnamed.length) lines.push(h("div", { class: "muted-text small" }, res.imported
-    ? "Some of your workspaces are in a Fabric domain the platform doesn't have yet. A platform admin who is a Fabric administrator can import it again on Platform > Domains."
-    : "Your workspaces are in Fabric domains, but their names aren't in the platform yet. Fabric only shows domain names to Fabric administrators: ask one to choose Import from Fabric on Platform > Domains."));
+    ? "Some of your workspaces are in a Fabric domain the platform doesn't have yet. A platform admin who is a Fabric administrator can import it again on Platform > Set up > Domains."
+    : "Your workspaces are in Fabric domains, but their names aren't in the platform yet. Fabric only shows domain names to Fabric administrators: ask one to choose Import from Fabric on Platform > Set up > Domains."));
   if (lines.length) into.replaceChildren(h("div", { class: "note small" }, icon("info", 16), h("div", {}, ...lines)));
 }
 
@@ -124,19 +124,19 @@ async function renderMeshDomainsTab(body) {
     h("td", {}, d.description || h("span", { class: "muted-text" }, "")),
     h("td", {}, domainOwnersCell(d)),
     h("td", {}, o.projects.filter((p) => p.domain_id === d.id || p.subdomain_id === d.id).length)));
-  // Domains are edited in one place, Platform > Domains (UX-009); this list is for reading.
+  // Domains are edited in one place, Platform > Set up > Domains (UX-009); this list is for reading.
   const domainsCard = h("div", { class: "card pad" },
     h("div", { class: "row" }, h("b", { class: "grow" }, "Your organization's domains"),
       btn("Glossary", null, () => goPlatform("glossary"), "tool link small",
-        { title: "The business glossary is kept on Platform > Glossary; tag tables with its terms on their About tab" }),
+        { title: "The business glossary is kept on Platform > Set up > Glossary; tag tables with its terms on their About tab" }),
       btn("Manage in Platform", "building", () => goPlatform("domains"), "tool outline small",
-        { title: "Platform admins create, import and edit domains on Platform > Domains" })),
+        { title: "Platform admins create, import and edit domains on Platform > Set up > Domains" })),
     platformNote(o),
     o.domains.length ? h("table", { class: "list" },
       h("thead", {}, h("tr", {}, ["Domain", "Description", "Owners", "Projects"].map((c) => h("th", {}, c)))),
       h("tbody", {}, domainRows))
       : emptyState({ title: "No domains yet",
-        text: "A domain is an area of the business that owns its data, like Sales or Finance. Platform admins create them on Platform > Domains." }));
+        text: "A domain is an area of the business that owns its data, like Sales or Finance. Platform admins create them on Platform > Set up > Domains." }));
   body.replaceChildren(...[meshProblems(o), projectCard, workspacesCard, domainsCard].filter(Boolean));
 }
 
@@ -173,17 +173,55 @@ function domainDialog(o, d, done) {
     o.domains.filter((x) => !x.parent_id && x.id !== d?.id).map((x) => h("option", { value: x.id, selected: x.id === d?.parent_id ? true : null }, x.name)));
   const description = h("input", { value: d?.description || "" });
   const owners = h("input", { value: d?.owners || "", placeholder: "Emails, separated by commas" });
+  // Only a new domain is offered to Fabric, and a subdomain only when its parent is in Fabric too.
+  const inFabric = d ? null : h("input", { type: "checkbox", checked: true });
+  const fabricNote = h("span", { class: "muted-text small" });
+  const save = btn(d ? "Save" : "Create in Fabric", "save", () => submit(), "tool primary");
+  const sync = () => {
+    if (!inFabric) return;
+    const p = o.domains.find((x) => x.id === parent.value);
+    const blocked = p && !p.fabric_domain;
+    inFabric.disabled = !!blocked;
+    if (blocked) inFabric.checked = false;
+    fabricNote.textContent = blocked ? `${p.name} isn't in Fabric, so its subdomains can't be either. Create ${p.name} in Fabric first, or import it.`
+      : "Needs a Fabric administrator. The first time, Windows asks you to allow changing your organization's Fabric settings.";
+    save.lastChild.textContent = inFabric.checked ? "Create in Fabric" : "Save";
+  };
+  if (inFabric) { parent.addEventListener("change", sync); inFabric.addEventListener("change", sync); }
+  const values = () => ({ id: d?.id, name: name.value.trim(), parent_id: parent.value, description: description.value.trim(), owners: owners.value.trim() });
+  async function submit() {
+    if (!name.value.trim()) { name.focus(); return; }
+    if (!inFabric?.checked) {
+      if (await metaCall("platform_save_domain", { domain: values() }, "Not saved")) { closeDialog(); done(); }
+      return;
+    }
+    if (!state.user && !(await signIn())) return;
+    const domain = values();
+    try {
+      await rpc("platform_create_domain", { domain, in_fabric: true });
+    } catch (e) {
+      const f = friendlyError(e);
+      if (!f.cancelled) notInFabric(domain, f.text);
+      return;
+    }
+    closeDialog(); toast(`Created ${domain.name} in Fabric`); done();
+  }
+  function notInFabric(domain, why) {
+    showDialog(`${domain.name} wasn't created in Fabric`, h("div", {},
+      h("p", { class: "card pad warn-box" }, why),
+      h("p", {}, "You can keep it in the platform only. A Fabric admin can create a domain with the same name later and choose Import from Fabric: the two are matched by name.")), [
+      btn("Cancel", null, closeDialog, "tool outline"),
+      btn("Save in the platform only", "save", async () => {
+        if (await metaCall("platform_save_domain", { domain }, "Not saved")) { closeDialog(); done(); }
+      }, "tool primary")]);
+  }
   showDialog(d ? `Edit ${d.name}` : "New domain", h("div", {},
     fromFabric ? h("p", { class: "muted-text small" }, "From Fabric. Its name and parent follow Fabric's domains; owners and description are the platform's.") : null,
     h("label", { class: "field" }, "Name", name), h("label", { class: "field" }, "Part of", parent),
-    h("label", { class: "field" }, "Description", description), h("label", { class: "field" }, "Owners", owners)), [
-    btn("Cancel", null, closeDialog, "tool outline"),
-    btn("Save", "save", async () => {
-      if (!name.value.trim()) { name.focus(); return; }
-      const res = await metaCall("platform_save_domain", { domain: { id: d?.id, name: name.value.trim(), parent_id: parent.value,
-        description: description.value.trim(), owners: owners.value.trim() } }, "Not saved");
-      if (res) { closeDialog(); done(); }
-    }, "tool primary")]);
+    h("label", { class: "field" }, "Description", description), h("label", { class: "field" }, "Owners", owners),
+    inFabric ? h("label", { class: "check" }, inFabric, h("span", {}, h("strong", {}, "Also create it in Fabric (Preview)"), " ", fabricNote)) : null), [
+    btn("Cancel", null, closeDialog, "tool outline"), save]);
+  sync();
 }
 
 // Fabric's domain list is a Fabric admin API: only a Fabric administrator can import it.
@@ -287,6 +325,7 @@ function productDialog(p, x, done) {
   const title = h("input", { value: x?.title || "" });
   const description = h("textarea", { rows: 3 }, x?.description || "");
   const owner = h("input", { value: x?.owner || state.user || "" });
+  const steward = h("input", { value: x?.steward || "", placeholder: "Who answers for its meaning and quality" });
   const access = h("select", {}, Object.entries(ACCESS_LABEL).map(([id, label]) => h("option", { value: id, selected: (x?.access || "domain") === id ? true : null }, label)));
   const status = h("select", {}, Object.entries(STATUS_LABEL).map(([id, label]) => h("option", { value: id, selected: (x?.status || "draft") === id ? true : null }, label)));
   const deprecated = h("input", { type: "date", value: x?.deprecated_on || "" });
@@ -298,7 +337,7 @@ function productDialog(p, x, done) {
   });
   showDialog(x ? `Edit ${x.title}` : "New data product", h("div", { class: "scroll" },
     h("div", { class: "form-grid" }, h("label", { class: "field" }, "Name", name), h("label", { class: "field" }, "Title", title),
-      h("label", { class: "field" }, "Owner", owner), h("label", { class: "field" }, "Open to", access),
+      h("label", { class: "field" }, "Owner", owner), h("label", { class: "field" }, "Steward", steward), h("label", { class: "field" }, "Open to", access),
       h("label", { class: "field" }, "Status", status), h("label", { class: "field" }, "Ends on (deprecated only)", deprecated)),
     h("label", { class: "field" }, "Description", description),
     h("div", { class: "field" }, "Ports: the tables other teams may read, and the name they use", h("div", { class: "port-list" }, portRows.map((r) => r.row)))), [
@@ -310,7 +349,7 @@ function productDialog(p, x, done) {
     btn("Save", "save", async () => {
       const ports = portRows.filter((r) => r.box.checked).map((r) => ({ name: r.port.value.trim(), entity: r.e.name }));
       const res = await metaCall("mesh_save_product", { product: { name: name.value.trim(), title: title.value.trim(),
-        description: description.value.trim(), owner: owner.value.trim(), access: access.value, status: status.value,
+        description: description.value.trim(), owner: owner.value.trim(), steward: steward.value.trim(), access: access.value, status: status.value,
         deprecated_on: deprecated.value, version: x?.version || 1, ports }, original: x?.name || "" }, "Not saved");
       if (res) { closeDialog(); toast("Saved"); done(); }
     }, "tool primary")].filter(Boolean));

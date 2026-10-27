@@ -394,3 +394,24 @@ def test_head_reads_only_the_bytes_it_shows(store, fs, tmp_path):
     assert fs.head("Files/big.csv", 0) == ""
     (tmp_path / "big.txt").write_bytes(b"y" * 1_000_000)
     assert fs.head(f"file:{tmp_path}/big.txt", 5) == "yyyyy"
+
+
+def test_mkdirs_on_a_file_says_so(store, fs, tmp_path):
+    with pytest.raises(FileExistsError, match="is a file"):
+        fs.mkdirs("Files/one.txt/")
+    assert store.mutations() == []
+    (tmp_path / "f.txt").write_text("x")
+    with pytest.raises(FileExistsError):
+        fs.mkdirs(f"file:{tmp_path}/f.txt")
+
+
+def test_fastcp_copies_a_folder_by_default_as_in_fabric(store, fs, tmp_path):
+    assert fs.fastcp("Files/raw", "Files/copy")
+    assert store.files["Files/copy/a.csv"] == b"a,b\n1,2\n" and store.files["Files/copy/b.csv"] == b"x\n"
+    # azcopy's options are accepted and change nothing; recurse=False is cp's refusal for a local folder.
+    (tmp_path / "local").mkdir()
+    (tmp_path / "local" / "f.txt").write_text("hi")
+    assert fs.fastcp("Files/one.txt", "Files/two.txt", extraConfigs={"flags": "--overwrite=true"})
+    assert store.files["Files/two.txt"] == b"hello"
+    with pytest.raises(IsADirectoryError, match="Pass recurse=True"):
+        fs.fastcp(f"file:{tmp_path / 'local'}", "Files/local", recurse=False)

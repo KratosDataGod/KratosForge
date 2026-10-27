@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-RULE_VERSION = "2026.10.2"
+RULE_VERSION = "2026.10.3"
 CHECKED_ON = "2026-10-17"
 
 LEARN = "https://learn.microsoft.com"

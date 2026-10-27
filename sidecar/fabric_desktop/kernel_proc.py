@@ -31,7 +31,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from . import lakehouse, notebook
 from .frames import GONE, FrameGone
@@ -125,7 +125,7 @@ class ProcessKernel:
             "token": token or _no("tokens"),
             "load_notebook": load_notebook or _no("other notebooks"),
             "variable_libraries": variable_libraries or (lambda name: None),
-            "write_guard": lambda name, schema, table: lakehouse.write_guard(name, schema, table) if lakehouse.write_guard else None,
+            "write_guard": self._write_refusal,
             "proof_options": lambda: (self._proof_options or (lambda: {}))(),
         }
         self._proof_options = proof_options
@@ -136,6 +136,10 @@ class ProcessKernel:
         self.notebook_name = ""
         self.widget_values: dict[str, str] = {}
         self.resources_dir = ""  # passed with each cell (notebook.Kernel.resources_dir)
+        self.onelake_writes = "local_first"  # likewise (notebook.Kernel.onelake_writes)
+        # Set before each cell (service._start_cell): asked before every write the cell makes, as for
+        # a cell a paired VS Code window started (editor_service.py). None for the app's own cells.
+        self.write_check: Callable[[str, str, str], str | None] | None = None
         self._lock = threading.Lock()  # one process at a time: starting, stopping
         self._proc: subprocess.Popen[str] | None = None
         self._tree: _Tree | None = None  # the process and everything its cells start
@@ -155,6 +159,30 @@ class ProcessKernel:
         self.limit_hit = ""  # "time" or "memory" when a limit stopped the last cell
         self.library_paths: list[str] = []  # a notebook environment's folders, after the engine's (environments.py)
         self.output_dir: Path | None = None  # where the process puts output past the cap (notebook.SPILL_DIR_ENV)
+        # A shared session (kernel_sessions.share): requests made under as_guest carry the guest
+        # notebook's name, and the child answers with that notebook's variables and cells.
+        self._guest = threading.local()
+        self._owner: str | None = None  # the notebook whose cell is running (or ran last)
+        self._owner_name = ""
+
+    @contextlib.contextmanager
+    def as_guest(self, notebook: str | None) -> Iterator[None]:
+        before = getattr(self._guest, "name", None)
+        self._guest.name = notebook or None
+        try:
+            yield
+        finally:
+            self._guest.name = before
+
+    def _guest_name(self) -> str | None:
+        return getattr(self._guest, "name", None)
+
+    def forget_guest(self, notebook: str) -> dict[str, Any]:
+        """A guest left or restarted: its variables go; the process and the other notebooks' stay."""
+        if self._proc is None or self._proc.poll() is not None:
+            return {"forgotten": False}
+        with self.as_guest(None):
+            return self._request("forget_guest", spawn=False, notebook=notebook)
 
     # ---- the process
 
@@ -294,6 +322,8 @@ class ProcessKernel:
         proc = self._ensure() if spawn else self._proc
         if proc is None or proc.poll() is not None:
             raise KernelGone("The notebook's Python process stopped.")
+        if guest := self._guest_name():
+            args["guest"] = guest
         rid = f"p{next(self._ids)}"
         slot: dict[str, Any] = {"done": threading.Event()}
         self._waiting[rid] = slot
@@ -311,10 +341,15 @@ class ProcessKernel:
             raise RuntimeError(err.get("message") or err.get("type"))
         return slot.get("result")
 
+    def _write_refusal(self, name: str, schema: str, table: str) -> str | None:
+        reason = lakehouse.write_guard(name, schema, table) if lakehouse.write_guard else None
+        check = self.write_check
+        return reason or (check(name, schema, table) if check else None)
+
     def _sync_lakehouse(self) -> None:
         """Pass the engine's attached lakehouse (and whether tables are guarded) to the kernel."""
         a = lakehouse._attached
-        guard = lakehouse.write_guard is not None
+        guard = lakehouse.write_guard is not None or self.write_check is not None
         context = None if a is None else {
             "workspace_id": a.workspace_id, "lakehouse_id": a.lakehouse_id, "name": a.name,
             "workspace_name": a.workspace_name, "work_dir": str(a.work_dir),
@@ -337,6 +372,10 @@ class ProcessKernel:
             snap = self.poll()
             if snap["status"] == "running":
                 raise RuntimeError("A cell is already running. Wait for it, or Cancel it.")
+            if snap.get("session_running"):
+                raise RuntimeError(f"{self._owner_name or 'Another notebook'} is running a cell in this shared session. "
+                                   "Its notebooks run one cell at a time; wait for it, or Cancel it there.")
+        self._owner, self._owner_name = self._guest_name(), self.notebook_name
         self._ended = ""
         self.limit_hit = ""
         self._interrupted_at = None
@@ -348,7 +387,8 @@ class ProcessKernel:
             self._started_at = time.monotonic()
         try:
             snap = self._request("start", code=code, notebook_name=self.notebook_name,
-                                 widget_values=dict(self.widget_values), resources_dir=self.resources_dir, watches=list(watches or []),
+                                 widget_values=dict(self.widget_values), resources_dir=self.resources_dir, onelake_writes=self.onelake_writes,
+                                 watches=list(watches or []),
                                  breakpoints=list(breakpoints or []), step=step)
         except KernelGone:
             # The cell ended its process before the start was even answered (os._exit, a crash).
@@ -362,6 +402,15 @@ class ProcessKernel:
         return snap
 
     def poll(self, known_version: int = -1, wait: float = 0.0) -> dict[str, Any]:
+        if self._guest_name() != self._owner:
+            # Another notebook's cell in a shared session: this notebook sees the session busy, not its cell.
+            idle = {"status": "idle", "execution_count": self.count, "version": 0, "seconds": 0, "outputs": []}
+            if self._proc is None or self._proc.poll() is not None:
+                return idle
+            try:
+                return self._request("poll", timeout=min(wait, 2.0) + ANSWER_SECONDS, spawn=False, version=known_version, wait=wait)
+            except KernelGone:
+                return idle
         if self._proc is None or self._proc.poll() is not None:
             if self._last is None:
                 return {"status": "idle", "execution_count": self.count, "version": 0, "seconds": 0, "outputs": []}
@@ -429,6 +478,7 @@ class ProcessKernel:
 
     def run(self, code: str) -> dict[str, Any]:
         """Run ``code`` to the end and return its result (scheduled runs, tests)."""
+        self.write_check = None  # the app's own run
         snap = self.start(code)
         version = -1
         outputs = snap.get("outputs") or []
@@ -437,7 +487,8 @@ class ProcessKernel:
             version = snap.get("version", version)
             if snap.get("outputs") is not None:
                 outputs = snap["outputs"]
-        return {"status": snap["status"], "execution_count": snap["execution_count"], "outputs": outputs}
+        return {"status": snap["status"], "execution_count": snap["execution_count"], "outputs": outputs,
+                **({"onelake": snap["onelake"]} if "onelake" in snap else {})}
 
     def debug(self, action: str, expression: str | None = None) -> dict[str, Any]:
         from .debugger import EVAL_SECONDS
@@ -487,6 +538,11 @@ class ProcessKernel:
         if not self.alive():
             raise FrameGone(GONE)
         return self._request("frame_profile", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame)
+
+    def frame_query_profile(self, frame: str) -> dict[str, Any]:
+        if not self.alive():
+            raise FrameGone(GONE)
+        return self._request("frame_query_profile", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame)
 
     def ipywidget_event(self, model: str, event: dict[str, Any], root: str | None = None) -> dict[str, Any]:
         """A control changed in the app; its handlers run in the cell process (widgets.py)."""

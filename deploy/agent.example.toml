@@ -13,6 +13,7 @@ concurrency = 1                          # jobs at once
 # home = "/var/lib/fabric-desktop"       # queue, logs and caches (default per OS, or FABRIC_DESKTOP_HOME)
 # poll_seconds = 5
 # status_seconds = 60                   # how often to publish agents/<name>.json to each LH_Meta
+# queue_retention_days = 30             # succeeded, failed and cancelled jobs older than this leave the queue
 # job_lease_seconds = 300                # a job whose worker stops renewing for this long runs again
 # table_lease_seconds = 120              # how long a table write lease lasts between renewals, and how long to wait for one
 # log_level = "INFO"

@@ -152,7 +152,7 @@ def _parse(content: str) -> dict[str, Any]:
         raise ValueError(f"The file is over {MAX_FILE_BYTES // (1024 * 1024)} MB, so it isn't opened.")
     try:
         nb = json.loads(content)
-    except ValueError:
+    except (ValueError, RecursionError):  # RecursionError: nested too deep to be a notebook
         raise ValueError("This file isn't a notebook: it isn't JSON.") from None
     return checked(nb)
 
@@ -270,13 +270,15 @@ def cells_hash(nb: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(plain).encode()).hexdigest()
 
 
-def remember_published(folder: Path, item_id: str, workspace_id: str, nb: dict[str, Any]) -> None:
-    """Keeps the cells as they were sent to Fabric item ``item_id``."""
+def remember_published(folder: Path, item_id: str, workspace_id: str, nb: dict[str, Any], name: str = "") -> None:
+    """Keeps the cells as they were sent to Fabric item ``item_id``, and the notebook's name then
+    (``name``, without its folders), so the next publish can tell a rename here from one in Fabric."""
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"{_safe_id(item_id)}.json"
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps({"workspace_id": workspace_id, "item_id": item_id, "at": _now().isoformat(),
-                               "hash": cells_hash(nb), "cells": _plain(nb)}), encoding="utf-8")
+                               "hash": cells_hash(nb), "cells": _plain(nb), **({"name": name} if name else {})}),
+                   encoding="utf-8")
     os.replace(tmp, path)
 
 

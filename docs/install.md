@@ -18,7 +18,7 @@ You do **not** need Python, Spark, Java or admin rights on the PC. The app bring
 
 ## Download and start
 
-1. Download **[fabric-desktop.exe](https://github.com/KratosDataGod/KratosForge/releases/download/stable/fabric-desktop.exe)** (the Stable channel). It is also on the repository's **Releases** page.
+1. Download **kratosforge.exe** from the [Stable release](https://github.com/KratosDataGod/KratosForge/releases/tag/stable) (a release made before the name changed has it as `fabric-desktop.exe`, the same app, which takes the new name after its first update).
 2. Put it anywhere you like, for example a `Tools` folder or your Desktop. It is a single file; there is no installer.
 3. Double-click it.
 4. **Windows SmartScreen** may say "Windows protected your PC" because the exe isn't code-signed yet. Choose **More info > Run anyway**. You only see this the first time.
@@ -59,21 +59,25 @@ KratosForge updates itself. Each time it starts it asks GitHub whether a newer b
 
 Change it in **Settings > Updates**. The change takes effect the next time the app starts. An organization can fix the channel for everyone with a policy file, or turn self-updates off and roll out builds itself ([Enterprise install](enterprise-install.md)).
 
+To update without waiting for the next start, choose **Check for updates** in the account menu or in **Settings > Updates**. It runs the same check, download and swap on demand, and its **Download manually** link opens the channel's release page ([Preview](https://github.com/KratosDataGod/KratosForge/releases/tag/latest), [Stable](https://github.com/KratosDataGod/KratosForge/releases/tag/stable)).
+
 The update check uses GitHub's public API, which allows 60 checks an hour from one internet address. In a large office behind one address you may see "Could not check for a newer build" now and then. The app keeps working on the build you have and checks again at the next start.
 
 ## Check a download yourself
 
 Every build of `main` comes with proof of where it came from and a list of what is inside it. Security teams can check both before allowing the app.
 
-- **Build provenance.** GitHub signs a statement that `fabric-desktop.exe` and `fabric-desktop-engine.zip` were built by this repository's CI workflow from a named commit. With the [GitHub CLI](https://cli.github.com/), check a file you downloaded:
+- **Build provenance.** GitHub signs a statement that `kratosforge.exe` and `fabric-desktop-engine.zip` were built by this repository's CI workflow from a named commit. With the [GitHub CLI](https://cli.github.com/), check a file you downloaded:
 
     ```powershell
-    gh attestation verify fabric-desktop.exe -R KratosDataGod/KratosForge
+    gh attestation verify kratosforge.exe -R KratosDataGod/KratosForge
     ```
 
     It prints the workflow and commit that built it, or fails if the file was changed. A file promoted to Stable is the same file, so the same check works. Builds made before the repository was renamed (October 2026) name the old repository, so check those with `-R KratosDataGod/fabric-desktop`.
 
-- **Software bill of materials.** The Preview (`latest`) release carries `sbom-engine.cdx.json` (every Python package in the engine, read from the engine itself) and `sbom-app.cdx.json` (every Rust crate in the exe), in CycloneDX format. Most vulnerability scanners and asset tools read it.
+- **Software bill of materials.** The Preview (`latest`) release carries `sbom-engine.cdx.json` (every Python package in the engine, read from the engine itself) and `sbom-app.cdx.json` (every Rust crate in the exe), in CycloneDX format. Most vulnerability scanners and asset tools read it. One piece of third-party code ships inside the engine package instead of as its own package, so it isn't a separate SBOM entry: the Apache Ossie Microsoft converter (Apache License 2.0, upstream commit `82b9eff`, in `fabric_desktop/_vendor/ossie_microsoft` with its LICENSE and NOTICE).
+
+- **Microsoft's SQL driver.** The engine includes `mssql-python` (MIT), which carries Microsoft ODBC Driver 18 for SQL Server and the Visual C++ runtime (`msvcp140.dll`) under Microsoft's own license terms. Their license files are in the engine at `Lib\site-packages\mssql_python_odbc\libs\windows\x64\`. Nothing connects to a warehouse until you run a warehouse query.
 
 - **Vulnerability scanning.** CI checks the engine's pinned Python packages (`pip-audit`) and the exe's Rust crates (`cargo audit`) on every pull request.
 
@@ -83,17 +87,19 @@ These prove where a file came from; they don't replace code signing, which is st
 
 | Path | What it is |
 | --- | --- |
-| The folder you put `fabric-desktop.exe` in | The app. The update replaces this file in place. |
+| The folder you put `kratosforge.exe` in | The app. The update replaces this file in place. A copy saved as `fabric-desktop.exe` (its name before KratosForge) renames itself to `kratosforge.exe` after its next update, and its shortcuts follow ([Legacy names](kratosforge.md#the-program-file)). |
 | `%LOCALAPPDATA%\FabricDesktop\engine` | The local engine: Python and its packages. |
 | `%LOCALAPPDATA%\FabricDesktop\notebooks` | Your notebooks, as `.ipynb` files. Back them up with the rest of this folder ([Back up and restore](backup.md)) or keep them in Git. |
-| `%LOCALAPPDATA%\FabricDesktop\msal_cache.bin` | Your sign-in token cache. Delete it to force a fresh sign-in. |
+| `%LOCALAPPDATA%\FabricDesktop\msal_cache.bin` | Your sign-in token cache, encrypted for your Windows account. Delete it to force a fresh sign-in. |
 | `%LOCALAPPDATA%\FabricDesktop\fabric-view-signin.bin` | The saved sign-in of the embedded Fabric pages, encrypted for your Windows account. |
 | `%LOCALAPPDATA%\FabricDesktop\app-settings.json` | What you chose in Settings. |
 | `%LOCALAPPDATA%\FabricDesktop\sidecar.log` | The engine's log. Attach it to a problem report if asked. |
 | `%LOCALAPPDATA%\FabricDesktop\local-data\` | Local data projects (Preview): each project's settings, registered folders and database. See [Local data projects](local-data.md). |
 | `%LOCALAPPDATA%\FabricDesktop\usage_imports\` | Measured usage you imported from Capacity Metrics app and Azure Cost Management exports (Preview), one file per import. See [Measured usage](finops/usage-import.md). |
 | `%LOCALAPPDATA%\FabricDesktop\audit\audit-YYYY-MM.jsonl` | The audit trail: one line for each thing you ran or changed. See [Audit trail](user-guide.md#audit-trail). |
-| `%LOCALAPPDATA%\FabricDesktop\files`, `staging`, `onelake-cache` | Local copies of lakehouse data: file previews, tables staged before a publish, files the metadata framework read. Deleted when unused for 30 days (your organization can change that), or any time with `fabric-desktop clean-local`. |
+| `%LOCALAPPDATA%\FabricDesktop\files`, `onelake-cache` | Local copies of lakehouse data: file previews and files the metadata framework read. Deleted when unused for 30 days (your organization can change that), or any time with `fabric-desktop clean-local`. |
+| `%LOCALAPPDATA%\FabricDesktop\staging` | Nothing, normally. Each table write checks its schema in an empty table here and deletes it straight after; full copies older builds kept are deleted on that table's next write. A notebook's write kept on this PC for a background upload (`staging\_writes`) is deleted when its upload ends, succeeded, failed or cancelled; one left by an engine ended mid-upload goes a day later, whatever the retention setting. Skip unchanged keeps nothing here: its fingerprint is in the table's Delta log in OneLake. **Settings > Advanced > OneLake writes > Files on this PC** shows what's here, opens the folder and has **Delete left-overs**. |
+| `%TEMP%\tpch_*` | Nothing, normally. The TPC-H data notebook generates its data here and deletes it when its write cell ends, whether or not the writes worked, or when the engine closes. A folder is only left when the engine was ended mid-run; **Settings > Advanced > OneLake writes > Files on this PC** lists it, opens it and deletes it. |
 | `%LOCALAPPDATA%\FabricDesktop\integrations\` | External AI tools: connected tools and approvals (`integrations.sqlite`) and their audit trail (`audit\audit-YYYY-MM.jsonl`, one line per request a tool made). See [Connect your AI tool](ai/README.md). |
 | `%LOCALAPPDATA%\FabricDesktop\*.json`, `*.jsonl` | Run history, favorites, pinned workspaces, schedules on this PC, the Estate X-ray's last scan. |
 | `%ProgramData%\FabricDesktop\policy.json` | Settings your organization fixed, if any. |
@@ -102,7 +108,7 @@ These prove where a file came from; they don't replace code signing, which is st
 ## Uninstall
 
 1. If you added schedules on this PC, remove them in **Monitor > Schedules** first. They live in Windows Task Scheduler under the `FabricDesktop` folder.
-2. Close the app and delete `fabric-desktop.exe`.
+2. Close the app and delete `kratosforge.exe` (or `fabric-desktop.exe` on a copy that kept that name).
 3. Delete `%LOCALAPPDATA%\FabricDesktop` to remove the engine, your notebooks, settings and sign-in. Copy the `notebooks` folder somewhere first if you want to keep them.
 
 Nothing in Fabric is removed. Lakehouses, tables and notebooks you published stay where they are.

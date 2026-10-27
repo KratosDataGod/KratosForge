@@ -26,7 +26,8 @@ from .meta.project import run_order
 from .workloads import model
 
 # Actions that start work; cancel needs no assessment.
-ASSESSED = ("run", "run_in_fabric", "run_item", "run_schedule")
+FABRIC_STEP = "run_fabric_step"  # a notebook's last cell, run on Fabric Spark (fabric_step.py)
+ASSESSED = ("run", "run_in_fabric", "run_item", "run_schedule", FABRIC_STEP)
 _ACKS = "risk_acknowledgements.jsonl"
 log = logging.getLogger(__name__)
 
@@ -139,6 +140,21 @@ class RiskMixin:
             problem = f"Imported usage couldn't be read ({str(exc)[:200]}), so nothing is measured."
         return measured, est, problem
 
+    def _risk_record(self, id: str, action: str) -> dict[str, Any]:  # noqa: A002
+        """The workload the check reads. A Fabric step runs in the attached lakehouse's workspace,
+        which the notebook needn't be deployed to, so its record comes from the notebook itself."""
+        if action != FABRIC_STEP:
+            return self._wl_record(id)  # type: ignore[attr-defined]
+        parsed = model.parse_id(id)
+        if parsed["kind"] != "notebook":
+            raise ValueError("Only a notebook has a Fabric step")
+        lh = self.notebooks.load(parsed["name"]).get("lakehouse") or {}  # type: ignore[attr-defined]
+        if not lh.get("workspace_id"):
+            raise ValueError("Attach a OneLake lakehouse first: the Fabric step runs in its workspace.")
+        return {"id": id, "name": parsed["name"], "kind": "fabric_step", "errors": [], "runs": [],
+                "deployments": [{"env": None, "actions": [FABRIC_STEP], "location": {
+                    "kind": "fabric", "workspace_id": lh["workspace_id"], "workspace_name": lh.get("workspace_name") or ""}}]}
+
     def _risk_facts(self, w: dict[str, Any], action: str, env: str | None, refresh: bool,
                     memo: dict[str, Any] | None = None) -> dict[str, Any]:
         dep = next((d for d in w["deployments"] if (d.get("env") or None) == (env or None)
@@ -186,7 +202,7 @@ class RiskMixin:
         """What could stop or slow this action, with evidence, before it starts. Read only."""
         if action not in ASSESSED:
             raise ValueError(f"{action} isn't assessed: only actions that start work are")
-        w = self._wl_record(id)  # type: ignore[attr-defined]
+        w = self._risk_record(id, action)
         return risk.analyze(self._risk_facts(w, action, env, refresh), self._risk_settings())
 
     def _risk_for_preflight(self, w: dict[str, Any], action: str, env: str | None) -> dict[str, Any] | None:

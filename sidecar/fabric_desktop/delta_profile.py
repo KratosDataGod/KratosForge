@@ -59,11 +59,19 @@ def check_target(uri: str, storage_options: dict[str, str] | None = None) -> Non
     Checking only after the write would report a failure for rows that are already in the table,
     and a rerun would write them again. No table yet is fine: delta-rs creates one in the profile.
     """
+    open_target(uri, storage_options)
+
+
+def open_target(uri: str, storage_options: dict[str, str] | None = None) -> DeltaTable | None:
+    """check_target, handing back the table it loaded (None when there is none yet), so the write
+    can go through it rather than load the whole log again: on OneLake every load is a round trip
+    per commit file."""
     try:
         table = DeltaTable(uri, storage_options=storage_options)
     except TableNotFoundError:
-        return
+        return None
     check_table(table)
+    return table
 
 
 def note_after_write(table: DeltaTable, log: Any = None) -> list[str]:

@@ -18,6 +18,7 @@ import ast
 import base64
 import contextlib
 import ctypes
+import hashlib
 import inspect
 import io
 import itertools
@@ -35,15 +36,17 @@ import traceback
 import types
 import uuid
 import warnings
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
 import pyarrow as pa
 
-from . import chart_output
+from . import chart_output, notebook_cells
 from . import notebook_resources
 from . import magics
 from . import history
+from . import write_queue
 from .frames import Frames, pandas_table, type_name
 from .redact import describe
 
@@ -191,8 +194,8 @@ def display(value: Any) -> dict[str, Any]:
         return chart_output.bokeh_html(value)
     if chart_output.is_altair(value):
         return chart_output.altair_output(value)
-    if module.startswith("plotly") and hasattr(value, "to_html"):
-        return {"type": "html", "html": value.to_html(include_plotlyjs=True, full_html=True)}
+    if chart_output.is_plotly(value):
+        return chart_output.plotly_output(value)
     if module.startswith("bokeh") and hasattr(value, "document"):  # a plot or layout: the page Bokeh's show() would open
         with contextlib.suppress(Exception):
             from bokeh.embed import file_html
@@ -300,11 +303,19 @@ class _Run:
         self.started = time.monotonic()
         self.seconds: float | None = None
         self.thread: threading.Thread | None = None
+        self.guest: str | None = None  # the notebook whose cell this is, in a shared session (Kernel.as_guest)
+        self.notebook = ""  # its name, for the other notebooks in the session
         self.done = threading.Event()
+        # Cancel only interrupts the cell's thread once it is inside _execute's handlers (``armed``).
+        # A Cancel before that sets ``cancel_requested``, and the thread stops itself when it arms.
+        self.cancel_lock = threading.Lock()
+        self.armed = False
+        self.cancel_requested = False
         self.watches: list[dict[str, Any]] | None = None
         self._reset()
         self.debugger: Any = None  # debugger.Debugger when the cell runs with breakpoints
         self.paused: dict[str, Any] | None = None  # where a debugged cell is paused
+        self.onelake = write_queue.Stats()  # its OneLake writes: how long it waited on them, what they wrote
 
     def set_paused(self, paused: dict[str, Any] | None) -> None:
         with self.lock:
@@ -418,6 +429,19 @@ class _Run:
                 self._append(output)
             self.version += 1
 
+    def replace(self, display_id: str, output: dict[str, Any]) -> None:
+        """update_display: every output shown with ``display_id`` becomes ``output``, in place. An
+        update that would take the cell past RICH_CHARS shows a line saying so instead."""
+        with self.lock:
+            self._join()
+            hits = [i for i, o in enumerate(self._outputs) if o.get("display_id") == display_id]
+            if not hits:
+                return
+            self.rich_chars, output = _replace_capped(self._outputs, hits, output, self.rich_chars)
+            for i in hits:
+                self._outputs[i] = output
+            self.version += 1
+
     def clear(self, wait: bool = False) -> None:
         """IPython's clear_output: now, or (``wait``) when the next output arrives, so a loop that
         redraws doesn't flicker."""
@@ -455,6 +479,8 @@ class _Run:
                 snap["progress"] = progress
             if self.debugger is not None:
                 snap["paused"] = self.paused
+            if (onelake := self.onelake.as_dict()) is not None:
+                snap["onelake"] = onelake
             return snap
 
 
@@ -470,11 +496,29 @@ class _OutputSink:
     def add(self, output: dict[str, Any]) -> None:
         self.out._add(output)
 
+    def replace(self, display_id: str, output: dict[str, Any]) -> None:
+        self.out._replace(display_id, output)
+
     def clear(self, wait: bool = False) -> None:
         self.out.clear_output(wait)
 
 
+def _replace_capped(outputs: list[dict[str, Any]], hits: list[int], output: dict[str, Any],
+                    rich: int) -> tuple[int, dict[str, Any]]:
+    """The rich count after outputs[hits] become ``output``, and what they become: ``output``, or a
+    line saying the update passed RICH_CHARS (it keeps the id, so a smaller update still lands)."""
+    old = sum(len(json.dumps(outputs[i], default=str)) for i in hits)
+    size = len(json.dumps(output, default=str))
+    if rich - old + size * len(hits) > RICH_CHARS:
+        output = {"type": "text", "display_id": output.get("display_id"),
+                  "text": f"Output truncated: this update would take the output's tables, charts and HTML past "
+                          f"{RICH_CHARS // 1_000_000} MB, so it isn't shown."}
+        size = len(json.dumps(output, default=str))
+    return rich - old + size * len(hits), output
+
+
 WIDGET_SECONDS = 60
+MAX_DISPLAY_IDS = 100  # display ids whose outputs an update can still reach
 WIDGET_GONE = "This control is no longer held by the kernel (it restarted). Run the cell again."
 
 
@@ -561,17 +605,63 @@ class Kernel:
         # The Widgets bar's values for the open notebook; each cell run starts with them (start).
         self.widget_values: dict[str, str] = {}
         self.resources_dir = ""  # the running notebook's resources folder, "" for none (notebook_resources)
+        # "local_first": a cell's lakehouse writes upload in the background and the cell waits for
+        # them at its end (write_queue); "direct": each write_table returns once it is in OneLake.
+        self.onelake_writes = "local_first"
+        # Set before each cell (service._start_cell); asked before every write the cell makes, by
+        # the cell's thread (lakehouse.cell_write_checks). None for the app's own cells.
+        self.write_check: Any = None
+        self._writes: Any = None
         self._current: _Run | None = None
         self._widget_lock = threading.Lock()
         self._widget_thread: threading.Thread | None = None  # a handler stuck in native code outlives its event
         self._local = threading.local()
+        self._display_sinks: OrderedDict[str, list[Any]] = OrderedDict()  # display id -> where it was shown
         self._secrets: set[str] = set()
         self._tasks: list[str] = []
         self.task_values: dict[str, dict[str, Any]] = {}
         self.frames = Frames()
+        self._guests: dict[str, dict[str, Any]] = {}  # each guest notebook's variables (as_guest)
+        self._last_runs: dict[str | None, _Run] = {}  # each notebook's last cell in a shared session, for poll
         self.restart()
 
     # ---- namespace
+
+    # A shared session (kernel_sessions.share): other notebooks run in this kernel, with this
+    # spark, its temp views and settings, but each with variables of its own, as in Fabric's
+    # high-concurrency sessions. A request for a guest runs under as_guest(name), and the cell it
+    # starts keeps that name, so ``namespace`` is the guest's own.
+
+    @property
+    def namespace(self) -> dict[str, Any]:
+        guest = getattr(self._local, "guest", None)
+        if not guest:
+            return self._namespace
+        found = self._guests.get(guest)
+        if found is None:
+            # Building it points sys.modules' notebookutils at the guest's copy; both copies talk
+            # to this kernel, so an import in either notebook gets the same behaviour.
+            found = self._guests[guest] = self._base_namespace()
+        return found
+
+    @namespace.setter
+    def namespace(self, value: dict[str, Any]) -> None:
+        self._namespace = value
+
+    @contextlib.contextmanager
+    def as_guest(self, notebook: str | None) -> Iterator[None]:
+        """Requests in this block act for ``notebook``, a guest in this shared session (None: the host)."""
+        before = getattr(self._local, "guest", None)
+        self._local.guest = notebook or None
+        try:
+            yield
+        finally:
+            self._local.guest = before
+
+    def forget_guest(self, notebook: str) -> dict[str, Any]:
+        """A guest left the shared session, or restarted: its variables go; the session stays."""
+        self._last_runs.pop(notebook, None)
+        return {"forgotten": self._guests.pop(notebook, None) is not None}
 
     def _base_namespace(self) -> dict[str, Any]:
         from . import dbutils_local, notebookutils_local
@@ -617,7 +707,7 @@ class Kernel:
         if self._current is not None and not self._current.done.is_set():
             self.interrupt()
         self._widget_thread = None  # a stuck handler keeps the old namespace; the new one is free
-        if hasattr(self, "namespace"):  # not the first start: another kernel in this process may own files
+        if hasattr(self, "_namespace"):  # not the first start: another kernel in this process may own files
             remove_spills()
         self._reset()
 
@@ -632,7 +722,9 @@ class Kernel:
         from . import lakehouse
         lakehouse.reads_reset()
         self.task_values.clear()
-        self.namespace: dict[str, Any] = self._base_namespace()
+        self._guests.clear()  # a restart of the session clears every notebook's variables in it
+        self._last_runs.clear()
+        self.namespace = self._base_namespace()
         self.count = 0
         self.frames.clear()
 
@@ -644,6 +736,8 @@ class Kernel:
         out = display(value)
         if out["type"] == "table":
             out["frame"] = self.frames.keep(value)
+            if type(value).__module__.startswith("duckdb.experimental.spark"):
+                out["spark"] = True  # it has a query to profile (spark_local.query_profile)
         return out
 
     # ---- ipywidgets (widgets.py): a control changed in the app
@@ -734,6 +828,9 @@ class Kernel:
     def frame_wrangle(self, frame: str, steps: list[dict[str, Any]], name: str = "df") -> dict[str, Any]:
         return self.frames.wrangle(frame, steps, name)
 
+    def frame_query_profile(self, frame: str) -> dict[str, Any]:
+        return self.frames.query_profile(frame)
+
     def frame_download(self, frame: str, format: str, path: str) -> dict[str, Any]:  # noqa: A002 - RPC name
         return self.frames.download(frame, format, path)
 
@@ -748,7 +845,27 @@ class Kernel:
         if run is not None:
             run.clear(wait)
 
-    def _display(self, *values: Any, summary: bool = False, raw: bool = False, **_kw: Any) -> None:
+    def _keep_display_sink(self, did: str, sink: Any) -> None:
+        """Where a display id was shown, so an update from elsewhere (outside ``with out:``) finds it."""
+        # A finished cell's outputs are what the app already has: only live places are kept.
+        sinks = [x for x in self._display_sinks.get(did, []) if getattr(x, "status", "running") == "running"]
+        if all(x is not sink for x in sinks):
+            sinks.append(sink)
+        self._display_sinks[did] = sinks
+        self._display_sinks.move_to_end(did)
+        while len(self._display_sinks) > MAX_DISPLAY_IDS:
+            self._display_sinks.popitem(last=False)
+
+    def _display(self, *values: Any, summary: bool = False, raw: bool = False, display_id: Any = None,
+                 update: bool = False, **_kw: Any) -> Any:
+        """display(), as IPython's: with ``display_id`` it returns a handle, and ``update=True``
+        (update_display, handle.update) redraws the outputs shown with that id in place, wherever
+        they were shown in this cell or in an Output widget. A display a finished cell showed keeps
+        what it showed."""
+        from .ipython_display import DisplayHandle
+        did = uuid.uuid4().hex if display_id is True else (None if display_id in (None, False) else str(display_id))
+        if update and did is None:
+            raise TypeError("update_display needs a display_id.")
         run = getattr(self._local, "run", None)
         for value in values:
             if raw and isinstance(value, dict):  # display(bundle, raw=True): a mime bundle, as IPython reads it
@@ -757,12 +874,29 @@ class Kernel:
                 out = self._show(value)
             if summary and out["type"] == "table":
                 out["summary"] = True
-            if run is not None:
-                run.add(out)
-            else:
+            if did is not None:
+                out = {**out, "display_id": did}
+            if run is None:
                 print(out.get("text", out))
+            elif update:
+                for sink in {id(x): x for x in [run, *self._display_sinks.get(did, [])]}.values():
+                    sink.replace(did, out)
+            else:
+                run.add(out)
+                if did is not None:
+                    self._keep_display_sink(did, run)
+        return DisplayHandle(did, self._display) if did is not None and not update else None
 
     # ---- running a cell
+
+    def check_free(self) -> None:
+        """Refuse a cell while one runs: in a shared session, say whose it is."""
+        run = self._current
+        if run is not None and not run.done.is_set():
+            if run.guest != getattr(self._local, "guest", None):
+                raise RuntimeError(f"{run.notebook or 'Another notebook'} is running a cell in this shared session. "
+                                   "Its notebooks run one cell at a time; wait for it, or Cancel it there.")
+            raise RuntimeError("A cell is already running. Wait for it, or Cancel it.")
 
     def start(self, code: str, watches: list[str] | None = None, breakpoints: list[int] | None = None,
               step: bool = False) -> dict[str, Any]:
@@ -772,8 +906,7 @@ class Kernel:
         (so Cancel and the cell time limit cover them); their values come back in ``watches``.
         ``breakpoints`` (line numbers in the cell) or ``step`` (pause at the first line) run the
         cell under the debugger (debugger.py): ``poll`` reports ``paused`` and ``debug`` resumes."""
-        if self._current is not None and not self._current.done.is_set():
-            raise RuntimeError("A cell is already running. Wait for it, or Cancel it.")
+        self.check_free()
         if self._widget_lock.locked() or self._handler_alive():
             raise RuntimeError("A widget's handler is still running. Run the cell when it finishes, or restart the kernel.")
         widgets = getattr(self.namespace.get("dbutils"), "widgets", None)
@@ -783,14 +916,19 @@ class Kernel:
         lines = check_breakpoints(breakpoints)
         self.count += 1
         run = _Run(self.count)
+        run.guest = getattr(self._local, "guest", None)
+        run.notebook = self.notebook_name
         if lines or step:
             from .redact import secrets
             run.debugger = Debugger(lines, step, self._frame_row, redact=secrets, watches=watches,
                                     on_change=run.set_paused)
             run.debugger.skip = set(self._base_namespace_keys())
-        self._current = run
+        self._current = self._last_runs[run.guest] = run
         run.thread = threading.Thread(target=self._execute, args=(code, run, list(watches or [])), daemon=True,
                                       name=f"cell-{self.count}")
+        if self.write_check is not None:
+            from . import lakehouse
+            lakehouse.cell_write_checks[run.thread] = self.write_check
         run.thread.start()
         return run.snapshot()
 
@@ -799,8 +937,15 @@ class Kernel:
 
         ``wait`` seconds is how long to wait for news before answering, so the app can poll slowly."""
         run = self._current
-        if run is None:
-            return {"status": "idle", "execution_count": self.count, "version": 0, "seconds": 0, "outputs": []}
+        guest = getattr(self._local, "guest", None)
+        if run is None or run.guest != guest:
+            # Another notebook's cell, in a shared session, isn't this notebook's to show: it sees its
+            # own last cell, and the session busy all the same (kernel_sessions keeps a busy session).
+            busy = {"session_running": True} if run is not None and not run.done.is_set() else {}
+            mine = self._last_runs.get(guest)
+            if mine is not None:
+                return mine.snapshot(known_version) | busy
+            return {"status": "idle", "execution_count": self.count, "version": 0, "seconds": 0, "outputs": []} | busy
         deadline = time.monotonic() + min(wait, 2.0)
         while run.version == known_version and not run.done.is_set() and time.monotonic() < deadline:
             run.done.wait(0.05)
@@ -809,7 +954,7 @@ class Kernel:
     def interrupt(self) -> dict[str, Any]:
         """Stop the running cell, keeping the namespace. Native code (a DuckDB query) is asked to stop too."""
         run = self._current
-        if run is None or run.done.is_set() or run.thread is None:
+        if run is None or run.done.is_set() or run.thread is None or run.guest != getattr(self._local, "guest", None):
             return {"interrupted": False}
         # Paused: the cell's thread ends it itself. If it doesn't (busy evaluating an expression),
         # interrupt it the usual way.
@@ -818,31 +963,34 @@ class Kernel:
         with contextlib.suppress(Exception):
             from . import spark_local
             spark_local.interrupt()
-        # A cell that was just started may not have its thread running yet (no ident): wait for it.
-        deadline = time.monotonic() + 2.0
-        while run.thread.ident is None and not run.done.is_set() and time.monotonic() < deadline:
-            time.sleep(0.01)
-        if run.thread.ident is None:
-            return {"interrupted": False}
-        ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(run.thread.ident), ctypes.py_object(KeyboardInterrupt))
+        # A cell that was just started may not be in _execute yet: an interrupt raised there (in the
+        # thread's start-up, or before the handlers) would end the thread without finishing the run.
+        # Such a cell stops itself as soon as it gets there.
+        # The interrupt is sent under the lock, so the cell can't disarm between the check and the send.
+        with run.cancel_lock:
+            run.cancel_requested = True
+            if run.armed:
+                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(run.thread.ident), ctypes.py_object(KeyboardInterrupt))
         run.done.wait(2.0)
         return {"interrupted": True, "stopped": run.done.is_set()}
 
     def debug(self, action: str, expression: str | None = None) -> dict[str, Any]:
         """Resume a paused cell (continue, step, next, out) or evaluate ``expression`` where it is paused."""
         run = self._current
-        if run is None or run.done.is_set() or run.debugger is None:
+        if run is None or run.done.is_set() or run.debugger is None or run.guest != getattr(self._local, "guest", None):
             raise RuntimeError("No cell is running under the debugger.")
         return run.debugger.command(action, expression)
 
     def run(self, code: str) -> dict[str, Any]:
         """Run ``code`` to the end and return its result (used by tests and scripts)."""
+        self.write_check = None  # the app's own run
         self.start(code)
         run = self._current
         assert run is not None
         run.done.wait()
         snap = run.snapshot()
-        return {"status": snap["status"], "execution_count": snap["execution_count"], "outputs": snap["outputs"]}
+        return {"status": snap["status"], "execution_count": snap["execution_count"], "outputs": snap["outputs"],
+                **({"onelake": snap["onelake"]} if "onelake" in snap else {})}
 
     def _execute(self, code: str, run: _Run, watches: list[str] | None = None) -> None:
         from .dbutils_local import RestartPython
@@ -851,10 +999,20 @@ class Kernel:
         ident = threading.get_ident()
         out.targets[ident] = err.targets[ident] = run
         self._local.run = run
+        self._local.guest = run.guest  # this thread is the cell's: its namespace is its notebook's
         status = "error"
         restart = False
         history.record_input(self.namespace, run.count, code)
+        writes = None
+        write_queue.cell_writes.stats = run.onelake
         try:
+            with run.cancel_lock:
+                run.armed = True
+                cancelled = run.cancel_requested
+            if cancelled:  # Cancel came before the cell got here
+                run.add({"type": "text", "text": "Cancelled. Variables are kept."})
+                raise KeyboardInterrupt
+            writes = self._write_queue()
             try:
                 if run.debugger is not None:
                     sys.settrace(run.debugger.trace)
@@ -870,6 +1028,8 @@ class Kernel:
             except KeyboardInterrupt:
                 status = "cancelled"
                 run.add({"type": "text", "text": "Cancelled. Variables are kept."})
+            if writes is not None:
+                status = self._finish_writes(writes, run, status)
             if watches and status != "cancelled":
                 # What a watch prints goes nowhere: the cell's output is the cell's.
                 out.targets[ident] = err.targets[ident] = _Run(0)
@@ -877,13 +1037,54 @@ class Kernel:
         except KeyboardInterrupt:  # an interrupt that landed while the first one was being handled
             status = "cancelled"
         finally:
+            try:
+                with run.cancel_lock:  # from here a Cancel waits for the run to finish instead of raising in it
+                    run.armed = False
+            except KeyboardInterrupt:  # one sent just before the disarm, raised as the cell takes the lock
+                status = "cancelled"
+            if writes is not None:
+                write_queue.cell_writes.queue = None
+                writes.flush(cancel=True)  # only left after a second Cancel: drop what hasn't started
+            write_queue.cell_writes.stats = None
             out.targets.pop(ident, None)
             err.targets.pop(ident, None)
             self._local.run = None
-            if restart:
+            if restart and run.guest:
+                self._guests.pop(run.guest, None)  # a guest restarts only its own variables
+                run.add({"type": "text", "text": "Python restarted for this notebook. Its variables were cleared; "
+                                                 "the shared session goes on."})
+            elif restart:
                 self._reset()  # this cell is the one running, so there is nothing to interrupt
                 run.add({"type": "text", "text": "Python restarted. Variables were cleared."})
             run.finish(status)
+
+    def _write_queue(self) -> Any:
+        """This cell's background writes, when its notebook writes local first (lakehouse.write_table)."""
+        if self.onelake_writes != "local_first" or getattr(self, "_proof", None) is not None:
+            write_queue.cell_writes.queue = None
+            return None
+        if self._writes is None:
+            self._writes = write_queue.Queue()
+        write_queue.cell_writes.queue = self._writes
+        return self._writes
+
+    def _finish_writes(self, writes: Any, run: _Run, status: str) -> str:
+        """Wait for the cell's writes to reach OneLake: the cell is done when they are, and fails if one did."""
+        cancelled = status == "cancelled"
+        try:
+            with run.onelake.waiting():
+                failed = writes.flush(cancel=cancelled)
+        except KeyboardInterrupt:
+            failed = writes.flush(cancel=True)
+            cancelled = True
+        if not failed:
+            return "cancelled" if cancelled else status
+        if not cancelled:
+            self._emit(run, {"type": "error", "ename": "WriteFailed", "traceback": "",
+                             "evalue": "A table write didn't reach OneLake:\n" + "\n".join(failed)})
+            return "error"
+        run.add({"type": "text", "text": "\n".join(failed)})
+        return "cancelled"
 
     def _watch(self, watches: list[str], run: _Run) -> None:
         """Evaluate each watch expression; Cancel stops the rest, which are reported as skipped."""
@@ -1189,6 +1390,10 @@ class Kernel:
             return _fs_magic(self.namespace["notebookutils"].fs, line)
         if name == "pip":
             from . import pip_magic
+            guest = getattr(self._local, "guest", None)
+            if guest and line.split()[:1] == ["install"]:
+                raise ValueError(f"{guest} shares another notebook's session, so it uses that notebook's environment. "
+                                 "Run %pip install in that notebook, or leave the shared session (Sessions) first.")
             pip_magic.run(line, self.engine_call, lambda path: pip_magic.read_text(path, self.resources_dir))
             return None
         if name == "conda":
@@ -1357,7 +1562,9 @@ class Kernel:
             namespace.update(arguments)
         run = getattr(self._local, "run", None)
         for cell in cells:
-            if cell.get("type") == "markdown" or not cell.get("source", "").strip():
+            # Not frozen cells (Fabric skips them in a referenced run too), and not the Fabric step,
+            # which runs on Fabric Spark only when started from its own notebook (fabric_step.py).
+            if not notebook_cells.runs(cell, skip_fabric_step=True):
                 continue
             try:
                 late = f"A cell of {name!r} didn't finish within {cell_timeout or 0:g} seconds."
@@ -2107,8 +2314,13 @@ def _cell_metadata(meta: dict[str, Any]) -> dict[str, Any]:
     if isinstance(title, str) and title.strip():
         md[_DATABRICKS_CELL] = {"title": title.strip()[:200]}
     chart = _chart_meta(meta.get("chart"))
-    if chart:
-        md["fabric_desktop"] = {"chart": chart}
+    charts = _charts_meta(meta.get("charts"))
+    if chart or charts:
+        md["fabric_desktop"] = {"chart": chart} if chart else {}
+        if charts:
+            md["fabric_desktop"]["charts"] = charts
+    if meta.get("fabric_step"):  # the last cell runs on Fabric Spark (fabric_step.py)
+        md.setdefault("fabric_desktop", {})["run_on"] = "fabric"
     return md
 
 
@@ -2127,6 +2339,16 @@ def _chart_meta(chart: Any) -> dict[str, Any] | None:
     return out if out.get("kind") else None
 
 
+MAX_EXTRA_CHARTS = 9  # charts.js MAX_CHARTS less the first, which stays in "chart" for older builds
+
+
+def _charts_meta(charts: Any) -> list[dict[str, Any]]:
+    """The charts after the first, in order. One that isn't a chart is dropped with the rest kept."""
+    if not isinstance(charts, list):
+        return []
+    return [c for c in map(_chart_meta, charts) if c][:MAX_EXTRA_CHARTS]
+
+
 def _cell_meta(md: dict[str, Any]) -> dict[str, Any]:
     meta: dict[str, Any] = {}
     if md.get("tags"):
@@ -2141,9 +2363,15 @@ def _cell_meta(md: dict[str, Any]) -> dict[str, Any]:
     title = (md.get(_DATABRICKS_CELL) or {}).get("title") if isinstance(md.get(_DATABRICKS_CELL), dict) else None
     if isinstance(title, str) and title.strip():
         meta["title"] = title.strip()
-    chart = _chart_meta((md.get("fabric_desktop") or {}).get("chart") if isinstance(md.get("fabric_desktop"), dict) else None)
+    own = md.get("fabric_desktop") if isinstance(md.get("fabric_desktop"), dict) else {}
+    chart = _chart_meta(own.get("chart"))
     if chart:
         meta["chart"] = chart
+    charts = _charts_meta(own.get("charts"))
+    if charts:
+        meta["charts"] = charts
+    if own.get("run_on") == "fabric":
+        meta["fabric_step"] = True
     return meta
 
 
@@ -2196,7 +2424,7 @@ def _merge_cell_metadata(ours: dict[str, Any], before: dict[str, Any]) -> dict[s
     if isinstance(keep.get("run_control"), dict):
         keep["run_control"] = {k: v for k, v in keep["run_control"].items() if k != "frozen"}
     if isinstance(keep.get("fabric_desktop"), dict):
-        keep["fabric_desktop"] = {k: v for k, v in keep["fabric_desktop"].items() if k != "chart"}
+        keep["fabric_desktop"] = {k: v for k, v in keep["fabric_desktop"].items() if k not in ("chart", "charts", "run_on")}
     for k in ("jupyter", "run_control", _DATABRICKS_CELL, "fabric_desktop"):
         if k in keep and not keep[k]:
             del keep[k]
@@ -2311,6 +2539,20 @@ def _write_atomic(path: Path, text: str) -> None:
         tmp.unlink(missing_ok=True)
 
 
+def disk_stamp(nb: dict[str, Any]) -> str:
+    """A short hash of a saved notebook's cells (type and source), so a save can tell whether the
+    file was changed since the app read it, by VS Code or any other program. Metadata is left out:
+    the app's own metadata writes (comments, inputs, proofs) don't count as a change."""
+    cells = [[c["type"], c["source"]] for c in from_ipynb(nb)["cells"]]
+    return hashlib.sha256(json.dumps(cells, ensure_ascii=False).encode("utf-8")).hexdigest()[:32]
+
+
+def raw_stamp(data: bytes) -> str:
+    """The stamp of a file that isn't a notebook the app can read (a Git merge left conflict
+    markers in it, say): its bytes, so it never matches a notebook's ``disk_stamp``."""
+    return "raw-" + hashlib.sha256(data).hexdigest()[:28]
+
+
 class NotebookStore:
     # Held while a save or a metadata write reads, changes and replaces a notebook file, so one
     # doesn't write over the other's change (the local API and MCP tools call in from other threads).
@@ -2328,28 +2570,45 @@ class NotebookStore:
 
     def load(self, name: str) -> dict[str, Any]:
         nb = json.loads(self.path(name).read_text(encoding="utf-8"))
-        return {"name": name, **from_ipynb(nb)}
+        return {"name": name, **from_ipynb(nb), "disk_stamp": disk_stamp(nb)}
 
     def save(self, name: str, cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None = None,
-             compute: str | None = None, workspace: dict[str, Any] | None = None) -> dict[str, Any]:
+             compute: str | None = None, workspace: dict[str, Any] | None = None,
+             expected_stamp: str | None = None) -> dict[str, Any]:
         """Save the notebook. ``compute`` is where Run all runs it: "local" (this PC), "fabric",
         or "default" (whatever the environment picked in the top bar runs on). ``workspace`` is
         where it is published ({"workspace_id", "workspace_name"}; {} forgets it). None keeps the saved choice.
 
         Cells keep their ``cell_id``; a cell without one gets one, returned in ``cell_ids`` so the
-        app can keep it. Metadata other tools wrote into the file is kept."""
+        app can keep it. Metadata other tools wrote into the file is kept.
+
+        ``expected_stamp`` is the ``disk_stamp`` the caller last read or saved. When the file's cells
+        no longer match it (another program saved the notebook since), nothing is written and the
+        result has ``changed_on_disk`` and the file's stamp now (and ``unreadable`` when the file
+        isn't a notebook any more, e.g. Git conflict markers). None saves without checking."""
         with self._write_lock:
-            return self._save(name, cells, lakehouse, compute, workspace)
+            return self._save(name, cells, lakehouse, compute, workspace, expected_stamp)
 
     def _save(self, name: str, cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
-              compute: str | None, workspace: dict[str, Any] | None) -> dict[str, Any]:
+              compute: str | None, workspace: dict[str, Any] | None,
+              expected_stamp: str | None = None) -> dict[str, Any]:
         path = self.path(name)
         before: dict[str, Any] = {}
+        raw: bytes | None = None
+        parsed = False
         if path.exists():
             try:
-                before = json.loads(path.read_text(encoding="utf-8"))
+                raw = path.read_bytes()
+                before = json.loads(raw.decode("utf-8"))
+                parsed = isinstance(before, dict)
             except (OSError, ValueError):
+                pass
+            if not parsed:
                 before = {}
+        if expected_stamp is not None and raw is not None:
+            now = disk_stamp(before) if parsed else raw_stamp(raw)
+            if now != expected_stamp:
+                return {"name": name, "changed_on_disk": True, "disk_stamp": now, "unreadable": not parsed}
         saved = from_ipynb(before) if before and (compute is None or workspace is None) else {}
         if compute is None:
             compute = saved.get("compute", "default")
@@ -2363,7 +2622,7 @@ class NotebookStore:
             to_ipynb(cells, lakehouse, compute, workspace)
         path.parent.mkdir(parents=True, exist_ok=True)
         _write_atomic(path, json.dumps(nb, indent=1))
-        return {"name": name, "cell_ids": ids}
+        return {"name": name, "cell_ids": ids, "disk_stamp": disk_stamp(nb)}
 
     def extra(self, name: str, key: str) -> Any:
         """A value Fabric Desktop keeps in the notebook's metadata under ``fabric_desktop.<key>``

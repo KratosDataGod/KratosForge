@@ -136,7 +136,7 @@ For CI, a policy owner takes a package where the platform can be reached and pin
 ```
 fabric-desktop governance package --out policies.json      # prints the SHA-256 to pin
 # protected CI variable: KRATOSFORGE_POLICY_PACKAGE_SHA256=<that hash>
-fabric-desktop governance check --project . --package policies.json --max-age 30
+fabric-desktop governance check --project . --package policies.json --max-age 30 --require-pin
 ```
 
 Without a protected variable, put `policies.json` under `CODEOWNERS` so a change to it needs a policy owner's review, and pass `--expect-sha256` from a pipeline file the same owners protect. The check exits 1 when an Error finding (from a high or critical policy) isn't covered by an exception, and 2 when it can't check, the package isn't the pinned one, or it's older than `--max-age` days. See [offline policy packages](governance.md#offline-policy-packages).

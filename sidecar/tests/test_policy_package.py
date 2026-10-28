@@ -385,3 +385,23 @@ def _block(monkeypatch):
     monkeypatch.setattr(Service, "meta_runs_all", refuse("run logs in OneLake"))
     monkeypatch.setattr(onelake.FileStore, "__init__", refuse("OneLake"))
     return calls
+
+
+def test_require_pin_refuses_a_check_with_no_hash_and_an_unpinned_one_says_so(svc, tmp_path, capsys, monkeypatch):
+    mark_pii(svc)
+    publish(svc, "sensitive-columns-labelled", "labels")
+    file = tmp_path / "policies.json"
+    with pytest.raises(SystemExit):
+        cli.main(["governance", "package", "--out", str(file)])
+    capsys.readouterr()
+    project = str(tmp_path / "crm")
+    monkeypatch.delenv("KRATOSFORGE_POLICY_PACKAGE_SHA256", raising=False)
+    with pytest.raises(SystemExit) as stop:
+        cli.main(["governance", "check", "--project", project, "--package", str(file), "--require-pin"])
+    assert stop.value.code == 2 and "no SHA-256" in capsys.readouterr().out
+    with pytest.raises(SystemExit):
+        cli.main(["governance", "check", "--project", project, "--package", str(file)])
+    assert "Not pinned" in capsys.readouterr().out
+    with pytest.raises(SystemExit):
+        cli.main(["governance", "check", "--project", project, "--package", str(file), "--json"])
+    assert json.loads(capsys.readouterr().out)["pinned"] is False

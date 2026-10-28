@@ -147,6 +147,8 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--expect-sha256", metavar="HASH",
                    help="refuse the package unless its SHA-256 is this (default: KRATOSFORGE_POLICY_PACKAGE_SHA256); "
                         "keep it where a pull request can't change it, such as a protected CI variable")
+    p.add_argument("--require-pin", action="store_true",
+                   help="exit 2 when no SHA-256 is given, so a missing CI variable can't run the check unpinned")
     p.add_argument("--max-age", type=float, metavar="DAYS", help="refuse a package taken more than this many days ago")
     p.add_argument("--project", help="the metadata project's folder (default: the project open in the app)")
     p.add_argument("--json", action="store_true", help="print the whole result as JSON")
@@ -455,8 +457,13 @@ def _governance(args: argparse.Namespace) -> int:
             print("--max-age: a number of days, at least 0")
             return 2
         expect = args.expect_sha256 or os.environ.get("KRATOSFORGE_POLICY_PACKAGE_SHA256", "")
+        if args.require_pin and not expect.strip():
+            print("--require-pin: no SHA-256 to check the package against. Set --expect-sha256 or "
+                  "KRATOSFORGE_POLICY_PACKAGE_SHA256.")
+            return 2
         result = service.governance_check_from_package(package=args.package or "", expect_sha256=expect,
                                                        max_age_days=args.max_age)
+        result["pinned"] = bool(expect.strip())
     except (PackageError, LookupError) as exc:
         print(exc)
         return 2
@@ -465,6 +472,9 @@ def _governance(args: argparse.Namespace) -> int:
         print(json.dumps(result | {"unexcepted_errors": len(errors)}, indent=2, default=str))
         return 1 if errors else 0
     print(result["package_note"])
+    if not result["pinned"]:
+        print("Not pinned: the package's SHA-256 wasn't checked against an expected one, so an edited package "
+              "would be used. Pin it in CI with --expect-sha256 and --require-pin.")
     for p in result["policies"]:
         print(f"{p['status'].replace('_', ' ')}: {p['name']} ({p['id']} v{p['version']}, {p['enforcement']})"
               + (f" {p['passed']} of {p['checked']} pass" if p["status"] == "pass" else ""))

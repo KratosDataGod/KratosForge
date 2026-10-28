@@ -189,6 +189,7 @@ fabric-desktop governance check [--package <file>] [--project <folder>] [--json]
 - `--project`: the metadata project's folder (default: the project open in the app).
 - `--expect-sha256 <hash>`: refuse the package unless its SHA-256 is this one (default: the `KRATOSFORGE_POLICY_PACKAGE_SHA256` environment variable, when it's set).
 - `--max-age <days>`: refuse a package taken more than this many days ago.
+- `--require-pin`: refuse to check (exit 2) when no SHA-256 is given, so a missing or misspelt CI variable can't run the check unpinned. Without it, an unpinned check says **Not pinned** in its output and `"pinned": false` in `--json`.
 - `--json`: the whole result as JSON, with `unexcepted_errors`.
 - Exit code: 0 when no finding fails, 1 when an **Error** finding (a high or critical policy) isn't covered by an exception, 2 when it can't check (no project, no package, a package that doesn't match, isn't the pinned one or is too old).
 
@@ -198,7 +199,7 @@ The command keeps no result: it isn't saved as the app's last check.
 
 1. A policy owner takes the package on a machine that reaches the platform: `fabric-desktop governance package --out policies.json`. It prints the package's SHA-256.
 2. They commit `policies.json` and store the SHA-256 in a protected CI variable (`KRATOSFORGE_POLICY_PACKAGE_SHA256`), one only they can change and that a pull request's pipeline reads but can't set.
-3. The pipeline runs `fabric-desktop governance check --project . --package policies.json --max-age 30`. A changed package, even with every hash recomputed, isn't the pinned one, so the check refuses it (exit 2).
+3. The pipeline runs `fabric-desktop governance check --project . --package policies.json --max-age 30 --require-pin`. A changed package, even with every hash recomputed, isn't the pinned one, so the check refuses it (exit 2).
 
 When the policies change, the owner takes a new package and updates the variable together. Where a protected variable isn't available, protect the file instead: a `CODEOWNERS` entry for `policies.json` so a change to it needs a policy owner's review, with branch protection requiring that review, and pass the hash with `--expect-sha256` from the pipeline definition the same owners protect.
 

@@ -270,7 +270,7 @@ on quality.
 | Id | Feature | Status | Verification | Where people reach it | Next action |
 | --- | --- | --- | --- | --- | --- |
 | [FEAT-SHL-02](#feat-shl-02) | RPC method allowlist and error redaction | Implemented | Verified | Engine boundary (no UI) | Keep; generate METHODS from the capability registry once PR-AI-003 merges so the two lists can't drift. |
-| [FEAT-SHL-07](#feat-shl-07) | Accessibility basics | Implemented | Partially Verified | Whole app | Run an assistive-technology audit on Windows (Narrator) and record results (FD-139 follow-up). |
+| [FEAT-SHL-07](#feat-shl-07) | Accessibility basics | Implemented | Partially Verified | Whole app | Fix the automated audit's findings (#905), then run the Narrator and keyboard pass on Windows (PB-063 part 2). |
 | [FEAT-SHL-09](#feat-shl-09) | Self-update, channels and engine install | Implemented | Partially Verified | Startup check, Settings > Updates | Code signing (PB-001); Rust tests in CI (PB-071). |
 | [FEAT-AUTH-01](#feat-auth-01) | Sign-in with no app registration | Implemented | Partially Verified | Sign-in callout, account menu | Include in the tenant smoke test (PB-002). |
 | [FEAT-AUTH-02](#feat-auth-02) | Own app registration and tenant allow-list | Implemented | Partially Verified | Settings > Account | Keep. |
@@ -408,11 +408,12 @@ on quality.
 - **Where people reach it:** Whole app. Accessibility: Static checks only; no screen-reader or contrast audit recorded
 - **Evidence:** test: app/tests/ui.test.cjs every icon-only button has a name (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: app/tests/ui.test.cjs the page has a skip link and labelled controls; test: app/tests/ui.test.cjs dialogs are modal for keyboard users and focus shows
 - **Source:** `app/ui/index.html`, `app/ui/app.js`, `app/ui/styles.css`
-- **Tests:** `app/tests/ui.test.cjs`
+- **Tests:** `app/tests/ui.test.cjs`, `app/tests/browser/a11y-audit.test.cjs`
+- **Docs:** [docs/ux/accessibility-audit.md](../ux/accessibility-audit.md)
 - **Pull requests and issues:** [#92](https://github.com/KratosDataGod/KratosForge/pull/92)
 - **Owning workstream:** Enterprise readiness (FD-139)
 - **Backlog:** [PB-063](PRODUCT_BACKLOG.md#pb-063)
-- **Recommended next action:** Run an assistive-technology audit on Windows (Narrator) and record results (FD-139 follow-up).
+- **Recommended next action:** Fix the automated audit's findings (#905), then run the Narrator and keyboard pass on Windows (PB-063 part 2).
 
 ### FEAT-SHL-08
 

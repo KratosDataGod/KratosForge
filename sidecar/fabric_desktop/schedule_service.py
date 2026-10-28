@@ -22,6 +22,7 @@ from .local_schedules import LocalSchedules, check_target, target_label
 from .orchestration import definition as pipeline_definition
 from .orchestration.definition import DefinitionError
 from .redact import describe
+from .time_zones import time_zones
 from .workloads.notify import Outbox, send, single
 
 _log = logging.getLogger(__name__)
@@ -124,6 +125,10 @@ class ScheduleMixin:
     def update_pc_schedule(self, schedule_id: str, schedule: dict[str, Any]) -> dict[str, Any]:
         """Change when one of this PC's schedules runs (PB-048)."""
         return self.pc_schedules.update(schedule_id, schedule)
+
+    def time_zones(self) -> dict[str, Any]:
+        """Every Windows time zone and this PC's, for the Fabric schedule form (PB-048)."""
+        return time_zones()
 
     def run_pc_schedule_now(self, schedule_id: str) -> dict[str, Any]:
         """Start the run in its own process, as Task Scheduler would, so the app stays free."""

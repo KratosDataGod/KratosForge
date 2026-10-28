@@ -42,7 +42,7 @@ test("Edit on this PC opens the schedule filled in and saves new times under the
   assert.strictEqual(await d.locator("select").first().inputValue(), "weekly");
   assert.strictEqual(await d.locator("input[placeholder='06:00, 18:00']").inputValue(), "06:00");
   assert.ok(!(await d.locator("label:has-text('Sat') input").isChecked()) && await d.locator("label:has-text('Fri') input").isChecked());
-  assert.ok(await d.locator("label:has-text('Time zone')").isHidden(), "this PC runs in its own time zone");
+  assert.ok(await d.locator(".zone-field").isHidden(), "this PC runs in its own time zone");
   await d.locator("input[placeholder='06:00, 18:00']").fill("06:00, 13:00");
   assert.match(await d.textContent(), /After saving: Mon, Tue, Wed, Thu, Fri at 06:00 and 13:00/);
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "schedule-edit-pc.png") });
@@ -59,7 +59,7 @@ test("Edit in Fabric keeps its time zone, even one the list doesn't have, and ke
   calls.length = 0;
   await open("fabric_schedules", "pl_load_gold");
   const d = page().locator(".dialog");
-  assert.strictEqual(await d.locator("label:has-text('Time zone') select").inputValue(), "Tasmania Standard Time");
+  assert.strictEqual(await d.locator("select[aria-label='Time zone']").inputValue(), "Tasmania Standard Time");
   assert.match(await d.textContent(), /in Fabric \(Sales Prod\)/);
   await d.locator("input[placeholder='06:00, 18:00']").fill("03:30");
   await d.locator("button:has-text('Save changes')").click();

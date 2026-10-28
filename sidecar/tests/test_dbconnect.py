@@ -371,3 +371,9 @@ def test_cells_that_import_pandas_or_check_stdin_run_while_the_worker_waits(sess
     # On Windows a read left waiting on stdin blocks these calls; the worker never leaves one waiting.
     r = session.execute(CellRequest("import os, sys, pandas\n(os.isatty(0), sys.stdin.isatty())", "python"))
     assert r.status == "ok" and r.outputs == [{"type": "text", "text": "(False, False)"}]
+
+
+def test_a_cells_input_gets_end_of_file_not_the_engines_messages(session):
+    r = session.execute(CellRequest("input()", "python"))
+    assert r.status == "error" and r.outputs[-1]["ename"] == "EOFError"
+    assert session.execute(CellRequest("1 + 1", "python")).outputs == [{"type": "text", "text": "2"}]

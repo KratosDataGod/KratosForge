@@ -5,8 +5,9 @@ Azure Databricks, or both. This page describes the two foundations that work is 
 they can do today, and what is planned. **Nothing on this page has a screen in the app yet**: it
 is the engine underneath, built and tested first so the screens can't promise more than it does.
 
-- An **engine** is what runs a notebook cell: Python on this PC, DuckDB, SQLite, Polars and
-  a Databricks SQL warehouse (Preview, tested against fakes), and later Fabric Spark and Databricks Connect.
+- An **engine** is what runs a notebook cell: Python on this PC, DuckDB, SQLite and Polars, and,
+  as Preview engines tested against fakes, a Databricks SQL warehouse, Databricks Connect on a
+  cluster and a Fabric Spark session.
 - A **connection profile** says which platforms a piece of work uses, where, how it signs in,
   which engine it runs on by default, and whether it may start remote compute.
 

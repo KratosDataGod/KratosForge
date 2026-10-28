@@ -96,6 +96,8 @@ class Worker:
             os.environ.pop(name, None)
         shown: list = []
         self.namespace.update({"spark": self.spark, "display": shown.append})
+        # stdin carries the engine's messages; a cell's input() gets end-of-file instead of eating them.
+        sys.stdin = io.StringIO("")
         self._shown = shown
         try:  # databricks.connect has no __version__; the installed distribution says
             import importlib.metadata

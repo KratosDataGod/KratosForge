@@ -302,3 +302,17 @@ def test_update_and_delete_are_refused_where_merge_is(lake, monkeypatch):
         out, text = run(f"spark.sql({statement!r})")
         assert out["status"] == "error" and "Preview features are off" in text, text
     assert [r["amount"] for r in rows(lake)] == [10.0, 20.0, 30.0]
+
+
+def test_the_compute_check_uses_the_notebooks_own_lakehouse_with_none_attached():
+    """#967: with no kernel attached, a change named with the notebook's lakehouse runs here."""
+    lh = {"name": "Sales", "workspace_id": "ws1", "lakehouse_id": "lh1"}
+
+    def local(source):
+        return compute_check([{"type": "code", "source": source}], lh)["local"]
+    assert local("spark.sql('MERGE INTO Sales.dbo.t USING s ON t.id = s.id WHEN MATCHED THEN DELETE')")["ok"]
+    assert local("%%sql\nUPDATE Sales.dbo.t SET a = 1")["ok"]
+    assert not local("%%sql\nUPDATE LH_Keys.dbo.t SET a = 1")["ok"]
+    assert not local("spark.sql('DELETE FROM LH_Keys.dbo.t')")["ok"]
+    assert local("# spark.sql('DELETE FROM LH_Keys.dbo.t')\nx = 1")["ok"]  # commented out
+    assert not local("x = '#'; spark.sql('DELETE FROM LH_Keys.dbo.t')")["ok"]  # a # in a string isn't a comment

@@ -281,13 +281,29 @@ def _literal_sql(m: re.Match[str]) -> str:
         return ""
 
 
-def _sql_in_place(sql: str) -> bool:
+def _in_comment(source: str, offset: int) -> bool:
+    """Whether ``offset`` in Python ``source`` falls in a # comment. Source Python can't read
+    (magics, a half-typed cell) has no comments found, so nothing in it is skipped."""
+    import io
+    import tokenize
+    line = source.count("\n", 0, offset) + 1
+    col = offset - (source.rfind("\n", 0, offset) + 1)
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(source).readline):
+            if tok.type == tokenize.COMMENT and tok.start[0] == line and tok.start[1] <= col:
+                return True
+    except (tokenize.TokenError, SyntaxError, IndentationError):
+        return False
+    return False
+
+
+def _sql_in_place(sql: str, lakehouse_name: str | None = None) -> bool:
     """SQL that changes rows in place in a way this PC doesn't run, and so runs in Fabric only: a
     MERGE, UPDATE or DELETE of another lakehouse, or with Preview features off (spark_local.change_runs_here)."""
     if not _SQL_CHANGE.search(sql):
         return False
     from . import spark_local
-    return not spark_local.change_runs_here(sql)
+    return not spark_local.change_runs_here(sql, lakehouse_name)
 # A path on this PC's disk, like C:\data or D:/exports. Fabric can't reach it.
 _LOCAL_PATH = re.compile(r"""["'][A-Za-z]:[\\/]""")
 
@@ -306,6 +322,7 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None)
     among all cells, as the notebook shows them."""
     local: list[dict[str, Any]] = []
     fabric: list[dict[str, Any]] = []
+    own = (lakehouse or {}).get("name")  # the notebook's lakehouse, for a check made with none attached
     for n, c in enumerate(cells, 1):
         source = c.get("source", "")
         if c.get("type") == "markdown" or not source.strip():
@@ -316,17 +333,18 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None)
         elif language == "tsql":
             local.append({"cell": n, "text": "runs T-SQL in a Fabric Warehouse or SQL endpoint (%%tsql)", "code": _snippet(source)})
         elif language == "sql":
-            if _sql_in_place(magics.cell(source).body):
+            if _sql_in_place(magics.cell(source).body, own):
                 local.append({"cell": n, "text": "changes table rows in place (MERGE, UPDATE or DELETE of another lakehouse, or with Preview features off), which runs in Fabric only",
                               "code": _snippet(source)})
         else:
             hit = next(((m, text) for rx, text in _FABRIC_ONLY if (m := rx.search(source))), None)
             hit = hit or next(((m, "changes table rows in place with spark.sql (MERGE, UPDATE or DELETE of another "
                                    "lakehouse, or with Preview features off), which runs in Fabric only")
-                               for m in _SPARK_SQL_LITERAL.finditer(source) if _sql_in_place(_literal_sql(m))), None)
+                               for m in _SPARK_SQL_LITERAL.finditer(source)
+                               if not _in_comment(source, m.start()) and _sql_in_place(_literal_sql(m), own)), None)
             if hit:
                 local.append({"cell": n, "text": hit[1], "code": _snippet(source, hit[0])})
-            elif m := next((m for m in magics.find(source) if m.name == "sql" and _sql_in_place(m.rest)), None):
+            elif m := next((m for m in magics.find(source) if m.name == "sql" and _sql_in_place(m.rest, own)), None):
                 local.append({"cell": n, "text": "changes table rows in place (MERGE, UPDATE or DELETE of another lakehouse, or with Preview features off), which runs in Fabric only",
                               "code": _snippet(source.split("\n", m.line - 1)[-1])})
         if m := _DBUTILS.search(source):

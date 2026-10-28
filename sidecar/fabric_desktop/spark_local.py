@@ -257,11 +257,12 @@ _AUTO_MERGE = "spark.databricks.delta.schema.autoMerge.enabled"
 _SCHEMA_EVOLUTION = re.compile(r"\s*MERGE\s+WITH\s+SCHEMA\s+EVOLUTION\b", re.I)
 
 
-def change_runs_here(query: str) -> bool:
+def change_runs_here(query: str, lakehouse_name: str | None = None) -> bool:
     """Whether ``query`` is a change this PC runs (PB-015): one MERGE INTO, UPDATE or DELETE of a
     table of the attached lakehouse, named table or schema.table (or with the attached lakehouse's
     name in front), with Preview features on. A change to another lakehouse (a Data mesh template's
-    keys MERGE, LH_Keys.keys.customer) still runs in Fabric only."""
+    keys MERGE, LH_Keys.keys.customer) still runs in Fabric only. ``lakehouse_name``: the notebook's
+    own lakehouse, for a check made with none attached (fabric_run.compute_check)."""
     import sqlglot
     from sqlglot import exp
 
@@ -272,24 +273,28 @@ def change_runs_here(query: str) -> bool:
         trees = [t for t in sqlglot.parse(query, read="spark") if t is not None]
         if len(trees) != 1 or not isinstance(trees[0], (exp.Merge, exp.Update, exp.Delete)):
             return False
-        _in_attached(trees[0])
+        _in_attached(trees[0], lakehouse_name)
         change = delta_dml.parse_tree(trees[0])
     except (ValueError, sqlglot.errors.SqlglotError):
         return False
     return change is not None
 
 
-def _in_attached(tree: Any) -> None:
+def _in_attached(tree: Any, name: str | None = None) -> None:
     """Drop the attached lakehouse's own name from a MERGE's, UPDATE's or DELETE's target (Sales.dbo.sales, or Sales.sales
-    in a lakehouse without schemas), as table_ref does for reads and writes."""
+    in a lakehouse without schemas), as table_ref does for reads and writes. ``name``, with nothing
+    attached: the lakehouse to take as attached, whose schema setting isn't known, so only its
+    three-part form (name.schema.table) is recognised."""
     from sqlglot import exp
     current, target = lakehouse._attached, tree.this
-    if current is None or not isinstance(target, exp.Table):
+    if current is not None:
+        name = current.name
+    if not name or not isinstance(target, exp.Table):
         return
-    name = current.name.lower()
-    if target.catalog and target.catalog.lower() == name:
+    if target.catalog and target.catalog.lower() == name.lower():
         target.set("catalog", None)
-    elif not target.catalog and target.db and target.db.lower() == name and not current.schemas_enabled():
+    elif current is not None and not target.catalog and target.db and target.db.lower() == name.lower() \
+            and not current.schemas_enabled():
         target.set("db", None)
 
 

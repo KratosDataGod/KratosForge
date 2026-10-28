@@ -38,6 +38,7 @@ from typing import Any
 from .. import governance_notices as notices
 from ..meta import mesh
 from ..meta.project import EXCEPTION_WARN_DAYS
+from ..workloads.platform_notify import PlatformRouting, validate
 from .core import PlatformError
 from .policy import SETTINGS
 from .requests_service import call_or_repair
@@ -194,20 +195,32 @@ class GovernanceMixin:
                                 or (r.get("scope") == "project" and here.get("name") and r.get("target") == here["name"])
                                 or (r.get("scope") == "domain" and r.get("target") in domains))
         problems = [problem] if problem else []
-        mine = self._claim_warnings(ending, problems)
-        if mine:
-            sent = self._governance_notify(  # type: ignore[attr-defined]
-                lambda: [e for e in (notices.exception_ending(r, r["days_left"]) for r in mine) if e])
+        events = self._claim_warnings(ending, problems)
+        if events:
+            sent = self._governance_notify(lambda: events)  # type: ignore[attr-defined]
             if sent:
                 problems.append(sent)
         return {"ending": ending, "warn_days": EXCEPTION_WARN_DAYS, "problems": problems}
 
     def _claim_warnings(self, ending: list[dict[str, Any]], problems: list[str]) -> list[dict[str, Any]]:
-        """The ending exceptions whose Teams notice this PC claimed in the platform, so each is posted by
-        one PC in the organization, not one per PC. A platform that can't claim (an older UDF_Platform)
-        gets no Teams notice at all rather than one from every PC; the bell and banner still show."""
-        mine = []
+        """The Teams events for the ending exceptions whose notice this PC claimed in the platform, so each is
+        posted by one PC in the organization, not one per PC. A PC claims only when one of its own routes
+        would take the event (its kind, and the exception's domain where a route is scoped to domains), so a
+        PC that can't post never takes the notice from one that can. An exception the list already shows as
+        warned for this end date isn't asked about again (no call). A platform that can't claim (an older
+        UDF_Platform) gets no Teams notice at all rather than one from every PC; the bell and banner still show."""
+        try:
+            routing = PlatformRouting.parse(self._pn_raw())  # type: ignore[attr-defined]
+        except ValueError as exc:
+            _log.warning("Platform Teams routes can't be read, so no exception notice is claimed: %s", exc)
+            return []
+        events = []
         for r in ending:
+            if str(r.get("warned_until") or "") == str(r.get("until") or ""):
+                continue
+            event = notices.exception_ending(r, r["days_left"])
+            if event is None or not routing.for_event(validate(event)):
+                continue
             try:
                 out = call_or_repair(self._policies(), "claim_exception_warning", "send policy exception warnings once",
                                      id=str(r.get("id") or ""), until=str(r.get("until") or ""))
@@ -218,5 +231,5 @@ class GovernanceMixin:
                 _log.warning("Couldn't claim the warning for exception %s: %s", r.get("id"), exc)
                 continue
             if isinstance(out, dict) and out.get("claimed"):
-                mine.append(r)
-        return mine
+                events.append(event)
+        return events

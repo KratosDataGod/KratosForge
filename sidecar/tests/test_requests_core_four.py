@@ -14,6 +14,7 @@ from fabric_desktop.service import Service
 from fabric_desktop.workloads.platform_notify import validate
 
 ADMIN, DEV = "ana@contoso.com", "dev@contoso.com"
+ROUTE = "https://contoso.webhook.office.com/hook"
 CAP = "11111111-2222-3333-4444-555555555555"
 GROUP = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 WS = "99999999-8888-7777-6666-555555555555"
@@ -626,6 +627,7 @@ def test_an_exception_ending_within_14_days_warns_the_requester_and_the_project(
     svc.platform_decide(soon["id"], True)
     svc.platform_decide(later["id"], True)
     sent = []
+    monkeypatch.setattr(type(svc), "_pn_raw", lambda self: {"routes": [{"name": "default", "url": ROUTE}]})
     monkeypatch.setattr(type(svc), "platform_notify", lambda self, events: sent.extend(events) or {})
 
     listed = {e["target"]: e for e in svc.governance_overview()["exceptions"]}
@@ -703,6 +705,7 @@ def test_a_platform_that_cannot_claim_the_notice_posts_none_but_still_shows_it(s
     _ending_soon(svc, who)
     sent = []
     monkeypatch.setattr(type(svc), "platform_notify", lambda self, events: sent.extend(events) or {})
+    monkeypatch.setattr(type(svc), "_pn_raw", lambda self: {"routes": [{"name": "default", "url": ROUTE}]})
 
     class NoClaim:
         def __init__(self, inner):
@@ -736,3 +739,62 @@ def test_the_claim_is_once_per_end_date_and_never_for_an_ended_exception(tmp_pat
         assert policy.claim_exception_warning(db, "e2", until) == {"claimed": False}
         with pytest.raises(core.PlatformError, match="no policy exception"):
             policy.claim_exception_warning(db, "nope", until)
+
+
+def test_a_pc_without_a_teams_route_never_claims_the_notice(svc, who, monkeypatch):
+    _ending_soon(svc, who)
+    calls = []
+    inner = svc._catalog()
+
+    class Counting:
+        def call(self, op, **kwargs):
+            calls.append(op)
+            return inner.call(op, **kwargs)
+    monkeypatch.setattr(type(svc), "_catalog", lambda self: Counting())
+    out = svc.governance_exceptions_ending()
+    assert len(out["ending"]) == 1 and "claim_exception_warning" not in calls  # still shown, not claimed
+    # A route for another domain's notices only wouldn't take it either.
+    monkeypatch.setattr(type(svc), "_pn_raw", lambda self: {"routes": [{"name": "finance", "url": ROUTE, "domains": ["finance"]}]})
+    assert len(svc.governance_exceptions_ending()["ending"]) == 1 and "claim_exception_warning" not in calls
+    [row] = inner.call("list_policy_exceptions", active=True)
+    assert row["warned_until"] == ""  # left for a PC that can post
+
+
+def test_a_pc_without_a_route_opening_first_leaves_the_post_to_one_with_a_route(svc, who, tmp_path, monkeypatch):
+    from fabric_desktop import app_settings
+    from fabric_desktop import platform_notify_service as pns
+    monkeypatch.setattr(app_settings, "policy_path", lambda: tmp_path / "policy.json")
+    monkeypatch.setattr(app_settings, "user_path", lambda: tmp_path / "user.json")
+    posts = []
+    monkeypatch.setattr(pns, "post_teams", lambda url, title, lines, **kw: posts.append(url))
+    _ending_soon(svc, who)
+    b = Service(root=tmp_path / "pc-b")
+    b._auth = Auth(who)
+    platform = svc._catalog()
+    monkeypatch.setattr(svc, "_catalog", lambda: platform)
+    monkeypatch.setattr(b, "_catalog", lambda: platform)
+    monkeypatch.setattr(svc, "_pn_raw", lambda: {})  # PC A: no Teams route
+    monkeypatch.setattr(b, "_pn_raw", lambda: {"routes": [{"name": "default", "url": ROUTE}]})  # PC B: one
+    assert len(svc.governance_exceptions_ending()["ending"]) == 1 and posts == []
+    assert len(b.governance_exceptions_ending()["ending"]) == 1
+    assert posts == [ROUTE]  # exactly one post, from B
+    assert (svc.root / "platform_outbox.sqlite").exists() is False and (b.root / "platform_outbox.sqlite").exists()
+
+
+def test_an_exception_already_warned_for_its_date_is_not_claimed_again(svc, who, monkeypatch):
+    soon = _ending_soon(svc, who)
+    monkeypatch.setattr(type(svc), "_pn_raw", lambda self: {"routes": [{"name": "default", "url": ROUTE}]})
+    monkeypatch.setattr(type(svc), "platform_notify", lambda self, events: {})
+    svc.governance_exceptions_ending()
+    [row] = svc._catalog().call("list_policy_exceptions", active=True)
+    assert row["warned_until"] == soon["detail"]["until"]  # the list says it was warned
+    calls = []
+    inner = svc._catalog()
+
+    class Counting:
+        def call(self, op, **kwargs):
+            calls.append(op)
+            return inner.call(op, **kwargs)
+    monkeypatch.setattr(type(svc), "_catalog", lambda self: Counting())
+    assert len(svc.governance_exceptions_ending()["ending"]) == 1
+    assert "claim_exception_warning" not in calls  # no UDF call per load once it's warned

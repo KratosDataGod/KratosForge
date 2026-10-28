@@ -499,8 +499,9 @@ def _approve_exception(db: Db, req: dict[str, Any], by: str) -> None:
 def _exception_out(row: dict[str, Any], today: str) -> dict[str, Any]:
     until = str(row.get("until_date") or "")
     ended_early = bool(row.get("ended_at"))
+    # warned_until: the end date whose Teams notice was claimed, so a PC can skip asking again.
     return dict(row, until=until, active=bool(until) and today <= until and not ended_early, ended_early=ended_early,
-                note=f"Excepted until {until}: {row.get('reason') or 'no reason given'}")
+                warned_until=str(row.get("warned_until") or ""), note=f"Excepted until {until}: {row.get('reason') or 'no reason given'}")
 
 
 def list_policy_exceptions(db: Db, policy: str = "", active: bool = False, today: str = "") -> list[dict[str, Any]]:

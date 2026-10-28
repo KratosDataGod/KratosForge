@@ -19,7 +19,7 @@ The notebook must be able to run in both places. The check above the cells says 
 
 Run all goes through three steps, shown in a panel above the cells:
 
-1. **Run on this PC.** The kernel restarts, so the run starts clean as Fabric's does, and every code cell runs in order. Cell output shows in the notebook as usual. If a cell fails, the run on this PC stops there, and the comparison still goes on to Fabric, so you see which side breaks. The result shows this PC's error under the timings; when both sides fail, fix that one first, since the same code usually fails in Fabric for the same reason (Fabric's own message, such as *System cancelled the Spark session due to statement execution failures*, rarely says why).
+1. **Run on this PC.** The kernel restarts, so the run starts clean as Fabric's does, and every code cell runs in order. With **Cores on this PC** held to fewer cores than the PC has (below), the run gets a notebook process of its own instead, and the notebook's own session keeps its variables. Cell output shows in the notebook as usual. If a cell fails, the run on this PC stops there, and the comparison still goes on to Fabric, so you see which side breaks. The result shows this PC's error under the timings; when both sides fail, fix that one first, since the same code usually fails in Fabric for the same reason (Fabric's own message, such as *System cancelled the Spark session due to statement execution failures*, rarely says why).
 2. **Run in Fabric.** The notebook is published to its workspace (the same as **Publish to OneLake**) and started with Fabric's job scheduler, as **Run in Fabric** does. It shows in **Monitor** and in Fabric's Monitoring hub. The published copy gets two extra cells, one first and one last, that time the notebook's own cells inside Fabric. They aren't added to your notebook on this PC, and the next ordinary publish removes them.
 3. **Check the outputs.** Every table either run wrote is compared.
 
@@ -27,14 +27,26 @@ Before a notebook that writes tables runs, KratosForge lists the tables it write
 
 The runs go one after the other, not at the same moment, so they never write the same table at once. You can leave the page: the bell tells you when the comparison is ready, and the last comparison shows again when you reopen the notebook. **Cancel** stops whichever run is going.
 
+### Cores on this PC
+
+The card's **Cores on this PC** sets how many of the PC's cores the run on this PC may use. It is kept with the notebook, and applies only to side by side runs; Run all on its own uses every core.
+
+| Choice | What the run on this PC uses |
+|---|---|
+| **Match Fabric** (the default) | As many cores as the notebook's Fabric session has vCores: 2 for a Python notebook, or what a `%%configure` cell asks for (`{"vCores": 8}`). A Spark notebook's cores depend on its pool, so it uses every core; pick a number to match the pool. |
+| **All N cores** | Every core. Fast, but against a smaller Fabric session it compares hardware as much as engines. |
+| **Pick a number** | That many cores, for example to match a bigger Fabric session. |
+
+Held to fewer cores, the run's process may use only those processors (its CPU affinity, which Windows enforces and which every process it starts inherits), and DuckDB, Polars and `os.cpu_count()` are told the same number. Logical processors count as cores, as Fabric's vCores do. On a PC with more than 64 logical processors, Windows splits them into processor groups and the run is held to cores in one group. The result names the cores each side had.
+
 ## Reading the result
 
 | Part | What it shows |
 | --- | --- |
 | The top line | **Same results in both places**, **Results differ in N tables**, or which side failed |
-| This PC | Time from the first cell to the last, and the PC's cores and memory, split into processing on this PC and waiting for OneLake uploads (the striped part of the bar). Below it, what the run uploaded, how long uploads were going on and about how many MB/s they reached. No Fabric job starts; its OneLake reads and writes still use some capacity, which isn't measured. |
-| Fabric | Time from Run all to the end of the Fabric job, split into the **session start** (Fabric starting a session and queueing) and the **run** (the notebook's cells). Below it, the estimated CU-seconds and cost. |
-| Faster | Which side was faster end to end, on run time alone with Fabric's session start left out and, when this PC waited for uploads, on this PC's processing alone against Fabric's run time (which includes Fabric's own writes). Left out when either side failed, since a run that stopped early is only shorter. |
+| This PC | Time from the first cell to the last, and the PC's cores ("2 of 24 cores" when held to fewer) and memory, split into processing on this PC and waiting for OneLake uploads (the striped part of the bar). Below it, what the run uploaded, how long uploads were going on and about how many MB/s they reached. No Fabric job starts; its OneLake reads and writes still use some capacity, which isn't measured. |
+| Fabric | The notebook kind and, for a Python notebook, its vCores. Time from Run all to the end of the Fabric job, split into the **session start** (Fabric starting a session and queueing) and the **run** (the notebook's cells). Below it, the estimated CU-seconds and cost. |
+| Faster | Whether both sides had the same cores, then which side was faster end to end, on run time alone with Fabric's session start left out and, when this PC waited for uploads, on this PC's processing alone against Fabric's run time (which includes Fabric's own writes). Left out when either side failed, since a run that stopped early is only shorter. |
 | Tables | Each table written: rows on each side, whether the columns match, and the result |
 
 A table's result is one of:
@@ -119,7 +131,7 @@ A run that writes gigabytes from a PC to OneLake is bound by the PC's upload spe
 
 For a comparison others can repeat:
 
-- Say what the PC has (the card shows its cores and memory) and what the Fabric session had. A PC with 24 cores against a session with a few vCores compares hardware as much as engines; size the Fabric session to match (`%%configure`) for a like-for-like run.
+- Give both sides the same cores: **Cores on this PC > Match Fabric** (the default) holds this PC's run to the Fabric session's vCores. A PC with 24 cores against a session with a few vCores compares hardware as much as engines. The card shows the cores each side had, and the PC's memory.
 - Say the upload speed (the card's MB/s is close to it).
 - Run each side twice and report both: the first run pays for cold caches and a cold session; a rerun of TPC-H data skips unchanged tables, so it measures something else.
 - Compare a read-heavy load too: **TPC-H benchmark** reads tables already in OneLake and writes little, which is the everyday case for running notebooks on a PC.

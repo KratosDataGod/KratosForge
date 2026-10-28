@@ -344,8 +344,9 @@ document.addEventListener("keydown", (e) => {
     ? [...document.querySelectorAll("[role=tablist]")].find((l) => l.getAttribute("aria-label") === list)?.querySelector("[role=tab][aria-selected=true]")
     : [...document.querySelectorAll("[role=tab]")].find((t) => t.textContent === label && t.getAttribute("aria-selected") === "true"));
   const refocus = (tries) => {
-    const now = selected();
-    const lost = document.activeElement === document.body || document.activeElement === tab || !document.activeElement?.isConnected;
+    const found = selected();
+    const now = found === el ? null : found;  // a page that redraws later still shows the old selection
+    const lost = [document.body, el, tab].includes(document.activeElement) || !document.activeElement?.isConnected;
     if (now && lost) now.focus();
     else if (!now && tab.isConnected && lost) tab.focus();
     if (tries > 0 && (!now || document.activeElement !== now) && lost) setTimeout(() => refocus(tries - 1), 50);

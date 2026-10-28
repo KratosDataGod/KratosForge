@@ -37,3 +37,19 @@ test("Right moves to the next tab on rows that weren't tablists before", { skip 
   await arrowRight(() => go("onelake"), ".onelake-tabs .tab-group", "OneLake");
   assert.deepStrictEqual(app.errors, []);
 });
+
+test("focus follows a tab row that redraws a moment after the click", { skip }, async () => {
+  await page().evaluate(() => {
+    const host = document.createElement("div");
+    host.id = "late-tabs";
+    let on = 0;
+    const draw = () => host.replaceChildren(h("div", { role: "tablist", "aria-label": "Late" }, ["One", "Two", "Three"].map((t, i) =>
+      h("button", { role: "tab", "aria-selected": String(i === on), onclick: () => setTimeout(() => { on = i; draw(); }, 300) }, t))));
+    draw();
+    document.body.append(host);
+  });
+  await page().locator('#late-tabs [aria-selected="true"]').focus();
+  await page().keyboard.press("ArrowRight");
+  await page().waitForFunction(() => document.activeElement?.textContent === "Two" && document.activeElement.getAttribute("aria-selected") === "true");
+  await page().evaluate(() => document.getElementById("late-tabs").remove());
+});

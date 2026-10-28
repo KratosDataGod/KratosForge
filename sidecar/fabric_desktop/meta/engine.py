@@ -44,6 +44,8 @@ AFTER_COMMIT_ATTEMPTS = 3
 APPEND_KEY = "fabric_desktop_append"
 # Commit metadata listing the files a run read, so they count as loaded if its list wasn't saved.
 FILES_KEY = "fabric_desktop_files"
+# Most files listed there: above it the commit lists none (every history read parses the list).
+FILES_IN_COMMIT = 5000
 
 # Columns the quarantine adds to each held row: why, which run, when, and the row's own id.
 QUARANTINE_COLUMNS = ["_check", "_run_id", "_loaded_at", "_qid"]
@@ -368,7 +370,9 @@ class Engine:
             raise  # nothing was written; the worker that has the work now records its own run
         except NothingNew as ex:  # nothing to do is a successful run
             res.steps.append(Step("read", 0, 0.0, str(ex)))
-            self._record_files(e, res)  # files found only in a commit's metadata are saved now
+            # Files found only in a commit's metadata are saved now. This is after the table lock, so two
+            # runs may both save them: harmless, as the list is read as a set.
+            self._record_files(e, res)
         except DecisionNeeded as ex:
             res.status, res.message, res.options = "needs_decision", str(ex), ex.options
             return res
@@ -478,7 +482,7 @@ class Engine:
             todo, detail = listed, f"{plural(len(listed), 'file')}"
             if self._tracks_files(e):
                 if not full:
-                    done = self._loaded_files(e, where)
+                    done = self._loaded_files(e, where, res)
                     todo = [f for f in listed if (f["path"], f["size"], f["modified"]) not in done]
                     detail = f"{plural(len(todo), 'new file')} of {len(listed)}"
                     if not todo:
@@ -756,15 +760,18 @@ class Engine:
         backfill reads them all). Full loads, and ``[source] new_files_only = false``, read them all."""
         return e.mode in ("incremental", "scd1", "scd2") and e.spec.get("source", {}).get("new_files_only", True) is not False
 
-    def _loaded_files(self, e: Entity, lakehouse: str) -> set[tuple[str, int, str]]:
+    def _loaded_files(self, e: Entity, lakehouse: str, res: RunResult) -> set[tuple[str, int, str]]:
         m = self.store.meta("loaded_files").filter((pl.col("entity") == e.name) & (pl.col("lakehouse") == lakehouse))
         done = {(r["path"], r["size"], r["modified"]) for r in m.iter_rows(named=True)}
         # Each write also carries the files it read in its Delta commit. If the run never saved its
         # list (the save failed after the commit), those files are loaded all the same: going by the
-        # saved list would load them again, and a load without keys would add their rows twice.
+        # saved list would load them again, and a load without keys would add their rows twice. Only
+        # the last 20 commits are looked at, as for the watermark.
         try:
             history = self.store.history(self.lakehouse(e), e.schema, e.table, 20)
-        except Exception:  # noqa: BLE001  no history to go by: the saved list is all there is
+        except Exception as exc:  # noqa: BLE001  no history to go by: the saved list is all there is
+            res.steps.append(Step("files", 0, 0.0, f"couldn't read the table's history ({type(exc).__name__}: {exc}), "
+                                                   "so only the saved list of loaded files is used"))
             return done
         saved = set(m["run_id"].to_list())
         for commit in history:
@@ -776,11 +783,16 @@ class Engine:
             self._files_recovered += [{"entity": e.name, "lakehouse": lakehouse, "run_id": run} | f for f in new]
         return done
 
-    def _files_metadata(self) -> dict[str, str]:
+    def _files_metadata(self, res: RunResult) -> dict[str, str]:
         """The files this run read, for its table commit (see _loaded_files)."""
         if not self._files_read:
             return {}
         where, files = self._files_read
+        if len(files) > FILES_IN_COMMIT:
+            res.steps.append(Step("files", len(files), 0.0, f"too many files to list in the Delta commit (over "
+                                                            f"{FILES_IN_COMMIT:,}): if the list of loaded files "
+                                                            "can't be saved, the next run reads them again"))
+            return {}
         listed = [[f["path"], f["size"], f["modified"]] for f in files]
         return {FILES_KEY: json.dumps({"lakehouse": where, "files": listed}, separators=(",", ":"))}
 
@@ -1212,7 +1224,7 @@ class Engine:
         mark = self._new_watermark(e, df, backfill)
         if mark is not None:
             metadata["fabric_desktop_watermark"] = mark
-        metadata |= self._files_metadata()
+        metadata |= self._files_metadata(res)
         how, why = self._merge_plan(e, df, backfill)
         if how:
             version, info = self._write_merged(e, df, how, backfill, metadata)

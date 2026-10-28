@@ -164,3 +164,23 @@ def test_read_settings_are_not_logic_changes(repo):
                 'files = "landing/orders/*.csv"\nnew_files_only = false')
     repo.reload()
     assert repo.p.fingerprint(repo.p.entities["bronze.orders"]) == before
+
+
+def test_without_the_table_history_the_saved_list_is_used_and_the_run_says_so(repo, monkeypatch):
+    def no_history(*a, **k):
+        raise OSError("OneLake said no")
+    monkeypatch.setattr(repo.dev, "history", no_history)
+    res = repo.engine(DAY2).run("bronze.orders")
+    assert res.status == "ok" and "no new files" in read_step(res)
+    assert any("couldn't read the table's history" in s.detail for s in res.steps)
+
+
+def test_a_run_reading_too_many_files_lists_none_in_its_commit(repo, monkeypatch):
+    import fabric_desktop.meta.engine as engine_mod
+    monkeypatch.setattr(engine_mod, "FILES_IN_COMMIT", 1)
+    for day in ("02", "03"):
+        landing(repo.root, f"landing/orders/orders_2026-10-{day}.csv",
+                f"{ORDER_COLS}\n1{day},2,2026-10-{day},30.00,,shipped,2026-10-{day}\n")
+    res = repo.engine(DAY2).run("bronze.orders")
+    assert res.status == "ok" and any(s.detail.startswith("too many files to list") for s in res.steps)
+    assert engine_mod.FILES_KEY not in repo.dev.history("LH_Bronze", "dbo", "orders", 1)[0]

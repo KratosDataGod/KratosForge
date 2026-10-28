@@ -1,0 +1,37 @@
+# Opens the weekly review issue every Monday at 16:00 UTC, an hour before the orchestrator
+# thread's scheduled review reads it (docs/product/operations/README.md). It reads GitHub and the
+# repo's product data only; it never changes code or releases.
+name: Weekly review
+
+on:
+  schedule:
+    - cron: "0 16 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: weekly-review
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - name: Write the report
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python docs/product/operations/tools/queues.py report > "$RUNNER_TEMP/report.md"
+      - name: Open the weekly review issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create weekly-review --color 5319e7 --description "Weekly product and engineering review" 2>/dev/null || true
+          gh issue create --repo "$GITHUB_REPOSITORY" --label weekly-review \
+            --title "Weekly review: week ending $(date -u +%F)" --body-file "$RUNNER_TEMP/report.md"

@@ -296,6 +296,20 @@ def test_a_notebook_over_the_memory_limit_has_its_process_ended(kernel, quick_li
     assert kernel.run("'kept' in dir()")["outputs"] == [{"type": "text", "text": "False"}]
 
 
+def test_the_memory_limit_reads_the_interpreter_the_process_reported(kernel, quick_limits, monkeypatch):
+    """From a Windows venv, Popen's pid is the venv launcher (a few MB) and the interpreter is its
+    child: the limit must read the pid the kernel reported, not proc.pid (#896's Windows trial)."""
+    from fabric_desktop import kernel_proc
+    kernel.run("kept = 1")
+    launcher = kernel._proc.pid
+    kernel.pid = interpreter = launcher + 100_000  # what a venv launcher's child would report
+    monkeypatch.setattr(kernel_proc, "memory_used", lambda pid: 10 * 1024 ** 3 if pid == interpreter else 5 * 1024 ** 2)
+    kernel.memory_limit = 1024 ** 3
+    kernel.start("import time\ntime.sleep(30)")
+    snap = until_done(kernel)
+    assert snap["status"] == "error" and "the memory limit" in text(snap) and kernel.limit_hit == "memory"
+
+
 def test_the_limits_come_from_settings_or_policy(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
     monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))

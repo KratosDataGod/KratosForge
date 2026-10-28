@@ -141,6 +141,8 @@ Replayed quarantine rows go in the same way.
 
 ### Late rows and source deletes (Preview)
 
+These are settings in your entity files, not a screen, so **Settings > Preview features** has nothing to hide for them.
+
 By default an incremental run reads rows whose watermark is strictly after the last run's, and never looks at rows it loaded before. That misses two things: a row that arrives late, with a watermark older than the last run's, and a row deleted at the source. Two `[load]` settings, both off by default, cover them for an incremental load of a Delta source (`table`, `link` or `entity`) with `[contract] keys`:
 
 ```toml

@@ -27,7 +27,7 @@ The pages are opened signed in with test data (two workspaces, one lakehouse, tw
 | Monitor | dark | 16 | 0 (0) | none | 0 | 0 | 0 |
 | Source control | light | 5 | 0 (0) | none | 0 | 0 | 0 |
 | Source control | dark | 5 | 0 (0) | none | 0 | 0 | 0 |
-| Settings | light | 19 | 0 (0) | none | 32 | 0 | 1 |
+| Settings | light | 19 | 0 (0) | none | 32 | 0 | 0 |
 | Settings | dark | 19 | 0 (0) | none | 0 | 0 | 0 |
 | Notebook | light | 17 | 1 (1) | color-contrast (2) | 32 | 1 | 0 |
 | Notebook | dark | 17 | 1 (1) | color-contrast (2) | 0 | 0 | 0 |
@@ -46,7 +46,6 @@ The pages are opened signed in with test data (two workspaces, one lakehouse, tw
 
 Filed to be fixed in [#905](https://github.com/KratosDataGod/KratosForge/issues/905); the test fails on any serious or critical rule violation, or keyboard or focus finding, not listed here.
 
-- **Settings**: `input "Achievement celebrations"` shows no focus ring
 - **Notebook** (light): aria-input-field-name, serious: ARIA input fields must have an accessible name. At `div[data-language="python"]`, `div[data-language="sql"]`
 - **Notebook**: keyboard: Tab returns to button.tool.small "Run cell", 12 Tab stops later never reached (Escape, then Tab, used to leave each code editor)
 - **Notebook** (dark): aria-input-field-name, serious: ARIA input fields must have an accessible name. At `div[data-language="python"]`, `div[data-language="sql"]`
@@ -62,5 +61,5 @@ Checks axe couldn't decide by itself (for example a glyph, a line number, or tex
 
 - **Home**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.foldable.card.pad:nth-child(4) > .fold-head > .fold-toggle[title="Hide"] > .chev`, `.foldable.card.pad:nth-child(10) > .fold-head > .fold-toggle[title="Hide"] > .chev`. Pass: the fold arrow is #616161 on white, 6.2:1 (3:1 needed for a control's graphic).
 - **Workspaces**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.click:nth-child(1) > td:nth-child(3) > .star[title="Add to favorites"][aria-label="Add to favorites"]`, `.click:nth-child(2) > td:nth-child(3) > .star[title="Add to favorites"][aria-label="Add to favorites"]`. Pass: the favorite star is #8a8a8a on white, 3.5:1 (3:1 needed for a control's graphic); its button is named.
-- **Notebook**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.markdown > .gutter > .cell-grip[draggable="true"][title="Drag to move this cell"]`, `span[title="Fold line"]`. Pass: the drag grip is #616161, 6.2:1, and hidden from assistive tech; Ctrl+Shift+Up and Down move cells. Pass: the fold marker is #616161 on white, 6.2:1.
+- **Notebook**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.markdown > .gutter > .cell-grip[draggable="true"][title="Drag to move this cell"]`, `span[title="Fold line"]`. Pass: the drag grip is #616161, 6.2:1, and hidden from assistive tech; the cell's Move up and Move down buttons do the same from the keyboard. Pass: the fold marker is #616161 on white, 6.2:1.
 - **Data mesh entity**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.arrow[aria-hidden="true"]:nth-child(2)`, `.arrow[aria-hidden="true"]:nth-child(4)`, `.arrow[aria-hidden="true"]:nth-child(6)`, `.arrow[aria-hidden="true"]:nth-child(8)`, `#entity-toml`. Pass: the step arrows are #8a8a8a on white, 3.5:1, and hidden from assistive tech (the steps' order is in the text). Pass: the entity file's text is #242424 on #fafafa, 14.9:1 (axe sees the box as partly covered).

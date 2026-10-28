@@ -304,3 +304,24 @@ def test_a_browser_sign_in_left_open_gives_up_instead_of_holding_the_engine(tmp_
     with pytest.raises(SignInError, match="wasn't finished within 10 minutes. Sign in again."):
         auth._token(FABRIC_SCOPES)
     assert App.asked["timeout"] == SIGN_IN_SECONDS
+
+
+def test_a_refreshed_token_skips_msals_cache_and_falls_back_to_a_normal_sign_in(tmp_path):
+    from fabric_desktop.auth import FABRIC_SCOPES, Authenticator
+
+    class App:
+        def __init__(self, fresh):
+            self.fresh, self.asked = fresh, []
+
+        def get_accounts(self):
+            return [{"username": "chris@contoso.com"}]
+
+        def acquire_token_silent(self, scopes, account, force_refresh=False):
+            self.asked.append(force_refresh)
+            return self.fresh if force_refresh else {"access_token": "cached"}
+
+    auth = Authenticator(cache_path=tmp_path / "cache.bin")
+    auth.app = App({"access_token": "new"})
+    assert auth.refreshed_token(FABRIC_SCOPES) == "new" and auth.app.asked == [True]
+    auth.app = App(None)  # MSAL couldn't refresh silently: the usual path decides
+    assert auth.refreshed_token(FABRIC_SCOPES) == "cached" and auth.app.asked == [True, False]

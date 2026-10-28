@@ -302,6 +302,8 @@ def test_sql_result_saves_as_a_table_and_exports_csv(tmp_path, monkeypatch):
     csv = service.export_sql_csv("SELECT * FROM regions ORDER BY Country", LH)
     assert csv["rows"] == 2 and Path(csv["path"]).read_text().splitlines()[1] == '"UK","Europe"'
     assert service.table_columns(LH, "regions") == [{"name": "Country", "type": "string"}, {"name": "Region", "type": "string"}]
+    # Kept for completion while offline (PB-027).
+    assert service.cached_schemas("lh1")["columns"]["regions"] == [{"name": "Country", "type": "string"}, {"name": "Region", "type": "string"}]
 
 
 def test_pyspark_runs_locally_but_scala_rdds_and_merge_stay_in_fabric():

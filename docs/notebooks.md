@@ -271,7 +271,7 @@ A bundle also lists what it can't promise: cells that hadn't run, ran in a diffe
 
 ## Editing
 
-- Cells have line numbers, bracket matching, folding, find in the cell (**Ctrl+F**), **Ctrl+/** to comment, and autocomplete (**Ctrl+Space**) from the running kernel's variables, Python names, and the attached lakehouse's table names inside strings and `%%sql` cells.
+- Cells have line numbers, bracket matching, folding, find in the cell (**Ctrl+F**), **Ctrl+/** to comment, and autocomplete (**Ctrl+Space**) from the running kernel's variables, Python names, and the attached lakehouse's table names inside strings and `%%sql` cells. In a `%%sql` cell, typing a table's alias and a dot (`s.`) offers that table's columns, as on the SQL page, without running anything. The app keeps the table and column names it last read for each lakehouse (names only, no data), so completion still works offline or signed out; they go with the other cached copies after `local_retention_days`.
 - Hover a name for its signature and docs, see a call's parameters as you type, and get a red underline on syntax errors. See [IntelliSense in notebook cells](notebook-editor/intellisense.md).
 - **Shift+Alt+F** formats the cell you're editing (Python in Black's style, `%%sql` as Format SQL does), and **Edit > Format notebook** formats every code cell. See [Format code in a notebook](notebook-editor/format-code.md).
 - **Ctrl+H** finds and replaces across every cell. See [Find and replace in a notebook](notebook-editor/find-and-replace.md).

@@ -221,7 +221,7 @@ on quality.
 | [FEAT-SHL-05](#feat-shl-05) | Preview tags and hiding Preview features | Implemented | Partially Verified | Settings > Preview features | Add Preview ids for batch_by, release records, who-can-promote, objectives and column lineage, which docs call Preview but code doesn't tag (PB-078). |
 | [FEAT-SHL-06](#feat-shl-06) | Plain-language errors and activity tray | Implemented | Partially Verified | Top bar bell | Feed incidents and agent status into the bell once incident screens exist (PB-047). |
 | [FEAT-FAB-04](#feat-fab-04) | Item preview panel | Implemented | Partially Verified | Workspaces > item (Preview) | Clean up downloaded preview files (inference: never removed). |
-| [FEAT-NB-08](#feat-nb-08) | Autocomplete and variables pane | Implemented | Partially Verified | Notebook editor, View > Variables | Column completion for attached tables (Prove backlog #12). |
+| [FEAT-NB-08](#feat-nb-08) | Autocomplete and variables pane | Implemented | Partially Verified | Notebook editor, View > Variables | Merge the %%sql column completion PR for PB-027, then verify it on a real lakehouse. |
 | [FEAT-NB-09](#feat-nb-09) | Cell dependencies and stale cells | Implemented | Partially Verified | Notebook View and Run tabs (Preview) | Add UI to declare depends_on (engine reads it, no UI sets it); mark stale on a new Delta version. |
 | [FEAT-NB-10](#feat-nb-10) | New notebook wizard | Implemented | Partially Verified | Create > Notebook from a template (Preview) | Add the entry point from a lakehouse table (plan Stage 3). |
 | [FEAT-ADM-04](#feat-adm-04) | Ready to work checklist | Implemented | Partially Verified | None | Implementation review of PR #94 |
@@ -923,19 +923,19 @@ on quality.
 
 ### FEAT-NB-08
 
-**Autocomplete and variables pane.** Completion from the live kernel plus table names; variables pane hides secret-looking values.
+**Autocomplete and variables pane.** Completion from the live kernel plus table names, and in %%sql cells the columns of an aliased table (cached for offline use); variables pane hides secret-looking values.
 
 - **Pillar and category:** Local development; Developer Experience and Productivity
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Notebook editor, View > Variables
 - **Evidence:** test: sidecar/tests/test_notebook_parity.py::test_variables_hide_secrets_and_completion_lists_attributes (sidecar suite passed in this assessment (656 passed, 2 skipped)); smoke: kernel_variables listed df; kernel_complete returned items only for names in the namespace; test: sidecar/tests/test_debugging.py (passed in the 2026-10-17 refresh run at 9715e28)
-- **Source:** `sidecar/fabric_desktop/notebook.py`, `app/ui/notebook.js`, `app/ui/debugging.js`, `sidecar/fabric_desktop/kernel_host.py`
-- **Tests:** `sidecar/tests/test_notebook_parity.py`, `sidecar/tests/test_debugging.py`
+- **Source:** `sidecar/fabric_desktop/notebook.py`, `app/ui/notebook.js`, `app/ui/debugging.js`, `sidecar/fabric_desktop/kernel_host.py`, `sidecar/fabric_desktop/schema_cache.py`
+- **Tests:** `sidecar/tests/test_notebook_parity.py`, `sidecar/tests/test_debugging.py`, `app/tests/browser/notebook-sql-complete.test.cjs`, `sidecar/tests/test_schema_cache.py`
 - **Docs:** [docs/notebooks.md](../notebooks.md)
-- **Known limitations:** Completes only what the kernel has run. No completion when Runs on is Fabric. Variable history, watches and hidden-state warnings are Preview (PR #129).
+- **Known limitations:** Python completes only what the kernel has run; %%sql cells complete columns from the lakehouse's Delta schemas. No completion when Runs on is Fabric. Variable history, watches and hidden-state warnings are Preview (PR #129).
 - **Pull requests and issues:** [#129](https://github.com/KratosDataGod/KratosForge/pull/129)
 - **Backlog:** [PB-027](PRODUCT_BACKLOG.md#pb-027)
-- **Recommended next action:** Column completion for attached tables (Prove backlog #12).
+- **Recommended next action:** Merge the %%sql column completion PR for PB-027, then verify it on a real lakehouse.
 
 ### FEAT-NB-09
 

@@ -8,6 +8,7 @@
 - You **publish** it, which freezes that version, and **assign** it where it applies: the whole enterprise, a domain, a project or one table.
 - Each project works out which policies apply to it, and **Explain** shows why.
 - **Policies warn; nothing blocks yet.** **Check now** (Preview) checks the open project against its policies on your PC and lists what to look at, but it stops nothing. Blocking promote and deploy comes with GOV-003. Until then, a policy set to **Block** shows as **Block (not enforced yet)**.
+- **It works offline.** Each Check now that reaches the platform keeps a hash-checked **policy package** of the project's policies on your PC; without the platform, Check now uses it and says how old it is. `fabric-desktop governance check` runs the same checks from the command line for CI, and fails on an Error finding no exception covers.
 - **Start from a template.** Four built-in templates (table names, product owners, sensitive column labels, a data contract) and your organization's own make a policy in a few clicks. See [a worked template](#4-from-a-template-a-data-contract).
 
 Some standards are already enforced today by the app's own gates, without a policy. The [enforcement table](#what-can-be-enforced) below lists them, so you know which standards already hold.
@@ -21,7 +22,7 @@ Each step below is saved in the platform's catalog: the policy and its versions 
 3. **Assign it.** On the policy's **Where it applies** tab, choose **Assign** and pick a scope. An assignment can tighten the policy for that scope. If the policy is **Mandatory**, scopes below may only make it stricter.
 4. **See the result.** **Where it applies** lists every project the policy reaches. **Explain** next to a project shows each step: which scope introduced it, what each scope changed, and anything that was ignored and why.
 5. **Tighten it in a project.** A project can tighten or add policies in `governance.toml`, reviewed in Git like any other project file.
-6. **Check the project.** Platform > Governance > **Check this project** > **Check now** runs each policy's **Checked by** rules on your PC and lists what to look at, with a fix or a link to where to fix it. It's warn only. **(Coming with GOV-003)** A Block finding stops promote or deploy until it's fixed or an exception is approved.
+6. **Check the project.** Platform > Governance > **Check this project** > **Check now** runs each policy's **Checked by** rules on your PC and lists what to look at, with a fix or a link to where to fix it. It's warn only. Without the platform it uses the project's latest policy package on your PC, and says which and how old ([offline policy packages](governance.md#offline-policy-packages)). **(Coming with GOV-003)** A Block finding stops promote or deploy until it's fixed or an exception is approved.
 
 ## Worked examples
 
@@ -128,6 +129,18 @@ When a standard genuinely doesn't fit, an exception records why, who approved it
 
 Checks that depend on the platform fail closed. When a rule can't be read, KratosForge stops the step and says why instead of acting as if there were no rule (see [Governance policies](governance.md)).
 
+**Check now** is the exception that still works, because it carries the rules with it: the [policy package](governance.md#offline-policy-packages) it keeps on your PC has the project's policies, their published versions with their SHA-256 hashes, the assignments and the active exceptions, as of when it was taken. Offline it uses that package and says how old it is; it reads nothing from the platform, Fabric or OneLake, so rules that need the catalog or the run logs say unknown. A package whose hashes don't match is refused, never used. The hash check catches a changed or broken file; it isn't a signature, since signing would need a key the app doesn't have. The package is the platform's state when it was taken, the project's domain included: an exception ended early still applies offline until the package is taken again.
+
+For CI, a policy owner takes a package where the platform can be reached and pins its SHA-256 where a pull request can't change it, in a protected CI variable; the check refuses any other package, so editing the file and recomputing its hashes doesn't get past it:
+
+```
+fabric-desktop governance package --out policies.json      # prints the SHA-256 to pin
+# protected CI variable: KRATOSFORGE_POLICY_PACKAGE_SHA256=<that hash>
+fabric-desktop governance check --project . --package policies.json --max-age 30 --require-pin
+```
+
+Without a protected variable, put `policies.json` under `CODEOWNERS` so a change to it needs a policy owner's review, and pass `--expect-sha256` from a pipeline file the same owners protect. The check exits 1 when an Error finding (from a high or critical policy) isn't covered by an exception, and 2 when it can't check, the package isn't the pinned one, or it's older than `--max-age` days. See [offline policy packages](governance.md#offline-policy-packages).
+
 ## Teams notices for requests and shortcuts
 
 With a platform Teams route set (**Settings > Notifications**), KratosForge posts:
@@ -137,7 +150,7 @@ With a platform Teams route set (**Settings > Notifications**), KratosForge post
 | A request is made (a key table, a source, access to a data product, a shortcut, a workspace, access to a workspace, a domain, an exception to a policy) | `request.waiting` | Platform admins, and the data product's owners when it names one |
 | It is approved or declined | `request.decided` | Whoever asked |
 | It is withdrawn | `request.withdrawn` | Platform admins and the product's owners |
-| A health check on **Shortcuts > Health** finds a shortcut broken, or fixed again | `shortcut.broken`, `shortcut.fixed` | Platform admins |
+| A health check on **Shortcuts > Health** finds a shortcut broken, or fixed again. An agent with `[shortcut_health]` posts the same kinds from its scheduled check to its own channel ([agent](agent.md#shortcut-health)) | `shortcut.broken`, `shortcut.fixed` | Platform admins |
 | A data product is published as deprecated, or with a new `deprecated_on` (see [Data mesh](data-mesh.md#data-products)) | `product.deprecated` | The teams of the projects that link to it, and whoever saved each link |
 
 | Someone presses **Tell them** under **Who's affected** on an incident page ([user guide](user-guide.md#whos-affected-preview)) | `incident.impact` | The owners of the data products built on the incident's table, people who linked a project to them, and followers |

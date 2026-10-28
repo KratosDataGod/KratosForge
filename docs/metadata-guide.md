@@ -65,7 +65,7 @@ When you're ready to use Fabric for Dev, assign it a workspace (step 7) and swit
 | **Can read from** | **Any earlier layer**, or **Only** one earlier layer. The first layer reads files and sources. |
 | **Schema drift** | What happens when a source has a column the contract doesn't: **Keep new columns**, **Ignore new columns**, or **Stop on new columns**. An entity can override this. |
 | **Required checks** | **Key not null** and **Key unique**: every table in the layer must have these checks on its key. |
-| **Surrogate keys: Required** | Every table in the layer must take its keys from LH_Keys. |
+| **Surrogate keys: Required** | Every table in the layer must take its surrogate keys from the environment's key tables ([section 8](#8-surrogate-keys)). |
 | **Keep history** | How many days back a table can be restored (at least 7). VACUUM keeps files this long. |
 | **↑ ↓** and **Remove** | Reorder, or remove a layer with no entities. |
 
@@ -311,12 +311,12 @@ Below the cards are **Promote Dev to Test** and **Promote Test to Prod**. Each s
 **Promote to Test** (or Prod):
 
 1. Checks the gate: the project passes the save gate, the tests pass, and every table's last run in the source environment is green on this exact metadata version.
-2. Creates any missing lakehouses (`LH_<Layer>` for each layer, and `LH_Meta`) in the target workspace, and `LH_Keys` with any missing key tables in the Keys workspace.
-3. Syncs source systems to `LH_Keys` and publishes the `VL_Sources` variable library.
+2. Creates any missing lakehouses (`LH_<Layer>` for each layer, and `LH_Meta`) in the target workspace. Key tables: without a platform, it creates `LH_Keys` in the Keys workspace if it's missing, and any missing key tables in it. With the target's keys in the platform (the [one keys database](platform.md#one-keys-database-for-dev-test-and-prod) `SQL_Keys`, or the environment's `SQL_Platform`), a platform admin's promote creates the missing key tables, and anyone else's lists them as missing, to request on **Data mesh > Requests**.
+3. Writes the source systems to `LH_Keys` (`config.source_system`, `config.source_connection`) when the target's keys are there; with keys in the platform, no source system tables are written. For a target in a Fabric workspace, it also publishes the `VL_Sources` variable library.
 4. Pins the target to this metadata version, recorded in `meta.deployments` with a [release record](#release-records).
 5. If the target runs in Fabric, uploads the new version for its runner.
 
-Promote copies **configuration**, never data and never keys. Each environment issues its own surrogate keys from its own `LH_Keys`, and Test and Prod load from their own sources. After a promote, run the target to load it.
+Promote copies **configuration**, never data and never keys. With one keys database, Dev, Test and Prod issue from the same key tables, so a business key has the same surrogate key everywhere; otherwise each environment issues its own: in its `SQL_Platform`, in `LH_Keys` in its Keys workspace, or, for an environment that runs on this PC, in key tables on this PC. Test and Prod load from their own sources. After a promote, run the target to load it.
 
 ### Release records
 
@@ -361,7 +361,7 @@ require_commit = true    # block even when this environment is on this PC
 
 ### Who can promote
 
-*Preview.* Before a promote to Test or Prod writes anything, the promote card checks your workspace role in each workspace the target uses. If Fabric lists you as a **Viewer** there, it says so and names the workspace's Admins to ask, and the promote is blocked. Fabric would refuse those writes anyway, partway through. If your role may come through a group, or Fabric won't show the workspace's access list, the card shows a note instead and Fabric decides when the promote writes.
+*Preview*, part of **Promote** and tagged with it. Before a promote to Test or Prod writes anything, the promote card checks your workspace role in each workspace the target uses. If Fabric lists you as a **Viewer** there, it says so and names the workspace's Admins to ask, and the promote is blocked. Fabric would refuse those writes anyway, partway through. If your role may come through a group, or Fabric won't show the workspace's access list, the card shows a note instead and Fabric decides when the promote writes.
 
 To have a second person release to Prod, set `separate_promoter = true` for Prod in `environments.toml`:
 
@@ -401,7 +401,7 @@ business_key = "customer_id"     # or ["source_code", "customer_id"]
 
 ### Keys in the platform
 
-With a [platform](platform.md) in Fabric, an environment's keys come from `SQL_Platform` instead, one key system for every team. A project that already issued keys in `LH_Keys` moves them with **Move keys** on this tab: every key keeps its number, each row is checked, and only then does the environment switch (`keys = "platform"` in `environments.toml`).
+With a [platform](platform.md) in Fabric, an environment's keys come from the platform instead, one key system for every team: from `SQL_Keys` once they've moved into the [one keys database](platform.md#one-keys-database-for-dev-test-and-prod), shared by Dev, Test and Prod, and from that environment's `SQL_Platform` until then. A project that already issued keys in `LH_Keys` moves them with **Move keys** on this tab: every key keeps its number, each row is checked, and only then does the environment switch (`keys = "platform"` in `environments.toml`).
 
 In an environment whose keys are in the platform, the project doesn't make its own key tables. **Use a key table** picks one of the platform's (it still writes `metadata/keys/<name>.toml`, so the project says which keys it uses). Only platform admins add key tables: **Request a new one** sends a request to **Data mesh > Requests**, and the key table shows in the list once it's approved. A run that needs a key table the platform doesn't have stops and says to request it; **Sync** lists any that are missing.
 
@@ -541,7 +541,7 @@ business_key = "order_id"
 | | `name`, `expr` | A row rule as a SQL expression |
 | | `python`, `owner`, `test` | A custom check |
 | | `on_fail` | `stop`, `quarantine` or `warn` |
-| `[[keys]]` | `table`, `business_key` | Surrogate keys from `LH_Keys` |
+| `[[keys]]` | `table`, `business_key` | Surrogate keys from the environment's key tables (`SQL_Keys`, `SQL_Platform` or `LH_Keys`) |
 | `[[lookup]]` | `dim`, `on`, `as`, `at` | A dimension's surrogate key as of the fact's date |
 | `[scd]` | `surrogate_key`, `tracked`, `type1` | Dimension settings |
 | `[model]` | `date_column` | Makes the dimension the semantic model's date table (see [section 10](#10-semantic-model-preview)) |
@@ -568,7 +568,7 @@ One section per environment (`[dev]`, `[test]`, `[prod]`):
 | `compute` | `local` (this PC) or `fabric` |
 | `keys_workspace_id`, `keys_workspace_name` | Where `LH_Keys` lives |
 | `optimize_after_run` | Optimize every table a run writes (Test and Prod) |
-| `keys` | `platform` (keys in `SQL_Platform`) or `lakehouse` (`LH_Keys`). Unset, keys come from the platform once the environment has one in Fabric, unless the project already has `LH_Keys` |
+| `keys` | `platform` (keys in the platform: `SQL_Keys` when the organization has one keys database, else `SQL_Platform`) or `lakehouse` (`LH_Keys`). Unset, keys come from the platform once the environment has one in Fabric, unless the project already has `LH_Keys` |
 | `workspaces` | A workspace per designation, like `{ ingest = { id = "...", name = "Sales Ingest - Test" } }` |
 | `require_commit` | Whether promote here takes only files a pushed Git commit holds. On by default for an environment in OneLake, off for one on this PC; `false` or `true` overrides it ([Release records](#release-records)) |
 | `separate_promoter` | `true`: whoever promoted this version to the environment before can't promote it here ([Who can promote](#who-can-promote)) |

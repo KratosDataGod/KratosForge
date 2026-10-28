@@ -56,6 +56,12 @@ test("popping out the runs list leaves a band", { skip }, async () => {
   assert.strictEqual(await p.$(".monitor-scroll"), null, "the list is only in its window");
   assert.ok(await p.isVisible(".monitor-tabs"), "the tabs stay, so the Fabric tab is a click away");
   if (SHOTS) await p.screenshot({ path: path.join(SHOTS, "pop-out-main-runs-out.png") });
+  // The Fabric tab isn't in the runs window: its pages still show here.
+  await p.evaluate(() => { monitorPage.panel = "fabric_schedules"; render(); });
+  await p.waitForSelector(".monitor-tabs .tab.active:has-text('Fabric')");
+  assert.strictEqual(await p.$(".monitor-local.popped-out"), null, "Fabric > Schedules isn't the runs band");
+  await p.evaluate(() => { monitorPage.panel = "runs"; render(); });
+  await p.waitForSelector(".monitor-local.popped-out");
   await p.click(".monitor-local.popped-out button:has-text('Dock back')");
   assert.deepStrictEqual(await shellCalls(p, "pop_out_close"), [{ section: "runs" }]);
   // The shell says the window closed; the list comes back.

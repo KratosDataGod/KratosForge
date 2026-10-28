@@ -1048,8 +1048,8 @@
       "problem": "T-SQL developers can't reach a Warehouse, SQL analytics endpoint or Fabric SQL database from the app.",
       "capability": "Owned and specified by the SQL development sprint (SQL-004).",
       "evidence": [
-        "No TDS or ODBC client in sidecar/constraints.txt",
-        "SQL-004 read-only warehouse queries (#581) with mssql-python (#580); Warehouse page WH-01 (#636)"
+        "SQL-004 read-only warehouse queries (#581) with mssql-python (#580); Warehouse page WH-01 (#636)",
+        "mssql-python is in sidecar/constraints.txt (#580); a first tenant run on 2026-10-27 led to #808 and #809"
       ],
       "features": [
         "FEAT-FAB-11"
@@ -4163,7 +4163,10 @@
         803,
         804,
         805,
-        806
+        806,
+        814,
+        825,
+        826
       ]
     },
     {
@@ -4386,7 +4389,8 @@
         783,
         787,
         808,
-        809
+        809,
+        823
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -4592,8 +4596,7 @@
       "capability": "The BPA engine (#560) registers through governance_checks.register with runs_in=\"fabric\"; Check now says those checks run in Fabric and use capacity, and stores their findings with store_fabric_findings.",
       "evidence": [
         "PB-108 implementation review, finding 1 (docs/product/reviews/PB-108-643.md)",
-        "#560 is an open draft",
-        "PR #753 registers SM001-SM007 so a policy can name them; they read the model on this PC, so no capacity is used, unlike the criterion's Fabric run (BPA #560 is still a draft)",
+        "PR #753 registers SM001-SM007 so a policy can name them; they read the model on this PC, so no capacity is used, unlike the criterion's Fabric run",
         "PR #560 merged: the Fabric BPA run with semantic-link-labs (engine); not yet run live"
       ],
       "features": [

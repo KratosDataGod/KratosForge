@@ -120,7 +120,7 @@ jobs:
           python -m pip install --quiet pip-audit==2.10.1
           pip-audit -r sidecar/constraints.txt --no-deps --disable-pip --progress-spinner off
       # Keeps the cargo-audit binary between runs (~/.cargo/bin); only main writes the cache.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2, the same pin as the shell job
         with:
           key: cargo-audit-0.22.2
           workspaces: app/src-tauri
@@ -138,7 +138,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # Keeps the cargo-cyclonedx binary between runs (~/.cargo/bin); only main writes the cache.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2, the same pin as the shell job
         with:
           key: cargo-cyclonedx-0.5.9
           workspaces: app/src-tauri

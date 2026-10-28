@@ -2508,3 +2508,8 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .zone-field select { padding: 4px; min-height: 0; }
 .zone-field optgroup { color: var(--muted); font-weight: 600; font-style: normal; }
 .zone-field option { color: var(--text); font-weight: 400; padding: 3px 6px; }
+
+/* "Run even when I'm signed out of Windows" on this PC's schedules (PB-048). */
+.signed-out-field { display: flex; flex-direction: column; gap: 8px; }
+.signed-out-field label.check { align-items: flex-start; gap: 8px; }
+.signed-out-field ul { margin: 4px 0 0; padding-left: 18px; }

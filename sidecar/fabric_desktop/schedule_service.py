@@ -68,7 +68,7 @@ class ScheduleMixin:
 
     # ---- schedules on this PC
 
-    def add_pc_schedule(self, target: dict[str, Any], schedule: dict[str, Any]) -> dict[str, Any]:
+    def add_pc_schedule(self, target: dict[str, Any], schedule: dict[str, Any], signed_out: bool = False) -> dict[str, Any]:
         if target.get("kind") == "notebook":
             self.notebooks.load(target.get("name", ""))  # type: ignore[attr-defined]  # it exists
         elif target.get("kind") == "pipeline":
@@ -78,7 +78,7 @@ class ScheduleMixin:
             unknown = [n for n in target.get("entities") or [] if n not in project.entities]
             if unknown:
                 raise ValueError(f"Not in the project: {', '.join(unknown)}")
-        item = self.pc_schedules.add(target, schedule)
+        item = self.pc_schedules.add(target, schedule, signed_out=bool(signed_out))
         return {"schedule": item, "windows": self.pc_schedules.scheduler.available}
 
     def _pipeline_schedule_target(self, target: dict[str, Any]) -> dict[str, Any]:
@@ -121,6 +121,11 @@ class ScheduleMixin:
 
     def set_pc_schedule_enabled(self, schedule_id: str, enabled: bool) -> dict[str, Any]:
         return self.pc_schedules.set_enabled(schedule_id, enabled)
+
+    def set_pc_schedule_signed_out(self, schedule_id: str, signed_out: bool) -> dict[str, Any]:
+        """Also run while signed out of Windows (Windows asks for the password), or only while signed
+        in. Turning it on again is how a changed Windows password is given (PB-048)."""
+        return self.pc_schedules.set_signed_out(schedule_id, signed_out)
 
     def update_pc_schedule(self, schedule_id: str, schedule: dict[str, Any]) -> dict[str, Any]:
         """Change when one of this PC's schedules runs (PB-048)."""

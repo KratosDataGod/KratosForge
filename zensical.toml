@@ -179,6 +179,7 @@ nav = [
       { "Backlog" = "ux/backlog.md" },
       { "Release gates and reviews" = "ux/release-review.md" },
       { "Action-first experience" = "ux/action-first.md" },
+      { "Accessibility audit" = "ux/accessibility-audit.md" },
     ] },
   ] },
 ]

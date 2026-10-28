@@ -315,3 +315,34 @@ def test_no_project_yet_is_still_just_empty(tmp_path):
     s = Service(root=tmp_path / "app")
     assert s.meta_runs_all() == {"runs": [], "unavailable": {}}
     assert "project_error" not in s.meta_freshness()
+
+
+def test_hashed_totals_of_floats_added_in_another_order_are_the_same(svc):
+    import pyarrow as pa
+    import pyarrow.dataset as pads
+    from fabric_desktop.meta import compare as compare_mod
+    e = svc._project().entities["silver.customers"]
+    key = e.keys[0]
+    import random
+    values = [random.Random(i).uniform(0, 1000) for i in range(5000)]
+    left = pa.table({key: [str(i) for i in range(len(values))], "amount": pa.array(values)})
+    right = pa.table({key: [str(i) for i in reversed(range(len(values)))], "amount": pa.array(list(reversed(values)))})
+    out = compare_mod.hashed(e, pads.dataset(left), pads.dataset(right))
+    assert out["totals"][0]["diff"] == 0
+    assert compare_mod._diff(0.1 + 0.2, 0.3) == 0 and compare_mod._diff(1.0, 1.5) == 0.5 and compare_mod._diff(3, 4) == 1
+
+
+def test_hashed_compare_with_no_shared_columns_still_counts_rows(svc):
+    import pyarrow as pa
+    import pyarrow.dataset as pads
+    from fabric_desktop.meta import compare as compare_mod
+    e = svc._project().entities["silver.customers"]
+    out = compare_mod.hashed(e, pads.dataset(pa.table({"a": [1, 2]})), pads.dataset(pa.table({"b": [1]})))
+    assert out["rows"] == {"left": 2, "right": 1} and out["columns"]["only_left"] == ["a"]
+
+
+def test_a_table_missing_on_one_side_isnt_loaded_on_the_other(svc, monkeypatch):
+    svc.meta_set_environment("test", target="local")
+    monkeypatch.setattr(type(svc), "_table", lambda *a: pytest.fail("the table was read into memory"))
+    out = svc.meta_compare("silver.orders", "dev", "test")
+    assert out["rows"]["right"] is None and out["rows"]["left"] > 0 and "the right" in out["note"]

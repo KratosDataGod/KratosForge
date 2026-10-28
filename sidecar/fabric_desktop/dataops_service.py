@@ -78,7 +78,9 @@ class DataOpsMixin:
         project = self._project()  # type: ignore[attr-defined]
         e = project.entities[name]
         sides = [self._delta(project, name, env, v) for env, v in ((left_env, left_version), (right_env, right_version))]
-        if all(t is not None for t in sides) and max(_rows_in(t) for t in sides) > compare_mod.LIMIT_ROWS:
+        if any(t is None for t in sides):  # nothing to compare: only count the side that's there
+            result = compare_mod.missing(e, *(None if t is None else _rows_in(t) for t in sides))
+        elif max(_rows_in(t) for t in sides) > compare_mod.LIMIT_ROWS:
             # Too many rows to load both sides: stream them for counts, totals and a checksum.
             result = compare_mod.hashed(e, *(t.to_pyarrow_dataset() for t in sides))
         else:

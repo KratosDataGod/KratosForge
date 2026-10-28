@@ -49,20 +49,28 @@ def _current(df: pl.DataFrame | None) -> pl.DataFrame | None:
     return df
 
 
-def compare(e: Entity, left: pl.DataFrame | None, right: pl.DataFrame | None) -> dict[str, Any]:
-    left, right = _current(left), _current(right)
-    out: dict[str, Any] = {
-        "entity": e.name, "keys": e.keys,
-        "rows": {"left": None if left is None else left.height, "right": None if right is None else right.height},
+def missing(e: Entity, left_rows: int | None, right_rows: int | None) -> dict[str, Any]:
+    """The compare when the table is missing on one side or both (``None`` rows): nothing to load."""
+    return _empty(e, left_rows, right_rows) | {
+        "note": "The table doesn't exist on " + ("either side" if left_rows is None and right_rows is None
+                                                  else "the left" if left_rows is None else "the right") + " yet."}
+
+
+def _empty(e: Entity, left_rows: int | None, right_rows: int | None) -> dict[str, Any]:
+    return {
+        "entity": e.name, "keys": e.keys, "rows": {"left": left_rows, "right": right_rows},
         "columns": {"only_left": [], "only_right": [], "type_changed": []},
         "only_left": {"count": 0, "rows": []}, "only_right": {"count": 0, "rows": []},
         "changed": {"count": 0, "by_column": {}, "rows": []}, "totals": [], "compared_on_keys": False,
         "method": "full",
     }
+
+
+def compare(e: Entity, left: pl.DataFrame | None, right: pl.DataFrame | None) -> dict[str, Any]:
+    left, right = _current(left), _current(right)
     if left is None or right is None:
-        out["note"] = "The table doesn't exist on " + ("either side" if left is None and right is None
-                                                        else "the left" if left is None else "the right") + " yet."
-        return out
+        return missing(e, None if left is None else left.height, None if right is None else right.height)
+    out = _empty(e, left.height, right.height)
     skip = ignored_columns(e)
     lcols = [c for c in left.columns if c not in skip]
     rcols = [c for c in right.columns if c not in skip]
@@ -127,6 +135,8 @@ def _projected(data: pads.Dataset, columns: list[str]) -> pa.RecordBatchReader:
 def _summary(data: pads.Dataset, columns: list[str], numbers: set[str], totals: list[str]) -> dict[str, Any]:
     """Rows, an order-independent checksum of ``columns`` and the sums of ``totals``, in one pass."""
     import duckdb
+    if not columns:  # nothing shared to checksum: only the row count says anything
+        return {"rows": _projected(data, []).read_all().num_rows, "checksum": "0" * 16, "totals": []}
     reader = _projected(data, columns)
     fields = sorted(reader.schema, key=lambda f: f.name.lower())
     row_hash = (f"coalesce(sum(CAST(hash({', '.join(side_by_side._normalized(f.name, f.type, f.name in numbers) for f in fields)}) AS HUGEINT)), 0)"
@@ -141,7 +151,21 @@ def _summary(data: pads.Dataset, columns: list[str], numbers: set[str], totals: 
         got = con.execute(f"SELECT count(*), {', '.join([row_hash] + sums)} FROM t").fetchone()
     finally:
         con.close()
+        reader.close()
     return {"rows": int(got[0]), "checksum": f"{int(got[1]) % (1 << 64):016x}", "totals": list(got[2:])}
+
+
+# Sums of floating-point columns depend on the order rows are added in, which differs between two
+# scans of the same rows; a difference this small, relative to the totals, is the same total.
+FLOAT_TOLERANCE = 1e-9
+
+
+def _diff(left: Any, right: Any) -> Any:
+    """How a total moved; 0 for two float sums equal within FLOAT_TOLERANCE."""
+    d = (right or 0) - (left or 0)
+    if isinstance(d, float) and abs(d) <= FLOAT_TOLERANCE * max(abs(left or 0), abs(right or 0)):
+        return 0.0
+    return d
 
 
 def _is_number(t: pa.DataType) -> bool:
@@ -170,7 +194,7 @@ def hashed(e: Entity, left: pads.Dataset, right: pads.Dataset) -> dict[str, Any]
                                      for c in common if ls.field(c).type != rs.field(c).type]},
         "only_left": {"count": 0, "rows": []}, "only_right": {"count": 0, "rows": []},
         "changed": {"count": 0, "by_column": {}, "rows": []},
-        "totals": [{"column": c, "left": x, "right": y, "diff": (y or 0) - (x or 0)}
+        "totals": [{"column": c, "left": x, "right": y, "diff": _diff(x, y)}
                    for c, x, y in zip(totals, a["totals"], b["totals"])],
         "compared_on_keys": False, "method": "hashed", "limit_rows": LIMIT_ROWS,
         "checksum": {"left": a["checksum"], "right": b["checksum"], "match": match},

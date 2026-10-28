@@ -42,6 +42,8 @@ _SESSION_DONE = ("dead", "error", "killed", "shutting_down", "success")
 
 FABRIC_SPARK = EngineDescriptor(
     id="fabric-spark", label="Fabric Spark (remote)", location="remote", platform="fabric",
+    # Its own family, not LOCAL_SPARK's "spark": a session in Fabric can't carry its variables over to
+    # Spark on this PC (or back) when the notebook switches engines.
     billing="fabric_capacity", adapter=True, family="fabric-spark", preview=True,
     languages={
         "pyspark": Support("native", "Fabric's own Spark, in a session on the workspace's capacity.", _T),
@@ -181,19 +183,27 @@ class FabricSparkSession:
         conf = {k: str(v) for k, v in (config.options.get("conf") or {}).items()}
         created = client.create(f"KratosForge {config.notebook}"[:100], conf)
         self.id = str(created.get("id", ""))
-        started = clock()
-        state = str(created.get("state") or "")
-        while state != "idle":
-            if state in _SESSION_DONE:
-                self._closed = True
-                raise FabricSparkError(f"The Spark session couldn't start (it is {state}). The Monitoring hub "
-                                       "has its log.")
-            if clock() - started > start_seconds:
-                self.close()
-                raise FabricSparkError(f"The Spark session didn't start within {start_seconds / 60:.0f} minutes, "
-                                       "so it was ended.")
-            sleep(POLL_SECONDS)
-            state = str(client.session(self.id).get("state") or "")
+        if not self.id:
+            self._closed = True
+            raise FabricSparkError("Fabric accepted the Spark session but didn't say which one it is, so it can't be "
+                                   "used. Check the Monitoring hub, and stop it there if it is running.")
+        try:
+            started = clock()
+            state = str(created.get("state") or "")
+            while state != "idle":
+                if state in _SESSION_DONE:
+                    raise FabricSparkError(f"The Spark session couldn't start (it is {state}). The Monitoring hub "
+                                           "has its log.")
+                if clock() - started > start_seconds:
+                    raise FabricSparkError(f"The Spark session didn't start within {start_seconds / 60:.0f} minutes, "
+                                           "so it was ended.")
+                sleep(POLL_SECONDS)
+                state = str(client.session(self.id).get("state") or "")
+        except BaseException:
+            # Fabric created it, so it uses capacity until it is ended: whatever stopped the wait
+            # (a refused poll, the time limit, Stop), end it now rather than at Fabric's idle timeout.
+            self.close()
+            raise
 
     @property
     def closed(self) -> bool:
@@ -232,7 +242,8 @@ class FabricSparkSession:
         finally:
             self._statement = ""
             self._lock.release()
-        if reply.get("state") == "cancelled" or self._cancelled:
+        # Only Fabric's own word counts: a statement that finished before the cancel keeps its output.
+        if reply.get("state") == "cancelled":
             outputs, rows, status = [{"type": "error", "ename": "Cancelled", "evalue": "Cancelled."}], None, "cancelled"
         else:
             outputs, rows = _outputs(reply.get("output") or {}, request.preview_rows)
@@ -245,12 +256,13 @@ class FabricSparkSession:
     def cancel(self) -> bool:
         if not self._lock.locked():
             return False
-        self._cancelled = True
         if self._statement:
             try:
                 self._client.cancel(self.id, self._statement)
             except FabricSparkError:
                 return False
+        # Before the statement exists, execute cancels it as soon as submit says which one it is.
+        self._cancelled = True
         return True
 
     def variables(self) -> list[dict[str, Any]]:

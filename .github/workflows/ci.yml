@@ -9,6 +9,13 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request cancels that pull request's older run, so the
+# queue holds only current heads. Pushes to main each get their own group and
+# are never cancelled, so every main batch still publishes a Preview.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   sidecar:
     # The desktop app is Windows only; the engine and the headless agent also run on Linux.
@@ -80,6 +87,8 @@ jobs:
     env:
       # Playwright and its Chromium build move together; change this in its own pull request.
       PLAYWRIGHT_VERSION: "1.56.1"
+      # The accessibility audit's rules (a11y-audit.test.cjs); a new version can add rules, so change it on its own.
+      AXE_CORE_VERSION: "4.10.2"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -94,10 +103,10 @@ jobs:
         working-directory: sidecar
       - name: Install Playwright and Chromium
         run: |
-          npm install --no-save --no-audit --no-fund --ignore-scripts --prefix "$RUNNER_TEMP/pw" "playwright@$PLAYWRIGHT_VERSION"
+          npm install --no-save --no-audit --no-fund --ignore-scripts --prefix "$RUNNER_TEMP/pw" "playwright@$PLAYWRIGHT_VERSION" "axe-core@$AXE_CORE_VERSION"
           "$RUNNER_TEMP/pw/node_modules/.bin/playwright" install --with-deps chromium
           # The tests skip when Playwright can't be loaded; here that must fail instead.
-          NODE_PATH="$RUNNER_TEMP/pw/node_modules" node -e "require('playwright')"
+          NODE_PATH="$RUNNER_TEMP/pw/node_modules" node -e "require('playwright'); require.resolve('axe-core/axe.min.js')"
       # One file at a time: each starts a Chromium and an engine, and running them side by side on
       # a small runner made engine replies miss the tests' 10 s waits.
       - run: node --test --test-concurrency=1 "app/tests/browser/*.test.cjs"

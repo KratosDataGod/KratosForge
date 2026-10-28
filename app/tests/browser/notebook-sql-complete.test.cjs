@@ -12,6 +12,7 @@ const ONLINE = { workspace_id: "w1", lakehouse_id: "l1", name: "LH_Sales", works
 const OFFLINE = { workspace_id: "w1", lakehouse_id: "l2", name: "LH_Away", workspace_name: "Dev" };
 const SALES = [{ name: "order_id", type: "long" }, { name: "amount", type: "double" }, { name: "Region Name", type: "string" }];
 const CACHED = { tables: { dbo: ["orders"] }, columns: { orders: [{ name: "order_ref", type: "string" }, { name: "placed_at", type: "timestamp" }] } };
+let away = true;  // l2 can't be reached until a test brings it back
 const offline = () => { throw new Error("Couldn't reach OneLake"); };
 
 let app;
@@ -23,7 +24,9 @@ before(async () => {
     mocks: {
       save_notebook: () => ({ saved: true }),
       list_tables: ({ lakehouse_id }) => (lakehouse_id === "l2" ? offline() : { dbo: ["sales", "customers"] }),
-      table_columns: ({ lakehouse_ref, table }) => (lakehouse_ref.lakehouse_id === "l2" ? offline() : table === "sales" ? SALES : []),
+      table_columns: ({ lakehouse_ref, table }) => (lakehouse_ref.lakehouse_id === "l2"
+        ? (away ? offline() : [{ name: "order_ref", type: "string" }, { name: "shipped_at", type: "timestamp" }])
+        : table === "sales" ? SALES : []),
       cached_schemas: ({ lakehouse_id }) => (lakehouse_id === "l2" ? CACHED : { tables: {}, columns: {} }),
     },
   });
@@ -81,4 +84,17 @@ test("offline, the tables and columns come from the names this PC cached", { ski
   await page().keyboard.press("Escape");
   assert.deepStrictEqual(runs(), [], "nothing ran");
   assert.deepStrictEqual(app.errors, []);
+});
+
+test("a table read while offline gets its real columns once Fabric answers again", { skip }, async () => {
+  away = false;
+  // As if the minute before asking again has passed.
+  await page().evaluate(() => { for (const k of Object.keys(state.nbSchemas.l2.failed)) state.nbSchemas.l2.failed[k] = 0; });
+  const sql = "%%sql\nSELECT | FROM orders o";
+  await page().evaluate((text) => {
+    const view = editors.get(state.notebook.cells[0].id);
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } });
+  }, sql.replace("|", ""));
+  assert.deepStrictEqual((await typeAt(sql, "o.")).sort(), ["order_ref", "shipped_at"]);
+  await page().keyboard.press("Escape");
 });

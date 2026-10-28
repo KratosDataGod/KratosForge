@@ -768,7 +768,7 @@ function currentTables() {
 async function loadTableNames(lh) {
   if (state.nbTables[lh.lakehouse_id]) return;
   state.nbTables[lh.lakehouse_id] = [];
-  const sql = state.nbSchemas[lh.lakehouse_id] = { tables: {}, cols: {}, cached: {}, pending: {} };
+  const sql = state.nbSchemas[lh.lakehouse_id] = { tables: {}, cols: {}, cached: {}, pending: {}, failed: {} };
   // The names this PC read last time (schema_cache.py): the tables while offline, a table's columns when Fabric can't be asked.
   const cached = rpc("cached_schemas", { lakehouse_id: lh.lakehouse_id }).catch(() => null);
   let bySchema = null;
@@ -784,23 +784,31 @@ async function loadTableNames(lh) {
 }
 
 // The %%sql completion's names: the notebook's lakehouse, read when it's first needed. A table's columns
-// come from Fabric once per table, or from the cache when Fabric can't be asked (offline, signed out).
+// come from Fabric once per table, or from the cache when Fabric can't be asked (offline, signed out);
+// Fabric is asked again a minute later, so a table read while offline gets its real columns once back.
+const NB_SQL_RETRY_MS = 60000;
 const nbSqlProvider = {
   id: "notebook",
   label: "Notebook lakehouse",
   lakehouse: () => state.notebook && nbLakehouse(state.notebook),
   sql() { const lh = this.lakehouse(); return lh && state.nbSchemas[lh.lakehouse_id]; },
   tables() { return Object.entries(this.sql()?.tables || {}).flatMap(([schema, names]) => names.map((name) => ({ schema, name }))); },
-  cachedColumns(t) { return this.sql()?.cols[sqlTableName(t.schema, t.name)]; },
+  cachedColumns(t) {
+    const sql = this.sql();
+    const k = sqlTableName(t.schema, t.name);
+    return sql?.cols[k] || (sql?.failed[k] ? sql.cached[k] || [] : undefined);
+  },
   columns(t) {
     const sql = this.sql();
     const lh = this.lakehouse();
     if (!sql || !lh) return Promise.resolve([]);
     const k = sqlTableName(t.schema, t.name);
     if (sql.cols[k]) return Promise.resolve(sql.cols[k]);
+    if (Date.now() - (sql.failed[k] || 0) < NB_SQL_RETRY_MS) return Promise.resolve(sql.cached[k] || []);
     sql.pending[k] ||= rpc("table_columns", { lakehouse_ref: lh, table: k })
-      .then((cols) => (sql.cols[k] = cols || []))
-      .catch(() => (sql.cols[k] = sql.cached[k] || []));
+      .then((cols) => { delete sql.failed[k]; return (sql.cols[k] = cols || []); })
+      .catch(() => { sql.failed[k] = Date.now(); return sql.cached[k] || []; })
+      .finally(() => { delete sql.pending[k]; });
     return sql.pending[k];
   },
 };

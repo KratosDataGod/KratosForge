@@ -336,6 +336,10 @@ def test_max_age_refuses_an_old_package(svc, tmp_path, capsys):
     with pytest.raises(SystemExit) as stop:
         cli.main(["governance", "check", "--project", project, "--package", str(file), "--max-age", "-1"])
     assert stop.value.code == 2
+    for bad in ("nan", "inf"):
+        with pytest.raises(SystemExit) as stop:
+            cli.main(["governance", "check", "--project", project, "--package", str(file), "--max-age", bad])
+        assert stop.value.code == 2
 
 
 # --------------------------------------------------------------------------- 5. no platform, Fabric or OneLake call

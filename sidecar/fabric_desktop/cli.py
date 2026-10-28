@@ -451,7 +451,7 @@ def _governance(args: argparse.Namespace) -> int:
                   + "\nPin it in CI with --expect-sha256 or KRATOSFORGE_POLICY_PACKAGE_SHA256:"
                   f"\nSHA-256: {out['sha256']}")
             return 0
-        if args.max_age is not None and args.max_age < 0:
+        if args.max_age is not None and not 0 <= args.max_age < float("inf"):  # refuses nan and inf too
             print("--max-age: a number of days, at least 0")
             return 2
         expect = args.expect_sha256 or os.environ.get("KRATOSFORGE_POLICY_PACKAGE_SHA256", "")

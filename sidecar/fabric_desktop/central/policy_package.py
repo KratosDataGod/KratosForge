@@ -160,6 +160,8 @@ def read(path: Path, where: str = "", expect_sha256: str = "", max_age_days: flo
                                f"{expect}. It isn't used. Take a new package and update the pinned hash if the policies changed.")
     package = verify(data, where)
     if max_age_days is not None:
+        if not 0 <= max_age_days < float("inf"):  # nan compares false, so it would never refuse
+            raise PackageError(f"The maximum age must be a number of days, at least 0, not {max_age_days!r}.")
         days = days_old(package["taken_at"], now)
         if days is None:
             raise PackageError(f"{where} doesn't say when it was taken, so its age can't be checked. It isn't used.")

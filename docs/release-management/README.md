@@ -31,10 +31,10 @@ The app reads the commit from the channel's `version.json`, not from the release
 
 ### When a new advisory lands
 
-The CI `release` job waits for the `audit` job (pip-audit on `sidecar/constraints.txt`, cargo audit on `app/src-tauri/Cargo.lock`). So when a new advisory names something the app ships, `audit` turns red on every pull request and on `main`, and Preview stops publishing. PCs on Preview keep the last build that passed, and Stable doesn't move. Two ways unblock it:
+The CI `release` job waits for the `audit` job (pip-audit on `sidecar/constraints.txt`, cargo audit on `app/src-tauri/Cargo.lock`). So when a new advisory names something the app ships, `audit` turns red on every pull request and on `main`, and Preview stops publishing. PCs on Preview keep the last build that passed, and Stable doesn't move. The failed job names each advisory, the package and its fixed version, and the exact line that would let it through. Two ways unblock it:
 
 1. **Move the package** in its own pull request (CONTRIBUTING). This is the normal path.
-2. **Record an exception** in `.github/audit-exceptions.txt`, in a reviewed pull request: the advisory id, a lapse date (`until=YYYY-MM-DD`) and why it's accepted, for example the code isn't reachable from the app or no fixed release exists yet. On the lapse date the audit fails again until someone moves the package or decides again. A line with no date or reason fails the audit too (`.github/scripts/audit_exceptions.py`).
+2. **Record an exception** in `.github/audit-exceptions.txt`, in a reviewed pull request: the advisory id, a lapse date (`until=YYYY-MM-DD`) and why it's accepted, for example the code isn't reachable from the app or no fixed release exists yet. On the lapse date the audit fails again until someone moves the package or decides again. A line with no date or reason, or with the suggested `<why it is accepted>` left in, fails the audit too (`.github/scripts/audit_exceptions.py`).
 
 Security details of an advisory that isn't public yet never go in the exception's reason or in a public issue.
 

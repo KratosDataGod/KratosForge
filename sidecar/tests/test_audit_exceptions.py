@@ -41,3 +41,30 @@ def test_the_checked_in_file_is_valid_and_the_script_runs():
     bad = subprocess.run([sys.executable, str(ROOT / ".github" / "scripts" / "audit_exceptions.py"), "npm"],
                          capture_output=True, text=True)
     assert bad.returncode == 2
+
+
+def test_a_failed_audit_names_each_advisory_and_the_line_that_would_let_it_through():
+    pip = {"dependencies": [{"name": "requests", "version": "2.25.0", "vulns": [
+        {"id": "PYSEC-2023-74", "fix_versions": ["2.31.0"]}, {"id": "PYSEC-2023-74", "fix_versions": ["2.31.0"]},
+        {"id": "GHSA-abcd-1234-wxyz", "fix_versions": []}]}, {"name": "ok", "version": "1", "vulns": []}]}
+    lines = audit_exceptions.hints(pip, "pip", TODAY)
+    assert len(lines) == 2  # one line per advisory, though pip-audit lists one twice
+    assert lines[0].startswith("PYSEC-2023-74 in requests 2.25.0 (fixed in 2.31.0).")
+    assert lines[0].endswith(".github/audit-exceptions.txt: PYSEC-2023-74  until=2026-11-27  <why it is accepted>")
+    assert "(fixed in no fixed version yet)" in lines[1]
+    cargo = {"vulnerabilities": {"found": True, "count": 1, "list": [
+        {"advisory": {"id": "RUSTSEC-2020-0071", "title": "t"}, "package": {"name": "time", "version": "0.2.7"},
+         "versions": {"patched": [">=0.2.23"]}}]}}
+    [line] = audit_exceptions.hints(cargo, "cargo", TODAY)
+    assert line.startswith("RUSTSEC-2020-0071 in time 0.2.7 (fixed in >=0.2.23).")
+    # The suggested line, pasted with its placeholder, is refused until someone says why.
+    pasted = line.rsplit(": ", 1)[1]
+    assert audit_exceptions.parse(pasted, TODAY)[1] == [f"line 1: say why RUSTSEC-2020-0071 is accepted instead of "
+                                                       f"'<why it is accepted>'"]
+    assert audit_exceptions.parse(pasted.replace("<why it is accepted>", "not reachable"), TODAY) == (["RUSTSEC-2020-0071"], [])
+
+
+def test_hint_with_no_report_says_so_and_leaves_the_audits_own_exit():
+    out = subprocess.run([sys.executable, str(ROOT / ".github" / "scripts" / "audit_exceptions.py"), "hint", "pip",
+                          str(ROOT / "no-such-report.json")], capture_output=True, text=True)
+    assert out.returncode == 0 and "No pip audit report to read" in out.stderr

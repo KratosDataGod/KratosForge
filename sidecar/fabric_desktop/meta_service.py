@@ -12,7 +12,7 @@ from typing import Any, Callable, Iterator
 
 import polars as pl
 
-from . import duties, lakehouse
+from . import duties, lakehouse, sealed_settings
 from .meta import keys as keys_mod
 from .meta import lineage, release
 from .meta import mesh
@@ -104,10 +104,16 @@ class MetaMixin:
 
     def _settings(self) -> dict[str, Any]:
         settings = read_json(self.settings_file, {})
-        return settings if isinstance(settings, dict) else {}
+        settings = settings if isinstance(settings, dict) else {}
+        if sealed_settings.needs_sealing(settings):  # saved in the clear by an earlier version
+            try:
+                write_json(self.settings_file, sealed_settings.seal(settings))
+            except OSError as exc:
+                _log.warning("Couldn't encrypt the saved alert address: %s", describe_error(exc))
+        return sealed_settings.unseal(settings)
 
     def _save_settings(self, **changes: Any) -> None:
-        write_json(self.settings_file, self._settings() | changes)
+        write_json(self.settings_file, sealed_settings.seal(self._settings() | changes))
 
     def _source_options(self) -> dict[str, str]:
         """OneLake access for source tables outside the environment (adopted lakehouse tables)."""

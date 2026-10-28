@@ -75,3 +75,11 @@ urllib3==2.8.0
 uvicorn==0.54.0
 wrapt==2.5.1
 xyzservices==2026.9.1
+# Test tools ([dev] extra). CI installs with -c, which never installs a package on its own, so
+# these pin what CI tests with and never reach the engine.
+execnet==2.1.2
+iniconfig==2.3.1
+pluggy==1.7.0
+pygments==2.21.0
+pytest==9.1.1
+pytest-xdist==3.8.0

@@ -208,6 +208,8 @@ What the set says about the baseline: the five FAILs are the patterns the [findi
 
 | #984 | Schedules on this PC can also run while signed out (PB-048c) | PASS at 9016ade3 | 9.1 | Second quality reviewer. Merged with main: 87 engine tests passed; browser 20/20; ui 299/1, the 1 being the known #972 Preview-id test. The password stays in Windows' prompt and Task Scheduler (env-var inputs, fixed script, PowerShell by full path). The id is hex-checked in Python and Rust. Nothing changes on a cancelled prompt. Nits: a partial save shown as "Not saved"; an unchanged save re-prompts; check Entra/MSA accounts on Windows; tag Preview if merged before the Windows check. Waits on Chris's Windows check and policy switch. |
 
+| #992 | Typed platform client errors (fixes #935) | PASS at a369c391 | 9.2 | Gateway 502 raises HTTPError before the body is read, so Check now says "couldn't be read", not "not in the catalog"; 502/503 retryable; non-JSON body gives a one-line PlatformError; 401/403/404 texts and the Finish or repair prompt unchanged. 205 passed; 12 fail with main's client.py. Independent of #924. Nits: client.py:83 docstring; #824 message matching remains; 429 ignores Retry-After. |
+
 | #991 (was #948) | PR reopened | PASS at 315682cb (carried) | 9.3 | Changed lines against main are the reviewed 6e2d54e2 delta plus the #972 port. Clean merge. |
 
 | #990 | High Contrast support (reopened #955) | PASS at 2e98f284 (carried) | 9.2 | Second quality reviewer. Carried from e3d0dcdd. Changed lines vs main match e3d0dcdd except the #972 port; styles.css kept both sides with forced-colors last; ui.test 300/0. |

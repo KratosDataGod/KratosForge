@@ -168,7 +168,8 @@ def activities(meta_runs: list[dict[str, Any]], fabric_runs: list[dict[str, Any]
 def history_kind(record: dict[str, Any]) -> str:
     """What a line of this PC's write history is: a notebook's table write ("Notebook write to <lakehouse>",
     lakehouse.py) or a run of a job file (publish.run_job, named after the job)."""
-    return "Notebook write" if str(record.get("job") or "").startswith("Notebook write to ") else "Job run"
+    from .lakehouse import WRITE_JOB_PREFIX  # lakehouse.py loads Delta libraries; only this needs it
+    return "Notebook write" if str(record.get("job") or "").startswith(WRITE_JOB_PREFIX) else "Job run"
 
 
 _NO_WORKLOAD = "A notebook write or job run from this PC has no Fabric run of the same work to compare with."

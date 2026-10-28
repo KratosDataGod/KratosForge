@@ -207,6 +207,10 @@ What the set says about the baseline: the five FAILs are the patterns the [findi
 | #957 | Teams alert address sealed with DPAPI | PASS at dfeaeeac | 9.2 | CONDITIONAL 8.9 at caee04a8: an address that couldn't be decrypted turned alerts off silently. Now the app says so and asks for it again (probed in the engine and the browser). pytest 101 + 401; ui.test 299/0; real DPAPI test is Windows-only. |
 | #952 | CI: pull request runs cancel older runs of the same PR; main runs are never cancelled | PASS at 15207c23 | 9.3 | Read against every trigger in ci.yml; groups can't collide; the release job's own group is unchanged. The workflow itself runs only in this PR's CI. |
 | #951 | Every axe "needs a look" item has a person's verdict; contrast fixes | PASS at 8f08bdf0 | 9.2 | Contrast computed from the CSS: worst text 5.34:1, arrows and star 3.31:1. ui.test 299/0; a11y 4/4 x3; browser 76/76; an unjudged item fails the new test. |
+| (no PR yet) surrogate-key-order | Re-check: docstring | PASS at 0beb3365 | 9.3 | Only the docstring changed since 4c66c012 (drops the LH_Keys comparison). |
+
+| (no PR yet) file-loads | Re-check: cap, look-back docs, history-failure step | PASS at patches 0001+0002 on 06a62016 | 9.2 | All four nits fixed: over 5,000 files lists none and says so; guide names the 20-commit look-back and the cap; NothingNew comment; failed history read is a run step. 116 passed (landing, meta, silent_except). |
+
 | (no PR yet) signed-updates (Security QC) | Updater signature checks, unsigned-build gate, signed-only promote | FAIL at c6494853 | 7.8 | Independent security read. Required fix and details are with Security QC (private). |
 
 | (no PR yet) api-same-user (Security QC) | Local API refuses callers that are not the signed-in user | PASS at c64c616b | 9.1 | Independent security read. Fails closed on lookup errors. 359 passed on Linux; Windows-only paths not run. Low follow-ups with Security QC. |

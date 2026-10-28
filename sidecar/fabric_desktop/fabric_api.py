@@ -221,6 +221,29 @@ class FabricClient:
         """A warehouse, with its SQL connection string (``properties.connectionString``)."""
         return self._request("GET", f"/workspaces/{workspace_id}/warehouses/{warehouse_id}").json()
 
+    def list_kql_databases(self, workspace_id: str) -> list[dict[str, Any]]:
+        """A workspace's KQL databases, each with ``properties.queryServiceUri`` (WH-19)."""
+        return self._paged(f"/workspaces/{workspace_id}/kqlDatabases")
+
+    def get_kql_database(self, workspace_id: str, database_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/workspaces/{workspace_id}/kqlDatabases/{database_id}").json()
+
+    def list_kql_querysets(self, workspace_id: str) -> list[dict[str, Any]]:
+        return self._paged(f"/workspaces/{workspace_id}/kqlQuerysets")
+
+    def create_kql_queryset(self, workspace_id: str, name: str, definition: dict[str, Any],
+                            description: str = "") -> dict[str, Any]:
+        """Create a KQL queryset from its definition (RealTimeQueryset.json)."""
+        body: dict[str, Any] = {"displayName": name, "definition": definition}
+        if description:
+            body["description"] = description
+        return self._wait(self._request("POST", f"/workspaces/{workspace_id}/kqlQuerysets", json=body))
+
+    def update_item_definition(self, workspace_id: str, item_id: str, definition: dict[str, Any]) -> dict[str, Any]:
+        """Replace an item's definition (all its parts)."""
+        return self._wait(self._request("POST", f"/workspaces/{workspace_id}/items/{item_id}/updateDefinition",
+                                        json={"definition": definition}))
+
     def find_lakehouse(self, workspace_id: str, name: str) -> dict[str, Any] | None:
         return next((lh for lh in self.list_lakehouses(workspace_id) if lh["displayName"] == name), None)
 

@@ -908,10 +908,10 @@ test("the risk gate passes quietly, never runs a blocked item and needs the tick
   assert.deepStrictEqual(acks.map((a) => a.risk_id), ["r2"], "nothing is acknowledged when nothing was checked");
 });
 
-test("only Monitor > Runs shares the page with Fabric's hub, so Schedules and Cost get the whole page (#190)", () => {
+test("Fabric's hub is a Monitor tab of its own, so no list shares the page with it (#190)", () => {
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  // With From KratosForge in its own window (Pop out), Monitor here is the hub's band and the hub.
-  assert.match(src, /const wide = !runsOut && monitorPage\.panel !== "runs";/);
+  assert.match(src, /const hubShown = hub && !POP_OUT && !fabricOut;/);
+  assert.match(src, /page monitor\$\{hubShown \? "" : " no-fabric"\}/);
 });
 
 // The pure helpers at the top of replay.js.
@@ -1096,20 +1096,23 @@ test("a failed save says so and keeps the notebook open and dirty", async () => 
   assert.strictEqual(nb.dirty, false);
 });
 
-// UX-009: domains, the glossary and platform setup each have one home, on the Platform page.
-test("domains, the glossary and platform setup are edited only on the Platform page", () => {
+// UX-009: domains, the glossary and platform setup each have one home: domains on Data mesh > Domains,
+// the glossary and setup on the Platform page.
+test("domains are edited only on Data mesh > Domains, the glossary and platform setup only on Platform", () => {
   const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
   const groups = meta.match(/const META_TAB_GROUPS = \[[\s\S]*?\n\];/)[0];
   assert.ok(!/"glossary"/.test(groups), "Data mesh still has a Glossary tab");
   const mesh = fs.readFileSync(path.join(ui, "mesh.js"), "utf8");
   const domainsTab = mesh.match(/async function renderMeshDomainsTab\([\s\S]*?\n}\n/)[0];
   for (const edit of ["domainDialog(", "importFabricDomains(", "platform_delete_domain"]) {
-    assert.ok(!domainsTab.includes(edit), `Data mesh > Domains still calls ${edit}`);
+    assert.ok(!domainsTab.includes(edit), `Domains > This project still calls ${edit}`);
   }
-  assert.match(domainsTab, /goPlatform\("domains"\)/);
-  assert.match(domainsTab, /goPlatform\("glossary"\)/);
   const platform = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
-  assert.match(platform, /importFabricDomains\(rerender\)/);
+  const orgDomains = platform.match(/async function renderMeshOrgDomainsTab\([\s\S]*?\n}\n/)[0];
+  assert.match(orgDomains, /importFabricDomains\(rerender\)/);
+  assert.match(orgDomains, /goPlatform\("glossary"\)/);
+  assert.match(groups, /\["domains", "Domains", "mesh"\]/);
+  assert.ok(!/"domains"/.test(platform.match(/const PLATFORM_TAB_BAR = \[[\s\S]*?\n\];/)[0]), "Platform still has a Domains tab");
   assert.match(platform, /platformSection\(\)/);
   const settings = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   assert.ok(!settings.includes("platformSection("), "Settings still sets up the platform");
@@ -1297,7 +1300,7 @@ test("Home doesn't say nothing needs attention when run history or Fabric jobs c
   assert.match(src, /couldn't check \$\{unread\.join\(", "\)\}/);
 });
 
-test("Monitor has three tabs, and Operations holds the workload views in the mockup's order (UX-010)", () => {
+test("Monitor's tabs are by source, and Operations holds the workload views in the mockup's order (UX-010)", () => {
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const literal = src.match(/const MONITOR_OPS = (\[[\s\S]*?\n\]);/)[1];
   const ops = JSON.parse(JSON.stringify(vm.runInNewContext(literal)));
@@ -1306,12 +1309,24 @@ test("Monitor has three tabs, and Operations holds the workload views in the moc
   assert.deepStrictEqual(ops.map((o) => o.panel), ["workloads", "queue", "agents", "runas", "incidents"]);
   const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
   for (const o of ops) assert.ok(features.includes(`${o.feature}:`), `${o.feature} is a registered preview feature`);
-  const seg = src.slice(src.indexOf('"aria-label": "Show" },'), src.indexOf('h("span", { class: "spacer" })', src.indexOf('"aria-label": "Show" },')));
-  assert.deepStrictEqual([...seg.matchAll(/"(Runs|Schedules|Operations|Cost|Workloads|Queue|Agents|Run as|Incidents)"/g)].map((m) => m[1]),
-    ["Runs", "Schedules", "Operations"]);
+  const sources = vm.runInNewContext(`${/const MONITOR_SOURCES = \[[\s\S]*?\];/.exec(src)[0].replace("const ", "")}; MONITOR_SOURCES`);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(sources.map(([, label]) => label))), ["KratosForge", "Fabric"]);
+  // Each tab's pages are on the view row's switcher.
+  const pages = src.slice(src.indexOf("const pages = source ==="), src.indexOf("const shown = pages.filter"));
+  assert.deepStrictEqual([...pages.matchAll(/"(Monitoring hub|Schedules|Runs|Operations)"/g)].map((m) => m[1]),
+    ["Monitoring hub", "Schedules", "Runs", "Schedules", "Operations"]);
 });
 
-test("Monitor > Agents explains agents beside the list, with links to sections of agent.md (testing item 34)", () => {
+test("Home's All schedules opens Fabric schedules when every upcoming schedule is in Fabric, else KratosForge schedules", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const at = src.indexOf('btn("All schedules"');
+  const link = src.slice(at, src.indexOf('"tool link small")', at));
+  assert.match(link, /items\.length && items\.every\(\(x\) => x\.where === "Fabric"\) \? "fabric_schedules" : "schedules"/);
+  // "Fabric" is the where Home gives a Fabric schedule's row.
+  assert.match(src, /where: "Fabric", text: sc\.text/);
+});
+
+test("Monitor > KratosForge > Operations > Agents explains agents beside the list, with links to sections of agent.md (testing item 34)", () => {
   const src = fs.readFileSync(path.join(ui, "agents.js"), "utf8");
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "agent.md"), "utf8");
   const slug = (t) => t.toLowerCase().replace(/[^a-z0-9 -]/g, "").replace(/ /g, "-");
@@ -1367,7 +1382,7 @@ test("engine messages point to Data mesh and Platform tabs that exist", () => {
   const mesh = new Set();
   for (const [, group, tabs] of groups) for (const [, tab] of tabs) mesh.add(`${group} > ${tab}`);
   const plat = new Set(platform.map(([, label]) => label));
-  // A page behind the Set up or Govern menu is named with its menu: "Platform > Set up > Business keys".
+  // A page on the Set up or Govern tab is named with its tab: "Platform > Set up > Business keys".
   const bar = vm.runInNewContext(`${/const PLATFORM_TAB_BAR = \[[\s\S]*?\n\];/.exec(read("platform.js"))[0].replace("const ", "")}; PLATFORM_TAB_BAR`);
   const engine = path.join(__dirname, "..", "..", "sidecar", "fabric_desktop");
   const files = [];
@@ -1420,7 +1435,7 @@ test("Estate X-ray's Optimize confirms with the risk check before starting a Fab
     "the line's button opens the dialog instead of starting the job");
 });
 
-test("Monitor > Workloads and Agents carry the shared How this works panel, each linked to its guide section (testing item 18)", () => {
+test("Monitor > KratosForge > Operations > Workloads and Agents carry the shared How this works panel, each linked to its guide section (testing item 18)", () => {
   const guide = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8");
   const slug = (t) => t.toLowerCase().replace(/[^a-z0-9 -]/g, "").replace(/ /g, "-");
   const anchors = new Set([...guide.matchAll(/^#+ (.+)$/gm)].map((m) => slug(m[1])));
@@ -1761,7 +1776,7 @@ test("moving keys into one database previews first, and cancelling it is a dange
   assert.ok(cancel.indexOf("danger: true") < cancel.indexOf("approve: true"));
   assert.match(mesh, /\.\.\.MESH_ENVS\.map\(row\), keysRow\(s, policy\)\)/);
   const platform = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
-  assert.match(platform, /!\(p\.tab === "keys" && p\.keysShared\) \? envSeg : null/);
+  assert.match(platform, /!\(p\.tab === "keys" && p\.keysShared\)\);\n[\s\S]*?perEnv \? envSeg : null/);
   assert.match(platform, /k\.shared \? "Key tables in SQL_Keys"/);
   const how = platform.match(/howItWorks\("platform\.keys", \{[\s\S]*?\n  \}\)/)?.[0] || "";
   for (const write of [/SQL_Keys and UDF_Keys, which uses Fabric capacity/, /copies every key table/, /new numbers/, /closes each environment's old key tables/, /removes the copied tables/]) {
@@ -1827,7 +1842,8 @@ test("Clean up's Undo is offered only while the cells are exactly what Apply mad
 
 test("Schedules warns when this PC's schedules file was moved aside (QA-011)", () => {
   const s = fs.readFileSync(path.join(ui, "schedules.js"), "utf8");
-  assert.match(s, /h\("h3", \{ class: "schedule-head" \}, "On this PC"\),\n    setAsideNotice\(res\.pc_set_aside\),/);
+  // On KratosForge schedules, first after the counts.
+  assert.match(s, /failed\(pc\.filter\([^\n]*\)\),\n      setAsideNotice\(res\.pc_set_aside\),/);
   assert.match(s, /look in Task Scheduler under /);
 });
 
@@ -2433,7 +2449,7 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.strictEqual(ok, "Remove");
   assert.strictEqual(opts.danger, true);
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true)[1], /Fabric deletes the schedule/);
-  assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
+  assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Fabric > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
 
@@ -3687,6 +3703,59 @@ test("cell comments: mentions, selected lines and the panel's rows", () => {
   for (const hook of ["commentBadge(cell)", "commentMenuItems(cell)", "commentsToggle(nb)", "commentsPanel(nb)"]) assert.ok(nb.includes(hook), hook);
 });
 
+// The notebook's Best practices panel (nbpractices.js): the engine's cell numbers map back to the
+// notebook's cells (markdown cells aren't sent), counts by severity, and the panel is wired in.
+test("notebook best practices: cell numbers, counts and wiring", () => {
+  const src = fs.readFileSync(path.join(ui, "nbpractices.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(/const PRACTICE_SEVERITIES = .*\n/.exec(src)[0].replace("const ", "var "), ctx);
+  for (const name of ["practiceSources", "practiceRows", "practiceLabel"]) {
+    vm.runInContext(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`).exec(src)[0], ctx);
+  }
+  const plain = (v) => JSON.parse(JSON.stringify(v));
+  const cells = [{ type: "markdown", source: "# Load" }, { type: "code", source: "rows = df.collect()" },
+    { type: "markdown", source: "note" }, { type: "code", source: "" }];
+  const { sources, at } = ctx.practiceSources(cells);
+  assert.deepStrictEqual(plain(sources), ["rows = df.collect()", ""]);
+  const got = ctx.practiceRows({ findings: [{ rule_id: "NB003", severity: "Warning", cell: 1, line: 1 },
+    { rule_id: "NB001", severity: "Error", cell: 2, line: 3 }] }, at);
+  assert.deepStrictEqual(plain(got.rows.map((f) => [f.rule_id, f.n])), [["NB003", 2], ["NB001", 4]], "engine cell 1 is notebook cell 2");
+  assert.deepStrictEqual(plain(got.counts), { Error: 1, Warning: 1, Info: 0 });
+  assert.strictEqual(ctx.practiceLabel({ open: true, rows: got.rows }), "Best practices · 2");
+  assert.strictEqual(ctx.practiceLabel({ open: false, rows: got.rows }), "Best practices");
+  assert.strictEqual(ctx.practiceLabel(undefined), "Best practices");
+  // Read only: it never runs a cell or writes; findings only ever become text nodes.
+  assert.doesNotMatch(src, /innerHTML|runCell|markDirty|rpc\("(save|run)/);
+  assert.match(src, /rpc\("governance_practice_settings", \{ kind: "notebook" \}\)/);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  for (const hook of ["practicesToggle(nb)", "practicesPanel(nb)"]) assert.ok(nb.includes(hook), hook);
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="nbpractices.js"') > html.indexOf('src="notebook-comments.js"'));
+});
+
+// SQL best practices on the SQL page (query.js): a finding's line and column (code points, from 1)
+// become an offset in the text, and the chip's label counts the findings.
+test("SQL best practices: finding offsets and the chip label", () => {
+  const src = fs.readFileSync(path.join(ui, "query.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  for (const name of ["sqlPracticeOffset", "sqlPracticeLabel"]) {
+    vm.runInContext(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`).exec(src)[0], ctx);
+  }
+  const text = "SELECT *\nFROM sales\nWHERE YEAR(d) = 1";
+  assert.strictEqual(text.slice(ctx.sqlPracticeOffset(text, 3, 7)).slice(0, 4), "YEAR");
+  assert.strictEqual(ctx.sqlPracticeOffset(text, 1, 8), 7);
+  assert.strictEqual(ctx.sqlPracticeOffset("-- \u{1F600}\nSELECT *", 2, 8), 12, "an emoji is one code point, as the engine counts");
+  assert.strictEqual(ctx.sqlPracticeLabel({ findings: [{}, {}] }), "Best practices · 2");
+  assert.strictEqual(ctx.sqlPracticeLabel(null), "Best practices");
+  assert.match(src, /rpc\("governance_practice_settings", \{ kind: "sql" \}\)/);
+  assert.match(src, /SQL_PRACTICE_TARGETS = \["warehouse", "endpoint", "sqldb"\]/);
+  // The compatibility result never waits for the practices (they draw when they arrive).
+  assert.doesNotMatch(src, /Promise\.all\(\[rpc\("sql_analyze"/);
+  assert.match(src, /practices\(\)\.then\(/);
+});
+
 // Notebook parity L3: a notebook's Runs panel lists this PC's scheduled runs and its Fabric runs.
 test("the notebook Runs panel labels each run and offers Refresh status only for Fabric runs still going", () => {
   const src = fs.readFileSync(path.join(ui, "runs.js"), "utf8");
@@ -4400,7 +4469,7 @@ test("folder actions are wired: a menu entry, New folder, the empty-only delete 
 test("a move that leaves something behind names it and says what to do", () => {
   const { nbRenameProblemLines } = notebookFolderHelpers();
   const lines = nbRenameProblemLines([{ notebook: "EMEA/B", was: "Sales/B", step: "schedules", error: "OSError: disk full" }]);
-  assert.deepStrictEqual([...lines], ["EMEA/B (was Sales/B): its schedules didn't follow (OSError: disk full). Open Monitor > Schedules and point its schedule on this PC at the new name."]);
+  assert.deepStrictEqual([...lines], ["EMEA/B (was Sales/B): its schedules didn't follow (OSError: disk full). Open Monitor > KratosForge > Schedules and point its schedule on this PC at the new name."]);
   assert.deepStrictEqual([...nbRenameProblemLines([])], []);
   const files = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
   assert.strictEqual(files.match(/nbRenameWarning\((out|ok)\.problems\)/g).length, 3);
@@ -5012,13 +5081,15 @@ test("side by side times roll over and split This PC's time into processing and 
 });
 
 // Run in Fabric and side by side wait for the bar's last save, so they get the values it shows.
-test("Run in Fabric and side by side wait for the Parameters bar's values", () => {
+test("Run in Fabric, side by side and Prove wait for the Parameters bar's values", () => {
   assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"),
     /await nbInputsSaved\(\);[^\n]*\n[^\n]*\n\s*const run = await attempt\(\(\) => rpc\("run_notebook_in_fabric"/);
   assert.match(fs.readFileSync(path.join(ui, "sidebyside.js"), "utf8"),
     /await nbInputsSaved\(\);[^\n]*\n\s*const run = await attempt\(\(\) => rpc\("side_by_side_start"/);
+  assert.match(fs.readFileSync(path.join(ui, "prove.js"), "utf8"),
+    /await nbInputsSaved\(\);[^\n]*\n\s*const run = await attempt\(\(\) => rpc\("prove_start"/);
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
-  assert.match(doc, /\*\*Run in Fabric\*\* and \*\*Side by side\*\* use the bar's values too/);
+  assert.match(doc, /\*\*Run in Fabric\*\*, \*\*Side by side\*\* and \*\*Prove this notebook\*\* use the bar's values too/);
 });
 
 // Add to VS Code: the page sends only the tool's id; the shell builds the vscode: link itself
@@ -5153,3 +5224,27 @@ test("the new build banner shows only a newer build, through the existing update
   assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<\/header>\n  <div id="update-root"><\/div>/);
 });
 
+
+// Scale plan 4.1 (D2): a team asks for a source with a Copy job, a platform admin approves and
+// approving makes it. The request reads connections only; the approve confirm names every write
+// and that runs use capacity; Run now asks first.
+test("a source request can ask for a Copy job, and approving says what it makes", () => {
+  const src = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  const fn = (name) => src.match(new RegExp(`(async )?function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  assert.match(fn("requestDialog"), /if \(kind === "source"\) return sourceRequestDialog\(target, done\);/);
+  const ask = fn("sourceRequestDialog");
+  assert.deepStrictEqual([...new Set([...ask.matchAll(/(?:rpc|reqQuietly|platformCall)\("([a-z_]+)"/g)].map((m) => m[1]))].sort(),
+    ["fabric_connections", "platform_request"], "asking reads connections and sends the request, nothing else");
+  assert.match(ask, /detail\.copy = \{ connection_id: conn\.value/);
+  const confirm = fn("confirmCopyJob");
+  assert.match(confirm, /CJ_Landing_\$\{r\.target\}/);
+  assert.match(confirm, /Files\/\$\{r\.target\}\/\$\{t\.folder\}\//);
+  assert.match(confirm, /starts no run\. Each run uses capacity/);
+  assert.match(fn("confirmApproval"), /if \(r\.kind === "source" && d\.copy\) return confirmCopyJob\(r\);/);
+  const run = fn("copyJobLine");
+  assert.match(run, /confirmDialog\(`Run \$\{j\.name\} now\?`[\s\S]*uses capacity[\s\S]*platformCall\("run_fabric_item_now"/);
+  assert.match(run, /adminOnly\(run\)/);
+  assert.match(run, /riskGate\(\{ id: `fabric:\$\{j\.workspace_id\}:\$\{j\.id\}`, action: "run_item"/, "Run now spends capacity: the risk check comes first");
+  assert.match(confirm, /central \? landsIn\(r\.lands_in, central\)/, "the approver sees the zone and lakehouse it lands in");
+  assert.match(fn("landsIn"), /secure \? "secure " : ""\}zone \$\{where\.zone_name\}/);
+});

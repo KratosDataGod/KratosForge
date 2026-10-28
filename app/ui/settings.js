@@ -936,6 +936,27 @@ function sqlSettingsSection(s, locked) {
       "aria-label": "Warehouse changes", onchange: async (e) => { await saveSettings({ sql_warehouse_writes: e.target.checked }); render(); } }),
     h("span", {}, s.sql_warehouse_writes.value ? "On" : "Off")),
     fixedBy(s, "sql_warehouse_writes")));
+  // Clicking a warehouse's or SQL analytics endpoint's name: the Warehouse page or Fabric's own editor.
+  const openIn = s.wh_open_in?.value || "kratosforge";
+  const openChoice = (value, title, help) => h("label", { class: "choice" },
+    h("input", { type: "radio", name: "wh-open-in", value, checked: openIn === value ? true : null, disabled: locked("wh_open_in") ? true : null,
+      onchange: async () => { await saveSettings({ wh_open_in: value }); render(); } }),
+    h("span", { class: "main" }, h("span", { class: "n" }, title), h("span", { class: "w" }, help)));
+  rows.push(settingRow("Open warehouses in", "What clicking a warehouse's or SQL analytics endpoint's name does in Workspaces and the OneLake catalog. Open in Fabric stays on every row.",
+    h("div", { class: "choices", role: "radiogroup", "aria-label": "Open warehouses in" },
+      openChoice("kratosforge", "KratosForge", "The Warehouse page: explorer, T-SQL editor, templates, project files, deploy and monitoring. Queries still run in Fabric and use capacity."),
+      openChoice("fabric", "Fabric portal", "Fabric's own warehouse editor, in the Fabric portal tab.")),
+    fixedBy(s, "wh_open_in")));
+  // WH-19: workspaces whose new warehouses get monitoring views without asking (whmonitor.js).
+  const auto = s.wh_monitoring_auto?.value || [];
+  rows.push(settingRow("Monitoring views without asking", "Workspaces where you said yes, on a build confirm, to monitoring views for new warehouses. The app builds a warehouse's KQL queryset when it opens one there. Remove a workspace and it asks again.",
+    auto.length ? h("ul", { class: "wh-mon-auto" }, auto.map((ws) => h("li", {}, h("span", {}, whMonWorkspaceName(ws)),
+      locked("wh_monitoring_auto") ? null : btn("Remove", null, async () => {
+        await saveSettings({ wh_monitoring_auto: auto.filter((w) => w !== ws) });
+        render();
+      }, "tool outline small", { "aria-label": `Remove ${whMonWorkspaceName(ws)}` }))))
+      : h("span", { class: "muted-text small" }, "None."),
+    fixedBy(s, "wh_monitoring_auto")));
   const save = async () => {
     const changes = {};
     for (const [key] of SQL_SETTINGS) {

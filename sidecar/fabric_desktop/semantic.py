@@ -61,6 +61,7 @@ class ModelTable:
     keys: list[str] = field(default_factory=list)
     surrogate_key: str | None = None
     is_dimension: bool = False
+    date_column: str | None = None  # marks the table as the model's date table, with this column as its key
 
 
 @dataclass
@@ -112,7 +113,8 @@ def plan(project: Any, layer: str, kept: dict[str, str] | None = None) -> tuple[
         taken.add(name)
         tables.append(ModelTable(name=name, entity=e.name, schema=e.schema, table=e.table, keys=list(e.keys),
                                  surrogate_key=e.surrogate_key,
-                                 is_dimension=e.mode in ("scd1", "scd2") and bool(e.surrogate_key)))
+                                 is_dimension=e.mode in ("scd1", "scd2") and bool(e.surrogate_key),
+                                 date_column=e.date_column))
     by_entity = {t.entity: t for t in tables}
     rels: list[Relationship] = []
     for t in tables:
@@ -169,7 +171,11 @@ def _table_tmdl(t: ModelTable, expression: str, about: dict[str, str] | None = N
     """``about`` maps "" (the table) or a column's name to its description, from the catalog. Measures are
     described here: what they add up, then the column's own description."""
     about = about or {}
-    lines = [*_about(about.get(""), ""), f"table {quote(t.name)}", f"\tlineageTag: {tag('table', t.entity)}", ""]
+    lines = [*_about(about.get(""), ""), f"table {quote(t.name)}", f"\tlineageTag: {tag('table', t.entity)}"]
+    date_key = t.date_column if any(c == t.date_column and tmdl_type(d) == "dateTime" for c, d in t.columns) else None
+    if date_key:
+        lines.append("\tdataCategory: Time")  # Mark as date table, with date_key as its key column
+    lines.append("")
     if not t.is_dimension:
         lines += [*_about(f"Rows in {t.name}.", "\t"), f"\tmeasure {quote(t.name + ' rows')} = COUNTROWS({quote(t.name)})",
                   "\t\tformatString: #,0", f"\t\tlineageTag: {tag('measure', t.entity)}", ""]
@@ -186,6 +192,8 @@ def _table_tmdl(t: ModelTable, expression: str, about: dict[str, str] | None = N
         lines.append(f"\t\tdataType: {dtype}")
         if _hidden(t, col):
             lines.append("\t\tisHidden")
+        if col == date_key:
+            lines.append("\t\tisKey")
         if dtype == "dateTime" and delta_type.lower() == "date":
             lines.append("\t\tformatString: Short Date")
         lines += [f"\t\tlineageTag: {tag('column', t.entity, col)}", "\t\tsummarizeBy: none",

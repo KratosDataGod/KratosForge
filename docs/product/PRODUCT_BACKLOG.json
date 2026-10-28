@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-10-26",
+  "updated": "2026-10-27",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -572,7 +572,9 @@
       },
       "prs": [
         410,
-        692
+        692,
+        762,
+        771
       ]
     },
     {
@@ -1046,8 +1048,8 @@
       "problem": "T-SQL developers can't reach a Warehouse, SQL analytics endpoint or Fabric SQL database from the app.",
       "capability": "Owned and specified by the SQL development sprint (SQL-004).",
       "evidence": [
-        "No TDS or ODBC client in sidecar/constraints.txt",
-        "SQL-004 read-only warehouse queries (#581) with mssql-python (#580); Warehouse page WH-01 (#636)"
+        "SQL-004 read-only warehouse queries (#581) with mssql-python (#580); Warehouse page WH-01 (#636)",
+        "mssql-python is in sidecar/constraints.txt (#580); a first tenant run on 2026-10-27 led to #808 and #809"
       ],
       "features": [
         "FEAT-FAB-11"
@@ -1134,7 +1136,9 @@
       },
       "prs": [
         637,
-        638
+        638,
+        833,
+        835
       ]
     },
     {
@@ -1532,7 +1536,8 @@
         563,
         568,
         578,
-        579
+        579,
+        791
       ],
       "features": [
         "FEAT-ORC-08"
@@ -1679,7 +1684,7 @@
       "id": "PB-043",
       "title": "Cancel a Fabric run from the app",
       "category": "Fabric Integration and Deployment",
-      "problem": "A Fabric run started here can be cancelled only as a workload action in Monitor > Workloads (Preview); Monitor > Runs and the activity tray, where people watch the run, offer no Cancel.",
+      "problem": "A Fabric run started here can be cancelled only as a workload action in Monitor > KratosForge > Operations > Workloads (Preview); Monitor > Runs and the activity tray, where people watch the run, offer no Cancel.",
       "capability": "A Cancel action on running Fabric jobs in Monitor > Runs and the tray, reusing cancel_fabric_run.",
       "evidence": [
         "cloud_service.py cancel_fabric_run is called only from workload_service.py workload_act",
@@ -2296,7 +2301,8 @@
       },
       "prs": [
         603,
-        605
+        605,
+        838
       ]
     },
     {
@@ -3196,7 +3202,8 @@
       "problem": "Breaking changes are blocked, but consumers can't declare what they read or see deprecations.",
       "capability": "Consumer declarations and deprecation windows on product ports.",
       "evidence": [
-        "meta/mesh.py breaking-change check"
+        "meta/mesh.py breaking-change check",
+        "PR #701 (FD-127 8.2): port version history, accepted versions on links, deprecation dates with Teams notices, in the engine"
       ],
       "features": [
         "FEAT-MESH-05"
@@ -3220,13 +3227,17 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In review",
       "computed": {
         "benefit": 3.4,
         "cost": 2.5,
         "score": 2.38,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        701,
+        836
+      ]
     },
     {
       "id": "PB-083",
@@ -4088,7 +4099,10 @@
         708,
         715,
         717,
-        721
+        721,
+        757,
+        768,
+        786
       ]
     },
     {
@@ -4145,7 +4159,20 @@
         703,
         704,
         705,
-        719
+        719,
+        747,
+        769,
+        801,
+        802,
+        803,
+        804,
+        805,
+        806,
+        814,
+        825,
+        826,
+        827,
+        831
       ]
     },
     {
@@ -4202,7 +4229,12 @@
         680,
         711,
         733,
-        738
+        738,
+        766,
+        775,
+        778,
+        781,
+        784
       ]
     },
     {
@@ -4355,7 +4387,16 @@
         728,
         729,
         730,
-        731
+        731,
+        743,
+        745,
+        747,
+        774,
+        783,
+        787,
+        808,
+        809,
+        823
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -4429,7 +4470,8 @@
         737,
         739,
         740,
-        741
+        741,
+        746
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -4502,7 +4544,7 @@
       "category": "Data Governance and Quality",
       "mandatory": "none",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In review",
       "depends_on": [
         "PB-108"
       ],
@@ -4512,7 +4554,8 @@
       "capability": "Check now collects this PC's SQL scripts (project .sql files and saved queries) for the SQL rules, and marks notebooks that have a schedule so the scheduled-only rules NB004 and NB008 run on them.",
       "evidence": [
         "PB-108 implementation review, findings 2 and 5 (docs/product/reviews/PB-108-643.md)",
-        "docs/governance.md: Check now has no SQL scripts yet; NB004 and NB008 are for scheduled runs"
+        "docs/governance.md: Check now has no SQL scripts yet; NB004 and NB008 are for scheduled runs",
+        "PR #798: Check now gives the SQL rules this PC's SQL scripts and runs NB004 and NB008 on notebooks with a PC schedule; a Fabric-only schedule isn't read yet"
       ],
       "features": [
         "FEAT-GOV-09"
@@ -4540,13 +4583,16 @@
         "cost": 1.5,
         "score": 2.43,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        798
+      ]
     },
     {
       "category": "Data Governance and Quality",
       "mandatory": "none",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In review",
       "depends_on": [
         "PB-108"
       ],
@@ -4556,7 +4602,8 @@
       "capability": "The BPA engine (#560) registers through governance_checks.register with runs_in=\"fabric\"; Check now says those checks run in Fabric and use capacity, and stores their findings with store_fabric_findings.",
       "evidence": [
         "PB-108 implementation review, finding 1 (docs/product/reviews/PB-108-643.md)",
-        "#560 is an open draft"
+        "PR #753 registers SM001-SM007 so a policy can name them; they read the model on this PC, so no capacity is used, unlike the criterion's Fabric run",
+        "PR #560 merged: the Fabric BPA run with semantic-link-labs (engine); not yet run live"
       ],
       "features": [
         "FEAT-GOV-09",
@@ -4583,7 +4630,8 @@
       ],
       "effort": "M",
       "prs": [
-        560
+        560,
+        753
       ],
       "computed": {
         "benefit": 3.0,
@@ -4638,7 +4686,10 @@
         670,
         695,
         710,
-        712
+        712,
+        742,
+        754,
+        795
       ],
       "mandatory": "none",
       "computed": {
@@ -4687,7 +4738,9 @@
       "prs": [
         599,
         681,
-        716
+        716,
+        758,
+        777
       ],
       "mandatory": "none",
       "computed": {
@@ -4731,7 +4784,9 @@
       "effort": "L",
       "confidence": "Medium",
       "prs": [
-        722
+        722,
+        760,
+        776
       ],
       "mandatory": "none",
       "state": "In progress",

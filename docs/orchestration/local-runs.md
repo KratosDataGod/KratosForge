@@ -135,7 +135,25 @@ The engine methods are `pipeline_run_check`, `pipeline_run_start` (runs in the b
 | `fabric_desktop_get_pipeline_run`, `fabric_desktop_list_pipeline_runs` | Read metadata. Outputs, variable values and parameter values are left out. |
 | `fabric_desktop_cancel_pipeline_run` | Run code on this PC; you approve it |
 
-They take definitions as text, up to 1 MB. There is no page in the app for local runs yet.
+They take definitions as text, up to 1 MB. In the app, the **Pipelines** page runs them ([user guide](../user-guide.md)).
+
+## Schedules
+
+A pipeline in a `<name>.DataPipeline` folder can run on a schedule on this PC. Windows Task Scheduler starts each run, like the notebook schedules: the app can be closed, but the PC must be on and you signed in to Windows.
+
+```powershell
+fabric-desktop pipeline schedule .\pl_orders_daily.DataPipeline --at 06:00 --mocks .\mocks.json --param region=emea
+fabric-desktop pipeline schedule .\pl_orders_daily.DataPipeline --at 06:00 --weekday Monday --weekday Thursday --notebook "Transform=Transform orders" --read-lakehouse
+fabric-desktop pipeline schedule .\pl_hourly.DataPipeline --every-minutes 60 --mocks .\mocks.json
+```
+
+- **The pipeline must already run here.** Nobody is there to give a mock when a schedule fires, so the schedule is refused until every step runs on this PC or has a mock. The options are the same as `pipeline run`: `--param`, `--mocks`, `--notebook`, `--read-lakehouse`, `--workspace` and `--sql-project`.
+- **SecureString values are never kept.** A schedule refuses a value for a SecureString parameter, and the pipeline's default is used instead.
+- **The folder is read again at every run,** so a change pulled from Git is what the next run runs. If the change adds a step that needs a mock, that run fails before anything starts and says why.
+- **Each run is a normal local run.** It is kept with the other runs (Monitor > Runs and the pipeline's **Runs** tab show it). The schedule's line in **Monitor > KratosForge > Schedules** shows how the last run went, and a run that is still going when the next one is due makes that next one skip.
+- **Turning off or removing** a schedule works from **Monitor > KratosForge > Schedules**, as for notebook schedules. There's no way to add one from the Pipelines page yet.
+
+The engine method is `add_pc_schedule` with a `pipeline` target: `{"kind": "pipeline", "path", "parameters", "mocks", "notebooks", "read_lakehouses", "workspace_id", "sql_projects"}`. `pc_schedules_for("pipeline", path=...)` lists one folder's schedules.
 
 ## Try it
 

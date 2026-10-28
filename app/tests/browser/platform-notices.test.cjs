@@ -68,13 +68,13 @@ test("the bell lists open notices, never a request's reason, and the ones Teams 
   await page().evaluate(() => toggleTray(true));
   await page().getByRole("button", { name: /^Platform \d/ }).click();
   const tray = await page().textContent(".tray");
-  for (const part of ["Platform 1", "Access to LH_Gold_Sales", "waits on platform admins", "Open in Platform > Requests",
+  for (const part of ["Platform 1", "Access to LH_Gold_Sales", "waits on platform admins", "Open in Data mesh > Requests",
     "1 notice hasn't reached Teams", "Teams didn't answer. It waits on this PC", "Details", "as far as this PC's notices know"]) assert.ok(tray.includes(part), part);
   assert.ok(!tray.includes("Q3") && !tray.includes("SECRET123"));
   assert.ok(!tray.includes("Customers_Silver"), "no route takes shortcut notices, so it wasn't posted");
   if (SHOTS) await page().locator(".tray").screenshot({ path: path.join(SHOTS, "platform-notices-bell.png") });
-  await page().getByRole("button", { name: "Open in Platform > Requests" }).click();
-  assert.strictEqual(await page().evaluate(() => [state.view, platformPage.tab].join(":")), "platform:requests");
+  await page().getByRole("button", { name: "Open in Data mesh > Requests" }).click();
+  assert.strictEqual(await page().evaluate(() => [state.view, state.meta.tab].join(":")), "metadata:requests");
 });
 
 test("removing a route asks first", { skip }, async () => {

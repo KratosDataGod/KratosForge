@@ -377,7 +377,7 @@ business_key = "customer_id"     # or ["source_code", "customer_id"]
 
 With a [platform](platform.md) in Fabric, an environment's keys come from `SQL_Platform` instead, one key system for every team. A project that already issued keys in `LH_Keys` moves them with **Move keys** on this tab: every key keeps its number, each row is checked, and only then does the environment switch (`keys = "platform"` in `environments.toml`).
 
-In an environment whose keys are in the platform, the project doesn't make its own key tables. **Use a key table** picks one of the platform's (it still writes `metadata/keys/<name>.toml`, so the project says which keys it uses). Only platform admins add key tables: **Request a new one** sends a request to **Platform > Requests**, and the key table shows in the list once it's approved. A run that needs a key table the platform doesn't have stops and says to request it; **Sync** lists any that are missing.
+In an environment whose keys are in the platform, the project doesn't make its own key tables. **Use a key table** picks one of the platform's (it still writes `metadata/keys/<name>.toml`, so the project says which keys it uses). Only platform admins add key tables: **Request a new one** sends a request to **Data mesh > Requests**, and the key table shows in the list once it's approved. A run that needs a key table the platform doesn't have stops and says to request it; **Sync** lists any that are missing.
 
 ## 9. Source systems and the variable library
 
@@ -404,6 +404,14 @@ lib.CRM_server_host
 - No column sums on its own (`summarizeBy: none`, as Best Practice Analyzer's rules ask). Instead each fact gets a total measure for every visible numeric column that isn't a key, named like its row count measure: `fact_sales total net_amount`. Names don't change as the model grows, so reports keep their measures. Visuals that already sum a column keep their aggregation.
 - Relationships come from the metadata: a fact's `[[lookup]]` names the dimension and key, and any other column named like a dimension's surrogate key joins to it.
 - Surrogate keys, `_run_id` and `_loaded_at` are hidden.
+- **Date table.** A date dimension becomes the model's date table (*Mark as date table* in Power BI, so time intelligence like `TOTALYTD` works) when its entity names the date column:
+
+  ```toml
+  [model]
+  date_column = "day"
+  ```
+
+  The entity must be a dimension (`scd1` or `scd2` with a surrogate key) and the column a contract column of type `date` or `datetime`. Power BI refuses a date table with a blank date, so this dimension's Unknown member gets the date 1899-12-30 (day 0 of Power BI's date serials) instead of a blank one. A dimension that already exists is rewritten once on its next run to give its Unknown member that date (the write step says so); later runs merge as usual. Facts still point unmatched rows at -1, and visuals show them under 1899-12-30.
 - Two entities whose Delta tables share a name are qualified by schema (`sales_orders`). **Update model** first reads the model's definition and keeps the names its tables already have, so when a second `orders` table arrives only the newcomer is qualified, and reports keep their tables and measures. If the definition can't be read, nothing is written.
 - **Create model** makes `SM_<Layer>` in the environment's workspace (rename it if you like). **Update model** updates it in place and keeps every lineage tag, so reports built on it keep working.
 - If a model with that name already exists (for example after a rename), KratosForge asks first: the confirmation names the model and says its definition will be replaced, including measures, tables and relationships added to it in Fabric. Nothing is written until you confirm.
@@ -423,7 +431,7 @@ To manage tables that already exist in a lakehouse, use **Adopt** on the lakehou
 
 ## 12. Run on a schedule or a server
 
-- **On this PC or in Fabric:** **Schedule** at the top of Metadata, or **Schedules** on an environment card (Preview). Listed in **Monitor > Schedules**.
+- **On this PC or in Fabric:** **Schedule** at the top of Metadata, or **Schedules** on an environment card (Preview). Listed in **Monitor > KratosForge > Schedules and Monitor > Fabric > Schedules**.
 - **On a server, unattended:** the [headless agent](agent.md) runs the same engine on Windows or Linux as a service principal or managed identity, with a durable queue and retries. It hasn't yet run against a live tenant.
 
 ## Reference
@@ -507,6 +515,7 @@ business_key = "order_id"
 | `[[keys]]` | `table`, `business_key` | Surrogate keys from `LH_Keys` |
 | `[[lookup]]` | `dim`, `on`, `as`, `at` | A dimension's surrogate key as of the fact's date |
 | `[scd]` | `surrogate_key`, `tracked`, `type1` | Dimension settings |
+| `[model]` | `date_column` | Makes the dimension the semantic model's date table (see [section 10](#10-semantic-model-preview)) |
 | `[hooks]` | `after_clean`, `before_write`, `reads`, `adds`, `owner`, `test` | Your Python at a fixed point |
 | `[step]` | `custom`, `reads`, `owner`, `test` | Your Python replaces the transform |
 | `[params]` | any | Values your code reads from `ctx.params` |
@@ -555,7 +564,7 @@ KratosForge works out where every column comes from by reading the project's fil
 | --- | --- |
 | Every row | `_run_id`, `_loaded_at` |
 | Type 2 dimensions | `valid_from`, `valid_to`, `is_current` |
-| Dimensions | The surrogate key column, and an Unknown member at -1 |
+| Dimensions | The surrogate key column, and an Unknown member at -1 (dated 1899-12-30 in the model's date table) |
 | `LH_Meta` | `meta.run_log`, `meta.dq_results`, `meta.watermarks`, `meta.schema_history`, `meta.deployments` |
 | Each layer lakehouse | `quarantine.<schema>_<table>` for held-back rows |
 | `LH_Keys` | `sk.<name>` per key table; `config.source_system`, `config.source_connection` |

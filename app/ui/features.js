@@ -45,6 +45,7 @@ const PREVIEW_FEATURES = {
   fabricEdit: "Edit Fabric notebooks on this PC",
   wizard: "New notebook wizard",
   deps: "Cell dependencies",
+  practices: "Notebook best practices",
   debug: "Breakpoints, variable history and watches",
   replay: "Failure replay bundles",
   inputs: "Parameters and widgets bar",
@@ -102,6 +103,7 @@ const PREVIEW_FEATURES = {
   trustBadges: "Endorsement and business terms",
   warehouse: "Warehouse queries",
   sqlResultViews: "Messages and Chart on the SQL page",
+  sqlPractices: "SQL best practices",
   bestPractices: "Best practices: checks and templates",
   updateBanner: "New build banner",
 };
@@ -205,6 +207,8 @@ function howIntro() {
     if (panel?.classList.contains("how-intro-only")) panel.remove();
     return howPanel();
   }
+  // A tab that draws its own panel after the page's explanation got one of its own: that one goes.
+  if (panel && !panel.classList.contains("how-intro-only")) document.querySelectorAll("#view .how-intro-only").forEach((p) => p.remove());
   if (!panel) {
     panel = h("section", { class: "card pad how-it-works how-intro-only" }, h("h2", {}, "About this page"));
     (intro.closest(".page") || document.getElementById("view")).append(panel);

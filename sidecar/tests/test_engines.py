@@ -74,15 +74,13 @@ def test_every_registered_engine_lists_every_capability():
 
 
 def test_planned_engines_claim_nothing_and_say_what_is_planned():
-    for eid in ("local-spark", "fabric-spark", "databricks-connect"):
+    for eid in ("local-spark", "fabric-spark"):
         d = registry.get(eid)
         assert not d.adapter and d.planned
         assert all(not d.capability(c).available for c in CAPABILITIES)
         with pytest.raises(ValueError, match="can't run cells"):
             registry.adapter(eid)
         assert check_cell(d, "python")["ok"] is False
-    dbc = registry.get("databricks-connect")
-    assert dbc.remote and dbc.billing == "databricks_dbu" and "own Python environment" in dbc.planned
     assert registry.get("fabric-spark").billing == "fabric_capacity"
 
 
@@ -572,3 +570,38 @@ def test_python_engine_on_shared_or_in_engine_kernels_says_what_to_change():
     with pytest.raises(Unsupported, match="shares a's session"):
         registry.adapter("local-python", notebook_sessions=sessions).open_session(SessionConfig("b"))
     assert registry.adapter("local-python", notebook_sessions=sessions).open_session(SessionConfig("a"))
+
+
+def test_databricks_sql_runs_on_duckdb_translated():
+    d = registry.get("local-duckdb")
+    v = check_cell(d, "sql", "databricks")
+    assert v["ok"] and v["level"] == "translated" and "without starting a warehouse" in v["reason"]
+    s = registry.adapter("local-duckdb").open_session(SessionConfig("nb"))
+    try:
+        s.execute(CellRequest("CREATE TABLE t AS SELECT * FROM VALUES (1, 'a'), (1, 'b'), (2, NULL) AS v(k, x)",
+                              "sql", "databricks"))
+        r = s.execute(CellRequest("SELECT k, nvl(x, 'none') AS x FROM t "
+                                  "QUALIFY row_number() OVER (PARTITION BY k ORDER BY x) = 1 ORDER BY k",
+                                  "sql", "databricks"))
+        assert r.status == "ok" and r.rows == 2
+        r = s.execute(CellRequest("COPY t TO 'out.csv'", "sql", "databricks"))
+        assert r.status == "error"
+    finally:
+        s.close()
+
+
+@pytest.mark.parametrize("query", [
+    "SELECT substring('abcdef', 0, 2)",
+    "SELECT date_add(DATE'2024-03-05', 1)",
+    "SELECT trunc(DATE'2024-03-05', 'MM')",
+    "SELECT unix_timestamp('2024-01-01', 'yyyy-MM-dd')",
+    "SELECT add_months(DATE'2024-01-31', 1)",
+])
+def test_databricks_sql_on_duckdb_answers_as_spark_sql_does(query):
+    s = registry.adapter("local-duckdb").open_session(SessionConfig("nb"))
+    try:
+        spark = s.execute(CellRequest(query, "sql", "spark")).outputs[0]
+        dbx = s.execute(CellRequest(query, "sql", "databricks")).outputs[0]
+        assert spark.get("type") != "error" and dbx == spark
+    finally:
+        s.close()

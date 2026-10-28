@@ -1,4 +1,4 @@
-"""Schedules that run on this PC: a notebook, or a metadata environment's tables.
+"""Schedules that run on this PC: a notebook, a metadata environment's tables, or a pipeline.
 
 Windows Task Scheduler starts each run, so a schedule fires with the app closed, as long as
 you are signed in to Windows. The task runs this sidecar's own ``pythonw.exe -m
@@ -21,16 +21,23 @@ from typing import Any
 from xml.sax.saxutils import escape
 
 from .fabric_run import WEEKDAYS, describe_schedule, schedule_configuration
-from .jsonfile import read_json, write_json
+from .jsonfile import read_json, read_text, write_json
 
 TASK_FOLDER = "FabricDesktop"
 RUNS_FILE = "schedule_runs.jsonl"
 SCHEDULES_FILE = "schedules.json"
 
 
+# What a pipeline schedule keeps besides its folder: the settings of the Run dialog that the run
+# needs every time. SecureString parameter values are never kept (the definition's defaults apply).
+PIPELINE_OPTIONS = ("parameters", "mocks", "notebooks", "sql_projects")
+
+
 def target_label(target: dict[str, Any]) -> str:
     if target.get("kind") == "notebook":
         return target.get("name", "")
+    if target.get("kind") == "pipeline":
+        return f"Pipeline: {target.get('name') or Path(str(target.get('path', ''))).name}"
     names = target.get("entities") or []
     what = ", ".join(names) if names else "every table"
     return f"{str(target.get('env', '')).title()} metadata: {what}"
@@ -46,7 +53,19 @@ def check_target(target: dict[str, Any]) -> dict[str, Any]:
         if target.get("env") not in ("dev", "test", "prod"):
             raise ValueError("Pick the environment to run")
         return {"kind": "meta", "env": target["env"], "entities": list(target.get("entities") or [])}
-    raise ValueError("A schedule runs a notebook or a metadata environment")
+    if kind == "pipeline":
+        if not target.get("path"):
+            raise ValueError("Pick the pipeline to run")
+        out: dict[str, Any] = {"kind": "pipeline", "path": str(target["path"]), "name": str(target.get("name") or "")}
+        for key in PIPELINE_OPTIONS:
+            value = target.get(key)
+            if value is not None and not isinstance(value, dict):
+                raise ValueError(f"{key} must be an object")
+            out[key] = dict(value or {})
+        out["read_lakehouses"] = bool(target.get("read_lakehouses"))
+        out["workspace_id"] = str(target.get("workspace_id") or "")
+        return out
+    raise ValueError("A schedule runs a notebook, a metadata environment or a pipeline")
 
 
 def local_configuration(schedule: dict[str, Any]) -> dict[str, Any]:
@@ -209,6 +228,25 @@ class LocalSchedules:
                 at = dt.datetime.fromtimestamp(path.stat().st_mtime, dt.timezone.utc)
             out.append({"file": path.name, "path": str(path), "at": at.isoformat(timespec="seconds")})
         return sorted(out, key=lambda x: x["at"], reverse=True)
+
+    def notebooks(self) -> set[str]:
+        """The notebooks an enabled schedule on this PC runs: a notebook schedule's notebook, and the
+        saved notebooks a pipeline schedule's Notebook steps run (its ``notebooks`` map). Only reads:
+        a torn file raises ValueError and is left where it is."""
+        try:
+            data = json.loads(read_text(self.file))
+        except FileNotFoundError:
+            return set()
+        out: set[str] = set()
+        for s in data.get("schedules") or []:
+            target = s.get("target") or {}
+            if not s.get("enabled", True):
+                continue
+            if target.get("kind") == "notebook":
+                out.add(str(target.get("name") or ""))
+            elif target.get("kind") == "pipeline" and isinstance(target.get("notebooks"), dict):
+                out |= {v for v in target["notebooks"].values() if isinstance(v, str)}
+        return out - {""}
 
     def get(self, schedule_id: str) -> dict[str, Any]:
         found = next((s for s in self._load()["schedules"] if s["id"] == schedule_id), None)

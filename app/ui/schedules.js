@@ -1,6 +1,6 @@
 // Schedules: on this PC (Windows Task Scheduler starts them, even with the app closed) or in
 // Fabric (its job scheduler, on capacity). One dialog adds them for a notebook or an environment;
-// Monitor > Schedules lists every one in one place.
+// Monitor > KratosForge > Schedules and Monitor > Fabric > Schedules list every one.
 
 // What a run of a schedule on this PC did, as a pill.
 function scheduleRunPill(last) {
@@ -34,7 +34,7 @@ function confirmRemoveSchedule(what, text, fabric, offHere = true) {
   const how = fabric ? "Fabric deletes the schedule and stops starting runs from it."
     : "Its Windows task is deleted and it stops running on this PC.";
   return confirmDialog(`Remove the schedule for ${what}?`,
-    `${text}. ${how} Past runs stay where they are. To stop it for a while instead, turn it Off${offHere ? "" : " in Monitor > Schedules"}.`, "Remove", { danger: true });
+    `${text}. ${how} Past runs stay where they are. To stop it for a while instead, turn it Off${offHere ? "" : " in Monitor > Fabric > Schedules"}.`, "Remove", { danger: true });
 }
 
 // Rows for this PC's schedules; actions redraw through `changed`.
@@ -43,7 +43,7 @@ function pcScheduleRows(rows, changed, { showWhat = false } = {}) {
     h("td", {}, onOffButton(s.enabled, async (on) => {
       if (await attempt(() => rpc("set_pc_schedule_enabled", { schedule_id: s.id, enabled: on }), on ? "Not turned on" : "Not paused")) changed();
     })),
-    showWhat ? h("td", {}, h("b", {}, s.label), h("div", { class: "muted-text small" }, s.target.kind === "notebook" ? "Notebook" : "Metadata run")) : null,
+    showWhat ? h("td", {}, h("b", {}, s.label), h("div", { class: "muted-text small" }, ({ notebook: "Notebook", pipeline: "Pipeline" })[s.target.kind] || "Metadata run")) : null,
     h("td", {}, s.text),
     h("td", {}, s.enabled ? nextRunText(s.next_run) : h("span", { class: "muted-text" }, "Paused")),
     h("td", {}, scheduleRunPill(s.last), s.last ? h("span", { class: "muted-text small" }, " ", when(s.last.started)) : null,
@@ -127,25 +127,31 @@ async function openScheduleDialog(o) {
   showDialog(o.title, h("div", { class: "scroll" },
     h("div", { class: "compute-row" }, h("span", { class: "muted-text small" }, "Runs on"), seg),
     intro, list, h("b", {}, "Add a schedule"), form.fields,
-    h("p", { class: "muted-text small" }, "Every schedule, on this PC and in Fabric, is listed in Monitor > Schedules.")),
+    h("p", { class: "muted-text small" }, "Every schedule, on this PC and in Fabric, is listed in Monitor > KratosForge > Schedules and Monitor > Fabric > Schedules.")),
   [btn("Close", null, closeDialog, "tool outline"), btn("Add schedule", "add", add, "tool primary")]);
   draw();
 }
 
-// ---------- Monitor > Schedules ----------
+// ---------- Monitor > KratosForge > Schedules and Monitor > Fabric > Schedules ----------
 
-const schedulesPage = { allWorkspaces: false, data: null, timer: null };
+// Monitor has two schedule pages: KratosForge > Schedules (panel "schedules", those Windows starts on this
+// PC) and Fabric > Schedules (panel "fabric_schedules", Fabric's job scheduler). Both read all_schedules.
+// refresh: Monitor's Refresh asks Fabric again rather than using the last read.
+const schedulesPage = { allWorkspaces: false, data: null, timer: null, refresh: false };
+const onSchedules = () => state.view === "monitor" && ["schedules", "fabric_schedules"].includes(monitorPage.panel);
 
 function schedulesPanel() {
   const box = h("div", { class: "monitor-scroll schedules-panel" }, loading("Loading schedules...", "monitor-empty"));
-  loadSchedules(box, false);
+  const refresh = schedulesPage.refresh;
+  schedulesPage.refresh = false;
+  loadSchedules(box, refresh);
   return box;
 }
 
 async function loadSchedules(box, refresh) {
   clearTimeout(schedulesPage.timer);
   const res = await attempt(() => rpc("all_schedules", { refresh, all_workspaces: schedulesPage.allWorkspaces }), "Could not read schedules");
-  if (!res || state.view !== "monitor" || monitorPage.panel !== "schedules") return;
+  if (!res || !onSchedules() || !box.isConnected) return;
   schedulesPage.data = res;
   drawSchedules(box);
   if (res.fabric.pending) schedulesPage.timer = setTimeout(() => loadSchedules(box, false), 1500);
@@ -172,33 +178,33 @@ function drawSchedules(box) {
   const fabric = res.fabric || {};
   const pc = res.pc.filter((s) => matches(`${s.label} ${s.text}`));
   const fab = (fabric.items || []).filter((s) => matches(`${s.name} ${s.workspace_name} ${s.type} ${s.text}`));
-  const failing = [...pc.filter((s) => s.last && s.last.status === "failed"),
-                   ...fab.filter((s) => s.last && fabricStatus(s.last.status) === "failed")].length;
-  const scope = (all, label) => h("button", { class: `chip${schedulesPage.allWorkspaces === all ? " on" : ""}`,
+  const scope = (all, label) => h("button", { class: schedulesPage.allWorkspaces === all ? "on" : null, "aria-pressed": String(schedulesPage.allWorkspaces === all),
     onclick: () => { schedulesPage.allWorkspaces = all; loadSchedules(box, false); } }, label);
+  const failed = (n) => (n ? h("span", { class: "bad" }, h("b", {}, n), " failed last time") : null);
 
-  fill(box, 
+  if (monitorPage.panel === "schedules") {
+    fill(box,
+      h("div", { class: "schedule-summary" },
+        h("span", {}, h("b", {}, res.pc.filter((s) => s.enabled).length), ` of ${res.pc.length} on`),
+        failed(pc.filter((s) => s.last && s.last.status === "failed").length)),
+      setAsideNotice(res.pc_set_aside),
+      res.windows ? null : h("p", { class: "muted-text small" }, "Only Windows starts these. On this system they are saved but nothing runs them."),
+      pc.length ? h("table", { class: "list" },
+        h("thead", {}, h("tr", {}, ["", "What", "When", "Next run", "Last run", ""].map((c) => h("th", {}, c)))),
+        h("tbody", {}, pcScheduleRows(pc, redraw, { showWhat: true })))
+        : h("p", { class: "muted-text" }, res.pc.length ? "No schedule on this PC matches the search."
+          : "None yet. Use Schedule on a notebook, or on Data mesh, and pick This PC."));
+    return;
+  }
+  // Which workspaces are read is this tab's view; how far the read got sits by Refresh.
+  monitorSlots.views?.replaceChildren(h("div", { class: "seg", role: "group", "aria-label": "Workspaces" },
+    scope(false, "Workspaces I work in"), scope(true, "All workspaces")));
+  monitorSlots.tools?.replaceChildren(fabric.pending ? h("span", { class: "muted-text small" }, "Reading schedules from Fabric...")
+    : fabric.scanned ? h("span", { class: "muted-text small" }, `${fabric.workspaces} workspace${fabric.workspaces === 1 ? "" : "s"} read `, when(fabric.scanned)) : "");
+  fill(box,
     h("div", { class: "schedule-summary" },
-      h("span", {}, h("b", {}, res.pc.length + (fabric.items || []).length), " schedules"),
-      h("span", {}, h("b", {}, res.pc.filter((s) => s.enabled).length), " on this PC"),
-      h("span", {}, h("b", {}, (fabric.items || []).filter((s) => s.enabled).length), " in Fabric"),
-      failing ? h("span", { class: "bad" }, h("b", {}, failing), " failed last time") : null),
-    h("h3", { class: "schedule-head" }, "On this PC"),
-    setAsideNotice(res.pc_set_aside),
-    res.windows ? null : h("p", { class: "muted-text small" }, "Only Windows starts these. On this system they are saved but nothing runs them."),
-    pc.length ? h("table", { class: "list" },
-      h("thead", {}, h("tr", {}, ["", "What", "When", "Next run", "Last run", ""].map((c) => h("th", {}, c)))),
-      h("tbody", {}, pcScheduleRows(pc, redraw, { showWhat: true })))
-      : h("p", { class: "muted-text" }, res.pc.length ? "No schedule on this PC matches the search."
-        : "None yet. Use Schedule on a notebook, or on Data mesh, and pick This PC."),
-    h("div", { class: "schedule-head row" },
-      h("h3", {}, "In Fabric"),
-      h("div", { class: "row", role: "group", "aria-label": "Workspaces" },
-        scope(false, "Workspaces I work in"), scope(true, "All workspaces")),
-      h("span", { class: "spacer" }),
-      fabric.pending ? h("span", { class: "muted-text small" }, "Reading schedules from Fabric...")
-        : fabric.scanned ? h("span", { class: "muted-text small" }, `${fabric.workspaces} workspace${fabric.workspaces === 1 ? "" : "s"} read `, when(fabric.scanned)) : null,
-      btn("Refresh", "sync", () => loadSchedules(box, true), "tool link small")),
+      h("span", {}, h("b", {}, (fabric.items || []).filter((s) => s.enabled).length), ` of ${(fabric.items || []).length} on`),
+      failed(fab.filter((s) => s.last && fabricStatus(s.last.status) === "failed").length)),
     fabric.error ? h("p", { class: "muted-text" }, `Couldn't read Fabric's schedules: ${friendlyError(fabric.error).text}`)
       : !fabric.pending && !schedulesPage.allWorkspaces ? h("p", { class: "muted-text small" },
         "Pinned workspaces, your environments' workspaces, and the ones your notebooks publish to.") : null,

@@ -162,7 +162,7 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 ### A. Unified workload inventory and organization
 
 **1. Unified workload inventory** · Enhance · Stage 1
-- Today: runs are merged in Monitor (`app.js` `renderMonitor`), schedules in Monitor > Schedules (`schedule_service.py` `all_schedules`), Fabric items in the OneLake catalog (`service.py` `catalog`), entities on Data mesh; nothing lists *workloads*.
+- Today: runs are merged in Monitor (`app.js` `renderMonitor`), schedules in Monitor > KratosForge > Schedules and Monitor > Fabric > Schedules (`schedule_service.py` `all_schedules`), Fabric items in the OneLake catalog (`service.py` `catalog`), entities on Data mesh; nothing lists *workloads*.
 - Problem: an engineer can't see everything they run, everywhere, in one place.
 - Enhancement: `workloads_list` over three adapters (entities, notebooks, Fabric items in scoped workspaces), searchable and paged, keeping each workload's native id and location; Monitor > Workloads.
 - Depends: none. Acceptance: the three kinds listed with native ids and locations; search by name, owner, project, environment, location; paging; 10,000 rows under 300 ms. Validation: U, M, UI. Needs: none new (Workspace.Read.All, Item.Read.All already used). PR: —
@@ -252,7 +252,7 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 - Enhancement: a transfer request (Platform requests, new kind) accepted by the new owner; history kept. Depends: 2B. Validation: U. Needs: none. PR: —
 
 **18. Team service catalog** · Enhance · Stage 7
-- Today: OneLake > Data products lists published products.
+- Today: Data mesh > Products lists published products.
 - Enhancement: support terms, onboarding requirements and owners per product or service. Depends: 11. Validation: U, UI. PR: —
 
 **19. Change subscriptions** · Missing · Stage 6

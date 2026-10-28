@@ -46,7 +46,7 @@ before(async () => {
   app = await openApp({
     engine: ["sql_format", "sql_dialects", "sql_analyze", "sql_queries_list", "git_init", "wh_projects_list", "wh_project_files",
       "wh_project_read", "wh_project_compare", "wh_project_diff", "wh_project_deploy_plan"],
-    mocks: { ...runs,
+    mocks: { ...runs, meta_project: () => ({ environments: { dev: { workspace_id: "ws1" }, prod: { workspace_id: "ws9" } } }),
       sql_start: (p) => {
         if (p.dry_run) {
           return /BEGIN TRAN/i.test(p.query)

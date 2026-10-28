@@ -266,6 +266,13 @@ pub fn listen(data_dir: &Path, on_link: impl Fn(Link) + Send + 'static) -> std::
     Ok(())
 }
 
+/// For an organization that turned links off (policy `register_link_scheme: false`): no copy listens,
+/// and the port an earlier run wrote is removed, so a copy started later never sends its token to a
+/// port some other program may hold now.
+pub fn forget_port(data_dir: &Path) {
+    let _ = std::fs::remove_file(data_dir.join("link-port"));
+}
+
 /// 128 random bits as hex, from the standard library's per-process random hash keys.
 fn random_token() -> String {
     use std::hash::{BuildHasher, Hasher};
@@ -489,6 +496,19 @@ mod tests {
         assert_ne!(answer.trim(), OK);
         assert!(rx.recv_timeout(Duration::from_millis(300)).is_err(), "nothing shown");
         assert_ne!(random_token(), random_token());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn with_links_turned_off_a_second_copy_has_nothing_to_hand_its_link_to() {
+        let dir = std::env::temp_dir().join(format!("kf-nolinks-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        listen(&dir, |_| {}).unwrap();
+        assert!(forward(&dir, "kratosforge://page/monitor"), "listening");
+        forget_port(&dir);
+        assert!(!dir.join("link-port").exists());
+        assert!(!forward(&dir, "kratosforge://page/monitor"), "no port, no handover");
+        forget_port(&dir); // nothing to remove is fine
         let _ = std::fs::remove_dir_all(&dir);
     }
 

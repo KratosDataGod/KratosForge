@@ -19,17 +19,20 @@ const REC_MOVES = {
 
 async function renderOptimize() {
   if (!OPTIMIZE_TABS.some(([id]) => id === optimizePage.tab)) optimizePage.tab = "overview";
-  const band = h("div", { class: "optimize-band muted-text" }, "Reading Optimize's settings...");
+  // The page layout every tabbed page shares (docs/ui-guidelines.md): which lakehouse results are shared
+  // through is the line under the title, setting one up is the page's buttons, then the tabs and Refresh.
+  const band = h("p", { class: "sub optimize-band" }, "Reading Optimize's settings...");
+  const actions = h("div", { class: "head-actions" });
   const body = h("div", { class: "optimize-body" });
   setView(h("div", { class: "page optimize" },
     h("div", { class: "page-head" }, h("div", {},
-      h("h1", {}, "Optimize ", previewTag()),
+      h("h1", {}, "Optimize ", previewTag()), band,
       pageIntro("What your Fabric estate could do better, what was fixed and what it could save, shared with everyone on your optimization lakehouse. ",
-        learnMore("optimize-preview")))),
-    band,
+        learnMore("optimize-preview"))), actions),
     h("div", { class: "subtabs", role: "tablist", "aria-label": "Optimize views" }, OPTIMIZE_TABS.map(([id, label]) =>
       h("button", { class: `tab${optimizePage.tab === id ? " active" : ""}`, role: "tab", "aria-selected": optimizePage.tab === id ? "true" : "false",
         onclick: () => { optimizePage.tab = id; render(); } }, label))),
+    h("div", { class: "row mesh-view-row" }, h("span", { class: "spacer" }), btn("Refresh", "sync", () => render(), "tool outline")),
     body));
   // Cost and savings doesn't need the shared lakehouse: it reads this PC's runs.
   if (optimizePage.tab === "cost") body.append(costPanel());
@@ -37,12 +40,15 @@ async function renderOptimize() {
   if (optimizePage.tab === "settings") body.append(settingsHistoryPanel());
   const status = await rpc("optimize_status").catch(() => null);
   if (state.view !== "optimize" || !band.isConnected) return;
-  band.replaceWith(optimizeBand(status));
+  const [line, buttons] = optimizeBand(status);
+  band.replaceChildren(...line);
+  actions.replaceChildren(...buttons);
+  actions.classList.toggle("optimize-setup", !!status?.allowed && !status.active);
   if (optimizePage.tab === "cost" || optimizePage.tab === "settings") return;
   if (!status?.active) {
     fill(body, h("p", { class: "muted-text" }, status && !status.allowed
       ? "Your organization has turned off shared optimization lakehouses."
-      : "Connect an optimization lakehouse to see what every KratosForge installation found, and act on it together. Cost and savings works without one."));
+      : "Connect an optimization lakehouse to see what every KratosForge installation found, and act on it together. One lakehouse holds what every installation finds, fixes and saves, and your organization usually needs only one. Cost and savings works without one."));
     return;
   }
   fill(body, h("p", { class: "muted-text" }, "Reading shared results..."));
@@ -56,25 +62,20 @@ async function renderOptimize() {
   else fill(body, ...optimizeOpportunities(findings, recs, writable));
 }
 
-// The line under the title: which lakehouse this PC shares results through, or how to set one up.
+// The line under the title (which lakehouse this PC shares results through) and the page's buttons
+// (how to set one up), as [line, buttons].
 function optimizeBand(status) {
-  if (!status) return h("div", { class: "optimize-band muted-text" }, "Optimize's settings can't be read until the local engine is running.");
-  if (!status.allowed) return h("div", { class: "optimize-band muted-text" }, "Shared optimization lakehouses are turned off by your organization. Cost and savings still shows this PC's figures.");
+  if (!status) return [["Optimize's settings can't be read until the local engine is running."], []];
+  if (!status.allowed) return [["Shared optimization lakehouses are turned off by your organization. Cost and savings still shows this PC's figures."], []];
   const c = status.active;
   if (!c) {
-    return h("section", { class: "card pad optimize-setup" },
-      h("div", { class: "grow" }, h("b", {}, "Share results with your team"),
-        h("div", { class: "muted-text small" }, "One lakehouse holds what every installation finds, fixes and saves. Your organization usually needs only one. Nothing here waits for it.")),
-      btn("Connect to a lakehouse", null, () => optimizeConnectFlow(), "tool outline"),
-      btn("Create a lakehouse", "add", () => optimizeCreateFlow(), "tool primary"));
+    return [["Results from this PC only · not shared with your team yet"],
+      [btn("Connect to a lakehouse", null, () => optimizeConnectFlow(), "tool outline"),
+        btn("Create a lakehouse", "add", () => optimizeCreateFlow(), "tool primary")]];
   }
   const access = { write: "Read and write", read: "Read only", none: "No access" }[c.access] || c.access;
-  return h("div", { class: "optimize-band row wrap" },
-    h("span", {}, h("span", { class: "muted-text" }, "Lakehouse "), h("b", {}, c.lakehouse_name || c.lakehouse_id),
-      c.workspace_name ? h("span", { class: "muted-text" }, ` in ${c.workspace_name}`) : null),
-    h("span", {}, h("span", { class: "muted-text" }, "Access "), access),
-    h("span", { class: "spacer" }),
-    btn("Lakehouses", "settings", () => { state.settingsTab = "general"; go("settings"); }, "tool link small"));
+  return [["Shared through lakehouse ", h("b", {}, c.lakehouse_name || c.lakehouse_id), c.workspace_name ? ` in ${c.workspace_name}` : "", ` · ${access}`],
+    [btn("Lakehouses", "settings", () => { state.settingsTab = "general"; go("settings"); }, "tool outline")]];
 }
 
 // Findings by fingerprint, so a recommendation can show what it is about.

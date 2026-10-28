@@ -1,7 +1,7 @@
 // Incidents: one record per problem in each environment, kept in its LH_Meta and shared by everyone
 // who can read it (workloads/incidents.py). Agents check on a timer; this app reads the list, checks
 // only when asked, and lets a person acknowledge, assign, note and resolve. Teams messages come from
-// agents, never from this page. Monitor > Incidents lists them; the incident page shows one.
+// agents, never from this page. Monitor > KratosForge > Operations > Incidents lists them; the incident page shows one.
 
 const INC_STATE_PILL = { open: "fail", acknowledged: "wrn", resolved: "pass" };
 const INC_RESOLUTION = { recovered: "Recovered", cleared: "Cleared", resolved: "Resolved" };
@@ -10,7 +10,7 @@ const INC_EVIDENCE = { run_id: "Run", started_at: "Started", ran_on: "Ran on", j
   heartbeat_at: "Last heartbeat", stale_after: "Due again by", version: "Version", state: "State", expected: "Promised",
   last_success: "Last good run", success_rate: "Success rate", objective: "Objective" };
 
-// Monitor > Incidents, kept for the session. checked: when this PC last checked each environment.
+// Monitor > KratosForge > Operations > Incidents, kept for the session. checked: when this PC last checked each environment.
 const incPage = { env: null, filter: "active", id: null, env_of: null, detail: null, checked: {} };
 
 function incStateLabel(inc) {
@@ -57,7 +57,7 @@ function backToIncidents() {
   go("monitor");
 }
 
-// ---------- Monitor > Incidents ----------
+// ---------- Monitor > KratosForge > Operations > Incidents ----------
 
 function incidentsPanel() {
   const box = h("div", { class: "inc-panel" }, h("p", { class: "muted-text monitor-empty" }, "Reading incidents..."));
@@ -301,20 +301,24 @@ function incImpactBody(inc, out, reload) {
   const told = out.told ? h("p", { class: "muted-text small" }, `Told in Teams ${relTime(out.told.at)} by ${out.told.by}.`) : null;
   const unreachable = out.unreachable.length ? h("p", { class: "muted-text small" },
     `Not an email, so not in the message: ${out.unreachable.join(", ")}.`) : null;
+  // Who follows a product is personal data: the platform lists it only to its owners and admins.
+  const hiddenNames = (out.followers_hidden || []).map((id) => out.products.find((p) => p.id === id)?.name || id);
+  const hidden = hiddenNames.length ? h("p", { class: "muted-text small inc-impact-hidden" },
+    `Followers of ${hiddenNames.join(", ")} aren't listed or told: only a product's owner or a platform admin can see who follows it. Its owner can tell them.`) : null;
   const upns = out.people.map((p) => p.upn);
   const actions = upns.length ? h("div", { class: "row wrap" },
     btn(out.told ? "Tell them again" : "Tell them", "comment", () => tellImpacted(inc, out, reload), "tool primary small"),
     btn("Copy emails", "copyArrowRight", () => navigator.clipboard.writeText(upns.join("; ")).then(
       () => toast(`Copied ${upns.length} ${upns.length === 1 ? "email" : "emails"}.`), () => toast("Couldn't copy the emails.", true)), "tool outline small")) : null;
   return [h("p", { class: "sub" }, `${out.products.length} data ${out.products.length === 1 ? "product is" : "products are"} built on ${out.entity} in ${envName(inc.env)}.`),
-    products, h("h3", {}, "People to tell"), people, unreachable, told, actions];
+    products, h("h3", {}, "People to tell"), people, unreachable, hidden, told, actions];
 }
 
 async function openImpactProduct(id) {
   const out = await platformCall("platform_products", {}, "Could not read the catalog");
   const prod = out?.products.find((x) => x.id === id);
   if (!prod) return;
-  productsPage.open = prod; catalogPage.tab = "products"; go("onelake");
+  openProducts(prod);
 }
 
 function tellImpacted(inc, out, reload) {

@@ -608,6 +608,9 @@ class Kernel:
         # "local_first": a cell's lakehouse writes upload in the background and the cell waits for
         # them at its end (write_queue); "direct": each write_table returns once it is in OneLake.
         self.onelake_writes = "local_first"
+        # Set before each cell (service._start_cell); asked before every write the cell makes, by
+        # the cell's thread (lakehouse.cell_write_checks). None for the app's own cells.
+        self.write_check: Any = None
         self._writes: Any = None
         self._current: _Run | None = None
         self._widget_lock = threading.Lock()
@@ -923,6 +926,9 @@ class Kernel:
         self._current = self._last_runs[run.guest] = run
         run.thread = threading.Thread(target=self._execute, args=(code, run, list(watches or [])), daemon=True,
                                       name=f"cell-{self.count}")
+        if self.write_check is not None:
+            from . import lakehouse
+            lakehouse.cell_write_checks[run.thread] = self.write_check
         run.thread.start()
         return run.snapshot()
 
@@ -977,6 +983,7 @@ class Kernel:
 
     def run(self, code: str) -> dict[str, Any]:
         """Run ``code`` to the end and return its result (used by tests and scripts)."""
+        self.write_check = None  # the app's own run
         self.start(code)
         run = self._current
         assert run is not None

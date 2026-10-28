@@ -67,4 +67,6 @@ def _ids(rules: Callable[[], list[dict[str, Any]]]) -> Callable[[], list[str]]:
 
 gc.register("notebook", notebook_practices.rules, _adapter("notebook", _ids(notebook_practices.rules), _notebook))
 gc.register("sql", sql_practices.rules, _adapter("sql", _ids(sql_practices.rules), _sql))
+# "model" is the local check of the model Update model writes; a BPA checker that runs in Fabric (#560) takes
+# its own kind, which register() enforces.
 gc.register("model", model_practices.rules, _adapter("model", _ids(model_practices.rules), _model))

@@ -5,8 +5,10 @@
 
 const PN_KINDS = [["request.waiting", "Request waiting on someone"], ["request.decided", "Request decided"],
   ["request.withdrawn", "Request withdrawn"], ["shortcut.broken", "Shortcut broken"], ["shortcut.fixed", "Shortcut fixed"],
-  ["incident.impact", "Incident reaching data products"], ["product.changed", "Data product changed (to its followers)"]];
-const PN_WHERE = { requests: "Platform > Requests", health: "Shortcuts > Health", detail: "Monitor > Incidents", products: "OneLake > Data products" };
+  ["incident.impact", "Incident reaching data products"], ["product.changed", "Data product changed (to its followers)"],
+  ["exception.ending", "Policy exception ending within 14 days"]];
+const PN_WHERE = { requests: "Data mesh > Requests", health: "Shortcuts > Health", detail: "Monitor > KratosForge > Operations > Incidents", products: "Data mesh > Products",
+  exceptions: "Platform > Govern > Governance" };
 
 // ---------- the bell ----------
 
@@ -58,8 +60,15 @@ function openPlatformNotice(n) {
     catalogPage.tab = "shortcuts";
     scPage.view = "health";
     go("onelake");
+  } else if (n.open.view === "onelake") {
+    openProducts();
+  } else if (n.open.view === "incident") {
+    incPage.filter = "active";
+    backToIncidents();
+  } else if (n.open.view === "governance") {
+    openPolicyExceptions(n.open.target);
   } else {
-    goPlatform("requests");
+    goMeta("requests");
   }
 }
 

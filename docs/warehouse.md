@@ -4,7 +4,9 @@ KratosForge is building a full development experience for Fabric warehouses, the
 
 ## The Warehouse page
 
-In **Workspaces**, open a workspace and press **SQL query** on a **Warehouse** or **SQL analytics endpoint** row. The Warehouse page opens: the SQL editor, the compatibility check and the managed results you know from lakehouse queries, with the warehouse as the target.
+In **Workspaces**, open a workspace and click a **Warehouse** or **SQL analytics endpoint** by its name (a **Warehouse** in the OneLake catalog too). The Warehouse page opens: the SQL editor, the compatibility check and the managed results you know from lakehouse queries, with the warehouse as the target. **Open in Fabric** on the same row opens Fabric's own editor instead. To have a name open Fabric's editor, choose **Fabric portal** under **Open warehouses in** (Settings › Advanced › SQL queries); then the row has **SQL query** for this page, as before. With preview features hidden, a name opens Fabric.
+
+From **Workspaces > Fabric portal**, **Open in KratosForge** opens the warehouse or SQL analytics endpoint Fabric is showing on this page.
 
 - **It runs in Fabric and uses capacity.** Unlike a lakehouse query, which runs on this PC, a warehouse query runs on the warehouse. The first run on each warehouse after the app starts asks you to confirm.
 - **It reads until you allow changes.** Until **Allow changes** is ticked, one statement that reads is sent; DDL, DML, `EXEC`, variables and anything that reaches outside the warehouse (`OPENROWSET`) are refused before Fabric is asked anything. With it ticked, a script may change the warehouse after it shows what it changes and you confirm: see [Changing the warehouse](#changing-the-warehouse).
@@ -20,6 +22,8 @@ Tick **Allow changes** at the top of the Warehouse page to let **Run** change th
 1. **Run** first asks the engine what the script does. Nothing is sent to Fabric for this. A script that only reads runs as before.
 2. A script that changes the warehouse shows a confirm: the workspace, the warehouse, its environment, and each statement that changes something, such as *Statement 1: UPDATE dbo.DimCustomer changes the warehouse*.
 3. In **Prod**, or in a workspace whose environment isn't known, you type the warehouse's name before **Run in Prod** is enabled. The engine checks that name against Fabric's, so a change never reaches a warehouse you didn't name. Dev and Test need only the confirm.
+
+   Here a workspace's environment comes only from your metadata project (**Data mesh > Environments and promote**), never from its name: a workspace that isn't Dev, Test or Prod there is treated like Prod, even one named `Sales Test`, so it asks for the name and deploys only what's in Git.
 4. The script runs in one transaction, in batches split at `GO` lines. If a statement fails, or you press **Stop**, nothing is kept. **Messages** and the **History** tab show how many rows changed and that it was committed, and the explorer lists the objects again.
 
 Some things are never run, even when changes are allowed: `BEGIN TRAN`, `COMMIT` and `ROLLBACK` (the run is the transaction), dynamic SQL, `EXECUTE AS`, permissions (`GRANT`, `REVOKE`, `DENY`, roles and users, which are managed in Fabric), `USE` and other databases, `COPY INTO` and database DDL. A script with one of these says which statement and why, and nothing is sent. A procedure's body is checked when you create it here, but a procedure already in the warehouse runs as it was written. The full list is in [SQL execution](sql-execution.md#changes-on-a-warehouse-wh-10).
@@ -42,7 +46,7 @@ WH_Gold.Warehouse/
 ```
 
 - **Finding it.** The tab looks for a folder named after the warehouse, or whose `.platform` names it, up to four folders deep in each repository. With several, a list picks one. The header shows the folder, the repository and the branch, and each file new or changed since the last commit is marked **A** or **M**.
-- **Import from the warehouse** scripts every table, view, procedure, function and schema from the warehouse's catalog (catalog queries in Fabric, so it uses a little capacity and asks first, as the explorer does) and shows what it would do: new files, files that differ from the warehouse, and files already the same. New files are written. A file that differs is kept unless you tick **Replace**. No file is ever removed, so an object that's only in the project stays. With no project yet, Import makes `<warehouse>.Warehouse` in the repository you pick, with its `.platform` and `.sqlproj`.
+- **Import from the warehouse** scripts every table, view, procedure, function and schema from the warehouse's catalog (catalog queries in Fabric, so it uses a little capacity and asks first, as the explorer does) and shows what it would do: new files, files that differ from the warehouse, and files already the same. New files are written. A file that differs is kept unless you tick **Replace**. No file is ever removed, so an object that's only in the project stays. Schemas Fabric makes and keeps itself in every warehouse (`queryinsights`, `_rsc`) are left out of Import, Compare and Deploy; a file for one from an earlier import is listed as not read. With no project yet, Import makes `<warehouse>.Warehouse` in the repository you pick, with its `.platform` and `.sqlproj`.
 - **Each object goes to the file that already defines it**, found by the file's first `CREATE`, so a project laid out another way (for example `Stored Procedures` with a space) is read and written the same way. New files go where the project already keeps that kind of object, or else in the layout above. Two objects whose names differ only in letter case, such as `dbo.Sales` and `dbo.sales`, are two objects in the warehouse but would share one file on Windows, so the second isn't written and Import says why: rename one of them.
 - **A table is scripted from its columns**: names, T-SQL types, and NULL or NOT NULL. Views, procedures and functions come from `sys.sql_modules` as written.
 - **Open a file** to edit it in its own tab, with the same checks and completion as a query. **Save file** (or Ctrl+S) writes it back. A file changed since you opened it, for example by a Git pull or VS Code, isn't overwritten.
@@ -85,8 +89,9 @@ The left side lists the warehouse's schemas, and in each its **Tables**, **Views
 
 - Click a table or view to run `SELECT TOP (100) *` on it (in the current tab when it's empty, else a new one).
 - Open a table or view to see its columns with their T-SQL types, such as `decimal(18,2)` or `nvarchar(100)`. Click a column, procedure or function to type its quoted name in the editor.
-- **Script as** (an object's **⋯** button, or right-click): **Select top 100 rows**, **Script as CREATE**, **Script as ALTER** (views, procedures and functions) and **Script as DROP**. The script opens in a new tab and never runs: this page runs only queries that read. A table's CREATE is built from the columns already listed, so it asks Fabric nothing. A view, procedure or function's definition is read from `sys.sql_modules` (one catalog query in Fabric), and ALTER turns its leading `CREATE` or `CREATE OR ALTER` into `ALTER`. A table's CREATE carries column names, types and NULL or NOT NULL only, not constraints.
+- **Script as** (an object's **⋯** button, or right-click): **Select top 100 rows**, **Script as CREATE**, **Script as ALTER** (views, procedures and functions) and **Script as DROP**. The script opens in a new tab, headed *Opened, not run*: running it is up to you, and a script that changes the warehouse needs **Allow changes** and a confirm ([Changing the warehouse](#changing-the-warehouse)). Objects in Fabric's own schemas (`queryinsights`, `_rsc`, `sys`) have no ALTER or DROP. A table's CREATE is built from the columns already listed, so it asks Fabric nothing. A view, procedure or function's definition is read from `sys.sql_modules` (one catalog query in Fabric), and ALTER turns its leading `CREATE` or `CREATE OR ALTER` into `ALTER`. A table's CREATE carries column names, types and NULL or NOT NULL only, not constraints.
 - **Filter objects** narrows the tree by name or schema. **Refresh** lists them again.
+- **With the keyboard:** Tab reaches the tree, the up and down arrows move, right opens a row (or goes into it), left closes it (or goes to its parent), Home and End jump to the first and last row, and Enter does what a click does. Shift+F10 or the menu key opens **Script as** on an object.
 - The editor completes table, view and column names from the same list, without asking Fabric again.
 
 A SQL analytics endpoint is found through its lakehouse, which Fabric gives the same name in the same workspace. If the lakehouse isn't in the list, the row has no **SQL query** button; use **Open in Fabric**.
@@ -173,6 +178,34 @@ The explorer's **History** tab has two parts.
 
 Each opens in a new tab and runs there, so it asks first like any other run and **uses capacity**. The result is an ordinary result: page through it, chart it, export it. Fabric keeps 30 days of history and fills these views a few minutes after a query ends. What you see depends on your permissions on the warehouse.
 
+## Monitoring (Preview)
+
+**Monitoring** in the page's toolbar opens a tab for Fabric's [workspace monitoring](https://learn.microsoft.com/fabric/data-warehouse/warehouse-workspace-monitoring) of this warehouse (or SQL analytics endpoint). Once a workspace admin turns monitoring on (Workspace settings > Monitoring), Fabric records every completed, user-initiated query in the `WarehouseExecutions` table of a read-only KQL database in the workspace, and keeps 30 days.
+
+The tab finds that database among the workspace's KQL databases (one small KQL query each, names ending in `_Database` first) and shows, for a window from the last hour to the last 30 days:
+
+| View | What it shows |
+| --- | --- |
+| Tiles | Queries, P50 and P95 time, failure rate and CPU time (for comparison, not billing) |
+| **Slowest queries** | The 50 longest, with status, result code, who ran it and its operation id. **Query insights** on a row opens a query tab that reads that request from `queryinsights.exec_requests_history`, with its SQL text (it can take 15 minutes to show there) |
+| **Activity** | Queries, average time and CPU per hour |
+| **Duration percentiles** | P50 and P95 time per day |
+| **Failures** | Failed queries by result code, with the failure rate |
+| **Who runs what** | Queries, failures, CPU and P95 time per person |
+| **Failure alert check** | A row only when the last 15 minutes had at least 10 queries and 20% or more failed |
+
+Each view is a fixed KQL query with the warehouse's id in it; nothing you type reaches it, and Kusto is asked for a read-only run. The token goes only to an address of the form `https://<name>.kusto.fabric.microsoft.com`, read from Fabric for the database; any other character in it, such as `\`, `%`, `@` or a port, and nothing is sent. It reads as you, with a token for Kusto, and needs at least the Contributor role in the workspace (or the database shared with you). It uses capacity at Eventhouse rates.
+
+**Build views** puts the same views in Fabric, where everyone in the workspace can open them, pin them to a Real-Time Dashboard or set an alert from them: a KQL queryset named `<warehouse>_monitoring` in the warehouse's workspace, with one tab per view on the monitoring database. The monitoring database is read-only, so the views can't be functions inside it. The confirm lists the workspace's warehouses and endpoints, ticks those without views, and says what it creates; nothing is created before you confirm. **Update views** rewrites only the app's own tabs (the same tab ids every time), so tabs you added to the queryset stay.
+
+**Build them for new warehouses in this workspace without asking again** (off until you tick it on the confirm) is how the views come automatically: from then on, when the page opens a warehouse in that workspace and its queryset is missing, the app builds it and says so. **Settings > Advanced > Monitoring views without asking** lists those workspaces, and **Remove** makes the app ask again there (the `wh_monitoring_auto` setting). IT can turn building off for everyone with `wh_monitoring_views: false` in the policy file, and the tab still reads monitoring.
+
+A queryset counts as the app's only when its description is the one the app writes. If someone already has a queryset with the same name, the build leaves it alone and says so: rename or delete it, then build again.
+
+**Who runs what** is people data: it lists each person's sign-in name with how many queries they ran, how many failed and their CPU time, as Fabric records them for anyone who can read the monitoring database. The queryset's tab of the same name shows the same to everyone in the workspace who can open it.
+
+Monitoring sent to another workspace's Eventhouse isn't found yet: the tab looks only in the warehouse's own workspace. Not yet checked on a tenant: whether Microsoft's sign-in app gets a Kusto token (see [Permissions](permissions.md)), and the claim in `Identity` that names a person (the views try `upn`, then `unique_name`, then the object id).
+
 ## Estimated plan
 
 **Estimated plan** in the editor's toolbar shows how Fabric would run the query, without running it. It works on a warehouse or SQL analytics endpoint, for one statement that reads (the same check as a run that reads); a change has no plan here.
@@ -192,9 +225,26 @@ Above the result, three views, on every SQL page (lakehouse, local project and w
 
 A query that returns several result sets isn't possible yet: the page sends one statement at a time. That comes with warehouse writes and scripts, which wait on their own decision.
 
-The page is tagged Preview until a query has been run on a tenant. Settings can hide preview features.
+The page stays tagged Preview until the app's own sign-in has run a query on a tenant: the [tenant run](#tested-on-a-tenant) used another sign-in. Settings can hide preview features.
 
 How a run works underneath (states, limits, what is refused): [Running SQL queries](sql-execution.md#queries-on-a-warehouse-preview).
+
+## Tested on a tenant
+
+On 2026-10-27 the warehouse checks were run against a real Fabric tenant, with main at `21d318fc`. They used the throwaway workspace `kf_tenant_test` on a Trial capacity and about 20 short warehouse queries. The engine ran from its own process, with the page's confirm logic ported to Python, so the app's window wasn't used. 25 of the 26 checks passed:
+
+- **Changes (WH-10):** a change was refused while **Allow changes** was off, then previewed, confirmed and committed once it was on. A failed statement and **Stop** each kept nothing. `GRANT`, `BEGIN TRAN` and an `EXEC` the rules don't allow were refused before anything was sent. The audit log had one entry per run, none with SQL.
+- **Project (WH-11 to WH-13):** importing the warehouse to files, comparing them with the warehouse and deploying all worked.
+
+The run found two bugs, both fixed since:
+
+- **WH-10.7 failed** ([#807](https://github.com/KratosDataGod/KratosForge/issues/807)). A workspace that belonged to no environment but had "test" in its name was taken for Test, so the page never asked for the warehouse name. Since [#808](https://github.com/KratosDataGod/KratosForge/pull/808), the environment comes only from the metadata project, and a workspace that isn't mapped counts as Prod ([Changing the warehouse](#changing-the-warehouse)).
+- **Import picked up Fabric's own schemas** `queryinsights` and `_rsc`. Since [#809](https://github.com/KratosDataGod/KratosForge/pull/809), Import, Compare and Deploy leave out `queryinsights`, `_rsc`, `sys` and `information_schema`.
+
+Still not checked on a tenant:
+
+- **The app's own Azure SQL sign-in.** The app had no saved Azure SQL sign-in to use without asking, so the run used the Azure CLI's sign-in instead. Fabric accepted that token, but whether Microsoft's sign-in app can get a token for `https://database.windows.net/user_impersonation` is still unknown ([permissions](permissions.md)).
+- **The Monitoring tab** (WH-19): see [Monitoring](#monitoring-preview).
 
 ## The plan
 
@@ -213,5 +263,6 @@ How a run works underneath (states, limits, what is refused): [Running SQL queri
 | WH-12 | Compare the project with the warehouse, object by object | Done |
 | WH-13 | Deploy the project to the warehouse after a preview: create, CREATE OR ALTER, add NULL columns, drops never ticked; Test and Prod from Git only | This release |
 | WH-09 | Estimated plan: Fabric's showplan as a tree of operators with rows and cost, without running the query | This release |
+| WH-19 | Monitoring: Fabric's workspace monitoring for the warehouse, and its monitoring views built in Fabric as a KQL queryset | Preview |
 
 Phase 3 (WH-09 to WH-13) is complete. Later stages (loading and managing data, Snowflake) follow the same pattern: a mockup first, then one change per feature.

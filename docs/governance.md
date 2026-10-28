@@ -83,7 +83,7 @@ The platform checks this itself on every call, as the person Fabric says is call
 
 | Who | Can |
 | --- | --- |
-| **Platform admins** | Create, edit, publish, deprecate, retire and discard policies; assign them at any scope |
+| **Platform admins** | Create, edit, publish, deprecate, retire and discard policies; assign them at any scope; grant exceptions (by approving a request) and end them early, with a reason |
 | **A domain's owners** | Assign published policies to their domain and its subdomains, and change or remove those assignments (tightening only under a mandatory policy) |
 | **Everyone** | Read every policy, version, assignment and history, and see how policies resolve for any project |
 
@@ -98,6 +98,17 @@ No new Fabric permission or sign-in scope is needed: policies use the same `UDF_
 - **History:** every change, who made it and when.
 
 Admins see **New policy**, **Edit draft**, **Publish**, **Deprecate** and **Retire**. **Save and publish** saves the draft and publishes it in one step.
+
+### Exceptions to a policy
+
+Anyone asks for an exception on **Data mesh > Requests** (or **Ask for one** on a policy's **Where it applies** tab); a platform admin grants it by approving the request. The **Exceptions in force** card on **Where it applies** lists each one: who and what it's for, until when, its status, why, and who granted it and who asked.
+
+- **Status.** **In force**, **Ends in N days** when it ends within 14 days (the same window as a project's `exceptions.toml`), **Ended** after its date, or **Ended early**, with when, by whom and why.
+- **A warning before it ends.** An exception that ends within 14 days shows a banner on Data mesh and a notice on the bell, once a day, for the person who asked for it and for anyone with the project (or a project in the domain) it covers open. It's also posted once to Teams as **Policy exception ending** (kind `exception.ending`, to the requester by UPN and the project's team or the domain's owners by role) when a platform Teams route is set; like a request, its reason stays in the app. Before posting, a PC claims the notice in the platform (`claim_exception_warning`: one conditional UPDATE that sets the exception's `warned_until` to its end date), so one PC in the organization posts it, not one per PC. A PC claims only when one of its own Teams routes would take the notice (its kind, and the exception's domain where a route is limited to domains), so a PC with no such route never takes it from one that has one; an exception already marked as warned for its end date isn't asked about again. If the claiming PC's post then fails (Teams refuses it, or it waits in that PC's outbox), no other PC posts that notice. Anyone who can call the platform can claim, so a user could stop the Teams post; the bell and banner still show the exception to everyone it concerns. With an older `UDF_Platform` that can't claim, no Teams notice is posted; the bell and banner still show. The policy list's count says how many are ending soon.
+- **End early.** A platform admin chooses **End early** on an exception in force and gives a reason (required, up to 500 characters). The platform checks that the caller is a platform admin, refuses an exception that doesn't exist or has already ended, and then updates the exception's row: its end moves to yesterday, so it stops applying today wherever it's read, and `ended_at`, `ended_by`, `end_reason` and `granted_until` record what happened. The row is never deleted. It writes one entry to the audit (`ended exception`) and one to the policy's history (`exception ended early`, which the audit records too). The reason is visible to anyone who can read the policy's history, which is everyone. Check now and **Explain** stop treating the place as excepted at once.
+- **Include ended** on the card also lists exceptions that ended on their date or early, so the record of each grant stays readable in the app.
+
+An older `UDF_Platform` without the end operation says so: a platform admin runs **Platform > Settings > Finish or repair** once.
 
 ## Best practices: checks and templates (Preview)
 
@@ -117,15 +128,15 @@ Admins see **New policy**, **Edit draft**, **Publish**, **Deprecate** and **Reti
 - **New template**, **Edit** and **Delete** (which asks first) work on your organization's templates. Built-in templates ship with the app and can't change.
 - **Who can add templates.** Platform admins, by default. A platform admin can let domain owners add templates too (**Who can add templates** on the Templates view); a domain owner then edits and deletes only the templates they added. The platform checks this on every call.
 
-Your organization's templates are kept in `catalog.policy_template` in the platform's catalog. Each add, edit and delete is in **Platform > Audit** (`policy template created`, `edited`, `deleted`), and so is changing who can add them (kept in `config.setting`). The table is created by **Finish or repair** and on the first template call. With the platform in Fabric, `UDF_Platform` gains one function per template operation; on an older `UDF_Platform` the app says: "After an update, a platform admin runs Platform > Settings > Finish or repair once."
+Your organization's templates are kept in `catalog.policy_template` in the platform's catalog. Each add, edit and delete is in **Platform > Audit** (`policy template created`, `edited`, `deleted`), and so is changing who can add them (kept in `config.setting`). The table is created by **Finish or repair** and on the first template call. A [platform repository](source-control.md#platform-repository) keeps them in Git as `policy_templates/<id>.toml` (yours only; built-in ones aren't exported); its deploy adds or changes them and never deletes one. Who can add templates isn't in Git yet. With the platform in Fabric, `UDF_Platform` gains one function per template operation; on an older `UDF_Platform` the app says: "After an update, a platform admin runs Platform > Settings > Finish or repair once."
 
 ### Check a project against its policies
 
 **Platform > Governance > Check this project** checks the open metadata project. **Check now**:
 
 1. Works out the policies in force for the project, exactly as **Explain** does: the platform's assignments plus the project's `governance.toml`.
-2. Runs each policy's **Checked by** rules on this PC, with the policy's parameters as the rules' thresholds. A policy's severity sets its findings': high or critical is **Error**, medium **Warning**, low **Info**. A `severity` parameter overrides it for the rules, and `enabled = false` switches them off.
-3. Applies exceptions: a finding an active exception covers shows **Excepted until <date>: <why>** instead of counting. **Ask for an exception** sends the request ([Platform > Requests](platform.md#requests)), with the policy and project filled in.
+2. Runs each policy's **Checked by** rules on this PC, on the project's entities and products and, when a policy names their rules, this PC's notebooks and SQL scripts, with the policy's parameters as the rules' thresholds. A policy's severity sets its findings': high or critical is **Error**, medium **Warning**, low **Info**. A `severity` parameter overrides it for the rules, and `enabled = false` switches them off.
+3. Applies exceptions: a finding an active exception covers shows **Excepted until <date>: <why>** instead of counting. **Ask for an exception** sends the request ([Data mesh > Requests](platform.md#requests)), with the policy and project filled in.
 4. Shows the result, like "Sales Forecasting: 2 to look at" and "Checked on this PC 5 min ago. Warn only: nothing is blocked."
 
 Each finding names its policy and what's wrong. Where a safe fix exists in the app it's offered: **Label it** sets a column's classification in the platform's catalog, after asking and saying what changes. Otherwise the finding links to where to fix it (**Open the entity**, **Edit the product**, **Add a term**). Renaming an entity isn't built, so a naming finding links to the entity instead. A passing policy shows a ✓ and how many objects it checked.
@@ -147,13 +158,13 @@ Each finding names its policy and what's wrong. Where a safe fix exists in the a
 | `contract.terms_linked`, `contract.endorsed` | `catalog.product_term` and `catalog.endorsement` ([endorsement and business terms](data-mesh.md#endorsement-and-business-terms)) |
 | `contract.description` | The product's description |
 
-`contract.endorsed` passes only when every one of the product's items is endorsed with an accepted value; a finding names the ones that aren't.
+`contract.endorsed` passes only when every one of the product's items is endorsed with an accepted value; a finding names the ones that aren't. Its items are the lakehouses the product's ports live in. Semantic models and reports grouped under a product (`catalog.product_item`, [Tables, semantic models and reports](data-mesh.md#tables-semantic-models-and-reports-preview)) show their own badges on its page and don't change this check.
 
 **Checkers that run in Fabric** are never started by Check now. Their last stored findings show with their date, or **not run**.
 
 ### A data product's checklist
 
-Open a product on **OneLake > Data products**: its **Checklist** card comes from the contract it follows, the first policy in force for its project whose **Checked by** has a `contract.` rule, or else the built-in Data contract template (the card says which). Each line is ✓, ✗ or **!** (unknown, with why): **Owner and steward**, **Description**, **Business terms linked**, **Fresh within N h** (the last load time) and **Endorsement** (unknown means it needs a tenant scan). The steward and load times are kept in the product's project, so for another team's product they show as unknown until that project is open on this PC. The card only reads.
+Open a product on **Data mesh > Products**: its **Checklist** card comes from the contract it follows, the first policy in force for its project whose **Checked by** has a `contract.` rule, or else the built-in Data contract template (the card says which). Each line is ✓, ✗ or **!** (unknown, with why): **Owner and steward**, **Description**, **Business terms linked**, **Fresh within N h** (the last load time) and **Endorsement** (unknown means it needs a tenant scan). The steward and load times are kept in the product's project, so for another team's product they show as unknown until that project is open on this PC. The card only reads.
 
 ## When the platform can't be reached
 
@@ -169,6 +180,7 @@ Policies are four tables in the platform's catalog, next to domains and the glos
 | `catalog.policy_version` | Every version: draft or published, its definition (JSON), SHA-256 hash, note, who and when |
 | `catalog.policy_assignment` | Where each policy is assigned, and the settings it has there |
 | `catalog.policy_event` | Each policy's history |
+| `catalog.policy_exception` | Granted exceptions: the policy, scope and target, until when, the reason, who asked and who approved; for one ended early, `ended_at`, `ended_by`, `end_reason` and `granted_until` (the date it was granted until); `warned_until`, the end date whose Teams notice was claimed. Rows are never deleted |
 
 The platform's schema version goes from 3 to 4. The tables are created by **Finish setup** (as every platform table is), and also on the first policy call to a platform that doesn't have them yet, so existing platforms and projects keep working without a migration step. A policy's definition is stored as JSON, so new fields can be added later without changing the tables.
 
@@ -178,7 +190,7 @@ For Fabric, `UDF_Platform` gains one function per policy operation. Re-run **Pla
 
 The rules live in `sidecar/fabric_desktop/central/policy.py`, standard library only, next to `core.py`; `udf.py` builds the function app from both. `resolve(snapshot, chain, local, context, today)` is a pure function over plain data (`policy_snapshot` returns that data), so offline validation can run it from a downloaded copy.
 
-The desktop calls these engine methods (JSON-RPC, see [architecture](architecture.md)): `governance_overview`, `governance_policy`, `governance_version`, `governance_create`, `governance_save_draft`, `governance_discard_draft`, `governance_publish`, `governance_set_status`, `governance_assign`, `governance_unassign`, `governance_applicability`, `governance_resolve`; for templates and checks `governance_templates`, `governance_template_save`, `governance_template_delete`, `governance_template_use`, `governance_template_from_policy`, `governance_template_authors`, `governance_check_now`, `governance_last_check` and `governance_product_checklist` (`central/checks_service.py`). The template operations are in `policy.py` (`list_policy_templates`, `save_policy_template`, `delete_policy_template`, `use_policy_template`, `save_policy_as_template`, `set_template_authors`), each with a `UDF_Platform` function.
+The desktop calls these engine methods (JSON-RPC, see [architecture](architecture.md)): `governance_overview`, `governance_policy`, `governance_version`, `governance_create`, `governance_save_draft`, `governance_discard_draft`, `governance_publish`, `governance_set_status`, `governance_assign`, `governance_unassign`, `governance_applicability`, `governance_resolve`, `governance_end_exception` (end an exception early; `policy.end_policy_exception`, with its own `UDF_Platform` function), `governance_exceptions_ending` (exceptions that end within 14 days; it claims each Teams notice with `policy.claim_exception_warning` and sends the ones it claimed); for templates and checks `governance_templates`, `governance_template_save`, `governance_template_delete`, `governance_template_use`, `governance_template_from_policy`, `governance_template_authors`, `governance_check_now`, `governance_last_check` and `governance_product_checklist` (`central/checks_service.py`). The template operations are in `policy.py` (`list_policy_templates`, `save_policy_template`, `delete_policy_template`, `use_policy_template`, `save_policy_as_template`, `set_template_authors`), each with a `UDF_Platform` function.
 
 ### The rules
 
@@ -188,11 +200,11 @@ Checks come from one registry, `sidecar/fabric_desktop/governance_checks.py`. Th
 register(kind, rules, check, runs_in="local")   # runs_in: "local" (this PC) or "fabric"
 ```
 
-- `rules()` returns dicts: `id`, `kind` (the item kind it checks: entity, product, notebook, ...), `severity` (`Error`, `Warning` or `Info`), `category`, `name`, `description`, and optionally `fix`, `url`, `default_thresholds` (`{name: value}`) and `scheduled_only` (only a scheduled run checks it, never Check now).
+- `rules()` returns dicts: `id`, `kind` (the item kind it checks: entity, product, notebook, ...), `severity` (`Error`, `Warning` or `Info`), `category`, `name`, `description`, and optionally `fix`, `url`, `default_thresholds` (`{name: value}`) and `scheduled_only` (it checks only items marked `"scheduled": true`, like a notebook a schedule on this PC runs).
 - `check(item, settings)` gets one item (a dict whose `kind` says what it is) and `{rule_id: {"enabled": bool, "severity": "Error"|"Warning"|"Info", "thresholds": {name: value}}}` for the rules a policy turned on. It returns a list of findings, or `None` when none of those rules applies to the item (so it isn't counted as a pass).
 - A finding: `rule_id`, `severity`, `rule` (the rule's name), `category`, `object_type`, `object`, `description`, `url`; optionally `cell` and `line` (carried through as they are), `fix` (`{"action", "label", ...}`, an action the app offers) and `outcome: "unknown"` when what the rule needs isn't recorded (the description says why). `finding(rule, settings, object_type, object, description, **extra)` builds one.
 - A policy's parameters become the settings: `enabled` and `severity` are read as such, every other parameter is a threshold over the rule's `default_thresholds`. Severity maps both ways: Error is high (or critical), Warning medium, Info low.
-- A checker with `runs_in="fabric"`, or a `scheduled_only` rule, is never run by Check now; `store_fabric_findings(state, project, rule_id, findings)` keeps what a Fabric run found, and Check now shows it with its date.
+- A checker with `runs_in="fabric"` is never run by Check now; `store_fabric_findings(state, project, rule_id, findings)` keeps what a Fabric run found, and Check now shows it with its date.
 
 A minimal checker:
 
@@ -212,9 +224,9 @@ def check(item, settings):
 gc.register("notebook-example", lambda: RULES, check)
 ```
 
-A policy whose **Checked by** is `notebook.no_print` then runs it on every item of that kind Check now is given. Check now builds entity and product items, notebook items (this PC's notebooks, their code cells) when a policy names a notebook rule, and the model Update model writes for the last layer when a policy names a semantic model rule.
+A policy whose **Checked by** is `notebook.no_print` then runs it on every item of that kind Check now is given. Check now builds entity and product items, notebook items (this PC's notebooks, their code cells, and `scheduled` when an enabled schedule on this PC runs the notebook, either a notebook schedule or a Notebook step of a pipeline schedule) when a policy names a notebook rule, SQL items (this PC's SQL scripts: your saved queries, those in the repositories opened in Source control, and the `.sql` files of the warehouse projects in those repositories) when a policy names a SQL rule, and the model Update model writes for the last layer when a policy names a semantic model rule.
 
-The notebook rules `NB001` to `NB012` ([notebook best practices](notebook-best-practices.md)) the SQL rules `SQ001` to `SQ010` ([SQL best practices](sql-best-practices.md)) and the semantic model rules `SM001` to `SM007` ([semantic model rules](semantic-model-rules.md)) are registered this way (`best_practice_checkers.py`), so a policy can name them in **Checked by**, like `NB003, NB006`. Each runs only the rules its policy names, with the policy's severity, or `severity` and `enabled` parameters. `NB004` and `NB008` are for scheduled runs, so Check now doesn't run them. Check now has no SQL scripts to give the SQL rules yet, so a policy naming only those shows as not checked, never as passing. The same holds for any policy whose rules found nothing of their kind (for notebook rules, among this PC's notebooks), and for one whose parameters turn its rules off (`enabled = false`).
+The notebook rules `NB001` to `NB012` ([notebook best practices](notebook-best-practices.md)) the SQL rules `SQ001` to `SQ010` ([SQL best practices](sql-best-practices.md)) and the semantic model rules `SM001` to `SM007` ([semantic model rules](semantic-model-rules.md)) are registered this way (`best_practice_checkers.py`), so a policy can name them in **Checked by**, like `NB003, NB006`. Each runs only the rules its policy names, with the policy's severity, or `severity` and `enabled` parameters. `NB004` and `NB008` are for scheduled runs, so Check now runs them only on the notebooks a schedule on this PC runs: a notebook schedule's notebook, or a saved notebook a pipeline schedule's Notebook step runs (Fabric schedules aren't read, and a paused schedule doesn't count). SQL rules check each script as warehouse T-SQL; a script that can't be read is listed under the result's problems, not skipped silently. A policy whose rules found nothing of their kind (no notebooks, no scheduled notebooks or no SQL scripts on this PC) shows as not checked, never as passing, and so does one whose parameters turn its rules off (`enabled = false`).
 
 ## What isn't built yet
 
@@ -224,6 +236,7 @@ The notebook rules `NB001` to `NB012` ([notebook best practices](notebook-best-p
 - Checkers that run in Fabric, and storing their findings from a Fabric run: the registry accepts them and Check now shows what's stored, but nothing stores any yet.
 - A product's steward isn't in the platform's catalog, so another team's product shows it as unknown.
 - Signed policy packages for offline use (GOV-002).
-- Project exceptions in `exceptions.toml` (the save gate's) are unchanged and separate from policy exceptions, which Check now applies.
+- Project exceptions in `exceptions.toml` (the save gate's) are unchanged and separate from policy exceptions, which Check now applies. Adding one records no request, approval or audit entry (PB-059 review finding 1).
+- Changing an exception's date or scope: end it early and ask for a new one.
 - A separate approver for publishing (the same admin can write and publish).
 - Not yet tried against `SQL_Platform` in a live Fabric tenant (hence Preview).

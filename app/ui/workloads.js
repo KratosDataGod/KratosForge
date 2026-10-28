@@ -1,5 +1,5 @@
 // Workloads: one list of everything you build and run, on this PC, on agents and in Fabric, with
-// how healthy each one is, who owns it and what you can do with it. Monitor > Workloads lists them,
+// how healthy each one is, who owns it and what you can do with it. Monitor > KratosForge > Operations > Workloads lists them,
 // the workload page shows one, and Home shows yours. The engine (workload_service.py) builds the
 // records from what the app already reads; nothing here guesses a state the engine didn't report.
 
@@ -14,7 +14,7 @@ const WL_ROLES = [["team", "Team"], ["technical_owner", "Technical owner"], ["bu
 const WL_GROUPS = [["project", "Project"], ["owner", "Owner"], ["environment", "Environment"], ["none", "None"]];
 const WL_RUN_ACTIONS = new Set(["run", "run_item", "run_in_fabric", "run_schedule"]);
 
-// Monitor > Workloads filters, kept for the session. id is the workload the page shows.
+// Monitor > KratosForge > Operations > Workloads filters, kept for the session. id is the workload the page shows.
 const wlPage = { view: "attention", group: "project", offset: 0, limit: 100, id: null, detail: null };
 
 function healthPill(health, label) {
@@ -63,7 +63,7 @@ function openWorkload(id) {
   go("workload");
 }
 
-// ---------- Monitor > Workloads ----------
+// ---------- Monitor > KratosForge > Operations > Workloads ----------
 
 function workloadsPanel() {
   const box = h("div", { class: "wl-panel" }, h("p", { class: "muted-text monitor-empty" }, "Reading your workloads..."));
@@ -566,7 +566,7 @@ function yourWorkloadsCard() {
       unowned ? h("div", { class: "callout" }, icon("person", 20),
         h("span", {}, `${unowned} ${unowned === 1 ? "workload has" : "workloads have"} no owner, so nobody is told when ${unowned === 1 ? "it fails" : "they fail"}.`),
         h("span", { class: "spacer" }), btn("Review", null, () => { wlPage.view = "unowned"; wlPage.offset = 0; backToWorkloads(); }, "tool outline")) : null,
-      !rows.length && !unowned ? h("p", { class: "muted-text" }, "Nothing is assigned to you yet. Open a workload in Monitor > Operations > Workloads to set its owner.") : null);
+      !rows.length && !unowned ? h("p", { class: "muted-text" }, "Nothing is assigned to you yet. Open a workload in Monitor > KratosForge > Operations > Workloads to set its owner.") : null);
     body.replaceWith(next);
   };
   return box;

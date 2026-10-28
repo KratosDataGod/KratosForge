@@ -9,9 +9,20 @@ const sqlChangesOn = new Set();  // sqlRefKey of each warehouse whose page allow
 const whChangesAllowed = () => state.settings?.sql_warehouse_writes?.value !== false;
 const whChangesTicked = (ref) => whChangesAllowed() && sqlChangesOn.has(sqlRefKey(ref));
 
-// "dev" | "test" | "prod" | "none", from the project's environments or the workspace's name.
+// "dev" | "test" | "prod" | "none", from the project's environments only (#807). A workspace that
+// isn't Dev, Test or Prod there is "none", treated like Prod, whatever its name says: a name is a
+// guess, and an unmapped "kf_tenant_test" read as Test skipped the typed name.
+// A workspace two environments share, such as the Keys workspace, is the strictest of them.
+let whEnvWs = {};
 function whEnv(ref) {
-  return workspaceEnv(ref.workspace_id, ref.workspace_name, typeof catalogPage === "undefined" ? {} : catalogPage.envWs);
+  return whEnvWs[ref.workspace_id] || "none";
+}
+
+// Reads the project's environments again, so a change or deploy sees the workspaces as Metadata has
+// them now. If they can't be read, what was read before stays (at first nothing: all like Prod).
+async function whEnvRead() {
+  const p = await rpc("meta_project").catch(() => null);
+  if (p) whEnvWs = envWorkspaces(p.environments, true);
 }
 
 // A Prod workspace, or one whose environment isn't known, asks for the name to be typed.
@@ -31,7 +42,8 @@ function whChangesSwitch(ref, redraw) {
 }
 
 // The confirm for a change. plan is the engine's dry run. Resolves true to run it.
-function whChangeConfirm(ref, plan) {
+async function whChangeConfirm(ref, plan) {
+  await whEnvRead();
   return new Promise((resolve) => {
     let done = false;
     const finish = (v) => { if (!done) { done = true; resolve(v); } };

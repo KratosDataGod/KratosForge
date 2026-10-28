@@ -83,6 +83,15 @@ Keys:
     sql_warehouse_writes  the Warehouse page: false refuses every change to a warehouse (DDL, DML,
                      EXEC), so the page only reads; IT can fix it either way (default true; each
                      change still needs its own confirm)
+    wh_monitoring_views  the Warehouse page's Monitoring tab: false stops the app creating monitoring
+                     views (KQL querysets) in Fabric; reading monitoring still works (default true)
+    wh_monitoring_auto  the workspaces whose warehouses get monitoring views without asking again,
+                     by workspace id; the person adds one when they tick it on the build confirm
+    wh_open_in       what opening a warehouse or SQL analytics endpoint by its name does: "kratosforge"
+                     opens the Warehouse page, "fabric" Fabric's own editor in the Fabric portal tab
+                     (default kratosforge; Open in Fabric stays on every row)
+    fabric_full_screen  the Fabric portal tab fills the window, with a slim bar to leave full
+                     screen (default false; the tab's Full screen button sets it)
     telemetry        true to send daily usage counts (telemetry.py); off unless the person turns it on,
                      and IT can fix it either way (default false)
     telemetry_connection_string  IT only: an Application Insights connection string, so usage data
@@ -158,6 +167,9 @@ DEFAULTS.update({"sql_page_rows": 1000, "sql_time_limit_minutes": 10, "sql_memor
 DEFAULTS["sql_warehouse_writes"] = True
 TYPES.update({key: int for key in SQL_RANGES} | {"sql_temp_dir": str, "sql_warehouse_writes": bool})
 USER_KEYS += (*SQL_RANGES, "sql_temp_dir", "sql_warehouse_writes")
+DEFAULTS.update({"wh_monitoring_views": True, "wh_monitoring_auto": []})
+TYPES.update({"wh_monitoring_views": bool, "wh_monitoring_auto": list})
+USER_KEYS += ("wh_monitoring_views", "wh_monitoring_auto")
 
 # Motion and effects (app/ui/motion.js): the visual intensity level and one switch per family.
 MOTION_LEVELS = (0, 3)
@@ -167,6 +179,10 @@ DEFAULTS.update({"motion_level": 2} | {key: key != "motion_achievements" for key
 TYPES.update({"motion_level": int} | {key: bool for key in MOTION_SWITCHES})
 USER_KEYS += ("motion_level", *MOTION_SWITCHES)
 
+# Owner coverage's last-used dates (central/core.py note_seen): personal data everyone who reads the
+# platform's catalog sees, so it stays off until IT turns it on in the policy file. Policy only.
+DEFAULTS["platform_presence"] = False
+TYPES["platform_presence"] = bool
 # Incident SLA targets (workloads/sla.py checks the shape and says what it ignored).
 DEFAULTS["incident_sla"] = {}
 TYPES["incident_sla"] = dict
@@ -176,16 +192,25 @@ CHOICES = {"onelake_writes": ("local_first", "direct"), "onelake_compression": (
 DEFAULTS.update({"onelake_writes": "local_first", "onelake_compression": "zstd", "onelake_skip_unchanged": True})
 TYPES.update({"onelake_writes": str, "onelake_compression": str, "onelake_skip_unchanged": bool})
 USER_KEYS += ("onelake_writes", "onelake_compression", "onelake_skip_unchanged")
+# Opening a warehouse by its name, and the Fabric portal tab's full screen (app.js renderFabric).
+CHOICES["wh_open_in"] = ("kratosforge", "fabric")
+DEFAULTS.update({"wh_open_in": "kratosforge", "fabric_full_screen": False})
+TYPES.update({"wh_open_in": str, "fabric_full_screen": bool})
+USER_KEYS += ("wh_open_in", "fabric_full_screen")
 # Layout (app/ui/features.js applyAppearance): how every page shows the same things; nothing is hidden.
 CHOICES.update({"ui_explanations": ("beside", "on_request"), "ui_preview_marks": ("tags", "dots"),
                 "ui_density": ("comfortable", "compact")})
 DEFAULTS.update({"ui_explanations": "on_request", "ui_preview_marks": "tags", "ui_density": "comfortable"})
 TYPES.update({"ui_explanations": str, "ui_preview_marks": str, "ui_density": str})
 USER_KEYS += ("ui_explanations", "ui_preview_marks", "ui_density")
+# Databricks Connect (engines/dbconnect.py): whether the app may install its client from the
+# hash-pinned lock files, and the package index to fetch them from (empty: the default index).
+DEFAULTS.update({"allow_dbconnect_install": True, "dbconnect_index_url": ""})
+TYPES.update({"allow_dbconnect_install": bool, "dbconnect_index_url": str})
 # Read by integrations/policy.py, which decides what each means; listed here so the policy file has
 # one list of settings.
 INTEGRATION_KEYS = ("integrations", "integrations_max_permissions", "integrations_http", "integrations_extensions",
-                    "receipt_redactions")
+                    "integrations_editors", "receipt_redactions")
 # Read only by the shell (main.rs), which applies them itself; listed so the file has one list of
 # settings and policy_problems() can say what the shell will skip.
 SHELL_KEYS = ("fabric_view_sign_in_hosts", "register_link_scheme", "engine_download_url")
@@ -195,7 +220,10 @@ NO_TENANT = "00000000-0000-0000-0000-000000000000"
 # The restrictions among DEFAULTS, and the value each takes when the policy file or that key can't
 # be read. Updates (auto_update, channel) are enforced by the shell, which reads the file itself.
 RESTRICTED: dict[str, Any] = {"allow_fabric_runs": False, "allowed_tenants": [NO_TENANT], "show_preview": False,
-                              "telemetry": False, "sql_warehouse_writes": False}
+                              "telemetry": False, "sql_warehouse_writes": False,
+                              "wh_monitoring_views": False,
+                              "allow_dbconnect_install": False,
+                              "platform_presence": False}
 
 
 def policy_path() -> Path:
@@ -406,6 +434,10 @@ def _engine_url_problems(value: Any, auto_update: Any) -> list[str]:
                 "https://files.contoso.com/kratosforge (no user name, ? or #), so the engine comes from GitHub"]
     if auto_update is not False:
         return ['engine_download_url is used only with "auto_update": false, so the engine comes from GitHub']
+    ignored = os.environ.get("FABRIC_DESKTOP_ENGINE_URL_IGNORED", "")  # the shell's own check, at start
+    if ignored:
+        return [f"engine_download_url is ignored, so the engine comes from GitHub: {ignored}. Push policy.json "
+                "as SYSTEM (Intune, Group Policy) or from an elevated prompt, so only administrators can change it"]
     return []
 
 

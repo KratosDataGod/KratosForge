@@ -279,7 +279,7 @@ def test_hosts_must_be_azure_workspaces_before_any_token_is_fetched():
 
 
 def test_u2m_uses_the_databricks_cli_and_caches_until_near_expiry(monkeypatch):
-    monkeypatch.setattr(dba.shutil, "which", lambda name: "/usr/bin/databricks")
+    monkeypatch.setattr(dba, "find_cli", lambda: "/usr/bin/databricks")
     runs = []
 
     def run(args, **kw):
@@ -294,7 +294,7 @@ def test_u2m_uses_the_databricks_cli_and_caches_until_near_expiry(monkeypatch):
 
 
 def test_cli_failures_say_how_to_sign_in_and_never_quote_output(monkeypatch):
-    monkeypatch.setattr(dba.shutil, "which", lambda name: "/usr/bin/databricks")
+    monkeypatch.setattr(dba, "find_cli", lambda: "/usr/bin/databricks")
     p = dba.provider_for(CONN, run=lambda *a, **k: SimpleNamespace(
         returncode=1, stdout=TOKEN, stderr="Error: refresh token is invalid " + PAT), http=object())
     with pytest.raises(dba.DatabricksAuthError, match="databricks auth login --host") as e:
@@ -304,7 +304,7 @@ def test_cli_failures_say_how_to_sign_in_and_never_quote_output(monkeypatch):
                          http=object())
     with pytest.raises(dba.DatabricksAuthError, match="within a minute"):
         p.token()
-    monkeypatch.setattr(dba.shutil, "which", lambda name: None)
+    monkeypatch.setattr(dba, "find_cli", lambda: None)
     with pytest.raises(dba.DatabricksAuthError, match="isn't installed"):
         dba.provider_for(CONN, http=object()).token()
 
@@ -325,7 +325,7 @@ def test_cli_profiles_use_what_the_profile_holds(tmp_path, monkeypatch):
 
     p = dba.provider_for(conn | {"credential": {"method": "cli-profile", "profile": "sp"}}, cfg_path=cfg, http=Http())
     assert p.method == "oauth-m2m" and p.token() == TOKEN
-    monkeypatch.setattr(dba.shutil, "which", lambda name: "/usr/bin/databricks")
+    monkeypatch.setattr(dba, "find_cli", lambda: "/usr/bin/databricks")
     seen = []
     p = dba.provider_for(conn | {"credential": {"method": "cli-profile", "profile": "cli"}}, cfg_path=cfg, http=object(),
                          run=lambda args, **k: seen.append(args) or SimpleNamespace(
@@ -365,3 +365,65 @@ def test_credman_is_windows_only_here():
         pytest.skip("reads the real Credential Manager on Windows")
     with pytest.raises(dba.DatabricksAuthError, match="on Windows only"):
         dba.resolve_secret("credman:KratosForge/dbx")
+
+
+def test_the_cli_is_found_only_in_absolute_path_folders(tmp_path, monkeypatch):
+    import os
+    import sys
+    name = "databricks.exe" if sys.platform == "win32" else "databricks"
+    planted = tmp_path / "here"
+    planted.mkdir()
+    (planted / name).write_text("")
+    (planted / name).chmod(0o755)
+    real = tmp_path / "bin"
+    real.mkdir()
+    monkeypatch.chdir(planted)
+    env = {"PATH": os.pathsep.join(["", ".", str(real)]), "PATHEXT": ".EXE"}
+    assert dba.find_cli(env) is None
+    (real / name).write_text("")
+    (real / name).chmod(0o755)
+    assert dba.find_cli(env) == str(real / name)
+
+
+def test_on_windows_only_databricks_exe_in_a_drive_folder_counts(tmp_path, monkeypatch):
+    import sys
+    scripts, both = tmp_path / "scripts", tmp_path / "both"
+    for folder, names in ((scripts, ("databricks.cmd", "databricks.bat")), (both, ("databricks.cmd", "databricks.exe"))):
+        folder.mkdir()
+        for name in names:
+            (folder / name).write_text("")
+            (folder / name).chmod(0o755)
+    # Without a drive letter, as a network share or \\?\ path has none.
+    windows = sys.platform == "win32"
+    no_drive = "\\\\?\\" + str(both) if windows else str(both)
+    monkeypatch.setattr(dba.sys, "platform", "win32")
+    env = {"PATHEXT": ".CMD;.BAT;.EXE"}
+    assert dba.find_cli({**env, "PATH": no_drive}) is None
+    assert dba._DRIVE.match("C:\\Program Files\\Databricks") and not dba._DRIVE.match("\\\\server\\share")
+    if windows:
+        assert dba.find_cli({**env, "PATH": str(scripts)}) is None
+        assert dba.find_cli({**env, "PATH": str(both)}) == str(both / "databricks.exe")
+
+
+@pytest.mark.parametrize("bad", ["../../api/2.0/clusters/delete", "wh1/x", "wh 1", "", "a" * 65])
+def test_ids_are_checked_before_they_reach_a_url(bad):
+    ws = FakeWorkspace()
+    client = dbsql.Client(tokens(), ws)
+    for call in (client.warehouse, client.status, client.cancel):
+        with pytest.raises(dbsql.DatabricksError, match="isn't a Databricks"):
+            call(bad)
+    assert ws.calls == []
+
+
+def test_a_statement_running_too_long_is_cancelled_and_reported():
+    ws = FakeWorkspace(polls=1000)
+    now = [0.0]
+    s = dbsql.DatabricksSqlSession(SessionConfig("nb"), dbsql.Client(tokens(), ws), "wh1",
+                                   sleep=lambda sec: now.__setitem__(0, now[0] + 60), clock=lambda: now[0],
+                                   max_seconds=300)
+    r = s.execute(CellRequest("SELECT 1", "sql"))
+    assert r.status == "error" and "after 5 minutes" in r.outputs[0]["evalue"] and ws.cancelled == ["s1"]
+
+
+def test_the_engine_says_cells_can_change_data_without_another_confirm():
+    assert any("no further confirm" in x for x in registry.get("databricks-sql").limitations)

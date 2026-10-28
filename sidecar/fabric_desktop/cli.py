@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import uuid
 
@@ -121,6 +122,23 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--sql-project", action="append", default=[], metavar="KEY=PROJECT",
                    help="run a Script activity (by activity or connection name) in a local data project")
     p.add_argument("--json", action="store_true", help="print the whole run record as JSON")
+    p = pipe_sub.add_parser("schedule", help="run a <name>.DataPipeline folder on this PC on a schedule (Windows "
+                                             "Task Scheduler); every step must run here or have a mock")
+    p.add_argument("path", help="a <name>.DataPipeline folder; it is read again at every run")
+    when = p.add_mutually_exclusive_group(required=True)
+    when.add_argument("--at", action="append", metavar="HH:MM", help="a time of day (daily, or on --weekday days)")
+    when.add_argument("--every-minutes", type=int, metavar="N", help="every N minutes")
+    p.add_argument("--weekday", action="append", default=[], metavar="DAY", help="Monday ... Sunday (with --at)")
+    p.add_argument("--param", action="append", default=[], metavar="NAME=VALUE",
+                   help="a pipeline parameter (SecureString values are never kept; the default applies)")
+    p.add_argument("--mocks", help="JSON file: {activity name: {status, output, error, seconds}}")
+    p.add_argument("--notebook", action="append", default=[], metavar="KEY=NOTEBOOK",
+                   help="run a Notebook activity with a notebook saved in KratosForge")
+    p.add_argument("--read-lakehouse", action="store_true",
+                   help="let Lookup, Get Metadata and Script read the lakehouse their dataset names (reads only)")
+    p.add_argument("--workspace", metavar="ID", help="the pipeline's own workspace, for datasets that leave it out")
+    p.add_argument("--sql-project", action="append", default=[], metavar="KEY=PROJECT",
+                   help="run a Script activity (by activity or connection name) in a local data project")
     nb = sub.add_parser("nb", help="notebooks: check an .ipynb file on this PC (nothing runs)")
     nb_sub = nb.add_subparsers(dest="nb_command", required=True)
     p = nb_sub.add_parser("validate", help="list what Validate finds, one line per finding as file:line:column: "
@@ -398,6 +416,8 @@ def _pipeline(args: argparse.Namespace) -> int:
         result = svc.pipeline_inspect(path=args.path)
     elif args.pipeline_command == "run":
         return _pipeline_run(args)
+    elif args.pipeline_command == "schedule":
+        return _pipeline_schedule(args)
     elif args.pipeline_command == "activities":
         print(json.dumps(svc.pipeline_activity_registry(args.type), indent=2))
         return 0
@@ -428,6 +448,26 @@ def _pipeline(args: argparse.Namespace) -> int:
         return 0 if result["ok"] else 1
     print(json.dumps(result, indent=2, default=str))
     return 0 if result.get("ok") else 1
+
+
+def _pipeline_schedule(args: argparse.Namespace) -> int:
+    pairs = lambda items: dict(item.partition("=")[::2] for item in items)  # noqa: E731
+    try:
+        mocks = json.loads(open(args.mocks, encoding="utf-8").read()) if args.mocks else {}
+        target = {"kind": "pipeline", "path": os.path.abspath(args.path), "parameters": pairs(args.param),
+                  "mocks": mocks, "notebooks": pairs(args.notebook), "sql_projects": pairs(args.sql_project),
+                  "read_lakehouses": args.read_lakehouse, "workspace_id": args.workspace or ""}
+        schedule = ({"kind": "cron", "every_minutes": args.every_minutes} if args.every_minutes else
+                    {"kind": "weekly" if args.weekday else "daily", "times": args.at, "weekdays": args.weekday})
+        added = Service().add_pc_schedule(target, schedule)
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}")
+        return 2
+    item = added["schedule"]
+    print(f"Scheduled {item['target']['name']} on this PC ({item['id']}).")
+    if not added["windows"]:
+        print("Windows Task Scheduler isn't available here, so it won't fire until the app runs on Windows.")
+    return 0
 
 
 def _pipeline_run(args: argparse.Namespace) -> int:

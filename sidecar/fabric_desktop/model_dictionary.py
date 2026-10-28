@@ -28,7 +28,7 @@ _DELTA = {"string": "string", "int64": "long", "int32": "integer", "float64": "d
           "date": "date", "datetime": "timestamp"}
 
 
-def _delta_type(contract_type: str) -> str:
+def delta_type(contract_type: str) -> str:
     t = str(contract_type or "").lower()
     return "decimal" if t.startswith("decimal") else _DELTA.get(t, "string")
 
@@ -40,7 +40,7 @@ def entries(project: Any, layer: str, saved: dict[str, dict[str, Any]]) -> list[
     for t in tables:
         e = project.entities[t.entity]
         cat = mesh.merged_catalog(project, e, saved)
-        t.columns = [(c["name"], _delta_type(c["type"] or e.columns.get(c["name"], ""))) for c in cat["columns"]]
+        t.columns = [(c["name"], delta_type(c["type"] or e.columns.get(c["name"], ""))) for c in cat["columns"]]
         out.append({"table": t.name, "name": "", "kind": "table", "type": "", "entity": t.entity, "hidden": False,
                     "description": cat["description"] or str(e.spec.get("description") or ""),
                     "classification": cat["classification"]})

@@ -9,6 +9,18 @@ KratosForge is used by people who learned where things are. New features go wher
 - The rail grows only for a new kind of work, and only after a mockup is agreed.
 - Settings for a feature go on the Settings page (`settings.js`), in an existing section where one fits.
 
+## Page layout
+
+Every page with tabs is laid out the same way, so moving between tabs never moves the controls. Data mesh follows it (`meshPage` and `meshChrome` in `app/ui/meta.js`).
+
+1. **Header**: the title, one short context line under it (what is open, not how it works), and this tab's buttons at top right with the main one last. A button lives in one place only: not in the header and again in a card.
+2. **Tabs**, then any second row of section tabs.
+3. **Banners**, only when something needs fixing, in plain words (never a raw exception).
+4. **View row**: the tab's views as one segmented control on the left; search, filters and Refresh on the right.
+5. **Working area**: white cards at the same edge and width. A card doesn't repeat the tab's name as its title.
+
+Paragraphs that explain the page go in its How this works panel (as a `more` part), which folds behind the info button.
+
 ## Registering a feature
 
 Every page registers itself once:
@@ -70,16 +82,16 @@ body.replaceChildren(withHowItWorks(content, howItWorks("platform.overview", {
 - Three short answers in plain words, then the guide link. Add more parts with `more: [["Undo", "..."]]` when a page needs them.
 - "What it changes" names anything that writes to Fabric or OneLake and says that it asks first.
 - The panel folds to its title and remembers that on the PC, so people who know the page can put it away.
-- It sits on the right, and moves under the content in a narrow window.
+- With **Beside the page**, it sits on the right, and moves under the content in a narrow window.
 - **On request** is the default for **Settings > Appearance > Layout > Explanations**: the panel leaves the page and opens as a drawer from the title bar's info button. That works for any panel made with `howItWorks`, so don't build a page's own toggle for it. A panel inside a Home card, a notebook side pane or query results starts folded to its title where it is, and a dialog's panel opens unfolded every time (showDialog), because it says what the dialog's button changes.
 - Write a page's one-line explanation of what it is for with `pageIntro(...)`, not a plain `p.sub`. On request it folds into the same drawer above the panel; a page with no panel gets an "About this page" drawer, and its Learn more link moves there. Keep facts and warnings (counts, a missing setup step) as plain `.sub` so they stay on the page.
 - Mark Preview features with `previewTag()` (or `preview`/`previewMarked`), never a tag of your own, so **Preview marks: Quiet dots** turns them into dots. A tag that's a direct child of an `h1` stays a full tag.
 
 ## Pop-out windows
 
-A section people watch while they work elsewhere (a run list, a monitoring hub) can open in a window of its own, to keep on another screen. Monitor's two sections are the first ([user guide](user-guide.md#pop-out-windows-preview)); a new one uses the same pattern, in the same words:
+A section people watch while they work elsewhere (a run list, a monitoring hub) can open in a window of its own, to keep on another screen. Monitor's runs list and Fabric hub are the first ([user guide](user-guide.md#pop-out-windows-preview)); a new one uses the same pattern, in the same words:
 
-- **Pop out** (`popOutButton(section)`, icon `open`, Preview) goes on the section's own band, last before **Hide** when there is one. It shows only in the main window.
+- **Pop out** (`popOutButton(section, label)`, icon `open`, Preview) is the page's button, top right, named for what it pops out (**Pop out runs**, **Pop out hub**). It shows only in the main window.
 - While the section is out, the main window keeps a band in its place (`poppedOutBand`): the section's title, "In a window of its own", **Show window** and **Dock back**. The rest of the page takes the room.
 - The window shows only that section: no rail, no search, no bell. Its top bar has **Keep on top** and **Dock back**, plus Back and Forward when the section opens other pages. Closing the window docks it back.
 - A pop-out window starts nothing: no component check, no update, no splash, and it never changes the page the main window reopens on. A list in it refreshes itself in place, keeping the scroll position, and never while a dialog is open or the window is minimized.
@@ -124,7 +136,7 @@ defineRecommendation({
 
 ## UX review
 
-A pull request that changes a screen gets a UX review against the [usability release gates](ux/release-review.md). The [navigation architecture](ux/navigation.md) says where planned features go; a new rail item, Monitor segment or Platform tab needs a mockup first.
+A pull request that changes a screen gets a UX review against the [usability release gates](ux/release-review.md). One that adds illustration or animation also answers the eight checks in the [visual style guide](design/KRATOSFORGE_VISUAL_STYLE_GUIDE.md#consistency-checks) (gate UG-8). The [navigation architecture](ux/navigation.md) says where planned features go; a new rail item, Monitor segment or Platform tab needs a mockup first.
 
 ## Releases
 

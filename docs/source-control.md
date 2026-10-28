@@ -75,14 +75,16 @@ For platform definitions, Git is the source of truth and each environment's plat
 | File | Holds |
 | --- | --- |
 | `domains/<id>.toml` | id, name, parent, description, owners. A domain from Fabric keeps only its `fabric_domain_id` and our fields; its name and parent come from Fabric. |
-| `sources/<code>.toml` | source_id, code, title, description, owner, system type, active, expected hours |
+| `landing_zones/<id>.toml` | id, name, domain, secure, readers (groups, by name or object id), sensitivity label, and `devtest` (whether Dev and Test read it: `none` or `read`) |
+| `sources/<code>.toml` | source_id, code, title, description, owner, system type, active, expected hours, and `zone` (its landing zone's id) when it isn't in Shared |
 | `key_tables/<name>.toml` | name, business key, description, domain |
+| `policy_templates/<id>.toml` | your organization's policy templates: name, category, description and the rest of the template's `[definition]`. Built-in templates ship with the app and aren't exported. |
 | `policies/<id>.toml` | status, the published version's `[definition]` and each assignment as `[[assign]]` |
 | `glossary.toml` | each term with its definition, domain and owner |
 | `admins.toml` | the platform admins |
 | `shortcut_rules.toml` | the shortcut request rules |
 
-Never in a file: times, who changed what, key values, requests, decisions, grants, audit rows, readers, shortcut health, source connections, webhook URLs, passwords or connection strings. A policy that was never published isn't exported. On a platform without policies yet, no policy files are written. Key tables come from the shared keys database that Dev, Test and Prod use. Until keys have moved there, export takes them from every environment, keeps Prod's fields when environments disagree and lists the difference.
+Never in a file: times, who changed what, key values, requests, decisions, grants, audit rows, a source's readers (which projects read it), shortcut health, source connections, where a landing zone lives (its workspace and lakehouse ids), when reads were switched to the landing workspace and by whom, a template's author, webhook URLs, passwords or connection strings. A zone's readers are free text in the platform, so one can be a person's email: export leaves any reader with an `@` out of the file, and a file that names one can't be deployed. Name a group instead. A policy that was never published isn't exported. On a platform without policies yet, no policy or template files are written. **Who can add templates** (a platform setting in the catalog) isn't exported: the repository has no file for platform settings yet (`platform.toml` says where the platform's items live), so set it on the Templates view. Key tables come from the shared keys database that Dev, Test and Prod use. Until keys have moved there, export takes them from every environment, keeps Prod's fields when environments disagree and lists the difference.
 
 **Deploy** makes the platform match the committed files: the catalog (in Prod), admins in every environment, and key tables in the shared keys database (in every environment until keys have moved there). It shows its plan first and runs only that plan, after one confirm.
 
@@ -90,6 +92,9 @@ Never in a file: times, who changed what, key values, requests, decisions, grant
 - A changed policy is published as a new version; a published version never changes. A policy with a draft in progress in the platform is skipped, so a deploy never overwrites someone's draft.
 - A source id is never renumbered: a file whose `source_id` doesn't match the platform stops the whole deploy before anything is written. A new source keeps the id its file gives it. Source connections stay as they are in the platform.
 - Key tables are created where missing, never renamed, changed or removed (their keys stay).
+- A new landing zone is made the way **New landing zone** makes it: its lakehouse in the landing workspace first, then the zone in the catalog. So the platform needs its landing workspace first (Platform > Set up > Landing zone); until then, zones are skipped and the plan says why, and so is a source whose zone can't be made. Shared is made with the landing workspace, never by a deploy. A changed zone is saved with its lakehouse kept, and people named as its readers in the platform stay. A zone in the platform with no file shows as **removed in Git** and is left alone: a deploy never removes a landing zone (remove it on the Landing zone tab once no source is in it).
+- A deploy never switches reads to the landing workspace. **Switch reads to the landing workspace** stays a manual step on the Landing zone tab, done once the files runs need are there.
+- Your organization's policy templates are added or changed with the template operations; a file using a built-in template's id is skipped. A template in the platform with no file is left alone: a deploy never deletes a template.
 - Something removed in Git is removed only when you tick it, after every other change: policies are retired (never deleted), then sources, then domains (subdomains first). A domain or source still in use is refused. Glossary terms can't be removed yet.
 - If the platform refuses a step, the deploy stops there and says which step and why. Steps already done show as **same** next time.
 
@@ -124,6 +129,7 @@ The **Changes** tab lists **Conflicts**, **Staged** files (going into the next c
 
 - Click a file to see its diff, **Inline** or **Side by side**, with line numbers. For a notebook, **Notebook view** compares the cells instead of the raw JSON. **Open previous version** shows the last committed copy, read-only.
 - **Discard** always asks first and says what will be lost. A new file that was never committed is deleted, so the question says that too.
+- **Part of a file.** In the diff, each block of changed lines has its own buttons: **Stage block** and **Discard block…** in **Changes**, **Unstage block** in **Staged**. So one commit can take a fix and leave an experiment in the same file for later; while part of a file is staged, it shows in both lists. A block is applied only if it is still exactly what the diff showed: if the file changed since, nothing changes and the new diff is shown. **Discard block** asks first, says how many lines it throws away, and leaves the rest of the file as it is. Blocks aren't offered for a notebook in **Notebook view** (it compares cells, not lines: turn the view off to take the JSON's blocks), a new file Git doesn't track yet, a file that isn't text, or a file with conflicts; use the whole-file buttons there.
 - Write a message and press **Commit** (or Ctrl+Enter). With nothing staged, the button offers to stage everything and commit.
 
 ### Secrets are checked before every commit

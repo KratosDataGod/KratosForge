@@ -31,7 +31,7 @@ const mocks = {
 before(async () => {
   if (skip) return;
   app = await openApp({ mocks });
-  await page().evaluate(() => go("metadata"));
+  await page().evaluate(() => goMeta("overview"));
   await page().waitForSelector(".mf-domains");
 });
 after(async () => { if (app) await app.close(); });
@@ -42,7 +42,7 @@ test("Data mesh opens on the organization's domains, with how they feed each oth
   assert.match(await page().textContent(".mf-domain.me"), /This project's domain/);
   assert.match(await page().textContent(".mf-feeds"), /Sales\s*→\s*Finance\s*Orders/);
   assert.ok(await page().$(".how-it-works"));
-  assert.ok(await page().$(".mf-crumbs .preview-tag"), "the page shows it is in Preview");
+  assert.ok(await page().$('.meta-groups .tab.active:has-text("Domains") .preview-tag'), "the tab shows it is in Preview");
 });
 
 test("a domain lists its projects, their layers, products and readers", { skip }, async () => {
@@ -51,7 +51,7 @@ test("a domain lists its projects, their layers, products and readers", { skip }
   assert.match(row, /Orders/);
   assert.match(row, /Month-end close \(Orders\)/);
   assert.deepStrictEqual(await page().$$eval(".mf-layers .layer-chip", (c) => c.map((x) => x.firstChild.textContent)), ["bronze", "silver", "gold"]);
-  assert.ok(await page().$('.mf button:has-text("Manage in Platform")'));
+  assert.ok(await page().$('.mf button:has-text("All domains")'));
   assert.ok(await page().$('.mf button:has-text("Glossary")'));
   await page().click('.seg button:has-text("Reseller")');
   assert.ok(await page().$('.mf-projects:has-text("Orders")'));
@@ -76,9 +76,10 @@ test("a layer's table shows its whole lineage, both ways, out to the projects re
   assert.deepStrictEqual(app.errors, []);
 });
 
-test("the Preview tag shows on every level", { skip }, async () => {
+test("the Preview tag stays in view on every level, once, on the tab", { skip }, async () => {
   await page().click('.mf-domain:has-text("Sales")');
-  assert.ok(await page().$(".mf-crumbs .preview-tag"));
+  assert.ok(await page().$('.meta-groups .tab.active:has-text("Domains") .preview-tag'));
   await page().click('.mf-layers .layer-chip:has-text("gold")');
-  assert.ok(await page().$(".mf-crumbs .preview-tag"));
+  assert.ok(await page().$('.meta-groups .tab.active:has-text("Domains") .preview-tag'));
+  assert.strictEqual(await page().$(".mf-crumbs .preview-tag"), null);
 });

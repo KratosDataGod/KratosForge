@@ -76,6 +76,8 @@ Reviewed against `main` 52ff52d. Each PR was reviewed on its own commits only: c
 
 | PR | Title | Decision | Score | Blocking finding or condition |
 | --- | --- | --- | --- | --- |
+| #973 b7c589b4 | Apache-2.0 license, main merge | PASS at b7c589b4 (carried) | 9.3 | Release management merged main b19b7456 (clean). The PR's own delta is identical to 12ca57e7 (sorted +/- lines compared against the merge-base), and it merges main cleanly. RM: ui.test 301/0. Chris picked Apache-2.0 on the license card (option 0, his tap recorded 21:53Z). |
+
 | #914 508586fb | PB-054 late rows, main merge | PASS at 508586fb (carried) | 9.1 | Release management merged main b19b7456 (clean). The PR's own delta is identical to 4e262666 (sorted +/- lines compared against the merge-base), and it merges main cleanly. The only red check was main's old ui failure, fixed by #972. RM's runs at head: ui.test 301/0; silent_except + late_rows_deletes 49 passed. |
 
 | #1000 891e467d | tornado 6.6 for three new advisories | PASS | 9.4 | One line in sidecar/constraints.txt (6.5.10 to 6.6); merges main b19b7456 cleanly. 6.6 is on PyPI with a cp311-abi3 win_amd64 wheel. pip check is clean with 6.6. pandas_in_notebooks, chart_libraries, outputs_hardening, rich_outputs, kernel_process and kernel_sessions: 82 passed on tornado 6.6. |

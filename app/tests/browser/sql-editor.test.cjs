@@ -241,6 +241,19 @@ test("the query tab list holds only tabs; Delete on a tab or its × closes it", 
   await page().getByRole("button", { name: "New query" }).click();
   const added = (await names()).at(-1);
   await page().getByRole("tab", { name: added }).press("Delete");
+  assert.deepStrictEqual(await names(), before, "a query with only the starting hint closes at once");
+  assert.strictEqual(await page().evaluate(() => document.activeElement?.getAttribute("role")), "tab", "focus stays on the tabs");
+  // A query with SQL of its own asks first, in red; Cancel keeps it.
+  await page().getByRole("button", { name: "New query" }).click();
+  const typed = (await names()).at(-1);
+  await page().evaluate(() => { sqlPage.tabs[sqlPage.active].sql = "SELECT 42"; });
+  await page().getByRole("tab", { name: typed }).press("Delete");
+  const ask = page().getByRole("dialog", { name: `Close ${typed}?` });
+  assert.match(await ask.getByRole("button", { name: "Close query" }).getAttribute("class"), /danger/);
+  await ask.getByRole("button", { name: "Cancel" }).click();
+  assert.deepStrictEqual(await names(), [...before, typed]);
+  await page().getByRole("tab", { name: typed }).press("Delete");
+  await page().getByRole("dialog", { name: `Close ${typed}?` }).getByRole("button", { name: "Close query" }).click();
   assert.deepStrictEqual(await names(), before);
   await page().getByRole("button", { name: "New query" }).click();
   await page().locator(".sql-tab", { hasText: (await names()).at(-1) }).locator(".close").click();

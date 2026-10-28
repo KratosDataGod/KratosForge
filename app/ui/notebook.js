@@ -912,7 +912,7 @@ document.addEventListener("keydown", (e) => {
   // Tab from a cell in command mode (as after Esc) moves on past the cell, so Tab doesn't loop back into
   // its own buttons and editor (#905). Shift+Tab goes back as usual.
   if (key === "Tab" && !e.shiftKey && plain && t.matches?.(".cell")) {
-    const next = [...document.querySelectorAll(FOCUSABLE)].find((el) => el.tabIndex >= 0 && el.offsetParent !== null
+    const next = [...document.querySelectorAll(FOCUSABLE)].find((el) => el.tabIndex >= 0 && el.checkVisibility()
       && !t.contains(el) && t.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
     if (next) { e.preventDefault(); next.focus(); }
     return;

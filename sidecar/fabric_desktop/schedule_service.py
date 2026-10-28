@@ -212,7 +212,8 @@ class ScheduleMixin:
         IT has turned off (allow_signed_out_schedules)."""
         try:
             schedules = self.pc_schedules
-            return {"updated": schedules.sync(), "paused": schedules.pause_disallowed()}
+            paused = schedules.pause_disallowed()  # IT's control first, so a failed sync can't skip it
+            return {"updated": schedules.sync(), "paused": paused}
         except Exception as exc:  # Task Scheduler refused: the list still shows them
             return {"updated": 0, "error": f"{type(exc).__name__}: {exc}"}
 

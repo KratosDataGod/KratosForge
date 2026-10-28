@@ -386,13 +386,13 @@ class LocalSchedules:
         if self.allow_signed_out:
             return []
         data = self._load()
-        paused = [s for s in data["schedules"] if s.get("signed_out") and s.get("enabled", True)]
-        for s in paused:
+        paused = []
+        for s in [s for s in data["schedules"] if s.get("signed_out") and s.get("enabled", True)]:
             self.scheduler.set_enabled(s["id"], False)
             s["enabled"] = False
-        if paused:
-            self._save(data)
-        return [s["id"] for s in paused]
+            self._save(data)  # each one as it's paused, so a refusal partway leaves the list true
+            paused.append(s["id"])
+        return paused
 
     def sync(self) -> int:
         """Point every task at this engine (after an update). Returns how many were re-registered."""

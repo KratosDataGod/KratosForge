@@ -221,6 +221,8 @@ What the set says about the baseline: the five FAILs are the patterns the [findi
 | #924 | Prod promotes refuse a governance package older than a day when the platform is unreachable | PASS at 84f294c6 | 9.1 | CONDITIONAL 8.8 at 247566d7 (path text). ui.test 299/0; pytest 79; old file fails the gate test. |
 | #923 | A 401 gets one fresh token and one resend | PASS at b0806de2 | 9.1 | pytest 153; full sidecar suite 5,052 passed, 0 failed; main's files fail 4. |
 | #919 | smoke-test --platform: central platform flows against fakes, ledger-based cleanup | FAIL at 8eff61ad | about 8.3 before the automatic failure | Automatic failure, a delete wider than asked (reproduced): upgrade mode takes over items by name without checking type, so cleanup can delete an unrelated item with the same name. |
+| #914 | Late rows and source deletes (NO_ID + main merge) | PASS at 4e262666 (carried) | 9.1 | Second quality reviewer. Carried from 97d11aed. Merge has no conflict hunks; sidecar delta identical. The NO_ID regex matches the new docs line. pytest 49; ui.test 299/1, only #972's two flags. New feature: needs Chris's go. |
+
 | #914 | Lookback for late rows, soft and hard source deletes | PASS at 97d11aed | 9.1 | Earlier FAIL fixed: only a Boolean is_deleted with deleted_at counts rows as gone; Date lookback rounds up. New feature: needs Chris's go. |
 | #913 | Key runs read only the batch's key rows | PASS at 54f19d35 | 9.1 | Earlier CONDITIONAL (1M-key slowdown) fixed. |
 | #907 | Accessibility audit of every page | PASS at 67da857d (and 60fa420e) | 9.2 | CONDITIONAL 8.5 at 88815d68: a container's shadow counted as a control's focus ring. Fixed with a baseline; the injected test fails on the old rule. a11y 3/3 x3; ui.test 299/0. |

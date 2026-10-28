@@ -335,11 +335,16 @@ document.addEventListener("keydown", (e) => {
   e.preventDefault();
   const tab = tabs[(next + tabs.length) % tabs.length];
   const label = tab.textContent;
+  const list = el.closest("[role=tablist]")?.getAttribute("aria-label");
   tab.click();
   // Selecting a tab often re-renders the tab list, sometimes after an engine call: focus the new copy
-  // of the same tab, for up to a second, while focus is still nowhere else (#961).
+  // of the selected tab, in the same tablist when it's named (a count in the label may have changed),
+  // for up to a second, while focus is still nowhere else (#961).
+  const selected = () => (list
+    ? [...document.querySelectorAll("[role=tablist]")].find((l) => l.getAttribute("aria-label") === list)?.querySelector("[role=tab][aria-selected=true]")
+    : [...document.querySelectorAll("[role=tab]")].find((t) => t.textContent === label && t.getAttribute("aria-selected") === "true"));
   const refocus = (tries) => {
-    const now = [...(document.querySelectorAll("[role=tab]"))].find((t) => t.textContent === label && t.getAttribute("aria-selected") === "true");
+    const now = selected();
     const lost = document.activeElement === document.body || document.activeElement === tab || !document.activeElement?.isConnected;
     if (now && lost) now.focus();
     else if (!now && tab.isConnected && lost) tab.focus();

@@ -9,6 +9,10 @@ read shows as unknown.
 
 Business terms are a name and a link to the term in Microsoft Purview, typed by the product's owner
 (catalog.product_term). KratosForge's sign-in can't get a Purview token, so nothing here calls Purview.
+
+Product groups: a product's semantic models and reports, picked from Fabric by its owner (catalog.product_item,
+only the item's id, type, workspace id and display name). The scan reads their endorsement too. Nothing
+here writes to Fabric.
 """
 
 from __future__ import annotations
@@ -76,6 +80,11 @@ class TrustMixin:
                                   "a Fabric administrator scans; everyone then sees the last scan's badge.")
         products = [p for p in catalog.call("list_products") if p.get("status") != "draft"]
         items = {i["item_id"]: i for p in products for i in core.product_items(p)}
+        # The semantic models and reports grouped under them, read the same way (none on an older platform).
+        published = {p["id"] for p in products}
+        for g in self._product_groups(catalog) or []:
+            if g["product_id"] in published and g["item_id"] not in items:
+                items[g["item_id"]] = {k: g.get(k) or "" for k in ("item_id", "workspace_id", "item_type", "item_name")}
         workspaces = sorted({i["workspace_id"] for i in items.values() if i["workspace_id"]})
         if not workspaces:
             return {"workspaces": 0, "items": 0, "recorded": 0, "not_reported": [],
@@ -112,3 +121,40 @@ class TrustMixin:
         call_or_repair(self._catalog(), "remove_product_term", "keep business terms",  # type: ignore[attr-defined]
                        product_id=product_id, term=term)
         return self.platform_product_trust(product_id)
+
+    # ---- product groups (Preview): a product's semantic models and reports, by Fabric item id
+
+    def _product_groups(self, catalog: Any) -> list[dict[str, Any]] | None:
+        """Every product's semantic models and reports; None when the platform is older than product groups."""
+        try:
+            return catalog.call("list_product_items")
+        except LookupError:  # silent-ok: an older UDF_Platform has no product groups; None says so
+            return None
+        except core.PlatformError as exc:  # silent-ok: only "no such operation" is read as an older platform
+            if "list_product_items" in str(exc):
+                return None
+            raise
+
+    def platform_product_items(self, product_id: str) -> dict[str, Any]:
+        """A product's semantic models and reports, each with its last scanned endorsement. Only reads."""
+        items = call_or_repair(self._catalog(), "list_product_items",  # type: ignore[attr-defined]
+                               "group a product's semantic models and reports", product_id=product_id)
+        return {"product_id": product_id, "items": items}
+
+    def platform_add_product_item(self, product_id: str, item_type: str, item_id: str, workspace_id: str,
+                                  item_name: str, workspace_name: str = "") -> dict[str, Any]:
+        """Put a semantic model or report under a product. Writes catalog.product_item (the item's id, type,
+        workspace id and display name) and the audit log; nothing in Fabric changes."""
+        if item_type not in core.ITEM_TYPES:
+            raise ValueError("Pick a semantic model or a report")
+        item = {"item_type": item_type, "item_id": item_id, "workspace_id": workspace_id, "item_name": item_name,
+                "workspace_name": workspace_name}
+        items = call_or_repair(self._catalog(), "add_product_item",  # type: ignore[attr-defined]
+                               "group a product's semantic models and reports", product_id=product_id, item=item)
+        return {"product_id": product_id, "items": items}
+
+    def platform_remove_product_item(self, product_id: str, item_id: str) -> dict[str, Any]:
+        """Take a semantic model or report off a product (it stays in Fabric). Deletes its catalog.product_item row."""
+        items = call_or_repair(self._catalog(), "remove_product_item",  # type: ignore[attr-defined]
+                               "group a product's semantic models and reports", product_id=product_id, item_id=item_id)
+        return {"product_id": product_id, "items": items}

@@ -193,16 +193,29 @@ Only Prod counts, because that's what readers' projects read. Each environment k
 
 Preview. **Data mesh > Products**, then select a product's name. The product's page shows two trust signals next to its name.
 
-**Endorsement** (Certified, Promoted or Master data) is set in Fabric, on the item's settings. KratosForge reads it and never sets it. The item is the lakehouse each port lives in, in the highest environment the product is published to (Prod, else Test, else Dev).
+**Endorsement** (Certified, Promoted or Master data) is set in Fabric, on the item's settings. KratosForge reads it and never sets it. The items are the lakehouse each port lives in, in the highest environment the product is published to (Prod, else Test, else Dev), and the semantic models and reports its owner grouped under it ([Tables, semantic models and reports](#tables-semantic-models-and-reports-preview)). When a product has a semantic model, the badge by its name is the model's endorsement.
 
 - **Only Fabric administrators can read it.** Fabric shows endorsement through an API only in Power BI's admin tenant scan (`POST /v1.0/myorg/admin/workspaces/getInfo`, then `scanStatus` and `scanResult`); Fabric's Get Item doesn't return it. **Scan now** shows to platform admins. It works for one who is also a Fabric administrator; anyone else is told so and nothing is saved.
-- **What a scan reads and writes.** It scans only the workspaces the platform's published products live in, at most 100 a call, and asks for no lineage, data sources, schemas, expressions or users. It writes what it read for each product item to `catalog.endorsement` in the platform's catalog: the endorsement, who certified it when Fabric says, when, and who scanned. Each scan is in the platform's audit log, without the certifier's name.
+- **What a scan reads and writes.** It scans only the workspaces the platform's published products, and their semantic models and reports, live in, at most 100 a call, and asks for no lineage, data sources, schemas, expressions or users. It writes what it read for each product item to `catalog.endorsement` in the platform's catalog: the endorsement, who certified it when Fabric says, when, and who scanned. Each scan is in the platform's audit log, without the certifier's name.
 - **Everyone sees the last scan.** The badge shows with "From the tenant scan" and its age. Before any scan, or for an item the latest scan didn't report, the badge is a grey **Endorsement unknown**: KratosForge never guesses, and a later scan that doesn't confirm an old badge takes it away. **See it in Fabric** opens the item there. Under the product's name, **Last tenant scan** says when the newest of its items was read. When a product's items differ (say one lakehouse is Certified and another unknown), the badge by its name is a grey **Endorsement varies**, and the Endorsement card lists each item with its own badge.
 - **To change it,** open the item's settings in Fabric. Scan again to update the badge.
 
 **Business terms** are a term's name and a link to it in Microsoft Purview, so people can read the definition where your organization keeps it. **Add a term** asks for the term and **Link to the term in Purview**: copy the address from Purview. It must be an `https` link on `purview.microsoft.com` or `web.purview.azure.com`; anything else is refused. KratosForge doesn't read Purview: its sign-in can't get a Purview token, so the terms are what your stewards type. The product's owner or a platform admin adds and removes them (removing asks first); each change writes `catalog.product_term` and the platform's audit log. The term itself stays in Purview.
 
 An older UDF_Platform doesn't have these functions yet. The page then says: *After an update, a platform admin runs Platform > Settings > Finish or repair once.*
+
+## Tables, semantic models and reports (Preview)
+
+A data product's page groups what it offers under **What it offers**: **Tables**, **Semantic models** and **Reports**, each with how many. Each semantic model and report shows its own endorsement badge, as the last tenant scan read it (**Endorsement unknown** until a scan has read it). Tables show their lakehouse and environment and have no badge of their own: their lakehouse's endorsement is on the Endorsement card.
+
+- **Tables** are the product's ports in the highest environment it's published to. They come from the product's definition, so **Add a table** shows only for the product of the metadata project open on this PC and opens **Project > Products and links**.
+- **Add a model** and **Add a report** show to the product's owner and platform admins. Pick a workspace, then a semantic model (or report) in it. The dialog lists only the workspaces and items you can see in Fabric, with Fabric's read-only list calls. The product records the item's id, its type, its workspace id and its display name in `catalog.product_item`, and an `add product item` entry in the platform's audit log (`catalog.audit`). Nothing in Fabric changes. Adding the same item again updates its name.
+- **Remove** asks first. It deletes the item's `catalog.product_item` row and logs `remove product item`; the item stays in Fabric, as it is.
+- **The product's badge** by its name, here and on the products list, is its semantic model's endorsement when it has one, since that's what Fabric's scan reports. With no model, the products list shows **Endorsement unknown** and the product's page keeps its lakehouses' badge. When its models differ, it shows **Endorsement varies**.
+- **Find products by what they offer.** **Data mesh > Products** has **All**, **Has tables**, **Has models** and **Has reports** above the list, and each product says what it offers, like *3 tables, 1 model, 2 reports*.
+- **Scan now** reads the semantic models' and reports' endorsement too: their workspaces are added to the tenant scan.
+
+The product's checklist (`contract.endorsed`) still reads the lakehouses its ports live in. An older UDF_Platform doesn't have these functions yet: the card says *After an update, a platform admin runs Platform > Settings > Finish or repair once*, and the products list shows no filters until then.
 
 ## Links
 

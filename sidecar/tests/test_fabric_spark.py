@@ -175,6 +175,50 @@ def test_a_session_that_never_starts_is_ended():
     assert livy.deleted == ["7"]
 
 
+def test_a_poll_that_fails_while_starting_ends_the_session_it_created():
+    livy = FakeLivy(start_polls=3)
+    real = livy.request
+
+    def refuse_polls(method, url, **kw):
+        if method == "GET":
+            return Resp(429, {"message": "too many requests"})
+        return real(method, url, **kw)
+    livy.request = refuse_polls
+    with pytest.raises(fs.FabricSparkError, match="HTTP 429"):
+        open_session(livy)
+    assert livy.deleted == ["7"]
+    # A session that died while starting is ended too (deleting a dead session is harmless).
+    dead = FakeLivy(start_state="dead")
+    with pytest.raises(fs.FabricSparkError, match="dead"):
+        open_session(dead)
+    assert dead.deleted == ["7"]
+
+
+def test_a_session_fabric_doesnt_name_says_so_and_deletes_nothing():
+    livy = FakeLivy()
+    real = livy.request
+    livy.request = lambda method, url, **kw: Resp(200, {"state": "starting"}) if method == "POST" else real(method, url, **kw)
+    with pytest.raises(fs.FabricSparkError, match="didn't say which one"):
+        open_session(livy)
+    assert livy.deleted == []
+
+
+def test_a_cancel_that_fails_or_comes_too_late_keeps_the_real_result():
+    livy = FakeLivy(polls=2)
+    s = open_session(livy)
+    real = livy.request
+
+    def refuse_cancel(method, url, **kw):
+        if url.endswith("/cancel"):
+            return Resp(500, {"message": "busy"})
+        return real(method, url, **kw)
+    livy.request = refuse_cancel
+    livy.on_poll = lambda: livy.on_poll and (setattr(livy, "on_poll", None) or seen.append(s.cancel()))
+    seen = []
+    r = s.execute(CellRequest("print('hello')", "pyspark"))
+    assert seen == [False] and r.status == "ok" and r.outputs == [{"type": "stream", "text": "hello"}]
+
+
 def test_cells_run_once_per_statement_in_their_language():
     livy = FakeLivy(polls=2)
     s = open_session(livy)

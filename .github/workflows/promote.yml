@@ -49,7 +49,8 @@ jobs:
           gh release download "$SOURCE" --pattern fabric-desktop.exe --pattern fabric-desktop-engine.zip --pattern version.json
           # The exe is kratosforge.exe, published beside fabric-desktop.exe (the name builds before it
           # download). A build from before kratosforge.exe has only the old name: Stable gets both.
-          if gh release view "$SOURCE" --json assets --jq '.assets[].name' | grep -qx kratosforge.exe; then
+          ASSETS=$(gh release view "$SOURCE" --json assets --jq '.assets[].name')
+          if grep -qx kratosforge.exe <<< "$ASSETS"; then
             gh release download "$SOURCE" --pattern kratosforge.exe
           else
             cp fabric-desktop.exe kratosforge.exe
@@ -63,7 +64,6 @@ jobs:
           # The build's software bills of materials, so Stable carries the list of what it ships.
           # A build from before SBOMs were published goes without them.
           SBOMS=()
-          ASSETS=$(gh release view "$SOURCE" --json assets --jq '.assets[].name')
           for sbom in sbom-app.cdx.json sbom-engine.cdx.json; do
             if grep -qx "$sbom" <<< "$ASSETS"; then
               gh release download "$SOURCE" --pattern "$sbom"
@@ -105,8 +105,14 @@ jobs:
             # Stable PCs fell back to Preview and could be offered an untested build.
             gh release upload stable kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip "${UPDATE_ZIP[@]}" "${SBOMS[@]}" --clobber
             # Nor may an earlier build's SBOM stay beside this build's files.
+            STABLE_ASSETS=$(gh release view stable --json assets --jq '.assets[].name') \
+              || { echo "::warning::Couldn't list stable's files; check by hand that no earlier SBOM is left."; STABLE_ASSETS=""; }
             for sbom in sbom-app.cdx.json sbom-engine.cdx.json; do
-              [[ " ${SBOMS[*]} " == *" $sbom "* ]] || gh release delete-asset stable "$sbom" --yes 2> /dev/null || true
+              [[ " ${SBOMS[*]} " == *" $sbom "* ]] && continue
+              if grep -qx "$sbom" <<< "$STABLE_ASSETS"; then
+                gh release delete-asset stable "$sbom" --yes \
+                  || echo "::warning::Couldn't remove the earlier build's $sbom from stable; delete it by hand."
+              fi
             done
             # A build without an update zip mustn't sit next to an earlier build's (the app only uses
             # one its version.json names, but a stale file there misleads people).

@@ -2923,6 +2923,11 @@
           "ref": "sidecar/tests/test_large_tables.py::test_an_update_merges_into_the_table_and_rewrites_only_the_files_it_touches"
         },
         {
+          "kind": "test",
+          "ref": "sidecar/tests/test_meta_late_rows_deletes.py::test_a_late_row_inside_the_lookback_lands_exactly_once",
+          "note": "PB-019: [load] lookback and deletes (soft or hard), MERGE and rewrite paths"
+        },
+        {
           "kind": "smoke",
           "ref": "meta_run env=dev ran every sample entity locally with status ok in under a second"
         }
@@ -2933,7 +2938,8 @@
       ],
       "tests": [
         "sidecar/tests/test_meta.py",
-        "sidecar/tests/test_large_tables.py"
+        "sidecar/tests/test_large_tables.py",
+        "sidecar/tests/test_meta_late_rows_deletes.py"
       ],
       "docs": [
         "docs/metadata-guide.md"
@@ -2943,7 +2949,8 @@
         "preview": false
       },
       "limitations": [
-        "Watermark filter is strictly >, so late rows are dropped",
+        "Watermark filter is strictly > unless [load] lookback is set; rows older than the lookback are still missed",
+        "Source deletes ([load] deletes) are found only on incremental runs of a Delta source with keys, by reading every source key",
         "Type 2 source repeating a key fails (plan)"
       ],
       "prs": [

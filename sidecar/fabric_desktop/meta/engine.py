@@ -30,6 +30,7 @@ from .project import (
     Project,
     impact,
     load_python,
+    parse_lookback,
     run_order,
     validate,
 )
@@ -50,6 +51,11 @@ FAR_PAST = dt.date(1900, 1, 1)
 # Power BI refuses a date table with a blank date. It's day 0 of Excel and Power BI's date serials.
 UNKNOWN_DATE = dt.date(1899, 12, 30)
 FAR_FUTURE = dt.date(9999, 12, 31)
+# [load] deletes = "soft": the columns that mark a row whose key the source no longer has. deleted_at
+# is the run's start in UTC.
+DELETED_AT_TYPE = pl.Datetime("us", "UTC")
+# [load] deletes = "hard": the MERGE source column that flags a key to remove (never written).
+_DELETE_FLAG = "__fd_delete"
 _SIMPLE_TYPES: dict[str, pl.DataType] = {
     "string": pl.String, "str": pl.String, "int64": pl.Int64, "bigint": pl.Int64, "int32": pl.Int32,
     "int": pl.Int32, "float64": pl.Float64, "double": pl.Float64, "float32": pl.Float32, "bool": pl.Boolean,
@@ -155,6 +161,24 @@ def _wm_text(value: Any) -> str:
     return value.isoformat() if hasattr(value, "isoformat") else str(value)
 
 
+def _wm_minus(e: Entity, value: Any, dtype: pl.DataType) -> Any:
+    """The watermark moved back by the entity's [load] lookback (unchanged without one): a duration
+    for a date or datetime watermark, a number for a numeric one. A date goes back whole days, so
+    "2 hours" re-reads the day before too."""
+    lookback = parse_lookback(e.spec.get("load", {}).get("lookback"))
+    if not lookback:
+        return value
+    when = dtype == pl.Date or isinstance(dtype, pl.Datetime)
+    if isinstance(lookback, dt.timedelta) and when:
+        return value - lookback
+    if isinstance(lookback, int) and dtype.is_numeric():
+        return value - lookback
+    want = "a duration such as \"2 hours\"" if when else "a whole number" if dtype.is_numeric() else None
+    raise CheckStop(f"load lookback {lookback if isinstance(lookback, int) else e.spec['load']['lookback']!r} "
+                    f"doesn't fit the watermark's type ({dtype}): "
+                    + (f"use {want}" if want else "a lookback needs a date, datetime or number watermark"))
+
+
 @dataclass
 class Step:
     name: str
@@ -246,6 +270,12 @@ class Engine:
         self.batch_rows: int | None = None
         # During a batched load, the values unique checks have seen in earlier batches.
         self._seen: dict[str, pl.Series] | None = None
+        # The run's start in UTC: what deleted_at says for a row a soft-delete run marks.
+        self.run_at = dt.datetime.now(dt.timezone.utc)
+        # [load] lookback: the saved watermark this run read back from, which the new one never goes below.
+        self._wm_floor: str | None = None
+        # [load] deletes: every key the source has, read once per run (None until read).
+        self._src_keys: pl.DataFrame | None = None
 
     def _no_links(self, alias: str) -> str:
         raise CheckStop(f"link {alias} can't be resolved here: connect a platform, or pin its location for "
@@ -346,7 +376,9 @@ class Engine:
         e = self.project.entities[name]
         res = RunResult(self.run_id, name, "ok")
         started = time.perf_counter()
-        started_at = dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
+        self.run_at = dt.datetime.now(dt.timezone.utc)
+        started_at = self.run_at.isoformat(timespec="microseconds")
+        self._wm_floor, self._src_keys = None, None
         self._dq: list[dict[str, Any]] = []
         self._schema_changes: list[dict[str, Any]] = []
         self._files_read: tuple[str, list[dict[str, Any]]] | None = None
@@ -505,9 +537,8 @@ class Engine:
             detail += "; renamed " + ", ".join(f"{k} to {v}" for k, v in renames.items())
         return df, detail
 
-    def _plan_read(self, e: Entity, full: bool) -> tuple[pl.LazyFrame, list[str], preflight.Estimate, str]:
-        """A Delta source (table, link or entity) ready to read: the scan with its filter, the columns
-        to read, the estimate from its log, and the read step's text so far."""
+    def _open_source(self, e: Entity) -> tuple[Any, str, dict[str, str] | None]:
+        """A Delta source (table, link or entity): the table, its uri and storage options."""
         src = e.spec["source"]
         if "table" in src or "link" in src:
             uri = src["table"] if "table" in src else self.link_table(src["link"])
@@ -521,6 +552,71 @@ class Engine:
             table, uri, options = self.store.table(self.lakehouse(up), up.schema, up.table)
             if table is None:
                 raise CheckStop(f"{src['entity']} has not been loaded in {self.store.env} yet")
+        return table, uri, options
+
+    def _source_keys(self, e: Entity) -> pl.DataFrame:
+        """Every key the source has now, as the table holds it: renamed, cast to the contract types
+        and through the entity's clean rules on key columns. Reads only the key columns."""
+        if self._src_keys is not None:
+            return self._src_keys
+        src = e.spec["source"]
+        lf = lazy(*self._open_source(e))
+        back = {v: k for k, v in (src.get("rename") or {}).items()}
+        cols = [back.get(k, k) for k in e.keys]
+        names = lf.collect_schema().names()
+        missing = [c for c in cols if c not in names]
+        if missing:
+            raise CheckStop(f"load deletes: the source has no key column {', '.join(missing)}")
+        df = lf.select(cols).unique().collect(engine="streaming")
+        df, _ = self._renamed(src, df, "")
+        df = df.select([_cast(df, k, polars_type(e.columns[k])).alias(k) for k in e.keys])
+        rules = [r for r in e.spec.get("clean", []) if r.get("column") in e.keys and "dedupe_keep" not in r]
+        if rules:
+            df, _ = apply_clean(df, rules, e.keys)
+        self._src_keys = df.drop_nulls().unique()
+        return self._src_keys
+
+    def _gone_keys(self, e: Entity, df: pl.DataFrame, backfill: str | None, res: RunResult) -> pl.DataFrame | None:
+        """[load] deletes: the keys the table holds as live rows that the source no longer has. None
+        when deletes don't apply to this run (not set, the first load, a rebuild or a replay)."""
+        if e.mode != "incremental" or e.deletes not in ("soft", "hard") or backfill not in (None, "none"):
+            return None
+        target = self.store.scan(self.lakehouse(e), e.schema, e.table)
+        if target is None:
+            return None
+        t0 = time.perf_counter()
+        if "is_deleted" in target.collect_schema().names():
+            target = target.filter(pl.col("is_deleted").is_null() | ~pl.col("is_deleted"))
+        have = target.select(e.keys).unique().drop_nulls().collect(engine="streaming")
+        source = self._source_keys(e)
+        if not source.height and have.height:
+            raise CheckStop(f"load deletes: the source has no rows, so every row of {e.name} would be "
+                            f"{'marked deleted' if e.deletes == 'soft' else 'removed'}. Nothing was written; "
+                            "check the source")
+        source = source.select([pl.col(k).cast(have.schema[k], strict=False) for k in e.keys])
+        gone = have.join(source, on=e.keys, how="anti")
+        if df.height and all(k in df.columns for k in e.keys):
+            gone = gone.join(df.select([pl.col(k).cast(have.schema[k], strict=False) for k in e.keys]),
+                             on=e.keys, how="anti")
+        what = "to mark deleted" if e.deletes == "soft" else "to remove"
+        self._step(res, "deletes", t0, gone.height,
+                   f"compared {plural(source.height, 'source key')} with {plural(have.height, 'live key')} "
+                   f"in the table: {plural(gone.height, 'key')} gone from the source {what}")
+        return gone
+
+    def _tombstones(self, e: Entity, gone: pl.DataFrame) -> pl.DataFrame:
+        """deletes = "soft": the table's rows for the gone keys, marked deleted as of this run."""
+        lf = self.store.scan(self.lakehouse(e), e.schema, e.table)
+        rows = lf.join(gone.lazy(), on=e.keys, how="semi").collect(engine="streaming")
+        return rows.with_columns(pl.lit(True).alias("is_deleted"),
+                                 pl.lit(self.run_at).cast(DELETED_AT_TYPE).alias("deleted_at"),
+                                 pl.lit(self.run_id).alias("_run_id"), pl.lit(self.load_date).alias("_loaded_at"))
+
+    def _plan_read(self, e: Entity, full: bool) -> tuple[pl.LazyFrame, list[str], preflight.Estimate, str]:
+        """A Delta source (table, link or entity) ready to read: the scan with its filter, the columns
+        to read, the estimate from its log, and the read step's text so far."""
+        src = e.spec["source"]
+        table, uri, options = self._open_source(e)
         lf = lazy(table, uri, options)
         # The filter and the column list go into the scan, so only the files and columns this run
         # needs are read: an incremental run of a large table reads its new rows, not all of it.
@@ -534,9 +630,16 @@ class Engine:
             # The watermark is a contract column, saved from the output; the source may call it something else.
             src_wm = {v: k for k, v in (src.get("rename") or {}).items()}.get(wm_col, wm_col)
             if wm is not None and src_wm in names:
-                after = (src_wm, _wm_literal(wm, schema[src_wm]))
+                saved = _wm_literal(wm, schema[src_wm])
+                # A lookback reads again the rows just before the watermark, so late rows land; the
+                # MERGE on the key makes the rows already loaded replace themselves.
+                after = (src_wm, _wm_minus(e, saved, schema[src_wm]))
                 lf = lf.filter(pl.col(src_wm) > after[1])
                 detail = f"incremental, {wm_col} after {wm}"
+                if after[1] != saved:
+                    self._wm_floor = wm
+                    detail = (f"incremental, {wm_col} after {_wm_text(after[1])} "
+                              f"(the watermark {wm} less the lookback {e.spec['load']['lookback']})")
         keep = self._source_columns(e, names)
         total = len([c for c in names if c not in SYSTEM_COLUMNS])
         if len(keep) < total:
@@ -620,6 +723,8 @@ class Engine:
         state: dict[str, Any] = {"written": 0, "kept": 0, "wm": None, "keys": []}
         mark = len(res.steps)
         stamp = [pl.lit(self.run_id).alias("_run_id"), pl.lit(self.load_date).alias("_loaded_at")]
+        if e.soft_deletes:  # every row the source has is live
+            stamp += [pl.lit(False).alias("is_deleted"), pl.lit(None, dtype=DELETED_AT_TYPE).alias("deleted_at")]
 
         def tables():
             for b in plan:
@@ -1077,9 +1182,13 @@ class Engine:
         target = self.store.scan(self.lakehouse(e), e.schema, e.table)
         if target is None:
             return "", ""
-        changed = _type_changes(df, target.collect_schema())
+        have = target.collect_schema()
+        changed = _type_changes(df, have)
         if changed:
             return "", changed
+        if e.soft_deletes and "is_deleted" not in have:
+            # A MERGE would leave the rows already there with an empty is_deleted; the one rewrite marks them live.
+            return "", "rewrote the table once to add is_deleted and deleted_at (deletes = \"soft\")"
         if not e.keys:
             return "append", ""
         if df.select(e.keys).is_duplicated().any():
@@ -1087,7 +1196,8 @@ class Engine:
         return "upsert", ""
 
     def _write_merged(self, e: Entity, df: pl.DataFrame, how: str, backfill: str | None,
-                      metadata: dict[str, str]) -> tuple[int, str]:
+                      metadata: dict[str, str], hard: pl.DataFrame | None = None) -> tuple[int, str]:
+        """``hard``: keys whose rows the same MERGE removes ([load] deletes = "hard")."""
         lh = self.lakehouse(e)
         have = self.store.scan(lh, e.schema, e.table).collect_schema()
         # A column the table has and the rows don't is null in them, as when the table was rewritten.
@@ -1096,9 +1206,17 @@ class Engine:
         if how == "append":
             version = self.store.write(lh, e.schema, e.table, df, mode="append", metadata=metadata)
             return version, f"{what} {plural(df.height, 'row')} (Delta append, no files rewritten)"
-        version, m = self.store.upsert(lh, e.schema, e.table, df, e.keys, metadata)
+        flag = None
+        # Soft-delete marks ride along with the rows; the step names them on their own.
+        rows = int((~df["is_deleted"]).sum()) if e.soft_deletes and "is_deleted" in df.columns else df.height
+        if hard is not None and hard.height:
+            flag = _DELETE_FLAG
+            gone = hard.select([pl.col(k).cast(df.schema[k]) for k in e.keys])
+            df = pl.concat([df.with_columns(pl.lit(False).alias(flag)), gone.with_columns(pl.lit(True).alias(flag))],
+                           how="diagonal_relaxed")
+        version, m = self.store.upsert(lh, e.schema, e.table, df, e.keys, metadata, delete_flag=flag)
         removed, added = m.get("num_target_files_removed", 0), m.get("num_target_files_added", 0)
-        return version, (f"{what} {plural(df.height, 'row')} on {', '.join(e.keys)}: "
+        return version, (f"{what} {plural(rows, 'row')} on {', '.join(e.keys)}: "
                          f"{m.get('num_target_rows_updated', 0)} updated, {m.get('num_target_rows_inserted', 0)} new "
                          f"(Delta MERGE rewrote {plural(removed, 'file')}, added {added})")
 
@@ -1174,7 +1292,9 @@ class Engine:
         """One attempt at the table commit; True when something was committed."""
         t0 = time.perf_counter()
         lh = self.lakehouse(e)
-        if df.height == 0 and (e.mode in ("incremental", "scd1", "scd2") or backfill == "replay") \
+        gone = self._gone_keys(e, df, backfill, res)  # [load] deletes: keys the source no longer has
+        n_gone = gone.height if gone is not None else 0
+        if df.height == 0 and not n_gone and (e.mode in ("incremental", "scd1", "scd2") or backfill == "replay") \
                 and self.store.exists(lh, e.schema, e.table):
             self._step(res, "write", t0, self.store.count(lh, e.schema, e.table), "nothing new to write")
             return False
@@ -1184,11 +1304,23 @@ class Engine:
         mark = self._new_watermark(e, df, backfill)
         if mark is not None:
             metadata["fabric_desktop_watermark"] = mark
+        live = df.height
+        deleted = ""
+        if e.soft_deletes:
+            # Every row the source has is live; a key it no longer has keeps its row, marked deleted.
+            df = df.with_columns(pl.lit(False).alias("is_deleted"), pl.lit(None, dtype=DELETED_AT_TYPE).alias("deleted_at"))
+            if n_gone:
+                df = pl.concat([df, self._tombstones(e, gone)], how="diagonal_relaxed")
+                deleted = f"; marked {plural(n_gone, 'row')} deleted (gone from the source)"
+        elif n_gone:
+            deleted = f"; removed {plural(n_gone, 'row')} deleted at the source"
+        hard = gone if (n_gone and e.deletes == "hard") else None
         how, why = self._merge_plan(e, df, backfill)
         if how:
-            version, info = self._write_merged(e, df, how, backfill, metadata)
-            res.rows_written, res.delta_version = df.height, version
-            self._step(res, "write", t0, self.store.count(lh, e.schema, e.table), f"{info}; Delta version {version}")
+            version, info = self._write_merged(e, df, how, backfill, metadata, hard)
+            res.rows_written, res.delta_version = live, version
+            self._step(res, "write", t0, self.store.count(lh, e.schema, e.table),
+                       f"{info}{deleted}; Delta version {version}")
             return True
         if e.mode in ("scd1", "scd2") and self.merge_writes:
             done = self._write_dimension(e, df, metadata)
@@ -1215,8 +1347,10 @@ class Engine:
             info = f"replayed {plural(df.height, 'row')}"
         elif e.mode == "incremental" and existing is not None and backfill != "full":
             keep = existing.join(df.select(e.keys), on=e.keys, how="anti") if e.keys else existing
+            if hard is not None:
+                keep = keep.join(hard.select([pl.col(k).cast(keep.schema[k]) for k in e.keys]), on=e.keys, how="anti")
             out = pl.concat([keep, df], how="diagonal_relaxed")
-            info = f"merged {df.height} rows on {', '.join(e.keys)}" if e.keys else f"appended {df.height} rows"
+            info = f"merged {live} rows on {', '.join(e.keys)}" if e.keys else f"appended {live} rows"
         elif e.mode == "incremental" and existing is not None:
             keep = existing.join(df.select(e.keys), on=e.keys, how="anti") if e.keys else existing.clear()
             out = pl.concat([keep, df], how="diagonal_relaxed")
@@ -1224,19 +1358,27 @@ class Engine:
         else:
             out, info = df, f"replaced with {plural(df.height, 'row')}"
         out = with_unknown_date(out, e)
+        if e.soft_deletes:  # rows written before deletes were turned on are live
+            out = out.with_columns(pl.col("is_deleted").fill_null(False))
         if why:
             info = f"{info}; {why}"
         version = self.store.write(lh, e.schema, e.table, out, mode="overwrite", metadata=metadata,
                                    read_version=read_version)
-        res.rows_written, res.delta_version = df.height, version
-        self._step(res, "write", t0, out.height, f"{info}; Delta version {version}")
+        res.rows_written, res.delta_version = live, version
+        self._step(res, "write", t0, out.height, f"{info}{deleted}; Delta version {version}")
         return True
 
     def _new_watermark(self, e: Entity, df: pl.DataFrame, backfill: str | None) -> str | None:
         wm_col = e.spec.get("load", {}).get("watermark")
         # Replayed rows are old rows: they never move the watermark.
         if wm_col and backfill != "replay" and wm_col in df.columns and df.height and df[wm_col].max() is not None:
-            return _wm_text(df[wm_col].max())
+            top = df[wm_col].max()
+            if self._wm_floor is not None and backfill in (None, "none"):
+                # A lookback re-read only older rows: the watermark stays where it was, never goes back.
+                floor = _wm_literal(self._wm_floor, df.schema[wm_col])
+                if top < floor:
+                    return self._wm_floor
+            return _wm_text(top)
         return None
 
     def _advance_watermark(self, e: Entity, df: pl.DataFrame, backfill: str | None, res: RunResult) -> None:

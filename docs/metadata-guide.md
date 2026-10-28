@@ -139,6 +139,27 @@ Replayed quarantine rows go in the same way.
 
 **Dimensions** (`scd1`, `scd2`) read only the rows of the business keys that arrived, plus the Unknown member, merge them exactly as before (same keys, versions and Type 2 checks) and write them back with one MERGE on the surrogate key. A Type 2 dimension fed a full snapshot of its source first drops the rows that would change nothing (same tracked values, no new Type 1 value), so only changed and new keys are touched; when none changed, nothing is written at all. A Type 1 dimension takes every row that arrives, so a full snapshot rewrites it, and the write step says *most of it changed*. The write step says what it read, for example *1000 new, 1000 changed (new versions), 0 Type 1 updates, 4999000 rows unchanged; read 1001 rows of the table for 2000 business keys*.
 
+### Late rows and source deletes
+
+By default an incremental run reads rows whose watermark is strictly after the last run's, and never looks at rows it loaded before. That misses two things: a row that arrives late, with a watermark older than the last run's, and a row deleted at the source. Two `[load]` settings, both off by default, cover them for an incremental load of a Delta source (`table`, `link` or `entity`) with `[contract] keys`:
+
+```toml
+[load]
+mode = "incremental"
+watermark = "modified_at"
+lookback = "2 hours"     # read again the rows up to 2 hours before the watermark
+deletes = "soft"         # none (default) | soft | hard
+```
+
+- **`lookback`** moves the read back from the watermark: the run reads rows after *watermark less lookback*. The rows it had already loaded come again and replace themselves through the MERGE on the key, so a late row inside the lookback lands exactly once and nothing lands twice. Use a duration (`"30 minutes"`, `"2 hours"`, `"3 days"`) for a date or datetime watermark (a date watermark goes back whole days), or a whole number for a numeric one. The watermark itself never moves back. The read step says so, for example *incremental, modified after 2026-10-01T09:00:00+00:00 (the watermark 2026-10-01T11:00:00+00:00 less the lookback 2 hours)*. A row older than the lookback is still missed; a full rebuild (Backfill) picks it up. Changing `lookback` isn't a logic change.
+- **`deletes`** compares keys with the source on every incremental run: it reads every key the source has (only the key columns, renamed, cast and cleaned as the table holds them) and finds the live keys in the table the source no longer has. This reads the source's whole key columns, which costs more than the watermark read, so it's opt-in.
+  - `soft` keeps the row and marks it: the table gets an `is_deleted` (bool) and a `deleted_at` (datetime, UTC) column. Rows the source has are `is_deleted = false`; a deleted key's row is set `is_deleted = true` with `deleted_at` the run's start time in UTC, and keeps that time on later runs. A key that comes back at the source is live again. Turning `soft` on for a table that already exists rewrites it once to add the two columns (every row live). Don't list the two columns in the contract; a table that reads this one can list `is_deleted` to take it.
+  - `hard` removes the row, in the same Delta MERGE commit as the new rows.
+  - The run's **deletes** step says what it compared, for example *compared 999 source keys with 1000 live keys in the table: 1 key gone from the source to mark deleted*, and the write step adds *marked 1 row deleted* or *removed 1 row deleted at the source*. If the source has no rows at all, the run stops instead of marking or removing every row.
+  - Deletes are found on incremental runs. A first load, a full rebuild and a quarantine replay don't look for them; the next incremental run does.
+
+A run in Fabric uses the same engine, so it behaves the same. The settings are checked when you save: `lookback` and `deletes` need an incremental load of a Delta source with keys, `deletes` can't be used with a custom step or with keys this entity makes, and a lookback is a duration or a whole number.
+
 Full loads and rebuilds replace the whole table. A source too big to read at once can be read **in batches** (Preview): set `batch_by` under `[load]` to a column the source has, usually a date such as `order_date`. A full load, an incremental entity's first load, or a full rebuild then reads the source one batch of that column's values at a time, sorted, with as many rows in a batch as fit in free memory with the copies the later steps make. Each batch goes through every step (contract, keys, cleaning, derived columns, hooks, lookups, checks) on its own, and the batches are streamed into the table, which is replaced in **one Delta commit** at the end: readers see the old table until the whole load has worked, and a load that stops (a check, an error, a closed app) leaves the table as it was. The run shows a **plan batches** step, for example *8 batches by order_date, the largest 1,900,000 rows*, and one step per step name with the batches added up.
 
 - Batching reads the source column once to count its values, then each batch's rows. When everything fits in one batch, the load is one ordinary read. Measured on a 15 GB PC with a 60 million row table (16 columns, about 13 GB in memory read at once, too big for one read): 6 batches, 52 seconds, peaking at 7.2 GB. The script is `examples/benchmark/batched_loads.py`.
@@ -502,6 +523,8 @@ business_key = "order_id"
 | | `watermark` | The column incremental loads move forward on |
 | | `memory_guard` | `false` lets a run start a read that's estimated not to fit in free memory ([Large tables](#large-tables)) |
 | | `batch_by` | A source column: full loads and rebuilds read the source in batches of its values and replace the table in one commit ([Large tables](#large-tables)) |
+| | `lookback` | How far before the watermark an incremental run reads again, so late rows land: `"2 hours"`, `"30 minutes"`, `"3 days"`, or a whole number for a numeric watermark ([Late rows and source deletes](#late-rows-and-source-deletes)) |
+| | `deletes` | `none` (the default), `soft` or `hard`: what an incremental run does with a key the source no longer has ([Late rows and source deletes](#late-rows-and-source-deletes)) |
 | `[contract]` | `keys` | The business key columns |
 | | `drift` | This table's schema drift policy |
 | `[contract.columns]` | `<column> = "<type>"` | `string`, `int64`, `float64`, `bool`, `date`, `datetime`, `decimal(p,s)` |

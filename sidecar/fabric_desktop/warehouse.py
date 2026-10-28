@@ -59,6 +59,12 @@ HOST_SUFFIX = ".datawarehouse.fabric.microsoft.com"
 BATCH_ROWS = 65_536
 PROGRESS_SECONDS = 0.25
 LOGIN_TIMEOUT_S = 60
+# Azure SQL's transient login errors (a warehouse resuming, a busy service, not enough resources):
+# only the connect is tried again, before anything is sent, so a change is never sent twice.
+TRANSIENT_LOGIN_ERRORS = (40197, 40501, 40613, 49918, 49919, 49920, 10928, 10929)
+CONNECT_TRIES = 4
+CONNECT_WAITS = (5, 10, 20)  # seconds before tries 2, 3 and 4: under a minute in all
+_ERROR_NUMBER = re.compile(r"\b(\d{4,5})\b")
 _OUTSIDE = {"openrowset", "openquery", "opendatasource"}
 _GO = re.compile(r"^[ \t]*GO[ \t]*;?[ \t]*$", re.IGNORECASE | re.MULTILINE)
 # Comments, strings and quoted names in one left-to-right pass, so whichever starts first wins: a
@@ -246,6 +252,36 @@ def connect(server: str, database: str, token: str, login_timeout: int = LOGIN_T
         autocommit=False, timeout=login_timeout)
 
 
+def transient_login_error(exc: BaseException) -> int | None:
+    """The error number when ``exc`` is a connect failure worth another try, else None. A login
+    timeout counts (0); a refused login (18456, 40532 and the rest) never does."""
+    text = str(exc)
+    if "login timeout" in text.lower() or "HYT00" in text:
+        return 0
+    numbers = {int(n) for n in _ERROR_NUMBER.findall(text)}
+    found = sorted(numbers & set(TRANSIENT_LOGIN_ERRORS))
+    return found[0] if found else None
+
+
+def open_connection(server: str, database: str, token: Callable[[], str],
+                    sleep: Callable[[float], None] = time.sleep) -> Any:
+    """``connect``, tried again (with a fresh token) while the warehouse turns logins away for a
+    passing reason. Stop ends this process, so it also ends a wait between tries."""
+    for attempt in range(CONNECT_TRIES):
+        try:
+            return connect(server, database, token())
+        except Exception as exc:
+            number = transient_login_error(exc)
+            if number is None:
+                raise
+            if attempt == CONNECT_TRIES - 1:
+                raise ConnectionError(
+                    f"The warehouse didn't accept a connection after {CONNECT_TRIES} tries (it may be resuming, or "
+                    "busy). Try again in a minute. " + (f"Last error {number}." if number else "The login timed out.")) from None
+            sleep(CONNECT_WAITS[min(attempt, len(CONNECT_WAITS) - 1)])
+    raise AssertionError("unreachable")
+
+
 def run(job: dict[str, Any], token: Callable[[], str], say: Callable[..., None]) -> None:
     """Run the job's query and stream the last result's rows into the job's Arrow IPC file. A job
     with ``writes`` runs its batches in one transaction and commits it once they all succeeded. A job
@@ -262,7 +298,7 @@ def run(job: dict[str, Any], token: Callable[[], str], say: Callable[..., None])
                     + ("A warehouse change can't do this." if writes else "A warehouse run only reads."))
         return
     wh = job["warehouse"]
-    con = connect(wh["server"], wh["database"], token())
+    con = open_connection(wh["server"], wh["database"], token)
     committed = False
     try:
         if job.get("time_limit_s"):

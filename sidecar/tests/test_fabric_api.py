@@ -1,6 +1,6 @@
 import pytest
 
-from fabric_desktop.fabric_api import FabricClient, FabricError
+from fabric_desktop.fabric_api import FabricClient, FabricError, _operation_failed
 
 
 class Resp:
@@ -135,7 +135,7 @@ def started(*after):
 
 
 def test_a_succeeded_operation_follows_the_result_location_fabric_gives():
-    result = "https://api.fabric.microsoft.com/v1/operations/op1/result"
+    result = "https://api.fabric.microsoft.com/v1/workspaces/ws1/lakehouses/lh1"  # not the usual {operation}/result
     c, s = client(started(Resp(200, {"status": "Succeeded"}, headers={"Location": result}), Resp(200, {"id": "lh1"})))
     assert c.create_lakehouse("ws1", "Sales") == {"id": "lh1"}
     assert [u for _, u, _ in s.calls[1:]] == [LOC, result]
@@ -222,3 +222,26 @@ def test_a_body_that_isnt_json_isnt_shown():
         c._request("GET", "/workspaces")
     assert str(exc.value) == ("GET /workspaces failed with 502: Fabric had a problem on its side. Try again, "
                               "and give the request id to support if it keeps happening.")
+
+
+def test_a_lakehouse_created_without_a_result_is_looked_up_by_name():
+    listed = Resp(200, {"value": [{"id": "lh9", "displayName": "Sales"}]})
+    c, s = client(started(Resp(200, {"status": "Succeeded"}), Resp(404, {"errorCode": "NotFound"}), listed))
+    assert c.create_lakehouse("ws1", "Sales") == {"id": "lh9", "displayName": "Sales"}
+    assert s.calls[-1][1].endswith("/workspaces/ws1/lakehouses")
+    c, _ = client(started(Resp(200, {"status": "Succeeded"}), Resp(404, {"errorCode": "NotFound"}), Resp(200, {"value": []})))
+    with pytest.raises(FabricError) as exc:
+        c.create_lakehouse("ws1", "Sales")
+    assert exc.value.code == "LakehouseNotFoundAfterCreate"
+
+
+def test_a_definition_with_no_result_is_a_clear_error():
+    c, _ = client(started(Resp(200, {"status": "Succeeded"}), Resp(404, {"errorCode": "NotFound"})))
+    with pytest.raises(FabricError) as exc:
+        c.get_item_definition("ws1", "nb1")
+    assert exc.value.code == "NoDefinition"
+
+
+def test_more_details_that_isnt_a_list_is_ignored():
+    err = _operation_failed("op1", {"status": "Failed", "error": {"message": "Bad", "moreDetails": "oops"}})
+    assert str(err) == "Fabric's operation op1 failed: Bad."

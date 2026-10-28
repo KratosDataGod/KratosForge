@@ -110,8 +110,11 @@ def _check_fabric_runs_allowed(what: str) -> None:
 
 class FabricClient:
     def __init__(self, token_provider: Callable[[], str], session: requests.Session | None = None,
-                 sleep: Callable[[float], None] = time.sleep, poll_timeout: float = 300):
+                 sleep: Callable[[float], None] = time.sleep, poll_timeout: float = 300,
+                 refresh: Callable[[], str] | None = None):
         self._token = token_provider
+        # A new token after a 401 (revoked, or expired early); without one, asking the provider again.
+        self._refresh = refresh or token_provider
         self._http = session or http_session.session()
         self._sleep = sleep
         self._poll_timeout = poll_timeout
@@ -120,9 +123,23 @@ class FabricClient:
                  **kwargs) -> requests.Response:
         if not url.startswith("http"):
             url = f"{API}{url}"
-        headers = {**(headers or {}), "Authorization": f"Bearer {self._token()}"}
-        resp = send_with_retry(lambda: self._http.request(method, url, headers=headers, timeout=60, **kwargs),
-                               method, sleep=self._sleep, attempts=5, default_wait=5)
+        token = self._token()
+
+        def send(token: str) -> requests.Response:
+            sent = {**(headers or {}), "Authorization": f"Bearer {token}"}
+            return send_with_retry(lambda: self._http.request(method, url, headers=sent, timeout=60, **kwargs),
+                                   method, sleep=self._sleep, attempts=5, default_wait=5)
+
+        resp = send(token)
+        if resp.status_code == 401:
+            # Fabric refused the token before reading the request, so even a write is safe to send
+            # again: once, and only with a token that is actually new.
+            fresh = self._refresh()
+            if fresh != token:
+                close = getattr(resp, "close", None)
+                if callable(close):
+                    close()
+                resp = send(fresh)
         if resp.status_code >= 400:
             raise _error(method, url, resp)
         return resp

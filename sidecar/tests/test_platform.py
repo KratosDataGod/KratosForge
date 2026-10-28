@@ -1251,3 +1251,20 @@ def test_a_name_known_only_from_its_links_isnt_claimed_by_the_first_caller(platf
         {"user": "eve@example.com", "role": "owner"}]
     with pytest.raises(core.PlatformError, match="no owner yet"):
         _as(platform, "0b9c6f1e-0000-4000-8000-000000000000").call("register_project", project={"name": "hr"})
+
+
+def test_a_project_recorded_by_an_object_id_with_a_team_as_owner_isnt_claimed(platform):
+    platform.call("register_project", project={"name": "crm"})
+    platform.call("register_product", product={"project": "crm", "name": "c360", "access": "public",
+                                               "status": "published", "owner": "Customer team"}, ports=[], env="prod")
+    with platform._db() as db:  # as if an object id recorded it all, before members
+        db.run(f"UPDATE {db.t('catalog', 'project')} SET updated_by = '0b9c6f1e-0000-4000-8000-000000000000'")
+        db.run(f"UPDATE {db.t('catalog', 'product')} SET updated_by = '0b9c6f1e-0000-4000-8000-000000000000'")
+        db.commit()
+    _forget_members(platform)
+    mallory = _as(platform, "mallory@example.com")
+    listed = mallory.call("list_project_members", project="crm")
+    assert listed["members"] == [] and not listed["can_change"]
+    with pytest.raises(core.PlatformError, match="crm has no owner yet"):
+        mallory.call("register_project", project={"name": "crm", "team": "Mallory"})
+    assert mallory.call("list_project_members", project="crm")["members"] == []

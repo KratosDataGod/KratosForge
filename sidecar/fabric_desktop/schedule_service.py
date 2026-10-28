@@ -477,7 +477,7 @@ class ScheduleMixin:
         return out
 
     def update_fabric_schedule(self, workspace_id: str, item_id: str, job_type: str, schedule_id: str,
-                               schedule: dict[str, Any], enabled: bool = True) -> dict[str, Any]:
+                               schedule: dict[str, Any], enabled: bool) -> dict[str, Any]:
         """Change when a Fabric schedule runs, in place (Update Item Schedule): it keeps its id and whether
         it is on (PB-048)."""
         config = schedule_configuration(schedule.get("kind", "daily"), schedule.get("times"),

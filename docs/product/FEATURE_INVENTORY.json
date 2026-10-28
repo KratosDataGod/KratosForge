@@ -3782,7 +3782,7 @@
     {
       "id": "FEAT-GOV-03",
       "name": "Governance exceptions",
-      "description": "exceptions.toml with reason, approver and expiry that lets a gate pass until it expires; approved exceptions are shown and warned about before they end, and a policy exception can be requested and approved on the Governance tab (Preview).",
+      "description": "exceptions.toml with reason, approver and expiry that lets a gate pass until it expires, shown on Data mesh > Quality > Exceptions and warned about before they end. Policy exceptions are requested on Data mesh > Requests and approved by a platform admin (Preview); Check now marks the findings they cover as excepted, they warn the requester and the project 14 days before they end, and a platform admin can end one early with a reason (ended ones stay listed with Include ended).",
       "pillar": "Enterprise services",
       "category": "Data Governance and Quality",
       "status": "Implemented",
@@ -3805,32 +3805,34 @@
         }
       ],
       "source": [
-        "sidecar/fabric_desktop/meta/project.py"
+        "sidecar/fabric_desktop/meta/project.py",
+        "sidecar/fabric_desktop/central/policy.py",
+        "sidecar/fabric_desktop/central/governance_service.py"
       ],
       "tests": [
         "sidecar/tests/test_meta.py",
         "sidecar/tests/test_requests_core_four.py"
       ],
       "docs": [
-        "docs/metadata-guide.md"
+        "docs/metadata-guide.md",
+        "docs/governance.md",
+        "docs/governance-guide.md"
       ],
       "ui": {
-        "surface": "Data mesh > Requests; Data mesh > Quality > Exceptions",
+        "surface": "Data mesh > Quality > Exceptions, Data mesh > Requests, Platform > Govern > Governance",
         "preview": true
       },
+      "limitations": [
+        "Adding an exception to exceptions.toml records no request, approval or audit entry, and its approver is free text (PB-059 review finding 1, waiting on the FD-129 owner)"
+      ],
       "workstream": "Enterprise governance foundation (FD-129)",
-      "next_action": "PB-059 review: Changes Required, waiting on Chris's decision.",
+      "next_action": "Product owner decides whether exceptions.toml joins the request flow or FD-129 is narrowed to policy exceptions (PB-059 review finding 1).",
       "backlog": [
         "PB-059"
       ],
       "prs": [
         603,
         605
-      ],
-      "limitations": [
-        "Adding an exception to exceptions.toml records no request or approval (PB-059 review, finding 1)",
-        "Policy exceptions get no warning before they end (finding 2)",
-        "A granted policy exception can't be ended early (finding 3)"
       ]
     },
     {

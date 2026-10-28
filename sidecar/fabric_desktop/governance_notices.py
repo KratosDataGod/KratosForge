@@ -2,7 +2,8 @@
 
 Builds ``platform_notify`` events (workloads/platform_notify.py has the shape) for a request that
 starts waiting, is decided or is withdrawn, for a shortcut a health check finds broken or
-fixed, and for a data product published as deprecated, to the projects that read it. Only names and where to open it in the app go into an event: a request's reason and
+fixed, for a data product published as deprecated, to the projects that read it, and for a policy exception
+about to end, to whoever asked and the place it covers. Only names and where to open it in the app go into an event: a request's reason and
 detail stay in the app, and people are named by UPN or by role.
 """
 
@@ -156,3 +157,26 @@ def incident_impact(inc: dict[str, Any], found: dict[str, Any]) -> dict[str, Any
             "to": {"people": upns, "roles": []},
             "open": {"view": "incident", "tab": "detail", "target": inc["id"]},
             "dedupe": f"incident.impact:{inc['id']}:{hashlib.sha1('|'.join(upns).encode()).hexdigest()[:12]}"}
+
+
+def exception_ending(exc: dict[str, Any], days_left: int) -> dict[str, Any] | None:
+    """A policy exception about to end, for whoever asked for it and the place it covers: the project's
+    team, or the domain's owners. Like a request, its reason stays in the app. The dedupe key carries
+    the end date, so it's posted once per exception and end date."""
+    eid, pid, until = str(exc.get("id") or ""), str(exc.get("policy_id") or ""), str(exc.get("until") or "")
+    if not eid or not pid or not until:
+        return None
+    scope, target = str(exc.get("scope") or ""), str(exc.get("target") or "")
+    roles = []
+    if scope == "project" and _ROLE_NAME.match(target):
+        roles.append(f"project:{target}")
+    elif scope == "domain" and _ROLE_NAME.match(target):
+        roles.append(f"domain_owner:{target}")
+    asker = _upns(exc.get("requested_by"))
+    when = "today" if days_left <= 0 else "tomorrow" if days_left == 1 else f"in {days_left} days"
+    return {"kind": "exception.ending", "id": eid, "title": secrets(f"Exception to {pid} for {target or scope} ends {when}"),
+            "at": _now(), "domain": target if scope == "domain" else "", "severity": "warn",
+            "detail": secrets(f"It ends on {until}. After that the policy applies again: meet it, or ask for a new exception."),
+            "to": {"people": asker, "roles": roles or ([] if asker else ["requester"])},
+            "open": {"view": "governance", "tab": "exceptions", "target": pid},
+            "dedupe": f"exception.ending:{eid}:{until}"}

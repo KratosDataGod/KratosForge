@@ -99,7 +99,7 @@ async function dfRunInFabric(ws, item, verb, done) {
   if (!pre) return;
   if (pre.code === "not_in_inventory") {
     showDialog(`${verb} ${item.name}?`, h("div", {},
-      h("p", { class: "text" }, `Runs started here go through Monitor > Workloads, which asks first, runs the risk check and records each run. `,
+      h("p", { class: "text" }, `Runs started here go through Monitor > KratosForge > Operations > Workloads, which asks first, runs the risk check and records each run. `,
         `It doesn't list ${item.name} yet: ${ws.displayName} isn't one of the workspaces this app works in, or ${item.name} is newer than its last read.`),
       h("p", { class: "muted-text small" }, `Pin and read again pins ${ws.displayName} on the Workspaces page (kept on this PC, nothing changes in Fabric) and reads its items again in the background.`)),
     [btn("Cancel", null, closeDialog, "tool outline"), btn("Pin and read again", null, async () => {

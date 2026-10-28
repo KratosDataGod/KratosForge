@@ -39,7 +39,7 @@ _TITLES = {"request.waiting": "Waiting on you", "request.decided": "Decided", "r
            "product.deprecated": "Data product deprecated", "incident.impact": "Incident upstream of your data",
            "product.changed": "Data product changed", "exception.ending": "Policy exception ending"}
 _WHERE = {"requests": "Data mesh > Requests", "health": "Shortcuts > Health", "links": "Data mesh > Products and links > Links",
-          "detail": "Monitor > Incidents", "products": "Data mesh > Products",
+          "detail": "Monitor > KratosForge > Operations > Incidents", "products": "Data mesh > Products",
           "exceptions": "Platform > Govern > Governance"}
 
 
@@ -118,7 +118,7 @@ def message(event: dict[str, Any]) -> tuple[str, list[str]]:
         lines.append(scope)
     if event["kind"].startswith(("shortcut.", "incident.", "product.", "exception.")) and event["detail"]:
         lines.append(event["detail"])
-    lines.append(f"Open it in KratosForge > {_WHERE[event['open']['tab']]}.")
+    lines.append(f"Open it in KratosForge: {_WHERE[event['open']['tab']]}.")
     return f"{_TITLES[event['kind']]}: {event['title']}", lines
 
 

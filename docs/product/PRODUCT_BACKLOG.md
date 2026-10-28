@@ -651,7 +651,7 @@ review moves it to Accepted; a merge alone does neither.
 
 **Cancel a Fabric run from the app** · P2 (score 2.45) · S · confidence High · Proposed
 
-- **Problem:** A Fabric run started here can be cancelled only as a workload action in Monitor > Workloads (Preview); Monitor > Runs and the activity tray, where people watch the run, offer no Cancel.
+- **Problem:** A Fabric run started here can be cancelled only as a workload action in Monitor > KratosForge > Operations > Workloads (Preview); Monitor > Runs and the activity tray, where people watch the run, offer no Cancel.
 - **Proposed capability:** A Cancel action on running Fabric jobs in Monitor > Runs and the tray, reusing cancel_fabric_run.
 - **Current-state evidence:** cloud_service.py cancel_fabric_run is called only from workload_service.py workload_act; app/ui/workloads.js offers cancel through workload actions; Re-checked 2026-10-25: the Fabric step card cancels a run; Monitor > Runs and the tray still can't
 - **Inventory features:** [FEAT-FAB-07](FEATURE_INVENTORY.md#feat-fab-07)

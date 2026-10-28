@@ -1,4 +1,4 @@
-// Item 18 follow-up: Monitor > Operations > Queue, Incidents and Run as show How this works beside
+// Item 18 follow-up: Monitor > KratosForge > Operations > Queue, Incidents and Run as show How this works beside
 // the list (see harness.cjs for how to run it).
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");

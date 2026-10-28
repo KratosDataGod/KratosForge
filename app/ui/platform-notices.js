@@ -7,7 +7,7 @@ const PN_KINDS = [["request.waiting", "Request waiting on someone"], ["request.d
   ["request.withdrawn", "Request withdrawn"], ["shortcut.broken", "Shortcut broken"], ["shortcut.fixed", "Shortcut fixed"],
   ["incident.impact", "Incident reaching data products"], ["product.changed", "Data product changed (to its followers)"],
   ["exception.ending", "Policy exception ending within 14 days"]];
-const PN_WHERE = { requests: "Data mesh > Requests", health: "Shortcuts > Health", detail: "Monitor > Incidents", products: "Data mesh > Products",
+const PN_WHERE = { requests: "Data mesh > Requests", health: "Shortcuts > Health", detail: "Monitor > KratosForge > Operations > Incidents", products: "Data mesh > Products",
   exceptions: "Platform > Govern > Governance" };
 
 // ---------- the bell ----------

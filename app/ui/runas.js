@@ -1,7 +1,7 @@
 // Run as: which identity runs your workloads in each place, the credential it uses, and where data
 // and credentials go (run_as_list, workloads/run_as.py). Facts only: agents publish no keys, secrets,
 // paths or thumbprints, and nothing here signs in, rotates a credential or changes access.
-// Monitor > Run as shows it.
+// Monitor > KratosForge > Operations > Run as shows it.
 
 const RA_STATE = {
   ok: ["pass", "OK"],

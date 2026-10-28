@@ -238,6 +238,8 @@ email = "string"
 
 A new link saved without `accepts` gets the product's current version from the catalog, so a later breaking version doesn't reach it unnoticed: the producer's promote stops until you widen `accepts` (for example to `"2-3"`) once your project reads the new version. Links made before this have no `accepts` and read any version, as they always did. Anything other than these three forms fails the save gate. Both are kept in the catalog with the link, so the producer's promote can check them.
 
+To widen `accepts` or change `[columns]`, edit `links/<alias>.toml`. Your next promote (or **Publish**) sends each link whose file differs from the catalog, so the producer's promote checks what the file says; a link the catalog refuses (a product no longer open to you, say) is listed as a problem and the publish still goes through. Adding a link again with the same alias and product from **New link** keeps its `accepts` and `[columns]`.
+
 An older UDF_Platform keeps neither. The link still saves, with `accepts` in its file, and says: *A platform admin runs Platform > Settings > Finish or repair once.* The same goes for a product's history: the publish works, and says the history needs **Finish or repair**.
 
 When a table behind a product has an incident, the incident page lists the products built on it, the projects linked to them and who to tell, with **Tell them** to post it in Teams. See [Who's affected](user-guide.md#whos-affected-preview).

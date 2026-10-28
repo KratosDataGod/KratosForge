@@ -521,7 +521,7 @@ class FabricClient:
     def list_data_access_roles_tagged(self, workspace_id: str, item_id: str) -> tuple[list[dict[str, Any]], str | None]:
         """The roles and the ETag Fabric gave the list, for put_data_access_roles(etag=) to refuse
         the write if someone changed the roles in between."""
-        url: str | None = f"/workspaces/{workspace_id}/items/{item_id}/dataAccessRoles"
+        url = f"{API}/workspaces/{workspace_id}/items/{item_id}/dataAccessRoles"
         items: list[dict[str, Any]] = []
         etag = None
         while url:
@@ -529,7 +529,8 @@ class FabricClient:
             etag = etag or resp.headers.get("ETag")
             body = resp.json()
             items.extend(body.get("value", []))
-            url = body.get("continuationUri")
+            nxt = body.get("continuationUri")
+            url = followable_url(nxt, url) if nxt else ""  # HD-058: the token goes only where _paged's would
         return items, etag
 
     def put_data_access_roles(self, workspace_id: str, item_id: str, roles: list[dict[str, Any]],

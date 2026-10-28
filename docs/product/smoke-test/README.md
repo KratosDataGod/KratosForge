@@ -4,11 +4,11 @@ The live test ([Live testing on your tenant](../../live-testing.md)) checks sign
 
 No flow has run on a live tenant yet: the first run waits on the owner's go, and its results will be filed as `results-<date>.md` beside this page.
 
-It runs on a **workspace set aside for tests**, never on a production workspace or on the capacity that hosts one. It writes only through the live test, so the live test's guards and cleanup all apply (see [Before you start](../../live-testing.md#before-you-start)):
+It runs on a **workspace set aside for tests**, never on a production workspace or on the capacity that hosts one. It writes only through the live test and, with `--platform`, the platform flows. Both use the live test's guards and clean up after themselves (see [Before you start](../../live-testing.md#before-you-start)):
 
 - the workspace's description must contain `fabric-desktop-live-test`;
 - names that look like production, and Platform workspaces in the policy file, are refused;
-- only `fdlt_<run id>` items it created are deleted.
+- only `fdlt_<run id>` items it created, and the platform items in its own ledger, are deleted.
 
 ## Run it
 
@@ -21,6 +21,7 @@ fabric-desktop smoke-test --workspace <workspace id> --run-in-fabric        # as
 
 - It signs in the way the app does, with Microsoft's Fabric CLI client and the Windows sign-in. If the app isn't signed in, the sign-in window opens.
 - `--run-in-fabric` also runs the test notebook in Fabric (flow 6), which spends Spark capacity. Without it, that step is skipped.
+- `--platform` adds the central platform flows 11 to 16 (see [The platform flows](#the-platform-flows-11-to-16)).
 - `--yes` skips the question. `--out` picks the results folder (default `smoke-test-results`).
 - The exit code is 0 when every automated step passed, 1 when one failed, and 2 when it wasn't run.
 
@@ -44,6 +45,25 @@ It writes `smoke-test-results/<run id>/summary.md` and `smoke.json`, with the li
 | 10 | Report a problem and save a support bundle; nothing personal in either | FEAT-SHL-10, FEAT-SHL-11 | A support bundle holds no token, user name, tenant id or workspace id | Read the Report a problem draft |
 
 A flow counts as passed only when its automated part passed **and** every by-hand box is ticked. Flows 7 and 8 are by hand only.
+
+## The platform flows (11 to 16)
+
+With `--platform` (PB-052), the smoke test also sets up the central platform in the test workspace, uses it and deletes it again. Run `--dry-run --platform` first to see what it will make. Creating the items and calling UDF_Platform uses capacity.
+
+| # | Flow | Features | Automated | By hand |
+| --- | --- | --- | --- | --- |
+| 11 | Finish or repair once, from empty | FEAT-MESH-01 | Refuse a workspace that already holds a platform; create LH_Meta, LH_Landing, SQL_Platform, UDF_Platform and VL_Platform; the platform tables are at this build's schema version | Platform › Settings shows the platform as ready |
+| 12 | Finish or repair once, again or from a previous version | FEAT-MESH-01 | Run it again: every item is kept and nothing is created twice. With `--platform-upgrade`, take over the platform a previous build made and bring its schema up | For the upgrade, Finish setup from the Stable build first |
+| 13 | Register a data product | FEAT-MESH-04 | Register project `fdlt_<run id>` and its product, and list it | With `--platform-keep`, see it in Data mesh › Products |
+| 14 | Issue and look up surrogate keys | FEAT-MESH-02, FEAT-META-05 | Make a key table, issue keys for two business keys twice (same keys back), look one up | None |
+| 15 | A policy exception, asked for, approved and ended | FEAT-GOV-03, FEAT-GOV-08 | Publish a warn-only policy, ask for an exception, approve it, see it active, end it | The same in Data mesh › Requests |
+| 16 | Restrict a central lakehouse family | FEAT-ADM-11 | Only when a central lakehouse is set up in the test workspace; otherwise skipped | Optimize › Settings: restrict readers and check the OneLake security role in Fabric |
+
+How a platform run goes:
+
+1. **The UDF connection is by hand.** Fabric has no API to connect UDF_Platform to SQL_Platform. When the tables step finds no connection, the run stops and asks you to open UDF_Platform › Manage connections and add SQL_Platform with the alias `platform`, then press Enter. With `--yes` it doesn't wait: flow 11 fails and the rest are skipped.
+2. **The upgrade from a previous version** can't be faked on a tenant. Before the run, install the Stable build, Finish setup with the test workspace as the platform workspace, then run the candidate with `--platform --platform-upgrade`.
+3. **Cleanup.** Every item id goes into `platform/platform-ledger.json` as soon as it exists. At the end, the items are deleted by id, what depends on SQL_Platform first. Anything that can't be deleted is listed under "left behind" and fails the run. `--platform-keep` leaves everything in place to look at; delete it in Fabric afterwards.
 
 ## Recording a run
 

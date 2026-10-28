@@ -2432,6 +2432,13 @@ const TIME_ZONES = {
   "Asia/Kolkata": "India Standard Time", "Asia/Singapore": "Singapore Standard Time",
   "Australia/Sydney": "AUS Eastern Standard Time",
 };
+// Every Windows time zone and this PC's, read once from the registry (PB-048). Off Windows, or when the
+// engine can't read them, the short list above stays; a failed read is tried again next time.
+let windowsTimeZones = null;
+function loadTimeZones() {
+  windowsTimeZones ||= rpc("time_zones").catch(() => { windowsTimeZones = null; return { zones: [], here: null }; });
+  return windowsTimeZones;
+}
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 // The repeat, times, days and time zone fields of a Fabric schedule, shared by notebooks and metadata runs.
@@ -2442,12 +2449,40 @@ function scheduleForm() {
   const minutes = h("input", { type: "number", min: "1", value: "60" });
   const days = WEEKDAYS.map((d, i) => h("label", { class: "check" }, h("input", { type: "checkbox", value: d, checked: i < 5 ? true : null }), d.slice(0, 3)));
   const here = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const zone = h("select", {}, Object.entries(TIME_ZONES).map(([iana, win]) =>
-    h("option", { value: win, selected: iana === here ? true : null }, `${win}${iana === "UTC" ? "" : ` (${iana})`}`)));
+  const zone = h("select", { size: 8, "aria-label": "Time zone" });
+  const search = h("input", { type: "search", placeholder: "Search time zones", "aria-label": "Search time zones" });
+  let chosen = null;  // a zone set by set() or picked; until then the PC's own zone
+  // Rebuild the options from [{id, name}], the PC's zone first, keeping the chosen zone even when the list lacks it.
+  const fill = (zones, pcZone) => {
+    const pick = chosen || pcZone || zone.value;
+    const label = (z) => (z.name === z.id ? z.id : `${z.name} · ${z.id}`);
+    const pc = zones.find((z) => z.id === pcZone);
+    const other = chosen && !zones.some((z) => z.id === chosen) ? [{ id: chosen, name: chosen }] : [];
+    zone.replaceChildren(
+      pc ? h("optgroup", { label: "On this PC" }, h("option", { value: pc.id }, label(pc))) : null,
+      h("optgroup", { label: "All time zones" }, [...other, ...zones.filter((z) => z !== pc)].map((z) => h("option", { value: z.id }, label(z)))));
+    zone.value = pick;
+    if (!zone.value && zone.options.length) zone.selectedIndex = 0;
+    filter();
+  };
+  // Show the zones matching every word typed; if the chosen one is filtered out, pick the first match.
+  const filter = () => {
+    const words = search.value.toLowerCase().split(/\s+/).filter(Boolean);
+    for (const o of zone.options) o.hidden = !words.every((w) => o.textContent.toLowerCase().includes(w));
+    for (const g of zone.querySelectorAll("optgroup")) g.hidden = ![...g.children].some((o) => !o.hidden);
+    if (zone.selectedOptions[0]?.hidden) {
+      const first = [...zone.options].find((o) => !o.hidden);
+      if (first) { zone.value = first.value; chosen = first.value; zone.dispatchEvent(new Event("change", { bubbles: true })); }
+    }
+  };
+  search.addEventListener("input", filter);
+  zone.addEventListener("change", () => { chosen = zone.value; });
+  fill(Object.entries(TIME_ZONES).map(([iana, win]) => ({ id: win, name: iana === "UTC" ? win : `${win} (${iana})` })), TIME_ZONES[here]);
+  loadTimeZones().then((r) => { if (r?.zones?.length) fill(r.zones, r.here); });
   const timesField = h("label", { class: "field" }, "Times of day (24-hour, comma between)", times);
   const minutesField = h("label", { class: "field", hidden: true }, "Minutes between runs", minutes);
   const daysField = h("div", { class: "field", hidden: true }, "Days", h("div", { class: "row wrap" }, days));
-  const zoneField = h("label", { class: "field" }, "Time zone", zone);
+  const zoneField = h("div", { class: "field zone-field" }, h("span", {}, "Time zone"), search, zone);
   const sync = () => {
     minutesField.hidden = kind.value !== "cron";
     timesField.hidden = zoneField.hidden = kind.value === "cron";
@@ -2459,6 +2494,19 @@ function scheduleForm() {
     sync,
     value: () => ({ kind: kind.value, times: times.value.split(","), every_minutes: Number(minutes.value),
       weekdays: days.map((l) => l.firstChild).filter((c) => c.checked).map((c) => c.value), time_zone: zone.value }),
+    // Fill the form with a stored schedule (scheduleValues), to edit it (PB-048).
+    set: (v) => {
+      kind.value = v.kind;
+      times.value = v.times.length ? v.times.join(", ") : "06:00";
+      minutes.value = String(v.every_minutes || 60);
+      days.forEach((l) => { l.firstChild.checked = v.weekdays.includes(l.firstChild.value); });
+      if (v.time_zone) {
+        chosen = v.time_zone;
+        if (![...zone.options].some((o) => o.value === v.time_zone)) zone.lastChild.prepend(h("option", { value: v.time_zone }, v.time_zone));
+        zone.value = v.time_zone;
+      }
+      sync();
+    },
   };
 }
 

@@ -678,7 +678,8 @@ class CloudMixin:
             return {"env": env, "compute": "local", "published": False, "schedules": []}
         runner = self._notebook_item(RUNNER, ws)
         schedules = self.fabric.list_schedules(ws, runner["id"], "RunNotebook") if runner else []  # type: ignore[attr-defined]
-        return {"env": env, "compute": "fabric", "published": runner is not None,
+        return {"env": env, "compute": "fabric", "published": runner is not None, "workspace_id": ws,
+                "item_id": runner["id"] if runner else "",
                 "schedules": [s | {"text": describe_schedule(s)} for s in schedules]}
 
     def meta_add_schedule(self, env: str, schedule: dict[str, Any]) -> dict[str, Any]:

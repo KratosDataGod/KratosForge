@@ -2775,7 +2775,7 @@
         "preview": true
       },
       "limitations": [
-        "CPU/memory come from the engine process, not the child kernel (inference)",
+        "With notebooks in their own process, CPU/memory are the kernel process only, not processes its cells start (PB-094)",
         "Fabric CPU/memory not available"
       ],
       "workstream": "Prove (FD-119)",

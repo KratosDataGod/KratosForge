@@ -1238,6 +1238,11 @@
           "kind": "test",
           "ref": "app/tests/browser/df-dataflows.test.cjs",
           "note": "product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "doc",
+          "ref": "docs/orchestration/data-factory.md#tested-on-a-tenant",
+          "note": "tenant run 2026-10-27 at 21d318fc: the DF-6 engine checks passed (copy job run, dataflow refresh, a second run deduped by Fabric); the viewer check was skipped"
         }
       ],
       "source": [
@@ -1255,7 +1260,7 @@
         "preview": true
       },
       "workstream": "Build full Data Factory experience (DF-1..10)",
-      "next_action": "DF-8 deploy through the platform repo needs Chris's go; tenant run of the DF-6 buttons.",
+      "next_action": "DF-8 deploy through the platform repo needs Chris's go; confirm the copy job and dataflow portal addresses for Open in Fabric.",
       "backlog": [
         "PB-030",
         "PB-035"
@@ -1292,7 +1297,8 @@
       ],
       "limitations": [
         "No authoring or deploy of Data Factory items yet (DF-8, DF-10)",
-        "Run in Fabric and Refresh in Fabric not yet run on a tenant"
+        "Run in Fabric and Refresh in Fabric were checked on a tenant through the engine only (2026-10-27), not by clicking the buttons, and not with a viewer account",
+        "Open in Fabric opens the workspace: the copy job and dataflow portal addresses aren't confirmed"
       ]
     },
     {

@@ -227,6 +227,9 @@ def test_merge_with_schema_evolution_says_it_runs_in_fabric(lake):
     out, text = run("spark.sql('MERGE WITH SCHEMA EVOLUTION INTO sales t USING sales s ON t.id = s.id "
                     "WHEN MATCHED THEN UPDATE SET *')")
     assert out["status"] == "error" and "WITH SCHEMA EVOLUTION" in text and "runs in Fabric" in text, text
+    out, text = run("spark.sql('-- keep new columns\\nMERGE WITH SCHEMA EVOLUTION INTO sales t USING sales s "
+                    "ON t.id = s.id WHEN MATCHED THEN UPDATE SET *')")
+    assert out["status"] == "error" and "runs in Fabric" in text, text
 
 
 def test_a_merge_must_be_the_only_statement_and_nothing_runs_otherwise(lake):

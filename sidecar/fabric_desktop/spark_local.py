@@ -32,6 +32,7 @@ from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.session import SparkSession
 
 from . import lakehouse, spark_api, spark_compat, sql as _sql
+from .delta_dml import _LEADING_COMMENTS as delta_dml_comments
 
 _UNSUPPORTED_SQL = re.compile(r"^\s*(UPDATE|DELETE\s+FROM)\b", re.I)
 _RESTORE = re.compile(r"^\s*RESTORE\s+(TABLE\s+)?", re.I)
@@ -528,7 +529,7 @@ class LocalSparkSession(SparkSession):
         if _UNSUPPORTED_SQL.match(sqlQuery):
             raise ValueError("UPDATE and DELETE change tables in place, which runs in Fabric. On this PC, MERGE INTO "
                              "runs (Preview), or read with spark.sql and write with df.write.saveAsTable.")
-        if _SCHEMA_EVOLUTION.match(sqlQuery):
+        if _SCHEMA_EVOLUTION.match(delta_dml_comments.sub("", sqlQuery)):
             raise NotImplementedError("MERGE WITH SCHEMA EVOLUTION adds the source's new columns to the table, which "
                                       "runs in Fabric. Run the cell in Fabric, or leave out WITH SCHEMA EVOLUTION.")
         statements = _sql.parse(sqlQuery)

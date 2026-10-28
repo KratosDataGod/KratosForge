@@ -198,6 +198,10 @@ What the set says about the baseline: the five FAILs are the patterns the [findi
 | #956 | One set of date and time helpers | PASS at 868c5e5e (and 43416b0d) | 9.1 | Delta over #943. ui.test 301/0; 20 browser files 116/0; old files fail 3. Nit: the schedule's next run lost its weekday. |
 | #951 | Every axe "needs a look" item has a person's verdict | PASS at 44f8608e (carried) | 9.2 | Verdicts now anchored to their page; checked that the anchors restrict. a11y 4/4 x3. |
 | #948 | AI integration architecture page: what exists now | PASS at 6e2d54e2 (and 544bc4c3) | 9.3 | Docs only. Every listener, bind address, token and policy claim checked against the code; zensical clean; product data consistent. |
+| (no PR yet) offline (Codebase audit) | Re-check: confidential client covered | PASS at cb0ced89 | 9.3 | Fixture covers PublicClientApplication and ConfidentialClientApplication; new test_offline_sign_in. Dead proxy: offline_sign_in, local, agent, silent_except 91 passed. |
+
+| (no PR yet) types (Codebase audit) | Re-check: when to run --update | PASS at 660b2312 | 9.2 | Docs only since b9195309: docstring and CONTRIBUTING say to run --update after a file rename or a pin move. |
+
 | (no PR yet) offline (Codebase audit) | Tests no longer need the internet (MSAL discovery faked in conftest) | PASS at 5a71e47e | 9.2 | Full suite behind a dead proxy: 23 failed, all local 127.0.0.1 servers that pass with NO_PROXY (main: 89 failed, 10 errors). The fake raises on anything else and no product code passes http_client. Nits: ConfidentialClientApplication not covered; CONTRIBUTING NO_PROXY note. |
 
 | (no PR yet) tz (Codebase audit) | Time-zone independent tests; policy.py uses the UTC date | PASS at 5a032c1c | 9.2 | test_frames 31/31 in six zones; policy, governance and contract tests 208 passed, 1 skipped in five zones (UTC-11 to UTC+14). All five policy.py sites now use core._today. Nit: TODAY computed at import (pre-existing). |

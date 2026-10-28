@@ -24,6 +24,7 @@ from deltalake.exceptions import TableNotFoundError
 
 from . import fabric_step, maintenance, notebook_files, profiling, semantic
 from .auth import FABRIC_SCOPES, STORAGE_SCOPES
+from .errors import NotSetUp
 from .fabric_api import FabricClient, FabricError
 from .fabric_compute import BUNDLE_DIR, RESULTS_DIR, RUNNER, bundle_files, bundle_hash, run_parameters, runner_ipynb
 from .fabric_run import TERMINAL, describe_schedule, fabric_ipynb, schedule_configuration, uses_local_module, uses_spark
@@ -571,7 +572,7 @@ class CloudMixin:
         ws = store.workspace_id
         meta_id = store.lakehouse_ids.get(META_LAKEHOUSE)
         if not meta_id:
-            raise LookupError(f"{META_LAKEHOUSE} doesn't exist in the {env} workspace yet; promote to {env} first")
+            raise NotSetUp(f"{META_LAKEHOUSE} doesn't exist in the {env} workspace yet; promote to {env} first")
         config: dict[str, Any] = {"env": env, "workspace_id": ws, "lakehouse_ids": dict(store.lakehouse_ids),
                                   "lakehouse_workspaces": dict(store.lakehouse_workspaces),
                                   "optimize_after_run": self._optimize_after_run(project, env)}
@@ -756,7 +757,7 @@ class CloudMixin:
                              "Build the model from Test or Prod after promoting.")
         lakehouse = project.layer(layer).lakehouse
         if lakehouse not in store.lakehouse_ids:
-            raise LookupError(f"{lakehouse} doesn't exist in the {env} workspace yet; promote and run first")
+            raise NotSetUp(f"{lakehouse} doesn't exist in the {env} workspace yet; promote and run first")
         fabric: FabricClient = self.fabric  # type: ignore[attr-defined]
         name = (name or f"SM_{layer.title()}").strip()
         kept = None

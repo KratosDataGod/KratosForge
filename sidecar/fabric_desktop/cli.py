@@ -81,7 +81,8 @@ def main(argv: list[str] | None = None) -> None:
                        help="also run the central platform flows 11-16 (PB-052): make a platform in the test workspace, "
                             "use it and delete it again")
     smoke.add_argument("--platform-upgrade", action="store_true",
-                       help="with --platform: start from the platform a previous build made in the test workspace")
+                       help="with --platform: start from the platform a previous build made in the test workspace; "
+                            "its items are taken over and deleted at the end, unless --platform-keep")
     smoke.add_argument("--platform-keep", action="store_true",
                        help="with --platform: leave the platform in place to look at; delete it by hand afterwards")
     bundle = sub.add_parser("support-bundle", help="save a zip of versions, settings sources and recent logs, "

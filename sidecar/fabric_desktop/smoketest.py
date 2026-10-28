@@ -79,7 +79,7 @@ FLOWS = [
 # With --platform (PB-052): the central platform's flows (platformtest.py), after the ten.
 PLATFORM_FLOWS = [
     Flow(11, "Central platform: Finish or repair once, from empty", ["FEAT-MESH-01"],
-         ["Platform > Settings shows the test workspace's platform as ready, with you as its admin."]),
+         ["Platform > Settings: the test workspace's platform shows as ready, with you as its admin."]),
     Flow(12, "Central platform: Finish or repair once, again or from a previous version", ["FEAT-MESH-01"],
          ["For the upgrade: before the run, Finish setup in the test workspace from the Stable build, then run "
           "the smoke test from the candidate with --platform-upgrade."]),

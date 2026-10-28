@@ -1344,6 +1344,12 @@ def with_unknown_date(df: pl.DataFrame, e: Entity) -> pl.DataFrame:
                            .otherwise(pl.col(col)).alias(col))
 
 
+def _by_key(df: pl.DataFrame, bk: list[str]) -> pl.DataFrame:
+    """Rows in business-key order, so new surrogate keys go to the same rows on every run (as in
+    LH_Keys): the joins before them don't keep any row order."""
+    return df.sort(bk, nulls_last=True, maintain_order=True)
+
+
 def _ordered(df: pl.DataFrame, e: Entity) -> pl.DataFrame:
     sk = e.surrogate_key
     return df.select([sk] + [c for c in df.columns if c != sk])
@@ -1367,11 +1373,12 @@ def scd1_merge(existing: pl.DataFrame | None, incoming: pl.DataFrame, e: Entity,
         out = pl.concat([untouched, incoming.filter(pl.col(sk) != -1)], how="diagonal_relaxed")
         return out.sort(sk), f"{incoming.height - matched} new, {matched} updated, keys from LH_Keys"
     if existing is None:
-        rows = _ordered(incoming.with_columns(pl.int_range(1, incoming.height + 1, dtype=pl.Int64).alias(sk)), e)
+        rows = _by_key(incoming, bk).with_columns(pl.int_range(1, incoming.height + 1, dtype=pl.Int64).alias(sk))
+        rows = _ordered(rows, e)
         return pl.concat([unknown_member(rows.schema, e), rows]), f"{incoming.height} new"
     keys = existing.select(bk + [sk])
     matched = incoming.join(keys, on=bk, how="inner")
-    new = incoming.join(keys, on=bk, how="anti")
+    new = _by_key(incoming.join(keys, on=bk, how="anti"), bk)
     start = next_key or _next_key(existing, sk)
     new = new.with_columns(pl.int_range(start, start + new.height, dtype=pl.Int64).alias(sk))
     untouched = existing.join(incoming.select(bk), on=bk, how="anti")
@@ -1393,7 +1400,7 @@ def scd2_merge(existing: pl.DataFrame | None, incoming: pl.DataFrame, e: Entity,
                              "each row's history at 1900-01-01.", ["migrate"])
 
     def versioned(df: pl.DataFrame, start: int, valid_from: Any) -> pl.DataFrame:
-        df = df.with_columns(pl.int_range(start, start + df.height, dtype=pl.Int64).alias(sk),
+        df = _by_key(df, bk).with_columns(pl.int_range(start, start + df.height, dtype=pl.Int64).alias(sk),
                              (valid_from if isinstance(valid_from, pl.Expr) else pl.lit(valid_from)).alias("valid_from"),
                              pl.lit(FAR_FUTURE).alias("valid_to"), pl.lit(True).alias("is_current"))
         return _ordered(df, e)

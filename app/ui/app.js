@@ -1007,7 +1007,7 @@ async function renderMonitor() {
   // The same layout as every page with tabs (docs/ui-guidelines.md, Page layout): the title with what
   // this tab shows and its button, the tabs, the view row (pages and filters left, Refresh right), the working area.
   const about = op ? [op.text, op.anchor] : MONITOR_ABOUT[monitorPage.panel] || MONITOR_ABOUT.runs;
-  const tabs = POP_OUT ? null : h("div", { class: "subtabs monitor-tabs", "aria-label": "Monitor" }, MONITOR_SOURCES.map(([id, label, first]) =>
+  const tabs = POP_OUT ? null : h("div", { class: "subtabs monitor-tabs", role: "group", "aria-label": "Monitor" }, MONITOR_SOURCES.map(([id, label, first]) =>
     h("button", { class: `tab${source === id ? " active" : ""}`, "aria-current": source === id ? "page" : null, onclick: show(first) }, label)));
   // This source's pages: Operations opens the view it was last on.
   const pages = source === "fabric"

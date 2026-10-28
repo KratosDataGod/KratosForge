@@ -193,7 +193,7 @@ async function renderMetadata() {
         { disabled: p.errors.length ? true : null })] : null,
     tabs: [h("div", { class: "subtabs meta-groups" }, shownGroups("mesh").map(groupTab),
       h("button", { class: `tab${inProject ? " active" : ""}`, onclick: () => goMeta(m.projectTab || "entities") }, "Project")),
-    inProject ? h("div", { class: "subtabs meta-project-groups", "aria-label": "Project" }, shownGroups("project").map(groupTab)) : null],
+    inProject ? h("div", { class: "subtabs meta-project-groups", role: "group", "aria-label": "Project" }, shownGroups("project").map(groupTab)) : null],
     // Problems and ending exceptions show on every tab: runs and promote stay blocked until they're fixed.
     banners: [problemsBanner(p.errors), exceptionBanner(p), policyEnding],
     groupSeg: visible(group[2]).length > 1 ? h("div", { class: "seg meta-tabs", role: "group", "aria-label": group[1] }, visible(group[2]).map(([id, label, previewId]) =>
@@ -366,7 +366,7 @@ function lastRuns(runs) {
 async function renderEntitiesTab(body, p) {
   const runs = await attempt(() => rpc("meta_runs", { env: state.meta.env, limit: 300 })) || [];
   const last = lastRuns(runs);
-  const flow = h("div", { class: "flow" }, p.layers.map((l, i) => [i ? h("span", { class: "arrow" }, "→") : null,
+  const flow = h("div", { class: "flow" }, p.layers.map((l, i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null,
     h("span", { class: "layer-chip big", style: `background:${layerColor(l.name)}` }, l.name,
       h("span", { class: "count" }, l.entities))]));
   const shown = p.entities.filter((e) => matches(`${e.name} ${e.owner} ${e.source}`));
@@ -546,7 +546,7 @@ async function renderEntity() {
           () => (dirty() ? save() : Promise.resolve()).then(() => runEntities([e.name])), "tool primary"))),
     h("div", { class: "card pad" },
       h("div", { class: "row" }, h("b", {}, "What happens on every run"), h("span", { class: "muted-text" }, "Grey steps are the framework. Purple is your code, at a fixed point.")),
-      h("div", { class: "steps" }, stepsFor(e).map(([label, kind], i) => [i ? h("span", { class: "arrow" }, "→") : null,
+      h("div", { class: "steps" }, stepsFor(e).map(([label, kind], i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null,
         h("span", { class: `step ${kind === "your code" ? "custom" : kind === "expression" ? "expr" : ""}` },
           h("span", { class: "n" }, label), h("span", { class: "k" }, kind))]))),
     h("div", { class: "entity-grid" },
@@ -812,7 +812,7 @@ function renderLayersTab(body, p) {
   const rerender = () => renderLayersTab(body, p);
   const move = (i, d) => { const j = i + d; if (j < 0 || j >= L.length) return; [L[i], L[j]] = [L[j], L[i]]; rerender(); };
   body.replaceChildren(
-    h("div", { class: "flow" }, L.map((l, i) => [i ? h("span", { class: "arrow" }, "→") : null,
+    h("div", { class: "flow" }, L.map((l, i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null,
       h("span", { class: "layer-chip big", style: `background:${LAYER_COLORS[i % LAYER_COLORS.length]}` }, l.name)])),
     h("table", { class: "list" },
       h("thead", {}, h("tr", {}, ["#", "Layer", "Lakehouse in each environment", "Workspace", "Can read from", "Schema drift", "Required checks", "Surrogate keys", "Keep history", "Entities", ""].map((c) => h("th", {}, c)))),

@@ -29,6 +29,19 @@ const KNOWN_RULES = new Set(['notebook: aria-input-field-name @ div[data-languag
 const KNOWN_KEYBOARD = new Set(['notebook: Tab returns to button.tool.small "Run cell", 12 Tab stops later never reached']);
 const KNOWN_FOCUS = new Set(['sql: div.cm-content "SQL query"']);
 
+// Checks axe can't decide by itself, judged by a person (#945): "rule @ element" patterns and the verdict,
+// measured in the browser with the app's colors. A new undecided item fails until it's judged here.
+const JUDGED = [
+  [/^color-contrast @ .*\.chev$/, "Pass: the fold arrow is #616161 on white, 6.2:1 (3:1 needed for a control's graphic)."],
+  [/^color-contrast @ .*\.star\b/, "Pass: the favorite star is #8a8a8a on white, 3.5:1 (3:1 needed for a control's graphic); its button is named."],
+  [/^color-contrast @ .*\.cell-grip/, "Pass: the drag grip is #616161, 6.2:1, and hidden from assistive tech; the cell's Move up and Move down buttons do the same from the keyboard."],
+  [/^color-contrast @ .*(cm-gutterElement|cm-activeLineGutter)/, "Pass: line numbers are #616161, 5.3:1 on the active line (#edeef1) and 5.9:1 or more elsewhere."],
+  [/^color-contrast @ span\[title="Fold (line|code)"\]/, "Pass: the fold marker is #616161 on white, 6.2:1."],
+  [/^color-contrast @ \.arrow/, "Pass: the step arrows are #8a8a8a on white, 3.5:1, and hidden from assistive tech (the steps' order is in the text)."],
+  [/^color-contrast @ #entity-toml$/, "Pass: the entity file's text is #242424 on #fafafa, 14.9:1 (axe sees the box as partly covered)."],
+];
+const judged = (key) => JUDGED.find(([re]) => re.test(key))?.[1];
+
 // Every page on the rail is found at run time; these open the screens that aren't rail pages.
 const EXTRA = [
   { id: "notebook", name: "Notebook", open: (p) => p.evaluate(([cells, lh]) => {
@@ -243,6 +256,12 @@ test("everything clickable is reached with Tab, and every Tab stop shows focus",
   assert.ok(light.filter((r) => r.stops.length).length >= light.length - 1, "Tab reached the pages' controls");
 });
 
+test("every check axe couldn't decide has a person's verdict", { skip }, async () => {
+  const open = results.filter((r) => r.scheme === "light").flatMap((r) => r.incomplete.flatMap((v) =>
+    v.nodes.filter((n) => !judged(`${v.id} @ ${n}`)).map((n) => `${r.id}: ${v.id} @ ${n}`)));
+  assert.deepStrictEqual(open, [], "judge these and add them to JUDGED");
+});
+
 test("the audit catches a violation put into a page", { skip }, async () => {
   const page = app.page;
   const before = results.length;
@@ -303,12 +322,14 @@ function report(rows) {
       : `- **${r.page}**: \`${k}\` looks clickable but isn't reached with Tab`)) : []),
     ...(r.scheme === "light" ? r.noRing.map((k) => `- **${r.page}**: \`${k}\` shows no focus ring`) : []),
   ]);
-  const looks = rows.filter((r) => r.scheme === "light").flatMap((r) => r.incomplete.map((v) =>
-    `- **${r.page}**: ${v.id}: ${v.help}. At ${v.nodes.map((n) => `\`${n}\``).join(", ")}`));
+  const looks = rows.filter((r) => r.scheme === "light").flatMap((r) => r.incomplete.map((v) => {
+    const verdicts = [...new Set(v.nodes.map((n) => judged(`${v.id} @ ${n}`) || "Not judged yet."))];
+    return `- **${r.page}**: ${v.id}: ${v.help}. At ${v.nodes.map((n) => `\`${n}\``).join(", ")}. ${verdicts.join(" ")}`;
+  }));
   lines.push("", "## Findings", "", "Filed to be fixed in [#905](https://github.com/KratosDataGod/KratosForge/issues/905); the test fails on any serious or critical rule violation, or keyboard or focus finding, not listed here.", "",
     ...(findings.length ? findings : ["None."]));
   lines.push("", "## Needs a look", "",
-    "Checks axe couldn't decide by itself (for example text over a gradient or an image). Each needs a person to judge.", "",
+    "Checks axe couldn't decide by itself (for example a glyph, a line number, or text over a gradient or an image), each with a person's verdict and the measured contrast.", "",
     ...(looks.length ? looks : ["None."]), "");
   return lines.join("\n");
 }

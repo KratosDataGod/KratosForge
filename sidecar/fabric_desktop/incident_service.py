@@ -12,7 +12,7 @@ import datetime as dt
 import logging
 from typing import Any
 
-from . import __version__, app_settings
+from . import __version__, app_settings, sealed_settings
 from .auth import STORAGE_SCOPES
 from .dataops_service import post_teams
 from .meta.project import ENVIRONMENTS
@@ -237,7 +237,9 @@ class IncidentMixin:
                 state, message = model.classify_error(exc)
                 row.update(mode="unreadable", state=state, detail=message, incidents=[])
             envs.append(row)
-        return {"envs": envs, "alerts": bool(self._settings().get("teams_webhook"))}  # type: ignore[attr-defined]
+        settings = self._settings()  # type: ignore[attr-defined]
+        return {"envs": envs, "alerts": bool(settings.get("teams_webhook")),
+                "alerts_unreadable": sealed_settings.unreadable(settings, "teams_webhook")}
 
     def incident_acknowledge(self, env: str, id: str, note: str = "") -> dict[str, Any]:
         return self._incident_log(env).acknowledge(id, self._incident_user(), note)

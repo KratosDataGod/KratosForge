@@ -2506,3 +2506,8 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 
 /* A tab row whose tablist sits beside other things (Learn more): the tabs keep the row's spacing (#961). */
 .subtabs .tab-group { display: flex; gap: 4px; }
+
+/* Schedule time zone: a search box over every Windows time zone, shown as a list (PB-048). */
+.zone-field select { padding: 4px; min-height: 0; }
+.zone-field optgroup { color: var(--muted); font-weight: 600; font-style: normal; }
+.zone-field option { color: var(--text); font-weight: 400; padding: 3px 6px; }

@@ -33,13 +33,6 @@ function platformCall(method, params = {}, title) {
   return metaCall(method, params, title);
 }
 
-function bytes(n) {
-  if (!n) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
-  return `${(n / 1024 ** i).toFixed(i ? 1 : 0)} ${units[i]}`;
-}
-
 function adminOnly(node) {
   return platformPage.me?.admin ? node : null;
 }
@@ -433,7 +426,7 @@ function sourceDetail(s, l, rerender) {
   platformCall("platform_landing_files", { env: l.env, source: s.name, limit: 8 }).then((fs) => {
     if (!fs) return;
     files.replaceChildren(fs.length ? h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["File", "Size", "Landed"].map((x) => h("th", {}, x)))),
-      h("tbody", {}, fs.map((f) => h("tr", {}, h("td", { class: "mono" }, f.path), h("td", {}, bytes(f.size)), h("td", {}, when(f.modified))))))
+      h("tbody", {}, fs.map((f) => h("tr", {}, h("td", { class: "mono" }, f.path), h("td", {}, sizeText(f.size)), h("td", {}, when(f.modified))))))
       : h("p", { class: "muted-text" }, "No files yet."));
   });
   const zone = l.central ? l.zones.find((z) => z.id === (s.zone || "shared")) : null;
@@ -450,7 +443,7 @@ function sourceDetail(s, l, rerender) {
     s.copy_job ? copyJobLine(s) : null,
     h("b", {}, "Entities"),
     s.entities.length ? h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["Entity", "Files", "Size", "Newest"].map((x) => h("th", {}, x)))),
-      h("tbody", {}, s.entities.map((e) => h("tr", {}, h("td", { class: "mono" }, e.name || "(top)"), h("td", {}, e.files), h("td", {}, bytes(e.size)), h("td", {}, when(e.newest))))))
+      h("tbody", {}, s.entities.map((e) => h("tr", {}, h("td", { class: "mono" }, e.name || "(top)"), h("td", {}, e.files), h("td", {}, sizeText(e.size)), h("td", {}, when(e.newest))))))
       : h("p", { class: "muted-text" }, "Nothing landed yet."),
     h("b", {}, "Newest files"), files,
     h("b", {}, "Read by"),

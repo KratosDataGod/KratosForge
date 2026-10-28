@@ -198,6 +198,8 @@ What the set says about the baseline: the five FAILs are the patterns the [findi
 | #956 | One set of date and time helpers | PASS at 868c5e5e (and 43416b0d) | 9.1 | Delta over #943. ui.test 301/0; 20 browser files 116/0; old files fail 3. Nit: the schedule's next run lost its weekday. |
 | #951 | Every axe "needs a look" item has a person's verdict | PASS at 44f8608e (carried) | 9.2 | Verdicts now anchored to their page; checked that the anchors restrict. a11y 4/4 x3. |
 | #948 | AI integration architecture page: what exists now | PASS at 6e2d54e2 (and 544bc4c3) | 9.3 | Docs only. Every listener, bind address, token and policy claim checked against the code; zensical clean; product data consistent. |
+| #978 | Work queues: refresh and four-PR review cap | PASS at 13f65190 | 9.2 | Second quality reviewer. queues.py check passed (one shortfall reported: platform 1/2 ready); render stable; product_data consistent; zensical --strict clean. Mutation tests: an issue-only slot without a title, and a story queued twice, both fail rc=1. Nits: no pytest for the check/short split; platform queue short. |
+
 | #976 (surrogate-key-order) | PR opened, rebased on 72e1d40 | PASS at dba1890a (carried) | 9.3 | Changed lines identical to 0beb3365. Clean merge. |
 
 | #980 (file-loads) | PR opened, rebased on 72e1d40 | PASS at 8b68388f (carried) | 9.2 | All three files byte-identical to the tested tree with patches 0001+0002 (116 passed). Clean merge. |

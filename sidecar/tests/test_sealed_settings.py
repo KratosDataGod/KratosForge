@@ -111,6 +111,8 @@ def test_a_route_address_this_account_cant_read_is_flagged_and_kept(fake_dpapi):
     written = sealed_settings.seal(read)  # an unrelated save keeps it as it was
     assert written["platform_notify"]["routes"][0]["url"] == foreign
     assert sealed_settings.UNREADABLE not in written
+    by_number = {"platform_notify": {"routes": [{"name": 5, "url": foreign}]}}  # a hand-edited name
+    assert sealed_settings.seal(sealed_settings.unseal(by_number)) == by_number
 
 
 def test_the_service_never_writes_route_addresses_in_the_clear(fake_dpapi, tmp_path):

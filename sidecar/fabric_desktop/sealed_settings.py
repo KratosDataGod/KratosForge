@@ -82,8 +82,8 @@ def seal(settings: dict[str, Any]) -> dict[str, Any]:
             out[key] = sealed
     by_name = stash.get(ROUTES) if isinstance(stash.get(ROUTES), dict) else {}
     if by_name:
-        _with_routes(out, lambda r: dict(r, url=by_name[r.get("name")])
-                     if not r.get("url") and r.get("name") in by_name else r)
+        _with_routes(out, lambda r: dict(r, url=by_name[str(r.get("name", ""))])
+                     if not r.get("url") and str(r.get("name", "")) in by_name else r)
     if not dpapi.available():
         return out
     for key in SEALED_KEYS:

@@ -94,7 +94,7 @@ class PlatformNotifyMixin:
         lost = (self._settings().get(sealed_settings.UNREADABLE) or {}).get(SETTING) or {}  # type: ignore[attr-defined]
         routes = [{"name": r.get("name", ""), "kinds": r.get("kinds") or [], "domains": r.get("domains") or [],
                    "url_set": bool(r.get("url")), "host": urlparse(r.get("url") or "").hostname or ""}
-                  | ({"unreadable": True} if r.get("name", "") in lost else {})
+                  | ({"unreadable": True} if str(r.get("name", "")) in lost else {})
                   for r in raw.get("routes") or []]
         outbox, _ = self._pn_paths()
         return {"routes": routes, "quiet": raw.get("quiet") or "", "quiet_exempt": raw.get("quiet_exempt") or [],

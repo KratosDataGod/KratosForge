@@ -10,12 +10,55 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    # What a pull request touches decides which of the slower jobs it needs. Pushes to main run every
+    # job, because the release needs them all and every main batch publishes a Preview. A job left
+    # out here ends as skipped, never failed.
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.paths.outputs.docs_only }}
+      browser: ${{ steps.paths.outputs.browser }}
+      sidecar_os: ${{ steps.paths.outputs.sidecar_os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: github.event_name == 'pull_request'
+      - id: paths
+        shell: bash
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            echo "browser=true" >> "$GITHUB_OUTPUT"
+            echo 'sidecar_os=["windows-latest","ubuntu-latest"]' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch --quiet --depth=1 origin "$BASE"
+          # The checkout is the pull request merged into its base, so this is exactly what it changes.
+          files="$(git diff --name-only "$BASE" HEAD)"
+          printf 'Changed:\n%s\n' "$files"
+          has() { grep -qE "$1" <<< "$files"; }
+          # Nothing changed (or the diff failed to list anything): run everything.
+          if [ -z "$files" ]; then has() { true; }; fi
+          # Docs only: the docs site, Markdown at the top level and the site config.
+          if [ -n "$files" ] && ! grep -qvE '^(docs/|[^/]+\.md$|zensical\.toml$)' <<< "$files"; then docs_only=true; else docs_only=false; fi
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+          if has '^(app/|sidecar/|\.github/workflows/)'; then echo "browser=true"; else echo "browser=false"; fi >> "$GITHUB_OUTPUT"
+          os=()
+          [ "$docs_only" = true ] || os+=('"windows-latest"')
+          # Linux runs the engine for the headless agent. Engine tests also read the docs (policy keys,
+          # host list, links), so a docs change runs them here too.
+          if has '^(sidecar/|deploy/|examples/|\.github/workflows/|docs/|[^/]+\.md$|zensical\.toml$)'; then os+=('"ubuntu-latest"'); fi
+          echo "sidecar_os=[$(IFS=,; echo "${os[*]}")]" >> "$GITHUB_OUTPUT"
+
   sidecar:
+    needs: changes
+    if: needs.changes.outputs.sidecar_os != '[]'
     # The desktop app is Windows only; the engine and the headless agent also run on Linux.
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: ${{ fromJSON(needs.changes.outputs.sidecar_os) }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -47,6 +90,8 @@ jobs:
   vscode-extension:
     # vscode/: the KratosForge extension compiles, and its client pairs and runs cells through the
     # real engine's editor channel (vscode/test). No VS Code is downloaded.
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -68,6 +113,8 @@ jobs:
   ui-browser:
     # app/tests/browser: the real UI in headless Chromium with the shell stubbed; SQL and Optimize
     # pages call the real Python engine. Fakes only: no Fabric tenant, no secrets.
+    needs: changes
+    if: needs.changes.outputs.browser == 'true'
     runs-on: ubuntu-latest
     env:
       # Playwright and its Chromium build move together; change this in its own pull request.
@@ -99,6 +146,8 @@ jobs:
     # Known vulnerabilities in what the app ships: the engine's pinned Python packages and the
     # shell's Rust crates. A new advisory turns this red on every pull request until the package
     # is moved (in its own pull request, per CONTRIBUTING). Releases don't wait for it.
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -117,6 +166,8 @@ jobs:
   sbom-app:
     # The shell's software bill of materials (every Rust crate in Cargo.lock), attached to releases
     # next to the engine's (built in the engine job from the engine itself).
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -132,6 +183,8 @@ jobs:
 
   agent-image:
     # The headless agent's Linux container (deploy/linux/Dockerfile): it must build and start.
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -143,6 +196,8 @@ jobs:
     # Python (signed by the PSF) plus the sidecar and every package it needs. Windows
     # Smart App Control blocks those packages' DLLs unless they are signed, so they are
     # signed here once a Trusted Signing account is set up (see README, "Code signing").
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: windows-latest
     # The shell bakes these into the exe, so it installs only this engine (main.rs check_pinned_engine).
     outputs:

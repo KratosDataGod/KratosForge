@@ -185,3 +185,40 @@ def test_an_operation_that_never_finishes_times_out_naming_it():
     with pytest.raises(FabricError) as exc:
         c._wait(c._request("POST", "/workspaces/ws1/items"))
     assert exc.value.code == "OperationTimedOut" and "op1" in str(exc.value) and "Running" in str(exc.value)
+
+
+# ---- error messages (#922): Fabric's code, message and request id; never the raw body or a query string
+
+@pytest.mark.parametrize("resp, says, code", [
+    (Resp(403, {"errorCode": "InsufficientPrivileges", "message": "The caller does not have permission.",
+                "requestId": "req-1"}),
+     "GET /workspaces/ws1/items failed with 403 InsufficientPrivileges: The caller does not have permission. "
+     "Your account doesn't have permission for this in Fabric. Ask a workspace admin for access. Request id req-1.",
+     "InsufficientPrivileges"),
+    (Resp(409, {"errorCode": "ItemDisplayNameAlreadyInUse", "message": "Name in use",
+                "moreDetails": [{"errorCode": "X", "message": "Sales exists."}]}),
+     "failed with 409 ItemDisplayNameAlreadyInUse: Name in use. Sales exists. Pick a name", "ItemDisplayNameAlreadyInUse"),
+    (Resp(404, {"error": {"code": "ItemNotFound", "message": "Not found"}}), "failed with 404 ItemNotFound: Not found.",
+     "ItemNotFound"),
+    (Resp(500, {}, headers={"x-ms-request-id": "req-2"}), "failed with 500: Fabric had a problem on its side", None),
+    (Resp(401, {}), "failed with 401: Fabric didn't accept your sign-in", None),
+])
+def test_a_fabric_error_reads_as_fabrics_words_with_the_request_id(resp, says, code):
+    c, _ = client([resp] * 5)  # a 5xx read is tried five times
+    with pytest.raises(FabricError) as exc:
+        c._request("GET", "/workspaces/ws1/items?continuationToken=secret")
+    text = str(exc.value)
+    assert says in text and exc.value.code == code and exc.value.status == resp.status_code
+    assert "{" not in text and "continuationToken" not in text and "api.fabric.microsoft.com" not in text
+    assert exc.value.request_id == (resp._body.get("requestId") or resp.headers.get("x-ms-request-id") or "")
+
+
+def test_a_body_that_isnt_json_isnt_shown():
+    class Html(Resp):
+        def json(self):
+            raise ValueError("not json")
+    c, _ = client([Html(502, None)] * 5)
+    with pytest.raises(FabricError) as exc:
+        c._request("GET", "/workspaces")
+    assert str(exc.value) == ("GET /workspaces failed with 502: Fabric had a problem on its side. Try again, "
+                              "and give the request id to support if it keeps happening.")

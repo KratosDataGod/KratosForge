@@ -253,18 +253,58 @@ def _check_types(data: pa.Table, table: str, how: str) -> None:
 
 
 _MERGE_SOURCES = itertools.count(1)
+_AUTO_MERGE = "spark.databricks.delta.schema.autoMerge.enabled"
+_SCHEMA_EVOLUTION = re.compile(r"\s*MERGE\s+WITH\s+SCHEMA\s+EVOLUTION\b", re.I)
 
 
 def merge_runs_here(query: str) -> bool:
     """Whether ``query`` is a MERGE this PC runs (PB-015): one MERGE INTO a table of the attached
-    lakehouse, named table or schema.table, with Preview features on. A MERGE into another lakehouse
-    (a Data mesh template's keys MERGE, LH_Keys.keys.customer) still runs in Fabric only."""
+    lakehouse, named table or schema.table (or with the attached lakehouse's name in front), with
+    Preview features on. A MERGE into another lakehouse (a Data mesh template's keys MERGE,
+    LH_Keys.keys.customer) still runs in Fabric only."""
+    import sqlglot
+    from sqlglot import exp
+
     from . import delta_dml
-    try:
-        change = delta_dml.parse(query, "spark")
-    except ValueError:
+    if not lakehouse._setting("show_preview", True) or not delta_dml.looks_like(query):
         return False
-    return change is not None and change.kind == "merge" and bool(lakehouse._setting("show_preview", True))
+    try:
+        trees = [t for t in sqlglot.parse(query, read="spark") if t is not None]
+        if len(trees) != 1 or not isinstance(trees[0], exp.Merge):
+            return False
+        _in_attached(trees[0])
+        change = delta_dml.parse_tree(trees[0])
+    except (ValueError, sqlglot.errors.SqlglotError):
+        return False
+    return change is not None and change.kind == "merge"
+
+
+def _in_attached(tree: Any) -> None:
+    """Drop the attached lakehouse's own name from a MERGE's target (Sales.dbo.sales, or Sales.sales
+    in a lakehouse without schemas), as table_ref does for reads and writes."""
+    from sqlglot import exp
+    current, target = lakehouse._attached, tree.this
+    if current is None or not isinstance(target, exp.Table):
+        return
+    name = current.name.lower()
+    if target.catalog and target.catalog.lower() == name:
+        target.set("catalog", None)
+    elif not target.catalog and target.db and target.db.lower() == name and not current.schemas_enabled():
+        target.set("db", None)
+
+
+def _refuse_auto_merge(session: Any) -> None:
+    """With autoMerge on, Fabric's MERGE adds a source's new columns to the table. This PC's MERGE
+    keeps the table's schema, so it would drop them without saying so: refuse it, as
+    withSchemaEvolution is refused."""
+    try:
+        value = session.conf.get(_AUTO_MERGE, "false")
+    except (KeyError, NotImplementedError):  # a conf that can't answer has nothing set
+        return
+    if str(value).strip().lower() == "true":
+        raise NotImplementedError(f"{_AUTO_MERGE} is on, so in Fabric this MERGE would add the source's new columns "
+                                  "to the table. Schema evolution in MERGE runs in Fabric. Run the cell in Fabric, or "
+                                  f"turn it off first: spark.conf.unset({_AUTO_MERGE!r}).")
 
 
 def _preview_on(what: str) -> None:
@@ -488,7 +528,15 @@ class LocalSparkSession(SparkSession):
         if _UNSUPPORTED_SQL.match(sqlQuery):
             raise ValueError("UPDATE and DELETE change tables in place, which runs in Fabric. On this PC, MERGE INTO "
                              "runs (Preview), or read with spark.sql and write with df.write.saveAsTable.")
+        if _SCHEMA_EVOLUTION.match(sqlQuery):
+            raise NotImplementedError("MERGE WITH SCHEMA EVOLUTION adds the source's new columns to the table, which "
+                                      "runs in Fabric. Run the cell in Fabric, or leave out WITH SCHEMA EVOLUTION.")
         statements = _sql.parse(sqlQuery)
+        from sqlglot import exp
+        if len(statements) > 1 and any(isinstance(s, exp.Merge) for s in statements):
+            # The MERGE would commit before a later statement could fail; Spark runs one statement per call.
+            raise ValueError("spark.sql runs MERGE INTO only as the only statement in the call. Nothing ran. "
+                             "Call spark.sql once for each statement.")
         result: DataFrame | None = None
         for statement in statements:
             result = self._statement(statement)
@@ -572,8 +620,10 @@ class LocalSparkSession(SparkSession):
 
         from . import delta_dml
         from .localdata import delta as local_delta
+        _in_attached(tree)
         change = delta_dml.parse_tree(tree)
         _preview_on("MERGE INTO")
+        _refuse_auto_merge(self)
         if not change.schema and self._is_local(change.table):
             raise ValueError(f"MERGE INTO {change.table}: {change.table} is a temp view on this PC. MERGE changes a "
                              "Delta table of the attached lakehouse.")
@@ -604,8 +654,11 @@ class LocalSparkSession(SparkSession):
 
         from . import delta_dml
         keys = delta_dml.equi_keys(change)
-        if not keys or not any(w.match == "matched" for w in change.whens) or not source.num_rows:
+        matched = [w for w in change.whens if w.match == "matched"]
+        if not keys or not matched or not source.num_rows:
             return
+        if len(matched) == 1 and matched[0].action == "delete" and matched[0].condition is None:
+            return  # Spark allows it: every source row deletes the same table row, so the result is defined
         view = f"__merge_source_{next(_MERGE_SOURCES)}"
         self.conn.register(view, source)
         try:

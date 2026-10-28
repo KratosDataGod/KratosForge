@@ -582,7 +582,8 @@ def change_table(change: Any, source: pa.Table | None = None) -> ChangeResult:
     """Run ``change`` (a delta_dml.Change on a table of the attached lakehouse) with delta-rs, in one
     commit, after the cell's own writes still uploading. ``source`` is a MERGE's rows. During a proof
     the change is made to this run's sandbox copy (the pinned version, copied in first), never the
-    shared table. The table must pass the Fabric Delta profile check before and after."""
+    shared table. The table must pass the Fabric Delta profile check before the change; afterwards a
+    table the change took outside the profile is only noted in the log, since the rows are committed."""
     from deltalake import CommitProperties, write_deltalake
 
     from . import delta_dml, delta_profile

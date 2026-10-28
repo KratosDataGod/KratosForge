@@ -10,6 +10,7 @@ Spark SQL) are published as they are, for a Spark notebook.
 
 from __future__ import annotations
 
+import ast
 import datetime as dt
 import json
 import re
@@ -271,6 +272,16 @@ _FABRIC_ONLY = [
 _DBUTILS = re.compile(r"\bdbutils\.\w+|\bfrom\s+databricks\.sdk\.runtime\s+import\b")
 _SQL_WRITE = re.compile(r"\b(UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.I)
 _SQL_MERGE = re.compile(r"\bMERGE\s+INTO\b", re.I)
+# A spark.sql call on a plain string literal (an f-string's text isn't known until it runs).
+_SPARK_SQL_LITERAL = re.compile(r"""\bspark\.sql\(\s*(?P<lit>[rRuU]?(?P<q>\"\"\"|'''|"|')(?:\\.|(?!(?P=q)).)*(?P=q))""", re.S)
+
+
+def _literal_sql(m: re.Match[str]) -> str:
+    """The SQL text of a spark.sql string literal, as Python reads it (escapes and all)."""
+    try:
+        return str(ast.literal_eval(m["lit"]))
+    except (ValueError, SyntaxError):
+        return ""
 
 
 def _sql_in_place(sql: str) -> bool:
@@ -315,6 +326,10 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None)
                               "code": _snippet(source)})
         else:
             hit = next(((m, text) for rx, text in _FABRIC_ONLY if (m := rx.search(source))), None)
+            hit = hit or next(((m, "changes table rows in place with spark.sql (MERGE into another lakehouse, or with "
+                                   "Preview features off), which runs in Fabric only")
+                               for m in _SPARK_SQL_LITERAL.finditer(source)
+                               if _SQL_MERGE.search(sql := _literal_sql(m)) and _sql_in_place(sql)), None)
             if hit:
                 local.append({"cell": n, "text": hit[1], "code": _snippet(source, hit[0])})
             elif m := next((m for m in magics.find(source) if m.name == "sql" and _sql_in_place(m.rest)), None):

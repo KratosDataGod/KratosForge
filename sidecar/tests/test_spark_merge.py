@@ -135,6 +135,18 @@ def test_the_compute_check_lets_merge_run_on_this_pc():
     assert local("%%sql\nMERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE")["ok"]
     assert not local("spark.sql('DELETE FROM t WHERE id = 1')")["ok"]
     assert not local("%%sql\nUPDATE t SET a = 1 WHERE id = 2")["ok"]
+    assert local("spark.sql('MERGE INTO t USING s ON t.r = \\'EU\\' WHEN MATCHED THEN DELETE')")["ok"]
+    assert local('spark.sql(f"MERGE INTO {target} USING s ON t.id = s.id WHEN MATCHED THEN DELETE")')["ok"]
+
+
+def test_the_compute_check_sends_a_python_cell_merge_it_cant_run_to_fabric(monkeypatch):
+    def local(source):
+        return compute_check([{"type": "code", "source": source}], None)["local"]
+    other = local('spark.sql("""MERGE INTO LH_Keys.keys.customer k USING s ON k.bk = s.bk\n'
+                  'WHEN NOT MATCHED THEN INSERT *""")')
+    assert not other["ok"] and "MERGE into another lakehouse" in other["reasons"][0]["text"]
+    monkeypatch.setattr(lakehouse, "_setting", lambda key, default: False if key == "show_preview" else default)
+    assert not local("spark.sql('MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE')")["ok"]
 
 
 def test_in_a_proof_merge_changes_the_proofs_copy_never_the_shared_table(lake, tmp_path, monkeypatch):
@@ -192,3 +204,54 @@ def test_the_delta_table_merge_builder(lake):
     assert out["status"] == "error" and "no whenMatched or whenNotMatched clause" in text
     out, text = run("from delta.tables import DeltaTable\nDeltaTable.forName(spark, 'sales').update('id = 1', {'amount': '0'})")
     assert out["status"] == "error" and "runs in Fabric" in text
+
+
+def test_auto_merge_on_is_refused_rather_than_dropping_new_columns(lake):
+    out, text = run("spark.conf.set('spark.databricks.delta.schema.autoMerge.enabled', 'true')\n"
+                    "spark.createDataFrame([(4, 'APAC', 40.0, 'new')], ['id', 'region', 'amount', 'extra'])"
+                    ".createOrReplaceTempView('s')\n"
+                    "spark.sql('MERGE INTO sales t USING s ON t.id = s.id WHEN NOT MATCHED THEN INSERT *')")
+    assert out["status"] == "error" and "autoMerge.enabled is on" in text and "runs in Fabric" in text, text
+    assert len(rows(lake)) == 3
+    out, text = run("spark.conf.set('spark.databricks.delta.schema.autoMerge.enabled', 'true')\n"
+                    "spark.createDataFrame([(4, 'APAC', 40.0, 'new')], ['id', 'region', 'amount', 'extra'])"
+                    ".createOrReplaceTempView('s')\n"
+                    "from delta.tables import DeltaTable\n"
+                    "DeltaTable.forName(spark, 'sales').alias('t').merge(spark.table('s').alias('s'), 't.id = s.id')"
+                    ".whenNotMatchedInsertAll().execute()")
+    assert out["status"] == "error" and "autoMerge.enabled is on" in text, text
+    assert len(rows(lake)) == 3
+
+
+def test_merge_with_schema_evolution_says_it_runs_in_fabric(lake):
+    out, text = run("spark.sql('MERGE WITH SCHEMA EVOLUTION INTO sales t USING sales s ON t.id = s.id "
+                    "WHEN MATCHED THEN UPDATE SET *')")
+    assert out["status"] == "error" and "WITH SCHEMA EVOLUTION" in text and "runs in Fabric" in text, text
+
+
+def test_a_merge_must_be_the_only_statement_and_nothing_runs_otherwise(lake):
+    version = DeltaTable(str(lake / "dbo" / "sales")).version()
+    out, text = run("spark.sql('MERGE INTO sales t USING sales s ON t.id = s.id WHEN MATCHED THEN DELETE; "
+                    "SELECT * FROM no_such_table')")
+    assert out["status"] == "error" and "only statement" in text, text
+    assert DeltaTable(str(lake / "dbo" / "sales")).version() == version
+
+
+def test_the_attached_lakehouses_name_can_lead_the_target(lake):
+    out, text = run("spark.sql('MERGE INTO Sales.dbo.sales t USING (SELECT 1 AS id, 9.0 AS amount) s ON t.id = s.id "
+                    "WHEN MATCHED THEN UPDATE SET amount = s.amount')")
+    assert out["status"] == "ok", text
+    assert [r["amount"] for r in rows(lake)] == [9.0, 20.0, 30.0]
+    from fabric_desktop.spark_local import merge_runs_here
+    assert merge_runs_here("MERGE INTO Sales.dbo.sales t USING s ON t.id = s.id WHEN MATCHED THEN DELETE")
+    assert not merge_runs_here("MERGE INTO LH_Keys.keys.customer t USING s ON t.id = s.id WHEN MATCHED THEN DELETE")
+
+
+def test_duplicate_source_rows_may_all_delete_the_same_row(lake):
+    out, text = run("spark.createDataFrame([(1,), (1,)], ['id']).createOrReplaceTempView('dup')\n"
+                    "spark.sql('MERGE INTO sales t USING dup s ON t.id = s.id WHEN MATCHED THEN DELETE')")
+    assert out["status"] == "ok", text
+    assert [r["id"] for r in rows(lake)] == [2, 3]
+    out, text = run("spark.createDataFrame([(2,), (2,)], ['id']).createOrReplaceTempView('dup2')\n"
+                    "spark.sql('MERGE INTO sales t USING dup2 s ON t.id = s.id WHEN MATCHED AND t.id > 0 THEN DELETE')")
+    assert out["status"] == "error" and "More than one source row matches" in text

@@ -245,23 +245,29 @@ def test_files_are_left_for_vacuum_when_another_writer_committed_meanwhile(tmp_p
     assert out["removed"] == 0 and "VACUUM" in out["note"] and left in _data_files(s)
 
 
-def test_in_onelake_the_files_are_listed_and_removed_through_its_file_api(tmp_path):
-    from fabric_desktop.meta.store import OneLakeStore
+def test_in_onelake_nothing_is_removed_and_files_are_left_for_vacuum(tmp_path, monkeypatch):
+    """A Fabric job can be writing the same OneLake table, and its uncommitted files look like this
+    write's, so OneLakeStore removes nothing (security review of #950). The same write path with
+    removal off is run here on a local folder: it never lists or deletes a file."""
+    import pyarrow as pa
+    from fabric_desktop.meta import store as store_mod
+    from fabric_desktop.meta.store import LocalStore, OneLakeStore
+    assert OneLakeStore.removes_unwritten is False and LocalStore.removes_unwritten is True
+    real = store_mod.write_deltalake
+    monkeypatch.setattr(store_mod, "write_deltalake", lambda *a, **kw: real(*a, **kw, target_file_size=1_000_000))
+    store = LocalStore(tmp_path, "dev")
+    store.write("LH_Bronze", "dbo", "t", pl.DataFrame({"a": [1]}))
+    store.removes_unwritten = False
+    monkeypatch.setattr(store, "_data_files", lambda *a: pytest.fail("listed the table's files"))
+    monkeypatch.setattr(store, "_delete_data_files", lambda *a: pytest.fail("deleted a file"))
+    folder = tmp_path / "LH_Bronze" / "Tables" / "dbo" / "t"
+    schema = pa.schema([("a", pa.int64())])
 
-    class Files:
-        def __init__(self):
-            self.deleted = []
-
-        def list(self, ws, lh, directory, recursive=False):
-            assert (ws, lh, directory, recursive) == ("ws1", "lh1", "Tables/dbo/events", True)
-            return [{"path": "Tables/dbo/events/_delta_log/00000000000000000000.json", "is_dir": False},
-                    {"path": "Tables/dbo/events/_delta_log", "is_dir": True},
-                    {"path": "Tables/dbo/events/part-1.parquet", "is_dir": False}]
-
-        def delete(self, ws, lh, path, recursive=True):
-            self.deleted.append((ws, lh, path, recursive))
-    files = Files()
-    store = OneLakeStore("dev", "ws1", {"LH_Bronze": "lh1"}, lambda: "tok", tmp_path, files=files)
-    assert store._data_files("LH_Bronze", "dbo", "events") == {"part-1.parquet"}
-    store._delete_data_files("LH_Bronze", "dbo", "events", ["part-1.parquet"])
-    assert files.deleted == [("ws1", "lh1", "Tables/dbo/events/part-1.parquet", False)]
+    def batches():
+        for i in range(4):
+            yield pa.record_batch([pa.array(range(i * 500_000, (i + 1) * 500_000))], schema=schema)
+        raise RuntimeError("a check stopped the run")
+    with pytest.raises(Exception):
+        store.write_stream("LH_Bronze", "dbo", "t", pa.RecordBatchReader.from_batches(schema, batches()), read_version=0)
+    assert store.last_cleanup["removed"] == 0 and "left for VACUUM" in store.last_cleanup["note"]
+    assert len(list(folder.glob("*.parquet"))) > 1 and DeltaTable(str(folder)).version() == 0

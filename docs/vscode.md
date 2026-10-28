@@ -71,6 +71,7 @@ A `kratosforge://` link shows a notebook or a page in KratosForge, from VS Code,
 - `kratosforge nb open <file>` opens the link for a file, and `--print` prints it instead. The **Open notebook in KratosForge** task runs this command.
 - KratosForge registers `kratosforge://` for your Windows user (under `HKCU\Software\Classes`) each time it starts. Your organization can turn that off with `register_link_scheme` in its policy file ([the key](azure-setup.md#4-push-settings-to-everyone)).
 - A copy started for a link hands it to the open window over `127.0.0.1`, with a random token the open window wrote to your own data folder, and then closes. Without the token, nothing is shown.
+- With `register_link_scheme` set to `false`, the open window doesn't listen for links at all, and a link given on the command line only says links are turned off. Starting the app again while it's open then doesn't bring its window to the front: use the taskbar.
 
 ## What runs where
 

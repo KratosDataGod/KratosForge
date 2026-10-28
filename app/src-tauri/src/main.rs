@@ -2145,6 +2145,9 @@ fn register_link_scheme() {
     });
 }
 
+/// Why a link isn't opened when the policy file turns links off.
+const LINKS_OFF: &str = "Your organization turned off kratosforge:// links.";
+
 /// This copy's instance lock, kept for the life of the process except while an update hands over.
 static INSTANCE: deep_link::InstanceLock = deep_link::InstanceLock::new();
 
@@ -2165,7 +2168,11 @@ fn claim_single_instance(url: Option<&str>, updating: bool) -> Option<Option<std
 fn main() {
     // A link is read before anything else. One that doesn't read as a link is never handed on:
     // the app only says it wasn't opened (and why, when this copy is the one that runs).
+    // An organization that turned links off (register_link_scheme: false) gets none: no listener on
+    // 127.0.0.1, and a link given on the command line is only refused.
+    let links_on = policy_allows_link_scheme(&policy_text());
     let link = deep_link::link_arg(&std::env::args().collect::<Vec<_>>()).map(|url| match deep_link::parse(&url) {
+        Ok(_) if !links_on => (deep_link::REFUSED.to_string(), deep_link::Link::Refused(LINKS_OFF.into())),
         Ok(parsed) => (url, parsed),
         Err(e) => (deep_link::REFUSED.to_string(), deep_link::Link::Refused(e)),
     });
@@ -2182,9 +2189,11 @@ fn main() {
     }
     tauri::Builder::default()
         .manage(PendingLink(Mutex::new(pending)))
-        .setup(|app| {
+        .setup(move |app| {
             let handle = app.handle().clone();
-            if let Err(e) = deep_link::listen(&data_dir(), move |link| show_link(&handle, link)) {
+            if !links_on {
+                deep_link::forget_port(&data_dir());
+            } else if let Err(e) = deep_link::listen(&data_dir(), move |link| show_link(&handle, link)) {
                 eprintln!("kratosforge:// links from other copies won't arrive: {e}");
             }
             register_link_scheme();

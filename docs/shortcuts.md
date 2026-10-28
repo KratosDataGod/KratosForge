@@ -42,7 +42,11 @@ A health check lists one entry of the shortcut's folder through OneLake, with yo
 
 Every shortcut is checked when the page opens. To stop that, untick **Check every shortcut when this page opens** on the Health view.
 
-Results are saved to the [platform](platform.md), so everyone sees the same health. A shortcut that breaks, or works again, shows on **Changes**.
+Results are saved to the [platform](platform.md), so everyone sees the same health. A shortcut that breaks, or works again, shows on **Changes**, and is posted to the platform's Teams routes when one takes `shortcut.broken` or `shortcut.fixed` ([governance guide](governance-guide.md#teams-notices-for-requests-and-shortcuts)).
+
+### On a schedule (Preview)
+
+So that a break is found without anyone opening this page, turn on `[shortcut_health]` in a [headless agent](agent.md#shortcut-health). Every `shortcut_health.minutes` (60 by default) it checks the shortcuts in its environments' workspaces the same way, with its own identity, and posts each new break to its Teams channel once: a shortcut that stays broken isn't posted again, a fix is posted once, and a later break is posted again. It only reads (it lists lakehouses, shortcuts and one entry of each folder), runs no Fabric job, and writes nothing to Fabric or the platform; what it posted is kept on the agent's machine. When several agents check one environment, one of them posts. The agent's results don't show on this page: check here to see them. It's a setting in the agent's `agent.toml`, not a screen, so Settings > Preview features doesn't hide it.
 
 The Health view also lists shortcuts that work but are **worth a look**:
 
@@ -156,7 +160,7 @@ Nothing new. The command center uses what the Shortcuts and Access tabs already 
 
 ## What isn't there yet
 
-- Health is checked when the page opens or when you ask. There is no scheduled check, and no Teams alert when a shortcut breaks.
+- The desktop app checks only when the page opens or when you ask; the scheduled check runs in the [agent](agent.md#shortcut-health), and its results aren't saved to the platform or shown on Health.
 - An approved request makes the shortcut in one lakehouse, not in each environment.
 - Only a crossed environment can be accepted, not a duplicate. Finding a lakehouse that moved compares names only, and looks at five lakehouses with that name at most.
 - Not tried on a live Fabric tenant yet. In particular, the error codes OneLake returns for a broken target or a refused connection haven't been seen on a real tenant, so a broken shortcut may show the wrong cause.

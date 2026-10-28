@@ -26,6 +26,7 @@ from . import costs as costs_mod
 from . import http_session
 from . import shortcuts as shortcuts_mod
 from .auth import CAPACITY_SCOPES, CONNECTION_SCOPES, FABRIC_SCOPES, GRAPH_USER_SCOPES, ONELAKE_SCOPES, POWERBI_WORKSPACE_SCOPES
+from .errors import NotSetUp
 from .fabric_api import FabricClient, FabricError
 from .meta import impact
 from .meta import restore as restore_mod
@@ -536,7 +537,7 @@ class EstateMixin:
         cfg = project.environments.get(env, {})
         ws = cfg.get("workspace_id")
         if not ws:
-            raise LookupError(f"Assign a workspace to {env.title()} first (Data mesh > Deploy > Environments and promote).")
+            raise NotSetUp(f"Assign a workspace to {env.title()} first (Data mesh > Deploy > Environments and promote).")
         fabric = self.fabric  # type: ignore[attr-defined]
         item = fabric.save_variable_library(ws, varlib_mod.LIBRARY, varlib_mod.definition(project),
                                             "Source system connections, managed by KratosForge")

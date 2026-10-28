@@ -466,3 +466,12 @@ def test_cancel_fabric_run_still_cancels_a_job_the_log_doesnt_have(tmp_path):
     s.fake = CancelFabric()
     s.cancel_fabric_run("ws", "nb", "j9")
     assert s.fake.cancelled == [("ws", "nb", "j9")] and s.fabric_runs() == []
+
+
+def test_cancel_fabric_run_refuses_ids_that_dont_match_the_logged_run(tmp_path):
+    s = CloudService(root=tmp_path / "app")
+    s.fake = CancelFabric()
+    s._log_fabric_run({"job_id": "j1", "workspace_id": "ws", "item_id": "nb", "name": "Sales_Load", "status": "InProgress"})
+    with pytest.raises(ValueError, match="another item"):
+        s.cancel_fabric_run("ws", "other-item", "j1")
+    assert s.fake.cancelled == [] and "cancel_requested" not in s.fabric_runs()[0]

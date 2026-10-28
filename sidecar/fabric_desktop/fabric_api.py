@@ -210,9 +210,15 @@ class FabricClient:
     def environment_libraries(self, workspace_id: str, environment_id: str, staged: bool = False) -> list[dict[str, Any]]:
         """The libraries published to an Environment item (or, with ``staged``, the ones saved but not
         yet published): [{"name", "libraryType": External|Custom, "version"}]. Read only (``beta=False``
-        is the GA contract; the preview one has another shape)."""
+        is the GA contract; the preview one has another shape). An empty list answers 404
+        EnvironmentLibrariesNotFound, which is an empty list, not an error."""
         where = "staging/libraries" if staged else "libraries"
-        return self._paged(f"/workspaces/{workspace_id}/environments/{environment_id}/{where}?beta=False", key="libraries")
+        try:
+            return self._paged(f"/workspaces/{workspace_id}/environments/{environment_id}/{where}?beta=False", key="libraries")
+        except FabricError as exc:
+            if exc.code == "EnvironmentLibrariesNotFound":
+                return []
+            raise
 
     def environment_spark_compute(self, workspace_id: str, environment_id: str, staged: bool = False) -> dict[str, Any]:
         """The Environment item's published (or, with ``staged``, unpublished) Spark settings, with

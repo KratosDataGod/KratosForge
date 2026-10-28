@@ -318,7 +318,7 @@ A final status never changes again. Fields may be added within version 1; reader
 
 ### Shared schedules (Preview)
 
-Give the same schedule to several agents and set `shared = true` on it. Each due time then runs once, on whichever agent claims it, rather than once per agent. If one agent is down, the others still run the schedule. The design, and what is still to come, is in [Multiple workers](workloads/multi-worker.md).
+Give the same schedule to several agents and set `shared = true` on it. Each due time then runs once, on whichever agent claims it, rather than once per agent. If one agent is down, the others still run the schedule. The design, and what is still to come, is in [Multiple workers](workloads/multi-worker.md). Sharing is a setting in the agents' schedules, not a screen, so **Settings > Preview features** doesn't turn it off.
 
 ```toml
 [pipeline]

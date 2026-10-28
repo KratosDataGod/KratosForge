@@ -200,7 +200,7 @@ Environments are kept on this PC under the app's data folder, in `environments\`
 
 #### Compare with a Fabric Environment item (Preview)
 
-Before running in Fabric, check that the Fabric Environment item the notebook will use has the same packages as this PC:
+Before running in Fabric, check that the Fabric Environment item the notebook will use has the same packages as this PC. It's a command, with no screen in the app yet:
 
 ```
 fabric-desktop env-drift --workspace <workspace id> --environment <Environment item id> [--notebook <name>] [--json]
@@ -209,10 +209,10 @@ fabric-desktop env-drift --workspace <workspace id> --environment <Environment i
 It reads the item's published libraries and its Spark runtime with your sign-in, and the libraries and runtime saved in the item but not yet published. All four calls are read-only, and no Spark session starts. It compares them with the app's own packages plus, with `--notebook`, that notebook's environment, and lists each library as:
 
 - **Missing here**: published to the item, not installed on this PC;
-- **Different version**: on both, at different versions (`1.0` and `1.0.0` count as the same);
+- **Different version**: on both, at different versions (`1.0` and `1.0.0` count as the same, and a version like `>=1.4` is met by any version it allows);
 - **Only here**: in the notebook's environment, not published to the item. Fabric's runtime may still ship it, which the item's libraries don't say.
 
-It also says when the runtime's Python (runtime 1.3 runs Python 3.11, 1.1 and 1.2 run 3.10) isn't the Python this PC runs. Uploaded `.jar`, `.py` and R files are listed as not compared; a wheel is compared by the name and version in its file name. An item you can't read (no access, a wrong id, deleted) gives **Couldn't compare**, with the reason, and never stops a run. The exit code is 0 for no drift, 1 for drift, and 2 when the item couldn't be read.
+It also says when the runtime's Python (runtime 1.3 runs Python 3.11, 1.1 and 1.2 run 3.10) isn't the Python this PC's engine runs, and when it doesn't know a runtime's Python. Uploaded `.jar`, `.py` and R files are listed as not compared; a wheel is compared by the name and version in its file name. An item you can't read (no access, a wrong id, deleted) gives **Couldn't compare**, with the reason, and never stops a run. The exit code is 0 for no drift, 1 for drift, and 2 when the item couldn't be read.
 
 When the item has **unpublished changes**, the report lists what publishing it would add, remove or change, including a runtime change. Fabric runs what's published, so unpublished changes don't count as drift and don't change the exit code. They do show what the next publish brings in. If the unpublished changes can't be read, the report says so and the comparison with the published libraries stands.
 

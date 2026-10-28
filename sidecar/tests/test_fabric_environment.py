@@ -72,7 +72,7 @@ def test_drift_reports_missing_different_and_local_only_packages():
                                           {"name": "scikit-learn", "version": "1.5.2"}])
     out = fabric_environment.drift(fabric_environment.read(fabric, WS, ENV), here, python="3.12")
     assert out["drifted"] and out["runtime"] == "1.3"
-    assert out["python"] == {"fabric": "3.11", "here": "3.12", "differs": True}
+    assert out["python"] == {"fabric": "3.11", "here": "3.12", "differs": True, "unknown": False}
     assert out["missing_here"] == [{"name": "fuzzywuzzy", "fabric": "0.18.0"}]
     assert out["different"] == [{"name": "polars", "fabric": "0.0.1", "here": polars["version"], "from": "engine"}]
     assert out["local_only"] == [{"name": "rich", "here": "13.7.1"}]  # 1.0 and 1.0.0 match; no version means any
@@ -203,3 +203,66 @@ def test_a_staged_runtime_that_cant_be_read_still_reports_the_staged_libraries()
                                    WS, ENV)
     assert item["staged"]["removed"] == [{"name": "old_tool-1.0-py3-none-any.whl", "version": None}]
     assert "boom" in item["staged"]["runtime_problem"] and item["staged"]["runtime"] is None
+
+
+def test_an_item_with_no_libraries_is_an_empty_list_not_an_error():
+    c, _ = client([Resp(404, {"errorCode": "EnvironmentLibrariesNotFound", "message": "no libraries"})])
+    assert c.environment_libraries(WS, ENV) == []
+    c, _ = client([Resp(404, {"errorCode": "ItemNotFound", "message": "gone"})])
+    with pytest.raises(FabricError):
+        c.environment_libraries(WS, ENV)
+
+
+def test_ids_must_be_whole_guids():
+    for bad in ("------------------------------------", WS + "\n", WS.replace("-", "x", 1)):
+        fabric = Fabric()
+        assert fabric_environment.read(fabric, bad, ENV)["status"] == "couldnt_read" and fabric.calls == []
+
+
+def test_extras_specifiers_and_odd_entries():
+    here = {"requests": {"name": "requests", "version": "2.32.3", "from": "engine"},
+            "rich": {"name": "rich", "version": "13.7.1", "from": "engine"}}
+    item = fabric_environment.read(Fabric(["not a dict", None,
+                                           {"name": "requests[socks]", "libraryType": "External", "version": "2.32.3"},
+                                           {"name": "rich", "libraryType": "External", "version": ">=13"}]), WS, ENV)
+    out = fabric_environment.drift(item, here, python="3.11")
+    assert out["missing_here"] == [] and out["different"] == [] and out["same"] == 2
+    item = fabric_environment.read(Fabric([{"name": "rich", "libraryType": "External", "version": ">=14"}]), WS, ENV)
+    assert fabric_environment.drift(item, here, python="3.11")["different"][0]["fabric"] == ">=14"
+
+
+def test_a_runtime_whose_python_isnt_known_says_so():
+    out = fabric_environment.drift(fabric_environment.read(Fabric(runtime="9.9"), WS, ENV), {}, python="3.11")
+    assert out["python"]["unknown"] is True and out["drifted"] is False
+    assert "doesn't know which Python runtime 9.9 runs" in fabric_environment.summary(out)
+
+
+def test_the_summary_drops_control_characters_from_fabric_names():
+    item = fabric_environment.read(Fabric([{"name": "evil\x1b[2J\r\x9bpkg", "libraryType": "External", "version": "1\x07"}]),
+                                   WS, ENV)
+    text = fabric_environment.summary(fabric_environment.drift(item, {}, python="3.11"))
+    assert "Missing here: evil[2Jpkg==1" in text and not any(ord(ch) < 32 and ch != "\n" for ch in text)
+
+
+def test_an_empty_staging_list_shows_every_published_library_as_removed():
+    c, _ = client([Resp(404, {"errorCode": "EnvironmentLibrariesNotFound", "message": "none staged"})])
+    assert c.environment_libraries(WS, ENV, staged=True) == []
+    published = [{"name": "rich", "libraryType": "External", "version": "13.7.1"},
+                 {"name": "tool.jar", "libraryType": "Custom"}]
+    staged = fabric_environment.read(Fabric(published, staged=[]), WS, ENV)["staged"]
+    assert staged["pending"] and staged["added"] == [] and staged["changed"] == []
+    assert staged["removed"] == [{"name": "tool.jar", "version": None}, {"name": "rich", "version": "13.7.1"}]
+
+
+def test_the_staged_runtime_is_reported_when_the_published_one_wasnt_read():
+    class PublishedRuntimeFails(Fabric):
+        def environment_spark_compute(self, ws, env, staged=False):
+            if not staged:
+                raise FabricError("x", None, 500)
+            return {"runtimeVersion": "1.3"}
+
+    item = fabric_environment.read(PublishedRuntimeFails([]), WS, ENV)
+    assert item["runtime"] is None and item["staged"]["runtime"] == {"published": None, "staged": "1.3"}
+    assert item["staged"]["pending"] is False
+    text = fabric_environment.summary(fabric_environment.drift(item, {}, python="3.11"))
+    assert "Unpublished runtime: 1.3 (the published runtime wasn't read)." in text

@@ -216,6 +216,10 @@ from .editor_service import METHODS as EDITOR_METHODS  # noqa: E402
 
 METHODS |= EDITOR_METHODS
 
+# Policy exceptions (central/governance_service.py): ending one early (the platform checks for a platform
+# admin), and the ones about to end, for the bell, the Data mesh banner and a Teams notice.
+METHODS |= {"governance_end_exception", "governance_exceptions_ending"}
+
 
 # The calls the shell gives a short time limit (QUICK in app/src-tauri/src/watchdog.rs): they read
 # local state or the kernel and answer at once. They run in their own lane, so a long run, publish

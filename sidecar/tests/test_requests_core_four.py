@@ -512,3 +512,151 @@ def test_call_or_repair_passes_other_errors_through():
             raise core.PlatformError("Only platform admins can do that")
     with pytest.raises(core.PlatformError, match="Only platform admins"):
         requests_service.call_or_repair(Refuses(), "record_request_progress", "carry out this request")
+
+
+# --------------------------------------------------------------------------- ending an exception early (PB-059 review #3)
+
+
+def _granted(svc, who, excepted):
+    as_user(who, ADMIN)
+    svc.platform_decide(excepted["id"], True)
+    [e] = svc.governance_overview()["exceptions"]
+    return e
+
+
+def test_only_a_platform_admin_ends_an_exception_early_with_a_reason_and_the_row_stays(svc, who, excepted):
+    e = _granted(svc, who, excepted)
+    until = excepted["detail"]["until"]
+    as_user(who, DEV)
+    with pytest.raises(core.PlatformError, match="Only platform admins can end policy exceptions early"):
+        svc.governance_end_exception(e["id"], "The masked copy is ready")
+    as_user(who, ADMIN)
+    for reason, message in [("", "Say why"), ("   ", "Say why"), ("x" * (policy.EXCEPTION_END_REASON_MAX + 1), "500 characters")]:
+        with pytest.raises(core.PlatformError, match=message):
+            svc.governance_end_exception(e["id"], reason)
+    assert "exception" in svc.governance_resolve(project="hr-analytics")["policies"][0]  # nothing changed yet
+
+    out = svc.governance_end_exception(e["id"], "The masked copy is ready")
+    assert out["active"] is False and out["ended_early"] and out["ended_by"] == ADMIN
+    assert out["granted_until"] == until and out["until"] < TODAY.isoformat()
+    # It stops applying now, and is no longer listed as in force...
+    assert "exception" not in svc.governance_resolve(project="hr-analytics")["policies"][0]
+    assert svc.governance_overview()["exceptions"] == [] and svc.governance_policy("no-pii-in-dev")["exceptions"] == []
+    # ...but the row stays, and Include ended lists it with who ended it and why.
+    [ended] = svc.governance_policy("no-pii-in-dev", include_ended=True)["exceptions"]
+    assert ended["id"] == e["id"] and ended["end_reason"] == "The masked copy is ready" and ended["reason"] == e["reason"]
+    assert ended["active"] is False and ended["ending"] is False and ended["approved_by"] == ADMIN
+    actions = [a["action"] for a in svc.platform_audit()]
+    assert "ended exception" in actions and "policy exception ended early" in actions
+    history = svc.governance_policy("no-pii-in-dev")["history"][0]
+    assert history["action"] == "exception ended early" and history["by_user"] == ADMIN
+    with svc._catalog()._db() as db:
+        assert len(db.rows(f"SELECT * FROM {db.t('catalog', 'policy_exception')}")) == 1  # never deleted
+
+    with pytest.raises(core.PlatformError, match="already ended early"):
+        svc.governance_end_exception(e["id"], "again")
+    with pytest.raises(core.PlatformError, match="There's no policy exception 'nope'"):
+        svc.governance_end_exception("nope", "typo")
+
+
+def test_an_exception_that_ended_on_its_date_cannot_be_ended_again(svc, who, excepted):
+    e = _granted(svc, who, excepted)
+    with svc._catalog()._db() as db:
+        db.run(f"UPDATE {db.t('catalog', 'policy_exception')} SET until_date = ? WHERE id = ?",
+               ((TODAY - dt.timedelta(days=2)).isoformat(), e["id"]))
+        db.commit()
+    with pytest.raises(core.PlatformError, match="already ended on"):
+        svc.governance_end_exception(e["id"], "Tidy up")
+
+
+def test_ending_early_needs_admin_even_through_the_platform_directly(tmp_path):
+    p = LocalPlatform(tmp_path / "p.sqlite", lambda: ADMIN)
+    p.call("add_admin", user=ADMIN)
+    with p._db() as db, pytest.raises(core.PlatformError, match="Only platform admins"):
+        policy.end_policy_exception(db, "r1", "because", DEV)
+
+
+def test_an_exception_table_from_before_gets_the_columns_that_record_an_early_end(tmp_path):
+    p = LocalPlatform(tmp_path / "p.sqlite", lambda: ADMIN)
+    added = ("ended_at", "ended_by", "end_reason", "granted_until")
+    old = [c for c in policy._EXCEPTION_TABLE if c[0] not in added]
+    with p._db() as db:
+        db.run(f"DROP TABLE IF EXISTS {db.t('catalog', 'policy_exception')}")
+        db.run(f"CREATE TABLE {db.t('catalog', 'policy_exception')} ({', '.join(core._column(db, n, k) for n, k in old)})")
+        db.commit()
+        assert sorted(policy.ensure_exception_schema(db)) == sorted(f"catalog.policy_exception.{c}" for c in added)
+        assert policy.ensure_exception_schema(db) == []
+
+
+def test_an_older_platform_says_to_run_finish_or_repair_to_end_an_exception(svc, who, monkeypatch):
+    class Older(OldPlatform):
+        def call(self, op, **kwargs):
+            if op == "end_policy_exception":
+                raise LookupError("UDF_Platform wasn't found. Open Platform > Settings, then check the platform's workspace.")
+            return super().call(op, **kwargs)
+    inner = svc._catalog()
+    monkeypatch.setattr(type(svc), "_catalog", lambda self: Older(inner))
+    with pytest.raises(LookupError, match="can't end policy exceptions early yet.*Finish or repair once"):
+        svc.governance_end_exception("r1", "because")
+
+
+def test_the_function_app_ends_exceptions_as_the_caller():
+    from fabric_desktop.central import udf
+    app = udf.function_app()
+    assert ("def end_policy_exception(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, id: str, "
+            "reason: str)") in app
+    assert '_run(sqlDB, "end_policy_exception", ctx, id=id, reason=reason)' in app
+
+
+# --------------------------------------------------------------------------- a warning before one ends (PB-059 review #2)
+
+
+def test_an_exception_ending_within_14_days_warns_the_requester_and_the_project(svc, who, monkeypatch):
+    svc.governance_create(NO_PII)
+    svc.governance_publish("no-pii-in-dev")
+    svc.governance_assign("no-pii-in-dev", "enterprise")
+    as_user(who, DEV)
+    soon = svc.platform_request("exception", "", "A masked copy isn't ready yet", {
+        "policy": "no-pii-in-dev", "scope": "project", "scope_target": "hr-analytics",
+        "until": (TODAY + dt.timedelta(days=10)).isoformat()})
+    later = svc.platform_request("exception", "", "Payroll needs longer", {
+        "policy": "no-pii-in-dev", "scope": "project", "scope_target": "payroll",
+        "until": (TODAY + dt.timedelta(days=60)).isoformat()})
+    as_user(who, ADMIN)
+    svc.platform_decide(soon["id"], True)
+    svc.platform_decide(later["id"], True)
+    sent = []
+    monkeypatch.setattr(type(svc), "platform_notify", lambda self, events: sent.extend(events) or {})
+
+    listed = {e["target"]: e for e in svc.governance_overview()["exceptions"]}
+    assert listed["hr-analytics"]["ending"] and listed["hr-analytics"]["days_left"] == 10
+    assert not listed["payroll"]["ending"]
+
+    as_user(who, DEV)
+    out = svc.governance_exceptions_ending()
+    assert [e["target"] for e in out["ending"]] == ["hr-analytics"] and out["warn_days"] == 14
+    assert out["ending"][0]["for_you"] is True  # DEV asked for it
+    [event] = [validate(e) for e in sent]
+    assert event["kind"] == "exception.ending" and event["severity"] == "warn"
+    assert event["to"] == {"people": [DEV], "roles": ["project:hr-analytics"]}
+    assert event["dedupe"] == f"exception.ending:{soon['id']}:{soon['detail']['until']}"
+    assert event["open"] == {"view": "governance", "tab": "exceptions", "target": "no-pii-in-dev"}
+    assert "masked copy" not in str(event) and "ends in 10 days" in event["title"]
+    as_user(who, "someone@contoso.com")
+    assert svc.governance_exceptions_ending()["ending"][0]["for_you"] is False
+
+    as_user(who, ADMIN)
+    svc.governance_end_exception(soon["id"], "Masked copy shipped early")
+    sent.clear()
+    assert svc.governance_exceptions_ending()["ending"] == [] and sent == []  # ended early: no warning
+
+
+def test_an_ending_notice_goes_to_the_domain_owners_or_the_requester():
+    domain = validate(notices.exception_ending({"id": "e1", "policy_id": "p", "scope": "domain", "target": "sales",
+                                                "until": "2030-01-01", "requested_by": "", "reason": "secret"}, 1))
+    assert domain["to"] == {"people": [], "roles": ["domain_owner:sales"]} and domain["domain"] == "sales"
+    assert "tomorrow" in domain["title"] and "secret" not in str(domain)
+    workspace = validate(notices.exception_ending({"id": "e2", "policy_id": "p", "scope": "workspace", "target": "Sales Dev",
+                                                   "until": "2030-01-01", "requested_by": "not an email"}, 0))
+    assert workspace["to"] == {"people": [], "roles": ["requester"]} and "today" in workspace["title"]
+    assert notices.exception_ending({"id": "", "policy_id": "p", "until": "2030-01-01"}, 3) is None

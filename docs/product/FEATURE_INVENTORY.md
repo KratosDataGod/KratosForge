@@ -205,7 +205,7 @@ on quality.
 | [FEAT-META-17](#feat-meta-17) | Column lineage | Implemented | Partially Verified | Entity page > Lineage > Columns (Preview) | Implementation review of PR #124. |
 | [FEAT-GOV-01](#feat-gov-01) | Freshness promises and Teams alerts | Implemented | Partially Verified | Entity > Freshness, Home | Merge with incidents so a late table posts once (agent.md notes duplicates). |
 | [FEAT-GOV-02](#feat-gov-02) | Project tests gate promote | Implemented | Partially Verified | Data mesh > Quality > Tests (Preview) | Fold into the Git program's validation framework (FD-113). |
-| [FEAT-GOV-03](#feat-gov-03) | Governance exceptions | Implemented | Partially Verified | Metadata project, Data mesh > Requests (Preview) | Implementation review of #603 and #605 (PB-059). |
+| [FEAT-GOV-03](#feat-gov-03) | Governance exceptions | Implemented | Partially Verified | Data mesh > Quality > Exceptions, Data mesh > Requests, Platform > Govern > Governance (Preview) | Product owner decides whether exceptions.toml joins the request flow or FD-129 is narrowed to policy exceptions (PB-059 review finding 1). |
 | [FEAT-GOV-05](#feat-gov-05) | Enterprise governance policy registry and offline validation | Partially Implemented | Partially Verified | None | GOV-002 offline validation, after Chris approves |
 | [FEAT-GOV-06](#feat-gov-06) | Sensitive data classification | Missing | Unverified | None | Owned by the governance foundation thread; complement Purview, don't duplicate it. |
 | [FEAT-GOV-07](#feat-gov-07) | Reliability objectives | Implemented but Not Exposed | Partially Verified | None (agent incidents only) | Show in the workload page with incidents (PB-047). |
@@ -1420,19 +1420,20 @@ on quality.
 
 ### FEAT-GOV-03
 
-**Governance exceptions.** exceptions.toml with reason, approver and expiry that lets a gate pass until it expires; approved exceptions are shown and warned about before they end, and a policy exception can be requested and approved on the Governance tab (Preview).
+**Governance exceptions.** exceptions.toml with reason, approver and expiry that lets a gate pass until it expires, shown on Data mesh > Quality > Exceptions and warned about before they end. Policy exceptions are requested on Data mesh > Requests and approved by a platform admin (Preview); Check now marks the findings they cover as excepted, they warn the requester and the project 14 days before they end, and a platform admin can end one early with a reason (ended ones stay listed with Include ended).
 
 - **Pillar and category:** Enterprise services; Data Governance and Quality
 - **Status:** Implemented. **Verification:** Partially Verified.
-- **Where people reach it:** Metadata project, Data mesh > Requests (Preview)
+- **Where people reach it:** Data mesh > Quality > Exceptions, Data mesh > Requests, Platform > Govern > Governance (Preview)
 - **Evidence:** test: sidecar/tests/test_meta.py::test_05e_exceptions_expire (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_meta.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: sidecar/tests/test_requests_core_four.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs))
-- **Source:** `sidecar/fabric_desktop/meta/project.py`
+- **Source:** `sidecar/fabric_desktop/meta/project.py`, `sidecar/fabric_desktop/central/policy.py`, `sidecar/fabric_desktop/central/governance_service.py`
 - **Tests:** `sidecar/tests/test_meta.py`, `sidecar/tests/test_requests_core_four.py`
-- **Docs:** [docs/metadata-guide.md](../metadata-guide.md)
+- **Docs:** [docs/metadata-guide.md](../metadata-guide.md), [docs/governance.md](../governance.md), [docs/governance-guide.md](../governance-guide.md)
+- **Known limitations:** Adding an exception to exceptions.toml records no request, approval or audit entry, and its approver is free text (PB-059 review finding 1, waiting on the FD-129 owner).
 - **Pull requests and issues:** [#603](https://github.com/KratosDataGod/KratosForge/pull/603), [#605](https://github.com/KratosDataGod/KratosForge/pull/605)
 - **Owning workstream:** Enterprise governance foundation (FD-129)
 - **Backlog:** [PB-059](PRODUCT_BACKLOG.md#pb-059)
-- **Recommended next action:** Implementation review of #603 and #605 (PB-059).
+- **Recommended next action:** Product owner decides whether exceptions.toml joins the request flow or FD-129 is narrowed to policy exceptions (PB-059 review finding 1).
 
 ### FEAT-GOV-04
 

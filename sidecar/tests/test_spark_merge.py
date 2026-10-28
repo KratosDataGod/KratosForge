@@ -316,3 +316,11 @@ def test_the_compute_check_uses_the_notebooks_own_lakehouse_with_none_attached()
     assert not local("spark.sql('DELETE FROM LH_Keys.dbo.t')")["ok"]
     assert local("# spark.sql('DELETE FROM LH_Keys.dbo.t')\nx = 1")["ok"]  # commented out
     assert not local("x = '#'; spark.sql('DELETE FROM LH_Keys.dbo.t')")["ok"]  # a # in a string isn't a comment
+
+
+def test_update_and_delete_after_a_leading_comment_run_here(lake):
+    out, text = run("spark.sql('-- fix one price\\nUPDATE sales SET amount = 11.0 WHERE id = 1')")
+    assert out["status"] == "ok", text
+    out, text = run("spark.sql('/* drop it */ DELETE FROM sales WHERE id = 3')")
+    assert out["status"] == "ok", text
+    assert [r["amount"] for r in rows(lake)] == [11.0, 20.0]

@@ -1084,8 +1084,9 @@ class Engine:
         refused = [c["detail"] for c in drift_mod.schema_changes(before, after) if c["change"] in ("narrowed", "retyped")]
         if refused:
             raise CheckStop(f"schema change refused: {'; '.join(refused)} would narrow a column's type or change its "
-                            "kind, which breaks readers of the table. Change the contract back, or set "
-                            "overwrite_schema = true under [contract] to rewrite the table with the new types")
+                            "kind, which breaks readers of the table. Nothing was written. Change the contract back, "
+                            f"or, to rewrite {e.name} with the new types, add this line under [contract] in its entity "
+                            "file: overwrite_schema = true (and take it out again after the run)")
 
     def _schema_rows(self, e: Entity, res: RunResult) -> list[dict[str, Any]]:
         """The schema history for this run's commit: each change it made to the table's schema, with

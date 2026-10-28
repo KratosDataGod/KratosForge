@@ -152,6 +152,7 @@ def test_narrowing_a_type_is_refused_without_overwrite_schema(tmp_path):
     res = s.engine(DAY2).run("bronze.events")
     assert res.status == "failed" and res.delta_version is None
     assert "schema change refused: qty int64 to int32 would narrow" in res.message
+    assert "add this line under [contract] in its entity file: overwrite_schema = true" in res.message
     assert "overwrite_schema = true" in res.message
     assert table(s).version() == version and table(s).schema().to_arrow().field("qty").type == pa.int64()
     assert [h["change"] for h in history(s)] == ["created"]

@@ -206,13 +206,13 @@ class Store:
         except TableNotFoundError:
             return None
 
-    def count(self, lakehouse: str, schema: str, table: str) -> int:
+    def count(self, lakehouse: str, schema: str, table: str, version: int | None = None) -> int:
         """Rows in the table, from the Delta log's file statistics: no data is read. A file written
         without them (CONVERT TO DELTA, some other writers) would be left out of that sum, so then
         the rows are counted from the files themselves."""
         uri = self.uri(lakehouse, schema, table)
         try:
-            dt_ = DeltaTable(uri, storage_options=self.options())
+            dt_ = DeltaTable(uri, storage_options=self.options(), version=version)
         except TableNotFoundError:
             return 0
         actions = pa.table(dt_.get_add_actions(flatten=True))

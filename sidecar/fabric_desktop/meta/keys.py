@@ -257,16 +257,39 @@ def read_keys(store: Store, kt: KeyTable) -> pl.DataFrame:
     return kt.seed().clear() if df is None else df
 
 
-def _keys_for(store: Store, kt: KeyTable, bks: list[str]) -> tuple[pl.DataFrame, int | None]:
-    """Only the key rows for these business keys, with the version read: a batch never reads the
-    whole key table (PB-068), and files whose business key range can't hold one are skipped.
+# Up to this many business keys in a batch are looked up by value, skipping files by their statistics.
+# A larger batch reads the key table once and joins: a filter over that many values costs more than
+# reading the table (quality's benchmark: 1M keys of a 2M-key table, 26 s by value, 3.4 s whole).
+KEY_LOOKUP_LIMIT = 50_000
 
-    Every row holding one of those keys is read too (at the same version) and checked, so a key
-    that another business key also has stops the run as a whole-table check would."""
-    df, version = store.read_where(KEYS_LAKEHOUSE, KEY_SCHEMA, kt.table, pl.col(kt.bk).is_in(bks))
+
+def _matching(store: Store, kt: KeyTable, bks: list[str], also: pl.Expr | None = None,
+              version: int | None = None) -> tuple[pl.DataFrame | None, int | None, bool]:
+    """The key rows for these business keys (or matching ``also``), at ``version`` (default the
+    latest), and whether the whole table was read instead (more than KEY_LOOKUP_LIMIT keys)."""
+    if len(bks) > KEY_LOOKUP_LIMIT:
+        df, version = store.read_where(KEYS_LAKEHOUSE, KEY_SCHEMA, kt.table, pl.lit(True), version=version)
+        return df, version, True
+    where = pl.col(kt.bk).is_in(pl.Series(bks).cast(pl.String).to_list())
+    if also is not None:
+        where = where | also
+    df, version = store.read_where(KEYS_LAKEHOUSE, KEY_SCHEMA, kt.table, where, version=version)
+    return df, version, False
+
+
+def _keys_for(store: Store, kt: KeyTable, bks: list[str]) -> tuple[pl.DataFrame, int | None]:
+    """The key rows for these business keys, with the version read: a batch reads only its own rows
+    of the key table (PB-068), skipping files whose business key range can't hold one, unless it is
+    large enough that reading the table once is quicker (KEY_LOOKUP_LIMIT).
+
+    Every row holding one of the matched keys is read too (at the same version) and checked, so a
+    key that another business key also has stops the run as a whole-table check would."""
+    df, version, whole = _matching(store, kt, bks)
     if df is None:
         return kt.seed().clear(), version
     _check_unique(kt, df)
+    if whole:
+        return df.join(pl.DataFrame({kt.bk: pl.Series(bks).cast(pl.String)}), on=kt.bk, how="semi"), version
     sharing, _ = store.read_where(KEYS_LAKEHOUSE, KEY_SCHEMA, kt.table,
                                   pl.col(kt.sk).is_in(df[kt.sk].to_list()), version=version)
     if sharing is not None:
@@ -303,6 +326,10 @@ def _check_unique(kt: KeyTable, keys: pl.DataFrame) -> None:
 
 
 def merge_keys(store: Store, kt: KeyTable, bks: pl.Series) -> dict[str, Any]:
+    return _merge(store, kt, bks)[0]
+
+
+def _merge(store: Store, kt: KeyTable, bks: pl.Series) -> tuple[dict[str, Any], pl.DataFrame]:
     """Insert keys for business keys the key table doesn't have yet, continuing from the highest key.
 
     Only the key rows for this batch's business keys are read, and the highest key comes from the
@@ -320,7 +347,8 @@ def merge_keys(store: Store, kt: KeyTable, bks: pl.Series) -> dict[str, Any]:
         existing, version = _keys_for(store, kt, wanted[kt.bk].to_list())
         new = wanted.join(existing.select(kt.bk), on=kt.bk, how="anti").sort(kt.bk)
         if new.height == 0:
-            return {"inserted": 0, "existing": wanted.height, "first": None, "last": None, "attempts": attempt}
+            return ({"inserted": 0, "existing": wanted.height, "first": None, "last": None, "attempts": attempt},
+                    existing)
         top = store.column_max(KEYS_LAKEHOUSE, KEY_SCHEMA, kt.table, kt.sk, version)
         start = max(int(top or 0), 0) + 1
         rows = new.with_columns(pl.int_range(start, start + new.height, dtype=pl.Int32).alias(kt.sk),
@@ -332,11 +360,12 @@ def merge_keys(store: Store, kt: KeyTable, bks: pl.Series) -> dict[str, Any]:
             time.sleep(random.uniform(0.1, 0.3) * attempt)  # jitter: runs that collided retry apart
             continue
         last = start + new.height - 1
-        added, _ = store.read_where(KEYS_LAKEHOUSE, KEY_SCHEMA, kt.table,
-                                    pl.col(kt.bk).is_in(new[kt.bk].to_list()) | pl.col(kt.sk).is_between(start, last))
-        _check_unique(kt, added)
-        return {"inserted": new.height, "existing": wanted.height - new.height, "first": start,
-                "last": last, "attempts": attempt}
+        added, _, _ = _matching(store, kt, new[kt.bk].to_list(), also=pl.col(kt.sk).is_between(start, last))
+        if added is not None:
+            _check_unique(kt, added)
+        # The batch's keys: those it found, and those it just added (committed on top of that version).
+        return ({"inserted": new.height, "existing": wanted.height - new.height, "first": start,
+                 "last": last, "attempts": attempt}, pl.concat([existing, rows], how="diagonal_relaxed"))
     raise RuntimeError(f"sk.{kt.table}: other runs kept adding keys at the same time; try again")
 
 
@@ -368,9 +397,9 @@ def assign(store: Store, project: Project, e: Entity, df: pl.DataFrame) -> tuple
         if is_service(store):
             keys, stats = _issue(store, kt, df["__bk"])
         else:
-            stats = merge_keys(store, kt, df["__bk"])
-            keys = _keys_for(store, kt, df["__bk"].drop_nulls().unique().to_list())[0] \
-                .filter(pl.col(kt.sk) != UNKNOWN_KEY).select(pl.col(kt.bk).alias("__bk"), pl.col(kt.sk).alias("__sk"))
+            stats, found = _merge(store, kt, df["__bk"])
+            keys = found.filter(pl.col(kt.sk) != UNKNOWN_KEY).select(pl.col(kt.bk).alias("__bk"),
+                                                                     pl.col(kt.sk).alias("__sk"))
         df = (df.join(keys, on="__bk", how="left", maintain_order="left")
               .with_columns(pl.col("__sk").fill_null(UNKNOWN_KEY).cast(pl.Int32).alias(b["column"]))
               .drop("__bk", "__sk"))
@@ -396,10 +425,10 @@ def key_stats(store: Store, kt: KeyTable) -> dict[str, Any]:
         return store.stats(kt.name)
     if not store.exists(KEYS_LAKEHOUSE, KEY_SCHEMA, kt.table):
         return {"created": False, "keys": 0, "next": 1}
-    # Counted from the Delta log: only the Unknown member row is read.
-    unknown, _ = store.read_where(KEYS_LAKEHOUSE, KEY_SCHEMA, kt.table, pl.col(kt.sk) == UNKNOWN_KEY, [kt.sk])
-    real = store.count(KEYS_LAKEHOUSE, KEY_SCHEMA, kt.table) - (unknown.height if unknown is not None else 0)
-    top = store.column_max(KEYS_LAKEHOUSE, KEY_SCHEMA, kt.table, kt.sk)
+    # Counted from the Delta log, all at one version: only the Unknown member row is read.
+    unknown, version = store.read_where(KEYS_LAKEHOUSE, KEY_SCHEMA, kt.table, pl.col(kt.sk) == UNKNOWN_KEY, [kt.sk])
+    real = store.count(KEYS_LAKEHOUSE, KEY_SCHEMA, kt.table, version) - (unknown.height if unknown is not None else 0)
+    top = store.column_max(KEYS_LAKEHOUSE, KEY_SCHEMA, kt.table, kt.sk, version)
     return {"created": True, "keys": real, "next": max(int(top or 0), 0) + 1}
 
 

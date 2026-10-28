@@ -125,6 +125,8 @@ Every hook, custom check and custom step needs an `owner` and a `test`, or the s
 | Type 1 dimension | `scd1` | Merges on the key, overwriting changes. Surrogate keys are issued once and never renumbered. An Unknown member is at -1. |
 | Type 2 dimension | `scd2` | A change in a `tracked` column closes the current row and adds a new version with `valid_from`, `valid_to` and `is_current`. Columns in `type1` are overwritten on every version. |
 
+**Key tables in LH_Keys** are read only as far as a run needs. A run with up to 50,000 business keys reads just their rows, skipping the files whose range of business keys can't hold one. The next key comes from the Delta log's statistics. A run with more business keys reads the key table once, which is quicker than filtering by that many values; a run of 1 million keys against a 2 million key table takes about as long as reading the table. Keys from the platform (SQL_Platform or SQL_Keys) are issued per run in SQL.
+
 Facts use `[[lookup]]` to take a dimension's surrogate key as it was on the fact's date. A fact row whose dimension member doesn't exist gets -1.
 
 ### Large tables

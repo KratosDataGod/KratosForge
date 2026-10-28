@@ -292,6 +292,37 @@ class Store:
             return None, None
         return pl.from_arrow(t.to_pyarrow_table()), t.version()
 
+    def read_where(self, lakehouse: str, schema: str, table: str, where: pl.Expr,
+                   columns: list[str] | None = None, version: int | None = None
+                   ) -> tuple[pl.DataFrame | None, int | None]:
+        """Only the rows matching ``where`` (and only ``columns``), with the Delta version they were
+        read at (default the latest), as read_at gives the whole table. Files whose statistics rule
+        ``where`` out are skipped, so a few rows of a large table cost a few files. (None, None)
+        when there's no table."""
+        uri, options = self.uri(lakehouse, schema, table), self.options()
+        t = open_table(uri, options, version)
+        if t is None:
+            return None, None
+        lf = lazy(t, uri, options).filter(where)
+        return (lf.select(columns) if columns else lf).collect(), t.version()
+
+    def column_max(self, lakehouse: str, schema: str, table: str, column: str,
+                   version: int | None = None) -> Any:
+        """The highest value of ``column`` (None when there are no rows or no table), from the Delta
+        log's file statistics when every file has them, so no data is read. A file without them
+        means the column itself is read (that column only)."""
+        uri, options = self.uri(lakehouse, schema, table), self.options()
+        t = open_table(uri, options, version)
+        if t is None:
+            return None
+        actions = pa.table(t.get_add_actions(flatten=True))
+        name = f"max.{column}"
+        if name in actions.column_names and actions.num_rows and actions.column(name).null_count == 0:
+            # A file's max can be a row since deleted (a deletion vector), so this can be higher
+            # than the true max, never lower.
+            return max(actions.column(name).to_pylist())
+        return lazy(t, uri, options).select(pl.col(column).max()).collect().item()
+
     def create_if_absent(self, lakehouse: str, schema: str, table: str, columns: dict[str, pl.DataType]) -> bool:
         """Create an empty table, only if there is none: never overwrites one another writer made or
         filled. True if this call created it."""
@@ -453,6 +484,16 @@ class LocalStore(Store):
 
     def read_at(self, lakehouse: str, schema: str, table: str) -> tuple[pl.DataFrame | None, int | None]:
         return local_retry(lambda: super(LocalStore, self).read_at(lakehouse, schema, table))
+
+    def read_where(self, lakehouse: str, schema: str, table: str, where: pl.Expr,
+                   columns: list[str] | None = None, version: int | None = None
+                   ) -> tuple[pl.DataFrame | None, int | None]:
+        return local_retry(lambda: super(LocalStore, self).read_where(lakehouse, schema, table, where, columns,
+                                                                       version))
+
+    def column_max(self, lakehouse: str, schema: str, table: str, column: str,
+                   version: int | None = None) -> Any:
+        return local_retry(lambda: super(LocalStore, self).column_max(lakehouse, schema, table, column, version))
 
     def create_if_absent(self, lakehouse: str, schema: str, table: str, columns: dict[str, pl.DataType]) -> bool:
         return local_retry(lambda: super(LocalStore, self).create_if_absent(lakehouse, schema, table, columns))

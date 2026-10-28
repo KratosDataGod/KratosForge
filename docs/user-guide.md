@@ -432,7 +432,7 @@ A policy's **Where it applies** tab lists its exceptions in force. One that ends
 
 **Platform > Governance > Templates** lists reusable policy definitions: four **Built in** ones (table names, product owners, sensitive column labels and a data contract) and your organization's own (**Yours**). A platform admin chooses **Use** to make a policy draft from one, and any policy can be saved with **Save as template** from its page. Platform admins add templates, and can let domain owners add them too.
 
-**Platform > Governance > Check this project** checks the open metadata project against the policies in force for it. **Check now** runs on this PC and lists what to look at, with a fix where a safe one exists (**Label it**) or a link to where to fix it. It is warn only: nothing is blocked. A finding an approved exception covers says **Excepted until <date>: <why>**, and **Ask for an exception** sends the request. A data product's page (Data mesh > Products) also shows its **Checklist**. Details in [Governance policies](governance.md#best-practices-checks-and-templates-preview).
+**Platform > Governance > Check this project** checks the open metadata project against the policies in force for it. **Check now** runs on this PC and lists what to look at, with a fix where a safe one exists (**Label it**) or a link to where to fix it. Check now stops nothing; a promote stops on a finding of a **Block** policy that no exception covers. A finding an approved exception covers says **Excepted until <date>: <why>**, and **Ask for an exception** sends the request. A data product's page (Data mesh > Products) also shows its **Checklist**. Details in [Governance policies](governance.md#best-practices-checks-and-templates-preview).
 
 ## Fabric
 

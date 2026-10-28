@@ -326,7 +326,7 @@ def test_check_now_runs_policies_on_this_pc_and_remembers_the_result(svc, tmp_pa
     svc.governance_assign("nothing-checks-it", "enterprise")
     assert svc.governance_last_check()["result"] is None
     out = svc.governance_check_now()
-    assert out["project"] == "crm" and out["where"] == "this PC" and out["enforcement"] == "Warn only: nothing is blocked."
+    assert out["project"] == "crm" and out["where"] == "this PC" and out["enforcement"] == "Check now stops nothing. A promote stops on a finding of a Block policy that no exception covers."
     names = next(p for p in out["policies"] if p["id"] == "table-names")
     assert names["status"] == "findings" and [f["object"] for f in names["findings"]] == ["gold.customer_orders"]
     assert names["checked"] == 3 and names["passed"] == 2

@@ -4,7 +4,12 @@ Templates are reusable policy definitions (central/policy.py). Check now checks 
 project against the policies in force for it: it resolves them as Explain does (the platform's
 assignments plus the project's governance.toml), runs each policy's **Checked by** rules from the
 registry (governance_checks.py) on this PC, and turns a finding an active exception covers into
-"Excepted until <date>: <why>". It is warn only: nothing is blocked.
+"Excepted until <date>: <why>". Check now itself stops nothing.
+
+The promote gate (GOV-003, ``governance_promote_gate``) runs the same checks for the project's Block
+policies: a finding no exception covers is one of the promote gate's reasons. Warn and Advisory policies
+never stop a promote. When the platform can't be reached, the latest package on this PC stands in; when
+neither can be read, a promote to Prod stops and one to Test or Dev only warns.
 
 What it reads: the project's files on this PC, the platform's catalog (policies, exceptions, catalog
 text, product terms and endorsement) and the run logs the app already reads for Monitor; when a policy
@@ -29,6 +34,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+import requests
+
 from .. import governance_checks as gc
 from ..filenames import file_stem
 from ..jsonfile import read_json, write_json
@@ -43,7 +50,7 @@ from .requests_service import call_or_repair
 _log = logging.getLogger(__name__)
 
 STATE_FILE = "governance_checks.json"
-WARN_ONLY = "Warn only: nothing is blocked."
+WARN_ONLY = "Check now stops nothing. A promote stops on a finding of a Block policy that no exception covers."
 ENVS_HIGH_FIRST = ("prod", "test", "dev")
 # A data product's checklist, from the contract template it follows.
 CHECKLIST = (("ownership.product_owner", "Owner and steward"), ("contract.description", "Description"),
@@ -54,6 +61,15 @@ _LOAD_RULES = {"contract.freshness", "contract.row_count"}
 OFFLINE_TRUST = "Checked offline from the policy package: the platform's catalog wasn't read."
 OFFLINE_LOADS = "Checked offline from the policy package: the run logs weren't read."
 OFFLINE_TEXT = "Checked offline: the platform's catalog text wasn't read, so only the text in the project's files was checked."
+# The promote gate (GOV-003) falls back to the policy package only when the platform can't be reached at all.
+UNREACHABLE = (requests.RequestException, ConnectionError, TimeoutError)
+# Promotes to these only warn when the policies can't be read; any other target is treated as Prod (fail closed).
+WARN_ONLY_TARGETS = ("dev", "test")
+GATE_LISTED = 10  # findings named per Block policy in the promote gate's reasons; Check now lists them all
+
+
+class PoliciesUnreadable(Exception):
+    """The policies in force can't be read: not from the platform, and not from a usable package."""
 
 
 def _now() -> str:
@@ -335,7 +351,7 @@ class ChecksMixin:
         return pp.summary(package, Path(out) if out else path) | {"kept": str(path)}
 
     def _gc_offline_resolve(self, project: Any, package: str = "", expect_sha256: str = "",
-                            max_age_days: float | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+                            max_age_days: float | None = None, environment: str = "") -> tuple[dict[str, Any], dict[str, Any]]:
         """The policies in force from a policy package (``package``, else the latest one on this PC), verified
         first: a package whose hashes don't match raises PackageError and is never used. ``expect_sha256`` (a CI
         job's pinned hash) is checked before anything else, so a package with recomputed hashes is refused too;
@@ -349,7 +365,7 @@ class ChecksMixin:
         if pkg["project"] != pname:
             raise pp.PackageError(f"The policy package {path} is for {pkg['project']}, not {pname}. It isn't used.")
         local, problems = local_assignments(project.root, pname)
-        out = pp.resolve_offline(pkg, local)
+        out = pp.resolve_offline(pkg, local, context={"environment": environment} if environment else None)
         return out | {"problems": problems}, pp.summary(pkg, path)
 
     def governance_check_from_package(self, package: str = "", remember: bool = False, expect_sha256: str = "",
@@ -361,7 +377,7 @@ class ChecksMixin:
                               pin={"expect_sha256": expect_sha256, "max_age_days": max_age_days})
 
     def governance_check_now(self) -> dict[str, Any]:
-        """Check the open project against the policies in force for it, on this PC. Warn only. When the platform
+        """Check the open project against the policies in force for it, on this PC. It stops nothing. When the platform
         answers, its policies are used and the project's policy package is refreshed; when it can't be reached,
         the latest package on this PC is used, and the result says which and how old."""
         return self._gc_check()
@@ -380,22 +396,34 @@ class ChecksMixin:
             except core.PlatformError:
                 raise  # the platform answered: no package stands in for what it said
             except Exception as exc:  # noqa: BLE001 - not reached: the latest package on this PC stands in
-                # Check now is warn only, so any failure that isn't the platform's own answer may fall back to the
-                # package. If checks ever block (GOV-003), narrow this to connection errors: a fallback must not
-                # let a blocking check pass on an older package while the platform is saying something else.
+                # Check now stops nothing, so any failure that isn't the platform's own answer may fall back to the
+                # package. The promote gate (GOV-003) blocks, so it falls back on connection errors only
+                # (UNREACHABLE): an older package must not let a promote through while the platform says otherwise.
                 if not self._gc_package_path(pname).exists():
                     raise
                 _log.info("Check now for %s uses the policy package: %s", pname, describe(exc))
                 unreachable = describe(exc)
                 resolved, used = self._gc_offline_resolve(project)
-                offline = True
+        result = self._gc_evaluate(project, resolved, used, unreachable)
+        if remember:
+            state = self._gc_state()
+            state.setdefault("results", {})[pname] = result
+            write_json(self._gc_path(), state)
+        return result
+
+    def _gc_evaluate(self, project: Any, resolved: dict[str, Any], used: dict[str, Any] | None = None,
+                     unreachable: str = "", refresh: bool = True) -> dict[str, Any]:
+        """Run the resolved policies' rules on this PC: Check now's result. ``used`` is the package they came
+        from when offline; ``refresh`` takes a new package when they came from the platform."""
+        pname = mesh.project_name(project)
+        offline = bool(used)
         state = self._gc_state()
         stored = state.get("fabric", {}).get(pname, {})
         problems = list(resolved.get("problems") or [])
         if unreachable:
             problems.insert(0, f"The platform couldn't be reached, so the policies came from the policy package on this PC: {unreachable}")
         refreshed: dict[str, Any] | None = None
-        if not offline:
+        if not offline and refresh:
             try:
                 pkg, path = self._gc_take_package(pname, resolved)
                 refreshed = pp.summary(pkg, path)
@@ -485,10 +513,78 @@ class ChecksMixin:
                              "excepted": sum(len(p["findings"]) for p in policies if p["status"] == "excepted"),
                              "passing": len([p for p in policies if p["status"] == "pass"]),
                              "policies": len(policies)}}
-        if remember:
-            state.setdefault("results", {})[pname] = result
-            write_json(self._gc_path(), state)
         return result
+
+    # ---- the promote gate (GOV-003)
+
+    def _gc_promote_resolve(self, project: Any, target: str) -> tuple[dict[str, Any], dict[str, Any] | None, str]:
+        """The policies in force for a promote to ``target``: from the platform, else, only when it can't be
+        reached, from the latest package on this PC. PoliciesUnreadable when neither can be used: a platform that
+        answers with an error is never stood in for by an older package."""
+        try:
+            return self.governance_resolve(environment=target), None, ""  # type: ignore[attr-defined]
+        except UNREACHABLE as exc:
+            why = describe(exc)
+        except Exception as exc:  # noqa: BLE001 - the platform answered, or failed another way: the gate says why
+            raise PoliciesUnreadable(describe(exc)) from exc
+        try:
+            resolved, used = self._gc_offline_resolve(project, environment=target)
+        except pp.PackageError as exc:
+            raise PoliciesUnreadable(f"The platform couldn't be reached ({why}), and the policy package on this PC "
+                                     f"can't be used: {exc}") from exc
+        _log.info("The promote gate for %s uses the policy package: %s", mesh.project_name(project), why)
+        return resolved, used, why
+
+    def governance_promote_gate(self, target: str) -> dict[str, Any]:
+        """What the open project's policies say about a promote to ``target``, for the promote gate's reasons.
+
+        A finding of a Block policy that no exception covers is an error naming the policy and the finding. An
+        active exception that covers it (as in Check now) lets the promote go ahead, and is named in ``excepted``
+        and the notes. Warn and Advisory policies never stop a promote. Policies that can't be read stop a
+        promote to Prod (fail closed) and are a note for Test and Dev. Reads only: no package is taken and
+        Check now's last result is kept as it is."""
+        project = self._project()  # type: ignore[attr-defined]
+        out: dict[str, Any] = {"errors": [], "notes": [], "excepted": [], "offline": False}
+        try:
+            resolved, used, unreachable = self._gc_promote_resolve(project, target)
+        except PoliciesUnreadable as exc:
+            why = str(exc).rstrip(".")
+            if target in WARN_ONLY_TARGETS:
+                out["notes"].append(f"The governance policies couldn't be read, so they weren't checked: {why}. "
+                                    "A promote to Prod stops until they can be read.")
+            else:
+                out["errors"].append(f"The governance policies couldn't be read, so {target.title()} can't be promoted to "
+                                     f"until they can: {why}. Try again when the platform can be reached; Check now "
+                                     "keeps a policy package on this PC each time it can.")
+            return out
+        blocking = [p for p in resolved["policies"] if p.get("enforcement") == "block"]
+        if not blocking:
+            return out  # Warn and Advisory policies never stop a promote: Check now lists their findings
+        result = self._gc_evaluate(project, dict(resolved, policies=blocking), used, unreachable, refresh=False)
+        out["offline"] = result["offline"]
+        if used:
+            out["notes"].append(f"Block policies: {result['package_note']}")
+        for pol in result["policies"]:
+            name = f'Block policy "{pol["name"]}"'
+            found = [(f"{f['object']}: " if f.get("object") else "") + str(f.get("description") or f.get("rule") or "")
+                     for f in pol["findings"]]
+            if pol["status"] == "excepted":
+                exc = pol.get("exception") or {}
+                by = f" Approved by {exc['approved_by']}." if exc.get("approved_by") else ""
+                out["notes"].append(f"{name}: {len(found)} finding{'s' if len(found) != 1 else ''} let through by an "
+                                    f"exception. {exc.get('note') or ''}{by}".rstrip())
+                out["excepted"].append({"policy": pol["id"], "name": pol["name"], "findings": found, "exception": exc})
+                continue
+            out["errors"] += [f"{name}: {text}" for text in found[:GATE_LISTED]]
+            if len(found) > GATE_LISTED:
+                out["errors"].append(f"{name}: {len(found) - GATE_LISTED} more findings. Platform > Governance > "
+                                     "Check this project lists them all.")
+            if pol["unknown"] and not pol.get("exception"):
+                out["notes"].append(f"{name}: {len(pol['unknown'])} couldn't be checked here, so they don't stop the "
+                                    f"promote: {pol['unknown'][0].get('description')}")
+            if pol["not_run"]:
+                out["notes"].append(f"{name}: its rules that run in Fabric aren't run here, so they don't stop the promote.")
+        return out
 
     # ---- a data product's checklist
 

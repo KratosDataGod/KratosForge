@@ -157,3 +157,11 @@ def test_real_windows_confirms_this_processs_own_connection():
     finally:
         for s in (client, accepted, server):
             s.close()
+
+
+def test_the_apps_message_carries_the_apis_own_reason(tmp_path):
+    from fabric_desktop.integrations.app_service import _last_line
+    log = tmp_path / "http.log"
+    log.write_text("starting\nAnother Windows account's program is listening on port 47615 on this PC\n\n")
+    assert _last_line(log).startswith("Another Windows account's program")
+    assert "in use" in _last_line(tmp_path / "missing.log")

@@ -29,6 +29,8 @@ TCP_TABLE_OWNER_PID_CONNECTIONS = 4
 TCP_TABLE_OWNER_PID_LISTENER = 3
 LOOPBACK = 0x0100007F  # 127.0.0.1 as GetExtendedTcpTable gives it (network byte order, read as a DWORD)
 ERROR_INSUFFICIENT_BUFFER = 122
+# What GetExtendedTcpTable says for AF_INET6 on a PC with IPv6 turned off: no IPv6 listeners there.
+NO_IPV6 = (50, 87)  # ERROR_NOT_SUPPORTED, ERROR_INVALID_PARAMETER
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 TOKEN_QUERY = 0x0008
 TOKEN_USER_CLASS = 1  # TokenUser
@@ -175,6 +177,8 @@ def _rows6(table_class: int) -> list[tuple[int, bytes, int, int, int]]:
         err = get(buf, ctypes.byref(size), False, AF_INET6, table_class, 0)
         if err == 0:
             break
+        if err in NO_IPV6:
+            return []
         if err != ERROR_INSUFFICIENT_BUFFER:
             raise OSError(err, "GetExtendedTcpTable (IPv6) failed")
     else:

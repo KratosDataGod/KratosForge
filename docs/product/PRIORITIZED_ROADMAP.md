@@ -276,3 +276,4 @@ are sequenced by those programs; the order here is what the master product view 
 | 2026-10-26 | Product check for PRs #676 to #741. PB-113 action-first program added (AF-1, #722). Chris accepted PB-018, PB-044, PB-054 and PB-065 with documented limitations ("I accept all 4") | Chris |
 | 2026-10-26 | Evening product check for PRs #742 to #791 with #725 and #726. PB-112 moved to In review (#753) | Product management thread |
 | 2026-10-27 | Product check for PRs merged after #797, through #809. PB-111 (#798) and PB-082 (#701) moved to In review | Product management thread |
+| 2026-10-27 | Evening check for #811 to #826; inventory text the #815 implementation reviews named stale corrected; FEAT-FAB-05 to Partially Verified (cargo tests run in CI) | Product management thread |

@@ -1038,7 +1038,8 @@ async function renderMonitor() {
     op || hub ? null : btn("Refresh", "sync", refresh, "tool outline"));
   // The page's button: the KratosForge tab's runs, or the Fabric hub, in a window of its own.
   const popOutHere = hub ? (fabricOut ? null : popOutButton("fabric", "Pop out hub")) : runsOut ? null : popOutButton("runs", "Pop out runs");
-  const runsBand = !hub && runsOut && !POP_OUT;
+  // The runs window holds the KratosForge tab (Runs, Schedules, Operations); the Fabric tab stays here.
+  const runsBand = source === "kratosforge" && runsOut && !POP_OUT;
   setView(h("div", { class: `page monitor${hubShown ? "" : " no-fabric"}` },
     POP_OUT ? null : h("div", { class: "page-head" },
       h("div", {}, h("h1", {}, "Monitor"), h("p", { class: "sub monitor-context" }, monitorAbout(...about))),

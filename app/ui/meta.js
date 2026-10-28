@@ -179,6 +179,8 @@ async function renderMetadata() {
     return previewId && !metaGroupPreview(group[2]) ? preview(previewId, node) : node;
   };
   const body = h("div", { class: "meta-body" });
+  // Policy exceptions about to end come from the platform, so their banner fills in when it answers.
+  const policyEnding = h("div", { class: "gov-ending-slot" });
   setView(meshPage({
     context: inProject ? ["Every table is a file in ", h("span", { class: "mono" }, p.path),
       ". Metadata version ", h("span", { class: "mono" }, p.version), ". ", learnMore("data-mesh")] : undefined,
@@ -193,7 +195,7 @@ async function renderMetadata() {
       h("button", { class: `tab${inProject ? " active" : ""}`, onclick: () => goMeta(m.projectTab || "entities") }, "Project")),
     inProject ? h("div", { class: "subtabs meta-project-groups", "aria-label": "Project" }, shownGroups("project").map(groupTab)) : null],
     // Problems and ending exceptions show on every tab: runs and promote stay blocked until they're fixed.
-    banners: [problemsBanner(p.errors), exceptionBanner(p)],
+    banners: [problemsBanner(p.errors), exceptionBanner(p), policyEnding],
     groupSeg: visible(group[2]).length > 1 ? h("div", { class: "seg meta-tabs", role: "group", "aria-label": group[1] }, visible(group[2]).map(([id, label, previewId]) =>
       h("button", { class: m.tab === id ? "on" : null, "aria-pressed": String(m.tab === id), onclick: () => goMeta(id) }, tabLabel(label, previewId)))) : null,
     body,
@@ -203,6 +205,7 @@ async function renderMetadata() {
     domains: renderMeshOrgDomainsTab, workspaces: renderMeshDomainsTab, products: renderMeshProductsTab, links: renderMeshLinksTab,
     exceptions: renderExceptionsTab }[m.tab];
   raiseExceptionNotices(p);
+  raisePolicyExceptionNotices(policyEnding);
   await render(body, p);
 }
 
@@ -584,14 +587,23 @@ function keysCard(e) {
 
 // opts.danger: the action deletes or overwrites data, so it is drawn red and Cancel has focus (UX-018).
 // opts.typeToConfirm: the action stays off until exactly this text is typed, for the worst overwrites.
+// opts.reason: { label, placeholder, max } asks why in a required box; the dialog then resolves with
+// the trimmed text instead of true.
 // Escape, the close button and a click outside count as Cancel.
 function confirmDialog(title, text, okLabel = "OK", opts = {}) {
   return new Promise((resolve) => {
     let settled = false;
-    const done = (v) => { if (settled) return; settled = true; closeDialog(); resolve(v); };
+    let why = null;
+    const done = (v) => { if (settled) return; settled = true; closeDialog(); resolve(v && why ? why.value.trim() : v); };
     const cancel = btn("Cancel", null, () => done(false), "tool outline");
     const ok = btn(okLabel, null, () => done(true), opts.danger ? "tool danger-solid" : "tool primary");
     let typed = null;
+    if (opts.reason) {
+      ok.disabled = true;
+      why = h("textarea", { rows: 3, maxlength: opts.reason.max || 500, placeholder: opts.reason.placeholder || "",
+        "aria-label": opts.reason.label || "Reason", oninput: (e) => { ok.disabled = !e.target.value.trim(); } });
+      typed = h("label", { class: "field" }, opts.reason.label || "Reason", why);
+    }
     if (opts.typeToConfirm) {
       ok.disabled = true;
       typed = h("label", { class: "field" }, `Type ${opts.typeToConfirm} to confirm`,
@@ -601,7 +613,7 @@ function confirmDialog(title, text, okLabel = "OK", opts = {}) {
     }
     showDialog(title, h("div", {}, h("p", { class: "text" }, text), typed), [cancel, ok],
       () => { if (!settled) { settled = true; resolve(false); } });
-    if (opts.danger && !typed) cancel.focus();
+    if (opts.danger && (!typed || why)) cancel.focus();
   });
 }
 

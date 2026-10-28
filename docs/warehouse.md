@@ -89,8 +89,9 @@ The left side lists the warehouse's schemas, and in each its **Tables**, **Views
 
 - Click a table or view to run `SELECT TOP (100) *` on it (in the current tab when it's empty, else a new one).
 - Open a table or view to see its columns with their T-SQL types, such as `decimal(18,2)` or `nvarchar(100)`. Click a column, procedure or function to type its quoted name in the editor.
-- **Script as** (an object's **⋯** button, or right-click): **Select top 100 rows**, **Script as CREATE**, **Script as ALTER** (views, procedures and functions) and **Script as DROP**. The script opens in a new tab and never runs: this page runs only queries that read. A table's CREATE is built from the columns already listed, so it asks Fabric nothing. A view, procedure or function's definition is read from `sys.sql_modules` (one catalog query in Fabric), and ALTER turns its leading `CREATE` or `CREATE OR ALTER` into `ALTER`. A table's CREATE carries column names, types and NULL or NOT NULL only, not constraints.
+- **Script as** (an object's **⋯** button, or right-click): **Select top 100 rows**, **Script as CREATE**, **Script as ALTER** (views, procedures and functions) and **Script as DROP**. The script opens in a new tab, headed *Opened, not run*: running it is up to you, and a script that changes the warehouse needs **Allow changes** and a confirm ([Changing the warehouse](#changing-the-warehouse)). Objects in Fabric's own schemas (`queryinsights`, `_rsc`, `sys`) have no ALTER or DROP. A table's CREATE is built from the columns already listed, so it asks Fabric nothing. A view, procedure or function's definition is read from `sys.sql_modules` (one catalog query in Fabric), and ALTER turns its leading `CREATE` or `CREATE OR ALTER` into `ALTER`. A table's CREATE carries column names, types and NULL or NOT NULL only, not constraints.
 - **Filter objects** narrows the tree by name or schema. **Refresh** lists them again.
+- **With the keyboard:** Tab reaches the tree, the up and down arrows move, right opens a row (or goes into it), left closes it (or goes to its parent), Home and End jump to the first and last row, and Enter does what a click does. Shift+F10 or the menu key opens **Script as** on an object.
 - The editor completes table, view and column names from the same list, without asking Fabric again.
 
 A SQL analytics endpoint is found through its lakehouse, which Fabric gives the same name in the same workspace. If the lakehouse isn't in the list, the row has no **SQL query** button; use **Open in Fabric**.
@@ -224,9 +225,26 @@ Above the result, three views, on every SQL page (lakehouse, local project and w
 
 A query that returns several result sets isn't possible yet: the page sends one statement at a time. That comes with warehouse writes and scripts, which wait on their own decision.
 
-The page is tagged Preview until a query has been run on a tenant. Settings can hide preview features.
+The page stays tagged Preview until the app's own sign-in has run a query on a tenant: the [tenant run](#tested-on-a-tenant) used another sign-in. Settings can hide preview features.
 
 How a run works underneath (states, limits, what is refused): [Running SQL queries](sql-execution.md#queries-on-a-warehouse-preview).
+
+## Tested on a tenant
+
+On 2026-10-27 the warehouse checks were run against a real Fabric tenant, with main at `21d318fc`. They used the throwaway workspace `kf_tenant_test` on a Trial capacity and about 20 short warehouse queries. The engine ran from its own process, with the page's confirm logic ported to Python, so the app's window wasn't used. 25 of the 26 checks passed:
+
+- **Changes (WH-10):** a change was refused while **Allow changes** was off, then previewed, confirmed and committed once it was on. A failed statement and **Stop** each kept nothing. `GRANT`, `BEGIN TRAN` and an `EXEC` the rules don't allow were refused before anything was sent. The audit log had one entry per run, none with SQL.
+- **Project (WH-11 to WH-13):** importing the warehouse to files, comparing them with the warehouse and deploying all worked.
+
+The run found two bugs, both fixed since:
+
+- **WH-10.7 failed** ([#807](https://github.com/KratosDataGod/KratosForge/issues/807)). A workspace that belonged to no environment but had "test" in its name was taken for Test, so the page never asked for the warehouse name. Since [#808](https://github.com/KratosDataGod/KratosForge/pull/808), the environment comes only from the metadata project, and a workspace that isn't mapped counts as Prod ([Changing the warehouse](#changing-the-warehouse)).
+- **Import picked up Fabric's own schemas** `queryinsights` and `_rsc`. Since [#809](https://github.com/KratosDataGod/KratosForge/pull/809), Import, Compare and Deploy leave out `queryinsights`, `_rsc`, `sys` and `information_schema`.
+
+Still not checked on a tenant:
+
+- **The app's own Azure SQL sign-in.** The app had no saved Azure SQL sign-in to use without asking, so the run used the Azure CLI's sign-in instead. Fabric accepted that token, but whether Microsoft's sign-in app can get a token for `https://database.windows.net/user_impersonation` is still unknown ([permissions](permissions.md)).
+- **The Monitoring tab** (WH-19): see [Monitoring](#monitoring-preview).
 
 ## The plan
 

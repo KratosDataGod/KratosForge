@@ -420,6 +420,10 @@ Whoever creates the platform in Fabric becomes its first admin. Admins add other
 
 **Platform > Governance** (Preview) holds the standards your organization defines once for every project: naming, schemas, data quality, classification, ownership, data contracts and deployment readiness. Platform admins choose **New policy**, edit the draft, and **Publish** it as a version that never changes afterwards; editing again makes a new draft. A policy applies where it's assigned: the whole enterprise, a domain, a project or one table. Domain owners can assign policies to their own domains. A policy marked mandatory can only be made stricter below where it's assigned. Open a policy and choose **Where it applies**, then **Explain** next to a project, to see each step that decided what it gets. A project can tighten or add policies in its own `governance.toml`. Details in [Governance policies](governance.md).
 
+#### Policy exceptions
+
+A policy's **Where it applies** tab lists its exceptions in force. One that ends within 14 days shows **Ends in N days**, a banner on Data mesh and a notice on the bell for whoever asked and the project it covers. A platform admin can choose **End early** and give a reason: it stops applying now, and the exception stays on record. Tick **Include ended** to see exceptions that have ended. Details in [Exceptions to a policy](governance.md#exceptions-to-a-policy).
+
 ### Best practices: checks and templates (Preview)
 
 **Platform > Governance > Templates** lists reusable policy definitions: four **Built in** ones (table names, product owners, sensitive column labels and a data contract) and your organization's own (**Yours**). A platform admin chooses **Use** to make a policy draft from one, and any policy can be saved with **Save as template** from its page. Platform admins add templates, and can let domain owners add them too.

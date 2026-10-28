@@ -17,7 +17,8 @@ const PLATFORM_TAB_BAR = [
   ["settings", "Settings"],
 ];
 const REQUEST_KIND = { key_table: "Key table", source: "Source", access: "Access", shortcut: "Shortcut",
-  workspace: "Workspace", workspace_access: "Workspace access", domain: "Domain", exception: "Exception", data: "Data" };
+  workspace: "Workspace", workspace_access: "Workspace access", domain: "Domain", exception: "Exception", data: "Data",
+  join_domain: "Join domain" };
 const REQUEST_STATUS = { waiting: "Waiting", approved: "Approved", declined: "Declined", withdrawn: "Withdrawn" };
 const platformPage = { tab: "overview", env: "dev", source: null, me: null };
 
@@ -851,6 +852,10 @@ function requestDetail(r) {
   if (r.kind === "exception") {
     return [h("b", {}, d.policy_name || r.target), muted(` for ${d.scope} ${d.scope_target}`), h("div", { class: "muted-text small" }, `Until ${d.until}`)];
   }
+  if (r.kind === "join_domain") {
+    return [h("b", {}, `${r.target} into ${d.domain_name || d.domain}`), d.subdomain ? muted(` / ${d.subdomain}`) : null,
+      h("div", { class: "muted-text small" }, `Domain owners: ${d.owners || "none yet, so a platform admin decides"}`)];
+  }
   if (r.kind === "data") {
     return [h("b", {}, d.what === "change" ? `Change to ${d.product_name || r.target}` : `New data product from ${d.domain_name || r.target}`),
       d.needed_by ? h("div", { class: "muted-text small" }, `Needed by ${d.needed_by}`) : null];
@@ -997,9 +1002,9 @@ function requestTable(rows, rerender, compact = false) {
 // What Requests reads and writes, on Data mesh > Requests (mesh-requests.js).
 const REQUESTS_HOW = {
   reads: "The requests in the platform's catalog (SQL_Platform in Fabric, or a file on this PC), when the tab opens. New request also lists the domains, capacities, workspaces and policies you can see, to pick from, and Request a source lists the Fabric connections you can use (never their credentials).",
-  changes: "Sending adds a request to the catalog. Approving makes what was asked for first, as you: a key table or source in the platform (for a source asking for a Copy job, first the Copy job CJ_Landing_<source> in the landing workspace, writing to LH_Landing/Files/<source>/<table>/, and its daily schedule, Preview); a shortcut in OneLake; a workspace in Fabric on its capacity, with its admins added; a role in a workspace; a domain created in Fabric and kept in the platform (in the platform only when its parent isn't in Fabric; creating it in Fabric needs a Fabric administrator); an exception recorded in the platform for its policy; access to a data product given in the catalog. Then the request is marked approved. Accepting a data request records your reply and builds nothing. Declining records your note; Withdraw marks your own request withdrawn. If a step fails, the request stays waiting and the error names the step.",
+  changes: "Sending adds a request to the catalog. Approving makes what was asked for first, as you: a key table or source in the platform (for a source asking for a Copy job, first the Copy job CJ_Landing_<source> in the landing workspace, writing to LH_Landing/Files/<source>/<table>/, and its daily schedule, Preview); a shortcut in OneLake; a workspace in Fabric on its capacity, with its admins added; a role in a workspace; a domain created in Fabric and kept in the platform (in the platform only when its parent isn't in Fabric; creating it in Fabric needs a Fabric administrator); an exception recorded in the platform for its policy; access to a data product given in the catalog; a project's domain set in the catalog when it asked to join one. Then the request is marked approved. Accepting a data request records your reply and builds nothing. Declining records your note; Withdraw marks your own request withdrawn. If a step fails, the request stays waiting and the error names the step.",
   results: "Everyone sees requests here and in the bell, and the platform's Teams routes get a notice (no email yet). A workspace's domain in Fabric is set by a Fabric administrator in Fabric's admin portal. Every change is on Platform > Govern > Audit.",
-  more: [["Who decides", "A data product's owner decides who else may read it and changes to it. A domain's owners answer requests for a new data product. Platform admins decide key tables, sources, workspaces, workspace access, domains and policy exceptions, and can decide any request."]],
+  more: [["Who decides", "A data product's owner decides who else may read it and changes to it. A domain's owners answer requests for a new data product and decide which projects join their domain. Platform admins decide key tables, sources, workspaces, workspace access, domains and policy exceptions, and can decide any request."]],
   anchor: "data-mesh",
 };
 

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import uuid
@@ -34,6 +35,7 @@ from typing import Any
 from xml.sax.saxutils import escape
 
 from . import warehouse_compare
+from .redact import describe as describe_error
 from .git.repo import Repository
 
 METHODS = {"wh_projects_list", "wh_project_files", "wh_project_read", "wh_project_save", "wh_project_write",
@@ -132,6 +134,9 @@ def default_path(kind: str, schema: str, name: str) -> str:
 
 def _normal(text: str) -> str:
     return text.replace("\r\n", "\n").strip() + "\n"
+
+
+_log = logging.getLogger(__name__)
 
 
 class WarehouseProjectMixin:
@@ -477,12 +482,37 @@ class WarehouseProjectMixin:
 
     # ---- deploy (WH-13)
 
+    def _wh_workspace_env(self, workspace_id: str) -> str:
+        """The environment the open metadata project gives ``workspace_id``: the strictest one that
+        names it (Prod, then Test, then Dev; a Keys workspace counts as its environment's), or
+        "none" when none does, there's no project, or it can't be read."""
+        from .meta_service import NoMetadataProject, _env_workspaces
+        if not workspace_id:
+            return "none"
+        try:
+            envs = self._project().environments  # type: ignore[attr-defined]
+        except NoMetadataProject:
+            return "none"
+        except Exception as exc:  # noqa: BLE001 - an unreadable project gates the deploy, as no project does
+            _log.info("Couldn't read the metadata project's environments; the deploy is gated: %s", describe_error(exc))
+            return "none"
+        wanted = workspace_id.lower()
+        for env in ("prod", "test", "dev"):
+            cfg = envs.get(env) or {}
+            ids = _env_workspaces(cfg) | {cfg.get("keys_workspace_id") or ""}
+            if wanted in {i.lower() for i in ids if i}:
+                return env
+        return "none"
+
     def wh_project_deploy_plan(self, repo: str, folder: str, objects: list[dict[str, Any]],
-                               environment: str = "") -> dict[str, Any]:
+                               environment: str = "", workspace_id: str = "") -> dict[str, Any]:
         """What a deploy would run to make the warehouse match the project: the compare, turned into
         changes in the order they'd run (warehouse_compare.deploy_plan), and the project's Git state.
         Each change from a file says whether that file is committed (tracked, and the same as HEAD).
-        Outside Dev (``environment`` test, prod, none or not given) a deploy takes only what Git has:
+        Outside Dev a deploy takes only what Git has. The environment is the stricter of ``environment``
+        (what the page sent) and what the metadata project gives ``workspace_id`` (see
+        _wh_workspace_env), so a page can't turn the rule off by sending "dev"; without a workspace,
+        or one no environment names, the deploy counts as Prod. There,
         a change whose file isn't committed isn't offered, and nothing is while the branch has commits
         that aren't pushed. Writes nothing and runs nothing: the page runs each ticked change as a
         confirmed warehouse change (sql_exec.py)."""
@@ -492,7 +522,10 @@ class WarehouseProjectMixin:
         git = self._wh_git(root, project)
         changes = warehouse_compare.deploy_plan(compared["objects"])
         committed = self._wh_committed(root, project, sorted({c["path"] for c in changes if c["path"]}))
-        gated = environment != "dev"
+        rank = {"dev": 0, "test": 1, "prod": 2}
+        env = max((environment if environment in rank else "none", self._wh_workspace_env(workspace_id)),
+                  key=lambda e: rank.get(e, 3))
+        gated = env != "dev"
         unpushed = not git["upstream"] or bool(git["ahead"])
         for c in changes:
             c["committed"] = committed.get(c["path"], True) if c["path"] else True
@@ -502,4 +535,4 @@ class WarehouseProjectMixin:
                          why=f"{c['why']}; held until it's committed and pushed")
         return {"repo": repo, "folder": folder, "changes": changes, "unread": compared["unread"],
                 "branch": git["branch"], "commit": git["commit"], "upstream": git["upstream"], "ahead": git["ahead"],
-                "gated": gated, "uncommitted": sorted({c["path"] for c in changes if not c["committed"]})}
+                "gated": gated, "environment": env, "uncommitted": sorted({c["path"] for c in changes if not c["committed"]})}

@@ -471,7 +471,8 @@ async function whProjectDeploy(ref, project) {
   try {
     const objects = await whScriptWarehouse(ref);
     await whEnvRead();
-    plan = await rpc("wh_project_deploy_plan", { repo: project.repo, folder: project.folder, objects, environment: whEnv(ref) });
+    plan = await rpc("wh_project_deploy_plan", { repo: project.repo, folder: project.folder, objects, environment: whEnv(ref),
+      workspace_id: ref.workspace_id });
     // The engine's check on each change, before anything is sent: one it would refuse isn't offered.
     const whRef = { workspace_id: ref.workspace_id, item_id: ref.item_id, kind: ref.kind };
     for (const c of plan.changes.filter((x) => x.offered)) {

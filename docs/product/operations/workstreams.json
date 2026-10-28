@@ -1,0 +1,301 @@
+{
+  "schema_version": 1,
+  "updated": "2026-10-28",
+  "about": "Machine-readable work queues for the six workstreams. GitHub Issues hold each story; this file says which story each workstream is on, what comes next and what blocks it. The orchestrator thread updates it at the weekly review and when a lead reports a story done. Check and render with: python docs/product/operations/tools/queues.py all",
+  "rules": {
+    "ready_minimum": 2,
+    "active_maximum": 1,
+    "story_labels": [
+      "story",
+      "P0..P4",
+      "ws:<key>",
+      "pillar:<fabric|databricks|snowflake|shared>",
+      "status:<active|ready|blocked|review>"
+    ],
+    "needs_chris": "New user-facing features need a mockup and Chris's typed go; Fabric capacity or cloud spend needs his typed yes. Such stories are blocked, never ready, until he answers."
+  },
+  "workstreams": [
+    {
+      "key": "local-exec",
+      "pillar": "shared",
+      "name": "Local Execution",
+      "scope": "DuckDB, Polars, Python, Spark API, Delta Lake, execution engines, hardware use, local processing and performance.",
+      "lead": "Local data engine and OneLake publishing",
+      "members": [
+        "Local TPC-H run slowdown"
+      ],
+      "active": {
+        "story": "PB-094",
+        "issue": 846
+      },
+      "ready": [
+        {
+          "story": "PB-068",
+          "issue": 847
+        },
+        {
+          "story": "PB-015",
+          "issue": 848
+        }
+      ],
+      "backlog": [
+        "PB-073",
+        "PB-067",
+        "PB-016",
+        "PB-085"
+      ],
+      "dependencies": [
+        "PB-015 needs PB-012 accepted (Spark API matrix, In review)"
+      ],
+      "blockers": [],
+      "last_completed": "#829 Cores on this PC (core cap), merged 2026-10-28",
+      "next_action": "Measure CPU and memory from the kernel process, not the engine (PB-094)."
+    },
+    {
+      "key": "fabric",
+      "pillar": "fabric",
+      "name": "Microsoft Fabric",
+      "scope": "Notebooks, pipelines, lakehouses, warehouses, semantic models, Direct Lake, OneLake, deployment and Fabric optimization.",
+      "lead": "Build full warehouse development experience",
+      "members": [
+        "Build full Data Factory experience",
+        "Local Fabric pipeline execution",
+        "Git-native development program",
+        "Best Practice Analyzer for semantic models",
+        "TMDL and OSI semantic model conversion",
+        "Clean up leftover dataflow staging lakehouses",
+        "Sync pinned workspaces with Fabric"
+      ],
+      "active": {
+        "story": "PB-002",
+        "issue": 849,
+        "note": "Prepare first: the ten flows, the harness and a run plan in the throwaway kf_tenant_test workspace on Trial capacity (never the capacity that hosts Prod). The live run waits for Chris's typed yes because it spends capacity."
+      },
+      "ready": [
+        {
+          "story": "PB-043",
+          "issue": 850
+        },
+        {
+          "story": "PB-013",
+          "issue": 851,
+          "note": "Only the session, warehouse and connections message is left (product check 2026-10-25)."
+        }
+      ],
+      "backlog": [
+        "PB-040",
+        "PB-041",
+        "PB-048",
+        "PB-049",
+        "PB-036"
+      ],
+      "dependencies": [],
+      "blockers": [
+        "PB-002 live run waits on Chris's yes for Trial capacity; the plan and harness are prepared first",
+        "#755 WH-16 draft waits on Chris",
+        "#799 staging cleaner held"
+      ],
+      "last_completed": "#823 Warehouse full screen and Open in KratosForge",
+      "next_action": "Prepare the ten-flow tenant smoke test (PB-002) so it runs the moment Chris says yes."
+    },
+    {
+      "key": "dbx-snow",
+      "pillar": "databricks",
+      "name": "Databricks and Snowflake",
+      "scope": "Platform adapters, notebook compatibility, SQL, Snowpark, Spark, deployment and platform-specific execution.",
+      "lead": "Fabric and Databricks unified development",
+      "members": [
+        "Snowflake local-first development (to be opened)"
+      ],
+      "active": {
+        "story": "KF-FABRIC-SPARK",
+        "issue": 852,
+        "note": "The built work is a saved patch in the project files (databricks/fabric-spark-wip). #782 has merged, so restart from main and apply it."
+      },
+      "ready": [
+        {
+          "story": "KF-SNOWFLAKE-RESEARCH",
+          "issue": 853,
+          "note": "Research only. Output goes to docs and the project files; no Snowflake account or code without Chris's go."
+        },
+        {
+          "story": "KF-DBX-LOSS-REPORT",
+          "issue": 854
+        }
+      ],
+      "backlog": [],
+      "dependencies": [
+        "Snowflake code waits on its ADRs and Chris's go",
+        "Engine picker UI waits on Chris's mockup review"
+      ],
+      "blockers": [
+        "Engine picker mockup waits on Chris"
+      ],
+      "last_completed": "#782 Databricks Connect (Preview)",
+      "next_action": "Open the Fabric Spark (Livy) draft PR from the saved patch, restarted from main."
+    },
+    {
+      "key": "enterprise",
+      "pillar": "fabric",
+      "name": "Enterprise Services",
+      "scope": "Metadata, governance, business keys, shared data assets, data quality, lineage and centralized optimization.",
+      "lead": "Enterprise governance foundation",
+      "members": [
+        "Metadata-driven data mesh",
+        "Workload management workspace"
+      ],
+      "active": {
+        "story": "PB-057",
+        "issue": 855
+      },
+      "ready": [
+        {
+          "story": "PB-083",
+          "issue": 856
+        },
+        {
+          "story": "PB-053",
+          "issue": 857
+        }
+      ],
+      "backlog": [
+        "PB-052",
+        "PB-060",
+        "PB-092",
+        "PB-019",
+        "PB-031"
+      ],
+      "dependencies": [
+        "PB-057 builds on PB-056 (policy registry, In review)"
+      ],
+      "blockers": [
+        "PB-052 tenant verification needs Chris's yes",
+        "Workload pipelines mockup waits on Chris"
+      ],
+      "last_completed": "#844 governance review follow-ups; #828 product groups",
+      "next_action": "Offline policy validation (PB-057), engine and CLI first, no new screen."
+    },
+    {
+      "key": "devex",
+      "pillar": "shared",
+      "name": "Developer Experience",
+      "scope": "UI and UX, debugging, testing, documentation, project management, performance diagnostics and developer productivity.",
+      "lead": "UX and simplicity oversight",
+      "members": [
+        "Bring VS Code developers to KratosForge",
+        "Make every screen action-first",
+        "Run continuous product management"
+      ],
+      "active": {
+        "story": "PB-078",
+        "issue": 858
+      },
+      "ready": [
+        {
+          "story": "PB-077",
+          "issue": 859
+        },
+        {
+          "story": "PB-070",
+          "issue": 860
+        }
+      ],
+      "backlog": [
+        "PB-087",
+        "PB-062",
+        "PB-034",
+        "PB-027"
+      ],
+      "dependencies": [],
+      "blockers": [],
+      "last_completed": "#827 one page layout for Platform, Optimize and Monitor",
+      "next_action": "Every feature the docs call Preview gets a Preview id, with a UI test (PB-078)."
+    },
+    {
+      "key": "platform",
+      "pillar": "shared",
+      "name": "Platform Engineering",
+      "scope": "Architecture, security, automated tests, CI/CD, dependency management, code review, integration and releases.",
+      "lead": "Codebase audit and hardening",
+      "members": [
+        "Release management",
+        "Engineering quality review",
+        "Run bug fix and security quality control",
+        "Enterprise readiness program"
+      ],
+      "active": {
+        "story": "PB-074",
+        "issue": 861,
+        "note": "On main d0747a6 every third-party action is already pinned by commit SHA and zensical is pinned, so what remains is that the release job in ci.yml doesn't list the audit job in needs."
+      },
+      "ready": [
+        {
+          "story": "PB-072",
+          "issue": 862,
+          "note": "On main the engine already runs QUICK calls in their own lane (server.py, watchdog.rs), so a long call no longer blocks the quick list. Check what still lacks a limit or a Stop and finish only that, or show the item is done."
+        },
+        {
+          "story": "PB-051",
+          "issue": 863,
+          "note": "retrying.py already retries 408, 429 and 5xx. Check the 401 refresh-once rule, the 300-second long-running-operation limit and the no-duplicate-write test."
+        }
+      ],
+      "backlog": [
+        "PB-010",
+        "PB-063",
+        "PB-003",
+        "PB-061"
+      ],
+      "dependencies": [],
+      "blockers": [
+        "PB-001 code signing waits on Microsoft identity validation",
+        "#744 HD-030 waits on Chris's fail-closed decision"
+      ],
+      "last_completed": "#843 links off by policy start no listener",
+      "next_action": "Make the release job wait for the audit job (PB-074 remainder)."
+    }
+  ],
+  "new_stories": {
+    "KF-FABRIC-SPARK": {
+      "title": "Fabric Spark interactive sessions (Livy) as a Preview engine",
+      "pillar": "fabric",
+      "priority": "P2",
+      "problem": "Notebooks that need real Spark can only run as a whole Fabric job; there is no interactive Fabric Spark session from the app.",
+      "capability": "A Preview engine that runs cells in a Fabric Spark session through the Livy API, with remote-compute confirmation.",
+      "acceptance": [
+        "The saved patch is rebased onto main and opened as a draft PR",
+        "Every remote session start goes through the remote compute confirmation and risk check",
+        "Tests with Fabric faked cover start, run, cancel and stop",
+        "Docs say it uses Fabric capacity and is Preview"
+      ],
+      "effort": "M"
+    },
+    "KF-SNOWFLAKE-RESEARCH": {
+      "title": "Snowflake pillar: audit, ADRs and parity matrix",
+      "pillar": "snowflake",
+      "priority": "P4",
+      "problem": "Snowflake is one of the three target platforms and has no work at all.",
+      "capability": "An evidence-based plan: what Snowflake development can run on the PC (DuckDB with a Snowflake SQL dialect, SQLGlot transpiling, Snowpark local testing), what needs a live account, and how it fits the existing engine registry and connection profiles.",
+      "acceptance": [
+        "A parity matrix like databricks/parity-matrix.md, with official sources for each row",
+        "ADRs for sign-in, the engine adapter and what never runs inside the engine process",
+        "A sliced plan of independently reviewable PRs",
+        "No code and no Snowflake account spend before Chris's go"
+      ],
+      "effort": "M"
+    },
+    "KF-DBX-LOSS-REPORT": {
+      "title": "Databricks notebook conversion says what it could not carry over",
+      "pillar": "databricks",
+      "priority": "P3",
+      "problem": "Importing or exporting Databricks notebooks drops widgets, magics and dbutils calls without telling the developer.",
+      "capability": "A loss report on every Databricks import and export, extending the existing converter (no second converter).",
+      "acceptance": [
+        "Each dropped or changed construct is listed with its cell",
+        "Round-trip tests cover widgets, %sh, %fs and dbutils",
+        "Docs list what converts and what doesn't"
+      ],
+      "effort": "S"
+    }
+  }
+}

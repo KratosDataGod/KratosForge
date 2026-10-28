@@ -5,11 +5,12 @@ import datetime as dt
 import json
 
 import pytest
+import requests
 
 from fabric_desktop import audit, governance_checks as gc, server
 from fabric_desktop.central import core, policy, udf
 from fabric_desktop.central.checks_service import last_load
-from fabric_desktop.central.client import LocalPlatform
+from fabric_desktop.central.client import FabricPlatform, LocalPlatform
 from fabric_desktop.service import Service
 
 ADMIN, OWNER, DEV = "ana@contoso.com", "omar@contoso.com", "dev@contoso.com"
@@ -386,6 +387,39 @@ def test_check_now_says_unknown_instead_of_passing(svc):
     assert next(p for p in out["policies"] if p["id"] == "owners")["status"] == "pass"
     contract = next(p for p in out["policies"] if p["id"] == "contract")
     assert {f["rule_id"] for f in contract["unknown"]} == {"contract.terms_linked"}, "the run log now answers freshness"
+
+
+class TrustBehindAGateway:
+    """The local platform, except that product_trust goes to a UDF_Platform whose gateway answers 502."""
+
+    def __init__(self, platform, content):
+        self.platform, self.content = platform, content
+
+    def call(self, op, **kwargs):
+        if op != "product_trust":
+            return self.platform.call(op, **kwargs)
+        resp = requests.Response()
+        resp.status_code, resp._content, resp.reason = 502, self.content, "Bad Gateway"
+        session = type("Session", (), {"post": lambda self, url, **kw: resp})()
+        return FabricPlatform(lambda: "tok", "ws", "fn", session=session).call(op, **kwargs)
+
+
+@pytest.mark.parametrize("content", [b"<html><title>502 Bad Gateway</title></html>",
+                                     b'{"errors": [{"message": "Bad Gateway"}]}'])
+def test_check_now_says_unknown_when_a_gateway_answers_502(svc, content):
+    """A 502 is the platform not being reached (unknown, never a pass), not "isn't in the catalog yet"."""
+    svc.mesh_save_product({"name": "customer_360", "description": "Customers", "owner": "me", "status": "published",
+                           "access": "public", "ports": [{"name": "customers", "entity": "gold.dim_customer"}]})
+    publish(svc, "data-contract", "contract")
+    local = svc._catalog()
+    svc._catalog = lambda: TrustBehindAGateway(local, content)
+    out = svc.governance_check_now()
+    contract = next(p for p in out["policies"] if p["id"] == "contract")
+    reasons = {f["rule_id"]: f["description"] for f in contract["unknown"]}
+    assert contract["status"] == "unknown"
+    assert reasons["contract.terms_linked"] == (
+        "The platform couldn't be read: HTTPError: UDF_Platform couldn't be reached to product trust: "
+        "Fabric answered 502 Bad Gateway. Try again in a few minutes.")
 
 
 def test_a_data_products_checklist(svc, tmp_path):

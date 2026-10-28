@@ -89,25 +89,26 @@ The app talks to these hosts over HTTPS (port 443). Allow them through your prox
 | --- | --- |
 | `github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com` | The update check and downloading the exe and the engine. Not needed after the engine is installed if `auto_update` is `false`. With `engine_download_url`, the engine comes from your own server instead ([Host the engine yourself](#host-the-engine-yourself)) |
 | `codeload.github.com` | Only for a build without a bundled engine (built from source): the engine's source download, which `github.com` redirects to |
-| `pypi.org`, `files.pythonhosted.org` | Installing Python packages: `%pip install` in notebooks and environments, and the engine's own packages for a build without a bundled engine. Your own package index instead, if pip is set up to use one |
+| `pypi.org`, `files.pythonhosted.org` | Installing Python packages: `%pip install` in notebooks and environments, installing Databricks Connect for a runtime line (Preview, [Engines](engines.md#databricks-connect-preview)), and the engine's own packages for a build without a bundled engine. Your own package index instead, if pip is set up to use one or `dbconnect_index_url` names one |
 | `login.microsoftonline.com` | Sign-in |
 | `login.microsoft.com`, `login.windows.net`, `device.login.microsoftonline.com`, `autologon.microsoftazuread-sso.com`, `login.live.com` | Sign-in redirects in the Fabric pages embedded in the app (device checks, Seamless SSO, guests with a personal Microsoft account) |
 | `api.fabric.microsoft.com` | Fabric workspaces, items, jobs and schedules |
 | `onelake.dfs.fabric.microsoft.com` | Reading and writing OneLake files and tables |
 | `app.fabric.microsoft.com` | The Fabric pages embedded in the app (Monitor, Fabric) |
 | `app.powerbi.com` | Older Fabric item and report links in the embedded Fabric pages, which redirect through it |
+| The Fabric and sign-in pages' own content hosts (for example `aadcdn.msauth.net` and `aadcdn.msftauth.net` for the sign-in page) | The scripts, styles and images the embedded Fabric pages load. The app filters only which pages the view opens, not what a page loads, so allow the hosts Microsoft lists for Fabric and Power BI |
 | `*.datawarehouse.fabric.microsoft.com` | Only for queries and changes on a Fabric warehouse or SQL analytics endpoint (Preview, [Warehouse](warehouse.md)) |
 | `*.kusto.fabric.microsoft.com` | Only for a warehouse's Monitoring tab (Preview): reading the workspace's monitoring KQL database ([Warehouse](warehouse.md#monitoring-preview)) |
-| Your Databricks workspace host (`adb-<id>.<n>.azuredatabricks.net`) | Only if a connection profile runs SQL on a Databricks SQL warehouse (Preview, [Engines](engines.md#databricks-sql-warehouse-preview)) |
+| Your Databricks workspace host (`adb-<id>.<n>.azuredatabricks.net`) | Only if a connection profile runs SQL on a Databricks SQL warehouse or Spark through Databricks Connect (Preview, [Engines](engines.md#databricks-sql-warehouse-preview)) |
 | `kratosforge://` links | On by default: each start, the app registers the scheme for the signed-in Windows user (`HKCU\Software\Classes\kratosforge`, nothing machine-wide). Set `"register_link_scheme": false` in `policy.json` to stop it; the app then removes its registration and opens no link listener on `127.0.0.1` ([Links into KratosForge](vscode.md#links-into-kratosforge)) |
 | Your identity provider's hosts in `fabric_view_sign_in_hosts` | Only with federated sign-in in the Fabric view ([the key](azure-setup.md#4-push-settings-to-everyone)) |
-| `api.powerbi.com` | Semantic models |
-| `graph.microsoft.com` | Looking up people when granting access |
+| `api.powerbi.com` | Semantic models, workspace access, and reading endorsement for a Fabric administrator |
+| `graph.microsoft.com` | Looking up people when granting access, and Entra ID groups on the Platform page |
 | `onelake.table.fabric.microsoft.com` | Listing OneLake tables and their schemas |
 | Your Git hosts (`dev.azure.com`, `github.com`, `gitlab.com`, `bitbucket.org` or your own server) | Only if people connect notebooks to a repository |
 | `*.vault.azure.net` | Only if notebook code reads Key Vault secrets with `notebookutils.credentials.getSecret` |
 | Your Teams incoming webhook host | Only if someone sets up Teams alerts |
-| The `IngestionEndpoint` host of the usage data connection string, such as `westeurope-5.in.applicationinsights.azure.com` | Only if usage data is on ([Usage data](telemetry.md)). `"telemetry": false` in the policy file turns it off for everyone |
+| The `IngestionEndpoint` host of the usage data connection string, such as `westeurope-5.in.applicationinsights.azure.com`, or `dc.services.visualstudio.com` when the string names none | Only if usage data is on ([Usage data](telemetry.md)). `"telemetry": false` in the policy file turns it off for everyone |
 
 The list comes from the hosts named in the source code. Notebooks run on the PC, so any host their own code calls is reached from the PC too. Microsoft can redirect sign-in or downloads to other hosts, so confirm with a pilot PC behind your proxy.
 

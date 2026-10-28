@@ -4,6 +4,10 @@ A Teams webhook address lets anyone who has it post to the channel, so it is sto
 the same Windows account on the same PC reads it back (dpapi.py). Off Windows (the headless agent,
 which takes its webhook from an environment variable), values stay as they are, like the sign-in
 cache. A value saved before this is read as it is and sealed on the next save.
+
+A sealed value this account can't decrypt (a password reset by an administrator, a moved profile, a
+copy from another PC) reads as empty and is named in ``UNREADABLE``, so the app can say to enter it
+again; it is kept as it is until it is set again.
 """
 
 from __future__ import annotations
@@ -20,11 +24,17 @@ _log = logging.getLogger(__name__)
 SEALED_KEYS = ("teams_webhook",)
 PREFIX = "dpapi:"
 PURPOSE = b"KratosForge settings secret v1"
+# In settings as read, never written: {key: the sealed value this account can't decrypt}.
+UNREADABLE = "_sealed_unreadable"
 
 
 def seal(settings: dict[str, Any]) -> dict[str, Any]:
-    """``settings`` as they are written: each secret value encrypted, when this PC can."""
+    """``settings`` as they are written: each secret value encrypted, when this PC can. A value that
+    couldn't be decrypted and wasn't set again is written back as it was."""
     out = dict(settings)
+    for key, sealed in (out.pop(UNREADABLE, None) or {}).items():
+        if not out.get(key):
+            out[key] = sealed
     if not dpapi.available():
         return out
     for key in SEALED_KEYS:
@@ -35,9 +45,10 @@ def seal(settings: dict[str, Any]) -> dict[str, Any]:
 
 
 def unseal(settings: dict[str, Any]) -> dict[str, Any]:
-    """``settings`` as they are used: each sealed value decrypted. One this account can't read
-    (copied from another PC or account) is left empty, so it is set again rather than used."""
+    """``settings`` as they are used: each sealed value decrypted. One this account can't read is
+    empty, and named in ``out[UNREADABLE]``, so it is set again rather than used."""
     out = dict(settings)
+    unreadable: dict[str, str] = {}
     for key in SEALED_KEYS:
         value = out.get(key)
         if not (isinstance(value, str) and value.startswith(PREFIX)):
@@ -50,7 +61,15 @@ def unseal(settings: dict[str, Any]) -> dict[str, Any]:
             _log.warning("The saved %s can't be read on this account or PC, so it's treated as not set: %s",
                          key, describe(exc))
             out[key] = ""
+            unreadable[key] = value
+    if unreadable:
+        out[UNREADABLE] = unreadable
     return out
+
+
+def unreadable(settings: dict[str, Any], key: str) -> bool:
+    """Whether ``key`` is saved but this account can't decrypt it (settings as ``unseal`` gives them)."""
+    return key in (settings.get(UNREADABLE) or {})
 
 
 def needs_sealing(settings: dict[str, Any]) -> bool:

@@ -113,7 +113,9 @@ class MetaMixin:
         return sealed_settings.unseal(settings)
 
     def _save_settings(self, **changes: Any) -> None:
-        write_json(self.settings_file, sealed_settings.seal(self._settings() | changes))
+        settings = self._settings()
+        kept = {k: v for k, v in (settings.get(sealed_settings.UNREADABLE) or {}).items() if k not in changes}
+        write_json(self.settings_file, sealed_settings.seal(settings | changes | {sealed_settings.UNREADABLE: kept}))
 
     def _source_options(self) -> dict[str, str]:
         """OneLake access for source tables outside the environment (adopted lakehouse tables)."""

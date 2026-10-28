@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 
 from . import notebook_cells
 from .fabric_api import FabricClient
-from .fabric_run import TERMINAL, describe_schedule
+from .fabric_run import TERMINAL, describe_schedule, schedule_configuration
 from .fabric_step import is_step
 from .local_schedules import LocalSchedules, check_target, target_label
 from .orchestration import definition as pipeline_definition
@@ -120,6 +120,10 @@ class ScheduleMixin:
 
     def set_pc_schedule_enabled(self, schedule_id: str, enabled: bool) -> dict[str, Any]:
         return self.pc_schedules.set_enabled(schedule_id, enabled)
+
+    def update_pc_schedule(self, schedule_id: str, schedule: dict[str, Any]) -> dict[str, Any]:
+        """Change when one of this PC's schedules runs (PB-048)."""
+        return self.pc_schedules.update(schedule_id, schedule)
 
     def run_pc_schedule_now(self, schedule_id: str) -> dict[str, Any]:
         """Start the run in its own process, as Task Scheduler would, so the app stays free."""
@@ -465,6 +469,22 @@ class ScheduleMixin:
         out = self.fabric_jobs.update_schedule(workspace_id, item_id, job_type, schedule_id,  # type: ignore[attr-defined]
                                                enabled, configuration)
         self._forget_fabric_schedule(schedule_id, enabled=enabled)
+        return out
+
+    def update_fabric_schedule(self, workspace_id: str, item_id: str, job_type: str, schedule_id: str,
+                               schedule: dict[str, Any], enabled: bool = True) -> dict[str, Any]:
+        """Change when a Fabric schedule runs, in place (Update Item Schedule): it keeps its id and whether
+        it is on (PB-048)."""
+        config = schedule_configuration(schedule.get("kind", "daily"), schedule.get("times"),
+                                        schedule.get("every_minutes"), schedule.get("weekdays"),
+                                        schedule.get("time_zone") or "UTC")
+        out = self.fabric_jobs.update_schedule(workspace_id, item_id, job_type, schedule_id,  # type: ignore[attr-defined]
+                                               enabled, config)
+        with self._fabric_schedules_lock:
+            for r in (self._fabric_schedules or {}).get("items", []):
+                if r["id"] == schedule_id:
+                    r["configuration"] = config
+                    r["text"] = describe_schedule({"configuration": config})
         return out
 
     def delete_fabric_schedule(self, workspace_id: str, item_id: str, job_type: str, schedule_id: str) -> dict[str, Any]:

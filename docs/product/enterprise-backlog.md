@@ -109,7 +109,8 @@ Split in two so each change is reviewable on its own.
 
 ### FD-105 Configuration policies (P0)
 
-- **Built in #90:** `auto_update`, `allow_fabric_runs` (the `allowed_compute` criterion), `allowed_tenants`, and reporting of ignored keys in Settings. Still open: `allowed_hosts`, `local_retention_days` (with FD-131b), `telemetry` and `telemetry_connection_string` (FD-137).
+- **Built in #90:** `auto_update`, `allow_fabric_runs` (the `allowed_compute` criterion), `allowed_tenants`, and reporting of ignored keys in Settings. Built since: `local_retention_days` (#95, FD-131b), `telemetry` and `telemetry_connection_string` (FD-137).
+- **Checked 2026-10-28 (PB-061):** every key the policy file accepts is named in a user doc, and every key in the [policy table](../azure-setup.md#4-push-settings-to-everyone) is one the app reads; `test_every_policy_key_is_documented_for_it` keeps it so. Not built, and no user doc claims them: `allowed_hosts` (an egress allow-list beyond Microsoft's hosts) and a three-value `allowed_compute` (this PC only, Fabric only, or both; today `allow_fabric_runs` can only turn Fabric off). Building either is new behaviour and waits on Chris's call.
 - **Acceptance criteria:** new policy keys, each with a test: `auto_update` (on/off), `allowed_compute` (this PC, Fabric or both), `allowed_hosts` (endpoints the app may call beyond Microsoft's), `local_retention_days`, `telemetry` (off by default, FD-137). A malformed policy file or unknown key is reported in Settings instead of silently ignored. Documented in [azure-setup.md](../azure-setup.md).
 - **Existing code:** `app_settings.py`.
 

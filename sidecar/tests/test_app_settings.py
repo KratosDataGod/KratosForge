@@ -149,3 +149,20 @@ def test_save_refuses_a_client_id_the_environment_overrides(dirs, monkeypatch):
     assert app_settings.user_path().read_text(encoding="utf-8") == before
     assert app_settings.load()["client_id"] == {"value": APP, "source": "environment"}
     assert app_settings.save({"channel": "stable"})["channel"]["value"] == "stable"  # other settings still save
+
+
+def test_every_policy_key_is_documented_for_it():
+    """PB-061: IT can only use a key the docs name, and a key the docs name must be one the app reads.
+    Every key the policy file accepts is in backticks in a user doc (product, quality and hardening notes
+    don't count), and every key in the policy table of azure-setup.md is one the app accepts."""
+    import re
+    from pathlib import Path
+    docs = Path(__file__).resolve().parents[2] / "docs"
+    text = "\n".join(p.read_text(encoding="utf-8") for p in docs.rglob("*.md")
+                     if p.relative_to(docs).parts[0] not in ("product", "quality", "hardening"))
+    missing = sorted(k for k in app_settings.POLICY_KEYS if f"`{k}`" not in text)
+    assert not missing, f"Policy keys no user doc names; add them to docs/azure-setup.md: {missing}"
+    section = (docs / "azure-setup.md").read_text(encoding="utf-8").split("## 4. ", 1)[1].split("\n## ", 1)[0]
+    rows = {m for line in section.splitlines() if line.startswith("| `")
+            for m in re.findall(r"`([a-z_]+)`", line.split("|")[1])}
+    assert rows and not rows - set(app_settings.POLICY_KEYS), sorted(rows - set(app_settings.POLICY_KEYS))

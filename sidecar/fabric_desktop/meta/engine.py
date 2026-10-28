@@ -174,13 +174,15 @@ def _wm_text(value: Any) -> str:
 
 def _wm_minus(e: Entity, value: Any, dtype: pl.DataType) -> Any:
     """The watermark moved back by the entity's [load] lookback (unchanged without one): a duration
-    for a date or datetime watermark, a number for a numeric one. A date goes back whole days, so
-    "2 hours" re-reads the day before too."""
+    for a date or datetime watermark, a number for a numeric one. A date goes back whole days, rounded
+    up, so "2 hours" reads the watermark's own day again."""
     lookback = parse_lookback(e.spec.get("load", {}).get("lookback"))
     if not lookback:
         return value
     when = dtype == pl.Date or isinstance(dtype, pl.Datetime)
     if isinstance(lookback, dt.timedelta) and when:
+        if dtype == pl.Date:  # date - timedelta(hours=2) is the same date: round up to whole days
+            return value - dt.timedelta(days=-(-lookback // dt.timedelta(days=1)))
         return value - lookback
     if isinstance(lookback, int) and dtype.is_numeric():
         return value - lookback
@@ -579,10 +581,11 @@ class Engine:
         missing = [c for c in cols if c not in names]
         if missing:
             raise CheckStop(f"load deletes: the source has no key column {', '.join(missing)}")
-        if "is_deleted" in names and "is_deleted" not in cols:
-            # A soft-delete source (an entity with deletes = "soft") keeps its deleted keys as rows marked
+        schema = lf.collect_schema()
+        if schema.get("is_deleted") == pl.Boolean and "deleted_at" in names and "is_deleted" not in cols:
+            # A soft-delete source (a table written with deletes = "soft") keeps its deleted keys as rows marked
             # is_deleted; they are gone from it, and its watermark won't bring them here again.
-            lf = lf.filter(~pl.col("is_deleted").cast(pl.Boolean, strict=False).fill_null(False))
+            lf = lf.filter(~pl.col("is_deleted").fill_null(False))
         df = lf.select(cols).unique().collect(engine="streaming")
         df, _ = self._renamed(src, df, "")
         raw = df.select(e.keys).drop_nulls()

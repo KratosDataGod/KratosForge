@@ -166,6 +166,35 @@ def test_a_lookback_rereading_only_older_rows_never_moves_the_watermark_back(tmp
     assert s.table().filter(pl.col("id") == 3).height == 1
 
 
+def test_a_lookback_in_hours_on_a_date_watermark_goes_back_a_whole_day(tmp_path):
+    root, src = tmp_path / "project", tmp_path / "source"
+    init_project(root, "3", "Chris", sample=False)
+    (root / "metadata" / "entities" / "bronze.days.toml").write_text(textwrap.dedent(f"""
+        name = "bronze.days"
+        owner = "Chris"
+        [source]
+        table = {json.dumps(src.as_posix())}
+        [load]
+        mode = "incremental"
+        watermark = "day"
+        lookback = "2 hours"
+        [contract]
+        keys = ["id"]
+        [contract.columns]
+        id = "int64"
+        day = "date"
+    """).strip() + "\n", encoding="utf-8")
+    store = LocalStore(root / ".local" / "dev", "dev")
+    write_deltalake(str(src), pl.DataFrame({"id": [1], "day": [dt.date(2026, 10, 5)]}).to_arrow())
+    assert Engine(Project(root), store, DAY1).run("bronze.days").status == "ok"
+    late = pl.DataFrame({"id": [2, 3], "day": [dt.date(2026, 10, 5), dt.date(2026, 10, 4)]})
+    write_deltalake(str(src), late.to_arrow(), mode="append")
+    assert Engine(Project(root), store, DAY2).run("bronze.days").status == "ok"
+    # 2 hours rounds up to one day, so the watermark's own day (the 5th) is read again; the 4th isn't.
+    # Without the rounding the read stays "after the 5th" and the late row of the 5th is missed.
+    assert store.read("LH_Bronze", "dbo", "days").sort("id")["id"].to_list() == [1, 2]
+
+
 def test_a_lookback_on_a_numeric_watermark_is_a_number(tmp_path):
     root, src = tmp_path / "project", tmp_path / "source"
     init_project(root, "3", "Chris", sample=False)
@@ -307,6 +336,33 @@ def test_a_source_key_that_cant_be_read_as_the_key_type_stops_deletes(tmp_path):
         assert s.table()["id"].to_list() == [1, 2, 3]
 
 
+def test_ids_drifting_to_decimal_text_stop_deletes_instead_of_removing_every_row(tmp_path):
+    """Quality's probe: day 2's source has ids "1.0".."10.0" and "11". Read leniently, the ten would be
+    null and gone, and only 11 would be left."""
+    for s in both(tmp_path, load='deletes = "hard"\nmax_deletes = "100%"'):
+        s.source(rows(range(1, 11), at(10)))
+        s.run()
+        ids = [f"{i}.0" for i in range(1, 11)] + ["11"]
+        drifted = pl.DataFrame({"id": ids, "amount": [1.0] * 11, "modified": [at(10)] * 10 + [at(11)]},
+                               schema={"id": pl.String, "amount": pl.Float64, "modified": pl.Datetime("us", "UTC")})
+        write_deltalake(str(s.src), drifted.to_arrow(), mode="overwrite", schema_mode="overwrite")
+        res = s.engine(DAY2).run("bronze.events")
+        assert res.status == "failed" and "couldn't be read" in res.message, res.message
+        assert s.table()["id"].to_list() == list(range(1, 11))
+
+
+def test_an_unrelated_is_deleted_column_in_a_source_is_an_ordinary_column(tmp_path):
+    """Only a table written with deletes = "soft" (is_deleted and deleted_at) has its marked rows count as gone."""
+    for s in both(tmp_path, load='deletes = "hard"\nmax_deletes = "100%"'):
+        s.source(rows([1, 2], at(10)))
+        s.run()
+        own = rows([1, 2], at(10)).with_columns(pl.Series("is_deleted", [True, False]))
+        write_deltalake(str(s.src), own.to_arrow(), mode="overwrite", schema_mode="overwrite")
+        res = s.run(DAY2)
+        assert "0 keys gone" in s.step(res, "deletes")
+        assert s.table()["id"].to_list() == [1, 2]
+
+
 def test_a_clean_rule_that_blanks_a_source_key_stops_deletes(tmp_path):
     s = Setup(tmp_path, True)
     p = s.root / "metadata" / "entities" / "bronze.events.toml"
@@ -331,7 +387,8 @@ def test_a_source_whose_rows_are_all_marked_deleted_stops_instead_of_deleting_th
         s.source(rows(range(1, 11), at(10)))
         s.run()
         for marked in (range(1, 11), range(1, 4)):  # all of them, then 3 of 10
-            flagged = rows(range(1, 11), at(10)).with_columns(pl.col("id").is_in(list(marked)).alias("is_deleted"))
+            flagged = rows(range(1, 11), at(10)).with_columns(pl.col("id").is_in(list(marked)).alias("is_deleted"),
+                                                               pl.lit(None, dtype=pl.Datetime("us", "UTC")).alias("deleted_at"))
             write_deltalake(str(s.src), flagged.to_arrow(), mode="overwrite", schema_mode="overwrite")
             res = s.engine(DAY2).run("bronze.events")
             assert res.status == "failed", res.message

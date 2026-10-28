@@ -374,9 +374,10 @@ class Store:
                               commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
         if delete_flag:
             # Rows flagged in df remove their match from the table; the flag itself is never written.
-            merger = merger.when_matched_delete(f"s.`{delete_flag}`") \
+            flag = f"coalesce(s.`{delete_flag}`, false)"  # a null flag is a row to keep, never one dropped
+            merger = merger.when_matched_delete(flag) \
                 .when_matched_update_all(except_cols=[delete_flag]) \
-                .when_not_matched_insert_all(predicate=f"NOT s.`{delete_flag}`", except_cols=[delete_flag])
+                .when_not_matched_insert_all(predicate=f"NOT {flag}", except_cols=[delete_flag])
         else:
             merger = merger.when_matched_update_all().when_not_matched_insert_all()
         metrics = merger.execute()

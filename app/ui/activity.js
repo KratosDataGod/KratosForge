@@ -249,7 +249,7 @@ function trayItem(i) {
   if (i.results) links.push(btn("See results", null, () => { toggleTray(false); showRunResults(i.results, i.results.find((r) => r.status === "needs_decision")); }, "tool link small"));
   if (i.monitor) links.push(btn("Open in Monitor", null, () => { toggleTray(false); go("monitor"); }, "tool link small"));
   if (i.url) links.push(btn("Open in Fabric", null, () => { toggleTray(false); openInFabric(i.url); }, "tool link small"));
-  if (i.status === "running" && !i.stale && remoteActivity(i) && previewShown()) {  // Preview until checked on a tenant
+  if (i.status === "running" && !i.stale && remoteActivity(i) && cancelFabricRunShown()) {
     links.push(btn("Cancel run", null, () => cancelFabricJob(i.id.slice("fabric:".length)), "tool link small danger"));
   }
   if (i.update) links.push(btn("Check for updates", null, () => { toggleTray(false); checkForUpdates(); }, "tool link small"));
@@ -299,6 +299,9 @@ async function trackFabricJobs() {
   }
   if (open) activity.pollTimer = setTimeout(trackFabricJobs, 15000);
 }
+
+// Cancel in Monitor > Runs and the tray is Preview until a cancel has been checked on a tenant.
+const cancelFabricRunShown = () => previewShown() && !!PREVIEW_FEATURES.cancelFabricRun;
 
 // Cancel a Fabric job this app started (Monitor > Runs and the tray), after a danger confirm. Fabric
 // stops it in its own time: the run reads Cancelling until fabric_runs reads how it ended.

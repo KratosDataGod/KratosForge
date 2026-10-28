@@ -1167,21 +1167,30 @@
       "description": "Attach a notebook to a Fabric Environment item, read its libraries and Spark settings, or create one.",
       "pillar": "Local development",
       "category": "Fabric Integration and Deployment",
-      "status": "Missing",
+      "status": "Partially Implemented",
       "verification": "Unverified",
       "evidence": [
         {
-          "kind": "absent",
-          "ref": "no Environment item calls in sidecar/fabric_desktop/fabric_api.py"
+          "kind": "code",
+          "ref": "sidecar/fabric_desktop/fabric_environment.py"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_fabric_environment.py",
+          "note": "passed at the PB-016 part 1 head; fakes only, not yet read on a tenant"
         }
       ],
-      "source": [],
+      "source": [
+        "sidecar/fabric_desktop/fabric_environment.py",
+        "sidecar/fabric_desktop/environment_service.py",
+        "sidecar/fabric_desktop/fabric_api.py"
+      ],
       "ui": {
-        "surface": "None",
-        "preview": false
+        "surface": "Engine and CLI: fabric-desktop env-drift (read only); no screen yet",
+        "preview": true
       },
-      "workstream": "Prove (FD-109)",
-      "next_action": "Plan with the Prove program's environment profiles (FD-109) once the package-source decision is made (PB-016).",
+      "workstream": "Microsoft Fabric",
+      "next_action": "Read on a tenant (PB-002 run); show drift in the run dialog after a UX check; part 2 (pin from an item, attach a notebook) needs Chris's go (PB-016).",
       "backlog": [
         "PB-016"
       ]

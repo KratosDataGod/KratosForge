@@ -67,9 +67,9 @@ on quality.
 | Status | Verified | Partially Verified | Unverified | Total |
 | --- | ---: | ---: | ---: | ---: |
 | Implemented | 2 | 114 | 3 | 119 |
-| Partially Implemented | 1 | 10 | 1 | 12 |
+| Partially Implemented | 1 | 10 | 2 | 13 |
 | Implemented but Not Exposed | 0 | 4 | 0 | 4 |
-| Missing | 0 | 0 | 3 | 3 |
+| Missing | 0 | 0 | 2 | 2 |
 | Planned | 0 | 0 | 4 | 4 |
 | **Total** | **3** | **128** | **11** | **142** |
 <!-- END GENERATED: summary -->
@@ -170,7 +170,7 @@ on quality.
 | [FEAT-FAB-05](#feat-fab-05) | Embedded Fabric portal and Monitoring hub | Implemented | Partially Verified | Fabric, Monitor | Check in the Windows app that a look-alike host opens in the browser (PB-008 review). |
 | [FEAT-FAB-06](#feat-fab-06) | Publish notebooks to Fabric | Implemented | Partially Verified | Notebook ribbon > Publish to OneLake | Include publish after a rename in the tenant smoke test. |
 | [FEAT-FAB-07](#feat-fab-07) | Run in Fabric | Implemented | Partially Verified | Notebook ribbon (Runs on: Fabric) (Preview) | Offer Cancel in Monitor > Runs and the tray (PB-043) and include in the tenant smoke test. |
-| [FEAT-FAB-09](#feat-fab-09) | Fabric Environment items and Spark settings | Missing | Unverified | None | Plan with the Prove program's environment profiles (FD-109) once the package-source decision is made (PB-016). |
+| [FEAT-FAB-09](#feat-fab-09) | Fabric Environment items and Spark settings | Partially Implemented | Unverified | Engine and CLI: fabric-desktop env-drift (read only); no screen yet (Preview) | Read on a tenant (PB-002 run); show drift in the run dialog after a UX check; part 2 (pin from an item, attach a notebook) needs Chris's go (PB-016). |
 | [FEAT-FAB-12](#feat-fab-12) | Fabric workspace Git integration | Planned | Unverified | None | Owned by the Git-native program (Phase 2). |
 | [FEAT-FAB-13](#feat-fab-13) | Deployment pipelines and item-definition deploy | Planned | Unverified | None | Owned by the Git-native program (Phase 3, FD-120); reuse metadata promote gates. |
 | [FEAT-ONE-01](#feat-one-01) | OneLake catalog | Implemented | Partially Verified | OneLake > Catalog | Unify environment-word lists between Python and JS (catalog-groups.js vs shortcut_center.py). |
@@ -670,12 +670,13 @@ on quality.
 **Fabric Environment items and Spark settings.** Attach a notebook to a Fabric Environment item, read its libraries and Spark settings, or create one.
 
 - **Pillar and category:** Local development; Fabric Integration and Deployment
-- **Status:** Missing. **Verification:** Unverified.
-- **Where people reach it:** None
-- **Evidence:** absent: no Environment item calls in sidecar/fabric_desktop/fabric_api.py
-- **Owning workstream:** Prove (FD-109)
+- **Status:** Partially Implemented. **Verification:** Unverified.
+- **Where people reach it:** Engine and CLI: fabric-desktop env-drift (read only); no screen yet (Preview)
+- **Evidence:** code: sidecar/fabric_desktop/fabric_environment.py; test: sidecar/tests/test_fabric_environment.py (passed at the PB-016 part 1 head; fakes only, not yet read on a tenant)
+- **Source:** `sidecar/fabric_desktop/fabric_environment.py`, `sidecar/fabric_desktop/environment_service.py`, `sidecar/fabric_desktop/fabric_api.py`
+- **Owning workstream:** Microsoft Fabric
 - **Backlog:** [PB-016](PRODUCT_BACKLOG.md#pb-016)
-- **Recommended next action:** Plan with the Prove program's environment profiles (FD-109) once the package-source decision is made (PB-016).
+- **Recommended next action:** Read on a tenant (PB-002 run); show drift in the run dialog after a UX check; part 2 (pin from an item, attach a notebook) needs Chris's go (PB-016).
 
 ### FEAT-FAB-10
 

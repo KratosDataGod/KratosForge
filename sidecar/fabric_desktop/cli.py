@@ -79,6 +79,14 @@ def main(argv: list[str] | None = None) -> None:
     smoke.add_argument("--out", default="smoke-test-results", help="folder for results (default: smoke-test-results)")
     smoke.add_argument("--run-in-fabric", action="store_true",
                        help="also run the published test notebook in Fabric (flow 6); spends Spark capacity")
+    smoke.add_argument("--platform", action="store_true",
+                       help="also run the central platform flows 11-16 (PB-052): make a platform in the test workspace, "
+                            "use it and delete it again")
+    smoke.add_argument("--platform-upgrade", action="store_true",
+                       help="with --platform: start from the platform a previous build made in the test workspace; "
+                            "its items are taken over and deleted at the end, unless --platform-keep")
+    smoke.add_argument("--platform-keep", action="store_true",
+                       help="with --platform: leave the platform in place to look at; delete it by hand afterwards")
     bundle = sub.add_parser("support-bundle", help="save a zip of versions, settings sources and recent logs, "
                                                    "with secrets and personal details taken out")
     bundle.add_argument("--out", default=".", help="folder to save it in (default: here)")
@@ -318,15 +326,24 @@ def _smoke_test(args: argparse.Namespace) -> int:
     """0 every automated step passed, 1 one failed, 2 not started."""
     from pathlib import Path
 
-    from . import app_settings, livetest, smoketest
+    from . import app_settings, livetest, platformtest, smoketest
     from .auth import Authenticator
     from .fabric_api import FabricClient
     from .onelake import FileStore
 
     if args.dry_run:
         print("The smoke test will:")
-        for step in smoketest.SmokeTest(args.workspace, None, None, Path(args.out), run_in_fabric=args.run_in_fabric).plan():
+        dry_platform = (lambda out: None) if args.platform else None
+        dry = smoketest.SmokeTest(args.workspace, None, None, Path(args.out), run_in_fabric=args.run_in_fabric,
+                                  platform_test=dry_platform)
+        for step in dry.plan():
             print(f"  - {step}")
+        if args.platform:
+            print("The platform flows will:")
+            for step in platformtest.PlatformTest(args.workspace, None, lambda: "", dry.dir / "platform",
+                                                  client=lambda ws, fid: None, run_id=dry.run_id,
+                                                  upgrade=args.platform_upgrade, keep=args.platform_keep).plan():
+                print(f"  - {step}")
         print("The live test it runs will:")
         for step in livetest.LiveTest(args.workspace, None, None, None, Path(args.out), bad_token_files=object(),
                                       extra=set(livetest.ALL_CHECKS), run_in_fabric=args.run_in_fabric).plan():
@@ -342,8 +359,20 @@ def _smoke_test(args: argparse.Namespace) -> int:
                                  protected_ids=livetest.policy_workspace_ids(), extra=set(livetest.ALL_CHECKS),
                                  run_in_fabric=args.run_in_fabric)
 
+    def platform(out: Path) -> platformtest.PlatformTest:
+        from .auth import EXECUTE_SCOPES
+        from .central.client import FabricPlatform
+        execute = lambda: credential._token(EXECUTE_SCOPES)  # noqa: E731 - UDF_Platform runs as the signed-in person
+        return platformtest.PlatformTest(args.workspace, fabric, execute, out,
+                                         client=lambda ws, fid: FabricPlatform(execute, ws, fid),
+                                         user=lambda: credential.signed_in_user() or "",
+                                         protected_ids=livetest.policy_workspace_ids(), upgrade=args.platform_upgrade,
+                                         keep=args.platform_keep,
+                                         pause=None if args.yes else lambda text: input(f"{text}\n"))
+
     test = smoketest.SmokeTest(args.workspace, credential, fabric, Path(args.out), live_test=live,
-                               run_in_fabric=args.run_in_fabric, client_id=client_id)
+                               run_in_fabric=args.run_in_fabric, client_id=client_id,
+                               platform_test=platform if args.platform else None)
     print("The smoke test will:")
     for step in test.plan():
         print(f"  - {step}")

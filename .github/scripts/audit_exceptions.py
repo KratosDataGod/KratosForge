@@ -22,6 +22,8 @@ FILE = Path(__file__).resolve().parents[1] / "audit-exceptions.txt"
 # ID  until=YYYY-MM-DD  reason
 LINE = re.compile(r"^(?P<id>[A-Z]+-[A-Za-z0-9-]+)\s+until=(?P<until>\d{4}-\d{2}-\d{2})\s+(?P<reason>\S.*)$")
 FLAG = {"pip": "--ignore-vuln", "cargo": "--ignore"}
+# The longest an exception may run before someone has to decide again.
+MAX_DAYS = 90
 CARGO = re.compile(r"^RUSTSEC-")
 
 
@@ -43,6 +45,10 @@ def parse(text: str, today: dt.date) -> tuple[list[str], list[str]]:
             continue
         if m["reason"].startswith("<"):
             problems.append(f"line {n}: say why {m['id']} is accepted instead of {m['reason']!r}")
+            continue
+        if until > today + dt.timedelta(days=MAX_DAYS):
+            problems.append(f"line {n}: {m['id']} until={until} is more than {MAX_DAYS} days away; pick a date "
+                            f"by {today + dt.timedelta(days=MAX_DAYS)} and decide again then")
             continue
         if until < today:
             problems.append(f"line {n}: the exception for {m['id']} lapsed on {until}; move the package or decide again")
@@ -77,6 +83,11 @@ def hints(report: dict, tool: str, today: dt.date) -> list[str]:
             if LINE.match(f"{a['id']}  until={until}  x")]
 
 
+def annotation(text: str) -> str:
+    """``text`` as a workflow command's message: advisory data can't start a command of its own."""
+    return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
 def main(argv: list[str]) -> int:
     if len(argv) == 4 and argv[1] == "hint" and argv[2] in FLAG:
         try:
@@ -84,8 +95,11 @@ def main(argv: list[str]) -> int:
         except (OSError, ValueError) as exc:  # the tool failed before it wrote a report: its own output says why
             print(f"No {argv[2]} audit report to read ({exc.__class__.__name__}).", file=sys.stderr)
             return 0
-        for line in hints(report if isinstance(report, dict) else {}, argv[2], dt.datetime.now(dt.timezone.utc).date()):
-            print(f"::error file=.github/audit-exceptions.txt::{line}")
+        lines = hints(report if isinstance(report, dict) else {}, argv[2], dt.datetime.now(dt.timezone.utc).date())
+        for line in lines:
+            print(f"::error file=.github/audit-exceptions.txt::{annotation(line)}")
+        if not lines:  # nothing recognised in it (a new report format?): show it as the tool wrote it
+            print(json.dumps(report, indent=1)[:20000])
         return 0
     if len(argv) != 2 or argv[1] not in FLAG:
         print("usage: audit_exceptions.py pip|cargo | hint pip|cargo REPORT", file=sys.stderr)
@@ -93,7 +107,7 @@ def main(argv: list[str]) -> int:
     text = FILE.read_text(encoding="utf-8") if FILE.exists() else ""
     ids, problems = parse(text, dt.datetime.now(dt.timezone.utc).date())
     for p in problems:
-        print(f"::error file=.github/audit-exceptions.txt::{p}", file=sys.stderr)
+        print(f"::error file=.github/audit-exceptions.txt::{annotation(p)}", file=sys.stderr)
     if problems:
         return 1
     print(" ".join(flags(ids, argv[1])))

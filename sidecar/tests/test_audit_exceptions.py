@@ -68,3 +68,23 @@ def test_hint_with_no_report_says_so_and_leaves_the_audits_own_exit():
     out = subprocess.run([sys.executable, str(ROOT / ".github" / "scripts" / "audit_exceptions.py"), "hint", "pip",
                           str(ROOT / "no-such-report.json")], capture_output=True, text=True)
     assert out.returncode == 0 and "No pip audit report to read" in out.stderr
+
+
+def test_an_exception_can_run_at_most_ninety_days():
+    ids, problems = audit_exceptions.parse("GHSA-abcd-1234-wxyz  until=2099-01-01  forever\n"
+                                           "PYSEC-2026-12  until=2027-01-27  one day too far\n", TODAY)
+    assert ids == [] and len(problems) == 2
+    assert "more than 90 days away; pick a date by 2027-01-26" in problems[1]
+
+
+def test_advisory_text_cant_start_a_workflow_command_and_an_unknown_report_is_shown(tmp_path):
+    report = {"dependencies": [{"name": "x", "version": "1%", "vulns": [
+        {"id": "GHSA-abcd-1234-wxyz", "fix_versions": ["2\n::add-mask::secret\r"]}]}]}
+    [line] = audit_exceptions.hints(report, "pip", TODAY)
+    escaped = audit_exceptions.annotation(line)
+    assert "\n" not in escaped and "\r" not in escaped and "1%25" in escaped and "2%0A::add-mask::secret%0D" in escaped
+    path = tmp_path / "report.json"
+    path.write_text('{"results": [{"advisory": "ABC-1"}]}', encoding="utf-8")
+    out = subprocess.run([sys.executable, str(ROOT / ".github" / "scripts" / "audit_exceptions.py"), "hint", "pip",
+                          str(path)], capture_output=True, text=True, check=True)
+    assert '"ABC-1"' in out.stdout and "::error" not in out.stdout

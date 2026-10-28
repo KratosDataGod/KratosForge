@@ -118,3 +118,17 @@ def test_run_the_schedule_now_refuses_a_schedule_of_another_workload(svc, tmp_pa
     assert started == []
     [action] = svc.workload_actions(model.pipeline_id(mine))
     assert action["status"] == "failed"
+
+
+def test_a_notebook_refuses_the_schedule_of_another_notebook(svc, monkeypatch):
+    for name in ("Mine", "Theirs"):
+        svc.notebooks.save(name, [{"type": "code", "source": "x = 1"}])
+    svc.add_pc_schedule({"kind": "notebook", "name": "Mine"}, DAILY)
+    theirs = svc.add_pc_schedule({"kind": "notebook", "name": "Theirs"}, DAILY)["schedule"]["id"]
+    started = []
+    monkeypatch.setattr(svc, "run_pc_schedule_now", lambda schedule_id: started.append(schedule_id))
+    with pytest.raises(PermissionError, match="doesn't run Mine"):
+        svc.workload_act(model.notebook_id("Mine"), "run_schedule", schedule_id=theirs)
+    assert started == []
+    [action] = svc.workload_actions(model.notebook_id("Mine"))
+    assert action["status"] == "failed"

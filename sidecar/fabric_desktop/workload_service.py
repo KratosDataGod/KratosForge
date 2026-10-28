@@ -25,6 +25,7 @@ from .fabric_run import TERMINAL
 from .meta import freshness as freshness_mod
 from .meta.project import ENVIRONMENTS, impact
 from .meta import mesh as mesh_mod
+from .pipeline_service import _LIST_LIMIT as PIPELINE_LIST_LIMIT
 from . import measurement as ms
 from .redact import describe, secrets
 from .workloads import health, inventory, model, query
@@ -170,12 +171,12 @@ class WorkloadMixin:
         source = "Pipelines on this PC"
         try:
             listed = self.pipeline_list()  # type: ignore[attr-defined]
-            runs = self.pipeline_runs(limit=200)["runs"]  # type: ignore[attr-defined]
+            runs = self.pipeline_runs(limit=PIPELINE_LIST_LIMIT)["runs"]  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001 - one source that can't be read hides nothing else
-            return [], model.observation(source, "error", None, detail=str(exc)[:300])
+            return [], model.observation(source, "error", None, detail=describe(exc)[:300])
         records = inventory.pipeline_workloads(listed["pipelines"], runs=runs, pc_schedules=pc, pc_runs=pc_runs,
                                                assignments=assignments, user=user)
-        detail = "Only the first 200 pipelines are listed." if listed.get("truncated") else ""
+        detail = f"Only the first {PIPELINE_LIST_LIMIT} pipelines are listed." if listed.get("truncated") else ""
         return records, model.observation(source, "partial" if listed.get("truncated") else "live", model.now(),
                                           detail=detail)
 

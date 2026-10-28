@@ -241,7 +241,7 @@ function renderTray() {
       : h("p", { class: "muted-text tray-empty" }, activity.filter === "all" ? "Nothing yet. Runs, publishes and problems show up here." : "Nothing here."))));
 }
 
-const TRAY_LABEL = { update: ["Update", "info"], running: ["Running", "info"], ok: ["Done", "pass"], info: ["Done", "pass"], failed: ["Failed", "fail"], error: ["Couldn't finish", "fail"] };
+const TRAY_LABEL = { update: ["Update", "info"], running: ["Running", "info"], ok: ["Done", "pass"], info: ["Done", "pass"], cancelled: ["Cancelled", "neu"], failed: ["Failed", "fail"], error: ["Couldn't finish", "fail"] };
 
 function trayItem(i) {
   const [label, cls] = i.stale ? ["Unknown", "neu"] : TRAY_LABEL[i.status] || ["", "neu"];
@@ -249,6 +249,9 @@ function trayItem(i) {
   if (i.results) links.push(btn("See results", null, () => { toggleTray(false); showRunResults(i.results, i.results.find((r) => r.status === "needs_decision")); }, "tool link small"));
   if (i.monitor) links.push(btn("Open in Monitor", null, () => { toggleTray(false); go("monitor"); }, "tool link small"));
   if (i.url) links.push(btn("Open in Fabric", null, () => { toggleTray(false); openInFabric(i.url); }, "tool link small"));
+  if (i.status === "running" && !i.stale && remoteActivity(i) && previewShown()) {  // Preview until checked on a tenant
+    links.push(btn("Cancel run", null, () => cancelFabricJob(i.id.slice("fabric:".length)), "tool link small danger"));
+  }
   if (i.update) links.push(btn("Check for updates", null, () => { toggleTray(false); checkForUpdates(); }, "tool link small"));
   if (i.details) links.push(btn("Copy details", null, () => copyText(i.details, "Details"), "tool link small"));
   return h("div", { class: `tray-item${PROBLEM.has(i.status) ? " bad" : ""}` },
@@ -288,11 +291,35 @@ async function trackFabricJobs() {
     } else if (item && item.status === "running" && !item.request) {
       // Metadata runs (item.request) finish through watchMetaFabricRun, which also reads their results.
       const ok = r.status === "Completed";
-      logActivity({ id, status: ok ? "ok" : "failed", text: ok ? "Finished in Fabric" : `${r.status} in Fabric. ${r.message || ""}`.trim(), at: r.finished_at || new Date().toISOString() });
-      toast(`${item.title}: ${ok ? "finished" : r.status.toLowerCase()} in Fabric`, !ok, { quiet: true });
+      const cancelled = r.status === "Cancelled";  // someone stopped it: not a problem
+      logActivity({ id, status: ok ? "ok" : cancelled ? "cancelled" : "failed",
+        text: ok ? "Finished in Fabric" : `${r.status} in Fabric. ${r.message || ""}`.trim(), at: r.finished_at || new Date().toISOString() });
+      toast(`${item.title}: ${ok ? "finished" : r.status.toLowerCase()} in Fabric`, !ok && !cancelled, { quiet: true });
     }
   }
   if (open) activity.pollTimer = setTimeout(trackFabricJobs, 15000);
+}
+
+// Cancel a Fabric job this app started (Monitor > Runs and the tray), after a danger confirm. Fabric
+// stops it in its own time: the run reads Cancelling until fabric_runs reads how it ended.
+async function cancelFabricJob(jobId) {
+  const runs = await rpc("fabric_runs", { limit: 50, refresh: false }).catch(() => null);
+  const r = runs?.find((x) => x.job_id === jobId);
+  if (!r) { toast("This run isn't in the app's list of Fabric runs any more. Cancel it from Fabric's Monitoring hub.", true); return false; }
+  const name = r.name || "this run";
+  const ws = r.workspace_name || "its workspace";
+  if (FABRIC_DONE.has(r.status)) { toast(`${name} already ended in Fabric (${r.status}).`); return false; }
+  const ok = await confirmDialog(`Cancel ${name} in Fabric?`,
+    `This asks Fabric to stop the ${(r.kind || "job").toLowerCase()} on ${ws}. What it already wrote stays written, and the capacity it used so far is still used. It can't be resumed: run it again to start over.`,
+    "Cancel run", { danger: true, cancelLabel: "Keep running" });
+  if (!ok) return false;
+  const out = await attempt(() => rpc("cancel_fabric_run", { workspace_id: r.workspace_id, item_id: r.item_id, job_id: jobId }), "Could not cancel");
+  if (!out) return false;
+  const id = `fabric:${jobId}`;
+  if (activity.items.some((i) => i.id === id)) logActivity({ id, text: `Cancelling in Fabric on ${ws}` });
+  toast(`Asked Fabric to cancel ${name}. It shows Cancelled once Fabric stops it.`);
+  trackFabricJobs();
+  return true;
 }
 
 // ---------- environment and compute in the top bar ----------

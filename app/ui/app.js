@@ -1100,10 +1100,11 @@ async function renderMonitor() {
       open: () => showRun(r.run_id, r.env),
     })),
     ...(cloud || []).map((r) => ({
-      at: r.started_at, status: fabricStatus(r.status), activity: r.name, kind: r.kind, env: r.env || "", where: "fabric",
+      at: r.started_at, status: fabricStatus(r.status), pill: fabricPill(r), activity: r.name, kind: r.kind, env: r.env || "", where: "fabric",
       seconds: r.finished_at ? (new Date(r.finished_at) - new Date(r.started_at)) / 1000 : "", rows: "",
       note: r.workspace_name || "", reason: r.status === "Failed" ? r.message || "" : "",
       open: r.url ? () => openInFabric(r.url) : null,
+      cancel: previewShown() && !FABRIC_DONE.has(r.status) && !r.cancel_requested && r.workspace_id && r.item_id ? r.job_id : null,
     })),
     ...(scheduled || []).map((r) => ({
       at: r.started, status: r.status === "ok" ? "ok" : r.status === "skipped" ? "skipped" : "failed", activity: r.label,
@@ -1136,7 +1137,11 @@ async function renderMonitor() {
         r.reason ? h("div", { class: "reason" }, r.reason) : null),
       h("td", {}, runEnvCell(r)), h("td", {}, r.ranOn || (r.where === "fabric" ? "Fabric" : "This PC")),
       h("td", {}, when(r.at)), h("td", { class: "n" }, r.tookText ?? took(r.seconds)), h("td", { class: "n" }, r.rows ?? ""),
-      h("td", { class: "n" }, r.open ? h("span", { class: "link-text" }, r.openLabel || "Details") : r.pipelineRun ? pipelineRunDetails(r) : null)))))) :
+      h("td", { class: "n" }, r.cancel ? btn("Cancel", null, async (e) => {
+        e.stopPropagation();
+        if (await cancelFabricJob(r.cancel)) { monitorPage.refreshing = true; render(); }
+      }, "tool small outline danger") : null,
+      r.open ? h("span", { class: "link-text" }, r.openLabel || "Details") : r.pipelineRun ? pipelineRunDetails(r) : null)))))) :
     h("p", { class: "muted-text monitor-empty" }, monitorPage.env !== "all" || monitorPage.where !== "any"
       ? "Nothing matches these filters." : "Nothing has run yet. Run a metadata entity or write a table from a notebook.");
   local.replaceWith(list);
@@ -1166,6 +1171,13 @@ function runEnvCell(r) {
 // Fabric job states, shown with the same pills as local runs.
 function fabricStatus(status) {
   return { Completed: "ok", Failed: "failed", Cancelled: "skipped", Deduped: "skipped" }[status] || "running";
+}
+
+// Runs > Status for a Fabric job: Cancelled and Cancelling say so; the rest use the shared pills.
+function fabricPill(r) {
+  if (r.status === "Cancelled") return h("span", { class: "pill-s neu" }, "Cancelled");
+  if (r.cancel_requested && !FABRIC_DONE.has(r.status)) return h("span", { class: "pill-s wrn" }, "Cancelling…");
+  return null;
 }
 
 // Fabric's own pages (Monitoring hub, OneLake catalog) are one second webview the shell lays
@@ -2427,6 +2439,13 @@ const TIME_ZONES = {
   "Asia/Kolkata": "India Standard Time", "Asia/Singapore": "Singapore Standard Time",
   "Australia/Sydney": "AUS Eastern Standard Time",
 };
+// Every Windows time zone and this PC's, read once from the registry (PB-048). Off Windows, or when the
+// engine can't read them, the short list above stays; a failed read is tried again next time.
+let windowsTimeZones = null;
+function loadTimeZones() {
+  windowsTimeZones ||= rpc("time_zones").catch(() => { windowsTimeZones = null; return { zones: [], here: null }; });
+  return windowsTimeZones;
+}
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 // The repeat, times, days and time zone fields of a Fabric schedule, shared by notebooks and metadata runs.
@@ -2437,12 +2456,40 @@ function scheduleForm() {
   const minutes = h("input", { type: "number", min: "1", value: "60" });
   const days = WEEKDAYS.map((d, i) => h("label", { class: "check" }, h("input", { type: "checkbox", value: d, checked: i < 5 ? true : null }), d.slice(0, 3)));
   const here = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const zone = h("select", {}, Object.entries(TIME_ZONES).map(([iana, win]) =>
-    h("option", { value: win, selected: iana === here ? true : null }, `${win}${iana === "UTC" ? "" : ` (${iana})`}`)));
+  const zone = h("select", { size: 8, "aria-label": "Time zone" });
+  const search = h("input", { type: "search", placeholder: "Search time zones", "aria-label": "Search time zones" });
+  let chosen = null;  // a zone set by set() or picked; until then the PC's own zone
+  // Rebuild the options from [{id, name}], the PC's zone first, keeping the chosen zone even when the list lacks it.
+  const fill = (zones, pcZone) => {
+    const pick = chosen || pcZone || zone.value;
+    const label = (z) => (z.name === z.id ? z.id : `${z.name} · ${z.id}`);
+    const pc = zones.find((z) => z.id === pcZone);
+    const other = chosen && !zones.some((z) => z.id === chosen) ? [{ id: chosen, name: chosen }] : [];
+    zone.replaceChildren(
+      pc ? h("optgroup", { label: "On this PC" }, h("option", { value: pc.id }, label(pc))) : null,
+      h("optgroup", { label: "All time zones" }, [...other, ...zones.filter((z) => z !== pc)].map((z) => h("option", { value: z.id }, label(z)))));
+    zone.value = pick;
+    if (!zone.value && zone.options.length) zone.selectedIndex = 0;
+    filter();
+  };
+  // Show the zones matching every word typed; if the chosen one is filtered out, pick the first match.
+  const filter = () => {
+    const words = search.value.toLowerCase().split(/\s+/).filter(Boolean);
+    for (const o of zone.options) o.hidden = !words.every((w) => o.textContent.toLowerCase().includes(w));
+    for (const g of zone.querySelectorAll("optgroup")) g.hidden = ![...g.children].some((o) => !o.hidden);
+    if (zone.selectedOptions[0]?.hidden) {
+      const first = [...zone.options].find((o) => !o.hidden);
+      if (first) { zone.value = first.value; chosen = first.value; zone.dispatchEvent(new Event("change", { bubbles: true })); }
+    }
+  };
+  search.addEventListener("input", filter);
+  zone.addEventListener("change", () => { chosen = zone.value; });
+  fill(Object.entries(TIME_ZONES).map(([iana, win]) => ({ id: win, name: iana === "UTC" ? win : `${win} (${iana})` })), TIME_ZONES[here]);
+  loadTimeZones().then((r) => { if (r?.zones?.length) fill(r.zones, r.here); });
   const timesField = h("label", { class: "field" }, "Times of day (24-hour, comma between)", times);
   const minutesField = h("label", { class: "field", hidden: true }, "Minutes between runs", minutes);
   const daysField = h("div", { class: "field", hidden: true }, "Days", h("div", { class: "row wrap" }, days));
-  const zoneField = h("label", { class: "field" }, "Time zone", zone);
+  const zoneField = h("div", { class: "field zone-field" }, h("span", {}, "Time zone"), search, zone);
   const sync = () => {
     minutesField.hidden = kind.value !== "cron";
     timesField.hidden = zoneField.hidden = kind.value === "cron";
@@ -2454,6 +2501,19 @@ function scheduleForm() {
     sync,
     value: () => ({ kind: kind.value, times: times.value.split(","), every_minutes: Number(minutes.value),
       weekdays: days.map((l) => l.firstChild).filter((c) => c.checked).map((c) => c.value), time_zone: zone.value }),
+    // Fill the form with a stored schedule (scheduleValues), to edit it (PB-048).
+    set: (v) => {
+      kind.value = v.kind;
+      times.value = v.times.length ? v.times.join(", ") : "06:00";
+      minutes.value = String(v.every_minutes || 60);
+      days.forEach((l) => { l.firstChild.checked = v.weekdays.includes(l.firstChild.value); });
+      if (v.time_zone) {
+        chosen = v.time_zone;
+        if (![...zone.options].some((o) => o.value === v.time_zone)) zone.lastChild.prepend(h("option", { value: v.time_zone }, v.time_zone));
+        zone.value = v.time_zone;
+      }
+      sync();
+    },
   };
 }
 

@@ -19,8 +19,10 @@ exception or policy that has ended since is no longer applied.
 
 **Hash integrity, not a signature.** ``verify`` refuses a package whose own SHA-256, or any version's
 stored SHA-256, doesn't match what's in it: an accidental or partial edit is caught and the package is
-never used as if valid. Someone who edits a definition and recomputes the hashes is not caught: that
-needs a signing key, which this app doesn't have (no app registrations), so packages aren't signed.
+never used as if valid. Someone who edits a definition and recomputes the hashes is not caught by that
+alone: that needs a signing key, which this app doesn't have (no app registrations), so packages aren't
+signed. A CI job closes the gap by pinning the package's SHA-256 somewhere a pull request can't change
+(``read(expect_sha256=...)``, the CLI's ``--expect-sha256``): a package with any other hash is refused.
 
 Standard library only; it makes no platform, Fabric or OneLake call. Taking a package (``take``) is
 given the platform's answers by the caller.
@@ -137,8 +139,12 @@ def verify(package: Any, where: str = "The policy package") -> dict[str, Any]:
     return package
 
 
-def read(path: Path, where: str = "") -> dict[str, Any]:
-    """A package file, verified. Read as it is: a broken file is refused, never moved or repaired."""
+def read(path: Path, where: str = "", expect_sha256: str = "", max_age_days: float | None = None,
+         now: dt.datetime | None = None) -> dict[str, Any]:
+    """A package file, verified. Read as it is: a broken file is refused, never moved or repaired.
+
+    ``expect_sha256`` pins the package: one whose own SHA-256 is any other is refused before anything else
+    is read from it, so recomputed hashes don't help. ``max_age_days`` refuses one taken longer ago."""
     where = where or f"The policy package {path}"
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -146,7 +152,32 @@ def read(path: Path, where: str = "") -> dict[str, Any]:
         raise PackageError(f"{where} isn't there.") from exc
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         raise PackageError(f"{where} can't be read ({type(exc).__name__}: {exc}). It isn't used.") from exc
-    return verify(data, where)
+    expect = str(expect_sha256 or "").strip().lower()
+    if expect:
+        got = str(data.get("sha256") or "") if isinstance(data, dict) else ""
+        if got.lower() != expect:
+            raise PackageError(f"{where} isn't the pinned package: its SHA-256 is {got or 'missing'}, not the expected "
+                               f"{expect}. It isn't used. Take a new package and update the pinned hash if the policies changed.")
+    package = verify(data, where)
+    if max_age_days is not None:
+        days = days_old(package["taken_at"], now)
+        if days is None:
+            raise PackageError(f"{where} doesn't say when it was taken, so its age can't be checked. It isn't used.")
+        if days > max_age_days:
+            raise PackageError(f"{where} was taken {age(package['taken_at'], now)} ago, more than the {max_age_days:g} days "
+                               "allowed. It isn't used. Take a new one while the platform can be reached.")
+    return package
+
+
+def days_old(taken_at: str, now: dt.datetime | None = None) -> float | None:
+    """How many days ago a package was taken, or None when its time can't be read."""
+    try:
+        then = dt.datetime.fromisoformat(str(taken_at))
+    except ValueError:
+        return None
+    if then.tzinfo is None:
+        then = then.replace(tzinfo=dt.timezone.utc)
+    return ((now or dt.datetime.now(dt.timezone.utc)) - then).total_seconds() / 86400
 
 
 def resolve_offline(package: dict[str, Any], local: list[dict[str, Any]] | None = None, today: str = "") -> dict[str, Any]:
@@ -163,14 +194,10 @@ def resolve_offline(package: dict[str, Any], local: list[dict[str, Any]] | None 
 
 def age(taken_at: str, now: dt.datetime | None = None) -> str:
     """How old a package is, in words: "12 min", "5 h", "3 days"."""
-    now = now or dt.datetime.now(dt.timezone.utc)
-    try:
-        then = dt.datetime.fromisoformat(str(taken_at))
-    except ValueError:
+    days = days_old(taken_at, now)
+    if days is None:
         return "of unknown age"
-    if then.tzinfo is None:
-        then = then.replace(tzinfo=dt.timezone.utc)
-    minutes = max(0, int((now - then).total_seconds() // 60))
+    minutes = max(0, int(days * 1440 + 1e-9))
     if minutes < 60:
         return f"{minutes} min"
     if minutes < 48 * 60:

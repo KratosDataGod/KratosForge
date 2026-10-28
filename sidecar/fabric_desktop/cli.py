@@ -144,6 +144,10 @@ def main(argv: list[str] | None = None) -> None:
     p = gov_sub.add_parser("check", help="check the project against its policies from a policy package, with no platform, "
                                          "Fabric or OneLake call; exit 1 if an Error finding isn't excepted")
     p.add_argument("--package", help="a policy package file (default: the latest one on this PC for the project)")
+    p.add_argument("--expect-sha256", metavar="HASH",
+                   help="refuse the package unless its SHA-256 is this (default: KRATOSFORGE_POLICY_PACKAGE_SHA256); "
+                        "keep it where a pull request can't change it, such as a protected CI variable")
+    p.add_argument("--max-age", type=float, metavar="DAYS", help="refuse a package taken more than this many days ago")
     p.add_argument("--project", help="the metadata project's folder (default: the project open in the app)")
     p.add_argument("--json", action="store_true", help="print the whole result as JSON")
     p = gov_sub.add_parser("package", help="take the project's policy package from the platform (it reads the platform) "
@@ -442,10 +446,17 @@ def _governance(args: argparse.Namespace) -> int:
     try:
         if args.governance_command == "package":
             out = service.governance_package_export(out=args.out or "")
-            print(f"Took the policy package for {out['policies']} policies from {out['platform']} "
-                  f"(SHA-256 {out['sha256']}).\nKept on this PC: {out['kept']}" + (f"\nWritten to: {out['file']}" if args.out else ""))
+            print(f"Took the policy package for {out['policies']} policies from {out['platform']}."
+                  f"\nKept on this PC: {out['kept']}" + (f"\nWritten to: {out['file']}" if args.out else "")
+                  + "\nPin it in CI with --expect-sha256 or KRATOSFORGE_POLICY_PACKAGE_SHA256:"
+                  f"\nSHA-256: {out['sha256']}")
             return 0
-        result = service.governance_check_from_package(package=args.package or "")
+        if args.max_age is not None and args.max_age < 0:
+            print("--max-age: a number of days, at least 0")
+            return 2
+        expect = args.expect_sha256 or os.environ.get("KRATOSFORGE_POLICY_PACKAGE_SHA256", "")
+        result = service.governance_check_from_package(package=args.package or "", expect_sha256=expect,
+                                                       max_age_days=args.max_age)
     except (PackageError, LookupError) as exc:
         print(exc)
         return 2

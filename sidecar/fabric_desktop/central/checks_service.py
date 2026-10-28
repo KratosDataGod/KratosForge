@@ -334,25 +334,31 @@ class ChecksMixin:
             write_json(Path(out), package)
         return pp.summary(package, Path(out) if out else path) | {"kept": str(path)}
 
-    def _gc_offline_resolve(self, project: Any, package: str = "") -> tuple[dict[str, Any], dict[str, Any]]:
+    def _gc_offline_resolve(self, project: Any, package: str = "", expect_sha256: str = "",
+                            max_age_days: float | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
         """The policies in force from a policy package (``package``, else the latest one on this PC), verified
-        first: a package whose hashes don't match raises PackageError and is never used."""
+        first: a package whose hashes don't match raises PackageError and is never used. ``expect_sha256`` (a CI
+        job's pinned hash) is checked before anything else, so a package with recomputed hashes is refused too;
+        ``max_age_days`` refuses a package taken longer ago."""
         pname = mesh.project_name(project)
         path = Path(package) if package else self._gc_package_path(pname)
         if not package and not path.exists():
             raise pp.PackageError(f"There's no policy package for {pname} on this PC yet, so it can't be checked "
                                   "offline. Run Check now once while the platform can be reached, or pass --package.")
-        pkg = pp.read(path)
+        pkg = pp.read(path, expect_sha256=expect_sha256, max_age_days=max_age_days)
         if pkg["project"] != pname:
             raise pp.PackageError(f"The policy package {path} is for {pkg['project']}, not {pname}. It isn't used.")
         local, problems = local_assignments(project.root, pname)
         out = pp.resolve_offline(pkg, local)
         return out | {"problems": problems}, pp.summary(pkg, path)
 
-    def governance_check_from_package(self, package: str = "", remember: bool = False) -> dict[str, Any]:
+    def governance_check_from_package(self, package: str = "", remember: bool = False, expect_sha256: str = "",
+                                      max_age_days: float | None = None) -> dict[str, Any]:
         """Check now without the platform: the policies come from a policy package (``package``, else the
-        latest on this PC). No platform, Fabric or OneLake call. ``remember`` keeps the result as Check now's last."""
-        return self._gc_check(offline=True, package=package, remember=remember)
+        latest on this PC). No platform, Fabric or OneLake call. ``remember`` keeps the result as Check now's last;
+        ``expect_sha256`` and ``max_age_days`` refuse a package that isn't the pinned one or is too old."""
+        return self._gc_check(offline=True, package=package, remember=remember,
+                              pin={"expect_sha256": expect_sha256, "max_age_days": max_age_days})
 
     def governance_check_now(self) -> dict[str, Any]:
         """Check the open project against the policies in force for it, on this PC. Warn only. When the platform
@@ -360,19 +366,23 @@ class ChecksMixin:
         the latest package on this PC is used, and the result says which and how old."""
         return self._gc_check()
 
-    def _gc_check(self, offline: bool = False, package: str = "", remember: bool = True) -> dict[str, Any]:
+    def _gc_check(self, offline: bool = False, package: str = "", remember: bool = True,
+                  pin: dict[str, Any] | None = None) -> dict[str, Any]:
         project = self._project()  # type: ignore[attr-defined]
         pname = mesh.project_name(project)
         used: dict[str, Any] | None = None
         unreachable = ""
         if offline:
-            resolved, used = self._gc_offline_resolve(project, package)
+            resolved, used = self._gc_offline_resolve(project, package, **(pin or {}))
         else:
             try:
                 resolved = self.governance_resolve()  # type: ignore[attr-defined]
             except core.PlatformError:
                 raise  # the platform answered: no package stands in for what it said
             except Exception as exc:  # noqa: BLE001 - not reached: the latest package on this PC stands in
+                # Check now is warn only, so any failure that isn't the platform's own answer may fall back to the
+                # package. If checks ever block (GOV-003), narrow this to connection errors: a fallback must not
+                # let a blocking check pass on an older package while the platform is saying something else.
                 if not self._gc_package_path(pname).exists():
                     raise
                 _log.info("Check now for %s uses the policy package: %s", pname, describe(exc))

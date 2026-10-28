@@ -256,6 +256,88 @@ def test_cli_refuses_a_changed_package_with_exit_2(svc, tmp_path, capsys):
     assert stop.value.code == 2 and "isn't a metadata project folder" in capsys.readouterr().out
 
 
+# --------------------------------------------------------------------------- pinning the package (CI)
+
+
+def weakened(path):
+    """The package with its labels policy lowered to low (so Info, not Error) and every hash recomputed:
+    the tamper check alone accepts it."""
+    pkg = json.loads(path.read_text())
+    v = pkg["versions"]["labels@1"]
+    v["definition"]["severity"] = "low"
+    v["sha256"] = policy.definition_hash(v["definition"])
+    for r in pkg["resolved"]:
+        if r["id"] == "labels":
+            r["sha256"] = v["sha256"]
+    pkg["sha256"] = pp.package_hash(pkg)
+    path.write_text(json.dumps(pkg))
+    return pkg
+
+
+def test_a_pinned_hash_refuses_a_package_with_recomputed_hashes(svc, tmp_path, capsys, monkeypatch):
+    mark_pii(svc)
+    publish(svc, "sensitive-columns-labelled", "labels")
+    file = tmp_path / "policies.json"
+    capsys.readouterr()
+    with pytest.raises(SystemExit) as stop:
+        cli.main(["governance", "package", "--out", str(file)])
+    assert stop.value.code == 0
+    pinned = json.loads(file.read_text())["sha256"]
+    assert f"SHA-256: {pinned}" in capsys.readouterr().out, "printed so it can be pinned"
+    project = str(tmp_path / "crm")
+    # The pinned package is accepted, by flag or by environment variable.
+    with pytest.raises(SystemExit) as stop:
+        cli.main(["governance", "check", "--project", project, "--package", str(file), "--expect-sha256", pinned.upper()])
+    assert stop.value.code == 1, "accepted: its Error finding fails the job"
+    monkeypatch.setenv("KRATOSFORGE_POLICY_PACKAGE_SHA256", pinned)
+    with pytest.raises(SystemExit) as stop:
+        cli.main(["governance", "check", "--project", project, "--package", str(file)])
+    assert stop.value.code == 1
+    # Weakened with every hash recomputed: verify alone takes it (and the job would pass) ...
+    pkg = weakened(file)
+    assert pp.verify(json.loads(file.read_text()))["sha256"] == pkg["sha256"] != pinned
+    assert svc.governance_check_from_package(str(file))["counts"]["to_look_at"] == 1
+    assert cli.unexcepted_errors(svc.governance_check_from_package(str(file))) == []
+    # ... but not against the pin, from the variable or the flag.
+    capsys.readouterr()
+    with pytest.raises(SystemExit) as stop:
+        cli.main(["governance", "check", "--project", project, "--package", str(file)])
+    assert stop.value.code == 2
+    assert f"isn't the pinned package: its SHA-256 is {pkg['sha256']}, not the expected {pinned}" in capsys.readouterr().out
+    monkeypatch.delenv("KRATOSFORGE_POLICY_PACKAGE_SHA256")
+    with pytest.raises(SystemExit) as stop:
+        cli.main(["governance", "check", "--project", project, "--package", str(file), "--expect-sha256", pinned])
+    assert stop.value.code == 2
+    # A package with every policy removed and its hash recomputed: refused against the pin too.
+    empty = json.loads(file.read_text())
+    empty.update(resolved=[], policies={}, versions={}, assignments=[], exceptions=[])
+    empty["sha256"] = pp.package_hash(empty)
+    file.write_text(json.dumps(empty))
+    with pytest.raises(pp.PackageError, match="isn't the pinned package"):
+        svc.governance_check_from_package(str(file), expect_sha256=pinned)
+
+
+def test_max_age_refuses_an_old_package(svc, tmp_path, capsys):
+    publish(svc, "table-names", "table-names")
+    file = tmp_path / "policies.json"
+    svc.governance_package_export(out=str(file))
+    pkg = json.loads(file.read_text())
+    pkg["taken_at"] = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=10)).isoformat(timespec="seconds")
+    pkg["sha256"] = pp.package_hash(pkg)
+    file.write_text(json.dumps(pkg))
+    project = str(tmp_path / "crm")
+    capsys.readouterr()
+    with pytest.raises(SystemExit) as stop:
+        cli.main(["governance", "check", "--project", project, "--package", str(file), "--max-age", "7"])
+    assert stop.value.code == 2 and "was taken 10 days ago, more than the 7 days allowed" in capsys.readouterr().out
+    with pytest.raises(SystemExit) as stop:
+        cli.main(["governance", "check", "--project", project, "--package", str(file), "--max-age", "30"])
+    assert stop.value.code == 0
+    with pytest.raises(SystemExit) as stop:
+        cli.main(["governance", "check", "--project", project, "--package", str(file), "--max-age", "-1"])
+    assert stop.value.code == 2
+
+
 # --------------------------------------------------------------------------- 5. no platform, Fabric or OneLake call
 
 

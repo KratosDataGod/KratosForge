@@ -3966,7 +3966,7 @@
       },
       "limitations": [
         "GOV-001 registry and GOV-002 offline validation are built; enforcement (GOV-003) isn't, and HD-031 labels Block as not enforced",
-        "Policy packages are hash-checked, not signed: signing needs a key, and there are no app registrations",
+        "Policy packages are hash-checked, not signed: signing needs a key, and there are no app registrations; a CI gate pins the package SHA-256 (--expect-sha256) in a protected variable. An offline package keeps the assignments, exceptions and domain chain from when it was taken",
         "An offline check doesn't read catalog text, product terms, endorsement or run logs, so those rules say unknown; there is no screen to take or pick a package (Check now refreshes it, the CLI takes and uses it)"
       ],
       "prs": [

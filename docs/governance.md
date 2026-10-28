@@ -175,9 +175,9 @@ A **policy package** is one JSON file with what checking a project needs from th
 
 **Taken and refreshed.** Each **Check now** that reaches the platform takes the package again and keeps it as `governance_packages/<project>.json` in the app's data folder, replacing the last one. A version whose definition doesn't match its stored SHA-256 in the platform is never packaged: the package isn't refreshed and the result says why. `fabric-desktop governance package` takes it on request; `--out <file>` also writes it to a file, such as one a CI job reads.
 
-**Offline Check now.** When the platform can't be reached, **Check now** uses the latest package on this PC. The result says so, with which package, from which platform and how old it is: "Checked offline with the policy package taken 2 days ago (2026-10-26 09:00 UTC) from ...". The policies are resolved from the package exactly as the platform resolves them, with the project's current `governance.toml` and today's date, so an exception or policy that has ended since is no longer applied. Offline, nothing calls the platform, Fabric or OneLake: catalog text isn't read (only the text in the project's files is checked), and the rules that need product terms, endorsement or the run logs say **unknown**, with why. With no package on this PC and no platform, Check now says so and checks nothing.
+**Offline Check now.** When the platform can't be reached, **Check now** uses the latest package on this PC. The result says so, with which package, from which platform and how old it is: "Checked offline with the policy package taken 2 days ago (2026-10-26 09:00 UTC) from ...". The policies are resolved from the package exactly as the platform resolves them, with the project's current `governance.toml` and today's date, so an exception or policy that has passed its date since is no longer applied. Everything else is as it was when the package was taken: the project's domain and subdomain (the scopes it inherits from) are fixed then, and so are the platform's assignments and exceptions. An exception a platform admin **ends early**, or a policy changed or assigned since, keeps the package's state until the package is taken again; the result's age says how old that state is. Offline, nothing calls the platform, Fabric or OneLake: catalog text isn't read (only the text in the project's files is checked), and the rules that need product terms, endorsement or the run logs say **unknown**, with why. With no package on this PC and no platform, Check now says so and checks nothing.
 
-**Tamper check.** A package is checked before it's used: its own SHA-256, each version's stored SHA-256 against its definition, and each policy in force against the version it names. A package that doesn't match (edited, cut short, not JSON, or for another project) is refused with what didn't match, and is never used as if valid. This is **hash integrity, not a signature**: it catches an accidental or partial change, but someone who edits a definition and recomputes the hashes isn't caught. Signing needs a key, and KratosForge has no app registration to hold one, so packages aren't signed. Keep a package where only the people who may change policies can write it, as you would `governance.toml`.
+**Tamper check.** A package is checked before it's used: its own SHA-256, each version's stored SHA-256 against its definition, and each policy in force against the version it names. A package that doesn't match (edited, cut short, not JSON, or for another project) is refused with what didn't match, and is never used as if valid. This is **hash integrity, not a signature**: it catches an accidental or partial change, but someone who edits a definition and recomputes the hashes isn't caught. Signing needs a key, and KratosForge has no app registration to hold one, so packages aren't signed. Someone who can edit the package can also lower a policy's severity, or remove a policy, and recompute every hash. So a check that matters (a CI gate) **pins** the package: `--expect-sha256 <hash>` (or the `KRATOSFORGE_POLICY_PACKAGE_SHA256` environment variable) refuses any package whose SHA-256 isn't that one, before anything else is read from it. Keep the pinned hash where the people whose work is checked can't change it (see [the CI recipe](#offline-policy-packages)).
 
 **From the command line.** `fabric-desktop governance check` runs the same checks with no platform, Fabric or OneLake call, prints each policy and finding, and sets the exit code for CI:
 
@@ -187,10 +187,20 @@ fabric-desktop governance check [--package <file>] [--project <folder>] [--json]
 
 - `--package`: the package to use (default: the latest one on this PC for the project).
 - `--project`: the metadata project's folder (default: the project open in the app).
+- `--expect-sha256 <hash>`: refuse the package unless its SHA-256 is this one (default: the `KRATOSFORGE_POLICY_PACKAGE_SHA256` environment variable, when it's set).
+- `--max-age <days>`: refuse a package taken more than this many days ago.
 - `--json`: the whole result as JSON, with `unexcepted_errors`.
-- Exit code: 0 when no finding fails, 1 when an **Error** finding (a high or critical policy) isn't covered by an exception, 2 when it can't check (no project, no package, or a package that doesn't match).
+- Exit code: 0 when no finding fails, 1 when an **Error** finding (a high or critical policy) isn't covered by an exception, 2 when it can't check (no project, no package, a package that doesn't match, isn't the pinned one or is too old).
 
-The command keeps no result: it isn't saved as the app's last check. A CI job takes the package once on a machine that reaches the platform (`fabric-desktop governance package --out policies.json`), keeps it with the project, and runs `fabric-desktop governance check --project . --package policies.json`.
+The command keeps no result: it isn't saved as the app's last check.
+
+**In CI.** A pull request's author can edit any file in the pull request, a package included, so the package's hash is what's trusted, not the file:
+
+1. A policy owner takes the package on a machine that reaches the platform: `fabric-desktop governance package --out policies.json`. It prints the package's SHA-256.
+2. They commit `policies.json` and store the SHA-256 in a protected CI variable (`KRATOSFORGE_POLICY_PACKAGE_SHA256`), one only they can change and that a pull request's pipeline reads but can't set.
+3. The pipeline runs `fabric-desktop governance check --project . --package policies.json --max-age 30`. A changed package, even with every hash recomputed, isn't the pinned one, so the check refuses it (exit 2).
+
+When the policies change, the owner takes a new package and updates the variable together. Where a protected variable isn't available, protect the file instead: a `CODEOWNERS` entry for `policies.json` so a change to it needs a policy owner's review, with branch protection requiring that review, and pass the hash with `--expect-sha256` from the pipeline definition the same owners protect.
 
 ### A data product's checklist
 
@@ -266,7 +276,7 @@ The notebook rules `NB001` to `NB012` ([notebook best practices](notebook-best-p
 - Checkers that run in Fabric, and storing their findings from a Fabric run: the registry accepts them and Check now shows what's stored, but nothing stores any yet.
 - A product's steward isn't in the platform's catalog, so another team's product shows it as unknown.
 - Signed policy packages. A package is hash-checked, not signed: signing needs a key, and there's no app registration to hold one. See [the tamper check](#offline-policy-packages).
-- An offline check doesn't read the platform's catalog text, product terms and endorsement, or the run logs, so the rules that need them say unknown. There's no screen to take, pick or inspect a package: Check now refreshes it, and the CLI takes and uses it.
+- An offline check doesn't read the platform's catalog text, product terms and endorsement, or the run logs, so the rules that need them say unknown. It uses the assignments, exceptions and domain chain as they were when the package was taken: an exception ended early keeps applying until the package is taken again. There's no screen to take, pick or inspect a package: Check now refreshes it, and the CLI takes and uses it.
 - Project exceptions in `exceptions.toml` (the save gate's) are unchanged and separate from policy exceptions, which Check now applies. Adding one records no request, approval or audit entry (PB-059 review finding 1).
 - Changing an exception's date or scope: end it early and ask for a new one.
 - A separate approver for publishing (the same admin can write and publish).

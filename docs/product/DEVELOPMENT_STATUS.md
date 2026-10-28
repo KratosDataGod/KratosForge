@@ -18,7 +18,7 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   and PB-082 finding 2.
 - Inventory: 142 features. 119 are Implemented, 12 Partially Implemented, 4 Implemented but Not Exposed, 3 Missing and 4 Planned.
   3 are Verified, 128 Partially Verified and 11 Unverified. None has been verified on a Fabric tenant end to end.
-- Backlog: 101 items (5 P0, 31 P1, 52 P2, 13 P3). 46 are Proposed, 11 In progress, 39 In review and 5 Accepted.
+- Backlog: 103 items (5 P0, 31 P1, 53 P2, 14 P3). 48 are Proposed, 11 In progress, 4 In review and 40 Accepted. Chris accepted the 2026-10-28 In review batch (35 items); PB-005, PB-045, PB-084 and PB-024 stay In review.
 
 ## Workstreams
 

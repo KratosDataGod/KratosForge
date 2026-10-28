@@ -19,7 +19,8 @@
       "Product check 2026-10-26 23:42 at 73c4ae4: PRs #742 to #791, with #725 and #726, merged after #752; their rows were updated. Other rows were not re-read.",
       "Product check 2026-10-27 at 6159e50: PRs merged after #797 (#560, #449, #701, #763, #765, #782, #788 to #809); their rows were updated. Other rows were not re-read.",
       "Product check 2026-10-27 23:42 at 2225e28: PRs #811 to #826 merged after #812; their rows were updated, and the inventory text the #815 implementation reviews named stale was corrected.",
-      "Product check 2026-10-28 11:42 at cdbb967: PRs #827 and #829 to #838 merged after #830; their rows were updated. Other rows were not re-read."
+      "Product check 2026-10-28 11:42 at cdbb967: PRs #827 and #829 to #838 merged after #830; their rows were updated. Other rows were not re-read.",
+      "Acceptance of the 2026-10-28 In review batch recorded (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); stale limitations on FEAT-REL-01, SQL-01, NB-07 and SQL-02 corrected from main's code."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -2241,7 +2242,7 @@
         "preview": false
       },
       "limitations": [
-        "Regex-based; flags variableLibrary notebooks as Fabric-only although they run on the PC",
+        "Regex-based",
         "No 'unknown' outcome"
       ],
       "prs": [
@@ -2512,11 +2513,9 @@
         "preview": false
       },
       "limitations": [
-        "Plain textarea, no autocomplete or formatting",
         "Read-only",
         "Download CSV re-runs the query",
-        "No cancel",
-        "Editor (SQL-001) and managed execution with cancel and streaming (SQL-003) verified by engine tests only; the browser tests were not run"
+        "Engine and browser tests run with Fabric faked"
       ],
       "prs": [
         118,
@@ -2568,7 +2567,7 @@
         "preview": false
       },
       "limitations": [
-        "MERGE, UPDATE, DELETE print a note and report status ok, so Run all continues"
+        "MERGE, UPDATE and DELETE in a %%sql cell stop the run and say they run in Fabric"
       ],
       "next_action": "Make a MERGE/UPDATE/DELETE cell end with a visible 'skipped on this PC' status instead of ok (PB-013).",
       "backlog": [
@@ -3859,7 +3858,8 @@
         "preview": true
       },
       "limitations": [
-        "Adding an exception to exceptions.toml records no request, approval or audit entry, and its approver is free text (PB-059 review finding 1, waiting on the FD-129 owner)"
+        "Adding an exception to exceptions.toml records no request, approval or audit entry, and its approver is free text (PB-059 review finding 1, waiting on the FD-129 owner)",
+        "FD-129 narrowed to policy exceptions (Chris, 2026-10-28): exceptions.toml stays outside the request flow"
       ],
       "workstream": "Enterprise governance foundation (FD-129)",
       "next_action": "Product owner decides whether exceptions.toml joins the request flow or FD-129 is narrowed to policy exceptions (PB-059 review finding 1).",
@@ -5408,9 +5408,8 @@
         "preview": false
       },
       "limitations": [
-        "Only the newest build per channel",
-        "Promote can't choose a build; SBOMs not copied",
-        "cargo test never runs"
+        "No policy setting pins one build: IT turns off auto_update and installs the build-<commit> release it wants",
+        "SBOMs not copied on promote"
       ],
       "prs": [
         111

@@ -82,6 +82,7 @@ class Agent:
         self._status_at = 0.0
         self._pruned_at: float | None = None
         self._controls: dict[str, Any] = {}
+        self._controls_lock = threading.Lock()  # the shortcut check's thread builds them too
         self.mailbox: Mailbox | None = None
         self._mailbox_at = 0.0
         self._incidents_at = 0.0
@@ -99,9 +100,10 @@ class Agent:
 
     def _control(self, env: str) -> Any:
         """The environment's control files (mailbox and status records), built once."""
-        if env not in self._controls:
-            self._controls[env] = self.runtime.control_backend(env)
-        return self._controls[env]
+        with self._controls_lock:
+            if env not in self._controls:
+                self._controls[env] = self.runtime.control_backend(env)
+            return self._controls[env]
 
     def publish_status(self, state: str = "running") -> None:
         """Write agents/<name>.json to each environment's control area. A failure is logged, never fatal."""

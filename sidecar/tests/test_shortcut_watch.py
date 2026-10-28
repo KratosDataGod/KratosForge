@@ -329,3 +329,27 @@ def test_the_status_record_says_whether_it_checks(tmp_path):
     assert agent_status.shortcut_health_summary(cfg, "prod") == {"enabled": True, "minutes": 60.0}
     assert agent_status.shortcut_health_summary(cfg, "test")["enabled"] is False
     assert agent_status.shortcut_health_summary(config(tmp_path, ""), "prod")["enabled"] is False
+
+
+def test_two_threads_asking_for_a_control_backend_build_it_once(monkeypatch):
+    import threading as th
+    import time
+    from fabric_desktop import agent as agent_mod
+
+    built = []
+
+    class Runtime:
+        def control_backend(self, env):
+            built.append(env)
+            time.sleep(0.05)  # widen the window a check-then-set race would need
+            return object()
+
+    a = agent_mod.Agent.__new__(agent_mod.Agent)
+    a._controls, a._controls_lock, a.runtime = {}, th.Lock(), Runtime()
+    got = []
+    threads = [th.Thread(target=lambda: got.append(a._control("prod"))) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert built == ["prod"] and len({id(x) for x in got}) == 1

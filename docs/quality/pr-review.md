@@ -198,6 +198,16 @@ What the set says about the baseline: the five FAILs are the patterns the [findi
 | #956 | One set of date and time helpers | PASS at 868c5e5e (and 43416b0d) | 9.1 | Delta over #943. ui.test 301/0; 20 browser files 116/0; old files fail 3. Nit: the schedule's next run lost its weekday. |
 | #951 | Every axe "needs a look" item has a person's verdict | PASS at 44f8608e (carried) | 9.2 | Verdicts now anchored to their page; checked that the anchors restrict. a11y 4/4 x3. |
 | #948 | AI integration architecture page: what exists now | PASS at 6e2d54e2 (and 544bc4c3) | 9.3 | Docs only. Every listener, bind address, token and policy claim checked against the code; zensical clean; product data consistent. |
+| (no PR yet) offline (Codebase audit) | Tests no longer need the internet (MSAL discovery faked in conftest) | PASS at 5a71e47e | 9.2 | Full suite behind a dead proxy: 23 failed, all local 127.0.0.1 servers that pass with NO_PROXY (main: 89 failed, 10 errors). The fake raises on anything else and no product code passes http_client. Nits: ConfidentialClientApplication not covered; CONTRIBUTING NO_PROXY note. |
+
+| (no PR yet) tz (Codebase audit) | Time-zone independent tests; policy.py uses the UTC date | PASS at 5a032c1c | 9.2 | test_frames 31/31 in six zones; policy, governance and contract tests 208 passed, 1 skipped in five zones (UTC-11 to UTC+14). All five policy.py sites now use core._today. Nit: TODAY computed at import (pre-existing). |
+
+| (no PR yet) readme (Codebase audit) | "Not yet built" brought up to date | PASS at cd858771 | 9.3 | Every claim checked against install.md, enterprise-roadmap.md, local-runs.md and meta/. |
+
+| (no PR yet) lint (Codebase audit) | ruff lint job (E9, F); 29 findings fixed | PASS at 0390b6cf | 9.2 | ruff clean on the merged tree; 299 passed, 3 skipped; product edits are no-ops; test_large_tables keeps its intent; cell formatting unchanged. Nit: F811 ignore on all tests. |
+
+| (no PR yet) types (Codebase audit) | mypy ratchet with an 866-error baseline | PASS at b9195309 | 9.1 | Ratchet 866=866; an added error exits 1 naming the file; 21 passed; pins -c only and audited. Nits: renames count as new errors; constraints bumps can shift counts (document --update). |
+
 | #926 | Retargeted to main after #907 | PASS at b5d4bea4 (carried) | 9.2 | Changed lines against main c1e3850e are the reviewed delta against 67da857d plus a byte-identical #972 port (79ee6ce4). Clean merge. |
 
 | #926 | Notebook and query keyboard fixes | PASS at 4d523c7d (carried) | 9.2 | × now asks like Delete; the old file fails the new test. |

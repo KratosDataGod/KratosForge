@@ -86,6 +86,15 @@ class Runtime(PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin):
         meta_id = store.lakehouse_ids.get(META_LAKEHOUSE) if isinstance(store, OneLakeStore) else None
         return control_backend_for(store, meta_id, self.auth.storage_token)
 
+    def verify_pipeline_run(self, env: str, item_id: str, run_id: str) -> dict[str, Any]:
+        """Fabric's record of a pipeline run in ``env``'s workspace, for a request that names it (mailbox.py)."""
+        project = self._project()
+        self.check_allowed(project, env)
+        store = self._store(project, env)
+        if not isinstance(store, OneLakeStore):
+            raise LookupError(f"{env} runs on this machine, so there is no Fabric workspace to look the run up in")
+        return self.fabric.job_instance(store.workspace_id, item_id, run_id)
+
     def entity_names(self) -> set[str]:
         return set(self._project().entities)
 

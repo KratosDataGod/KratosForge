@@ -66,7 +66,7 @@ def test_the_agent_publishes_what_it_is_doing(setup):
     assert r["heartbeat_at"] == "2027-01-15T08:00:00Z" and r["stale_after"] == "2027-01-15T08:01:30Z"
     assert r["counts"]["running"] == 1 and r["running"][0]["job_id"] == job["id"]
     assert r["running"][0]["entities"] == ["bronze.orders"]
-    assert r["pipeline"] == {"enabled": True, "entities": ["bronze.*"], "allow_backfill": False}
+    assert r["pipeline"] == {"enabled": True, "entities": ["bronze.*"], "allow_backfill": False, "require_run": False}
     assert r["schedules"][0]["id"] == "dev-hourly"
     assert r["schedules"][0]["entities"] == []  # all entities: present and empty, not missing
     assert r["schedules"][0]["when"] == {"kind": "cron", "every_minutes": 60}

@@ -92,6 +92,7 @@ Secrets never go in `agent.toml`, and the agent refuses to start if one does. A 
 | `pipeline.retention_days` | 14 | When finished requests are removed |
 | `pipeline.claim` | `"always"` | `"when_free"` (Preview): take a new request only while a worker is free, so a busy agent leaves it for one that isn't. See [Shared schedules](#shared-schedules-preview) |
 | `pipeline.take_over` | false | (Preview) Take over requests held by an agent that stopped reporting. See [Taking over from a lost agent](#taking-over-from-a-lost-agent-preview) |
+| `pipeline.require_run` | false | (Preview) Only take requests whose `pipeline_run` checks out in Fabric. See [Which pipeline asked](#which-pipeline-asked-preview). Can't be used with shared schedules |
 | `schedule.shared` | false | (Preview) Share this schedule with other agents through the mailbox, so each due time runs once. See [Shared schedules](#shared-schedules-preview) |
 | `incidents.enabled` | false | Keep each environment's [incidents](#incidents-preview) (Preview) |
 | `incidents.seconds` | 300 | How often to evaluate (at least 30) |
@@ -273,6 +274,8 @@ entities = ["silver.*", "gold.*"]   # optional: what pipelines may run
 | `entities` | `silver.orders,gold.fact_sales` | Comma-separated; empty runs every entity |
 | `request_id` | `@pipeline().RunId` | Makes a retried activity wait for the same run instead of asking twice |
 | `submitted_by` | `@concat(pipeline().Pipeline, ' ', pipeline().RunId)` | Recorded in the status, as given |
+| `pipeline_id` | `@pipeline().Pipeline` | With `pipeline_run_id`: lets the agent check this run in Fabric. Needed when the agent sets `require_run` |
+| `pipeline_run_id` | `@pipeline().RunId` | The run to check |
 | `start_within_minutes` | `60` | The request expires if no agent has started it by then |
 | `timeout_minutes` | `240` | Stop waiting, cancel the request if it hasn't started, and fail |
 
@@ -290,7 +293,8 @@ A **request** is a JSON object in `requests/<id>.json`. The id is 1 to 64 letter
 | `backfill` | no | `""` or `"full"`. Needs `pipeline.allow_backfill` |
 | `cascade` | no | `true` rebuilds one entity and everything downstream of it. Needs `pipeline.allow_backfill` |
 | `deadline` | no | ISO 8601 time with a zone (`2026-10-17T03:00:00Z`): the latest time the run may start |
-| `submitted_by` | no | Free text up to 200 characters, recorded in the status |
+| `submitted_by` | no | Free text up to 200 characters, recorded in the status. Nothing checks it |
+| `pipeline_run` | no (yes with `require_run`) | `{"item_id": <pipeline item id>, "run_id": <run id>}`, both GUIDs: the run that wrote the request, for the agent to check |
 
 The agent answers in **`status/<id>.json`**:
 
@@ -304,9 +308,20 @@ The agent answers in **`status/<id>.json`**:
 | `received_at`, `started_at`, `finished_at`, `updated_at` | UTC times |
 | `result` | `tables`, `ok`, `failed`, `rows_written` and `run_ids` |
 | `cancel` | Set when a cancel arrived while the run was going |
+| `pipeline_run` | The run the request named, with `verified`, `status`, `started_at` and `detail` (what Fabric said, or why it couldn't be checked) |
 | `contract`, `request_id`, `env`, `entities`, `backfill`, `cascade`, `deadline`, `submitted_by` | As requested |
 
 A final status never changes again. Fields may be added within version 1; readers should ignore fields they don't know.
+
+### Which pipeline asked (Preview)
+
+Anyone who can write the environment's `LH_Meta` can write a request, and OneLake doesn't say who wrote a file: its owner is always `$superuser` ([OneLake API parity](https://learn.microsoft.com/fabric/onelake/onelake-api-parity)). So `submitted_by` is only what the pipeline says.
+
+What the agent can check is the run. When a request names `pipeline_run`, the agent looks that job up in the environment's workspace with the Fabric API, as its own identity. It records the answer in the status's `pipeline_run`. `verified` is true only when Fabric has a **Pipeline** job with that id, for that pipeline item, that started within the last 24 hours. A local environment has no workspace to look in, so its runs are never verified.
+
+By default an unverified run is recorded and the request still runs. With `[pipeline] require_run = true`, a request without `pipeline_run`, or whose run doesn't check out, is rejected with the reason. Shared schedules write requests that name no run, so they can't be combined with `require_run`.
+
+This proves that a real pipeline run in the workspace is behind the request id. It doesn't stop someone who can write `LH_Meta` from copying a real run's ids into a request of their own within that day, so keep write access to `LH_Meta` as narrow as the agent's own.
 
 **How it stays safe:**
 
@@ -359,7 +374,7 @@ Nothing here has run against a live Fabric tenant yet. Before Prod, check these 
 3. A lease file appears in `LH_Meta/Files/_fabric_desktop/leases/` while a table runs and is gone after. OneLake's support for `If-None-Match` and `If-Match` on these requests is the key thing to confirm.
 4. Two agents, or the agent and the app, running the same table at once: one waits for the other and no rows are lost.
 5. Status records: `LH_Meta/Files/_fabric_desktop/agents/<name>.json` appears within `status_seconds` of starting the agent, its `heartbeat_at` moves on, and `state` is `stopped` after `systemctl stop` (or stopping the Windows service).
-6. Pipeline requests: with `[pipeline] enabled = true`, run a pipeline whose Notebook activity runs `run_on_agent.ipynb` with `entities` set to one bronze entity. The activity succeeds, `status/<RunId>.json` in `LH_Meta/Files/_fabric_desktop/` ends `succeeded` with the agent's `job_id`, and the Monitor shows the run. Then run it with a pipeline identity that can't write `LH_Meta` and check the activity fails to write the request. Then write `cancel/<id>.json` before the agent's next poll and check the status ends `cancelled`.
+6. Pipeline requests: with `[pipeline] enabled = true`, run a pipeline whose Notebook activity runs `run_on_agent.ipynb` with `entities` set to one bronze entity. The activity succeeds, `status/<RunId>.json` in `LH_Meta/Files/_fabric_desktop/` ends `succeeded` with the agent's `job_id`, and the Monitor shows the run. Then run it with a pipeline identity that can't write `LH_Meta` and check the activity fails to write the request. Then write `cancel/<id>.json` before the agent's next poll and check the status ends `cancelled`. Then pass `pipeline_id` and `pipeline_run_id` to the notebook and check the status's `pipeline_run` says `verified: true`. The live test's `pipeline.mailbox` check covers the OneLake part of this without a pipeline (see [Live testing](live-testing.md)).
 
 7. Incidents: with `[incidents] enabled = true` and a table that fails in Dev, `LH_Meta/Files/_fabric_desktop/incidents/incidents.json` appears within `incidents.seconds` with one open incident, Teams gets one message, and a second agent (or the app) evaluating at the same time doesn't add another. After a good run the incident is resolved as recovered. Turn the network off for one evaluation and check Teams gets the messages marked Delayed afterwards. Stop a second agent with Task Manager (not cleanly) and check the first opens "Agent … stopped reporting" after its `stale_after`, and recovers it when the second is back. With a route and `quiet_hours` covering now, check a non-critical failure waits and a critical one doesn't.
 8. Shared schedules (Preview): give two agents the same `shared = true` schedule every 15 minutes. Over an hour, `requests/` gets one `sched-…` file per quarter hour, and each runs once, on one agent. Stop one agent and check the other runs every slot.
@@ -367,7 +382,7 @@ Nothing here has run against a live Fabric tenant yet. Before Prod, check these 
 
 ## Limits in this version
 
-- Pipeline requests don't record who wrote the request file, only the `submitted_by` text the pipeline gives. Whether OneLake reports a file's writer to the agent is still to verify.
+- OneLake doesn't report who wrote a request file, so the agent can't record the writer. It can check the pipeline run a request names ([Which pipeline asked](#which-pipeline-asked-preview)). That `@pipeline().Pipeline` and `@pipeline().RunId` are the item id and job instance id the Fabric API takes is still to confirm on a tenant.
 - One agent per queue. Two agents on different machines each keep their own queue. Table leases still stop them writing the same table at once, but nothing stops both from running the same schedule, unless it is a [shared schedule](#shared-schedules-preview) (Preview, untested on a tenant). Otherwise, give each environment's schedules to one agent.
 - Runs in Fabric don't take write leases. Their writes are still safe (each commits against the version it read and merges again on a conflict), but a busy table means retries instead of waiting in turn. The desktop app's metadata runs, notebook writes and job publishes do take them (see Safe concurrent writes).
 - An agent older than the desktop app's table leases takes only its `LH_Meta` lease, so it doesn't wait for a notebook writing the same table. Update agents with the app.

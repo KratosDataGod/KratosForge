@@ -56,10 +56,13 @@ EXTRA_CHECKS = {
                         "compares the cells, then deletes it. Creating an item uses capacity.",
     "pipeline.definition": "Creates a one-activity (Wait) DataPipeline item named fdlt_<run id>_pl, reads its "
                            "definition back, parses and re-exports it, then deletes it. Creating an item uses capacity.",
+    "pipeline.mailbox": "Writes a run request under Files/_fabric_desktop in the test lakehouse, lets the pipeline "
+                        "mailbox take it, cancel it and keep a second agent off it, and looks up a pipeline run that "
+                        "doesn't exist. Writes a few small files to OneLake, which uses capacity.",
     "notebook.run": "Runs the published fdlt_<run id>_nb notebook in Fabric (Run in Fabric) and waits for it. "
                     "Spends Spark capacity, so it only runs with --run-in-fabric.",
 }
-ALL_CHECKS = ("delta.concurrent", "notebook.publish", "pipeline.definition")  # what --all selects
+ALL_CHECKS = ("delta.concurrent", "notebook.publish", "pipeline.definition", "pipeline.mailbox")  # what --all selects
 ITEM_KINDS = {"notebook": "Notebook", "pipeline": "DataPipeline"}  # Fabric type; deleted before the lakehouse
 _RUN_TIMEOUT = 30 * 60
 _PROD_WORD = re.compile(r"(?<![a-z0-9])(prod|prd|production)(?![a-z0-9])", re.IGNORECASE)
@@ -138,6 +141,29 @@ class Ledger:
 TableAccess = Callable[[TableRef], tuple[str, dict[str, str]]]
 
 
+class _MailboxAgent:
+    """Just enough of an Agent for pipeline.mailbox: a name and a queue nothing ever runs."""
+
+    def __init__(self, name: str, queue: Any):
+        self.config = type("Config", (), {"name": name})()
+        self.queue, self.clock = queue, time.time
+
+    def enqueue(self, env: str, entities: list[str], backfill: str, cascade: bool, source: str,
+                dedupe_key: str) -> dict[str, Any]:
+        payload = {"env": env, "entities": entities, "backfill": backfill, "cascade": cascade}
+        return self.queue.enqueue("meta", payload, source=source, dedupe_key=dedupe_key)
+
+    def has_free_worker(self) -> bool:
+        return True
+
+
+def _status(control: Any, rid: str) -> dict[str, Any]:
+    stored = control.read(f"status/{rid}.json")
+    if stored is None:
+        raise RuntimeError("No agent wrote a status for the request")
+    return json.loads(stored.data)
+
+
 class LiveTest:
     """One run of the live checks against one workspace."""
 
@@ -146,8 +172,10 @@ class LiveTest:
                  bad_token_files: Any | None = None, run_id: str = "", clock: Callable[[], float] = time.monotonic,
                  extra: set[str] | tuple[str, ...] = (), run_in_fabric: bool = False,
                  write_table: Callable[[TableRef, Any, str], Any] | None = None,
-                 sleep: Callable[[float], None] = time.sleep):
+                 sleep: Callable[[float], None] = time.sleep, mailbox_control: Callable[[], Any] | None = None):
         self.workspace_id = workspace_id
+        # The control files pipeline.mailbox writes: the test lakehouse's Files area; tests pass a local folder.
+        self.mailbox_control = mailbox_control or self._onelake_control
         self.fabric, self.files, self.credential = fabric, files, credential
         self.run_id = run_id or uuid.uuid4().hex[:12]
         self.name = f"{PREFIX}{self.run_id}"
@@ -383,6 +411,13 @@ class LiveTest:
         if "pipeline.definition" in self.extra:
             self._check("pipeline.definition", "Create a pipeline, read its definition back and re-export it",
                         self._pipeline_definition)
+        if "pipeline.mailbox" in self.extra:
+            if self.lakehouse_id:
+                self._check("pipeline.mailbox", "A pipeline run request is taken, cancelled and kept to one agent",
+                            self._pipeline_mailbox)
+            else:
+                self._skip("pipeline.mailbox", "A pipeline run request is taken, cancelled and kept to one agent",
+                           "Needs the lakehouse, which couldn't be created.")
 
     def _publish(self, ref: TableRef, data: Any, mode: str) -> Any:
         from .publish import publish
@@ -510,6 +545,57 @@ class LiveTest:
             raise RuntimeError("Exporting the definition and reading it again changed it")
         return (f"Pipeline {name} ({item_id}) created; its definition parses "
                 f"({imported.source_format}, {len(names)} activity) and round-trips through export.")
+
+    def _onelake_control(self) -> Any:
+        from .mailbox import OneLakeControl
+        return OneLakeControl(self.workspace_id, self.lakehouse_id, self.credential.storage_token)
+
+    def _pipeline_mailbox(self) -> str:
+        """The agent's side of the mailbox (mailbox.py) against OneLake's conditional writes, with a
+        queue that never runs anything: claim, a second agent kept off, a cancel, and the run check."""
+        import tempfile
+
+        from .jobqueue import JobQueue
+        from .mailbox import Mailbox
+
+        control, env, rid = self.mailbox_control(), "livetest", f"{PREFIX}{self.run_id}"
+        missing = {"item_id": str(uuid.uuid4()), "run_id": str(uuid.uuid4())}
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:  # Windows may hold the queue files
+            def agent(name: str) -> Any:
+                return _MailboxAgent(name, JobQueue(Path(tmp) / f"{name}.sqlite3"))
+
+            def verify(_env: str, item_id: str, run_id: str) -> dict[str, Any]:
+                return self.fabric.job_instance(self.workspace_id, item_id, run_id)
+
+            a = Mailbox(agent(f"{rid}_a"), lambda _: control, [env], verify_run=verify)
+            b = Mailbox(agent(f"{rid}_b"), lambda _: control, [env], verify_run=verify)
+            body = {"contract": 1, "env": env, "entities": [], "submitted_by": f"live test {self.run_id}",
+                    "pipeline_run": missing}
+            if not control.create(f"requests/{rid}.json", json.dumps(body).encode()):
+                raise RuntimeError(f"requests/{rid}.json already existed")
+            a._poll_env(env)
+            first = _status(control, rid)
+            if first.get("state") != "accepted" or first.get("agent") != f"{rid}_a":
+                raise RuntimeError(f"Expected accepted by agent A, the status says {first.get('state')} by {first.get('agent')}")
+            run = first.get("pipeline_run") or {}
+            if run.get("verified") is not False or "couldn't find" not in str(run.get("detail")):
+                raise RuntimeError(f"A made-up pipeline run wasn't reported as not found: {run}")
+            if control.create(f"status/{rid}.json", b"{}"):
+                raise RuntimeError("A second claim of the same request succeeded; If-None-Match isn't honoured")
+            b._poll_env(env)
+            if _status(control, rid).get("agent") != f"{rid}_a":
+                raise RuntimeError("Agent B changed a status agent A holds")
+            control.create(f"cancel/{rid}.json", b"{}")
+            a._poll_env(env)
+            final = _status(control, rid)
+            if final.get("state") != "cancelled":
+                raise RuntimeError(f"After the cancel file the status says {final.get('state')}, not cancelled")
+            for folder in ("cancel", "requests", "status"):
+                stored = control.read(f"{folder}/{rid}.json")
+                if stored is not None:
+                    control.delete(f"{folder}/{rid}.json", stored.etag)
+        return ("Request taken once by agent A, left alone by agent B, cancelled; "
+                f"a made-up pipeline run was reported as not found ({run.get('detail')}).")
 
     # ---- cleanup
 

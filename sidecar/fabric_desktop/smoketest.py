@@ -69,9 +69,9 @@ FLOWS = [
     Flow(8, "Metadata project: run Dev on the PC, promote to Test", ["FEAT-META-02", "FEAT-META-09", "FEAT-META-14"],
          ["Data mesh > Environments: run the Dev environment on This PC.",
           "Promote to Test, with Test mapped to the marked test workspace; the deploy preview lists what changes."]),
-    Flow(9, "The live test: dry run, run, cleanup", ["FEAT-OPS-04", "FEAT-FAB-01"],
+    Flow(9, "The live test: dry run, run, cleanup", ["FEAT-OPS-04", "FEAT-FAB-01", "FEAT-ORC-04"],
          ["Optional, for FEAT-AUTH-04: run fabric-desktop live-test --agent-config <agent.toml> as the agent's identity."],
-         ["errors.not_found", "errors.bad_token", "pipeline.definition"]),
+         ["errors.not_found", "errors.bad_token", "pipeline.definition", "pipeline.mailbox"]),
     Flow(10, "Report a problem and save a support bundle; nothing personal in either", ["FEAT-SHL-10", "FEAT-SHL-11"],
          ["Help > Report a problem: read the draft; it names no person, tenant or workspace."]),
 ]

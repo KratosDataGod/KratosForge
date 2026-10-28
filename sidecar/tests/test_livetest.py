@@ -7,6 +7,7 @@ import requests
 
 from fabric_desktop import cli, livetest
 from fabric_desktop.fabric_api import FabricError
+from fabric_desktop.mailbox import LocalControl
 
 WS = "11111111-1111-1111-1111-111111111111"
 TOKEN = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl"
@@ -277,6 +278,8 @@ class ItemFabric(Fabric):
         return "job-1"
 
     def job_instance(self, ws, item_id, job_id):
+        if item_id not in self.items:
+            raise FabricError(f"GET failed with 404: ItemNotFound {item_id}", "ItemNotFound", 404)
         return {"status": self.job_status, "failureReason": {"message": "Spark said no"}}
 
     def cancel_job(self, ws, item_id, job_id):
@@ -299,6 +302,7 @@ def local_writer(tmp_path, fail_once=None, drop=None):
 
 
 def extra_harness(tmp_path, fabric=None, extra=livetest.ALL_CHECKS, files=None, writer=None, **kw):
+    kw.setdefault("mailbox_control", lambda: LocalControl(tmp_path / "control"))
     return livetest.LiveTest(WS, fabric or ItemFabric(), files or Files(), Credential(), tmp_path / "out",
                              table_access=lambda ref: (str(tmp_path / "delta" / ref.lakehouse_id / ref.table), {}),
                              bad_token_files=BadTokenFiles(), run_id="run1", extra=extra,
@@ -312,7 +316,7 @@ def by_id(result):
 def test_default_run_has_no_opt_in_checks(tmp_path):
     fabric = ItemFabric()
     result = harness(tmp_path, fabric).run()
-    assert not {"delta.concurrent", "notebook.publish", "notebook.run", "pipeline.definition"} & set(by_id(result))
+    assert not {"delta.concurrent", "notebook.publish", "notebook.run", "pipeline.definition", "pipeline.mailbox"} & set(by_id(result))
     assert not [c for c in fabric.calls if c[0] in ("create_item", "run_item_job")]
     assert result["opt_in"] == {"checks": [], "run_in_fabric": False}
 
@@ -326,6 +330,9 @@ def test_all_opt_in_checks_pass_and_their_items_are_deleted(tmp_path):
     assert "101 rows" in checks["delta.concurrent"]["detail"]
     assert checks["notebook.publish"]["status"] == "passed"
     assert checks["pipeline.definition"]["status"] == "passed"
+    assert checks["pipeline.mailbox"]["status"] == "passed", checks["pipeline.mailbox"]
+    assert "left alone by agent B" in checks["pipeline.mailbox"]["detail"]
+    assert not list((tmp_path / "control").rglob("*.json")), "the request, cancel and status files are deleted"
     assert checks["notebook.run"]["status"] == "skipped"
     assert checks["notebook.run"]["detail"].startswith("skipped: needs --run-in-fabric")
     assert ("create_item", "Notebook", "fdlt_run1_nb") in fabric.calls
@@ -506,3 +513,24 @@ def test_cleanup_checks_the_live_item_before_deleting_it(tmp_path):
     assert {"nb1", "pl1", "nb2"} <= set(fabric.items) and "lh-x" in fabric.lakehouses
     left = {r["id"] for r in done["left_behind"]}
     assert left == {"nb1", "pl1", "nb2", "lh-x"}  # refused ones stay listed for a person to look at
+
+
+class SloppyControl(LocalControl):
+    """Control files whose create doesn't honour If-None-Match, as a store that ignored it would."""
+
+    def create(self, key, data):
+        return super().create(key, data) or self.replace(key, data, self.read(key).etag)
+
+
+def test_a_store_that_lets_two_agents_claim_one_request_fails_the_mailbox_check(tmp_path):
+    result = extra_harness(tmp_path, extra={"pipeline.mailbox"},
+                           mailbox_control=lambda: SloppyControl(tmp_path / "control")).run()
+    check = by_id(result)["pipeline.mailbox"]
+    assert check["status"] == "failed" and "If-None-Match" in check["detail"]
+
+
+def test_the_mailbox_check_is_skipped_without_the_lakehouse(tmp_path):
+    test = extra_harness(tmp_path, extra={"pipeline.mailbox"})
+    test.lakehouse_id = ""
+    test._extra_checks()
+    assert by_id({"checks": [vars(c) for c in test.checks]})["pipeline.mailbox"]["status"] == "skipped"

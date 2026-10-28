@@ -78,5 +78,16 @@ select = ["E9", "F"]
 # A fixture imported from another test file and then taken as an argument looks like a redefinition.
 "tests/**" = ["F811"]
 
+# CI's type check (.github/scripts/mypy_ratchet.py): the errors from before it was added are counted
+# in mypy-baseline.json, and only new ones fail.
+[tool.mypy]
+files = ["fabric_desktop"]
+python_version = "3.12"  # CI's; the counts depend on it
+ignore_missing_imports = true  # several of the engine's packages ship no type information
+
+[[tool.mypy.overrides]]
+module = ["fabric_desktop._vendor.*"]  # vendored code stays as its authors wrote it
+ignore_errors = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

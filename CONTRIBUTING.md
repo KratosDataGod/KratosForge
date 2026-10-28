@@ -21,6 +21,7 @@ cd fabric-desktop\sidecar
 python -m pip install -e ".[dev]"     # Python 3.11 or later
 python -m pytest -q                   # every test runs without Fabric
 python -m ruff check .               # the lint CI runs: unused or undefined names, syntax errors
+python ../.github/scripts/mypy_ratchet.py   # type check: fails on new errors (pip install mypy)
 ```
 
 To run the desktop app from source, install Rust and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/), then:

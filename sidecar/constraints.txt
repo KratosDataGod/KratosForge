@@ -75,3 +75,10 @@ urllib3==2.8.0
 uvicorn==0.54.0
 wrapt==2.5.1
 xyzservices==2026.9.1
+
+# CI's type check (lint job, .github/scripts/mypy_ratchet.py); not part of the engine.
+ast-serialize==0.13.1
+librt==0.16.0
+mypy==2.4.1
+mypy_extensions==1.1.0
+pathspec==1.1.1

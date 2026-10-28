@@ -32,7 +32,7 @@ The shell still talks to its own engine over stdin/stdout only, and the headless
 | --- | --- | --- |
 | Local HTTP API (`integrations serve`, port 47615) | Only while **Settings > Integrations** has it switched on | A tool with its own bearer token (section 3). Requests from a web page (a browser `Origin`) or with a `Host` that isn't this port on a loopback name are refused, which also stops DNS rebinding |
 | VS Code editor channel (port picked by the engine, written to `editor-port`) | Only while **Let VS Code run notebooks** is on; `integrations_editors: false` in the policy file stops it | A VS Code window the person paired, with its token. Requests from a web page or with a non-loopback `Host` are refused, as for the HTTP API |
-| Link handoff (port written to `link-port`) | While the app runs, unless `register_link_scheme` is `false` in the policy file | A second copy of the app handing over a link, with the token in the data folder. It isn't HTTP, so a web page can't speak to it, and a link only shows something |
+| Link handoff (port written to `link-port`) | While the app runs, unless `register_link_scheme` is `false` in the policy file | A second copy of the app handing over a link, with the token in the data folder. Each line has to start with that token, so anything else, a web page's request included, is dropped unanswered. A link only shows something |
 
 The policy keys are listed in [Push settings to everyone](../azure-setup.md#4-push-settings-to-everyone).
 

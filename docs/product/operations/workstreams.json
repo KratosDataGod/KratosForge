@@ -77,17 +77,15 @@
           "issue": 850
         },
         {
-          "story": "PB-013",
-          "issue": 851,
-          "note": "Only the session, warehouse and connections message is left (product check 2026-10-25)."
+          "story": "PB-049",
+          "issue": 920,
+          "note": "Draft #931 (part 1) is open; its acceptance change needs Chris (product check 2026-10-28 23:42)."
         }
       ],
       "backlog": [
         "PB-040",
         "PB-041",
-        "PB-048",
-        "PB-049",
-        "PB-036"
+        "PB-048"
       ],
       "dependencies": [],
       "blockers": [
@@ -108,18 +106,18 @@
         "Snowflake local-first development (to be opened)"
       ],
       "active": {
-        "story": "KF-FABRIC-SPARK",
+        "story": "PB-116",
         "issue": 852,
         "note": "The built work is a saved patch in the project files (databricks/fabric-spark-wip). #782 has merged, so restart from main and apply it."
       },
       "ready": [
         {
-          "story": "KF-SNOWFLAKE-RESEARCH",
+          "story": "PB-117",
           "issue": 853,
           "note": "Research only. Output goes to docs and the project files; no Snowflake account or code without Chris's go."
         },
         {
-          "story": "KF-DBX-LOSS-REPORT",
+          "story": "PB-118",
           "issue": 854
         }
       ],
@@ -255,47 +253,5 @@
       "next_action": "Make the release job wait for the audit job (PB-074 remainder)."
     }
   ],
-  "new_stories": {
-    "KF-FABRIC-SPARK": {
-      "title": "Fabric Spark interactive sessions (Livy) as a Preview engine",
-      "pillar": "fabric",
-      "priority": "P2",
-      "problem": "Notebooks that need real Spark can only run as a whole Fabric job; there is no interactive Fabric Spark session from the app.",
-      "capability": "A Preview engine that runs cells in a Fabric Spark session through the Livy API, with remote-compute confirmation.",
-      "acceptance": [
-        "The saved patch is rebased onto main and opened as a draft PR",
-        "Every remote session start goes through the remote compute confirmation and risk check",
-        "Tests with Fabric faked cover start, run, cancel and stop",
-        "Docs say it uses Fabric capacity and is Preview"
-      ],
-      "effort": "M"
-    },
-    "KF-SNOWFLAKE-RESEARCH": {
-      "title": "Snowflake pillar: audit, ADRs and parity matrix",
-      "pillar": "snowflake",
-      "priority": "P4",
-      "problem": "Snowflake is one of the three target platforms and has no work at all.",
-      "capability": "An evidence-based plan: what Snowflake development can run on the PC (DuckDB with a Snowflake SQL dialect, SQLGlot transpiling, Snowpark local testing), what needs a live account, and how it fits the existing engine registry and connection profiles.",
-      "acceptance": [
-        "A parity matrix like databricks/parity-matrix.md, with official sources for each row",
-        "ADRs for sign-in, the engine adapter and what never runs inside the engine process",
-        "A sliced plan of independently reviewable PRs",
-        "No code and no Snowflake account spend before Chris's go"
-      ],
-      "effort": "M"
-    },
-    "KF-DBX-LOSS-REPORT": {
-      "title": "Databricks notebook conversion says what it could not carry over",
-      "pillar": "databricks",
-      "priority": "P3",
-      "problem": "Importing or exporting Databricks notebooks drops widgets, magics and dbutils calls without telling the developer.",
-      "capability": "A loss report on every Databricks import and export, extending the existing converter (no second converter).",
-      "acceptance": [
-        "Each dropped or changed construct is listed with its cell",
-        "Round-trip tests cover widgets, %sh, %fs and dbutils",
-        "Docs list what converts and what doesn't"
-      ],
-      "effort": "S"
-    }
-  }
+  "new_stories": {}
 }

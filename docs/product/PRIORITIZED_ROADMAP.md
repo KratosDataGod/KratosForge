@@ -184,7 +184,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-006](PRODUCT_BACKLOG.md#pb-006) | Content Security Policy for the main window | 1 | 1 | 5 | 1 | 4 | 3 | 3 | 2.45 | 3.0 | 1.47 | required | M | Medium | none | Enterprise readiness |
 | [PB-104](PRODUCT_BACKLOG.md#pb-104) | Optimize central lakehouse program | 3 | 5 | 4 | 5 | 5 | 5 | 4 | 4.25 | 4.5 | 1.27 | none | XL | Low | none | Optimize central lakehouse |
 
-### P2 (53 items)
+### P2 (54 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
@@ -241,17 +241,20 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-076](PRODUCT_BACKLOG.md#pb-076) | Retire side by side into Prove | 2 | 2 | 3 | 1 | 3 | 2 | 2 | 2.25 | 2.0 | 1.8 | none | S | Medium | none | Prove |
 | [PB-112](PRODUCT_BACKLOG.md#pb-112) | Semantic model best-practice checks in governance policies | 3 | 1 | 4 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | M | Medium | PB-108 | Best Practice Analyzer |
 | [PB-115](PRODUCT_BACKLOG.md#pb-115) | Run the Fabric Best Practice Analyzer live | 3 | 1 | 4 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | M | Medium | PB-112 | Best Practice Analyzer |
+| [PB-116](PRODUCT_BACKLOG.md#pb-116) | Fabric Spark interactive sessions (Livy) as a Preview engine | 4 | 1 | 3 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | M | Medium | none | Fabric and Databricks unified development |
 
-### P3 (14 items)
+### P3 (16 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
+| [PB-118](PRODUCT_BACKLOG.md#pb-118) | Databricks notebook conversion says what it could not carry over | 3 | 1 | 2 | 2 | 3 | 2 | 2 | 2.2 | 2.0 | 1.76 | none | S | Medium | none | Fabric and Databricks unified development |
 | [PB-092](PRODUCT_BACKLOG.md#pb-092) | Shared workload ownership | 2 | 1 | 4 | 2 | 3 | 3 | 2 | 2.45 | 2.5 | 1.72 | none | M | Medium | none | Workload management |
 | [PB-107](PRODUCT_BACKLOG.md#pb-107) | Data Factory program | 4 | 4 | 4 | 4 | 5 | 5 | 3 | 4.15 | 4.0 | 1.66 | none | XL | Medium | PB-037 | Build full Data Factory experience |
 | [PB-100](PRODUCT_BACKLOG.md#pb-100) | Fuller What's new dialog | 2 | 1 | 2 | 1 | 2 | 1 | 1 | 1.65 | 1.0 | 1.65 | none | S | Medium | none | Fuller What's new dialog |
 | [PB-110](PRODUCT_BACKLOG.md#pb-110) | Semantic model interchange (Apache Ossie) | 3 | 1 | 3 | 4 | 3 | 3 | 3 | 2.75 | 3.0 | 1.65 | none | M | Medium | none | TMDL and OSI semantic model conversion |
 | [PB-026](PRODUCT_BACKLOG.md#pb-026) | Notebook debugger | 5 | 2 | 2 | 3 | 4 | 4 | 3 | 3.2 | 3.5 | 1.6 | none | L | Medium | PB-073 | Prove |
 | [PB-030](PRODUCT_BACKLOG.md#pb-030) | Data pipeline and Copy job scope after decision D2 | 3 | 2 | 4 | 3 | 4 | 4 | 3 | 3.2 | 3.5 | 1.6 | none | L | Low | none | Staged roadmap |
+| [PB-117](PRODUCT_BACKLOG.md#pb-117) | Snowflake pillar: audit, ADRs and parity matrix | 2 | 1 | 2 | 2 | 3 | 2 | 2 | 1.95 | 2.0 | 1.56 | none | M | Medium | none | Fabric and Databricks unified development |
 | [PB-024](PRODUCT_BACKLOG.md#pb-024) | Native Warehouse connectivity | 4 | 1 | 4 | 2 | 4 | 4 | 3 | 3.1 | 3.5 | 1.55 | none | L | Medium | PB-021 | Build full warehouse development experience |
 | [PB-114](PRODUCT_BACKLOG.md#pb-114) | Fabric SQL database connectivity | 4 | 1 | 4 | 2 | 4 | 4 | 3 | 3.1 | 3.5 | 1.55 | none | L | Medium | PB-024 | Build full warehouse development experience |
 | [PB-105](PRODUCT_BACKLOG.md#pb-105) | Simplified incident management | 2 | 1 | 5 | 3 | 3 | 4 | 3 | 2.85 | 3.5 | 1.43 | none | L | Low | none | Simplified incident management |

@@ -20,6 +20,11 @@ AF_INET = 2
 AF_INET6 = 23
 V6_LOOPBACK = bytes(15) + b"\x01"  # ::1
 V6_ANY = bytes(16)  # ::, which on a dual-stack socket also takes IPv4 connections
+V6_MAPPED_LOOPBACK = bytes(10) + b"\xff\xff" + bytes([127, 0, 0, 1])  # ::ffff:127.0.0.1
+V6_MAPPED_ANY = bytes(10) + b"\xff\xff" + bytes(4)  # ::ffff:0.0.0.0
+# Every IPv6 address a listener could take this PC's loopback connections on.
+V6_LOCAL = (V6_LOOPBACK, V6_ANY, V6_MAPPED_LOOPBACK, V6_MAPPED_ANY)
+ESTABLISHED = 5  # MIB_TCP_STATE_ESTAB
 TCP_TABLE_OWNER_PID_CONNECTIONS = 4
 TCP_TABLE_OWNER_PID_LISTENER = 3
 LOOPBACK = 0x0100007F  # 127.0.0.1 as GetExtendedTcpTable gives it (network byte order, read as a DWORD)
@@ -130,8 +135,8 @@ def own_sid() -> bytes:
 def caller_pid(peer_port: int, server_port: int, rows: list[tuple[int, int, int, int, int]]) -> int | None:
     """The process at the client end of the loopback connection from ``peer_port`` to
     ``server_port``, or None when there isn't exactly one."""
-    pids = {pid for _state, addr, local, remote, pid in rows
-            if addr == LOOPBACK and local == peer_port and remote == server_port}
+    pids = {pid for state, addr, local, remote, pid in rows
+            if state == ESTABLISHED and addr == LOOPBACK and local == peer_port and remote == server_port}
     return pids.pop() if len(pids) == 1 else None
 
 
@@ -184,18 +189,15 @@ def listener_is_other_user(port: int, *, rows: Any = None, rows6: Any = None, si
                            own: Any = None) -> bool:
     """Whether another account's program is already listening on ``port`` at a loopback address or
     every address, IPv4 or IPv6 (a dual-stack [::] socket takes IPv4 connections too): the API then
-    doesn't start, since this person's tools would talk to that program."""
-    listeners: list[int] = []
+    doesn't start, since this person's tools would talk to that program. A table Windows won't give
+    counts as such a listener: the API then doesn't start rather than start unchecked."""
     try:
-        listeners += [pid for _s, addr, local, _r, pid in (rows if rows is not None else _rows(TCP_TABLE_OWNER_PID_LISTENER))
-                      if local == port and addr in (LOOPBACK, 0)]
-    except OSError:
-        pass
-    try:
+        listeners = [pid for _s, addr, local, _r, pid in (rows if rows is not None else _rows(TCP_TABLE_OWNER_PID_LISTENER))
+                     if local == port and addr in (LOOPBACK, 0)]
         listeners += [pid for _s, addr, local, _r, pid in (rows6 if rows6 is not None else _rows6(TCP_TABLE_OWNER_PID_LISTENER))
-                      if local == port and addr in (V6_LOOPBACK, V6_ANY)]
+                      if local == port and addr in V6_LOCAL]
     except OSError:
-        pass
+        return True
     for pid in listeners:
         try:
             if (sid_of or _user_sid)(pid) != (own or own_sid)():

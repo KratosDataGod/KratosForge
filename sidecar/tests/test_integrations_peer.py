@@ -14,7 +14,7 @@ LOOP = peer.LOOPBACK
 ME, OTHER = b"sid-me", b"sid-other"
 
 
-def row(local_port, remote_port, pid, addr=LOOP, state=5):
+def row(local_port, remote_port, pid, addr=LOOP, state=peer.ESTABLISHED):
     return (state, addr, local_port, remote_port, pid)
 
 
@@ -29,6 +29,7 @@ def test_the_caller_is_the_client_end_of_that_connection():
     assert peer.caller_pid(51002, 47615, rows) is None  # gone, or never there
     assert peer.caller_pid(51000, 47615, rows + [row(51000, 47615, 300)]) is None  # not one answer: refused
     assert peer.caller_pid(51000, 47615, [row(51000, 47615, 100, addr=0x0100000A)]) is None  # not loopback
+    assert peer.caller_pid(51000, 47615, [row(51000, 47615, 100, state=8)]) is None  # closing, not connected
 
 
 def test_same_user_only_when_windows_confirms_it():
@@ -75,7 +76,19 @@ def test_an_ipv6_listener_counts_too():
     assert check(peer.V6_LOOPBACK)  # [::1]: where localhost goes first on Windows
     assert check(peer.V6_ANY)  # [::], dual-stack: takes 127.0.0.1 connections too
     assert not check(peer.V6_LOOPBACK, sid_of=lambda pid: ME)
+    assert check(peer.V6_MAPPED_LOOPBACK)  # ::ffff:127.0.0.1 takes IPv4 loopback traffic
+    assert check(peer.V6_MAPPED_ANY)
     assert not check(bytes(15) + b"\x02")  # another address isn't this PC's loopback
+
+
+def test_a_listener_table_windows_wont_give_stops_the_start():
+    def broken():
+        raise OSError(87, "GetExtendedTcpTable failed")
+
+    class Rows(list):
+        def __iter__(self):
+            broken()
+    assert peer.listener_is_other_user(47615, rows=Rows(), rows6=[], sid_of=lambda p: ME, own=lambda: ME)
 
 
 async def ok_app(scope, receive, send):

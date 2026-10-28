@@ -398,9 +398,9 @@ def serve(port: int, parent_pid: int = 0) -> int:
         print("The local API is turned off in Settings > Integrations.", file=sys.stderr)
         return 2
     if peer.checked() and peer.listener_is_other_user(port):
-        print(f"Another Windows account's program is listening on port {port} on this PC, so the local API "
-              "didn't start: your tools would be sending their requests, and their tokens, to that program. "
-              "Ask your IT team to check this PC.", file=sys.stderr)
+        print(f"Another Windows account's program is listening on port {port} on this PC (or Windows wouldn't say "
+              "who is), so the local API didn't start: your tools would be sending their requests, and their tokens, "
+              "to that program. Ask your IT team to check this PC.", file=sys.stderr)
         return 2
     registry = default_registry()
     registry.authorizer = PermissionAuthorizer(store)

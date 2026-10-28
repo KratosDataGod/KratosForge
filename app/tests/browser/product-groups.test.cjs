@@ -23,6 +23,7 @@ const item = (type, id, name, endorsement) => ({ product_id: PID, item_id: id, i
 let items = [item("SemanticModel", SM, "SM_Customer360", "Certified"), item("Report", RPT, "Customer health", "Promoted"),
   item("Report", "ffffffff-0000-0000-0000-000000000007", "Churn watch", null)];
 let admin = false;
+let ownerEdits = false; // the server says this person owns the product (its rule, not the app's)
 let older = false;
 const mocks = {
   platform_products: () => ({ project: null, can_follow: true, can_group: true, products: [
@@ -31,7 +32,7 @@ const mocks = {
       items: [{ ...item("SemanticModel", SM2, "SM_Orders", "Promoted"), product_id: "ops/orders" }] },
     { ...base, id: "ops/inventory", name: "inventory", project: "ops", ports: ["a", "b", "c", "d"].map(port), items: [] }] }),
   platform_access_reviews: () => ({ every_days: 90, grants: [], due: 0 }),
-  platform_product_trust: () => ({ product_id: PID, name: "customer_360", owner: "ana@example.com", admin, can_edit_terms: admin, terms: [],
+  platform_product_trust: () => ({ product_id: PID, name: "customer_360", owner: "ana@example.com", admin, can_edit_terms: admin || ownerEdits, terms: [],
     items: [{ item_id: "bbbbbbbb-0000-0000-0000-000000000002", workspace_id: "w", item_type: "Lakehouse", item_name: "LH_Gold", env: "prod", endorsement: null }] }),
   platform_whoami: () => ({ user: "chris@example.com", admin }),
   platform_product_items: () => {
@@ -109,6 +110,17 @@ test("a product's page groups its tables, semantic models and reports, each item
   assert.strictEqual((await page().textContent(".endorse-head")).trim(), "Certified", "the product's badge is its model's, not its lakehouse's");
   assert.strictEqual(await page().$('.product-offer button:has-text("Add a model")'), null, "only the owner or an admin adds");
   assert.strictEqual(await page().$('.product-offer button:has-text("Remove")'), null);
+});
+
+test("who may add or remove comes from the server's rule, not the owner field split in the app", { skip }, async () => {
+  ownerEdits = true; // whoami's user isn't in the owner field, but the server says this person may edit
+  try {
+    await openProduct();
+    await page().waitForSelector('.product-offer button:has-text("Add a model")');
+    assert.ok(await page().$('.product-offer button:has-text("Remove")'));
+  } finally {
+    ownerEdits = false;
+  }
 });
 
 test("How this works names every write: the catalog row and the audit entry", { skip }, async () => {

@@ -263,6 +263,18 @@ class Authenticator:
         self._check_tenant(result)
         return result["access_token"]
 
+    def refreshed_token(self, scopes: list[str]) -> str:
+        """A new token, not MSAL's cached one: for a call Fabric refused with 401 although the cached
+        token hadn't expired (revoked, or the tenant ended the session). Signs in again only the way
+        ``_token`` would."""
+        accounts = self.app.get_accounts()
+        fresh = self.app.acquire_token_silent(self.scopes_for(scopes), account=accounts[0], force_refresh=True) if accounts else None
+        if fresh and "access_token" in fresh:
+            self._save()
+            self._check_tenant(fresh)
+            return fresh["access_token"]
+        return self._token(scopes)
+
     def _check_tenant(self, result: dict) -> None:
         """An organization can limit sign-in to its own tenants (policy ``allowed_tenants``). Another
         tenant's account is signed out again before its token is used."""

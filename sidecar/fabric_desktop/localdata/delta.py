@@ -311,6 +311,23 @@ def delta_writable(t: pa.DataType) -> bool:
     return value is None or delta_writable(value)
 
 
+def naive_timestamps(schema: pa.Schema) -> list[str]:
+    """The columns (a.b for a struct field, a[] for list items) that hold a timestamp without a time
+    zone, which delta-rs writes as timestampNtz: a reader 3 table Fabric can't read."""
+    def walk(t: pa.DataType, name: str) -> list[str]:
+        if pa.types.is_timestamp(t):
+            return [] if t.tz else [name]
+        if pa.types.is_dictionary(t):
+            return walk(t.value_type, name)
+        if pa.types.is_struct(t):
+            return [n for f in t for n in walk(f.type, f"{name}.{f.name}")]
+        if pa.types.is_map(t):
+            return walk(t.key_type, f"{name}{{key}}") + walk(t.item_type, f"{name}{{value}}")
+        value = getattr(t, "value_type", None)
+        return walk(value, f"{name}[]") if value is not None else []
+    return [n for f in schema for n in walk(f.type, f.name)]
+
+
 def delta_safe(schema: pa.Schema, existing: Any = None) -> pa.Schema:
     """``schema`` with each column delta-rs can't write (delta_writable) in the type Fabric reads,
     as fabric_schema writes it, or fabric_schema's plain error saying how to cast it. Every other

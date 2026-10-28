@@ -142,7 +142,7 @@ With a platform Teams route set (**Settings > Notifications**), KratosForge post
 
 | Someone presses **Tell them** under **Who's affected** on an incident page ([user guide](user-guide.md#whos-affected-preview)) | `incident.impact` | The owners of the data products built on the incident's table, people who linked a project to them, and followers |
 | A promote to Prod deprecates a data product, changes its version, or adds, removes or retypes a port's columns (Preview) | `product.changed` | The product's followers and whoever linked a project to it. The message says what changed; a deprecation already sent as `product.deprecated` isn't repeated |
-| A policy exception ends within 14 days (sent when someone opens Data mesh that day) | `exception.ending` | Whoever asked for it, and the team of the project it covers or the owners of its domain. Posted once per exception and end date; its reason stays in the app |
+| A policy exception ends within 14 days (sent when someone opens Data mesh that day) | `exception.ending` | Whoever asked for it, and the team of the project it covers or the owners of its domain. Posted once per exception and end date for the whole organization (the platform records it on the exception); its reason stays in the app |
 
 - **Only what the channel may read.** A message names the request or shortcut and where to open it in the app. A request's reason and detail stay in the app. People are named by UPN. Anything that looks like a secret, a webhook address among them, is masked before it's stored or posted.
 - **Once each.** A request waiting, or a shortcut that stays broken, is posted once. A fix is posted only after its break was. A deprecation is posted once per date.

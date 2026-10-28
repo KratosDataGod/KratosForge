@@ -22,13 +22,15 @@ Reading the policies from a platform in Fabric is one UDF_Platform call, which u
 Exceptions: an exception that ends within EXCEPTION_WARN_DAYS (14, as for a project's exceptions.toml)
 is marked ``ending``; governance_exceptions_ending sends each one Teams notice (to whoever asked and the
 project or domain it covers) and says which concern the person or the open project, for the bell and the
-Data mesh banner. A platform admin can end an exception early (governance_end_exception), with a reason;
+Data mesh banner. The Teams notice is claimed in the platform first (claim_exception_warning), so one PC
+in the organization posts it; with an older UDF_Platform that can't claim, none is posted. A platform admin can end an exception early (governance_end_exception), with a reason;
 the platform checks that, and keeps the row.
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -36,10 +38,12 @@ from typing import Any
 from .. import governance_notices as notices
 from ..meta import mesh
 from ..meta.project import EXCEPTION_WARN_DAYS
+from .core import PlatformError
 from .policy import SETTINGS
 from .requests_service import call_or_repair
 
 GOVERNANCE_FILE = "governance.toml"
+_log = logging.getLogger(__name__)
 
 
 def local_assignments(root: Path, project: str) -> tuple[list[dict[str, Any]], list[str]]:
@@ -82,7 +86,7 @@ class GovernanceMixin:
                                   policy=policy, active=not include_ended)
         except LookupError as exc:
             return [], str(exc)
-        today = dt.date.today()
+        today = dt.datetime.now(dt.timezone.utc).date()  # the date UDF_Platform runs on
         for row in rows:
             try:
                 left = (dt.date.fromisoformat(str(row.get("until") or "")[:10]) - today).days
@@ -190,9 +194,29 @@ class GovernanceMixin:
                                 or (r.get("scope") == "project" and here.get("name") and r.get("target") == here["name"])
                                 or (r.get("scope") == "domain" and r.get("target") in domains))
         problems = [problem] if problem else []
-        if ending:
+        mine = self._claim_warnings(ending, problems)
+        if mine:
             sent = self._governance_notify(  # type: ignore[attr-defined]
-                lambda: [e for e in (notices.exception_ending(r, r["days_left"]) for r in ending) if e])
+                lambda: [e for e in (notices.exception_ending(r, r["days_left"]) for r in mine) if e])
             if sent:
                 problems.append(sent)
         return {"ending": ending, "warn_days": EXCEPTION_WARN_DAYS, "problems": problems}
+
+    def _claim_warnings(self, ending: list[dict[str, Any]], problems: list[str]) -> list[dict[str, Any]]:
+        """The ending exceptions whose Teams notice this PC claimed in the platform, so each is posted by
+        one PC in the organization, not one per PC. A platform that can't claim (an older UDF_Platform)
+        gets no Teams notice at all rather than one from every PC; the bell and banner still show."""
+        mine = []
+        for r in ending:
+            try:
+                out = call_or_repair(self._policies(), "claim_exception_warning", "send policy exception warnings once",
+                                     id=str(r.get("id") or ""), until=str(r.get("until") or ""))
+            except LookupError as exc:
+                problems.append(f"No Teams notice for exceptions about to end: {exc}")
+                return []
+            except PlatformError as exc:
+                _log.warning("Couldn't claim the warning for exception %s: %s", r.get("id"), exc)
+                continue
+            if isinstance(out, dict) and out.get("claimed"):
+                mine.append(r)
+        return mine

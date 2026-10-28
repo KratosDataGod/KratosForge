@@ -292,7 +292,7 @@ function govExceptionStatus(e) {
 // End early: platform admins only (the platform checks that too), with a reason the policy's history keeps.
 async function govEndException(p, e, rerender) {
   const reason = await confirmDialog(`End the exception for ${e.target} now?`,
-    `${p.name} applies to ${e.target} again from today instead of ${govDate(e.until)}. The exception isn't deleted: its row in catalog.policy_exception records who ended it, when and why, and the platform's audit and the policy's history get an entry.`,
+    `${p.name} applies to ${e.target} again from today instead of ${govDate(e.until)}. The exception isn't deleted: its row in catalog.policy_exception records who ended it, when and why, and the platform's audit and the policy's history get an entry. The reason is visible to anyone who can read the policy's history, which is everyone.`,
     "End early", { danger: true, reason: { label: "Why it ends early (required)", placeholder: "For example: the masked copy is ready", max: 500 } });
   if (!reason) return;
   const out = await platformCall("governance_end_exception", { id: e.id, reason }, "Not ended");
@@ -323,7 +323,7 @@ function govExceptions(p, can = {}, rerender = () => {}) {
       : h("p", { class: "muted-text" }, endedToo ? "None, in force or ended." : "None in force."),
     howItWorks("governance.exceptions", {
       reads: "The policy's exceptions from the platform's catalog (catalog.policy_exception): those in force, or with Include ended those that ended on their date or early too. With the platform in Fabric that's one call to UDF_Platform, which uses a little capacity.",
-      changes: "End early (platform admins only, with a reason) updates the exception's row in catalog.policy_exception: its end moves to yesterday and ended_at, ended_by, end_reason and granted_until are set. The row is never deleted. It also writes one entry to the platform's audit (catalog.audit) and one to the policy's history (catalog.policy_event, which audits too). Nothing changes in Fabric or OneLake.",
+      changes: "End early (platform admins only, with a reason) updates the exception's row in catalog.policy_exception: its end moves to yesterday and ended_at, ended_by, end_reason and granted_until are set. The row is never deleted. It also writes one entry to the platform's audit (catalog.audit) and one to the policy's history (catalog.policy_event, which audits too). Opening Data mesh while an exception ends within 14 days sets its warned_until in catalog.policy_exception, so one PC in the organization posts its Teams notice. Nothing changes in Fabric or OneLake.",
       results: "Check now and Explain stop treating the place as excepted at once. The ended exception shows here with Include ended, and in Platform > Govern > Audit.",
       anchor: "policy-exceptions",
     }));

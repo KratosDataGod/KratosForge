@@ -795,6 +795,15 @@ def set_template_authors(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunction
 def end_policy_exception(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, id: str, reason: str) -> dict:
     return _run(sqlDB, "end_policy_exception", ctx, id=id, reason=reason)
 
+
+# ---- an exception's "about to end" notice, claimed once for the organization (policy.py)
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def claim_exception_warning(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, id: str, until: str) -> dict:
+    return _run(sqlDB, "claim_exception_warning", ctx, id=id, until=until)
+
 '''
 
 

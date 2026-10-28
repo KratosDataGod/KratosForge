@@ -66,7 +66,7 @@ test("End early asks why in a red confirm, and cancelling ends nothing", { skip 
   const ok = '[role=dialog] >> button:text-is("End early")';
   assert.match(await page().getAttribute(ok, "class"), /danger-solid/);
   assert.ok(await page().isDisabled(ok), "no reason, no end");
-  assert.match(await page().textContent("[role=dialog]"), /isn't deleted.*audit.*history/s);
+  assert.match(await page().textContent("[role=dialog]"), /isn't deleted.*audit.*history.*reason is visible to anyone who can read the policy's history/s);
   await page().click('[role=dialog] >> button:text-is("Cancel")');
   await page().waitForFunction(() => document.querySelector("[role=dialog]") === null);
   assert.deepStrictEqual(ended, []);

@@ -578,7 +578,7 @@ def test_ending_early_needs_admin_even_through_the_platform_directly(tmp_path):
 
 def test_an_exception_table_from_before_gets_the_columns_that_record_an_early_end(tmp_path):
     p = LocalPlatform(tmp_path / "p.sqlite", lambda: ADMIN)
-    added = ("ended_at", "ended_by", "end_reason", "granted_until")
+    added = ("ended_at", "ended_by", "end_reason", "granted_until", "warned_until")
     old = [c for c in policy._EXCEPTION_TABLE if c[0] not in added]
     with p._db() as db:
         db.run(f"DROP TABLE IF EXISTS {db.t('catalog', 'policy_exception')}")
@@ -660,3 +660,79 @@ def test_an_ending_notice_goes_to_the_domain_owners_or_the_requester():
                                                    "until": "2030-01-01", "requested_by": "not an email"}, 0))
     assert workspace["to"] == {"people": [], "roles": ["requester"]} and "today" in workspace["title"]
     assert notices.exception_ending({"id": "", "policy_id": "p", "until": "2030-01-01"}, 3) is None
+
+
+def _ending_soon(svc, who):
+    svc.governance_create(NO_PII)
+    svc.governance_publish("no-pii-in-dev")
+    as_user(who, DEV)
+    soon = svc.platform_request("exception", "", "A masked copy isn't ready yet", {
+        "policy": "no-pii-in-dev", "scope": "project", "scope_target": "hr-analytics",
+        "until": (TODAY + dt.timedelta(days=5)).isoformat()})
+    as_user(who, ADMIN)
+    svc.platform_decide(soon["id"], True)
+    return soon
+
+
+def test_an_ending_notice_is_posted_once_across_pcs_that_share_the_platform(svc, who, tmp_path, monkeypatch):
+    from fabric_desktop import app_settings
+    from fabric_desktop import platform_notify_service as pns
+    monkeypatch.setattr(app_settings, "policy_path", lambda: tmp_path / "policy.json")
+    monkeypatch.setattr(app_settings, "user_path", lambda: tmp_path / "user.json")
+    posts = []
+    monkeypatch.setattr(pns, "post_teams", lambda url, title, lines, **kw: posts.append(title))
+    soon = _ending_soon(svc, who)
+    # A second PC: its own app folder and outbox, the same platform.
+    other = Service(root=tmp_path / "other-pc")
+    other._auth = Auth(who)
+    platform = svc._catalog()
+    monkeypatch.setattr(svc, "_catalog", lambda: platform)
+    monkeypatch.setattr(other, "_catalog", lambda: platform)
+    for pc in (svc, other):
+        pc.platform_notify_save([{"name": "default", "url": "https://contoso.webhook.office.com/hook"}])
+    runs = [svc.governance_exceptions_ending(), other.governance_exceptions_ending(), svc.governance_exceptions_ending()]
+    assert [len(x["ending"]) for x in runs] == [1, 1, 1]  # every PC still shows it on its bell and banner
+    assert len([t for t in posts if "ends in 5 days" in t]) == 1, posts  # but Teams gets it once in total
+    assert (svc.root / "platform_outbox.sqlite").exists() and (other.root / "platform_outbox.sqlite") != (svc.root / "platform_outbox.sqlite")
+    with platform._db() as db:
+        rows = db.rows(f"SELECT warned_until FROM {db.t('catalog', 'policy_exception')}")
+    assert rows[0]["warned_until"] == soon["detail"]["until"]
+
+
+def test_a_platform_that_cannot_claim_the_notice_posts_none_but_still_shows_it(svc, who, monkeypatch):
+    _ending_soon(svc, who)
+    sent = []
+    monkeypatch.setattr(type(svc), "platform_notify", lambda self, events: sent.extend(events) or {})
+
+    class NoClaim:
+        def __init__(self, inner):
+            self.inner = inner
+
+        def call(self, op, **kwargs):
+            if op == "claim_exception_warning":
+                raise LookupError("UDF_Platform wasn't found.")
+            return self.inner.call(op, **kwargs)
+    inner = svc._catalog()
+    monkeypatch.setattr(type(svc), "_catalog", lambda self: NoClaim(inner))
+    out = svc.governance_exceptions_ending()
+    assert len(out["ending"]) == 1 and sent == []
+    assert "Finish or repair once" in out["problems"][-1]
+
+
+def test_the_claim_is_once_per_end_date_and_never_for_an_ended_exception(tmp_path):
+    p = LocalPlatform(tmp_path / "p.sqlite", lambda: ADMIN)
+    p.call("add_admin", user=ADMIN)
+    until = (TODAY + dt.timedelta(days=5)).isoformat()
+    with p._db() as db:
+        policy.ensure_exception_schema(db)
+        for eid in ("e1", "e2"):
+            core._upsert(db, "catalog", "policy_exception", "id",
+                         {"id": eid, "policy_id": "p", "scope": "project", "target": "crm", "until_date": until})
+        db.commit()
+        assert policy.claim_exception_warning(db, "e1", until) == {"claimed": True}
+        assert policy.claim_exception_warning(db, "e1", until) == {"claimed": False}
+        assert policy.claim_exception_warning(db, "e1", "2030-02-01") == {"claimed": False}  # not its end date
+        policy.end_policy_exception(db, "e2", "done", ADMIN)
+        assert policy.claim_exception_warning(db, "e2", until) == {"claimed": False}
+        with pytest.raises(core.PlatformError, match="no policy exception"):
+            policy.claim_exception_warning(db, "nope", until)

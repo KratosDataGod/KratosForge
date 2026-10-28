@@ -14,7 +14,9 @@ Tables (T-SQL catalog.<table>; SQLite catalog__<table>):
     catalog.policy_exception   exceptions to a policy for a project, domain or workspace, each until a date,
                                granted by approving an exception request (Data mesh > Requests). One a
                                platform admin ends early keeps its row: its end moves to yesterday and
-                               ended_at, ended_by, end_reason and granted_until say who, why and what it was
+                               ended_at, ended_by, end_reason and granted_until say who, why and what it was.
+                               warned_until is the end date whose "about to end" Teams notice was claimed,
+                               so only one PC in the organization posts it
     catalog.policy_template    your organization's policy templates: reusable definitions in a policy's own
                                shape (built-in templates ship in BUILTIN_TEMPLATES and never change)
 
@@ -74,7 +76,7 @@ EXCEPTION_SCOPES = ("project", "domain", "workspace")
 _EXCEPTION_TABLE = [("id", "key"), ("policy_id", "text"), ("scope", "text"), ("target", "text"), ("until_date", "text"),
                     ("reason", "long"), ("requested_by", "text"), ("approved_by", "text"), ("approved_at", "text"),
                     ("request_id", "text"), ("ended_at", "text"), ("ended_by", "text"), ("end_reason", "long"),
-                    ("granted_until", "text")]
+                    ("granted_until", "text"), ("warned_until", "text")]
 # Ending an exception early needs a reason the policy's history can show; this keeps it readable.
 EXCEPTION_END_REASON_MAX = 500
 _POLICY_TABLES: dict[str, list[tuple[str, str]]] = {
@@ -542,6 +544,24 @@ def end_policy_exception(db: Db, id: str, reason: str = "", by: str = "") -> dic
     _audit(db, by, "ended exception", eid, detail | {"policy": row["policy_id"]})
     db.commit()
     return _exception_out(dict(row, **ended), today.isoformat())
+
+
+def claim_exception_warning(db: Db, id: str, until: str, by: str = "") -> dict[str, Any]:
+    """Claim the one "about to end" Teams notice for an exception and its end date, for the whole organization.
+    Every PC asks before posting; only the call whose UPDATE changes the row (warned_until set to this end
+    date) gets ``claimed: true``. One conditional UPDATE, so two PCs asking at once can't both claim it.
+    Anyone may ask: it only records that the notice went, on the exception's own row."""
+    eid, until = str(id or "").strip(), _date(until, "Until")
+    row = _row(db, "policy_exception", "id", eid) if eid and len(eid) <= 64 and db.exists("catalog", "policy_exception") else None
+    if row is None:
+        raise PlatformError(f"There's no policy exception {eid[:64]!r}")
+    ensure_exception_schema(db)
+    cur = db.run(f"UPDATE {db.t('catalog', 'policy_exception')} SET warned_until = ? "
+                 "WHERE id = ? AND until_date = ? AND ended_at IS NULL AND COALESCE(warned_until, '') <> ?",
+                 (until, eid, until, until))
+    claimed = cur.rowcount == 1
+    db.commit()
+    return {"claimed": claimed}
 
 
 def _excepted(exceptions: list[dict[str, Any]], pid: str, chain: list[tuple[str, str]], context: dict[str, Any],
@@ -1116,6 +1136,7 @@ OPERATIONS.update({
     "policy_applicability": policy_applicability, "resolve_policies": resolve_policies, "policy_snapshot": snapshot,
     "policy_options": policy_options, "policies_ready": policies_ready,
     "list_policy_exceptions": list_policy_exceptions, "end_policy_exception": end_policy_exception,
+    "claim_exception_warning": claim_exception_warning,
     "ensure_template_schema": ensure_template_schema, "list_policy_templates": list_policy_templates,
     "save_policy_template": save_policy_template, "delete_policy_template": delete_policy_template,
     "use_policy_template": use_policy_template, "save_policy_as_template": save_policy_as_template,

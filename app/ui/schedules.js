@@ -20,11 +20,11 @@ function onOffButton(enabled, toggle) {
 }
 
 function nextRunText(iso) {
-  if (!iso) return "";
-  const t = new Date(iso);
+  const t = readDate(iso);
+  if (!t) return "";
   const day = t.toDateString() === new Date().toDateString() ? "Today"
     : t.toDateString() === new Date(Date.now() + 86400000).toDateString() ? "Tomorrow"
-    : dateText(t);
+    : dateText(t, { weekday: true });  // weekly schedules read by their day
   return `${day} ${timeText(t)}`;
 }
 

@@ -7,7 +7,8 @@
 // Dates and times, the same on every page (#956), in the person's own Windows format. Each takes
 // an ISO string, a Date or milliseconds (callers turn epoch seconds into milliseconds), and gives
 // opts.empty ("" unless the page names a word such as "never") for a missing or unreadable value,
-// never "Invalid Date". opts.seconds adds seconds; opts.utc reads a plain day ("2026-10-28") as it is.
+// never "Invalid Date". opts.seconds adds seconds; opts.weekday adds the day of the week; opts.utc reads a
+// plain day ("2026-10-28") as it is.
 function readDate(at) {
   if (at === null || at === undefined || at === "") return null;
   const d = at instanceof Date ? at : new Date(at);
@@ -16,7 +17,10 @@ function readDate(at) {
 
 function dateText(at, opts = {}) {
   const d = readDate(at);
-  return d ? d.toLocaleDateString(undefined, { dateStyle: "medium", ...(opts.utc ? { timeZone: "UTC" } : {}) }) : (opts.empty ?? "");
+  if (!d) return opts.empty ?? "";
+  const zone = opts.utc ? { timeZone: "UTC" } : {};
+  return opts.weekday ? d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric", ...zone })
+    : d.toLocaleDateString(undefined, { dateStyle: "medium", ...zone });
 }
 
 function timeText(at, opts = {}) {

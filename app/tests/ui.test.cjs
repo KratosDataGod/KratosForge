@@ -3283,6 +3283,7 @@ this.f = { dateText, timeText, dateTimeText, relTime };`, ctx);
     }
   }
   assert.strictEqual(dateTimeText(null, { empty: "never" }), "never");
+  assert.ok(dateText(at, { weekday: true }).includes(d.toLocaleDateString(undefined, { weekday: "short" })), "weekday when asked");
   assert.strictEqual(dateText("soon", { empty: "?" }), "?");
   const ago = (s) => new Date(Date.now() - s * 1000).toISOString();
   assert.strictEqual(relTime(ago(5)), "just now");

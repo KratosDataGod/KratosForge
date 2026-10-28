@@ -6,7 +6,39 @@ The app works exactly the same with every integration switched off, which is the
 
 This page is the architecture. The backlog and status of each pull request are in [ai-integration-backlog.md](../product/ai-integration-backlog.md), the decisions in [ai-integration-decisions.md](../product/ai-integration-decisions.md), the threat model in [ai-integration-security.md](../product/ai-integration-security.md) and what has been tried with which client in [ai-integration-compatibility.md](../product/ai-integration-compatibility.md).
 
-## 1. What exists today (discovery, 2026-10-17)
+## What exists now (2026-10-28)
+
+Everything in the target architecture below (sections 2 to 8) has shipped, except the extension manifest and loader. The integration layer is in `sidecar/fabric_desktop/integrations/`; everything an AI tool reaches is **Preview** and off until the person turns it on.
+
+| Part | Status | Page that owns it |
+| --- | --- | --- |
+| MCP over stdio (`fabric-desktop mcp`), run by the AI tool through the launcher `%LOCALAPPDATA%\FabricDesktop\bin\fabric-desktop-mcp.cmd` | Preview | [Connect your AI tool](../ai/README.md) |
+| Local HTTP API: REST, OpenAPI and MCP over Streamable HTTP (section 3) | Preview, off by default | This page |
+| Capability registry, permissions, approvals and executions (sections 4 to 6) | Preview | This page, [security](../product/ai-integration-security.md) |
+| Resources and workflow prompts (section 7) | Preview | [Workflows](../ai/workflows.md) |
+| Audit line for every external call, with **Check the trail** (section 7a) | Shipped with the integrations | [Audit trail](../user-guide.md#audit-trail) |
+| **Settings > Integrations**: add a tool, copy its setup, approvals, Recent activity, Extensions | Preview | [Connect your AI tool](../ai/README.md), [External AI tools](../user-guide.md#external-ai-tools) |
+| Extensions: the interface, checks, switch, policy key and the built-in **Notebook outline** (section 8) | Preview; built-in extensions only | This page |
+| Extension manifest, installing extensions, signing, an extension's own process | Not built (Git-native development, Phase 4) | [Git integration plan](../git-integration-plan.md) |
+| VS Code: Open in VS Code, Set up for VS Code, the Validate task, **Add to VS Code** | Preview | [VS Code](../vscode.md) |
+| VS Code extension running cells in KratosForge (**KratosForge · This PC**) | Preview, off by default; the `.vsix` isn't published yet | [Run cells from VS Code](../vscode.md#run-cells-from-vs-code) |
+| `kratosforge://` links into the app | Preview | [Links into KratosForge](../vscode.md#links-into-kratosforge) |
+| Usage data | Preview, off by default | [Usage data](../telemetry.md) |
+| Hosts the app and engine reach | | [Network access](../enterprise-install.md#network-access) |
+
+The shell still talks to its own engine over stdin/stdout only, and the headless agent still has no HTTP endpoint. What listens on the PC now, all on `127.0.0.1` only:
+
+| Listener | When | Who it lets in |
+| --- | --- | --- |
+| Local HTTP API (`integrations serve`, port 47615) | Only while **Settings > Integrations** has it switched on | A tool with its own bearer token (section 3) |
+| VS Code editor channel (port picked by the engine, written to `editor-port`) | Only while **Let VS Code run notebooks** is on; `integrations_editors: false` in the policy file stops it | A VS Code window the person paired, with its token |
+| Link handoff (port written to `link-port`) | While the app runs, unless `register_link_scheme` is `false` in the policy file | A second copy of the app handing over a link, with the token in the data folder; a link only shows something |
+
+The policy keys are listed in [Push settings to everyone](../azure-setup.md#4-push-settings-to-everyone).
+
+## 1. Discovery (2026-10-17, kept as history)
+
+This is how the code looked before the integration work started. Much of it no longer holds: see [What exists now](#what-exists-now-2026-10-28).
 
 | Area | What is there | Where |
 | --- | --- | --- |
@@ -25,6 +57,8 @@ This page is the architecture. The backlog and status of each pull request are i
 What this means: the engine already *is* a service layer. Every UI action is a named method with keyword arguments, returning JSON-ready data. What is missing is a contract an outside caller can rely on: schemas, permissions, consistent errors, cancellation and timeouts, and a transport an AI tool can speak.
 
 ## 2. Target architecture
+
+Status: shipped as drawn, in Preview. The local HTTP transport is off by default.
 
 ```
 External tools: Claude, Codex, Copilot, Cursor, any MCP client, any HTTP client
@@ -65,13 +99,13 @@ The MCP server is built on the official MCP Python SDK (`mcp`, pinned in `constr
 
 ### Trying the MCP server from source
 
-Until **Settings > Integrations** writes the configuration for you, a developer with the engine installed from source (`pip install -e sidecar`) can point any MCP client at:
+**Settings > Integrations** writes the configuration for you ([Connect your AI tool](../ai/README.md)). A developer with the engine installed from source (`pip install -e sidecar`) can also point any MCP client at:
 
 ```
 fabric-desktop mcp --client my-laptop
 ```
 
-`fabric-desktop capabilities` prints every capability with its schemas as JSON. The server signs in with your existing KratosForge sign-in and never opens a sign-in window; sign in in the app first. On a release install the engine's folder changes with every update, so the Integrations page will write a launcher with a fixed path rather than asking you to copy one.
+`fabric-desktop capabilities` prints every capability with its schemas as JSON. The server signs in with your existing KratosForge sign-in and never opens a sign-in window; sign in in the app first. On a release install the engine's folder changes with every update, so the setup the Integrations page copies runs a launcher with a fixed path, `%LOCALAPPDATA%\FabricDesktop\bin\fabric-desktop-mcp.cmd`, which the app rewrites to point at the current engine each time the engine starts.
 
 ### The local HTTP API
 
@@ -193,7 +227,7 @@ Every call through `Registry.invoke` gets one audit line, whatever happened to i
 | `arguments` | Ids, names and numbers. Code, SQL and long text show as `(given)`; anything credential-shaped is removed |
 | `host`, `os_user`, `version`, `prev`, `hash` | Where it ran, and a SHA-256 chain linking each line to the one before |
 
-Lines go to `%LOCALAPPDATA%\FabricDesktop\integrations\audit\audit-YYYY-MM.jsonl` (for log shippers) and to `integrations.sqlite` (the newest 50,000, for **Recent activity**). One MCP server runs per connected tool and the HTTP server is another process, so each line is written inside a store transaction: one writer at a time, and the chain stays whole. The format and chain are the same as the app's audit trail (PR #89), so `fabric-desktop audit --folder "%LOCALAPPDATA%\FabricDesktop\integrations\audit" --verify` checks it once that merges; Settings > Integrations > **Check the trail** does the same today. An audit failure (a full disk) never fails the call; it is reported on the engine's error output.
+Lines go to `%LOCALAPPDATA%\FabricDesktop\integrations\audit\audit-YYYY-MM.jsonl` (for log shippers) and to `integrations.sqlite` (the newest 50,000, for **Recent activity**). One MCP server runs per connected tool and the HTTP server is another process, so each line is written inside a store transaction: one writer at a time, and the chain stays whole. The format and chain are the same as the app's [audit trail](../user-guide.md#audit-trail), written by the same code (`audit_chain.py`), so `fabric-desktop audit --folder "%LOCALAPPDATA%\FabricDesktop\integrations\audit" --verify` checks it, and so does Settings > Integrations > **Check the trail**. An audit failure (a full disk) never fails the call; it is reported on the engine's error output.
 
 ## 8. Extensions
 
@@ -236,9 +270,9 @@ The full threat model is in [ai-integration-security.md](../product/ai-integrati
 
 | Need | Owner | Status |
 | --- | --- | --- |
-| Audit trail format | Enterprise readiness (PR #89) | In review; PR-AI-010 writes its own files in the same line format and hash chain, so `fabric-desktop audit --verify` reads both once #89 merges |
-| Secret redaction | Enterprise readiness (PR #84) | In review; the integration layer has a small redaction of its own until it merges |
-| Policy file keys | Enterprise readiness (PR #90) | In review; integration keys use the same file |
-| Per-cell timeouts and resource limits | Prove this notebook | In progress; PR-AI-007 uses timeouts and interrupt today |
-| Extension manifest and loader | Git-native development, Phase 4 | Not started; PR-AI-012 supplies `ExtensionHost.add`, the checks, the switch and list-change notices |
-| Artifact capability registry | Git-native development | Not started; would feed `artifact_types` |
+| Audit trail format | Enterprise readiness | Shipped; the integration audit uses the same chain writer (`audit_chain.py`), and `fabric-desktop audit --verify` reads both |
+| Secret redaction | Enterprise readiness | Shipped; the integration layer uses the app's `redact.py` |
+| Policy file keys | Enterprise readiness | Shipped; integration keys (`integrations`, `integrations_max_permissions`, `integrations_extensions`, `integrations_editors`, `receipt_redactions`) are in the same policy file |
+| Per-cell timeouts and resource limits | Prove this notebook | Executions use timeouts and interrupt (section 6) |
+| Extension manifest and loader | Git-native development, Phase 4 | Not built; `ExtensionHost.add`, the checks, the switch and list-change notices are ready for it |
+| Artifact capability registry | Git-native development | Not built; would feed `artifact_types` |

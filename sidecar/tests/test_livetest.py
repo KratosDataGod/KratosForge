@@ -547,7 +547,9 @@ def test_a_store_that_ignores_conditional_requests_fails_the_lease_check(tmp_pat
                            lease_backend=lambda: IgnoresConditions(tmp_path / "leases")).run()
     check = by_id(result)["lease.onelake"]
     assert check["status"] == "failed"
-    assert "If-None-Match" in check["detail"]
+    # The failure is the wrongly granted lease, not the lost lease A's release would report after it.
+    assert "A second writer got the lease" in check["detail"] and "If-None-Match" in check["detail"]
+    assert not list((tmp_path / "leases").glob("**/*.json")), "B's wrongly granted lease was released"
 
 
 class IgnoresIfMatch(leases.LocalBackend):

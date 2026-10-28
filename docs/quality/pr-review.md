@@ -213,6 +213,10 @@ What the set says about the baseline: the five FAILs are the patterns the [findi
 
 | (no PR yet) file-loads | Re-check: cap, look-back docs, history-failure step | PASS at patches 0001+0002 on 06a62016 | 9.2 | All four nits fixed: over 5,000 files lists none and says so; guide names the 20-commit look-back and the cap; NothingNew comment; failed history read is a run step. 116 passed (landing, meta, silent_except). |
 
+| (no PR yet) signed-updates (Security QC) | Re-check | PASS at e72a16c8 | 9.0 | Independent security read. Required fix in. Windows-only signature calls not run; unit tests 5/5. The stable environment gate needs Chris to add reviewers. |
+
+| (no PR yet) api-same-user (Security QC) | Re-check | PASS at 16e8fe80 | 9.2 | Independent security read. 360 passed on Linux. Needs a Windows check on a PC with IPv6 disabled before rollout. |
+
 | (no PR yet) signed-updates (Security QC) | Updater signature checks, unsigned-build gate, signed-only promote | FAIL at c6494853 | 7.8 | Independent security read. Required fix and details are with Security QC (private). |
 
 | (no PR yet) api-same-user (Security QC) | Local API refuses callers that are not the signed-in user | PASS at c64c616b | 9.1 | Independent security read. Fails closed on lookup errors. 359 passed on Linux; Windows-only paths not run. Low follow-ups with Security QC. |

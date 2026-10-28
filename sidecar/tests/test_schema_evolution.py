@@ -291,3 +291,14 @@ def test_an_int32_batch_of_a_column_the_contract_doesnt_declare_goes_into_its_in
     assert res.status == "ok", res.message
     assert table(s).schema().to_arrow().field("qty").type == pa.int64()
     assert [h["change"] for h in history(s)] == ["created"]
+
+
+def test_a_full_load_with_no_rows_still_refuses_a_declared_narrowing(tmp_path):
+    s = Setup(tmp_path, True)
+    qty_entity(s, "int64", mode="full")
+    s.source(qty_rows(range(3), DAY1))
+    s.run()
+    qty_entity(s, "int32", mode="full")
+    s.source(qty_rows([], DAY2), mode="overwrite")
+    res = s.engine(DAY2).run("bronze.events")
+    assert res.status == "failed" and "qty int64 to int32 would narrow" in res.message, res.message

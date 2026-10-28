@@ -1393,15 +1393,15 @@ def _fit_to_table(e: Entity, df: pl.DataFrame, table: pl.Schema | None) -> pl.Da
     load (a file that left it empty reads as text), and a column the contract doesn't declare whose
     type the table's widens (an int32 batch into an int64 column). A narrowing the contract asks
     for, and any real change of kind, are left for _refuse_type_changes."""
-    if table is None:
-        return df
+    if table is None or e.spec.get("contract", {}).get("overwrite_schema") is True:
+        return df  # overwrite_schema: the new rows' types are the ones asked for
     declared = e.columns
     casts = []
     for name, dtype in df.schema.items():
         old = table.get(name)
         if old is None or old == dtype:
             continue
-        if df[name].null_count() == df.height or (name not in declared and drift_mod.widens(dtype, old)):
+        if (df.height and df[name].null_count() == df.height) or (name not in declared and drift_mod.widens(dtype, old)):
             casts.append(pl.col(name).cast(old))
     return df.with_columns(casts) if casts else df
 

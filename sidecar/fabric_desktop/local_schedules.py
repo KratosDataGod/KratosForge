@@ -319,15 +319,21 @@ class LocalSchedules:
                 return s
         raise LookupError(f"There is no schedule {schedule_id} on this PC")
 
-    def update(self, schedule_id: str, schedule: dict[str, Any]) -> dict[str, Any]:
+    def update(self, schedule_id: str, schedule: dict[str, Any], signed_out: bool | None = None) -> dict[str, Any]:
         """New times for an existing schedule. Its Windows task is replaced under the same id, so its run
-        history stays, and a paused schedule stays paused."""
+        history stays, and a paused schedule stays paused. ``signed_out`` (when given) turns running while
+        signed out on or off in the same save, so Windows asks for the password at most once and a closed
+        prompt leaves both the times and the setting as they were."""
         config = local_configuration(schedule)  # checks the times before anything changes
         data = self._load()
         for s in data["schedules"]:
             if s["id"] == schedule_id:
                 s["config"] = config
+                if signed_out is not None:
+                    s["signed_out"] = bool(signed_out)
                 self._register(s)  # a signed-out schedule's task: Windows asks for the password again
+                if not s.get("signed_out"):
+                    s.pop("signed_out", None)
                 self._save(data)
                 return s
         raise LookupError(f"There is no schedule {schedule_id} on this PC")

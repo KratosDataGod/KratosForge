@@ -127,9 +127,10 @@ class ScheduleMixin:
         in. Turning it on again is how a changed Windows password is given (PB-048)."""
         return self.pc_schedules.set_signed_out(schedule_id, signed_out)
 
-    def update_pc_schedule(self, schedule_id: str, schedule: dict[str, Any]) -> dict[str, Any]:
-        """Change when one of this PC's schedules runs (PB-048)."""
-        return self.pc_schedules.update(schedule_id, schedule)
+    def update_pc_schedule(self, schedule_id: str, schedule: dict[str, Any], signed_out: bool | None = None) -> dict[str, Any]:
+        """Change when one of this PC's schedules runs, and optionally whether it also runs while signed
+        out, in one save (PB-048)."""
+        return self.pc_schedules.update(schedule_id, schedule, None if signed_out is None else bool(signed_out))
 
     def time_zones(self) -> dict[str, Any]:
         """Every Windows time zone and this PC's, for the Fabric schedule form (PB-048)."""

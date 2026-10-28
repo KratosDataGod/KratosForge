@@ -58,7 +58,7 @@ function scheduleSummary(v, fabric) {
 function signedOutField(on) {
   const box = h("input", { type: "checkbox", checked: on ? true : null });
   const field = h("div", { class: "signed-out-field" },
-    h("label", { class: "check" }, box, h("span", {}, h("b", {}, "Run even when I'm signed out of Windows"),
+    h("label", { class: "check" }, box, h("span", {}, h("b", {}, "Run even when I'm signed out of Windows"), " ", previewTag(),
       h("div", { class: "muted-text small" }, "The PC still has to be on. Windows asks for your Windows password and keeps it with the task; KratosForge never sees or stores it."))),
     h("div", { class: "warn-box card pad small" }, h("b", {}, "Check before you rely on it"), h("ul", {},
       h("li", {}, "When your Windows password changes, these runs stop until you enter the new one (the schedule says so)."),
@@ -72,13 +72,13 @@ function signedOutField(on) {
 }
 
 // Saves an edit of one of this PC's schedules: new times and/or signed-out on or off, asking Windows for the
-// password at most once (turning it on saves the task with the password; new times on a signed-out task do too).
+// password at most once, and not at all when nothing changed.
 async function savePcSchedule(s, schedule, signedOut) {
   const was = !!s.signed_out;
   const timesChanged = JSON.stringify(scheduleValues(s.config)) !== JSON.stringify({ ...scheduleValues(s.config), ...scheduleTimes(schedule) });
-  if (was && !signedOut) await rpc("set_pc_schedule_signed_out", { schedule_id: s.id, signed_out: false });
-  if (timesChanged || was === signedOut) await rpc("update_pc_schedule", { schedule_id: s.id, schedule });
-  if (!was && signedOut) await rpc("set_pc_schedule_signed_out", { schedule_id: s.id, signed_out: true });
+  // New times (with the setting, in one save: one prompt, and a closed prompt saves neither), only the setting, or nothing.
+  if (timesChanged) await rpc("update_pc_schedule", { schedule_id: s.id, schedule, signed_out: signedOut });
+  else if (was !== signedOut) await rpc("set_pc_schedule_signed_out", { schedule_id: s.id, signed_out: signedOut });
   return true;
 }
 const scheduleTimes = (v) => ({ kind: v.kind, times: v.times.map((t) => t.trim()).filter(Boolean), every_minutes: v.every_minutes, weekdays: v.weekdays });

@@ -64,7 +64,7 @@ test("Ticking it in Edit only asks Windows once and doesn't save the same times 
   assert.deepStrictEqual(calls, [["signed_out", { schedule_id: "c3", signed_out: true }]]);
 });
 
-test("New times on a signed-out schedule are one save; unticking turns it off first", { skip }, async () => {
+test("New times on a signed-out schedule are one save, with the setting too; an unchanged save asks nothing", { skip }, async () => {
   calls.length = 0;
   await monitor();
   await page().click("tr:has-text('nb_signed_out') button:has-text('Edit')");
@@ -81,7 +81,13 @@ test("New times on a signed-out schedule are one save; unticking turns it off fi
   await d.locator("input[placeholder='06:00, 18:00']").fill("04:00");
   await d.locator("button:has-text('Save changes')").click();
   await page().waitForFunction(() => !document.querySelector(".dialog"));
-  assert.deepStrictEqual(calls.map(([k, p]) => [k, p.signed_out]), [["signed_out", false], ["update", undefined]]);
+  assert.deepStrictEqual(calls.map(([k, p]) => [k, p.signed_out]), [["update", false]], "one save turns it off with the new times");
+
+  calls.length = 0;
+  await page().click("tr:has-text('nb_signed_out') button:has-text('Edit')");
+  await d.locator("button:has-text('Save changes')").click();
+  await page().waitForFunction(() => !document.querySelector(".dialog"));
+  assert.deepStrictEqual(calls, [], "nothing changed, so Windows isn't asked for the password");
 });
 
 test("The Schedule dialog adds a signed-out schedule on this PC, and hides the box for Fabric", { skip }, async () => {

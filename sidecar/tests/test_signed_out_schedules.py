@@ -84,6 +84,21 @@ def test_a_closed_or_refused_prompt_changes_nothing(tmp_path, app_exe):
     assert [s.get("signed_out") for s in pc._load()["schedules"]] == [None]
 
 
+def test_new_times_and_the_setting_are_one_save(tmp_path, app_exe):
+    pc = schedules(tmp_path)
+    item = pc.add(TARGET, DAILY)
+    pc.scheduler.refuse = "You closed the Windows prompt; nothing changed."
+    with pytest.raises(signed_out_tasks.PasswordNotSaved):
+        pc.update(item["id"], {"kind": "daily", "times": ["05:00"]}, signed_out=True)
+    assert pc.get(item["id"])["config"]["times"] == ["02:00"] and "signed_out" not in pc.get(item["id"])
+    pc.scheduler.refuse = None
+    pc.scheduler.calls.clear()
+    pc.update(item["id"], {"kind": "daily", "times": ["05:00"]}, signed_out=True)
+    assert pc.scheduler.calls == [("register", item["id"], True, app_exe)]
+    pc.update(item["id"], {"kind": "daily", "times": ["06:00"]}, signed_out=False)
+    assert "signed_out" not in pc.get(item["id"]) and pc.get(item["id"])["config"]["times"] == ["06:00"]
+
+
 def test_an_update_leaves_signed_out_tasks_alone(tmp_path, app_exe):
     pc = schedules(tmp_path)
     plain = pc.add(TARGET, DAILY)

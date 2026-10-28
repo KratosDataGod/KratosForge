@@ -463,7 +463,7 @@ test("billed capacity totals show each currency on its own and say which environ
     h: (tag, attrs, ...kids) => ({ tag, attrs, kids }),
     measureFigure: (title, m) => ({ tag: "fig", kids: [`${m.value} ${m.currency || m.unit} ${m.classification}`] }),
   };
-  vm.runInNewContext(`${src.match(/function usageBilled\([\s\S]*?\n}\n/)[0]}; this.usageBilled = usageBilled;`, ctx);
+  vm.runInNewContext(`${dateHelpers()}${src.match(/function usageBilled\([\s\S]*?\n}\n/)[0]}; this.usageBilled = usageBilled;`, ctx);
   assert.strictEqual(ctx.usageBilled([], "USD"), null);
   const out = text(ctx.usageBilled([
     { capacity: "fabcapprod", environments: ["Prod"], days: 2, first_day: "2026-10-01", last_day: "2026-10-02",
@@ -1257,7 +1257,7 @@ test("attempt() stays quiet only for a cancelled sign-in, never for an empty err
 test("a passed write test counts for a week, for the same account and tenant (#191)", () => {
   const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   const ctx = {};
-  vm.runInNewContext(`const WRITE_PASS_DAYS = 7; ${src.match(/function savedWriteRow\([\s\S]*?\n}\n/)[0]}; this.f = savedWriteRow;`, ctx);
+  vm.runInNewContext(`const WRITE_PASS_DAYS = 7; ${dateHelpers()}${src.match(/function savedWriteRow\([\s\S]*?\n}\n/)[0]}; this.f = savedWriteRow;`, ctx);
   const now = Date.parse("2026-10-20T12:00:00Z");
   const saved = { user: "ana@contoso.com", tenant: "t1", workspace_id: "w", lakehouse_id: "l", workspace: "Sales Dev", at: "2026-10-18T12:00:00Z" };
   assert.match(ctx.f(saved, "ana@contoso.com", "t1", now).text, /Sales Dev/);
@@ -3253,6 +3253,49 @@ test("sizes read the same on every page", () => {
   for (const file of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
     const src = fs.readFileSync(path.join(ui, file), "utf8").replace(/function sizeText\([\s\S]*?\n}\n/, "");
     assert.doesNotMatch(src, /\[\s*"(B|bytes)",\s*"KB"/, `${file} keeps its own size units: use sizeText`);
+  }
+});
+
+// The shared date and time helpers (activity.js), for tests that run a page's code on its own.
+function dateHelpers(names = ["readDate", "dateText", "timeText", "dateTimeText"]) {
+  const src = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
+  return names.map((name) => src.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`))[0]).join("\n");
+}
+
+test("dates and times read the same on every page", () => {
+  const ctx = {};
+  vm.runInNewContext(`${dateHelpers(["readDate", "dateText", "timeText", "dateTimeText", "relTime"])}
+this.f = { dateText, timeText, dateTimeText, relTime };`, ctx);
+  const { dateText, timeText, dateTimeText, relTime } = ctx.f;
+  const at = "2026-10-28T19:03:07Z";
+  const d = new Date(at);
+  assert.strictEqual(dateText(at), d.toLocaleDateString(undefined, { dateStyle: "medium" }));
+  assert.strictEqual(dateText(d), dateText(at), "a Date reads the same as its ISO string");
+  assert.strictEqual(dateText(d.getTime()), dateText(at), "and as milliseconds");
+  assert.ok(dateTimeText(at).startsWith(dateText(at)), dateTimeText(at));
+  assert.strictEqual(timeText(at), d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }));
+  assert.notStrictEqual(timeText(at, { seconds: true }), timeText(at), "seconds only when asked");
+  assert.strictEqual(dateText("2026-10-28T00:00:00Z", { utc: true }), new Date(Date.UTC(2026, 9, 28)).toLocaleDateString(undefined, { dateStyle: "medium", timeZone: "UTC" }));
+  for (const f of [dateText, timeText, dateTimeText, relTime]) {
+    for (const bad of [null, undefined, "", "not a date", NaN]) {
+      const out = f(bad);
+      assert.strictEqual(out, "", `${f.name}(${String(bad)})`);
+    }
+  }
+  assert.strictEqual(dateTimeText(null, { empty: "never" }), "never");
+  assert.strictEqual(dateText("soon", { empty: "?" }), "?");
+  const ago = (s) => new Date(Date.now() - s * 1000).toISOString();
+  assert.strictEqual(relTime(ago(5)), "just now");
+  assert.strictEqual(relTime(ago(600)), "10 min ago");
+  assert.strictEqual(relTime(ago(7200)), "2 h ago");
+  assert.strictEqual(relTime(ago(90000)), "yesterday");
+  const lastYear = new Date(Date.now() - 400 * 86400000);
+  assert.strictEqual(relTime(lastYear.toISOString()), dateText(lastYear));
+  // Every page uses these: no page formats a date or time itself.
+  for (const file of fs.readdirSync(ui).filter((f) => f.endsWith(".js") && f !== "activity.js")) {
+    const page = fs.readFileSync(path.join(ui, file), "utf8");
+    assert.doesNotMatch(page, /\.toLocale(Date|Time)String\(|dateStyle|timeStyle|new Date\([^()]*\)\.toLocaleString\(/,
+      `${file} formats a date itself: use dateText, timeText, dateTimeText or relTime`);
   }
 });
 

@@ -4,21 +4,46 @@
 
 // ---------- times ----------
 
-function relTime(iso) {
-  if (!iso) return "";
-  const t = new Date(iso);
-  if (Number.isNaN(t.getTime())) return String(iso);
+// Dates and times, the same on every page (#956), in the person's own Windows format. Each takes
+// an ISO string, a Date or milliseconds (callers turn epoch seconds into milliseconds), and gives
+// opts.empty ("" unless the page names a word such as "never") for a missing or unreadable value,
+// never "Invalid Date". opts.seconds adds seconds; opts.utc reads a plain day ("2026-10-28") as it is.
+function readDate(at) {
+  if (at === null || at === undefined || at === "") return null;
+  const d = at instanceof Date ? at : new Date(at);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function dateText(at, opts = {}) {
+  const d = readDate(at);
+  return d ? d.toLocaleDateString(undefined, { dateStyle: "medium", ...(opts.utc ? { timeZone: "UTC" } : {}) }) : (opts.empty ?? "");
+}
+
+function timeText(at, opts = {}) {
+  const d = readDate(at);
+  return d ? d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", ...(opts.seconds ? { second: "2-digit" } : {}) }) : (opts.empty ?? "");
+}
+
+function dateTimeText(at, opts = {}) {
+  const d = readDate(at);
+  return d ? d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: opts.seconds ? "medium" : "short" }) : (opts.empty ?? "");
+}
+
+// How long ago, then the date once it's two days back.
+function relTime(at) {
+  const t = readDate(at);
+  if (!t) return "";
   const s = Math.round((Date.now() - t.getTime()) / 1000);
   if (s < 45) return "just now";
   if (s < 3600) return `${Math.round(s / 60)} min ago`;
   if (s < 86400) return `${Math.round(s / 3600)} h ago`;
   if (s < 172800) return "yesterday";
-  return t.toLocaleDateString();
+  return dateText(t);
 }
 
 // A relative time with the exact time on hover.
 function when(iso) {
-  return h("span", { title: iso ? new Date(iso).toLocaleString() : "" }, relTime(iso));
+  return h("span", { title: dateTimeText(iso, { seconds: true }) }, relTime(iso));
 }
 
 function took(seconds) {

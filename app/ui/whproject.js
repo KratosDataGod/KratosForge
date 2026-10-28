@@ -421,7 +421,7 @@ function whCompareView(ref, actions) {
   return h("div", { class: "wh-cmp" },
     h("div", { class: "wh-cmp-head" },
       h("h2", {}, `Compare the project with ${ref.name}${env !== "none" ? ` (${ENV_NAMES[env] || env})` : ""}`),
-      h("span", { class: "muted-text" }, `${c.project.folder} · read from the warehouse catalog at ${c.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · nothing changes`),
+      h("span", { class: "muted-text" }, `${c.project.folder} · read from the warehouse catalog at ${timeText(c.at)} · nothing changes`),
       h("span", { class: "spacer" }),
       btn("Compare again", "sync", () => whProjectCompare(ref, c.project), "tool outline small"),
       ref.kind === "warehouse" ? btn(`Deploy to ${ref.name}…`, null, () => whProjectDeploy(ref, c.project), "tool primary small",

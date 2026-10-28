@@ -1484,7 +1484,7 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
     cell.seconds = (performance.now() - started) / 1000;
   }
   if (cell.paused) dbgSnapshot(cell, null);
-  cell.finishedAt = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  cell.finishedAt = timeText(new Date());
   cell.partial = code != null;
   setKernel(nb.stopRequested ? "stopped" : "idle", nb);
   if (state.notebook !== nb) return ok;  // finished in the background; reopening shows it

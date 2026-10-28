@@ -15,7 +15,7 @@ function govPill(map, key) {
 }
 
 function govDate(iso) {
-  return iso ? new Date(iso).toLocaleDateString() : "";
+  return dateText(iso);
 }
 
 function govValue(v) {

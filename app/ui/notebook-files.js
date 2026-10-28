@@ -252,7 +252,7 @@ async function nbFilesDrawDeleted(box) {
   box.replaceChildren(h("table", { class: "list" },
     h("thead", {}, h("tr", {}, h("th", {}, "Name"), h("th", {}, "Was in"), h("th", {}, "Deleted"), h("th", {}, "Kept until"), h("th", {}, h("span", { class: "sr-only" }, "Actions")))),
     h("tbody", {}, rows.map((r) => h("tr", {}, h("td", {}, r.name), h("td", {}, nbPlaceLabel(r.place)),
-      h("td", { class: "muted-text" }, when(r.deleted_at)), h("td", { class: "muted-text" }, new Date(r.kept_until).toLocaleDateString()),
+      h("td", { class: "muted-text" }, when(r.deleted_at)), h("td", { class: "muted-text" }, dateText(r.kept_until)),
       h("td", { class: "nbf-actions" }, btn("Restore", "undo", () => nbRestore(r).then((ok) => ok && render()), "tool outline small", { "aria-label": `Restore ${r.name}` })))))),
   h("p", { class: "muted-text small" }, "Kept on this PC for 30 days, then removed for good."));
 }
@@ -337,7 +337,7 @@ async function nbDelete(name) {
   openNotebooks.delete(name);
   if (state.notebook?.name === name) { disposeEditors(); state.notebook = null; if (state.view === "notebook") { go("notebooks"); } }
   renderChrome();
-  toast(`Deleted ${name}. It's in Recently deleted on All notebooks until ${new Date(out.kept_until).toLocaleDateString()}.`, false, { log: true });
+  toast(`Deleted ${name}. It's in Recently deleted on All notebooks until ${dateText(out.kept_until)}.`, false, { log: true });
   return true;
 }
 

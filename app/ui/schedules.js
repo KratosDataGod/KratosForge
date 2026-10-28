@@ -24,8 +24,8 @@ function nextRunText(iso) {
   const t = new Date(iso);
   const day = t.toDateString() === new Date().toDateString() ? "Today"
     : t.toDateString() === new Date(Date.now() + 86400000).toDateString() ? "Tomorrow"
-    : t.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-  return `${day} ${t.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
+    : dateText(t);
+  return `${day} ${timeText(t)}`;
 }
 
 // UX-018: removing a schedule can't be undone, so say what stops and point at Off.

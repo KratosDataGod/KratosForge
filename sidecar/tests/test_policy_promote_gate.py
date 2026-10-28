@@ -182,6 +182,24 @@ def test_unreachable_platform_with_a_package_and_no_findings_lets_prod_go_ahead(
     assert svc.meta_promote_check("test", "prod")["errors"] == []
 
 
+def test_a_package_older_than_a_day_isnt_used_for_prod_but_is_for_test(svc):
+    """Security read: an old package may miss a Block policy assigned since, so Prod refuses one over a day old."""
+    labels_policy(svc, "block")
+    svc.governance_check_now()
+    to_test(svc)
+    path = svc.root / "governance_packages" / "crm.json"
+    pkg = json.loads(path.read_text())
+    pkg["taken_at"] = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=2)).isoformat(timespec="seconds")
+    pkg["sha256"] = pp.package_hash(pkg)  # whole, just old
+    path.write_text(json.dumps(pkg))
+    unreachable(svc)
+    errors = svc.meta_promote_check("test", "prod")["errors"]
+    assert any("can't be promoted to" in e and "more than the 1 days allowed" in e for e in errors), errors
+    check = svc.meta_promote_check("dev", "test")
+    assert check["errors"] == []
+    assert any(n.startswith("Block policies: Checked offline with the policy package taken") for n in check["notes"])
+
+
 def test_a_changed_package_is_never_used_so_prod_stops(svc):
     labels_policy(svc, "block")
     svc.governance_check_now()

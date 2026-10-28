@@ -65,6 +65,9 @@ OFFLINE_TEXT = "Checked offline: the platform's catalog text wasn't read, so onl
 UNREACHABLE = (requests.RequestException, ConnectionError, TimeoutError)
 # Promotes to these only warn when the policies can't be read; any other target is treated as Prod (fail closed).
 WARN_ONLY_TARGETS = ("dev", "test")
+# A promote to Prod uses the policy package on this PC only when it was taken this recently: an old one may
+# miss a Block policy assigned since. Test and Dev take any verified package (they only warn when there's none).
+PROD_PACKAGE_MAX_DAYS = 1.0
 GATE_LISTED = 10  # findings named per Block policy in the promote gate's reasons; Check now lists them all
 
 
@@ -519,8 +522,9 @@ class ChecksMixin:
 
     def _gc_promote_resolve(self, project: Any, target: str) -> tuple[dict[str, Any], dict[str, Any] | None, str]:
         """The policies in force for a promote to ``target``: from the platform, else, only when it can't be
-        reached, from the latest package on this PC. PoliciesUnreadable when neither can be used: a platform that
-        answers with an error is never stood in for by an older package."""
+        reached, from the latest package on this PC (for Prod, one taken within PROD_PACKAGE_MAX_DAYS).
+        PoliciesUnreadable when neither can be used: a platform that answers with an error is never stood in
+        for by an older package."""
         try:
             return self.governance_resolve(environment=target), None, ""  # type: ignore[attr-defined]
         except UNREACHABLE as exc:
@@ -528,7 +532,8 @@ class ChecksMixin:
         except Exception as exc:  # noqa: BLE001 - the platform answered, or failed another way: the gate says why
             raise PoliciesUnreadable(describe(exc)) from exc
         try:
-            resolved, used = self._gc_offline_resolve(project, environment=target)
+            max_age = None if target in WARN_ONLY_TARGETS else PROD_PACKAGE_MAX_DAYS
+            resolved, used = self._gc_offline_resolve(project, environment=target, max_age_days=max_age)
         except pp.PackageError as exc:
             raise PoliciesUnreadable(f"The platform couldn't be reached ({why}), and the policy package on this PC "
                                      f"can't be used: {exc}") from exc

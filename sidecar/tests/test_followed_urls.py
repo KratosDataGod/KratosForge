@@ -53,6 +53,31 @@ def test_continuation_on_another_host_is_refused_and_not_requested():
     assert hosts(s) == ["api.fabric.microsoft.com"]  # nothing went to evil.example.com
 
 
+def test_data_access_roles_continuation_on_another_host_is_refused_and_not_requested():
+    c, s = client([Resp(200, {"value": [{"name": "DefaultReader"}], "continuationUri": "https://evil.example.com/roles?ct=2"},
+                        headers={"ETag": '"v1"'}),
+                   Resp(200, {"value": [{"name": "Other"}]})])
+    with pytest.raises(FabricError) as exc:
+        c.list_data_access_roles_tagged("ws1", "lh1")
+    assert exc.value.code == "UntrustedUrl"
+    assert hosts(s) == ["api.fabric.microsoft.com"]  # the token never went to evil.example.com
+
+
+def test_data_access_roles_follow_a_continuation_on_the_same_host():
+    c, s = client([Resp(200, {"value": [{"name": "A"}], "continuationUri": f"{API}/workspaces/ws1/items/lh1/dataAccessRoles?ct=2"},
+                        headers={"ETag": '"v1"'}),
+                   Resp(200, {"value": [{"name": "B"}]})])
+    roles, etag = c.list_data_access_roles_tagged("ws1", "lh1")
+    assert [r["name"] for r in roles] == ["A", "B"] and etag == '"v1"'
+    assert hosts(s) == ["api.fabric.microsoft.com"] * 2
+
+
+def test_data_access_roles_stop_at_a_null_text_continuation():
+    c, s = client([Resp(200, {"value": [{"name": "A"}], "continuationUri": "null"}, headers={"ETag": '"v1"'})])
+    roles, _ = c.list_data_access_roles_tagged("ws1", "lh1")
+    assert [r["name"] for r in roles] == ["A"] and len(s.calls) == 1
+
+
 def test_continuation_on_a_lookalike_host_is_refused():
     c, s = client([Resp(200, {"value": [], "continuationUri": "https://evilfabric.microsoft.com.example.net/x"})])
     with pytest.raises(FabricError):

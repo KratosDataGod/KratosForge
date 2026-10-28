@@ -18,12 +18,6 @@ function nbResNameProblem(name) {
   return "";
 }
 
-function nbResSize(n) {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 ** 2) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 ** 2).toFixed(1)} MB`;
-}
-
 function nbResView(nb) {
   if (!nb.resourcesView || nb.resourcesView.name !== nb.name) {
     nb.resourcesView = { name: nb.name, files: null, folder: "", problem: "", busy: false };
@@ -50,7 +44,7 @@ async function nbResAdd(nb, box, files) {
   let added = 0;
   try {
     for (const f of files) {
-      if (f.size > NB_RES_MAX_BYTES) { toast(`${f.name} is ${nbResSize(f.size)}. Resource files can be up to 50 MB each.`, true); continue; }
+      if (f.size > NB_RES_MAX_BYTES) { toast(`${f.name} is ${sizeText(f.size)}. Resource files can be up to 50 MB each.`, true); continue; }
       const content = replayBase64(await f.arrayBuffer());
       let name = f.name;
       for (;;) {
@@ -95,7 +89,7 @@ function nbResRow(nb, box, file) {
   return h("div", { class: "nb-res-row", "data-file": file.name },
     icon("file", 16),
     h("span", { class: "nb-res-name", title: `builtin/${file.name}` }, file.name),
-    h("span", { class: "muted small" }, nbResSize(file.size)),
+    h("span", { class: "muted small" }, sizeText(file.size)),
     h("button", { class: "tool small", title: "More actions", "aria-label": `Actions for ${file.name}`, "aria-haspopup": "menu",
       onclick: (e) => showMenu(e.currentTarget, [
         { label: "Copy path", action: () => copyText(`builtin/${file.name}`, "Path") },

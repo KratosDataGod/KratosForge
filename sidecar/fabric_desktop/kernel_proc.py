@@ -178,6 +178,13 @@ class ProcessKernel:
     def _guest_name(self) -> str | None:
         return getattr(self._guest, "name", None)
 
+    @property
+    def live_pid(self) -> int | None:
+        """The process's id while it is running; None before it starts and once it has ended, so a
+        stopped or restarted kernel (or another process given its id later) is never measured as it."""
+        proc = self._proc
+        return self.pid if proc is not None and proc.poll() is None else None
+
     def forget_guest(self, notebook: str) -> dict[str, Any]:
         """A guest left or restarted: its variables go; the process and the other notebooks' stay."""
         if self._proc is None or self._proc.poll() is not None:
@@ -730,6 +737,27 @@ def _job_for(proc: subprocess.Popen[str]) -> int | None:
     return None
 
 
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+
+
+@functools.cache
+def win_kernel32() -> Any:
+    """kernel32 with the types of the process calls the limits and the run meter make, made once.
+    Without them a HANDLE would be cut to a 32-bit int on 64-bit Windows."""
+    import ctypes
+    from ctypes import wintypes
+    k = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+    k.OpenProcess.restype = wintypes.HANDLE
+    k.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k.GetProcessTimes.restype = wintypes.BOOL
+    k.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+    k.K32GetProcessMemoryInfo.restype = wintypes.BOOL
+    k.K32GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD]
+    k.CloseHandle.restype = wintypes.BOOL
+    k.CloseHandle.argtypes = [wintypes.HANDLE]
+    return k
+
+
 def memory_used(pid: int) -> int | None:
     """Bytes the process is using: private bytes on Windows, resident memory on Linux; None if unknown."""
     if sys.platform == "win32":
@@ -741,8 +769,8 @@ def memory_used(pid: int) -> int | None:
                 (n, ctypes.c_size_t) for n in ("PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage",
                                                "QuotaPagedPoolUsage", "QuotaPeakNonPagedPoolUsage", "QuotaNonPagedPoolUsage",
                                                "PagefileUsage", "PeakPagefileUsage", "PrivateUsage")]
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        kernel32 = win_kernel32()
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
         if not handle:
             return None
         try:

@@ -1104,7 +1104,7 @@ async function renderMonitor() {
       seconds: r.finished_at ? (new Date(r.finished_at) - new Date(r.started_at)) / 1000 : "", rows: "",
       note: r.workspace_name || "", reason: r.status === "Failed" ? r.message || "" : "",
       open: r.url ? () => openInFabric(r.url) : null,
-      cancel: previewShown() && !FABRIC_DONE.has(r.status) && !r.cancel_requested && r.workspace_id && r.item_id ? r.job_id : null,
+      cancel: cancelFabricRunShown() && !FABRIC_DONE.has(r.status) && !r.cancel_requested && r.workspace_id && r.item_id ? r.job_id : null,
     })),
     ...(scheduled || []).map((r) => ({
       at: r.started, status: r.status === "ok" ? "ok" : r.status === "skipped" ? "skipped" : "failed", activity: r.label,
@@ -1116,7 +1116,7 @@ async function renderMonitor() {
     ...pipelineRunRows(pipelines.runs),
     ...fabricPipelineRunRows(fabricPipelines, cloud),
     ...(writes || []).map((r) => ({
-      at: r.finished_at, status: "ok", activity: r.job, kind: "Notebook write", env: "", where: "local",
+      at: r.finished_at, status: "ok", activity: r.job, kind: historyKind(r), env: "", where: "local",
       seconds: r.seconds, rows: r.rows, note: `${r.table_uri.split("/Tables/")[1] || r.table_uri} (${r.mode}, v${r.delta_version})`, reason: "",
     })),
   ].filter((r) => (monitorPage.env === "all" || r.env === monitorPage.env)
@@ -1159,12 +1159,18 @@ function monitorHubButtons() {
     btn("Open in browser", "publish", () => action("browser"), "tool outline")];
 }
 
+// This PC's write history holds two kinds of record: a notebook's table writes (named "Notebook
+// write to <lakehouse>") and runs of a job file (`fabric-desktop run JOB`, named after the job).
+function historyKind(r) {
+  return String(r.job || "").startsWith("Notebook write to ") ? "Notebook write" : "Job run";
+}
+
 // Runs > Env for a row with no environment, saying why there isn't one (testing item 32).
 function runEnvCell(r) {
   if (r.env) return ENV_LABEL[r.env] || r.env;
   const why = r.envWhy || (r.where === "fabric"
     ? "Started in a Fabric workspace (named under the activity), not from one of the project's environments"
-    : "Notebook writes and this PC's schedules aren't tied to an environment");
+    : "Notebook writes, job runs and this PC's schedules aren't tied to an environment");
   return h("span", { class: "muted-text", title: why }, "No environment");
 }
 
@@ -1964,7 +1970,7 @@ function fileRows(ref, path, indent, onInsert, rerender, onPick = null) {
         title: onInsert ? "Click to add a cell that reads this file. Drag it into a cell, or right-click for other ways to load it." : onPick ? `Preview ${item.path}` : item.path,
         onclick: () => onInsert ? onInsert(readSnippet(item.path)) : onPick && onPick(pick),
         ...(onInsert ? dataItemAttrs(pick) : {}) },  // nbdrag.js
-      icon("file", 15), h("span", { class: "label" }, item.name), h("span", { class: "hint" }, formatSize(item.size))));
+      icon("file", 15), h("span", { class: "label" }, item.name), h("span", { class: "hint" }, item.size ? sizeText(item.size) : "")));
     }
   }
   return rows;
@@ -1976,12 +1982,19 @@ function readSnippet(path) {
   return `df = lakehouse.${reader}(${JSON.stringify(path)})\ndf`;
 }
 
-function formatSize(bytes) {
-  if (!bytes) return "";
-  const units = ["B", "KB", "MB", "GB"];
+// File and data sizes, the same on every page (#929): 1024-based, with one decimal below 100
+// (17 B, 2.0 KB, 99.5 MB, 212 MB, 1.1 GB). Nothing for a missing or negative size.
+function sizeText(n) {
+  if (n == null || n === "") return "";
+  n = Number(n);
+  if (!Number.isFinite(n) || n < 0) return "";
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
   let i = 0;
-  while (bytes >= 1024 && i < units.length - 1) { bytes /= 1024; i++; }
-  return `${bytes.toFixed(i ? 1 : 0)} ${units[i]}`;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  if (!i) return `${Math.round(n)} B`;
+  let v = +n.toFixed(n >= 100 ? 0 : 1);
+  if (v >= 1024 && i < units.length - 1) { v = +(v / 1024).toFixed(1); i++; }  // 1023.97 KB reads 1.0 MB
+  return `${v.toFixed(v >= 100 ? 0 : 1)} ${units[i]}`;
 }
 
 // ---------- Notebook files ----------

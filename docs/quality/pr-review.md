@@ -208,6 +208,8 @@ What the set says about the baseline: the five FAILs are the patterns the [findi
 
 | #984 | Schedules on this PC can also run while signed out (PB-048c) | PASS at 9016ade3 | 9.1 | Second quality reviewer. Merged with main: 87 engine tests passed; browser 20/20; ui 299/1, the 1 being the known #972 Preview-id test. The password stays in Windows' prompt and Task Scheduler (env-var inputs, fixed script, PowerShell by full path). The id is hex-checked in Python and Rust. Nothing changes on a cancelled prompt. Nits: a partial save shown as "Not saved"; an unchanged save re-prompts; check Entra/MSA accounts on Windows; tag Preview if merged before the Windows check. Waits on Chris's Windows check and policy switch. |
 
+| #998 | README: pitch, quickstart, honest limits (52 KB to 6 KB) | PASS at 78234cd4 | 9.2 | Second quality reviewer. PySpark counts match the generated table (70 work, 9 no-op, 8 Fabric-only, 15 not built; SparkSession 14/17). Cut sections moved to CONTRIBUTING, agent.md#job-files, install.md and kratosforge.md, or already in the guides; no stale root-README anchors. Quickstart steps match the docs and UI labels. zensical --strict clean; ui.test 301/0. |
+
 | #999 | Metadata loads: Fabric-safe types (#954), stacked on #994 | CONDITIONAL at df277615 | 8.8 | Second quality reviewer. Store.write and write_stream covered; 79 passed with main merged. Required: merge_insert and upsert bypass delta_safe. Probed: a new TIME column gives a raw delta-rs error; a new UInt32 is silently created as Int32 (overflow risk) while the docs say every load is covered. |
 
 | #984 | Signed-out schedules (nit push) | PASS at c8f96b3d | 9.3 | Second quality reviewer. Saves after each pause; pause before sync(); 59 passed with main merged. |

@@ -64,7 +64,7 @@ def test_drift_reports_missing_different_and_local_only_packages():
                                           {"name": "scikit-learn", "version": "1.5.2"}])
     out = fabric_environment.drift(fabric_environment.read(fabric, WS, ENV), here, python="3.12")
     assert out["drifted"] and out["runtime"] == "1.3"
-    assert out["python"] == {"fabric": "3.11", "here": "3.12", "differs": True}
+    assert out["python"] == {"fabric": "3.11", "here": "3.12", "differs": True, "unknown": False}
     assert out["missing_here"] == [{"name": "fuzzywuzzy", "fabric": "0.18.0"}]
     assert out["different"] == [{"name": "polars", "fabric": "0.0.1", "here": polars["version"], "from": "engine"}]
     assert out["local_only"] == [{"name": "rich", "here": "13.7.1"}]  # 1.0 and 1.0.0 match; no version means any
@@ -134,3 +134,42 @@ def test_the_check_is_read_only_and_listed():
     from fabric_desktop import audit, server
     assert "environment_fabric_drift" in server.METHODS and "environment_fabric_drift" in audit.READ_ONLY
     json.dumps(fabric_environment.drift(fabric_environment.read(Fabric(), WS, ENV), fabric_environment.on_this_pc()))
+
+
+def test_an_item_with_no_libraries_is_an_empty_list_not_an_error():
+    c, _ = client([Resp(404, {"errorCode": "EnvironmentLibrariesNotFound", "message": "no libraries"})])
+    assert c.environment_libraries(WS, ENV) == []
+    c, _ = client([Resp(404, {"errorCode": "ItemNotFound", "message": "gone"})])
+    with pytest.raises(FabricError):
+        c.environment_libraries(WS, ENV)
+
+
+def test_ids_must_be_whole_guids():
+    for bad in ("------------------------------------", WS + "\n", WS.replace("-", "x", 1)):
+        fabric = Fabric()
+        assert fabric_environment.read(fabric, bad, ENV)["status"] == "couldnt_read" and fabric.calls == []
+
+
+def test_extras_specifiers_and_odd_entries():
+    here = {"requests": {"name": "requests", "version": "2.32.3", "from": "engine"},
+            "rich": {"name": "rich", "version": "13.7.1", "from": "engine"}}
+    item = fabric_environment.read(Fabric(["not a dict", None,
+                                           {"name": "requests[socks]", "libraryType": "External", "version": "2.32.3"},
+                                           {"name": "rich", "libraryType": "External", "version": ">=13"}]), WS, ENV)
+    out = fabric_environment.drift(item, here, python="3.11")
+    assert out["missing_here"] == [] and out["different"] == [] and out["same"] == 2
+    item = fabric_environment.read(Fabric([{"name": "rich", "libraryType": "External", "version": ">=14"}]), WS, ENV)
+    assert fabric_environment.drift(item, here, python="3.11")["different"][0]["fabric"] == ">=14"
+
+
+def test_a_runtime_whose_python_isnt_known_says_so():
+    out = fabric_environment.drift(fabric_environment.read(Fabric(runtime="9.9"), WS, ENV), {}, python="3.11")
+    assert out["python"]["unknown"] is True and out["drifted"] is False
+    assert "doesn't know which Python runtime 9.9 runs" in fabric_environment.summary(out)
+
+
+def test_the_summary_drops_control_characters_from_fabric_names():
+    item = fabric_environment.read(Fabric([{"name": "evil\x1b[2J\r\x9bpkg", "libraryType": "External", "version": "1\x07"}]),
+                                   WS, ENV)
+    text = fabric_environment.summary(fabric_environment.drift(item, {}, python="3.11"))
+    assert "Missing here: evil[2Jpkg==1" in text and not any(ord(ch) < 32 and ch != "\n" for ch in text)

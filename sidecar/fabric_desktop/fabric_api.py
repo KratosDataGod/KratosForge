@@ -209,8 +209,14 @@ class FabricClient:
 
     def environment_libraries(self, workspace_id: str, environment_id: str) -> list[dict[str, Any]]:
         """The libraries published to an Environment item: [{"name", "libraryType": External|Custom, "version"}].
-        Read only (``beta=False`` is the GA contract; the preview one has another shape)."""
-        return self._paged(f"/workspaces/{workspace_id}/environments/{environment_id}/libraries?beta=False", key="libraries")
+        Read only (``beta=False`` is the GA contract; the preview one has another shape). An item with
+        no libraries answers 404 EnvironmentLibrariesNotFound, which is an empty list, not an error."""
+        try:
+            return self._paged(f"/workspaces/{workspace_id}/environments/{environment_id}/libraries?beta=False", key="libraries")
+        except FabricError as exc:
+            if exc.code == "EnvironmentLibrariesNotFound":
+                return []
+            raise
 
     def environment_spark_compute(self, workspace_id: str, environment_id: str) -> dict[str, Any]:
         """The Environment item's published Spark settings, with ``runtimeVersion``. Read only."""

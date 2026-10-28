@@ -89,9 +89,9 @@ body.replaceChildren(withHowItWorks(content, howItWorks("platform.overview", {
 
 ## Pop-out windows
 
-A section people watch while they work elsewhere (a run list, a monitoring hub) can open in a window of its own, to keep on another screen. Monitor's two sections are the first ([user guide](user-guide.md#pop-out-windows-preview)); a new one uses the same pattern, in the same words:
+A section people watch while they work elsewhere (a run list, a monitoring hub) can open in a window of its own, to keep on another screen. Monitor's runs list and Fabric hub are the first ([user guide](user-guide.md#pop-out-windows-preview)); a new one uses the same pattern, in the same words:
 
-- **Pop out** (`popOutButton(section)`, icon `open`, Preview) goes on the section's own band, last before **Hide** when there is one. It shows only in the main window.
+- **Pop out** (`popOutButton(section, label)`, icon `open`, Preview) is the page's button, top right, named for what it pops out (**Pop out runs**, **Pop out hub**). It shows only in the main window.
 - While the section is out, the main window keeps a band in its place (`poppedOutBand`): the section's title, "In a window of its own", **Show window** and **Dock back**. The rest of the page takes the room.
 - The window shows only that section: no rail, no search, no bell. Its top bar has **Keep on top** and **Dock back**, plus Back and Forward when the section opens other pages. Closing the window docks it back.
 - A pop-out window starts nothing: no component check, no update, no splash, and it never changes the page the main window reopens on. A list in it refreshes itself in place, keeping the scroll position, and never while a dialog is open or the window is minimized.

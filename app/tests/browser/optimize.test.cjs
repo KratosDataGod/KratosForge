@@ -66,7 +66,13 @@ test("before a lakehouse is connected, setup doesn't block Cost and savings", { 
   await page().waitForSelector(".optimize-setup");
   await page().waitForSelector(".cost-head");
   const text = await page().locator(".page.optimize").textContent();
-  assert.match(text, /Share results with your team/);
+  assert.match(text, /Results from this PC only · not shared with your team yet/);
+  // The setup buttons are the page's own, top right beside the title, not a row above the tabs.
+  const head = await page().$eval(".page.optimize > .page-head", (el) => {
+    const title = el.querySelector("h1").getBoundingClientRect(), acts = el.querySelector(".head-actions").getBoundingClientRect();
+    return { right: acts.left > title.right, top: acts.top < title.bottom, buttons: [...el.querySelectorAll(".head-actions button")].map((b) => b.textContent.trim()) };
+  });
+  assert.deepStrictEqual(head, { right: true, top: true, buttons: ["Connect to a lakehouse", "Create a lakehouse"] });
   assert.match(text, /Prices/);
   assert.ok(!/Monitoring hub/.test(text), "no Fabric Monitoring hub on Cost and savings");
   assert.ok(!app.calls.some((c) => c.method === "optimize_findings"), "nothing shared is read without a lakehouse");

@@ -166,6 +166,64 @@ function sbsSize(n) {
   return `${Math.max(1, Math.round(n / 1e3))} KB`;
 }
 
+// "Cores on this PC" for the next run, kept with the notebook (side_by_side_cores). Match Fabric holds the
+// run to the vCores of the notebook's Fabric session, so both sides compute on the same number of cores.
+async function loadSbsCores(nb) {
+  nb.sbsCores = null;
+  const c = await rpc("side_by_side_cores", { name: nb.name, cells: notebookPayload().cells }).catch(() => null);
+  if (state.notebook !== nb) return;
+  nb.sbsCores = c;
+  drawSbs(nb);
+}
+
+async function setSbsCores(nb, choice) {
+  const c = await attempt(() => rpc("side_by_side_cores_set", { name: nb.name, cells: notebookPayload().cells, choice }), "Not saved");
+  if (!c) return;
+  nb.sbsCores = c;
+  drawSbs(nb);
+}
+
+function sbsCoresText(c) {
+  const picked = typeof c.choice === "number" ? "custom" : c.choice;
+  if (picked === "match" && !c.fabric_vcores) {
+    return `A Spark notebook's cores depend on its pool, so this uses all ${c.pc_cores} cores. Pick a number to match the pool.`;
+  }
+  if (picked === "match" && c.cores >= c.pc_cores) return `This PC has no more cores than the Fabric session's ${c.fabric_vcores} vCores, so it uses all ${c.pc_cores}.`;
+  if (picked === "match") {
+    return `Uses ${c.cores} cores, the vCores of this notebook's Fabric session (a Python notebook's default; a %%configure cell changes it). `
+      + "Use this for a like-for-like comparison.";
+  }
+  if (picked === "custom") return `Uses ${c.cores} of ${c.pc_cores} cores, for example to match a bigger Fabric session.`;
+  return c.fabric_vcores && c.fabric_vcores < c.pc_cores
+    ? `Uses all ${c.pc_cores} cores. Fabric's session has ${c.fabric_vcores} vCores, so the comparison is about hardware as much as engines.`
+    : `Uses all ${c.pc_cores} cores.`;
+}
+
+function sbsCores(nb, label = "Cores on this PC") {
+  if (nb.sbsCores === undefined) loadSbsCores(nb);
+  const c = nb.sbsCores;
+  if (!c) return null;
+  const picked = typeof c.choice === "number" ? "custom" : c.choice;
+  const options = [["all", `All ${c.pc_cores} cores`], ["match", c.fabric_vcores ? `Match Fabric (${c.fabric_vcores} vCores)` : "Match Fabric"],
+    ["custom", "Pick a number"]];
+  const busy = sbsRunning(nb);
+  return h("div", { class: "sbs-cores" },
+    h("span", { class: "sbs-cores-label" }, label),
+    h("div", { class: "row wrap" },
+      h("div", { class: "seg", role: "group", "aria-label": "Cores on this PC" }, options.map(([value, text]) =>
+        h("button", { class: picked === value ? "on" : null, "aria-pressed": String(picked === value), disabled: busy,
+          onclick: () => { if (picked !== value) setSbsCores(nb, value === "custom" ? c.cores : value); } }, text))),
+      picked === "custom" ? h("label", { class: "row" }, "Cores",
+        h("input", { type: "number", min: "1", max: String(c.pc_cores), value: String(c.cores), class: "sbs-cores-n", disabled: busy, "aria-label": "Number of cores",
+          onchange: (e) => {
+            const n = Math.round(Number(e.target.value));
+            if (n === nb.sbsCores?.cores) return;
+            if (n >= 1 && n <= c.pc_cores) setSbsCores(nb, n);
+            else e.target.value = String(c.cores);
+          } }), h("span", { class: "muted" }, `of ${c.pc_cores}`)) : null),
+    h("span", { class: "muted small" }, sbsCoresText(c), " Only side by side runs are held to it; Run all on its own uses every core."));
+}
+
 // This PC's time as processing and waiting on OneLake uploads, and what the uploads did. Uploads that ran
 // in the background while cells computed (writes local first) cost no time, so they aren't the wait.
 function sbsLocalSplit(local) {
@@ -194,6 +252,7 @@ function sbsContent(nb) {
       h("div", { class: "row" }, icon("dataBarVertical", 18), h("b", { class: "grow" }, "Side by side is on")),
       h("span", {}, "Run all runs this notebook on this PC, then publishes it and runs it in Fabric, one after the other. ",
         "Then it compares the time each took and checks both wrote the same tables: rows, columns and a checksum of every row."),
+      sbsCores(nb),
       h("div", { class: "row" },
         h("a", { href: "#", onclick: (e) => { e.preventDefault(); addBenchmarkNotebooks(); } }, "Add the TPC-H benchmark notebooks"),
         sbsDocLink()));
@@ -258,11 +317,11 @@ function sbsResult(nb, s) {
       btn("Close", "dismiss", () => { nb.sbs = null; drawSbs(nb); }, "tool small")),
     h("div", { class: "sbs-sides" },
       h("div", { class: "sbs-side" },
-        h("span", { class: "muted" }, `This PC${m.cores ? ` · ${m.cores} cores` : ""}${m.memory_gb ? ` · ${m.memory_gb} GB` : ""}`),
+        h("span", { class: "muted" }, `This PC${m.cores_used ? ` · ${m.cores_used} of ${m.cores} cores` : m.cores ? ` · ${m.cores} cores` : ""}${m.memory_gb ? ` · ${m.memory_gb} GB` : ""}`),
         h("b", { class: "sbs-big" }, sbsTime(local.seconds)), sideStatus(local.status, local.failed_cell),
         ...sbsLocalSplit(local), h("span", { class: "muted", title: "Its OneLake reads and writes still use some capacity." }, "No Fabric job"), pcBar),
       h("div", { class: "sbs-side" },
-        h("span", { class: "muted" }, `Fabric · ${s.workspace_name || ""} · ${f.engine === "python" ? "Python" : "Spark"} notebook`),
+        h("span", { class: "muted" }, `Fabric · ${s.workspace_name || ""} · ${f.engine === "python" ? "Python" : "Spark"} notebook${f.vcores ? ` · ${f.vcores} vCores` : ""}`),
         h("b", { class: "sbs-big" }, sbsTime(f.total_seconds)), sideStatus(f.status),
         h("span", {}, f.start_seconds !== undefined && f.start_seconds !== null
           ? `Session start ${sbsTime(f.start_seconds)} + run ${sbsTime(f.run_seconds)}`
@@ -271,6 +330,7 @@ function sbsResult(nb, s) {
           ? `About ${Math.round(f.cu_seconds).toLocaleString()} CU-seconds · about ${money(f.cost)} (estimate)` : "Capacity use not known"),
         bar(f.total_seconds, "fabric"),
         f.url ? h("a", { href: "#", onclick: (e) => { e.preventDefault(); openInFabric(f.url); } }, "Open the run in Fabric") : null)),
+    s.speed?.cores ? h("span", {}, s.speed.cores) : null,
     s.speed?.end_to_end ? h("b", {}, s.speed.end_to_end) : null,
     s.speed?.run ? h("span", {}, s.speed.run) : null,
     s.speed?.processing ? h("span", {}, s.speed.processing) : null,
@@ -288,6 +348,7 @@ function sbsResult(nb, s) {
       }),
       rows.length > 8 ? h("a", { href: "#", onclick: (e) => { e.preventDefault(); nb.sbsAll = !nb.sbsAll; drawSbs(nb); } },
         nb.sbsAll ? "Show fewer" : `Show all ${rows.length} tables`) : null) : null,
+    sbsCores(nb, "Cores on this PC for the next run"),
     h("span", { class: "muted small" }, "Both runs ran the same code against the same lakehouse, one after the other. Each table is checked at the ",
       "Delta version each run wrote: rows, column names and types, and a checksum of every row in any order (numbers to 10 significant digits). ",
       sbsDocLink()));

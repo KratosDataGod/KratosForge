@@ -503,6 +503,23 @@ def remove_product_term(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionC
     return _run(sqlDB, "remove_product_term", ctx, product_id=product_id, term=term)
 
 
+# ---- a project's members (Preview)
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def list_project_members(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, project: str) -> dict:
+    return _run(sqlDB, "list_project_members", ctx, project=project)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def set_project_member(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, project: str, user: str,
+                       role: str) -> dict:
+    return _run(sqlDB, "set_project_member", ctx, project=project, user=user, role=role)
+
+
 # ---- following a data product (Preview)
 
 @udf.connection(argName="sqlDB", alias="platform")

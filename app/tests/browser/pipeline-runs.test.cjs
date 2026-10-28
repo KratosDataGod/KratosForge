@@ -71,9 +71,8 @@ test("a run opens to its activities, with mocks marked and the inner failure nam
   assert.ok(kids.some((t) => /^SucceededPer region · ForEach · 3 iterations/.test(t)), kids.join("\n"));
   assert.ok(kids.some((t) => /^FailedValidate · If condition › Too few rows · FailOnly 0 rows/.test(t)), kids.join("\n"));
   assert.ok(kids.some((t) => /^SkippedRecord · Set variable—/.test(t)), kids.join("\n"));
-  // Drawing Runs again (here, hiding the Fabric half) reads the open run's activities again.
-  await page().locator(".monitor-fabric button", { hasText: "Hide" }).click();
-  await page().waitForFunction(() => !document.querySelector(".monitor-fabric .fabric-slot"));
+  // Drawing Runs again reads the open run's activities again.
+  await page().evaluate(() => render());
   await page().locator("tr.pl-child").nth(6).waitFor();
   assert.strictEqual(await page().locator("tr.pl-child").count(), 7);
   if (SHOTS) await page().locator(".monitor-local").screenshot({ path: path.join(SHOTS, "monitor-pipeline-runs.png") });

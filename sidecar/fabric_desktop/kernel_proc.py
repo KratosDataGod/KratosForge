@@ -33,7 +33,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from . import lakehouse, notebook
+from . import cpu_cap, lakehouse, notebook
 from .frames import GONE, FrameGone
 
 DOWNLOAD_SECONDS = 1800.0  # writing a whole result to Downloads, or a first page of a large query
@@ -159,6 +159,7 @@ class ProcessKernel:
         self.limit_hit = ""  # "time" or "memory" when a limit stopped the last cell
         self.library_paths: list[str] = []  # a notebook environment's folders, after the engine's (environments.py)
         self.output_dir: Path | None = None  # where the process puts output past the cap (notebook.SPILL_DIR_ENV)
+        self.cores: int | None = None  # side by side's core cap for the next process (cpu_cap.py); None for every core
         # A shared session (kernel_sessions.share): requests made under as_guest carry the guest
         # notebook's name, and the child answers with that notebook's variables and cells.
         self._guest = threading.local()
@@ -196,6 +197,7 @@ class ProcessKernel:
                 with contextlib.suppress(OSError):
                     self.output_dir = Path(tempfile.mkdtemp(prefix=notebook.SPILL_DIR_PREFIX))
             extra = {notebook.SPILL_DIR_ENV: str(self.output_dir)} if self.output_dir else {}
+            extra.update(cpu_cap.env(self.cores))
             proc = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=None,
                                     text=True, encoding="utf-8", bufsize=1, creationflags=flags,
                                     start_new_session=sys.platform != "win32",

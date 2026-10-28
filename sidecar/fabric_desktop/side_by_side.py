@@ -280,9 +280,59 @@ def parse_timing(data: bytes | None) -> float | None:
 # ---- this PC
 
 
-def machine() -> dict[str, Any]:
-    """What this PC brings to the comparison: cores and memory."""
-    return {"cores": os.cpu_count(), "memory_gb": _memory_gb(), "os": platform.system()}
+def machine(cores_used: int | None = None) -> dict[str, Any]:
+    """What this PC brings to the comparison: cores (and how many the run may use, when capped)
+    and memory."""
+    return {"cores": os.cpu_count(), "cores_used": cores_used, "memory_gb": _memory_gb(), "os": platform.system()}
+
+
+# ---- cores: side by side's "Match Fabric" (cpu_cap.py holds the PC's run to them)
+
+PYTHON_VCORES = 2  # a Fabric Python notebook's session without %%configure
+CORE_CHOICES = ("all", "match")  # or a number of cores
+DEFAULT_CORES = "match"
+
+
+def fabric_vcores(cells: list[dict[str, Any]], engine: str) -> int | None:
+    """The vCores the notebook's Fabric session gets: a Python notebook's 2, or what its
+    ``%%configure`` cell asks for. None for a Spark notebook, whose pool decides."""
+    if engine != "python":
+        return None
+    for cell in cells:
+        source = (cell.get("source") or "").lstrip()
+        if not source.startswith("%%configure"):
+            continue
+        try:
+            asked = json.loads(source.split("\n", 1)[1] if "\n" in source else "{}")
+            vcores = int(asked.get("vCores"))
+        except (ValueError, TypeError, AttributeError):
+            continue
+        if vcores > 0:
+            return vcores
+    return PYTHON_VCORES
+
+
+def cores_for(choice: Any, vcores: int | None, pc_cores: int | None) -> int | None:
+    """How many cores the run on this PC may use for ``choice``; None for all of them. "match"
+    with no known vCores (a Spark notebook) uses all, and the card says so."""
+    pc = pc_cores or 1
+    if choice == "match":
+        wanted = vcores
+    elif isinstance(choice, int) and not isinstance(choice, bool):
+        wanted = choice
+    else:
+        wanted = None
+    return None if not wanted or wanted >= pc else max(1, wanted)
+
+
+def cores_line(machine: dict[str, Any], vcores: int | None) -> str:
+    """One line for the result: whether both sides had the same cores."""
+    used = machine.get("cores_used") or machine.get("cores")
+    if not used or not vcores:
+        return ""
+    if used == vcores:
+        return f"Same cores on both sides: {used} on this PC, {vcores} vCores in Fabric"
+    return f"This PC used {used} cores and Fabric's session had {vcores} vCores, so this compares hardware as well as engines"
 
 
 def _memory_gb() -> float | None:

@@ -76,6 +76,12 @@ Reviewed against `main` 52ff52d. Each PR was reviewed on its own commits only: c
 
 | PR | Title | Decision | Score | Blocking finding or condition |
 | --- | --- | --- | --- | --- |
+| #1000 891e467d | tornado 6.6 for three new advisories | PASS | 9.4 | One line in sidecar/constraints.txt (6.5.10 to 6.6); merges main b19b7456 cleanly. 6.6 is on PyPI with a cp311-abi3 win_amd64 wheel. pip check is clean with 6.6. pandas_in_notebooks, chart_libraries, outputs_hardening, rich_outputs, kernel_process and kernel_sessions: 82 passed on tornado 6.6. |
+
+| #1000 891e467d | tornado 6.6 | PASS at 891e467d | 9.4 | Second quality reviewer. The one-line constraints pin; tornado is pinned nowhere else. pip-audit: 6.5.10 has the 3 CVEs, 6.6 is clean, and the whole constraints file is clean. Resolve gives tornado 6.6 + bokeh 3.10.1; bokeh renders on 6.6. |
+
+| #975 1a1d3d97 | CI speed, main merge + tornado pin | PASS at 1a1d3d97 (carried) | 9.2 | Merges main (#938, #972) and #1000's pin. Against f8026218, the delta drops only the PR's copy of no_lakehouse_left_attached (main has the same fixture now, defined once in conftest) and adds tornado==6.6 (#1000, PASS). It merges main cleanly. Tests at head: ui.test 301/0, workflow YAML parses, silent_except + notebook_run 29 passed. |
+
 | #210 | Retry the Windows Delta log race in local key tables (added to the set) | PASS | 9.1 | None. The race check and bounded retry live once in `retrying.py`; only repeat-safe `LocalStore` calls use them |
 | #170 | Schedule dialog opens on Fabric when the environment runs on Fabric | PASS | 9.3 | None |
 | #169 | Preview tags for promote, sync keys, variable library, replay | CONDITIONAL PASS; condition closed by #206 (PASS 9.2 at 8cf1d5d) | 8.2 | With Preview off, `previewMarked` (`features.js:90`) shows the four untested writes untagged, while Settings (`settings.js:246`) and `user-guide.md` say the switch hides them. Align the behavior or the text before the next Stable promote |

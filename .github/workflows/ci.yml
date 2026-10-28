@@ -9,6 +9,13 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request cancels that pull request's older run, so the
+# queue holds only current heads. Pushes to main each get their own group and
+# are never cancelled, so every main batch still publishes a Preview.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   sidecar:
     # The desktop app is Windows only; the engine and the headless agent also run on Linux.

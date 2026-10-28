@@ -507,3 +507,21 @@ def test_fabric_times_with_seven_decimals_and_no_zone_are_utc():
     assert _fabric_utc("2026-10-28T08:35:00+02:00") == _fabric_utc("2026-10-28T06:35:00Z")
     with pytest.raises(ValueError):
         _fabric_utc("yesterday")
+
+
+def test_with_require_run_a_lookup_fabric_couldnt_answer_waits_for_the_next_poll(setup):
+    from fabric_desktop.fabric_api import FabricError
+    done, asked = checked(setup, error=FabricError("GET failed with 503", None, 503), require=True)
+    assert done is None and len(asked) == 1, "no status yet: the request is looked at again next poll"
+
+
+def test_with_require_run_a_finished_run_is_rejected(setup):
+    done, _ = checked(setup, {"jobType": "Pipeline", "itemId": ITEM, "status": "Completed",
+                              "startTimeUtc": fabric_time(120)}, require=True)
+    assert done["state"] == "rejected" and "already finished (Completed)" in done["reason"]
+
+
+def test_a_run_that_starts_in_the_future_doesnt_check_out(setup):
+    done, _ = checked(setup, {"jobType": "Pipeline", "itemId": ITEM, "status": "InProgress",
+                              "startTimeUtc": fabric_time(-3600)})
+    assert done["pipeline_run"]["verified"] is False and "in the future" in done["pipeline_run"]["detail"]

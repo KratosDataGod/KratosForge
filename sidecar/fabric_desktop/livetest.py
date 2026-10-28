@@ -573,27 +573,29 @@ class LiveTest:
                     "pipeline_run": missing}
             if not control.create(f"requests/{rid}.json", json.dumps(body).encode()):
                 raise RuntimeError(f"requests/{rid}.json already existed")
-            a._poll_env(env)
-            first = _status(control, rid)
-            if first.get("state") != "accepted" or first.get("agent") != f"{rid}_a":
-                raise RuntimeError(f"Expected accepted by agent A, the status says {first.get('state')} by {first.get('agent')}")
-            run = first.get("pipeline_run") or {}
-            if run.get("verified") is not False or "couldn't find" not in str(run.get("detail")):
-                raise RuntimeError(f"A made-up pipeline run wasn't reported as not found: {run}")
-            if control.create(f"status/{rid}.json", b"{}"):
-                raise RuntimeError("A second claim of the same request succeeded; If-None-Match isn't honoured")
-            b._poll_env(env)
-            if _status(control, rid).get("agent") != f"{rid}_a":
-                raise RuntimeError("Agent B changed a status agent A holds")
-            control.create(f"cancel/{rid}.json", b"{}")
-            a._poll_env(env)
-            final = _status(control, rid)
-            if final.get("state") != "cancelled":
-                raise RuntimeError(f"After the cancel file the status says {final.get('state')}, not cancelled")
-            for folder in ("cancel", "requests", "status"):
-                stored = control.read(f"{folder}/{rid}.json")
-                if stored is not None:
-                    control.delete(f"{folder}/{rid}.json", stored.etag)
+            try:
+                a._poll_env(env)
+                first = _status(control, rid)
+                if first.get("state") != "accepted" or first.get("agent") != f"{rid}_a":
+                    raise RuntimeError(f"Expected accepted by agent A, the status says {first.get('state')} by {first.get('agent')}")
+                run = first.get("pipeline_run") or {}
+                if run.get("verified") is not False or "couldn't find" not in str(run.get("detail")):
+                    raise RuntimeError(f"A made-up pipeline run wasn't reported as not found: {run}")
+                if control.create(f"status/{rid}.json", b"{}"):
+                    raise RuntimeError("A second claim of the same request succeeded; If-None-Match isn't honoured")
+                b._poll_env(env)
+                if _status(control, rid).get("agent") != f"{rid}_a":
+                    raise RuntimeError("Agent B changed a status agent A holds")
+                control.create(f"cancel/{rid}.json", b"{}")
+                a._poll_env(env)
+                final = _status(control, rid)
+                if final.get("state") != "cancelled":
+                    raise RuntimeError(f"After the cancel file the status says {final.get('state')}, not cancelled")
+            finally:  # leave nothing in the control folder, whether or not the check passed
+                for folder in ("cancel", "requests", "status"):
+                    stored = control.read(f"{folder}/{rid}.json")
+                    if stored is not None:
+                        control.delete(f"{folder}/{rid}.json", stored.etag)
         return ("Request taken once by agent A, left alone by agent B, cancelled; "
                 f"a made-up pipeline run was reported as not found ({run.get('detail')}).")
 

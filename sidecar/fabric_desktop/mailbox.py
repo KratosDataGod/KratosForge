@@ -24,8 +24,11 @@ doesn't say who wrote a file (its owner is always ``$superuser``). What can be c
 
 The agent looks that job up in the environment's workspace with the Fabric API and records the
 answer as the status's ``pipeline_run``: ``verified`` is true only for a Pipeline job of that item,
-started within ``RUN_MAX_AGE``. With ``[pipeline] require_run = true`` a request that doesn't name a
-run, or whose run doesn't check out, is rejected. Untested on a Fabric tenant (PB-049).
+started within ``RUN_MAX_AGE`` and not in the future. With ``[pipeline] require_run = true`` a request
+that doesn't name a run, or whose run doesn't check out or has already finished (the notebook that
+writes a request waits for its answer, so its run is still going), is rejected. A lookup Fabric
+couldn't answer just then (429, 5xx, no connection) is tried again on the next poll for up to
+``RUN_LOOKUP_GRACE`` before it counts. Untested on a Fabric tenant (PB-049).
 
 Each request is claimed by creating its status file with ``If-None-Match: *``, so one agent takes
 it however many poll the mailbox (with ``[pipeline] claim = "when_free"``, only while it has a worker
@@ -80,6 +83,10 @@ FINAL = ("succeeded", "failed", "cancelled", "expired", "rejected")
 MAX_REQUEST_BYTES = 64 * 1024
 WRITING_GRACE = 60  # seconds an unreadable request gets before it is rejected
 RUN_MAX_AGE = 24 * 3600  # seconds: an older pipeline run can't vouch for a new request
+RUN_CLOCK_SKEW = 300  # seconds a run's start time may be ahead of this PC's clock
+RUN_LOOKUP_GRACE = 15 * 60  # seconds a request waits for a run lookup Fabric couldn't answer
+RUN_GOING = ("InProgress", "NotStarted")  # a run that wrote a request and waits for its answer
+_TRANSIENT = (408, 429, 500, 502, 503, 504)
 TAKEOVER_GRACE = 60  # seconds past an agent's stale_after before its requests are taken over (clock differences)
 _RUN_FIELDS = ("job_id", "attempts", "started_at", "finished_at", "result", "error", "last_error", "cancel")
 _ID = re.compile(r"[A-Za-z0-9_.-]{1,64}")
@@ -296,6 +303,8 @@ class Mailbox:
         if request.get("pipeline_run") and not reason:
             base["pipeline_run"] = self._check_run(env, request["pipeline_run"], now)
             if self.require_run and not base["pipeline_run"]["verified"]:
+                if base["pipeline_run"].get("transient") and now - stored.modified < RUN_LOOKUP_GRACE:
+                    return  # Fabric couldn't answer just then; ask again next poll
                 reason = f"its pipeline run didn't check out: {base['pipeline_run']['detail']} (pipeline.require_run in agent.toml)"
         if reason:
             status = base | {"state": "rejected", "reason": reason}
@@ -390,6 +399,9 @@ class Mailbox:
         try:
             job = self.verify_run(env, run["item_id"], run["run_id"])
         except Exception as exc:  # recorded on the status; require_run decides whether it matters
+            if getattr(exc, "status", None) in _TRANSIENT or isinstance(exc, (requests.ConnectionError, requests.Timeout)):
+                return out | {"detail": f"couldn't look it up in the {env} workspace just now: {describe(exc)}",
+                              "transient": True}
             return out | {"detail": f"couldn't find it in the {env} workspace: {describe(exc)}"}
         problems = []
         if str(job.get("jobType") or "") != "Pipeline":
@@ -400,9 +412,13 @@ class Mailbox:
             age = now - _fabric_utc(job.get("startTimeUtc"))
             if age > RUN_MAX_AGE:
                 problems.append(f"it started {age / 3600:.0f} hours ago; the most is {RUN_MAX_AGE // 3600}")
+            elif age < -RUN_CLOCK_SKEW:
+                problems.append("Fabric gives it a start time in the future")
         except ValueError:
             problems.append("Fabric gave no start time for it")
         out |= {"status": str(job.get("status") or ""), "started_at": str(job.get("startTimeUtc") or "")}
+        if self.require_run and out["status"] not in RUN_GOING:
+            problems.append(f"it has already finished ({out['status'] or 'no status'}); the run that asks is still going")
         if problems:
             return out | {"detail": "; ".join(problems)}
         return out | {"verified": True, "detail": f"pipeline run {run['run_id']} of item {run['item_id']}, {out['status']}"}

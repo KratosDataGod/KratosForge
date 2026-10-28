@@ -758,7 +758,9 @@ class ProveMixin:
         kernel.bind_proof(config, "pc", root, options)
         status = "ok"
         try:
-            with RunMeter() as meter:
+            # With notebooks in their own process, the code runs there, so that process is measured.
+            process = (lambda: kernel.pid) if isinstance(kernel, ProcessKernel) else None
+            with RunMeter(process=process) as meter:
                 for n, i in enumerate(code, 1):
                     if record["_cancel"]:
                         status = "cancelled"

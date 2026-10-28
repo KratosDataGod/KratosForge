@@ -1092,7 +1092,7 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/scorecard.py`, `sidecar/fabric_desktop/measure.py`
 - **Tests:** `app/tests/ui.test.cjs`
 - **Docs:** [docs/prove/how-proofs-work.md](../prove/how-proofs-work.md)
-- **Known limitations:** CPU/memory come from the engine process, not the child kernel (inference). Fabric CPU/memory not available.
+- **Known limitations:** With notebooks in their own process, CPU/memory are the kernel process only, not processes its cells start (PB-094). Fabric CPU/memory not available.
 - **Owning workstream:** Prove (FD-119)
 - **Backlog:** [PB-050](PRODUCT_BACKLOG.md#pb-050), [PB-094](PRODUCT_BACKLOG.md#pb-094)
 - **Recommended next action:** Measure the kernel child process when it is on (FD-119).

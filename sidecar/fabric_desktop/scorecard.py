@@ -108,7 +108,9 @@ def build(record: dict[str, Any], cost_cfg: dict[str, Any]) -> dict[str, Any]:
     if fab.get("total_seconds") and fab.get("job_seconds"):
         notes.append("Fabric's total includes publishing the notebook and queueing; the job time is what Fabric ran.")
     if pc.get("cpu_seconds") is not None:
-        notes.append("This PC's CPU and memory are the engine process's while the notebook ran in it.")
+        notes.append("This PC's CPU and memory are the notebook's own kernel process's, from its start."
+                     if "kernel process" in str(pc.get("measured") or "")
+                     else "This PC's CPU and memory are the engine process's while the notebook ran in it.")
     if fab:
         notes.append("Fabric doesn't report a notebook run's CPU or memory; a Python notebook starts with 2 vCores and "
                      "16 GB unless %%configure changes it.")

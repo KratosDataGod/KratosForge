@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
+from ..errors import NotSetUp
 from ..retrying import TRANSIENT_STATUS, status_of
 
 KINDS = ("meta_entity", "notebook", "fabric_item", "pipeline")
@@ -132,11 +133,9 @@ def classify_error(exc: BaseException) -> tuple[str, str]:
         return "offline", "Fabric isn't answering right now. Try again in a few minutes."
     if "sign in" in low or "no account" in low or "interaction_required" in low or "login" in low:
         return "signed_out", "Sign in to read this."
-    if isinstance(exc, LookupError) and ("assign a workspace" in low or "no metadata project" in low):
-        return "not_set_up", str(exc)
-    # A lakehouse not promoted to the environment yet: a step not taken, not a fault. Each raise site's
-    # own words say which lakehouse and what to do.
-    if isinstance(exc, LookupError) and "doesn't exist in" in low and "promote" in low:
+    # No workspace assigned, no metadata project, a lakehouse not promoted yet: a step not taken, not a
+    # fault. Decided by type, never by wording; each raise site's own words say what to do.
+    if isinstance(exc, NotSetUp):
         return "not_set_up", str(exc)
     if isinstance(exc, (ConnectionError, TimeoutError)) or any(w in low for w in (
             "connectionerror", "timed out", "timeout", "name resolution", "failed to establish", "network")):

@@ -23,7 +23,7 @@ from .registry import PERMISSIONS, default_registry
 from .store import IntegrationStore
 
 METHODS = {"integrations_status", "integrations_set_enabled", "integrations_add_client", "integrations_update_client",
-           "integrations_revoke_client", "integrations_approvals", "integrations_decide", "integrations_new_token",
+           "integrations_revoke_client", "integrations_decide", "integrations_new_token",
            "integrations_set_http", "integrations_pending", "integrations_activity", "integrations_audit_check", "integrations_test",
            "integrations_set_extension"}
 

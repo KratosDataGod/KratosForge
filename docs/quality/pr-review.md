@@ -198,6 +198,8 @@ What the set says about the baseline: the five FAILs are the patterns the [findi
 | #956 | One set of date and time helpers | PASS at 868c5e5e (and 43416b0d) | 9.1 | Delta over #943. ui.test 301/0; 20 browser files 116/0; old files fail 3. Nit: the schedule's next run lost its weekday. |
 | #951 | Every axe "needs a look" item has a person's verdict | PASS at 44f8608e (carried) | 9.2 | Verdicts now anchored to their page; checked that the anchors restrict. a11y 4/4 x3. |
 | #948 | AI integration architecture page: what exists now | PASS at 6e2d54e2 (and 544bc4c3) | 9.3 | Docs only. Every listener, bind address, token and policy claim checked against the code; zensical clean; product data consistent. |
+| (no PR yet) sealed-notify (Security QC) | Re-check: docs nits, route name matched as text | PASS at 18766c5c | 9.3 | security.md now accurate (backups leave both out); unreadable wording per kind; str(name) in seal and settings view with a test. 28 passed, 1 skipped. |
+
 | (no PR yet) sealed-notify (Security QC) | Platform notice Teams addresses sealed with DPAPI too (#957 follow-ups): independent security read | PASS at 8f127c9b | 9.2 | Route URLs sealed with the same purpose; unreadable ones stashed by name and kept through other saves; warning once per process. 69 passed, 1 skipped; DPAPI round trip Windows-only, not run. Nits: security.md names backups, which already strip these keys; an unreadable alert address can't be cleared to empty. |
 
 | (no PR yet) offline (Codebase audit) | Re-check: confidential client covered | PASS at cb0ced89 | 9.3 | Fixture covers PublicClientApplication and ConfidentialClientApplication; new test_offline_sign_in. Dead proxy: offline_sign_in, local, agent, silent_except 91 passed. |

@@ -558,7 +558,7 @@ For an incident about a metadata table, the incident page shows **Who's affected
 
 ### Agents (Preview)
 
-An [agent](agent.md) is KratosForge running on your own server. Every minute or so it writes a status record to each environment it serves, in that environment's `LH_Meta`. Monitor > Operations > Agents reads those records. It never reaches the agent's server, and nothing on it starts, stops or changes an agent.
+An [agent](agent.md) is KratosForge running on your own server. Every minute or so it writes a status record to each environment it serves, in that environment's `LH_Meta`. Monitor > KratosForge > Operations > Agents reads those records. It never reaches the agent's server, and nothing on it starts, stops or changes an agent.
 
 **How this works**, from the title bar's info button, says what the page reads, that it changes nothing and stores nothing, what an agent is, the four steps to set one up (each linked to its section of the [agent guide](agent.md)), and what is coming: shared schedules and takeover (Preview, off by default). It folds to its title, and the app remembers that.
 
@@ -588,7 +588,7 @@ It also lists its last jobs. When the agent has stopped reporting or is older th
 
 ### Queue (Preview)
 
-Each place work runs has its own scheduler and queue: Windows Task Scheduler on this PC, each agent's own queue, and Fabric's scheduler. Monitor > Operations > Queue puts them in one list and says, on every row, which one owns it. It never starts, stops or reorders anything. **How this works**, from the title bar's info button, says what it reads, that it changes and stores nothing, and what **Unknown** and **Missed** mean.
+Each place work runs has its own scheduler and queue: Windows Task Scheduler on this PC, each agent's own queue, and Fabric's scheduler. Monitor > KratosForge > Operations > Queue puts them in one list and says, on every row, which one owns it. It never starts, stops or reorders anything. **How this works**, from the title bar's info button, says what it reads, that it changes and stores nothing, and what **Unknown** and **Missed** mean.
 
 The line at the top says how each source was read. **This PC** is its schedules. **Agents** come from their status records. **Fabric** is the jobs this app started, as last checked, and the Fabric schedules that Monitor > Fabric > Schedules last read. The Queue page makes no Fabric call of its own. Until Fabric schedules has read Fabric's schedules, the line says so, with a link.
 
@@ -601,7 +601,7 @@ A run Windows Task Scheduler started on this PC isn't listed while it runs; it s
 
 ### Run as (Preview)
 
-Monitor > Operations > Run as lists each place your workloads run and says which identity runs them there, the credential it uses, and where data and credentials go. It only reads: nothing here signs in, renews a certificate or changes access. Renewing a certificate or fixing an identity happens in Microsoft Entra and on the agent's server. **How this works**, from the title bar's info button, says what it reads, that it changes and stores nothing, and what **Unknown** and **Not visible** mean.
+Monitor > KratosForge > Operations > Run as lists each place your workloads run and says which identity runs them there, the credential it uses, and where data and credentials go. It only reads: nothing here signs in, renews a certificate or changes access. Renewing a certificate or fixing an identity happens in Microsoft Entra and on the agent's server. **How this works**, from the title bar's info button, says what it reads, that it changes and stores nothing, and what **Unknown** and **Not visible** mean.
 
 - **This PC** and **Fabric jobs from this app** run as you. If you are signed out, they say so. Your organization's policy is shown where it applies: how long local run results are kept, which tenants you may sign in to, and whether this app may start jobs on Fabric capacity.
 - **Each agent** runs as the identity in its `agent.toml`: a service principal, a managed identity or a user sign-in. The app never sees its ids. Agents report facts about their credential in their [status record](agent.md#status-records): a certificate's end date, and when their last token request worked or failed. An agent never publishes the credential, its path or its thumbprint. A secret's or a managed identity's expiry isn't visible to the agent, so it isn't shown. An older agent that doesn't report these facts shows **Unknown**.

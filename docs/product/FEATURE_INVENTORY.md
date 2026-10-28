@@ -243,9 +243,9 @@ on quality.
 | [FEAT-SHL-11](#feat-shl-11) | Support bundle | Partially Implemented | Verified | CLI only (fabric-desktop support-bundle) | Add 'Save support bundle' with a contents preview to Settings, as FD-138's acceptance asks (PB-062). |
 | [FEAT-PRV-05](#feat-prv-05) | Scorecard and run measurement | Implemented | Partially Verified | Prove > Full scorecard (Preview) | Measure the kernel child process when it is on (FD-119). |
 | [FEAT-META-18](#feat-meta-18) | Estate X-ray and adopt | Implemented | Partially Verified | Home > Estate X-ray (Preview) | Keep. |
-| [FEAT-ORC-05](#feat-orc-05) | Agent status records | Implemented | Partially Verified | Monitor > Operations > Agents (Preview) | Implementation review of PR #133. |
-| [FEAT-OPS-01](#feat-ops-01) | Workload inventory and workload page | Implemented | Partially Verified | Monitor > Workloads, Home > Your workloads (Preview) | Shared ownership (stage 2B); an 'on agents' view. |
-| [FEAT-OPS-02](#feat-ops-02) | Incidents | Implemented | Partially Verified | Monitor > Incidents (Chris used it in unit testing, 2026-10-18) | Simplified incident management (PB-105) builds on these incidents; implementation review of PRs #125 and #127 |
+| [FEAT-ORC-05](#feat-orc-05) | Agent status records | Implemented | Partially Verified | Monitor > KratosForge > Operations > Agents (Preview) | Implementation review of PR #133. |
+| [FEAT-OPS-01](#feat-ops-01) | Workload inventory and workload page | Implemented | Partially Verified | Monitor > KratosForge > Operations > Workloads, Home > Your workloads (Preview) | Shared ownership (stage 2B); an 'on agents' view. |
+| [FEAT-OPS-02](#feat-ops-02) | Incidents | Implemented | Partially Verified | Monitor > KratosForge > Operations > Incidents (Chris used it in unit testing, 2026-10-18) | Simplified incident management (PB-105) builds on these incidents; implementation review of PRs #125 and #127 |
 | [FEAT-OPS-03](#feat-ops-03) | Monitor: runs from every place | Implemented | Partially Verified | Monitor > Runs | Fabric pipeline runs (FEAT-ORC-10) join this list after the Data Factory mockup. |
 | [FEAT-ADM-01](#feat-adm-01) | Cost estimates | Implemented | Partially Verified | Optimize > Cost and savings (Preview) | Calibrate against the Capacity Metrics app and label every number (PB-050) |
 | [FEAT-ADM-06](#feat-adm-06) | Opt-in telemetry | Implemented | Partially Verified | None (Preview) | Implementation review of PR #121; nothing is sent until someone opts in and a connection string exists |
@@ -646,7 +646,7 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/cloud_service.py`, `sidecar/fabric_desktop/fabric_api.py`, `app/ui/app.js`
 - **Tests:** `sidecar/tests/test_cloud.py`
 - **Docs:** [docs/notebooks.md](../notebooks.md)
-- **Known limitations:** Cancel is reachable only as a workload action in Monitor > Workloads, not from Monitor > Runs or the tray. UI requires an attached lakehouse.
+- **Known limitations:** Cancel is reachable only as a workload action in Monitor > KratosForge > Operations > Workloads, not from Monitor > Runs or the tray. UI requires an attached lakehouse.
 - **Backlog:** [PB-002](PRODUCT_BACKLOG.md#pb-002), [PB-043](PRODUCT_BACKLOG.md#pb-043)
 - **Recommended next action:** Offer Cancel in Monitor > Runs and the tray (PB-043) and include in the tenant smoke test.
 
@@ -1650,7 +1650,7 @@ on quality.
 
 - **Pillar and category:** Enterprise services; Enterprise Administration and FinOps
 - **Status:** Implemented. **Verification:** Partially Verified.
-- **Where people reach it:** Monitor > Operations > Agents (Preview)
+- **Where people reach it:** Monitor > KratosForge > Operations > Agents (Preview)
 - **Evidence:** test: sidecar/tests/test_agent_status.py::test_the_agent_publishes_what_it_is_doing (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_agent_fleet.py (passed in the 2026-10-17 refresh run at 9715e28); code: app/ui/agents.js
 - **Source:** `sidecar/fabric_desktop/agent_status.py`, `sidecar/fabric_desktop/workloads/agents.py`, `app/ui/agents.js`
 - **Tests:** `sidecar/tests/test_agent_status.py`, `sidecar/tests/test_agent_fleet.py`
@@ -1683,7 +1683,7 @@ on quality.
 
 - **Pillar and category:** Enterprise services; Enterprise Administration and FinOps
 - **Status:** Implemented. **Verification:** Partially Verified.
-- **Where people reach it:** Monitor > Workloads, Home > Your workloads (Preview)
+- **Where people reach it:** Monitor > KratosForge > Operations > Workloads, Home > Your workloads (Preview)
 - **Evidence:** test: sidecar/tests/test_workloads.py::test_a_source_that_cant_be_read_is_unknown_never_failing (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_workloads.py::test_ten_thousand_workloads_filter_and_page_quickly
 - **Source:** `sidecar/fabric_desktop/workload_service.py`, `sidecar/fabric_desktop/workloads/inventory.py`, `sidecar/fabric_desktop/workloads/store.py`, `app/ui/workloads.js`
 - **Tests:** `sidecar/tests/test_workloads.py`
@@ -1700,7 +1700,7 @@ on quality.
 
 - **Pillar and category:** Enterprise services; Enterprise Administration and FinOps
 - **Status:** Implemented. **Verification:** Partially Verified.
-- **Where people reach it:** Monitor > Incidents (Chris used it in unit testing, 2026-10-18)
+- **Where people reach it:** Monitor > KratosForge > Operations > Incidents (Chris used it in unit testing, 2026-10-18)
 - **Evidence:** test: sidecar/tests/test_incidents.py::test_the_app_and_the_agent_share_one_incident_list (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_incidents.py::test_quiet_hours_hold_messages_until_they_end_except_critical_and_escalations; test: sidecar/tests/test_incidents.py (passed in the 2026-10-17 refresh run at 9715e28); code: app/ui/incidents.js; test: sidecar/tests/test_incident_desk.py (19 tests, Fabric faked; incidents stage 1); test: app/tests/browser/incident-impact.test.cjs (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it)
 - **Source:** `sidecar/fabric_desktop/workloads/incidents.py`, `sidecar/fabric_desktop/workloads/notify.py`, `sidecar/fabric_desktop/incident_service.py`, `app/ui/incidents.js`, `sidecar/fabric_desktop/workloads/sla.py`, `sidecar/fabric_desktop/incident_desk.py`
 - **Tests:** `sidecar/tests/test_incidents.py`, `sidecar/tests/test_incident_desk.py`, `app/tests/browser/incident-impact.test.cjs`

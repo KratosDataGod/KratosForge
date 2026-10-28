@@ -1326,7 +1326,7 @@ test("Home's All schedules opens Fabric schedules when every upcoming schedule i
   assert.match(src, /where: "Fabric", text: sc\.text/);
 });
 
-test("Monitor > Agents explains agents beside the list, with links to sections of agent.md (testing item 34)", () => {
+test("Monitor > KratosForge > Operations > Agents explains agents beside the list, with links to sections of agent.md (testing item 34)", () => {
   const src = fs.readFileSync(path.join(ui, "agents.js"), "utf8");
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "agent.md"), "utf8");
   const slug = (t) => t.toLowerCase().replace(/[^a-z0-9 -]/g, "").replace(/ /g, "-");
@@ -1435,7 +1435,7 @@ test("Estate X-ray's Optimize confirms with the risk check before starting a Fab
     "the line's button opens the dialog instead of starting the job");
 });
 
-test("Monitor > Workloads and Agents carry the shared How this works panel, each linked to its guide section (testing item 18)", () => {
+test("Monitor > KratosForge > Operations > Workloads and Agents carry the shared How this works panel, each linked to its guide section (testing item 18)", () => {
   const guide = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8");
   const slug = (t) => t.toLowerCase().replace(/[^a-z0-9 -]/g, "").replace(/ /g, "-");
   const anchors = new Set([...guide.matchAll(/^#+ (.+)$/gm)].map((m) => slug(m[1])));

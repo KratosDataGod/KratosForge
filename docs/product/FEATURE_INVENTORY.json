@@ -1105,7 +1105,7 @@
         "preview": true
       },
       "limitations": [
-        "Cancel is reachable only as a workload action in Monitor > Workloads, not from Monitor > Runs or the tray",
+        "Cancel is reachable only as a workload action in Monitor > KratosForge > Operations > Workloads, not from Monitor > Runs or the tray",
         "UI requires an attached lakehouse"
       ],
       "next_action": "Offer Cancel in Monitor > Runs and the tray (PB-043) and include in the tenant smoke test.",
@@ -4617,7 +4617,7 @@
         "docs/agent.md"
       ],
       "ui": {
-        "surface": "Monitor > Operations > Agents",
+        "surface": "Monitor > KratosForge > Operations > Agents",
         "preview": true
       },
       "prs": [
@@ -4721,7 +4721,7 @@
         "docs/workloads/plan.md"
       ],
       "ui": {
-        "surface": "Monitor > Workloads, Home > Your workloads",
+        "surface": "Monitor > KratosForge > Operations > Workloads, Home > Your workloads",
         "preview": true
       },
       "limitations": [
@@ -4794,7 +4794,7 @@
         "docs/incidents.md"
       ],
       "ui": {
-        "surface": "Monitor > Incidents (Chris used it in unit testing, 2026-10-18)",
+        "surface": "Monitor > KratosForge > Operations > Incidents (Chris used it in unit testing, 2026-10-18)",
         "preview": false
       },
       "limitations": [

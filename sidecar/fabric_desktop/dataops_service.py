@@ -25,6 +25,7 @@ from .meta import freshness as freshness_mod
 from .meta import release
 from .meta.project import ENVIRONMENTS
 from .meta_service import NoMetadataProject
+from . import sealed_settings
 from .redact import describe
 from .workloads.notify import failure
 
@@ -273,18 +274,21 @@ class DataOpsMixin:
         """Every freshness promise in every environment that has runs, late ones first. With
         ``notify``, newly late or failed tables are posted to the Teams channel, once each."""
         alerts = bool(self._settings().get("teams_webhook"))  # type: ignore[attr-defined]
+        unreadable = self._alerts_unreadable()
         try:
             project = self._project()  # type: ignore[attr-defined]
         except NoMetadataProject:
-            return {"items": [], "unavailable": {}, "alerts": alerts}
+            return {"items": [], "unavailable": {}, "alerts": alerts, "alerts_unreadable": unreadable}
         except Exception as exc:  # a broken project is not "nothing late": say why nothing was checked
             _log.warning("Couldn't read the metadata project to check freshness: %s", describe(exc))
-            return {"items": [], "unavailable": {}, "alerts": alerts, "project_error": describe(exc)}
+            return {"items": [], "unavailable": {}, "alerts": alerts, "alerts_unreadable": unreadable,
+                    "project_error": describe(exc)}
         data = self.meta_runs_all(limit=100000)  # type: ignore[attr-defined]
         envs = [env for env in ENVIRONMENTS if any(r["env"] == env for r in data["runs"])]
         items = freshness_mod.report({n: e.spec for n, e in project.entities.items()}, data["runs"], envs)
         out: dict[str, Any] = {"items": items, "unavailable": data["unavailable"],
-                               "alerts": bool(self._settings().get("teams_webhook"))}  # type: ignore[attr-defined]
+                               "alerts": bool(self._settings().get("teams_webhook")),  # type: ignore[attr-defined]
+                               "alerts_unreadable": unreadable}
         if notify:
             out["alerted"], out["alert_error"] = self._freshness_alerts(items)
         return out
@@ -325,9 +329,13 @@ class DataOpsMixin:
         (self.root / "freshness_alerts.json").write_text(json.dumps(sent, indent=1), encoding="utf-8")  # type: ignore[attr-defined]
         return len(lines), None
 
+    def _alerts_unreadable(self) -> bool:
+        """The Teams address is saved but this Windows account can't decrypt it (sealed_settings.py)."""
+        return sealed_settings.unreadable(self._settings(), "teams_webhook")  # type: ignore[attr-defined]
+
     def meta_alerts(self) -> dict[str, Any]:
         url = self._settings().get("teams_webhook", "")  # type: ignore[attr-defined]
-        return {"teams_webhook": url}
+        return {"teams_webhook": url} | ({"unreadable": True} if self._alerts_unreadable() else {})
 
     def meta_set_alerts(self, teams_webhook: str = "", test: bool = False) -> dict[str, Any]:
         url = (teams_webhook or "").strip()

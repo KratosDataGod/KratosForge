@@ -3933,31 +3933,47 @@
         {
           "kind": "code",
           "ref": "sidecar/fabric_desktop/central/governance_service.py"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_policy_package.py",
+          "note": "GOV-002: policy package, tamper check, offline Check now, CLI exit codes and no platform, Fabric or OneLake call (PB-057)"
+        },
+        {
+          "kind": "code",
+          "ref": "sidecar/fabric_desktop/central/policy_package.py"
         }
       ],
       "source": [
         "sidecar/fabric_desktop/central/policy.py",
         "sidecar/fabric_desktop/central/governance_service.py",
-        "app/ui/governance.js"
+        "app/ui/governance.js",
+        "sidecar/fabric_desktop/central/policy_package.py",
+        "sidecar/fabric_desktop/central/checks_service.py",
+        "sidecar/fabric_desktop/cli.py"
       ],
       "tests": [
-        "sidecar/tests/test_governance.py"
+        "sidecar/tests/test_governance.py",
+        "sidecar/tests/test_policy_package.py"
       ],
       "docs": [
-        "docs/governance.md"
+        "docs/governance.md",
+        "docs/governance-guide.md"
       ],
       "ui": {
         "surface": "None",
         "preview": false
       },
       "limitations": [
-        "GOV-001 policy registry only; offline validation (GOV-002) and enforcement are not built; HD-031 labels Block as not enforced"
+        "GOV-001 registry and GOV-002 offline validation are built; enforcement (GOV-003) isn't, and HD-031 labels Block as not enforced",
+        "Policy packages are hash-checked, not signed: signing needs a key, and there are no app registrations",
+        "An offline check doesn't read catalog text, product terms, endorsement or run logs, so those rules say unknown; there is no screen to take or pick a package (Check now refreshes it, the CLI takes and uses it)"
       ],
       "prs": [
         119
       ],
       "workstream": "Enterprise governance foundation",
-      "next_action": "GOV-002 offline validation, after Chris approves",
+      "next_action": "GOV-003 enforcement: block promote and deploy on a Block policy",
       "backlog": [
         "PB-056",
         "PB-057"

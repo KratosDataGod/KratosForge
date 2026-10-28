@@ -1,4 +1,4 @@
-"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | agent ... | live-test ... | support-bundle | audit | backup | restore | mcp | capabilities | integrations serve`."""
+"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | governance check | agent ... | live-test ... | support-bundle | audit | backup | restore | mcp | capabilities | integrations serve`."""
 
 from __future__ import annotations
 
@@ -139,6 +139,17 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--workspace", metavar="ID", help="the pipeline's own workspace, for datasets that leave it out")
     p.add_argument("--sql-project", action="append", default=[], metavar="KEY=PROJECT",
                    help="run a Script activity (by activity or connection name) in a local data project")
+    gov = sub.add_parser("governance", help="governance policies: check a project offline, or take its policy package")
+    gov_sub = gov.add_subparsers(dest="governance_command", required=True)
+    p = gov_sub.add_parser("check", help="check the project against its policies from a policy package, with no platform, "
+                                         "Fabric or OneLake call; exit 1 if an Error finding isn't excepted")
+    p.add_argument("--package", help="a policy package file (default: the latest one on this PC for the project)")
+    p.add_argument("--project", help="the metadata project's folder (default: the project open in the app)")
+    p.add_argument("--json", action="store_true", help="print the whole result as JSON")
+    p = gov_sub.add_parser("package", help="take the project's policy package from the platform (it reads the platform) "
+                                           "and keep it on this PC; --out also writes it there")
+    p.add_argument("--out", help="also write the package to this file, such as one a CI job reads with --package")
+    p.add_argument("--project", help="the metadata project's folder (default: the project open in the app)")
     nb = sub.add_parser("nb", help="notebooks: check an .ipynb file on this PC (nothing runs)")
     nb_sub = nb.add_subparsers(dest="nb_command", required=True)
     p = nb_sub.add_parser("validate", help="list what Validate finds, one line per finding as file:line:column: "
@@ -168,6 +179,8 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(serve_http(args.port, args.parent_pid))
     if args.command == "pipeline":
         raise SystemExit(_pipeline(args))
+    if args.command == "governance":
+        raise SystemExit(_governance(args))
     if args.command == "nb":
         raise SystemExit(_nb_open(args) if args.nb_command == "open" else _nb_validate(args))
     if args.command == "serve":
@@ -401,6 +414,61 @@ def _nb_validate(args: argparse.Namespace) -> int:
         print(f"{c.get('error', 0)} errors, {c.get('warning', 0)} warnings, {c.get('info', 0)} notes"
               + ("" if runs_on else " (Runs on isn't set, so what stops either place is a warning)"))
     return 1 if result["counts"].get("error") else 0
+
+
+def unexcepted_errors(result: dict) -> list[dict]:
+    """The Error-severity findings no active exception covers: what fails a CI job."""
+    return [f for p in result["policies"] if p["status"] != "excepted" for f in p["findings"]
+            if f.get("severity") == "Error" and not f.get("excepted")]
+
+
+def _governance(args: argparse.Namespace) -> int:
+    """governance check: 0 nothing fails, 1 an Error finding isn't excepted, 2 refused (no project, or no usable
+    package). It reads only the package and the project's files; it calls no platform, Fabric or OneLake.
+    governance package: takes the package from the platform (the one subcommand here that reads it)."""
+    from pathlib import Path
+
+    from .central.policy_package import PackageError
+    from .meta import Project
+
+    service = Service(headless=True)
+    if args.project:
+        folder = Path(args.project).resolve()
+        if not (folder / "layers.toml").exists():
+            print(f"{folder} isn't a metadata project folder (it has no layers.toml).")
+            return 2
+        project = Project(str(folder))
+        service._project = lambda: project  # type: ignore[method-assign]  # this command's project, not the app's
+    try:
+        if args.governance_command == "package":
+            out = service.governance_package_export(out=args.out or "")
+            print(f"Took the policy package for {out['policies']} policies from {out['platform']} "
+                  f"(SHA-256 {out['sha256']}).\nKept on this PC: {out['kept']}" + (f"\nWritten to: {out['file']}" if args.out else ""))
+            return 0
+        result = service.governance_check_from_package(package=args.package or "")
+    except (PackageError, LookupError) as exc:
+        print(exc)
+        return 2
+    errors = unexcepted_errors(result)
+    if args.json:
+        print(json.dumps(result | {"unexcepted_errors": len(errors)}, indent=2, default=str))
+        return 1 if errors else 0
+    print(result["package_note"])
+    for p in result["policies"]:
+        print(f"{p['status'].replace('_', ' ')}: {p['name']} ({p['id']} v{p['version']}, {p['enforcement']})"
+              + (f" {p['passed']} of {p['checked']} pass" if p["status"] == "pass" else ""))
+        for f in p["findings"] + p["unknown"]:
+            kind = "unknown" if f.get("outcome") == "unknown" else f.get("severity", "")
+            print(f"  {kind}: {f.get('object')}: {f.get('description')} ({f.get('rule_id')})"
+                  + (f" [{f['excepted']}]" if f.get("excepted") else ""))
+        if p.get("note"):
+            print(f"  {p['note']}")
+    for x in result["problems"]:
+        print(f"note: {x}")
+    c = result["counts"]
+    print(f"{result['project']}: {c['to_look_at']} to look at, {c['unknown']} unknown, {c['excepted']} excepted; "
+          f"{c['passing']} of {c['policies']} policies pass. {len(errors)} Error findings aren't excepted.")
+    return 1 if errors else 0
 
 
 def _pipeline(args: argparse.Namespace) -> int:

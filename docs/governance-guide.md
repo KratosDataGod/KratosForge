@@ -8,6 +8,7 @@
 - You **publish** it, which freezes that version, and **assign** it where it applies: the whole enterprise, a domain, a project or one table.
 - Each project works out which policies apply to it, and **Explain** shows why.
 - **Policies warn; nothing blocks yet.** **Check now** (Preview) checks the open project against its policies on your PC and lists what to look at, but it stops nothing. Blocking promote and deploy comes with GOV-003. Until then, a policy set to **Block** shows as **Block (not enforced yet)**.
+- **It works offline.** Each Check now that reaches the platform keeps a hash-checked **policy package** of the project's policies on your PC; without the platform, Check now uses it and says how old it is. `fabric-desktop governance check` runs the same checks from the command line for CI, and fails on an Error finding no exception covers.
 - **Start from a template.** Four built-in templates (table names, product owners, sensitive column labels, a data contract) and your organization's own make a policy in a few clicks. See [a worked template](#4-from-a-template-a-data-contract).
 
 Some standards are already enforced today by the app's own gates, without a policy. The [enforcement table](#what-can-be-enforced) below lists them, so you know which standards already hold.
@@ -21,7 +22,7 @@ Each step below is saved in the platform's catalog: the policy and its versions 
 3. **Assign it.** On the policy's **Where it applies** tab, choose **Assign** and pick a scope. An assignment can tighten the policy for that scope. If the policy is **Mandatory**, scopes below may only make it stricter.
 4. **See the result.** **Where it applies** lists every project the policy reaches. **Explain** next to a project shows each step: which scope introduced it, what each scope changed, and anything that was ignored and why.
 5. **Tighten it in a project.** A project can tighten or add policies in `governance.toml`, reviewed in Git like any other project file.
-6. **Check the project.** Platform > Governance > **Check this project** > **Check now** runs each policy's **Checked by** rules on your PC and lists what to look at, with a fix or a link to where to fix it. It's warn only. **(Coming with GOV-003)** A Block finding stops promote or deploy until it's fixed or an exception is approved.
+6. **Check the project.** Platform > Governance > **Check this project** > **Check now** runs each policy's **Checked by** rules on your PC and lists what to look at, with a fix or a link to where to fix it. It's warn only. Without the platform it uses the project's latest policy package on your PC, and says which and how old ([offline policy packages](governance.md#offline-policy-packages)). **(Coming with GOV-003)** A Block finding stops promote or deploy until it's fixed or an exception is approved.
 
 ## Worked examples
 
@@ -127,6 +128,17 @@ When a standard genuinely doesn't fit, an exception records why, who approved it
 ## When the platform can't be reached
 
 Checks that depend on the platform fail closed. When a rule can't be read, KratosForge stops the step and says why instead of acting as if there were no rule (see [Governance policies](governance.md)).
+
+**Check now** is the exception that still works, because it carries the rules with it: the [policy package](governance.md#offline-policy-packages) it keeps on your PC has the project's policies, their published versions with their SHA-256 hashes, the assignments and the active exceptions, as of when it was taken. Offline it uses that package and says how old it is; it reads nothing from the platform, Fabric or OneLake, so rules that need the catalog or the run logs say unknown. A package whose hashes don't match is refused, never used. The hash check catches a changed or broken file; it isn't a signature, since signing would need a key the app doesn't have.
+
+For CI, take a package where the platform can be reached and check against it with no connection:
+
+```
+fabric-desktop governance package --out policies.json
+fabric-desktop governance check --project . --package policies.json
+```
+
+The check exits 1 when an Error finding (from a high or critical policy) isn't covered by an exception, and 2 when it can't check.
 
 ## Teams notices for requests and shortcuts
 

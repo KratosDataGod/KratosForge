@@ -208,6 +208,8 @@ What the set says about the baseline: the five FAILs are the patterns the [findi
 
 | #984 | Schedules on this PC can also run while signed out (PB-048c) | PASS at 9016ade3 | 9.1 | Second quality reviewer. Merged with main: 87 engine tests passed; browser 20/20; ui 299/1, the 1 being the known #972 Preview-id test. The password stays in Windows' prompt and Task Scheduler (env-var inputs, fixed script, PowerShell by full path). The id is hex-checked in Python and Rust. Nothing changes on a cancelled prompt. Nits: a partial save shown as "Not saved"; an unchanged save re-prompts; check Entra/MSA accounts on Windows; tag Preview if merged before the Windows check. Waits on Chris's Windows check and policy switch. |
 
+| #991 (was #948) | PR reopened | PASS at 315682cb (carried) | 9.3 | Changed lines against main are the reviewed 6e2d54e2 delta plus the #972 port. Clean merge. |
+
 | #990 | High Contrast support (reopened #955) | PASS at 2e98f284 (carried) | 9.2 | Second quality reviewer. Carried from e3d0dcdd. Changed lines vs main match e3d0dcdd except the #972 port; styles.css kept both sides with forced-colors last; ui.test 300/0. |
 
 | #989 | Test: UDF_Platform functions take their operations' parameters (#936) | PASS at ec854570 | 9.2 | Second quality reviewer. Merged with main: parity + silent_except 64 passed; platform and central tests 459 passed, 1 skipped. Mutation (set_project_member role default reverted) fails the test. The 5 signature fixes match core/policy; `policies or None` drop is safe (snapshot treats [] as None); additive defaults only, so old Fabric functions accept current calls until Finish or repair. Nit: comment that role '' removes a member. |

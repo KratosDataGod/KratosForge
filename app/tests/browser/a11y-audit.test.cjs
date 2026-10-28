@@ -35,6 +35,10 @@ const EXTRA = [
   }, [CELLS, LH]), ready: ".cell .cm-content" },
   { id: "sql", name: "SQL query", open: (p) => p.evaluate((lh) => openSqlQuery(lh), LH), ready: ".sql-edit .cm-editor" },
   { id: "command-bar", name: "Command bar (Ctrl+K)", open: (p) => p.keyboard.press("Control+k"), ready: "#palette", scope: "#palette" },
+  { id: "entity", name: "Data mesh entity", open: (p) => p.evaluate(() => {
+    state.meta.project ||= { path: "C:/mesh", name: "Mesh", environments: {} };  // an open project, without changing the Data mesh page's audit
+    openEntity("silver.customers");
+  }), ready: "#entity-toml" },
   { id: "confirm", name: "Confirm dialog", open: (p) => p.evaluate(() => {
     confirmDialog("Delete the lakehouse LH_Bronze?", "This removes its tables and files from Fabric.", "Delete", { danger: true });
   }), ready: "#dialog-root .dialog", scope: "#dialog-root" },
@@ -57,6 +61,12 @@ before(async () => {
       table_columns: () => [{ name: "region", type: "string" }, { name: "amount", type: "double" }],
       cached_schemas: () => ({ tables: {}, columns: {} }),
       save_notebook: () => ({ saved: true }),
+      meta_entity: () => ({ name: "silver.customers", layer: "silver", mode: "merge", watermark: "updated_at", owner: "ana@contoso.com",
+        path: "metadata/entities/silver.customers.toml", text: "[entity]\nname = \"silver.customers\"\n", errors: [],
+        columns: { id: "bigint", name: "string" }, keys: ["id"], surrogate_keys: [], derived: [], hook_adds: [], runs: [], custom: [],
+        checks: 2, reads: ["bronze.customers"], impact: [], source: null }),
+      meta_runs_all: () => ({ runs: [] }),
+      meta_entity_shortcuts: () => [],
     },
   });
   await app.page.waitForSelector("#rail-main .rail-item");
@@ -107,7 +117,7 @@ async function focusNow(scope) {
   const cls = [...el.classList].slice(0, 2).map((c) => `.${c}`).join("");
   el.dataset.a11yStop ||= String(Math.random());
   return { key: el.id ? `#${el.id}` : `${el.tagName.toLowerCase()}${cls}${label ? ` "${label}"` : ""}`, stop: el.dataset.a11yStop,
-    inside: !!el.closest(scope), editor: el.classList.contains("cm-content"), shown: shown && rect.width > 0 && rect.height > 0 && getComputedStyle(el).opacity !== "0" };
+    inside: !!el.closest(scope), editor: el.matches(".cm-content, [aria-description*='Esc, then Tab']"), shown: shown && rect.width > 0 && rect.height > 0 && getComputedStyle(el).opacity !== "0" };
 }
 
 // Tab from the top of the page until focus comes back to a stop it has seen. In a code editor Tab

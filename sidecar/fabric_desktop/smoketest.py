@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from . import __version__, livetest
+from . import __version__, fabric_api, livetest
 
 SCHEMA = "smoke-test-result@1"
 _TOKEN = re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")
@@ -111,11 +111,10 @@ class SmokeTest:
             "Flow 2: sign in the way the app does and get tokens for Fabric and OneLake, then try Azure SQL "
             "(warehouses) and Kusto (Monitoring) and record the answer.",
             f"Flow 3: list your workspaces, check {self.workspace_id} is among them, and list its items.",
-            "Flow 4: ask the Fabric client to create a lakehouse named '1 bad name' and check it refuses before "
-            "calling Fabric.",
+            "Flow 4: check the Fabric client's name check refuses the lakehouse name '1 bad name' (no request is sent).",
             "Flows 4, 5, 6 and 9: run the live test with every opt-in check"
             + (" and --run-in-fabric (spends Spark capacity)." if self.run_in_fabric
-               else "; the notebook isn't run in Fabric without --run-in-fabric."),
+               else "; without --run-in-fabric the notebook is published and deleted again, but not run."),
             "Flow 10: save a support bundle and check it holds no token, user name, tenant id or workspace id.",
             "Flows 7 and 8, and the by-hand part of every flow: listed in the summary for a person to tick.",
             f"Write the results to {self.dir}.",
@@ -177,12 +176,12 @@ class SmokeTest:
         return f"{len(items)} items ({', '.join(kinds) or 'none'})."
 
     def _bad_name(self) -> str:
-        try:
-            made = self.fabric.create_lakehouse(self.workspace_id, "1 bad name")
-        except ValueError as exc:
-            return f"Refused: {exc}"
-        raise RuntimeError(f"The client sent the invalid name to Fabric and got {json.dumps(made)[:200]}; "
-                           "delete that lakehouse by hand")
+        # The check create_lakehouse makes before any request, called on its own: this step never
+        # reaches Fabric, so a regression can't create an unledgered lakehouse.
+        problem = fabric_api.lakehouse_name_problem("1 bad name")
+        if not problem:
+            raise RuntimeError("The name check accepted '1 bad name', so the client would send it to Fabric")
+        return f"Refused: {problem}"
 
     def _live(self) -> None:
         test = self.live_test(self.dir / "live")

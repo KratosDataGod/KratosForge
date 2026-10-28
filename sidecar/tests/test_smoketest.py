@@ -3,6 +3,8 @@
 import json
 import zipfile
 
+import pytest
+
 from fabric_desktop import cli, smoketest
 from fabric_desktop.fabric_api import FabricClient
 
@@ -121,6 +123,15 @@ def test_the_invalid_lakehouse_name_is_refused_without_calling_fabric(tmp_path):
     assert fabric.created == []
 
 
+def test_the_invalid_name_step_sends_no_request(tmp_path, monkeypatch):
+    # Flow 4 must not reach Fabric even when the client's own check regresses: nothing it made is in the ledger.
+    calls = []
+    fabric = Fabric()
+    monkeypatch.setattr(fabric, "create_lakehouse", lambda *a, **k: calls.append(a), raising=False)
+    step = smoke(tmp_path, fabric=fabric)._bad_name()
+    assert calls == [] and step.startswith("Refused:")
+
+
 def test_a_refused_kusto_token_is_recorded_without_failing_sign_in(tmp_path):
     result = smoke(tmp_path, credential=Credential(kusto=False)).run()
     step = next(s for s in result["steps"] if s["id"] == "auth.kusto")
@@ -208,3 +219,15 @@ def test_dry_run_lists_both_plans_and_signs_in_to_nothing(tmp_path, monkeypatch,
     assert "Flow 10: save a support bundle" in out and "Opt-in delta.concurrent" in out
     assert "Dry run: nothing was signed in to, created or written." in out
     assert not (tmp_path / "out").exists()
+
+
+def test_the_cli_dry_run_prints_the_plan_and_writes_nothing(tmp_path, capsys):
+    with pytest.raises(SystemExit) as done:
+        cli.main(["smoke-test", "--workspace", WS, "--dry-run", "--out", str(tmp_path / "res")])
+    assert done.value.code == 0
+    out = capsys.readouterr().out
+    assert "Flow 4:" in out and "without --run-in-fabric" in out
+    assert not (tmp_path / "res").exists()
+    with pytest.raises(SystemExit) as refused:
+        cli.main(["smoke-test", "--dry-run"])  # --workspace is required
+    assert refused.value.code == 2

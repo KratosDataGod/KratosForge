@@ -1,0 +1,11 @@
+# Advisories the audit job lets through for now. The CI release job waits for audit, so a new
+# advisory in what the app ships stops Preview publishing until the package is moved (in its own
+# pull request, per CONTRIBUTING) or an exception is recorded here, in a reviewed pull request.
+#
+# One per line:  ID  until=YYYY-MM-DD  reason
+#   ID      the advisory: PYSEC-, GHSA-, CVE- (pip-audit) or RUSTSEC- (cargo audit)
+#   until   the day it lapses; after that the audit fails again until someone decides again
+#   reason  why it's accepted: not reachable from the app, no fix yet, the fix PR it waits on
+#
+# Example (not active):
+# GHSA-xxxx-xxxx-xxxx  until=2026-11-30  only in the docs build, not shipped; moves in #123

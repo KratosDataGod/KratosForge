@@ -37,12 +37,14 @@ The pages are opened signed in with test data (two workspaces, one lakehouse, tw
 | Command bar (Ctrl+K) | dark | 17 | 1 (1) | none | 0 | 0 | 0 |
 | Data mesh entity | light | 15 | 0 (0) | color-contrast (5) | 14 | 0 | 0 |
 | Data mesh entity | dark | 15 | 0 (0) | color-contrast (5) | 0 | 0 | 0 |
+| Shell (top bar and rail) | light | 13 | 0 (0) | none | 18 | 0 | 0 |
+| Shell (top bar and rail) | dark | 13 | 0 (0) | none | 0 | 0 | 0 |
 | Confirm dialog | light | 12 | 0 (0) | none | 3 | 0 | 0 |
 | Confirm dialog | dark | 12 | 0 (0) | none | 0 | 0 | 0 |
 
 ## Findings
 
-Filed to be fixed in [#905](https://github.com/KratosDataGod/KratosForge/issues/905); the test fails on any finding not listed here.
+Filed to be fixed in [#905](https://github.com/KratosDataGod/KratosForge/issues/905); the test fails on any serious or critical rule violation, or keyboard or focus finding, not listed here.
 
 - **Notebook** (light): aria-input-field-name, serious: ARIA input fields must have an accessible name. At `div[data-language="python"]`, `div[data-language="sql"]`
 - **Notebook**: keyboard: Tab returns to button.tool.small "Run cell", 12 Tab stops later never reached (Escape, then Tab, used to leave each code editor)

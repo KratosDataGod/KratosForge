@@ -232,6 +232,8 @@ What the set says about the baseline: the five FAILs are the patterns the [findi
 | #914 | Late rows and source deletes (NO_ID + main merge) | PASS at 4e262666 (carried) | 9.1 | Second quality reviewer. Carried from 97d11aed. Merge has no conflict hunks; sidecar delta identical. The NO_ID regex matches the new docs line. pytest 49; ui.test 299/1, only #972's two flags. New feature: needs Chris's go. |
 
 | #914 | Lookback for late rows, soft and hard source deletes | PASS at 97d11aed | 9.1 | Earlier FAIL fixed: only a Boolean is_deleted with deleted_at counts rows as gone; Date lookback rounds up. New feature: needs Chris's go. |
+| #913 | PB-068 key reads (main merge) | PASS at 96b6c07d (carried) | 9.1 | Changed lines outside FEATURE_INVENTORY.md identical to 54f19d35; inventory resolution keeps main's FEAT-ONE-03 and the PR's FEAT-META-05. Clean against main 2be35e50. Nit: FEAT-META-05 next action goes stale once merged. |
+
 | #913 | Key runs read only the batch's key rows | PASS at 54f19d35 | 9.1 | Earlier CONDITIONAL (1M-key slowdown) fixed. |
 | #907 | Accessibility audit of every page | PASS at 67da857d (and 60fa420e) | 9.2 | CONDITIONAL 8.5 at 88815d68: a container's shadow counted as a control's focus ring. Fixed with a baseline; the injected test fails on the old rule. a11y 3/3 x3; ui.test 299/0. |
 | #918 | Data access role listing follows continuation pages through followable_url (HD-058 consistency) | PASS at 8a219c48 | 9.1 | Same paging rule as _paged, including the literal "null". pytest followed_urls, fabric_api, silent_except 53 passed (168 with the data access role tests at fdacdcbd); main's fabric_api.py fails the new test. |

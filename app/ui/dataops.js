@@ -336,8 +336,18 @@ function driftPanel(e, d) {
         : h("p", { class: "muted-text small" }, `${d.source || "The source"} in ${ENV_LABEL[d.env]} matches the contract.`),
     droppedRows, addedRows, retypedRows,
     h("label", { class: "field" }, "When the source adds columns", policy),
-    d.history?.length ? h("div", { class: "muted-text small" }, `Kept before: ${d.history.slice(0, 3).map((x) => x.columns).join("; ")}`) : null,
+    schemaChanges(d.history),
     h("div", { class: "row" }, h("span", { class: "spacer" }), applyBtn));
+}
+
+// The table's latest schema changes from meta.schema_history, newest first. Rows from before
+// PB-031 have only the columns a drift policy kept; a table's first schema isn't a change.
+function schemaChanges(history) {
+  const rows = (history || []).filter((x) => x.change !== "created").slice(0, 3);
+  if (!rows.length) return null;
+  const text = rows.map((x) => (x.detail ? `${x.change} ${x.detail}` : `kept ${x.columns}`)
+    + (x.delta_version != null ? ` (Delta version ${x.delta_version})` : ""));
+  return h("div", { class: "muted-text small" }, `Schema changes: ${text.join("; ")}`);
 }
 
 // ---------- quarantine ----------

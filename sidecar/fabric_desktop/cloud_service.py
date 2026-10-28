@@ -37,6 +37,8 @@ from .onelake import FileStore, TableRef, storage_options
 from .redact import describe
 
 _log = logging.getLogger(__name__)
+# How long Monitor waits for Fabric to say how its open runs are doing before showing the rest as last known.
+RUNS_REFRESH_SECONDS = 30
 
 
 class FabricChanged(RuntimeError):
@@ -86,12 +88,19 @@ class CloudMixin:
                          and (job_ids is None or r.get("job_id") in job_ids)]
             fabric = self._quiet_fabric() if open_runs else None
             if fabric is not None:
+                # Monitor opens with this, and every other page's calls wait behind it: past the time
+                # budget, or once Fabric looks unreachable, the rest keep their last known status.
+                deadline, failed = time.monotonic() + RUNS_REFRESH_SECONDS, 0
                 for r in open_runs:
+                    if time.monotonic() > deadline or failed >= 2:
+                        break
                     try:
                         job = fabric.job_instance(r["workspace_id"], r["item_id"], r["job_id"])
                     except Exception as exc:  # offline or gone: keep the last known status
                         r["message"] = r.get("message") or f"Status not available: {exc}"
+                        failed += 1
                         continue
+                    failed = 0
                     r["status"] = job.get("status", r["status"])
                     r["finished_at"] = job.get("endTimeUtc") or r.get("finished_at")
                     reason = job.get("failureReason") or {}

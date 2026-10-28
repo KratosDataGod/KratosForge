@@ -428,3 +428,33 @@ def test_semantic_model_update_stops_when_its_definition_cant_be_read(svc, monke
     monkeypatch.setattr(svc.fake, "get_item_definition", lambda *a, **k: (_ for _ in ()).throw(OSError("throttled")))
     with pytest.raises(RuntimeError, match="table names aren't known"):  # guessing would rename tables reports use
         svc._kept_table_names(svc._project(), "gold", "ws", {"id": "m1", "displayName": "SM_Gold"})
+
+
+def test_monitors_refresh_stops_asking_fabric_when_it_is_unreachable_or_slow(tmp_path, monkeypatch):
+    from fabric_desktop import cloud_service
+    s = Service(root=tmp_path)
+    for i in range(5):
+        s._log_fabric_run({"kind": "Notebook run", "name": f"nb{i}", "workspace_id": "w", "item_id": "i", "job_id": f"j{i}"})
+
+    class Down:
+        asked = 0
+
+        def job_instance(self, ws, item, job):
+            Down.asked += 1
+            raise ConnectionError("offline")
+    monkeypatch.setattr(s, "_quiet_fabric", lambda: Down())
+    assert all(r["status"] == "NotStarted" for r in s.fabric_runs())
+    assert Down.asked == 2  # two failures in a row: Fabric is unreachable, the rest keep their last status
+
+    class Slow:
+        asked = 0
+
+        def job_instance(self, ws, item, job):
+            Slow.asked += 1
+            return {"status": "Completed"}
+    clock = iter(range(0, 1000, 20))
+    monkeypatch.setattr(cloud_service.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(s, "_quiet_fabric", lambda: Slow())
+    runs = s.fabric_runs()
+    # 20 s in, one asked; 40 s in, past the 30 s budget: the other four keep their last status.
+    assert Slow.asked == 1 and [r["status"] for r in runs].count("Completed") == 1

@@ -281,3 +281,23 @@ def test_workspace_marks_keep_favorites_and_pin_order(tmp_path):
     import pytest
     with pytest.raises(ValueError):
         svc.set_workspace_mark("w1", "bogus", True)
+
+
+def test_a_sign_in_window_left_open_gives_up_instead_of_holding_the_engine(tmp_path):
+    from fabric_desktop.auth import FABRIC_SCOPES, SIGN_IN_SECONDS, Authenticator
+
+    class App:
+        asked = {}
+
+        def get_accounts(self):
+            return []
+
+        def acquire_token_interactive(self, scopes, **kw):
+            App.asked = kw
+            return {"error": "timeout", "error_description": "no answer"}
+
+    auth = Authenticator("11111111-2222-3333-4444-555555555555", cache_path=tmp_path / "cache.bin")
+    auth.app = App()
+    with pytest.raises(Exception):
+        auth._token(FABRIC_SCOPES)
+    assert App.asked["timeout"] == SIGN_IN_SECONDS

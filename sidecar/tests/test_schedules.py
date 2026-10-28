@@ -317,3 +317,18 @@ def test_a_run_with_nothing_waiting_makes_no_alert_file(svc, monkeypatch):
     monkeypatch.setattr(dataops_service, "post_teams", lambda *a: (_ for _ in ()).throw(AssertionError("nothing to post")))
     assert svc.run_schedule(sid)["status"] == "ok"
     assert not (svc.root / SCHEDULE_ALERTS).exists()
+
+
+def test_a_task_scheduler_that_doesnt_answer_is_given_up_on(monkeypatch):
+    import subprocess
+
+    from fabric_desktop import local_schedules
+    seen = {}
+
+    def hung(cmd, **kw):
+        seen.update(kw)
+        raise subprocess.TimeoutExpired(cmd, kw["timeout"])
+    monkeypatch.setattr(local_schedules.subprocess, "run", hung)
+    with pytest.raises(RuntimeError, match="Task Scheduler didn't answer in 60 seconds"):
+        local_schedules.TaskScheduler()._run("/Query")
+    assert seen["timeout"] == local_schedules.SCHTASKS_SECONDS

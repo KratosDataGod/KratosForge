@@ -1,5 +1,5 @@
-// Platform in five tabs (Cleaner KratosForge): Overview, Requests with its waiting count, Set up and
-// Govern as menus that name the page you're on, and Settings. Every page is still one click from the menu.
+// Platform in four tabs, laid out as Data mesh is: Overview, Set up, Govern and Settings. Set up and Govern
+// hold several pages, picked on the view row's switcher; no menus.
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const path = require("node:path");
@@ -41,26 +41,33 @@ test("four tabs: requests are on Data mesh now, and the old link opens them ther
   await page().waitForSelector(".plat-stats");
 });
 
-test("Set up opens a menu of its three pages, and the tab then names the page", { skip }, async () => {
-  await page().locator(".subtabs .tab-menu").first().click();
-  const menu = page().getByRole("menu");
-  assert.deepStrictEqual(await menu.getByRole("menuitem").allTextContents(), ["Landing zone", "Business keys", "Glossary"]);
-  await menu.getByRole("menuitem", { name: "Glossary" }).click();
+const pages = () => page().locator(".mesh-view-row .seg.platform-pages button");
+
+test("Set up opens its first page, with its three pages on the view row; no menus", { skip }, async () => {
+  await tabs().nth(1).click();
+  await page().waitForFunction(() => platformPage.tab === "landing");
+  assert.strictEqual(await page().$('[aria-haspopup="menu"]'), null, "no tab opens a menu");
+  assert.deepStrictEqual((await pages().allTextContents()).map((t) => t.trim()), ["Landing zone", "Business keys", "Glossary"]);
+  await pages().nth(2).click();
   await page().waitForFunction(() => platformPage.tab === "glossary");
   assert.deepStrictEqual(asked, [], "no tab reads the requests now");
-  const setUp = page().locator(".subtabs .tab-menu").first();
-  assert.match(await setUp.textContent(), /Set up: Glossary/);
-  assert.strictEqual(await setUp.getAttribute("aria-current"), "page");
+  assert.strictEqual(await tabs().nth(1).getAttribute("aria-current"), "page");
+  assert.strictEqual(await pages().nth(2).getAttribute("aria-pressed"), "true");
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "platform-set-up.png") });
 });
 
-test("Govern holds Governance and Audit; old links to any page still open it", { skip }, async () => {
-  await page().locator(".subtabs .tab-menu").nth(1).click();
-  assert.deepStrictEqual(await page().getByRole("menu").getByRole("menuitem").allTextContents(), ["Governance", "Audit"]);
-  await page().keyboard.press("Escape");
+test("Govern holds Governance and Audit; Overview and Settings have no switcher; old links to any page still open it", { skip }, async () => {
+  await tabs().nth(2).click();
+  await page().waitForFunction(() => platformPage.tab === "governance");
+  assert.deepStrictEqual((await pages().allTextContents()).map((t) => t.trim()), ["Governance", "Audit"]);
   await page().evaluate(() => goPlatform("glossary"));
-  await page().waitForFunction(() => /Set up: Glossary/.test(document.querySelector(".subtabs").textContent));
+  await page().waitForFunction(() => document.querySelector(".page > .subtabs .tab.active")?.textContent === "Set up");
   await page().evaluate(() => goPlatform("audit"));
-  await page().waitForFunction(() => /Govern: Audit/.test(document.querySelector(".subtabs").textContent));
+  await page().waitForFunction(() => document.querySelector(".page > .subtabs .tab.active")?.textContent === "Govern"
+    && document.querySelector(".platform-pages button.on")?.textContent === "Audit");
+  await tabs().nth(3).click();
+  await page().waitForFunction(() => platformPage.tab === "settings");
+  assert.strictEqual(await pages().count(), 0);
   assert.deepStrictEqual(asked, []);
   assert.deepStrictEqual(app.errors, []);
 });

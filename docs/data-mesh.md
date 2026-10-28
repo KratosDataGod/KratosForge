@@ -11,7 +11,8 @@ KratosForge lets many teams build on one platform without stepping on each other
 | --- | --- | --- |
 | Landing zone | Land every source once, register sources | Read it in their own Bronze; request a new source |
 | Business keys | Create key tables (in every environment at once) | Use them; request a new one |
-| Domains | Create domains and subdomains, name their owners | Join one; owners keep its glossary terms |
+| Domains | Create domains and subdomains, name their owners | Ask to join one (its owners approve); owners keep its glossary terms |
+| Projects | Change any project's members | Owners add and remove members; members publish, link and change the domain |
 | Data products | | Publish their own; decide who else may read them |
 | Links | | Link to products open to them; request access to others |
 | Catalog text | Shared glossary terms | Describe their tables and columns |
@@ -66,7 +67,7 @@ It was Platform > Requests, and older links open it here. Approve does what was 
 | **Domain** | An area of the business that owns its data, like Sales or Finance. Subdomains go one level deep (Sales > EMEA). Imported from Fabric's domains | The platform's catalog, linked to the Fabric domain |
 | **Project** | A metadata project (one Git repository) and the domain and team it belongs to | `project.toml` in the project, and the catalog |
 | **Workspace designation** | What a workspace is for: Ingest, Product, Serve or Sandbox | `environments.toml` and `layers.toml` |
-| **Data product** | The tables (ports) other teams may read from a project, with an owner, a description and who may read it | `metadata/products/<name>.toml`, published to the catalog on promote |
+| **Data product** | The tables (ports) other teams may read from a project, with an owner, a description and who may read it | `metadata/products/<name>.toml`, published to the catalog on promote. Once a product is in the catalog, only its owners, whoever last published it and platform admins publish it again, so the person who promotes a project must be one of them: otherwise the promote stops at that product and says who its owners are. A first publish whose owners name people (emails) must name the publisher among them |
 | **Link** | A project's reference to another team's product port, read where it lives with no copy | `metadata/links/<alias>.toml` |
 | **Catalog text** | Descriptions, tags, classification, glossary terms and steward of tables and columns | The platform's catalog (starter text can live in the entity file) |
 
@@ -86,6 +87,21 @@ format = 2
 ```
 
 Nothing else in the project changes, and a project without `project.toml` works exactly as before. Domains come from the platform; platform admins create them on **Data mesh > Domains > Domains**.
+
+### Members and joining a domain (Preview)
+
+A project in the catalog has **owners** and **members**, listed in the **Members** card on **Data mesh > Domains > This project**. Only a project's members, or a platform admin, can:
+
+- record or change the project in the catalog (Save, Join the mesh, Promote),
+- publish its data products,
+- make its links to other teams' products, and
+- ask to move it to another domain.
+
+Owners also **Add member**, **Make owner** and **Remove**. A project always keeps at least one owner, and platform admins can change any project's members. Whoever records a project name the catalog has never seen is its first owner, so a platform admin corrects the members if someone took a name meant for another team. A project from before members starts with the people the catalog already names for it (whoever registered it, published its products or made its links, and the product owners given as an email) as its owners, the next time one of them changes it. A project the catalog names nobody for (one recorded signed out on a PC, say) waits for a platform admin to name its first owner. Everyone who uses the platform can see each project's members, by their sign-in.
+
+Picking a domain you don't own asks that domain's owners (and the subdomain's, if you picked one): the request is on **Data mesh > Requests** for them, and the Members card shows **Waiting on <domain>'s owners** with **Withdraw** for whoever asked. A domain with no owners waits for a platform admin. Until they approve, the project stays in its current domain in the catalog and `project.toml` keeps it too. Once they approve, the catalog has the new domain and **This project** offers **Use it** to write it to `project.toml`. A domain's owners, and platform admins, move their own projects in directly.
+
+What it writes: `catalog.project_member` (one row per person and project) and, for a domain ask, a `join_domain` row in `catalog.request`. Every change is on **Platform > Govern > Audit**. The checks run in the platform (UDF_Platform in Fabric), so a platform set up before this release needs **Platform > Settings > Finish or repair** once; until then the Members card says so and the checks don't apply.
 
 ## Domains come from Fabric
 
@@ -177,16 +193,30 @@ Only Prod counts, because that's what readers' projects read. Each environment k
 
 Preview. **Data mesh > Products**, then select a product's name. The product's page shows two trust signals next to its name.
 
-**Endorsement** (Certified, Promoted or Master data) is set in Fabric, on the item's settings. KratosForge reads it and never sets it. The item is the lakehouse each port lives in, in the highest environment the product is published to (Prod, else Test, else Dev).
+**Endorsement** (Certified, Promoted or Master data) is set in Fabric, on the item's settings. KratosForge reads it and never sets it. The items are the lakehouse each port lives in, in the highest environment the product is published to (Prod, else Test, else Dev), and the semantic models and reports its owner grouped under it ([Tables, semantic models and reports](#tables-semantic-models-and-reports-preview)). When a product has a semantic model, the badge by its name is the model's endorsement.
 
 - **Only Fabric administrators can read it.** Fabric shows endorsement through an API only in Power BI's admin tenant scan (`POST /v1.0/myorg/admin/workspaces/getInfo`, then `scanStatus` and `scanResult`); Fabric's Get Item doesn't return it. **Scan now** shows to platform admins. It works for one who is also a Fabric administrator; anyone else is told so and nothing is saved.
-- **What a scan reads and writes.** It scans only the workspaces the platform's published products live in, at most 100 a call, and asks for no lineage, data sources, schemas, expressions or users. It writes what it read for each product item to `catalog.endorsement` in the platform's catalog: the endorsement, who certified it when Fabric says, when, and who scanned. Each scan is in the platform's audit log, without the certifier's name.
+- **What a scan reads and writes.** It scans only the workspaces the platform's published products, and their semantic models and reports, live in, at most 100 a call, and asks for no lineage, data sources, schemas, expressions or users. It writes what it read for each product item to `catalog.endorsement` in the platform's catalog: the endorsement, who certified it when Fabric says, when, and who scanned. Each scan is in the platform's audit log, without the certifier's name.
 - **Everyone sees the last scan.** The badge shows with "From the tenant scan" and its age. Before any scan, or for an item the latest scan didn't report, the badge is a grey **Endorsement unknown**: KratosForge never guesses, and a later scan that doesn't confirm an old badge takes it away. **See it in Fabric** opens the item there. Under the product's name, **Last tenant scan** says when the newest of its items was read. When a product's items differ (say one lakehouse is Certified and another unknown), the badge by its name is a grey **Endorsement varies**, and the Endorsement card lists each item with its own badge.
 - **To change it,** open the item's settings in Fabric. Scan again to update the badge.
 
 **Business terms** are a term's name and a link to it in Microsoft Purview, so people can read the definition where your organization keeps it. **Add a term** asks for the term and **Link to the term in Purview**: copy the address from Purview. It must be an `https` link on `purview.microsoft.com` or `web.purview.azure.com`; anything else is refused. KratosForge doesn't read Purview: its sign-in can't get a Purview token, so the terms are what your stewards type. The product's owner or a platform admin adds and removes them (removing asks first); each change writes `catalog.product_term` and the platform's audit log. The term itself stays in Purview.
 
 An older UDF_Platform doesn't have these functions yet. The page then says: *After an update, a platform admin runs Platform > Settings > Finish or repair once.*
+
+## Tables, semantic models and reports (Preview)
+
+A data product's page groups what it offers under **What it offers**: **Tables**, **Semantic models** and **Reports**, each with how many. Each semantic model and report shows its own endorsement badge, as the last tenant scan read it (**Endorsement unknown** until a scan has read it). Tables show their lakehouse and environment and have no badge of their own: their lakehouse's endorsement is on the Endorsement card.
+
+- **Tables** are the product's ports in the highest environment it's published to. They come from the product's definition, so **Add a table** shows only for the product of the metadata project open on this PC and opens **Project > Products and links**.
+- **Add a model** and **Add a report** show to the product's owner and platform admins. Pick a workspace, then a semantic model (or report) in it. The dialog lists only the workspaces and items you can see in Fabric, with Fabric's read-only list calls. The product records the item's id, its type, its workspace id and its display name in `catalog.product_item`, and an `add product item` entry in the platform's audit log (`catalog.audit`). Nothing in Fabric changes. Adding the same item again updates its name.
+- **Remove** asks first. It deletes the item's `catalog.product_item` row and logs `remove product item`; the item stays in Fabric, as it is.
+- **The product's badge** by its name, here and on the products list, is its semantic model's endorsement when it has one, since that's what Fabric's scan reports. With no model, the products list shows **Endorsement unknown** and the product's page keeps its lakehouses' badge. When its models differ, it shows **Endorsement varies**.
+- **Find products by what they offer.** **Data mesh > Products** has **All**, **Has tables**, **Has models** and **Has reports** above the list, and each product says what it offers, like *3 tables, 1 model, 2 reports*.
+- **Scan now** reads the semantic models' and reports' endorsement too: their workspaces are added to the tenant scan.
+- **Limitation: the name is the owner's app's.** The catalog keeps the item name the owner's app sent when it added the item, and doesn't check it against Fabric. A product could therefore show a misleading name for a real item id. The endorsement badge always comes from the tenant scan for that id, never from the name.
+
+The product's checklist (`contract.endorsed`) still reads the lakehouses its ports live in. An older UDF_Platform doesn't have these functions yet: the card says *After an update, a platform admin runs Platform > Settings > Finish or repair once*, and the products list shows no filters until then.
 
 ## Links
 
@@ -222,6 +252,8 @@ email = "string"
 
 A new link saved without `accepts` gets the product's current version from the catalog, so a later breaking version doesn't reach it unnoticed: the producer's promote stops until you widen `accepts` (for example to `"2-3"`) once your project reads the new version. Links made before this have no `accepts` and read any version, as they always did. Anything other than these three forms fails the save gate. Both are kept in the catalog with the link, so the producer's promote can check them.
 
+To widen `accepts` or change `[columns]`, edit `links/<alias>.toml`. Your next promote (or **Publish**) sends each link whose file differs from the catalog, so the producer's promote checks what the file says; a link the catalog refuses (a product no longer open to you, say) is listed as a problem and the publish still goes through. Adding a link again with the same alias and product from **New link** keeps its `accepts` and `[columns]`.
+
 An older UDF_Platform keeps neither. The link still saves, with `accepts` in its file, and says: *A platform admin runs Platform > Settings > Finish or repair once.* The same goes for a product's history: the publish works, and says the history needs **Finish or repair**.
 
 When a table behind a product has an incident, the incident page lists the products built on it, the projects linked to them and who to tell, with **Tell them** to post it in Teams. See [Who's affected](user-guide.md#whos-affected-preview).
@@ -243,7 +275,7 @@ description = "Primary email address"
 classification = "confidential"
 ```
 
-**Glossary** (**Platform > Glossary**) holds shared terms like *Active customer*. Platform admins keep shared terms and a domain's owners keep their domain's. Tag a table or column with terms on the entity's About tab. Recent changes in the catalog, and who made them, are on **Platform > Audit**.
+**Glossary** (**Platform > Set up > Glossary**) holds shared terms like *Active customer*. Platform admins keep shared terms and a domain's owners keep their domain's. Tag a table or column with terms on the entity's About tab. Recent changes in the catalog, and who made them, are on **Platform > Govern > Audit**.
 
 ## At scale
 

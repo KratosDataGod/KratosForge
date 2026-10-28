@@ -28,7 +28,8 @@ before(async () => {
 });
 after(async () => { if (app) await app.close(); });
 
-const tabs = (sel) => page().$$eval(`${sel} > .tab`, (b) => b.map((x) => x.textContent));
+// A tab's Preview tag is part of its text.
+const tabs = (sel) => page().$$eval(`${sel} > .tab`, (b) => b.map((x) => x.textContent.replace("Preview", "").trim()));
 
 test("the top tabs are the mesh's, and Project holds the editor", { skip }, async () => {
   assert.deepStrictEqual(await tabs(".meta-groups"), ["Home", "Products", "Requests", "Domains", "Project"]);
@@ -52,6 +53,6 @@ test("Project opens again on the tab last used there", { skip }, async () => {
   await page().click('.meta-groups .tab:has-text("Domains")');
   await page().waitForSelector('.meta-tabs button:has-text("This project")');
   assert.strictEqual(await page().evaluate(() => state.meta.tab), "domains", "Domains opens on the organization's domains");
-  await page().waitForSelector(".mesh-domains");
+  await page().waitForSelector(".mesh-org-domains");
   assert.deepStrictEqual(app.errors, []);
 });

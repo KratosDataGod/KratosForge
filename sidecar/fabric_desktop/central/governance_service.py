@@ -18,19 +18,33 @@ A metadata project can add policies, or tighten the ones it inherits, in its own
 
 Resolving runs on this PC from what the platform returns: no Fabric job runs and no OneLake data is read.
 Reading the policies from a platform in Fabric is one UDF_Platform call, which uses a little capacity.
+
+Exceptions: an exception that ends within EXCEPTION_WARN_DAYS (14, as for a project's exceptions.toml)
+is marked ``ending``; governance_exceptions_ending sends each one Teams notice (to whoever asked and the
+project or domain it covers) and says which concern the person or the open project, for the bell and the
+Data mesh banner. The Teams notice is claimed in the platform first (claim_exception_warning), so one PC
+in the organization posts it; with an older UDF_Platform that can't claim, none is posted. A platform admin can end an exception early (governance_end_exception), with a reason;
+the platform checks that, and keeps the row.
 """
 
 from __future__ import annotations
 
+import datetime as dt
+import logging
 import tomllib
 from pathlib import Path
 from typing import Any
 
+from .. import governance_notices as notices
 from ..meta import mesh
+from ..meta.project import EXCEPTION_WARN_DAYS
+from ..workloads.platform_notify import PlatformRouting, validate
+from .core import PlatformError
 from .policy import SETTINGS
 from .requests_service import call_or_repair
 
 GOVERNANCE_FILE = "governance.toml"
+_log = logging.getLogger(__name__)
 
 
 def local_assignments(root: Path, project: str) -> tuple[list[dict[str, Any]], list[str]]:
@@ -64,14 +78,26 @@ class GovernanceMixin:
     def _policies(self) -> Any:
         return self._catalog()  # type: ignore[attr-defined]
 
-    def _exceptions(self, policy: str = "") -> tuple[list[dict[str, Any]], str]:
-        """Exceptions that haven't ended, and a problem line when the platform can't say (an older
-        UDF_Platform has no list_policy_exceptions): the policies still show."""
+    def _exceptions(self, policy: str = "", include_ended: bool = False) -> tuple[list[dict[str, Any]], str]:
+        """Exceptions that haven't ended (with ``include_ended``, those that have too), each with its days
+        left and whether it's ``ending`` (within EXCEPTION_WARN_DAYS), and a problem line when the platform
+        can't say (an older UDF_Platform has no list_policy_exceptions): the policies still show."""
         try:
-            return call_or_repair(self._policies(), "list_policy_exceptions", "list policy exceptions",
-                                  policy=policy, active=True), ""
+            rows = call_or_repair(self._policies(), "list_policy_exceptions", "list policy exceptions",
+                                  policy=policy, active=not include_ended)
         except LookupError as exc:
             return [], str(exc)
+        today = dt.datetime.now(dt.timezone.utc).date()  # the date UDF_Platform runs on
+        for row in rows:
+            try:
+                left = (dt.date.fromisoformat(str(row.get("until") or "")[:10]) - today).days
+            except ValueError:
+                left = None
+            active = bool(row.get("active")) and not row.get("ended_at")
+            row["active"] = active
+            row["days_left"] = left if active else None
+            row["ending"] = active and left is not None and left <= EXCEPTION_WARN_DAYS
+        return rows, ""
 
     def governance_overview(self, query: str = "", category: str = "", status: str = "") -> dict[str, Any]:
         """Policies (searchable), the fixed lists a policy form offers, who the caller is, and the
@@ -86,9 +112,9 @@ class GovernanceMixin:
                 "domains": p.call("list_domains"), "projects": [x["name"] for x in p.call("list_projects")],
                 "exceptions": exceptions, "problems": [problem] if problem else []}
 
-    def governance_policy(self, id: str) -> dict[str, Any]:
+    def governance_policy(self, id: str, include_ended: bool = False) -> dict[str, Any]:
         out = self._policies().call("get_policy", id=id)
-        exceptions, problem = self._exceptions(out["id"])
+        exceptions, problem = self._exceptions(out["id"], include_ended=bool(include_ended))
         return out | {"exceptions": exceptions} | ({"problems": [problem]} if problem else {})
 
     def governance_version(self, id: str, version: int) -> dict[str, Any]:
@@ -143,3 +169,67 @@ class GovernanceMixin:
         out = self._policies().call("resolve_policies", project=project, entity=entity, domain=domain,
                                     subdomain=subdomain, local=local, context=context)
         return out | {"problems": problems}
+
+    def governance_end_exception(self, id: str, reason: str) -> dict[str, Any]:
+        """End a granted exception now, before its date. The platform checks that the caller is a
+        platform admin and the reason, keeps the row and records it in the audit and the policy's
+        history (policy.end_policy_exception); this only passes the call on."""
+        return call_or_repair(self._policies(), "end_policy_exception", "end policy exceptions early",
+                              id=str(id or ""), reason=str(reason or ""))
+
+    def governance_exceptions_ending(self) -> dict[str, Any]:
+        """Exceptions that end within EXCEPTION_WARN_DAYS. Each is sent once as a Teams notice (per
+        exception and end date) to whoever asked and the project or domain it covers. ``for_you`` marks
+        the ones the signed-in person asked for or that cover the open project or its domain: the bell
+        and the Data mesh banner show those."""
+        rows, problem = self._exceptions()
+        ending = [r for r in rows if r.get("ending")]
+        me = (self._user() or "").strip().lower()  # type: ignore[attr-defined]
+        try:
+            here = mesh.identity(self._project())  # type: ignore[attr-defined]
+        except LookupError:
+            here = {"name": "", "domain": "", "subdomain": ""}
+        domains = {d for d in (here.get("domain"), here.get("subdomain")) if d}
+        for r in ending:
+            r["for_you"] = bool((me and str(r.get("requested_by") or "").strip().lower() == me)
+                                or (r.get("scope") == "project" and here.get("name") and r.get("target") == here["name"])
+                                or (r.get("scope") == "domain" and r.get("target") in domains))
+        problems = [problem] if problem else []
+        events = self._claim_warnings(ending, problems)
+        if events:
+            sent = self._governance_notify(lambda: events)  # type: ignore[attr-defined]
+            if sent:
+                problems.append(sent)
+        return {"ending": ending, "warn_days": EXCEPTION_WARN_DAYS, "problems": problems}
+
+    def _claim_warnings(self, ending: list[dict[str, Any]], problems: list[str]) -> list[dict[str, Any]]:
+        """The Teams events for the ending exceptions whose notice this PC claimed in the platform, so each is
+        posted by one PC in the organization, not one per PC. A PC claims only when one of its own routes
+        would take the event (its kind, and the exception's domain where a route is scoped to domains), so a
+        PC that can't post never takes the notice from one that can. An exception the list already shows as
+        warned for this end date isn't asked about again (no call). A platform that can't claim (an older
+        UDF_Platform) gets no Teams notice at all rather than one from every PC; the bell and banner still show."""
+        try:
+            routing = PlatformRouting.parse(self._pn_raw())  # type: ignore[attr-defined]
+        except ValueError as exc:
+            _log.warning("Platform Teams routes can't be read, so no exception notice is claimed: %s", exc)
+            return []
+        events = []
+        for r in ending:
+            if str(r.get("warned_until") or "") == str(r.get("until") or ""):
+                continue
+            event = notices.exception_ending(r, r["days_left"])
+            if event is None or not routing.for_event(validate(event)):
+                continue
+            try:
+                out = call_or_repair(self._policies(), "claim_exception_warning", "send policy exception warnings once",
+                                     id=str(r.get("id") or ""), until=str(r.get("until") or ""))
+            except LookupError as exc:
+                problems.append(f"No Teams notice for exceptions about to end: {exc}")
+                return []
+            except PlatformError as exc:
+                _log.warning("Couldn't claim the warning for exception %s: %s", r.get("id"), exc)
+                continue
+            if isinstance(out, dict) and out.get("claimed"):
+                events.append(event)
+        return events

@@ -103,7 +103,7 @@ class IncidentMixin:
     def queue_list(self, hours: float = 24) -> dict[str, Any]:
         """Running, queued and next work across this PC, each agent and Fabric (workloads/queue.py),
         from what the app already holds: agent status records, this PC's schedules, the Fabric jobs
-        this app started as last checked, and the Fabric schedules Monitor > Schedules last read. It
+        this app started as last checked, and the Fabric schedules Monitor > Fabric > Schedules last read. It
         makes no Fabric call of its own, so it never polls a tenant. Each source says how it stands."""
         now = dt.datetime.now(dt.timezone.utc)
         envs, by_env = self._agent_records()

@@ -157,7 +157,7 @@ test("a table's columns show their T-SQL types, and a click inserts a quoted nam
   const text = await page().locator(".wh-explorer").textContent();
   assert.match(text, /Amountdecimal\(18,2\)/);
   assert.match(text, /Customer Namenvarchar\(100\)/);
-  await page().getByRole("button", { name: "Customer Name" }).click();
+  await page().getByRole("treeitem", { name: "Customer Name" }).click();
   assert.match(await page().evaluate(() => sqlPage.editor.text()), /\[Customer Name\]/);
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "wh-02-explorer.png") });
 });
@@ -168,7 +168,7 @@ test("the filter narrows the tree, and clicking a table queries its top 100 rows
   assert.match(text, /staging.*Orders/);
   assert.doesNotMatch(text, /Sales/);
   const before = starts().length;
-  await page().getByRole("button", { name: "Orders", exact: true }).click();
+  await page().getByRole("treeitem", { name: "Orders", exact: true }).click();
   await page().waitForFunction((n) => sqlPage.tabs[sqlPage.active].exec?.id === `run${n + 1}` && !sqlPage.tabs[sqlPage.active].running, before);
   assert.strictEqual(starts().at(-1).query, "SELECT TOP (100) *\nFROM [staging].[Orders];");
   assert.strictEqual(await page().locator(".dialog-actions").count(), 0, "already confirmed for this warehouse");
@@ -185,13 +185,13 @@ test("Script as on a table: CREATE from the explorer's columns, opened in a new 
   await page().getByRole("menuitem", { name: "Script as CREATE" }).click();
   await page().waitForFunction(() => sqlPage.tabs[sqlPage.active].name === "Sales (CREATE)");
   const sql = await tabText();
-  assert.match(sql, /^-- CREATE script from WH_Gold, .* UTC\.\n-- This page runs only queries that read/);
+  assert.match(sql, /^-- CREATE script from WH_Gold, .* UTC\.\n-- Opened, not run\.\n/);
   assert.match(sql, /CREATE TABLE \[dbo\]\.\[Sales\]\n\(\n {4}\[Amount\] decimal\(18,2\) NOT NULL,\n {4}\[Customer Name\] nvarchar\(100\) NULL\n\);/);
   assert.strictEqual(starts().length, before, "scripting a table asks Fabric nothing and runs nothing");
 });
 
 test("Script as ALTER on a procedure reads its definition and turns CREATE into ALTER", { skip }, async () => {
-  await page().getByRole("button", { name: "Stored procedures (1)" }).click();
+  await page().getByRole("treeitem", { name: "Stored procedures (1)" }).click();
   await page().getByRole("button", { name: "Script usp_Load" }).click();
   assert.deepStrictEqual(await menuItems(), ["Script as CREATE", "Script as ALTER", "Script as DROP"]);
   await page().getByRole("menuitem", { name: "Script as ALTER" }).click();
@@ -202,12 +202,62 @@ test("Script as ALTER on a procedure reads its definition and turns CREATE into 
 });
 
 test("Script as DROP on a view, from a right-click", { skip }, async () => {
-  await page().getByRole("button", { name: "Views (1)" }).click();
-  await page().getByRole("button", { name: "vSales", exact: true }).click({ button: "right" });
+  await page().getByRole("treeitem", { name: "Views (1)" }).click();
+  await page().getByRole("treeitem", { name: "vSales", exact: true }).click({ button: "right" });
   await page().getByRole("menuitem", { name: "Script as DROP" }).click();
   await page().waitForFunction(() => sqlPage.tabs[sqlPage.active].name === "vSales (DROP)");
   assert.match(await tabText(), /\nDROP VIEW \[dbo\]\.\[vSales\];\n$/);
   assert.deepStrictEqual(app.errors, []);
+});
+
+test("the explorer is a tree: one row takes Tab, the arrow keys walk and open it, Shift+F10 scripts", { skip }, async () => {
+  const tree = page().getByRole("tree", { name: "Objects in WH_Gold" });
+  const focused = () => page().evaluate(() => document.activeElement?.dataset.tid);
+  const expanded = (tid) => page().locator(`[data-tid="${tid}"]`).getAttribute("aria-expanded");
+  const press = (key) => page().keyboard.press(key);
+  assert.strictEqual(await tree.locator('[role=treeitem][tabindex="0"]').count(), 1);
+  await tree.getByRole("treeitem", { name: "dbo", exact: true }).focus();
+  await press("ArrowDown");
+  assert.strictEqual(await focused(), "g:dbo.U");
+  await press("ArrowDown");
+  assert.strictEqual(await focused(), "o:dbo.Sales");
+  if (await expanded("o:dbo.Sales") === "true") await press("ArrowLeft");
+  assert.strictEqual(await expanded("o:dbo.Sales"), "false");
+  assert.strictEqual(await page().getByRole("button", { name: "Show columns of Sales" }).getAttribute("aria-expanded"), "false");
+  await press("ArrowRight");
+  assert.strictEqual(await expanded("o:dbo.Sales"), "true", "Right opens the columns");
+  assert.strictEqual(await focused(), "o:dbo.Sales", "and keeps focus on the table");
+  await press("ArrowRight");
+  assert.strictEqual(await focused(), "c:dbo.Sales.Amount", "Right again goes to the first column");
+  await press("ArrowLeft");
+  assert.strictEqual(await focused(), "o:dbo.Sales", "Left goes back to the table");
+  await press("ArrowLeft");
+  assert.strictEqual(await expanded("o:dbo.Sales"), "false", "Left closes it");
+  await press("ArrowLeft");
+  assert.strictEqual(await focused(), "g:dbo.U");
+  await press("Home");
+  assert.strictEqual(await focused(), "s:dbo");
+  await press("ArrowLeft");
+  assert.strictEqual(await expanded("s:dbo"), "false");
+  assert.strictEqual(await focused(), "s:dbo");
+  await press("End");
+  assert.match(await focused(), /^[gos]:staging/);
+  await press("Home");
+  await press("ArrowRight");
+  assert.strictEqual(await expanded("s:dbo"), "true");
+  assert.strictEqual(await tree.locator('[role=treeitem][tabindex="0"]').count(), 1, "still one row takes Tab");
+  await press("ArrowDown");
+  await press("ArrowDown");
+  await press("Shift+F10");
+  assert.deepStrictEqual(await menuItems(), ["Select top 100 rows", "Script as CREATE", "Script as DROP"]);
+  await press("Escape");
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("objects in Fabric's own schemas have no ALTER or DROP", { skip }, async () => {
+  const labels = await page().evaluate(() => whScriptItems(sqlPage.ref, { schema: "queryinsights", name: "exec_requests_history", type: "V" }, [], {})
+    .map((it) => it.label || it.info));
+  assert.deepStrictEqual(labels, ["Select top 100 rows", "Script as CREATE", "queryinsights is Fabric's own schema, so it can't be changed"]);
 });
 
 test("Workspaces offers the page on a warehouse and on an endpoint whose lakehouse is listed", { skip }, async () => {

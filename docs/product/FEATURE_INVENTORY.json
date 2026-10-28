@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "73c4ae4",
-    "date": "2026-10-26",
+    "commit": "cdbb967",
+    "date": "2026-10-27",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
       "Ran the sidecar test suite (pytest) on Linux, Python 3.13",
@@ -16,7 +16,10 @@
       "Refreshed at 524e6a3 on 2026-10-25 for the PRs merged from #560 to #650 (the 2026-10-22 refresh for #135 to #559 is included; it had not reached main). Each merge's changed files and title were read; rows those PRs changed were updated and five rows added. Other rows were not re-read.",
       "Daily product check 2026-10-25 at 5ae85e5: PRs #643 to #675 merged after the #654 refresh; their rows were updated and two added.",
       "Product check 2026-10-26 at bb084c6: PRs #676 to #741 merged after #677; their rows were updated. Other rows were not re-read.",
-      "Product check 2026-10-26 23:42 at 73c4ae4: PRs #742 to #791, with #725 and #726, merged after #752; their rows were updated. Other rows were not re-read."
+      "Product check 2026-10-26 23:42 at 73c4ae4: PRs #742 to #791, with #725 and #726, merged after #752; their rows were updated. Other rows were not re-read.",
+      "Product check 2026-10-27 at 6159e50: PRs merged after #797 (#560, #449, #701, #763, #765, #782, #788 to #809); their rows were updated. Other rows were not re-read.",
+      "Product check 2026-10-27 23:42 at 2225e28: PRs #811 to #826 merged after #812; their rows were updated, and the inventory text the #815 implementation reviews named stale was corrected.",
+      "Product check 2026-10-28 11:42 at cdbb967: PRs #827 and #829 to #838 merged after #830; their rows were updated. Other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -208,13 +211,18 @@
         722,
         760,
         769,
-        776
+        776,
+        803,
+        806,
+        825,
+        826,
+        827
       ]
     },
     {
       "id": "FEAT-SHL-05",
       "name": "Preview tags and hiding Preview features",
-      "description": "Features not tried on a live tenant carry a Preview tag (19 ids) and can be hidden in Settings or by policy.",
+      "description": "Features not tried on a live tenant carry a Preview tag (71 ids) and can be hidden in Settings or by policy.",
       "pillar": "Platform foundation",
       "category": "Developer Experience and Productivity",
       "status": "Implemented",
@@ -228,6 +236,10 @@
         {
           "kind": "code",
           "ref": "app/ui/features.js PREVIEW_FEATURES"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/ui.test.cjs every feature the docs call Preview has a Preview id, or the docs say why not"
         }
       ],
       "source": [
@@ -238,7 +250,8 @@
         "app/tests/ui.test.cjs"
       ],
       "docs": [
-        "docs/README.md"
+        "docs/README.md",
+        "docs/metadata-guide.md"
       ],
       "ui": {
         "surface": "Settings > Preview features",
@@ -246,9 +259,9 @@
       },
       "limitations": [
         "Hiding only hides UI; engine methods stay callable",
-        "Several docs-Preview features have no PREVIEW_FEATURES id"
+        "Preview settings in project and agent files (batch_by, objectives, shared schedules) can't be hidden: the docs say so"
       ],
-      "next_action": "Add Preview ids for batch_by, release records, who-can-promote, objectives and column lineage, which docs call Preview but code doesn't tag (PB-078).",
+      "next_action": "None for Preview ids: a UI test maps every docs (Preview) heading to an id or to the reason its page gives (PB-078).",
       "backlog": [
         "PB-078"
       ],
@@ -490,7 +503,8 @@
         607,
         718,
         757,
-        768
+        768,
+        821
       ],
       "workstream": "Fuller What's new dialog (PB-100) and Enterprise readiness",
       "next_action": "Code signing (PB-001); Rust tests in CI (PB-071).",
@@ -718,7 +732,8 @@
         "preview": false
       },
       "limitations": [
-        "DPAPI is checked by tests with the Windows call faked; not yet observed on Chris's PC after the Stable promotion (3633b4a)"
+        "Not yet observed on Chris's PC after the Stable promotion (3633b4a); the real DPAPI round trip runs on the Windows CI runner (test_real_dpapi_round_trip)",
+        "Programs running as the same Windows user can still decrypt the cache (PB-005 review, finding 1)"
       ],
       "workstream": "Enterprise readiness (FD-131b)",
       "next_action": "Chris restarts and signs in on Windows on Stable 3633b4a to confirm (PB-005 review).",
@@ -963,7 +978,7 @@
       "pillar": "Local development",
       "category": "Fabric Integration and Deployment",
       "status": "Implemented",
-      "verification": "Unverified",
+      "verification": "Partially Verified",
       "evidence": [
         {
           "kind": "code",
@@ -974,8 +989,14 @@
           "ref": "docs/README.md: embedded Fabric pages and saved sign-in used on the maintainer's tenant"
         },
         {
-          "kind": "absent",
-          "ref": "Rust signin tests never run by CI"
+          "kind": "test",
+          "ref": "app/src-tauri/src/main.rs",
+          "note": "fabric_nav_tests, run by cargo test in the ci.yml shell job (PB-008 review)"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/fabric-full-screen.test.cjs",
+          "note": "product check 2026-10-27 23:42 at 2225e28: test file named by the merged PR; CI on main runs it"
         }
       ],
       "source": [
@@ -990,13 +1011,19 @@
         "preview": false
       },
       "limitations": [
-        "Host allow-list covers any *.microsoft.com and *.live.com",
+        "Top-level pages and pop-ups stay on eight exact hosts; every other link opens in the default browser (#259, #455)",
         "Windows only"
       ],
-      "next_action": "Restrict in-view navigation to Fabric hosts and add cargo test to CI (PB-071).",
+      "next_action": "Check in the Windows app that a look-alike host opens in the browser (PB-008 review).",
       "backlog": [
         "PB-008",
         "PB-071"
+      ],
+      "tests": [
+        "app/tests/browser/fabric-full-screen.test.cjs"
+      ],
+      "prs": [
+        823
       ]
     },
     {
@@ -1085,7 +1112,7 @@
         "preview": true
       },
       "limitations": [
-        "Cancel is reachable only as a workload action in Monitor > Workloads, not from Monitor > Runs or the tray",
+        "Cancel is reachable only as a workload action in Monitor > KratosForge > Operations > Workloads, not from Monitor > Runs or the tray",
         "UI requires an attached lakehouse"
       ],
       "next_action": "Offer Cancel in Monitor > Runs and the tray (PB-043) and include in the tenant smoke test.",
@@ -1125,7 +1152,7 @@
         "docs/notebooks.md"
       ],
       "ui": {
-        "surface": "Notebook ribbon, Monitor > Schedules",
+        "surface": "Notebook ribbon, Monitor > Fabric > Schedules",
         "preview": true
       },
       "limitations": [
@@ -1351,6 +1378,11 @@
           "kind": "test",
           "ref": "app/tests/browser/warehouse-monitoring.test.cjs",
           "note": "product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "doc",
+          "ref": "docs/warehouse.md#tested-on-a-tenant",
+          "note": "tenant run 2026-10-27 at 21d318fc: 25 of 26 checks passed; WH-10.7 failed and was fixed by #808"
         }
       ],
       "source": [
@@ -1373,7 +1405,7 @@
         "preview": true
       },
       "workstream": "Build full warehouse development experience (WH-01..21)",
-      "next_action": "Tenant run of WH-10 to WH-13 writes and the WH-19 Monitoring tab; phases 4-5 need Chris's go.",
+      "next_action": "A warehouse query from the app itself on a tenant, and the WH-19 Monitoring tab; phases 4-5 need Chris's go.",
       "backlog": [
         "PB-020",
         "PB-022",
@@ -1423,13 +1455,18 @@
         747,
         774,
         783,
-        787
+        787,
+        808,
+        809,
+        823,
+        833,
+        835
       ],
       "limitations": [
-        "Read-only: writes wait on Chris's decision D1",
-        "Not yet run against a live warehouse (decision D3)",
+        "Not yet run through the app's own Azure SQL sign-in: the 2026-10-27 tenant run used the Azure CLI's token",
+        "The Monitoring tab (WH-19) is not yet checked on a tenant",
         "One result set per run: the engine refuses a second statement",
-        "No build or deploy (WH-09..14), no Fabric SQL database, no Snowflake"
+        "No Fabric SQL database, no Snowflake"
       ]
     },
     {
@@ -2752,7 +2789,7 @@
     {
       "id": "FEAT-PRV-06",
       "name": "Side by side and the TPC-H benchmark",
-      "description": "Runs a notebook on the PC and in Fabric against the real lakehouse after confirming the tables it overwrites; compares checksums, speed and cost, splits This PC's time into processing and OneLake upload wait, and says plainly when a table is missing. TPC-H data generates on every core and is always deleted afterwards.",
+      "description": "Runs a notebook on the PC and in Fabric against the real lakehouse after confirming the tables it overwrites; compares checksums, speed and cost, splits This PC's time into processing and OneLake upload wait, and says plainly when a table is missing. TPC-H data generates on every core and is always deleted afterwards. Cores on this PC (All cores, Match Fabric or a number) holds the PC's run to that many cores, and the result says whether both sides matched.",
       "pillar": "Local development",
       "category": "Reliability, Testing, and Performance",
       "status": "Implemented",
@@ -2771,16 +2808,29 @@
           "kind": "test",
           "ref": "sidecar/tests/test_side_by_side.py",
           "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_side_by_side_cores.py",
+          "note": "product check 2026-10-28 11:42 at cdbb967: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/sbs-cores.test.cjs",
+          "note": "product check 2026-10-28 11:42 at cdbb967: test file named by the merged PR; CI on main runs it"
         }
       ],
       "source": [
         "sidecar/fabric_desktop/side_by_side.py",
         "sidecar/fabric_desktop/side_by_side_service.py",
         "sidecar/fabric_desktop/benchmark.py",
-        "app/ui/sidebyside.js"
+        "app/ui/sidebyside.js",
+        "sidecar/fabric_desktop/cpu_cap.py"
       ],
       "tests": [
-        "sidecar/tests/test_side_by_side.py"
+        "sidecar/tests/test_side_by_side.py",
+        "sidecar/tests/test_side_by_side_cores.py",
+        "app/tests/browser/sbs-cores.test.cjs"
       ],
       "docs": [
         "docs/side-by-side.md"
@@ -2791,7 +2841,8 @@
       },
       "limitations": [
         "Writes the real tables twice (confirmed first)",
-        "Files/ not compared"
+        "Files/ not compared",
+        "On a PC with more than 64 logical processors, a capped run is held to cores in one Windows processor group"
       ],
       "prs": [
         44,
@@ -2803,7 +2854,10 @@
         634,
         635,
         673,
-        683
+        683,
+        819,
+        822,
+        829
       ],
       "workstream": "Prove (FD-112)",
       "next_action": "Chris's SF1 local run is 65 s vs 101 s before (1.9x); keep the benchmark and retire correctness checks into Prove (PB-076).",
@@ -3397,6 +3451,11 @@
           "kind": "test",
           "ref": "app/tests/browser/dictionary-card.test.cjs",
           "note": "product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_model_date_table.py",
+          "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
         }
       ],
       "source": [
@@ -3409,7 +3468,8 @@
         "sidecar/tests/test_model_directlake.py",
         "sidecar/tests/test_model_dictionary.py",
         "app/tests/browser/directlake-card.test.cjs",
-        "app/tests/browser/dictionary-card.test.cjs"
+        "app/tests/browser/dictionary-card.test.cjs",
+        "sidecar/tests/test_model_date_table.py"
       ],
       "docs": [
         "docs/metadata-guide.md",
@@ -3429,7 +3489,8 @@
       "prs": [
         725,
         726,
-        748
+        748,
+        788
       ]
     },
     {
@@ -3744,7 +3805,7 @@
     {
       "id": "FEAT-GOV-03",
       "name": "Governance exceptions",
-      "description": "exceptions.toml with reason, approver and expiry that lets a gate pass until it expires; approved exceptions are shown and warned about before they end, and a policy exception can be requested and approved on the Governance tab (Preview).",
+      "description": "exceptions.toml with reason, approver and expiry that lets a gate pass until it expires, shown on Data mesh > Quality > Exceptions and warned about before they end. Policy exceptions are requested on Data mesh > Requests and approved by a platform admin (Preview); Check now marks the findings they cover as excepted, they warn the requester and the project 14 days before they end, and a platform admin can end one early with a reason (ended ones stay listed with Include ended).",
       "pillar": "Enterprise services",
       "category": "Data Governance and Quality",
       "status": "Implemented",
@@ -3764,30 +3825,44 @@
           "kind": "test",
           "ref": "sidecar/tests/test_requests_core_four.py",
           "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/policy-exceptions.test.cjs",
+          "note": "product check 2026-10-28 11:42 at cdbb967: test file named by the merged PR; CI on main runs it"
         }
       ],
       "source": [
-        "sidecar/fabric_desktop/meta/project.py"
+        "sidecar/fabric_desktop/meta/project.py",
+        "sidecar/fabric_desktop/central/policy.py",
+        "sidecar/fabric_desktop/central/governance_service.py"
       ],
       "tests": [
         "sidecar/tests/test_meta.py",
-        "sidecar/tests/test_requests_core_four.py"
+        "sidecar/tests/test_requests_core_four.py",
+        "app/tests/browser/policy-exceptions.test.cjs"
       ],
       "docs": [
-        "docs/metadata-guide.md"
+        "docs/metadata-guide.md",
+        "docs/governance.md",
+        "docs/governance-guide.md"
       ],
       "ui": {
-        "surface": "Metadata project, Platform > Governance > Requests",
+        "surface": "Data mesh > Quality > Exceptions, Data mesh > Requests, Platform > Govern > Governance",
         "preview": true
       },
+      "limitations": [
+        "Adding an exception to exceptions.toml records no request, approval or audit entry, and its approver is free text (PB-059 review finding 1, waiting on the FD-129 owner)"
+      ],
       "workstream": "Enterprise governance foundation (FD-129)",
-      "next_action": "Implementation review of #603 and #605 (PB-059).",
+      "next_action": "Product owner decides whether exceptions.toml joins the request flow or FD-129 is narrowed to policy exceptions (PB-059 review finding 1).",
       "backlog": [
         "PB-059"
       ],
       "prs": [
         603,
-        605
+        605,
+        838
       ]
     },
     {
@@ -4001,7 +4076,9 @@
         48,
         50,
         694,
-        705
+        705,
+        765,
+        806
       ],
       "next_action": "Verify setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified).",
       "backlog": [
@@ -4087,6 +4164,11 @@
           "kind": "test",
           "ref": "app/tests/browser/landing-zones.test.cjs",
           "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_landing_copy_requests.py",
+          "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
         }
       ],
       "source": [
@@ -4096,7 +4178,8 @@
       "tests": [
         "sidecar/tests/test_platform.py",
         "sidecar/tests/test_landing_zones.py",
-        "app/tests/browser/landing-zones.test.cjs"
+        "app/tests/browser/landing-zones.test.cjs",
+        "sidecar/tests/test_landing_copy_requests.py"
       ],
       "docs": [
         "docs/platform.md"
@@ -4106,22 +4189,24 @@
         "preview": true
       },
       "limitations": [
-        "Nothing in the app writes into landing: no extractors or connectors",
+        "Copy job requests (#794) are approved in the app but the copy job is built in Fabric; no extractors of its own",
         "Not yet set up on a tenant"
       ],
       "workstream": "Staged roadmap (FD-116)",
-      "next_action": "Guided ingestion still waits on D2 (FD-116); Data Factory copy jobs (DF-6) may answer it.",
+      "next_action": "Landing copy job requests (stage 4.1) and platform-repo landing zones merged; try on a tenant.",
       "backlog": [
         "PB-030"
       ],
       "prs": [
-        597
+        597,
+        792,
+        794
       ]
     },
     {
       "id": "FEAT-MESH-04",
       "name": "Data mesh: domains, products, links, glossary",
-      "description": "Domains imported from and created in Fabric, data products with ports, endorsement badges and Purview term links, last scan and mixed endorsement on the product page, links between teams' products, glossary, About text and a mesh map on Home.",
+      "description": "Domains imported from and created in Fabric, data products with ports, endorsement badges and Purview term links, last scan and mixed endorsement on the product page, links between teams' products, glossary, About text and a mesh map on Home. Projects have owners and members (Domains > This project), and joining a domain is a request its owners approve.",
       "pillar": "Enterprise services",
       "category": "Enterprise Shared Services",
       "status": "Implemented",
@@ -4165,6 +4250,56 @@
           "kind": "test",
           "ref": "app/tests/browser/data-requests.test.cjs",
           "note": "product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_versioned_contracts.py",
+          "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_entra_groups.py",
+          "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/access-reviews.test.cjs",
+          "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/owner-coverage.test.cjs",
+          "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/mesh-home.test.cjs",
+          "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/mesh-products.test.cjs",
+          "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/mesh-requests.test.cjs",
+          "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/mesh-layout.test.cjs",
+          "note": "product check 2026-10-27 23:42 at 2225e28: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_mesh_home.py",
+          "note": "product check 2026-10-27 23:42 at 2225e28: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/mesh-members.test.cjs",
+          "note": "product check 2026-10-28 11:42 at cdbb967: test file named by the merged PR; CI on main runs it"
         }
       ],
       "source": [
@@ -4181,13 +4316,23 @@
         "app/tests/browser/domain-in-fabric.test.cjs",
         "app/tests/browser/trust-badges.test.cjs",
         "app/tests/browser/follow-product.test.cjs",
-        "app/tests/browser/data-requests.test.cjs"
+        "app/tests/browser/data-requests.test.cjs",
+        "sidecar/tests/test_versioned_contracts.py",
+        "sidecar/tests/test_entra_groups.py",
+        "app/tests/browser/access-reviews.test.cjs",
+        "app/tests/browser/owner-coverage.test.cjs",
+        "app/tests/browser/mesh-home.test.cjs",
+        "app/tests/browser/mesh-products.test.cjs",
+        "app/tests/browser/mesh-requests.test.cjs",
+        "app/tests/browser/mesh-layout.test.cjs",
+        "sidecar/tests/test_mesh_home.py",
+        "app/tests/browser/mesh-members.test.cjs"
       ],
       "docs": [
         "docs/data-mesh.md"
       ],
       "ui": {
-        "surface": "Data mesh > Domains, OneLake > Data products, Home",
+        "surface": "Data mesh: Home, Domains, Products, Requests and Project tabs",
         "preview": true
       },
       "limitations": [
@@ -4201,11 +4346,29 @@
         627,
         642,
         694,
+        701,
         749,
         761,
-        770
+        763,
+        765,
+        770,
+        793,
+        801,
+        802,
+        803,
+        804,
+        805,
+        806,
+        814,
+        817,
+        818,
+        824,
+        825,
+        827,
+        834,
+        836
       ],
-      "next_action": "Purview and endorsement live checks wait on Chris's tenant run; implementation review of #591, #627, #642.",
+      "next_action": "Data mesh now holds Home, Domains, Products and Requests (#801-#806); Purview and endorsement live checks wait on Chris's tenant run.",
       "backlog": [
         "PB-052"
       ]
@@ -4223,6 +4386,11 @@
           "kind": "test",
           "ref": "sidecar/tests/test_breaking_changes.py::test_dropping_a_column_another_project_reads_blocks_the_promote",
           "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_versioned_contracts.py",
+          "note": "product check 2026-10-28 11:42 at cdbb967: test file named by the merged PR; CI on main runs it"
         }
       ],
       "source": [
@@ -4230,7 +4398,8 @@
         "sidecar/fabric_desktop/meta_service.py"
       ],
       "tests": [
-        "sidecar/tests/test_breaking_changes.py"
+        "sidecar/tests/test_breaking_changes.py",
+        "sidecar/tests/test_versioned_contracts.py"
       ],
       "docs": [
         "docs/data-mesh.md"
@@ -4240,12 +4409,18 @@
         "preview": false
       },
       "prs": [
-        71
+        71,
+        701,
+        817,
+        836
       ],
       "workstream": "Staged roadmap (FD-127)",
-      "next_action": "Consumer declarations and deprecation (scale plan 8.2).",
+      "next_action": "Versioned contracts (#701): accepted versions and deprecation dates block only readers that need it.",
       "backlog": [
         "PB-082"
+      ],
+      "limitations": [
+        "8.2's catalog changes not yet tried in Fabric"
       ]
     },
     {
@@ -4284,7 +4459,7 @@
         "docs/notebooks.md"
       ],
       "ui": {
-        "surface": "Notebook ribbon, Data mesh, Monitor > Schedules",
+        "surface": "Notebook ribbon, Data mesh, Monitor > KratosForge > Schedules",
         "preview": true
       },
       "next_action": "Agent schedules cover Linux; Windows Task Scheduler runs need a Windows check.",
@@ -4293,7 +4468,8 @@
         "PB-048"
       ],
       "prs": [
-        791
+        791,
+        826
       ]
     },
     {
@@ -4486,7 +4662,7 @@
         "docs/agent.md"
       ],
       "ui": {
-        "surface": "Monitor > Operations > Agents",
+        "surface": "Monitor > KratosForge > Operations > Agents",
         "preview": true
       },
       "prs": [
@@ -4590,7 +4766,7 @@
         "docs/workloads/plan.md"
       ],
       "ui": {
-        "surface": "Monitor > Workloads, Home > Your workloads",
+        "surface": "Monitor > KratosForge > Operations > Workloads, Home > Your workloads",
         "preview": true
       },
       "limitations": [
@@ -4663,7 +4839,7 @@
         "docs/incidents.md"
       ],
       "ui": {
-        "surface": "Monitor > Incidents (Chris used it in unit testing, 2026-10-18)",
+        "surface": "Monitor > KratosForge > Operations > Incidents (Chris used it in unit testing, 2026-10-18)",
         "preview": false
       },
       "limitations": [
@@ -5126,6 +5302,9 @@
         445,
         618,
         619
+      ],
+      "limitations": [
+        "On Windows the output frame's protection rests on its opaque origin and frame policy, not on the frame lacking Tauri's invoke key (PB-006 review, finding 1)"
       ]
     },
     {
@@ -5270,6 +5449,11 @@
           "kind": "test",
           "ref": "sidecar/tests/test_git.py::test_notebook_diffs_compare_code_and_leave_outputs_out",
           "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/git-hunks.test.cjs",
+          "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
         }
       ],
       "source": [
@@ -5279,7 +5463,8 @@
         "app/ui/git.js"
       ],
       "tests": [
-        "sidecar/tests/test_git.py"
+        "sidecar/tests/test_git.py",
+        "app/tests/browser/git-hunks.test.cjs"
       ],
       "docs": [
         "docs/source-control.md"
@@ -5290,11 +5475,13 @@
       },
       "limitations": [
         "Not tried with Git Credential Manager and SSH on many PCs",
-        "No line staging, rebase, tags"
+        "No rebase or tags"
       ],
       "prs": [
         85,
-        696
+        696,
+        789,
+        792
       ],
       "workstream": "Git-native development",
       "next_action": "Capacity repository drift report against Fabric (#696, Preview); Fabric workspace Git (FEAT-FAB-12) still planned."
@@ -6927,6 +7114,7 @@
       "prs": [
         325,
         372,
+        449,
         571,
         572,
         573,
@@ -6986,7 +7174,9 @@
       ],
       "prs": [
         557,
-        558
+        558,
+        827,
+        831
       ],
       "workstream": "UX and simplicity oversight",
       "next_action": "Implementation review of PR #557, #558; run on a tenant before the Preview tag comes off."
@@ -7036,12 +7226,13 @@
         380,
         690,
         764,
-        780
+        780,
+        782
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Screens after a mockup; never install databricks-connect into the engine (ADR-004).",
       "limitations": [
-        "Databricks SQL warehouse engine tested against fakes only"
+        "Databricks SQL warehouse and Databricks Connect engines tested against fakes only"
       ]
     },
     {
@@ -7120,7 +7311,7 @@
         "docs/platform.md"
       ],
       "ui": {
-        "surface": "Platform > Governance > Requests",
+        "surface": "Data mesh > Requests",
         "preview": true
       },
       "prs": [
@@ -7212,20 +7403,24 @@
         "sidecar/tests/test_best_practice_checkers.py",
         "app/tests/browser/best-practice-checks.test.cjs",
         "sidecar/tests/test_model_practices.py",
-        "app/tests/browser/notebook-practices.test.cjs"
+        "app/tests/browser/notebook-practices.test.cjs",
+        "sidecar/tests/test_model_bpa.py",
+        "app/tests/browser/sql-practices.test.cjs"
       ],
       "docs": [
         "docs/notebook-best-practices.md",
         "docs/sql-best-practices.md",
         "docs/governance.md",
         "docs/governance-guide.md",
-        "docs/semantic-model-rules.md"
+        "docs/semantic-model-rules.md",
+        "docs/semantic-model-best-practices.md"
       ],
       "ui": {
         "surface": "Platform > Governance > Best practices; data product checklist",
         "preview": true
       },
       "prs": [
+        560,
         643,
         648,
         649,
@@ -7235,15 +7430,19 @@
         713,
         720,
         753,
-        790
+        788,
+        790,
+        798,
+        800,
+        813
       ],
       "workstream": "Enterprise governance foundation; Best Practice Analyzer (checkers)",
       "limitations": [
-        "Check now reads only this PC's schedules, so NB004 and NB008 don't run on a notebook only a Fabric schedule runs",
-        "Semantic model rules SM001-SM007 read the model on this PC; the Fabric BPA run (#560) is still a draft",
+        "Check now reads only this PC's schedules (notebook schedules and the Notebook steps of pipeline schedules): a notebook run only by a Fabric schedule isn't checked by NB004 and NB008",
+        "The Fabric BPA run (#560) needs semantic-link-labs in Fabric and hasn't run live",
         "Central policies not yet set up on a tenant"
       ],
-      "next_action": "Notebook editor Best practices panel (#790) and SM rules (#753) merged; PB-111 is next.",
+      "next_action": "PB-111 (#798) and BPA (#560) merged; a live BPA run and central policies on a tenant are what's left.",
       "evidence": [
         {
           "kind": "test",
@@ -7289,6 +7488,16 @@
           "kind": "test",
           "ref": "app/tests/browser/notebook-practices.test.cjs",
           "note": "product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_model_bpa.py",
+          "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/sql-practices.test.cjs",
+          "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
         }
       ],
       "backlog": [
@@ -7316,7 +7525,8 @@
         "app/tests/browser/notebook-disk-change.test.cjs",
         "app/tests/browser/deep-link.test.cjs",
         "app/tests/browser/vscode-setup.test.cjs",
-        "app/tests/browser/editor-pairing.test.cjs"
+        "app/tests/browser/editor-pairing.test.cjs",
+        "sidecar/tests/test_editor_channel.py"
       ],
       "docs": [
         "docs/vscode.md",
@@ -7334,14 +7544,16 @@
         710,
         712,
         742,
-        754
+        754,
+        795,
+        811
       ],
       "workstream": "Bring VS Code developers to KratosForge",
       "limitations": [
-        "Cells run from VS Code need a paired KratosForge window (phase 2a); no Marketplace extension yet",
-        "Links, hand-off and pairing not yet checked on Windows by a person"
+        "The extension isn't on the Marketplace yet; it installs from the release",
+        "Links, hand-off, pairing and the kernel picker not yet checked on Windows by a person"
       ],
-      "next_action": "Phase 2 remainder (extension packaging) per the VS Code thread.",
+      "next_action": "Phase 2b (KratosForge · This PC in VS Code's kernel picker) merged; Windows check by a person, then Marketplace.",
       "evidence": [
         {
           "kind": "test",
@@ -7367,6 +7579,11 @@
           "kind": "test",
           "ref": "app/tests/browser/editor-pairing.test.cjs",
           "note": "product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_editor_channel.py",
+          "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
         }
       ]
     }

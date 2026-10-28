@@ -392,6 +392,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .page-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 24px; }
 .page-head .sub { margin-bottom: 16px; }
 .head-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+/* The title side takes the room, so a long line wraps under the title and the actions stay top right. */
+.page-head > div:first-child { flex: 1 1 320px; min-width: 0; }
+.page-head > .head-actions { justify-content: flex-end; }
 .mono { font-family: var(--mono); font-size: 12.5px; }
 .small { font-size: 12px; }
 .row { display: flex; align-items: center; gap: 8px; }
@@ -409,8 +412,6 @@ h2.flush { margin: 0; }
 .gate-list { margin: 6px 0 0; padding-left: 20px; font-size: 12.5px; line-height: 1.6; }
 .subtabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; overflow-x: auto; }
 .subtabs .tab { min-height: 38px; white-space: nowrap; flex: none; }
-.subtabs .tab-menu { display: inline-flex; align-items: center; gap: 4px; }
-.subtabs .tab-here { font-weight: 400; color: var(--muted); }
 .subtabs .tab-count { margin-left: 6px; padding: 0 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-dark); font-size: 11px; font-weight: 600; }
 .subtabs .tab-count:empty { display: none; }
 .meta-body { display: flex; flex-direction: column; gap: 14px; }
@@ -432,6 +433,13 @@ h2.flush { margin: 0; }
 .trust-item { padding: 8px 0; border-top: 1px solid var(--border-soft); }
 .trust-item:first-of-type { border-top: 0; }
 .trust-item p { margin: 4px 0; }
+.product-offer { display: flex; flex-direction: column; gap: 10px; }
+.product-offer-group { display: flex; flex-direction: column; gap: 6px; }
+.product-offer-group p { margin: 0; }
+.product-offer-count { font-weight: 400; }
+.product-offer-item { border-top: 1px solid var(--border-soft); padding-top: 8px; }
+.product-offer-filters { margin-bottom: 8px; }
+.product-item-pick { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; max-height: 260px; overflow: auto; }
 .list td.n, .list th.n, .mini td.n { text-align: right; font-variant-numeric: tabular-nums; }
 .preset-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
 .choice.selected { border-color: var(--accent); background: var(--accent-soft); }
@@ -1254,6 +1262,10 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .sbs-bar.split > .pc, .sbs-key.pc { background: var(--accent); }
 .sbs-bar.split > .upload, .sbs-key.upload { background: repeating-linear-gradient(135deg, var(--accent) 0 3px, transparent 3px 6px); border: 1px solid var(--accent); box-sizing: border-box; }
 .sbs-split { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.sbs-cores { display: flex; flex-direction: column; gap: 6px; }
+.sbs-cores-label { font-weight: 600; }
+.sbs-cores .row { gap: 8px; align-items: center; }
+.sbs-cores-n { width: 64px; }
 .sbs-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
 .sbs-key.upload { margin-left: 6px; }
 .sbs-table { border: 1px solid var(--border); border-radius: 8px; overflow-x: auto; font-size: 13px; }
@@ -2464,3 +2476,30 @@ html[data-motion-level="0"] .mo-ghost { display: none; }
 .src-tables { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 6px; }
 .src-table-row { display: grid; grid-template-columns: 2fr 2fr 1.4fr 36px; gap: 6px; align-items: center; }
 .copy-job-line { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; padding: 8px 0; border-top: 1px solid var(--border); }
+
+/* The Fabric portal tab in full screen (app.js renderFabric): the embedded Fabric view fills the window
+   under a slim band, which keeps the way out since keys pressed inside Fabric never reach the app. A new
+   build's banner (#update-root) still shows above it. */
+body.fabric-full .topbar, body.fabric-full .rail,
+body.fabric-full .fabric-page .subtabs, body.fabric-full .fabric-page .how-it-works { display: none; }
+body.fabric-full .fabric-page { padding: 0; }
+body.fabric-full .fabric-page .with-how { display: flex; gap: 0; }
+body.fabric-full .fabric-page .with-how-main { flex: 1; display: flex; }
+body.fabric-full .fabric-page .monitor-fabric { border: 0; border-radius: 0; margin: 0; }
+body.fabric-full .fabric-page .monitor-band { padding: 4px 10px; }
+body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
+.choices { display: flex; flex-direction: column; gap: 8px; max-width: 560px; }
+/* One layout for every Data mesh tab (meta.js meshPage): title, context line and the tab's buttons; tabs;
+   banners; the view row (views left, tools and Refresh right); the working area. */
+.mesh-page .page-head .sub.mesh-context { margin-bottom: 12px; }
+.mesh-view-row { flex-wrap: wrap; gap: 8px 12px; margin: 0 0 14px; }
+.mesh-views:empty, .mesh-tools:empty, .mesh-banners:empty { display: none; }
+.mesh-page .seg.meta-tabs { margin: 0; }
+.mesh-tools .catalog-search { width: 280px; max-width: 100%; }
+.page.monitor > .page-head .sub { margin-bottom: 0; }
+.page.monitor .mesh-view-row { margin: 0; }
+.monitor-note:empty { display: none; }
+
+/* Platform's environment picker, labelled and set apart from Set up's page switcher. */
+.platform-env { gap: 8px; }
+.platform-pages + .platform-env { margin-left: 8px; padding-left: 14px; border-left: 1px solid var(--border); }

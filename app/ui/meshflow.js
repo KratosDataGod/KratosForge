@@ -48,14 +48,14 @@ function mfLineage(entities, ports, readers, name, dir = "both") {
 
 
 async function renderMeshOverviewTab(body, p) {
-  body.replaceChildren(h("p", { class: "muted-text" }, "Reading the platform's catalog..."));
+  body.replaceChildren(loading("Reading the platform's catalog..."));
   let m;
   try { m = await rpc("mesh_map", {}); } catch (e) { m = { problem: String(e?.message || e), domains: [], projects: [], products: [], links: [], me: "" }; }
   if (state.view !== "metadata" || state.meta.tab !== "overview" || !body.isConnected) return;
   const draw = () => body.replaceChildren(withHowItWorks(meshFlow.layer ? mfLayer(m, p, draw) : meshFlow.domain ? mfDomain(m, p, draw) : mfDomains(m, draw),
     howItWorks("mesh.overview", {
       reads: "Domains, projects, data products and who links to them from the platform's catalog, and the tables of the project open on this PC.",
-      changes: "Nothing. Domains are edited on Platform; a project's tables and products on its Project tab (Design, and Products and links).",
+      changes: "Nothing. Domains are edited on Domains > Domains; a project's tables and products on its Project tab (Design, and Products and links).",
       results: "Everyone sees the same domains and links. A project's tables show here only for the project open on this PC.",
       anchor: "data-mesh",
     })));
@@ -76,15 +76,15 @@ function mfCrumbs(m, draw) {
   const parts = [step("Domains", meshFlow.domain !== null ? () => { Object.assign(meshFlow, { domain: null, sub: null, layer: null, table: null }); draw(); } : null)];
   if (meshFlow.domain !== null) parts.push(step(mfDomainName(m, meshFlow.domain), meshFlow.layer ? () => { Object.assign(meshFlow, { layer: null, table: null }); draw(); } : null));
   if (meshFlow.layer) parts.push(step(`${m.me} / ${meshFlow.layer}`, null));
-  return previewMarked("mesh", h("nav", { class: "row tight mf-crumbs", "aria-label": "Where you are" }, parts.flatMap((x, i) => (i ? [h("span", { class: "muted-text", "aria-hidden": "true" }, "/"), x] : [x]))));
+  return h("nav", { class: "row tight mf-crumbs", "aria-label": "Where you are" }, parts.flatMap((x, i) => (i ? [h("span", { class: "muted-text", "aria-hidden": "true" }, "/"), x] : [x])));
 }
 
 function mfDomains(m, draw) {
   if (m.problem && !m.domains.length) return h("p", { class: "muted-text" }, "The platform's catalog couldn't be read: ", m.problem);
   if (!m.domains.length && !m.projects.length) {
     return emptyState({ title: "No domains yet",
-      text: "Start from the domains your organization already has in Fabric: a platform admin who is a Fabric administrator imports them on Platform > Set up > Domains.",
-      action: btn("Open Platform > Set up > Domains", "building", () => goPlatform("domains"), "tool outline small") });
+      text: "Start from the domains your organization already has in Fabric: a platform admin who is a Fabric administrator imports them on Data mesh > Domains.",
+      action: btn("Open Domains", "building", () => goMeta("domains"), "tool outline small") });
   }
   const open = (id) => { Object.assign(meshFlow, { domain: id, sub: null, layer: null, table: null }); draw(); };
   const mine = mfDomainOf(m, m.me);
@@ -136,7 +136,7 @@ function mfDomain(m, p, draw) {
   return h("div", { class: "mf" },
     mfCrumbs(m, draw),
     h("div", { class: "row" }, h("h2", { class: "grow" }, mfDomainName(m, id)),
-      btn("Manage in Platform", "building", () => goPlatform("domains"), "tool outline small"),
+      btn("All domains", "building", () => goMeta("domains"), "tool outline small"),
       btn("Glossary", null, () => goPlatform("glossary"), "tool link small")),
     subs.length ? h("div", { class: "seg small", role: "group", "aria-label": "Subdomain" }, chip(null, "All"), subs.map((s) => chip(s.id, s.name))) : null,
     projects.length ? h("table", { class: "list mf-projects" },
@@ -148,7 +148,7 @@ function mfDomain(m, p, draw) {
         h("td", {}, list(m.products.filter((pr) => pr.project === x.name).map((pr) => pr.name))),
         h("td", {}, list(readers(x.name).map((l) => `${l.from} (${productName(l.product)})`))),
         h("td", {}, list(reads(x.name).map((l) => `${productName(l.product)} from ${l.to}`)))))))
-      : h("p", { class: "muted-text" }, "No projects have joined this domain yet. A project joins one on Domains > Domain and workspaces."));
+      : h("p", { class: "muted-text" }, "No projects have joined this domain yet. A project joins one on Domains > This project."));
 }
 
 function mfLayer(m, p, draw) {

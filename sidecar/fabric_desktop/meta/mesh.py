@@ -197,7 +197,7 @@ def write_project_file(root: Path, fields: dict[str, Any]) -> Path:
         return json.dumps(v)
 
     lines = ["# This project's place in your organization: its domain and the team that owns it.",
-             "# Domains come from your platform (Platform > Set up > Domains).", "", "[project]"]
+             "# Domains come from your platform (Data mesh > Domains).", "", "[project]"]
     for key in ("name", "domain", "subdomain", "team", "description"):
         if fields.get(key):
             lines.append(f"{key} = {q(str(fields[key]))}")
@@ -499,8 +499,8 @@ def breaking_changes(project: Project, published: list[dict[str, Any]], env: str
                     wider = version
                 errors.append(f"{what}. Version {version} is outside what {len(out)} "
                               f"{_plural(len(out), 'link accepts', 'links accept')}: {'; '.join(out)}. "
-                              f"{_plural(len(out), 'Its project', 'Their projects')} can widen accepts in the link "
-                              f"(for example accepts = \"{wider}\") once {_plural(len(out), 'it reads', 'they read')} "
+                              f"{_plural(len(out), 'Its project', 'Their projects')} can widen accepts in the link's file "
+                              f"(for example accepts = \"{wider}\") and promote, once {_plural(len(out), 'it reads', 'they read')} "
                               f"the new version, or keep the column{_plural(len(changed), '', 's')}")
     return errors, notes
 

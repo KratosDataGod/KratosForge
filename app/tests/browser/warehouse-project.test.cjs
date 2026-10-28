@@ -17,22 +17,25 @@ const skip = !playwright && "Playwright is not installed";
 const page = () => app.page;
 const file = (...p) => path.join(root, "WH_Gold.Warehouse", ...p);
 
-// The warehouse's catalog, as the explorer's and Import's catalog queries read it.
+// The warehouse's catalog, as the explorer's and Import's catalog queries read it, with Fabric's own
+// queryinsights and _rsc schemas, which Import leaves out (#807).
 function catalog({ query }) {
   const cols = (...names) => names.map((name) => ({ name, type: "nvarchar" }));
   if (/FROM sys\.sql_modules AS m\nJOIN/.test(query)) {
     return { columns: cols("schema_name", "object_name", "object_type", "definition"), rows: [
       ["dbo", "vw_Sales", "V", "CREATE VIEW dbo.vw_Sales AS SELECT 1 AS x"],
-      ["staging", "usp_Load", "P", "CREATE PROCEDURE staging.usp_Load AS SELECT 1"]] };
+      ["staging", "usp_Load", "P", "CREATE PROCEDURE staging.usp_Load AS SELECT 1"],
+      ["queryinsights", "exec_requests_history", "V", "CREATE VIEW queryinsights.exec_requests_history AS SELECT 1 AS x"]] };
   }
-  if (/FROM sys\.schemas AS s WHERE/.test(query)) return { columns: cols("name"), rows: [["staging"]] };
+  if (/FROM sys\.schemas AS s WHERE/.test(query)) return { columns: cols("name"), rows: [["_rsc"], ["queryinsights"], ["staging"]] };
   if (/FROM sys\.columns/.test(query)) {
     return { columns: cols("schema_name", "object_name", "column_name", "type_name", "max_length", "precision", "scale", "is_nullable"), rows: [
-      ["dbo", "DimCustomer", "CustomerKey", "int", 4, 10, 0, 0], ["dbo", "DimCustomer", "Segment", "varchar", 20, 0, 0, 1]] };
+      ["dbo", "DimCustomer", "CustomerKey", "int", 4, 10, 0, 0], ["dbo", "DimCustomer", "Segment", "varchar", 20, 0, 0, 1],
+      ["_rsc", "ResultSetCache", "Id", "int", 4, 10, 0, 0]] };
   }
   if (/FROM sys\.objects/.test(query)) {
     return { columns: cols("schema_name", "object_name", "object_type"), rows: [
-      ["dbo", "DimCustomer", "U"], ["dbo", "vw_Sales", "V"], ["staging", "usp_Load", "P"]] };
+      ["dbo", "DimCustomer", "U"], ["dbo", "vw_Sales", "V"], ["staging", "usp_Load", "P"], ["_rsc", "ResultSetCache", "U"]] };
   }
   return { columns: cols("x"), rows: [[1]] };
 }
@@ -42,7 +45,7 @@ before(async () => {
   const runs = sqlRunMocks(catalog);
   app = await openApp({
     engine: ["sql_format", "sql_dialects", "sql_analyze", "sql_queries_list", ...PROJECT_METHODS],
-    mocks: { ...runs, sql_start: (p) => ({ ...runs.sql_start(p), target: "warehouse" }),
+    mocks: { ...runs, meta_project: () => ({ environments: { dev: { workspace_id: "ws1" }, prod: { workspace_id: "ws9" } } }), sql_start: (p) => ({ ...runs.sql_start(p), target: "warehouse" }),
       sql_status: (p) => ({ ...runs.sql_status(p), target: "warehouse" }) },
   });
   root = path.join(app.engineHome, "sales-platform");
@@ -72,6 +75,9 @@ test("with no project yet, Import makes WH_Gold.Warehouse in Fabric's layout", {
   assert.ok(fs.existsSync(file("dbo", "Views", "vw_Sales.sql")));
   assert.ok(fs.existsSync(file("staging", "StoredProcedures", "usp_Load.sql")));
   assert.ok(fs.existsSync(file("Security", "staging.sql")));
+  for (const fabrics of ["queryinsights", "_rsc"]) {
+    assert.ok(!fs.existsSync(file(fabrics)) && !fs.existsSync(file("Security", `${fabrics}.sql`)), `Fabric's ${fabrics} schema isn't imported`);
+  }
   assert.ok(fs.existsSync(file("WH_Gold.sqlproj")) && fs.existsSync(file(".platform")));
   assert.match(await panel().textContent(), /WH_Gold\.Warehouse · sales-platform · main/);
   assert.strictEqual(await panel().locator(".wh-p-git.added").count(), 4, "each file is new to Git");

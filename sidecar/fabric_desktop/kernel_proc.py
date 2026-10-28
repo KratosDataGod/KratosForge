@@ -33,7 +33,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from . import lakehouse, notebook
+from . import cpu_cap, lakehouse, notebook
 from .frames import GONE, FrameGone
 
 DOWNLOAD_SECONDS = 1800.0  # writing a whole result to Downloads, or a first page of a large query
@@ -159,6 +159,7 @@ class ProcessKernel:
         self.limit_hit = ""  # "time" or "memory" when a limit stopped the last cell
         self.library_paths: list[str] = []  # a notebook environment's folders, after the engine's (environments.py)
         self.output_dir: Path | None = None  # where the process puts output past the cap (notebook.SPILL_DIR_ENV)
+        self.cores: int | None = None  # side by side's core cap for the next process (cpu_cap.py); None for every core
         # A shared session (kernel_sessions.share): requests made under as_guest carry the guest
         # notebook's name, and the child answers with that notebook's variables and cells.
         self._guest = threading.local()
@@ -176,6 +177,13 @@ class ProcessKernel:
 
     def _guest_name(self) -> str | None:
         return getattr(self._guest, "name", None)
+
+    @property
+    def live_pid(self) -> int | None:
+        """The process's id while it is running; None before it starts and once it has ended, so a
+        stopped or restarted kernel (or another process given its id later) is never measured as it."""
+        proc = self._proc
+        return self.pid if proc is not None and proc.poll() is None else None
 
     def forget_guest(self, notebook: str) -> dict[str, Any]:
         """A guest left or restarted: its variables go; the process and the other notebooks' stay."""
@@ -196,6 +204,7 @@ class ProcessKernel:
                 with contextlib.suppress(OSError):
                     self.output_dir = Path(tempfile.mkdtemp(prefix=notebook.SPILL_DIR_PREFIX))
             extra = {notebook.SPILL_DIR_ENV: str(self.output_dir)} if self.output_dir else {}
+            extra.update(cpu_cap.env(self.cores))
             proc = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=None,
                                     text=True, encoding="utf-8", bufsize=1, creationflags=flags,
                                     start_new_session=sys.platform != "win32",
@@ -728,6 +737,27 @@ def _job_for(proc: subprocess.Popen[str]) -> int | None:
     return None
 
 
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+
+
+@functools.cache
+def win_kernel32() -> Any:
+    """kernel32 with the types of the process calls the limits and the run meter make, made once.
+    Without them a HANDLE would be cut to a 32-bit int on 64-bit Windows."""
+    import ctypes
+    from ctypes import wintypes
+    k = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+    k.OpenProcess.restype = wintypes.HANDLE
+    k.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k.GetProcessTimes.restype = wintypes.BOOL
+    k.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+    k.K32GetProcessMemoryInfo.restype = wintypes.BOOL
+    k.K32GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD]
+    k.CloseHandle.restype = wintypes.BOOL
+    k.CloseHandle.argtypes = [wintypes.HANDLE]
+    return k
+
+
 def memory_used(pid: int) -> int | None:
     """Bytes the process is using: private bytes on Windows, resident memory on Linux; None if unknown."""
     if sys.platform == "win32":
@@ -739,8 +769,8 @@ def memory_used(pid: int) -> int | None:
                 (n, ctypes.c_size_t) for n in ("PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage",
                                                "QuotaPagedPoolUsage", "QuotaPeakNonPagedPoolUsage", "QuotaNonPagedPoolUsage",
                                                "PagefileUsage", "PeakPagefileUsage", "PrivateUsage")]
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        kernel32 = win_kernel32()
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
         if not handle:
             return None
         try:

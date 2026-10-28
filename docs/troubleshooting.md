@@ -19,6 +19,8 @@ When a page or panel couldn't load something, the error shows in place with **Re
 | "... says it was published in the future" | This PC's clock is more than 24 hours behind, so every new release looks like it comes from the future. Updates are refused until the clock is right. | Set the date and time correctly (Windows Settings > Time & language), then restart the app. |
 | "... closed before it finished starting, so this build was put back" | The new build was installed but didn't open its window, so the app put the build you had back and kept running it. | Restart the app to try the update again. If it keeps happening, report it; antivirus holding the new file is a common cause. |
 | "Could not read build ...'s checksum from its release" during an update | The app couldn't read the release's `version.json`, so it couldn't check the new exe and didn't install it. | Check the internet connection, then try the update again. |
+| "Build ... was replaced on the update channel by build ..." | A newer build was published after the app last checked (the banner or dialog showed the older one). The app checks the channel again just before downloading and installs the build it offers now. | Nothing. |
+| "The update channel is being republished" | The channel changed builds twice during one update, which happens while a release is being published. Nothing was installed. | Try again in a few minutes. |
 | "The local engine stopped while doing this" | The Python engine crashed. It restarts on your next action. | Try again. If it keeps happening, report it; `%LOCALAPPDATA%\FabricDesktop\sidecar.log` has the reason. |
 | "The local engine stopped answering, so the app restarted it" | A quick request (opening a notebook, reading variables, checking a running cell) had no answer for 60 seconds, so the app ended the engine instead of freezing. Notebook variables are gone. | Run the notebook's cells again. If it keeps happening, report it with the request named in the details and `%LOCALAPPDATA%\FabricDesktop\sidecar.log`. |
 
@@ -53,7 +55,7 @@ When a page or panel couldn't load something, the error shows in place with **Re
 | "There is no file or folder at ... on this PC" | A file the app or engine expected on this PC is missing: it was moved, renamed or deleted. This is about your PC, not Fabric. | Check the path, or pick the file again. **Retry** if it was only briefly unavailable. |
 | "This PC didn't allow access to ..." | Windows refused to open or write a file, usually because another program has it open or the folder is read-only. | Close the program that has the file open, or pick a folder you can write to. |
 | A new table shows under **Unidentified** in Fabric | Fabric hasn't picked up a table written from outside yet. | Refresh the lakehouse in Fabric. See also [xray-fixes.md](xray-fixes.md#unidentified-tables). |
-| Endorsed items is greyed out | Reading endorsement needs an admin-only permission, which KratosForge doesn't ask for. | Nothing to fix: the Fabric catalog embedded on the same page shows endorsement. |
+| Endorsed items is greyed out | Reading endorsement needs an admin-only permission, which KratosForge doesn't ask for. | Nothing to fix: Fabric's own OneLake catalog shows endorsement. For data products, a Fabric administrator can read it with **Scan now** on a product in **Data mesh > Products**. |
 | **Couldn't list capacities** when creating a workspace | Your sign-in lacks `Capacity.Read.All` (your organization's own app registration doesn't have it). | Create the workspace in Fabric, or an admin adds it ([permissions.md](permissions.md#using-your-own-app-registration)). |
 
 ## Notebooks and SQL
@@ -81,7 +83,7 @@ When a page or panel couldn't load something, the error shows in place with **Re
 | "Assign a workspace before Test can run" | The environment has no workspace. | **Environments and promote > Assign workspace**. |
 | A Fabric run "stopped before it saved any results" | The runner notebook failed in Fabric. | Open it from **Monitor** to see the notebook's output in Fabric. |
 | Fabric schedule or Run in Fabric fails with 403 | You aren't Contributor on the workspace, or your organization's own app registration lacks `Item.Execute.All`. | Ask for Contributor, or an admin adds the permission and you sign in again ([permissions.md](permissions.md#using-your-own-app-registration)). |
-| A scheduled run on this PC didn't happen | The PC was off, asleep or nobody was signed in to Windows; or the app was signed out. | Use a Fabric schedule for runs that must happen. Monitor > Schedules shows each run and why it was skipped. |
+| A scheduled run on this PC didn't happen | The PC was off, asleep or nobody was signed in to Windows; or the app was signed out. | Use a Fabric schedule for runs that must happen. Monitor > KratosForge > Schedules shows each run and why it was skipped. |
 
 ## Source control
 

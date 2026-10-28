@@ -1,26 +1,30 @@
-// The Platform page: the central team's home. One landing zone, one key system, the domains and
-// glossary every team shares, and the requests domain teams send. Platform admins change these;
-// everyone else sees them and asks (Platform > Requests). The rules are enforced by the platform
-// itself (central/core.py), so this page only hides buttons a person can't use.
+// The Platform page: the central team's setup. One landing zone, one key system, the glossary every
+// team shares, governance, audit and the platform's settings. Domains (below) and requests are on
+// Data mesh, where every team works: Data mesh > Domains and Data mesh > Requests (mesh-requests.js).
+// Platform admins change these; everyone else sees them and asks. The rules are enforced by the
+// platform itself (central/core.py), so this page only hides buttons a person can't use.
 
 const PLATFORM_TABS = [
-  ["overview", "Overview"], ["landing", "Landing zone"], ["keys", "Business keys"], ["domains", "Domains"],
-  ["glossary", "Glossary"], ["governance", "Governance"], ["requests", "Requests"], ["audit", "Audit"], ["settings", "Settings"],
+  ["overview", "Overview"], ["landing", "Landing zone"], ["keys", "Business keys"],
+  ["glossary", "Glossary"], ["governance", "Governance"], ["audit", "Audit"], ["settings", "Settings"],
 ];
-// The tab bar (Cleaner KratosForge): five tabs, with the set-up screens and the governance screens each
-// behind one menu. Every tab above is still a page of its own, so "Platform > Business keys" still works.
+// The tab bar: four tabs, the way Data mesh groups its pages. Set up and Govern each hold several pages,
+// picked on the view row's switcher. Every tab above is still a page of its own, so "Platform > Business keys" still works.
 const PLATFORM_TAB_BAR = [
-  ["overview", "Overview"], ["requests", "Requests"],
-  ["setup", "Set up", ["landing", "keys", "domains", "glossary"]],
+  ["overview", "Overview"],
+  ["setup", "Set up", ["landing", "keys", "glossary"]],
   ["govern", "Govern", ["governance", "audit"]],
   ["settings", "Settings"],
 ];
 const REQUEST_KIND = { key_table: "Key table", source: "Source", access: "Access", shortcut: "Shortcut",
-  workspace: "Workspace", workspace_access: "Workspace access", domain: "Domain", exception: "Exception", data: "Data" };
+  workspace: "Workspace", workspace_access: "Workspace access", domain: "Domain", exception: "Exception", data: "Data",
+  join_domain: "Join domain" };
 const REQUEST_STATUS = { waiting: "Waiting", approved: "Approved", declined: "Declined", withdrawn: "Withdrawn" };
-const platformPage = { tab: "overview", env: "dev", requests: "waiting", source: null, me: null };
+const platformPage = { tab: "overview", env: "dev", source: null, me: null };
 
 function goPlatform(tab) {
+  // Domains and Requests moved to Data mesh; older links still land there.
+  if (tab === "domains" || tab === "requests") return goMeta(tab);
   platformPage.tab = tab || platformPage.tab;
   go("platform");
 }
@@ -29,76 +33,69 @@ function platformCall(method, params = {}, title) {
   return metaCall(method, params, title);
 }
 
-function bytes(n) {
-  if (!n) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
-  return `${(n / 1024 ** i).toFixed(i ? 1 : 0)} ${units[i]}`;
-}
-
 function adminOnly(node) {
   return platformPage.me?.admin ? node : null;
 }
 
 async function renderPlatform() {
   const p = platformPage;
+  if (p.tab === "domains" || p.tab === "requests") { const tab = p.tab; p.tab = "overview"; return goMeta(tab); }
   const body = h("div", { class: "meta-body" });
-  const envSeg = h("div", { class: "seg", role: "group", "aria-label": "Environment" },
-    MESH_ENVS.map((env) => h("button", { class: p.env === env ? "on" : null, onclick: () => { p.env = env; render(); } }, ENV_LABEL[env])));
+  // Labelled, so it doesn't read as more of Set up's page switcher beside it.
+  const envSeg = h("div", { class: "row tight platform-env" }, h("span", { class: "muted-text small" }, "Environment"),
+    h("div", { class: "seg", role: "group", "aria-label": "Environment" },
+      MESH_ENVS.map((env) => h("button", { class: p.env === env ? "on" : null, onclick: () => { p.env = env; render(); } }, ENV_LABEL[env]))));
   const who = h("p", { class: "sub" }, "Loading...");
-  const waiting = h("span", { class: "tab-count", title: "Requests waiting" }, p.waiting ? p.waiting.toLocaleString() : "");
+  // The page layout every tabbed page shares (docs/ui-guidelines.md): title, tabs, then the view row with
+  // the environment on the left and Refresh on the right. Only Overview, the landing zone and business
+  // keys are kept per environment; the glossary, governance and audit are organization-wide, so they
+  // show no environment picker.
+  const perEnv = p.tab === "overview" || (["landing", "keys"].includes(p.tab) && !(p.tab === "landing" && p.landingCentral) && !(p.tab === "keys" && p.keysShared));
   setView(h("div", { class: "page" },
-    h("div", { class: "page-head" },
-      h("div", {}, h("h1", {}, "Platform ", previewTag()), who),
-      // Only the landing zone and business keys are kept per environment; domains, glossary, governance and
-      // requests are organization-wide, so the other tabs show no environment picker (Overview has its own).
-      h("div", { class: "head-actions" }, ["landing", "keys"].includes(p.tab) && !(p.tab === "landing" && p.landingCentral) && !(p.tab === "keys" && p.keysShared) ? envSeg : null,
-        btn("Refresh", "sync", () => { p.waiting = undefined; render(); }, "tool outline"))),
-    platformTabBar(waiting),
+    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Platform ", previewTag()), who)),
+    platformTabBar(),
+    h("div", { class: "row mesh-view-row" }, platformGroupSeg(), perEnv ? envSeg : null, h("span", { class: "spacer" }), btn("Refresh", "sync", () => render(), "tool outline")),
     body));
   p.me = await attempt(() => rpc("platform_whoami"), "Could not reach the platform");
   // Owner coverage's last-used date, only where policy turns on platform_presence; the engine notes it in the background.
   if (p.me && !platformPage.seenNoted) { platformPage.seenNoted = true; rpc("platform_note_seen", {}).catch(() => {}); }
   if (state.view !== "platform") return;
-  // Overview and Requests read the count with their own data; another tab reads it once, then keeps it.
-  if (p.me && p.waiting === undefined && !["overview", "requests"].includes(p.tab)) {
-    rpc("platform_requests", { status: "waiting" }).then((list) => { if (Array.isArray(list)) showWaiting(list.length); }).catch(() => {});
-  }
   if (!p.me) { body.replaceChildren(h("p", { class: "muted-text" }, "The platform shows once the local engine is running.")); return; }
   // What the page is for folds into the info drawer; the claim link stays on the page.
   who.classList.toggle("page-intro", !p.me.can_claim);
   who.replaceChildren(...[p.me.admin ? "You're a platform admin: you create domains, key tables and sources, write governance policies, and decide requests. "
     : p.me.can_claim ? "This platform has no admin yet. "
-      : "Domain teams see everything here and ask for what they need in Requests. ",
+      : "Domain teams see everything here and ask for what they need on Data mesh > Requests. ",
   p.me.can_claim ? h("a", { href: "#", onclick: (e) => { e.preventDefault(); claimAdmin(); } }, "Become its first admin") : null,
   p.me.can_claim ? ". " : null, learnMore("platform")].filter(Boolean));
-  const tabs = { overview: platformOverviewTab, landing: platformLandingTab, keys: platformKeysTab, domains: platformDomainsTab,
-    glossary: platformGlossaryTab, governance: platformGovernanceTab, requests: platformRequestsTab, audit: platformAuditTab, settings: platformSettingsTab };
+  const tabs = { overview: platformOverviewTab, landing: platformLandingTab, keys: platformKeysTab,
+    glossary: platformGlossaryTab, governance: platformGovernanceTab, audit: platformAuditTab, settings: platformSettingsTab };
   await (tabs[p.tab] || platformOverviewTab)(body);
 }
 
-function showWaiting(n) {
-  platformPage.waiting = n;
-  const el = document.querySelector(".subtabs .tab-count");
-  if (el) el.textContent = n ? n.toLocaleString() : "";
+function platformOpen(id) {
+  if (id === "governance") govPage.open = null;
+  goPlatform(id);
 }
 
-function platformTabBar(waiting) {
-  const p = platformPage;
+function platformGroup() {
+  return PLATFORM_TAB_BAR.find(([id, , items]) => items ? items.includes(platformPage.tab) : id === platformPage.tab) || PLATFORM_TAB_BAR[0];
+}
+
+function platformTabBar() {
+  const [here] = platformGroup();
+  return h("div", { class: "subtabs" }, PLATFORM_TAB_BAR.map(([id, text, items]) =>
+    h("button", { class: `tab${here === id ? " active" : ""}`, "aria-current": here === id ? "page" : null,
+      onclick: () => platformOpen(items ? items[0] : id) }, text)));
+}
+
+// A tab with several pages picks them on the view row, as Data mesh does.
+function platformGroupSeg() {
+  const [, text, items] = platformGroup();
+  if (!items) return null;
   const label = (id) => PLATFORM_TABS.find(([t]) => t === id)[1];
-  const open = (id) => { if (id === "governance") govPage.open = null; goPlatform(id); };
-  return h("div", { class: "subtabs" }, PLATFORM_TAB_BAR.map(([id, text, items]) => {
-    if (!items) {
-      return h("button", { class: `tab${p.tab === id ? " active" : ""}`, "aria-current": p.tab === id ? "page" : null,
-        onclick: () => open(id) }, text, id === "requests" ? waiting : null);
-    }
-    // A menu tab names the page it's on, so where you are is never hidden behind the menu.
-    const here = items.includes(p.tab);
-    const b = h("button", { class: `tab tab-menu${here ? " active" : ""}`, "aria-current": here ? "page" : null, "aria-haspopup": "menu",
-      onclick: () => showMenu(b, items.map((t) => ({ label: label(t), action: () => open(t) }))) },
-    text, here ? h("span", { class: "tab-here" }, `: ${label(p.tab)}`) : null, icon("chevronDown", 14));
-    return b;
-  }));
+  return h("div", { class: "seg platform-pages", role: "group", "aria-label": text }, items.map((id) =>
+    h("button", { class: platformPage.tab === id ? "on" : null, "aria-pressed": String(platformPage.tab === id), onclick: () => platformOpen(id) }, label(id))));
 }
 
 async function claimAdmin() {
@@ -122,7 +119,6 @@ async function platformOverviewTab(body) {
   const o = await platformCall("platform_overview", { env: platformPage.env }, "Could not load the platform");
   if (!o || !stillHere("overview")) return;
   const c = o.counts;
-  showWaiting(c.requests);
   const late = (o.landing.sources || []).filter((s) => s.late);
   // One row per environment, so the card stays narrow enough to sit beside the landing zone.
   const health = h("table", { class: "list" }, h("tbody", {}, MESH_ENVS.map((env) => {
@@ -137,22 +133,20 @@ async function platformOverviewTab(body) {
   body.replaceChildren(withHowItWorks([
     o.problems.length || o.landing.problem ? h("div", { class: "problems" }, h("b", {}, "Couldn't read everything"), gateList([...o.problems, o.landing.problem].filter(Boolean))) : null,
     h("div", { class: "tiles plat-stats" },
-      platStat(c.domains, "Domains", c.subdomains ? `${c.subdomains} subdomain${c.subdomains === 1 ? "" : "s"}` : "", () => goPlatform("domains")),
+      platStat(c.domains, "Domains", c.subdomains ? `${c.subdomains} subdomain${c.subdomains === 1 ? "" : "s"}` : "", () => goMeta("domains")),
       platStat(c.projects, "Projects joined", c.teams ? `${c.teams} team${c.teams === 1 ? "" : "s"}, joined to a domain` : "joined to a domain in Data mesh",
         () => goMeta("domains")),
       platStat(c.key_tables, "Business key tables", `${c.keys.toLocaleString()} keys in ${ENV_LABEL[o.env]}`, () => goPlatform("keys")),
       platStat(c.products, "Data products", `${c.published} published`, () => openProducts()),
-      platStat(c.requests, "Requests waiting", o.needs_you.length ? `${o.needs_you.length} for you` : "", () => goPlatform("requests"))),
+      platStat(c.requests, "Requests waiting", o.needs_you.length ? `${o.needs_you.length} for you` : "", () => goMeta("requests"))),
     h("div", { class: "plat-two" },
       h("div", { class: "card pad" }, h("b", {}, o.me.admin ? "Needs you" : "Your requests"),
         requestTable(o.me.admin || o.needs_you.length ? o.needs_you : o.mine, () => render(), true),
         h("b", {}, "Each environment's platform"), health),
       h("div", { class: "card pad" },
         h("div", { class: "row" }, h("b", { class: "grow" }, "Landing zone"),
-          // One landing workspace is the same for every environment, so it has no environment picker.
-          o.landing.central ? h("span", { class: "muted-text small" }, "Read by Dev, Test and Prod")
-            : h("div", { class: "seg small", role: "group", "aria-label": "Landing zone environment" }, MESH_ENVS.map((env) =>
-              h("button", { class: platformPage.env === env ? "on" : null, onclick: () => { platformPage.env = env; render(); } }, ENV_LABEL[env]))),
+          // The environment picker above the page chooses which one; one landing workspace serves them all.
+          h("span", { class: "muted-text small" }, o.landing.central ? "Read by Dev, Test and Prod" : ENV_LABEL[o.env]),
           btn("Open", null, () => goPlatform("landing"), "tool link small")),
         late.length ? h("p", { class: "fail-text small" }, `${late.map((s) => s.name).join(", ")} ${late.length === 1 ? "is" : "are"} late.`) : null,
         (o.landing.sources || []).length ? h("table", { class: "list" },
@@ -167,7 +161,7 @@ async function platformOverviewTab(body) {
     previewShown() ? ownerCoverageCard() : null].filter(Boolean),
   howItWorks("platform.overview", {
     reads: "Each environment's platform: its catalog in SQL_Platform in Fabric, or a file on this PC until that environment has a platform. It reads when the page opens and when you press Refresh.",
-    changes: "Requests waiting for you can be approved or declined here; approving one makes what it asks for first, as you: a shortcut in OneLake, a workspace or a workspace role in Fabric, a domain or a policy exception in the platform. Domains, key tables and sources change on their own tabs, and only platform admins can change them.",
+    changes: "Requests waiting for you can be approved or declined here; approving one makes what it asks for first, as you: a shortcut in OneLake, a workspace or a workspace role in Fabric, a domain or a policy exception in the platform. Key tables and sources change on their own tabs and domains on Data mesh > Domains, and only platform admins can change them. Every request is on Data mesh > Requests.",
     results: "Everyone who uses this platform sees the same counts, requests and recent changes. Each change is kept on the Audit tab. Owners reads every domain's, data product's and source's owners, and when each owner last used the platform; opening the platform from the app records that you used it today (catalog.person), once a day.",
     anchor: "platform",
   })));
@@ -177,7 +171,7 @@ async function platformOverviewTab(body) {
 const COVERAGE_KIND = { domain: "Domain", product: "Data product", source: "Source" };
 function ownerCoverageCard() {
   const card = h("div", { class: "card pad owner-coverage" }, h("b", {}, "Owners"), loading());
-  const open = (g) => (g.opens === "products" ? () => { catalogPage.tab = "products"; go("onelake"); } : () => goPlatform(g.opens));
+  const open = (g) => (g.opens === "products" ? () => openProducts() : () => goPlatform(g.opens));
   rpc("platform_owner_coverage", {}).then((c) => {
     if (c.available === false) {
       card.replaceChildren(h("b", {}, "Owners"), h("p", { class: "muted-text small" }, c.problem));
@@ -432,7 +426,7 @@ function sourceDetail(s, l, rerender) {
   platformCall("platform_landing_files", { env: l.env, source: s.name, limit: 8 }).then((fs) => {
     if (!fs) return;
     files.replaceChildren(fs.length ? h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["File", "Size", "Landed"].map((x) => h("th", {}, x)))),
-      h("tbody", {}, fs.map((f) => h("tr", {}, h("td", { class: "mono" }, f.path), h("td", {}, bytes(f.size)), h("td", {}, when(f.modified))))))
+      h("tbody", {}, fs.map((f) => h("tr", {}, h("td", { class: "mono" }, f.path), h("td", {}, sizeText(f.size)), h("td", {}, when(f.modified))))))
       : h("p", { class: "muted-text" }, "No files yet."));
   });
   const zone = l.central ? l.zones.find((z) => z.id === (s.zone || "shared")) : null;
@@ -449,7 +443,7 @@ function sourceDetail(s, l, rerender) {
     s.copy_job ? copyJobLine(s) : null,
     h("b", {}, "Entities"),
     s.entities.length ? h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["Entity", "Files", "Size", "Newest"].map((x) => h("th", {}, x)))),
-      h("tbody", {}, s.entities.map((e) => h("tr", {}, h("td", { class: "mono" }, e.name || "(top)"), h("td", {}, e.files), h("td", {}, bytes(e.size)), h("td", {}, when(e.newest))))))
+      h("tbody", {}, s.entities.map((e) => h("tr", {}, h("td", { class: "mono" }, e.name || "(top)"), h("td", {}, e.files), h("td", {}, sizeText(e.size)), h("td", {}, when(e.newest))))))
       : h("p", { class: "muted-text" }, "Nothing landed yet."),
     h("b", {}, "Newest files"), files,
     h("b", {}, "Read by"),
@@ -797,7 +791,7 @@ REQUEST_FORMS.data = async function data(box, prefill = {}) {
   };
 };
 
-// Platform > Requests > New request: the kind picker, then that kind's fields.
+// Data mesh > Requests > New request: the kind picker, then that kind's fields.
 function newRequestDialog(done, start = "workspace", prefill = {}) {
   const shown = previewShown();
   const box = h("div", { class: "req-form" });
@@ -850,6 +844,10 @@ function requestDetail(r) {
   if (r.kind === "domain") return [h("b", {}, d.name || r.target), muted(d.parent_id ? ` under ${d.parent_id}` : " (top level)"), d.owners ? h("div", { class: "muted-text small" }, `Owners: ${d.owners}`) : null];
   if (r.kind === "exception") {
     return [h("b", {}, d.policy_name || r.target), muted(` for ${d.scope} ${d.scope_target}`), h("div", { class: "muted-text small" }, `Until ${d.until}`)];
+  }
+  if (r.kind === "join_domain") {
+    return [h("b", {}, `${r.target} into ${d.domain_name || d.domain}`), d.subdomain ? muted(` / ${d.subdomain}`) : null,
+      h("div", { class: "muted-text small" }, `Domain owners: ${d.owners || "none yet, so a platform admin decides"}`)];
   }
   if (r.kind === "data") {
     return [h("b", {}, d.what === "change" ? `Change to ${d.product_name || r.target}` : `New data product from ${d.domain_name || r.target}`),
@@ -994,59 +992,45 @@ function requestTable(rows, rerender, compact = false) {
         }, "tool outline small") : null))))));
 }
 
-// What Requests reads and writes, on Platform and on Data mesh > Requests (mesh-requests.js).
+// What Requests reads and writes, on Data mesh > Requests (mesh-requests.js).
 const REQUESTS_HOW = {
   reads: "The requests in the platform's catalog (SQL_Platform in Fabric, or a file on this PC), when the tab opens. New request also lists the domains, capacities, workspaces and policies you can see, to pick from, and Request a source lists the Fabric connections you can use (never their credentials).",
-  changes: "Sending adds a request to the catalog. Approving makes what was asked for first, as you: a key table or source in the platform (for a source asking for a Copy job, first the Copy job CJ_Landing_<source> in the landing workspace, writing to LH_Landing/Files/<source>/<table>/, and its daily schedule, Preview); a shortcut in OneLake; a workspace in Fabric on its capacity, with its admins added; a role in a workspace; a domain created in Fabric and kept in the platform (in the platform only when its parent isn't in Fabric; creating it in Fabric needs a Fabric administrator); an exception recorded in the platform for its policy; access to a data product given in the catalog. Then the request is marked approved. Accepting a data request records your reply and builds nothing. Declining records your note; Withdraw marks your own request withdrawn. If a step fails, the request stays waiting and the error names the step.",
-  results: "Everyone sees requests here and in the bell, and the platform's Teams routes get a notice (no email yet). A workspace's domain in Fabric is set by a Fabric administrator in Fabric's admin portal. Every change is on the Audit tab.",
-  anchor: "platform",
+  changes: "Sending adds a request to the catalog. Approving makes what was asked for first, as you: a key table or source in the platform (for a source asking for a Copy job, first the Copy job CJ_Landing_<source> in the landing workspace, writing to LH_Landing/Files/<source>/<table>/, and its daily schedule, Preview); a shortcut in OneLake; a workspace in Fabric on its capacity, with its admins added; a role in a workspace; a domain created in Fabric and kept in the platform (in the platform only when its parent isn't in Fabric; creating it in Fabric needs a Fabric administrator); an exception recorded in the platform for its policy; access to a data product given in the catalog; a project's domain set in the catalog when it asked to join one. Then the request is marked approved. Accepting a data request records your reply and builds nothing. Declining records your note; Withdraw marks your own request withdrawn. If a step fails, the request stays waiting and the error names the step.",
+  results: "Everyone sees requests here and in the bell, and the platform's Teams routes get a notice (no email yet). A workspace's domain in Fabric is set by a Fabric administrator in Fabric's admin portal. Every change is on Platform > Govern > Audit.",
+  more: [["Who decides", "A data product's owner decides who else may read it and changes to it. A domain's owners answer requests for a new data product and decide which projects join their domain. Platform admins decide key tables, sources, workspaces, workspace access, domains and policy exceptions, and can decide any request."]],
+  anchor: "data-mesh",
 };
 
-async function platformRequestsTab(body) {
-  const p = platformPage;
-  const all = await platformCall("platform_requests", {}, "Could not read requests");
-  if (!all || !stillHere("requests")) return;
-  const rerender = () => platformRequestsTab(body);
-  const filters = { waiting: (r) => r.status === "waiting", decided: (r) => r.status === "approved" || r.status === "declined", mine: (r) => r.mine, all: () => true };
-  const labels = { waiting: "Waiting", decided: "Decided", mine: "Sent by me", all: "All" };
-  const shown = all.filter(filters[p.requests] || filters.waiting);
-  showWaiting(all.filter(filters.waiting).length);
-  body.replaceChildren(withHowItWorks(h("div", { class: "card pad" },
-    h("div", { class: "row" },
-      h("div", { class: "seg", role: "group", "aria-label": "Show" }, Object.entries(labels).map(([id, label]) =>
-        h("button", { class: p.requests === id ? "on" : null, onclick: () => { p.requests = id; rerender(); } },
-          label, id === "waiting" ? ` (${all.filter(filters.waiting).length})` : ""))),
-      h("span", { class: "spacer" }),
-      btn("New request", "add", () => newRequestDialog(rerender), "tool primary small")),
-    h("p", { class: "muted-text small" }, "Platform admins decide key tables, sources, workspaces, workspace access, domains and policy exceptions. A data product's owner decides who else may read it; ask from the OneLake catalog. A domain's owners answer requests for a new data product from their domain, and a product's owner requests for a change to it."),
-    requestTable(shown, rerender)),
-  howItWorks("platform.requests", REQUESTS_HOW)));
-}
+// ---------- Data mesh > Domains: the organization's domains (it was Platform > Set up > Domains) ----------
 
-// ---------- domains, glossary, audit ----------
-
-async function platformDomainsTab(body) {
-  const domains = await platformCall("platform_domains");
-  if (!domains || !stillHere("domains")) return;
-  const rerender = () => platformDomainsTab(body);
+async function renderMeshOrgDomainsTab(body) {
+  const here = () => state.view === "metadata" && state.meta.tab === "domains" && body.isConnected;
+  body.replaceChildren(loading("Reading the platform's domains..."));
+  // Admin buttons need to know who you are; Platform reads it too, so it's kept for both.
+  if (!platformPage.me) platformPage.me = await rpc("platform_whoami").catch(() => null);
+  const [domains, m] = await Promise.all([platformCall("platform_domains"), rpc("mesh_map", {}).catch(() => null)]);
+  if (!here()) return;
+  if (!domains) { body.replaceChildren(h("p", { class: "muted-text" }, "The platform's domains couldn't be read. Refresh to try again.")); return; }
+  const rerender = () => renderMeshOrgDomainsTab(body);
   const o = { domains };
-  body.replaceChildren(withHowItWorks(h("div", { class: "card pad" },
-    h("div", { class: "row" }, h("b", { class: "grow" }, "Your organization's domains"),
-      adminOnly(h("span", { class: "row tight" },
-        btn("Import from Fabric", "sync", () => importFabricDomains(rerender), "tool primary small",
-          { title: "Bring in Fabric's domains and subdomains. Needs a Fabric administrator." }),
-        btn("New domain", "add", () => domainDialog(o, null, rerender), "tool outline small")))),
-    h("p", { class: "muted-text small" }, "An area of the business that owns its data, like Sales or Finance; subdomains go one level deep. Projects join one in Data mesh > Domains. Domain owners keep their domain's glossary terms."),
-    h("p", { class: "muted-text small" }, domains.some((d) => d.fabric_domain)
-      ? "These follow the domains in Fabric's admin portal. Import again after a domain is added, renamed or moved there. "
-      : "Start from the domains already in Fabric: Import from Fabric copies their names and subdomains here, so everyone can see them. ",
-      "Reading Fabric's domain list needs a Fabric administrator; after that nobody else needs admin rights. ",
-      "Each domain's admins in Fabric show as owners marked From Fabric until you set the platform's own."),
+  // Projects and published products per domain, from the same catalog read as the Map.
+  const projectsIn = (d) => (m?.projects || []).filter((p) => p.domain_id === d.id || p.subdomain_id === d.id);
+  const productsIn = (d) => (m?.products || []).filter((x) => projectsIn(d).some((p) => p.name === x.project));
+  const count = (n) => (m ? n : h("span", { class: "muted-text", title: "The catalog's projects couldn't be read" }, "—"));
+  // The tab's buttons sit top right like every Data mesh tab's; what a domain is goes in How this works.
+  meshChrome({ actions: [
+    btn("Glossary", null, () => goPlatform("glossary"), "tool outline",
+      { title: "The business glossary is kept on Platform > Set up > Glossary; tag tables with its terms on their About tab" }),
+    adminOnly(btn("New domain", "add", () => domainDialog(o, null, rerender), "tool outline")),
+    adminOnly(btn("Import from Fabric", "sync", () => importFabricDomains(rerender), "tool primary",
+      { title: "Bring in Fabric's domains and subdomains. Needs a Fabric administrator." }))] });
+  body.replaceChildren(withHowItWorks(h("div", { class: "card pad mesh-org-domains" },
     domains.length ? h("table", { class: "list" },
-      h("thead", {}, h("tr", {}, ["Domain", "Description", "Owners", "Source", ""].map((x) => h("th", {}, x)))),
-      h("tbody", {}, domains.map((d) => h("tr", {},
+      h("thead", {}, h("tr", {}, ["Domain", "Description", "Owners", "Projects", "Products", "Source", ""].map((x) => h("th", {}, x)))),
+      h("tbody", {}, domains.map((d) => h("tr", { "data-domain": d.id },
         h("td", { class: d.parent_id ? "plat-subdomain" : null }, h("b", {}, d.name), h("div", { class: "muted-text small mono" }, d.parent_id ? `${d.id} · subdomain` : d.id)),
         h("td", {}, d.description || ""), h("td", {}, domainOwnersCell(d)),
+        h("td", {}, count(projectsIn(d).length)), h("td", {}, count(productsIn(d).length)),
         h("td", {}, d.fabric_domain ? h("span", { class: "badge", title: d.fabric_domain }, "From Fabric") : h("span", { class: "muted-text" }, "Only here")),
         h("td", {}, h("span", { class: "row tight" },
           btn("Access groups", null, () => entraGroupsDialog(d, domains), "tool small",
@@ -1059,14 +1043,20 @@ async function platformDomainsTab(body) {
             if (!(await confirmDialog(`Delete ${d.name}?`, why, "Delete", { danger: true }))) return;
             if (await platformCall("platform_delete_domain", { id: d.id }, "Not deleted")) rerender();
           }, "tool small danger")))))))))
-      : h("p", { class: "muted-text" }, "No domains yet.")),
+      : h("p", { class: "muted-text" }, platformPage.me?.admin ? "No domains yet. Import them from Fabric, or add one." : "No domains yet. A platform admin imports them from Fabric.")),
   howItWorks("platform.domains", {
-    reads: "The platform's domains. Import from Fabric reads Fabric's domains and each one's admins, as a Fabric administrator.",
-    changes: "New, Edit and Delete change the platform's catalog. New domain with Also create it in Fabric ticked also creates the domain (or subdomain) in Fabric's admin portal, for the whole organization, before saving it here; that needs a Fabric administrator. Nothing here renames, moves or deletes a domain in Fabric.",
-    results: "Everyone using this platform sees the same domains. Each change is kept on the Audit tab.",
-    anchor: "platform",
+    reads: "The platform's domains, and the projects and published products in each, from the platform's catalog (SQL_Platform in Fabric, or the file on this PC). Import from Fabric reads Fabric's domains and each one's admins, as a Fabric administrator.",
+    changes: "New, Edit and Delete change the domain in the platform's catalog; only platform admins see them. New domain with Also create it in Fabric ticked also creates the domain (or subdomain) in Fabric's admin portal, for the whole organization, before saving it here; that needs a Fabric administrator. Nothing here renames, moves or deletes a domain in Fabric. Access groups saves which Entra ID group each of the domain's roles uses (catalog.entra_group) and its naming pattern; it creates nothing in Entra or Fabric, only scripts an admin runs.",
+    results: "Everyone using this platform sees the same domains. Each change is kept on Platform > Govern > Audit.",
+    more: [["What a domain is", "An area of the business that owns its data, like Sales or Finance; subdomains go one level deep. A project joins one on Domains > This project. Domain owners keep their domain's glossary terms. Platform admins create, import and edit domains here; everyone else reads them."],
+      ["Domains from Fabric", `${domains.some((d) => d.fabric_domain)
+        ? "These follow the domains in Fabric's admin portal. Import again after a domain is added, renamed or moved there. "
+        : "Start from the domains already in Fabric: Import from Fabric copies their names and subdomains here, so everyone can see them. "}Reading Fabric's domain list needs a Fabric administrator; after that nobody else needs admin rights. Each domain's admins in Fabric show as owners marked From Fabric until you set the platform's own.`]],
+    anchor: "data-mesh",
   })));
 }
+
+// ---------- glossary, audit ----------
 
 async function platformGlossaryTab(body) {
   const [terms, domains] = await Promise.all([platformCall("platform_glossary"), platformCall("platform_domains")]);
@@ -1141,7 +1131,7 @@ registerFeature({
     { label: "Platform", icon: "building", keywords: "central team landing zone keys domains", preview: true, run: () => goPlatform("overview") },
     { label: "Landing zone", icon: "folderOpen", keywords: "platform sources raw files", preview: true, run: () => goPlatform("landing") },
     { label: "Business keys", icon: "database", keywords: "platform surrogate key tables", preview: true, run: () => goPlatform("keys") },
-    { label: "Requests", icon: "person", keywords: "platform approve access key table", preview: true, run: () => goPlatform("requests") },
+    { label: "Requests", icon: "person", keywords: "platform data mesh approve access key table", preview: true, run: () => goMeta("requests") },
     { label: "Governance policies", icon: "shield", keywords: "platform governance policy policies standards naming quality classification", preview: true, run: () => { govPage.open = null; goPlatform("governance"); } },
   ],
 });
@@ -1149,7 +1139,7 @@ registerFeature({
 // ---------- Data mesh > Products: every team's products, for everyone ----------
 // It was OneLake > Data products; OneLake's tab and every link now open it on Data mesh.
 
-const productsPage = { query: "", domain: "all", open: null, following: false, reviewDue: false, mine: "" };
+const productsPage = { query: "", domain: "all", open: null, following: false, reviewDue: false, mine: "", offer: "all" };
 const productsHost = { body: null };
 
 // Open the products list, or one product's page, on Data mesh > Products.
@@ -1173,21 +1163,18 @@ function renderMeshCatalogTab(body) {
 
 async function renderDataProducts() {
   const pp = productsPage;
+  // Ask for data is the page's button on Home and Products, where you look for data.
+  meshChrome({ actions: previewShown() ? btn("Ask for data", null, () => newRequestDialog(null, "data"), "tool primary") : null, views: null, tools: null });
   if (pp.open && previewShown()) return renderProductTrust(pp.open);
   pp.open = null;
   const list = h("div", {}, loading("Loading data products..."));
   const search = h("input", { class: "catalog-search", placeholder: "Search products, ports and owners", value: pp.query, "aria-label": "Search data products" });
   productsView(h("div", { class: "monitor onelake mesh-products" }, withHowItWorks(
-    h("section", { class: "card pad" },
-      h("div", { class: "monitor-band" }, previewMarked("mesh", h("h2", {}, "Data products")),
-        h("span", { class: "muted-text" }, "What every team shares, from the platform's catalog"), h("span", { class: "spacer" }), search,
-        previewShown() ? btn("Ask for data", null, () => newRequestDialog(null, "data"), "tool outline") : null,
-        btn("Refresh", "sync", () => render(), "tool outline")),
-      list),
+    h("section", { class: "card pad" }, list),
     howItWorks("onelake.products", {
-      reads: "Every team's published data products, their ports and readers, from the platform's catalog (SQL_Platform in Fabric, or the file on this PC), and, for the products you own, which grants are due for their access review. It reads when the tab opens and when you press Refresh.",
+      reads: "Every team's published data products, their ports and readers, and the semantic models and reports grouped under each (catalog.product_item, with the endorsement the last tenant scan read in catalog.endorsement), from the platform's catalog (SQL_Platform in Fabric, or the file on this PC), and, for the products you own, which grants are due for their access review. It reads when the tab opens and when you press Refresh.",
       changes: "Link writes a link file in your open metadata project on this PC and records your project as a reader in the platform's catalog. Request access adds a request to the platform's catalog for the product's owner, and Ask for data adds one for the domain's or product's owners. None of them touches the product's tables in OneLake, and nothing else here writes.",
-      results: "The product's owner sees your request on Data mesh > Requests and decides it, and sees your project among the product's readers. A link shows on your project's Links tab.",
+      results: "The product's owner sees your request on Data mesh > Requests and decides it, and sees your project among the product's readers. A link shows on Project > Products and links > Links.",
       anchor: "data-products-preview",
     }))));
   const [out, reviews] = await Promise.all([platformCall("platform_products", {}, "Could not read the catalog"),
@@ -1198,7 +1185,9 @@ async function renderDataProducts() {
   const domains = [...new Set(out.products.map((p) => p.domain_id).filter(Boolean))].sort();
   const draw = () => {
     const q = pp.query.toLowerCase();
+    const grouped = !!out.can_group && previewShown();
     const shown = out.products.filter((p) => (pp.domain === "all" || p.domain_id === pp.domain) && (!pp.following || p.following) && (!pp.reviewDue || dueFor.has(p.id))
+      && (!grouped || productOfferMatches(p, pp.offer))
       && (!q || `${p.name} ${p.description} ${p.owner} ${p.project} ${p.ports.map((x) => x.port).join(" ")}`.toLowerCase().includes(q)));
     const action = (p) => p.linked ? h("span", { class: "pill-s pass" }, "Linked")
       : p.can_link ? btn("Link", "databaseLink", async () => {
@@ -1212,19 +1201,23 @@ async function renderDataProducts() {
         h("span", { class: "grow" }, `Access review: ${reviews.due} grant${reviews.due === 1 ? "" : "s"} on your products ${reviews.due === 1 ? "hasn't" : "haven't"} been confirmed for ${reviews.every_days} days. Open each product and confirm who still needs it, or take access away.`),
         h("button", { class: `chip review-chip${pp.reviewDue ? " on" : ""}`, "aria-pressed": String(pp.reviewDue),
           onclick: () => { pp.reviewDue = !pp.reviewDue; draw(); } }, `Review due (${dueFor.size})`)) : null,
-      h("div", { class: "row", role: "group", "aria-label": "Domain" },
-        ["all", ...domains].map((d) => h("button", { class: `chip${pp.domain === d ? " on" : ""}`, onclick: () => { pp.domain = d; draw(); } }, d === "all" ? "All domains" : d)),
-        out.can_follow && previewShown() ? h("button", { class: `chip follow-chip${pp.following ? " on" : ""}`, "aria-pressed": String(pp.following),
-          onclick: () => { pp.following = !pp.following; draw(); } }, `Following (${out.products.filter((p) => p.following).length})`) : null),
       out.project ? null : h("p", { class: "muted-text small" }, "Open a metadata project to link to a product or ask for access."),
+      // Find products by what they offer (Preview): tables, semantic models, reports.
+      grouped ? h("div", { class: "row tight product-offer-filters" },
+        h("div", { class: "seg", role: "group", "aria-label": "Offers" }, PRODUCT_OFFER_FILTERS.map(([id, label]) =>
+          h("button", { class: pp.offer === id ? "on" : null, "aria-pressed": String(pp.offer === id), "data-offer": id,
+            onclick: () => { pp.offer = id; draw(); } }, label))), previewTag()) : null,
       shown.length ? h("table", { class: "list" },
         h("thead", {}, h("tr", {}, ["Product", "Domain", "Owner", "Open to", "Ports", "Readers", ""].map((x) => h("th", {}, x)))),
         h("tbody", {}, shown.map((p) => h("tr", {},
           h("td", {}, previewShown() ? h("a", { href: "#", class: "product-open", title: "Endorsement and business terms",
             onclick: (e) => { e.preventDefault(); pp.open = p; render(); } }, h("b", {}, p.name)) : h("b", {}, p.name),
             h("span", { class: "muted-text small" }, ` v${p.version}`),
+            grouped ? h("span", { class: "product-offer-badge" }, " ", productModelBadge(p)) : null,
             p.status === "deprecated" ? h("span", { class: "pill-s wrn" }, `Deprecated${p.deprecated_on ? ` ${p.deprecated_on}` : ""}`) : null,
-            h("div", { class: "muted-text small" }, p.description || ""), h("div", { class: "muted-text small mono" }, p.id)),
+            h("div", { class: "muted-text small" }, p.description || ""),
+            grouped ? h("div", { class: "muted-text small product-offer-summary" }, productOfferSummary(p)) : null,
+            h("div", { class: "muted-text small mono" }, p.id)),
           h("td", {}, p.domain_id || h("span", { class: "muted-text" }, "")),
           h("td", {}, p.owner || h("span", { class: "muted-text" }, "not set")),
           h("td", {}, ACCESS_LABEL[p.access] || p.access),
@@ -1233,6 +1226,17 @@ async function renderDataProducts() {
           h("td", {}, action(p))))))
         : h("p", { class: "muted-text" }, out.products.length ? "Nothing matches." : "No team has published a data product yet.")].filter(Boolean));
   };
+  // All products or the ones you follow on the left; the domain, search and Refresh on the right.
+  const following = out.can_follow && previewShown();
+  const views = h("div", { class: "seg", role: "group", "aria-label": "Show" });
+  const drawViews = () => views.replaceChildren(...[[false, "All products"], [true, `Following (${out.products.filter((p) => p.following).length})`]]
+    .map(([on, label]) => h("button", { class: `${pp.following === on ? "on" : ""}${on ? " follow-chip" : ""}`.trim() || null,
+      "aria-pressed": String(pp.following === on), onclick: () => { pp.following = on; drawViews(); draw(); } }, label)));
+  if (following) drawViews();
+  else pp.following = false;
+  const domain = h("select", { class: "group-select", "aria-label": "Domain", onchange: (e) => { pp.domain = e.target.value; draw(); } },
+    ["all", ...domains].map((d) => h("option", { value: d, selected: pp.domain === d ? true : null }, d === "all" ? "All domains" : d)));
+  meshChrome({ views: following ? views : null, tools: [domains.length ? domain : null, search] });
   search.addEventListener("input", () => { pp.query = search.value; draw(); });
   draw();
 }
@@ -1308,21 +1312,31 @@ async function renderProductTrust(p) {
           pp.mine && p.project === pp.mine ? btn("Edit definition", null, () => goMeta("products"), "tool outline small") : null, btn("Ask for a change", null, () => newRequestDialog(null, "data", { product: p.id }), "tool outline small")),
         h("div", { class: "row" }, h("h2", { class: "trust-name" }, p.name), badges, previewTag()),
         h("div", { class: "muted-text small" }, p.description || ""), h("div", { class: "muted-text small mono" }, p.id), lastScan),
+      productOfferCard(p, (items) => { models = items.filter((i) => i.item_type === "SemanticModel"); paintBadge(); }),
       endorsement, terms, productChecklistCard(p), productAccessCard(p), productDomainGroupsCard(p)),
     howItWorks("onelake.product-trust", {
-      reads: "The product's endorsement as the last tenant scan read it, and its business terms, from the platform's catalog. Scan now reads Fabric's admin tenant scan (Power BI) of the workspaces the platform's published products live in, as you: only a Fabric administrator can. Nothing reads Purview.",
-      changes: "Scan now writes what the scan read to catalog.endorsement in the platform's catalog. Adding or removing a term writes catalog.product_term. Take access away deletes that project's row in catalog.grant; links it already made stay. Ask for a change adds a request to catalog.request for the product's owner. Still needed records your confirmation in catalog.grant_review. Follow adds you to catalog.follow (Following takes you off). Nothing changes in Fabric or Purview: KratosForge can't set endorsement, and terms stay in Purview.",
-      results: "Everyone who opens this product sees the last scan's badge and when it was read, and each term with a link to it in Purview. Each scan, term change and access taken away is in the platform's audit log. When a promote to Prod deprecates the product, changes its version or changes a port's columns, its followers and the people who linked a project to it are named in a Teams notice that says what changed.",
+      reads: "The product's endorsement as the last tenant scan read it, its business terms, and its semantic models and reports (catalog.product_item), from the platform's catalog; its tables are its ports. Add a model and Add a report list your workspaces and their items from Fabric, read only. Scan now reads Fabric's admin tenant scan (Power BI) of the workspaces the platform's published products live in, as you: only a Fabric administrator can. Nothing reads Purview.",
+      changes: "Scan now writes what the scan read to catalog.endorsement in the platform's catalog. Adding or removing a term writes catalog.product_term. Take access away deletes that project's row in catalog.grant; links it already made stay. Ask for a change adds a request to catalog.request for the product's owner. Still needed records your confirmation in catalog.grant_review. Follow adds you to catalog.follow (Following takes you off). Add a model or Add a report writes one row to catalog.product_item (the item's id, type, workspace id and display name) and an add product item entry to catalog.audit; Remove deletes that row and logs remove product item there. Nothing changes in Fabric or Purview: KratosForge can't set endorsement, and terms stay in Purview.",
+      results: "Everyone who opens this product sees the last scan's badge and when it was read, and each term with a link to it in Purview. Each scan, term change, model or report added or removed, and access taken away is in the platform's audit log. The product's badge here and on the products list is its semantic model's endorsement when it has one. When a promote to Prod deprecates the product, changes its version or changes a port's columns, its followers and the people who linked a project to it are named in a Teams notice that says what changed.",
       anchor: "endorsement-and-business-terms-preview",
     }))));
   const here = () => productsHere() && pp.open === p;
-  const draw = (t) => {
-    if (!here()) return;
+  // The product's badge is its semantic model's endorsement when it has one; otherwise its lakehouses'.
+  let models = [];
+  let shown = null;
+  const paintBadge = () => {
+    if (!here() || (!shown && !models.length)) return;
+    if (models.length) { badges.replaceChildren(productModelBadge({ items: models })); return; }
     // Items that differ get one neutral badge here; the Endorsement card names each item's own.
-    const seen = [...new Map(t.items.map((i) => [i.endorsement || "", i.endorsement])).values()];
+    const seen = [...new Map(shown.items.map((i) => [i.endorsement || "", i.endorsement])).values()];
     badges.replaceChildren(...(seen.length > 1
       ? [h("span", { class: "pill-s neu endorse-badge varies", title: "Its items' endorsements differ: each one is under Endorsement" }, "Endorsement varies")]
       : (seen.length ? seen : [null]).map(endorsementBadge)));
+  };
+  const draw = (t) => {
+    if (!here()) return;
+    shown = t;
+    paintBadge();
     const latest = t.items.map((i) => i.scanned_at).filter((x) => x && !Number.isNaN(Date.parse(x)))
       .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
     lastScan.replaceChildren(...(latest ? ["Last tenant scan: ", when(latest)] : []));

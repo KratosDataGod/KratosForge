@@ -126,6 +126,42 @@ def test_scheduled_metadata_run_on_this_pc(svc, tmp_path):
     assert len(svc.meta_runs("dev")) == 6
 
 
+def test_editing_a_schedule_on_this_pc_keeps_its_id_its_runs_and_paused(svc):
+    """PB-048: new times in place. The Windows task is replaced under the same id."""
+    svc.notebooks.save("Daily load", [{"type": "code", "source": "x = 1"}])
+    sid = svc.add_pc_schedule({"kind": "notebook", "name": "Daily load"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+    svc.pc_schedules.log_run({"schedule_id": sid, "status": "ok", "started": "2026-10-28T06:00:00"})
+    svc.set_pc_schedule_enabled(sid, False)
+    out = svc.update_pc_schedule(sid, {"kind": "weekly", "times": ["06:00", "13:00"], "weekdays": ["Monday", "Friday"]})
+    assert out["id"] == sid and out["enabled"] is False and svc.fake_scheduler.tasks[sid][0] is False
+    [row] = svc.pc_schedules_for("notebook", "Daily load")
+    assert row["text"] == "Mon, Fri at 06:00, 13:00" and row["last"]["status"] == "ok"
+    before = dict(row["config"])
+    with pytest.raises(ValueError, match="HH:MM"):
+        svc.update_pc_schedule(sid, {"kind": "daily", "times": ["25:00"]})
+    assert svc.pc_schedules_for("notebook", "Daily load")[0]["config"] == before  # a bad time changes nothing
+    with pytest.raises(LookupError):
+        svc.update_pc_schedule("nope", {"kind": "daily", "times": ["06:00"]})
+
+
+def test_editing_a_fabric_schedule_updates_it_in_place(svc, monkeypatch):
+    sent = []
+
+    class Jobs:
+        def update_schedule(self, ws, item, job, sid, enabled, config):
+            sent.append((ws, item, job, sid, enabled, config))
+            return {"id": sid, "enabled": enabled, "configuration": config}
+
+    monkeypatch.setattr(Service, "fabric_jobs", property(lambda self: Jobs()))
+    svc._fabric_schedules = {"pending": False, "items": [{"id": "s1", "text": "Daily at 02:00 UTC", "configuration": {}}]}
+    svc.update_fabric_schedule("ws1", "nb1", "RunNotebook", "s1",
+                               {"kind": "daily", "times": ["02:00"], "time_zone": "W. Australia Standard Time"}, enabled=False)
+    [(ws, item, job, sid, enabled, config)] = sent
+    assert (ws, item, job, sid, enabled) == ("ws1", "nb1", "RunNotebook", "s1", False)
+    assert config["type"] == "Daily" and config["times"] == ["02:00"] and config["localTimeZoneId"] == "W. Australia Standard Time"
+    assert svc._fabric_schedules["items"][0]["text"] == "Daily at 02:00 W. Australia Standard Time"
+
+
 class FakeFabric:
     def __init__(self, token):
         pass
@@ -169,7 +205,7 @@ def test_one_list_has_this_pc_and_fabric(svc, monkeypatch):
 
 
 def test_a_schedules_file_that_was_set_aside_is_reported_on_the_schedules_page(svc):
-    # QA-011 follow-up: a torn schedules.json is moved aside; Monitor > Schedules must say so.
+    # QA-011 follow-up: a torn schedules.json is moved aside; Monitor > KratosForge > Schedules must say so.
     svc.notebooks.save("Daily", [{"type": "code", "source": "x = 1"}])
     svc.add_pc_schedule({"kind": "notebook", "name": "Daily"}, {"kind": "daily", "times": ["06:00"]})
     assert svc.all_schedules()["pc_set_aside"] == []

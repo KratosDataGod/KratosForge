@@ -200,6 +200,9 @@ class Host:
 
 
 def main() -> None:
+    # Side by side's core cap, before any library starts a thread pool (cpu_cap.py).
+    from . import cpu_cap
+    cpu_cap.from_env()
     # A notebook environment's packages come after the engine's, so they add to it and never
     # replace what the engine ships (environments.py).
     for folder in filter(None, os.environ.get("FABRIC_DESKTOP_LIBRARY_PATHS", "").split(os.pathsep)):

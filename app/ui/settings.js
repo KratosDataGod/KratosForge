@@ -879,7 +879,7 @@ function localWritesRow() {
     status.textContent = localWritesText(w);
     clear.disabled = !w.files && !w.tpch.length;
     extra.replaceChildren(...w.tpch.map((t) => h("div", { class: "row wrap" },
-      h("span", { class: "muted-text small grow" }, `TPC-H data left in the temp folder: ${formatBytes(t.bytes)}, ${t.folder}`),
+      h("span", { class: "muted-text small grow" }, `TPC-H data left in the temp folder: ${sizeText(t.bytes)}, ${t.folder}`),
       btn("Open", "folderOpen", () => openLocalWrites(t.folder), "tool small"))));
   }).catch(() => { status.textContent = "Couldn't read the folder."; });
   return settingRow("Files on this PC",
@@ -893,19 +893,19 @@ async function clearLocalWrites() {
   const total = w.bytes + w.tpch.reduce((n, t) => n + t.bytes, 0);
   const what = [w.files ? `${w.files.toLocaleString()} file${w.files === 1 ? "" : "s"} in ${w.folder}` : "",
     ...w.tpch.map((t) => `TPC-H data in ${t.folder}`)].filter(Boolean);
-  if (!(await confirmDialog("Delete left-overs?", `This deletes ${formatBytes(total)} from this PC: ${what.join("; ")}. ` +
+  if (!(await confirmDialog("Delete left-overs?", `This deletes ${sizeText(total)} from this PC: ${what.join("; ")}. ` +
     "Your tables in OneLake aren't touched. A write that hasn't finished uploading is lost, so it's refused while a notebook is running.",
   "Delete", { danger: true }))) return;
   const res = await attempt(() => rpc("local_writes_clear"), "Not deleted");
   if (!res) return;
-  toast(`Deleted ${formatBytes(res.bytes)}.${res.in_use.length ? ` ${res.in_use.length} still in use, left: try again when it has finished.` : ""}`);
+  toast(`Deleted ${sizeText(res.bytes)}.${res.in_use.length ? ` ${res.in_use.length} still in use, left: try again when it has finished.` : ""}`);
   render();
 }
 
 function localWritesText(w) {
   if (!w.files) return `Empty · ${w.folder}`;
-  const up = w.uploading.files ? `, ${w.uploading.files} waiting to upload or left over (${formatBytes(w.uploading.bytes)})` : "";
-  return `${formatBytes(w.bytes)} in ${w.files.toLocaleString()} file${w.files === 1 ? "" : "s"}${up} · ${w.folder}`;
+  const up = w.uploading.files ? `, ${w.uploading.files} waiting to upload or left over (${sizeText(w.uploading.bytes)})` : "";
+  return `${sizeText(w.bytes)} in ${w.files.toLocaleString()} file${w.files === 1 ? "" : "s"}${up} · ${w.folder}`;
 }
 
 // The SQL page's limits. Each is checked by the engine (app_settings.SQL_RANGES); a value set by the
@@ -936,6 +936,17 @@ function sqlSettingsSection(s, locked) {
       "aria-label": "Warehouse changes", onchange: async (e) => { await saveSettings({ sql_warehouse_writes: e.target.checked }); render(); } }),
     h("span", {}, s.sql_warehouse_writes.value ? "On" : "Off")),
     fixedBy(s, "sql_warehouse_writes")));
+  // Clicking a warehouse's or SQL analytics endpoint's name: the Warehouse page or Fabric's own editor.
+  const openIn = s.wh_open_in?.value || "kratosforge";
+  const openChoice = (value, title, help) => h("label", { class: "choice" },
+    h("input", { type: "radio", name: "wh-open-in", value, checked: openIn === value ? true : null, disabled: locked("wh_open_in") ? true : null,
+      onchange: async () => { await saveSettings({ wh_open_in: value }); render(); } }),
+    h("span", { class: "main" }, h("span", { class: "n" }, title), h("span", { class: "w" }, help)));
+  rows.push(settingRow("Open warehouses in", "What clicking a warehouse's or SQL analytics endpoint's name does in Workspaces and the OneLake catalog. Open in Fabric stays on every row.",
+    h("div", { class: "choices", role: "radiogroup", "aria-label": "Open warehouses in" },
+      openChoice("kratosforge", "KratosForge", "The Warehouse page: explorer, T-SQL editor, templates, project files, deploy and monitoring. Queries still run in Fabric and use capacity."),
+      openChoice("fabric", "Fabric portal", "Fabric's own warehouse editor, in the Fabric portal tab.")),
+    fixedBy(s, "wh_open_in")));
   // WH-19: workspaces whose new warehouses get monitoring views without asking (whmonitor.js).
   const auto = s.wh_monitoring_auto?.value || [];
   rows.push(settingRow("Monitoring views without asking", "Workspaces where you said yes, on a build confirm, to monitoring views for new warehouses. The app builds a warehouse's KQL queryset when it opens one there. Remove a workspace and it asks again.",

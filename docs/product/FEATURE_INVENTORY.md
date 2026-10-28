@@ -66,12 +66,12 @@ on quality.
 <!-- BEGIN GENERATED: summary -->
 | Status | Verified | Partially Verified | Unverified | Total |
 | --- | ---: | ---: | ---: | ---: |
-| Implemented | 2 | 113 | 4 | 119 |
+| Implemented | 2 | 114 | 3 | 119 |
 | Partially Implemented | 1 | 10 | 1 | 12 |
 | Implemented but Not Exposed | 0 | 4 | 0 | 4 |
 | Missing | 0 | 0 | 3 | 3 |
 | Planned | 0 | 0 | 4 | 4 |
-| **Total** | **3** | **127** | **12** | **142** |
+| **Total** | **3** | **128** | **11** | **142** |
 <!-- END GENERATED: summary -->
 
 ## What the inventory shows
@@ -120,7 +120,7 @@ on quality.
 
 | Id | Feature | Status | Verification | Where people reach it | Next action |
 | --- | --- | --- | --- | --- | --- |
-| [FEAT-FAB-11](#feat-fab-11) | Fabric Warehouse development | Partially Implemented | Partially Verified | Workspaces > warehouse > Warehouse page (Preview) | Tenant run of WH-10 to WH-13 writes and the WH-19 Monitoring tab; phases 4-5 need Chris's go. |
+| [FEAT-FAB-11](#feat-fab-11) | Fabric Warehouse development | Partially Implemented | Partially Verified | Workspaces > warehouse > Warehouse page (Preview) | A warehouse query from the app itself on a tenant, and the WH-19 Monitoring tab; phases 4-5 need Chris's go. |
 | [FEAT-NB-01](#feat-nb-01) | Notebooks on this PC | Implemented | Partially Verified | Create > Notebook, notebook page | The Parameters bar now applies to Fabric and side by side runs (#635), which closes Chris's 2026-10-23 'later' ask. |
 | [FEAT-NB-06](#feat-nb-06) | Run other notebooks and magics | Implemented | Partially Verified | Notebook cells | Implementation review of the magics PRs. |
 | [FEAT-SQL-01](#feat-sql-01) | SQL query page | Implemented | Partially Verified | Workspaces > lakehouse > SQL query | SQL editor rows are tracked by the warehouse program now (WH-08 Messages and Chart merged). |
@@ -148,10 +148,10 @@ on quality.
 
 | Id | Feature | Status | Verification | Where people reach it | Next action |
 | --- | --- | --- | --- | --- | --- |
-| [FEAT-FAB-08](#feat-fab-08) | Fabric schedules | Implemented | Partially Verified | Notebook ribbon, Monitor > Schedules (Preview) | Allow editing a schedule's time; use the quiet token path in all_schedules. |
+| [FEAT-FAB-08](#feat-fab-08) | Fabric schedules | Implemented | Partially Verified | Notebook ribbon, Monitor > Fabric > Schedules (Preview) | Allow editing a schedule's time; use the quiet token path in all_schedules. |
 | [FEAT-FAB-10](#feat-fab-10) | Data Factory items: pipelines, copy jobs, dataflows and connections | Partially Implemented | Partially Verified | Pipelines page > Open from workspace, Copy jobs, Dataflows and Connections tabs (Preview) | DF-8 deploy through the platform repo needs Chris's go; tenant run of the DF-6 buttons. |
-| [FEAT-MESH-03](#feat-mesh-03) | Landing zone and source registry | Partially Implemented | Partially Verified | Platform > Landing zone (Preview) | Guided ingestion still waits on D2 (FD-116); Data Factory copy jobs (DF-6) may answer it. |
-| [FEAT-ORC-01](#feat-orc-01) | PC schedules | Implemented | Partially Verified | Notebook ribbon, Data mesh, Monitor > Schedules (Preview) | Agent schedules cover Linux; Windows Task Scheduler runs need a Windows check. |
+| [FEAT-MESH-03](#feat-mesh-03) | Landing zone and source registry | Partially Implemented | Partially Verified | Platform > Landing zone (Preview) | Landing copy job requests (stage 4.1) and platform-repo landing zones merged; try on a tenant. |
+| [FEAT-ORC-01](#feat-orc-01) | PC schedules | Implemented | Partially Verified | Notebook ribbon, Data mesh, Monitor > KratosForge > Schedules (Preview) | Agent schedules cover Linux; Windows Task Scheduler runs need a Windows check. |
 | [FEAT-ORC-02](#feat-orc-02) | Headless agent | Implemented | Partially Verified | CLI and agent.toml (no UI) | Verify on a tenant. |
 | [FEAT-ORC-04](#feat-orc-04) | Fabric pipeline mailbox | Implemented | Partially Verified | Fabric pipeline notebook + agent (Preview) | Run once on a tenant; record the writer's identity. |
 | [FEAT-ORC-06](#feat-orc-06) | Multiple workers | Partially Implemented | Partially Verified | agent.toml settings; no screen (Preview) | Run the mailbox on a tenant (PB-049), then build the app labels (multi-worker.md step 4). |
@@ -167,7 +167,7 @@ on quality.
 | [FEAT-FAB-01](#feat-fab-01) | Fabric REST client | Implemented | Partially Verified | Used by most pages | Run the live test harness on a non-production workspace (PB-002). |
 | [FEAT-FAB-02](#feat-fab-02) | Workspaces page and item listing | Implemented | Partially Verified | Workspaces | Keep; offer actions beyond Open for non-lakehouse items when their workstreams add them. |
 | [FEAT-FAB-03](#feat-fab-03) | Create lakehouses | Implemented | Partially Verified | Create, Home, workspace page, command bar | Keep. |
-| [FEAT-FAB-05](#feat-fab-05) | Embedded Fabric portal and Monitoring hub | Implemented | Unverified | Fabric, Monitor | Restrict in-view navigation to Fabric hosts and add cargo test to CI (PB-071). |
+| [FEAT-FAB-05](#feat-fab-05) | Embedded Fabric portal and Monitoring hub | Implemented | Partially Verified | Fabric, Monitor | Check in the Windows app that a look-alike host opens in the browser (PB-008 review). |
 | [FEAT-FAB-06](#feat-fab-06) | Publish notebooks to Fabric | Implemented | Partially Verified | Notebook ribbon > Publish to OneLake | Include publish after a rename in the tenant smoke test. |
 | [FEAT-FAB-07](#feat-fab-07) | Run in Fabric | Implemented | Partially Verified | Notebook ribbon (Runs on: Fabric) (Preview) | Offer Cancel in Monitor > Runs and the tray (PB-043) and include in the tenant smoke test. |
 | [FEAT-FAB-09](#feat-fab-09) | Fabric Environment items and Spark settings | Missing | Unverified | None | Plan with the Prove program's environment profiles (FD-109) once the package-source decision is made (PB-016). |
@@ -185,12 +185,12 @@ on quality.
 
 | Id | Feature | Status | Verification | Where people reach it | Next action |
 | --- | --- | --- | --- | --- | --- |
-| [FEAT-ONE-03](#feat-one-03) | OneLake shortcut command center | Implemented | Partially Verified | OneLake > Shortcuts (Preview) | Scheduled health check with a Teams alert (PB-053). |
+| [FEAT-ONE-03](#feat-one-03) | OneLake shortcut command center | Implemented | Partially Verified | OneLake > Shortcuts (Preview) | Verify the agent's scheduled shortcut check on a tenant (docs/agent.md, Verify on your tenant step 10; PB-053). |
 | [FEAT-META-05](#feat-meta-05) | Surrogate keys | Implemented | Partially Verified | Data mesh > Surrogate keys | Stop reading whole key tables on every keyed run (FD-115). |
 | [FEAT-META-15](#feat-meta-15) | Variable library and source systems | Implemented | Partially Verified | Data mesh > Source systems | Keep. |
 | [FEAT-MESH-01](#feat-mesh-01) | Central platform | Implemented | Partially Verified | Platform (Preview) | Verify setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified). |
 | [FEAT-MESH-02](#feat-mesh-02) | Central business keys | Implemented | Partially Verified | Settings > Platform > Keys (Create, Join existing, Move keys in); Data mesh > Surrogate keys > Move keys; Platform > Business keys (Preview) | Move keys into the shared Keys workspace on a live tenant (PB-002); user docs that still say one LH_Keys per environment (azure-setup.md, metadata-guide.md) need updating |
-| [FEAT-MESH-04](#feat-mesh-04) | Data mesh: domains, products, links, glossary | Implemented | Partially Verified | Data mesh > Domains, OneLake > Data products, Home (Preview) | Purview and endorsement live checks wait on Chris's tenant run; implementation review of #591, #627, #642. |
+| [FEAT-MESH-04](#feat-mesh-04) | Data mesh: domains, products, links, glossary | Implemented | Partially Verified | Data mesh: Home, Domains, Products, Requests and Project tabs (Preview) | Data mesh now holds Home, Domains, Products and Requests (#801-#806); Purview and endorsement live checks wait on Chris's tenant run. |
 
 ### Data Governance and Quality
 
@@ -205,22 +205,22 @@ on quality.
 | [FEAT-META-17](#feat-meta-17) | Column lineage | Implemented | Partially Verified | Entity page > Lineage > Columns (Preview) | Implementation review of PR #124. |
 | [FEAT-GOV-01](#feat-gov-01) | Freshness promises and Teams alerts | Implemented | Partially Verified | Entity > Freshness, Home | Merge with incidents so a late table posts once (agent.md notes duplicates). |
 | [FEAT-GOV-02](#feat-gov-02) | Project tests gate promote | Implemented | Partially Verified | Data mesh > Quality > Tests (Preview) | Fold into the Git program's validation framework (FD-113). |
-| [FEAT-GOV-03](#feat-gov-03) | Governance exceptions | Implemented | Partially Verified | Metadata project, Platform > Governance > Requests (Preview) | Implementation review of #603 and #605 (PB-059). |
-| [FEAT-GOV-05](#feat-gov-05) | Enterprise governance policy registry and offline validation | Partially Implemented | Partially Verified | None | GOV-002 offline validation, after Chris approves |
+| [FEAT-GOV-03](#feat-gov-03) | Governance exceptions | Implemented | Partially Verified | Data mesh > Quality > Exceptions, Data mesh > Requests, Platform > Govern > Governance (Preview) | Product owner decides whether exceptions.toml joins the request flow or FD-129 is narrowed to policy exceptions (PB-059 review finding 1). |
+| [FEAT-GOV-05](#feat-gov-05) | Enterprise governance policy registry and offline validation | Partially Implemented | Partially Verified | None | GOV-003 enforcement: block promote and deploy on a Block policy |
 | [FEAT-GOV-06](#feat-gov-06) | Sensitive data classification | Missing | Unverified | None | Owned by the governance foundation thread; complement Purview, don't duplicate it. |
 | [FEAT-GOV-07](#feat-gov-07) | Reliability objectives | Implemented but Not Exposed | Partially Verified | None (agent incidents only) | Show in the workload page with incidents (PB-047). |
-| [FEAT-MESH-05](#feat-mesh-05) | Breaking-change check for data products | Implemented | Partially Verified | Promote card | Consumer declarations and deprecation (scale plan 8.2). |
-| [FEAT-GOV-08](#feat-gov-08) | Governance requests | Implemented | Partially Verified | Platform > Governance > Requests (Preview) | Governance steps 8 and 12 wait on Chris's two read-only PC checks. |
-| [FEAT-GOV-09](#feat-gov-09) | Best-practice checks and templates | Implemented | Partially Verified | Platform > Governance > Best practices; data product checklist (Preview) | Notebook editor Best practices panel (#790) and SM rules (#753) merged; PB-111 is next. |
+| [FEAT-MESH-05](#feat-mesh-05) | Breaking-change check for data products | Implemented | Partially Verified | Promote card | Versioned contracts (#701): accepted versions and deprecation dates block only readers that need it. |
+| [FEAT-GOV-08](#feat-gov-08) | Governance requests | Implemented | Partially Verified | Data mesh > Requests (Preview) | Governance steps 8 and 12 wait on Chris's two read-only PC checks. |
+| [FEAT-GOV-09](#feat-gov-09) | Best-practice checks and templates | Implemented | Partially Verified | Platform > Governance > Best practices; data product checklist (Preview) | PB-111 (#798) and BPA (#560) merged; a live BPA run and central policies on a tenant are what's left. |
 
 ### Developer Experience and Productivity
 
 | Id | Feature | Status | Verification | Where people reach it | Next action |
 | --- | --- | --- | --- | --- | --- |
 | [FEAT-SHL-04](#feat-shl-04) | Left rail, pages and command bar | Implemented | Partially Verified | Rail, Ctrl+K | Keep; add keyboard tests for the command bar. |
-| [FEAT-SHL-05](#feat-shl-05) | Preview tags and hiding Preview features | Implemented | Partially Verified | Settings > Preview features | Add Preview ids for batch_by, release records, who-can-promote, objectives and column lineage, which docs call Preview but code doesn't tag (PB-078). |
+| [FEAT-SHL-05](#feat-shl-05) | Preview tags and hiding Preview features | Implemented | Partially Verified | Settings > Preview features | None for Preview ids: a UI test maps every docs (Preview) heading to an id or to the reason its page gives (PB-078). |
 | [FEAT-SHL-06](#feat-shl-06) | Plain-language errors and activity tray | Implemented | Partially Verified | Top bar bell | Feed incidents and agent status into the bell once incident screens exist (PB-047). |
-| [FEAT-FAB-04](#feat-fab-04) | Item preview panel | Implemented | Partially Verified | Workspaces > item (Preview) | Clean up downloaded preview files (inference: never removed). |
+| [FEAT-FAB-04](#feat-fab-04) | Item preview panel | Implemented | Partially Verified | Workspaces > item (Preview) | None for downloads: a previewed file is removed once read, a download stops at 200 MB, and one left behind goes at the next start (PB-087). |
 | [FEAT-NB-08](#feat-nb-08) | Autocomplete and variables pane | Implemented | Partially Verified | Notebook editor, View > Variables | Column completion for attached tables (Prove backlog #12). |
 | [FEAT-NB-09](#feat-nb-09) | Cell dependencies and stale cells | Implemented | Partially Verified | Notebook View and Run tabs (Preview) | Add UI to declare depends_on (engine reads it, no UI sets it); mark stale on a new Delta version. |
 | [FEAT-NB-10](#feat-nb-10) | New notebook wizard | Implemented | Partially Verified | Create > Notebook from a template (Preview) | Add the entry point from a lakehouse table (plan Stage 3). |
@@ -243,9 +243,9 @@ on quality.
 | [FEAT-SHL-11](#feat-shl-11) | Support bundle | Partially Implemented | Verified | CLI only (fabric-desktop support-bundle) | Add 'Save support bundle' with a contents preview to Settings, as FD-138's acceptance asks (PB-062). |
 | [FEAT-PRV-05](#feat-prv-05) | Scorecard and run measurement | Implemented | Partially Verified | Prove > Full scorecard (Preview) | Measure the kernel child process when it is on (FD-119). |
 | [FEAT-META-18](#feat-meta-18) | Estate X-ray and adopt | Implemented | Partially Verified | Home > Estate X-ray (Preview) | Keep. |
-| [FEAT-ORC-05](#feat-orc-05) | Agent status records | Implemented | Partially Verified | Monitor > Operations > Agents (Preview) | Implementation review of PR #133. |
-| [FEAT-OPS-01](#feat-ops-01) | Workload inventory and workload page | Implemented | Partially Verified | Monitor > Workloads, Home > Your workloads (Preview) | Shared ownership (stage 2B); an 'on agents' view. |
-| [FEAT-OPS-02](#feat-ops-02) | Incidents | Implemented | Partially Verified | Monitor > Incidents (Chris used it in unit testing, 2026-10-18) | Simplified incident management (PB-105) builds on these incidents; implementation review of PRs #125 and #127 |
+| [FEAT-ORC-05](#feat-orc-05) | Agent status records | Implemented | Partially Verified | Monitor > KratosForge > Operations > Agents (Preview) | Implementation review of PR #133. |
+| [FEAT-OPS-01](#feat-ops-01) | Workload inventory and workload page | Implemented | Partially Verified | Monitor > KratosForge > Operations > Workloads, Home > Your workloads (Preview) | Shared ownership (stage 2B); an 'on agents' view. |
+| [FEAT-OPS-02](#feat-ops-02) | Incidents | Implemented | Partially Verified | Monitor > KratosForge > Operations > Incidents (Chris used it in unit testing, 2026-10-18) | Simplified incident management (PB-105) builds on these incidents; implementation review of PRs #125 and #127 |
 | [FEAT-OPS-03](#feat-ops-03) | Monitor: runs from every place | Implemented | Partially Verified | Monitor > Runs | Fabric pipeline runs (FEAT-ORC-10) join this list after the Data Factory mockup. |
 | [FEAT-ADM-01](#feat-adm-01) | Cost estimates | Implemented | Partially Verified | Optimize > Cost and savings (Preview) | Calibrate against the Capacity Metrics app and label every number (PB-050) |
 | [FEAT-ADM-06](#feat-adm-06) | Opt-in telemetry | Implemented | Partially Verified | None (Preview) | Implementation review of PR #121; nothing is sent until someone opts in and a connection string exists |
@@ -263,7 +263,7 @@ on quality.
 | [FEAT-EXT-02](#feat-ext-02) | MCP server and local API for external AI tools | Implemented | Partially Verified | None | Run the client checklist per named AI tool (PB-096); HD-006 and HD-014 harden approvals and workspace limits |
 | [FEAT-EXT-03](#feat-ext-03) | Extensions | Planned | Unverified | None | Owned by the Git-native program (FD-132..135). |
 | [FEAT-EXT-05](#feat-ext-05) | Engines and connection profiles | Implemented but Not Exposed | Partially Verified | None: the engine underneath; no screen yet (Preview) | Screens after a mockup; never install databricks-connect into the engine (ADR-004). |
-| [FEAT-EXT-06](#feat-ext-06) | VS Code integration | Implemented | Partially Verified | Notebook Home > Open in VS Code; Settings > Integrations (Preview) | Phase 2 remainder (extension packaging) per the VS Code thread. |
+| [FEAT-EXT-06](#feat-ext-06) | VS Code integration | Implemented | Partially Verified | Notebook Home > Open in VS Code; Settings > Integrations (Preview) | Phase 2b (KratosForge · This PC in VS Code's kernel picker) merged; Windows check by a person, then Marketplace. |
 
 ### Security and Enterprise Readiness
 
@@ -364,25 +364,25 @@ on quality.
 - **Tests:** `app/tests/ui.test.cjs`
 - **Docs:** [docs/ui-guidelines.md](../ui-guidelines.md), [docs/user-guide.md](../user-guide.md)
 - **Known limitations:** The rail is full (8 of 8); new features must live inside existing pages. Command bar listbox has no aria-activedescendant (inference).
-- **Pull requests and issues:** [#702](https://github.com/KratosDataGod/KratosForge/pull/702), [#705](https://github.com/KratosDataGod/KratosForge/pull/705), [#719](https://github.com/KratosDataGod/KratosForge/pull/719), [#722](https://github.com/KratosDataGod/KratosForge/pull/722), [#760](https://github.com/KratosDataGod/KratosForge/pull/760), [#769](https://github.com/KratosDataGod/KratosForge/pull/769), [#776](https://github.com/KratosDataGod/KratosForge/pull/776)
+- **Pull requests and issues:** [#702](https://github.com/KratosDataGod/KratosForge/pull/702), [#705](https://github.com/KratosDataGod/KratosForge/pull/705), [#719](https://github.com/KratosDataGod/KratosForge/pull/719), [#722](https://github.com/KratosDataGod/KratosForge/pull/722), [#760](https://github.com/KratosDataGod/KratosForge/pull/760), [#769](https://github.com/KratosDataGod/KratosForge/pull/769), [#776](https://github.com/KratosDataGod/KratosForge/pull/776), [#803](https://github.com/KratosDataGod/KratosForge/pull/803), [#806](https://github.com/KratosDataGod/KratosForge/pull/806), [#825](https://github.com/KratosDataGod/KratosForge/pull/825), [#826](https://github.com/KratosDataGod/KratosForge/pull/826), [#827](https://github.com/KratosDataGod/KratosForge/pull/827)
 - **Backlog:** [PB-063](PRODUCT_BACKLOG.md#pb-063), [PB-070](PRODUCT_BACKLOG.md#pb-070), [PB-102](PRODUCT_BACKLOG.md#pb-102)
 - **Recommended next action:** Keep; add keyboard tests for the command bar.
 
 ### FEAT-SHL-05
 
-**Preview tags and hiding Preview features.** Features not tried on a live tenant carry a Preview tag (19 ids) and can be hidden in Settings or by policy.
+**Preview tags and hiding Preview features.** Features not tried on a live tenant carry a Preview tag (71 ids) and can be hidden in Settings or by policy.
 
 - **Pillar and category:** Platform foundation; Developer Experience and Productivity
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Settings > Preview features
-- **Evidence:** test: app/tests/ui.test.cjs Workloads is a Preview feature (sidecar suite passed in this assessment (656 passed, 2 skipped)); code: app/ui/features.js PREVIEW_FEATURES
+- **Evidence:** test: app/tests/ui.test.cjs Workloads is a Preview feature (sidecar suite passed in this assessment (656 passed, 2 skipped)); code: app/ui/features.js PREVIEW_FEATURES; test: app/tests/ui.test.cjs every feature the docs call Preview has a Preview id, or the docs say why not
 - **Source:** `app/ui/features.js`, `app/ui/settings.js`
 - **Tests:** `app/tests/ui.test.cjs`
-- **Docs:** [docs/README.md](../README.md)
-- **Known limitations:** Hiding only hides UI; engine methods stay callable. Several docs-Preview features have no PREVIEW_FEATURES id.
+- **Docs:** [docs/README.md](../README.md), [docs/metadata-guide.md](../metadata-guide.md)
+- **Known limitations:** Hiding only hides UI; engine methods stay callable. Preview settings in project and agent files (batch_by, objectives, shared schedules) can't be hidden: the docs say so.
 - **Pull requests and issues:** [#699](https://github.com/KratosDataGod/KratosForge/pull/699)
 - **Backlog:** [PB-078](PRODUCT_BACKLOG.md#pb-078)
-- **Recommended next action:** Add Preview ids for batch_by, release records, who-can-promote, objectives and column lineage, which docs call Preview but code doesn't tag (PB-078).
+- **Recommended next action:** None for Preview ids: a UI test maps every docs (Preview) heading to an id or to the reason its page gives (PB-078).
 
 ### FEAT-SHL-06
 
@@ -443,7 +443,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_updater.py`, `sidecar/tests/test_whats_new.py`, `app/tests/browser/update-check.test.cjs`
 - **Docs:** [docs/install.md](../install.md), [docs/enterprise-install.md](../enterprise-install.md), [docs/security.md](../security.md)
 - **Known limitations:** Checksums come from the same release, so they don't stop someone who can publish releases. Unsigned until Trusted Signing exists (PB-001). Rust update guard (OneDrive lock wait, engine folder kept while running) has no Linux test run; CI builds it on Windows.
-- **Pull requests and issues:** [#51](https://github.com/KratosDataGod/KratosForge/pull/51), [#82](https://github.com/KratosDataGod/KratosForge/pull/82), [#132](https://github.com/KratosDataGod/KratosForge/pull/132), [#565](https://github.com/KratosDataGod/KratosForge/pull/565), [#566](https://github.com/KratosDataGod/KratosForge/pull/566), [#567](https://github.com/KratosDataGod/KratosForge/pull/567), [#569](https://github.com/KratosDataGod/KratosForge/pull/569), [#594](https://github.com/KratosDataGod/KratosForge/pull/594), [#602](https://github.com/KratosDataGod/KratosForge/pull/602), [#607](https://github.com/KratosDataGod/KratosForge/pull/607), [#718](https://github.com/KratosDataGod/KratosForge/pull/718), [#757](https://github.com/KratosDataGod/KratosForge/pull/757), [#768](https://github.com/KratosDataGod/KratosForge/pull/768)
+- **Pull requests and issues:** [#51](https://github.com/KratosDataGod/KratosForge/pull/51), [#82](https://github.com/KratosDataGod/KratosForge/pull/82), [#132](https://github.com/KratosDataGod/KratosForge/pull/132), [#565](https://github.com/KratosDataGod/KratosForge/pull/565), [#566](https://github.com/KratosDataGod/KratosForge/pull/566), [#567](https://github.com/KratosDataGod/KratosForge/pull/567), [#569](https://github.com/KratosDataGod/KratosForge/pull/569), [#594](https://github.com/KratosDataGod/KratosForge/pull/594), [#602](https://github.com/KratosDataGod/KratosForge/pull/602), [#607](https://github.com/KratosDataGod/KratosForge/pull/607), [#718](https://github.com/KratosDataGod/KratosForge/pull/718), [#757](https://github.com/KratosDataGod/KratosForge/pull/757), [#768](https://github.com/KratosDataGod/KratosForge/pull/768), [#821](https://github.com/KratosDataGod/KratosForge/pull/821)
 - **Owning workstream:** Fuller What's new dialog (PB-100) and Enterprise readiness
 - **Backlog:** [PB-001](PRODUCT_BACKLOG.md#pb-001), [PB-064](PRODUCT_BACKLOG.md#pb-064), [PB-071](PRODUCT_BACKLOG.md#pb-071), [PB-100](PRODUCT_BACKLOG.md#pb-100), [PB-101](PRODUCT_BACKLOG.md#pb-101)
 - **Recommended next action:** Code signing (PB-001); Rust tests in CI (PB-071).
@@ -521,7 +521,7 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/auth.py`
 - **Tests:** `sidecar/tests/test_local.py`, `sidecar/tests/test_token_cache_dpapi.py`
 - **Docs:** [docs/security.md](../security.md)
-- **Known limitations:** DPAPI is checked by tests with the Windows call faked; not yet observed on Chris's PC after the Stable promotion (3633b4a).
+- **Known limitations:** Not yet observed on Chris's PC after the Stable promotion (3633b4a); the real DPAPI round trip runs on the Windows CI runner (test_real_dpapi_round_trip). Programs running as the same Windows user can still decrypt the cache (PB-005 review, finding 1).
 - **Pull requests and issues:** [#593](https://github.com/KratosDataGod/KratosForge/pull/593)
 - **Owning workstream:** Enterprise readiness (FD-131b)
 - **Backlog:** [PB-005](PRODUCT_BACKLOG.md#pb-005)
@@ -598,24 +598,26 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/preview.py`, `sidecar/fabric_desktop/preview_service.py`, `app/ui/item-preview.js`
 - **Tests:** `sidecar/tests/test_preview.py`
 - **Docs:** [docs/user-guide.md](../user-guide.md)
-- **Known limitations:** Files download whole into the app data folder and are not cleaned up (inference). Notebook preview shows no outputs.
+- **Known limitations:** Notebook preview shows no outputs.
 - **Pull requests and issues:** [#43](https://github.com/KratosDataGod/KratosForge/pull/43)
 - **Backlog:** [PB-087](PRODUCT_BACKLOG.md#pb-087)
-- **Recommended next action:** Clean up downloaded preview files (inference: never removed).
+- **Recommended next action:** None for downloads: a previewed file is removed once read, a download stops at 200 MB, and one left behind goes at the next start (PB-087).
 
 ### FEAT-FAB-05
 
 **Embedded Fabric portal and Monitoring hub.** A second WebView2 showing app.fabric.microsoft.com (Fabric page) and the Monitoring hub (Monitor), with sign-in cookies saved under DPAPI.
 
 - **Pillar and category:** Local development; Fabric Integration and Deployment
-- **Status:** Implemented. **Verification:** Unverified.
+- **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Fabric, Monitor
-- **Evidence:** code: app/src-tauri/src/main.rs fabric_view_show, mod signin, dpapi; report: docs/README.md: embedded Fabric pages and saved sign-in used on the maintainer's tenant; absent: Rust signin tests never run by CI
+- **Evidence:** code: app/src-tauri/src/main.rs fabric_view_show, mod signin, dpapi; report: docs/README.md: embedded Fabric pages and saved sign-in used on the maintainer's tenant; test: app/src-tauri/src/main.rs (fabric_nav_tests, run by cargo test in the ci.yml shell job (PB-008 review)); test: app/tests/browser/fabric-full-screen.test.cjs (product check 2026-10-27 23:42 at 2225e28: test file named by the merged PR; CI on main runs it)
 - **Source:** `app/src-tauri/src/main.rs`, `app/ui/app.js`
+- **Tests:** `app/tests/browser/fabric-full-screen.test.cjs`
 - **Docs:** [docs/user-guide.md](../user-guide.md)
-- **Known limitations:** Host allow-list covers any *.microsoft.com and *.live.com. Windows only.
+- **Known limitations:** Top-level pages and pop-ups stay on eight exact hosts; every other link opens in the default browser (#259, #455). Windows only.
+- **Pull requests and issues:** [#823](https://github.com/KratosDataGod/KratosForge/pull/823)
 - **Backlog:** [PB-008](PRODUCT_BACKLOG.md#pb-008), [PB-071](PRODUCT_BACKLOG.md#pb-071)
-- **Recommended next action:** Restrict in-view navigation to Fabric hosts and add cargo test to CI (PB-071).
+- **Recommended next action:** Check in the Windows app that a look-alike host opens in the browser (PB-008 review).
 
 ### FEAT-FAB-06
 
@@ -644,7 +646,7 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/cloud_service.py`, `sidecar/fabric_desktop/fabric_api.py`, `app/ui/app.js`
 - **Tests:** `sidecar/tests/test_cloud.py`
 - **Docs:** [docs/notebooks.md](../notebooks.md)
-- **Known limitations:** Cancel is reachable only as a workload action in Monitor > Workloads, not from Monitor > Runs or the tray. UI requires an attached lakehouse.
+- **Known limitations:** Cancel is reachable only as a workload action in Monitor > KratosForge > Operations > Workloads, not from Monitor > Runs or the tray. UI requires an attached lakehouse.
 - **Backlog:** [PB-002](PRODUCT_BACKLOG.md#pb-002), [PB-043](PRODUCT_BACKLOG.md#pb-043)
 - **Recommended next action:** Offer Cancel in Monitor > Runs and the tray (PB-043) and include in the tenant smoke test.
 
@@ -654,7 +656,7 @@ on quality.
 
 - **Pillar and category:** Enterprise services; Pipelines and Orchestration
 - **Status:** Implemented. **Verification:** Partially Verified.
-- **Where people reach it:** Notebook ribbon, Monitor > Schedules (Preview)
+- **Where people reach it:** Notebook ribbon, Monitor > Fabric > Schedules (Preview)
 - **Evidence:** test: sidecar/tests/test_cloud.py::test_schedule_configuration (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_schedules.py::test_one_list_has_this_pc_and_fabric
 - **Source:** `sidecar/fabric_desktop/schedule_service.py`, `sidecar/fabric_desktop/fabric_run.py`, `app/ui/schedules.js`
 - **Tests:** `sidecar/tests/test_schedules.py`
@@ -699,15 +701,15 @@ on quality.
 - **Pillar and category:** Local development; SQL, Python, and Notebook Development
 - **Status:** Partially Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Workspaces > warehouse > Warehouse page (Preview)
-- **Evidence:** doc: SQL development sprint thread (SQL-001..006), 2026-10-17; test: sidecar/tests/test_warehouse_queries.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: sidecar/tests/test_warehouse_driver.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: sidecar/tests/test_sql_templates.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: app/tests/browser/warehouse-page.test.cjs (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: app/tests/browser/sql-templates.test.cjs (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: sidecar/tests/test_sql_queries.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: app/tests/browser/saved-queries.test.cjs (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: app/tests/browser/query-history.test.cjs (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: app/tests/browser/warehouse-changes.test.cjs (product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it); test: app/tests/browser/warehouse-project.test.cjs (product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it); test: app/tests/browser/warehouse-deploy.test.cjs (product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it); test: app/tests/browser/warehouse-plan.test.cjs (product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it); test: sidecar/tests/test_warehouse_monitoring.py (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it); test: app/tests/browser/warehouse-monitoring.test.cjs (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it)
+- **Evidence:** doc: SQL development sprint thread (SQL-001..006), 2026-10-17; test: sidecar/tests/test_warehouse_queries.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: sidecar/tests/test_warehouse_driver.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: sidecar/tests/test_sql_templates.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: app/tests/browser/warehouse-page.test.cjs (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: app/tests/browser/sql-templates.test.cjs (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: sidecar/tests/test_sql_queries.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: app/tests/browser/saved-queries.test.cjs (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: app/tests/browser/query-history.test.cjs (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: app/tests/browser/warehouse-changes.test.cjs (product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it); test: app/tests/browser/warehouse-project.test.cjs (product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it); test: app/tests/browser/warehouse-deploy.test.cjs (product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it); test: app/tests/browser/warehouse-plan.test.cjs (product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it); test: sidecar/tests/test_warehouse_monitoring.py (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it); test: app/tests/browser/warehouse-monitoring.test.cjs (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it); doc: docs/warehouse.md#tested-on-a-tenant (tenant run 2026-10-27 at 21d318fc: 25 of 26 checks passed; WH-10.7 failed and was fixed by #808)
 - **Source:** `sidecar/fabric_desktop/warehouse.py`, `sidecar/fabric_desktop/sql_worker.py`, `sidecar/fabric_desktop/sql_templates_service.py`, `app/ui/warehouse.js`, `app/ui/query.js`, `app/ui/sqltemplates.js`, `app/ui/sqlchart.js`, `app/ui/sqlqueries.js`, `app/ui/sqlhistory.js`, `app/ui/sqlchanges.js`, `app/ui/whproject.js`, `app/ui/sqlplan.js`, `sidecar/fabric_desktop/warehouse_monitoring.py`
 - **Tests:** `sidecar/tests/test_warehouse_queries.py`, `sidecar/tests/test_warehouse_driver.py`, `sidecar/tests/test_sql_templates.py`, `app/tests/browser/warehouse-page.test.cjs`, `app/tests/browser/sql-templates.test.cjs`, `sidecar/tests/test_sql_queries.py`, `app/tests/browser/saved-queries.test.cjs`, `app/tests/browser/query-history.test.cjs`, `app/tests/browser/warehouse-changes.test.cjs`, `app/tests/browser/warehouse-project.test.cjs`, `app/tests/browser/warehouse-deploy.test.cjs`, `app/tests/browser/warehouse-plan.test.cjs`, `sidecar/tests/test_warehouse_monitoring.py`, `app/tests/browser/warehouse-monitoring.test.cjs`
 - **Docs:** [docs/warehouse.md](../warehouse.md), [docs/sql-execution.md](../sql-execution.md)
-- **Known limitations:** Read-only: writes wait on Chris's decision D1. Not yet run against a live warehouse (decision D3). One result set per run: the engine refuses a second statement. No build or deploy (WH-09..14), no Fabric SQL database, no Snowflake.
-- **Pull requests and issues:** [#580](https://github.com/KratosDataGod/KratosForge/pull/580), [#581](https://github.com/KratosDataGod/KratosForge/pull/581), [#636](https://github.com/KratosDataGod/KratosForge/pull/636), [#637](https://github.com/KratosDataGod/KratosForge/pull/637), [#638](https://github.com/KratosDataGod/KratosForge/pull/638), [#639](https://github.com/KratosDataGod/KratosForge/pull/639), [#641](https://github.com/KratosDataGod/KratosForge/pull/641), [#645](https://github.com/KratosDataGod/KratosForge/pull/645), [#660](https://github.com/KratosDataGod/KratosForge/pull/660), [#662](https://github.com/KratosDataGod/KratosForge/pull/662), [#703](https://github.com/KratosDataGod/KratosForge/pull/703), [#723](https://github.com/KratosDataGod/KratosForge/pull/723), [#727](https://github.com/KratosDataGod/KratosForge/pull/727), [#728](https://github.com/KratosDataGod/KratosForge/pull/728), [#729](https://github.com/KratosDataGod/KratosForge/pull/729), [#730](https://github.com/KratosDataGod/KratosForge/pull/730), [#731](https://github.com/KratosDataGod/KratosForge/pull/731), [#743](https://github.com/KratosDataGod/KratosForge/pull/743), [#745](https://github.com/KratosDataGod/KratosForge/pull/745), [#747](https://github.com/KratosDataGod/KratosForge/pull/747), [#774](https://github.com/KratosDataGod/KratosForge/pull/774), [#783](https://github.com/KratosDataGod/KratosForge/pull/783), [#787](https://github.com/KratosDataGod/KratosForge/pull/787)
+- **Known limitations:** Not yet run through the app's own Azure SQL sign-in: the 2026-10-27 tenant run used the Azure CLI's token. The Monitoring tab (WH-19) is not yet checked on a tenant. One result set per run: the engine refuses a second statement. No Fabric SQL database, no Snowflake.
+- **Pull requests and issues:** [#580](https://github.com/KratosDataGod/KratosForge/pull/580), [#581](https://github.com/KratosDataGod/KratosForge/pull/581), [#636](https://github.com/KratosDataGod/KratosForge/pull/636), [#637](https://github.com/KratosDataGod/KratosForge/pull/637), [#638](https://github.com/KratosDataGod/KratosForge/pull/638), [#639](https://github.com/KratosDataGod/KratosForge/pull/639), [#641](https://github.com/KratosDataGod/KratosForge/pull/641), [#645](https://github.com/KratosDataGod/KratosForge/pull/645), [#660](https://github.com/KratosDataGod/KratosForge/pull/660), [#662](https://github.com/KratosDataGod/KratosForge/pull/662), [#703](https://github.com/KratosDataGod/KratosForge/pull/703), [#723](https://github.com/KratosDataGod/KratosForge/pull/723), [#727](https://github.com/KratosDataGod/KratosForge/pull/727), [#728](https://github.com/KratosDataGod/KratosForge/pull/728), [#729](https://github.com/KratosDataGod/KratosForge/pull/729), [#730](https://github.com/KratosDataGod/KratosForge/pull/730), [#731](https://github.com/KratosDataGod/KratosForge/pull/731), [#743](https://github.com/KratosDataGod/KratosForge/pull/743), [#745](https://github.com/KratosDataGod/KratosForge/pull/745), [#747](https://github.com/KratosDataGod/KratosForge/pull/747), [#774](https://github.com/KratosDataGod/KratosForge/pull/774), [#783](https://github.com/KratosDataGod/KratosForge/pull/783), [#787](https://github.com/KratosDataGod/KratosForge/pull/787), [#808](https://github.com/KratosDataGod/KratosForge/pull/808), [#809](https://github.com/KratosDataGod/KratosForge/pull/809), [#823](https://github.com/KratosDataGod/KratosForge/pull/823), [#833](https://github.com/KratosDataGod/KratosForge/pull/833), [#835](https://github.com/KratosDataGod/KratosForge/pull/835)
 - **Owning workstream:** Build full warehouse development experience (WH-01..21)
 - **Backlog:** [PB-020](PRODUCT_BACKLOG.md#pb-020), [PB-022](PRODUCT_BACKLOG.md#pb-022), [PB-024](PRODUCT_BACKLOG.md#pb-024), [PB-025](PRODUCT_BACKLOG.md#pb-025)
-- **Recommended next action:** Tenant run of WH-10 to WH-13 writes and the WH-19 Monitoring tab; phases 4-5 need Chris's go.
+- **Recommended next action:** A warehouse query from the app itself on a tenant, and the WH-19 Monitoring tab; phases 4-5 need Chris's go.
 
 ### FEAT-FAB-12
 
@@ -763,19 +765,19 @@ on quality.
 
 ### FEAT-ONE-03
 
-**OneLake shortcut command center.** Every shortcut with health checks, readers, rules (no Dev to Prod), change history with undo, repoint (one or many), finding a moved lakehouse, accepting a crossed environment, and requests.
+**OneLake shortcut command center.** Every shortcut with health checks, readers, rules (no Dev to Prod), change history with undo, repoint (one or many), finding a moved lakehouse, accepting a crossed environment, and requests. The agent can check its environments' shortcuts on a schedule and post each break to Teams once (Preview).
 
 - **Pillar and category:** Enterprise services; Enterprise Shared Services
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** OneLake > Shortcuts (Preview)
 - **Evidence:** test: sidecar/tests/test_shortcut_center.py::test_repoint_puts_the_old_shortcut_back_when_the_new_one_fails (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_shortcut_center.py::test_rules_stop_dev_pointing_at_prod_and_flag_it; test: sidecar/tests/test_shortcut_fixes.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: app/tests/browser/shortcut-fixes.test.cjs (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs))
-- **Source:** `sidecar/fabric_desktop/shortcut_service.py`, `sidecar/fabric_desktop/shortcut_center.py`, `app/ui/shortcuts.js`
-- **Tests:** `sidecar/tests/test_shortcut_center.py`, `sidecar/tests/test_shortcut_fixes.py`, `app/tests/browser/shortcut-fixes.test.cjs`
-- **Docs:** [docs/shortcuts.md](../shortcuts.md)
-- **Known limitations:** No scheduled check or alert. Approved request creates the shortcut in one lakehouse only. OneLake error codes unseen on a tenant.
+- **Source:** `sidecar/fabric_desktop/shortcut_service.py`, `sidecar/fabric_desktop/shortcut_center.py`, `sidecar/fabric_desktop/shortcut_watch.py`, `app/ui/shortcuts.js`
+- **Tests:** `sidecar/tests/test_shortcut_center.py`, `sidecar/tests/test_shortcut_fixes.py`, `sidecar/tests/test_shortcut_watch.py`, `app/tests/browser/shortcut-fixes.test.cjs`
+- **Docs:** [docs/shortcuts.md](../shortcuts.md), [docs/agent.md](../agent.md)
+- **Known limitations:** The scheduled check runs in the agent only (not the desktop app), on the shortcuts of the agent's own environments. The agent's scheduled check is Preview: not yet run on a live tenant. Approved request creates the shortcut in one lakehouse only. OneLake error codes unseen on a tenant.
 - **Pull requests and issues:** [#53](https://github.com/KratosDataGod/KratosForge/pull/53), [#595](https://github.com/KratosDataGod/KratosForge/pull/595)
 - **Backlog:** [PB-053](PRODUCT_BACKLOG.md#pb-053)
-- **Recommended next action:** Scheduled health check with a Teams alert (PB-053).
+- **Recommended next action:** Verify the agent's scheduled shortcut check on a tenant (docs/agent.md, Verify on your tenant step 10; PB-053).
 
 ### FEAT-ONE-04
 
@@ -1090,24 +1092,24 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/scorecard.py`, `sidecar/fabric_desktop/measure.py`
 - **Tests:** `app/tests/ui.test.cjs`
 - **Docs:** [docs/prove/how-proofs-work.md](../prove/how-proofs-work.md)
-- **Known limitations:** CPU/memory come from the engine process, not the child kernel (inference). Fabric CPU/memory not available.
+- **Known limitations:** With notebooks in their own process, CPU/memory are the kernel process only, not processes its cells start (PB-094). Fabric CPU/memory not available.
 - **Owning workstream:** Prove (FD-119)
 - **Backlog:** [PB-050](PRODUCT_BACKLOG.md#pb-050), [PB-094](PRODUCT_BACKLOG.md#pb-094)
 - **Recommended next action:** Measure the kernel child process when it is on (FD-119).
 
 ### FEAT-PRV-06
 
-**Side by side and the TPC-H benchmark.** Runs a notebook on the PC and in Fabric against the real lakehouse after confirming the tables it overwrites; compares checksums, speed and cost, splits This PC's time into processing and OneLake upload wait, and says plainly when a table is missing. TPC-H data generates on every core and is always deleted afterwards.
+**Side by side and the TPC-H benchmark.** Runs a notebook on the PC and in Fabric against the real lakehouse after confirming the tables it overwrites; compares checksums, speed and cost, splits This PC's time into processing and OneLake upload wait, and says plainly when a table is missing. TPC-H data generates on every core and is always deleted afterwards. Cores on this PC (All cores, Match Fabric or a number) holds the PC's run to that many cores, and the result says whether both sides matched.
 
 - **Pillar and category:** Local development; Reliability, Testing, and Performance
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Notebook ribbon > Side by side (Preview)
-- **Evidence:** test: sidecar/tests/test_side_by_side.py::test_side_by_side_runs_only_with_the_tables_it_overwrites_confirmed (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_side_by_side.py::test_benchmark_notebooks_run_end_to_end; test: sidecar/tests/test_side_by_side.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs))
-- **Source:** `sidecar/fabric_desktop/side_by_side.py`, `sidecar/fabric_desktop/side_by_side_service.py`, `sidecar/fabric_desktop/benchmark.py`, `app/ui/sidebyside.js`
-- **Tests:** `sidecar/tests/test_side_by_side.py`
+- **Evidence:** test: sidecar/tests/test_side_by_side.py::test_side_by_side_runs_only_with_the_tables_it_overwrites_confirmed (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_side_by_side.py::test_benchmark_notebooks_run_end_to_end; test: sidecar/tests/test_side_by_side.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: sidecar/tests/test_side_by_side_cores.py (product check 2026-10-28 11:42 at cdbb967: test file named by the merged PR; CI on main runs it); test: app/tests/browser/sbs-cores.test.cjs (product check 2026-10-28 11:42 at cdbb967: test file named by the merged PR; CI on main runs it)
+- **Source:** `sidecar/fabric_desktop/side_by_side.py`, `sidecar/fabric_desktop/side_by_side_service.py`, `sidecar/fabric_desktop/benchmark.py`, `app/ui/sidebyside.js`, `sidecar/fabric_desktop/cpu_cap.py`
+- **Tests:** `sidecar/tests/test_side_by_side.py`, `sidecar/tests/test_side_by_side_cores.py`, `app/tests/browser/sbs-cores.test.cjs`
 - **Docs:** [docs/side-by-side.md](../side-by-side.md)
-- **Known limitations:** Writes the real tables twice (confirmed first). Files/ not compared.
-- **Pull requests and issues:** [#44](https://github.com/KratosDataGod/KratosForge/pull/44), [#81](https://github.com/KratosDataGod/KratosForge/pull/81), [#114](https://github.com/KratosDataGod/KratosForge/pull/114), [#564](https://github.com/KratosDataGod/KratosForge/pull/564), [#622](https://github.com/KratosDataGod/KratosForge/pull/622), [#625](https://github.com/KratosDataGod/KratosForge/pull/625), [#634](https://github.com/KratosDataGod/KratosForge/pull/634), [#635](https://github.com/KratosDataGod/KratosForge/pull/635), [#673](https://github.com/KratosDataGod/KratosForge/pull/673), [#683](https://github.com/KratosDataGod/KratosForge/pull/683)
+- **Known limitations:** Writes the real tables twice (confirmed first). Files/ not compared. On a PC with more than 64 logical processors, a capped run is held to cores in one Windows processor group.
+- **Pull requests and issues:** [#44](https://github.com/KratosDataGod/KratosForge/pull/44), [#81](https://github.com/KratosDataGod/KratosForge/pull/81), [#114](https://github.com/KratosDataGod/KratosForge/pull/114), [#564](https://github.com/KratosDataGod/KratosForge/pull/564), [#622](https://github.com/KratosDataGod/KratosForge/pull/622), [#625](https://github.com/KratosDataGod/KratosForge/pull/625), [#634](https://github.com/KratosDataGod/KratosForge/pull/634), [#635](https://github.com/KratosDataGod/KratosForge/pull/635), [#673](https://github.com/KratosDataGod/KratosForge/pull/673), [#683](https://github.com/KratosDataGod/KratosForge/pull/683), [#819](https://github.com/KratosDataGod/KratosForge/pull/819), [#822](https://github.com/KratosDataGod/KratosForge/pull/822), [#829](https://github.com/KratosDataGod/KratosForge/pull/829)
 - **Owning workstream:** Prove (FD-112)
 - **Backlog:** [PB-076](PRODUCT_BACKLOG.md#pb-076)
 - **Recommended next action:** Chris's SF1 local run is 65 s vs 101 s before (1.9x); keep the benchmark and retire correctness checks into Prove (PB-076).
@@ -1304,12 +1306,12 @@ on quality.
 - **Pillar and category:** Enterprise services; Fabric Integration and Deployment
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Data mesh > Deploy > Semantic model (Preview)
-- **Evidence:** test: sidecar/tests/test_cloud.py::test_save_semantic_model_updates_an_existing_one (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_cloud.py::test_onelake_run_queues_maintenance_and_builds_the_model; test: sidecar/tests/test_model_directlake.py (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it); test: sidecar/tests/test_model_dictionary.py (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it); test: app/tests/browser/directlake-card.test.cjs (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it); test: app/tests/browser/dictionary-card.test.cjs (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it)
+- **Evidence:** test: sidecar/tests/test_cloud.py::test_save_semantic_model_updates_an_existing_one (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_cloud.py::test_onelake_run_queues_maintenance_and_builds_the_model; test: sidecar/tests/test_model_directlake.py (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it); test: sidecar/tests/test_model_dictionary.py (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it); test: app/tests/browser/directlake-card.test.cjs (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it); test: app/tests/browser/dictionary-card.test.cjs (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it); test: sidecar/tests/test_model_date_table.py (product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it)
 - **Source:** `sidecar/fabric_desktop/semantic.py`, `sidecar/fabric_desktop/cloud_service.py`, `app/ui/meta.js`
-- **Tests:** `sidecar/tests/test_cloud.py`, `sidecar/tests/test_model_directlake.py`, `sidecar/tests/test_model_dictionary.py`, `app/tests/browser/directlake-card.test.cjs`, `app/tests/browser/dictionary-card.test.cjs`
+- **Tests:** `sidecar/tests/test_cloud.py`, `sidecar/tests/test_model_directlake.py`, `sidecar/tests/test_model_dictionary.py`, `app/tests/browser/directlake-card.test.cjs`, `app/tests/browser/dictionary-card.test.cjs`, `sidecar/tests/test_model_date_table.py`
 - **Docs:** [docs/metadata-guide.md](../metadata-guide.md), [docs/direct-lake-check.md](../direct-lake-check.md), [docs/data-dictionary.md](../data-dictionary.md)
 - **Known limitations:** Refused for Dev on the PC. Only facts get a row-count measure. Arrays and structs skipped.
-- **Pull requests and issues:** [#725](https://github.com/KratosDataGod/KratosForge/pull/725), [#726](https://github.com/KratosDataGod/KratosForge/pull/726), [#748](https://github.com/KratosDataGod/KratosForge/pull/748)
+- **Pull requests and issues:** [#725](https://github.com/KratosDataGod/KratosForge/pull/725), [#726](https://github.com/KratosDataGod/KratosForge/pull/726), [#748](https://github.com/KratosDataGod/KratosForge/pull/748), [#788](https://github.com/KratosDataGod/KratosForge/pull/788)
 - **Recommended next action:** Include in the tenant smoke test.
 
 ### FEAT-META-14
@@ -1420,19 +1422,20 @@ on quality.
 
 ### FEAT-GOV-03
 
-**Governance exceptions.** exceptions.toml with reason, approver and expiry that lets a gate pass until it expires; approved exceptions are shown and warned about before they end, and a policy exception can be requested and approved on the Governance tab (Preview).
+**Governance exceptions.** exceptions.toml with reason, approver and expiry that lets a gate pass until it expires, shown on Data mesh > Quality > Exceptions and warned about before they end. Policy exceptions are requested on Data mesh > Requests and approved by a platform admin (Preview); Check now marks the findings they cover as excepted, they warn the requester and the project 14 days before they end, and a platform admin can end one early with a reason (ended ones stay listed with Include ended).
 
 - **Pillar and category:** Enterprise services; Data Governance and Quality
 - **Status:** Implemented. **Verification:** Partially Verified.
-- **Where people reach it:** Metadata project, Platform > Governance > Requests (Preview)
-- **Evidence:** test: sidecar/tests/test_meta.py::test_05e_exceptions_expire (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_meta.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: sidecar/tests/test_requests_core_four.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs))
-- **Source:** `sidecar/fabric_desktop/meta/project.py`
-- **Tests:** `sidecar/tests/test_meta.py`, `sidecar/tests/test_requests_core_four.py`
-- **Docs:** [docs/metadata-guide.md](../metadata-guide.md)
-- **Pull requests and issues:** [#603](https://github.com/KratosDataGod/KratosForge/pull/603), [#605](https://github.com/KratosDataGod/KratosForge/pull/605)
+- **Where people reach it:** Data mesh > Quality > Exceptions, Data mesh > Requests, Platform > Govern > Governance (Preview)
+- **Evidence:** test: sidecar/tests/test_meta.py::test_05e_exceptions_expire (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_meta.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: sidecar/tests/test_requests_core_four.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: app/tests/browser/policy-exceptions.test.cjs (product check 2026-10-28 11:42 at cdbb967: test file named by the merged PR; CI on main runs it)
+- **Source:** `sidecar/fabric_desktop/meta/project.py`, `sidecar/fabric_desktop/central/policy.py`, `sidecar/fabric_desktop/central/governance_service.py`
+- **Tests:** `sidecar/tests/test_meta.py`, `sidecar/tests/test_requests_core_four.py`, `app/tests/browser/policy-exceptions.test.cjs`
+- **Docs:** [docs/metadata-guide.md](../metadata-guide.md), [docs/governance.md](../governance.md), [docs/governance-guide.md](../governance-guide.md)
+- **Known limitations:** Adding an exception to exceptions.toml records no request, approval or audit entry, and its approver is free text (PB-059 review finding 1, waiting on the FD-129 owner).
+- **Pull requests and issues:** [#603](https://github.com/KratosDataGod/KratosForge/pull/603), [#605](https://github.com/KratosDataGod/KratosForge/pull/605), [#838](https://github.com/KratosDataGod/KratosForge/pull/838)
 - **Owning workstream:** Enterprise governance foundation (FD-129)
 - **Backlog:** [PB-059](PRODUCT_BACKLOG.md#pb-059)
-- **Recommended next action:** Implementation review of #603 and #605 (PB-059).
+- **Recommended next action:** Product owner decides whether exceptions.toml joins the request flow or FD-129 is narrowed to policy exceptions (PB-059 review finding 1).
 
 ### FEAT-GOV-04
 
@@ -1458,15 +1461,15 @@ on quality.
 - **Pillar and category:** Enterprise services; Data Governance and Quality
 - **Status:** Partially Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** None
-- **Evidence:** doc: Enterprise governance foundation thread (GOV-001..005), 2026-10-17; test: sidecar/tests/test_governance.py (passed in the 2026-10-17 refresh run at 9715e28); code: sidecar/fabric_desktop/central/policy.py; code: sidecar/fabric_desktop/central/governance_service.py
-- **Source:** `sidecar/fabric_desktop/central/policy.py`, `sidecar/fabric_desktop/central/governance_service.py`, `app/ui/governance.js`
-- **Tests:** `sidecar/tests/test_governance.py`
-- **Docs:** [docs/governance.md](../governance.md)
-- **Known limitations:** GOV-001 policy registry only; offline validation (GOV-002) and enforcement are not built; HD-031 labels Block as not enforced.
+- **Evidence:** doc: Enterprise governance foundation thread (GOV-001..005), 2026-10-17; test: sidecar/tests/test_governance.py (passed in the 2026-10-17 refresh run at 9715e28); code: sidecar/fabric_desktop/central/policy.py; code: sidecar/fabric_desktop/central/governance_service.py; test: sidecar/tests/test_policy_package.py (GOV-002: policy package, tamper check, offline Check now, CLI exit codes and no platform, Fabric or OneLake call (PB-057)); code: sidecar/fabric_desktop/central/policy_package.py
+- **Source:** `sidecar/fabric_desktop/central/policy.py`, `sidecar/fabric_desktop/central/governance_service.py`, `app/ui/governance.js`, `sidecar/fabric_desktop/central/policy_package.py`, `sidecar/fabric_desktop/central/checks_service.py`, `sidecar/fabric_desktop/cli.py`
+- **Tests:** `sidecar/tests/test_governance.py`, `sidecar/tests/test_policy_package.py`
+- **Docs:** [docs/governance.md](../governance.md), [docs/governance-guide.md](../governance-guide.md)
+- **Known limitations:** GOV-001 registry and GOV-002 offline validation are built; enforcement (GOV-003) isn't, and HD-031 labels Block as not enforced. Policy packages are hash-checked, not signed: signing needs a key, and there are no app registrations; a CI gate pins the package SHA-256 (--expect-sha256) in a protected variable. An offline package keeps the assignments, exceptions and domain chain from when it was taken. An offline check doesn't read catalog text, product terms, endorsement or run logs, so those rules say unknown; there is no screen to take or pick a package (Check now refreshes it, the CLI takes and uses it).
 - **Pull requests and issues:** [#119](https://github.com/KratosDataGod/KratosForge/pull/119)
 - **Owning workstream:** Enterprise governance foundation
 - **Backlog:** [PB-056](PRODUCT_BACKLOG.md#pb-056), [PB-057](PRODUCT_BACKLOG.md#pb-057)
-- **Recommended next action:** GOV-002 offline validation, after Chris approves
+- **Recommended next action:** GOV-003 enforcement: block promote and deploy on a Block policy
 
 ### FEAT-GOV-06
 
@@ -1508,7 +1511,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_platform.py`
 - **Docs:** [docs/platform.md](../platform.md)
 - **Known limitations:** T-SQL tested on SQLite only. Whether UDF context exposes executing_user is unverified. setup()/join() have no tests. No screen lists the source registry (PB-054's other half).
-- **Pull requests and issues:** [#48](https://github.com/KratosDataGod/KratosForge/pull/48), [#50](https://github.com/KratosDataGod/KratosForge/pull/50), [#694](https://github.com/KratosDataGod/KratosForge/pull/694), [#705](https://github.com/KratosDataGod/KratosForge/pull/705)
+- **Pull requests and issues:** [#48](https://github.com/KratosDataGod/KratosForge/pull/48), [#50](https://github.com/KratosDataGod/KratosForge/pull/50), [#694](https://github.com/KratosDataGod/KratosForge/pull/694), [#705](https://github.com/KratosDataGod/KratosForge/pull/705), [#765](https://github.com/KratosDataGod/KratosForge/pull/765), [#806](https://github.com/KratosDataGod/KratosForge/pull/806)
 - **Backlog:** [PB-052](PRODUCT_BACKLOG.md#pb-052), [PB-054](PRODUCT_BACKLOG.md#pb-054)
 - **Recommended next action:** Verify setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified).
 
@@ -1535,31 +1538,31 @@ on quality.
 - **Pillar and category:** Enterprise services; Pipelines and Orchestration
 - **Status:** Partially Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Platform > Landing zone (Preview)
-- **Evidence:** test: sidecar/tests/test_platform.py::test_teams_build_bronze_from_the_one_landing_zone (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_landing_zones.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: app/tests/browser/landing-zones.test.cjs (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs))
+- **Evidence:** test: sidecar/tests/test_platform.py::test_teams_build_bronze_from_the_one_landing_zone (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_landing_zones.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: app/tests/browser/landing-zones.test.cjs (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: sidecar/tests/test_landing_copy_requests.py (product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it)
 - **Source:** `sidecar/fabric_desktop/central/service.py`, `app/ui/platform.js`
-- **Tests:** `sidecar/tests/test_platform.py`, `sidecar/tests/test_landing_zones.py`, `app/tests/browser/landing-zones.test.cjs`
+- **Tests:** `sidecar/tests/test_platform.py`, `sidecar/tests/test_landing_zones.py`, `app/tests/browser/landing-zones.test.cjs`, `sidecar/tests/test_landing_copy_requests.py`
 - **Docs:** [docs/platform.md](../platform.md)
-- **Known limitations:** Nothing in the app writes into landing: no extractors or connectors. Not yet set up on a tenant.
-- **Pull requests and issues:** [#597](https://github.com/KratosDataGod/KratosForge/pull/597)
+- **Known limitations:** Copy job requests (#794) are approved in the app but the copy job is built in Fabric; no extractors of its own. Not yet set up on a tenant.
+- **Pull requests and issues:** [#597](https://github.com/KratosDataGod/KratosForge/pull/597), [#792](https://github.com/KratosDataGod/KratosForge/pull/792), [#794](https://github.com/KratosDataGod/KratosForge/pull/794)
 - **Owning workstream:** Staged roadmap (FD-116)
 - **Backlog:** [PB-030](PRODUCT_BACKLOG.md#pb-030)
-- **Recommended next action:** Guided ingestion still waits on D2 (FD-116); Data Factory copy jobs (DF-6) may answer it.
+- **Recommended next action:** Landing copy job requests (stage 4.1) and platform-repo landing zones merged; try on a tenant.
 
 ### FEAT-MESH-04
 
-**Data mesh: domains, products, links, glossary.** Domains imported from and created in Fabric, data products with ports, endorsement badges and Purview term links, last scan and mixed endorsement on the product page, links between teams' products, glossary, About text and a mesh map on Home.
+**Data mesh: domains, products, links, glossary.** Domains imported from and created in Fabric, data products with ports, endorsement badges and Purview term links, last scan and mixed endorsement on the product page, links between teams' products, glossary, About text and a mesh map on Home. Projects have owners and members (Domains > This project), and joining a domain is a request its owners approve.
 
 - **Pillar and category:** Enterprise services; Enterprise Shared Services
 - **Status:** Implemented. **Verification:** Partially Verified.
-- **Where people reach it:** Data mesh > Domains, OneLake > Data products, Home (Preview)
-- **Evidence:** test: sidecar/tests/test_platform.py::test_an_entity_reads_another_teams_table_through_a_link (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_platform.py::test_mesh_map_lists_domains_projects_products_and_links; test: sidecar/tests/test_domain_in_fabric.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: sidecar/tests/test_trust_badges.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: app/tests/browser/domain-in-fabric.test.cjs (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: app/tests/browser/trust-badges.test.cjs (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: app/tests/browser/follow-product.test.cjs (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it); test: app/tests/browser/data-requests.test.cjs (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it)
+- **Where people reach it:** Data mesh: Home, Domains, Products, Requests and Project tabs (Preview)
+- **Evidence:** test: sidecar/tests/test_platform.py::test_an_entity_reads_another_teams_table_through_a_link (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_platform.py::test_mesh_map_lists_domains_projects_products_and_links; test: sidecar/tests/test_domain_in_fabric.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: sidecar/tests/test_trust_badges.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: app/tests/browser/domain-in-fabric.test.cjs (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: app/tests/browser/trust-badges.test.cjs (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: app/tests/browser/follow-product.test.cjs (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it); test: app/tests/browser/data-requests.test.cjs (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it); test: sidecar/tests/test_versioned_contracts.py (product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it); test: sidecar/tests/test_entra_groups.py (product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it); test: app/tests/browser/access-reviews.test.cjs (product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it); test: app/tests/browser/owner-coverage.test.cjs (product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it); test: app/tests/browser/mesh-home.test.cjs (product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it); test: app/tests/browser/mesh-products.test.cjs (product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it); test: app/tests/browser/mesh-requests.test.cjs (product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it); test: app/tests/browser/mesh-layout.test.cjs (product check 2026-10-27 23:42 at 2225e28: test file named by the merged PR; CI on main runs it); test: sidecar/tests/test_mesh_home.py (product check 2026-10-27 23:42 at 2225e28: test file named by the merged PR; CI on main runs it); test: app/tests/browser/mesh-members.test.cjs (product check 2026-10-28 11:42 at cdbb967: test file named by the merged PR; CI on main runs it)
 - **Source:** `sidecar/fabric_desktop/meta/mesh.py`, `sidecar/fabric_desktop/central/service.py`, `app/ui/mesh.js`, `app/ui/meshmap.js`, `sidecar/fabric_desktop/central/trust_service.py`
-- **Tests:** `sidecar/tests/test_platform.py`, `sidecar/tests/test_domain_in_fabric.py`, `sidecar/tests/test_trust_badges.py`, `app/tests/browser/domain-in-fabric.test.cjs`, `app/tests/browser/trust-badges.test.cjs`, `app/tests/browser/follow-product.test.cjs`, `app/tests/browser/data-requests.test.cjs`
+- **Tests:** `sidecar/tests/test_platform.py`, `sidecar/tests/test_domain_in_fabric.py`, `sidecar/tests/test_trust_badges.py`, `app/tests/browser/domain-in-fabric.test.cjs`, `app/tests/browser/trust-badges.test.cjs`, `app/tests/browser/follow-product.test.cjs`, `app/tests/browser/data-requests.test.cjs`, `sidecar/tests/test_versioned_contracts.py`, `sidecar/tests/test_entra_groups.py`, `app/tests/browser/access-reviews.test.cjs`, `app/tests/browser/owner-coverage.test.cjs`, `app/tests/browser/mesh-home.test.cjs`, `app/tests/browser/mesh-products.test.cjs`, `app/tests/browser/mesh-requests.test.cjs`, `app/tests/browser/mesh-layout.test.cjs`, `sidecar/tests/test_mesh_home.py`, `app/tests/browser/mesh-members.test.cjs`
 - **Docs:** [docs/data-mesh.md](../data-mesh.md)
 - **Known limitations:** Fabric domain import needs Tenant.Read.All and its shape is unverified. Direction change (Chris's unit testing, 2026-10-18, item 27): the glossary should come from Purview, Collibra or another catalog instead of KratosForge's own; the built-in glossary becomes a fallback or is retired.
-- **Pull requests and issues:** [#48](https://github.com/KratosDataGod/KratosForge/pull/48), [#50](https://github.com/KratosDataGod/KratosForge/pull/50), [#591](https://github.com/KratosDataGod/KratosForge/pull/591), [#627](https://github.com/KratosDataGod/KratosForge/pull/627), [#642](https://github.com/KratosDataGod/KratosForge/pull/642), [#694](https://github.com/KratosDataGod/KratosForge/pull/694), [#749](https://github.com/KratosDataGod/KratosForge/pull/749), [#761](https://github.com/KratosDataGod/KratosForge/pull/761), [#770](https://github.com/KratosDataGod/KratosForge/pull/770)
+- **Pull requests and issues:** [#48](https://github.com/KratosDataGod/KratosForge/pull/48), [#50](https://github.com/KratosDataGod/KratosForge/pull/50), [#591](https://github.com/KratosDataGod/KratosForge/pull/591), [#627](https://github.com/KratosDataGod/KratosForge/pull/627), [#642](https://github.com/KratosDataGod/KratosForge/pull/642), [#694](https://github.com/KratosDataGod/KratosForge/pull/694), [#701](https://github.com/KratosDataGod/KratosForge/pull/701), [#749](https://github.com/KratosDataGod/KratosForge/pull/749), [#761](https://github.com/KratosDataGod/KratosForge/pull/761), [#763](https://github.com/KratosDataGod/KratosForge/pull/763), [#765](https://github.com/KratosDataGod/KratosForge/pull/765), [#770](https://github.com/KratosDataGod/KratosForge/pull/770), [#793](https://github.com/KratosDataGod/KratosForge/pull/793), [#801](https://github.com/KratosDataGod/KratosForge/pull/801), [#802](https://github.com/KratosDataGod/KratosForge/pull/802), [#803](https://github.com/KratosDataGod/KratosForge/pull/803), [#804](https://github.com/KratosDataGod/KratosForge/pull/804), [#805](https://github.com/KratosDataGod/KratosForge/pull/805), [#806](https://github.com/KratosDataGod/KratosForge/pull/806), [#814](https://github.com/KratosDataGod/KratosForge/pull/814), [#817](https://github.com/KratosDataGod/KratosForge/pull/817), [#818](https://github.com/KratosDataGod/KratosForge/pull/818), [#824](https://github.com/KratosDataGod/KratosForge/pull/824), [#825](https://github.com/KratosDataGod/KratosForge/pull/825), [#827](https://github.com/KratosDataGod/KratosForge/pull/827), [#834](https://github.com/KratosDataGod/KratosForge/pull/834), [#836](https://github.com/KratosDataGod/KratosForge/pull/836)
 - **Backlog:** [PB-052](PRODUCT_BACKLOG.md#pb-052)
-- **Recommended next action:** Purview and endorsement live checks wait on Chris's tenant run; implementation review of #591, #627, #642.
+- **Recommended next action:** Data mesh now holds Home, Domains, Products and Requests (#801-#806); Purview and endorsement live checks wait on Chris's tenant run.
 
 ### FEAT-MESH-05
 
@@ -1568,14 +1571,15 @@ on quality.
 - **Pillar and category:** Enterprise services; Data Governance and Quality
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Promote card
-- **Evidence:** test: sidecar/tests/test_breaking_changes.py::test_dropping_a_column_another_project_reads_blocks_the_promote (sidecar suite passed in this assessment (656 passed, 2 skipped))
+- **Evidence:** test: sidecar/tests/test_breaking_changes.py::test_dropping_a_column_another_project_reads_blocks_the_promote (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_versioned_contracts.py (product check 2026-10-28 11:42 at cdbb967: test file named by the merged PR; CI on main runs it)
 - **Source:** `sidecar/fabric_desktop/meta/mesh.py`, `sidecar/fabric_desktop/meta_service.py`
-- **Tests:** `sidecar/tests/test_breaking_changes.py`
+- **Tests:** `sidecar/tests/test_breaking_changes.py`, `sidecar/tests/test_versioned_contracts.py`
 - **Docs:** [docs/data-mesh.md](../data-mesh.md)
-- **Pull requests and issues:** [#71](https://github.com/KratosDataGod/KratosForge/pull/71)
+- **Known limitations:** 8.2's catalog changes not yet tried in Fabric.
+- **Pull requests and issues:** [#71](https://github.com/KratosDataGod/KratosForge/pull/71), [#701](https://github.com/KratosDataGod/KratosForge/pull/701), [#817](https://github.com/KratosDataGod/KratosForge/pull/817), [#836](https://github.com/KratosDataGod/KratosForge/pull/836)
 - **Owning workstream:** Staged roadmap (FD-127)
 - **Backlog:** [PB-082](PRODUCT_BACKLOG.md#pb-082)
-- **Recommended next action:** Consumer declarations and deprecation (scale plan 8.2).
+- **Recommended next action:** Versioned contracts (#701): accepted versions and deprecation dates block only readers that need it.
 
 ### FEAT-ORC-01
 
@@ -1583,12 +1587,12 @@ on quality.
 
 - **Pillar and category:** Local development; Pipelines and Orchestration
 - **Status:** Implemented. **Verification:** Partially Verified.
-- **Where people reach it:** Notebook ribbon, Data mesh, Monitor > Schedules (Preview)
+- **Where people reach it:** Notebook ribbon, Data mesh, Monitor > KratosForge > Schedules (Preview)
 - **Evidence:** test: sidecar/tests/test_schedules.py (passed in the 2026-10-22 refresh run at be3e45b); test: sidecar/tests/test_schedules.py::test_task_definition_runs_the_sidecar_quietly (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_schedules.py::test_a_run_still_going_is_not_started_twice
 - **Source:** `sidecar/fabric_desktop/local_schedules.py`, `sidecar/fabric_desktop/schedule_service.py`, `app/ui/schedules.js`
 - **Tests:** `sidecar/tests/test_schedules.py`
 - **Docs:** [docs/notebooks.md](../notebooks.md)
-- **Pull requests and issues:** [#791](https://github.com/KratosDataGod/KratosForge/pull/791)
+- **Pull requests and issues:** [#791](https://github.com/KratosDataGod/KratosForge/pull/791), [#826](https://github.com/KratosDataGod/KratosForge/pull/826)
 - **Backlog:** [PB-013](PRODUCT_BACKLOG.md#pb-013), [PB-048](PRODUCT_BACKLOG.md#pb-048)
 - **Recommended next action:** Agent schedules cover Linux; Windows Task Scheduler runs need a Windows check.
 
@@ -1646,7 +1650,7 @@ on quality.
 
 - **Pillar and category:** Enterprise services; Enterprise Administration and FinOps
 - **Status:** Implemented. **Verification:** Partially Verified.
-- **Where people reach it:** Monitor > Operations > Agents (Preview)
+- **Where people reach it:** Monitor > KratosForge > Operations > Agents (Preview)
 - **Evidence:** test: sidecar/tests/test_agent_status.py::test_the_agent_publishes_what_it_is_doing (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_agent_fleet.py (passed in the 2026-10-17 refresh run at 9715e28); code: app/ui/agents.js
 - **Source:** `sidecar/fabric_desktop/agent_status.py`, `sidecar/fabric_desktop/workloads/agents.py`, `app/ui/agents.js`
 - **Tests:** `sidecar/tests/test_agent_status.py`, `sidecar/tests/test_agent_fleet.py`
@@ -1679,7 +1683,7 @@ on quality.
 
 - **Pillar and category:** Enterprise services; Enterprise Administration and FinOps
 - **Status:** Implemented. **Verification:** Partially Verified.
-- **Where people reach it:** Monitor > Workloads, Home > Your workloads (Preview)
+- **Where people reach it:** Monitor > KratosForge > Operations > Workloads, Home > Your workloads (Preview)
 - **Evidence:** test: sidecar/tests/test_workloads.py::test_a_source_that_cant_be_read_is_unknown_never_failing (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_workloads.py::test_ten_thousand_workloads_filter_and_page_quickly
 - **Source:** `sidecar/fabric_desktop/workload_service.py`, `sidecar/fabric_desktop/workloads/inventory.py`, `sidecar/fabric_desktop/workloads/store.py`, `app/ui/workloads.js`
 - **Tests:** `sidecar/tests/test_workloads.py`
@@ -1696,7 +1700,7 @@ on quality.
 
 - **Pillar and category:** Enterprise services; Enterprise Administration and FinOps
 - **Status:** Implemented. **Verification:** Partially Verified.
-- **Where people reach it:** Monitor > Incidents (Chris used it in unit testing, 2026-10-18)
+- **Where people reach it:** Monitor > KratosForge > Operations > Incidents (Chris used it in unit testing, 2026-10-18)
 - **Evidence:** test: sidecar/tests/test_incidents.py::test_the_app_and_the_agent_share_one_incident_list (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_incidents.py::test_quiet_hours_hold_messages_until_they_end_except_critical_and_escalations; test: sidecar/tests/test_incidents.py (passed in the 2026-10-17 refresh run at 9715e28); code: app/ui/incidents.js; test: sidecar/tests/test_incident_desk.py (19 tests, Fabric faked; incidents stage 1); test: app/tests/browser/incident-impact.test.cjs (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it)
 - **Source:** `sidecar/fabric_desktop/workloads/incidents.py`, `sidecar/fabric_desktop/workloads/notify.py`, `sidecar/fabric_desktop/incident_service.py`, `app/ui/incidents.js`, `sidecar/fabric_desktop/workloads/sla.py`, `sidecar/fabric_desktop/incident_desk.py`
 - **Tests:** `sidecar/tests/test_incidents.py`, `sidecar/tests/test_incident_desk.py`, `app/tests/browser/incident-impact.test.cjs`
@@ -1858,6 +1862,7 @@ on quality.
 - **Source:** `app/src-tauri/tauri.conf.json`
 - **Tests:** `app/tests/browser/csp.test.cjs`
 - **Docs:** [docs/security.md](../security.md)
+- **Known limitations:** On Windows the output frame's protection rests on its opaque origin and frame policy, not on the frame lacking Tauri's invoke key (PB-006 review, finding 1).
 - **Pull requests and issues:** [#250](https://github.com/KratosDataGod/KratosForge/pull/250), [#445](https://github.com/KratosDataGod/KratosForge/pull/445), [#618](https://github.com/KratosDataGod/KratosForge/pull/618), [#619](https://github.com/KratosDataGod/KratosForge/pull/619)
 - **Owning workstream:** Codebase audit and hardening (HD-020)
 - **Backlog:** [PB-006](PRODUCT_BACKLOG.md#pb-006)
@@ -1914,12 +1919,12 @@ on quality.
 - **Pillar and category:** Local development; Developer Experience and Productivity
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Source control (bottom of the rail) (Preview)
-- **Evidence:** test: sidecar/tests/test_git.py::test_notebook_diffs_compare_code_and_leave_outputs_out (sidecar suite passed in this assessment (656 passed, 2 skipped))
+- **Evidence:** test: sidecar/tests/test_git.py::test_notebook_diffs_compare_code_and_leave_outputs_out (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: app/tests/browser/git-hunks.test.cjs (product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it)
 - **Source:** `sidecar/fabric_desktop/git_service.py`, `sidecar/fabric_desktop/git/repo.py`, `sidecar/fabric_desktop/git/secrets.py`, `app/ui/git.js`
-- **Tests:** `sidecar/tests/test_git.py`
+- **Tests:** `sidecar/tests/test_git.py`, `app/tests/browser/git-hunks.test.cjs`
 - **Docs:** [docs/source-control.md](../source-control.md)
-- **Known limitations:** Not tried with Git Credential Manager and SSH on many PCs. No line staging, rebase, tags.
-- **Pull requests and issues:** [#85](https://github.com/KratosDataGod/KratosForge/pull/85), [#696](https://github.com/KratosDataGod/KratosForge/pull/696)
+- **Known limitations:** Not tried with Git Credential Manager and SSH on many PCs. No rebase or tags.
+- **Pull requests and issues:** [#85](https://github.com/KratosDataGod/KratosForge/pull/85), [#696](https://github.com/KratosDataGod/KratosForge/pull/696), [#789](https://github.com/KratosDataGod/KratosForge/pull/789), [#792](https://github.com/KratosDataGod/KratosForge/pull/792)
 - **Owning workstream:** Git-native development
 - **Recommended next action:** Capacity repository drift report against Fabric (#696, Preview); Fabric workspace Git (FEAT-FAB-12) still planned.
 
@@ -2395,7 +2400,7 @@ on quality.
 - **Source:** `app/ui/motion.js`
 - **Tests:** `app/tests/browser/forge-animations.test.cjs`, `app/tests/browser/motion-effects.test.cjs`
 - **Docs:** [docs/forge-animations.md](../forge-animations.md)
-- **Pull requests and issues:** [#325](https://github.com/KratosDataGod/KratosForge/pull/325), [#372](https://github.com/KratosDataGod/KratosForge/pull/372), [#571](https://github.com/KratosDataGod/KratosForge/pull/571), [#572](https://github.com/KratosDataGod/KratosForge/pull/572), [#573](https://github.com/KratosDataGod/KratosForge/pull/573), [#574](https://github.com/KratosDataGod/KratosForge/pull/574), [#575](https://github.com/KratosDataGod/KratosForge/pull/575), [#576](https://github.com/KratosDataGod/KratosForge/pull/576), [#582](https://github.com/KratosDataGod/KratosForge/pull/582), [#583](https://github.com/KratosDataGod/KratosForge/pull/583), [#600](https://github.com/KratosDataGod/KratosForge/pull/600), [#614](https://github.com/KratosDataGod/KratosForge/pull/614), [#644](https://github.com/KratosDataGod/KratosForge/pull/644), [#646](https://github.com/KratosDataGod/KratosForge/pull/646), [#647](https://github.com/KratosDataGod/KratosForge/pull/647), [#655](https://github.com/KratosDataGod/KratosForge/pull/655), [#656](https://github.com/KratosDataGod/KratosForge/pull/656), [#658](https://github.com/KratosDataGod/KratosForge/pull/658), [#672](https://github.com/KratosDataGod/KratosForge/pull/672), [#678](https://github.com/KratosDataGod/KratosForge/pull/678), [#688](https://github.com/KratosDataGod/KratosForge/pull/688), [#693](https://github.com/KratosDataGod/KratosForge/pull/693), [#697](https://github.com/KratosDataGod/KratosForge/pull/697), [#766](https://github.com/KratosDataGod/KratosForge/pull/766)
+- **Pull requests and issues:** [#325](https://github.com/KratosDataGod/KratosForge/pull/325), [#372](https://github.com/KratosDataGod/KratosForge/pull/372), [#449](https://github.com/KratosDataGod/KratosForge/pull/449), [#571](https://github.com/KratosDataGod/KratosForge/pull/571), [#572](https://github.com/KratosDataGod/KratosForge/pull/572), [#573](https://github.com/KratosDataGod/KratosForge/pull/573), [#574](https://github.com/KratosDataGod/KratosForge/pull/574), [#575](https://github.com/KratosDataGod/KratosForge/pull/575), [#576](https://github.com/KratosDataGod/KratosForge/pull/576), [#582](https://github.com/KratosDataGod/KratosForge/pull/582), [#583](https://github.com/KratosDataGod/KratosForge/pull/583), [#600](https://github.com/KratosDataGod/KratosForge/pull/600), [#614](https://github.com/KratosDataGod/KratosForge/pull/614), [#644](https://github.com/KratosDataGod/KratosForge/pull/644), [#646](https://github.com/KratosDataGod/KratosForge/pull/646), [#647](https://github.com/KratosDataGod/KratosForge/pull/647), [#655](https://github.com/KratosDataGod/KratosForge/pull/655), [#656](https://github.com/KratosDataGod/KratosForge/pull/656), [#658](https://github.com/KratosDataGod/KratosForge/pull/658), [#672](https://github.com/KratosDataGod/KratosForge/pull/672), [#678](https://github.com/KratosDataGod/KratosForge/pull/678), [#688](https://github.com/KratosDataGod/KratosForge/pull/688), [#693](https://github.com/KratosDataGod/KratosForge/pull/693), [#697](https://github.com/KratosDataGod/KratosForge/pull/697), [#766](https://github.com/KratosDataGod/KratosForge/pull/766)
 - **Owning workstream:** Forge and wolf animations
 - **Recommended next action:** Draft #449 style guide waits on Chris; keep effects subordinate to work (brief section 8).
 
@@ -2411,7 +2416,7 @@ on quality.
 - **Tests:** `app/tests/browser/pop-out.test.cjs`
 - **Docs:** [docs/user-guide.md](../user-guide.md)
 - **Known limitations:** Needs a check in the Windows shell: the browser test runs in Chromium.
-- **Pull requests and issues:** [#557](https://github.com/KratosDataGod/KratosForge/pull/557), [#558](https://github.com/KratosDataGod/KratosForge/pull/558)
+- **Pull requests and issues:** [#557](https://github.com/KratosDataGod/KratosForge/pull/557), [#558](https://github.com/KratosDataGod/KratosForge/pull/558), [#827](https://github.com/KratosDataGod/KratosForge/pull/827), [#831](https://github.com/KratosDataGod/KratosForge/pull/831)
 - **Owning workstream:** UX and simplicity oversight
 - **Recommended next action:** Implementation review of PR #557, #558; run on a tenant before the Preview tag comes off.
 
@@ -2426,8 +2431,8 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/engines`, `sidecar/fabric_desktop/connprofiles.py`
 - **Tests:** `sidecar/tests/test_engines.py`, `sidecar/tests/test_connprofiles.py`, `sidecar/tests/test_databricks_sql.py`
 - **Docs:** [docs/engines.md](../engines.md)
-- **Known limitations:** Databricks SQL warehouse engine tested against fakes only.
-- **Pull requests and issues:** [#380](https://github.com/KratosDataGod/KratosForge/pull/380), [#690](https://github.com/KratosDataGod/KratosForge/pull/690), [#764](https://github.com/KratosDataGod/KratosForge/pull/764), [#780](https://github.com/KratosDataGod/KratosForge/pull/780)
+- **Known limitations:** Databricks SQL warehouse and Databricks Connect engines tested against fakes only.
+- **Pull requests and issues:** [#380](https://github.com/KratosDataGod/KratosForge/pull/380), [#690](https://github.com/KratosDataGod/KratosForge/pull/690), [#764](https://github.com/KratosDataGod/KratosForge/pull/764), [#780](https://github.com/KratosDataGod/KratosForge/pull/780), [#782](https://github.com/KratosDataGod/KratosForge/pull/782)
 - **Owning workstream:** Fabric and Databricks unified development
 - **Recommended next action:** Screens after a mockup; never install databricks-connect into the engine (ADR-004).
 
@@ -2453,7 +2458,7 @@ on quality.
 
 - **Pillar and category:** Enterprise services; Data Governance and Quality
 - **Status:** Implemented. **Verification:** Partially Verified.
-- **Where people reach it:** Platform > Governance > Requests (Preview)
+- **Where people reach it:** Data mesh > Requests (Preview)
 - **Evidence:** test: sidecar/tests/test_requests_core_four.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: app/tests/browser/requests-core-four.test.cjs (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs))
 - **Source:** `sidecar/fabric_desktop/central/requests_service.py`, `sidecar/fabric_desktop/central/governance_service.py`, `app/ui/governance.js`
 - **Tests:** `sidecar/tests/test_requests_core_four.py`, `app/tests/browser/requests-core-four.test.cjs`
@@ -2486,15 +2491,15 @@ on quality.
 - **Pillar and category:** Enterprise services; Data Governance and Quality
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Platform > Governance > Best practices; data product checklist (Preview)
-- **Evidence:** test: sidecar/tests/test_notebook_practices.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: sidecar/tests/test_sql_practices.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: sidecar/tests/test_best_practice_checks.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: sidecar/tests/test_best_practice_checkers.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: app/tests/browser/best-practice-checks.test.cjs (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); doc: docs/product/reviews/PB-108-643.md (implementation review: Accepted with Documented Limitations, 2026-10-26); test: sidecar/tests/test_model_practices.py (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it); test: sidecar/tests/test_notebook_practices.py (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it); test: app/tests/browser/notebook-practices.test.cjs (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it)
+- **Evidence:** test: sidecar/tests/test_notebook_practices.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: sidecar/tests/test_sql_practices.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: sidecar/tests/test_best_practice_checks.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: sidecar/tests/test_best_practice_checkers.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: app/tests/browser/best-practice-checks.test.cjs (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); doc: docs/product/reviews/PB-108-643.md (implementation review: Accepted with Documented Limitations, 2026-10-26); test: sidecar/tests/test_model_practices.py (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it); test: sidecar/tests/test_notebook_practices.py (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it); test: app/tests/browser/notebook-practices.test.cjs (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it); test: sidecar/tests/test_model_bpa.py (product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it); test: app/tests/browser/sql-practices.test.cjs (product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it)
 - **Source:** `sidecar/fabric_desktop/notebook_practices.py`, `sidecar/fabric_desktop/sqlcompat/practices.py`, `sidecar/fabric_desktop/governance_checks.py`, `sidecar/fabric_desktop/best_practice_checkers.py`, `sidecar/fabric_desktop/central/checks_service.py`, `app/ui/governance-checks.js`
-- **Tests:** `sidecar/tests/test_notebook_practices.py`, `sidecar/tests/test_sql_practices.py`, `sidecar/tests/test_best_practice_checks.py`, `sidecar/tests/test_best_practice_checkers.py`, `app/tests/browser/best-practice-checks.test.cjs`, `sidecar/tests/test_model_practices.py`, `app/tests/browser/notebook-practices.test.cjs`
-- **Docs:** [docs/notebook-best-practices.md](../notebook-best-practices.md), [docs/sql-best-practices.md](../sql-best-practices.md), [docs/governance.md](../governance.md), [docs/governance-guide.md](../governance-guide.md), [docs/semantic-model-rules.md](../semantic-model-rules.md)
-- **Known limitations:** Check now reads only this PC's schedules, so NB004 and NB008 don't run on a notebook only a Fabric schedule runs. Semantic model rules SM001-SM007 read the model on this PC; the Fabric BPA run (#560) is still a draft. Central policies not yet set up on a tenant.
-- **Pull requests and issues:** [#643](https://github.com/KratosDataGod/KratosForge/pull/643), [#648](https://github.com/KratosDataGod/KratosForge/pull/648), [#649](https://github.com/KratosDataGod/KratosForge/pull/649), [#651](https://github.com/KratosDataGod/KratosForge/pull/651), [#664](https://github.com/KratosDataGod/KratosForge/pull/664), [#671](https://github.com/KratosDataGod/KratosForge/pull/671), [#713](https://github.com/KratosDataGod/KratosForge/pull/713), [#720](https://github.com/KratosDataGod/KratosForge/pull/720), [#753](https://github.com/KratosDataGod/KratosForge/pull/753), [#790](https://github.com/KratosDataGod/KratosForge/pull/790)
+- **Tests:** `sidecar/tests/test_notebook_practices.py`, `sidecar/tests/test_sql_practices.py`, `sidecar/tests/test_best_practice_checks.py`, `sidecar/tests/test_best_practice_checkers.py`, `app/tests/browser/best-practice-checks.test.cjs`, `sidecar/tests/test_model_practices.py`, `app/tests/browser/notebook-practices.test.cjs`, `sidecar/tests/test_model_bpa.py`, `app/tests/browser/sql-practices.test.cjs`
+- **Docs:** [docs/notebook-best-practices.md](../notebook-best-practices.md), [docs/sql-best-practices.md](../sql-best-practices.md), [docs/governance.md](../governance.md), [docs/governance-guide.md](../governance-guide.md), [docs/semantic-model-rules.md](../semantic-model-rules.md), [docs/semantic-model-best-practices.md](../semantic-model-best-practices.md)
+- **Known limitations:** Check now reads only this PC's schedules (notebook schedules and the Notebook steps of pipeline schedules): a notebook run only by a Fabric schedule isn't checked by NB004 and NB008. The Fabric BPA run (#560) needs semantic-link-labs in Fabric and hasn't run live. Central policies not yet set up on a tenant.
+- **Pull requests and issues:** [#560](https://github.com/KratosDataGod/KratosForge/pull/560), [#643](https://github.com/KratosDataGod/KratosForge/pull/643), [#648](https://github.com/KratosDataGod/KratosForge/pull/648), [#649](https://github.com/KratosDataGod/KratosForge/pull/649), [#651](https://github.com/KratosDataGod/KratosForge/pull/651), [#664](https://github.com/KratosDataGod/KratosForge/pull/664), [#671](https://github.com/KratosDataGod/KratosForge/pull/671), [#713](https://github.com/KratosDataGod/KratosForge/pull/713), [#720](https://github.com/KratosDataGod/KratosForge/pull/720), [#753](https://github.com/KratosDataGod/KratosForge/pull/753), [#788](https://github.com/KratosDataGod/KratosForge/pull/788), [#790](https://github.com/KratosDataGod/KratosForge/pull/790), [#798](https://github.com/KratosDataGod/KratosForge/pull/798), [#800](https://github.com/KratosDataGod/KratosForge/pull/800), [#813](https://github.com/KratosDataGod/KratosForge/pull/813)
 - **Owning workstream:** Enterprise governance foundation; Best Practice Analyzer (checkers)
 - **Backlog:** [PB-108](PRODUCT_BACKLOG.md#pb-108), [PB-111](PRODUCT_BACKLOG.md#pb-111), [PB-112](PRODUCT_BACKLOG.md#pb-112)
-- **Recommended next action:** Notebook editor Best practices panel (#790) and SM rules (#753) merged; PB-111 is next.
+- **Recommended next action:** PB-111 (#798) and BPA (#560) merged; a live BPA run and central policies on a tenant are what's left.
 
 ### FEAT-EXT-06
 
@@ -2503,14 +2508,14 @@ on quality.
 - **Pillar and category:** Local development; Extensibility, APIs, CLI, and MCP
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Notebook Home > Open in VS Code; Settings > Integrations (Preview)
-- **Evidence:** test: app/tests/browser/notebook-vscode.test.cjs (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: app/tests/browser/notebook-disk-change.test.cjs (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: app/tests/browser/deep-link.test.cjs (product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it); test: app/tests/browser/vscode-setup.test.cjs (product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it); test: app/tests/browser/editor-pairing.test.cjs (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it)
+- **Evidence:** test: app/tests/browser/notebook-vscode.test.cjs (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: app/tests/browser/notebook-disk-change.test.cjs (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: app/tests/browser/deep-link.test.cjs (product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it); test: app/tests/browser/vscode-setup.test.cjs (product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it); test: app/tests/browser/editor-pairing.test.cjs (product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it); test: sidecar/tests/test_editor_channel.py (product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it)
 - **Source:** `app/src-tauri/src/vscode_link.rs`, `app/ui/vscode.js`, `app/ui/integrations.js`, `app/src-tauri/src/deep_link.rs`
-- **Tests:** `app/tests/browser/notebook-vscode.test.cjs`, `app/tests/browser/notebook-disk-change.test.cjs`, `app/tests/browser/deep-link.test.cjs`, `app/tests/browser/vscode-setup.test.cjs`, `app/tests/browser/editor-pairing.test.cjs`
+- **Tests:** `app/tests/browser/notebook-vscode.test.cjs`, `app/tests/browser/notebook-disk-change.test.cjs`, `app/tests/browser/deep-link.test.cjs`, `app/tests/browser/vscode-setup.test.cjs`, `app/tests/browser/editor-pairing.test.cjs`, `sidecar/tests/test_editor_channel.py`
 - **Docs:** [docs/vscode.md](../vscode.md), [docs/ai/README.md](../ai/README.md)
-- **Known limitations:** Cells run from VS Code need a paired KratosForge window (phase 2a); no Marketplace extension yet. Links, hand-off and pairing not yet checked on Windows by a person.
-- **Pull requests and issues:** [#650](https://github.com/KratosDataGod/KratosForge/pull/650), [#652](https://github.com/KratosDataGod/KratosForge/pull/652), [#670](https://github.com/KratosDataGod/KratosForge/pull/670), [#695](https://github.com/KratosDataGod/KratosForge/pull/695), [#710](https://github.com/KratosDataGod/KratosForge/pull/710), [#712](https://github.com/KratosDataGod/KratosForge/pull/712), [#742](https://github.com/KratosDataGod/KratosForge/pull/742), [#754](https://github.com/KratosDataGod/KratosForge/pull/754)
+- **Known limitations:** The extension isn't on the Marketplace yet; it installs from the release. Links, hand-off, pairing and the kernel picker not yet checked on Windows by a person.
+- **Pull requests and issues:** [#650](https://github.com/KratosDataGod/KratosForge/pull/650), [#652](https://github.com/KratosDataGod/KratosForge/pull/652), [#670](https://github.com/KratosDataGod/KratosForge/pull/670), [#695](https://github.com/KratosDataGod/KratosForge/pull/695), [#710](https://github.com/KratosDataGod/KratosForge/pull/710), [#712](https://github.com/KratosDataGod/KratosForge/pull/712), [#742](https://github.com/KratosDataGod/KratosForge/pull/742), [#754](https://github.com/KratosDataGod/KratosForge/pull/754), [#795](https://github.com/KratosDataGod/KratosForge/pull/795), [#811](https://github.com/KratosDataGod/KratosForge/pull/811)
 - **Owning workstream:** Bring VS Code developers to KratosForge
-- **Recommended next action:** Phase 2 remainder (extension packaging) per the VS Code thread.
+- **Recommended next action:** Phase 2b (KratosForge · This PC in VS Code's kernel picker) merged; Windows check by a person, then Marketplace.
 <!-- END GENERATED: details -->
 
 ## Keeping this inventory current

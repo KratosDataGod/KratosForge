@@ -635,6 +635,7 @@ function render() {
 }
 
 function setView(...children) {
+  document.body.classList.remove("fabric-full");  // only the Fabric portal tab fills the window
   const view = document.getElementById("view");
   view.replaceChildren(...children);
   viewTransition(view);  // motion.js: only when the page itself changed
@@ -815,7 +816,10 @@ async function renderHome() {
       const next = h("div", {}, items.length ? h("div", { class: "home-list" }, items.map((x) => h("div", { class: "home-item row" },
         h("span", { class: "grow" }, x.what, h("span", { class: "muted-text small" }, ` · ${x.where}`)), h("span", { class: "muted-text small" }, x.text))))
         : h("p", { class: "muted-text" }, "Nothing scheduled. Use Schedule on a notebook or on Data mesh, on this PC or in Fabric."),
-        btn("All schedules", "history", () => { monitorPage.panel = "schedules"; go("monitor"); }, "tool link small"));
+        // Opens the page with the schedules listed here: Fabric > Schedules when every one of them is in Fabric.
+        btn("All schedules", "history", () => {
+          monitorPage.panel = items.length && items.every((x) => x.where === "Fabric") ? "fabric_schedules" : "schedules"; go("monitor");
+        }, "tool link small"));
       upcoming.replaceWith(next);
       return next;
     };
@@ -926,8 +930,8 @@ function renderCreate() {
       preview("pipelines", tile("flow", "Pipeline", "Open a Fabric pipeline, check what can run here, and run it on this PC", pipelineOpenDialog)))));
 }
 
-// Filters on Monitor, kept for the session; showFabric is remembered on this PC.
-const monitorPage = { env: "all", where: "any", problemsFirst: true, showFabric: true, panel: "runs", opsView: "workloads",
+// Filters on Monitor, kept for the session.
+const monitorPage = { env: "all", where: "any", problemsFirst: true, panel: "runs", opsView: "workloads",
   refreshing: false };
 // Pop-out windows (Preview, popout.js). In a pop-out window, POP_OUT is the one section it shows ("runs"
 // or "fabric"); in the main window it is null and popOuts holds the sections open in windows of their own.
@@ -946,22 +950,38 @@ const MONITOR_OPS = [
   { panel: "incidents", feature: "incidents", label: "Incidents", anchor: "incidents-preview",
     text: "One record per problem, shared by everyone who can read the environment" },
 ];
-try { monitorPage.showFabric = localStorage.getItem("fd.monitor.fabric") !== "hidden"; } catch { /* default: shown */ }
+// Monitor's tabs are by source, the way Data mesh groups its pages: what KratosForge ran and schedules, and
+// Fabric's own Monitoring hub and schedules. Another source (Databricks, Snowflake) is a tab beside them.
+// Each tab's pages are on the view row's switcher; "fabric" is the hub's panel.
+const MONITOR_SOURCES = [["kratosforge", "KratosForge", "runs"], ["fabric", "Fabric", "fabric"]];
+const MONITOR_FABRIC_PANELS = ["fabric", "fabric_schedules"];
 
-// The sentence about a Monitor panel is its Learn more link's tooltip, so the controls fit on one row;
-// the link is described by it too, so keyboard and screen reader users get it.
+function monitorSource(panel) {
+  return MONITOR_FABRIC_PANELS.includes(panel) ? "fabric" : "kratosforge";
+}
+
+// What each Monitor tab shows, as the line under the title with its Learn more link. Operations' views
+// say theirs in MONITOR_OPS.
+const MONITOR_ABOUT = {
+  runs: ["Everything this app ran or started, in every environment, on this PC and in Fabric", "monitor"],
+  schedules: ["Schedules Windows starts on this PC for KratosForge, even with the app closed, with how their last run went", "monitor"],
+  fabric_schedules: ["Schedules in Fabric's own job scheduler, on capacity, with how their last run went", "monitor"],
+  fabric: ["Fabric's own Monitoring hub, for everything in your workspaces", "monitor"],
+};
+// The view row's places a tab fills: its own switcher (views) and status (tools), left of Refresh.
+const monitorSlots = {};
+
 function monitorAbout(text, anchor) {
-  const link = learnMore(anchor);
-  link.title = text;
-  link.setAttribute("aria-describedby", "monitor-about-text");
-  return h("span", { class: "monitor-about" }, link, h("span", { id: "monitor-about-text", class: "sr-only" }, text));
+  return h("span", { class: "monitor-about" }, text, ". ", learnMore(anchor));
 }
 
 async function renderMonitor() {
   // Cost moved to Optimize > Cost and savings (testing item 36); an old link to it lands there.
   if (monitorPage.panel === "cost") { monitorPage.panel = "runs"; optimizePage.tab = "cost"; go("optimize"); return; }
-  if (!previewShown()) monitorPage.panel = "runs";
+  if (!previewShown() && !["runs", "fabric"].includes(monitorPage.panel)) monitorPage.panel = "runs";
   if (POP_OUT === "fabric") { renderFabricPopOut(); return; }
+  // The runs window shows only what KratosForge ran.
+  if (POP_OUT === "runs" && monitorSource(monitorPage.panel) === "fabric") monitorPage.panel = "runs";
   // A pop-out window's refresh keeps the list it has, and your place in it, until the new one is read.
   const kept = monitorPage.refreshing ? document.querySelector(".page.monitor .monitor-scroll") : null;
   const keptTop = kept?.scrollTop || 0;
@@ -969,63 +989,70 @@ async function renderMonitor() {
   const local = kept || loading("Loading runs...", "monitor-empty");
   const slot = h("div", { class: "fabric-slot" },
     h("p", { class: "muted-text" }, "Opening the Fabric Monitoring hub. Sign in once and the app remembers it."));
-  const chip = (key, value, label) => h("button", { class: `chip${monitorPage[key] === value ? " on" : ""}`,
-    onclick: () => { monitorPage[key] = value; render(); } }, label);
-  const toggleFabric = () => {
-    monitorPage.showFabric = !monitorPage.showFabric;
-    try { localStorage.setItem("fd.monitor.fabric", monitorPage.showFabric ? "shown" : "hidden"); } catch { /* session only */ }
-    render();
-  };
-  const note = h("div", { class: "muted-text small" });
+  // One switcher per filter, like every page's view row: the pressed button is the one in force.
+  const seg = (key, label, options) => h("div", { class: "seg", role: "group", "aria-label": label }, options.map(([value, text]) =>
+    h("button", { class: monitorPage[key] === value ? "on" : null, "aria-pressed": String(monitorPage[key] === value),
+      onclick: () => { monitorPage[key] = value; render(); } }, text)));
+  const note = h("div", { class: "muted-text small monitor-note" });
   const ops = MONITOR_OPS.filter((o) => !PREVIEW_FEATURES[o.feature] || previewShown());
   const op = ops.find((o) => o.panel === monitorPage.panel);
   if (op) monitorPage.opsView = op.panel;
-  const segment = (on, label, onclick) => h("button", { class: on ? "on" : null, onclick }, label);
   const show = (panel) => () => { monitorPage.panel = panel; render(); };
-  // Only Runs shares the page with Fabric's hub; a list under it gets too little room (#190).
-  // A section in a window of its own leaves a band here, and the other one gets the room.
+  // A section in a window of its own leaves a band here.
   const runsOut = popOuts.has("runs");
   const fabricOut = popOuts.has("fabric");
-  const wide = !runsOut && monitorPage.panel !== "runs";
-  const fabricHere = !POP_OUT && !wide;
-  const fabricShown = fabricHere && monitorPage.showFabric && !fabricOut;
-  setView(h("div", { class: `page monitor${fabricShown ? "" : " no-fabric"}${runsOut ? " runs-out" : ""}` },
-    runsOut ? poppedOutBand("runs", "From KratosForge", "monitor-local") : h("section", { class: "card monitor-local" },
-      h("div", { class: "monitor-band" },
-        h("h2", {}, "From KratosForge"),
-        h("div", { class: "seg", role: "group", "aria-label": "Show" },
-          segment(monitorPage.panel === "runs", "Runs", show("runs")),
-          preview("schedules", segment(monitorPage.panel === "schedules", "Schedules", show("schedules"))),
-          ops.length ? segment(!!op, ["Operations", ops.every((o) => PREVIEW_FEATURES[o.feature]) ? previewTag() : null],
-            show(ops.some((o) => o.panel === monitorPage.opsView) ? monitorPage.opsView : ops[0].panel)) : null),
-        op ? h("select", { class: "group-select", "aria-label": "Operations view", title: "Which Operations view to show",
-          onchange: (e) => show(e.target.value)() }, ops.map((o) => h("option", { value: o.panel, selected: o === op }, o.label))) : null,
-        monitorAbout(op ? op.text : monitorPage.panel === "schedules" ? "Every schedule, on this PC and in Fabric, with how its last run went"
-          : "Everything this app ran or started, in every environment, on this PC and in Fabric", op ? op.anchor : "monitor"),
-        h("span", { class: "spacer" }),
-        op ? null : btn("Refresh", "sync", () => { monitorPage.fabricPipelinesRefresh = true; forgetFabricActivities(); render(); }, "tool outline"),
-        popOutButton("runs")),
-      monitorPage.panel !== "runs" ? null : h("div", { class: "monitor-filters" },
-        h("div", { class: "row", role: "group", "aria-label": "Environment" },
-          chip("env", "all", "All"), Object.entries(ENV_LABEL).map(([id, label]) => chip("env", id, label))),
-        h("div", { class: "row", role: "group", "aria-label": "Where it ran" },
-          chip("where", "any", "Anywhere"), chip("where", "local", "This PC"), chip("where", "fabric", "Fabric")),
-        h("label", { class: "check" }, h("input", { type: "checkbox", checked: monitorPage.problemsFirst ? true : null,
-          onchange: (e) => { monitorPage.problemsFirst = e.target.checked; render(); } }), "Problems first"),
-        note),
-      local),
-    !fabricHere ? null : fabricOut ? poppedOutBand("fabric", "In Fabric", "monitor-fabric") : h("section", { class: "card monitor-fabric" },
-      h("div", { class: "monitor-band" },
-        h("h2", {}, "In Fabric"),
-        h("span", { class: "muted-text" }, "Fabric's own Monitoring hub, for everything else in your workspaces"),
-        h("span", { class: "spacer" }),
-        monitorPage.showFabric ? [monitorHubButtons(), popOutButton("fabric")] : null,
-        btn(monitorPage.showFabric ? "Hide" : "Show", null, toggleFabric, "tool outline")),
-      monitorPage.showFabric ? slot : null)));
-  if (fabricShown) dockFabricView(slot, "monitor", "monitor");
+  const source = monitorSource(monitorPage.panel);
+  const hub = monitorPage.panel === "fabric";
+  const hubShown = hub && !POP_OUT && !fabricOut;
+  // The same layout as every page with tabs (docs/ui-guidelines.md, Page layout): the title with what
+  // this tab shows and its button, the tabs, the view row (pages and filters left, Refresh right), the working area.
+  const about = op ? [op.text, op.anchor] : MONITOR_ABOUT[monitorPage.panel] || MONITOR_ABOUT.runs;
+  const tabs = POP_OUT ? null : h("div", { class: "subtabs monitor-tabs", "aria-label": "Monitor" }, MONITOR_SOURCES.map(([id, label, first]) =>
+    h("button", { class: `tab${source === id ? " active" : ""}`, "aria-current": source === id ? "page" : null, onclick: show(first) }, label)));
+  // This source's pages: Operations opens the view it was last on.
+  const pages = source === "fabric"
+    ? [["fabric", "Monitoring hub", hub], previewShown() ? ["fabric_schedules", "Schedules", monitorPage.panel === "fabric_schedules"] : null]
+    : [["runs", "Runs", monitorPage.panel === "runs"], previewShown() ? ["schedules", "Schedules", monitorPage.panel === "schedules"] : null,
+      ops.length ? [ops.some((o) => o.panel === monitorPage.opsView) ? monitorPage.opsView : ops[0].panel,
+        ["Operations", ops.every((o) => PREVIEW_FEATURES[o.feature]) ? previewTag() : null], !!op] : null];
+  const shown = pages.filter(Boolean);
+  const pageSeg = shown.length > 1 ? h("div", { class: "seg monitor-pages", role: "group", "aria-label": `${source === "fabric" ? "Fabric" : "KratosForge"} pages` },
+    shown.map(([panel, label, on]) => h("button", { class: on ? "on" : null, "aria-pressed": String(on), onclick: show(panel) }, label))) : null;
+  Object.assign(monitorSlots, { views: h("div", { class: "row tight mesh-views" }), tools: h("div", { class: "row tight mesh-tools" }) });
+  const refresh = () => {
+    monitorPage.fabricPipelinesRefresh = true;
+    schedulesPage.refresh = monitorPage.panel === "fabric_schedules";
+    forgetFabricActivities();
+    render();
+  };
+  const viewRow = h("div", { class: "row mesh-view-row monitor-view-row" }, pageSeg,
+    monitorPage.panel !== "runs" ? null : [
+      seg("env", "Environment", [["all", "All"], ...Object.entries(ENV_LABEL)]),
+      seg("where", "Where it ran", [["any", "Anywhere"], ["local", "This PC"], ["fabric", "Fabric"]]),
+      h("label", { class: "check" }, h("input", { type: "checkbox", checked: monitorPage.problemsFirst ? true : null,
+        onchange: (e) => { monitorPage.problemsFirst = e.target.checked; render(); } }), "Problems first")],
+    op ? h("select", { class: "group-select", "aria-label": "Operations view", title: "Which Operations view to show",
+      onchange: (e) => show(e.target.value)() }, ops.map((o) => h("option", { value: o.panel, selected: o === op }, o.label))) : null,
+    monitorSlots.views, h("span", { class: "spacer" }), monitorSlots.tools,
+    hubShown ? monitorHubButtons() : null,
+    op || hub ? null : btn("Refresh", "sync", refresh, "tool outline"));
+  // The page's button: the KratosForge tab's runs, or the Fabric hub, in a window of its own.
+  const popOutHere = hub ? (fabricOut ? null : popOutButton("fabric", "Pop out hub")) : runsOut ? null : popOutButton("runs", "Pop out runs");
+  // The runs window holds the KratosForge tab (Runs, Schedules, Operations); the Fabric tab stays here.
+  const runsBand = source === "kratosforge" && runsOut && !POP_OUT;
+  setView(h("div", { class: `page monitor${hubShown ? "" : " no-fabric"}` },
+    POP_OUT ? null : h("div", { class: "page-head" },
+      h("div", {}, h("h1", {}, "Monitor"), h("p", { class: "sub monitor-context" }, monitorAbout(...about))),
+      h("div", { class: "head-actions" }, popOutHere)),
+    tabs, runsBand ? null : viewRow,
+    hub ? (fabricOut ? poppedOutBand("fabric", "Fabric's Monitoring hub", "monitor-fabric")
+      : h("section", { class: "card monitor-fabric" }, slot))
+      : runsBand ? poppedOutBand("runs", "From KratosForge", "monitor-local")
+        : [note, h("section", { class: "card monitor-local" }, local)]));
+  if (hubShown) dockFabricView(slot, "monitor", "monitor");
   else if (!POP_OUT) invoke("fabric_view_hide").catch(() => {});
-  if (runsOut) return;
-  if (monitorPage.panel === "schedules") { local.replaceWith(schedulesPanel()); return; }
+  if (hub || runsBand) return;
+  if (monitorPage.panel === "schedules" || monitorPage.panel === "fabric_schedules") { local.replaceWith(schedulesPanel()); return; }
   if (monitorPage.panel === "workloads") { local.replaceWith(workloadsPanel()); return; }
   if (monitorPage.panel === "incidents") { local.replaceWith(incidentsPanel()); return; }
   if (monitorPage.panel === "agents") { local.replaceWith(agentsPanel()); return; }
@@ -1073,10 +1100,11 @@ async function renderMonitor() {
       open: () => showRun(r.run_id, r.env),
     })),
     ...(cloud || []).map((r) => ({
-      at: r.started_at, status: fabricStatus(r.status), activity: r.name, kind: r.kind, env: r.env || "", where: "fabric",
+      at: r.started_at, status: fabricStatus(r.status), pill: fabricPill(r), activity: r.name, kind: r.kind, env: r.env || "", where: "fabric",
       seconds: r.finished_at ? (new Date(r.finished_at) - new Date(r.started_at)) / 1000 : "", rows: "",
       note: r.workspace_name || "", reason: r.status === "Failed" ? r.message || "" : "",
       open: r.url ? () => openInFabric(r.url) : null,
+      cancel: previewShown() && !FABRIC_DONE.has(r.status) && !r.cancel_requested && r.workspace_id && r.item_id ? r.job_id : null,
     })),
     ...(scheduled || []).map((r) => ({
       at: r.started, status: r.status === "ok" ? "ok" : r.status === "skipped" ? "skipped" : "failed", activity: r.label,
@@ -1109,7 +1137,11 @@ async function renderMonitor() {
         r.reason ? h("div", { class: "reason" }, r.reason) : null),
       h("td", {}, runEnvCell(r)), h("td", {}, r.ranOn || (r.where === "fabric" ? "Fabric" : "This PC")),
       h("td", {}, when(r.at)), h("td", { class: "n" }, r.tookText ?? took(r.seconds)), h("td", { class: "n" }, r.rows ?? ""),
-      h("td", { class: "n" }, r.open ? h("span", { class: "link-text" }, r.openLabel || "Details") : r.pipelineRun ? pipelineRunDetails(r) : null)))))) :
+      h("td", { class: "n" }, r.cancel ? btn("Cancel", null, async (e) => {
+        e.stopPropagation();
+        if (await cancelFabricJob(r.cancel)) { monitorPage.refreshing = true; render(); }
+      }, "tool small outline danger") : null,
+      r.open ? h("span", { class: "link-text" }, r.openLabel || "Details") : r.pipelineRun ? pipelineRunDetails(r) : null)))))) :
     h("p", { class: "muted-text monitor-empty" }, monitorPage.env !== "all" || monitorPage.where !== "any"
       ? "Nothing matches these filters." : "Nothing has run yet. Run a metadata entity or write a table from a notebook.");
   local.replaceWith(list);
@@ -1139,6 +1171,13 @@ function runEnvCell(r) {
 // Fabric job states, shown with the same pills as local runs.
 function fabricStatus(status) {
   return { Completed: "ok", Failed: "failed", Cancelled: "skipped", Deduped: "skipped" }[status] || "running";
+}
+
+// Runs > Status for a Fabric job: Cancelled and Cancelling say so; the rest use the shared pills.
+function fabricPill(r) {
+  if (r.status === "Cancelled") return h("span", { class: "pill-s neu" }, "Cancelled");
+  if (r.cancel_requested && !FABRIC_DONE.has(r.status)) return h("span", { class: "pill-s wrn" }, "Cancelling…");
+  return null;
 }
 
 // Fabric's own pages (Monitoring hub, OneLake catalog) are one second webview the shell lays
@@ -1239,12 +1278,14 @@ async function renderWorkspaces() {
       return h("tr", { class: `${previewing ? "click" : ""}${isPreviewed(target) ? " selected" : ""}`,
         title: previewing ? `Preview ${it.displayName}` : null, onclick: () => selectPreview(target) },
         h("td", {}, h("span", { class: "item" }, itemIcon(it.type),
-          h("button", { class: "name-link", title: "Open in Fabric", onclick: stop(() => openInFabric(fabricItemLink(r))) }, it.displayName))),
+          whRef && whOpensHere()
+            ? h("button", { class: "name-link", title: "Open on the Warehouse page", onclick: stop(() => openWarehouseQuery(whRef)) }, it.displayName)
+            : h("button", { class: "name-link", title: "Open in Fabric", onclick: stop(() => openInFabric(fabricItemLink(r))) }, it.displayName))),
         h("td", { class: "ws-type" }, typeLabel(it.type)),
         h("td", { class: "actions" },
           lh ? btn("Open", null, stop(() => openLakehouse(lh)), "tool small link") : null,
           lh ? btn("SQL query", null, stop(() => openSqlQuery(lh)), "tool small link") : null,
-          whRef ? preview("warehouse", btn("SQL query", null, stop(() => openWarehouseQuery(whRef)), "tool small link",
+          whRef && !whOpensHere() ? preview("warehouse", btn("SQL query", null, stop(() => openWarehouseQuery(whRef)), "tool small link",
             { title: "Query it with T-SQL in Fabric (uses capacity)" })) : null,
           btn("Open in Fabric", "open", stop(() => openInFabric(fabricItemLink(r))), "tool small link")));
     })));
@@ -1315,15 +1356,52 @@ function workspacesTabs(active) {
         onclick: () => go(view) }, label)));
 }
 
+// Opening a warehouse or SQL analytics endpoint by its name: the Warehouse page unless Settings says
+// Fabric's own editor (wh_open_in). The Warehouse page is a Preview feature, so with preview features
+// hidden a name opens Fabric as before.
+const whOpensHere = () => previewShown() && (state.settings?.wh_open_in?.value || "kratosforge") === "kratosforge";
+const fabricFullScreen = () => state.settings?.fabric_full_screen?.value === true;
+
+// The warehouse or SQL analytics endpoint a Fabric portal address shows, as {workspace_id, item_id,
+// type}, or null for any other page.
+function fabricWarehouseOf(address) {
+  const m = /^https:\/\/app\.fabric\.microsoft\.com\/groups\/([0-9a-f-]{36})\/(datawarehouses|lakewarehouses)\/([0-9a-f-]{36})(?:[/?#]|$)/i
+    .exec(String(address || ""));
+  return m ? { workspace_id: m[1].toLowerCase(), type: m[2].toLowerCase() === "datawarehouses" ? "Warehouse" : "SQLEndpoint",
+    item_id: m[3].toLowerCase() } : null;
+}
+
+// Open in KratosForge: the warehouse the Fabric portal shows, on the Warehouse page.
+async function openFabricPageHere() {
+  const address = await invoke("fabric_view_url").catch(() => null);
+  const at = fabricWarehouseOf(address);
+  if (!at) { toast("Open a warehouse or SQL analytics endpoint in Fabric first, then this opens it here.", true); return; }
+  const workspaces = state.workspaces || await attempt(() => rpc("list_workspaces"), "Could not list workspaces");
+  const ws = (workspaces || []).find((w) => w.id.toLowerCase() === at.workspace_id);
+  const items = ws && await attempt(() => rpc("list_items", { workspace_id: ws.id }), `Could not list the items in ${ws.displayName}`);
+  const it = (items || []).find((x) => x.id.toLowerCase() === at.item_id && x.type === at.type);
+  const ref = it && warehouseRefFor(ws, it, items);
+  if (!ref) { toast("That warehouse isn't in a workspace you can open here.", true); return; }
+  openWarehouseQuery(ref);
+}
+
+async function setFabricFullScreen(on) {
+  if (await saveSettings({ fabric_full_screen: on })) renderFabric();
+}
+
 function renderFabric() {
   const slot = h("div", { class: "fabric-slot" },
     h("p", { class: "muted-text" }, "Opening Fabric. Sign in once and the app keeps it between launches."));
   const action = (name) => attempt(() => invoke("fabric_view_action", { action: name, page: fabricPage.page }), "Fabric view");
+  const full = fabricFullScreen();
   setView(h("div", { class: "page monitor fabric-page" }, workspacesTabs("fabric"), withHowItWorks(
     h("section", { class: "card monitor-fabric" },
       h("div", { class: "monitor-band" },
         h("h2", {}, "Fabric"),
         h("span", { class: "spacer" }),
+        preview("warehouse", btn("Open in KratosForge", "database", openFabricPageHere, "tool outline",
+          { title: "Open the warehouse or SQL analytics endpoint Fabric shows on the Warehouse page" })),
+        btn(full ? "Exit full screen" : "Full screen", null, () => setFabricFullScreen(!full), "tool outline"),
         btn("Back", null, () => action("back"), "tool outline"),
         btn("Home", "home", () => openInFabric(FABRIC_HOME), "tool outline"),
         btn("OneLake catalog", "onelake", () => openInFabric("catalog"), "tool outline"),
@@ -1340,9 +1418,18 @@ function renderFabric() {
         + "account; delete fabric-view-signin.bin to make it forget.",
       anchor: "fabric",
     }))));
+  document.body.classList.toggle("fabric-full", full);
   dockFabricView(slot, "fabric", fabricPage.page);
   placeFabricView();
 }
+
+// Esc leaves full screen while the app has the keys; inside Fabric the bar's button does.
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || !document.body.classList.contains("fabric-full")) return;
+  if (document.getElementById("dialog-root")?.childElementCount) return;
+  e.preventDefault();
+  setFabricFullScreen(false);
+});
 
 function openWorkspace(ws) {
   state.openWorkspace = ws;
@@ -1681,7 +1768,10 @@ async function renderOneLake() {
         h("td", {}, h("button", { class: `star${fav ? " on" : ""}`, title: fav ? "Remove from favorites" : "Add to favorites",
           "aria-label": fav ? "Remove from favorites" : "Add to favorites", onclick: (ev) => toggleFavorite(r, ev) }, fav ? "★" : "☆")),
         h("td", {}, h("span", { class: "item" }, itemIcon(r.type),
-          h("button", { class: "name-link", title: "Open in Fabric", onclick: () => openInFabric(fabricItemLink(r)) }, r.name))),
+          r.type === "Warehouse" && whOpensHere()
+            ? h("button", { class: "name-link", title: "Open on the Warehouse page",
+              onclick: () => openWarehouseQuery({ kind: "warehouse", workspace_id: r.workspace_id, workspace_name: r.workspace_name, item_id: r.item_id, name: r.name }) }, r.name)
+            : h("button", { class: "name-link", title: "Open in Fabric", onclick: () => openInFabric(fabricItemLink(r)) }, r.name))),
         h("td", {}, typeLabel(r.type)),
         h("td", {}, h("button", { class: "name-link", title: "Open the workspace in Fabric",
           onclick: () => openInFabric(fabricItemLink({ workspace_id: r.workspace_id })) }, r.workspace_name),
@@ -1874,7 +1964,7 @@ function fileRows(ref, path, indent, onInsert, rerender, onPick = null) {
         title: onInsert ? "Click to add a cell that reads this file. Drag it into a cell, or right-click for other ways to load it." : onPick ? `Preview ${item.path}` : item.path,
         onclick: () => onInsert ? onInsert(readSnippet(item.path)) : onPick && onPick(pick),
         ...(onInsert ? dataItemAttrs(pick) : {}) },  // nbdrag.js
-      icon("file", 15), h("span", { class: "label" }, item.name), h("span", { class: "hint" }, formatSize(item.size))));
+      icon("file", 15), h("span", { class: "label" }, item.name), h("span", { class: "hint" }, item.size ? sizeText(item.size) : "")));
     }
   }
   return rows;
@@ -1886,12 +1976,19 @@ function readSnippet(path) {
   return `df = lakehouse.${reader}(${JSON.stringify(path)})\ndf`;
 }
 
-function formatSize(bytes) {
-  if (!bytes) return "";
-  const units = ["B", "KB", "MB", "GB"];
+// File and data sizes, the same on every page (#929): 1024-based, with one decimal below 100
+// (17 B, 2.0 KB, 99.5 MB, 212 MB, 1.1 GB). Nothing for a missing or negative size.
+function sizeText(n) {
+  if (n == null || n === "") return "";
+  n = Number(n);
+  if (!Number.isFinite(n) || n < 0) return "";
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
   let i = 0;
-  while (bytes >= 1024 && i < units.length - 1) { bytes /= 1024; i++; }
-  return `${bytes.toFixed(i ? 1 : 0)} ${units[i]}`;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  if (!i) return `${Math.round(n)} B`;
+  let v = +n.toFixed(n >= 100 ? 0 : 1);
+  if (v >= 1024 && i < units.length - 1) { v = +(v / 1024).toFixed(1); i++; }  // 1023.97 KB reads 1.0 MB
+  return `${v.toFixed(v >= 100 ? 0 : 1)} ${units[i]}`;
 }
 
 // ---------- Notebook files ----------
@@ -2342,6 +2439,13 @@ const TIME_ZONES = {
   "Asia/Kolkata": "India Standard Time", "Asia/Singapore": "Singapore Standard Time",
   "Australia/Sydney": "AUS Eastern Standard Time",
 };
+// Every Windows time zone and this PC's, read once from the registry (PB-048). Off Windows, or when the
+// engine can't read them, the short list above stays; a failed read is tried again next time.
+let windowsTimeZones = null;
+function loadTimeZones() {
+  windowsTimeZones ||= rpc("time_zones").catch(() => { windowsTimeZones = null; return { zones: [], here: null }; });
+  return windowsTimeZones;
+}
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 // The repeat, times, days and time zone fields of a Fabric schedule, shared by notebooks and metadata runs.
@@ -2352,12 +2456,40 @@ function scheduleForm() {
   const minutes = h("input", { type: "number", min: "1", value: "60" });
   const days = WEEKDAYS.map((d, i) => h("label", { class: "check" }, h("input", { type: "checkbox", value: d, checked: i < 5 ? true : null }), d.slice(0, 3)));
   const here = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const zone = h("select", {}, Object.entries(TIME_ZONES).map(([iana, win]) =>
-    h("option", { value: win, selected: iana === here ? true : null }, `${win}${iana === "UTC" ? "" : ` (${iana})`}`)));
+  const zone = h("select", { size: 8, "aria-label": "Time zone" });
+  const search = h("input", { type: "search", placeholder: "Search time zones", "aria-label": "Search time zones" });
+  let chosen = null;  // a zone set by set() or picked; until then the PC's own zone
+  // Rebuild the options from [{id, name}], the PC's zone first, keeping the chosen zone even when the list lacks it.
+  const fill = (zones, pcZone) => {
+    const pick = chosen || pcZone || zone.value;
+    const label = (z) => (z.name === z.id ? z.id : `${z.name} · ${z.id}`);
+    const pc = zones.find((z) => z.id === pcZone);
+    const other = chosen && !zones.some((z) => z.id === chosen) ? [{ id: chosen, name: chosen }] : [];
+    zone.replaceChildren(
+      pc ? h("optgroup", { label: "On this PC" }, h("option", { value: pc.id }, label(pc))) : null,
+      h("optgroup", { label: "All time zones" }, [...other, ...zones.filter((z) => z !== pc)].map((z) => h("option", { value: z.id }, label(z)))));
+    zone.value = pick;
+    if (!zone.value && zone.options.length) zone.selectedIndex = 0;
+    filter();
+  };
+  // Show the zones matching every word typed; if the chosen one is filtered out, pick the first match.
+  const filter = () => {
+    const words = search.value.toLowerCase().split(/\s+/).filter(Boolean);
+    for (const o of zone.options) o.hidden = !words.every((w) => o.textContent.toLowerCase().includes(w));
+    for (const g of zone.querySelectorAll("optgroup")) g.hidden = ![...g.children].some((o) => !o.hidden);
+    if (zone.selectedOptions[0]?.hidden) {
+      const first = [...zone.options].find((o) => !o.hidden);
+      if (first) { zone.value = first.value; chosen = first.value; zone.dispatchEvent(new Event("change", { bubbles: true })); }
+    }
+  };
+  search.addEventListener("input", filter);
+  zone.addEventListener("change", () => { chosen = zone.value; });
+  fill(Object.entries(TIME_ZONES).map(([iana, win]) => ({ id: win, name: iana === "UTC" ? win : `${win} (${iana})` })), TIME_ZONES[here]);
+  loadTimeZones().then((r) => { if (r?.zones?.length) fill(r.zones, r.here); });
   const timesField = h("label", { class: "field" }, "Times of day (24-hour, comma between)", times);
   const minutesField = h("label", { class: "field", hidden: true }, "Minutes between runs", minutes);
   const daysField = h("div", { class: "field", hidden: true }, "Days", h("div", { class: "row wrap" }, days));
-  const zoneField = h("label", { class: "field" }, "Time zone", zone);
+  const zoneField = h("div", { class: "field zone-field" }, h("span", {}, "Time zone"), search, zone);
   const sync = () => {
     minutesField.hidden = kind.value !== "cron";
     timesField.hidden = zoneField.hidden = kind.value === "cron";
@@ -2369,6 +2501,19 @@ function scheduleForm() {
     sync,
     value: () => ({ kind: kind.value, times: times.value.split(","), every_minutes: Number(minutes.value),
       weekdays: days.map((l) => l.firstChild).filter((c) => c.checked).map((c) => c.value), time_zone: zone.value }),
+    // Fill the form with a stored schedule (scheduleValues), to edit it (PB-048).
+    set: (v) => {
+      kind.value = v.kind;
+      times.value = v.times.length ? v.times.join(", ") : "06:00";
+      minutes.value = String(v.every_minutes || 60);
+      days.forEach((l) => { l.firstChild.checked = v.weekdays.includes(l.firstChild.value); });
+      if (v.time_zone) {
+        chosen = v.time_zone;
+        if (![...zone.options].some((o) => o.value === v.time_zone)) zone.lastChild.prepend(h("option", { value: v.time_zone }, v.time_zone));
+        zone.value = v.time_zone;
+      }
+      sync();
+    },
   };
 }
 
@@ -2619,7 +2764,9 @@ registerFeature({
   id: "monitor", rail: { label: "Monitor", icon: "monitor", order: 70, also: ["workload"] }, views: { monitor: renderMonitor },
   commands: [
     { label: "Runs", icon: "monitor", keywords: "monitor history failed", run: () => { monitorPage.panel = "runs"; go("monitor"); } },
-    { label: "Schedules", icon: "history", keywords: "monitor scheduled", preview: true, run: () => { monitorPage.panel = "schedules"; go("monitor"); } },
+    { label: "KratosForge schedules", icon: "history", keywords: "monitor scheduled schedules this pc", preview: true, run: () => { monitorPage.panel = "schedules"; go("monitor"); } },
+    { label: "Fabric schedules", icon: "history", keywords: "monitor scheduled schedules fabric", preview: true, run: () => { monitorPage.panel = "fabric_schedules"; go("monitor"); } },
+    { label: "Fabric Monitoring hub", icon: "monitor", keywords: "monitor fabric hub jobs capacity", run: () => { monitorPage.panel = "fabric"; go("monitor"); } },
     { label: "Cost", icon: "gauge", keywords: "monitor capacity cu spend", preview: true, run: () => { optimizePage.tab = "cost"; go("optimize"); } },
   ],
 });

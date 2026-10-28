@@ -230,14 +230,23 @@ class LocalSchedules:
         return sorted(out, key=lambda x: x["at"], reverse=True)
 
     def notebooks(self) -> set[str]:
-        """The notebooks an enabled schedule on this PC runs. Only reads: a torn file raises ValueError
-        and is left where it is."""
+        """The notebooks an enabled schedule on this PC runs: a notebook schedule's notebook, and the
+        saved notebooks a pipeline schedule's Notebook steps run (its ``notebooks`` map). Only reads:
+        a torn file raises ValueError and is left where it is."""
         try:
             data = json.loads(read_text(self.file))
         except FileNotFoundError:
             return set()
-        return {str(s["target"].get("name") or "") for s in data.get("schedules") or []
-                if s.get("enabled", True) and (s.get("target") or {}).get("kind") == "notebook"} - {""}
+        out: set[str] = set()
+        for s in data.get("schedules") or []:
+            target = s.get("target") or {}
+            if not s.get("enabled", True):
+                continue
+            if target.get("kind") == "notebook":
+                out.add(str(target.get("name") or ""))
+            elif target.get("kind") == "pipeline" and isinstance(target.get("notebooks"), dict):
+                out |= {v for v in target["notebooks"].values() if isinstance(v, str)}
+        return out - {""}
 
     def get(self, schedule_id: str) -> dict[str, Any]:
         found = next((s for s in self._load()["schedules"] if s["id"] == schedule_id), None)
@@ -260,6 +269,19 @@ class LocalSchedules:
         for s in data["schedules"]:
             if s["id"] == schedule_id:
                 s["enabled"] = bool(enabled)
+                self.scheduler.register(s, self.executable, str(self.root))
+                self._save(data)
+                return s
+        raise LookupError(f"There is no schedule {schedule_id} on this PC")
+
+    def update(self, schedule_id: str, schedule: dict[str, Any]) -> dict[str, Any]:
+        """New times for an existing schedule. Its Windows task is replaced under the same id, so its run
+        history stays, and a paused schedule stays paused."""
+        config = local_configuration(schedule)  # checks the times before anything changes
+        data = self._load()
+        for s in data["schedules"]:
+            if s["id"] == schedule_id:
+                s["config"] = config
                 self.scheduler.register(s, self.executable, str(self.root))
                 self._save(data)
                 return s

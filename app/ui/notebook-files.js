@@ -381,7 +381,7 @@ const NB_RENAME_FIX = {
   environment: "Pick its environment again on the notebook's status bar.",
   "Fabric link": "Publish it once to link it to its Fabric item again.",
   versions: "Its earlier versions are still kept under the old name in the app's notebook-versions folder.",
-  schedules: "Open Monitor > Schedules and point its schedule on this PC at the new name.",
+  schedules: "Open Monitor > KratosForge > Schedules and point its schedule on this PC at the new name.",
 };
 
 // After a move or folder rename: a warning naming what didn't follow, and what to do. Pure (ui.test.cjs).
@@ -600,7 +600,7 @@ async function nbOpenFileDialog(file, content, check) {
   };
   showDialog("Open a notebook file", h("div", { class: "nbf-form" },
     h("p", { class: "muted-text" }, "KratosForge adds a copy to your notebooks and opens it. The file you picked isn't changed or moved."),
-    h("div", { class: "nbf-file" }, icon("document", 20), h("div", {}, h("b", {}, file.name), h("div", { class: "muted-text small" }, formatSize(file.size)))),
+    h("div", { class: "nbf-file" }, icon("document", 20), h("div", {}, h("b", {}, file.name), h("div", { class: "muted-text small" }, sizeText(file.size)))),
     h("label", { class: "field" }, "Name", nameInput),
     check.taken ? h("p", { class: "muted-text small" }, `You already have a notebook named ${check.file_name}, so this name is suggested.`) : null,
     places.length > 1 ? h("label", { class: "field" }, "Save in", select) : null,

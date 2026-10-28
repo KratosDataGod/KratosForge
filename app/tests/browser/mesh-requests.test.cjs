@@ -37,25 +37,25 @@ const rows = () => page().$$eval(".mesh-requests tbody tr", (r) => r.map((x) => 
 test("with no project open, Requests opens on what waits on you", { skip }, async () => {
   assert.ok(await page().$('.meta-groups .tab.active:has-text("Requests")'));
   assert.ok(await page().$('.meta-groups .tab:has-text("Home")'));
-  assert.strictEqual(await page().getAttribute('.mesh-requests .seg button:has-text("Waiting on you")', "aria-pressed"), "true");
-  assert.match(await page().textContent('.mesh-requests .seg button:has-text("Waiting on you")'), /\(1\)/);
+  assert.strictEqual(await page().getAttribute('.mesh-views .seg button:has-text("Waiting on you")', "aria-pressed"), "true");
+  assert.match(await page().textContent('.mesh-views .seg button:has-text("Waiting on you")'), /\(1\)/);
   assert.deepStrictEqual(await rows(), ["r1"]);
   assert.match(await page().textContent(".how-it-works"), /access to a data product given in the catalog/);
-  assert.ok(await page().$(".mesh-requests .preview-tag"));
+  assert.ok(await page().$('.meta-groups .tab.active:has-text("Requests") .preview-tag'));
 });
 
 test("Sent by you lists your own requests, which you can withdraw", { skip }, async () => {
-  await page().click('.mesh-requests .seg button:has-text("Sent by you")');
+  await page().click('.mesh-views .seg button:has-text("Sent by you")');
   await page().waitForSelector('.mesh-requests tr[data-request="r2"]');
   assert.deepStrictEqual(await rows(), ["r2"]);
   assert.ok(await page().$('tr[data-request="r2"] button:has-text("Withdraw")'));
-  await page().click('.mesh-requests .seg button:has-text("Everything")');
+  await page().click('.mesh-views .seg button:has-text("Everything")');
   await page().waitForSelector('.mesh-requests tr[data-request="r3"]');
   assert.deepStrictEqual(await rows(), ["r1", "r2", "r3"]);
 });
 
 test("Approve decides it here, as on Platform", { skip }, async () => {
-  await page().click('.mesh-requests .seg button:has-text("Waiting on you")');
+  await page().click('.mesh-views .seg button:has-text("Waiting on you")');
   await page().click('tr[data-request="r1"] button:has-text("Approve")');
   await page().waitForFunction(() => document.querySelector(".mesh-requests")?.textContent.includes("Nothing is waiting on you"));
   assert.deepStrictEqual(decided, [["r1", true]]);

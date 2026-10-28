@@ -188,8 +188,8 @@ def test_download_app_follows_preview_without_a_stable_release(monkeypatch, sett
                                "/latest/kratosforge.exe": exe,
                                "/latest/version.json": json.dumps({"commit": SHA, "exe_sha256": hashlib.sha256(exe).hexdigest()}).encode()})
     assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 0
-    # Stable is missing under both names before Preview is tried.
-    assert all("/stable/" in url for url, _ in seen[:2]) and all("/latest/" in url for url, _ in seen[2:])
+    # Stable is missing (its version.json, then the exe under both names) before Preview is tried.
+    assert all("/stable/" in url for url, _ in seen[:3]) and all("/latest/" in url for url, _ in seen[3:])
 
 
 def test_preview_channel_does_not_fall_back(monkeypatch, settings_dirs):
@@ -213,10 +213,36 @@ def test_download_app_refuses_when_the_checksum_cant_be_read(monkeypatch, tmp_pa
     assert "Could not read build 0123456's checksum" in capsys.readouterr().out
 
 
-def test_download_app_waits_while_the_release_names_another_build(monkeypatch, tmp_path, capsys):
+def test_download_app_says_when_the_release_names_another_build(monkeypatch, tmp_path, capsys):
+    # The channel was republished since the shell checked it: say which build it names now,
+    # without downloading, so the shell checks again and installs that one.
     other = json.dumps({"commit": "f" * 40, "exe_sha256": "0" * 64}).encode()
-    serve(monkeypatch, {"kratosforge.exe": b"MZ..." + SHA.encode(), "version.json": other})
-    assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 1
+    seen = serve(monkeypatch, {"kratosforge.exe": b"MZ..." + SHA.encode(), "version.json": other})
+    assert updater.download_app(str(tmp_path / "new.exe"), SHA) == updater.MOVED
+    assert capsys.readouterr().out.splitlines()[-1] == "moved " + "f" * 40
+    assert not any("kratosforge.exe" in url for url, _ in seen)
+
+
+def test_download_app_says_when_the_release_moves_during_the_download(monkeypatch, tmp_path, capsys):
+    import hashlib
+    exe = b"MZ..." + SHA.encode()
+    infos = iter([{"commit": SHA, "exe_sha256": hashlib.sha256(exe).hexdigest()}, {"commit": "f" * 40, "exe_sha256": "0" * 64}])
+    last = {}
+
+    def version():
+        last.update(next(infos, last))
+        return json.dumps(last).encode()
+
+    serve(monkeypatch, {"kratosforge.exe": exe, "version.json": version})
+    assert updater.download_app(str(tmp_path / "new.exe"), SHA) == updater.MOVED
+    out = capsys.readouterr().out
+    assert out.splitlines()[-1] == "moved " + "f" * 40 and "trying again" not in out
+
+
+def test_download_app_offline_says_so_in_one_line(monkeypatch, tmp_path, capsys):
+    serve(monkeypatch, {"github": OSError("no network")})
+    assert updater.main(["download-app", str(tmp_path / "new.exe"), SHA]) == 1
+    assert capsys.readouterr().out.strip() == "The download failed: no network"
 
 
 def test_download_app_refuses_a_stale_copy(monkeypatch, tmp_path, capsys):
@@ -263,8 +289,9 @@ def test_download_app_takes_the_legacy_name_from_an_older_release(monkeypatch, t
                                "version.json": json.dumps({"commit": SHA, "exe_sha256": hashlib.sha256(exe).hexdigest()}).encode()})
     assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 0
     assert (tmp_path / "new.exe").read_bytes() == exe
-    assert [url.split("?")[0].rsplit("/", 1)[1] for url, _ in seen[:2]] == ["kratosforge.exe", "fabric-desktop.exe"]
-    assert "/stable/" in seen[0][0] and "/stable/" in seen[1][0], "the same release, not Preview"
+    exes = [url for url, _ in seen if ".exe" in url][:2]
+    assert [url.split("?")[0].rsplit("/", 1)[1] for url in exes] == ["kratosforge.exe", "fabric-desktop.exe"]
+    assert "/stable/" in exes[0] and "/stable/" in exes[1], "the same release, not Preview"
 
 
 def test_download_app_asks_for_kratosforge_exe_first(monkeypatch, tmp_path):

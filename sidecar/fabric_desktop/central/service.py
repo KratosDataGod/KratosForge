@@ -310,7 +310,7 @@ class PlatformMixin:
             raise ValueError("A domain needs a name")
         did = domain_id(domain.get("id") or name)
         if not self._catalog().call("whoami").get("admin"):
-            raise PermissionError("Only platform admins can create domains. Send a request in Platform > Requests.")
+            raise PermissionError("Only platform admins can create domains. Send a request in Data mesh > Requests.")
         known = {d["id"]: d for d in self.platform_domains()}
         same = known.get(did) or next((d for d in known.values() if d["name"].strip().lower() == name.lower()), None)
         if same:
@@ -361,7 +361,7 @@ class PlatformMixin:
         except FabricError as exc:
             if re.search(r"failed with 40[13]\b", str(exc)):
                 raise PermissionError("Only a Fabric administrator can read Fabric's domains. Ask one to open "
-                                      "Platform > Set up > Domains and choose Import from Fabric; after that, everyone "
+                                      "Data mesh > Domains and choose Import from Fabric; after that, everyone "
                                       "sees the domains here.") from exc
             raise
         unread = self._read_domain_admins(admin, fabric)
@@ -903,7 +903,7 @@ class PlatformMixin:
         if project is not None:
             summary = read("Incidents", self.incidents_summary) or {"envs": []}  # type: ignore[attr-defined]
             incidents = [i for e in summary["envs"] for i in e["incidents"]]
-            problems += [f"Incidents in {e['env']}: {e['observation'].get('detail') or e['observation'].get('label')}"
+            problems += [f"Incidents in {e['env'].title()}: {e['observation'].get('detail') or e['observation'].get('label')}"
                          for e in summary["envs"] if e["count"] is None and e["observation"].get("state") != "not_set_up"]
         reach = home.incident_reach(products, incidents)
         reviews = (read("Access reviews", lambda: catalog.call("access_reviews"))
@@ -976,7 +976,11 @@ class PlatformMixin:
         follows = self._my_follows()
         for p in products:
             p["following"] = p["id"] in (follows or [])
-        return {"project": me, "products": products, "can_follow": follows is not None}
+        # Each product's semantic models and reports (Preview); an older platform has none to show.
+        groups = self._product_groups(self._catalog())  # type: ignore[attr-defined]
+        for p in products:
+            p["items"] = [g for g in groups or [] if g["product_id"] == p["id"]]
+        return {"project": me, "products": products, "can_follow": follows is not None, "can_group": groups is not None}
 
     def _my_follows(self) -> list[str] | None:
         """The products the signed-in person follows; None when the platform is older than following."""
@@ -1004,7 +1008,33 @@ class PlatformMixin:
             return
         if project.info:
             i = mesh.identity(project) | {"landing": mesh.landing_readers(project)}
-            self._catalog().call("register_project", project=i)
+            try:
+                out = self._catalog().call("register_project", project=i)
+            except core.PlatformError as exc:  # not a member: setting up the platform still finishes
+                _log.info("register_project: %s", exc)
+                return
+            self._keep_catalog_domain(project, out)
+
+    @staticmethod
+    def _keep_catalog_domain(project: Any, out: Any) -> None:
+        """A move to another domain waits for that domain's owners: project.toml keeps the domain the
+        catalog has until they approve, so the files and the catalog agree."""
+        if not (isinstance(out, dict) and out.get("domain_request")):
+            return
+        fields = mesh.identity(project) | {"domain": out.get("domain_id") or "", "subdomain": out.get("subdomain_id") or ""}
+        mesh.write_project_file(project.root, fields)
+        project.reload()
+
+    def mesh_members(self, project: str = "") -> dict[str, Any]:
+        """The open project's members in the platform's catalog, and whether you may change them."""
+        name = project or mesh.project_name(self._project())  # type: ignore[attr-defined]
+        return call_or_repair(self._catalog(), "list_project_members", "keep a project's members", project=name)
+
+    def mesh_set_member(self, user: str, role: str = "", project: str = "") -> dict[str, Any]:
+        """Add a member to the open project, change their role, or take them off (role "")."""
+        name = project or mesh.project_name(self._project())  # type: ignore[attr-defined]
+        return call_or_repair(self._catalog(), "set_project_member", "keep a project's members",
+                              project=name, user=user, role=role)
 
     def mesh_overview(self) -> dict[str, Any]:
         """Everything the Mesh tabs show: this project, the domains, products here and published elsewhere."""
@@ -1039,8 +1069,10 @@ class PlatformMixin:
             if fields.get("subdomain") and known.get(fields["subdomain"], {}).get("parent_id") != fields["domain"]:
                 raise GateError("save", [f"{fields['subdomain']} isn't a subdomain of {fields['domain']}"])
         mesh.write_project_file(project.root, fields)
-        catalog.call("register_project", project=fields | {"landing": mesh.landing_readers(project)})
-        return self.mesh_overview()
+        project.reload()
+        out = catalog.call("register_project", project=fields | {"landing": mesh.landing_readers(project)})
+        self._keep_catalog_domain(project, out)
+        return self.mesh_overview() | {"domain_request": (out or {}).get("domain_request") if isinstance(out, dict) else None}
 
     def mesh_save_product(self, product: dict[str, Any], original: str = "") -> dict[str, Any]:
         project = self._project()  # type: ignore[attr-defined]
@@ -1090,44 +1122,29 @@ class PlatformMixin:
         before = self._published_before(catalog, project)
         done, problems, events, tell = [], [], [], []
         old_function = False
-        for p in project.products.values():
-            if p.status == "draft":
-                continue
-            ports = [{"port": port["name"], **self._port_location(project, env, port["entity"])} for port in p.ports]
-            info = p.summary() | {"project": name, "domain": project.info.get("domain", "")}
-            out = catalog.call("register_product", product=info, ports=ports, env=env)
-            done.append(p.name)
-            # The port history came with versioned contracts: an older UDF_Platform publishes without it.
-            old_function = old_function or not (isinstance(out, dict) and "history" in out)
-            told: set[str] = set()  # the people the deprecation notice names
-            if p.status == "deprecated":
-                if before is None:
-                    problems.append(f"products/{p.name} is deprecated, but the catalog's readers couldn't be read, so "
-                                    "no Teams notice went to them. Publish again to try once more.")
-                else:
-                    was = before.get(f"{name}/{p.name}")
-                    stops = str(info.get("deprecated_on") or "")
-                    if was and (was.get("status") != "deprecated" or str(was.get("deprecated_on") or "") != stops):
-                        event = notices.product_deprecated(was | {"deprecated_on": stops, "domain_id": info["domain"]},
-                                                           was.get("consumers") or [])
-                        if event:
-                            told = {u.lower() for u in event["to"]["people"]}
-                            events.append(event)
-                            tell += [{"product": was["id"], "project": c["consumer_project"], "alias": c.get("alias", ""),
-                                      "deprecated_on": stops} for c in was.get("consumers") or []
-                                     if c.get("consumer_project") and c["consumer_project"] != name]
-            # Readers hear about changes in Prod, the environment their own projects read. People the
-            # deprecation notice just named don't hear about the deprecation twice; other followers do.
-            changes = (out.get("changes") or []) if isinstance(out, dict) else []
-            if env == "prod" and changes:
-                me = (self._user() or "").lower()  # type: ignore[attr-defined]
-                followers = [f for f in out.get("followers") or [] if f.lower() != me]  # the promoter knows
-                rest = [c for c in changes if not c.startswith("Deprecated")]
-                for people, said, suffix in (([f for f in followers if f.lower() not in told], changes, ""),
-                                             ([f for f in followers if f.lower() in told], rest, ":told")):
-                    event = notices.product_changed(out, said, people, env)
-                    if event:
-                        events.append(event | {"dedupe": event["dedupe"] + suffix})
+        try:
+            for p in project.products.values():
+                if p.status == "draft":
+                    continue
+                ports = [{"port": port["name"], **self._port_location(project, env, port["entity"])} for port in p.ports]
+                info = p.summary() | {"project": name, "domain": project.info.get("domain", "")}
+                out = catalog.call("register_product", product=info, ports=ports, env=env)
+                done.append(p.name)
+                # The port history came with versioned contracts: an older UDF_Platform publishes without it.
+                old_function = old_function or not (isinstance(out, dict) and "history" in out)
+                try:
+                    self._publish_notices(p, info, out, before, name, env, events, tell, problems)
+                except Exception as exc:  # noqa: BLE001 - the product is published; a notice never fails that
+                    problem = f"products/{p.name} is published, but its Teams notice couldn't be made: {describe(exc)}"
+                    _log.warning(problem)
+                    problems.append(problem)
+        except Exception:
+            # A later product failed to publish: the notices for the ones already published still go,
+            # since the next publish finds them unchanged and wouldn't send them again.
+            if events:
+                self._governance_notify(lambda: events)  # type: ignore[attr-defined]
+            raise
+        problems += self._sync_links(project, catalog)
         if old_function:
             problems.append("Published, but the catalog keeps no port history yet: UDF_Platform is older than "
                             "versioned contracts. A platform admin runs Platform > Settings > Finish or repair once.")
@@ -1137,6 +1154,40 @@ class PlatformMixin:
                 problems.append(problem)
         # Who was told, and what didn't happen, only when there is something to say.
         return {"env": env, "published": done} | ({"told": tell} if tell else {}) | ({"problems": problems} if problems else {})
+
+    def _publish_notices(self, p: Any, info: dict[str, Any], out: Any, before: dict[str, dict[str, Any]] | None,
+                         name: str, env: str, events: list[dict[str, Any]], tell: list[dict[str, Any]],
+                         problems: list[str]) -> None:
+        """The Teams notices one published product calls for, added to ``events`` and ``tell``."""
+        told: set[str] = set()  # the people the deprecation notice names
+        if p.status == "deprecated":
+            if before is None:
+                problems.append(f"products/{p.name} is deprecated, but the catalog's readers couldn't be read, so "
+                                "no Teams notice went to them. Publish again to try once more.")
+            else:
+                was = before.get(f"{name}/{p.name}")
+                stops = str(info.get("deprecated_on") or "")
+                if was and (was.get("status") != "deprecated" or str(was.get("deprecated_on") or "") != stops):
+                    consumers = [c for c in was.get("consumers") or [] if isinstance(c, dict)]
+                    event = notices.product_deprecated(was | {"deprecated_on": stops, "domain_id": info["domain"]}, consumers)
+                    if event:
+                        told = {u.lower() for u in event["to"]["people"]}
+                        events.append(event)
+                        tell += [{"product": was["id"], "project": c["consumer_project"], "alias": c.get("alias", ""),
+                                  "deprecated_on": stops} for c in consumers
+                                 if c.get("consumer_project") and c["consumer_project"] != name]
+        # Readers hear about changes in Prod, the environment their own projects read. People the
+        # deprecation notice just named don't hear about the deprecation twice; other followers do.
+        changes = (out.get("changes") or []) if isinstance(out, dict) else []
+        if env == "prod" and changes:
+            me = (self._user() or "").lower()  # type: ignore[attr-defined]
+            followers = [f for f in out.get("followers") or [] if isinstance(f, str) and f.lower() != me]  # the promoter knows
+            rest = [c for c in changes if not str(c).startswith("Deprecated")]
+            for people, said, suffix in (([f for f in followers if f.lower() not in told], changes, ""),
+                                         ([f for f in followers if f.lower() in told], rest, ":told")):
+                event = notices.product_changed(out, said, people, env)
+                if event:
+                    events.append(event | {"dedupe": event["dedupe"] + suffix})
 
     def _published_before(self, catalog: Any, project: Any) -> dict[str, dict[str, Any]] | None:
         """The catalog's products before a publish, read only when one of the project's is deprecated
@@ -1156,6 +1207,14 @@ class PlatformMixin:
         project = self._project()  # type: ignore[attr-defined]
         reads = {env: (link.get("reads") or {}).get(env, env) for env in ENVIRONMENTS}
         alias = link.get("alias", "")
+        kept = project.links.get(alias)
+        if kept is not None and kept.product != link.get("product", ""):
+            kept = None  # the alias now names another product: its versions and columns don't carry over
+        # The New link dialog sends neither accepts nor columns: saving the same link again keeps the file's.
+        if kept is not None and "accepts" not in link:
+            link = link | {"accepts": kept.accepts}
+        if kept is not None and "columns" not in link:
+            link = link | {"columns": kept.columns}
         accepts = str(link.get("accepts") or "").strip()
         if accepts:
             try:
@@ -1178,6 +1237,32 @@ class PlatformMixin:
         out = self.mesh_overview()
         out["problems"] = out.get("problems", []) + problems
         return out
+
+    def _sync_links(self, project: Any, catalog: Any) -> list[str]:
+        """Send each link's file to the catalog where the catalog has something else (accepts or columns
+        edited in links/<alias>.toml, say), so the producer's promote checks what the file says. A link the
+        catalog refuses is a problem to fix, never a failed publish."""
+        name = mesh.project_name(project)
+        try:
+            recorded = {c["id"]: c for p in catalog.call("list_products") for c in p.get("consumers", [])}
+        except Exception as exc:  # noqa: BLE001 - publishing is done; the links are sent on the next one
+            return [f"The project's links weren't checked against the catalog: {describe(exc)}"]
+        problems = []
+        for link in project.links.values():
+            if link.location("dev") or link.location("test") or link.location("prod"):
+                continue  # pinned: not in the catalog
+            reads = {env: link.reads(env) for env in ENVIRONMENTS}
+            want = (link.product, link.port, reads, link.accepts, link.columns)
+            have = recorded.get(f"{name}:{link.alias}")
+            if have is not None and (have.get("product_id"), have.get("port"), have.get("reads") or {},
+                                     have.get("accepts") or "", have.get("columns") or {}) == want:
+                continue
+            try:
+                problems += self._register_link(consumer=name, alias=link.alias, product_id=link.product,
+                                                port=link.port, reads=reads, accepts=link.accepts, columns=link.columns)
+            except core.PlatformError as exc:
+                problems.append(f"links/{link.alias} isn't in the catalog as its file says: {exc}")
+        return list(dict.fromkeys(problems))
 
     def _current_version(self, product_id: str) -> str:
         """The product's version in the catalog, for a new link's accepts; "" (any) when it can't be read."""

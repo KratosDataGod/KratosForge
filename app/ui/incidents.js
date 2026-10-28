@@ -1,7 +1,7 @@
 // Incidents: one record per problem in each environment, kept in its LH_Meta and shared by everyone
 // who can read it (workloads/incidents.py). Agents check on a timer; this app reads the list, checks
 // only when asked, and lets a person acknowledge, assign, note and resolve. Teams messages come from
-// agents, never from this page. Monitor > Incidents lists them; the incident page shows one.
+// agents, never from this page. Monitor > KratosForge > Operations > Incidents lists them; the incident page shows one.
 
 const INC_STATE_PILL = { open: "fail", acknowledged: "wrn", resolved: "pass" };
 const INC_RESOLUTION = { recovered: "Recovered", cleared: "Cleared", resolved: "Resolved" };
@@ -10,7 +10,7 @@ const INC_EVIDENCE = { run_id: "Run", started_at: "Started", ran_on: "Ran on", j
   heartbeat_at: "Last heartbeat", stale_after: "Due again by", version: "Version", state: "State", expected: "Promised",
   last_success: "Last good run", success_rate: "Success rate", objective: "Objective" };
 
-// Monitor > Incidents, kept for the session. checked: when this PC last checked each environment.
+// Monitor > KratosForge > Operations > Incidents, kept for the session. checked: when this PC last checked each environment.
 const incPage = { env: null, filter: "active", id: null, env_of: null, detail: null, checked: {} };
 
 function incStateLabel(inc) {
@@ -57,7 +57,7 @@ function backToIncidents() {
   go("monitor");
 }
 
-// ---------- Monitor > Incidents ----------
+// ---------- Monitor > KratosForge > Operations > Incidents ----------
 
 function incidentsPanel() {
   const box = h("div", { class: "inc-panel" }, h("p", { class: "muted-text monitor-empty" }, "Reading incidents..."));

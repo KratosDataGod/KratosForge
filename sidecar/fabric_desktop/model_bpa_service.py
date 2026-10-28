@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Any
 
 from . import model_bpa, risk
+from .errors import NotSetUp
+from .fabric_api import FabricError
 from .fabric_compute import RESULTS_DIR
 from .fabric_run import TERMINAL
 from .jsonfile import read_json, write_json
@@ -50,7 +52,7 @@ class ModelBpaMixin:
                              "Check an environment that runs on Fabric, with its model created there.")
         meta_id = store.lakehouse_ids.get(META_LAKEHOUSE)
         if not meta_id:
-            raise LookupError(f"{META_LAKEHOUSE} doesn't exist in the {env} workspace yet; promote to {env} first")
+            raise NotSetUp(f"{META_LAKEHOUSE} doesn't exist in the {env} workspace yet; promote to {env} first")
         name = (name or f"SM_{layer.title()}").strip()
         ws = store.workspace_id
         model = next((m for m in self.fabric.list_semantic_models(ws)  # type: ignore[attr-defined]
@@ -103,18 +105,31 @@ class ModelBpaMixin:
         t = self._bpa_target(env, layer, name)
         path = self._bpa_file(t["workspace_id"], t["model_id"])
         last = read_json(path, None)
+        last = last if isinstance(last, dict) else None  # a copy kept here that isn't a check's findings is read again
         newest = self._bpa_newest(t["model_id"])
+        unreadable = ""
         if newest and newest.get("status") in TERMINAL and (last or {}).get("request_id") != newest["request_id"]:
             data = FileStore(lambda: self.auth.storage_token()).read_bytes(  # type: ignore[attr-defined]
                 t["workspace_id"], t["meta_lakehouse_id"], f"{RESULTS_DIR}/{newest['request_id']}.json")
             if data:
-                last = model_bpa.findings(json.loads(data))
-                write_json(path, last)
+                try:
+                    found = model_bpa.findings(json.loads(data))
+                except (ValueError, AttributeError, TypeError) as exc:  # a result file cut short or not the notebook's
+                    unreadable = (f"The check finished, but the findings it saved in {META_LAKEHOUSE} couldn't be read "
+                                  f"({type(exc).__name__}). Check the model again.")
+                else:
+                    # The file is named for the check, so it is this check's findings whatever it says inside.
+                    last = found | {"request_id": newest["request_id"]}
+                    write_json(path, last)
         running = newest if newest and newest.get("status") not in TERMINAL else None
         failed = newest if newest and newest.get("status") in TERMINAL and (last or {}).get("request_id") != newest["request_id"] else None
+        if failed:
+            message = unreadable or failed.get("message", "") or (
+                f"The check finished, but saved no findings in {META_LAKEHOUSE}. Open the run in Fabric to see why."
+                if failed.get("status") == "Completed" else "")
         return {"model": t["name"], "model_id": t["model_id"], "env": env, "workspace_id": t["workspace_id"],
                 "workspace_name": t["workspace_name"], "last": last, "running": running,
-                "failed": {"status": failed.get("status"), "message": failed.get("message", ""), "url": failed.get("url", "")} if failed else None}
+                "failed": {"status": failed.get("status"), "message": message, "url": failed.get("url", "")} if failed else None}
 
     def model_bpa_risk(self, env: str = "test", layer: str | None = None, name: str | None = None,
                        refresh: bool = False) -> dict[str, Any]:
@@ -146,8 +161,15 @@ class ModelBpaMixin:
             raise RuntimeError(f"{t['name']} is already being checked; wait for that check to finish.")
         notebook_id = self._bpa_notebook(t)
         request_id = f"bpa-{dt.datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:4]}"
-        job_id = self.fabric_jobs.run_item_job(t["workspace_id"], notebook_id, "RunNotebook",  # type: ignore[attr-defined]
-                                               model_bpa.run_parameters(t["model_id"], t["workspace_id"], request_id))
+        params = model_bpa.run_parameters(t["model_id"], t["workspace_id"], request_id)
+        try:
+            job_id = self.fabric_jobs.run_item_job(t["workspace_id"], notebook_id, "RunNotebook", params)  # type: ignore[attr-defined]
+        except FabricError as exc:
+            if not (exc.status == 404 or exc.code in ("ItemNotFound", "EntityNotFound")):
+                raise
+            # The notebook kept here was deleted in Fabric: publish it again, once, and run that one.
+            notebook_id = self._bpa_notebook(t, fresh=True)
+            job_id = self.fabric_jobs.run_item_job(t["workspace_id"], notebook_id, "RunNotebook", params)  # type: ignore[attr-defined]
         run = self._log_fabric_run({  # type: ignore[attr-defined]
             "kind": KIND, "name": t["name"], "env": env, "workspace_id": t["workspace_id"],
             "workspace_name": t["workspace_name"], "item_id": notebook_id, "job_id": job_id,
@@ -164,14 +186,16 @@ class ModelBpaMixin:
                   "warnings": [f["title"] for f in current["findings"] if f["outcome"] == risk.WARNING], "note": ""}
         self._risk_ack_write(record)  # type: ignore[attr-defined]
 
-    def _bpa_notebook(self, t: dict[str, Any]) -> str:
-        """Publish the check notebook to the workspace unless the same one is already there."""
+    def _bpa_notebook(self, t: dict[str, Any], fresh: bool = False) -> str:
+        """Publish the check notebook to the workspace unless the same one is already there
+        (``fresh`` publishes it whatever this PC remembers)."""
         ipynb = model_bpa.bpa_ipynb(t["workspace_id"], t["meta_lakehouse_id"])
         digest = model_bpa.notebook_hash(ipynb)
         state_path = self._bpa_dir / "notebooks.json"
         state = read_json(state_path, {})
+        state = state if isinstance(state, dict) else {}
         known = state.get(t["workspace_id"]) or {}
-        if known.get("hash") == digest and known.get("id"):
+        if not fresh and isinstance(known, dict) and known.get("hash") == digest and known.get("id"):
             return known["id"]
         fabric = self.fabric  # type: ignore[attr-defined]
         item = fabric.save_notebook(t["workspace_id"], model_bpa.NOTEBOOK, json.dumps(ipynb).encode())

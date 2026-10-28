@@ -908,10 +908,10 @@ test("the risk gate passes quietly, never runs a blocked item and needs the tick
   assert.deepStrictEqual(acks.map((a) => a.risk_id), ["r2"], "nothing is acknowledged when nothing was checked");
 });
 
-test("only Monitor > Runs shares the page with Fabric's hub, so Schedules and Cost get the whole page (#190)", () => {
+test("Fabric's hub is a Monitor tab of its own, so no list shares the page with it (#190)", () => {
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  // With From KratosForge in its own window (Pop out), Monitor here is the hub's band and the hub.
-  assert.match(src, /const wide = !runsOut && monitorPage\.panel !== "runs";/);
+  assert.match(src, /const hubShown = hub && !POP_OUT && !fabricOut;/);
+  assert.match(src, /page monitor\$\{hubShown \? "" : " no-fabric"\}/);
 });
 
 // The pure helpers at the top of replay.js.
@@ -1096,20 +1096,23 @@ test("a failed save says so and keeps the notebook open and dirty", async () => 
   assert.strictEqual(nb.dirty, false);
 });
 
-// UX-009: domains, the glossary and platform setup each have one home, on the Platform page.
-test("domains, the glossary and platform setup are edited only on the Platform page", () => {
+// UX-009: domains, the glossary and platform setup each have one home: domains on Data mesh > Domains,
+// the glossary and setup on the Platform page.
+test("domains are edited only on Data mesh > Domains, the glossary and platform setup only on Platform", () => {
   const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
   const groups = meta.match(/const META_TAB_GROUPS = \[[\s\S]*?\n\];/)[0];
   assert.ok(!/"glossary"/.test(groups), "Data mesh still has a Glossary tab");
   const mesh = fs.readFileSync(path.join(ui, "mesh.js"), "utf8");
   const domainsTab = mesh.match(/async function renderMeshDomainsTab\([\s\S]*?\n}\n/)[0];
   for (const edit of ["domainDialog(", "importFabricDomains(", "platform_delete_domain"]) {
-    assert.ok(!domainsTab.includes(edit), `Data mesh > Domains still calls ${edit}`);
+    assert.ok(!domainsTab.includes(edit), `Domains > This project still calls ${edit}`);
   }
-  assert.match(domainsTab, /goPlatform\("domains"\)/);
-  assert.match(domainsTab, /goPlatform\("glossary"\)/);
   const platform = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
-  assert.match(platform, /importFabricDomains\(rerender\)/);
+  const orgDomains = platform.match(/async function renderMeshOrgDomainsTab\([\s\S]*?\n}\n/)[0];
+  assert.match(orgDomains, /importFabricDomains\(rerender\)/);
+  assert.match(orgDomains, /goPlatform\("glossary"\)/);
+  assert.match(groups, /\["domains", "Domains", "mesh"\]/);
+  assert.ok(!/"domains"/.test(platform.match(/const PLATFORM_TAB_BAR = \[[\s\S]*?\n\];/)[0]), "Platform still has a Domains tab");
   assert.match(platform, /platformSection\(\)/);
   const settings = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   assert.ok(!settings.includes("platformSection("), "Settings still sets up the platform");
@@ -1229,7 +1232,7 @@ test("promote, sync keys, the variable library and quarantine replay carry the P
   assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, ["tag"]);
   // and Settings names them as staying
   const always = JSON.parse(features.match(/const PREVIEW_ALWAYS_SHOWN = (\[[^\]]*\])/)[1].replace(/'/g, '"'));
-  assert.deepStrictEqual(always, ["promote", "syncKeys", "varlib", "quarantineReplay", "risk"]);
+  assert.deepStrictEqual(always, ["promote", "syncKeys", "varlib", "quarantineReplay", "risk", "vscode"]);
   assert.ok(read("settings.js").includes("PREVIEW_ALWAYS_SHOWN"), "Settings explains the steps that stay");
 });
 
@@ -1297,7 +1300,7 @@ test("Home doesn't say nothing needs attention when run history or Fabric jobs c
   assert.match(src, /couldn't check \$\{unread\.join\(", "\)\}/);
 });
 
-test("Monitor has three tabs, and Operations holds the workload views in the mockup's order (UX-010)", () => {
+test("Monitor's tabs are by source, and Operations holds the workload views in the mockup's order (UX-010)", () => {
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const literal = src.match(/const MONITOR_OPS = (\[[\s\S]*?\n\]);/)[1];
   const ops = JSON.parse(JSON.stringify(vm.runInNewContext(literal)));
@@ -1306,12 +1309,24 @@ test("Monitor has three tabs, and Operations holds the workload views in the moc
   assert.deepStrictEqual(ops.map((o) => o.panel), ["workloads", "queue", "agents", "runas", "incidents"]);
   const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
   for (const o of ops) assert.ok(features.includes(`${o.feature}:`), `${o.feature} is a registered preview feature`);
-  const seg = src.slice(src.indexOf('"aria-label": "Show" },'), src.indexOf('h("span", { class: "spacer" })', src.indexOf('"aria-label": "Show" },')));
-  assert.deepStrictEqual([...seg.matchAll(/"(Runs|Schedules|Operations|Cost|Workloads|Queue|Agents|Run as|Incidents)"/g)].map((m) => m[1]),
-    ["Runs", "Schedules", "Operations"]);
+  const sources = vm.runInNewContext(`${/const MONITOR_SOURCES = \[[\s\S]*?\];/.exec(src)[0].replace("const ", "")}; MONITOR_SOURCES`);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(sources.map(([, label]) => label))), ["KratosForge", "Fabric"]);
+  // Each tab's pages are on the view row's switcher.
+  const pages = src.slice(src.indexOf("const pages = source ==="), src.indexOf("const shown = pages.filter"));
+  assert.deepStrictEqual([...pages.matchAll(/"(Monitoring hub|Schedules|Runs|Operations)"/g)].map((m) => m[1]),
+    ["Monitoring hub", "Schedules", "Runs", "Schedules", "Operations"]);
 });
 
-test("Monitor > Agents explains agents beside the list, with links to sections of agent.md (testing item 34)", () => {
+test("Home's All schedules opens Fabric schedules when every upcoming schedule is in Fabric, else KratosForge schedules", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const at = src.indexOf('btn("All schedules"');
+  const link = src.slice(at, src.indexOf('"tool link small")', at));
+  assert.match(link, /items\.length && items\.every\(\(x\) => x\.where === "Fabric"\) \? "fabric_schedules" : "schedules"/);
+  // "Fabric" is the where Home gives a Fabric schedule's row.
+  assert.match(src, /where: "Fabric", text: sc\.text/);
+});
+
+test("Monitor > KratosForge > Operations > Agents explains agents beside the list, with links to sections of agent.md (testing item 34)", () => {
   const src = fs.readFileSync(path.join(ui, "agents.js"), "utf8");
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "agent.md"), "utf8");
   const slug = (t) => t.toLowerCase().replace(/[^a-z0-9 -]/g, "").replace(/ /g, "-");
@@ -1367,7 +1382,7 @@ test("engine messages point to Data mesh and Platform tabs that exist", () => {
   const mesh = new Set();
   for (const [, group, tabs] of groups) for (const [, tab] of tabs) mesh.add(`${group} > ${tab}`);
   const plat = new Set(platform.map(([, label]) => label));
-  // A page behind the Set up or Govern menu is named with its menu: "Platform > Set up > Business keys".
+  // A page on the Set up or Govern tab is named with its tab: "Platform > Set up > Business keys".
   const bar = vm.runInNewContext(`${/const PLATFORM_TAB_BAR = \[[\s\S]*?\n\];/.exec(read("platform.js"))[0].replace("const ", "")}; PLATFORM_TAB_BAR`);
   const engine = path.join(__dirname, "..", "..", "sidecar", "fabric_desktop");
   const files = [];
@@ -1420,7 +1435,7 @@ test("Estate X-ray's Optimize confirms with the risk check before starting a Fab
     "the line's button opens the dialog instead of starting the job");
 });
 
-test("Monitor > Workloads and Agents carry the shared How this works panel, each linked to its guide section (testing item 18)", () => {
+test("Monitor > KratosForge > Operations > Workloads and Agents carry the shared How this works panel, each linked to its guide section (testing item 18)", () => {
   const guide = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8");
   const slug = (t) => t.toLowerCase().replace(/[^a-z0-9 -]/g, "").replace(/ /g, "-");
   const anchors = new Set([...guide.matchAll(/^#+ (.+)$/gm)].map((m) => slug(m[1])));
@@ -1761,7 +1776,7 @@ test("moving keys into one database previews first, and cancelling it is a dange
   assert.ok(cancel.indexOf("danger: true") < cancel.indexOf("approve: true"));
   assert.match(mesh, /\.\.\.MESH_ENVS\.map\(row\), keysRow\(s, policy\)\)/);
   const platform = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
-  assert.match(platform, /!\(p\.tab === "keys" && p\.keysShared\) \? envSeg : null/);
+  assert.match(platform, /!\(p\.tab === "keys" && p\.keysShared\)\);\n[\s\S]*?perEnv \? envSeg : null/);
   assert.match(platform, /k\.shared \? "Key tables in SQL_Keys"/);
   const how = platform.match(/howItWorks\("platform\.keys", \{[\s\S]*?\n  \}\)/)?.[0] || "";
   for (const write of [/SQL_Keys and UDF_Keys, which uses Fabric capacity/, /copies every key table/, /new numbers/, /closes each environment's old key tables/, /removes the copied tables/]) {
@@ -1827,7 +1842,8 @@ test("Clean up's Undo is offered only while the cells are exactly what Apply mad
 
 test("Schedules warns when this PC's schedules file was moved aside (QA-011)", () => {
   const s = fs.readFileSync(path.join(ui, "schedules.js"), "utf8");
-  assert.match(s, /h\("h3", \{ class: "schedule-head" \}, "On this PC"\),\n    setAsideNotice\(res\.pc_set_aside\),/);
+  // On KratosForge schedules, first after the counts.
+  assert.match(s, /failed\(pc\.filter\([^\n]*\)\),\n      setAsideNotice\(res\.pc_set_aside\),/);
   assert.match(s, /look in Task Scheduler under /);
 });
 
@@ -2433,7 +2449,7 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.strictEqual(ok, "Remove");
   assert.strictEqual(opts.danger, true);
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true)[1], /Fabric deletes the schedule/);
-  assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
+  assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Fabric > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
 
@@ -3224,6 +3240,22 @@ test("Home draws at once while the component check runs, and calls nothing until
   assert.ok(boot.indexOf("state.starting = false") < boot.indexOf("render();"), "the check's end must clear starting before Home draws");
 });
 
+// One size formatter for every page (#929): no page keeps its own copy, and a byte count reads the same everywhere.
+test("sizes read the same on every page", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${app.match(/function sizeText\([\s\S]*?\n}\n/)[0]}; this.f = sizeText;`, ctx);
+  const cases = [[0, "0 B"], [17, "17 B"], [1023, "1023 B"], [1024, "1.0 KB"], [2048, "2.0 KB"], [1.5 * 1024 ** 2, "1.5 MB"],
+    [99.5 * 1024 ** 2, "99.5 MB"], [212 * 1024 ** 2, "212 MB"], [1023.97 * 1024, "1.0 MB"], [1.1 * 1024 ** 3, "1.1 GB"],
+    [5 * 1024 ** 4, "5.0 TB"], ["2048", "2.0 KB"], [-1, ""], [null, ""], [undefined, ""], ["", ""], [NaN, ""]];
+  for (const [n, want] of cases) assert.strictEqual(ctx.f(n), want, String(n));
+  // Side by side keeps decimal sizes for uploads, beside the decimal MB/s of the line they went over.
+  for (const file of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    const src = fs.readFileSync(path.join(ui, file), "utf8").replace(/function sizeText\([\s\S]*?\n}\n/, "");
+    assert.doesNotMatch(src, /\[\s*"(B|bytes)",\s*"KB"/, `${file} keeps its own size units: use sizeText`);
+  }
+});
+
 // L4: notebook resources. Names are checked before the engine sees them, a delete asks first in
 // red, and the Resources tab keeps its snippets under the files.
 test("notebook resource names, sizes and the Resources tab", () => {
@@ -3231,8 +3263,8 @@ test("notebook resource names, sizes and the Resources tab", () => {
   const ctx = {};
   vm.runInNewContext(`${src.match(/const NB_RES_RESERVED = [^\n]+\n/)[0]}
 ${src.match(/function nbResNameProblem\([\s\S]*?\n}\n/)[0]}
-${src.match(/function nbResSize\([\s\S]*?\n}\n/)[0]}
-this.problem = nbResNameProblem; this.size = nbResSize;`, ctx);
+${fs.readFileSync(path.join(ui, "app.js"), "utf8").match(/function sizeText\([\s\S]*?\n}\n/)[0]}
+this.problem = nbResNameProblem; this.size = sizeText;`, ctx);
   for (const ok of ["regions.csv", "helpers.py", ".env", "a b (2).json"]) assert.strictEqual(ctx.problem(ok), "", ok);
   for (const bad of ["", "..", "../x.csv", "a/b", "a\\b", "CON", "nul.txt", "Com3.csv", "x.", "a:b", "a?b", "x".repeat(121)]) {
     assert.notStrictEqual(ctx.problem(bad), "", bad);
@@ -4453,7 +4485,7 @@ test("folder actions are wired: a menu entry, New folder, the empty-only delete 
 test("a move that leaves something behind names it and says what to do", () => {
   const { nbRenameProblemLines } = notebookFolderHelpers();
   const lines = nbRenameProblemLines([{ notebook: "EMEA/B", was: "Sales/B", step: "schedules", error: "OSError: disk full" }]);
-  assert.deepStrictEqual([...lines], ["EMEA/B (was Sales/B): its schedules didn't follow (OSError: disk full). Open Monitor > Schedules and point its schedule on this PC at the new name."]);
+  assert.deepStrictEqual([...lines], ["EMEA/B (was Sales/B): its schedules didn't follow (OSError: disk full). Open Monitor > KratosForge > Schedules and point its schedule on this PC at the new name."]);
   assert.deepStrictEqual([...nbRenameProblemLines([])], []);
   const files = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
   assert.strictEqual(files.match(/nbRenameWarning\((out|ok)\.problems\)/g).length, 3);
@@ -4640,7 +4672,8 @@ test("the query profile runs only when asked, warns about capacity and lists eac
     navigator: { clipboard: { writeText: async (t) => { copied = t; } } },
     rpc: async (m, a) => { calls.push([m, a]); if (answer instanceof Error) throw answer; return answer; } };
   vm.createContext(ctx);
-  vm.runInContext(src + "\nthis.api = { renderQueryProfile, qprofileText, qprofileBytes };", ctx);
+  vm.runInContext(fs.readFileSync(path.join(ui, "app.js"), "utf8").match(/function sizeText\([\s\S]*?\n}\n/)[0] + src +
+    "\nthis.api = { renderQueryProfile, qprofileText, sizeText };", ctx);
   const o = { frame: "f", spark: true };
   const box = ctx.api.renderQueryProfile(o);
   assert.strictEqual(calls.length, 0, "nothing runs until asked");
@@ -4672,7 +4705,7 @@ test("the query profile runs only when asked, warns about capacity and lists eac
   allNodes(box).find((n) => n.tag === "button" && n.kids.includes("Run again")).attrs.onclick();
   await new Promise((r) => setImmediate(r));
   assert.match(text(box), /Run the cell again/);
-  assert.strictEqual(ctx.api.qprofileBytes(1.1 * 1024 ** 3), "1.1 GB");
+  assert.strictEqual(ctx.api.sizeText(1.1 * 1024 ** 3), "1.1 GB");
   const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
   assert.match(nb, /o\.frame && o\.spark \? seg\("qprofile", "Query profile"\) : null/);
   assert.match(nb, /previewMarked\("queryProfile"/);
@@ -4728,7 +4761,7 @@ test("Share adds another notebook to this session, and a notebook that shares on
     { notebook: "Customer churn", process: true, status: "idle", pid: 11, memory_bytes: 1, cells_run: 1, last_used: 1, active: false, shared_with: [] }] };
   const ctx = { h: node, btn: (label, _i, onclick, _c, attrs = {}) => node("button", { onclick, ...attrs }, label),
     preview: (_id, n) => n, previewMarked: (_id, n) => n, toast: (t) => toasts.push(t), attempt: (fn) => fn(),
-    when: String, formatBytes: String, go: () => {}, openNotebook: () => {}, renderNotebook: () => {},
+    when: String, sizeText: String, go: () => {}, openNotebook: () => {}, renderNotebook: () => {},
     closeDialog: () => {}, showDialog: (title, body) => dialogs.push(body),
     confirmDialog: async (title, text, ok, opts) => { confirms.push([title, text, ok, opts.danger]); return true; },
     openNotebooks: new Map([["Sales cleanup", {}], ["Sales report", {}]]), state: { notebook: { name: "Sales cleanup" }, view: "notebook" },
@@ -5105,7 +5138,7 @@ test("Files on this PC says what local writes hold and where", () => {
   const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
   const ctx = {};
-  vm.runInNewContext(`${meta.match(/function formatBytes\([\s\S]*?\n}\n/)[0]}${src.match(/function localWritesText\([\s\S]*?\n}\n/)[0]}; this.f = localWritesText;`, ctx);
+  vm.runInNewContext(`${fs.readFileSync(path.join(ui, "app.js"), "utf8").match(/function sizeText\([\s\S]*?\n}\n/)[0]}${src.match(/function localWritesText\([\s\S]*?\n}\n/)[0]}; this.f = localWritesText;`, ctx);
   assert.strictEqual(ctx.f({ files: 0, folder: "C:\\x\\staging", uploading: { files: 0 } }), "Empty · C:\\x\\staging");
   assert.strictEqual(ctx.f({ files: 2, bytes: 3 * 1024 ** 3, folder: "C:\\x\\staging", uploading: { files: 2, bytes: 3 * 1024 ** 3 } }),
     "3.0 GB in 2 files, 2 waiting to upload or left over (3.0 GB) · C:\\x\\staging");
@@ -5231,4 +5264,66 @@ test("a source request can ask for a Copy job, and approving says what it makes"
   assert.match(run, /riskGate\(\{ id: `fabric:\$\{j\.workspace_id\}:\$\{j\.id\}`, action: "run_item"/, "Run now spends capacity: the risk check comes first");
   assert.match(confirm, /central \? landsIn\(r\.lands_in, central\)/, "the approver sees the zone and lakehouse it lands in");
   assert.match(fn("landsIn"), /secure \? "secure " : ""\}zone \$\{where\.zone_name\}/);
+});
+
+// PB-078: every feature the docs call Preview is one Settings > Preview features knows (an id in
+// PREVIEW_FEATURES), or the docs say why it has none: it has no screen yet, or it's a setting in a
+// file rather than a screen, which show_preview can't hide.
+test("every feature the docs call Preview has a Preview id, or the docs say why not", () => {
+  const root = path.join(__dirname, "..", "..");
+  const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  const ids = new Set([...features.match(/const PREVIEW_FEATURES = \{([\s\S]*?)\n\};/)[1].matchAll(/^ {2}(\w+): "/gm)].map(([, id]) => id));
+  // A "(Preview)" heading's text (without the tag) and the id that hides its screens.
+  const BY_ID = {
+    validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbFormats: ["Fabric and Databricks notebook formats"],
+    sessions: ["Notebook sessions"], environments: ["Notebook environments"], deps: ["Cell dependencies and stale outputs"],
+    debug: ["Variable history, watches and hidden state", "Breakpoints and stepping"], replay: ["Failure replay bundles"],
+    fabricRun: ["Run in Fabric and schedules", "W6 Publish or run a notebook in Fabric"], notebookRuns: ["Recent runs", "Notebook runs"],
+    sideBySide: ["Side by side"], prove: ["Prove this notebook"], fabricEdit: ["Edit a Fabric notebook on this PC", "When Publish finds changes made in Fabric"],
+    notebookFolderPublish: ["Publishing a notebook from a folder"], practices: ["Notebook best practices"], fabricStep: ["Run the last cell on Fabric"],
+    incidents: ["Incidents and your service desk", "Who's affected", "Incidents"],
+    agents: ["Agents", "Taking over from a lost agent"], workloads: ["Workloads"], queue: ["Queue"], runAs: ["Run as"],
+    warehouse: ["Warehouses", "Monitoring", "Queries on a warehouse", "Warehouse queries", "Warehouse monitoring"],
+    pipelines: ["Pipeline definitions", "Pipeline activity compatibility", "Running pipelines on your PC", "Pipelines",
+      "Data Factory copy jobs", "Data Factory dataflows", "Data Factory connections"],
+    pipelineRuns: ["Pipeline runs in Monitor"], sourceControl: ["Source control"], profile: ["Profile"],
+    platform: ["Owners", "Notices to Teams", "One landing workspace for Dev, Test and Prod", "One list of source systems",
+      "Platform notices", "Semantic model rules"],
+    mesh: ["Home: the mesh for who you are", "Products", "Requests", "Domains", "Members and joining a domain", "Follow a product",
+      "Tables, semantic models and reports", "Data products", "Entra ID groups per domain", "Copy jobs from requests"],
+    trustBadges: ["Endorsement and business terms"], tests: ["Tests"], health: ["Table health"], model: ["10. Semantic model"],
+    lineage: ["Column lineage"], xray: ["Estate X-ray"], itemPreview: ["Item preview"], shortcuts: ["Shortcuts"], access: ["Access"],
+    bestPractices: ["Best practices: checks and templates"], optimize: ["Optimize"], popOut: ["Pop-out windows"],
+    updateBanner: ["A new build while the app is open"], vscode: ["VS Code and KratosForge"],
+  };
+  // A "(Preview)" heading with no id, and the words in its own page that say why.
+  const NO_ID = {
+    "Reliability objectives": ["docs/metadata-guide.md", /settings in your project files rather than screens/],
+    "Shared schedules": ["docs/agent.md", /a setting in the agents' schedules, not a screen/],
+    "Local data projects": ["docs/local-data.md", /the screens for it come next/],
+    "Engines and connection profiles": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
+    "Databricks SQL warehouse": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
+    "Databricks Connect": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
+    "Where to run a notebook": ["docs/finops/placement-advice.md", /has no screen in the app yet/],
+    "Semantic model best practices": ["docs/semantic-model-best-practices.md", /The screens [\s\S]*? come next/],
+  };
+  const idOf = new Map(Object.entries(BY_ID).flatMap(([id, names]) => names.map((n) => [n, id])));
+  for (const id of Object.keys(BY_ID)) assert.ok(ids.has(id), `${id} is in PREVIEW_FEATURES`);
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? (["product", "quality"].includes(e.name) ? [] : walk(path.join(dir, e.name))) : e.name.endsWith(".md") ? [path.join(dir, e.name)] : []);
+  const missing = [];
+  for (const file of walk(path.join(root, "docs"))) {
+    for (const [, name] of fs.readFileSync(file, "utf8").matchAll(/^#+ (.+?) \(Preview\)\s*$/gm)) {
+      if (!idOf.has(name) && !NO_ID[name]) missing.push(`${path.relative(root, file)}: ${name}`);
+    }
+  }
+  assert.deepStrictEqual(missing, [], "each (Preview) heading needs an id in BY_ID, or a NO_ID reason its page gives");
+  for (const [name, [file, why]] of Object.entries(NO_ID)) {
+    assert.match(fs.readFileSync(path.join(root, file), "utf8"), why, `${file} says why ${name} has no Preview id`);
+  }
+  // The ones PB-078 named: batch_by and objectives are project settings, the rest have ids.
+  assert.match(fs.readFileSync(path.join(root, "docs", "metadata-guide.md"), "utf8"),
+    /settings in your project files rather than screens, such as reading \*\*in batches\*\* \(`batch_by`\), \[reliability objectives\]/);
+  for (const id of ["releases", "lineage", "promote"]) assert.ok(ids.has(id), `${id} is in PREVIEW_FEATURES`);
+  assert.match(fs.readFileSync(path.join(root, "docs", "metadata-guide.md"), "utf8"), /### Who can promote\n\n\*Preview\*, part of \*\*Promote\*\*/);
 });

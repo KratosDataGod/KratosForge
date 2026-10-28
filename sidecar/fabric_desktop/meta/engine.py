@@ -717,6 +717,10 @@ class Engine:
                 version = self.store.write_stream(lh, e.schema, e.table, pa.RecordBatchReader.from_batches(
                     schema, record_batches()), metadata=metadata, read_version=read_version)
             except Exception:
+                # Nothing was committed; the files the stream had written are removed (PB-067).
+                cleanup = getattr(self.store, "last_cleanup", None)
+                if cleanup:
+                    self._step(res, "clean up", tw, cleanup["removed"], cleanup["note"])
                 if failure:
                     raise failure[0] from None
                 raise

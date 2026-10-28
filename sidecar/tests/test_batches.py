@@ -184,3 +184,84 @@ def test_rows_per_batch_follow_free_memory(free, expected):
     from fabric_desktop.meta.preflight import Estimate
     est = Estimate(files=1, files_total=1, rows=1_000_000, bytes_on_disk=0, memory_bytes=40_000_000)
     assert batches.batch_rows(est, free) == expected
+
+
+def _data_files(s: Setup) -> set[str]:
+    from pathlib import Path
+    root = Path(s.store.uri("LH_Bronze", "dbo", "events"))
+    return {p.relative_to(root).as_posix() for p in root.rglob("*.parquet") if "_delta_log" not in p.parts}
+
+
+def test_a_stream_that_stops_removes_the_files_it_wrote(tmp_path, monkeypatch):
+    """PB-067: delta-rs had written data files when the stream stopped; none of them stay, and files
+    the log names or that were there before are untouched."""
+    import pyarrow as pa
+    from fabric_desktop.meta import store as store_mod
+    from fabric_desktop.meta.store import LocalStore
+    real = store_mod.write_deltalake
+    # Files of 1 MB, so delta-rs writes some before the stream ends (by default only past ~100 MB).
+    monkeypatch.setattr(store_mod, "write_deltalake", lambda *a, **kw: real(*a, **kw, target_file_size=1_000_000))
+    store = LocalStore(tmp_path, "dev")
+    store.write("LH_Bronze", "dbo", "t", pl.DataFrame({"a": [1]}))
+    folder = tmp_path / "LH_Bronze" / "Tables" / "dbo" / "t"
+    stray = "part-00000-from-another-writer.snappy.parquet"
+    pl.DataFrame({"x": [1]}).write_parquet(folder / stray)
+    kept = {p.name for p in folder.glob("*.parquet")}
+    schema = pa.schema([("a", pa.int64())])
+
+    def batches():  # big enough that delta-rs writes files before the stream ends
+        for i in range(4):
+            yield pa.record_batch([pa.array(range(i * 500_000, (i + 1) * 500_000))], schema=schema)
+        raise RuntimeError("a check stopped the run")
+    with pytest.raises(Exception):
+        store.write_stream("LH_Bronze", "dbo", "t", pa.RecordBatchReader.from_batches(schema, batches()), read_version=0)
+    assert store.last_cleanup["removed"] >= 1, store.last_cleanup
+    assert {p.name for p in folder.glob("*.parquet")} == kept and DeltaTable(str(folder)).version() == 0
+    assert DeltaTable(str(folder)).to_pyarrow_table().num_rows == 1
+
+
+def test_a_batched_load_that_stops_says_what_it_cleaned_up(tmp_path):
+    s = setup(tmp_path, "s", True, checks=UNIQUE_ID)
+    assert run(s, batch_rows=200).status == "ok"
+    kept = _data_files(s)
+    s.source(rows([5], DAYS[5]))  # id 5 again, in the last batch: the run stops there
+    res = run(s, batch_rows=200, day=DAY2)
+    assert res.status == "failed" and len(history(s)) == 1 and _data_files(s) == kept
+    step = next(st for st in res.steps if st.name == "clean up")
+    assert step.detail.startswith("removed ") and "this write left" in step.detail
+
+
+def test_files_are_left_for_vacuum_when_another_writer_committed_meanwhile(tmp_path):
+    from fabric_desktop.meta.store import LocalStore
+    s = setup(tmp_path, "s", True)
+    assert run(s, batch_rows=200).status == "ok"
+    store: LocalStore = s.store
+    version = store.version("LH_Bronze", "dbo", "events")
+    before = _data_files(s)
+    store.write("LH_Bronze", "dbo", "events", s.table().head(1), mode="append")  # the other writer
+    left = "part-00001-left.snappy.parquet"
+    pl.DataFrame({"x": [1]}).write_parquet(store.uri("LH_Bronze", "dbo", "events") + "/" + left)
+    out = store._remove_unwritten("LH_Bronze", "dbo", "events", before, version)
+    assert out["removed"] == 0 and "VACUUM" in out["note"] and left in _data_files(s)
+
+
+def test_in_onelake_the_files_are_listed_and_removed_through_its_file_api(tmp_path):
+    from fabric_desktop.meta.store import OneLakeStore
+
+    class Files:
+        def __init__(self):
+            self.deleted = []
+
+        def list(self, ws, lh, directory, recursive=False):
+            assert (ws, lh, directory, recursive) == ("ws1", "lh1", "Tables/dbo/events", True)
+            return [{"path": "Tables/dbo/events/_delta_log/00000000000000000000.json", "is_dir": False},
+                    {"path": "Tables/dbo/events/_delta_log", "is_dir": True},
+                    {"path": "Tables/dbo/events/part-1.parquet", "is_dir": False}]
+
+        def delete(self, ws, lh, path, recursive=True):
+            self.deleted.append((ws, lh, path, recursive))
+    files = Files()
+    store = OneLakeStore("dev", "ws1", {"LH_Bronze": "lh1"}, lambda: "tok", tmp_path, files=files)
+    assert store._data_files("LH_Bronze", "dbo", "events") == {"part-1.parquet"}
+    store._delete_data_files("LH_Bronze", "dbo", "events", ["part-1.parquet"])
+    assert files.deleted == [("ws1", "lh1", "Tables/dbo/events/part-1.parquet", False)]

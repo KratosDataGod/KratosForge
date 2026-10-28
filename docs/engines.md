@@ -20,7 +20,7 @@ refuses to register an engine that claims more than it has an adapter and tests 
 | Native | The engine does it itself, as the platform does. |
 | Partial | It does it, with gaps the note names. |
 | Simulated | A stand-in runs on this PC. PySpark here is DuckDB's PySpark API, not Spark. |
-| Translated | The code is rewritten for another engine first. Spark SQL on DuckDB is translated by sqlglot. |
+| Translated | The code is rewritten for another engine first. Spark SQL and Snowflake SQL on DuckDB are translated by sqlglot. |
 | Unsupported | Not available. Anything not listed is unsupported. |
 
 ### Compatibility matrix
@@ -33,7 +33,7 @@ client, and stay Preview until they have.
 | Engine | Where it runs | Languages | SQL | Cancel | Plan | Variables | Billed | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Python (this PC) | This PC, its own process | Python native; PySpark simulated | (use a SQL engine) | Native | No | Native | Nothing | Tested |
-| DuckDB (this PC) | This PC | SQL | DuckDB native; Spark SQL and Databricks SQL translated | Native | Native | No | Nothing | Tested |
+| DuckDB (this PC) | This PC | SQL | DuckDB native; Spark SQL, Databricks SQL and Snowflake SQL translated | Native | Native | No | Nothing | Tested |
 | SQLite (this PC) | This PC | SQL | SQLite native | Native | Native | No | Nothing | Tested |
 | Polars SQL (this PC) | This PC | SQL | Polars SQL partial | **No** (the query finishes) | Native | No | Nothing | Tested |
 | Apache Spark (this PC) | This PC | none yet | none yet | | | | Nothing | Planned |
@@ -58,6 +58,58 @@ The Python engine uses the notebook's own session (the same process **Stop** end
 **Run notebooks in their own process** turned on in Settings. With it off every notebook shares one
 kernel, and a notebook sharing another notebook's session shares its process too; in both cases the
 engine says what to change instead of running.
+
+## Snowflake SQL on this PC (Preview)
+
+The DuckDB engine runs Snowflake SQL translated, so you can write and try Snowflake queries on this
+PC without a Snowflake account or a running warehouse. **DuckDB is not Snowflake**: nothing here has
+been compared with a Snowflake account, and "it ran" never means "Snowflake gives the same answer".
+
+Every statement in the cell gets a label, and the label is the cell's first output, before the
+result:
+
+- **Translated**: no known difference applies. It matches Snowflake's documented behaviour as far
+  as KratosForge knows.
+- **Runs, with a difference**: it runs, and the note says what differs and what to do about it.
+- **Runs only in Snowflake**: streams, tasks, dynamic tables, Snowflake Scripting, time travel,
+  clones, stages and the rest below. The note says why.
+
+A cell runs whole or not at all: if any statement runs only in Snowflake, nothing in the cell runs.
+The same session rules apply as for any DuckDB cell (no files, extensions or network). **Plan**
+shows DuckDB's plan for the translated SQL, not Snowflake's.
+
+The rules and differences come from a probe of 29 common Snowflake statements on the pinned sqlglot
+and DuckDB versions; each probe statement is a test.
+
+<!-- Generated from snowflake_sql.docs_table(); a test keeps this table equal to the code. -->
+Rules 2026.10.1.
+
+| Id | What | Applies to |
+| --- | --- | --- |
+| SFX-001 | Rewritten | LATERAL FLATTEN and TABLE(FLATTEN(...)) become DuckDB's json_each (INDEX, VALUE, KEY, PATH; OUTER as a left join). SEQ, THIS, RECURSIVE and MODE aren't rewritten. |
+| SFX-002 | Rewritten | TO_VARCHAR and TO_CHAR with a date or time format written in the query become strftime. Elements with no equivalent (quarter, week) aren't rewritten. |
+| SFX-003 | Runs only in Snowflake | TO_VARCHAR and TO_CHAR with a number format. |
+| SFX-004 | Rewritten | OBJECT_CONSTRUCT drops a pair whose value is SQL NULL and keeps JSON null, as Snowflake does. OBJECT_CONSTRUCT(*) isn't rewritten. |
+| SFX-000 | Runs only in Snowflake | Anything else sqlglot can't write for DuckDB. |
+| SFD-001 | Runs, with a difference: Unquoted names keep their case | Snowflake stores an unquoted name in upper case (MyCol becomes MYCOL); DuckDB keeps it as typed. |
+| SFD-002 | Runs, with a difference: TIMESTAMP_TZ loses its offset | DuckDB stores TIMESTAMP_TZ as TIMESTAMPTZ, an instant, so the offset Snowflake keeps with each value is lost. |
+| SFD-003 | Runs, with a difference: Division returns DOUBLE | DuckDB returns DOUBLE for /, where Snowflake returns NUMBER with its own scale rules. |
+| SFD-004 | Runs, with a difference: Local time zone is this PC's | TIMESTAMP_LTZ and CURRENT_TIMESTAMP use this PC's time zone here, not Snowflake's TIMEZONE parameter. |
+| SFD-005 | Runs, with a difference: FLATTEN rows and keys | FLATTEN runs as DuckDB's json_each: rows come back in no set order, KEY is the position for array elements (Snowflake gives NULL) and PATH is written differently. |
+| SFN-001 | Runs only in Snowflake | Streams. |
+| SFN-002 | Runs only in Snowflake | Tasks. |
+| SFN-003 | Runs only in Snowflake | Dynamic tables (their SELECT can be tried on its own). |
+| SFN-004 | Runs only in Snowflake | Snowflake Scripting, procedures, user-defined functions and CALL. |
+| SFN-005 | Runs only in Snowflake | EXECUTE IMMEDIATE. |
+| SFN-006 | Runs only in Snowflake | Time travel: AT and BEFORE. |
+| SFN-007 | Runs only in Snowflake | UNDROP and zero-copy CLONE. |
+| SFN-008 | Runs only in Snowflake | Stages: @stage references, COPY INTO, PUT, GET, LIST, REMOVE. |
+| SFN-009 | Runs only in Snowflake | USE, SHOW and DESCRIBE. |
+| SFN-010 | Runs only in Snowflake | GRANT, REVOKE, and ALTER of Snowflake settings (policies, tags, suspend and resume). |
+| SFN-011 | Runs only in Snowflake | Snowflake-only objects: stages, pipes, warehouses, roles, users, shares, integrations, file formats, sequences, policies, tags. |
+| SFN-012 | Runs only in Snowflake | Cortex AI functions. |
+| SFN-013 | Runs only in Snowflake | TIMESTAMP_TZ text with an offset after a space; DuckDB reads it as a time zone name. |
+| SFN-099 | Runs only in Snowflake | Any other Snowflake command sqlglot can't read as a statement. |
 
 ## Databricks SQL warehouse (Preview)
 

@@ -495,7 +495,7 @@ const ALERTS_UNREADABLE = "The saved Teams address can't be read on this PC or a
 function alertsLine() {
   if (fresh.alertsUnreadable) {
     return h("div", { class: "row wrap wrn-text small" }, icon("alert", 14), ALERTS_UNREADABLE,
-      btn("Enter it again", null, alertsDialog, "tool link small"));
+      btn("Set up Teams alerts", null, alertsDialog, "tool link small"));
   }
   return h("div", { class: "row wrap muted-text small" }, icon("alert", 14),
     fresh.alerts ? "New incidents are also posted to your Teams channel, unless an agent already checks that environment." : "New incidents can also be posted to a Teams channel.",

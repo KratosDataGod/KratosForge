@@ -26,6 +26,7 @@ PREFIX = "dpapi:"
 PURPOSE = b"KratosForge settings secret v1"
 # In settings as read, never written: {key: the sealed value this account can't decrypt}.
 UNREADABLE = "_sealed_unreadable"
+_warned: set[str] = set()  # each unreadable value is logged once per process, not on every read
 
 
 def seal(settings: dict[str, Any]) -> dict[str, Any]:
@@ -58,8 +59,10 @@ def unseal(settings: dict[str, Any]) -> dict[str, Any]:
                 raise OSError("Windows DPAPI isn't available here")
             out[key] = dpapi.unprotect(base64.b64decode(value[len(PREFIX):]), PURPOSE).decode("utf-8")
         except (OSError, ValueError) as exc:
-            _log.warning("The saved %s can't be read on this account or PC, so it's treated as not set: %s",
-                         key, describe(exc))
+            if value not in _warned:
+                _warned.add(value)
+                _log.warning("The saved %s can't be read on this account or PC, so it's treated as not set: %s",
+                             key, describe(exc))
             out[key] = ""
             unreadable[key] = value
     if unreadable:

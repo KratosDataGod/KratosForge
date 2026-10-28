@@ -78,3 +78,10 @@ def test_real_dpapi_round_trips_and_refuses_another_purpose():
     assert dpapi.unprotect(blob, sealed_settings.PURPOSE) == b"hook"
     with pytest.raises(OSError):
         dpapi.unprotect(blob)  # the sign-in cache's purpose
+
+
+def test_an_unreadable_value_is_logged_once(fake_dpapi, caplog):
+    foreign = "dpapi:" + __import__("base64").b64encode(b"another purpose|once").decode()
+    for _ in range(3):
+        sealed_settings.unseal({"teams_webhook": foreign})
+    assert sum("can't be read" in r.getMessage() for r in caplog.records) == 1

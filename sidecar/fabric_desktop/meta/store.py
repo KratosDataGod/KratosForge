@@ -304,6 +304,13 @@ class Store:
         except ValueError as exc:
             raise ValueError(f"Table {schema}.{table}: {exc}") from None
 
+    def _merge_source(self, uri: str, schema: str, table: str, df: pl.DataFrame) -> pa.Table:
+        """``df`` as Arrow a MERGE can take: types made Fabric-safe as for an append, so a TIME column
+        stops with a plain message and a UInt32 isn't narrowed to INT (#954)."""
+        data = df.to_arrow()
+        safe = self._delta_safe(uri, schema, table, data.schema, True)
+        return data.cast(safe) if safe != data.schema else data
+
     def read_at(self, lakehouse: str, schema: str, table: str) -> tuple[pl.DataFrame | None, int | None]:
         """The table and the Delta version it was read at (None, None when there's no table), so a
         write computed from it can commit against that same version."""
@@ -339,13 +346,14 @@ class Store:
         """
         from deltalake.exceptions import CommitFailedError
         uri = self.uri(lakehouse, schema, table)
+        data = self._merge_source(uri, schema, table, df)
         try:
             target = DeltaTable(uri, storage_options=self.options(), version=version)
         except TableNotFoundError:
             if version is not None:
                 raise
             # A new table: created empty only if still absent, then merged into like any other.
-            self.create_if_absent(lakehouse, schema, table, dict(df.schema))
+            self.create_if_absent(lakehouse, schema, table, dict(pl.from_arrow(data.schema.empty_table()).schema))
             target = DeltaTable(uri, storage_options=self.options(), version=0)
         current = DeltaTable(uri, storage_options=self.options())
         delta_profile.check_table(current)
@@ -353,7 +361,7 @@ class Store:
             raise CommitFailedError(f"{table} changed since version {version}")
         predicate = " AND ".join(f"t.{c} = s.{c}" for c in on)
         check_held()
-        target.merge(df.to_arrow(), predicate, source_alias="s", target_alias="t") \
+        target.merge(data, predicate, source_alias="s", target_alias="t") \
             .when_not_matched_insert_all().execute()
         dt_ = DeltaTable(uri, storage_options=self.options())
         delta_profile.note_after_write(dt_)
@@ -376,6 +384,7 @@ class Store:
         concurrent insert there conflicts.
         """
         uri = self.uri(lakehouse, schema, table)
+        data = self._merge_source(uri, schema, table, df)
         delta_profile.check_target(uri, self.options())
         target = DeltaTable(uri, storage_options=self.options(), version=read_version)
         # The keys' range bounds the target rows that can match, so delta-rs skips files by their
@@ -388,7 +397,7 @@ class Store:
             bounds = f"(({bounds}) OR t.`{col}` >= {int(first)})"
         predicate = " AND ".join(([bounds] if bounds else []) + [f"t.`{c}` = s.`{c}`" for c in on])
         check_held()
-        metrics = target.merge(df.to_arrow(), predicate, source_alias="s", target_alias="t", merge_schema=True,
+        metrics = target.merge(data, predicate, source_alias="s", target_alias="t", merge_schema=True,
                                commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None) \
             .when_matched_update_all().when_not_matched_insert_all().execute()
         dt_ = DeltaTable(uri, storage_options=self.options())

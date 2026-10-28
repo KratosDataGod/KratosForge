@@ -64,6 +64,53 @@ def test_compare_with_an_earlier_version_of_the_same_table(svc):
     assert out["rows"]["left"] - out["rows"]["right"] == 1
 
 
+def test_compare_of_a_table_above_the_row_limit_streams_a_checksum(svc, monkeypatch):
+    # PB-069: a table larger than memory is never loaded; the result says it was a hashed compare.
+    from fabric_desktop.meta import compare as compare_mod
+    svc.meta_set_environment("test", target="local")
+    svc.meta_promote("dev", "test")
+    data = svc._project().local_data
+    shutil.copytree(data / "dev" / "LH_Bronze" / "Files", data / "test" / "LH_Bronze" / "Files")
+    assert all(r["status"] == "ok" for r in svc.meta_run(env="test"))
+    monkeypatch.setattr(compare_mod, "LIMIT_ROWS", 1)
+    monkeypatch.setattr(compare_mod, "compare", lambda *a: pytest.fail("the full compare loads both tables"))
+    monkeypatch.setattr(type(svc), "_table", lambda *a: pytest.fail("the table was read into memory"))
+
+    same = svc.meta_compare("silver.orders", "test", "dev")
+    assert same["method"] == "hashed" and same["checksum"]["match"] and not same["compared_on_keys"]
+    assert same["rows"]["left"] == same["rows"]["right"] > 1
+    assert "checksums match" in same["note"]
+    assert all(t["diff"] == 0 for t in same["totals"]) and "order_id" not in {t["column"] for t in same["totals"]}
+
+    edit_entity(svc, "silver.orders", 'expr = "amount - coalesce(discount, 0)"', 'expr = "amount"')
+    svc.meta_run(["silver.orders"], backfill="full")
+    moved = svc.meta_compare("silver.orders", "test", "dev")
+    assert moved["method"] == "hashed" and not moved["checksum"]["match"]
+    assert {t["column"]: t for t in moved["totals"]}["net_amount"]["diff"] > 0
+    assert "checksums differ" in moved["note"]
+
+
+def test_hashed_compare_matches_equal_numbers_of_another_type_and_skips_old_versions(svc):
+    import pyarrow as pa
+    import pyarrow.dataset as pads
+    from fabric_desktop.meta import compare as compare_mod
+    e = svc._project().entities["silver.customers"]
+    key = e.keys[0]
+    left = pa.table({key: ["1", "2", "3"], "amount": pa.array([10, 20, 30], pa.int64()), "is_current": [True] * 3})
+    right = pa.table({key: ["3", "1", "2", "2"], "amount": pa.array([30.0, 10.0, 99.0, 20.0]),
+                      "is_current": [True, True, False, True]})
+    out = compare_mod.hashed(e, pads.dataset(left), pads.dataset(right))
+    assert out["checksum"]["match"] and out["rows"] == {"left": 3, "right": 3}
+    assert [c["column"] for c in out["columns"]["type_changed"]] == ["amount"] and out["totals"][0]["diff"] == 0
+    changed = compare_mod.hashed(e, pads.dataset(left), pads.dataset(right.set_column(1, "amount", pa.array([30.0, 11.0, 99.0, 20.0]))))
+    assert not changed["checksum"]["match"] and changed["totals"][0]["diff"] == 1
+
+
+def test_compare_below_the_row_limit_says_every_row_was_compared(svc):
+    out = svc.meta_compare("silver.customers", "dev", "dev")
+    assert out["method"] == "full" and out["compared_on_keys"]
+
+
 # ---- quarantine replay
 
 def test_fix_and_replay_a_quarantined_row(svc):

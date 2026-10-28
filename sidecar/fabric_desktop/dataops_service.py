@@ -15,6 +15,8 @@ import logging
 from typing import Any
 
 import polars as pl
+import pyarrow as pa
+import pyarrow.compute  # noqa: F401 - pa.compute
 import requests
 
 from .meta import Engine, impact
@@ -23,12 +25,21 @@ from .meta import diff as diff_mod
 from .meta import drift as drift_mod
 from .meta import freshness as freshness_mod
 from .meta import release
+from .meta import store as store_mod
 from .meta.project import ENVIRONMENTS
 from .meta_service import NoMetadataProject
 from .redact import describe
 from .workloads.notify import failure
 
 _log = logging.getLogger(__name__)
+
+
+def _rows_in(table: Any) -> int:
+    """Rows in a Delta table from its log's file statistics, or by counting the files when a writer left them out."""
+    actions = pa.table(table.get_add_actions(flatten=True))
+    if "num_records" in actions.column_names and actions.column("num_records").null_count == 0:
+        return int(pa.compute.sum(actions.column("num_records")).as_py() or 0)
+    return table.to_pyarrow_dataset().count_rows()
 
 
 def _rows(df: pl.DataFrame, limit: int) -> list[dict[str, Any]]:
@@ -45,6 +56,14 @@ class DataOpsMixin:
         return store.read(project.layer(e.layer).lakehouse, e.schema, e.table,
                           None if version in (None, "") else int(version))
 
+    def _delta(self, project: Any, name: str, env: str, version: int | None) -> Any:
+        """The table's Delta log (no data) at ``version``, default the latest; None when there's none."""
+        e = project.entities[name]
+        store = self._store(project, env)  # type: ignore[attr-defined]
+        lakehouse = project.layer(e.layer).lakehouse
+        return store_mod.open_table(store.uri(lakehouse, e.schema, e.table), store.options(),
+                                    None if version in (None, "") else int(version))
+
     def meta_versions(self, name: str, env: str = "dev", limit: int = 15) -> list[dict[str, Any]]:
         """The table's Delta versions, newest first, for picking "before" in a compare."""
         project = self._project()  # type: ignore[attr-defined]
@@ -58,9 +77,14 @@ class DataOpsMixin:
                      right_version: int | None = None) -> dict[str, Any]:
         project = self._project()  # type: ignore[attr-defined]
         e = project.entities[name]
-        left = self._table(project, name, left_env, left_version)
-        right = self._table(project, name, right_env, right_version)
-        return compare_mod.compare(e, left, right) | {
+        sides = [self._delta(project, name, env, v) for env, v in ((left_env, left_version), (right_env, right_version))]
+        if all(t is not None for t in sides) and max(_rows_in(t) for t in sides) > compare_mod.LIMIT_ROWS:
+            # Too many rows to load both sides: stream them for counts, totals and a checksum.
+            result = compare_mod.hashed(e, *(t.to_pyarrow_dataset() for t in sides))
+        else:
+            result = compare_mod.compare(e, self._table(project, name, left_env, left_version),
+                                         self._table(project, name, right_env, right_version))
+        return result | {
             "left": {"env": left_env, "version": left_version}, "right": {"env": right_env, "version": right_version}}
 
     def meta_promote_impact(self, source: str, target: str) -> dict[str, Any]:

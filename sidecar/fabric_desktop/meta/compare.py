@@ -4,6 +4,11 @@ The answer is what a data engineer checks before a promote: row counts, keys tha
 one side, which columns changed value for the same key, and how the numeric totals moved.
 Columns each environment issues for itself (surrogate keys, run stamps, Type 2 dates) are
 left out, since they always differ and say nothing about the data.
+
+A table with more rows than ``LIMIT_ROWS`` on either side isn't loaded into memory: ``hashed``
+streams both sides through DuckDB for row counts, totals and an order-independent checksum of
+every row (the same approach as verify.py), so it finishes on a table larger than memory but
+can't say which keys differ.
 """
 
 from __future__ import annotations
@@ -12,10 +17,16 @@ import json
 from typing import Any
 
 import polars as pl
+import pyarrow as pa
+import pyarrow.dataset as pads
 
+from .. import side_by_side
+from ..verify import DEFAULTS
 from .project import SCD2_COLUMNS, SYSTEM_COLUMNS, Entity
 
 SAMPLE = 20
+# Above this many rows on either side, compare counts, totals and a checksum instead of every row.
+LIMIT_ROWS = int(DEFAULTS["limit_rows"])
 
 
 def _rows(df: pl.DataFrame) -> list[dict[str, Any]]:
@@ -46,6 +57,7 @@ def compare(e: Entity, left: pl.DataFrame | None, right: pl.DataFrame | None) ->
         "columns": {"only_left": [], "only_right": [], "type_changed": []},
         "only_left": {"count": 0, "rows": []}, "only_right": {"count": 0, "rows": []},
         "changed": {"count": 0, "by_column": {}, "rows": []}, "totals": [], "compared_on_keys": False,
+        "method": "full",
     }
     if left is None or right is None:
         out["note"] = "The table doesn't exist on " + ("either side" if left is None and right is None
@@ -100,3 +112,69 @@ def compare(e: Entity, left: pl.DataFrame | None, right: pl.DataFrame | None) ->
                                  for c in values if row[c] != row[f"{c}__r"]]})
     out["changed"]["rows"] = rows
     return out
+
+
+# ---- tables larger than memory
+
+
+def _projected(data: pads.Dataset, columns: list[str]) -> pa.RecordBatchReader:
+    """``columns`` of the current rows of ``data``, as a stream: nothing is held in memory."""
+    names = set(data.schema.names)
+    where = pads.field("is_current") == True if "is_current" in names else None  # noqa: E712 - a dataset expression
+    return data.scanner(columns=columns, filter=where).to_reader()
+
+
+def _summary(data: pads.Dataset, columns: list[str], numbers: set[str], totals: list[str]) -> dict[str, Any]:
+    """Rows, an order-independent checksum of ``columns`` and the sums of ``totals``, in one pass."""
+    import duckdb
+    reader = _projected(data, columns)
+    fields = sorted(reader.schema, key=lambda f: f.name.lower())
+    row_hash = (f"coalesce(sum(CAST(hash({', '.join(side_by_side._normalized(f.name, f.type, f.name in numbers) for f in fields)}) AS HUGEINT)), 0)"
+                if fields else "0")
+    integers = {f.name for f in reader.schema if pa.types.is_integer(f.type)}
+    sums = [f"sum({side_by_side._quote(c)})" if c in integers else f"sum(CAST({side_by_side._quote(c)} AS DOUBLE))"
+            for c in totals]
+    con = duckdb.connect()
+    try:
+        con.execute("SET TimeZone = 'UTC'")
+        con.register("t", reader)
+        got = con.execute(f"SELECT count(*), {', '.join([row_hash] + sums)} FROM t").fetchone()
+    finally:
+        con.close()
+    return {"rows": int(got[0]), "checksum": f"{int(got[1]) % (1 << 64):016x}", "totals": list(got[2:])}
+
+
+def _is_number(t: pa.DataType) -> bool:
+    return pa.types.is_integer(t) or pa.types.is_floating(t) or pa.types.is_decimal(t)
+
+
+def hashed(e: Entity, left: pads.Dataset, right: pads.Dataset) -> dict[str, Any]:
+    """The compare of two tables too large to load: row counts, column differences, totals and
+    whether a checksum of every row matches. Both sides are streamed, never held in memory."""
+    skip = ignored_columns(e)
+    ls, rs = left.schema, right.schema
+    lcols = [c for c in ls.names if c not in skip]
+    rcols = [c for c in rs.names if c not in skip]
+    common = [c for c in lcols if c in rcols]
+    kinds = {c: (side_by_side.kind(ls.field(c).type), side_by_side.kind(rs.field(c).type)) for c in common}
+    # An integer on one side and a decimal on the other hash as numbers, so equal values still match.
+    numbers = {c for c, (a, b) in kinds.items() if a != b and {a, b} <= {"integer", "number"}}
+    totals = [c for c in common if c not in e.keys and not c.lower().endswith("id")
+              and _is_number(ls.field(c).type) and _is_number(rs.field(c).type)]
+    a, b = _summary(left, common, numbers, totals), _summary(right, common, numbers, totals)
+    match = a["checksum"] == b["checksum"]
+    return {
+        "entity": e.name, "keys": e.keys, "rows": {"left": a["rows"], "right": b["rows"]},
+        "columns": {"only_left": [c for c in lcols if c not in rcols], "only_right": [c for c in rcols if c not in lcols],
+                    "type_changed": [{"column": c, "left": str(ls.field(c).type), "right": str(rs.field(c).type)}
+                                     for c in common if ls.field(c).type != rs.field(c).type]},
+        "only_left": {"count": 0, "rows": []}, "only_right": {"count": 0, "rows": []},
+        "changed": {"count": 0, "by_column": {}, "rows": []},
+        "totals": [{"column": c, "left": x, "right": y, "diff": (y or 0) - (x or 0)}
+                   for c, x, y in zip(totals, a["totals"], b["totals"])],
+        "compared_on_keys": False, "method": "hashed", "limit_rows": LIMIT_ROWS,
+        "checksum": {"left": a["checksum"], "right": b["checksum"], "match": match},
+        "note": (f"More than {LIMIT_ROWS:,} rows, so row counts, totals and a checksum of every row in the shared columns "
+                 f"were compared instead of each row by key. " + ("The checksums match: the rows are the same." if match
+                 else "The checksums differ: some rows differ, but which keys can't be told without loading the table.")),
+    }

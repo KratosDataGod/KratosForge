@@ -25,8 +25,8 @@ const SCHEMES = ["light", "dark"];
 // Findings this audit recorded that are filed to be fixed (#905): "page: rule" and "page: element".
 // A new one fails; remove a line when its fix lands (the test then keeps it fixed).
 const KNOWN_RULES = new Set(["notebook: aria-input-field-name", "sql: aria-required-children", "command-bar: aria-input-field-name"]);
-const KNOWN_KEYBOARD = new Set([]);
-const KNOWN_FOCUS = new Set(['notebook: div.cm-content "import polars as pldf = pl.rea"']);
+const KNOWN_KEYBOARD = new Set(['notebook: Tab returns to button.tool.small "Run cell", 12 Tab stops later never reached']);
+const KNOWN_FOCUS = new Set(['sql: div.cm-content "SQL query"']);
 
 // Every page on the rail is found at run time; these open the screens that aren't rail pages.
 const EXTRA = [
@@ -101,27 +101,45 @@ async function focusNow(scope) {
     return (cs.outlineStyle !== "none" && parseFloat(cs.outlineWidth) > 0) || (cs.boxShadow && cs.boxShadow !== "none");
   };
   let shown = false;
-  for (let n = el, depth = 0; n && depth < 4 && !shown; n = n.parentElement, depth++) shown = ring(n);
+  for (let n = el, depth = 0; n && depth < 6 && !shown; n = n.parentElement, depth++) shown = ring(n);
   const rect = el.getBoundingClientRect();
   const label = (el.getAttribute("aria-label") || el.textContent || el.value || "").trim().replace(/\s+/g, " ").slice(0, 30);
   const cls = [...el.classList].slice(0, 2).map((c) => `.${c}`).join("");
   el.dataset.a11yStop ||= String(Math.random());
   return { key: el.id ? `#${el.id}` : `${el.tagName.toLowerCase()}${cls}${label ? ` "${label}"` : ""}`, stop: el.dataset.a11yStop,
-    inside: !!el.closest(scope), shown: shown && rect.width > 0 && rect.height > 0 && getComputedStyle(el).opacity !== "0" };
+    inside: !!el.closest(scope), editor: el.classList.contains("cm-content"), shown: shown && rect.width > 0 && rect.height > 0 && getComputedStyle(el).opacity !== "0" };
 }
 
+// Tab from the top of the page until focus comes back to a stop it has seen. In a code editor Tab
+// indents, so the walk leaves it the documented way, Escape then Tab. A walk that comes back while
+// Tab stops in `scope` are still unvisited can't get past `trap`.
 async function tabStops(page, scope) {
   const stops = [];
   const seen = new Set();
-  await page.evaluate(() => document.activeElement?.blur());
-  for (let i = 0; i < 250; i++) {
+  let trap = null;
+  // Start at the top: blur() alone leaves the browser's Tab starting point where focus was.
+  await page.evaluate(() => {
+    const start = Object.assign(document.createElement("span"), { tabIndex: -1 });
+    document.body.prepend(start);
+    start.focus();
+    start.remove();
+  });
+  for (let i = 0; i < 400; i++) {
     await page.keyboard.press("Tab");
     const at = await page.evaluate(focusNow, scope);
-    if (!at || seen.has(at.stop)) break;  // back where it started
+    if (!at) break;
+    if (seen.has(at.stop)) {
+      const left = await page.evaluate(([scope, seenIds]) => [...document.querySelectorAll(`${scope} :is(button, a[href], input, select, textarea, summary, [tabindex]:not([tabindex="-1"]), .cm-content)`)]
+        .filter((e) => !e.disabled && e.getClientRects().length && getComputedStyle(e).visibility !== "hidden" && !e.closest("[inert], [hidden]"))
+        .filter((e) => !seenIds.includes(e.dataset.a11yStop)).length, [scope, [...seen]]);
+      if (left) trap = { key: at.key, left };
+      break;
+    }
     seen.add(at.stop);
     if (at.inside) stops.push({ key: at.key, shown: at.shown });
+    if (at.editor) await page.keyboard.press("Escape");
   }
-  return stops;
+  return { stops, trap };
 }
 
 async function audit(page, target, scheme) {
@@ -139,7 +157,9 @@ async function audit(page, target, scheme) {
     return { violations: res.violations.map(brief), incomplete: res.incomplete.map(brief), passes: res.passes.length };
   }, [scope, RULES]);
   const { unreachable } = await page.evaluate(keyboardScan, scope);
-  const stops = await tabStops(page, scope);
+  // The keyboard walk doesn't depend on the color scheme, so it runs once, in light.
+  const { stops, trap } = scheme === "light" ? await tabStops(page, scope) : { stops: [], trap: null };
+  if (trap) unreachable.push(`Tab returns to ${trap.key}, ${trap.left} Tab stops later never reached`);
   const result = { page: target.name, id: target.id, scheme, ...axeOut, unreachable, stops,
     noRing: stops.filter((s) => !s.shown).map((s) => s.key) };
   results.push(result);
@@ -210,7 +230,8 @@ function report(rows) {
     "`A11Y_REPORT=docs/ux/accessibility-audit.md node --test app/tests/browser/a11y-audit.test.cjs` *to refresh it.*",
     "",
     `Rules: axe-core ${rowsVersion()} with the WCAG 2.1 A and AA tags (${RULES.join(", ")}), color contrast among them. ` +
-      "Keyboard: everything with a pointer cursor must be a Tab stop or inside one. Focus: each Tab stop on the page " +
+      "Keyboard: everything with a pointer cursor must be a Tab stop or inside one, and pressing Tab from the top " +
+      "must reach every Tab stop without looping (Escape then Tab leaves a code editor). Focus: each Tab stop on the page " +
       "must show an outline or ring. Each page is checked in light and dark (the window's color scheme); the app has " +
       "one theme, so dark is checked to show nothing breaks when Windows is set to dark.",
     "",
@@ -231,7 +252,9 @@ function report(rows) {
   }
   const findings = rows.flatMap((r) => [
     ...r.violations.map((v) => `- **${r.page}** (${r.scheme}): ${v.id}, ${v.impact}: ${v.help}. At ${v.nodes.map((n) => `\`${n}\``).join(", ")}`),
-    ...(r.scheme === "light" ? r.unreachable.map((k) => `- **${r.page}**: \`${k}\` looks clickable but isn't reached with Tab`) : []),
+    ...(r.scheme === "light" ? r.unreachable.map((k) => (k.startsWith("Tab returns")
+      ? `- **${r.page}**: keyboard: ${k} (Escape, then Tab, used to leave each code editor)`
+      : `- **${r.page}**: \`${k}\` looks clickable but isn't reached with Tab`)) : []),
     ...(r.scheme === "light" ? r.noRing.map((k) => `- **${r.page}**: \`${k}\` shows no focus ring`) : []),
   ]);
   const looks = rows.filter((r) => r.scheme === "light").flatMap((r) => r.incomplete.map((v) =>

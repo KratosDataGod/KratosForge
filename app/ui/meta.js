@@ -603,7 +603,7 @@ function confirmDialog(title, text, okLabel = "OK", opts = {}) {
     let settled = false;
     let why = null;
     const done = (v) => { if (settled) return; settled = true; closeDialog(); resolve(v && why ? why.value.trim() : v); };
-    const cancel = btn("Cancel", null, () => done(false), "tool outline");
+    const cancel = btn(opts.cancelLabel || "Cancel", null, () => done(false), "tool outline");
     const ok = btn(okLabel, null, () => done(true), opts.danger ? "tool danger-solid" : "tool primary");
     let typed = null;
     if (opts.reason) {
@@ -1373,13 +1373,6 @@ registerFeature({
 
 // ---------- table health ----------
 
-function formatBytes(n) {
-  if (!n) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
-  return `${(n / 1024 ** i).toFixed(i ? 1 : 0)} ${units[i]}`;
-}
-
 function shortDate(iso) {
   return iso ? new Date(iso).toLocaleString() : "never";
 }
@@ -1424,7 +1417,7 @@ async function renderHealthTab(body) {
       h("td", {}, h("span", { class: "mono" }, t.entity)),
       h("td", {}, t.layer ? layerChip(t.layer) : h("span", { class: "muted-text" }, "run metadata")),
       t.exists ? [
-        h("td", { class: "n" }, t.files), h("td", { class: "n" }, formatBytes(t.bytes)), h("td", { class: "n" }, formatBytes(t.avg_file_bytes)),
+        h("td", { class: "n" }, t.files), h("td", { class: "n" }, sizeText(t.bytes)), h("td", { class: "n" }, sizeText(t.avg_file_bytes)),
         hl.local ? null : h("td", {}, t.v_ordered ? h("span", { class: "pill-s pass" }, "Yes") : h("span", { class: "pill-s wrn" }, "No")),
         h("td", { class: "n" }, t.versions_since_vacuum), h("td", {}, shortDate(t.last_optimize)),
         h("td", {}, t.advice.length ? h("ul", { class: "gate-list" }, t.advice.map((a) => h("li", {}, a))) : h("span", { class: "pill-s pass" }, "Healthy")),
@@ -1712,10 +1705,10 @@ function directLakeResult(out, plan, updateModel) {
           t.exists ? [
             h("td", { class: over(t.rows, lim?.rows) }, num(t.rows)), h("td", { class: over(t.files, lim?.files) }, num(t.files)),
             h("td", { class: over(t.row_groups, lim?.row_groups) }, (t.row_groups_estimated ? "about " : "") + num(t.row_groups)),
-            h("td", { class: "n" }, formatBytes(t.bytes))]
+            h("td", { class: "n" }, sizeText(t.bytes))]
             : h("td", { colspan: 4, class: "muted-text" }, "No Delta table")))),
         lim?.model_bytes ? h("tfoot", {}, h("tr", {}, h("td", { colspan: 5, class: "muted-text" }, "Model total"),
-          h("td", { class: over(out.model_bytes, lim.model_bytes) }, `${formatBytes(out.model_bytes)} of ${formatBytes(lim.model_bytes)}`))) : null),
+          h("td", { class: over(out.model_bytes, lim.model_bytes) }, `${sizeText(out.model_bytes)} of ${sizeText(lim.model_bytes)}`))) : null),
       h("p", { class: "muted-text" }, "Row groups come from each file's Parquet footer, up to 200 files a table; above that they're estimated from a sample and marked \"about\".")) : null,
     h("p", { class: "muted-text" }, `Checked ${relTime(out.checked_at)}.`));
 }

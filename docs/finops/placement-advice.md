@@ -2,7 +2,7 @@
 
 KratosForge can say whether a notebook is better run **on this PC** or **in Fabric**, and show the evidence behind that. This is FINOPS-005's advisor. It gives advice only: it never changes a notebook's **Runs on**, never starts a run, and never works out Fabric CU from the time a run took on this PC.
 
-The advice is available to tools connected through [MCP or the local API](../ai/README.md) as `fabric_desktop_placement_advice` (Preview, read-only). Prove will show it on its screens.
+The advice is available to tools connected through [MCP or the local API](../ai/README.md) as `fabric_desktop_placement_advice` (Preview, read-only). It has no screen in the app yet: Prove will show it on its screens.
 
 ## The answer
 

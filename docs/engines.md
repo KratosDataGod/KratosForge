@@ -2,8 +2,9 @@
 
 KratosForge is growing from "this PC or Fabric" into one place to develop for Microsoft Fabric,
 Azure Databricks, or both. This page describes the two foundations that work is built on, what
-they can do today, and what is planned. **Nothing on this page has a screen in the app yet**: it
-is the engine underneath, built and tested first so the screens can't promise more than it does.
+they can do today, and what is planned. With Preview features shown, a notebook picks its engine
+from the [engine picker](#engine-picker-preview); connection profiles have no screen of their own
+yet, and a Databricks connection comes from a saved profile or the Databricks CLI.
 
 - An **engine** is what runs a notebook cell: Python on this PC, DuckDB, SQLite and Polars, and,
   as Preview engines tested against fakes, a Databricks SQL warehouse, Databricks Connect on a
@@ -152,6 +153,40 @@ A remote engine can start compute that is billed. It opens only when:
 
 A profile can also forbid remote compute altogether.
 
+## Engine picker (Preview)
+
+With Preview features shown (Settings), **Engine** replaces **Runs on** in the notebook ribbon,
+beside **Run all**, which stays the main button. Nothing else in the ribbon moves. With Preview
+hidden, Runs on works as before.
+
+- **Badge.** Beside the engine, *This PC* or *Remote* says where cells run; a remote engine also
+  says how it bills ("bills DBUs" for Databricks, "uses Fabric capacity" for Fabric).
+- **Connection.** For a Databricks engine, **Connection** picks the saved profile connection or
+  Databricks CLI profile to use. Only the host and warehouse or cluster id reach the screen; tokens
+  stay with the sidecar. The connection's default catalog and schema show beside it, as a label.
+- **Engine menu.** Python (this PC) first, then the other engines on this PC (DuckDB, SQLite,
+  Polars), then **Remote**: Run in Fabric (the whole notebook as a Fabric job, as before), Fabric
+  Spark, Databricks SQL warehouse and Databricks Connect, each marked Preview. Engines that are
+  planned but not built are listed under **More** as information only; they can't be chosen.
+  Hover ⓘ for what each engine runs and how it differs from the platform.
+- **Remote confirm.** Choosing a remote engine opens a confirm that names the engine, the
+  warehouse, cluster or lakehouse, the connection, how it bills, and what the 60-minute grant
+  allows. It runs a risk check first: the policy, whether the warehouse or cluster is running and
+  its auto-stop, cells that write data, and cells the engine can't run. The check is advice only
+  and never blocks; when it can't read something it says "Couldn't run" and why. A profile whose
+  policy already allows the engine skips the confirm. Nothing remote starts without one or the
+  other, and KratosForge never falls back to remote compute on its own.
+- **Switching.** Leaving an engine with a session lists what is lost (its variables) and kept
+  (cells and outputs). **Switch and close session** is red; **Keep both** keeps a local session in
+  the background. Going back to Python from another engine also closes that engine's session.
+- **Cells.** The status line under a cell names the engine that ran it. A cell the engine can't
+  run is flagged before anything runs, with the reason and **Run this cell on Python**, which runs
+  that one cell in the Python kernel on this PC; the notebook stays on its engine.
+
+The choice lasts while the app is open; it isn't saved in the notebook file yet. Engine sessions
+close when the app quits or the notebook switches back to Python, not when its tab closes. Remote
+engines have run against fakes only, not a live Fabric tenant or Databricks workspace.
+
 ## Usage figures
 
 Every run records what it used, labeled as one of: **measured** on this PC, **billed** by the
@@ -212,7 +247,7 @@ and outputs stay. A notebook with unsaved changes must be saved or discarded fir
 
 ## Not yet
 
-- No screens: the notebook's engine picker and profile setup come next, after a mockup.
+- No profile setup screen: connection profiles are read, not edited, by the engine picker.
 - Databricks SQL warehouses sign in through the Databricks CLI or a service principal and run SQL
   through the Statement Execution API, tested against fakes only. Databricks workspace discovery and
   Databricks Connect aren't built yet, and stay Preview until tested against a live workspace.

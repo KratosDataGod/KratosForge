@@ -5248,3 +5248,36 @@ test("a source request can ask for a Copy job, and approving says what it makes"
   assert.match(confirm, /central \? landsIn\(r\.lands_in, central\)/, "the approver sees the zone and lakehouse it lands in");
   assert.match(fn("landsIn"), /secure \? "secure " : ""\}zone \$\{where\.zone_name\}/);
 });
+
+
+// Engine picker (Preview): Engine replaces Runs on beside Run all, remote engines ask first and
+// never start on their own, a switch that loses variables is a red confirm, and a cell the engine
+// can't run is flagged with "Run this cell on Python" for that cell only.
+test("the engine picker is a Preview feature that asks before remote compute", () => {
+  const src = fs.readFileSync(path.join(ui, "engines.js"), "utf8");
+  const nbsrc = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const fn = (name) => src.match(new RegExp(`(async )?function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="nbnext\.js"><\/script>\n  <script src="engines\.js"><\/script>/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /engines: "Notebook engine picker",/);
+  assert.match(src, /registerFeature\(\{ id: "engines", preview: true/);
+  assert.match(nbsrc, /const engineCtl = \(\) => previewShown\(\) \? engineToolbar\(nb\) : \[computeBtn\];/, "Preview hidden keeps Runs on");
+  assert.strictEqual((nbsrc.match(/\.\.\.engineCtl\(\)/g) || []).length, 2, "Home and Run toolbars both carry it");
+  assert.match(fn("openEngineMenu"), /if \(!previewShown\(\)\) return showMenu\(anchor, computeMenu\(nb\)\);/);
+  assert.match(fn("openEngineMenu"), /planned\.map\(\(e\) => \(\{ info:/, "planned engines are info rows, never choices");
+  const choose = fn("chooseEngine");
+  assert.match(choose, /rpc\("engine_prepare"[\s\S]*engineSwitchDialog[\s\S]*engineRemoteDialog[\s\S]*rpc\("engine_select"/, "prepare, switch, confirm, then select");
+  assert.match(choose, /if \(e\.location === "remote" && plan\.confirm\) \{\n\s*confirmed = await engineRemoteDialog\(nb, e, plan\);\n\s*if \(!confirmed\) return;/);
+  const confirm = fn("engineRemoteDialog");
+  assert.match(confirm, /\["Risk check"/);
+  assert.match(confirm, /Each start bills DBUs until its auto-stop/);
+  assert.match(confirm, /It uses Fabric capacity until it closes/);
+  assert.match(confirm, /never falls back to remote compute on its own/);
+  assert.match(fn("engineSwitchDialog"), /btn\("Switch and close session", null, \(\) => done\("close"\), "tool danger-solid"\)/);
+  assert.match(fn("engineSwitchDialog"), /"Keep both"/);
+  assert.match(fn("chooseKernel"), /confirmDialog\([\s\S]*"Switch and close session", \{ danger: true \}\)/);
+  assert.match(fn("engineFlagPanel"), /btn\("Run this cell on Python", "play", \(\) => runCellOnKernel\(cell\)/);
+  assert.match(nbsrc, /if \(!kernel && nbOnEngine\(nb\) && !cell\.meta\?\.frozen\) return runEngineCell\(cell, nb\);/);
+  for (const name of ["engines.js", "notebook.js"]) {
+    assert.doesNotMatch(fs.readFileSync(path.join(ui, name), "utf8"), /no Fabric capacity/i, `${name}: local engines still use capacity for OneLake`);
+  }
+});

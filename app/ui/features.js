@@ -106,6 +106,7 @@ const PREVIEW_FEATURES = {
   sqlPractices: "SQL best practices",
   bestPractices: "Best practices: checks and templates",
   updateBanner: "New build banner",
+  engines: "Notebook engine picker",
 };
 
 function previewShown() {

@@ -25,6 +25,7 @@ pub const QUICK: &[&str] = &[
     "sql_compat_profiles", "sql_executions", "sql_export", "sql_export_cancel", "sql_export_status",
     "sql_page", "sql_practices", "sql_start", "sql_status",
     "wizard_preview", "wizard_templates",
+    "engine_state", "engine_poll_cell", "engine_cancel",
 ];
 
 pub const QUICK_SECONDS: u64 = 60;

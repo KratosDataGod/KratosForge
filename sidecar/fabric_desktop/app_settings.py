@@ -54,6 +54,9 @@ Keys:
                      the PC (default true)
     allow_notebook_packages  IT only: false stops people installing packages into notebook
                      environments (environments.py); the engine's own packages still work
+    allow_signed_out_schedules  IT only: false stops people setting schedules on this PC to run while
+                     they're signed out of Windows (Windows keeps their password with the task); schedules
+                     already set that way say so and can only be turned back to signed-in (default true)
     allow_optimize_lakehouse  IT only: false stops Optimize creating, connecting to or writing to a
                      shared optimization lakehouse (default true)
     allow_replay_samples  IT only: false removes "A sample of the input data" from replay bundles
@@ -179,6 +182,11 @@ DEFAULTS.update({"motion_level": 2} | {key: key != "motion_achievements" for key
 TYPES.update({"motion_level": int} | {key: bool for key in MOTION_SWITCHES})
 USER_KEYS += ("motion_level", *MOTION_SWITCHES)
 
+# Schedules on this PC that also run while signed out of Windows (local_schedules, signed_out_tasks).
+# Policy only: the person ticks it per schedule; IT can turn the choice off.
+DEFAULTS["allow_signed_out_schedules"] = True
+TYPES["allow_signed_out_schedules"] = bool
+
 # Owner coverage's last-used dates (central/core.py note_seen): personal data everyone who reads the
 # platform's catalog sees, so it stays off until IT turns it on in the policy file. Policy only.
 DEFAULTS["platform_presence"] = False
@@ -223,7 +231,8 @@ RESTRICTED: dict[str, Any] = {"allow_fabric_runs": False, "allowed_tenants": [NO
                               "telemetry": False, "sql_warehouse_writes": False,
                               "wh_monitoring_views": False,
                               "allow_dbconnect_install": False,
-                              "platform_presence": False}
+                              "platform_presence": False,
+                              "allow_signed_out_schedules": False}
 
 
 def policy_path() -> Path:

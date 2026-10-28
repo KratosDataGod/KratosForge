@@ -106,4 +106,25 @@ test("The Schedule dialog adds a signed-out schedule on this PC, and hides the b
   await page().click(".dialog button:has-text('Close')");
 });
 
+test("When IT turns it off, the box can only be unticked and rows say so", { skip }, async () => {
+  calls.length = 0;
+  await page().evaluate(() => { state.settings = { ...(state.settings || {}), allow_signed_out_schedules: { value: false } }; });
+  rows[3].signed_out_problem = "policy";
+  await monitor();
+  assert.match(await page().textContent("tr:has-text('nb_signed_out')"), /Your organization has turned off runs while you're signed out\. Run only while signed in/);
+  await page().click("tr:has-text('nb_plain') button:has-text('Edit')");
+  const d = page().locator(".dialog");
+  assert.ok(await d.locator("label:has-text('signed out of Windows') input").isDisabled());
+  assert.match(await d.textContent(), /Your organization doesn't allow runs while you're signed out/);
+  await page().click(".dialog button:has-text('Cancel')");
+  await page().click("tr:has-text('nb_signed_out') button:has-text('Edit')");
+  const box = d.locator("label:has-text('signed out of Windows') input");
+  assert.ok(await box.isEnabled(), "a schedule already set that way can be unticked");
+  await box.uncheck();
+  assert.ok(await box.isDisabled(), "and then not ticked again");
+  await page().click(".dialog button:has-text('Cancel')");
+  rows[3].signed_out_problem = null;
+  await page().evaluate(() => { delete state.settings.allow_signed_out_schedules; });
+});
+
 test("no page errors", { skip }, () => assert.deepStrictEqual(app.errors, []));

@@ -55,8 +55,12 @@ function scheduleSummary(v, fabric) {
 
 // PB-048: "Run even when I'm signed out of Windows", for this PC's schedules. Windows asks for the
 // password itself and keeps it with the task; checked() says whether it is ticked.
+const signedOutAllowed = () => state.settings?.allow_signed_out_schedules?.value !== false;  // IT's policy key
 function signedOutField(on) {
   const box = h("input", { type: "checkbox", checked: on ? true : null });
+  const allowed = signedOutAllowed();
+  const blocked = h("div", { class: "muted-text small", hidden: allowed ? true : null },
+    "Your organization doesn't allow runs while you're signed out (its policy file).");
   const field = h("div", { class: "signed-out-field" },
     h("label", { class: "check" }, box, h("span", {}, h("b", {}, "Run even when I'm signed out of Windows"), " ", previewTag(),
       h("div", { class: "muted-text small" }, "The PC still has to be on. Windows asks for your Windows password and keeps it with the task; KratosForge never sees or stores it."))),
@@ -65,7 +69,9 @@ function signedOutField(on) {
       h("li", {}, "Your organization may not allow runs while signed out; Windows then refuses and nothing is saved."),
       h("li", {}, "Reading or writing OneLake uses your saved Fabric sign-in. If it has expired, the run fails and says sign in again."))));
   const warn = field.lastChild;
-  const sync = () => { warn.hidden = !box.checked; };
+  field.insertBefore(blocked, warn);
+  // Under the policy, a schedule already set that way can only be unticked.
+  const sync = () => { warn.hidden = !box.checked; box.disabled = !allowed && !box.checked; };
   box.addEventListener("change", sync);
   sync();
   return { field, checked: () => box.checked, set: (v) => { box.checked = !!v; sync(); } };
@@ -142,6 +148,7 @@ function signedOutNote(s, changed) {
     password: ["Windows needs your new password. ", again(true, "Enter it")],
     moved: ["KratosForge moved, so Windows needs your password again. ", again(true, "Enter it")],
     not_allowed: ["Your organization doesn't allow runs while you're signed out. ", again(false, "Run only while signed in")],
+    policy: ["Your organization has turned off runs while you're signed out. ", again(false, "Run only while signed in")],
   }[s.signed_out_problem];
   return h("div", {}, h("div", { class: "muted-text small" }, "Also while signed out"), problem ? h("div", { class: "reason" }, problem) : null);
 }

@@ -191,3 +191,27 @@ def test_an_unanswered_prompt_ends_and_changes_nothing(monkeypatch):
 def test_the_scripts_load_scheduledtasks_from_system32_only():
     for script in (signed_out_tasks.REGISTER, signed_out_tasks.SET_ENABLED, signed_out_tasks.LAST_RESULTS):
         assert 'Import-Module "$env:SystemRoot\\System32\\WindowsPowerShell\\v1.0\\Modules\\ScheduledTasks"' in script
+
+
+def test_it_policy_turns_the_choice_off(tmp_path, app_exe):
+    pc = schedules(tmp_path)
+    item = pc.add(TARGET, DAILY, signed_out=True)
+    pc.set_enabled(item["id"], False)
+    off = LocalSchedules(tmp_path / "app", pc.scheduler, "C:/engine/a/python.exe", allow_signed_out=False)
+    with pytest.raises(PermissionError, match="allow_signed_out_schedules"):
+        off.add(TARGET, DAILY, signed_out=True)
+    with pytest.raises(PermissionError):
+        off.set_enabled(item["id"], True)  # resuming would start password runs again
+    with pytest.raises(PermissionError):
+        off.update(item["id"], {"kind": "daily", "times": ["05:00"]})
+    assert off.listing()[0]["signed_out_problem"] == "policy"
+    off.set_signed_out(item["id"], False)  # turning it back to signed-in always works
+    assert "signed_out" not in off.get(item["id"])
+    off.set_enabled(item["id"], True)
+
+
+def test_the_policy_key_is_it_only_and_fails_closed():
+    from fabric_desktop import app_settings
+    assert app_settings.DEFAULTS["allow_signed_out_schedules"] is True
+    assert app_settings.RESTRICTED["allow_signed_out_schedules"] is False
+    assert "allow_signed_out_schedules" not in app_settings.USER_KEYS

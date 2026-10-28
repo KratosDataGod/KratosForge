@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from . import notebook_cells
+from . import app_settings, notebook_cells
 from .fabric_api import FabricClient
 from .fabric_run import TERMINAL, describe_schedule, schedule_configuration
 from .fabric_step import is_step
@@ -64,7 +64,7 @@ class ScheduleMixin:
 
     @property
     def pc_schedules(self) -> LocalSchedules:
-        return LocalSchedules(self.root)  # type: ignore[attr-defined]
+        return LocalSchedules(self.root, allow_signed_out=bool(app_settings.value("allow_signed_out_schedules")))  # type: ignore[attr-defined]
 
     # ---- schedules on this PC
 

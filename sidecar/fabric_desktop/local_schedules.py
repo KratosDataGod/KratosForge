@@ -227,14 +227,19 @@ class TaskScheduler:
 
 
 class LocalSchedules:
-    def __init__(self, root: Path, scheduler: TaskScheduler | None = None, executable: str | None = None):
+    def __init__(self, root: Path, scheduler: TaskScheduler | None = None, executable: str | None = None,
+                 allow_signed_out: bool = True):
         self.root = root
+        self.allow_signed_out = allow_signed_out  # IT's allow_signed_out_schedules
         self.scheduler = scheduler or TaskScheduler()
         self.executable = pythonw(executable)
         self.launcher = app_launcher()
 
     def _register(self, s: dict[str, Any]) -> None:
         if s.get("signed_out"):
+            if not self.allow_signed_out:
+                raise PermissionError("Your organization doesn't allow schedules that run while you're signed out of "
+                                      "Windows (allow_signed_out_schedules in its policy file).")
             self.scheduler.register(s, self.executable, str(self.root), self.launcher)
             s["launcher"] = self.launcher or ""
         else:
@@ -312,6 +317,9 @@ class LocalSchedules:
             if s["id"] == schedule_id:
                 s["enabled"] = bool(enabled)
                 if s.get("signed_out"):
+                    if s["enabled"] and not self.allow_signed_out:
+                        raise PermissionError("Your organization doesn't allow schedules that run while you're signed "
+                                              "out of Windows. Edit it to run only while you're signed in, then resume it.")
                     self.scheduler.set_enabled(schedule_id, s["enabled"])
                 else:
                     self._register(s)
@@ -415,7 +423,9 @@ class LocalSchedules:
         for s in schedules:
             nxt = next_run(s["config"], now) if s.get("enabled", True) else None
             extra: dict[str, Any] = {}
-            if s.get("signed_out"):
+            if s.get("signed_out") and not self.allow_signed_out:
+                extra["signed_out_problem"] = "policy"
+            elif s.get("signed_out"):
                 problem = signed_out_tasks.needs_password((results.get(s["id"]) or {}).get("result"))
                 if not problem and (s.get("launcher") or "") != (self.launcher or ""):
                     problem = "moved"  # the app's exe moved: the task must be saved again, with the password

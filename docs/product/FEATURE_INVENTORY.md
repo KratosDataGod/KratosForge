@@ -196,7 +196,7 @@ on quality.
 
 | Id | Feature | Status | Verification | Where people reach it | Next action |
 | --- | --- | --- | --- | --- | --- |
-| [FEAT-ONE-02](#feat-one-02) | Endorsed items scope | Missing | Unverified | OneLake > Catalog (greyed out) | Endorsement now shows on data products (#627, FEAT-MESH-04); a catalog filter is still missing (PB-083). |
+| [FEAT-ONE-02](#feat-one-02) | Endorsed items scope | Missing | Unverified | OneLake > Catalog (greyed out) | The filter stays off and its reason now says where endorsement shows (#856): the admin tenant scan reads only data products' items (#627, FEAT-MESH-04). Reading it for every catalog item is still missing (PB-083). |
 | [FEAT-ONE-04](#feat-one-04) | OneLake access review and data access roles | Implemented | Partially Verified | OneLake > Access (Preview) | Include in the tenant smoke test. |
 | [FEAT-PRV-02](#feat-prv-02) | Output verification rules | Implemented | Partially Verified | Prove panel (Preview) | Reuse for SQL and metadata compare (one comparison engine). |
 | [FEAT-META-03](#feat-meta-03) | Checks, quarantine and replay | Implemented | Partially Verified | Entity page > Quarantine | QA-002: replay open and compute change now check the save first (#661). |
@@ -757,11 +757,11 @@ on quality.
 - **Pillar and category:** Enterprise services; Data Governance and Quality
 - **Status:** Missing. **Verification:** Unverified.
 - **Where people reach it:** OneLake > Catalog (greyed out)
-- **Evidence:** code: sidecar/fabric_desktop/service.py endorsements always returns available:false
+- **Evidence:** code: sidecar/fabric_desktop/service.py endorsements always returns available:false, with ENDORSED_FILTER_REASON naming where endorsement shows
 - **Source:** `sidecar/fabric_desktop/service.py`
 - **Docs:** [docs/troubleshooting.md](../troubleshooting.md)
 - **Backlog:** [PB-083](PRODUCT_BACKLOG.md#pb-083)
-- **Recommended next action:** Endorsement now shows on data products (#627, FEAT-MESH-04); a catalog filter is still missing (PB-083).
+- **Recommended next action:** The filter stays off and its reason now says where endorsement shows (#856): the admin tenant scan reads only data products' items (#627, FEAT-MESH-04). Reading it for every catalog item is still missing (PB-083).
 
 ### FEAT-ONE-03
 

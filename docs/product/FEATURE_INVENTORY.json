@@ -1570,7 +1570,7 @@
       "evidence": [
         {
           "kind": "code",
-          "ref": "sidecar/fabric_desktop/service.py endorsements always returns available:false"
+          "ref": "sidecar/fabric_desktop/service.py endorsements always returns available:false, with ENDORSED_FILTER_REASON naming where endorsement shows"
         }
       ],
       "source": [
@@ -1583,7 +1583,7 @@
         "surface": "OneLake > Catalog (greyed out)",
         "preview": false
       },
-      "next_action": "Endorsement now shows on data products (#627, FEAT-MESH-04); a catalog filter is still missing (PB-083).",
+      "next_action": "The filter stays off and its reason now says where endorsement shows (#856): the admin tenant scan reads only data products' items (#627, FEAT-MESH-04). Reading it for every catalog item is still missing (PB-083).",
       "backlog": [
         "PB-083"
       ]

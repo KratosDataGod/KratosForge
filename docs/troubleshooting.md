@@ -55,7 +55,7 @@ When a page or panel couldn't load something, the error shows in place with **Re
 | "There is no file or folder at ... on this PC" | A file the app or engine expected on this PC is missing: it was moved, renamed or deleted. This is about your PC, not Fabric. | Check the path, or pick the file again. **Retry** if it was only briefly unavailable. |
 | "This PC didn't allow access to ..." | Windows refused to open or write a file, usually because another program has it open or the folder is read-only. | Close the program that has the file open, or pick a folder you can write to. |
 | A new table shows under **Unidentified** in Fabric | Fabric hasn't picked up a table written from outside yet. | Refresh the lakehouse in Fabric. See also [xray-fixes.md](xray-fixes.md#unidentified-tables). |
-| Endorsed items is greyed out | Reading endorsement needs an admin-only permission, which KratosForge doesn't ask for. | Nothing to fix: the Fabric catalog embedded on the same page shows endorsement. |
+| Endorsed items is greyed out | Reading endorsement needs an admin-only permission, which KratosForge doesn't ask for. | Nothing to fix: Fabric's own OneLake catalog shows endorsement. For data products, a Fabric administrator can read it with **Scan now** on a product in **Data mesh > Products**. |
 | **Couldn't list capacities** when creating a workspace | Your sign-in lacks `Capacity.Read.All` (your organization's own app registration doesn't have it). | Create the workspace in Fabric, or an admin adds it ([permissions.md](permissions.md#using-your-own-app-registration)). |
 
 ## Notebooks and SQL

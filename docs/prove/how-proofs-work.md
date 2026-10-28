@@ -55,7 +55,7 @@ Every number says what it is:
 | Part | Kind | Where it comes from |
 | --- | --- | --- |
 | Time on this PC | Measured | First cell to last |
-| CPU time and peak memory on this PC | Measured | The engine process while the notebook ran in it (sampled four times a second) |
+| CPU time and peak memory on this PC | Measured | The process the notebook ran in, sampled four times a second: the engine, or with **Run notebooks in their own process** on, the notebook's own kernel process (from its start, and both processes if it restarted; processes its cells start aren't counted, and a process that ends mid-run can miss up to a quarter second of CPU). Kernel memory is private bytes on Windows and resident memory elsewhere; engine memory is resident memory |
 | Fabric total, job, run and session start | Measured | Publish to finish; the job's start and end from Fabric's job API; the notebook's own run time from its log |
 | Fabric CPU and memory | Not available | Fabric doesn't report them for a notebook run. A Python notebook starts with 2 vCores and 16 GB unless `%%configure` changes it. |
 | Fabric capacity and cost | Estimate | Job time x CUs for a Python notebook x price per CU hour, from **Optimize > Cost and savings**. The assumptions are listed. On a capacity you already pay for, this is a share of it, not an added charge. |

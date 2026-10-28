@@ -17,6 +17,9 @@ import sys
 from typing import Any
 
 AF_INET = 2
+AF_INET6 = 23
+V6_LOOPBACK = bytes(15) + b"\x01"  # ::1
+V6_ANY = bytes(16)  # ::, which on a dual-stack socket also takes IPv4 connections
 TCP_TABLE_OWNER_PID_CONNECTIONS = 4
 TCP_TABLE_OWNER_PID_LISTENER = 3
 LOOPBACK = 0x0100007F  # 127.0.0.1 as GetExtendedTcpTable gives it (network byte order, read as a DWORD)
@@ -146,18 +149,57 @@ def same_user(peer_port: int, server_port: int, *, rows: Any = None, sid_of: Any
         return False
 
 
-def listener_is_other_user(port: int, *, rows: Any = None, sid_of: Any = None, own: Any = None) -> bool:
-    """Whether another account's program is already listening on 127.0.0.1:``port`` (or every
-    address): the API then doesn't start, since this person's tools would talk to that program."""
+def _rows6(table_class: int) -> list[tuple[int, bytes, int, int, int]]:
+    """(state, local address, local port, remote port, owning pid) for every IPv6 TCP row."""
+    import ctypes
+    from ctypes import wintypes
+
+    class Row(ctypes.Structure):  # MIB_TCP6ROW_OWNER_PID
+        _fields_ = [("local_addr", ctypes.c_ubyte * 16), ("local_scope", wintypes.DWORD), ("local_port", wintypes.DWORD),
+                    ("remote_addr", ctypes.c_ubyte * 16), ("remote_scope", wintypes.DWORD), ("remote_port", wintypes.DWORD),
+                    ("state", wintypes.DWORD), ("pid", wintypes.DWORD)]
+
+    iphlpapi = ctypes.WinDLL("iphlpapi", use_last_error=True)
+    get = iphlpapi.GetExtendedTcpTable
+    get.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.DWORD), wintypes.BOOL, wintypes.ULONG,
+                    ctypes.c_int, wintypes.ULONG]
+    get.restype = wintypes.DWORD
+    size = wintypes.DWORD(0)
+    for _ in range(5):
+        buf = ctypes.create_string_buffer(size.value or 1)
+        err = get(buf, ctypes.byref(size), False, AF_INET6, table_class, 0)
+        if err == 0:
+            break
+        if err != ERROR_INSUFFICIENT_BUFFER:
+            raise OSError(err, "GetExtendedTcpTable (IPv6) failed")
+    else:
+        raise OSError(ERROR_INSUFFICIENT_BUFFER, "GetExtendedTcpTable kept growing")
+    count = ctypes.cast(buf, ctypes.POINTER(wintypes.DWORD))[0]
+    # The rows start after the count, aligned for the structure (its DWORDs).
+    rows = ctypes.cast(ctypes.addressof(buf) + ctypes.sizeof(wintypes.DWORD), ctypes.POINTER(Row * count)).contents
+    return [(r.state, bytes(r.local_addr), _port(r.local_port), _port(r.remote_port), r.pid) for r in rows]
+
+
+def listener_is_other_user(port: int, *, rows: Any = None, rows6: Any = None, sid_of: Any = None,
+                           own: Any = None) -> bool:
+    """Whether another account's program is already listening on ``port`` at a loopback address or
+    every address, IPv4 or IPv6 (a dual-stack [::] socket takes IPv4 connections too): the API then
+    doesn't start, since this person's tools would talk to that program."""
+    listeners: list[int] = []
     try:
-        table = rows if rows is not None else _rows(TCP_TABLE_OWNER_PID_LISTENER)
+        listeners += [pid for _s, addr, local, _r, pid in (rows if rows is not None else _rows(TCP_TABLE_OWNER_PID_LISTENER))
+                      if local == port and addr in (LOOPBACK, 0)]
     except OSError:
-        return False
-    for _state, addr, local, _remote, pid in table:
-        if local == port and addr in (LOOPBACK, 0):
-            try:
-                if (sid_of or _user_sid)(pid) != (own or own_sid)():
-                    return True
-            except OSError:
-                return True  # Windows won't say whose it is: not this account's
+        pass
+    try:
+        listeners += [pid for _s, addr, local, _r, pid in (rows6 if rows6 is not None else _rows6(TCP_TABLE_OWNER_PID_LISTENER))
+                      if local == port and addr in (V6_LOOPBACK, V6_ANY)]
+    except OSError:
+        pass
+    for pid in listeners:
+        try:
+            if (sid_of or _user_sid)(pid) != (own or own_sid)():
+                return True
+        except OSError:
+            return True  # Windows won't say whose it is: not this account's
     return False

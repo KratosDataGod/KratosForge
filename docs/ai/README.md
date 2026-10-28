@@ -128,6 +128,8 @@ MCP (Streamable HTTP): http://127.0.0.1:47615/mcp
 Header: Authorization: Bearer <the token shown once>
 ```
 
+Use `127.0.0.1` in the address, not `localhost`: on Windows, `localhost` tries the IPv6 address `::1` first, which the API doesn't listen on, so on a PC other people also sign in to, another account's program could answer there. On Windows the API answers only programs running as your own Windows account.
+
 ## What a connected tool can and can't do
 
 | It can, with the permission you gave it | It can't, whatever you give it |

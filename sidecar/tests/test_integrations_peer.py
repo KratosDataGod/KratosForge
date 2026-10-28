@@ -54,17 +54,28 @@ def test_a_table_that_cant_be_read_refuses():
 
 
 def test_another_accounts_listener_stops_the_api_starting():
-    def mine(pid):
-        return ME
-    assert not peer.listener_is_other_user(47615, rows=[row(47615, 0, 10, state=2)], sid_of=mine, own=lambda: ME)
-    assert peer.listener_is_other_user(47615, rows=[row(47615, 0, 10, state=2)], sid_of=lambda p: OTHER, own=lambda: ME)
-    assert peer.listener_is_other_user(47615, rows=[row(47615, 0, 10, addr=0, state=2)],  # every address
-                                       sid_of=lambda p: OTHER, own=lambda: ME)
+    def check(rows=(), rows6=(), sid_of=lambda pid: OTHER, port=47615):
+        return peer.listener_is_other_user(port, rows=list(rows), rows6=list(rows6), sid_of=sid_of, own=lambda: ME)
 
     def denied(pid):
         raise OSError(5, "Access is denied")
-    assert peer.listener_is_other_user(47615, rows=[row(47615, 0, 10, state=2)], sid_of=denied, own=lambda: ME)
-    assert not peer.listener_is_other_user(47616, rows=[row(47615, 0, 10, state=2)], sid_of=denied, own=lambda: ME)
+    v4 = [row(47615, 0, 10, state=2)]
+    assert not check(v4, sid_of=lambda pid: ME)
+    assert check(v4)
+    assert check([row(47615, 0, 10, addr=0, state=2)])  # 0.0.0.0
+    assert check(v4, sid_of=denied)
+    assert not check(v4, sid_of=denied, port=47616)
+    assert not check()
+
+
+def test_an_ipv6_listener_counts_too():
+    def check(addr, sid_of=lambda pid: OTHER):
+        return peer.listener_is_other_user(47615, rows=[], rows6=[(2, addr, 47615, 0, 10)], sid_of=sid_of,
+                                           own=lambda: ME)
+    assert check(peer.V6_LOOPBACK)  # [::1]: where localhost goes first on Windows
+    assert check(peer.V6_ANY)  # [::], dual-stack: takes 127.0.0.1 connections too
+    assert not check(peer.V6_LOOPBACK, sid_of=lambda pid: ME)
+    assert not check(bytes(15) + b"\x02")  # another address isn't this PC's loopback
 
 
 async def ok_app(scope, receive, send):
@@ -122,6 +133,14 @@ def test_real_windows_confirms_this_processs_own_connection():
         assert peer.same_user(peer_port, port) is True
         assert peer.same_user(peer_port + 1 if peer_port < 65535 else 1024, port) is False
         assert not peer.listener_is_other_user(port)
+        v6 = socket.socket(socket.AF_INET6)
+        v6.bind(("::1", 0))
+        v6.listen(1)
+        try:  # this process's own IPv6 listener is read and is this account's
+            assert any(r[2] == v6.getsockname()[1] and r[1] == peer.V6_LOOPBACK for r in peer._rows6(peer.TCP_TABLE_OWNER_PID_LISTENER))
+            assert not peer.listener_is_other_user(v6.getsockname()[1])
+        finally:
+            v6.close()
     finally:
         for s in (client, accepted, server):
             s.close()

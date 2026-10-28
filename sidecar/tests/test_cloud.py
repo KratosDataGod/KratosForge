@@ -428,3 +428,41 @@ def test_semantic_model_update_stops_when_its_definition_cant_be_read(svc, monke
     monkeypatch.setattr(svc.fake, "get_item_definition", lambda *a, **k: (_ for _ in ()).throw(OSError("throttled")))
     with pytest.raises(RuntimeError, match="table names aren't known"):  # guessing would rename tables reports use
         svc._kept_table_names(svc._project(), "gold", "ws", {"id": "m1", "displayName": "SM_Gold"})
+
+
+class CancelFabric:
+    def __init__(self):
+        self.cancelled = []
+
+    def cancel_job(self, ws, item, job):
+        self.cancelled.append((ws, item, job))
+
+    def job_instance(self, ws, item, job):
+        return {"status": "InProgress"}
+
+
+def test_cancel_fabric_run_asks_fabric_and_marks_the_run_until_it_ends(tmp_path):
+    s = CloudService(root=tmp_path / "app")
+    s.fake = CancelFabric()
+    s._log_fabric_run({"job_id": "j1", "workspace_id": "ws", "item_id": "nb", "name": "Sales_Load", "status": "InProgress"})
+    assert s.cancel_fabric_run("ws", "nb", "j1") == {"cancelled": "j1"}
+    assert s.fake.cancelled == [("ws", "nb", "j1")]
+    run = s.fabric_runs()[0]
+    assert run["status"] == "InProgress" and run["cancel_requested"]  # Fabric hasn't stopped it yet: Cancelling
+
+
+def test_cancel_fabric_run_refuses_a_run_that_already_ended(tmp_path):
+    s = CloudService(root=tmp_path / "app")
+    s.fake = CancelFabric()
+    s._log_fabric_run({"job_id": "j1", "workspace_id": "ws", "item_id": "nb", "name": "Sales_Load", "status": "Completed"})
+    with pytest.raises(ValueError, match="already ended in Fabric"):
+        s.cancel_fabric_run("ws", "nb", "j1")
+    assert s.fake.cancelled == [] and "cancel_requested" not in s.fabric_runs()[0]
+
+
+def test_cancel_fabric_run_still_cancels_a_job_the_log_doesnt_have(tmp_path):
+    # Notebook Fabric steps cancel jobs they follow themselves (fabricstep.js).
+    s = CloudService(root=tmp_path / "app")
+    s.fake = CancelFabric()
+    s.cancel_fabric_run("ws", "nb", "j9")
+    assert s.fake.cancelled == [("ws", "nb", "j9")] and s.fabric_runs() == []

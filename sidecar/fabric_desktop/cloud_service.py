@@ -151,7 +151,17 @@ class CloudMixin:
         return {"runs": runs[:limit], "unavailable": unavailable}
 
     def cancel_fabric_run(self, workspace_id: str, item_id: str, job_id: str) -> dict[str, Any]:
+        """Ask Fabric to stop a job. Fabric stops it in its own time, so a run this app logged is
+        marked ``cancel_requested`` until fabric_runs reads Cancelled (or how it really ended)."""
+        runs = self._read_fabric_runs()
+        logged = next((r for r in runs if r.get("job_id") == job_id), None)
+        if logged and logged.get("status") in TERMINAL:
+            raise ValueError(f"{logged.get('name') or 'This run'} already ended in Fabric ({logged['status']}), "
+                             "so there's nothing to cancel.")
         self.fabric_jobs.cancel_job(workspace_id, item_id, job_id)  # type: ignore[attr-defined]
+        if logged:
+            logged["cancel_requested"] = _now()
+            self._write_fabric_runs(runs)
         return {"cancelled": job_id}
 
     # ---- notebooks in Fabric

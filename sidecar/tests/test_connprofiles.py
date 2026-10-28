@@ -351,6 +351,27 @@ def test_snowflake_profiles_refuse_pasted_tokens_and_keys():
         assert any("looks like a token" in m for m in found) and value not in " ".join(found)
 
 
+@pytest.mark.parametrize("method", ["oauth-local", "keypair", "pat", "cli-connection"])
+def test_a_plain_passphrase_or_raw_key_is_refused_under_every_method_and_never_exported(method):
+    base = {"oauth-local": {}, "keypair": {"private_key_file": KEY}, "pat": {"secret": "env:SF_PAT"},
+            "cli-connection": {"connection": "dev"}}[method]
+    for field, value in (("passphrase", "correct horse battery"), ("private_key_raw", "MIIEvQIBADANBgkqhkiG9w0BAQEF"),
+                         ("private_key_passphrase", "correct horse battery")):
+        data = snowflake()
+        data["connections"][0]["credential"] = {"method": method, **base, field: value}
+        found = cp.problems(data)
+        assert found and value not in " ".join(found), (method, field)
+        with pytest.raises(ValueError) as err:
+            cp.export(data)
+        assert value not in str(err.value)
+
+
+def test_snowflake_credentials_hold_only_their_methods_fields():
+    data = snowflake()
+    data["connections"][0]["credential"] = {"method": "pat", "secret": "env:SF_PAT", "connection": "dev"}
+    assert any("can't hold connection" in m for m in cp.problems(data))
+
+
 def test_export_drops_snowflake_parts_tied_to_this_pc_and_import_asks_for_them():
     data = snowflake()
     data["connections"].append({"id": "sf2", "platform": "snowflake", "account": "myorg-other",

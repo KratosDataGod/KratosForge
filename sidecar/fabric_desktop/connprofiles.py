@@ -78,7 +78,6 @@ DATABRICKS_CLOUDS = {"azure": (".azuredatabricks.net", True), "aws": (".cloud.da
 _SF_ACCOUNT = re.compile(r"^[A-Za-z0-9_]{1,100}(-[A-Za-z0-9_]{1,154}|(\.[A-Za-z0-9-]{1,40}){0,2})$")
 _SF_NAME = re.compile(r"^[^\x00-\x1f]{1,255}$")
 _REF = re.compile(r"^(env:[A-Za-z_][A-Za-z0-9_]{0,127}|credman:[A-Za-z0-9 ._:/\\-]{1,200})$")
-_MACHINE_REF = ("env:", "credman:")
 _NAME = re.compile(r"^[^\x00-\x1f]{1,80}$")
 _ID = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
 
@@ -204,6 +203,12 @@ def key_file_problem(path: Any, windows: bool | None = None) -> str:
     return "the private key file must be a full path" + (", like C:\\keys\\snowflake.p8" if windows else "")
 
 
+# The credential fields each Snowflake sign-in method uses; anything else is refused.
+_SF_CRED_FIELDS: dict[str, tuple[str, ...]] = {
+    "oauth-local": (), "keypair": ("private_key_file", "passphrase"), "pat": ("secret",),
+    "cli-connection": ("connection",)}
+
+
 def _snowflake_problems(conn: dict[str, Any], where: str) -> list[str]:
     out = []
     account = conn.get("account") or ""
@@ -215,6 +220,9 @@ def _snowflake_problems(conn: dict[str, Any], where: str) -> list[str]:
             out.append(f"{where}.{field} must be a name (up to 255 characters).")
     cred = conn.get("credential") or {}
     method = cred.get("method")
+    extra = sorted(str(k) for k in cred if k not in _SF_CRED_FIELDS.get(method, ("method",)) + ("method", "needs_setup"))
+    if extra:  # names only: a stray field may hold a key or passphrase, so its value is never repeated
+        out.append(f"{where}.credential can't hold {', '.join(extra)} for this sign-in method.")
     if method == "keypair":
         why = key_file_problem(cred.get("private_key_file"))
         if why:
@@ -352,8 +360,8 @@ def export(profile: dict[str, Any]) -> dict[str, Any]:
         cred = conn["credential"]
         for key in ("secret", "passphrase", "profile", "connection", "private_key_file"):
             value = cred.get(key)
-            if isinstance(value, str) and value and (key in ("profile", "connection", "private_key_file")
-                                                     or value.startswith(_MACHINE_REF)):
+            # Every one is blanked: a reference, name or path is this PC's, and a value must never travel.
+            if isinstance(value, str) and value:
                 cred[key] = ""
                 cred["needs_setup"] = True
     p["validation"] = {"status": "not_checked", "checked_at": None, "problems": []}

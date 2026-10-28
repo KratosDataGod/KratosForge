@@ -49,5 +49,5 @@ and support details.
 ## Orchestration
 
 Development runs when the product owner or a thread wakes the project coordinator. A product
-check twice a day (11:42 and 23:42 UTC) refreshes this data and proposes assignments. Pull request events reach the thread that opened the PR. Quality review gates every PR,
+check twice a day (11:42 and 23:42 UTC) refreshes this data and proposes assignments. Pull request events can reach the thread that opened the PR. Quality review gates every PR,
 and only Release management merges.

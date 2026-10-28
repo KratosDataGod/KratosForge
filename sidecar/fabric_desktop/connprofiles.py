@@ -227,9 +227,6 @@ def _snowflake_problems(conn: dict[str, Any], where: str) -> list[str]:
         why = key_file_problem(cred.get("private_key_file"))
         if why:
             out.append(f"{where}: {why}.")
-        phrase = cred.get("passphrase")
-        if phrase and not (isinstance(phrase, str) and _REF.fullmatch(phrase)):
-            out.append(f"{where}.credential.passphrase must be a reference (env:NAME or credman:TARGET), not a value.")
     elif method == "pat" and not cred.get("secret"):
         out.append(f"{where}: a programmatic access token needs a secret reference (env:NAME or credman:TARGET).")
     elif method == "cli-connection" and not cred.get("connection"):
@@ -542,7 +539,11 @@ def snowflake_cli_connections(folder: Path | None = None) -> dict[str, Any]:
         del parsed
     if os.name != "nt":  # the CLI's own check is POSIX-only; Windows ACLs aren't mode bits
         for path in (config_path, connections_path):
-            if path.is_file() and path.stat().st_mode & 0o022:
+            try:
+                writable = path.is_file() and path.stat().st_mode & 0o022
+            except OSError:  # gone since it was read
+                writable = False
+            if writable:
                 result.setdefault("notes", []).append(f"{path} can be changed by other users of this computer "
                                                       "(chmod 0600 it).")
     for name, section in raw.items():

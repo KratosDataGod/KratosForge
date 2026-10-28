@@ -59,7 +59,7 @@ FLOWS = [
          ["Create a notebook, run its cells on This PC, and write a small table to the test lakehouse.",
           "Open the table in the catalog: the rows are there."],
          ["onelake.files", "delta.write", "delta.read", "delta.append", "delta.merge", "delta.time_travel",
-          "delta.concurrent"]),
+          "delta.concurrent", "lease.onelake", "delta.merge_profile"]),
     Flow(6, "Publish the notebook and Run in Fabric; see it in Monitor", ["FEAT-FAB-06", "FEAT-FAB-07"],
          ["Publish the notebook from flow 5 and choose Run in Fabric.",
           "Monitor > Runs shows the run and its outcome."],

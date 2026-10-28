@@ -141,7 +141,7 @@ A promote (Environments > **Promote Dev to Test**, **Promote Test to Prod**) run
 - **Fails closed for Prod.** When the policies can't be read at all (the platform can't be reached and there's no package on this PC, or, for Prod, none taken within the last day, or it was changed after it was taken, or the platform answers with an error), a promote to Prod stops and says why. A promote to Test or Dev only warns. KratosForge can't know which policies are assigned without reading them, so a Prod promote stops whenever they can't be read, not only when a Block policy is known to be assigned.
 - **What doesn't stop it.** A rule that says **unknown** (what it needs isn't recorded, or isn't read offline) and a checker that runs in Fabric are notes, not reasons: neither stops the promote.
 
-It reads what Check now reads, and writes nothing: Check now's last result and the policy package on this PC stay as they are. Like the rest of the promote gate, it holds for promotes through KratosForge; it can't stop someone writing to a workspace in the Fabric portal.
+It reads what Check now reads, and writes nothing: Check now's last result and the policy package on this PC stay as they are. Like the rest of the promote gate, it holds for metadata promotes through KratosForge. It doesn't gate other deploys, such as a warehouse deploy, and it can't stop someone writing to a workspace in the Fabric portal. Who may write to the Prod workspace, set in Fabric, is the real control.
 
 ### Check a project against its policies
 

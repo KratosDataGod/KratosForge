@@ -582,7 +582,7 @@ class ChecksMixin:
                 continue
             out["errors"] += [f"{name}: {text}" for text in found[:GATE_LISTED]]
             if len(found) > GATE_LISTED:
-                out["errors"].append(f"{name}: {len(found) - GATE_LISTED} more findings. Platform > Governance > "
+                out["errors"].append(f"{name}: {len(found) - GATE_LISTED} more findings. Platform > Govern > Governance > "
                                      "Check this project lists them all.")
             if pol["unknown"] and not pol.get("exception"):
                 out["notes"].append(f"{name}: {len(pol['unknown'])} couldn't be checked here, so they don't stop the "

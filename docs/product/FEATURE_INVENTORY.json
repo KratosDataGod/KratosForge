@@ -7433,7 +7433,7 @@
       ],
       "workstream": "Enterprise governance foundation; Best Practice Analyzer (checkers)",
       "limitations": [
-        "Check now reads only this PC's notebook schedules: a notebook run only by a Fabric schedule or a pipeline schedule isn't checked by NB004 and NB008",
+        "Check now reads only this PC's schedules (notebook schedules and the Notebook steps of pipeline schedules): a notebook run only by a Fabric schedule isn't checked by NB004 and NB008",
         "The Fabric BPA run (#560) needs semantic-link-labs in Fabric and hasn't run live",
         "Central policies not yet set up on a tenant"
       ],

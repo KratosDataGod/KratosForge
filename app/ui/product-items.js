@@ -103,9 +103,8 @@ function productOfferCard(p, onItems = () => {}) {
     }
   };
   (async () => {
-    let me;
-    try { me = await rpc("platform_whoami", {}); } catch { me = {}; }
-    view.canEdit = !!me.admin || String(p.owner || "").toLowerCase().split(/[,;]/).map((x) => x.trim()).includes(String(me.user || "").toLowerCase());
+    // The server's rule (an owner or a platform admin) decides; adding and removing check the same one.
+    try { view.canEdit = !!(await rpc("platform_product_trust", { product_id: p.id })).can_edit_terms; } catch { view.canEdit = false; }
     try {
       done(await rpc("platform_product_items", { product_id: p.id }));
     } catch (err) {

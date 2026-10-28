@@ -442,7 +442,7 @@ A policy's **Where it applies** tab lists its exceptions in force. One that ends
 - **Full screen** hides the app's top bar, left rail and tabs, so Fabric fills the window under a slim row of these buttons. **Exit full screen**, or Esc when the app (not Fabric) has the keys, brings them back. The app remembers it: the tab opens in full screen until you leave it. Keys you press inside Fabric go to Fabric, so the button is the sure way out.
 - **Open in KratosForge** opens the warehouse or SQL analytics endpoint Fabric is showing on the app's own [Warehouse page](warehouse.md). On any other Fabric page it says to open one first. It reads only the address of the page Fabric shows.
 
-It signs in with your Windows account when that is the same work account you use in the app, so there's usually no password prompt. Otherwise sign in once; the app keeps that sign-in between launches, encrypted for your Windows account in `%LOCALAPPDATA%\FabricDesktop\fabric-view-signin.bin`. Delete that file to make it forget. Links that leave Fabric open in your default browser.
+It signs in with your Windows account when that is the same work account you use in the app, so there's usually no password prompt. It opens in the tenant of your app sign-in, which skips Fabric's email page. Otherwise sign in once; the app keeps that sign-in's cookies between launches, encrypted for your Windows account (DPAPI) in `%LOCALAPPDATA%\FabricDesktop\fabric-view-signin.bin`. Delete that file to make it forget. Links that leave Fabric open in your default browser.
 
 **How this works**, from the title bar's info button, says that the app reads nothing from it and that changes you make there go to Fabric with Fabric's own prompts.
 

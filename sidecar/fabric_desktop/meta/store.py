@@ -20,12 +20,14 @@ from deltalake import CommitProperties, DeltaTable, write_deltalake
 from deltalake.exceptions import TableNotFoundError
 
 from .. import delta_profile
-from ..leases import check_held
+from ..leases import LeaseLost, check_held
 from ..retrying import local_retry
 from ..onelake import FileStore, TableRef, storage_options
 from ..redact import describe
 
 _log = logging.getLogger(__name__)
+_LEASE_LOST = {"removed": 0, "note": "the run no longer holds the table's lease, so the files this write left are "
+                                     "left for VACUUM"}
 
 META_LAKEHOUSE = "LH_Meta"
 # The organization's one landing zone: raw files from every source, in the platform's workspace.
@@ -291,6 +293,8 @@ class Store:
                 self.last_cleanup = {"removed": 0, "note": "the files this write left are left for VACUUM: in OneLake "
                                                            "another writer's files that aren't committed yet can't be "
                                                            "told apart from them"}
+            elif isinstance(exc, LeaseLost):
+                self.last_cleanup = dict(_LEASE_LOST)
             elif before is None:
                 self.last_cleanup = {"removed": 0, "note": "couldn't list the table's files before the write, so any "
                                                            "it left are left for VACUUM"}
@@ -325,7 +329,13 @@ class Store:
         weren't in the folder when it started and that no version of the table's log names. Only
         while the log is still at ``read_version``: a commit by another writer meanwhile means
         another writer was at work, and its files can't be told from these, so they are all left
-        for VACUUM. The run holds the table's lease (leases.py), so no other run of this app writes it."""
+        for VACUUM. The run holds the table's lease (leases.py), so no other run of this app writes it;
+        a run that no longer holds it (expired, taken over) removes nothing, since the new holder's
+        files can't be told from these either."""
+        try:
+            check_held()
+        except LeaseLost:
+            return dict(_LEASE_LOST)
         try:
             current = open_table(self.uri(lakehouse, schema, table), self.options())
             if (current.version() if current is not None else None) != read_version:

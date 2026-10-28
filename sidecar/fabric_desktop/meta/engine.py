@@ -718,7 +718,7 @@ class Engine:
                     schema, record_batches()), metadata=metadata, read_version=read_version)
             except Exception:
                 # Nothing was committed; the files the stream had written are removed (PB-067).
-                cleanup = getattr(self.store, "last_cleanup", None)
+                cleanup = self.store.last_cleanup
                 if cleanup:
                     self._step(res, "clean up", tw, cleanup["removed"], cleanup["note"])
                 if failure:

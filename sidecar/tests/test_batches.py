@@ -271,3 +271,30 @@ def test_in_onelake_nothing_is_removed_and_files_are_left_for_vacuum(tmp_path, m
         store.write_stream("LH_Bronze", "dbo", "t", pa.RecordBatchReader.from_batches(schema, batches()), read_version=0)
     assert store.last_cleanup["removed"] == 0 and "left for VACUUM" in store.last_cleanup["note"]
     assert len(list(folder.glob("*.parquet"))) > 1 and DeltaTable(str(folder)).version() == 0
+
+
+def test_a_run_that_lost_the_tables_lease_removes_nothing(tmp_path, monkeypatch):
+    """The lease expired or was taken over: the new holder's stream may already have written files,
+    and they look like this write's, so all of them stay (quality review of #950)."""
+    import pyarrow as pa
+    from fabric_desktop import leases
+    from fabric_desktop.meta import store as store_mod
+    from fabric_desktop.meta.store import LocalStore
+    store = LocalStore(tmp_path, "dev")
+    store.write("LH_Bronze", "dbo", "t", pl.DataFrame({"a": [1]}))
+    folder = tmp_path / "LH_Bronze" / "Tables" / "dbo" / "t"
+    before = store._data_files("LH_Bronze", "dbo", "t")
+    theirs = "part-00000-new-holder.snappy.parquet"
+    pl.DataFrame({"a": [2]}).write_parquet(folder / theirs)
+
+    def lost():
+        raise leases.LeaseLost("taken over")
+    monkeypatch.setattr(store_mod, "check_held", lost)
+    out = store._remove_unwritten("LH_Bronze", "dbo", "t", before, 0)
+    assert out["removed"] == 0 and "lease" in out["note"] and (folder / theirs).exists()
+    s = pa.schema([("a", pa.int64())])
+    with pytest.raises(leases.LeaseLost):
+        store.write_stream("LH_Bronze", "dbo", "t", pa.RecordBatchReader.from_batches(
+            s, [pa.record_batch([pa.array([3])], schema=s)]), read_version=0)
+    assert store.last_cleanup["removed"] == 0 and "lease" in store.last_cleanup["note"]
+    assert (folder / theirs).exists()

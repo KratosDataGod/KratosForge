@@ -62,3 +62,23 @@ def test_types_that_write_today_are_left_as_they_are(store):
     store.write("LH_Silver", "dbo", "t", frame)
     types = {f.name: f.type for f in pa.schema(DeltaTable(str(folder(store, "t"))).schema().to_arrow())}
     assert types["i"] == pa.int32() and types["d"] == pa.date32()
+
+
+def test_merges_check_types_like_an_append(store):
+    store.write("LH_Silver", "dbo", "t", pl.DataFrame({"id": [1], "n": [1]}))
+    big = pl.DataFrame({"id": [1, 2], "n": [1, 2], "u": pl.Series([3_000_000_000, 1], dtype=pl.UInt32)})
+    store.upsert("LH_Silver", "dbo", "t", big, ["id"])
+    table = DeltaTable(str(folder(store, "t")))
+    assert pa.schema(table.schema().to_arrow()).field("u").type == pa.int64()  # not narrowed to INT
+    assert sorted(r["u"] for r in table.to_pyarrow_table().to_pylist()) == [1, 3_000_000_000]
+    version = table.version()
+    with pytest.raises(ValueError, match="Table dbo.t: Column c is a TIME"):
+        store.upsert("LH_Silver", "dbo", "t", pl.DataFrame({"id": [3], "n": [3], "c": [dt.time(1, 2)]}), ["id"])
+    with pytest.raises(ValueError, match="Table dbo.t: Column c is a TIME"):
+        store.merge_insert("LH_Silver", "dbo", "t", pl.DataFrame({"id": [3], "n": [3], "c": [dt.time(1, 2)]}), ["id"])
+    assert DeltaTable(str(folder(store, "t"))).version() == version
+    with pytest.raises(ValueError, match="Table dbo.k: Column c is a TIME"):
+        store.merge_insert("LH_Silver", "dbo", "k", pl.DataFrame({"id": [1], "c": [dt.time(1, 2)]}), ["id"])
+    assert not folder(store, "k").exists()
+    store.merge_insert("LH_Silver", "dbo", "k", pl.DataFrame({"id": pl.Series([1], dtype=pl.UInt32)}), ["id"])
+    assert pa.schema(DeltaTable(str(folder(store, "k"))).schema().to_arrow()).field("id").type == pa.int64()

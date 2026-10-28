@@ -13,29 +13,29 @@ jobs:
   changes:
     # What a pull request touches decides which of the slower jobs it needs. Pushes to main run every
     # job, because the release needs them all and every main batch publishes a Preview. A job left
-    # out here ends as skipped, never failed.
+    # out here ends as skipped, never failed. On main this job only prints its answers, so it can't
+    # fail and leave the release without the jobs it needs.
     runs-on: ubuntu-latest
     outputs:
       docs_only: ${{ steps.paths.outputs.docs_only }}
       browser: ${{ steps.paths.outputs.browser }}
-      sidecar_os: ${{ steps.paths.outputs.sidecar_os }}
+      windows: ${{ steps.paths.outputs.windows }}
+      ubuntu: ${{ steps.paths.outputs.ubuntu }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 2
       - id: paths
         shell: bash
-        env:
-          BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
-            echo "docs_only=false" >> "$GITHUB_OUTPUT"
-            echo "browser=true" >> "$GITHUB_OUTPUT"
-            echo 'sidecar_os=["windows-latest","ubuntu-latest"]' >> "$GITHUB_OUTPUT"
+            printf 'docs_only=false\nbrowser=true\nwindows=true\nubuntu=true\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          git fetch --quiet --depth=1 origin "$BASE"
-          # The checkout is the pull request merged into its base, so this is exactly what it changes.
-          files="$(git diff --name-only "$BASE" HEAD)"
+          # The checkout is the pull request merged into its base (HEAD^1), so this is exactly what
+          # it changes against the base it will merge into.
+          files="$(git diff --name-only HEAD^1 HEAD)"
           printf 'Changed:\n%s\n' "$files"
           has() { grep -qE "$1" <<< "$files"; }
           # Nothing changed (or the diff failed to list anything): run everything.
@@ -44,34 +44,44 @@ jobs:
           if [ -n "$files" ] && ! grep -qvE '^(docs/|[^/]+\.md$|zensical\.toml$)' <<< "$files"; then docs_only=true; else docs_only=false; fi
           echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
           if has '^(app/|sidecar/|\.github/workflows/)'; then echo "browser=true"; else echo "browser=false"; fi >> "$GITHUB_OUTPUT"
-          os=()
-          [ "$docs_only" = true ] || os+=('"windows-latest"')
+          # The app is Windows only, so every pull request but a docs-only one runs its engine tests.
+          if [ "$docs_only" = true ]; then echo "windows=false"; else echo "windows=true"; fi >> "$GITHUB_OUTPUT"
           # Linux runs the engine for the headless agent. Engine tests also read the docs (policy keys,
           # host list, links), so a docs change runs them here too.
-          if has '^(sidecar/|deploy/|examples/|\.github/workflows/|docs/|[^/]+\.md$|zensical\.toml$)'; then os+=('"ubuntu-latest"'); fi
-          echo "sidecar_os=[$(IFS=,; echo "${os[*]}")]" >> "$GITHUB_OUTPUT"
+          if has '^(sidecar/|deploy/|examples/|\.github/workflows/|docs/|[^/]+\.md$|zensical\.toml$)'; then echo "ubuntu=true"; else echo "ubuntu=false"; fi >> "$GITHUB_OUTPUT"
 
   sidecar:
     needs: changes
-    if: needs.changes.outputs.sidecar_os != '[]'
     # The desktop app is Windows only; the engine and the headless agent also run on Linux.
+    # Both entries always exist, so each check always reports; one the pull request doesn't need
+    # skips its steps and passes.
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(needs.changes.outputs.sidecar_os) }}
+        os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      RUN_TESTS: ${{ matrix.os == 'windows-latest' && needs.changes.outputs.windows || needs.changes.outputs.ubuntu }}
     defaults:
       run:
         working-directory: sidecar
     steps:
+      - if: env.RUN_TESTS != 'true'
+        working-directory: .
+        run: echo "This pull request changes nothing these tests cover on ${{ matrix.os }}; skipped."
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: env.RUN_TESTS == 'true'
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        if: env.RUN_TESTS == 'true'
         with:
           python-version: "3.12"
       - run: python -m pip install -e ".[dev]" -c constraints.txt
+        if: env.RUN_TESTS == 'true'
       - run: python -m pytest -q
+        if: env.RUN_TESTS == 'true'
       # Users get a regular (not editable) install, so check that one has every module.
       - name: Check the installed package
+        if: env.RUN_TESTS == 'true'
         shell: bash
         run: |
           python -m pip install --no-deps --target "$RUNNER_TEMP/installed" .

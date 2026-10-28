@@ -23,6 +23,19 @@ def svc(tmp_path, monkeypatch):
     return Service(client_id="x", root=tmp_path / "app")
 
 
+DEV_WS = "11111111-1111-1111-1111-111111111111"
+PROD_WS = "99999999-9999-9999-9999-999999999999"
+
+
+@pytest.fixture
+def dev_ws(svc, tmp_path):
+    """A metadata project whose Dev is DEV_WS and Prod PROD_WS: the engine works out a deploy's environment from it."""
+    svc.meta_init(str(tmp_path / "meta"), "3", sample=False)
+    svc.meta_set_environment("dev", DEV_WS, "Sales Dev")
+    svc.meta_set_environment("prod", PROD_WS, "Sales Prod")
+    return DEV_WS
+
+
 @pytest.fixture
 def repo(svc, tmp_path):
     if not shutil.which("git"):
@@ -345,14 +358,37 @@ def _git(repo, *args):
     subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args], cwd=repo, check=True, capture_output=True)
 
 
-def test_the_deploy_plan_says_which_files_arent_committed(svc, repo):
+def test_the_deploy_plan_says_which_files_arent_committed(svc, repo, dev_ws):
     svc.wh_project_write(str(repo), objs(("view", "dbo", "vw_Sales", VIEW)), create="WH_Gold")
     out = svc.wh_project_deploy_plan(str(repo), "WH_Gold.Warehouse", objs(("view", "dbo", "vw_Old", "CREATE VIEW dbo.vw_Old AS SELECT 1 AS y;")),
-                                     environment="dev")
+                                     environment="dev", workspace_id=dev_ws)
+    assert out["environment"] == "dev"
     assert [(c["action"], c["name"], c["git"], c["offered"]) for c in out["changes"]] == [
         ("create", "vw_Sales", "A", True), ("drop", "vw_Old", "", True)], "Dev deploys files as they are"
     assert out["uncommitted"] == ["dbo/Views/vw_Sales.sql"] and out["branch"] == "main" and not out["gated"]
     assert not audit.audited("wh_project_deploy_plan")
+
+
+@pytest.mark.parametrize("workspace, why", [(PROD_WS, "Prod in the project"), ("", "no workspace"),
+                                             ("22222222-2222-2222-2222-222222222222", "no environment names it")])
+def test_a_page_that_says_dev_cant_turn_the_git_rule_off(svc, repo, dev_ws, workspace, why):
+    # #810: the engine works out the environment itself and takes the stricter of its own and the page's.
+    svc.wh_project_write(str(repo), objs(("view", "dbo", "vw_Sales", VIEW)), create="WH_Gold")
+    out = svc.wh_project_deploy_plan(str(repo), "WH_Gold.Warehouse", objs(), environment="dev", workspace_id=workspace)
+    assert out["gated"] and out["environment"] == ("prod" if workspace == PROD_WS else "none"), why
+    assert [(c["name"], c["offered"], c["held"]) for c in out["changes"]] == [("vw_Sales", False, True)]
+
+
+def test_without_a_metadata_project_every_deploy_is_gated(svc, repo):
+    svc.wh_project_write(str(repo), objs(("view", "dbo", "vw_Sales", VIEW)), create="WH_Gold")
+    out = svc.wh_project_deploy_plan(str(repo), "WH_Gold.Warehouse", objs(), environment="dev", workspace_id=DEV_WS)
+    assert out["gated"] and out["environment"] == "none" and not out["changes"][0]["offered"]
+
+
+def test_the_strictest_environment_wins_and_keys_workspaces_count(svc, dev_ws):
+    svc.meta_set_keys_workspace("test", dev_ws, "Shared keys")  # Dev's workspace also holds Test's keys
+    assert svc._wh_workspace_env(dev_ws.upper()) == "test"
+    assert svc._wh_workspace_env(PROD_WS) == "prod" and svc._wh_workspace_env("") == "none"
 
 
 @pytest.mark.parametrize("environment", ["prod", "test", "none", ""])

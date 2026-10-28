@@ -118,7 +118,7 @@ def message(event: dict[str, Any]) -> tuple[str, list[str]]:
         lines.append(scope)
     if event["kind"].startswith(("shortcut.", "incident.", "product.", "exception.")) and event["detail"]:
         lines.append(event["detail"])
-    lines.append(f"Open it in KratosForge > {_WHERE[event['open']['tab']]}.")
+    lines.append(f"Open it in KratosForge: {_WHERE[event['open']['tab']]}.")
     return f"{_TITLES[event['kind']]}: {event['title']}", lines
 
 

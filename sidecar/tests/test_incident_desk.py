@@ -388,7 +388,7 @@ def test_incident_impact_reads_the_catalog_and_tell_them_posts_once_and_notes_it
     title, lines = posts[0]
     assert title == "Incident upstream of your data: Orders late"
     assert "For olu@contoso.com." in lines and "Data products affected: orders." in lines
-    assert lines[-1] == "Open it in KratosForge > Monitor > KratosForge > Operations > Incidents."
+    assert lines[-1] == "Open it in KratosForge: Monitor > KratosForge > Operations > Incidents."
     assert svc.incident_impact("dev", inc["id"])["told"]["text"].endswith("olu@contoso.com")
     again = svc.incident_tell_impacted("dev", inc["id"], ["olu@contoso.com"])
     assert again == {"told": False, "reason": "already posted", "people": out["people"]} and len(posts) == 1

@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import datetime as dt
 import decimal
+import logging
 import re
 import struct
 import time
@@ -61,10 +62,25 @@ PROGRESS_SECONDS = 0.25
 LOGIN_TIMEOUT_S = 60
 # Azure SQL's transient login errors (a warehouse resuming, a busy service, not enough resources):
 # only the connect is tried again, before anything is sent, so a change is never sent twice.
-TRANSIENT_LOGIN_ERRORS = (40197, 40501, 40613, 49918, 49919, 49920, 10928, 10929)
+TRANSIENT_LOGIN_ERRORS = (40197, 40501, 40613, 49918, 49919, 49920, 10928, 10929, 4221)
+# The same errors by their text: mssql-python's message ("Driver Error: ...; DDBC Error:
+# [Microsoft][SQL Server]...") has no error number, which only pyodbc appends.
+_TRANSIENT_TEXTS = (
+    (40613, re.compile(r"is not currently available", re.IGNORECASE)),
+    (40501, re.compile(r"service is currently busy", re.IGNORECASE)),
+    (49918, re.compile(r"not enough resources to process request", re.IGNORECASE)),
+    (49919, re.compile(r"too many create or update operations in progress", re.IGNORECASE)),
+    (49920, re.compile(r"too many operations in progress", re.IGNORECASE)),
+    (40197, re.compile(r"encountered an error processing your request", re.IGNORECASE)),
+    (10928, re.compile(r"resource id\s*:\s*\d+\.\s*the \w+ limit for the database is \d+ and has been reached", re.IGNORECASE)),
+    (10929, re.compile(r"resource id\s*:\s*\d+\.\s*the \w+ minimum guarantee is", re.IGNORECASE)),
+    (4221, re.compile(r"HADR_DATABASE_WAIT_FOR_TRANSITION_TO_VERSIONING", re.IGNORECASE)),
+)
 CONNECT_TRIES = 4
-CONNECT_WAITS = (5, 10, 20)  # seconds before tries 2, 3 and 4: under a minute in all
-_ERROR_NUMBER = re.compile(r"\b(\d{4,5})\b")
+CONNECT_WAITS = (5, 10, 20)  # seconds before tries 2, 3 and 4
+CONNECT_DEADLINE_S = 120  # all tries and waits together; each try's login timeout is cut to fit
+_ERROR_NUMBER = re.compile(r"\((\d{4,5})\)")  # pyodbc's "... (40613)"
+_log = logging.getLogger(__name__)
 _OUTSIDE = {"openrowset", "openquery", "opendatasource"}
 _GO = re.compile(r"^[ \t]*GO[ \t]*;?[ \t]*$", re.IGNORECASE | re.MULTILINE)
 # Comments, strings and quoted names in one left-to-right pass, so whichever starts first wins: a
@@ -254,32 +270,41 @@ def connect(server: str, database: str, token: str, login_timeout: int = LOGIN_T
 
 def transient_login_error(exc: BaseException) -> int | None:
     """The error number when ``exc`` is a connect failure worth another try, else None. A login
-    timeout counts (0); a refused login (18456, 40532 and the rest) never does."""
+    timeout counts (0); a refused login (18456, 40532 and the rest) never does. Read from the
+    message's text, since mssql-python doesn't give the number."""
     text = str(exc)
     if "login timeout" in text.lower() or "HYT00" in text:
         return 0
-    numbers = {int(n) for n in _ERROR_NUMBER.findall(text)}
-    found = sorted(numbers & set(TRANSIENT_LOGIN_ERRORS))
-    return found[0] if found else None
+    numbers = {int(n) for n in _ERROR_NUMBER.findall(text)} & set(TRANSIENT_LOGIN_ERRORS)
+    if numbers:
+        return min(numbers)
+    return next((number for number, pattern in _TRANSIENT_TEXTS if pattern.search(text)), None)
 
 
 def open_connection(server: str, database: str, token: Callable[[], str],
-                    sleep: Callable[[float], None] = time.sleep) -> Any:
+                    sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic) -> Any:
     """``connect``, tried again (with a fresh token) while the warehouse turns logins away for a
-    passing reason. Stop ends this process, so it also ends a wait between tries."""
-    for attempt in range(CONNECT_TRIES):
+    passing reason, for up to CONNECT_TRIES tries within CONNECT_DEADLINE_S. Stop ends this process,
+    so it also ends a wait between tries."""
+    deadline = clock() + CONNECT_DEADLINE_S
+    attempt = 0
+    while True:
+        attempt += 1
+        login_timeout = max(1, min(LOGIN_TIMEOUT_S, int(deadline - clock())))
         try:
-            return connect(server, database, token())
+            return connect(server, database, token(), login_timeout=login_timeout)
         except Exception as exc:
             number = transient_login_error(exc)
             if number is None:
                 raise
-            if attempt == CONNECT_TRIES - 1:
+            wait = CONNECT_WAITS[min(attempt - 1, len(CONNECT_WAITS) - 1)]
+            if attempt >= CONNECT_TRIES or clock() + wait >= deadline:
                 raise ConnectionError(
-                    f"The warehouse didn't accept a connection after {CONNECT_TRIES} tries (it may be resuming, or "
-                    "busy). Try again in a minute. " + (f"Last error {number}." if number else "The login timed out.")) from None
-            sleep(CONNECT_WAITS[min(attempt, len(CONNECT_WAITS) - 1)])
-    raise AssertionError("unreachable")
+                    f"The warehouse didn't accept a connection after {attempt} tries (it may be resuming, or busy). "
+                    "Try again in a minute. " + (f"Last error {number}." if number else "The login timed out.")) from exc
+            _log.info("The warehouse turned the login away (%s); trying again in %ss (%s of %s)",
+                      number or "login timeout", wait, attempt + 1, CONNECT_TRIES)
+            sleep(wait)
 
 
 def run(job: dict[str, Any], token: Callable[[], str], say: Callable[..., None]) -> None:

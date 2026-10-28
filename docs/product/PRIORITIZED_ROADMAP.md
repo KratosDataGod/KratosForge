@@ -280,4 +280,4 @@ are sequenced by those programs; the order here is what the master product view 
 | 2026-10-27 | Product check for PRs merged after #797, through #809. PB-111 (#798) and PB-082 (#701) moved to In review | Product management thread |
 | 2026-10-27 | Evening check for #811 to #826; inventory text the #815 implementation reviews named stale corrected; FEAT-FAB-05 to Partially Verified (cargo tests run in CI) | Product management thread |
 | 2026-10-28 | Product check for #827 and #829 to #838; fixed review findings (PB-025, PB-059, PB-082) taken off the inventory's limitations | Product management thread |
-| 2026-10-28 | Chris accepted the In review batch: 35 items Accepted (19 with documented limitations); PB-024 narrowed to warehouses (PB-114 split out) and PB-112's Fabric half split to PB-115; PB-005, PB-045, PB-084 and PB-024 stay In review | Product management thread |
+| 2026-10-28 | Chris accepted the In review batch: 35 items Accepted (20 with documented limitations, PB-059 among them); PB-024 narrowed to warehouses (PB-114 split out) and PB-112's Fabric half split to PB-115; PB-005, PB-045, PB-084 and PB-024 stay In review | Product management thread |

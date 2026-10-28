@@ -56,13 +56,15 @@ class _Reply:
 
 @pytest.fixture(autouse=True)
 def no_sign_in_service(monkeypatch):
-    real = msal.PublicClientApplication
+    # The desktop's sign-in, and a service principal's (credentials.py) for agents.
+    for name in ("PublicClientApplication", "ConfidentialClientApplication"):
+        real = getattr(msal, name)
 
-    class Offline(real):
-        def __init__(self, *args, **kwargs):
-            kwargs.setdefault("http_client", _NoSignInService())
-            super().__init__(*args, **kwargs)
-    monkeypatch.setattr(msal, "PublicClientApplication", Offline)
+        class Offline(real):
+            def __init__(self, *args, **kwargs):
+                kwargs.setdefault("http_client", _NoSignInService())
+                super().__init__(*args, **kwargs)
+        monkeypatch.setattr(msal, name, Offline)
 
 
 @pytest.fixture(autouse=True)

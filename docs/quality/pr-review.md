@@ -208,6 +208,20 @@ What the set says about the baseline: the five FAILs are the patterns the [findi
 
 | #984 | Schedules on this PC can also run while signed out (PB-048c) | PASS at 9016ade3 | 9.1 | Second quality reviewer. Merged with main: 87 engine tests passed; browser 20/20; ui 299/1, the 1 being the known #972 Preview-id test. The password stays in Windows' prompt and Task Scheduler (env-var inputs, fixed script, PowerShell by full path). The id is hex-checked in Python and Rust. Nothing changes on a cancelled prompt. Nits: a partial save shown as "Not saved"; an unchanged save re-prompts; check Entra/MSA accounts on Windows; tag Preview if merged before the Windows check. Waits on Chris's Windows check and policy switch. |
 
+| #996 | Memory limit reads the venv's real interpreter (#896) | PASS at e5d4749a | 9.2 | Second quality reviewer. Merged with main: kernel_process + silent_except 41 passed; reverting to proc.pid fails the new test. Nits: launcher pid read until ready; child processes not counted (sum the tree as a follow-up). |
+
+| #933 | Notebook MERGE on this PC (nit push) | PASS at 6054e235 (carried) | 9.1 | Second quality reviewer. Carried from e78c59e9. Docs qualifier accurate; WITH SCHEMA EVOLUTION found after leading comments, with a test; spark_merge + silent_except 40 passed with main merged. New nit: UPDATE, DELETE and RESTORE after a leading comment give raw DuckDB or parse errors (nothing changed, probed); strip comments there too. Needs Chris's go. |
+
+| #889 | Main merge after #972 | PASS at b53fb4e6 (carried) | 9.1 | Changed lines identical to 8225b176; clean against main b19b745. |
+
+| #924 | Main merge after #972 | PASS at dbb2ddd4 (carried) | 9.1 | Changed lines identical to ef1bb0c9; clean against main b19b745. |
+
+| #970 | Main merge after #972 | PASS at 6292a0fd (carried) | 9.2 | Changed lines identical to 648d17e9; clean against main b19b745. |
+
+| #984 | Same (fix) | PASS at 81b1ea25 | 9.2 | Second quality reviewer. run_schedule skips disallowed signed-out runs with a logged reason; app start pauses them with set_enabled(false), no password; test covers both; docs say Windows keeps the password until switched back or removed. 73 engine tests passed with main merged. Nits: save after each pause; pause before sync(). Waits on Chris's Windows check. |
+
+| #984 | Signed-out schedules + IT switch allow_signed_out_schedules | CONDITIONAL at 675b7bef | 8.7 | Second quality reviewer. Required: existing signed-out tasks kept running signed out once the key was false, while azure-setup said it stopped them. |
+
 | #994 | Notebook table writes: Fabric-safe types (#953) | PASS at b352fd88 | 9.2 | Second quality reviewer. Merged with main: 690 passed, 3 skipped (write_types and every write_table test). Only columns delta-rs refuses are recast, via localdata _fabric_type; nested types recurse; all-NULL append takes the table's type; refused before staging; stream cast per batch. Nits: nested normalization vs the docs' "as it is"; pin the UInt64-onto-BIGINT append message. |
 
 | #997 | Product owner acceptance batch recorded (docs) | PASS at d3a020e8 | 9.3 | Cited approval verified as Chris's own message; 35 items set Accepted, PB-114/115 added, PB-024 narrowed and still In review. product_data check consistent and regenerates identically; zensical --strict clean; no security detail in the diff. |

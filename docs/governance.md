@@ -137,13 +137,13 @@ Your organization's templates are kept in `catalog.policy_template` in the platf
 1. Works out the policies in force for the project, exactly as **Explain** does: the platform's assignments plus the project's `governance.toml`.
 2. Runs each policy's **Checked by** rules on this PC, on the project's entities and products and, when a policy names their rules, this PC's notebooks and SQL scripts, with the policy's parameters as the rules' thresholds. A policy's severity sets its findings': high or critical is **Error**, medium **Warning**, low **Info**. A `severity` parameter overrides it for the rules, and `enabled = false` switches them off.
 3. Applies exceptions: a finding an active exception covers shows **Excepted until <date>: <why>** instead of counting. **Ask for an exception** sends the request ([Data mesh > Requests](platform.md#requests)), with the policy and project filled in.
-4. Shows the result, like "Sales Forecasting: 2 to look at" and "Checked on this PC 5 min ago. Warn only: nothing is blocked."
+4. Shows the result, like "Sales Forecasting: 2 to look at" and "Checked on this PC 5 min ago. Warn only: nothing is blocked.", and where the policies came from: the platform, or (offline) which policy package and how old it is.
 
 Each finding names its policy and what's wrong. Where a safe fix exists in the app it's offered: **Label it** sets a column's classification in the platform's catalog, after asking and saying what changes. Otherwise the finding links to where to fix it (**Open the entity**, **Edit the product**, **Add a term**). Renaming an entity isn't built, so a naming finding links to the entity instead. A passing policy shows a ✓ and how many objects it checked.
 
 **Never guessed.** When something a rule needs isn't recorded anywhere (a product that hasn't loaded yet, terms on a product not yet registered in the catalog, endorsement no tenant scan has read), the rule says **unknown** with the reason, never a pass. So does a rule whose settings it can't read (a `min_rows` of "ten", say): the other rules still run. Naming patterns are matched with RE2 (the engine DuckDB uses), whose time grows only with the name's length, so no pattern can stall Check now. RE2 has no lookarounds or backreferences: a pattern that uses them says **unknown** and why. Patterns over 300 characters and names over 256 characters aren't matched.
 
-**What it reads and writes.** It reads the project's files on this PC, the platform's catalog (policies, exceptions, catalog text, product terms and endorsement) and the run logs Monitor already reads (Test and Prod only when you're signed in). It writes only its last result, to `governance_checks.json` in the app's data folder, so "Checked ... ago" works. It runs no Fabric job.
+**What it reads and writes.** It reads the project's files on this PC, the platform's catalog (policies, exceptions, catalog text, product terms and endorsement) and the run logs Monitor already reads (Test and Prod only when you're signed in). When the platform can't be reached it reads the latest [policy package](#offline-policy-packages) on this PC instead. It writes its last result, to `governance_checks.json` in the app's data folder, so "Checked ... ago" works, and, when the platform answers, the project's policy package, to `governance_packages/<project>.json` there. It runs no Fabric job.
 
 **Where the data comes from.**
 
@@ -162,13 +162,54 @@ Each finding names its policy and what's wrong. Where a safe fix exists in the a
 
 **Checkers that run in Fabric** are never started by Check now. Their last stored findings show with their date, or **not run**.
 
+### Offline: policy packages
+
+A **policy package** is one JSON file with what checking a project needs from the platform, so the check can run without it (GOV-002):
+
+- the project, when the package was taken and from which platform (the SQLite platform on this PC by its file name, or `UDF_Platform` by its workspace and item ids);
+- the scopes the project inherits from (enterprise, its domain and subdomain, the project);
+- the policies in force when it was taken, each with its published version and that version's stored SHA-256 (the hash `catalog.policy_version` keeps, see [Storage](#storage));
+- those policies' published versions, each definition with its stored SHA-256, and the platform's assignments on those scopes;
+- the exceptions active when it was taken;
+- the package's own SHA-256, over everything above.
+
+**Taken and refreshed.** Each **Check now** that reaches the platform takes the package again and keeps it as `governance_packages/<project>.json` in the app's data folder, replacing the last one. A version whose definition doesn't match its stored SHA-256 in the platform is never packaged: the package isn't refreshed and the result says why. `fabric-desktop governance package` takes it on request; `--out <file>` also writes it to a file, such as one a CI job reads.
+
+**Offline Check now.** When the platform can't be reached, **Check now** uses the latest package on this PC. The result says so, with which package, from which platform and how old it is: "Checked offline with the policy package taken 2 days ago (2026-10-26 09:00 UTC) from ...". The policies are resolved from the package exactly as the platform resolves them, with the project's current `governance.toml` and today's date, so an exception or policy that has passed its date since is no longer applied. Everything else is as it was when the package was taken: the project's domain and subdomain (the scopes it inherits from) are fixed then, and so are the platform's assignments and exceptions. An exception a platform admin **ends early**, or a policy changed or assigned since, keeps the package's state until the package is taken again; the result's age says how old that state is. Offline, nothing calls the platform, Fabric or OneLake: catalog text isn't read (only the text in the project's files is checked), and the rules that need product terms, endorsement or the run logs say **unknown**, with why. With no package on this PC and no platform, Check now says so and checks nothing.
+
+**Tamper check.** A package is checked before it's used: its own SHA-256, each version's stored SHA-256 against its definition, and each policy in force against the version it names. A package that doesn't match (edited, cut short, not JSON, or for another project) is refused with what didn't match, and is never used as if valid. This is **hash integrity, not a signature**: it catches an accidental or partial change, but someone who edits a definition and recomputes the hashes isn't caught. Signing needs a key, and KratosForge has no app registration to hold one, so packages aren't signed. Someone who can edit the package can also lower a policy's severity, or remove a policy, and recompute every hash. So a check that matters (a CI gate) **pins** the package: `--expect-sha256 <hash>` (or the `KRATOSFORGE_POLICY_PACKAGE_SHA256` environment variable) refuses any package whose SHA-256 isn't that one, before anything else is read from it. Keep the pinned hash where the people whose work is checked can't change it (see [the CI recipe](#offline-policy-packages)).
+
+**From the command line.** `fabric-desktop governance check` runs the same checks with no platform, Fabric or OneLake call, prints each policy and finding, and sets the exit code for CI:
+
+```
+fabric-desktop governance check [--package <file>] [--project <folder>] [--json]
+```
+
+- `--package`: the package to use (default: the latest one on this PC for the project).
+- `--project`: the metadata project's folder (default: the project open in the app).
+- `--expect-sha256 <hash>`: refuse the package unless its SHA-256 is this one (default: the `KRATOSFORGE_POLICY_PACKAGE_SHA256` environment variable, when it's set).
+- `--max-age <days>`: refuse a package taken more than this many days ago.
+- `--require-pin`: refuse to check (exit 2) when no SHA-256 is given, so a missing or misspelt CI variable can't run the check unpinned. Without it, an unpinned check says **Not pinned** in its output and `"pinned": false` in `--json`.
+- `--json`: the whole result as JSON, with `unexcepted_errors`.
+- Exit code: 0 when no finding fails, 1 when an **Error** finding (a high or critical policy) isn't covered by an exception, 2 when it can't check (no project, no package, a package that doesn't match, isn't the pinned one or is too old).
+
+The command keeps no result: it isn't saved as the app's last check.
+
+**In CI.** A pull request's author can edit any file in the pull request, a package included, so the package's hash is what's trusted, not the file:
+
+1. A policy owner takes the package on a machine that reaches the platform: `fabric-desktop governance package --out policies.json`. It prints the package's SHA-256.
+2. They commit `policies.json` and store the SHA-256 in a protected CI variable (`KRATOSFORGE_POLICY_PACKAGE_SHA256`), one only they can change and that a pull request's pipeline reads but can't set.
+3. The pipeline runs `fabric-desktop governance check --project . --package policies.json --max-age 30 --require-pin`. A changed package, even with every hash recomputed, isn't the pinned one, so the check refuses it (exit 2).
+
+When the policies change, the owner takes a new package and updates the variable together. Where a protected variable isn't available, protect the file instead: a `CODEOWNERS` entry for `policies.json` so a change to it needs a policy owner's review, with branch protection requiring that review, and pass the hash with `--expect-sha256` from the pipeline definition the same owners protect.
+
 ### A data product's checklist
 
 Open a product on **Data mesh > Products**: its **Checklist** card comes from the contract it follows, the first policy in force for its project whose **Checked by** has a `contract.` rule, or else the built-in Data contract template (the card says which). Each line is ✓, ✗ or **!** (unknown, with why): **Owner and steward**, **Description**, **Business terms linked**, **Fresh within N h** (the last load time) and **Endorsement** (unknown means it needs a tenant scan). The steward and load times are kept in the product's project, so for another team's product they show as unknown until that project is open on this PC. The card only reads.
 
 ## When the platform can't be reached
 
-Checks that depend on the platform fail closed: when a rule can't be read, KratosForge stops the action and says why, rather than acting as if there were no rule. Today that covers the [shortcut rules](shortcuts.md#shortcut-rules), and who-can-read lists, which say **Not complete** when a lakehouse's data access roles can't be read. Policy checks (GOV-002 onward) will follow the same rule.
+Checks that depend on the platform fail closed: when a rule can't be read, KratosForge stops the action and says why, rather than acting as if there were no rule. Today that covers the [shortcut rules](shortcuts.md#shortcut-rules), and who-can-read lists, which say **Not complete** when a lakehouse's data access roles can't be read. **Check now** uses the latest [policy package](#offline-policy-packages) on this PC when the platform can't be reached, says which and how old, and refuses one whose hashes don't match; with no package it checks nothing and says why.
 
 ## Storage
 
@@ -188,7 +229,7 @@ For Fabric, `UDF_Platform` gains one function per policy operation. Re-run **Pla
 
 ## For developers
 
-The rules live in `sidecar/fabric_desktop/central/policy.py`, standard library only, next to `core.py`; `udf.py` builds the function app from both. `resolve(snapshot, chain, local, context, today)` is a pure function over plain data (`policy_snapshot` returns that data), so offline validation can run it from a downloaded copy.
+The rules live in `sidecar/fabric_desktop/central/policy.py`, standard library only, next to `core.py`; `udf.py` builds the function app from both. `resolve(snapshot, chain, local, context, today)` is a pure function over plain data (`policy_snapshot` returns that data), so offline validation runs it from a policy package: `central/policy_package.py` takes (`take`), checks (`verify`, `read`) and resolves (`resolve_offline`) packages, standard library only and with no platform call. `ChecksMixin.governance_check_from_package(package)` is Check now from a package (the CLI's `governance check`), and `governance_package_export(out)` takes one (`governance package`); neither is an RPC method.
 
 The desktop calls these engine methods (JSON-RPC, see [architecture](architecture.md)): `governance_overview`, `governance_policy`, `governance_version`, `governance_create`, `governance_save_draft`, `governance_discard_draft`, `governance_publish`, `governance_set_status`, `governance_assign`, `governance_unassign`, `governance_applicability`, `governance_resolve`, `governance_end_exception` (end an exception early; `policy.end_policy_exception`, with its own `UDF_Platform` function), `governance_exceptions_ending` (exceptions that end within 14 days; it claims each Teams notice with `policy.claim_exception_warning` and sends the ones it claimed); for templates and checks `governance_templates`, `governance_template_save`, `governance_template_delete`, `governance_template_use`, `governance_template_from_policy`, `governance_template_authors`, `governance_check_now`, `governance_last_check` and `governance_product_checklist` (`central/checks_service.py`). The template operations are in `policy.py` (`list_policy_templates`, `save_policy_template`, `delete_policy_template`, `use_policy_template`, `save_policy_as_template`, `set_template_authors`), each with a `UDF_Platform` function.
 
@@ -235,7 +276,8 @@ The notebook rules `NB001` to `NB012` ([notebook best practices](notebook-best-p
 - Renaming an entity from a finding (a naming finding links to the entity instead), and fixes beyond **Label it**.
 - Checkers that run in Fabric, and storing their findings from a Fabric run: the registry accepts them and Check now shows what's stored, but nothing stores any yet.
 - A product's steward isn't in the platform's catalog, so another team's product shows it as unknown.
-- Signed policy packages for offline use (GOV-002).
+- Signed policy packages. A package is hash-checked, not signed: signing needs a key, and there's no app registration to hold one. See [the tamper check](#offline-policy-packages).
+- An offline check doesn't read the platform's catalog text, product terms and endorsement, or the run logs, so the rules that need them say unknown. It uses the assignments, exceptions and domain chain as they were when the package was taken: an exception ended early keeps applying until the package is taken again. There's no screen to take, pick or inspect a package: Check now refreshes it, and the CLI takes and uses it.
 - Project exceptions in `exceptions.toml` (the save gate's) are unchanged and separate from policy exceptions, which Check now applies. Adding one records no request, approval or audit entry (PB-059 review finding 1).
 - Changing an exception's date or scope: end it early and ask for a new one.
 - A separate approver for publishing (the same admin can write and publish).

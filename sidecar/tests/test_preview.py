@@ -175,9 +175,27 @@ def test_a_previewed_file_is_removed_once_read(tmp_path, monkeypatch):
     assert out["kind"] == "table" and out["rows"] == [["East", 3]]
     dest, limit = seen[0]
     assert limit == preview.MAX_FILE_BYTES
-    assert dest.name == "sales.csv" and tmp_path / "preview-files" in dest.parents
+    assert dest.name == "preview.csv" and tmp_path / "preview-files" in dest.parents
     assert not dest.parent.exists(), "its folder is gone once the preview is read"
     assert not (tmp_path / "files").exists(), "nothing goes in the notebooks' download folder"
+
+
+@pytest.mark.parametrize("folder_type", ["PurePosixPath", "PureWindowsPath"])
+@pytest.mark.parametrize("path, name", [
+    ("Files/raw/sales.csv", "preview.csv"),
+    ("Files/raw/C:\\Users\\x.csv", "preview.csv"),
+    ("Files/raw/\\x.csv", "preview.csv"),
+    ("Files/raw/\\\\srv\\share\\x.csv", "preview.csv"),
+    ("Files/raw/D:x.csv", "preview.csv"),
+    ("Files/raw/odd.c$v", "preview"),
+    ("Files/raw/noext", "preview"),
+])
+def test_the_local_copy_has_a_fixed_name_in_its_own_folder(folder_type, path, name):
+    import pathlib
+    from fabric_desktop.preview_service import preview_dest
+    folder = getattr(pathlib, folder_type)("C:/data/preview-files/abc" if folder_type == "PureWindowsPath" else "/data/preview-files/abc")
+    dest = preview_dest(folder, path)
+    assert dest.parent == folder and dest.name == name
 
 
 def test_a_file_with_no_size_given_stops_at_the_limit(tmp_path, monkeypatch):

@@ -137,7 +137,7 @@ async function focusNow(scope) {
   const cls = [...el.classList].slice(0, 2).map((c) => `.${c}`).join("");
   el.dataset.a11yStop ||= String(Math.random());
   return { key: el.id ? `#${el.id}` : `${el.tagName.toLowerCase()}${cls}${label ? ` "${label}"` : ""}`, stop: el.dataset.a11yStop,
-    inside: !!el.closest(scope), editor: el.matches(".cm-content, [aria-description*='Esc, then Tab']"), shown: shown && rect.width > 0 && rect.height > 0 && getComputedStyle(el).opacity !== "0" };
+    inside: !!el.closest(scope), editor: el.matches(".cm-content, [data-esc-tab]"), shown: shown && rect.width > 0 && rect.height > 0 && getComputedStyle(el).opacity !== "0" };
 }
 
 // Tab from the top of the page until focus comes back to a stop it has seen. In a code editor Tab

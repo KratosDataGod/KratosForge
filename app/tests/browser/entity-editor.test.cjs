@@ -63,6 +63,17 @@ test("Esc, then Tab, moves on; Shift+Tab goes back; typing after Esc indents aga
   assert.strictEqual((await box.inputValue()).length, before + 4);
 });
 
+test("a click after Esc means Tab types spaces again", { skip }, async () => {
+  const box = page().locator("#entity-toml");
+  await box.focus();
+  await page().keyboard.press("Escape");
+  await box.click();
+  const before = (await box.inputValue()).length;
+  await page().keyboard.press("Tab");
+  assert.strictEqual(await active(), "entity-toml");
+  assert.strictEqual((await box.inputValue()).length, before + 4);
+});
+
 test("nothing on the page threw", { skip }, async () => {
   assert.deepStrictEqual(app.errors, []);
 });

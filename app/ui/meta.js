@@ -484,7 +484,8 @@ async function renderEntity() {
   state.meta.entity = e;
   if (!state.meta.project) { await loadMetaProject(); renderEnvBar(); }
   const editor = h("textarea", { class: "toml", id: "entity-toml", spellcheck: "false", "aria-label": "Entity file (TOML)",
-    "aria-description": "Tab types four spaces. Press Esc, then Tab, to move on." });
+    "aria-description": "Tab types four spaces. Press Esc, then Tab, to move on; Shift+Tab always goes back.",
+    "data-esc-tab": "" });  // the accessibility audit leaves it with Esc, then Tab
   editor.value = e.text;
   const dirty = () => editor.value !== e.text;
   const errBox = h("div", {}, e.errors.length ? h("div", { class: "problems" }, h("b", {}, "This entity doesn't pass the save gate yet"), gateList(e.errors)) : null);
@@ -505,6 +506,7 @@ async function renderEntity() {
     if (ev.key !== "Shift") leaving = false;
   });
   editor.addEventListener("blur", () => { leaving = false; });
+  editor.addEventListener("mousedown", () => { leaving = false; });  // a click after Esc goes back to typing
 
   const cols = Object.entries(e.columns).map(([c, t]) => h("div", { class: "col-row" },
     h("span", { class: "mono" }, c), h("span", { class: "muted-text mono" }, t),

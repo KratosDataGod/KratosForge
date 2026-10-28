@@ -97,6 +97,7 @@ def test_every_flow_runs_from_empty_and_everything_made_is_deleted(tmp_path):
     assert result["left_behind"] == [] and fabric.items == []
     ledger = json.loads((tmp_path / "out" / "platform-ledger.json").read_text())
     assert [e["name"] for e in ledger["items"]] == list(platformtest.ITEMS) and ledger["workspace_id"] == WS
+    assert all(e.get("deleted") for e in ledger["items"])
 
 
 @pytest.mark.parametrize("fabric, says", [

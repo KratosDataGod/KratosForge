@@ -293,6 +293,8 @@ class PlatformTest:
                     self.fabric.delete_item(self.workspace_id, entry["id"])
             except Exception as exc:  # noqa: BLE001 - recorded as left behind, the rest are still deleted
                 self.left_behind.append(entry | {"why": livetest.scrub(str(exc))[:200]})
+            else:
+                entry["deleted"] = True  # the ledger file then lists only what's left to clean up by hand
         self._save_ledger()
 
     def _finish(self) -> dict[str, Any]:

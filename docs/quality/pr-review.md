@@ -212,6 +212,8 @@ What the set says about the baseline: the five FAILs are the patterns the [findi
 | #937 | Long-running operations (retargeted to main) | PASS at 5102cb5c (carried) | 9.2 | Changed lines against main identical to e32be63a against #923; clean main merge. test_fabric_api + contract + silent_except 77 passed. |
 
 | #937 | Long-running operations follow Fabric's result location | PASS at e32be63a | 9.2 | Earlier CONDITIONAL fixed: a missing lakehouse id is looked up by name or raises a clear error. pytest 704 + 45 across the chain; #939 (9dffb1f4) and #944 (7ac165c6) carry their PASS. |
+| #906 | Environment drift (main merge) | PASS at 6c97a377 (carried) | 9.2 | Changed lines against main 34709911 identical to 265978ad apart from the cli.py docstring, which lists both governance check and env-drift. Clean merge. |
+
 | #906 | env-drift compares a Fabric Environment item | PASS at 265978ad | 9.2 | Earlier CONDITIONAL 8.7 fixed: an empty library list is no longer read as a missing item; rpc surface and Preview-id checks pass. pytest 84; ui.test 299/0; old files fail 6. |
 | #949 | Warehouse runs retry the connect on transient Azure SQL errors | FAIL at ab59b33a | 7.9 | Automatic failure, presented as working: the retry looks for error numbers in the text, which mssql-python doesn't include, so a resuming warehouse isn't retried though the docs say it is; "under a minute" is false with a 60 s login timeout per try. pytest 338; main's warehouse.py fails 5. |
 | #944 | Paging guard stops a repeating or endless list instead of returning part of it | PASS at f2497536 | 9.2 | Delta over #939. pytest 245 + 1,520 across every file that lists; old files fail 4 of 5 new tests. Nits: three paging loops outside the guard. |

@@ -3,14 +3,15 @@
 //! chose; the page still sends that path through the same checks as a typed one.
 
 /// The chosen folder, or None when the person cancels. Starts in `start` when that is an
-/// existing folder on a local drive letter (a network path is never looked up just to start
-/// there). Call it on a thread of its own: it sets up a single-threaded COM apartment for the
+/// existing folder on a local drive letter (a UNC path or a mapped network drive is never looked
+/// up just to start there). Call it on a thread of its own: it sets up a single-threaded COM apartment for the
 /// dialog and takes it down again.
 #[cfg(windows)]
 pub fn pick(owner: isize, start: Option<String>) -> Result<Option<String>, String> {
     use std::path::Path;
     use windows::core::HSTRING;
     use windows::Win32::Foundation::{ERROR_CANCELLED, HWND};
+    use windows::Win32::Storage::FileSystem::GetDriveTypeW;
     use windows::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_INPROC_SERVER,
         COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE,
@@ -19,6 +20,7 @@ pub fn pick(owner: isize, start: Option<String>) -> Result<Option<String>, Strin
         FileOpenDialog, IFileOpenDialog, IShellItem, SHCreateItemFromParsingName, FOS_FORCEFILESYSTEM,
         FOS_NOCHANGEDIR, FOS_PATHMUSTEXIST, FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
     };
+    const DRIVE_REMOTE: u32 = 4; // winbase.h
 
     struct Apartment;
     impl Drop for Apartment {
@@ -34,7 +36,9 @@ pub fn pick(owner: isize, start: Option<String>) -> Result<Option<String>, Strin
         let options = dialog.GetOptions().map_err(failed)?;
         dialog.SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR)
             .map_err(failed)?;
-        if let Some(dir) = start.filter(|s| on_drive(s) && Path::new(s).is_dir()) {
+        // GetDriveTypeW reads only the drive letter's type, so a network drive isn't touched.
+        let local = |s: &str| GetDriveTypeW(&HSTRING::from(format!("{}:\\", &s[..1]))) != DRIVE_REMOTE;
+        if let Some(dir) = start.filter(|s| on_drive(s) && local(s) && Path::new(s).is_dir()) {
             // A start folder the shell can't read just leaves the dialog where Windows opens it.
             if let Ok(item) = SHCreateItemFromParsingName::<_, _, IShellItem>(&HSTRING::from(dir), None) {
                 let _ = dialog.SetFolder(&item);

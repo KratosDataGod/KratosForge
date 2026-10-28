@@ -871,7 +871,7 @@ function gitSettingsTab(st) {
 // ---------- open, clone, init ----------
 
 function gitPathDialog(title, intro, fields, okLabel, run) {
-  const inputs = fields.map((f) => h("input", { value: f.value || "", placeholder: f.placeholder || "" }));
+  const inputs = fields.map((f) => h("input", { value: f.value || "", placeholder: f.placeholder || "", "aria-label": f.label }));
   const err = h("p", { class: "field-error" });
   const ok = async () => {
     err.textContent = "";

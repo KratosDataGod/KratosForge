@@ -29,7 +29,7 @@ after(async () => { await app?.close(); });
 
 test("Browse… fills the folder box, Cancel leaves it, and typing still works", { skip }, async () => {
   await page().evaluate(() => gitOpenDialog());
-  const box = page().getByRole("textbox", { name: "Folder" });
+  const box = page().getByRole("textbox", { name: "Folder", exact: true });
   const browse = page().getByRole("button", { name: "Browse for the repository's folder" });
   await answer("C:\\Users\\you\\source\\repos\\sales");
   await browse.click();
@@ -46,6 +46,25 @@ test("Browse… fills the folder box, Cancel leaves it, and typing still works",
   assert.deepStrictEqual(app.errors, []);
 });
 
+test("Browse… is off while its dialog is open, so a double click opens one", { skip }, async () => {
+  await page().evaluate(() => {
+    const invoke = window.__fdInvoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = (cmd, args) => cmd === "pick_folder"
+      ? (window.__fdShellCalls.push({ cmd, args }), new Promise((r) => { window.__fdPickDone = r; })) : invoke(cmd, args);
+    gitOpenDialog();
+  });
+  const before = (await starts()).length;
+  const browse = page().getByRole("button", { name: "Browse for the repository's folder" });
+  await browse.dblclick({ force: true });
+  assert.strictEqual(await browse.isDisabled(), true);
+  assert.strictEqual((await starts()).length, before + 1, "one dialog");
+  await page().evaluate(() => window.__fdPickDone("C:\\once"));
+  await page().waitForFunction(() => !document.querySelector('button[aria-label="Browse for the repository\'s folder"]').disabled);
+  assert.strictEqual(await page().getByRole("textbox", { name: "Folder", exact: true }).inputValue(), "C:\\once");
+  await page().evaluate(() => { window.__TAURI__.core.invoke = window.__fdInvoke; closeDialog(); });
+  assert.deepStrictEqual(app.errors, []);
+});
+
 test("every Source control folder box has Browse…", { skip }, async () => {
   await page().evaluate(() => { gitPage.info = { ...(gitPage.info || {}), clone_folder: "C:\\repos", kinds: { notebooks: { label: "Notebooks", holds: "", for: "" } } }; });
   for (const [open, name] of [["gitInitDialog()", "Browse for the folder"], ["gitCloneDialog()", "Browse for the folder to clone into"],
@@ -59,12 +78,13 @@ test("every Source control folder box has Browse…", { skip }, async () => {
 
 test("the metadata project setup page has Browse… for both folders", { skip }, async () => {
   await page().evaluate(() => renderMetaSetup({ default_path: "C:\\Users\\you\\Documents\\metadata", presets: { 3: [{ name: "Bronze" }, { name: "Silver" }, { name: "Gold" }] } }));
+  const before = (await starts()).length;
   await answer("E:\\projects\\sales");
   await page().getByRole("button", { name: "Browse for the project's folder" }).click();
   await page().waitForFunction(() => document.getElementById("meta-open-path").value === "E:\\projects\\sales");
   await answer(null);
   await page().getByRole("button", { name: "Browse for the new project's folder" }).click();
-  await page().waitForFunction(() => window.__fdShellCalls.filter((c) => c.cmd === "pick_folder").length === 4);
+  await page().waitForFunction((n) => window.__fdShellCalls.filter((c) => c.cmd === "pick_folder").length === n + 2, before);
   assert.strictEqual((await starts()).at(-1), "C:\\Users\\you\\Documents\\metadata");
   assert.strictEqual(await page().locator("#meta-path").inputValue(), "C:\\Users\\you\\Documents\\metadata");
   assert.deepStrictEqual(app.errors, []);

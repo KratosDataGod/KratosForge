@@ -5331,6 +5331,10 @@ test("every folder box on this PC has a Browse… button", () => {
       if (folderish(m[1]) && inputs.has(m[2])) boxes.add(m[2]);
     }
     for (const v of boxes) if (!src.includes(`folderField(${v},`)) missing.push(`${name}: ${v}`);
+    // Inside a <label>, a box with no aria-label of its own would be named "Folder Browse for …".
+    for (const [, v] of src.matchAll(/(?<!function )folderField\((\w+),/g)) {
+      if (inputs.has(v) && !/"aria-label": /.test(inputs.get(v))) missing.push(`${name}: ${v} has no aria-label`);
+    }
     // Field lists, such as gitPathDialog's: a folder field says which folder, so it gets Browse….
     for (const m of src.matchAll(/\{ label: "([^"]*)",([^}]*)\}/g)) {
       if ((folderish(m[1]) || /placeholder: "C:\\\\/.test(m[2])) && /placeholder:/.test(m[2]) && !/\bfolder: "/.test(m[2])) {
@@ -5344,6 +5348,7 @@ test("every folder box on this PC has a Browse… button", () => {
   assert.match(helper, /if \(input\.readOnly \|\| !window\.__TAURI__\?\.core\) return input;/, "a locked box gets no button");
   assert.match(helper, /invoke\("pick_folder", \{ start: input\.value\.trim\(\) \|\| null \}\)/);
   assert.match(helper, /if \(!chosen\) return;/, "Cancel leaves the box as it was");
+  assert.match(helper, /browse\.disabled = true;[\s\S]*\.finally\(\(\) => \{ browse\.disabled = false; \}\)/, "one dialog at a time");
   const shell = fs.readFileSync(path.join(__dirname, "..", "src-tauri", "src", "main.rs"), "utf8");
   assert.match(shell, /generate_handler!\[[^\]]*\bpick_folder\b/, "the shell registers pick_folder");
 });

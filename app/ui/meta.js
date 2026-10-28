@@ -322,7 +322,7 @@ function renderExceptionsTab(body, p) {
 
 function renderMetaSetup(p) {
   let preset = "3";
-  const path = h("input", { id: "meta-path", value: p.default_path });
+  const path = h("input", { id: "meta-path", value: p.default_path, "aria-label": "Folder" });
   const sample = h("input", { type: "checkbox", id: "meta-sample", checked: true });
   const presetButtons = Object.entries(p.presets).map(([id, layers]) => h("button", {
     class: `choice${id === preset ? " selected" : ""}`, "data-preset": id,
@@ -333,7 +333,7 @@ function renderMetaSetup(p) {
     } },
   h("span", { class: "main" }, h("span", { class: "n" }, `${id} layers`),
     h("span", { class: "w" }, layers.map((l) => l.name).join(" → ")))));
-  const openPath = h("input", { id: "meta-open-path", placeholder: "C:\\Users\\you\\Documents\\metadata" });
+  const openPath = h("input", { id: "meta-open-path", placeholder: "C:\\Users\\you\\Documents\\metadata", "aria-label": "Folder with a layers.toml" });
   setView(h("div", { class: "page narrow" },
     h("h1", {}, "Set up a metadata project"),
     pageIntro("A metadata project is a folder you keep in Git. Each table is one file that says where its data comes from, how to clean and check it, and how to load it. Each layer gets its own lakehouse, so layers never mix."),

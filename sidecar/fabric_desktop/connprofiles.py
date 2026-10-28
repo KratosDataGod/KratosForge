@@ -241,7 +241,8 @@ def snowflake_host(account: str) -> str:
     """The address for a Snowflake account identifier; a profile never holds one of its own."""
     if not _SF_ACCOUNT.fullmatch(account or ""):
         raise ValueError("Not a Snowflake account identifier.")
-    return f"https://{account.lower()}.snowflakecomputing.com"
+    # Snowflake's URLs take a hyphen where an account name has an underscore.
+    return f"https://{account.lower().replace('_', '-')}.snowflakecomputing.com"
 
 
 def problems(data: dict[str, Any]) -> list[str]:
@@ -518,8 +519,8 @@ def snowflake_cli_connections(folder: Path | None = None) -> dict[str, Any]:
     or kept; a connection that keeps one in the file gets a warning."""
     folder = snowflake_config_dir() if folder is None else folder
     if folder is None:
-        return {"path": os.environ.get("SNOWFLAKE_HOME", ""), "found": False, "default": None, "connections": [],
-                "error": "SNOWFLAKE_HOME names a folder that doesn't exist."}
+        # The CLI finds nothing then and doesn't fall back, so neither does this.
+        return {"path": os.environ.get("SNOWFLAKE_HOME", ""), "found": False, "default": None, "connections": []}
     config_path, connections_path = folder / "config.toml", folder / "connections.toml"
     result: dict[str, Any] = {"path": str(folder), "found": False, "default": None, "connections": []}
     raw: dict[str, Any] = {}
@@ -539,6 +540,11 @@ def snowflake_cli_connections(folder: Path | None = None) -> dict[str, Any]:
             return result | {"error": f"Couldn't read {connections_path}."}
         raw = parsed
         del parsed
+    if os.name != "nt":  # the CLI's own check is POSIX-only; Windows ACLs aren't mode bits
+        for path in (config_path, connections_path):
+            if path.is_file() and path.stat().st_mode & 0o022:
+                result.setdefault("notes", []).append(f"{path} can be changed by other users of this computer "
+                                                      "(chmod 0600 it).")
     for name, section in raw.items():
         if not isinstance(section, dict):
             continue

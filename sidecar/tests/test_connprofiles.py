@@ -4,6 +4,7 @@ platform, safe export and import, CLI profile discovery that never returns a tok
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -305,7 +306,7 @@ def test_snowflake_accounts_are_identifiers(account):
     data = snowflake()
     data["connections"][0]["account"] = account
     assert cp.problems(data) == []
-    assert cp.snowflake_host(account) == f"https://{account.lower()}.snowflakecomputing.com"
+    assert cp.snowflake_host(account) == f"https://{account.lower().replace('_', '-')}.snowflakecomputing.com"
 
 
 @pytest.mark.parametrize("account", ["https://myorg-myaccount.snowflakecomputing.com", "myorg/acct", "me@myorg",
@@ -461,7 +462,20 @@ def test_snowflake_cli_folder_follows_the_cli_rules(tmp_path, monkeypatch):
     custom = tmp_path / "sf"
     monkeypatch.setenv("SNOWFLAKE_HOME", str(custom))
     assert cp.snowflake_config_dir(windows=True) is None  # set but missing: no fallback, as the CLI does
-    assert cp.snowflake_cli_connections()["found"] is False
+    assert cp.snowflake_cli_connections() == {"path": str(custom), "found": False, "default": None, "connections": []}
     custom.mkdir()
     assert cp.snowflake_config_dir(windows=True) == custom
     assert cp.snowflake_cli_connections() == {"path": str(custom), "found": False, "default": None, "connections": []}
+
+
+def test_snowflake_hosts_use_hyphens_for_underscores():
+    assert cp.snowflake_host("my_org-acct_1") == "https://my-org-acct-1.snowflakecomputing.com"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="mode bits are POSIX; the Snowflake CLI checks them only there")
+def test_a_snowflake_file_others_can_change_gets_a_note(tmp_path):
+    _write(tmp_path, "connections.toml", '[dev]\naccount = "myorg-dev"\n')
+    assert "notes" not in cp.snowflake_cli_connections(tmp_path)
+    (tmp_path / "connections.toml").chmod(0o666)
+    (note,) = cp.snowflake_cli_connections(tmp_path)["notes"]
+    assert "chmod 0600" in note

@@ -1,7 +1,7 @@
 // PB-063 part 1: an automated accessibility audit of every page in a real browser, light and dark:
 // axe-core's WCAG 2.1 A and AA rules (contrast among them), every clickable thing reachable from the
-// keyboard, and a visible focus ring on every Tab stop. A serious or critical rule violation, or a
-// new keyboard or focus finding, fails the test. A11Y_REPORT=<file> also writes the results there as
+// keyboard, and a visible focus ring on every Tab stop. A serious or critical rule violation not in KNOWN_RULES,
+// or a keyboard or focus finding not in KNOWN_KEYBOARD or KNOWN_FOCUS, fails the test. A11Y_REPORT=<file> also writes the results there as
 // Markdown (docs/ux/accessibility-audit.md is made this way). axe-core is pinned in ci.yml (AXE_CORE_VERSION)
 // and found through NODE_PATH like Playwright; without it the test skips here and fails in CI.
 const { test, before, after } = require("node:test");
@@ -22,9 +22,10 @@ const CELLS = [
 const RULES = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
 const SCHEMES = ["light", "dark"];
 
-// Findings this audit recorded that are filed to be fixed (#905): "page: rule" and "page: element".
+// Findings this audit recorded that are filed to be fixed (#905): "page: rule @ element" and "page: element".
 // A new one fails; remove a line when its fix lands (the test then keeps it fixed).
-const KNOWN_RULES = new Set(["notebook: aria-input-field-name", "sql: aria-required-children", "command-bar: aria-input-field-name"]);
+const KNOWN_RULES = new Set(['notebook: aria-input-field-name @ div[data-language="python"]', 'notebook: aria-input-field-name @ div[data-language="sql"]',
+  "sql: aria-required-children @ .sql-tabs", "command-bar: aria-input-field-name @ .palette-list"]);
 const KNOWN_KEYBOARD = new Set(['notebook: Tab returns to button.tool.small "Run cell", 12 Tab stops later never reached']);
 const KNOWN_FOCUS = new Set(['sql: div.cm-content "SQL query"']);
 
@@ -35,6 +36,7 @@ const EXTRA = [
   }, [CELLS, LH]), ready: ".cell .cm-content" },
   { id: "sql", name: "SQL query", open: (p) => p.evaluate((lh) => openSqlQuery(lh), LH), ready: ".sql-edit .cm-editor" },
   { id: "command-bar", name: "Command bar (Ctrl+K)", open: (p) => p.keyboard.press("Control+k"), ready: "#palette", scope: "#palette" },
+  { id: "shell", name: "Shell (top bar and rail)", open: (p) => p.evaluate(() => go("home")), ready: "#rail", scope: "header.topbar, #rail" },
   { id: "confirm", name: "Confirm dialog", open: (p) => p.evaluate(() => {
     confirmDialog("Delete the lakehouse LH_Bronze?", "This removes its tables and files from Fabric.", "Delete", { danger: true });
   }), ready: "#dialog-root .dialog", scope: "#dialog-root" },
@@ -71,34 +73,52 @@ after(async () => {
 // Runs in the page: the outermost things that look clickable (a pointer cursor) but can't be reached
 // with Tab, and every Tab stop in `scope` with whether it shows where focus is.
 function keyboardScan(scope) {
-  const root = document.querySelector(scope) || document.body;
+  const roots = document.querySelectorAll(scope);
   const css = (el) => {
     if (el.id) return `#${el.id}`;
     const cls = [...el.classList].slice(0, 2).map((c) => `.${c}`).join("");
     const text = (el.getAttribute("aria-label") || el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 30);
     return `${el.tagName.toLowerCase()}${cls}${text ? ` "${text}"` : ""}`;
   };
-  const focusable = "button, a[href], input, select, textarea, summary, label, [tabindex]:not([tabindex=\"-1\"]), [contenteditable=true], .cm-editor";
+  const focusable = "button, a[href], input, select, textarea, summary, [tabindex]:not([tabindex=\"-1\"]), [contenteditable=true], .cm-editor";
   const unreachable = [];
-  for (const el of root.querySelectorAll("*")) {
+  for (const el of [...roots].flatMap((r) => [...r.querySelectorAll("*")])) {
     const rect = el.getBoundingClientRect();
     if (!rect.width || !rect.height || getComputedStyle(el).cursor !== "pointer") continue;
     if (el.parentElement && getComputedStyle(el.parentElement).cursor === "pointer") continue;  // inherited: judged at the top
-    if (el.closest(focusable) || el.querySelector(focusable)) continue;
+    // A label counts through the control it labels; a container through a Tab stop inside it (segmented
+    // controls draw the pointer on the whole group). A page can't see click listeners, so a pointer card
+    // that does something of its own beside the button it holds isn't caught here.
+    const label = el.closest("label");
+    if (el.closest(focusable) || el.querySelector(focusable) || (label?.control && label.control.tabIndex >= 0)) continue;
     unreachable.push(css(el));
   }
   return { unreachable };
 }
 
+// Runs in the page before a Tab walk: each element's outline and box shadow with focus elsewhere, so a
+// ring counts only where focus changed it (a dialog's own shadow isn't a focus ring).
+function ringBaseline() {
+  const look = (n) => { const cs = getComputedStyle(n); return `${cs.outlineStyle} ${cs.outlineWidth} ${cs.outlineColor}|${cs.boxShadow}`; };
+  window.__a11yLook = look;
+  // Not what holds focus now (the page may have put it somewhere): its look then is already focused.
+  const holder = document.activeElement !== document.body ? document.activeElement : null;
+  window.__a11yBase = new WeakMap([...document.querySelectorAll("*")].filter((n) => !holder || !n.contains(holder)).map((n) => [n, look(n)]));
+}
+
 // Runs in the page after a Tab: where focus is, whether it's inside `scope`, and whether it shows a
-// ring (an outline or box shadow on it or a close parent, as :focus-within styles draw it).
+// ring: an outline or box shadow on it or a close parent (as :focus-within styles draw it) that it
+// didn't have with focus elsewhere.
 async function focusNow(scope) {
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));  // a ring that eases in has drawn
   const el = document.activeElement;
   if (!el || el === document.body) return null;
   const ring = (n) => {
     const cs = getComputedStyle(n);
-    return (cs.outlineStyle !== "none" && parseFloat(cs.outlineWidth) > 0) || (cs.boxShadow && cs.boxShadow !== "none");
+    const has = (cs.outlineStyle !== "none" && parseFloat(cs.outlineWidth) > 0) || (cs.boxShadow && cs.boxShadow !== "none");
+    // An element with no baseline (drawn since the walk began) counts its own ring only, not a parent's.
+    const base = window.__a11yBase?.get(n);
+    return has && (base === undefined ? n === el : base !== window.__a11yLook(n));
   };
   let shown = false;
   for (let n = el, depth = 0; n && depth < 6 && !shown; n = n.parentElement, depth++) shown = ring(n);
@@ -124,12 +144,13 @@ async function tabStops(page, scope) {
     start.focus();
     start.remove();
   });
+  await page.evaluate(ringBaseline);
   for (let i = 0; i < 400; i++) {
     await page.keyboard.press("Tab");
     const at = await page.evaluate(focusNow, scope);
     if (!at) break;
     if (seen.has(at.stop)) {
-      const left = await page.evaluate(([scope, seenIds]) => [...document.querySelectorAll(`${scope} :is(button, a[href], input, select, textarea, summary, [tabindex]:not([tabindex="-1"]), .cm-content)`)]
+      const left = await page.evaluate(([scope, seenIds]) => [...document.querySelectorAll(`:is(${scope}) :is(button, a[href], input, select, textarea, summary, [tabindex]:not([tabindex="-1"]), .cm-content)`)]
         .filter((e) => !e.disabled && e.getClientRects().length && getComputedStyle(e).visibility !== "hidden" && !e.closest("[inert], [hidden]"))
         .filter((e) => !seenIds.includes(e.dataset.a11yStop)).length, [scope, [...seen]]);
       if (left) trap = { key: at.key, left };
@@ -142,17 +163,28 @@ async function tabStops(page, scope) {
   return { stops, trap };
 }
 
+// Until the page has made no engine call for 200 ms (at most 3 s): what it loads has drawn.
+async function settle(page) {
+  let last = -1;
+  for (let t = 0; t < 3000; t += 200) {
+    const n = app.calls.length;
+    if (n === last) return;
+    last = n;
+    await page.waitForTimeout(200);
+  }
+}
+
 async function audit(page, target, scheme) {
   // Reduced motion: a page fading in would be judged on its half-drawn colors.
   await page.emulateMedia({ colorScheme: scheme, reducedMotion: "reduce" });
   await page.evaluate(() => { document.getElementById("palette")?.remove(); closeDialog(); go("home"); });
   await target.open(page);
   if (target.ready) await page.waitForSelector(target.ready);
-  await page.waitForTimeout(300);  // the page's own calls answer
+  await settle(page);  // the page's own calls answer
   if (!(await page.evaluate(() => typeof axe === "object"))) await page.addScriptTag({ content: axeSource });
   const scope = target.scope || "#view";
   const axeOut = await page.evaluate(async ([scope, tags]) => {
-    const res = await axe.run(document.querySelector(scope) || document, { runOnly: { type: "tag", values: tags } });
+    const res = await axe.run({ include: [...document.querySelectorAll(scope)] }, { runOnly: { type: "tag", values: tags } });
     const brief = (v) => ({ id: v.id, impact: v.impact, help: v.help, nodes: v.nodes.map((n) => n.target.join(" ")).slice(0, 5) });
     return { violations: res.violations.map(brief), incomplete: res.incomplete.map(brief), passes: res.passes.length };
   }, [scope, RULES]);
@@ -178,14 +210,15 @@ test("every page passes the WCAG A and AA rules, light and dark, with no serious
     for (const scheme of SCHEMES) {
       const r = await audit(app.page, target, scheme);
       for (const v of r.violations.filter((v) => v.impact === "serious" || v.impact === "critical")) {
-        if (KNOWN_RULES.has(`${r.id}: ${v.id}`)) continue;
-        failures.push(`${r.page} (${scheme}): ${v.id} ${v.impact} at ${v.nodes.join(", ")}`);
+        const fresh = v.nodes.filter((n) => !KNOWN_RULES.has(`${r.id}: ${v.id} @ ${n}`));
+        if (fresh.length) failures.push(`${r.page} (${scheme}): ${v.id} ${v.impact} at ${fresh.join(", ")}`);
       }
     }
   }
   assert.ok(results.length >= 2 * (EXTRA.length + 5), `audited ${results.length} page views`);
+  if (process.env.AXE_CORE_VERSION) assert.strictEqual(rowsVersion(), process.env.AXE_CORE_VERSION, "the axe-core that ran is the one ci.yml pins");
   assert.deepStrictEqual(failures, []);
-  const seen = new Set(results.flatMap((r) => r.violations.map((v) => `${r.id}: ${v.id}`)));
+  const seen = new Set(results.flatMap((r) => r.violations.flatMap((v) => v.nodes.map((n) => `${r.id}: ${v.id} @ ${n}`))));
   assert.deepStrictEqual([...KNOWN_RULES].filter((k) => !seen.has(k)), [], "fixed: remove these from KNOWN_RULES");
 });
 
@@ -210,13 +243,16 @@ test("the audit catches a violation put into a page", { skip }, async () => {
     clicky.addEventListener("click", () => {});
     document.getElementById("view").append(clicky,
       h("img", { src: "data:image/gif;base64,R0lGODlhAQABAAAAACw=" }),
-      h("button", { class: "a11y-bare", style: "outline:none" }));
+      h("button", { class: "a11y-bare", style: "outline:none" }),
+      // A button with no ring of its own inside a container that always has a shadow, as a dialog has.
+      h("div", { style: "box-shadow:0 4px 16px rgba(0,0,0,.2);padding:8px" }, h("button", { class: "a11y-shadowed", style: "outline:none" }, "Shadowed")));
   }) }, "light");
   results.length = before;  // not part of the report
   const ids = r.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => v.id);
   for (const id of ["image-alt", "color-contrast", "button-name"]) assert.ok(ids.includes(id), `${id} in ${ids.join(", ")}`);
   assert.ok(r.unreachable.includes("#a11y-injected"), r.unreachable.join(", "));
   assert.ok(r.noRing.some((k) => k.startsWith("button.a11y-bare")), r.noRing.join(", "));
+  assert.ok(r.noRing.some((k) => k.startsWith("button.a11y-shadowed")), `a container's own shadow isn't a ring: ${r.noRing.join(", ")}`);
 });
 
 function report(rows) {
@@ -259,7 +295,7 @@ function report(rows) {
   ]);
   const looks = rows.filter((r) => r.scheme === "light").flatMap((r) => r.incomplete.map((v) =>
     `- **${r.page}**: ${v.id}: ${v.help}. At ${v.nodes.map((n) => `\`${n}\``).join(", ")}`));
-  lines.push("", "## Findings", "", "Filed to be fixed in [#905](https://github.com/KratosDataGod/KratosForge/issues/905); the test fails on any finding not listed here.", "",
+  lines.push("", "## Findings", "", "Filed to be fixed in [#905](https://github.com/KratosDataGod/KratosForge/issues/905); the test fails on any serious or critical rule violation, or keyboard or focus finding, not listed here.", "",
     ...(findings.length ? findings : ["None."]));
   lines.push("", "## Needs a look", "",
     "Checks axe couldn't decide by itself (for example text over a gradient or an image). Each needs a person to judge.", "",

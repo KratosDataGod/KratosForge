@@ -104,8 +104,8 @@ def _operation_failed(operation: str, state: dict[str, Any]) -> FabricError:
     error = state.get("error") if isinstance(state.get("error"), dict) else {}
     code = str(error.get("errorCode") or "") or None
     message = str(error.get("message") or "").strip().rstrip(".")
-    details = [str(d.get("message")).strip().rstrip(".") for d in error.get("moreDetails") or []
-               if isinstance(d, dict) and d.get("message")]
+    more = error.get("moreDetails") if isinstance(error.get("moreDetails"), list) else []
+    details = [str(d.get("message")).strip().rstrip(".") for d in more if isinstance(d, dict) and d.get("message")]
     if code == "CapacityNotActive":
         message = ("This workspace's Fabric capacity is paused or inactive. Resume the capacity, "
                    "or use a workspace on an active capacity")
@@ -291,14 +291,22 @@ class FabricClient:
         return self._request("GET", f"/workspaces/{workspace_id}/lakehouses/{lakehouse_id}").json()
 
     def create_lakehouse(self, workspace_id: str, name: str, description: str = "") -> dict[str, Any]:
-        """Create a schema-enabled lakehouse."""
+        """Create a schema-enabled lakehouse. Always returns it with its ``id``: when the operation gives
+        no result, the lakehouse is looked up by name."""
         problem = lakehouse_name_problem(name)
         if problem:
             raise ValueError(problem)
         body = {"displayName": name, "creationPayload": {"enableSchemas": True}}
         if description:
             body["description"] = description
-        return self._wait(self._request("POST", f"/workspaces/{workspace_id}/lakehouses", json=body))
+        made = self._wait(self._request("POST", f"/workspaces/{workspace_id}/lakehouses", json=body))
+        if made.get("id"):
+            return made
+        found = self.find_lakehouse(workspace_id, name)
+        if found and found.get("id"):
+            return found
+        raise FabricError(f"Fabric said it created the lakehouse {name}, but it isn't in the workspace yet. "
+                          "Refresh the workspace in a minute, then try again.", "LakehouseNotFoundAfterCreate")
 
     def delete_lakehouse(self, workspace_id: str, lakehouse_id: str) -> None:
         """Delete a lakehouse with its tables and files (shortcut targets stay). Only the live test
@@ -343,7 +351,11 @@ class FabricClient:
     def get_item_definition(self, workspace_id: str, item_id: str, fmt: str | None = None) -> dict[str, Any]:
         """An item's definition parts (base64), e.g. a notebook as ipynb. Needs Item.ReadWrite.All, which sign-in already asks for."""
         query = f"?format={fmt}" if fmt else ""
-        return self._wait(self._request("POST", f"/workspaces/{workspace_id}/items/{item_id}/getDefinition{query}"))
+        got = self._wait(self._request("POST", f"/workspaces/{workspace_id}/items/{item_id}/getDefinition{query}"))
+        if not isinstance(got.get("definition"), dict):
+            raise FabricError("Fabric didn't send the item's definition. Try again; if it keeps happening, "
+                              "open the item in Fabric to check it still loads.", "NoDefinition")
+        return got
 
     def list_notebooks(self, workspace_id: str) -> list[dict[str, Any]]:
         return self._paged(f"/workspaces/{workspace_id}/notebooks")

@@ -129,6 +129,17 @@ def polars_type(name: str) -> pl.DataType:
     return _SIMPLE_TYPES[name]
 
 
+def _stop_if_unreadable(before: pl.DataFrame, after: pl.DataFrame, keys: list[str], to: str) -> None:
+    """[load] deletes: a source key that can't be read as the key's type would turn null and look gone
+    from the source, so its row would be deleted. Stop instead."""
+    for k in keys:
+        bad = before.filter(before[k].is_not_null() & after[k].is_null())
+        if bad.height:
+            raise CheckStop(f"load deletes: {plural(bad.height, 'source key')} in {k} couldn't be read as {to} "
+                            f"(for example {bad[k][0]!r}), so they would look gone from the source. Nothing was "
+                            "written and no deletes were applied; check the source's key column")
+
+
 def _cast(df: pl.DataFrame, col: str, dtype: pl.DataType) -> pl.Expr:
     src = df.schema[col]
     if src == dtype:
@@ -574,11 +585,13 @@ class Engine:
             lf = lf.filter(~pl.col("is_deleted").cast(pl.Boolean, strict=False).fill_null(False))
         df = lf.select(cols).unique().collect(engine="streaming")
         df, _ = self._renamed(src, df, "")
-        df = df.select([_cast(df, k, polars_type(e.columns[k])).alias(k) for k in e.keys])
+        raw = df.select(e.keys).drop_nulls()
+        df = raw.select([_cast(raw, k, polars_type(e.columns[k])).alias(k) for k in e.keys])
         rules = [r for r in e.spec.get("clean", []) if r.get("column") in e.keys and "dedupe_keep" not in r]
         if rules:
-            df, _ = apply_clean(df, rules, e.keys)
-        self._src_keys = df.drop_nulls().unique()
+            df, _ = apply_clean(df, rules, e.keys)  # row for row: dedupe_keep is left out
+        _stop_if_unreadable(raw, df, e.keys, "the contract type (or a clean rule blanks it)")
+        self._src_keys = df.unique()
         return self._src_keys
 
     def _gone_keys(self, e: Entity, df: pl.DataFrame, backfill: str | None, res: RunResult) -> pl.DataFrame | None:
@@ -595,14 +608,23 @@ class Engine:
         have = target.select(e.keys).unique().drop_nulls().collect(engine="streaming")
         source = self._source_keys(e)
         if not source.height and have.height:
-            raise CheckStop(f"load deletes: the source has no rows, so every row of {e.name} would be "
+            raise CheckStop(f"load deletes: the source has no live rows, so every row of {e.name} would be "
                             f"{'marked deleted' if e.deletes == 'soft' else 'removed'}. Nothing was written; "
                             "check the source")
-        source = source.select([pl.col(k).cast(have.schema[k], strict=False) for k in e.keys])
-        gone = have.join(source, on=e.keys, how="anti")
+        typed = source.select([pl.col(k).cast(have.schema[k], strict=False) for k in e.keys])
+        _stop_if_unreadable(source, typed, e.keys, "the table's key type")
+        gone = have.join(typed, on=e.keys, how="anti")
         if df.height and all(k in df.columns for k in e.keys):
             gone = gone.join(df.select([pl.col(k).cast(have.schema[k], strict=False) for k in e.keys]),
                              on=e.keys, how="anti")
+        kind, limit = e.max_deletes
+        allowed = int(limit * have.height) if kind == "share" else int(limit)
+        if gone.height > allowed:
+            said = f"{limit * 100:g}%" if kind == "share" else plural(int(limit), "key")
+            raise CheckStop(f"load deletes: {plural(gone.height, 'key')} of {plural(have.height, 'live key')} in "
+                            f"{e.name} are gone from the source, more than max_deletes allows ({said}). Nothing was "
+                            "written. A source cut short looks like this: check it, and raise [load] max_deletes "
+                            "if the deletes are real")
         what = "to mark deleted" if e.deletes == "soft" else "to remove"
         self._step(res, "deletes", t0, gone.height,
                    f"compared {plural(source.height, 'source key')} with {plural(have.height, 'live key')} "

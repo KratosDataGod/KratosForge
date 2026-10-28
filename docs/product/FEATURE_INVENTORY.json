@@ -2950,7 +2950,7 @@
       },
       "limitations": [
         "Watermark filter is strictly > unless [load] lookback is set; rows older than the lookback are still missed",
-        "Source deletes ([load] deletes) are found only on incremental runs of a Delta source with keys, by reading every source key",
+        "Source deletes ([load] deletes) are found only on incremental runs of a Delta source with keys, by reading every source key; a run that would delete more than [load] max_deletes (20% of live keys by default) or meets an unreadable source key stops instead",
         "Type 2 source repeating a key fails (plan)"
       ],
       "prs": [

@@ -47,13 +47,17 @@ LOAD_MODES = ("full", "incremental", "scd1", "scd2")
 # default) leaves the row as it is; "soft" marks it with DELETE_COLUMNS; "hard" removes it.
 DELETE_MODES = ("none", "soft", "hard")
 DELETE_COLUMNS = ["is_deleted", "deleted_at"]
+# [load] max_deletes: the most live keys one run may mark or remove, as "N%" of them or a count. A
+# source that is cut short or whose key type drifted looks like a mass delete; the run stops instead.
+DEFAULT_MAX_DELETES = "20%"
+_MAX_DELETES = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*%\s*$")
 _LOOKBACK = re.compile(r"^\s*(\d+)\s*(minute|minutes|min|mins|hour|hours|day|days)\s*$", re.IGNORECASE)
 LOGIC_KEYS = ("source", "load", "contract", "clean", "derive", "check", "hooks", "step", "scd", "lookup", "keys")
 # Settings that change how a run reads its source, never the rows it writes: changing one isn't a
 # logic change, so it doesn't ask whether to rebuild. (A lookback reads rows again; the MERGE on the
 # key makes them land once, so the table is the same.)
 OPERATIONAL_KEYS = (("source", "new_files_only"), ("load", "memory_guard"), ("load", "batch_by"),
-                    ("load", "lookback"))
+                    ("load", "lookback"), ("load", "max_deletes"))
 CUSTOM_RULES = ("owner", "custom_code_owner", "custom_code_test", "key_not_null", "key_unique",
                 "surrogate_keys")
 ENVIRONMENTS = ("dev", "test", "prod")
@@ -93,6 +97,21 @@ def parse_lookback(value: Any) -> dt.timedelta | int | None:
     if unit.startswith("min"):
         return dt.timedelta(minutes=n)
     return dt.timedelta(hours=n) if unit.startswith("hour") else dt.timedelta(days=n)
+
+
+def parse_max_deletes(value: Any) -> tuple[str, float]:
+    """[load] max_deletes: ("share", 0..1) for "N%", or ("count", n) for a whole number. ValueError
+    when it can't be read."""
+    if isinstance(value, bool):
+        raise ValueError(value)
+    if isinstance(value, int):
+        if value < 0:
+            raise ValueError(value)
+        return "count", float(value)
+    m = _MAX_DELETES.match(value) if isinstance(value, str) else None
+    if not m or float(m.group(1)) > 100:
+        raise ValueError(value)
+    return "share", float(m.group(1)) / 100
 
 
 def as_list(v: Any) -> list:
@@ -173,6 +192,14 @@ class Entity:
     def deletes(self) -> str:
         """[load] deletes on an incremental load: none (the default), soft or hard."""
         return str(self.spec.get("load", {}).get("deletes", "none"))
+
+    @property
+    def max_deletes(self) -> tuple[str, float]:
+        """[load] max_deletes, read; the default when unset or unreadable (the save gate says which)."""
+        try:
+            return parse_max_deletes(self.spec.get("load", {}).get("max_deletes", DEFAULT_MAX_DELETES))
+        except ValueError:
+            return parse_max_deletes(DEFAULT_MAX_DELETES)
 
     @property
     def soft_deletes(self) -> bool:
@@ -574,6 +601,11 @@ def _late_and_delete_problems(e: Entity) -> list[str]:
             if made:
                 errors.append(f"{e.name}: load deletes needs keys the source has; {', '.join(made)} "
                               "is made by this entity")
+        if "max_deletes" in load:
+            try:
+                parse_max_deletes(load["max_deletes"])
+            except ValueError:
+                errors.append(f'{e.name}: load max_deletes is a share like "50%" or a whole number of keys')
         taken = [c for c in DELETE_COLUMNS if c in s.get("contract", {}).get("columns", {})]
         if mode == "soft" and taken:
             errors.append(f'{e.name}: load deletes = "soft" adds {", ".join(taken)} itself; '

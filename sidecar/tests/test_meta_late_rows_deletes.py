@@ -198,7 +198,7 @@ def test_a_lookback_on_a_numeric_watermark_is_a_number(tmp_path):
 
 def test_a_source_delete_is_marked_with_soft_deletes(tmp_path):
     """Criterion 2, soft."""
-    new, old = both(tmp_path, load='deletes = "soft"')
+    new, old = both(tmp_path, load='deletes = "soft"\nmax_deletes = "50%"')
     for s in (new, old):
         s.source(rows([1, 2, 3], at(10)))
         s.run()
@@ -230,7 +230,7 @@ def test_a_source_delete_is_marked_with_soft_deletes(tmp_path):
 
 def test_a_source_delete_is_removed_with_hard_deletes(tmp_path):
     """Criterion 2, hard."""
-    new, old = both(tmp_path, load='deletes = "hard"')
+    new, old = both(tmp_path, load='deletes = "hard"\nmax_deletes = "50%"')
     for s in (new, old):
         s.source(rows([1, 2, 3, 4], at(10)))
         s.run()
@@ -247,7 +247,7 @@ def test_a_source_delete_is_removed_with_hard_deletes(tmp_path):
 
 
 def test_deletes_alone_still_commit_when_no_row_is_new(tmp_path):
-    for s in both(tmp_path, load='deletes = "hard"'):
+    for s in both(tmp_path, load='deletes = "hard"\nmax_deletes = "50%"'):
         s.source(rows([1, 2], at(10)))
         s.run()
         s.source(rows([1], at(10)), mode="overwrite")
@@ -256,7 +256,7 @@ def test_deletes_alone_still_commit_when_no_row_is_new(tmp_path):
 
 
 def test_lookback_and_soft_deletes_together(tmp_path):
-    for s in both(tmp_path, load='lookback = "1 hour"\ndeletes = "soft"'):
+    for s in both(tmp_path, load='lookback = "1 hour"\ndeletes = "soft"\nmax_deletes = "50%"'):
         s.source(rows([1, 2], at(10)))
         s.run()
         s.source(rows([1], at(10)), mode="overwrite")
@@ -272,15 +272,87 @@ def test_an_empty_source_stops_deletes_instead_of_deleting_everything(tmp_path):
     s.run()
     s.source(rows([], at(10)), mode="overwrite")
     res = s.engine(DAY2).run("bronze.events")
-    assert res.status == "failed" and "the source has no rows" in res.message
+    assert res.status == "failed" and "the source has no live rows" in res.message
     assert s.table()["id"].to_list() == [1, 2]
+
+
+@pytest.mark.parametrize("mode", ["soft", "hard"])
+def test_more_deletes_than_max_deletes_stops_the_run(tmp_path, mode):
+    """A source cut short looks like a mass delete: over max_deletes (20% of live keys unless set), the
+    run stops with nothing written; raising max_deletes lets the same run go ahead."""
+    for s in both(tmp_path / mode, load=f'deletes = "{mode}"'):
+        s.source(rows(range(1, 11), at(10)))
+        s.run()
+        before = s.table()
+        s.source(rows(range(1, 8), at(10)), mode="overwrite")  # 3 of 10 keys gone: 30%
+        res = s.engine(DAY2).run("bronze.events")
+        assert res.status == "failed" and "3 keys of 10 live keys" in res.message and "max_deletes" in res.message
+        assert s.table().equals(before)
+        s.write_entity(f'deletes = "{mode}"\nmax_deletes = 3')
+        res = s.run(DAY2)
+        assert "3 keys gone from the source" in s.step(res, "deletes")
+
+
+def test_a_source_key_that_cant_be_read_as_the_key_type_stops_deletes(tmp_path):
+    """Type drift: the source's id turns into text with a value that isn't a number. Cast leniently it
+    would be null, look gone and be deleted; the run stops instead."""
+    for s in both(tmp_path, load='deletes = "hard"\nmax_deletes = "100%"'):
+        s.source(rows([1, 2, 3], at(10)))
+        s.run()
+        drifted = pl.DataFrame({"id": ["1", "2", "three"], "amount": [1.0] * 3, "modified": [at(10)] * 3},
+                               schema={"id": pl.String, "amount": pl.Float64, "modified": pl.Datetime("us", "UTC")})
+        write_deltalake(str(s.src), drifted.to_arrow(), mode="overwrite", schema_mode="overwrite")
+        res = s.engine(DAY2).run("bronze.events")
+        assert res.status == "failed" and "couldn't be read" in res.message and "'three'" in res.message
+        assert s.table()["id"].to_list() == [1, 2, 3]
+
+
+def test_a_clean_rule_that_blanks_a_source_key_stops_deletes(tmp_path):
+    s = Setup(tmp_path, True)
+    p = s.root / "metadata" / "entities" / "bronze.events.toml"
+    p.write_text(p.read_text(encoding="utf-8").replace('id = "int64"', 'id = "string"')
+                 .replace('watermark = "modified"', 'watermark = "modified"\ndeletes = "hard"\nmax_deletes = "100%"')
+                 + '[[clean]]\ncolumn = "id"\nnull_if = ["N/A"]\n', encoding="utf-8")
+    assert validate(Project(s.root)) == []
+    ids = lambda xs: pl.DataFrame({"id": xs, "amount": [1.0] * len(xs), "modified": [at(10)] * len(xs)},
+                                  schema={"id": pl.String, "amount": pl.Float64, "modified": pl.Datetime("us", "UTC")})
+    s.source(ids(["a", "b"]))
+    s.run()
+    s.source(ids(["a", "N/A"]), mode="overwrite")
+    res = s.engine(DAY2).run("bronze.events")
+    assert res.status == "failed" and "couldn't be read" in res.message and "'N/A'" in res.message
+    assert s.table()["id"].to_list() == ["a", "b"]
+
+
+def test_a_source_whose_rows_are_all_marked_deleted_stops_instead_of_deleting_them(tmp_path):
+    """An is_deleted column in the source counts: rows marked true are gone. Every row (or more than
+    max_deletes of them) marked at once stops the run."""
+    for s in both(tmp_path, load='deletes = "hard"'):
+        s.source(rows(range(1, 11), at(10)))
+        s.run()
+        for marked in (range(1, 11), range(1, 4)):  # all of them, then 3 of 10
+            flagged = rows(range(1, 11), at(10)).with_columns(pl.col("id").is_in(list(marked)).alias("is_deleted"))
+            write_deltalake(str(s.src), flagged.to_arrow(), mode="overwrite", schema_mode="overwrite")
+            res = s.engine(DAY2).run("bronze.events")
+            assert res.status == "failed", res.message
+            assert s.table()["id"].to_list() == list(range(1, 11))
+        assert "max_deletes" in res.message
+
+
+def test_max_deletes_is_checked_when_saved(tmp_path):
+    for i, bad in enumerate(('"lots"', '"150%"', "-1", "true")):
+        s = Setup(tmp_path / f"bad{i}", True, load=f'deletes = "hard"\nmax_deletes = {bad}')
+        assert any("load max_deletes is a share" in e for e in validate(Project(s.root))), bad
+    for i, good in enumerate(('"20%"', '"2.5%"', "0", "500")):
+        s = Setup(tmp_path / f"ok{i}", True, load=f'deletes = "hard"\nmax_deletes = {good}')
+        assert validate(Project(s.root)) == [], good
 
 
 def test_turning_on_soft_deletes_marks_the_rows_already_loaded_live(tmp_path):
     for s in both(tmp_path):
         s.source(rows([1, 2], at(10)))
         s.run()
-        s.write_entity('deletes = "soft"')
+        s.write_entity('deletes = "soft"\nmax_deletes = "50%"')
         s.source(rows([1], at(11)), mode="overwrite")
         res = s.engine(DAY2).run("bronze.events", backfill="none")  # the logic changed: keep what's loaded
         assert res.status == "ok", res.message
@@ -289,7 +361,7 @@ def test_turning_on_soft_deletes_marks_the_rows_already_loaded_live(tmp_path):
 
 
 def test_a_downstream_entity_sees_the_soft_delete_columns(tmp_path):
-    s = Setup(tmp_path, True, load='deletes = "soft"')
+    s = Setup(tmp_path, True, load='deletes = "soft"\nmax_deletes = "50%"')
     (s.root / "metadata" / "entities" / "silver.events.toml").write_text(textwrap.dedent("""
         name = "silver.events"
         owner = "Chris"
@@ -320,7 +392,7 @@ def test_a_downstream_entity_sees_the_soft_delete_columns(tmp_path):
 def test_a_downstream_entity_with_deletes_sees_a_soft_deleted_upstream_key_as_gone(tmp_path, deletes):
     """bronze marks id 2 deleted but keeps the row, and its watermark doesn't move, so silver's watermark
     never re-reads it: silver's own deletes setting finds it gone."""
-    s = Setup(tmp_path, True, load='deletes = "soft"')
+    s = Setup(tmp_path, True, load='deletes = "soft"\nmax_deletes = "50%"')
     (s.root / "metadata" / "entities" / "silver.events.toml").write_text(textwrap.dedent(f"""
         name = "silver.events"
         owner = "Chris"
@@ -330,6 +402,7 @@ def test_a_downstream_entity_with_deletes_sees_a_soft_deleted_upstream_key_as_go
         mode = "incremental"
         watermark = "modified"
         deletes = "{deletes}"
+        max_deletes = "50%"
         [contract]
         keys = ["id"]
         [contract.columns]

@@ -19,6 +19,7 @@ mod exe_name;
 mod policy_file;
 mod policy_trust;
 mod replies;
+mod signature;
 mod update_guard;
 mod vscode_link;
 mod watchdog;
@@ -1279,6 +1280,12 @@ async fn update_app(app: tauri::AppHandle, state: tauri::State<'_, SidecarState>
                 });
             }
         }
+    }
+    // A signed build takes only an update its own publisher signed (signature.rs): the checksum
+    // the download was checked against comes from the same release as the file.
+    if let Err(why) = signature::update_allowed(&signature::signer(&exe), &signature::signer(&new)) {
+        let _ = std::fs::remove_file(&new);
+        return Err(why);
     }
     update_guard::hand_over(&mut ExeHandover {
         app: &app, state: &state, exe, new, old, marker: start_marker(), commit: &target, child: None,

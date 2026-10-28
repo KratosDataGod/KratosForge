@@ -265,6 +265,8 @@ jobs:
     runs-on: windows-latest
     # After the engine, whose zips' checksums the exe carries.
     needs: engine
+    outputs:
+      signed: ${{ steps.signature.outputs.signed }}
     defaults:
       run:
         working-directory: app/src-tauri
@@ -310,6 +312,19 @@ jobs:
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
+      # Once signing is set up, a build of main that comes out unsigned stops here instead of being
+      # published: signed apps refuse unsigned updates (signature.rs), and Promote refuses them.
+      - name: Check the exe's signature
+        id: signature
+        shell: pwsh
+        env:
+          SIGNING: ${{ vars.TRUSTED_SIGNING_ACCOUNT != '' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        run: |
+          $sig = Get-AuthenticodeSignature target\release\kratosforge.exe
+          "The exe's signature: $($sig.Status) $($sig.SignerCertificate.Subject)"
+          $signed = $sig.Status -eq 'Valid'
+          if ($env:SIGNING -eq 'true' -and -not $signed) { throw "Signing is set up, but the exe isn't validly signed ($($sig.Status)), so it isn't published." }
+          "signed=$($signed.ToString().ToLower())" >> $env:GITHUB_OUTPUT
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fabric-desktop-windows
@@ -389,8 +404,9 @@ jobs:
             --arg update "$(sha256sum fabric-desktop-engine-update.zip | cut -d' ' -f1)" \
             --arg runtime "$RUNTIME" \
             --argjson published "$(date -u +%s)" \
+            --argjson signed "${{ needs.shell.outputs.signed == 'true' }}" \
             '{commit: $commit, notes: $notes, history: $history[0], exe_sha256: $exe, engine_sha256: $engine,
-              engine_runtime: $runtime, engine_update_sha256: $update, published: $published}' > version.json
+              engine_runtime: $runtime, engine_update_sha256: $update, published: $published, signed: $signed}' > version.json
           # Every published build also gets a release of its own that never changes, so it can be
           # pinned, or promoted to Stable again to roll back, after Preview has moved on. It goes
           # first, so the build Preview names always has one. version.json last, as for latest.

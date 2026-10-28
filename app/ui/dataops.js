@@ -440,7 +440,7 @@ function quarantinePanel(e, q) {
 
 // ---------- freshness ----------
 
-const fresh = { items: null, alerts: false, timer: null };
+const fresh = { items: null, alerts: false, alertsUnreadable: false, timer: null };
 
 function promiseText(f) {
   if (!f) return "";
@@ -499,7 +499,14 @@ function freshnessDialog(e) {
     btn("Cancel", null, closeDialog, "tool outline"), btn("Save", "save", () => save(false), "tool primary")].filter(Boolean));
 }
 
+// Shown when the saved Teams address is encrypted for another Windows account or PC (sealed_settings.py).
+const ALERTS_UNREADABLE = "The saved Teams address can't be read on this PC or account. Enter it again.";
+
 function alertsLine() {
+  if (fresh.alertsUnreadable) {
+    return h("div", { class: "row wrap wrn-text small" }, icon("alert", 14), ALERTS_UNREADABLE,
+      btn("Set up Teams alerts", null, alertsDialog, "tool link small"));
+  }
   return h("div", { class: "row wrap muted-text small" }, icon("alert", 14),
     fresh.alerts ? "New incidents are also posted to your Teams channel, unless an agent already checks that environment." : "New incidents can also be posted to a Teams channel.",
     btn(fresh.alerts ? "Change" : "Set up Teams alerts", null, alertsDialog, "tool link small"));
@@ -512,11 +519,13 @@ async function alertsDialog() {
     const res = await attempt(() => rpc("meta_set_alerts", { teams_webhook: url.value.trim(), test }), test ? "Test message not sent" : "Not saved");
     if (!res) return;
     fresh.alerts = !!res.teams_webhook;
+    fresh.alertsUnreadable = !!res.unreadable;
     closeDialog();
     toast(res.teams_webhook ? (test ? "Sent a test message to Teams and saved" : "Teams alerts are on") : "Teams alerts are off");
   };
   showDialog("Teams alerts", h("div", { class: "dataops" },
     h("p", { class: "text" }, "In the Teams channel, add the Workflows template \"Post to a channel when a webhook request is received\", then paste its address here. Each new incident (a failed or late table, a missed objective, an agent that stopped) is posted once, and again when it recovers. Environments that a running agent checks are left to the agent."),
+    cur.unreadable ? h("p", { class: "wrn-text small" }, ALERTS_UNREADABLE) : null,
     h("label", { class: "field" }, "Webhook address", url),
     h("p", { class: "muted-text small" }, "This PC sends them while the app is open; the address stays on this PC. A message Teams doesn't take is sent with the next check.")),
   [btn("Cancel", null, closeDialog, "tool outline"), btn("Save", null, () => save(false), "tool outline"), btn("Send a test and save", "alert", () => save(true), "tool primary")]);
@@ -536,6 +545,7 @@ async function checkFreshness() {
   if (res) {
     fresh.items = res.items;
     fresh.alerts = res.alerts;
+    fresh.alertsUnreadable = !!res.alerts_unreadable;
     for (const x of previewShown() ? [] : res.items) {
       const id = `fresh:${x.env}:${x.entity}:${x.last_ok}`;
       if (x.status === "late" && !activity.items.some((i) => i.id === id)) {

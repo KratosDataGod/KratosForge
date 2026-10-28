@@ -556,7 +556,8 @@ class Engine:
 
     def _source_keys(self, e: Entity) -> pl.DataFrame:
         """Every key the source has now, as the table holds it: renamed, cast to the contract types
-        and through the entity's clean rules on key columns. Reads only the key columns."""
+        and through the entity's clean rules on key columns. Reads only the key columns (and is_deleted,
+        when the source has it)."""
         if self._src_keys is not None:
             return self._src_keys
         src = e.spec["source"]
@@ -567,6 +568,10 @@ class Engine:
         missing = [c for c in cols if c not in names]
         if missing:
             raise CheckStop(f"load deletes: the source has no key column {', '.join(missing)}")
+        if "is_deleted" in names and "is_deleted" not in cols:
+            # A soft-delete source (an entity with deletes = "soft") keeps its deleted keys as rows marked
+            # is_deleted; they are gone from it, and its watermark won't bring them here again.
+            lf = lf.filter(~pl.col("is_deleted").cast(pl.Boolean, strict=False).fill_null(False))
         df = lf.select(cols).unique().collect(engine="streaming")
         df, _ = self._renamed(src, df, "")
         df = df.select([_cast(df, k, polars_type(e.columns[k])).alias(k) for k in e.keys])

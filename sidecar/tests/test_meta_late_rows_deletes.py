@@ -316,6 +316,46 @@ def test_a_downstream_entity_sees_the_soft_delete_columns(tmp_path):
     assert silver["is_deleted"].to_list() == [False, True]
 
 
+@pytest.mark.parametrize("deletes", ["soft", "hard"])
+def test_a_downstream_entity_with_deletes_sees_a_soft_deleted_upstream_key_as_gone(tmp_path, deletes):
+    """bronze marks id 2 deleted but keeps the row, and its watermark doesn't move, so silver's watermark
+    never re-reads it: silver's own deletes setting finds it gone."""
+    s = Setup(tmp_path, True, load='deletes = "soft"')
+    (s.root / "metadata" / "entities" / "silver.events.toml").write_text(textwrap.dedent(f"""
+        name = "silver.events"
+        owner = "Chris"
+        [source]
+        entity = "bronze.events"
+        [load]
+        mode = "incremental"
+        watermark = "modified"
+        deletes = "{deletes}"
+        [contract]
+        keys = ["id"]
+        [contract.columns]
+        id = "int64"
+        modified = "datetime"
+        [[check]]
+        column = "id"
+        not_null = true
+        unique = true
+    """).strip() + "\n", encoding="utf-8")
+    assert validate(Project(s.root)) == []
+    s.source(rows([1, 2, 3], at(10)))
+    s.run()
+    assert s.engine().run("silver.events").status == "ok"
+    s.source(rows([1, 3], at(10)), mode="overwrite")
+    s.run(DAY2)
+    res = s.engine(DAY2).run("silver.events")
+    assert res.status == "ok", res.message
+    assert "1 key gone from the source" in s.step(res, "deletes")
+    silver = s.engine().read_entity("silver.events").sort("id")
+    if deletes == "soft":
+        assert silver["id"].to_list() == [1, 2, 3] and silver["is_deleted"].to_list() == [False, True, False]
+    else:
+        assert silver["id"].to_list() == [1, 3]
+
+
 # ----------------------------------------------------------------------------- validation
 
 

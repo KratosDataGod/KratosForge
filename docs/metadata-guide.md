@@ -157,6 +157,7 @@ deletes = "soft"         # none (default) | soft | hard
   - `hard` removes the row, in the same Delta MERGE commit as the new rows.
   - The run's **deletes** step says what it compared, for example *compared 999 source keys with 1000 live keys in the table: 1 key gone from the source to mark deleted*, and the write step adds *marked 1 row deleted* or *removed 1 row deleted at the source*. If the source has no rows at all, the run stops instead of marking or removing every row.
   - Deletes are found on incremental runs. A first load, a full rebuild and a quarantine replay don't look for them; the next incremental run does.
+  - An incremental table that reads a `soft` table doesn't get its deletes through the watermark: a marked row keeps its watermark value, so it isn't read again. Set `deletes` on the reading table too. Its comparison treats the keys marked `is_deleted = true` as gone.
 
 A run in Fabric uses the same engine, so it behaves the same. The settings are checked when you save: `lookback` and `deletes` need an incremental load of a Delta source with keys, `deletes` can't be used with a custom step or with keys this entity makes, and a lookback is a duration or a whole number.
 

@@ -6,6 +6,8 @@ in their own process** on, the code runs in the kernel's own process (kernel_pro
 is given that process's id and measures it instead: its CPU time (user and system) and its memory
 (private bytes on Windows, resident memory elsewhere, as the kernel's memory limit counts it).
 A kernel process that starts during the run counts from its start; one that restarts counts both.
+A process that ends mid-run counts up to its last sample, so up to a quarter second of its CPU time
+can be missed. A kernel that isn't running isn't measured: no memory, no CPU.
 They are measurements of this PC, labeled as such; nothing here is estimated.
 """
 
@@ -56,8 +58,9 @@ def cpu_seconds(pid: int) -> float | None:
             import ctypes
             from ctypes import wintypes
 
-            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
-            handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+            from .kernel_proc import PROCESS_QUERY_LIMITED_INFORMATION, win_kernel32
+            kernel32 = win_kernel32()
+            handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
             if not handle:
                 return None
             try:
@@ -103,7 +106,8 @@ class RunMeter:
 
     def _memory(self, pid: int | None) -> int | None:
         if pid is None:
-            return rss_bytes()
+            # A kernel run between processes has none to measure (the engine's memory isn't the notebook's).
+            return None if self.process else rss_bytes()
         from .kernel_proc import memory_used
         return memory_used(pid)
 
@@ -137,7 +141,10 @@ class RunMeter:
     def _sample(self) -> None:
         while not self._stop.wait(self.interval):
             self.samples += 1
-            self._read()
+            try:
+                self._read()
+            except Exception as exc:  # noqa: BLE001 - one lost sample, not the rest of the run's
+                _log.info("Couldn't take a run sample: %s", describe(exc))
 
     def __exit__(self, *_exc: Any) -> None:
         self.wall = round(time.monotonic() - self._wall, 3)

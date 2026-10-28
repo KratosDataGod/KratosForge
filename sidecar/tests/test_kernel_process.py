@@ -375,7 +375,7 @@ def test_the_run_meter_measures_the_kernel_process_not_the_engine(kernel):
     kernel.run("x = 1")  # started, so its start-up isn't part of this run
     before = cpu_seconds(kernel.pid)
     engine_before = time.process_time()
-    with RunMeter(interval=0.05, process=lambda: kernel.pid) as meter:
+    with RunMeter(interval=0.05, process=lambda: kernel.live_pid) as meter:
         out = kernel.run("import time\nheld = bytearray(300 * 1024 * 1024)\n"
                          "end = time.process_time() + 1.5\nwhile time.process_time() < end:\n    pass\nprint('ok')")
     after = cpu_seconds(kernel.pid)
@@ -390,6 +390,22 @@ def test_the_run_meter_measures_the_kernel_process_not_the_engine(kernel):
 def test_a_kernel_that_starts_during_the_run_counts_from_its_start(kernel):
     from fabric_desktop.measure import RunMeter, cpu_seconds
     kernel.restart()
-    with RunMeter(interval=0.05, process=lambda: kernel.pid) as meter:
+    with RunMeter(interval=0.05, process=lambda: kernel.live_pid) as meter:
         kernel.run("end = __import__('time').process_time() + 0.5\nwhile __import__('time').process_time() < end:\n    pass")
     assert meter.processes == 1 and meter.cpu >= 0.5 and meter.cpu <= cpu_seconds(kernel.pid) + 0.05
+
+
+def test_a_stopped_or_restarted_kernel_isnt_measured_before_its_next_start(kernel):
+    """The id of an ended process (which the OS may give another process) is never measured."""
+    from fabric_desktop.measure import RunMeter
+    kernel.run("x = 1")
+    pid = kernel.pid
+    assert kernel.live_pid == pid
+    for end in (kernel.stop, kernel.restart):
+        end()
+        assert kernel.live_pid is None and kernel.pid == pid  # the last id is still there, not measured
+        with RunMeter(interval=0.05, process=lambda: kernel.live_pid) as meter:
+            time.sleep(0.2)
+        assert meter.processes == 0 and meter.cpu == 0 and meter.result()["peak_memory_mb"] is None
+    kernel.run("x = 2")
+    assert kernel.live_pid == kernel.pid != pid

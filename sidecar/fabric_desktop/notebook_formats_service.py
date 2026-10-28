@@ -25,7 +25,8 @@ METHODS = {"notebook_export", "notebook_formats_import_check", "notebook_formats
 
 
 def _read(file_name: str, content: str, encoding: str) -> dict[str, Any]:
-    """{"format", "notebooks": [{"name", "folder", "cells"}]} from the picked file's content."""
+    """{"format", "notebooks": [{"name", "folder", "cells", "notes"}]} from the picked file's content.
+    ``notes`` say what a Databricks notebook's conversion dropped or changed (notebook_formats)."""
     suffix = Path(file_name.replace("\\", "/")).suffix.lower()
     stem = Path(file_name.replace("\\", "/")).stem
     if suffix == ".dbc":
@@ -46,7 +47,8 @@ def _read(file_name: str, content: str, encoding: str) -> dict[str, Any]:
         parsed = nbf.parse_source(content, file_name)
     else:
         raise ValueError("KratosForge imports .ipynb, .py, .sql, .scala and .dbc notebook files.")
-    return {"format": parsed["format"], "notebooks": [{"name": stem, "folder": "", "cells": parsed["cells"]}]}
+    return {"format": parsed["format"], "notebooks": [{"name": stem, "folder": "", "cells": parsed["cells"],
+                                                       "notes": parsed.get("notes", [])}]}
 
 
 class NotebookFormatsMixin:
@@ -74,25 +76,29 @@ class NotebookFormatsMixin:
             {"name": name, "source_name": nb["name"], "folder": nb["folder"], "cells": len(nb["cells"]),
              "markdown": sum(c["type"] == "markdown" for c in nb["cells"]),
              "languages": sorted({(c["source"].split("\n", 1)[0] if c["source"].startswith("%%") else "python")
-                                  for c in nb["cells"] if c["type"] == "code"})}
+                                  for c in nb["cells"] if c["type"] == "code"}),
+             "notes": nb.get("notes", [])}
             for name, nb in zip(names, read["notebooks"])]}
 
     def notebook_formats_import(self, file_name: str, content: str, encoding: str = "text") -> dict[str, Any]:
         """Creates a new notebook for each one in the file, in the app's own notebooks folder.
-        Returns {"format", "created": [names]}. A name taken between the check and now gets the
+        Returns {"format", "created": [names], "notes": {name: notes}} (notes only for notebooks that have some). A name taken between the check and now gets the
         next number; a notebook that is already there is never touched."""
         read = _read(file_name, content, encoding)
         folder: Path = self.notebooks.folder  # type: ignore[attr-defined]
         folder.mkdir(parents=True, exist_ok=True)
         created: list[str] = []
+        notes: dict[str, list[dict[str, Any]]] = {}
         try:
             for nb in read["notebooks"]:
                 text = json.dumps(to_ipynb(nb["cells"] or [{"type": "code", "source": ""}], None), indent=1)
                 created.append(self._write_new_notebook(folder, nb["name"], created, text))
+                if nb.get("notes"):
+                    notes[created[-1]] = nb["notes"]
         except OSError as e:
             raise OSError(f"Couldn't write the imported notebooks ({e}). {len(created)} of "
                           f"{len(read['notebooks'])} were created: {', '.join(created) or 'none'}.") from None
-        return {"format": read["format"], "created": created}
+        return {"format": read["format"], "created": created, "notes": notes}
 
     def _write_new_notebook(self, folder: Path, wanted: str, taken: list[str], text: str) -> str:
         base = nbf.notebook_name(wanted)
@@ -132,5 +138,6 @@ class NotebookFormatsMixin:
                     f.write(text)
             except FileExistsError:
                 continue
-            return {"path": str(path), "format": format, "bytes": len(text.encode("utf-8")), "at": time.time()}
+            return {"path": str(path), "format": format, "bytes": len(text.encode("utf-8")), "at": time.time(),
+                    "notes": nbf.databricks_export_notes(cells, lakehouse_ref) if format == "databricks_py" else []}
         raise ValueError("Couldn't find a free file name in Downloads for the export.")

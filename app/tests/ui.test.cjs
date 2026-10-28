@@ -3822,6 +3822,27 @@ this.payload = nbfExportPayload; this.menu = nbfExportMenu; this.b64 = nbfBase64
   assert.match(src, /changes: "Writes one new notebook file \(\.ipynb\) for each notebook in the file/);
 });
 
+// #854: what a Databricks import or export didn't carry over, one row per note with its cell.
+test("Databricks conversion notes show each construct with its cell, on import and after export", () => {
+  const src = fs.readFileSync(path.join(ui, "notebook-formats.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(`const h = (tag, attrs, ...kids) => ({ tag, attrs, kids: kids.flat(Infinity).filter((k) => k != null) });
+${src.match(/const NBF_NOTE_KINDS = [^\n]*/)[0]}
+${src.match(/function nbfPlural\([\s\S]*?\n}\n/)[0]}
+${src.match(/function nbfNotesTable\([\s\S]*?\n}\n/)[0]}
+${src.match(/function nbfCheckNotes\([\s\S]*?\n}\n/)[0]}
+this.table = nbfNotesTable; this.check = nbfCheckNotes;`, ctx);
+  const text = (n) => (typeof n === "string" ? n : (n.kids || []).map(text).join("|"));
+  const rows = ctx.table([{ cell: null, kind: "dropped", what: "Outputs" }, { cell: 3, kind: "check", what: "dbfs:/ path" }]).kids[1].kids;
+  assert.deepStrictEqual(Array.from(rows, text), ["Whole notebook|Not carried over|Outputs", "3|Check before running|dbfs:/ path"]);
+  const blocks = ctx.check({ notebooks: [{ name: "Load", notes: [{ cell: 1, kind: "changed", what: "%sh" }] }, { name: "Clean", notes: [] }] });
+  assert.strictEqual(blocks.length, 1);
+  assert.match(text(blocks[0]), /^Load: 1 thing to know about the conversion/);
+  assert.match(src, /\.\.\.nbfCheckNotes\(check\)\);/);
+  assert.match(src, /showDialog\("What Databricks source doesn't hold"/);
+});
+
 // Version history (notebook-versions.js): day groups, the change summary, and where it's reached.
 function notebookVersionsHelpers() {
   const ctx = { registerFeature: () => {} };

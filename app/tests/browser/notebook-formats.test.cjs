@@ -66,6 +66,8 @@ test("importing a Databricks source file shows what it creates, then opens the n
   await dialog.locator("input[type=file]").setInputFiles({ name: "Daily sales.py", mimeType: "text/x-python", buffer: Buffer.from(DATABRICKS) });
   await dialog.getByText(/Databricks notebook source: 1 new notebook will be created/).waitFor();
   assert.match(await dialog.innerText(), /Daily sales\s+3 cells, 1 markdown\s+SQL, Python/);
+  // #854: each changed construct is listed with its cell before anything is written.
+  assert.match(await dialog.innerText(), /Daily sales: 1 thing to know about the conversion[\s\S]*3\s+Changed\s+%sql became %%sql/);
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "notebook-import.png") });
   await dialog.getByRole("button", { name: "Import" }).click();
   await page().waitForFunction(() => state.view === "notebook" && state.notebook?.name === "Daily sales");

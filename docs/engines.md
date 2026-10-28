@@ -61,8 +61,9 @@ engine says what to change instead of running.
 
 ## Snowflake SQL on this PC (Preview)
 
-The DuckDB engine runs Snowflake SQL translated, so you can write and try Snowflake queries on this
-PC without a Snowflake account or a running warehouse. **DuckDB is not Snowflake**: nothing here has
+The DuckDB engine runs Snowflake SQL translated, so Snowflake queries can be tried on this PC without
+a Snowflake account or a running warehouse. No screen can pick Snowflake SQL yet: this is the engine
+underneath, and the Snowflake screens come with the warehouse work (SF-02). **DuckDB is not Snowflake**: nothing here has
 been compared with a Snowflake account, and "it ran" never means "Snowflake gives the same answer".
 
 Every statement in the cell gets a label, and the label is the cell's first output, before the
@@ -75,6 +76,7 @@ result:
   clones, stages and the rest below. The note says why.
 
 A cell runs whole or not at all: if any statement runs only in Snowflake, nothing in the cell runs.
+A cell that can't be read as Snowflake SQL at all shows only the error, with no label.
 The same session rules apply as for any DuckDB cell (no files, extensions or network). **Plan**
 shows DuckDB's plan for the translated SQL, not Snowflake's.
 

@@ -1,4 +1,4 @@
-"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | governance check | agent ... | live-test ... | support-bundle | audit | backup | restore | mcp | capabilities | integrations serve`."""
+"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | governance check | agent ... | live-test ... | smoke-test ... | support-bundle | audit | backup | restore | mcp | capabilities | integrations serve`."""
 
 from __future__ import annotations
 
@@ -68,6 +68,15 @@ def main(argv: list[str] | None = None) -> None:
                       help="also run this opt-in check (repeat for more)")
     live.add_argument("--run-in-fabric", action="store_true",
                       help="also run the published test notebook in Fabric; spends Spark capacity")
+    smoke = sub.add_parser("smoke-test", help="the ten-flow tenant smoke test (PB-002): its automated parts, "
+                           "and a checklist for the rest")
+    smoke.add_argument("--workspace", required=True,
+                       help="the test workspace's id; its description must contain fabric-desktop-live-test")
+    smoke.add_argument("--dry-run", action="store_true", help="say what it would do and write nothing")
+    smoke.add_argument("--yes", action="store_true", help="run without asking first")
+    smoke.add_argument("--out", default="smoke-test-results", help="folder for results (default: smoke-test-results)")
+    smoke.add_argument("--run-in-fabric", action="store_true",
+                       help="also run the published test notebook in Fabric (flow 6); spends Spark capacity")
     bundle = sub.add_parser("support-bundle", help="save a zip of versions, settings sources and recent logs, "
                                                    "with secrets and personal details taken out")
     bundle.add_argument("--out", default=".", help="folder to save it in (default: here)")
@@ -206,6 +215,8 @@ def main(argv: list[str] | None = None) -> None:
         return
     if args.command == "live-test":
         raise SystemExit(_live_test(args))
+    if args.command == "smoke-test":
+        raise SystemExit(_smoke_test(args))
     if args.command == "support-bundle":
         from pathlib import Path
 
@@ -299,6 +310,48 @@ def _backup(args: argparse.Namespace) -> int:
         print(exc)
         return 1
     return 0
+
+
+def _smoke_test(args: argparse.Namespace) -> int:
+    """0 every automated step passed, 1 one failed, 2 not started."""
+    from pathlib import Path
+
+    from . import app_settings, livetest, smoketest
+    from .auth import Authenticator
+    from .fabric_api import FabricClient
+    from .onelake import FileStore
+
+    if args.dry_run:
+        print("The smoke test will:")
+        for step in smoketest.SmokeTest(args.workspace, None, None, Path(args.out), run_in_fabric=args.run_in_fabric).plan():
+            print(f"  - {step}")
+        print("The live test it runs will:")
+        for step in livetest.LiveTest(args.workspace, None, None, None, Path(args.out), bad_token_files=object(),
+                                      extra=set(livetest.ALL_CHECKS), run_in_fabric=args.run_in_fabric).plan():
+            print(f"  - {step}")
+        print("Dry run: nothing was signed in to, created or written.")
+        return 0
+    client_id = app_settings.value("client_id")
+    credential = Authenticator(client_id)
+    fabric = FabricClient(credential.fabric_token)
+
+    def live(out: Path) -> livetest.LiveTest:
+        return livetest.LiveTest(args.workspace, fabric, FileStore(credential.storage_token), credential, out,
+                                 protected_ids=livetest.policy_workspace_ids(), extra=set(livetest.ALL_CHECKS),
+                                 run_in_fabric=args.run_in_fabric)
+
+    test = smoketest.SmokeTest(args.workspace, credential, fabric, Path(args.out), live_test=live,
+                               run_in_fabric=args.run_in_fabric, client_id=client_id)
+    print("The smoke test will:")
+    for step in test.plan():
+        print(f"  - {step}")
+    if not args.yes and input("Run it? [y/N] ").strip().lower() not in ("y", "yes"):
+        print("Not run.")
+        return 2
+    result = test.run()
+    print(smoketest.summary(result))
+    print("\n".join(result["files"]))
+    return 1 if result["outcome"] == "failed" else 0
 
 
 def _live_test(args: argparse.Namespace) -> int:

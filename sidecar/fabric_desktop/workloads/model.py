@@ -7,8 +7,9 @@ from typing import Any
 
 from ..retrying import TRANSIENT_STATUS, status_of
 
-KINDS = ("meta_entity", "notebook", "fabric_item")
-KIND_LABELS = {"meta_entity": "Metadata entity", "notebook": "Notebook", "fabric_item": "Fabric item"}
+KINDS = ("meta_entity", "notebook", "fabric_item", "pipeline")
+KIND_LABELS = {"meta_entity": "Metadata entity", "notebook": "Notebook", "fabric_item": "Fabric item",
+               "pipeline": "Pipeline"}
 
 # What each kind can do in principle; a deployment narrows it to what it can do right now.
 CAPABILITIES = ("discoverable", "observable", "runnable", "schedulable", "cancelable", "deployable", "read_only")
@@ -18,7 +19,8 @@ RUN_STATES = ("ok", "failed", "running", "needs_decision", "skipped", "cancelled
 _FABRIC_STATES = {"Completed": "ok", "Failed": "failed", "Cancelled": "cancelled", "Deduped": "skipped",
                   "NotStarted": "running", "InProgress": "running"}
 _LOCAL_STATES = {"ok": "ok", "failed": "failed", "running": "running", "needs_decision": "needs_decision",
-                 "skipped": "skipped", "submitted": "running", "blocked": "failed", "cancelled": "cancelled"}
+                 "skipped": "skipped", "submitted": "running", "blocked": "failed", "cancelled": "cancelled",
+                 "succeeded": "ok", "pending": "running"}  # the last two: local pipeline runs
 
 # Health of a workload, worst first.
 HEALTH = ("failing", "late", "attention", "unknown", "healthy", "idle")
@@ -52,6 +54,11 @@ def fabric_id(workspace_id: str, item_id: str) -> str:
     return f"fabric:{workspace_id}:{item_id}"
 
 
+def pipeline_id(path: str) -> str:
+    """A pipeline on this PC, by its ``<name>.DataPipeline`` folder."""
+    return f"pipeline:{path}"
+
+
 def parse_id(wid: str) -> dict[str, str]:
     kind, _, rest = str(wid).partition(":")
     if kind == "meta":
@@ -60,6 +67,8 @@ def parse_id(wid: str) -> dict[str, str]:
             return {"kind": "meta_entity", "project": project, "entity": entity}
     elif kind == "notebook" and rest:
         return {"kind": "notebook", "name": rest}
+    elif kind == "pipeline" and rest:
+        return {"kind": "pipeline", "path": rest}
     elif kind == "fabric":
         ws, _, item = rest.partition(":")
         if ws and item:

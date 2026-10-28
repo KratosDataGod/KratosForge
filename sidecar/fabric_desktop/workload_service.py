@@ -161,6 +161,24 @@ class WorkloadMixin:
             out.append(nb | {"modified": n["modified"]})
         return out
 
+    def _wl_pipelines(self, pc: list[dict[str, Any]], pc_runs: list[dict[str, Any]], assignments: dict[str, Any],
+                      user: str) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+        """Pipelines in the repositories this PC opened and pipelines its schedules run (Preview).
+        Reads local files and run records only."""
+        if not hasattr(self, "pipeline_list"):
+            return [], None
+        source = "Pipelines on this PC"
+        try:
+            listed = self.pipeline_list()  # type: ignore[attr-defined]
+            runs = self.pipeline_runs(limit=200)["runs"]  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001 - one source that can't be read hides nothing else
+            return [], model.observation(source, "error", None, detail=str(exc)[:300])
+        records = inventory.pipeline_workloads(listed["pipelines"], runs=runs, pc_schedules=pc, pc_runs=pc_runs,
+                                               assignments=assignments, user=user)
+        detail = "Only the first 200 pipelines are listed." if listed.get("truncated") else ""
+        return records, model.observation(source, "partial" if listed.get("truncated") else "live", model.now(),
+                                          detail=detail)
+
     # ---- Fabric items in the workspaces this app works in, read in the background
 
     def _wl_items(self, refresh: bool) -> tuple[list[dict[str, Any]] | None, dict[str, Any], bool]:
@@ -267,7 +285,8 @@ class WorkloadMixin:
         fab_records = inventory.fabric_workloads(items or [], items_obs=items_obs, linked=linked,
                                                  fabric_schedules=fabric_sched, fabric_runs=fabric_runs,
                                                  assignments=assignments)
-        records = meta_records + nb_records + fab_records
+        pl_records, pl_obs = self._wl_pipelines(pc, pc_runs, assignments, user)
+        records = meta_records + nb_records + fab_records + pl_records
         for r in records:
             r.update(health.assess(r))
         for env_obs in {d["observation"]["source"]: d["observation"] for r in meta_records
@@ -275,6 +294,8 @@ class WorkloadMixin:
             sources.append(env_obs)
         sources.append(model.observation("Notebooks and schedules on this PC", "live", model.now()))
         sources.append(items_obs)
+        if pl_obs:
+            sources.append(pl_obs)
         self._wl_records = {r["id"]: r for r in records}
         self._wl_reconcile(fabric_runs, pc_runs)
         self._wl_audit_retry()
@@ -532,6 +553,12 @@ class WorkloadMixin:
             consequence = (f"Starts {w['kind_label'][:1].lower() + w['kind_label'][1:]} {w['name']} in Fabric now, on its workspace's capacity, "
                            "exactly as Fabric's own Run does. " + _RUN_ITEM_EFFECT.get(d.get("item_type", ""), "Whatever it writes, it writes."))
             where, needs_sign_in = dep["location"]["label"], True
+        elif action == "run_schedule" and w["kind"] == "pipeline":
+            target = f"the pipeline {w['name']} on this PC"
+            consequence = ("Starts the schedule's run now, in the background, as Task Scheduler would, with the "
+                           "schedule's saved parameters, mocks and notebooks. It starts no Fabric job, but steps that "
+                           "read or write a lakehouse use OneLake, and OneLake reads and writes use capacity.")
+            where, needs_sign_in = "This PC", False
         elif action == "run_schedule":
             target = f"the notebook {w['name']} on this PC"
             consequence = "Starts the schedule's run now, in the background, as Task Scheduler would."
@@ -593,6 +620,8 @@ class WorkloadMixin:
             elif action == "run_schedule":
                 if not schedule_id:
                     raise ValueError("Say which schedule to run")
+                if not any(a["action"] == action and a.get("schedule_id") == schedule_id for a in self._wl_available(w)):
+                    raise PermissionError(f"That schedule doesn't run {w['name']}.")
                 outcome = self.run_pc_schedule_now(schedule_id)  # type: ignore[attr-defined]
                 record = store.update_action(record["id"], ref={"schedule_id": schedule_id})
             elif action == "cancel":

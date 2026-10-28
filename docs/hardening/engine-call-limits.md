@@ -11,10 +11,10 @@ Long work that starts a background job returns at once and has its own Cancel: g
 
 | Call | Before | Now |
 | --- | --- | --- |
-| Monitor's run status refresh (`fabric_runs`) | Asked Fabric about every open run, one after another. Offline or throttled, 50 open runs could take about an hour | Stops after 30 seconds, or after two failures in a row. The rest keep their last known status |
+| Monitor's run status refresh (`fabric_runs`) | Asked Fabric about every open run, oldest first. Offline or throttled, 50 open runs could take about an hour | Asks newest first and starts no new request after 30 seconds, or after two requests in a row found Fabric unreachable (a run Fabric no longer knows doesn't count). Runs not asked keep their last known status, marked as not checked this time. One request already started can still take a few minutes (5 tries of up to 60 seconds) |
 | Entity page drift card (`meta_drift`) | Read the whole upstream table to compare its columns | Reads the columns only |
-| Sign-in window (`sign_in`, and any call that needs a new token) | A browser sign-in whose tab was closed waited forever | Gives up after 10 minutes; the person signs in again |
-| Task Scheduler (`schtasks`) | No limit | 60 seconds |
+| Browser sign-in (`sign_in`, and any call that needs a new token, for an organization's own app) | Waited forever if the tab was closed | Gives up after 10 minutes and says to sign in again. Windows sign-in (Microsoft's app) takes no limit; it returns when its window is closed |
+| Task Scheduler (`schtasks`) | No limit | 60 seconds. A create that times out may still have registered its task; when that task fires, `run-schedule` finds no such schedule and runs nothing. Nothing removes such a task yet: it shows in Task Scheduler's `FabricDesktop` folder under an id the app's schedule list doesn't show |
 
 ## Still unbounded, needing a design decision
 

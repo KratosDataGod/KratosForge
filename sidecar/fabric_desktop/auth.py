@@ -33,7 +33,8 @@ AUTHORITY = "https://login.microsoftonline.com/organizations"
 # Microsoft's Fabric sign-in app (Fabric CLI's AUTH_DEFAULT_CLIENT_ID): no app registration needed.
 MICROSOFT_CLIENT_ID = "5814bfb4-2705-4994-b8d6-39aabeb5eaeb"
 
-# How long a sign-in window may stay open before the call gives up (the person can sign in again).
+# How long a browser sign-in may stay open before the call gives up (the person can sign in again).
+# Windows sign-in (WAM) takes no limit; it returns when its window is closed.
 SIGN_IN_SECONDS = 600
 
 FABRIC_SCOPES = [
@@ -253,13 +254,16 @@ class Authenticator:
             raise RuntimeError("Your Fabric sign-in has expired. Open KratosForge and sign in, "
                                "and scheduled runs will work again.")
         if not result:
-            # A browser sign-in whose tab was closed would otherwise wait forever, holding every engine
-            # call behind it; Windows sign-in returns when its window closes.
-            if self.broker:
-                result = self.app.acquire_token_interactive(scopes, parent_window_handle=_window_handle(),
-                                                            timeout=SIGN_IN_SECONDS)
+            if self.broker:  # Windows sign-in returns when its window is closed
+                result = self.app.acquire_token_interactive(scopes, parent_window_handle=_window_handle())
             else:
-                result = self.app.acquire_token_interactive(scopes, timeout=SIGN_IN_SECONDS)
+                # A browser sign-in whose tab was closed would otherwise wait forever, holding every
+                # engine call behind it.
+                try:
+                    result = self.app.acquire_token_interactive(scopes, timeout=SIGN_IN_SECONDS)
+                except msal.BrowserInteractionTimeoutError:
+                    raise SignInError("timeout", f"The sign-in in your browser wasn't finished within "
+                                      f"{SIGN_IN_SECONDS // 60} minutes. Sign in again.") from None
         self._save()
         if "access_token" not in result:
             raise sign_in_error(result)

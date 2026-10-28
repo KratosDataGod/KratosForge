@@ -451,6 +451,9 @@ class LocalStore(Store):
     def read(self, lakehouse: str, schema: str, table: str, version: int | None = None) -> pl.DataFrame | None:
         return local_retry(lambda: super(LocalStore, self).read(lakehouse, schema, table, version))
 
+    def scan(self, lakehouse: str, schema: str, table: str, version: int | None = None) -> pl.LazyFrame | None:
+        return local_retry(lambda: super(LocalStore, self).scan(lakehouse, schema, table, version))
+
     def read_at(self, lakehouse: str, schema: str, table: str) -> tuple[pl.DataFrame | None, int | None]:
         return local_retry(lambda: super(LocalStore, self).read_at(lakehouse, schema, table))
 

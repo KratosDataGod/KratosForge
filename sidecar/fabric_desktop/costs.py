@@ -161,11 +161,17 @@ def activities(meta_runs: list[dict[str, Any]], fabric_runs: list[dict[str, Any]
         at = r.get("finished_at")
         avoided = (_scenario_cu(secs, py, ids, at) if secs is not None
                    else ms.unknown("fabric_job_cu_avoided", ms.CU_SECONDS, "The write's time wasn't recorded."))
-        row("Notebook write", r.get("job") or "", "", "local", at, secs, local_cu(ids, at), avoided)
+        row(history_kind(r), r.get("job") or "", "", "local", at, secs, local_cu(ids, at), avoided)
     return calibrate(rows, now=now)
 
 
-_NO_WORKLOAD = "A notebook write from this PC has no Fabric run of the same work to compare with."
+def history_kind(record: dict[str, Any]) -> str:
+    """What a line of this PC's write history is: a notebook's table write ("Notebook write to <lakehouse>",
+    lakehouse.py) or a run of a job file (publish.run_job, named after the job)."""
+    return "Notebook write" if str(record.get("job") or "").startswith("Notebook write to ") else "Job run"
+
+
+_NO_WORKLOAD = "A notebook write or job run from this PC has no Fabric run of the same work to compare with."
 
 
 def calibrate(rows: list[dict[str, Any]], *, now: dt.datetime | None = None) -> list[dict[str, Any]]:

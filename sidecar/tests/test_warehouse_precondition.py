@@ -154,6 +154,7 @@ def test_a_schema_precondition_checks_whether_it_exists(monkeypatch, tmp_path):
     {"kind": "view", "schema": "dbo", "name": "v", "exists": True},
     {"kind": "view", "schema": "dbo", "name": "v", "exists": True, "definition": "abc"},
     {"kind": "table", "schema": "dbo", "name": "t", "exists": True, "columns": []},
+    {"kind": "table", "schema": "dbo", "name": "t", "exists": True, "columns": ["c" * 129]},
     {"kind": "view", "schema": "", "name": "v", "exists": False},
 ])
 def test_a_malformed_precondition_is_refused_before_anything_runs(bad, tmp_path, monkeypatch):

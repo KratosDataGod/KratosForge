@@ -299,7 +299,8 @@ class SqlExecutions:
             run.warehouse = {k: warehouse_ref[k] for k in ("workspace_id", "item_id", "kind")}
             run.confirm_name = confirm_name.strip() if change else ""
             run.plan = bool(estimated_plan)
-            run.precondition = dict(precondition) if precondition is not None else None
+            run.precondition = ({k: precondition[k] for k in warehouse.PRECONDITION_KEYS if k in precondition}
+                                if precondition is not None else None)
             stop = sql_policy.refused(warehouse.verdicts(query, writes=change), allowed)  # before Fabric is asked anything
             if stop is not None:
                 return self._refuse(run, stop)

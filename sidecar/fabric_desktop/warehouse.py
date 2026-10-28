@@ -250,6 +250,7 @@ def connect(server: str, database: str, token: str, login_timeout: int = LOGIN_T
 # ---- deploy preconditions (#947): a change runs only against the object its preview saw
 
 PRECONDITION_KINDS = ("schema", "table", "view", "procedure", "function")
+PRECONDITION_KEYS = ("kind", "schema", "name", "exists", "definition", "columns")
 _MODULE_TYPES = {"view": ("V",), "procedure": ("P",), "function": ("FN", "IF", "TF")}
 _FINGERPRINT = re.compile(r"[0-9a-f]{64}")
 _TRAILING_GO = re.compile(r"\n[ \t]*GO[ \t]*;?[ \t]*\s*$", re.IGNORECASE)
@@ -274,7 +275,7 @@ def precondition_problem(p: Any) -> str | None:
                                                           and _FINGERPRINT.fullmatch(p["definition"])):
         return "a precondition on an existing view, procedure or function gives its definition's fingerprint"
     if p["exists"] and p["kind"] == "table" and not (isinstance(p.get("columns"), list) and 0 < len(p["columns"]) <= 1024
-                                                      and all(isinstance(c, str) and c for c in p["columns"])):
+                                                      and all(isinstance(c, str) and 0 < len(c) <= 128 for c in p["columns"])):
         return "a precondition on an existing table gives its column names"
     return None
 

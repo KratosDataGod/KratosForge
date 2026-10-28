@@ -510,8 +510,8 @@ class WarehouseProjectMixin:
         changes in the order they'd run (warehouse_compare.deploy_plan), and the project's Git state.
         Each change from a file says whether that file is committed (tracked, and the same as HEAD).
         Outside Dev a deploy takes only what Git has. The environment is the stricter of ``environment``
-        (what the page sent) and what the metadata project gives ``workspace_id`` (see
-        _wh_workspace_env), so a page can't turn the rule off by sending "dev"; without a workspace,
+        (what the page sent) and what the metadata project gives ``workspace_id`` (the warehouse's
+        workspace, as the page sends it; see _wh_workspace_env), so a page can't turn the rule off by sending "dev"; without a workspace,
         or one no environment names, the deploy counts as Prod. There,
         a change whose file isn't committed isn't offered, and nothing is while the branch has commits
         that aren't pushed. Writes nothing and runs nothing: the page runs each ticked change as a

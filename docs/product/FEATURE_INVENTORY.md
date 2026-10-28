@@ -185,7 +185,7 @@ on quality.
 
 | Id | Feature | Status | Verification | Where people reach it | Next action |
 | --- | --- | --- | --- | --- | --- |
-| [FEAT-ONE-03](#feat-one-03) | OneLake shortcut command center | Implemented | Partially Verified | OneLake > Shortcuts (Preview) | Scheduled health check with a Teams alert (PB-053). |
+| [FEAT-ONE-03](#feat-one-03) | OneLake shortcut command center | Implemented | Partially Verified | OneLake > Shortcuts (Preview) | Verify the agent's scheduled shortcut check on a tenant (docs/agent.md, Verify on your tenant step 10; PB-053). |
 | [FEAT-META-05](#feat-meta-05) | Surrogate keys | Implemented | Partially Verified | Data mesh > Surrogate keys | Stop reading whole key tables on every keyed run (FD-115). |
 | [FEAT-META-15](#feat-meta-15) | Variable library and source systems | Implemented | Partially Verified | Data mesh > Source systems | Keep. |
 | [FEAT-MESH-01](#feat-mesh-01) | Central platform | Implemented | Partially Verified | Platform (Preview) | Verify setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified). |
@@ -765,19 +765,19 @@ on quality.
 
 ### FEAT-ONE-03
 
-**OneLake shortcut command center.** Every shortcut with health checks, readers, rules (no Dev to Prod), change history with undo, repoint (one or many), finding a moved lakehouse, accepting a crossed environment, and requests.
+**OneLake shortcut command center.** Every shortcut with health checks, readers, rules (no Dev to Prod), change history with undo, repoint (one or many), finding a moved lakehouse, accepting a crossed environment, and requests. The agent can check its environments' shortcuts on a schedule and post each break to Teams once (Preview).
 
 - **Pillar and category:** Enterprise services; Enterprise Shared Services
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** OneLake > Shortcuts (Preview)
 - **Evidence:** test: sidecar/tests/test_shortcut_center.py::test_repoint_puts_the_old_shortcut_back_when_the_new_one_fails (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_shortcut_center.py::test_rules_stop_dev_pointing_at_prod_and_flag_it; test: sidecar/tests/test_shortcut_fixes.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: app/tests/browser/shortcut-fixes.test.cjs (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs))
-- **Source:** `sidecar/fabric_desktop/shortcut_service.py`, `sidecar/fabric_desktop/shortcut_center.py`, `app/ui/shortcuts.js`
-- **Tests:** `sidecar/tests/test_shortcut_center.py`, `sidecar/tests/test_shortcut_fixes.py`, `app/tests/browser/shortcut-fixes.test.cjs`
-- **Docs:** [docs/shortcuts.md](../shortcuts.md)
-- **Known limitations:** No scheduled check or alert. Approved request creates the shortcut in one lakehouse only. OneLake error codes unseen on a tenant.
+- **Source:** `sidecar/fabric_desktop/shortcut_service.py`, `sidecar/fabric_desktop/shortcut_center.py`, `sidecar/fabric_desktop/shortcut_watch.py`, `app/ui/shortcuts.js`
+- **Tests:** `sidecar/tests/test_shortcut_center.py`, `sidecar/tests/test_shortcut_fixes.py`, `sidecar/tests/test_shortcut_watch.py`, `app/tests/browser/shortcut-fixes.test.cjs`
+- **Docs:** [docs/shortcuts.md](../shortcuts.md), [docs/agent.md](../agent.md)
+- **Known limitations:** The scheduled check runs in the agent only (not the desktop app), on the shortcuts of the agent's own environments. The agent's scheduled check is Preview: not yet run on a live tenant. Approved request creates the shortcut in one lakehouse only. OneLake error codes unseen on a tenant.
 - **Pull requests and issues:** [#53](https://github.com/KratosDataGod/KratosForge/pull/53), [#595](https://github.com/KratosDataGod/KratosForge/pull/595)
 - **Backlog:** [PB-053](PRODUCT_BACKLOG.md#pb-053)
-- **Recommended next action:** Scheduled health check with a Teams alert (PB-053).
+- **Recommended next action:** Verify the agent's scheduled shortcut check on a tenant (docs/agent.md, Verify on your tenant step 10; PB-053).
 
 ### FEAT-ONE-04
 

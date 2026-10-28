@@ -358,4 +358,4 @@ Setup, every setting, and install steps for systemd, Docker and Windows are in [
 
 ## Not yet built
 
-An installer, and pipelines (the agent's pipeline hand-off is roadmap M4). From the metadata plan: per-step performance suggestions, and re-pointing -1 facts when a late customer arrives. Ideas for what comes next are collected in the [Ideas forum](docs/ideas.md).
+An installer: the app is a single `.exe` ([install](docs/install.md)). A Fabric pipeline handing a run to the agent and waiting for it (roadmap M4, [enterprise roadmap](docs/enterprise-roadmap.md)). Pipelines themselves are in the app as Preview: **Create > Pipeline** checks a Fabric pipeline's definition and runs its control flow on your PC, with mocks for the activities that can't run here ([local runs](docs/orchestration/local-runs.md)); local runs haven't been compared with a run in Fabric yet. From the metadata plan: per-step performance suggestions, and re-pointing -1 facts when a late customer arrives. Ideas for what comes next are collected in the [Ideas forum](docs/ideas.md).

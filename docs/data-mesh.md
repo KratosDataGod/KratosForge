@@ -214,6 +214,7 @@ A data product's page groups what it offers under **What it offers**: **Tables**
 - **The product's badge** by its name, here and on the products list, is its semantic model's endorsement when it has one, since that's what Fabric's scan reports. With no model, the products list shows **Endorsement unknown** and the product's page keeps its lakehouses' badge. When its models differ, it shows **Endorsement varies**.
 - **Find products by what they offer.** **Data mesh > Products** has **All**, **Has tables**, **Has models** and **Has reports** above the list, and each product says what it offers, like *3 tables, 1 model, 2 reports*.
 - **Scan now** reads the semantic models' and reports' endorsement too: their workspaces are added to the tenant scan.
+- **Limitation: the name is the owner's app's.** The catalog keeps the item name the owner's app sent when it added the item, and doesn't check it against Fabric. A product could therefore show a misleading name for a real item id. The endorsement badge always comes from the tenant scan for that id, never from the name.
 
 The product's checklist (`contract.endorsed`) still reads the lakehouses its ports live in. An older UDF_Platform doesn't have these functions yet: the card says *After an update, a platform admin runs Platform > Settings > Finish or repair once*, and the products list shows no filters until then.
 

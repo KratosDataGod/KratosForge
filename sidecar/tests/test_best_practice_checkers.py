@@ -140,6 +140,15 @@ def test_check_now_runs_scheduled_only_rules_on_notebooks_a_schedule_runs(tmp_pa
     [pol] = svc.governance_check_now()["policies"]
     assert pol["status"] == "findings" and pol["checked"] == 1
     assert [f["object"] for f in pol["findings"]] == ["nb_load: cell 1, line 1"]
+    # A notebook an enabled pipeline schedule's Notebook step runs is scheduled too; a paused one's isn't.
+    (tmp_path / "app" / "schedules.json").write_text(json.dumps({"engine": "", "schedules": [
+        {"id": "p", "target": {"kind": "pipeline", "path": str(tmp_path / "pl"), "name": "pl",
+                               "notebooks": {"Load": "nb_adhoc", "Bad": 3}}, "config": {}, "enabled": True},
+        {"id": "q", "target": {"kind": "pipeline", "path": str(tmp_path / "pl2"), "name": "pl2",
+                               "notebooks": {"Load": "nb_paused"}}, "config": {}, "enabled": False}]}), encoding="utf-8")
+    [pol] = svc.governance_check_now()["policies"]
+    assert pol["status"] == "findings" and pol["checked"] == 1
+    assert [f["object"] for f in pol["findings"]] == ["nb_adhoc: cell 1, line 1"]
     # A torn schedules file is said and left where it is; the other notebook rules still run.
     (tmp_path / "app" / "schedules.json").write_text("{", encoding="utf-8")
     out = svc.governance_check_now()

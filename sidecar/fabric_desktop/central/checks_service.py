@@ -206,7 +206,8 @@ class ChecksMixin:
 
     def _gc_notebook_items(self, problems: list[str]) -> list[dict[str, Any]]:
         """This PC's notebooks, their code cells' sources, for the notebook best-practice rules. A notebook
-        an enabled schedule on this PC runs is marked scheduled, so the scheduled-only rules check it."""
+        an enabled schedule on this PC runs (a notebook schedule, or a Notebook step of a pipeline
+        schedule) is marked scheduled, so the scheduled-only rules check it."""
         out = []
         try:
             scheduled = self.pc_schedules.notebooks()  # type: ignore[attr-defined]

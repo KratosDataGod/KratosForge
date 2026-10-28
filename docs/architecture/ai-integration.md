@@ -24,13 +24,13 @@ Everything in the target architecture below (sections 2 to 8) has shipped, excep
 | VS Code extension running cells in KratosForge (**KratosForge · This PC**) | Preview, off by default; the `.vsix` isn't published yet | [Run cells from VS Code](../vscode.md#run-cells-from-vs-code) |
 | `kratosforge://` links into the app | Preview | [Links into KratosForge](../vscode.md#links-into-kratosforge) |
 | Usage data | Preview, off by default | [Usage data](../telemetry.md) |
-| Hosts the app and engine reach | | [Network access](../enterprise-install.md#network-access) |
+| Hosts the app and engine reach | Reference for IT | [Network access](../enterprise-install.md#network-access) |
 
 The shell still talks to its own engine over stdin/stdout only, and the headless agent still has no HTTP endpoint. What listens on the PC now, all on `127.0.0.1` only:
 
 | Listener | When | Who it lets in |
 | --- | --- | --- |
-| Local HTTP API (`integrations serve`, port 47615) | Only while **Settings > Integrations** has it switched on | A tool with its own bearer token (section 3). Requests from a web page (a browser `Origin`) or with a `Host` that isn't this port on a loopback name are refused, which also stops DNS rebinding |
+| Local HTTP API (`integrations serve`, port 47615 by default) | Only while **Settings > Integrations** has it switched on | A tool with its own bearer token (section 3). Requests from a web page (a browser `Origin`) or with a `Host` that isn't this port on a loopback name are refused, which also stops DNS rebinding |
 | VS Code editor channel (port picked by the engine, written to `editor-port`) | Only while **Let VS Code run notebooks** is on; `integrations_editors: false` in the policy file stops it | A VS Code window the person paired, with its token. Requests from a web page or with a non-loopback `Host` are refused, as for the HTTP API |
 | Link handoff (port written to `link-port`) | While the app runs, unless `register_link_scheme` is `false` in the policy file | A second copy of the app handing over a link, with the token in the data folder. Each line has to start with that token, so anything else, a web page's request included, is dropped unanswered. A link only shows something |
 

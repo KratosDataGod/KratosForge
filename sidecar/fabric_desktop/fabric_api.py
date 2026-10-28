@@ -530,7 +530,7 @@ class FabricClient:
             body = resp.json()
             items.extend(body.get("value", []))
             nxt = body.get("continuationUri")
-            url = followable_url(nxt, url) if nxt else ""  # HD-058: the token goes only where _paged's would
+            url = followable_url(nxt, url) if nxt and nxt != "null" else ""  # HD-058, as _paged; some APIs send the text "null"
         return items, etag
 
     def put_data_access_roles(self, workspace_id: str, item_id: str, roles: list[dict[str, Any]],

@@ -72,6 +72,12 @@ def test_data_access_roles_follow_a_continuation_on_the_same_host():
     assert hosts(s) == ["api.fabric.microsoft.com"] * 2
 
 
+def test_data_access_roles_stop_at_a_null_text_continuation():
+    c, s = client([Resp(200, {"value": [{"name": "A"}], "continuationUri": "null"}, headers={"ETag": '"v1"'})])
+    roles, _ = c.list_data_access_roles_tagged("ws1", "lh1")
+    assert [r["name"] for r in roles] == ["A"] and len(s.calls) == 1
+
+
 def test_continuation_on_a_lookalike_host_is_refused():
     c, s = client([Resp(200, {"value": [], "continuationUri": "https://evilfabric.microsoft.com.example.net/x"})])
     with pytest.raises(FabricError):

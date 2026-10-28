@@ -198,6 +198,8 @@ What the set says about the baseline: the five FAILs are the patterns the [findi
 | #956 | One set of date and time helpers | PASS at 868c5e5e (and 43416b0d) | 9.1 | Delta over #943. ui.test 301/0; 20 browser files 116/0; old files fail 3. Nit: the schedule's next run lost its weekday. |
 | #951 | Every axe "needs a look" item has a person's verdict | PASS at 44f8608e (carried) | 9.2 | Verdicts now anchored to their page; checked that the anchors restrict. a11y 4/4 x3. |
 | #948 | AI integration architecture page: what exists now | PASS at 6e2d54e2 (and 544bc4c3) | 9.3 | Docs only. Every listener, bind address, token and policy claim checked against the code; zensical clean; product data consistent. |
+| #926 | Retargeted to main after #907 | PASS at b5d4bea4 (carried) | 9.2 | Changed lines against main c1e3850e are the reviewed delta against 67da857d plus a byte-identical #972 port (79ee6ce4). Clean merge. |
+
 | #926 | Notebook and query keyboard fixes | PASS at 4d523c7d (carried) | 9.2 | × now asks like Delete; the old file fails the new test. |
 | #949 | Warehouse runs retry the connect on transient Azure SQL errors | PASS at 1b20ec51 | 9.2 | Earlier FAIL fixed: matches the driver's message texts (probed with real mssql-python error objects); one 2-minute deadline including logins (fake clock ends at 120 s). pytest 350; ab59b33a's file fails 10. |
 | #931 | Pipeline mailbox checks the pipeline run a request names | PASS at b1beda6d | 9.2 | Earlier CONDITIONAL fixed (Preview id); finished runs and future starts rejected; transient lookups wait up to 15 minutes without blocking the loop. pytest 188; ui.test 299/0. |
@@ -246,6 +248,8 @@ What the set says about the baseline: the five FAILs are the patterns the [findi
 | #937 | Long-running operations follow Fabric's result location | CONDITIONAL at 73ca5f47 | 8.8 | Required: a missing result now returns {}, so create_lakehouse callers get a bare KeyError instead of a clear error. pytest 112 + 1,178; old file fails 10. |
 | #934 | "Not set up" becomes a typed error | PASS at be0532ed | 9.2 | pytest 119 + 190 + 25; ui.test 299/0; main's files fail 10. |
 | #933 | Notebook MERGE runs on this PC through delta-rs (Preview) | PASS at e78c59e9 | 9.1 | CONDITIONAL 8.7 at a244a445, fixed and re-probed. Required then: schema autoMerge silently dropped new source columns; a Python-cell MERGE that must run in Fabric was labelled This PC. No delete wider than asked in any probe. pytest 219 + 287; main's files fail 14. New feature: needs Chris's go after a PASS. |
+| #932 | Retargeted to main after #907 | PASS at 6a4679b1 (carried) | 9.3 | Changed lines against main c1e3850e are the reviewed delta against 67da857d plus a byte-identical #972 port (79ee6ce4). Clean merge. |
+
 | #932 | Data mesh entity editor: Esc then Tab leaves | PASS at 993ad9aa | 9.3 | Earlier PASS 9.2 at df2ead7c. entity-editor + a11y-audit 7/7; ui.test 299/0; the new click test fails without its fix. |
 | #931 | Pipeline mailbox checks the pipeline run a request names | CONDITIONAL at 6932370e | 8.8 | Required: ui.test fails the Preview-id check on merge with main. pytest 178 + 34; old files fail 32. |
 | #930 | Engine stops accepting six unused RPC names (HD-050 slice 2) | PASS at e7337cc3 | 9.4 | PASS at a3451d81 carried after a one-line docs fix. pytest 261 + 82; ui.test 299/0; main's files fail test_rpc_surface. |

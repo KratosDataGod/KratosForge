@@ -7,7 +7,7 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from fabric_desktop.meta import Engine, GateError, Layer, LocalStore, Project, impact, promote, run_order, validate
+from fabric_desktop.meta import Engine, GateError, Layer, LocalStore, impact, promote, run_order, validate
 from fabric_desktop.meta.engine import scd2_invariants
 from fabric_desktop.meta.templates import entity_text, init_project
 

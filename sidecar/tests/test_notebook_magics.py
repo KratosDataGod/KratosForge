@@ -195,7 +195,6 @@ def test_python_notebook_publish_turns_databricks_sql_into_lakehouse_sql():
 
 import os
 import sys
-import threading
 import time
 
 import pytest

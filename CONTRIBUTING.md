@@ -20,6 +20,7 @@ git clone https://github.com/KratosDataGod/KratosForge
 cd fabric-desktop\sidecar
 python -m pip install -e ".[dev]"     # Python 3.11 or later
 python -m pytest -q                   # every test runs without Fabric
+python -m ruff check .               # the lint CI runs: unused or undefined names, syntax errors
 ```
 
 To run the desktop app from source, install Rust and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/), then:

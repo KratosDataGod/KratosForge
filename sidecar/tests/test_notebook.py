@@ -4,7 +4,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import polars as pl
 import pyarrow as pa
 import pytest
 from deltalake import DeltaTable, write_deltalake

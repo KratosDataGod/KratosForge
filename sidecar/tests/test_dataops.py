@@ -9,7 +9,6 @@ import pytest
 
 from fabric_desktop import dataops_service
 from fabric_desktop.meta import freshness
-from fabric_desktop.meta.project import validate
 from fabric_desktop.service import Service
 
 

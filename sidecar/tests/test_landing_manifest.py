@@ -3,7 +3,7 @@
 import pytest
 
 from fabric_desktop.meta.store import OneLakeStore
-from test_meta import DAY1, DAY2, ORDER_COLS, Repo, edit_entity, landing
+from test_meta import DAY2, ORDER_COLS, Repo, edit_entity, landing
 
 DAY3 = DAY2.replace(day=DAY2.day + 1)
 

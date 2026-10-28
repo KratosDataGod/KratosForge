@@ -15,7 +15,6 @@ import socket
 import sys
 import threading
 import time
-from contextlib import asynccontextmanager
 
 import anyio
 import httpx2

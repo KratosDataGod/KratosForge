@@ -65,5 +65,18 @@ include = ["fabric_desktop*"]
 # Hash-pinned Databricks Connect requirements, one file per runtime line.
 "fabric_desktop.engines" = ["dbconnect_locks/*.txt"]
 
+[tool.ruff]
+extend-exclude = ["fabric_desktop/_vendor"]  # vendored code stays as its authors wrote it
+
+# CI's lint job (ruff check). Only mistakes for now: syntax errors (E9) and pyflakes (F), such as an
+# unused import or a name that isn't defined. The engine's Format cell runs ruff with --isolated, so
+# nothing here changes how cells are formatted.
+[tool.ruff.lint]
+select = ["E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# A fixture imported from another test file and then taken as an argument looks like a redefinition.
+"tests/**" = ["F811"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

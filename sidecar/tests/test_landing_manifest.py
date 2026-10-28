@@ -96,8 +96,41 @@ def test_if_the_list_cannot_be_recorded_the_table_is_still_written(repo, monkeyp
         return real(table, rows, **kw)
     monkeypatch.setattr(repo.dev, "meta_append", no_manifest)
     res = repo.engine(DAY2).run("bronze.orders")
-    assert res.status == "ok" and "the next run reads them again" in res.steps[-1].detail
+    assert res.status == "ok" and "couldn't save the list of 1 file read (OSError: OneLake said no)" in res.message
     assert 106 in repo.table("bronze.orders")["order_id"].to_list()
+
+
+def test_files_a_commit_lists_are_not_loaded_again_when_the_list_was_not_saved(tmp_path, monkeypatch):
+    # Without keys nothing absorbs a file read twice: its rows would be appended again.
+    r = Repo(tmp_path / "project")
+    edit_entity(r.root, "bronze.orders", 'mode = "full"', 'mode = "incremental"')
+    edit_entity(r.root, "bronze.orders", 'keys = ["order_id"]', 'keys = []')
+    r.reload()
+    real = r.dev.meta_append
+
+    def no_manifest(table, rows, **kw):
+        if table == "loaded_files":
+            raise OSError("OneLake said no")
+        return real(table, rows, **kw)
+    monkeypatch.setattr(r.dev, "meta_append", no_manifest)
+    first = r.engine().run("bronze.orders")
+    assert first.status == "ok" and "couldn't save the list" in first.message
+    assert r.dev.meta("loaded_files").height == 0
+    rows = r.table("bronze.orders").height
+    monkeypatch.setattr(r.dev, "meta_append", real)
+
+    again = r.engine(DAY2).run("bronze.orders")
+    assert again.status == "ok" and "no new files" in read_step(again), read_step(again)
+    assert r.table("bronze.orders").height == rows
+    saved = r.dev.meta("loaded_files")  # saved now, under the run that read it
+    assert saved["path"].to_list() == ["landing/orders/orders_2026-10-01.csv"]
+    assert saved["run_id"].to_list() == [first.run_id]
+
+    landing(r.root, "landing/orders/orders_2026-10-02.csv", f"{ORDER_COLS}\n106,2,2026-10-02,30.00,,shipped,2026-10-02\n")
+    res = r.engine(DAY3).run("bronze.orders")
+    assert res.status == "ok" and read_step(res).startswith("1 new file of 2")
+    assert r.table("bronze.orders").height == rows + 1
+    assert r.dev.meta("loaded_files").height == 2
 
 
 class FakeFiles:

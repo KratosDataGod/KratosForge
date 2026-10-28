@@ -11,6 +11,8 @@ Every request passes ``Guard`` before anything else:
 
 - it must arrive on 127.0.0.1, with a ``Host`` naming a loopback address and this port, and with
   no browser ``Origin`` (DNS rebinding and web pages can't reach it);
+- on Windows, it must come from a program running as the same Windows account (peer.py), so on a
+  shared PC or Remote Desktop server another person's program can't use a token it got hold of;
 - it must carry ``Authorization: Bearer <token>`` for a connected tool (only the OpenAPI document
   and the health check are open); tokens are stored hashed and stop working when revoked;
 - bodies over 1 MiB are refused, each tool is rate limited, and only a few calls run at once.
@@ -38,6 +40,7 @@ from starlette.routing import Route
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .. import __version__
+from . import peer
 from .core import CallContext, Caller, IntegrationError, error_from
 from .registry import Registry
 from .store import IntegrationStore
@@ -85,8 +88,10 @@ class Guard:
     """Loopback, Host, Origin, size, token and rate checks for every request."""
 
     def __init__(self, app: ASGIApp, store: IntegrationStore, port: int, limiter: RateLimiter | None = None,
-                 registry: Registry | None = None):
+                 registry: Registry | None = None, same_user: Callable[[int, int], bool] | None = None):
         self.app, self.store, self.port = app, store, port
+        # (caller's port, this port) -> whether that program runs as this account; None checks nobody.
+        self.same_user = same_user if same_user is not None else (peer.same_user if peer.checked() else None)
         self.limiter = limiter or RateLimiter()
         self.hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
         self.registry = registry
@@ -127,9 +132,16 @@ class Guard:
         if scope["type"] != "http":
             return
         headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
-        client = (scope.get("client") or ("", 0))[0]
+        client, client_port = (scope.get("client") or ("", 0))[:2]
         if client not in ("127.0.0.1", "::1", "localhost", "testclient"):
             await self._refuse(scope, receive, send, IntegrationError("permission_denied", "Only this PC can use the local API."))
+            return
+        # "testclient" is Starlette's in-process test client: no socket, so no program to ask about.
+        if (self.same_user is not None and client != "testclient"
+                and not await anyio.to_thread.run_sync(self.same_user, int(client_port or 0), self.port)):
+            await self._refuse(scope, receive, send, IntegrationError(
+                "permission_denied", "Only programs running as the Windows account KratosForge runs as can use the local API.",
+                hint="Start the tool signed in to Windows as the same person as KratosForge."))
             return
         if headers.get("host") not in self.hosts:
             await self._refuse(scope, receive, send, IntegrationError(
@@ -384,6 +396,11 @@ def serve(port: int, parent_pid: int = 0) -> int:
         return 2
     if not settings["enabled"] or not settings["http_enabled"]:
         print("The local API is turned off in Settings > Integrations.", file=sys.stderr)
+        return 2
+    if peer.checked() and peer.listener_is_other_user(port):
+        print(f"Another Windows account's program is listening on port {port} on this PC, so the local API "
+              "didn't start: your tools would be sending their requests, and their tokens, to that program. "
+              "Ask your IT team to check this PC.", file=sys.stderr)
         return 2
     registry = default_registry()
     registry.authorizer = PermissionAuthorizer(store)

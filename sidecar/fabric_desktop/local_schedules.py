@@ -284,6 +284,19 @@ class LocalSchedules:
                 return s
         raise LookupError(f"There is no schedule {schedule_id} on this PC")
 
+    def update(self, schedule_id: str, schedule: dict[str, Any]) -> dict[str, Any]:
+        """New times for an existing schedule. Its Windows task is replaced under the same id, so its run
+        history stays, and a paused schedule stays paused."""
+        config = local_configuration(schedule)  # checks the times before anything changes
+        data = self._load()
+        for s in data["schedules"]:
+            if s["id"] == schedule_id:
+                s["config"] = config
+                self.scheduler.register(s, self.executable, str(self.root))
+                self._save(data)
+                return s
+        raise LookupError(f"There is no schedule {schedule_id} on this PC")
+
     def rename_notebook(self, old: str, new: str) -> list[str]:
         """Points this PC's schedules that run notebook ``old`` at ``new`` (renamed or moved into a
         folder). Task Scheduler runs them by id, so their tasks stay as they are. Returns their ids."""

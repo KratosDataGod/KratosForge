@@ -483,3 +483,50 @@ def test_runs_fabric_no_longer_knows_dont_stop_the_others_being_checked(tmp_path
     assert asked == ["live2", "gone2", "gone1", "live1"]
     assert runs["live1"]["status"] == runs["live2"]["status"] == "Completed"
     assert not any(r.get("stale") for r in runs.values())
+
+
+class CancelFabric:
+    def __init__(self):
+        self.cancelled = []
+
+    def cancel_job(self, ws, item, job):
+        self.cancelled.append((ws, item, job))
+
+    def job_instance(self, ws, item, job):
+        return {"status": "InProgress"}
+
+
+def test_cancel_fabric_run_asks_fabric_and_marks_the_run_until_it_ends(tmp_path):
+    s = CloudService(root=tmp_path / "app")
+    s.fake = CancelFabric()
+    s._log_fabric_run({"job_id": "j1", "workspace_id": "ws", "item_id": "nb", "name": "Sales_Load", "status": "InProgress"})
+    assert s.cancel_fabric_run("ws", "nb", "j1") == {"cancelled": "j1"}
+    assert s.fake.cancelled == [("ws", "nb", "j1")]
+    run = s.fabric_runs()[0]
+    assert run["status"] == "InProgress" and run["cancel_requested"]  # Fabric hasn't stopped it yet: Cancelling
+
+
+def test_cancel_fabric_run_refuses_a_run_that_already_ended(tmp_path):
+    s = CloudService(root=tmp_path / "app")
+    s.fake = CancelFabric()
+    s._log_fabric_run({"job_id": "j1", "workspace_id": "ws", "item_id": "nb", "name": "Sales_Load", "status": "Completed"})
+    with pytest.raises(ValueError, match="already ended in Fabric"):
+        s.cancel_fabric_run("ws", "nb", "j1")
+    assert s.fake.cancelled == [] and "cancel_requested" not in s.fabric_runs()[0]
+
+
+def test_cancel_fabric_run_still_cancels_a_job_the_log_doesnt_have(tmp_path):
+    # Notebook Fabric steps cancel jobs they follow themselves (fabricstep.js).
+    s = CloudService(root=tmp_path / "app")
+    s.fake = CancelFabric()
+    s.cancel_fabric_run("ws", "nb", "j9")
+    assert s.fake.cancelled == [("ws", "nb", "j9")] and s.fabric_runs() == []
+
+
+def test_cancel_fabric_run_refuses_ids_that_dont_match_the_logged_run(tmp_path):
+    s = CloudService(root=tmp_path / "app")
+    s.fake = CancelFabric()
+    s._log_fabric_run({"job_id": "j1", "workspace_id": "ws", "item_id": "nb", "name": "Sales_Load", "status": "InProgress"})
+    with pytest.raises(ValueError, match="another item"):
+        s.cancel_fabric_run("ws", "other-item", "j1")
+    assert s.fake.cancelled == [] and "cancel_requested" not in s.fabric_runs()[0]

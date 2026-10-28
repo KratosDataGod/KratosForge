@@ -150,7 +150,8 @@ function vscodeRunCard(status, refresh) {
   };
   const rows = status.pairings || [];
   return h("section", { class: "card pad" },
-    h("div", { class: "row" }, h("h2", {}, "VS Code"), previewTag()),
+    // Always shown: a pairing that is on must stay where it can be turned off.
+    previewMarked("vscode", h("div", { class: "row" }, h("h2", {}, "VS Code"))),
     settingRow("Let VS Code run notebooks",
       status.blocked || "A VS Code window you pair runs cells in each notebook's own session on this PC, without asking each time. Writing to OneLake still asks here, every time.",
       toggle, status.blocked ? "policy" : null),

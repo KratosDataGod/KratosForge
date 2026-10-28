@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from . import model_bpa, risk
+from .errors import NotSetUp
 from .fabric_api import FabricError
 from .fabric_compute import RESULTS_DIR
 from .fabric_run import TERMINAL
@@ -51,7 +52,7 @@ class ModelBpaMixin:
                              "Check an environment that runs on Fabric, with its model created there.")
         meta_id = store.lakehouse_ids.get(META_LAKEHOUSE)
         if not meta_id:
-            raise LookupError(f"{META_LAKEHOUSE} doesn't exist in the {env} workspace yet; promote to {env} first")
+            raise NotSetUp(f"{META_LAKEHOUSE} doesn't exist in the {env} workspace yet; promote to {env} first")
         name = (name or f"SM_{layer.title()}").strip()
         ws = store.workspace_id
         model = next((m for m in self.fabric.list_semantic_models(ws)  # type: ignore[attr-defined]

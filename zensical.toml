@@ -142,6 +142,8 @@ nav = [
       { "Review template" = "product/reviews/TEMPLATE.md" },
       { "Competitive capability matrix" = "product/COMPETITIVE_CAPABILITY_MATRIX.md" },
       { "Development status" = "product/DEVELOPMENT_STATUS.md" },
+      { "Development operations" = "product/operations/README.md" },
+      { "12-week roadmap" = "product/operations/roadmap.md" },
     ] },
   ] },
   { "Contributing" = [

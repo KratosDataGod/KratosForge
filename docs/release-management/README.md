@@ -29,6 +29,15 @@ The headless agent's Linux image (`deploy/linux/Dockerfile`) is built and starte
 
 The app reads the commit from the channel's `version.json`, not from the release's target commit (that field goes stale after a promote). `version.json` carries `published`, the Unix time CI or Promote wrote it. The app installs whatever build the channel names, older or newer than the one running, but refuses a `version.json` published before the newest one it has already accepted from that channel, and one without the exe's checksum (HD-022). So anything that republishes a channel by hand must write a new `published` stamp, or PCs that saw the newer one will refuse it. Both channels publish with one shared concurrency group, `release-assets`, so a promote never copies a half-replaced Preview.
 
+### When a new advisory lands
+
+The CI `release` job waits for the `audit` job (pip-audit on `sidecar/constraints.txt`, cargo audit on `app/src-tauri/Cargo.lock`). So when a new advisory names something the app ships, `audit` turns red on every pull request and on `main`, and Preview stops publishing. PCs on Preview keep the last build that passed, and Stable doesn't move. The failed job names each advisory, the package and its fixed version, and the exact line that would let it through. Two ways unblock it:
+
+1. **Move the package** in its own pull request (CONTRIBUTING). This is the normal path.
+2. **Record an exception** in `.github/audit-exceptions.txt`, in a pull request that gets a security read: the advisory id, a lapse date at most 90 days ahead (`until=YYYY-MM-DD`) and why it's accepted, for example the code isn't reachable from the app or no fixed release exists yet. On the lapse date the audit fails again until someone moves the package or decides again. A line with no date or reason, or with the suggested `<why it is accepted>` left in, fails the audit too (`.github/scripts/audit_exceptions.py`).
+
+Security details of an advisory that isn't public yet never go in the exception's reason or in a public issue.
+
 ### Per-build releases
 
 Each build that the release job publishes to Preview also gets a release of its own, tagged `build-<first 12 characters of the commit>` (for example `build-9715e28a1b2c`). It is a prerelease and is never marked latest. It holds the same five files as `latest` at that moment: the exe, the engine zip, the same `version.json` (same checksums, commit and history) and the two SBOMs. CI publishes it before it updates `latest`, so the build on Preview always has one.

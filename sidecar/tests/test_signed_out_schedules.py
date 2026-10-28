@@ -162,3 +162,17 @@ def test_the_app_exe_must_be_a_real_absolute_file(monkeypatch, tmp_path):
     assert local_schedules.app_launcher() is None
     monkeypatch.setenv("FABRIC_DESKTOP_APP_EXE", str(tmp_path / "missing.exe"))
     assert local_schedules.app_launcher() is None
+
+
+def test_an_unanswered_prompt_ends_and_changes_nothing(monkeypatch):
+    def run(args, **kw):
+        assert kw["timeout"] == signed_out_tasks.PROMPT_SECONDS
+        raise subprocess.TimeoutExpired(args, kw["timeout"])
+    monkeypatch.setattr(signed_out_tasks.subprocess, "run", run)
+    with pytest.raises(signed_out_tasks.PasswordNotSaved, match="wasn't answered within 15 minutes"):
+        signed_out_tasks.register("FabricDesktop", "abc", "<Task/>")
+
+
+def test_the_scripts_load_scheduledtasks_from_system32_only():
+    for script in (signed_out_tasks.REGISTER, signed_out_tasks.SET_ENABLED, signed_out_tasks.LAST_RESULTS):
+        assert 'Import-Module "$env:SystemRoot\\System32\\WindowsPowerShell\\v1.0\\Modules\\ScheduledTasks"' in script

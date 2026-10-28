@@ -37,8 +37,11 @@ NOT_ALLOWED = {0x80070569, 1385}
 
 _PRELUDE = """
 $ErrorActionPreference = 'Stop'
+Import-Module "$env:SystemRoot\\System32\\WindowsPowerShell\\v1.0\\Modules\\ScheduledTasks"
 $folder = '\\{folder}\\'
 """
+
+PROMPT_SECONDS = 15 * 60  # a prompt nobody answers (or one stuck on a hidden console) ends here
 
 REGISTER = _PRELUDE + """
 $me = "$env:USERDOMAIN\\$env:USERNAME"
@@ -94,7 +97,7 @@ def _powershell(script: str, folder: str, env: dict[str, str], prompt: bool = Fa
     args = [exe, "-NoProfile", *([] if prompt else ["-NonInteractive"]), "-ExecutionPolicy", "Bypass",
             "-Command", script.replace("{folder}", folder)]
     return subprocess.run(args, capture_output=True, text=True, creationflags=flags, env={**os.environ, **env},
-                          check=False, timeout=None if prompt else 120)
+                          check=False, timeout=PROMPT_SECONDS if prompt else 120)
 
 
 def _explain(res: subprocess.CompletedProcess[str]) -> str:
@@ -120,6 +123,8 @@ def register(folder: str, schedule_id: str, xml: str) -> None:
         f.write(xml)
     try:
         res = _powershell(REGISTER, folder, {"KF_TASK_XML": f.name, "KF_TASK_ID": schedule_id}, prompt=True)
+    except subprocess.TimeoutExpired as e:
+        raise PasswordNotSaved("Windows' password prompt wasn't answered within 15 minutes; nothing changed.") from e
     finally:
         os.unlink(f.name)
     if res.returncode != 0:

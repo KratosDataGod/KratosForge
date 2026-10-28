@@ -228,6 +228,10 @@ class Store:
         never drops another writer's rows. False (the default) writes whatever is there."""
         from deltalake.exceptions import CommitFailedError
         uri = self.uri(lakehouse, schema, table)
+        data = df.to_arrow()
+        safe = self._delta_safe(uri, schema, table, data.schema, mode == "append")
+        if safe != data.schema:
+            data = data.cast(safe)
         if isinstance(self, LocalStore):
             Path(uri).mkdir(parents=True, exist_ok=True)
         delta_profile.check_target(uri, self.options())
@@ -244,7 +248,7 @@ class Store:
         try:
             how = extra.get("mode", mode)
             check_held()  # the table's lease is still ours, with time to commit (HD-016)
-            write_deltalake(target, df.to_arrow(), **({"mode": mode} | extra), storage_options=self.options(),
+            write_deltalake(target, data, **({"mode": mode} | extra), storage_options=self.options(),
                             schema_mode={"overwrite": "overwrite", "error": None}.get(how, "merge"),
                             commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
         except Exception as exc:
@@ -262,6 +266,9 @@ class Store:
         no table), so another writer committing meanwhile makes it fail instead of being lost."""
         from deltalake.exceptions import CommitFailedError
         uri = self.uri(lakehouse, schema, table)
+        safe = self._delta_safe(uri, schema, table, rows.schema, False)
+        if safe != rows.schema:
+            rows = pa.RecordBatchReader.from_batches(safe, (b.cast(safe) for b in rows))
         if isinstance(self, LocalStore):
             Path(uri).mkdir(parents=True, exist_ok=True)
         delta_profile.check_target(uri, self.options())
@@ -282,6 +289,20 @@ class Store:
         dt_ = DeltaTable(uri, storage_options=self.options())
         delta_profile.note_after_write(dt_)
         return dt_.version()
+
+    def _delta_safe(self, uri: str, schema: str, table: str, columns: pa.Schema, append: bool) -> pa.Schema:
+        """``columns`` with each type delta-rs can't write made Fabric-safe, or a plain error naming the
+        table and column (localdata.delta.delta_safe), before anything is written (#954)."""
+        from ..localdata import delta as local_delta
+
+        def existing() -> dict[str, pa.DataType]:
+            current = open_table(uri, self.options())
+            return {} if current is None else \
+                {f.name.lower(): f.type for f in pa.schema(current.schema().to_arrow())}
+        try:
+            return local_delta.delta_safe(columns, existing if append else None)
+        except ValueError as exc:
+            raise ValueError(f"Table {schema}.{table}: {exc}") from None
 
     def read_at(self, lakehouse: str, schema: str, table: str) -> tuple[pl.DataFrame | None, int | None]:
         """The table and the Delta version it was read at (None, None when there's no table), so a

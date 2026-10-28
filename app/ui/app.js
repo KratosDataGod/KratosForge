@@ -1964,7 +1964,7 @@ function fileRows(ref, path, indent, onInsert, rerender, onPick = null) {
         title: onInsert ? "Click to add a cell that reads this file. Drag it into a cell, or right-click for other ways to load it." : onPick ? `Preview ${item.path}` : item.path,
         onclick: () => onInsert ? onInsert(readSnippet(item.path)) : onPick && onPick(pick),
         ...(onInsert ? dataItemAttrs(pick) : {}) },  // nbdrag.js
-      icon("file", 15), h("span", { class: "label" }, item.name), h("span", { class: "hint" }, formatSize(item.size))));
+      icon("file", 15), h("span", { class: "label" }, item.name), h("span", { class: "hint" }, item.size ? sizeText(item.size) : "")));
     }
   }
   return rows;
@@ -1976,12 +1976,19 @@ function readSnippet(path) {
   return `df = lakehouse.${reader}(${JSON.stringify(path)})\ndf`;
 }
 
-function formatSize(bytes) {
-  if (!bytes) return "";
-  const units = ["B", "KB", "MB", "GB"];
+// File and data sizes, the same on every page (#929): 1024-based, with one decimal below 100
+// (17 B, 2.0 KB, 99.5 MB, 212 MB, 1.1 GB). Nothing for a missing or negative size.
+function sizeText(n) {
+  if (n == null || n === "") return "";
+  n = Number(n);
+  if (!Number.isFinite(n) || n < 0) return "";
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
   let i = 0;
-  while (bytes >= 1024 && i < units.length - 1) { bytes /= 1024; i++; }
-  return `${bytes.toFixed(i ? 1 : 0)} ${units[i]}`;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  if (!i) return `${Math.round(n)} B`;
+  let v = +n.toFixed(n >= 100 ? 0 : 1);
+  if (v >= 1024 && i < units.length - 1) { v = +(v / 1024).toFixed(1); i++; }  // 1023.97 KB reads 1.0 MB
+  return `${v.toFixed(v >= 100 ? 0 : 1)} ${units[i]}`;
 }
 
 // ---------- Notebook files ----------

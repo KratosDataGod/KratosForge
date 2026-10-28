@@ -6,6 +6,7 @@ import types
 import pytest
 
 from fabric_desktop.central import home
+from fabric_desktop.errors import NotSetUp
 from fabric_desktop.service import Service
 
 NOW = dt.datetime(2026, 10, 27, 12, tzinfo=dt.timezone.utc)
@@ -150,7 +151,7 @@ def test_mesh_home_skips_an_environment_nothing_was_promoted_to(svc, tmp_path, m
 
     def log(env):
         if env == "dev":
-            raise LookupError("LH_Meta doesn't exist in this environment's workspace yet; promote to it first")
+            raise NotSetUp("LH_Meta doesn't exist in this environment's workspace yet; promote to it first")
         if env == "prod":
             raise RuntimeError("boom")
         return real(env)

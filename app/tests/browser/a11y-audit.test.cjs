@@ -92,7 +92,8 @@ function keyboardScan(scope) {
 
 // Runs in the page after a Tab: where focus is, whether it's inside `scope`, and whether it shows a
 // ring (an outline or box shadow on it or a close parent, as :focus-within styles draw it).
-function focusNow(scope) {
+async function focusNow(scope) {
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));  // a ring that eases in has drawn
   const el = document.activeElement;
   if (!el || el === document.body) return null;
   const ring = (n) => {
@@ -124,7 +125,8 @@ async function tabStops(page, scope) {
 }
 
 async function audit(page, target, scheme) {
-  await page.emulateMedia({ colorScheme: scheme });
+  // Reduced motion: a page fading in would be judged on its half-drawn colors.
+  await page.emulateMedia({ colorScheme: scheme, reducedMotion: "reduce" });
   await page.evaluate(() => { document.getElementById("palette")?.remove(); closeDialog(); go("home"); });
   await target.open(page);
   if (target.ready) await page.waitForSelector(target.ready);

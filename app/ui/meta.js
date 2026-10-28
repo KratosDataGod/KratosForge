@@ -339,7 +339,7 @@ function renderMetaSetup(p) {
     pageIntro("A metadata project is a folder you keep in Git. Each table is one file that says where its data comes from, how to clean and check it, and how to load it. Each layer gets its own lakehouse, so layers never mix."),
     h("div", { class: "card pad" },
       h("h2", { class: "flush" }, "Create a new project"),
-      h("label", { class: "field" }, "Folder", path),
+      h("label", { class: "field" }, "Folder", folderField(path, "the new project's folder")),
       h("div", { class: "field" }, "Layers (you can add, remove and reorder them later)", h("div", { class: "preset-row" }, presetButtons)),
       h("label", { class: "check" }, sample, "Add the sample tables (customers and orders, Bronze to Gold) so you can try it"),
       h("div", { class: "row end" }, btn("Create project", "add", async () => {
@@ -348,7 +348,7 @@ function renderMetaSetup(p) {
       }, "tool primary"))),
     h("div", { class: "card pad" },
       h("h2", { class: "flush" }, "Or open an existing project"),
-      h("label", { class: "field" }, "Folder with a layers.toml", openPath),
+      h("label", { class: "field" }, "Folder with a layers.toml", folderField(openPath, "the project's folder")),
       h("div", { class: "row end" }, btn("Open", "folderOpen", async () => {
         const res = await metaCall("meta_open", { path: openPath.value.trim() });
         if (res) { state.meta.project = res; render(); }

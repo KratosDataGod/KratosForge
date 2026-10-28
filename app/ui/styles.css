@@ -2508,3 +2508,7 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .zone-field select { padding: 4px; min-height: 0; }
 .zone-field optgroup { color: var(--muted); font-weight: 600; font-style: normal; }
 .zone-field option { color: var(--text); font-weight: 400; padding: 3px 6px; }
+
+/* A folder box with Browse… beside it (#971, folderField in app.js). */
+.folder-field { display: flex; gap: 8px; align-items: center; }
+.folder-field > input { flex: 1; min-width: 0; }

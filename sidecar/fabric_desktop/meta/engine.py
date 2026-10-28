@@ -1345,8 +1345,8 @@ def with_unknown_date(df: pl.DataFrame, e: Entity) -> pl.DataFrame:
 
 
 def _by_key(df: pl.DataFrame, bk: list[str]) -> pl.DataFrame:
-    """Rows in business-key order, so new surrogate keys go to the same rows on every run (as in
-    LH_Keys): the joins before them don't keep any row order."""
+    """Rows in business-key order, so new surrogate keys go to the same rows on every run: the
+    joins before them don't keep any row order."""
     return df.sort(bk, nulls_last=True, maintain_order=True)
 
 
